@@ -1,9 +1,16 @@
 {
+  "name": "SmartAndPoint",
+  "description": "Claude Code plugins by SmartAndPoint.",
+  "owner": {
+    "name": "Evgenii Konev",
+    "email": "ekonev@smartandpoint.com",
+    "url": "https://github.com/SmartAndPoint"
+  },
   "plugins": [
     {
       "name": "projectstore",
       "displayName": "projectstore",
-      "description": "Opinionated project-management paradigms (ADR / epics / stories / kanban / runbooks) for agentic development.",
+      "description": "Opinionated project-management paradigms (ADR / epics / stories / kanban / runbooks) for agentic development. Agent-maintained Obsidian-friendly markdown vault per project.",
       "version": "0.6.0",
       "source": {
         "source": "github",
