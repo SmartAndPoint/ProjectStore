@@ -44,6 +44,8 @@ function buildWelcome() {
     "",
     "_This message appears once per project._",
     "",
+    "_If projectstore helps you ship, a [GitHub star](https://github.com/SmartAndPoint/ProjectStore) helps others discover it. No pressure._",
+    "",
   ].join("\n");
 }
 
