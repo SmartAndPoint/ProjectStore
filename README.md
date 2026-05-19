@@ -1,25 +1,96 @@
 # projectstore
 
-> Project-management paradigms (**ADR · epics · stories · kanban · runbooks**) as a Claude Code plugin. Markdown is the source of truth, Obsidian is one UI, git is portable.
+> Your project's documentation, written and maintained by your AI agent inside an **Obsidian-friendly markdown vault** — ADRs, epics, stories, runbooks, research, meetings. Same markdown-first + agent-maintained idea as Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f), but for engineering project artifacts instead of personal research.
 
-`v0.6.0` · MIT · local install · marketplace publish on the roadmap
+`v0.6.0` · MIT · Claude Code plugin
+
+---
+
+## 30-second install
+
+Inside Claude Code:
+
+```
+/plugin marketplace add SmartAndPoint/projectstore
+/plugin install projectstore@SmartAndPoint
+/reload-plugins
+```
+
+Bind the plugin to a folder — that folder becomes your project's vault:
+
+```
+/projectstore:bind ~/Documents/my-project-vault
+/projectstore:scaffold engineering
+```
+
+Done. Open `~/Documents/my-project-vault` in [Obsidian](https://obsidian.md) — that's your project's brain. From here on, the agent writes ADRs, epics, stories, and runbooks into the vault as your conversation moves forward. You approve every write.
+
+Local dev install:
+
+```bash
+git clone https://github.com/SmartAndPoint/projectstore.git
+claude --plugin-dir ./projectstore
+```
 
 ---
 
 ## What it is
 
-Most "memory" plugins record what was *said*. `projectstore` records what was *decided*. ADRs you can defend, epics with acceptance criteria, a kanban that reflects real state, runbooks for ops — all on disk, as markdown, where humans and agents read the same files.
+Most "AI memory" plugins record what was *said*. `projectstore` records what was *decided* — and turns that into the kind of files engineering teams already write by hand: ADRs you can defend, epics with acceptance criteria, a kanban that reflects real state, runbooks for ops.
 
 ```
-┌─ AI session ────────────┐    ┌─ Vault on disk ────────────┐    ┌─ Humans ────────┐
+┌─ AI session ────────────┐    ┌─ Obsidian vault ───────────┐    ┌─ Anyone reading ┐
 │  /projectstore:adr      │ →  │  adr/ADR-001-postgres.md    │ →  │  Obsidian       │
 │  /projectstore:epic     │    │  epics/AUTH-001/epic.md     │    │  GitHub         │
 │  /projectstore:story    │    │  epics/AUTH-001/stories/    │    │  Any editor     │
-│  /projectstore:review   │    │  research/...md             │    │  cat            │
-│  /projectstore:kanban   │    │  ops/runbook-deploy.md      │    │                 │
+│  /projectstore:research │    │  research/oidc-libs.md      │    │  cat            │
+│  /projectstore:kanban   │    │  kanban.md (Obsidian fmt)   │    │                 │
 └─────────────────────────┘    └────────────────────────────┘    └─────────────────┘
         approval gate                    git-tracked                same files
 ```
+
+Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) (April 2026) showed how an LLM can incrementally build and maintain a markdown second brain that you browse in Obsidian. `projectstore` applies the same idea to **engineering project documentation** — opinionated layouts (ADR / epic / story / runbook) instead of free-form research articles, and one vault per project instead of one per person.
+
+## How an agent uses projectstore
+
+You don't type slash commands. The agent picks them up from the conversation; you only approve the writes.
+
+### Vignette 1 — capturing a decision
+
+> **You**: "Let's go with Postgres, not Mongo — we need ACID transactions."
+
+The `decision-detector` skill recognises a locked-in architectural choice and nudges the agent:
+
+> **Agent**: "This reads like an ADR. Want me to file it as `adr/ADR-001-postgres.md`?"
+
+You say yes. The agent calls `/projectstore:adr "Use Postgres for primary storage"`. The command renders a draft in memory, shows you the full content + target path via `AskUserQuestion`. You hit **Approve**. The file lands.
+
+### Vignette 2 — breaking work into an epic + story
+
+> **You**: "We need an auth system. First task is OIDC discovery + token exchange."
+
+> **Agent**: "I'll create `epics/AUTH-001/epic.md` and `epics/AUTH-001/stories/001-oidc-discovery.md`."
+
+After both are approved, the agent runs `/projectstore:kanban` so the board is regenerated from the new story's frontmatter. Drag-and-drop in Obsidian updates the kanban; story-frontmatter remains the source of truth.
+
+### Vignette 3 — research + peer-review
+
+> **You**: "Compare three OIDC libraries and pick one."
+
+The agent does the comparison, then files findings via `/projectstore:research`. After approval, the `peer-reviewer` skill nudges:
+
+> **Agent**: "Research artifact — want me to spawn a fresh critic to review it?"
+
+If you say yes, `/projectstore:review research/oidc-libs.md` runs a clean-context critic against the per-kind structural checklist. The critic returns concrete improvements (no sycophancy). You decide what to apply.
+
+## Open it in Obsidian
+
+The vault is a plain folder of markdown files. Open it as an [Obsidian](https://obsidian.md) vault and you get:
+
+- **Graph view** — ADRs ↔ epics ↔ stories ↔ research wire up via wiki-links in frontmatter and body. The graph of your project's structure becomes visible.
+- **Kanban board** — `kanban.md` uses the [Obsidian Kanban](https://github.com/mgmeyers/obsidian-kanban) plugin format. Visual board over story frontmatter; `/projectstore:kanban` is the regenerator.
+- **GitHub rendering** — the same files render natively on github.com. Reviewers don't need Obsidian.
+- **One brain per project** — `projectstore` is a project-scoped cousin of Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f). His pattern is *one brain per person*. Ours is *one brain per project*, and the brain travels with the repo.
 
 ## Why this matters
 
@@ -55,7 +126,7 @@ $ cat .projectstore/sessions/f05e61c5-f809-46e1-aa3e-b7c3366bc723.json
 
 When session A starts up, SessionStart sees session B's mtime < 30 minutes and prepends a warning to A's context:
 
-> ⚠️ Multi-session warning — 1 other projectstore session active on this vault. Active session(s): `project: /Users/me/projects/myapp — started 2026-05-19T13:35Z`. Before creating new ADRs / epics / stories / research: run `/projectstore:search <topic>` to check for in-flight artifacts; run `/projectstore:status` to see what was touched recently.
+> ⚠️ Multi-session warning — 1 other projectstore session active on this vault. Run `/projectstore:search <topic>` before creating new artifacts; run `/projectstore:status` to see what was touched recently.
 
 Sessions stop stepping on each other.
 
@@ -73,58 +144,13 @@ PreCompact [...pre-compact.mjs] completed successfully: {
 
 The packet contains the vault path, the command list, the last 15 vault touches, and the newest in-flight ADR / epic / story / research. The post-compact agent picks up drafting from where the previous one left off, no manual rehydration.
 
----
-
-## Install
-
-**Recommended — via marketplace** (inside Claude Code):
-
-```
-/plugin marketplace add SmartAndPoint/projectstore
-/plugin install projectstore@SmartAndPoint
-/reload-plugins
-```
-
-**Local development**:
-
-```bash
-git clone https://github.com/SmartAndPoint/projectstore.git ~/Projects/SmartAndPoint/projectstore
-claude --plugin-dir ~/Projects/SmartAndPoint/projectstore
-```
-
-Verify:
-
-```
-/plugin list      # projectstore should be present
-/reload-plugins   # 4 plugins · 16 skills · 3 hooks · ... (counts vary by your other plugins)
-```
-
-## Quick start
-
-```bash
-# in your project root, inside a Claude Code session:
-/projectstore:bind ~/Documents/my-vault            # binds (with diff confirm on re-bind)
-/projectstore:scaffold engineering                 # creates folder layout if vault is empty
-
-/projectstore:adr "Use Postgres for primary storage"
-/projectstore:epic AUTH-001 "Authentication system"
-/projectstore:story AUTH-001 "OIDC discovery + token exchange"
-/projectstore:kanban                               # regenerates board from story frontmatter
-
-/projectstore:review adr/ADR-001-postgres.md       # peer-review via fresh critic agent
-/projectstore:status                               # what's bound, what's recent, who's active
-```
-
 ## What's in the box (v0.6)
 
 - **13 commands** — `bind`, `scaffold`, `status`, `adr`, `epic`, `story`, `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`
 - **3 passive skills** — `decision-detector`, `story-completion`, `peer-reviewer`. They suggest commands; they never write directly.
 - **1 layout** — `engineering` (`adr/`, `epics/<id>/stories/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`)
 - **9 templates** — opinionated markdown with frontmatter (English; Russian variant on the roadmap)
-- **3 hooks**:
-  - `SessionStart` → injects vault map + multi-session warnings
-  - `PreToolUse` → maintains per-session activity log inside the vault (vault-relative paths only)
-  - `PreCompact` → emits the survival packet + visible `systemMessage` before compaction
+- **3 hooks** — `SessionStart` (vault map + multi-session warning), `PreToolUse` (per-session activity log), `PreCompact` (survival packet)
 
 ## Philosophy
 
@@ -132,6 +158,7 @@ Verify:
 2. **Obsidian is a view, not a dependency.** Files render on GitHub, in any editor, in `cat`.
 3. **The agent is a methodologist, not a database.** Skills nudge, commands gate, humans approve.
 4. **Layouts are opinionated.** v1 ships `engineering`; community adds `data-analytics`, `product`, `chatbot`, `library`.
+5. **One brain per project, not per person.** The vault travels with the repo. Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) is its personal-research counterpart.
 
 ## Approval flow
 
@@ -163,11 +190,11 @@ For high-stakes artifacts (ADR / research / epic), `/projectstore:review <path>`
 
 ## Extending
 
-See `docs/extending.md` for adding layouts, templates, and skills.
+See [`docs/extending.md`](./docs/extending.md) for adding layouts, templates, and skills.
 
 ## Contributing
 
-Issues and discussions: https://github.com/SmartAndPoint/projectstore/issues. PRs welcome — adding a layout is a great first contribution (see `scaffold/layouts/engineering.json` for the format).
+Issues and discussions: https://github.com/SmartAndPoint/projectstore/issues. PRs welcome — adding a layout is a good first contribution (see `scaffold/layouts/engineering.json` for the format).
 
 ## License
 
