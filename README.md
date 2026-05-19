@@ -13,8 +13,9 @@ Modern AI coding assistants give you ephemeral context and bag-of-facts "memory"
 ## What's in v1
 
 - **Layout: `engineering`** — `adr/`, `epics/<id>/stories/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`.
-- **Commands**: `/ps:bind`, `/ps:scaffold`, `/ps:status`, `/ps:adr`, `/ps:epic`, `/ps:story`, `/ps:kanban`, `/ps:research`, `/ps:concept`, `/ps:meeting`, `/ps:runbook`, `/ps:search`.
-- **Skills**: passive suggesters that nudge the agent to record decisions/findings — never write without your explicit approval.
+- **Commands**: `/ps:bind`, `/ps:scaffold`, `/ps:status`, `/ps:adr`, `/ps:epic`, `/ps:story`, `/ps:kanban`, `/ps:research`, `/ps:concept`, `/ps:meeting`, `/ps:runbook`, `/ps:search`, `/ps:review`.
+- **Skills**: passive suggesters — `decision-detector`, `story-completion`, `peer-reviewer`. Never write without your explicit approval.
+- **Peer-review**: fresh-context critic agent for high-stakes artifacts (ADR / research / epic). Catches unstated assumptions, missing alternatives, scope creep — see `scaffold/checklists.json` for the structural checklists.
 - **SessionStart hook**: injects a compact map of the vault into the agent's context.
 - **Templates**: opinionated markdown templates with frontmatter, mirroring well-known engineering practices.
 
@@ -83,10 +84,10 @@ MIT — see `LICENSE`.
 
 ## Status & roadmap
 
-- [x] v0: scaffolding + engineering layout + 12 commands + 2 skills
+- [x] v0.1: scaffolding + engineering layout + 12 commands + 2 skills
+- [x] v0.2: peer-review channel — `/ps:review <path>` + `peer-reviewer` skill + per-kind structural checklists + `review_status` frontmatter
 - [ ] v1: stabilize commands, publish to marketplace, GIF demo
-- [ ] **v1.1: peer-review channel** — `/ps:review <path>` command + `peer-reviewer` skill. Spawns a fresh critic-mode agent with only the finalized artifact (no investigation trail) + a structural checklist appropriate to the artifact kind, returns concrete improvements without sycophancy. Selective by kind: ADRs / research / milestone epics get reviewed by default; meeting notes / runbooks don't. Adds `review_status: pending|reviewed` to frontmatter so the state is git-trackable. Rationale: same-model "fresh eyes" pass catches missing alternatives, unstated assumptions, and scope creep that the generating agent misses by default.
-- [ ] v1.2: `data-analytics` layout (community-worthy second example)
+- [ ] v1.1: `data-analytics` layout (community-worthy second example)
 - [ ] v2: process modules (sprint cycles, retros), Kanban transitions
 
 Issues and discussions welcome at https://github.com/SmartAndPoint/projectstore.

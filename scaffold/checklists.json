@@ -1,0 +1,75 @@
+{
+  "_description": "Per-kind structural checklists used by /ps:review. Each kind defines `default_review` (whether peer-reviewer skill auto-suggests review after creation) and an `items` array fed verbatim to the critic agent.",
+  "adr": {
+    "default_review": true,
+    "items": [
+      "Decision section is unambiguous — a stranger could implement it from this file alone, with no other context.",
+      "At least one named Alternative is present with an explicit rejection reason ('Rejected because: ...').",
+      "Consequences include at least one Negative / trade-off stated honestly. Reject sales framing.",
+      "All hand-wavy referents ('we', 'users', 'the system') are resolved to concrete actors or components.",
+      "No marketing language: 'blazingly', 'robust', 'best-in-class', 'magnificent', 'rock-solid', etc.",
+      "Context explains why the decision is needed NOW (vs. a year ago or in 6 months).",
+      "References cite at least one external doc / prior ADR / RFC if relevant.",
+      "Status, Date, Authors metadata filled (not template placeholders).",
+      "No TODOs, no '...', no empty bullets in the final body."
+    ]
+  },
+  "research": {
+    "default_review": true,
+    "items": [
+      "Question is sharp — answerable by yes/no/comparison, not 'tell me about X'.",
+      "TL;DR is a single paragraph that gives the conclusion before the body.",
+      "Method describes how findings were gathered (docs read, benchmarks run, experts asked) — not just 'I researched'.",
+      "Comparison table has populated Pros AND Cons cells; empty cells flagged.",
+      "Conclusion explicitly ties back to the original Question. Recommendation is actionable.",
+      "References are linkable (URL / file path), not 'see [some doc]'.",
+      "No unstated benchmarks ('it's faster' without numbers).",
+      "Findings are evidence-based, not opinion. Where opinion appears, it's labelled."
+    ]
+  },
+  "epic": {
+    "default_review": true,
+    "items": [
+      "Goal is measurable — success can be verified, not just described.",
+      "Context explains why this epic exists and which downstream pieces depend on it.",
+      "Stories table has at least 2 entries; first story description is concrete enough to start.",
+      "Expected Results contains testable outcomes, not aspirations.",
+      "Dependencies list external blockers (people, systems, decisions), not just sibling stories.",
+      "Open Questions are real unknowns, not rhetorical filler.",
+      "Priority assigned (p0 / p1 / p2), not left as default if epic is non-trivial."
+    ]
+  },
+  "story": {
+    "default_review": false,
+    "items": [
+      "Description states the user/actor and the value of the change.",
+      "Decomposition checklist has items granular enough to finish in a session each.",
+      "Acceptance Criteria are testable (someone could write tests from these).",
+      "Technical Notes flag any non-obvious risks or constraints."
+    ]
+  },
+  "concept": {
+    "default_review": false,
+    "items": [
+      "Definition fits in one paragraph; a stranger leaves knowing what the concept IS.",
+      "Examples ground the concept (at least one concrete case)."
+    ]
+  },
+  "meeting": {
+    "default_review": false,
+    "items": [
+      "Attendees listed.",
+      "Decisions section captures what was actually decided (not just discussed).",
+      "Action items have an owner."
+    ]
+  },
+  "runbook": {
+    "default_review": false,
+    "items": [
+      "Purpose states WHEN to run this runbook (trigger conditions).",
+      "Prerequisites are listable checks, not prose.",
+      "Verification step exists and is testable.",
+      "Rollback step exists for any irreversible action."
+    ]
+  }
+}
