@@ -1,7 +1,7 @@
 {
   "name": "projectstore",
   "displayName": "projectstore",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Opinionated project-management paradigms (ADR / epics / stories / kanban / runbooks) for agentic development. Markdown-first, git-portable, human-readable.",
   "author": {
     "name": "Evgenii Konev @ SmartAndPoint",

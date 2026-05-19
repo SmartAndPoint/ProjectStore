@@ -60,15 +60,15 @@ function showWelcomeOnce(proj) {
   return text;
 }
 
-function emit(additionalContext) {
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "SessionStart",
-        additionalContext,
-      },
-    }) + "\n",
-  );
+function emit(additionalContext, systemMessage) {
+  const out = {
+    hookSpecificOutput: {
+      hookEventName: "SessionStart",
+      additionalContext,
+    },
+  };
+  if (systemMessage) out.systemMessage = systemMessage;
+  process.stdout.write(JSON.stringify(out) + "\n");
 }
 
 function buildOthersWarning(others) {
@@ -102,13 +102,16 @@ function main() {
   const cfg = readConfig();
   const proj = projectRoot();
   const welcome = showWelcomeOnce(proj);
+  const welcomeSystemMessage = welcome
+    ? "👋 projectstore: first-run welcome shown. Start with /projectstore:bind <vault-path>. See /plugin → Marketplaces to enable auto-update."
+    : null;
 
   if (!cfg) {
-    if (welcome) emit(welcome);
+    if (welcome) emit(welcome, welcomeSystemMessage);
     process.exit(0);
   }
   if (cfg.auto_inject === false) {
-    if (welcome) emit(welcome);
+    if (welcome) emit(welcome, welcomeSystemMessage);
     process.exit(0);
   }
 
@@ -130,11 +133,12 @@ function main() {
 
   try {
     const map = buildVaultMap(cfg);
-    emit(welcome + map + warning);
+    emit(welcome + map + warning, welcomeSystemMessage);
   } catch (e) {
     emit(
       welcome +
         `# projectstore: vault load failed\n\n${e.message}\n\nFix \`.claude/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
+      welcomeSystemMessage,
     );
   }
 }
