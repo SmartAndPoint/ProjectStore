@@ -2,8 +2,10 @@
 // Pure node, no external deps. Keep this single-file & dependency-free
 // so plugin install does not require npm install.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, utimesSync, unlinkSync } from "node:fs";
 import { join, dirname, basename, resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import { hostname } from "node:os";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
 
@@ -136,6 +138,126 @@ export function buildVaultMap(cfg) {
     }
   }
   return lines.join("\n");
+}
+
+// ─── Session awareness (layer 2 — multi-Claude coordination) ──────────
+//
+// Each Claude Code session that loads this plugin registers itself in
+// <vault>/.projectstore/sessions/<id>.json. Other sessions reading the
+// vault can detect them and warn the agent to avoid topic / numbering
+// collisions. mtime is used as a liveness proxy: a session whose file
+// has not been touched in 30 minutes is considered idle; >24h => stale,
+// removed on next SessionStart.
+
+export function sessionsDir(vault) {
+  return join(vault, ".projectstore", "sessions");
+}
+
+export function ownSessionIdPath(projectDir) {
+  return join(projectDir || projectRoot(), ".claude", ".projectstore-session-id");
+}
+
+export function generateSessionId() {
+  return `${hostname()}-${process.pid}-${Date.now()}-${randomBytes(4).toString("hex")}`;
+}
+
+export function ensureSessionsDir(vault) {
+  const dir = sessionsDir(vault);
+  mkdirSync(dir, { recursive: true });
+  // Make sure no session metadata leaks into git, regardless of where the
+  // vault lives. A nested .gitignore inside .projectstore/ is the simplest
+  // way to handle this idempotently.
+  const gi = join(vault, ".projectstore", ".gitignore");
+  if (!existsSync(gi)) {
+    writeFileSync(gi, "# projectstore — runtime data, do not commit\n*\n", "utf8");
+  }
+  return dir;
+}
+
+export function writeSession(vault, sessionId, projectRoot) {
+  ensureSessionsDir(vault);
+  const path = join(sessionsDir(vault), `${sessionId}.json`);
+  writeFileSync(
+    path,
+    JSON.stringify(
+      {
+        id: sessionId,
+        started_at: new Date().toISOString(),
+        project_root: projectRoot,
+        host: hostname(),
+        pid: process.pid,
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  return path;
+}
+
+export function touchSession(vault, sessionId) {
+  const p = join(sessionsDir(vault), `${sessionId}.json`);
+  if (!existsSync(p)) return false;
+  const now = new Date();
+  try {
+    utimesSync(p, now, now);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readActiveSessions(vault, currentSessionId, maxAgeMinutes = 30) {
+  const dir = sessionsDir(vault);
+  if (!existsSync(dir)) return [];
+  const cutoff = Date.now() - maxAgeMinutes * 60 * 1000;
+  const out = [];
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith(".json")) continue;
+    const path = join(dir, name);
+    let stat;
+    try { stat = statSync(path); } catch { continue; }
+    if (stat.mtimeMs < cutoff) continue;
+    let data;
+    try { data = JSON.parse(readFileSync(path, "utf8")); } catch { continue; }
+    if (data.id === currentSessionId) continue;
+    out.push({ ...data, last_active: stat.mtime });
+  }
+  return out;
+}
+
+export function cleanupStaleSessions(vault, maxAgeHours = 24) {
+  const dir = sessionsDir(vault);
+  if (!existsSync(dir)) return 0;
+  const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
+  let removed = 0;
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith(".json")) continue;
+    const path = join(dir, name);
+    try {
+      if (statSync(path).mtimeMs < cutoff) {
+        unlinkSync(path);
+        removed++;
+      }
+    } catch {}
+  }
+  return removed;
+}
+
+export function writeOwnSessionId(projectDir, sessionId) {
+  const p = ownSessionIdPath(projectDir);
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, sessionId, "utf8");
+}
+
+export function readOwnSessionId(projectDir) {
+  const p = ownSessionIdPath(projectDir);
+  if (!existsSync(p)) return null;
+  try {
+    return readFileSync(p, "utf8").trim();
+  } catch {
+    return null;
+  }
 }
 
 // ─── Frontmatter parsing (minimal) ─────────────────────────────────────

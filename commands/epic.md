@@ -25,8 +25,10 @@ Steps:
 
 6. **Approval** via AskUserQuestion: Yes / Edit / No.
 
-7. **On Yes**: Write the file. The `epics/<id>/stories/` directory was created by the draft script — confirm it with `ls`.
+7. **Pre-write race check** (Layer 1): run `test -e "<path>"`. The earlier collision check (step 4) covers most cases, but another session could have created this epic during the approval delay. If exists now → ask the user via AskUserQuestion whether to **Overwrite** or **Cancel**. Do not silently overwrite.
 
-8. **Index update**: if `index` is non-null in the draft JSON, propose adding `index.line` to `<vault>/epics/README.md`. Ask approval, then Edit.
+8. **On Yes** (path free or overwrite confirmed): Write the file. The `epics/<id>/stories/` directory was created by the draft script — confirm it with `ls`.
 
-9. **Suggest next**: print "Add the first story: `/ps:story <epic-id> \"<first story title>\"`".
+9. **Index update**: if `index` is non-null in the draft JSON, propose adding `index.line` to `<vault>/epics/README.md`. Ask approval, then Edit.
+
+10. **Suggest next**: print "Add the first story: `/ps:story <epic-id> \"<first story title>\"`".

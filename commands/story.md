@@ -25,6 +25,8 @@ Steps:
 
    When prompting "Edit", note that the story template has a `Decomposition` checklist — if the user wants to seed it with concrete tasks from the current conversation, regenerate with those tasks pre-filled in place of the empty checkboxes.
 
-6. **On Yes**: Write file.
+6. **Pre-write race check** (Layer 1): `test -e "<path>"`. If exists → another session just created a story with the same auto-number. Re-run `draft.mjs story "$ARGUMENTS"` to get a fresh number, show new preview, re-ask approval.
 
-7. **Suggest next**: "Now decompose the work in the `Decomposition` section, or run `/ps:kanban` to refresh the board."
+7. **On Yes** (path free): Write file.
+
+8. **Suggest next**: "Now decompose the work in the `Decomposition` section, or run `/ps:kanban` to refresh the board."

@@ -86,6 +86,7 @@ MIT — see `LICENSE`.
 
 - [x] v0.1: scaffolding + engineering layout + 12 commands + 2 skills
 - [x] v0.2: peer-review channel — `/ps:review <path>` + `peer-reviewer` skill + per-kind structural checklists + `review_status` frontmatter
+- [x] v0.3: multi-session coordination — atomic-numbering race check before write (layer 1), session registration in `<vault>/.projectstore/sessions/` + cross-session warning at SessionStart and in `/ps:status` (layer 2)
 - [ ] v1: stabilize commands, publish to marketplace, GIF demo
 - [ ] v1.1: `data-analytics` layout (community-worthy second example)
 - [ ] v2: process modules (sprint cycles, retros), Kanban transitions
