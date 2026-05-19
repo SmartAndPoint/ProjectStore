@@ -7,7 +7,7 @@ You are running a peer review on a projectstore artifact.
 
 ## Steps
 
-1. **Resolve path**: `$ARGUMENTS` is the target file. If it is relative, resolve against the bound vault (read `.claude/projectstore.json` → `vault_path`). If config missing, stop with: "Run `/ps:bind <path>` first."
+1. **Resolve path**: `$ARGUMENTS` is the target file. If it is relative, resolve against the bound vault (read `.claude/projectstore.json` → `vault_path`). If config missing, stop with: "Run `/projectstore:bind <path>` first."
 
 2. **Read the artifact**: use the Read tool on the resolved path. Stop if file does not exist.
 
@@ -84,4 +84,4 @@ You are running a peer review on a projectstore artifact.
 
 - Critic agent MUST NOT see the conversation that produced the artifact. Only the artifact + minimal context. That fresh framing is the whole point.
 - If the critic returns suspiciously sycophantic findings ("good overall, minor nit:"), retry once with an explicit `NO PRAISE, NO HEDGING.` injected into the prompt.
-- Selective default: if user invoked `/ps:review` on a kind whose `default_review` is `false` in checklists.json (e.g. meeting), still run — they asked explicitly. Just don't auto-trigger via skill.
+- Selective default: if user invoked `/projectstore:review` on a kind whose `default_review` is `false` in checklists.json (e.g. meeting), still run — they asked explicitly. Just don't auto-trigger via skill.

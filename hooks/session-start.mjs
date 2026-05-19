@@ -49,8 +49,8 @@ function buildOthersWarning(others) {
   lines.push(
     "",
     "**Before creating new ADRs / epics / stories / research:**",
-    "1. Run `/ps:search <topic-keywords>` to check for in-flight artifacts on the same topic.",
-    "2. Run `/ps:status` to see what artifacts have been touched recently.",
+    "1. Run `/projectstore:search <topic-keywords>` to check for in-flight artifacts on the same topic.",
+    "2. Run `/projectstore:status` to see what artifacts have been touched recently.",
     "3. After creation, the plugin re-checks file existence right before write — collisions are detected, but topic / number reservation across sessions is on you and the other agent to coordinate.",
     "",
   );
@@ -83,7 +83,7 @@ function main() {
     emit(map + warning);
   } catch (e) {
     emit(
-      `# projectstore: vault load failed\n\n${e.message}\n\nFix \`.claude/projectstore.json\` or run \`/ps:bind <path>\` again.`,
+      `# projectstore: vault load failed\n\n${e.message}\n\nFix \`.claude/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
     );
   }
 }

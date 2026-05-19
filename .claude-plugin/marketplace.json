@@ -1,10 +1,10 @@
 {
   "plugins": [
     {
-      "name": "ps",
+      "name": "projectstore",
       "displayName": "projectstore",
       "description": "Opinionated project-management paradigms (ADR / epics / stories / kanban / runbooks) for agentic development.",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "source": {
         "source": "github",
         "repo": "SmartAndPoint/projectstore"

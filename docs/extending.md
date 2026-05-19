@@ -62,7 +62,7 @@ Skills passively watch the conversation and suggest commands. Create `skills/<na
 
 ```yaml
 ---
-description: When [trigger condition], suggest [the relevant /ps:* command]. Never write to disk directly.
+description: When [trigger condition], suggest [the relevant /projectstore:* command]. Never write to disk directly.
 ---
 
 # Skill name

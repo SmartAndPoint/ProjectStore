@@ -1,5 +1,5 @@
 {
-  "_description": "Per-kind structural checklists used by /ps:review. Each kind defines `default_review` (whether peer-reviewer skill auto-suggests review after creation) and an `items` array fed verbatim to the critic agent.",
+  "_description": "Per-kind structural checklists used by /projectstore:review. Each kind defines `default_review` (whether peer-reviewer skill auto-suggests review after creation) and an `items` array fed verbatim to the critic agent.",
   "adr": {
     "default_review": true,
     "items": [

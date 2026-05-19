@@ -7,7 +7,7 @@ You are creating a new epic.
 
 Steps:
 
-1. **Check config**: if `.claude/projectstore.json` is missing — instruct user to `/ps:bind` and stop.
+1. **Check config**: if `.claude/projectstore.json` is missing — instruct user to `/projectstore:bind` and stop.
 
 2. **Validate args**: `$ARGUMENTS` must contain at least an ID and a title. ID is a short uppercase token (e.g. `AUTH-001`, `RECPLAT-269`). If only one word was given, ask user for the title via AskUserQuestion.
 
@@ -31,4 +31,4 @@ Steps:
 
 9. **Index update**: if `index` is non-null in the draft JSON, propose adding `index.line` to `<vault>/epics/README.md`. Ask approval, then Edit.
 
-10. **Suggest next**: print "Add the first story: `/ps:story <epic-id> \"<first story title>\"`".
+10. **Suggest next**: print "Add the first story: `/projectstore:story <epic-id> \"<first story title>\"`".

@@ -48,7 +48,7 @@ When projectstore is ready for distribution:
 2. **Bind your current project to that vault**:
 
    ```
-   /ps:bind ~/Documents/projects/my-project-vault
+   /projectstore:bind ~/Documents/projects/my-project-vault
    ```
 
    This creates `.claude/projectstore.json` in your project root (machine-local, gitignored).
@@ -56,7 +56,7 @@ When projectstore is ready for distribution:
 3. **Scaffold the layout** if the vault is empty:
 
    ```
-   /ps:scaffold engineering
+   /projectstore:scaffold engineering
    ```
 
    Creates `adr/`, `epics/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/` and a top-level `README.md`.
@@ -64,12 +64,12 @@ When projectstore is ready for distribution:
 ## Daily flow
 
 ```
-/ps:status                                      # what's bound, recent activity
-/ps:adr "Use Postgres for primary storage"      # capture a decision
-/ps:epic AUTH-001 "Authentication system"       # plan a major piece of work
-/ps:story AUTH-001 "OIDC discovery"             # decompose into stories
-/ps:kanban                                      # regenerate the board
-/ps:search "data detective"                     # search the vault
+/projectstore:status                                      # what's bound, recent activity
+/projectstore:adr "Use Postgres for primary storage"      # capture a decision
+/projectstore:epic AUTH-001 "Authentication system"       # plan a major piece of work
+/projectstore:story AUTH-001 "OIDC discovery"             # decompose into stories
+/projectstore:kanban                                      # regenerate the board
+/projectstore:search "data detective"                     # search the vault
 ```
 
 ## How approval works
@@ -99,7 +99,7 @@ Edit `.claude/projectstore.json`:
 Default is English (`en`). For Russian:
 
 ```
-/ps:bind <path> --lang ru
+/projectstore:bind <path> --lang ru
 ```
 
 Or edit `language: "ru"` in `.claude/projectstore.json` (templates must exist at `templates/ru/`).

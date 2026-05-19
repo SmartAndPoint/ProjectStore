@@ -124,7 +124,7 @@ function buildStory(cfg, layout, args) {
   const vault = cfg.vault_path;
   const storiesDir = join(vault, folder.path, epicId, "stories");
   if (!existsSync(join(vault, folder.path, epicId))) {
-    die(`Epic folder not found: ${folder.path}/${epicId}. Create the epic first via /ps:epic.`);
+    die(`Epic folder not found: ${folder.path}/${epicId}. Create the epic first via /projectstore:epic.`);
   }
   mkdirSync(storiesDir, { recursive: true });
   const number = nextNumber(storiesDir, "story-", 3);
@@ -185,7 +185,7 @@ function main() {
   const rest = argv.slice(1);
 
   const cfg = readConfig();
-  if (!cfg) die("No projectstore config. Run /ps:bind <vault-path> first.");
+  if (!cfg) die("No projectstore config. Run /projectstore:bind <vault-path> first.");
   const layout = loadLayout(cfg.layout);
 
   let result;

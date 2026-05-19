@@ -13,7 +13,7 @@ Modern AI coding assistants give you ephemeral context and bag-of-facts "memory"
 ## What's in v1
 
 - **Layout: `engineering`** — `adr/`, `epics/<id>/stories/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`.
-- **Commands**: `/ps:bind`, `/ps:scaffold`, `/ps:status`, `/ps:adr`, `/ps:epic`, `/ps:story`, `/ps:kanban`, `/ps:research`, `/ps:concept`, `/ps:meeting`, `/ps:runbook`, `/ps:search`, `/ps:review`.
+- **Commands**: `/projectstore:bind`, `/projectstore:scaffold`, `/projectstore:status`, `/projectstore:adr`, `/projectstore:epic`, `/projectstore:story`, `/projectstore:kanban`, `/projectstore:research`, `/projectstore:concept`, `/projectstore:meeting`, `/projectstore:runbook`, `/projectstore:search`, `/projectstore:review`.
 - **Skills**: passive suggesters — `decision-detector`, `story-completion`, `peer-reviewer`. Never write without your explicit approval.
 - **Peer-review**: fresh-context critic agent for high-stakes artifacts (ADR / research / epic). Catches unstated assumptions, missing alternatives, scope creep — see `scaffold/checklists.json` for the structural checklists.
 - **SessionStart hook**: injects a compact map of the vault into the agent's context.
@@ -39,20 +39,20 @@ You should see `projectstore` (displayName) with command prefix `ps`.
 
 ```
 # in your project root
-/ps:bind ~/Documents/projects/my-knowledge-vault
+/projectstore:bind ~/Documents/projects/my-knowledge-vault
 
 # scaffold layout (if vault is empty)
-/ps:scaffold engineering
+/projectstore:scaffold engineering
 
 # create a new ADR
-/ps:adr "Use Postgres for primary storage"
+/projectstore:adr "Use Postgres for primary storage"
 
 # create an epic + first story
-/ps:epic AUTH-001 "Authentication system"
-/ps:story AUTH-001 "OIDC discovery + token exchange"
+/projectstore:epic AUTH-001 "Authentication system"
+/projectstore:story AUTH-001 "OIDC discovery + token exchange"
 
 # refresh kanban from story frontmatter
-/ps:kanban
+/projectstore:kanban
 ```
 
 ## Philosophy
@@ -85,8 +85,8 @@ MIT — see `LICENSE`.
 ## Status & roadmap
 
 - [x] v0.1: scaffolding + engineering layout + 12 commands + 2 skills
-- [x] v0.2: peer-review channel — `/ps:review <path>` + `peer-reviewer` skill + per-kind structural checklists + `review_status` frontmatter
-- [x] v0.3: multi-session coordination — atomic-numbering race check before write (layer 1), session registration in `<vault>/.projectstore/sessions/` + cross-session warning at SessionStart and in `/ps:status` (layer 2)
+- [x] v0.2: peer-review channel — `/projectstore:review <path>` + `peer-reviewer` skill + per-kind structural checklists + `review_status` frontmatter
+- [x] v0.3: multi-session coordination — atomic-numbering race check before write (layer 1), session registration in `<vault>/.projectstore/sessions/` + cross-session warning at SessionStart and in `/projectstore:status` (layer 2)
 - [ ] v1: stabilize commands, publish to marketplace, GIF demo
 - [ ] v1.1: `data-analytics` layout (community-worthy second example)
 - [ ] v2: process modules (sprint cycles, retros), Kanban transitions

@@ -1,5 +1,5 @@
 ---
-description: When the user makes or accepts an architectural/technical decision (choosing between alternatives, locking in a pattern, picking a library or tool, settling a trade-off), suggest capturing it as an ADR via /ps:adr. Never write to the vault directly — only suggest, and let the /ps:adr command handle approval.
+description: When the user makes or accepts an architectural/technical decision (choosing between alternatives, locking in a pattern, picking a library or tool, settling a trade-off), suggest capturing it as an ADR via /projectstore:adr. Never write to the vault directly — only suggest, and let the /projectstore:adr command handle approval.
 ---
 
 # Decision detector
@@ -25,15 +25,15 @@ You watch for **decision moments** in the conversation:
 
 4. **Suggest, do not act**. Write one short message to the user:
 
-   > 💡 *This looks like a decision worth recording. Want me to draft an ADR? Run `/ps:adr "<your-title>"` or just say "yes" and I'll fire it with the title above.*
+   > 💡 *This looks like a decision worth recording. Want me to draft an ADR? Run `/projectstore:adr "<your-title>"` or just say "yes" and I'll fire it with the title above.*
 
    Propose a concise title (≤80 chars), e.g. *"Use BFF pattern for OIDC"*.
 
-5. **Wait for explicit user confirmation** before invoking `/ps:adr`. Never auto-execute.
+5. **Wait for explicit user confirmation** before invoking `/projectstore:adr`. Never auto-execute.
 
 ## Anti-patterns (do not do)
 
 - Don't suggest an ADR for trivial choices (variable names, formatting).
 - Don't suggest an ADR more than once per detected decision — if the user said "not now", drop it for the session.
-- Don't write any vault file directly from this skill. ADR creation always goes through `/ps:adr` which gates writes with `AskUserQuestion`.
-- Don't change the ADR template, status, or numbering — that's `/ps:adr`'s job.
+- Don't write any vault file directly from this skill. ADR creation always goes through `/projectstore:adr` which gates writes with `AskUserQuestion`.
+- Don't change the ADR template, status, or numbering — that's `/projectstore:adr`'s job.

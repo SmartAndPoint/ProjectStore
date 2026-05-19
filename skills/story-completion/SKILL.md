@@ -1,5 +1,5 @@
 ---
-description: When the user finishes work that maps to a known story (story file exists in epics/<id>/stories/) — all acceptance criteria appear satisfied, code merged, tests passing — suggest updating the story's frontmatter status (e.g. planned → in-progress → review → done) and regenerating the kanban. Never write to vault directly without /ps:* commands and explicit approval.
+description: When the user finishes work that maps to a known story (story file exists in epics/<id>/stories/) — all acceptance criteria appear satisfied, code merged, tests passing — suggest updating the story's frontmatter status (e.g. planned → in-progress → review → done) and regenerating the kanban. Never write to vault directly without /projectstore:* commands and explicit approval.
 ---
 
 # Story completion / status update suggester
@@ -24,7 +24,7 @@ You watch for moments where the conversation indicates progress on a known story
    - Read the story file.
    - Propose an Edit that changes `status:` and `updated:` in the frontmatter.
    - Use AskUserQuestion to confirm the Edit before applying.
-   - After Edit, suggest running `/ps:kanban` to refresh the board.
+   - After Edit, suggest running `/projectstore:kanban` to refresh the board.
 
 ## Anti-patterns
 

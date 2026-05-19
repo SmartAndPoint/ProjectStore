@@ -67,7 +67,7 @@ function renderItem(story) {
 
 function main() {
   const cfg = readConfig();
-  if (!cfg) die("No projectstore config. Run /ps:bind first.");
+  if (!cfg) die("No projectstore config. Run /projectstore:bind first.");
   const layout = loadLayout(cfg.layout);
   if (!layout.kanban) die(`Layout ${cfg.layout} does not declare a kanban config.`);
 

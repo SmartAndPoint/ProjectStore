@@ -38,6 +38,6 @@ Steps:
 
 6. **Check `.gitignore`**: read `<project>/.gitignore` if it exists. If `.claude/projectstore.json` is not listed, ask via AskUserQuestion: "Add `.claude/projectstore.json` to `.gitignore` (vault path is machine-specific)? [Yes / No]". If yes, append the entry (use Edit).
 
-7. **Offer scaffold**: if the vault is empty or missing layout folders, ask: "Vault is empty/incomplete. Run `/ps:scaffold` to create the layout? [Yes / No]". If yes, invoke `/ps:scaffold` immediately (just describe; do not assume execution).
+7. **Offer scaffold**: if the vault is empty or missing layout folders, ask: "Vault is empty/incomplete. Run `/projectstore:scaffold` to create the layout? [Yes / No]". If yes, invoke `/projectstore:scaffold` immediately (just describe; do not assume execution).
 
-8. **Print summary**: confirm the bind, list the layout's folders, suggest next commands (`/ps:status`, `/ps:adr "<first decision>"`, `/ps:epic <ID> "<title>"`).
+8. **Print summary**: confirm the bind, list the layout's folders, suggest next commands (`/projectstore:status`, `/projectstore:adr "<first decision>"`, `/projectstore:epic <ID> "<title>"`).

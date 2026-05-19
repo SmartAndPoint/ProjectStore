@@ -17,7 +17,7 @@ Steps:
    node "$CLAUDE_PLUGIN_ROOT/scripts/draft.mjs" story "$ARGUMENTS"
    ```
 
-   The script fails if the epic folder does not exist. Surface the error and suggest `/ps:epic <id> "<title>"` first.
+   The script fails if the epic folder does not exist. Surface the error and suggest `/projectstore:epic <id> "<title>"` first.
 
 4. **Preview**: path + first ~25 lines.
 
@@ -29,4 +29,4 @@ Steps:
 
 7. **On Yes** (path free): Write file.
 
-8. **Suggest next**: "Now decompose the work in the `Decomposition` section, or run `/ps:kanban` to refresh the board."
+8. **Suggest next**: "Now decompose the work in the `Decomposition` section, or run `/projectstore:kanban` to refresh the board."
