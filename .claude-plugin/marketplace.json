@@ -1,4 +1,5 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "SmartAndPoint",
   "description": "Claude Code plugins by SmartAndPoint.",
   "owner": {
@@ -10,8 +11,26 @@
     {
       "name": "projectstore",
       "displayName": "projectstore",
-      "description": "Opinionated project-management paradigms (ADR / epics / stories / kanban / runbooks) for agentic development. Agent-maintained Obsidian-friendly markdown vault per project.",
+      "description": "📚 Your project's knowledge base, written by your AI agent — ADRs · epics · stories · runbooks · research. An Obsidian-friendly markdown vault, agent-maintained, you approve every write. Like Karpathy's LLM Wiki, but for engineering project artifacts.",
       "version": "0.7.0",
+      "author": {
+        "name": "Evgenii Konev",
+        "email": "ekonev@smartandpoint.com",
+        "url": "https://github.com/SmartAndPoint"
+      },
+      "category": "productivity",
+      "homepage": "https://github.com/SmartAndPoint/ProjectStore",
+      "tags": [
+        "obsidian",
+        "markdown",
+        "adr",
+        "epics",
+        "stories",
+        "kanban",
+        "knowledge-base",
+        "engineering-process",
+        "llm-wiki"
+      ],
       "source": {
         "source": "github",
         "repo": "SmartAndPoint/ProjectStore"
