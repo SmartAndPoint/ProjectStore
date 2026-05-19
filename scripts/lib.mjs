@@ -260,6 +260,52 @@ export function readOwnSessionId(projectDir) {
   }
 }
 
+// ─── Session activity log (for PreCompact survival packet) ─────────────
+//
+// Each session file may carry a `recent_activity` array, populated by
+// touch-session.mjs from PreToolUse events. Capped at 50 entries, deduped
+// by path (latest tool/timestamp wins). Used by hooks/pre-compact.mjs.
+
+const ACTIVITY_CAP = 50;
+
+export function appendActivity(vault, sessionId, filePath, toolName) {
+  const sp = join(sessionsDir(vault), `${sessionId}.json`);
+  if (!existsSync(sp)) return false;
+  let data;
+  try {
+    data = JSON.parse(readFileSync(sp, "utf8"));
+  } catch {
+    return false;
+  }
+  const recent = Array.isArray(data.recent_activity) ? data.recent_activity : [];
+  const filtered = recent.filter((e) => e && e.path !== filePath);
+  filtered.unshift({ path: filePath, tool: toolName, at: new Date().toISOString() });
+  data.recent_activity = filtered.slice(0, ACTIVITY_CAP);
+  try {
+    writeFileSync(sp, JSON.stringify(data, null, 2));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readSessionActivity(vault, sessionId) {
+  const sp = join(sessionsDir(vault), `${sessionId}.json`);
+  if (!existsSync(sp)) return [];
+  try {
+    const data = JSON.parse(readFileSync(sp, "utf8"));
+    return Array.isArray(data.recent_activity) ? data.recent_activity : [];
+  } catch {
+    return [];
+  }
+}
+
+export function isInsideVault(filePath, vaultPath) {
+  if (!filePath || !vaultPath) return false;
+  const norm = filePath.endsWith("/") ? filePath.slice(0, -1) : filePath;
+  return norm === vaultPath || norm.startsWith(vaultPath + "/");
+}
+
 // ─── Frontmatter parsing (minimal) ─────────────────────────────────────
 
 export function parseFrontmatter(md) {

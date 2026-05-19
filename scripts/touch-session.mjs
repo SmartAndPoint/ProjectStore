@@ -1,16 +1,21 @@
 #!/usr/bin/env node
 // projectstore — touch-session.mjs
 //
-// Best-effort liveness marker, run by the PreToolUse hook on every tool call.
+// Called by the PreToolUse hook on every tool call.
 //
-// Self-bootstrapping: if no session ID has been registered yet (e.g. plugin
-// was installed mid-session via /reload-plugins, so SessionStart never ran
-// for this session), this script creates the registration on first call.
-// After that, subsequent calls just touch the existing file so mtime reflects
-// real activity.
+// Responsibilities:
+// 1. Liveness — touches this session's registration file (mtime) so other
+//    sessions can see we are active.
+// 2. Self-bootstrap — if the session id file or vault session file is
+//    missing (e.g. plugin installed mid-session via /reload-plugins),
+//    creates the registration on first call.
+// 3. Activity log — reads PreToolUse JSON from stdin, extracts the target
+//    file path, and if it lives inside the vault appends an entry to
+//    `recent_activity` in the session file (capped at 50, deduped).
+//    The PreCompact hook reads this list to build a survival packet.
 //
-// Silent no-op when no projectstore config is present (so the plugin never
-// interferes with projects that don't use it).
+// Silent no-op when no projectstore config is present. Wrapped in
+// try/catch so a PreToolUse hook can never crash the user's tool call.
 
 import {
   readConfig,
@@ -23,34 +28,69 @@ import {
   ensureSessionsDir,
   projectRoot,
   sessionsDir,
+  appendActivity,
+  isInsideVault,
 } from "./lib.mjs";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
+function readStdinJson() {
+  try {
+    // fd 0 = stdin, synchronous read. Hook input is small and complete.
+    const raw = readFileSync(0, "utf8").trim();
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function extractToolPath(input) {
+  if (!input || !input.tool_input) return null;
+  const ti = input.tool_input;
+  // Read / Write / Edit / MultiEdit / NotebookEdit all use one of these fields.
+  return ti.file_path || ti.notebook_path || ti.path || null;
+}
+
+function ensureSession(cfg, proj) {
+  let sid = readOwnSessionId(proj);
+  const sidFileMissing = !sid;
+  const sessionFileMissing =
+    sid && !existsSync(join(sessionsDir(cfg.vault_path), `${sid}.json`));
+  if (sidFileMissing || sessionFileMissing) {
+    cleanupStaleSessions(cfg.vault_path);
+    ensureSessionsDir(cfg.vault_path);
+    sid = generateSessionId();
+    writeSession(cfg.vault_path, sid, proj);
+    writeOwnSessionId(proj, sid);
+  } else {
+    touchSession(cfg.vault_path, sid);
+  }
+  return sid;
+}
 
 function main() {
   const cfg = readConfig();
   if (!cfg) return;
 
   const proj = projectRoot();
-  let sid = readOwnSessionId(proj);
+  let sid;
+  try {
+    sid = ensureSession(cfg, proj);
+  } catch {
+    return;
+  }
+  if (!sid) return;
 
-  // Re-bootstrap if either marker is missing.
-  const sidFileMissing = !sid;
-  const sessionFileMissing = sid && !existsSync(join(sessionsDir(cfg.vault_path), `${sid}.json`));
+  // Activity logging — best-effort, ignore errors.
+  const input = readStdinJson();
+  if (!input || !input.tool_name) return;
 
-  if (sidFileMissing || sessionFileMissing) {
+  const filePath = extractToolPath(input);
+  if (filePath && isInsideVault(filePath, cfg.vault_path)) {
     try {
-      cleanupStaleSessions(cfg.vault_path);
-      ensureSessionsDir(cfg.vault_path);
-      sid = generateSessionId();
-      writeSession(cfg.vault_path, sid, proj);
-      writeOwnSessionId(proj, sid);
-    } catch {
-      // Best-effort; never block a tool call.
-      return;
-    }
-  } else {
-    touchSession(cfg.vault_path, sid);
+      appendActivity(cfg.vault_path, sid, filePath, input.tool_name);
+    } catch {}
   }
 }
 
