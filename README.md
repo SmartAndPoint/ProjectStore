@@ -2,7 +2,7 @@
 
 > Your project's documentation, written and maintained by your AI agent inside an **Obsidian-friendly markdown vault** — ADRs, epics, stories, runbooks, research, meetings. Same markdown-first + agent-maintained idea as Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f), but for engineering project artifacts instead of personal research.
 
-[![release](https://img.shields.io/github/v/release/SmartAndPoint/ProjectStore?label=release)](https://github.com/SmartAndPoint/ProjectStore/releases) [![license](https://img.shields.io/github/license/SmartAndPoint/ProjectStore?label=license)](./LICENSE) [![stars](https://img.shields.io/github/stars/SmartAndPoint/ProjectStore?style=social)](https://github.com/SmartAndPoint/ProjectStore/stargazers)
+[![release](https://img.shields.io/github/v/release/SmartAndPoint/ProjectStore?label=release)](https://github.com/SmartAndPoint/ProjectStore/releases) [![license](https://img.shields.io/github/license/SmartAndPoint/ProjectStore?label=license)](./LICENSE) [![Star on GitHub](https://img.shields.io/badge/%E2%AD%90-star_us-yellow?logo=github)](https://github.com/SmartAndPoint/ProjectStore/stargazers)
 
 A Claude Code plugin.
 
