@@ -87,6 +87,8 @@ MIT — see `LICENSE`.
 - [x] v0.1: scaffolding + engineering layout + 12 commands + 2 skills
 - [x] v0.2: peer-review channel — `/projectstore:review <path>` + `peer-reviewer` skill + per-kind structural checklists + `review_status` frontmatter
 - [x] v0.3: multi-session coordination — atomic-numbering race check before write (layer 1), session registration in `<vault>/.projectstore/sessions/` + cross-session warning at SessionStart and in `/projectstore:status` (layer 2)
+- [x] v0.4: rename plugin `ps` → `projectstore` for namespace clarity (commands now `/projectstore:*`)
+- [ ] **v0.4.1: safer rebind** — `/projectstore:bind` detects an existing `.claude/projectstore.json`, shows a `vault_path` diff (`old → new`), and asks via AskUserQuestion: `[Replace / Keep old / Cancel]`. On replace, also clean up the orphan session entry in the old vault (`<old-vault>/.projectstore/sessions/<own-id>.json`) so it does not linger until the 24h sweep. Today the command silently overwrites the bind after a generic "Write file?" approval, which is too easy to misclick when switching projects.
 - [ ] v1: stabilize commands, publish to marketplace, GIF demo
 - [ ] v1.1: `data-analytics` layout (community-worthy second example)
 - [ ] v2: process modules (sprint cycles, retros), Kanban transitions
