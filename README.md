@@ -85,7 +85,8 @@ MIT — see `LICENSE`.
 
 - [x] v0: scaffolding + engineering layout + 12 commands + 2 skills
 - [ ] v1: stabilize commands, publish to marketplace, GIF demo
-- [ ] v1.1: `data-analytics` layout (community-worthy second example)
+- [ ] **v1.1: peer-review channel** — `/ps:review <path>` command + `peer-reviewer` skill. Spawns a fresh critic-mode agent with only the finalized artifact (no investigation trail) + a structural checklist appropriate to the artifact kind, returns concrete improvements without sycophancy. Selective by kind: ADRs / research / milestone epics get reviewed by default; meeting notes / runbooks don't. Adds `review_status: pending|reviewed` to frontmatter so the state is git-trackable. Rationale: same-model "fresh eyes" pass catches missing alternatives, unstated assumptions, and scope creep that the generating agent misses by default.
+- [ ] v1.2: `data-analytics` layout (community-worthy second example)
 - [ ] v2: process modules (sprint cycles, retros), Kanban transitions
 
 Issues and discussions welcome at https://github.com/SmartAndPoint/projectstore.
