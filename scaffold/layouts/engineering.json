@@ -1,0 +1,52 @@
+{
+  "name": "engineering",
+  "description": "Software engineering project: ADRs, epics, stories, kanban, retros, runbooks.",
+  "folders": [
+    {
+      "path": "adr",
+      "kind": "adr",
+      "readme": true,
+      "numbered": true,
+      "prefix": "ADR-",
+      "pad": 3
+    },
+    {
+      "path": "epics",
+      "kind": "epic",
+      "readme": true,
+      "subfolder_per_id": true
+    },
+    {
+      "path": "research",
+      "kind": "research",
+      "readme": true
+    },
+    {
+      "path": "concepts",
+      "kind": "concept",
+      "readme": true
+    },
+    {
+      "path": "meetings",
+      "kind": "meeting",
+      "readme": true,
+      "date_prefix": true
+    },
+    {
+      "path": "ops",
+      "kind": "runbook",
+      "readme": true
+    },
+    {
+      "path": "diagrams",
+      "kind": "diagram",
+      "readme": true
+    }
+  ],
+  "commands": ["adr", "epic", "story", "research", "concept", "meeting", "runbook", "kanban"],
+  "kanban": {
+    "file": "kanban.md",
+    "columns": ["Backlog", "ToDo", "In Progress", "Review", "Done"],
+    "source": "epics/*/stories/*.md"
+  }
+}
