@@ -32,6 +32,18 @@ git clone https://github.com/SmartAndPoint/ProjectStore.git
 claude --plugin-dir ./ProjectStore
 ```
 
+## Updates
+
+Third-party marketplaces don't auto-update by default in Claude Code. After `/plugin marketplace add SmartAndPoint/ProjectStore`, open `/plugin` → **Marketplaces** tab and toggle auto-update on if you want notifications for new releases at Claude Code startup. When an update lands, Claude Code prompts you to run `/reload-plugins` to activate it.
+
+To pin to a specific release, add the marketplace with a git ref:
+
+```
+/plugin marketplace add SmartAndPoint/ProjectStore#v0.6.0
+```
+
+Otherwise the marketplace tracks the `main` branch HEAD.
+
 ---
 
 ## What it is
