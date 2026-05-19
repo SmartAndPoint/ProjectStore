@@ -11,7 +11,7 @@
       "name": "projectstore",
       "displayName": "projectstore",
       "description": "Opinionated project-management paradigms (ADR / epics / stories / kanban / runbooks) for agentic development. Agent-maintained Obsidian-friendly markdown vault per project.",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "source": {
         "source": "github",
         "repo": "SmartAndPoint/ProjectStore"

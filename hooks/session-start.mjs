@@ -8,6 +8,8 @@
 //    appends a warning so the agent knows it is not alone on this vault.
 // 3. Injects a compact map of the vault (root README + folder READMEs).
 
+import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
 import {
   readConfig,
   buildVaultMap,
@@ -18,6 +20,43 @@ import {
   readStdinJson,
   projectRoot,
 } from "../scripts/lib.mjs";
+
+function welcomedMarkerPath(proj) {
+  return join(proj, ".claude", ".projectstore-welcomed");
+}
+
+// One-time orientation packet shown when projectstore first loads in a project.
+// Idempotent via a marker file at <project>/.claude/.projectstore-welcomed.
+function buildWelcome() {
+  return [
+    "# 👋 projectstore is loaded for the first time in this project",
+    "",
+    "**What it does**: turns the conversation's decisions into a structured Obsidian-friendly markdown vault — ADRs, epics, stories, runbooks, research. Agent-maintained, you approve every write.",
+    "",
+    "**To start using it**: run `/projectstore:bind <vault-path>` and point it at an Obsidian vault (or any folder). After that, the agent will pick up commands like `/projectstore:adr` and `/projectstore:epic` from the conversation; you only approve the writes.",
+    "",
+    "**About future updates**: Claude Code does NOT auto-update third-party marketplaces by default. To get notified of new releases (v0.7+):",
+    "1. Open `/plugin` → **Marketplaces** tab.",
+    "2. Find **SmartAndPoint**.",
+    "3. Toggle **auto-update** on.",
+    "",
+    "Without it, you'd run `/plugin marketplace update SmartAndPoint` manually. See https://github.com/SmartAndPoint/ProjectStore#updates for details.",
+    "",
+    "_This message appears once per project._",
+    "",
+  ].join("\n");
+}
+
+function showWelcomeOnce(proj) {
+  const marker = welcomedMarkerPath(proj);
+  if (existsSync(marker)) return "";
+  const text = buildWelcome();
+  try {
+    mkdirSync(dirname(marker), { recursive: true });
+    writeFileSync(marker, new Date().toISOString() + "\n", "utf8");
+  } catch {}
+  return text;
+}
 
 function emit(additionalContext) {
   process.stdout.write(
@@ -59,10 +98,18 @@ function buildOthersWarning(others) {
 
 function main() {
   const cfg = readConfig();
-  if (!cfg) process.exit(0);
-  if (cfg.auto_inject === false) process.exit(0);
-
   const proj = projectRoot();
+  const welcome = showWelcomeOnce(proj);
+
+  if (!cfg) {
+    if (welcome) emit(welcome);
+    process.exit(0);
+  }
+  if (cfg.auto_inject === false) {
+    if (welcome) emit(welcome);
+    process.exit(0);
+  }
+
   const input = readStdinJson();
   const sid = input?.session_id || null;
 
@@ -81,10 +128,11 @@ function main() {
 
   try {
     const map = buildVaultMap(cfg);
-    emit(map + warning);
+    emit(welcome + map + warning);
   } catch (e) {
     emit(
-      `# projectstore: vault load failed\n\n${e.message}\n\nFix \`.claude/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
+      welcome +
+        `# projectstore: vault load failed\n\n${e.message}\n\nFix \`.claude/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
     );
   }
 }

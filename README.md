@@ -2,7 +2,7 @@
 
 > Your project's documentation, written and maintained by your AI agent inside an **Obsidian-friendly markdown vault** — ADRs, epics, stories, runbooks, research, meetings. Same markdown-first + agent-maintained idea as Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f), but for engineering project artifacts instead of personal research.
 
-`v0.6.0` · MIT · Claude Code plugin
+`v0.7.0` · MIT · Claude Code plugin
 
 ---
 
@@ -190,7 +190,8 @@ For high-stakes artifacts (ADR / research / epic), `/projectstore:review <path>`
 
 | Version | What ships | Status |
 |---|---|---|
-| **v0.6** | Session isolation (Claude `session_id`), safer rebind, PreCompact `systemMessage` | ✅ current |
+| **v0.7** | First-run welcome (SessionStart one-shot), auto-update follow-up in `/projectstore:bind` | ✅ current |
+| v0.6 | Session isolation (Claude `session_id`), safer rebind, PreCompact `systemMessage` | ✅ |
 | v0.5 | PreCompact survival packet | ✅ |
 | v0.4 | Rename `ps` → `projectstore` for namespace clarity | ✅ |
 | v0.3 | Multi-session coordination (race check + session registry) | ✅ |

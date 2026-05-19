@@ -64,3 +64,14 @@ Steps:
 7. **Offer scaffold**: if the vault is empty or missing layout folders, ask: "Vault is empty/incomplete. Run `/projectstore:scaffold` to create the layout? [Yes / No]". If yes, invoke `/projectstore:scaffold` immediately (just describe; do not assume execution).
 
 8. **Print summary**: confirm the bind, list the layout's folders, suggest next commands (`/projectstore:status`, `/projectstore:adr "<first decision>"`, `/projectstore:epic <ID> "<title>"`).
+
+9. **Auto-update reminder** (v0.7+, only on first successful bind in this project): After Step 5 (config write), check whether the newly-written config has `autoupdate_asked: true`. If not, ask the user via AskUserQuestion:
+
+   > "Claude Code does not auto-update third-party marketplaces by default. Want to enable auto-update for the SmartAndPoint marketplace so you'll be notified about future projectstore releases?"
+
+   Options:
+   - **Yes, show me how** (Recommended) — respond with: "Open `/plugin` → **Marketplaces** tab → **SmartAndPoint** → toggle **auto-update** on. New releases (v0.7+) will be detected at Claude Code startup; you'll need to run `/reload-plugins` after the notification to activate them."
+   - **No, I'll handle it manually** — respond with: "OK. To pull the latest version at any time, run `/plugin marketplace update SmartAndPoint`, then `/reload-plugins`."
+   - **Already enabled** — respond with: "Great. New releases will be detected at the next Claude Code startup."
+
+   After the question is answered (regardless of choice), Edit `<project>/.claude/projectstore.json` to add `"autoupdate_asked": true` to the JSON object. This guarantees we ask only once per project.
