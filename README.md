@@ -11,7 +11,7 @@
 Inside Claude Code:
 
 ```
-/plugin marketplace add SmartAndPoint/projectstore
+/plugin marketplace add SmartAndPoint/ProjectStore
 /plugin install projectstore@SmartAndPoint
 /reload-plugins
 ```
@@ -28,8 +28,8 @@ Done. Open `~/Documents/my-project-vault` in [Obsidian](https://obsidian.md) —
 Local dev install:
 
 ```bash
-git clone https://github.com/SmartAndPoint/projectstore.git
-claude --plugin-dir ./projectstore
+git clone https://github.com/SmartAndPoint/ProjectStore.git
+claude --plugin-dir ./ProjectStore
 ```
 
 ---
@@ -194,7 +194,7 @@ See [`docs/extending.md`](./docs/extending.md) for adding layouts, templates, an
 
 ## Contributing
 
-Issues and discussions: https://github.com/SmartAndPoint/projectstore/issues. PRs welcome — adding a layout is a good first contribution (see `scaffold/layouts/engineering.json` for the format).
+Issues and discussions: https://github.com/SmartAndPoint/ProjectStore/issues. PRs welcome — adding a layout is a good first contribution (see `scaffold/layouts/engineering.json` for the format).
 
 ## License
 

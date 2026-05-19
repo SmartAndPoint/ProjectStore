@@ -5,13 +5,13 @@
 Until projectstore is published to a public marketplace, install it from a local clone.
 
 ```bash
-git clone https://github.com/SmartAndPoint/projectstore.git ~/Projects/SmartAndPoint/projectstore
+git clone https://github.com/SmartAndPoint/ProjectStore.git ~/Projects/SmartAndPoint/ProjectStore
 ```
 
 In Claude Code, register the local plugin directory:
 
 ```
-claude --plugin-dir ~/Projects/SmartAndPoint/projectstore
+claude --plugin-dir ~/Projects/SmartAndPoint/ProjectStore
 ```
 
 Inside a Claude Code session, reload the plugin without restart:
@@ -33,7 +33,7 @@ You should see `projectstore` (displayName) with prefix `ps`.
 When projectstore is ready for distribution:
 
 ```
-/plugin marketplace add SmartAndPoint/projectstore
+/plugin marketplace add SmartAndPoint/ProjectStore
 /plugin install ps@SmartAndPoint
 ```
 

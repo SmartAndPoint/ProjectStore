@@ -89,4 +89,4 @@ Mirror `templates/en/` to `templates/<lang>/` and translate the bodies. Frontmat
 
 ## Contributing back
 
-PRs welcome at https://github.com/SmartAndPoint/projectstore. Prefer one focused PR per layout / template / skill. Include a sample output in your PR description.
+PRs welcome at https://github.com/SmartAndPoint/ProjectStore. Prefer one focused PR per layout / template / skill. Include a sample output in your PR description.
