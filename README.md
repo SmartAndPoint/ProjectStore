@@ -88,8 +88,12 @@ MIT — see `LICENSE`.
 - [x] v0.2: peer-review channel — `/projectstore:review <path>` + `peer-reviewer` skill + per-kind structural checklists + `review_status` frontmatter
 - [x] v0.3: multi-session coordination — atomic-numbering race check before write (layer 1), session registration in `<vault>/.projectstore/sessions/` + cross-session warning at SessionStart and in `/projectstore:status` (layer 2)
 - [x] v0.4: rename plugin `ps` → `projectstore` for namespace clarity (commands now `/projectstore:*`)
-- [ ] v0.4.1: safer rebind — `/projectstore:bind` detects an existing `.claude/projectstore.json`, shows a `vault_path` diff (`old → new`), and asks via AskUserQuestion: `[Replace / Keep old / Cancel]`. On replace, also clean up the orphan session entry in the old vault.
 - [x] v0.5: **PreCompact survival packet** — new PreCompact hook injects `additionalContext` before manual `/compact` AND automatic compaction. Packet includes: bound vault path + layout, list of `/projectstore:*` commands, and per-session `recent_activity` (last ~15 files touched by Read/Write/Edit inside the vault). Activity is maintained by an extended PreToolUse hook that reads tool input from stdin and appends vault-relative paths to the session JSON. Hint surfaces newest in-flight ADR / epic / story / research so the post-compact agent resumes drafting without re-deriving structure.
+- [x] v0.6: **session isolation + safer rebind**.
+  - `session_id` now comes from Claude's own value in hook stdin (`session-start`, `touch-session`, `pre-compact` all read it). Two Claude Code instances open in the same project no longer share a session file. The legacy `.claude/.projectstore-session-id` is removed on next session start (auto-migration).
+  - PreCompact also emits a one-line `systemMessage` ("projectstore: survival packet injected — vault X, layout Y, N recent file(s)") so the hook run is visible in `/compact` stdout.
+  - Safer `/projectstore:bind`: when `.claude/projectstore.json` already exists, the command shows a config diff (old → new) and asks via AskUserQuestion `[Replace / Keep old / Cancel]`. Same-vault rebind is a no-op confirmation.
+  - `/projectstore:status` no longer marks "this session" (commands can't access `session_id`); it lists all active sessions and lets the user identify by `project_root` / timestamp.
 - [ ] v1: stabilize commands, publish to marketplace, GIF demo
 - [ ] v1.1: `data-analytics` layout (community-worthy second example)
 - [ ] v2: process modules (sprint cycles, retros), Kanban transitions

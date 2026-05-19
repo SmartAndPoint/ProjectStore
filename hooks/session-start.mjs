@@ -2,20 +2,20 @@
 // projectstore — SessionStart hook.
 // 1. Reads .claude/projectstore.json from the project root. If absent or
 //    auto_inject=false, silently no-ops.
-// 2. (Layer 2 — v0.3) Registers this session in <vault>/.projectstore/
-//    sessions/<id>.json, cleans stale entries (>24h), detects other
-//    active sessions (mtime < 30min) and prepends a warning to the
-//    additionalContext so the agent knows it is not alone on this vault.
+// 2. Registers this session in <vault>/.projectstore/sessions/<id>.json,
+//    keyed by Claude's own session_id from hook stdin. Cleans stale
+//    entries (>24h). Detects other active sessions (mtime < 30min) and
+//    appends a warning so the agent knows it is not alone on this vault.
 // 3. Injects a compact map of the vault (root README + folder READMEs).
 
 import {
   readConfig,
   buildVaultMap,
-  generateSessionId,
   writeSession,
-  writeOwnSessionId,
   readActiveSessions,
   cleanupStaleSessions,
+  removeLegacySessionIdFile,
+  readStdinJson,
   projectRoot,
 } from "../scripts/lib.mjs";
 
@@ -63,22 +63,23 @@ function main() {
   if (cfg.auto_inject === false) process.exit(0);
 
   const proj = projectRoot();
+  const input = readStdinJson();
+  const sid = input?.session_id || null;
 
-  try {
-    let warning = "";
-    let sessionId = null;
+  let warning = "";
+  if (sid) {
     try {
       cleanupStaleSessions(cfg.vault_path);
-      sessionId = generateSessionId();
-      writeSession(cfg.vault_path, sessionId, proj);
-      writeOwnSessionId(proj, sessionId);
-      const others = readActiveSessions(cfg.vault_path, sessionId);
+      writeSession(cfg.vault_path, sid, proj);
+      removeLegacySessionIdFile(proj);
+      const others = readActiveSessions(cfg.vault_path, sid);
       if (others.length > 0) warning = buildOthersWarning(others);
     } catch (e) {
-      // Session registration failure must not block the vault map.
       warning = `\n\n## projectstore: session registration failed\n\n${e.message}\n`;
     }
+  }
 
+  try {
     const map = buildVaultMap(cfg);
     emit(map + warning);
   } catch (e) {

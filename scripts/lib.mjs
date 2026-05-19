@@ -4,7 +4,6 @@
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, utimesSync, unlinkSync } from "node:fs";
 import { join, dirname, basename, resolve } from "node:path";
-import { randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
@@ -142,9 +141,11 @@ export function buildVaultMap(cfg) {
 
 // ─── Session awareness (layer 2 — multi-Claude coordination) ──────────
 //
-// Each Claude Code session that loads this plugin registers itself in
-// <vault>/.projectstore/sessions/<id>.json. Other sessions reading the
-// vault can detect them and warn the agent to avoid topic / numbering
+// Each Claude Code session registers itself in
+// <vault>/.projectstore/sessions/<id>.json, where <id> is Claude's own
+// session_id (from hook stdin input). Two Claude instances in the same
+// project therefore get distinct files. Other sessions reading the vault
+// can detect each other and warn the agent to avoid topic / numbering
 // collisions. mtime is used as a liveness proxy: a session whose file
 // has not been touched in 30 minutes is considered idle; >24h => stale,
 // removed on next SessionStart.
@@ -153,12 +154,20 @@ export function sessionsDir(vault) {
   return join(vault, ".projectstore", "sessions");
 }
 
-export function ownSessionIdPath(projectDir) {
-  return join(projectDir || projectRoot(), ".claude", ".projectstore-session-id");
+export function sessionFilePath(vault, sessionId) {
+  return join(sessionsDir(vault), `${sessionId}.json`);
 }
 
-export function generateSessionId() {
-  return `${hostname()}-${process.pid}-${Date.now()}-${randomBytes(4).toString("hex")}`;
+// Read Claude's own session_id from hook stdin JSON. Returns null on any
+// parse error — callers must no-op silently in that case.
+export function readStdinJson() {
+  try {
+    const raw = readFileSync(0, "utf8").trim();
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 export function ensureSessionsDir(vault) {
@@ -174,29 +183,30 @@ export function ensureSessionsDir(vault) {
   return dir;
 }
 
+// Idempotent: preserves started_at and recent_activity if the session file
+// already exists (e.g. when SessionStart fires after touch-session has
+// already bootstrapped the record).
 export function writeSession(vault, sessionId, projectRoot) {
   ensureSessionsDir(vault);
-  const path = join(sessionsDir(vault), `${sessionId}.json`);
-  writeFileSync(
-    path,
-    JSON.stringify(
-      {
-        id: sessionId,
-        started_at: new Date().toISOString(),
-        project_root: projectRoot,
-        host: hostname(),
-        pid: process.pid,
-      },
-      null,
-      2,
-    ),
-    "utf8",
-  );
+  const path = sessionFilePath(vault, sessionId);
+  let existing = null;
+  if (existsSync(path)) {
+    try { existing = JSON.parse(readFileSync(path, "utf8")); } catch {}
+  }
+  const data = {
+    id: sessionId,
+    started_at: existing?.started_at || new Date().toISOString(),
+    project_root: projectRoot,
+    host: hostname(),
+    pid: process.pid,
+    recent_activity: Array.isArray(existing?.recent_activity) ? existing.recent_activity : [],
+  };
+  writeFileSync(path, JSON.stringify(data, null, 2), "utf8");
   return path;
 }
 
 export function touchSession(vault, sessionId) {
-  const p = join(sessionsDir(vault), `${sessionId}.json`);
+  const p = sessionFilePath(vault, sessionId);
   if (!existsSync(p)) return false;
   const now = new Date();
   try {
@@ -244,19 +254,13 @@ export function cleanupStaleSessions(vault, maxAgeHours = 24) {
   return removed;
 }
 
-export function writeOwnSessionId(projectDir, sessionId) {
-  const p = ownSessionIdPath(projectDir);
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, sessionId, "utf8");
-}
-
-export function readOwnSessionId(projectDir) {
-  const p = ownSessionIdPath(projectDir);
-  if (!existsSync(p)) return null;
-  try {
-    return readFileSync(p, "utf8").trim();
-  } catch {
-    return null;
+// One-shot migration helper: delete .claude/.projectstore-session-id left
+// behind by v0.3 – v0.5 (file-based per-project session id). Safe to call
+// on every session start; no-op if the file is absent. Kept until v0.7.
+export function removeLegacySessionIdFile(projectDir) {
+  const p = join(projectDir || projectRoot(), ".claude", ".projectstore-session-id");
+  if (existsSync(p)) {
+    try { unlinkSync(p); } catch {}
   }
 }
 
@@ -269,7 +273,7 @@ export function readOwnSessionId(projectDir) {
 const ACTIVITY_CAP = 50;
 
 export function appendActivity(vault, sessionId, filePath, toolName) {
-  const sp = join(sessionsDir(vault), `${sessionId}.json`);
+  const sp = sessionFilePath(vault, sessionId);
   if (!existsSync(sp)) return false;
   let data;
   try {
@@ -290,7 +294,7 @@ export function appendActivity(vault, sessionId, filePath, toolName) {
 }
 
 export function readSessionActivity(vault, sessionId) {
-  const sp = join(sessionsDir(vault), `${sessionId}.json`);
+  const sp = sessionFilePath(vault, sessionId);
   if (!existsSync(sp)) return [];
   try {
     const data = JSON.parse(readFileSync(sp, "utf8"));

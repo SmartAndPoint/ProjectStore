@@ -12,6 +12,29 @@ Parse `$ARGUMENTS`:
 
 Steps:
 
+0. **Check for an existing bind** (safer rebind, v0.4.1):
+   - Read `<project>/.claude/projectstore.json` if it exists.
+   - If absent: proceed to step 1 (fresh bind).
+   - If present, compare its `vault_path` with the new path (after `~` expansion):
+     - **Same vault**: print "Already bound to `<path>`. Re-run `/projectstore:scaffold` if you need to (re)create the layout, or `/projectstore:status` to inspect it." and stop. Do not rewrite the config.
+     - **Different vault**: show the user a one-block diff:
+       ```
+       Existing bind:
+         vault_path: <old>
+         layout:     <old layout>
+         language:   <old lang>
+       Proposed bind:
+         vault_path: <new>
+         layout:     <new layout>
+         language:   <new lang>
+       ```
+       Then ask via AskUserQuestion: "An existing projectstore bind was found. How to proceed?" with options:
+       - **Replace bind** (Recommended) — write the new config, leaving the old vault's `.projectstore/sessions/` to expire on its own 24h TTL.
+       - **Keep old bind** — make no changes, print "Kept binding to `<old>`." and stop.
+       - **Cancel** — make no changes, print "Cancelled." and stop.
+
+       Only on **Replace bind**, continue with the remaining steps below.
+
 1. **Validate the vault path** with `ls -la "<path>"`. If it does not exist, ask the user (via AskUserQuestion) whether to create it.
 2. **Detect existing layout**: list immediate subdirectories. If you see `adr/`, `epics/`, `concepts/`, `research/` — the vault already uses an engineering-like layout; suggest `engineering`. Otherwise use the user's choice or `engineering` default.
 3. **Build the config** as JSON:
