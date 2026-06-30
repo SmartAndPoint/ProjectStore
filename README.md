@@ -158,12 +158,13 @@ PreCompact [...pre-compact.mjs] completed successfully: {
 
 The packet contains the vault path, the command list, the last 15 vault touches, and the newest in-flight ADR / epic / story / research. The post-compact agent picks up drafting from where the previous one left off, no manual rehydration.
 
-## What's in the box (v0.6)
+## What's in the box (v0.9)
 
 - **13 commands** — `bind`, `scaffold`, `status`, `adr`, `epic`, `story`, `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`
 - **3 passive skills** — `decision-detector`, `story-completion`, `peer-reviewer`. They suggest commands; they never write directly.
+- **3 bundled agents** — `projectstore-critic`, `code-planner`, `code-reviewer`. Opus, max-effort, read-only, independent fresh-context passes. See [Bundled agents](#bundled-agents).
 - **1 layout** — `engineering` (`adr/`, `epics/<id>/stories/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`)
-- **9 templates** — opinionated markdown with frontmatter (English; Russian variant on the roadmap)
+- **9 templates** — opinionated markdown with frontmatter (English + Russian variants)
 - **3 hooks** — `SessionStart` (vault map + multi-session warning), `PreToolUse` (per-session activity log), `PreCompact` (survival packet)
 
 ## Philosophy
@@ -187,6 +188,18 @@ Every command that writes or edits a file goes through `AskUserQuestion`:
 ## Peer-review channel
 
 For high-stakes artifacts (ADR / research / epic), `/projectstore:review <path>` spawns a fresh critic agent with a per-kind structural checklist (`scaffold/checklists.json`). Fresh context = no anchoring bias to its own work. Returns concrete improvements, not "looks great!". Templates write `review_status: pending` into the frontmatter; the reviewer flips it to `reviewed` once you accept the diff.
+
+## Bundled agents
+
+`projectstore` ships three Opus, max-effort, **read-only** subagents. Each runs as an independent, fresh-context pass — the point is to catch self-approval bias, not to be a helpful assistant. They report findings; they never edit, stage, or commit. Invoke them via the Agent tool's `subagent_type` using the plugin-scoped name.
+
+| Agent | When | What it does |
+|---|---|---|
+| `projectstore:projectstore-critic` | After authoring/revising an artifact (ADR / research / epic / story) or a design proposal, before treating it final | Adversarial critique: pre-commits to likely problems, verifies every claim against its source, rates assumptions (verified / reasonable / fragile), runs gap-analysis + pre-mortem with operator / maintainer / skeptic lenses, then self-audits. Verdict: `ship` / `revise` / `rethink`. |
+| `projectstore:code-planner` | Before writing non-trivial code | Explores the actual codebase and returns *where* the change belongs, *which* existing patterns and utilities to reuse, the conventions to match, the repo-specific pitfalls to avoid, and an ordered placement plan — grounded in this repo, not generic advice. |
+| `projectstore:code-reviewer` | After writing code, before committing | Pre-commit review: spec compliance first, then correctness / regressions / codebase-fit / tests — severity + confidence rated, discovery-not-filtered, self-audited. Verdict: `commit` / `fix first`. |
+
+`/projectstore:review` uses `projectstore-critic` as its default critic. Because plugin agents resolve at the **lowest** priority, a same-named agent in `.claude/agents/` (project) or `~/.claude/agents/` (user) transparently overrides the bundled one — so your own tuned version always wins where you have one.
 
 ## Roadmap
 
