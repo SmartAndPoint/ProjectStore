@@ -205,7 +205,9 @@ For high-stakes artifacts (ADR / research / epic), `/projectstore:review <path>`
 
 | Version | What ships | Status |
 |---|---|---|
-| **v0.7** | First-run welcome (SessionStart one-shot), auto-update follow-up in `/projectstore:bind` | ✅ current |
+| **v0.9** | Bundled review agents (`projectstore-critic`, `code-planner`, `code-reviewer`) | ✅ current |
+| v0.8 | Russian (`ru`) templates | ✅ |
+| v0.7 | First-run welcome (SessionStart one-shot), auto-update follow-up in `/projectstore:bind` | ✅ |
 | v0.6 | Session isolation (Claude `session_id`), safer rebind, PreCompact `systemMessage` | ✅ |
 | v0.5 | PreCompact survival packet | ✅ |
 | v0.4 | Rename `ps` → `projectstore` for namespace clarity | ✅ |
