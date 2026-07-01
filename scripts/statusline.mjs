@@ -129,15 +129,27 @@ function bookSegment(cfg, input) {
     }
   }
 
-  let seg = BOOK + epicId;
+  // Prefer the human `title:` from each artifact's frontmatter over the raw
+  // id / filename slug (fall back to those when a title is missing/unreadable).
+  let epicTitle = null;
+  try {
+    const { data } = parseFrontmatter(
+      readFileSync(join(vault, "epics", epicId, "epic.md"), "utf8"),
+    );
+    if (data.title) epicTitle = String(data.title);
+  } catch {}
+  let seg = BOOK + (epicTitle || epicId);
+
   if (storyFile) {
-    const label = storyFile.replace(/\.md$/, "");
     let status = null;
+    let storyTitle = null;
     try {
       const { data } = parseFrontmatter(readFileSync(storyPath, "utf8"));
       if (data.status) status = String(data.status).toLowerCase();
+      if (data.title) storyTitle = String(data.title);
     } catch {}
-    seg += ARROW + label + (status ? ` (${status})` : "");
+    const storyLabel = storyTitle || storyFile.replace(/\.md$/, "");
+    seg += ARROW + storyLabel + (status ? ` (${status})` : "");
   }
   return seg;
 }

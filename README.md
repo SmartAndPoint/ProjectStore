@@ -158,7 +158,7 @@ PreCompact [...pre-compact.mjs] completed successfully: {
 
 The packet contains the vault path, the command list, the last 15 vault touches, and the newest in-flight ADR / epic / story / research. The post-compact agent picks up drafting from where the previous one left off, no manual rehydration.
 
-## What's in the box (v0.11)
+## What's in the box (v0.12)
 
 - **14 commands** — `bind`, `scaffold`, `status`, `adr`, `epic`, `story`, `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`, `statusline`
 - **3 passive skills** — `decision-detector`, `story-completion`, `peer-reviewer`. They suggest commands; they never write directly.
@@ -222,7 +222,8 @@ So in a projectstore project you keep your full [oh-my-claudecode](https://githu
 
 | Version | What ships | Status |
 |---|---|---|
-| **v0.11** | Status line install simplified — opt-in flag + self-healing SessionStart wiring | ✅ current |
+| **v0.12** | Status line shows full epic & story titles (from frontmatter, not the filename) | ✅ current |
+| v0.11 | Status line install simplified — opt-in flag + self-healing SessionStart wiring | ✅ |
 | v0.10 | Status line — current epic & story in the HUD, composes with an existing status line | ✅ |
 | v0.9 | Bundled review agents (`projectstore-critic`, `code-planner`, `code-reviewer`) | ✅ |
 | v0.8 | Russian (`ru`) templates | ✅ |
