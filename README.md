@@ -158,7 +158,7 @@ PreCompact [...pre-compact.mjs] completed successfully: {
 
 The packet contains the vault path, the command list, the last 15 vault touches, and the newest in-flight ADR / epic / story / research. The post-compact agent picks up drafting from where the previous one left off, no manual rehydration.
 
-## What's in the box (v0.10)
+## What's in the box (v0.11)
 
 - **14 commands** — `bind`, `scaffold`, `status`, `adr`, `epic`, `story`, `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`, `statusline`
 - **3 passive skills** — `decision-detector`, `story-completion`, `peer-reviewer`. They suggest commands; they never write directly.
@@ -208,13 +208,13 @@ See the epic and story the agent is working on this session, right in Claude Cod
 
 ![projectstore status line: the 📚 epic › story line sitting above an existing oh-my-claudecode HUD](docs/images/statusline-hud.png)
 
-**It does not overwrite your current status-line settings.** `statusLine` is a single slot and not plugin-declarable, so projectstore ships `scripts/statusline.mjs` plus a `/projectstore:statusline on|off` command that wires it into the project's `.claude/settings.local.json` (local scope, this-project-only, reverts cleanly; conventionally git-ignored). Rather than clobber your HUD, the script **composes**: it re-runs whatever base `statusLine` command you already have — for example [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)'s HUD, read from `~/.claude/settings.json` — prints its output verbatim, and adds the `📚 <epic> › <story> (<status>)` line above it (position via `projectstore.json` → `statusline.position`, default `above`). With no base command it renders a standalone line: `<model> · <dir> · ⎇ <branch> · 📚 …`.
+**It does not overwrite your current status-line settings.** `statusLine` is a single slot and not plugin-declarable, so projectstore ships `scripts/statusline.mjs` plus a `/projectstore:statusline on|off` command. Enabling it just flips `statusline.enabled` in `.claude/projectstore.json`; the **SessionStart hook** then wires the project's `.claude/settings.local.json` (local scope, this-project-only, conventionally git-ignored) to the current plugin version's script — re-derived on every session start, so it keeps working across plugin updates with no path to maintain by hand. Rather than clobber your HUD, the script **composes**: it re-runs whatever base `statusLine` command you already have — for example [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)'s HUD, read from `~/.claude/settings.json` — prints its output verbatim, and adds the `📚 <epic> › <story> (<status>)` line above it (position via `projectstore.json` → `statusline.position`, default `above`). With no base command it renders a standalone line: `<model> · <dir> · ⎇ <branch> · 📚 …`.
 
 So in a projectstore project you keep your full [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) context / rate-limit / session HUD **and** gain the current epic & story on top. The epic/story is derived from this session's `recent_activity` log — it appears once you touch an epic or story, and stays transparent (base HUD only) otherwise.
 
 ```
-/projectstore:statusline on      # wire it into this project (project-local)
-/projectstore:statusline off     # remove it
+/projectstore:statusline on      # enable (project-local); the hook wires + refreshes it
+/projectstore:statusline off     # disable it
 /projectstore:statusline status  # current state + the base HUD it composes over
 ```
 
@@ -222,7 +222,8 @@ So in a projectstore project you keep your full [oh-my-claudecode](https://githu
 
 | Version | What ships | Status |
 |---|---|---|
-| **v0.10** | Status line — current epic & story in the HUD, composes with an existing status line | ✅ current |
+| **v0.11** | Status line install simplified — opt-in flag + self-healing SessionStart wiring | ✅ current |
+| v0.10 | Status line — current epic & story in the HUD, composes with an existing status line | ✅ |
 | v0.9 | Bundled review agents (`projectstore-critic`, `code-planner`, `code-reviewer`) | ✅ |
 | v0.8 | Russian (`ru`) templates | ✅ |
 | v0.7 | First-run welcome (SessionStart one-shot), auto-update follow-up in `/projectstore:bind` | ✅ |

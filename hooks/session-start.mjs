@@ -19,6 +19,7 @@ import {
   removeLegacySessionIdFile,
   readStdinJson,
   projectRoot,
+  syncStatusLine,
 } from "../scripts/lib.mjs";
 
 function welcomedMarkerPath(proj) {
@@ -110,6 +111,12 @@ function main() {
     if (welcome) emit(welcome, welcomeSystemMessage);
     process.exit(0);
   }
+
+  // Opt-in status line: keep settings.local.json pointed at this plugin
+  // version's statusline.mjs (self-heals on update). Best-effort; a settings
+  // write must never break session-context injection.
+  try { syncStatusLine(cfg, proj); } catch {}
+
   if (cfg.auto_inject === false) {
     if (welcome) emit(welcome, welcomeSystemMessage);
     process.exit(0);
