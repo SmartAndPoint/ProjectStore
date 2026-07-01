@@ -38,6 +38,61 @@ export function writeConfig(cfg) {
   writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n", "utf8");
 }
 
+// ─── Status line wiring (SessionStart-managed) ─────────────────────────
+//
+// The Claude Code statusLine slot is single and NOT plugin-declarable, so
+// when a bound project opts in (projectstore.json → statusline.enabled=true)
+// the SessionStart hook keeps <project>/.claude/settings.local.json pointing
+// at THIS plugin version's scripts/statusline.mjs. The path is re-derived from
+// pluginRoot() every session start, so it self-heals across plugin updates.
+// Idempotent (writes only when the value changes); never clobbers a foreign
+// statusLine; bails on an unparseable settings file. Returns a status string,
+// never throws — the caller wraps it, and this must not break session start.
+export function syncStatusLine(cfg, projectDir) {
+  const st = cfg && cfg.statusline;
+  if (!st || typeof st.enabled !== "boolean") return "no-flag"; // absent → leave manual installs alone
+
+  const p = join(projectDir, ".claude", "settings.local.json");
+  const desired = `node "${join(pluginRoot(), "scripts", "statusline.mjs")}"`;
+
+  let settings = {};
+  if (existsSync(p)) {
+    try {
+      settings = JSON.parse(readFileSync(p, "utf8"));
+    } catch {
+      return "skipped-unparseable"; // never clobber a file we cannot read
+    }
+    if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+      return "skipped-nonobject";
+    }
+  }
+
+  const cur = settings.statusLine;
+  const curCmd = cur && typeof cur.command === "string" ? cur.command : null;
+  const isOurs = curCmd ? curCmd.includes("scripts/statusline.mjs") : false;
+
+  let changed = false;
+  if (st.enabled) {
+    if (cur && !isOurs) return "foreign-present"; // any existing non-ours entry: leave the slot to its owner
+    if (!cur || curCmd !== desired) {
+      settings.statusLine = { type: "command", command: desired };
+      changed = true;
+    }
+  } else if (isOurs) {
+    delete settings.statusLine; // disabled: remove only our entry, keep the rest
+    changed = true;
+  }
+
+  if (!changed) return "unchanged";
+  try {
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  } catch {
+    return "write-failed";
+  }
+  return st.enabled ? "enabled" : "disabled";
+}
+
 // ─── Layouts ───────────────────────────────────────────────────────────
 
 export function loadLayout(name) {

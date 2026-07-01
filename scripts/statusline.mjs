@@ -165,7 +165,7 @@ function discoverBaseCommand(projectDir) {
         typeof cmd === "string" &&
         cmd.trim() &&
         !cmd.includes(SELF) &&
-        !cmd.includes("statusline.mjs")
+        !cmd.includes("scripts/statusline.mjs")
       ) {
         return cmd;
       }
