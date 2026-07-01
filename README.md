@@ -158,14 +158,15 @@ PreCompact [...pre-compact.mjs] completed successfully: {
 
 The packet contains the vault path, the command list, the last 15 vault touches, and the newest in-flight ADR / epic / story / research. The post-compact agent picks up drafting from where the previous one left off, no manual rehydration.
 
-## What's in the box (v0.9)
+## What's in the box (v0.10)
 
-- **13 commands** — `bind`, `scaffold`, `status`, `adr`, `epic`, `story`, `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`
+- **14 commands** — `bind`, `scaffold`, `status`, `adr`, `epic`, `story`, `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`, `statusline`
 - **3 passive skills** — `decision-detector`, `story-completion`, `peer-reviewer`. They suggest commands; they never write directly.
 - **3 bundled agents** — `projectstore-critic`, `code-planner`, `code-reviewer`. Opus, max-effort, read-only, independent fresh-context passes. See [Bundled agents](#bundled-agents).
 - **1 layout** — `engineering` (`adr/`, `epics/<id>/stories/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`)
 - **9 templates** — opinionated markdown with frontmatter (English + Russian variants)
 - **3 hooks** — `SessionStart` (vault map + multi-session warning), `PreToolUse` (per-session activity log), `PreCompact` (survival packet)
+- **1 status line** — opt-in HUD line with the current epic & story, composed above an existing status line (e.g. oh-my-claudecode). See [Status line](#status-line).
 
 ## Philosophy
 
@@ -201,11 +202,28 @@ For high-stakes artifacts (ADR / research / epic), `/projectstore:review <path>`
 
 `/projectstore:review` uses `projectstore-critic` as its default critic. Because plugin agents resolve at the **lowest** priority, a same-named agent in `.claude/agents/` (project) or `~/.claude/agents/` (user) transparently overrides the bundled one — so your own tuned version always wins where you have one.
 
+## Status line
+
+See the epic and story the agent is working on this session, right in Claude Code's status line — composed **above** your existing HUD, not replacing it:
+
+![projectstore status line: the 📚 epic › story line sitting above an existing oh-my-claudecode HUD](docs/images/statusline-hud.png)
+
+**It does not overwrite your current status-line settings.** `statusLine` is a single slot and not plugin-declarable, so projectstore ships `scripts/statusline.mjs` plus a `/projectstore:statusline on|off` command that wires it into the project's `.claude/settings.local.json` (local scope, this-project-only, reverts cleanly; conventionally git-ignored). Rather than clobber your HUD, the script **composes**: it re-runs whatever base `statusLine` command you already have — for example [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)'s HUD, read from `~/.claude/settings.json` — prints its output verbatim, and adds the `📚 <epic> › <story> (<status>)` line above it (position via `projectstore.json` → `statusline.position`, default `above`). With no base command it renders a standalone line: `<model> · <dir> · ⎇ <branch> · 📚 …`.
+
+So in a projectstore project you keep your full [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) context / rate-limit / session HUD **and** gain the current epic & story on top. The epic/story is derived from this session's `recent_activity` log — it appears once you touch an epic or story, and stays transparent (base HUD only) otherwise.
+
+```
+/projectstore:statusline on      # wire it into this project (project-local)
+/projectstore:statusline off     # remove it
+/projectstore:statusline status  # current state + the base HUD it composes over
+```
+
 ## Roadmap
 
 | Version | What ships | Status |
 |---|---|---|
-| **v0.9** | Bundled review agents (`projectstore-critic`, `code-planner`, `code-reviewer`) | ✅ current |
+| **v0.10** | Status line — current epic & story in the HUD, composes with an existing status line | ✅ current |
+| v0.9 | Bundled review agents (`projectstore-critic`, `code-planner`, `code-reviewer`) | ✅ |
 | v0.8 | Russian (`ru`) templates | ✅ |
 | v0.7 | First-run welcome (SessionStart one-shot), auto-update follow-up in `/projectstore:bind` | ✅ |
 | v0.6 | Session isolation (Claude `session_id`), safer rebind, PreCompact `systemMessage` | ✅ |
