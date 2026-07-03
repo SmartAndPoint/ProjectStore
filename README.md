@@ -1,14 +1,74 @@
 # ProjectStore
 
-> Your project's documentation, written and maintained by your AI agent inside an **Obsidian-friendly markdown vault** — ADRs, epics, stories, runbooks, research, meetings. Same markdown-first + agent-maintained idea as Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f), but for engineering project artifacts instead of personal research.
+> Your project's memory, written by your AI agent. Decisions, epics, stories, and a kanban board — saved as plain markdown files you can open in [Obsidian](https://obsidian.md), read on GitHub, or `cat` in a terminal.
 
 [![release](https://img.shields.io/github/v/release/SmartAndPoint/ProjectStore?label=release)](https://github.com/SmartAndPoint/ProjectStore/releases) [![license](https://img.shields.io/github/license/SmartAndPoint/ProjectStore?label=license)](./LICENSE) [![Star on GitHub](https://img.shields.io/badge/%E2%AD%90-star_us-yellow?logo=github)](https://github.com/SmartAndPoint/ProjectStore/stargazers)
 
-A Claude Code plugin.
+A [Claude Code](https://claude.com/claude-code) plugin. Same markdown-first, agent-maintained idea as Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) — but for engineering project artifacts, one brain per project.
 
 ---
 
-## 30-second install
+## What it gives you — in 90 seconds
+
+**1. Decisions stop getting lost.** You make dozens of small architectural calls in chat every week. ProjectStore notices them and offers to write them down:
+
+> **You:** Let's go with Postgres, not Mongo — we need transactions.
+>
+> **Claude:** That reads like an architecture decision. Want me to file it as `adr/ADR-001-use-postgres-for-primary-storage.md`?
+
+You say yes, review the draft, approve — and a real file lands in your vault:
+
+```markdown
+---
+title: "Use Postgres for primary storage"
+status: accepted
+date: 2026-07-03
+---
+## Context
+We need ACID transactions for order processing...
+## Decision
+Postgres 16 as the primary store...
+## Alternatives Considered
+### MongoDB — rejected because...
+```
+
+Six months later, "why Postgres?" has an answer with a date and the alternatives you rejected.
+
+**2. Every session starts with "where were we".** When you open Claude Code in a bound project, the plugin injects a map of your vault into the session. Ask *"where did we stop, what's next?"* — and the agent answers from your actual epics and stories, not from guesswork.
+
+**3. A real board.** Stories carry a `status` field; `/projectstore:kanban` turns them into an Obsidian-style board:
+
+```markdown
+## In Progress
+- [ ] [[AUTH-001: OIDC discovery]] #p1
+
+## Done
+- [x] [[AUTH-001: Login form]] #p1
+```
+
+**4. Your status line shows what this session is working on** — composed above your existing HUD, never replacing it:
+
+```
+[PS#0.13.0] 📚 Authentication system › OIDC discovery (in-progress)
+```
+
+A fresh session honestly says `📚 No epic or story in this session yet` instead of showing nothing.
+
+**5. A doctor that tells you when something's off.** No AI involved — fast, deterministic checks:
+
+```
+$ /projectstore:doctor
+## vault (1 issue(s))
+  ✖ [kanban] kanban.md is out of sync with story frontmatter — run /projectstore:kanban
+```
+
+**6. Five specialist agents on call** — a critic for your documents, a planner and a reviewer that know your project's structure, a librarian, and an archaeologist for existing codebases. See [The bundled agents](#the-bundled-agents).
+
+Everything is plain markdown in a folder you choose. The plugin can disappear tomorrow; your project's memory stays readable.
+
+---
+
+## Install (2 minutes)
 
 Inside Claude Code:
 
@@ -18,210 +78,170 @@ Inside Claude Code:
 /reload-plugins
 ```
 
-Bind the plugin to a folder — that folder becomes your project's vault:
+One important switch: Claude Code does **not** auto-update third-party plugins by default. Open `/plugin` → **Marketplaces** tab → **SmartAndPoint** → toggle **auto-update** on. (If you skip this, `/projectstore:doctor` will remind you later — with the exact setting to flip.)
 
-```
-/projectstore:bind ~/Documents/my-project-vault
-/projectstore:scaffold engineering
-```
-
-Done. Open `~/Documents/my-project-vault` in [Obsidian](https://obsidian.md) — that's your project's brain. From here on, the agent writes ADRs, epics, stories, and runbooks into the vault as your conversation moves forward. You approve every write.
-
-Local dev install:
+<details>
+<summary>Local dev install (contributors)</summary>
 
 ```bash
 git clone https://github.com/SmartAndPoint/ProjectStore.git
 claude --plugin-dir ./ProjectStore
 ```
 
-## Updates
+To pin a specific release: `/plugin marketplace add SmartAndPoint/ProjectStore#v0.13.0`.
+</details>
 
-Third-party marketplaces don't auto-update by default in Claude Code. After `/plugin marketplace add SmartAndPoint/ProjectStore`, open `/plugin` → **Marketplaces** tab and toggle auto-update on if you want notifications for new releases at Claude Code startup. When an update lands, Claude Code prompts you to run `/reload-plugins` to activate it.
+## First-time setup — what actually happens
 
-To pin to a specific release, add the marketplace with a git ref:
-
-```
-/plugin marketplace add SmartAndPoint/ProjectStore#v0.6.0
-```
-
-Otherwise the marketplace tracks the `main` branch HEAD.
-
----
-
-## What it is
-
-Most "AI memory" plugins record what was *said*. `projectstore` records what was *decided* — and turns that into the kind of files engineering teams already write by hand: ADRs you can defend, epics with acceptance criteria, a kanban that reflects real state, runbooks for ops.
+Pick any folder for your project's memory (an "Obsidian vault" — but really just a folder) and bind it:
 
 ```
-┌─ AI session ────────────┐    ┌─ Obsidian vault ───────────┐    ┌─ Anyone reading ┐
-│  /projectstore:adr      │ →  │  adr/ADR-001-postgres.md    │ →  │  Obsidian       │
-│  /projectstore:epic     │    │  epics/AUTH-001/epic.md     │    │  GitHub         │
-│  /projectstore:story    │    │  epics/AUTH-001/stories/    │    │  Any editor     │
-│  /projectstore:research │    │  research/oidc-libs.md      │    │  cat            │
-│  /projectstore:kanban   │    │  kanban.md (Obsidian fmt)   │    │                 │
-└─────────────────────────┘    └────────────────────────────┘    └─────────────────┘
-        approval gate                    git-tracked                same files
+# Example
+
+/projectstore:bind ~/Documents/my-project-vault
 ```
 
-Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) (April 2026) showed how an LLM can incrementally build and maintain a markdown second brain that you browse in Obsidian. `projectstore` applies the same idea to **engineering project documentation** — opinionated layouts (ADR / epic / story / runbook) instead of free-form research articles, and one vault per project instead of one per person.
+Bind walks you through a short interview. Every step shows you exactly what it wants to write and waits for your approval — nothing lands silently:
 
-## How an agent uses projectstore
+| Step | What you're asked | Beginner-friendly answer |
+|---|---|---|
+| 1 | Write the config (`.claude/projectstore.json` — vault path, layout, language `en`/`ru`)? | Yes |
+| 2 | Add the machine-specific files to `.gitignore`? | Yes |
+| 3 | Vault is empty — create the folder layout (`adr/`, `epics/`, `research/`, …)? | Yes |
+| 4 | Register the agents in `CLAUDE.md` so every session knows when to use them? | Yes (recommended) |
+| 5 | Which model should the review agents use? | Keep the default (`opus` + max effort) |
+| 6 | Show your current epic/story in the status line? You'll see a preview: `[PS#0.13.0] 📚 Super Feature in a Super Product › Toilet-Paper Handle (in-progress)` | Yes, why not |
 
-You don't type slash commands. The agent picks them up from the conversation; you only approve the writes.
-
-### Vignette 1 — capturing a decision
-
-> **You**: "Let's go with Postgres, not Mongo — we need ACID transactions."
-
-The `decision-detector` skill recognises a locked-in architectural choice and nudges the agent:
-
-> **Agent**: "This reads like an ADR. Want me to file it as `adr/ADR-001-postgres.md`?"
-
-You say yes. The agent calls `/projectstore:adr "Use Postgres for primary storage"`. The command renders a draft in memory, shows you the full content + target path via `AskUserQuestion`. You hit **Approve**. The file lands.
-
-### Vignette 2 — breaking work into an epic + story
-
-> **You**: "We need an auth system. First task is OIDC discovery + token exchange."
-
-> **Agent**: "I'll create `epics/AUTH-001/epic.md` and `epics/AUTH-001/stories/001-oidc-discovery.md`."
-
-After both are approved, the agent runs `/projectstore:kanban` so the board is regenerated from the new story's frontmatter. The board is a derived view — story frontmatter is the source of truth; to move a card, change the story's `status` and regenerate (`/projectstore:kanban`, or `/projectstore:reconcile` to re-derive every view at once).
-
-### Vignette 3 — research + peer-review
-
-> **You**: "Compare three OIDC libraries and pick one."
-
-The agent does the comparison, then files findings via `/projectstore:research`. After approval, the `peer-reviewer` skill nudges:
-
-> **Agent**: "Research artifact — want me to spawn a fresh critic to review it?"
-
-If you say yes, `/projectstore:review research/oidc-libs.md` runs a clean-context critic against the per-kind structural checklist. The critic returns concrete improvements (no sycophancy). You decide what to apply.
-
-## Open it in Obsidian
-
-The vault is a plain folder of markdown files. Open it as an [Obsidian](https://obsidian.md) vault and you get:
-
-- **Graph view** — ADRs ↔ epics ↔ stories ↔ research wire up via wiki-links in frontmatter and body. The graph of your project's structure becomes visible.
-- **Kanban board** — `kanban.md` uses the [Obsidian Kanban](https://github.com/mgmeyers/obsidian-kanban) plugin format. Visual board over story frontmatter; `/projectstore:kanban` is the regenerator.
-- **GitHub rendering** — the same files render natively on github.com. Reviewers don't need Obsidian.
-- **One brain per project** — `projectstore` is a project-scoped cousin of Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f). His pattern is *one brain per person*. Ours is *one brain per project*, and the brain travels with the repo.
-
-## Why this matters
-
-| You hit a wall when… | projectstore handles it because… |
-|---|---|
-| `/compact` wipes context mid-feature | PreCompact hook injects vault map + command list + this session's last 15 vault writes — the post-compact agent resumes without re-deriving project structure |
-| Two Claude sessions on the same project race on the same artifact | Each session registers in the vault keyed by Claude's `session_id`; SessionStart warns about active siblings; create commands re-check file existence right before write |
-| Six months later you forget why X was chosen | ADRs live next to the code, in markdown, with rationale and alternatives considered |
-| The agent fabricates "memory" of past decisions | There is no memory — there are files. Grep them. |
-| An agent silently rewrites a critical doc | Every write goes through `AskUserQuestion` with target path + content preview. You see the diff before it lands. |
-
-## Real example — two sessions, one project
-
-This was the actual state in our development vault while building v0.6.0. Two Claude Code instances open in the same project, each registers under its own Claude `session_id`:
-
-```bash
-$ ls .projectstore/sessions/
-d9149e0d-9169-43ef-b2c6-3e005a00e133.json   # session A — plugin dev
-f05e61c5-f809-46e1-aa3e-b7c3366bc723.json   # session B — feature work
-
-$ cat .projectstore/sessions/f05e61c5-f809-46e1-aa3e-b7c3366bc723.json
-{
-  "id":           "f05e61c5-f809-46e1-aa3e-b7c3366bc723",
-  "project_root": "/Users/me/projects/myapp",
-  "started_at":   "2026-05-19T13:35:36Z",
-  "recent_activity": [
-    { "path": "epics/WEB-101/PROGRESS.md",                       "tool": "Read",  "at": "..." },
-    { "path": "epics/WEB-101/epic.md",                           "tool": "Edit",  "at": "..." },
-    { "path": "epics/WEB-101/stories/001-oidc-flow/README.md",   "tool": "Write", "at": "..." }
-  ]
-}
-```
-
-When session A starts up, SessionStart sees session B's mtime < 30 minutes and prepends a warning to A's context:
-
-> ⚠️ Multi-session warning — 1 other projectstore session active on this vault. Run `/projectstore:search <topic>` before creating new artifacts; run `/projectstore:status` to see what was touched recently.
-
-Sessions stop stepping on each other.
-
-## Surviving /compact
-
-When context is about to be compacted (manual `/compact` or automatic), the PreCompact hook hands off a *survival packet* — a structured snippet that lands in the post-compact agent's context — and prints a single line to your terminal so you see it ran:
+Result — a vault that looks like this:
 
 ```
-PreCompact [...pre-compact.mjs] completed successfully: {
-  "systemMessage": "projectstore: survival packet injected —
-                    vault myapp-vault, layout engineering, 3 recent file(s),
-                    in-flight: epics/WEB-101/epic.md"
-}
+my-project-vault/
+├── README.md          ← index of everything
+├── adr/               ← architecture decisions
+├── epics/             ← big pieces of work, each with stories/
+├── research/          ← investigations and comparisons
+├── concepts/          ← glossary and mental models
+├── meetings/          ← meeting notes
+├── ops/               ← runbooks
+├── diagrams/
+└── kanban.md          ← the board (generated)
 ```
 
-The packet contains the vault path, the command list, the last 15 vault touches, and the newest in-flight ADR / epic / story / research. The post-compact agent picks up drafting from where the previous one left off, no manual rehydration.
+Open that folder in Obsidian and you get the graph view and the kanban board for free. Don't use Obsidian? Everything renders on GitHub and in any editor.
+
+## Day to day — you mostly don't type commands
+
+The agent picks the commands up from the conversation; you only approve the writes:
+
+- Say *"we'll use JWT with short expiry"* → the agent offers an ADR.
+- Say *"let's build the export feature: first CSV, then PDF"* → it offers an epic with two stories.
+- Finish a story → it offers to flip the status and refresh the board.
+
+The commands you *will* type now and then:
+
+```
+/projectstore:status        # what's bound, what changed recently
+/projectstore:kanban        # regenerate the board
+/projectstore:search jwt    # grep the vault
+/projectstore:doctor        # is everything wired and consistent?
+/projectstore:reconcile     # rebuild board/indexes after hand-edits
+/projectstore:review adr/ADR-001-….md   # send a document to the critic
+```
+
+Every write goes through the same gate: you see the target path and the content, then pick Yes / Edit / No.
+
+## The bundled agents
+
+ProjectStore ships five read-only specialist agents. They review and propose — they never edit your files or commit anything. During bind (step 4 above) a short routing block is added to your `CLAUDE.md`, so every future session knows *when* to call them without you remembering their names.
+
+| Agent | In plain words | When it speaks up |
+|---|---|---|
+| `projectstore:critic` | A tough, fresh-eyes reviewer for your documents. Finds what's wrong, missing, or contradictory in an ADR/research/epic — no praise padding. | After you write or revise any vault document |
+| `projectstore:planner` | Plans *where* a new feature belongs in your code — by looking at how your previous epics landed (which modules/adapters they became, via `code_refs`). | Before implementing an epic or story |
+| `projectstore:reviewer` | Checks that the code you just wrote **actually closes the story**: goes acceptance criterion by criterion with evidence. | After coding, before commit / marking done |
+| `projectstore:librarian` | Vault housekeeping that no script can do: finds contradicting or duplicate documents, missing links, things to archive. | Occasionally, e.g. before a release |
+| `projectstore:archaeologist` | For existing projects: digs decisions out of your code and git history ("you clearly chose Postgres and an adapter layer — shall we write those down?") and proposes backfill ADRs. | Once, after binding a brownfield project |
+
+Example of the reviewer in action:
+
+> **You:** I think the CSV export story is done, check it.
+>
+> **Reviewer:** Verdict: **gaps remain**. AC 1 (exports valid CSV) — met, `src/export/csv.ts:42` + test. AC 2 (handles 10k rows under 2s) — **not met**: no benchmark or test exists. AC 3 (errors surface to the user) — met. Proposed `code_refs`: `src/export/`.
+
+Want them on a different model? `/projectstore:agents configure` — one question, applies to all five (they're critics and reviewers, so strong models at high effort pay off; `opus` + `max` is the default).
+
+## Updating the plugin — and what doctor does for you
+
+Updating is two commands (or automatic, if you enabled auto-update):
+
+```
+/plugin marketplace update SmartAndPoint
+/reload-plugins
+```
+
+After any update, run **`/projectstore:doctor`**. It's the migration companion: it compares your project's wiring against what the new version expects and tells you exactly what to fix — with the commands to run. A typical picture right after upgrading v0.12 → v0.13:
+
+```
+$ /projectstore:doctor
+projectstore doctor — plugin v0.13.0
+
+## install (1 issue(s), 2 warning(s))
+  ✖ [agents-block] Agents block in CLAUDE.md is v0, expected v1 — re-run /projectstore:agents register.
+  ⚠ [override-copies] Override copy critic.md frozen at projectstore v0.12.0 (installed v0.13.0) — re-run /projectstore:agents configure.
+  ⚠ [auto-update] Auto-update is OFF for marketplace "SmartAndPoint" — new releases will not be noticed.
+    Correct values: "autoUpdate": true on the "SmartAndPoint" entry in ~/.claude/plugins/known_marketplaces.json
+    (set via /plugin → Marketplaces → SmartAndPoint → toggle auto-update).
+
+## vault (0 issue(s))
+  ✓ clean
+```
+
+Three findings, each with its exact fix. `doctor --fix` walks you through the repairs interactively (every change approved by you). It also warns when the marketplace already has a newer release than the one you're running.
+
+The second half, `doctor --vault`, guards your content: statuses that disagree with the board, "done" stories with unchecked acceptance boxes, dead links, stale indexes. Its repair partner is `/projectstore:reconcile`, which rebuilds every generated view (board, folder indexes, code map) from the files themselves — so hand-editing markdown can never permanently break anything.
+
+A tiny version of these checks runs at every session start and prints **one line** only when something is actually wrong. Silence means healthy.
+
+## Status line
+
+See the epic and story *this session* is working on, composed **above** your existing HUD (e.g. oh-my-claudecode) — never replacing it:
+
+![projectstore status line: the 📚 epic › story line sitting above an existing oh-my-claudecode HUD](docs/images/statusline-hud.png)
+
+```
+/projectstore:statusline on | off | status
+```
+
+Details that matter with several Claude sessions open on one project: each session shows **its own** epic/story (never a sibling's), a fresh session shows a friendly localized "no epic or story in this session yet" line instead of a blank, and the `[PS#0.13.0]` badge tells you at a glance the plugin is alive and which version. Wiring is self-healing across plugin updates (the SessionStart hook re-points it every start).
 
 ## What's in the box (v0.13)
 
 - **18 commands** — `bind`, `scaffold`, `status`, `adr`, `epic`, `story`, `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`, `statusline`, `doctor`, `reconcile`, `codemap`, `agents`
-- **4 passive skills** — `decision-detector`, `story-completion`, `peer-reviewer`, `vault-communication`. They suggest and shape; they never write directly.
-- **5 bundled agents** — `critic`, `planner`, `reviewer`, `librarian`, `archaeologist`. Opus, max-effort, read-only, independent fresh-context passes. See [Bundled agents](#bundled-agents).
-- **1 doctor** — deterministic, no-LLM diagnostics: `--install` (wiring/config) + `--vault` (status ↔ kanban ↔ indexes, acceptance boxes, dead links, `code_refs`); a one-line summary at session start when something is off; `reconcile` re-derives every view from frontmatter.
-- **1 layout** — `engineering` (`adr/`, `epics/<id>/stories/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`), now with its agent roster
-- **9 templates × 2 languages** — opinionated markdown with frontmatter (English + Russian), plus localized UI strings
-- **3 hooks** — `SessionStart` (vault map + multi-session warning + doctor line), `PreToolUse` (activity log + per-session pointer + raw-edit nudge), `PreCompact` (survival packet)
-- **1 status line** — opt-in HUD line with this session's epic & story (never blank, `[PS#version]` badge), composed above an existing status line (e.g. oh-my-claudecode). See [Status line](#status-line).
+- **5 agents** — `critic`, `planner`, `reviewer`, `librarian`, `archaeologist` (read-only, fresh-context, model-configurable)
+- **4 passive skills** — decision detection, story completion, peer-review nudges, vault-native communication. They suggest; they never write.
+- **1 doctor + reconcile** — deterministic health checks and one-command repair of every generated view
+- **1 layout** — `engineering`, with English and Russian templates (localized UI strings included)
+- **3 hooks** — session start (vault map + doctor line), tool use (activity + per-session pointer + raw-edit nudge), pre-compact (survival packet)
+
+**The roster rule**: ProjectStore bundles an agent only if the role *requires the vault* to make sense. General coding assistants belong to your own setup — our `planner`/`reviewer` are deliberately narrow, vault-aware specialists, not their replacements. `/projectstore:review` always spawns the scoped `projectstore:critic`; your own same-named agents win for bare-name and auto-delegated calls.
+
+## Under the hood (the honest version)
+
+- **Frontmatter is the source of truth.** The board, folder indexes, and code map are *generated views* — regenerate anytime (`kanban`, `reconcile`, `codemap`); hand edits can't permanently desync them.
+- **Every write is approval-gated.** Commands render a draft in memory, show you path + content, and write only on Yes. Declining leaves the vault byte-for-byte unchanged.
+- **Sessions don't step on each other.** Each Claude Code session registers under its own `session_id`; parallel sessions get warned about each other, and each status line shows only its own work.
+- **`/compact` survival.** Before context compaction, a hook hands the next agent a survival packet (vault map, recent touches, the in-flight artifact), so it resumes instead of re-deriving.
+- **Raw edits are expected, not punished.** If you (or the agent) edit vault markdown directly, a gentle nudge suggests running `reconcile` afterwards. The guarantees survive the easy path.
+
+Deep dive with real session files and the compaction packet: [docs/how-it-works.md](./docs/how-it-works.md).
 
 ## Philosophy
 
-1. **Markdown + git is the source of truth.** No proprietary blob format. The plugin can disappear; your project's decisions remain.
+1. **Markdown + git is the source of truth.** No proprietary format. The plugin can disappear; your project's decisions remain.
 2. **Obsidian is a view, not a dependency.** Files render on GitHub, in any editor, in `cat`.
 3. **The agent is a methodologist, not a database.** Skills nudge, commands gate, humans approve.
 4. **Layouts are opinionated.** v1 ships `engineering`; community adds `data-analytics`, `product`, `chatbot`, `library`.
 5. **One brain per project, not per person.** The vault travels with the repo. Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) is its personal-research counterpart.
-
-## Approval flow
-
-Every command that writes or edits a file goes through `AskUserQuestion`:
-
-1. The command renders a draft (in-memory, no disk write).
-2. You see the target path + content preview.
-3. You pick `Yes` / `Edit before saving` / `No`.
-4. Only on `Yes` does the file land.
-5. Folder index READMEs get a separate approval prompt.
-
-## Peer-review channel
-
-For high-stakes artifacts (ADR / research / epic), `/projectstore:review <path>` spawns a fresh critic agent with a per-kind structural checklist (`scaffold/checklists.json`). Fresh context = no anchoring bias to its own work. Returns concrete improvements, not "looks great!". Templates write `review_status: pending` into the frontmatter; the reviewer flips it to `reviewed` once you accept the diff.
-
-## Bundled agents
-
-`projectstore` ships five Opus, max-effort, **read-only** subagents. Each runs as an independent, fresh-context pass — the point is to catch self-approval bias, not to be a helpful assistant. They report and propose; they never edit, stage, or commit. Invoke them via the Agent tool's `subagent_type` using the plugin-scoped name.
-
-**The roster rule**: projectstore bundles an agent only if the role *requires the vault* to make sense. General-SWE roles (planner-in-general, analyst, researcher, debugger…) belong to your own setup or suites like oh-my-claudecode — our `planner`/`reviewer` are deliberately narrow, vault-aware specialists, not their replacements.
-
-| Agent | When | What it does |
-|---|---|---|
-| `projectstore:critic` | After authoring/revising an artifact (ADR / research / epic / story) or a design proposal, before treating it final | Adversarial critique: pre-commits to likely problems, verifies every claim against its source, rates assumptions, runs gap-analysis + pre-mortem, then self-audits. Verdict: `ship` / `revise` / `rethink`. |
-| `projectstore:planner` | Before implementing an epic/story | Epic-implementation planning: reads how prior epics landed in the code (`code_refs` — module / adapter / package shapes) and plans the next one consistently; proposes the new footprint for `codemap set`. |
-| `projectstore:reviewer` | After writing code, before commit / story-done | Story-conformance review: a per-acceptance-criterion evidence matrix — does the diff actually close the story? — then correctness / regressions / fit; proposes the story's `code_refs` update. Verdict: `story closed` / `gaps remain`. |
-| `projectstore:librarian` | Periodically / before releases (after `doctor`) | Semantic vault hygiene no rule can check: contradictions (research vs an accepted ADR), duplicates, missing wiki-links, archive candidates — with concrete fix proposals. |
-| `projectstore:archaeologist` | After binding an existing (brownfield) project | Decision archaeology: digs stack choices, architectural shapes, and git-history inflection points out of the code and proposes backfill ADRs/concepts with evidence — the vault starts seeded, not empty. |
-
-`/projectstore:review` always spawns the **scoped** `projectstore:critic`. Name-precedence shadowing (a same-named agent in `.claude/agents/` or `~/.claude/agents/` overriding the bundled one) applies to bare-name and auto-delegated invocations — your own `critic` wins there; the review command deliberately pins ours. Model and effort are configurable per project via `/projectstore:agents configure` (override copies; `opus` + `max` is the shipped default).
-
-## Status line
-
-See the epic and story the agent is working on this session, right in Claude Code's status line — composed **above** your existing HUD, not replacing it:
-
-![projectstore status line: the 📚 epic › story line sitting above an existing oh-my-claudecode HUD](docs/images/statusline-hud.png)
-
-**It does not overwrite your current status-line settings.** `statusLine` is a single slot and not plugin-declarable, so projectstore ships `scripts/statusline.mjs` plus a `/projectstore:statusline on|off` command. Enabling it just flips `statusline.enabled` in `.claude/projectstore.json`; the **SessionStart hook** then wires the project's `.claude/settings.local.json` (local scope, this-project-only, conventionally git-ignored) to the current plugin version's script — re-derived on every session start, so it keeps working across plugin updates with no path to maintain by hand. Rather than clobber your HUD, the script **composes**: it re-runs whatever base `statusLine` command you already have — for example [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)'s HUD, read from `~/.claude/settings.json` — prints its output verbatim, and adds the `📚 <epic> › <story> (<status>)` line above it (position via `projectstore.json` → `statusline.position`, default `above`). With no base command it renders a standalone line: `<model> · <dir> · ⎇ <branch> · 📚 …`.
-
-So in a projectstore project you keep your full [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) context / rate-limit / session HUD **and** gain the current epic & story on top. Resolution is **per-session** (2–6 parallel sessions each see their own work, never a sibling's) via a project-side pointer maintained by the PreToolUse hook — zero vault reads at render time. The line is **never blank while enabled**: a fresh session shows a localized `📚 No epic or story in this session yet` (ru: «Эпик и стори ещё не в работе в этой сессии»), a corrupt state file shows an error marker instead of a false "no work", and the `[PS#version]` badge (config `statusline.show_version`) tells you at a glance the plugin is alive.
-
-```
-/projectstore:statusline on      # enable (project-local); the hook wires + refreshes it
-/projectstore:statusline off     # disable it
-/projectstore:statusline status  # current state + the base HUD it composes over
-```
 
 ## Roadmap
 
@@ -243,6 +263,10 @@ So in a projectstore project you keep your full [oh-my-claudecode](https://githu
 | v1 | Stabilise commands, marketplace publish, GIF demo | ⏳ next |
 | v1.1 | `data-analytics` layout | |
 | v2 | Process modules — sprint cycles, retros, Kanban transitions | |
+
+## Uninstalling
+
+`/plugin uninstall projectstore@SmartAndPoint`. Your vault is yours — plain markdown, untouched. One leftover to remove by hand: the agents block in `CLAUDE.md`/`AGENTS.md` — delete everything between `<!-- projectstore:agents … -->` and `<!-- /projectstore:agents -->`.
 
 ## Extending
 
