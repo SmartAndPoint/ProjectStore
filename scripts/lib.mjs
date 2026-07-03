@@ -383,6 +383,66 @@ export function isInsideVault(filePath, vaultPath) {
   return norm === vaultPath || norm.startsWith(vaultPath + "/");
 }
 
+// ─── Per-session project-side state (statusline pointer — ADR-006) ─────
+//
+// <project>/.claude/.projectstore/state/<session_id>.json holds this
+// session's active epic/story with denormalized titles, so the statusline
+// renders with zero vault reads and zero cross-session reads. A nested
+// .gitignore with "*" is ensured unconditionally (mirrors ensureSessionsDir)
+// so per-session ids/titles never reach the user's git history.
+
+export function stateDir(projectDir) {
+  return join(projectDir, ".claude", ".projectstore", "state");
+}
+
+export function sessionStatePath(projectDir, sessionId) {
+  return join(stateDir(projectDir), `${sessionId}.json`);
+}
+
+export function ensureStateDir(projectDir) {
+  const dir = stateDir(projectDir);
+  mkdirSync(dir, { recursive: true });
+  const gi = join(projectDir, ".claude", ".projectstore", ".gitignore");
+  if (!existsSync(gi)) {
+    writeFileSync(gi, "# projectstore — per-session runtime state, do not commit\n*\n", "utf8");
+  }
+  return dir;
+}
+
+export function readSessionState(projectDir, sessionId) {
+  try {
+    return JSON.parse(readFileSync(sessionStatePath(projectDir, sessionId), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export function writeSessionState(projectDir, sessionId, patch) {
+  ensureStateDir(projectDir);
+  const cur = readSessionState(projectDir, sessionId) || {};
+  const next = { ...cur, ...patch, updated_at: new Date().toISOString() };
+  writeFileSync(sessionStatePath(projectDir, sessionId), JSON.stringify(next, null, 2), "utf8");
+  return next;
+}
+
+export function cleanupStaleSessionState(projectDir, maxAgeHours = 24) {
+  const dir = stateDir(projectDir);
+  if (!existsSync(dir)) return 0;
+  const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
+  let removed = 0;
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith(".json")) continue;
+    const p = join(dir, name);
+    try {
+      if (statSync(p).mtimeMs < cutoff) {
+        unlinkSync(p);
+        removed++;
+      }
+    } catch {}
+  }
+  return removed;
+}
+
 // ─── Frontmatter parsing (minimal) ─────────────────────────────────────
 
 export function parseFrontmatter(md) {
