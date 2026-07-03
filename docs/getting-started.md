@@ -26,15 +26,13 @@ Verify the plugin appears:
 /plugin list
 ```
 
-You should see `projectstore` (displayName) with prefix `ps`.
+You should see `projectstore` (displayName) with prefix `projectstore`.
 
 ## Install (via marketplace)
 
-When projectstore is ready for distribution:
-
 ```
 /plugin marketplace add SmartAndPoint/ProjectStore
-/plugin install ps@SmartAndPoint
+/plugin install projectstore@SmartAndPoint
 ```
 
 ## First-time setup
@@ -70,6 +68,10 @@ When projectstore is ready for distribution:
 /projectstore:story AUTH-001 "OIDC discovery"             # decompose into stories
 /projectstore:kanban                                      # regenerate the board
 /projectstore:search "data detective"                     # search the vault
+/projectstore:doctor                                      # install + vault diagnostics (no LLM)
+/projectstore:reconcile                                   # re-derive board/indexes/code-map from frontmatter
+/projectstore:codemap                                     # epic ↔ code mapping view
+/projectstore:agents status                               # routing block + model config state
 ```
 
 ## How approval works
