@@ -118,6 +118,9 @@ function main() {
   // version's statusline.mjs (self-heals on update). Best-effort; a settings
   // write must never break session-context injection.
   try { syncStatusLine(cfg, proj); } catch {}
+  // Statusline-feature housekeeping, like syncStatusLine — must run even when
+  // auto_inject=false (touch-session writes pointers regardless of it).
+  try { cleanupStaleSessionState(proj); } catch {}
 
   if (cfg.auto_inject === false) {
     if (welcome) emit(welcome, welcomeSystemMessage);
@@ -126,8 +129,6 @@ function main() {
 
   const input = readStdinJson();
   const sid = input?.session_id || null;
-
-  try { cleanupStaleSessionState(proj); } catch {}
 
   let warning = "";
   if (sid) {

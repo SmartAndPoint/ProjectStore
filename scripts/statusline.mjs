@@ -205,11 +205,16 @@ function main() {
   else delete baseEnv.CLAUDE_PROJECT_DIR;
   const baseOut = baseCmd ? runBase(baseCmd, raw, baseEnv) : null;
 
+  // "Never blank" must be total: even if the resolver threw (book === null on a
+  // bound project), fall back to the cold-start line rather than vanishing.
+  const bookOut =
+    cfg && cfg.vault_path ? book || BOOK + strings.statusline_no_work : null;
+
   const lines = [];
   if (baseOut) {
     // Compose: keep the base HUD intact; our line = badge + 📚 segment.
     const position = (cfg && cfg.statusline && cfg.statusline.position) || "above";
-    const ours = book ? badge + book : null;
+    const ours = bookOut ? badge + bookOut : null;
     if (ours && position === "above") lines.push(ours);
     lines.push(baseOut);
     if (ours && position !== "above") lines.push(ours);
@@ -221,7 +226,7 @@ function main() {
     if (projectDir) parts.push(basename(projectDir));
     const branch = gitBranch(projectDir);
     if (branch) parts.push(BRANCH + branch);
-    if (book) parts.push(book);
+    if (bookOut) parts.push(bookOut);
     lines.push(badge + parts.join(SEP));
   }
 
