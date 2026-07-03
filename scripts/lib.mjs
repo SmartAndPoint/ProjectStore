@@ -117,8 +117,15 @@ export function loadTemplate(lang, name) {
   return readFileSync(p, "utf8");
 }
 
+// {{x}} substitutes raw; {{x_json}} substitutes JSON.stringify(String(x)) — a
+// valid YAML double-quoted scalar. Frontmatter lines in templates use the
+// _json form so titles containing `"` or `:` cannot corrupt the YAML.
 export function renderTemplate(template, vars) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+    if (key.endsWith("_json")) {
+      const base = key.slice(0, -5);
+      return base in vars ? JSON.stringify(String(vars[base])) : '""';
+    }
     if (key in vars) {
       const v = vars[key];
       if (Array.isArray(v)) return JSON.stringify(v);
@@ -130,13 +137,24 @@ export function renderTemplate(template, vars) {
 
 // ─── Slug / numbering ──────────────────────────────────────────────────
 
+// Cyrillic → Latin so ru titles produce portable ASCII filenames; every other
+// Unicode letter/digit survives via \p{L}\p{N}. Never returns an empty slug.
+const CYRILLIC = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z",
+  и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r",
+  с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts", ч: "ch", ш: "sh",
+  щ: "shch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+};
+
 export function slugify(s) {
-  return s
+  const slug = s
     .toLowerCase()
-    .replace(/[^\w\s-]/g, "")
+    .replace(/[а-яё]/g, (c) => CYRILLIC[c] ?? c)
+    .replace(/[^\p{L}\p{N}\s-]/gu, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
+  return slug || "untitled";
 }
 
 export function nextNumber(dir, prefix, pad = 3) {
@@ -376,7 +394,11 @@ export function parseFrontmatter(md) {
     if (!kv) continue;
     let v = kv[2].trim();
     if (v === "null") v = null;
-    else if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
+    else if (v.startsWith('"') && v.endsWith('"')) {
+      // JSON.parse round-trips escaped scalars from renderTemplate's _json
+      // form (titles containing quotes); fall back to the bare strip.
+      try { v = JSON.parse(v); } catch { v = v.slice(1, -1); }
+    }
     data[kv[1]] = v;
   }
   return { data, body: md.slice(m[0].length) };
