@@ -1,5 +1,5 @@
 ---
-name: projectstore-critic
+name: critic
 description: Opus (max-effort) adversarial critic for projectstore artifacts (ADR / research / epic / story) and design proposals. Pre-commits to likely problems, verifies claims against source, rates assumptions, runs gap-analysis + pre-mortem, applies multi-perspective + self-audit + realist-check. An independent, fresh-context pass to avoid self-approval bias. Read-only, no sycophancy. Invoke after authoring/revising an artifact, before treating it final.
 model: opus
 effort: max
