@@ -49,9 +49,9 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
    /projectstore:bind ~/Documents/projects/my-project-vault
    ```
 
-   This creates `.claude/projectstore.json` in your project root (machine-local, gitignored).
+   This creates `.claude/projectstore.json` in your project root (machine-local, gitignored) — and then walks you through a short interview: gitignore entries → scaffold offer → agent registration in `CLAUDE.md` (recommended: Yes) → model preset for the review agents (default `opus` + max effort is fine) → status line offer (you'll see a preview of the exact line). Every step shows what it wants to write and waits for your approval.
 
-3. **Scaffold the layout** if the vault is empty:
+3. **Scaffold the layout** if the vault is empty (bind offers this automatically):
 
    ```
    /projectstore:scaffold engineering
@@ -104,4 +104,15 @@ Default is English (`en`). For Russian:
 /projectstore:bind <path> --lang ru
 ```
 
-Or edit `language: "ru"` in `.claude/projectstore.json` (templates must exist at `templates/ru/`).
+Or edit `language: "ru"` in `.claude/projectstore.json` (templates must exist at `templates/ru/`). The language also localizes the status line strings (e.g. the "no epic or story in this session yet" line).
+
+## Updating to a new version
+
+```
+/plugin marketplace update SmartAndPoint
+/reload-plugins
+```
+
+Or enable auto-update once (`/plugin` → **Marketplaces** → **SmartAndPoint** → toggle **auto-update**) and Claude Code will detect new releases at startup.
+
+**After any update, run `/projectstore:doctor`.** It compares your project's wiring against what the new version expects and names each fix with the command to run — stale agents block in `CLAUDE.md` (`/projectstore:agents register`), frozen model override copies (`/projectstore:agents configure`), auto-update still off (the exact setting and file), a newer release than the one running. `doctor --fix` applies the install-side repairs interactively; `/projectstore:reconcile` rebuilds the board/indexes/code-map if content drifted. Silence at session start means healthy — the cheap checks run automatically and only speak up when something is wrong.
