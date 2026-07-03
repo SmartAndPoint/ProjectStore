@@ -3,7 +3,9 @@ description: Enable/disable the projectstore status line (current epic & story i
 argument-hint: "on | off | status"
 ---
 
-You are toggling the projectstore status line for THIS project. When enabled, the **SessionStart hook** keeps the project's `.claude/settings.local.json` pointed at the current plugin version's `scripts/statusline.mjs` (it self-heals across plugin updates — no machine/version-specific path to maintain by hand). The status line shows `📚 <epic> › <story> (<status>)` **composed above** any existing HUD (e.g. oh-my-claudecode), never replacing it.
+You are toggling the projectstore status line for THIS project. When enabled, the **SessionStart hook** keeps the project's `.claude/settings.local.json` pointed at the current plugin version's `scripts/statusline.mjs` (it self-heals across plugin updates — no machine/version-specific path to maintain by hand). The line renders `[PS#<version>] 📚 <epic> › <story> (<status>)` **composed above** any existing HUD (e.g. oh-my-claudecode), never replacing it.
+
+Resolution is **per-session with zero cross-session and zero vault reads** (ADR-006): the 📚 segment comes from this session's pointer (`.claude/.projectstore/state/<session_id>.json`, maintained by the PreToolUse hook); a fresh session shows an explicit localized cold-start line ("No epic or story in this session yet" / «Эпик и стори ещё не в работе в этой сессии») — never a silent blank; a corrupt pointer shows an error-marked string. Strings localize via `templates/<lang>/strings.json` (en fallback). The version badge is controlled by `statusline.show_version` (default true).
 
 This command itself only flips a flag in `.claude/projectstore.json` — it does **not** touch `settings.local.json`; the hook owns that file.
 
@@ -39,4 +41,4 @@ Report, read-only:
 
 - Every write goes through AskUserQuestion. Never write without approval.
 - The command writes only `.claude/projectstore.json`; the SessionStart hook reconciles `settings.local.json` (create/refresh/remove our entry) idempotently and never touches a foreign status line.
-- Config shape: `.claude/projectstore.json` → `"statusline": { "enabled": true, "position": "above" }`. `position` is `above` (default) or `below` — the side our 📚 line sits relative to the base HUD.
+- Config shape: `.claude/projectstore.json` → `"statusline": { "enabled": true, "position": "above", "show_version": true }`. `position` is `above` (default) or `below` — the side our 📚 line sits relative to the base HUD; `show_version` toggles the `[PS#…]` badge.
