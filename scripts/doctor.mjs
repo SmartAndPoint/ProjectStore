@@ -22,7 +22,7 @@ import {
   accessSync,
   constants,
 } from "node:fs";
-import { join, basename, resolve } from "node:path";
+import { join, basename, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -183,8 +183,23 @@ export function checkStatusline(cfg, proj) {
       out.push(finding("install", "info", "statusline", "Base HUD present in ~/.claude/settings.json — projectstore composes above it."));
     }
   } catch {}
-  // Per-session state dir + session_id divergence checks ship with the
-  // statusline v2 work (ADR-006) — nothing to probe until then.
+  // session_id divergence (ADR-006): the renderer's breadcrumb names the id
+  // the statusLine process received; hook-side pointer files name the ids the
+  // hooks observed. A breadcrumb id with no pointer file while others exist
+  // means the two processes disagree — the issue note's second suspect.
+  try {
+    const sdir = join(proj, ".claude", ".projectstore", "state");
+    const bc = JSON.parse(readFileSync(join(sdir, ".last-render.json"), "utf8"));
+    if (bc && bc.session_id) {
+      const hookIds = readdirSync(sdir)
+        .filter((n) => n.endsWith(".json") && !n.startsWith("."))
+        .map((n) => n.replace(/\.json$/, ""));
+      if (hookIds.length && !hookIds.includes(bc.session_id)) {
+        out.push(finding("install", "warn", "statusline",
+          `statusLine renderer last saw session_id ${String(bc.session_id).slice(0, 8)}… with no hook-side state file — possible session_id divergence (renderer shows the cold-start line while hooks log activity).`));
+      }
+    }
+  } catch {}
   return out;
 }
 
@@ -432,31 +447,94 @@ export function checkWikilinks(cfg, artifacts) {
         out.push(finding("vault", "issue", "wikilink", `Dead wiki-link [[${target}]].`, a.rel));
       }
     }
+    // Relative markdown links: [text](./x) / (../x) must resolve on disk.
+    for (const m of prose.matchAll(/\]\(([^)\s]+)\)/g)) {
+      const t = m[1];
+      if (!t.startsWith("./") && !t.startsWith("../")) continue;
+      const target = t.split("#")[0];
+      if (target && !existsSync(resolve(dirname(a.abs), target))) {
+        out.push(finding("vault", "issue", "rel-link", `Dead relative link (${t}).`, a.rel));
+      }
+    }
   }
   return out;
 }
 
 // code_refs: status-aware (ADR-004) — required to resolve only for
 // in-progress / done artifacts; globs are skipped in v1 (documented).
+// Story refs must fall under the parent epic's refs (subset) — that is how
+// drift between the two levels is caught.
+function refsOf(fm) {
+  const raw = fm.code_refs;
+  if (!raw || raw === "[]") return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export function checkCodeRefs(artifacts, proj) {
   const out = [];
+  const epicRefs = new Map();
+  for (const e of artifacts.filter((a) => a.kind === "epic")) {
+    epicRefs.set(e.rel.replace(/\/epic\.md$/, ""), refsOf(e.fm));
+  }
   for (const a of artifacts) {
-    const raw = a.fm.code_refs;
-    if (!raw || raw === "[]") continue;
-    let refs;
-    try { refs = JSON.parse(raw); } catch { continue; }
-    if (!Array.isArray(refs) || !refs.length) continue;
+    const refs = refsOf(a.fm);
+    if (!refs.length) continue;
     const status = (a.fm.status || "").toLowerCase();
-    if (!["in-progress", "in_progress", "done"].includes(status)) continue;
-    for (const ref of refs) {
-      if (typeof ref !== "string" || ref.includes("*")) continue;
-      if (!existsSync(join(proj, ref))) {
-        out.push(finding("vault", "issue", "code-refs",
-          `code_refs path "${ref}" does not resolve inside the project (status: ${status}).`, a.rel));
+    if (["in-progress", "in_progress", "done"].includes(status)) {
+      for (const ref of refs) {
+        if (ref.includes("*")) continue;
+        if (!existsSync(join(proj, ref))) {
+          out.push(finding("vault", "issue", "code-refs",
+            `code_refs path "${ref}" does not resolve inside the project (status: ${status}).`, a.rel));
+        }
+      }
+    }
+    if (a.kind === "story") {
+      const dir = a.rel.replace(/\/stories\/[^/]+$/, "");
+      const parent = epicRefs.get(dir) || [];
+      if (!parent.length) {
+        out.push(finding("vault", "warn", "code-refs",
+          "Story has code_refs but its epic has none — set the epic's footprint first.", a.rel));
+      } else {
+        const norm = (r) => r.replace(/\/+$/, "");
+        for (const ref of refs) {
+          if (!parent.some((p) => norm(ref).startsWith(norm(p)))) {
+            out.push(finding("vault", "warn", "code-refs",
+              `Story code_ref "${ref}" falls outside the parent epic's code_refs.`, a.rel));
+          }
+        }
       }
     }
   }
   return out;
+}
+
+// code-map.md staleness: regenerate with the real generator and compare
+// (same pattern as the kanban check).
+export function checkCodeMap(cfg) {
+  const p = join(cfg.vault_path, "code-map.md");
+  if (!existsSync(p)) return [];
+  const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", "codemap.mjs")], {
+    encoding: "utf8",
+    timeout: 10000,
+    env: { ...process.env, CLAUDE_PROJECT_DIR: projectRoot() },
+  });
+  if (r.status !== 0) return [finding("vault", "warn", "code-map", "codemap generator failed.")];
+  let expected;
+  try { expected = JSON.parse(r.stdout).content; } catch {
+    return [finding("vault", "warn", "code-map", "codemap generator returned unparseable output.")];
+  }
+  const norm = (s) => s.split("\n").filter((l) => !l.startsWith("generated_at:")).join("\n").trimEnd();
+  if (norm(expected) !== norm(readFileSync(p, "utf8"))) {
+    return [finding("vault", "issue", "code-map",
+      "code-map.md is stale against frontmatter code_refs — run /projectstore:codemap (or reconcile).", "code-map.md")];
+  }
+  return [];
 }
 
 // ─── Runners ───────────────────────────────────────────────────────────
@@ -491,6 +569,7 @@ export function runVaultChecks(cfg) {
     ...checkStoriesAndEpics(artifacts),
     ...checkWikilinks(cfg, artifacts),
     ...checkCodeRefs(artifacts, projectRoot()),
+    ...checkCodeMap(cfg),
   ];
 }
 

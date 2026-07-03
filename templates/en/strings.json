@@ -1,0 +1,6 @@
+{
+  "statusline_no_work": "No epic or story in this session yet",
+  "statusline_state_error": "⚠ session state unreadable",
+  "statusline_example_epic": "Super Feature in a Super Product",
+  "statusline_example_story": "Toilet-Paper Handle"
+}

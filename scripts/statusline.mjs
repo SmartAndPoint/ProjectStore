@@ -1,39 +1,42 @@
 #!/usr/bin/env node
-// projectstore — statusline.mjs
+// projectstore — statusline.mjs (v2, ADR-006)
 //
 // Renders the Claude Code status line for a projectstore-bound project.
-// Wired manually (or via /projectstore:statusline) into a project's
-// .claude/settings.local.json — statusLine is NOT a plugin-declarable
-// capability, so it lives in settings.json with an absolute command path.
+// Wired by the SessionStart hook into .claude/settings.local.json when
+// projectstore.json → statusline.enabled=true (statusLine is NOT a
+// plugin-declarable capability, so it lives in settings with an absolute path).
 //
-// COMPOSING, not clobbering: the statusLine slot is single. Rather than
-// replace an existing status line (e.g. oh-my-claudecode's HUD), this script
-// DELEGATES to the base statusLine command already configured in
-// ~/.claude/settings.json (or the project's .claude/settings.json), prints
-// its output verbatim, and adds ONE projectstore line — "📚 epic › story
-// (status)" — above it (position configurable via projectstore.json:
-// statusline.position = "above" | "below", default "above"). When no base
-// command exists (e.g. a user without a custom HUD), it renders a standalone
-// base line instead: <model> · <dir> · ⎇ <branch> · 📚 epic › story.
+// COMPOSING, not clobbering: the statusLine slot is single. This script
+// DELEGATES to the base statusLine command from ~/.claude/settings.json (or
+// the project's .claude/settings.json), prints its output verbatim, and adds
+// ONE projectstore line above it (position configurable). With no base
+// command it renders a standalone line: [PS#v] <model> · <dir> · ⎇ <branch> · 📚 …
 //
-// Consumes hook-style JSON on stdin (fields used):
-//   session_id            — Claude's session id (matches the session file)
-//   workspace.project_dir — the project root (statusLine gets NO
-//                           CLAUDE_PROJECT_DIR, so we must feed it ourselves)
-//   cwd                   — fallback project dir
-//   model.display_name    — e.g. "Opus" (standalone mode only)
+// The 📚 segment is resolved PER SESSION with zero cross-session and zero
+// vault reads (ADR-006):
+//   1. this session's pointer file
+//      (<project>/.claude/.projectstore/state/<session_id>.json — written by
+//      the PreToolUse hook with denormalized titles), else
+//   2. an explicit localized cold-start line ("no epic or story in this
+//      session yet"). Never blank while enabled; a pointer that exists but
+//      fails to parse renders an error-marked string, never the cheerful
+//      cold-start line. The renderer drops a .last-render.json breadcrumb so
+//      doctor can detect session_id divergence between hook and statusLine.
 //
-// Everything is best-effort. On any missing piece we drop that segment; on
-// any error we emit whatever we have and exit 0. A status line script must
-// never crash or block the UI. The base command is re-run with the same
-// stdin; if it fails or is absent we fall back to the standalone line.
+// Everything is best-effort; on any error emit what we have and exit 0.
 
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { join, basename, resolve } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { readConfig, readSessionActivity, parseFrontmatter } from "./lib.mjs";
+import {
+  readConfig,
+  pluginRoot,
+  sessionStatePath,
+  stateDir,
+  ensureStateDir,
+} from "./lib.mjs";
 
 const SELF = fileURLToPath(import.meta.url);
 const SEP = " · ";
@@ -42,129 +45,102 @@ const BOOK = "📚 ";
 const ARROW = " › ";
 
 // Claude Code cancels an in-flight statusLine by closing our stdout pipe when
-// a newer update arrives. A write to a closed pipe emits an async 'error'
-// event that the outer try/catch (sync-only) cannot catch → Node would exit 1
-// with a stack trace. Guard the pipe so we honour the never-crash contract.
+// a newer update arrives; guard the pipe so we honour the never-crash contract.
 process.stdout.on("error", () => process.exit(0));
 
-function escRe(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function readRawStdin() {
+  try { return readFileSync(0, "utf8"); } catch { return ""; }
 }
 
-function readRawStdin() {
+const FALLBACK_STRINGS = {
+  statusline_no_work: "No epic or story in this session yet",
+  statusline_state_error: "⚠ session state unreadable",
+};
+
+function loadStrings(lang) {
+  const read = (l) => {
+    try {
+      return JSON.parse(readFileSync(join(pluginRoot(), "templates", l, "strings.json"), "utf8"));
+    } catch {
+      return null;
+    }
+  };
+  return {
+    ...FALLBACK_STRINGS,
+    ...(read("en") || {}),
+    ...(lang && lang !== "en" ? read(lang) || {} : {}),
+  };
+}
+
+function pluginVersion() {
   try {
-    return readFileSync(0, "utf8");
+    return JSON.parse(readFileSync(join(pluginRoot(), ".claude-plugin", "plugin.json"), "utf8")).version;
   } catch {
-    return "";
+    return null;
   }
 }
 
 // Current git branch by reading .git/HEAD directly — no process spawn.
-// Handles worktree/submodule .git-file pointers and detached HEAD.
 function gitBranch(projectDir) {
   try {
     const dotgit = join(projectDir, ".git");
     let gitDir;
-    if (statSync(dotgit).isDirectory()) {
-      gitDir = dotgit;
-    } else {
-      const m = readFileSync(dotgit, "utf8").trim().match(/^gitdir:\s*(.+)$/);
-      if (!m) return null;
-      gitDir = resolve(projectDir, m[1].trim());
-    }
+    const st = readFileSync(dotgit, "utf8");
+    const m = st.trim().match(/^gitdir:\s*(.+)$/);
+    gitDir = m ? resolve(projectDir, m[1].trim()) : dotgit;
     const head = readFileSync(join(gitDir, "HEAD"), "utf8").trim();
     const ref = head.match(/^ref:\s*refs\/heads\/(.+)$/);
     if (ref) return ref[1];
-    if (/^[0-9a-f]{7,40}$/i.test(head)) return head.slice(0, 7); // detached
+    if (/^[0-9a-f]{7,40}$/i.test(head)) return head.slice(0, 7);
     return null;
   } catch {
-    return null;
-  }
-}
-
-function relToVault(abs, vault) {
-  if (typeof abs !== "string") return null;
-  if (abs.startsWith(vault + "/")) return abs.slice(vault.length + 1);
-  return null;
-}
-
-// The "📚 epic › story (status)" segment from this session's recent activity.
-// Newest-first: first entry under epics/<id>/ is the current epic; the most
-// recent story file under that epic is the current story. At most one file
-// read (the story, for its status). Returns null on any miss.
-function bookSegment(cfg, input) {
-  if (!cfg || !cfg.vault_path) return null;
-  const sid = input.session_id;
-  if (!sid) return null;
-
-  const vault = cfg.vault_path;
-  const activity = readSessionActivity(vault, sid);
-  if (!activity.length) return null;
-
-  let epicId = null;
-  for (const e of activity) {
-    const rel = relToVault(e && e.path, vault);
-    if (rel) {
-      const m = rel.match(/^epics\/([^/]+)\//);
-      if (m) {
-        epicId = m[1];
-        break;
-      }
-    }
-  }
-  if (!epicId) return null;
-
-  let storyFile = null;
-  let storyPath = null;
-  const storyRe = new RegExp(`^epics/${escRe(epicId)}/stories/([^/]+\\.md)$`);
-  for (const e of activity) {
-    const rel = relToVault(e && e.path, vault);
-    if (rel) {
-      const m = rel.match(storyRe);
-      if (m) {
-        storyFile = m[1];
-        storyPath = e.path;
-        break;
-      }
-    }
-  }
-
-  // Prefer the human `title:` from each artifact's frontmatter over the raw
-  // id / filename slug (fall back to those when a title is missing/unreadable).
-  let epicTitle = null;
-  try {
-    const { data } = parseFrontmatter(
-      readFileSync(join(vault, "epics", epicId, "epic.md"), "utf8"),
-    );
-    if (data.title) epicTitle = String(data.title);
-  } catch {}
-  let seg = BOOK + (epicTitle || epicId);
-
-  if (storyFile) {
-    let status = null;
-    let storyTitle = null;
     try {
-      const { data } = parseFrontmatter(readFileSync(storyPath, "utf8"));
-      if (data.status) status = String(data.status).toLowerCase();
-      if (data.title) storyTitle = String(data.title);
-    } catch {}
-    const storyLabel = storyTitle || storyFile.replace(/\.md$/, "");
-    seg += ARROW + storyLabel + (status ? ` (${status})` : "");
+      const head = readFileSync(join(projectDir, ".git", "HEAD"), "utf8").trim();
+      const ref = head.match(/^ref:\s*refs\/heads\/(.+)$/);
+      return ref ? ref[1] : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+// The 📚 segment — strictly this-session (ADR-006). Returns a non-empty string
+// whenever the feature is enabled; distinguishes "no work yet" from "state
+// unreadable" so failures are visible, never masked.
+function bookSegment(cfg, proj, input, strings) {
+  const sid = input.session_id;
+  // Breadcrumb for doctor's divergence check — best-effort, never fatal.
+  try {
+    ensureStateDir(proj);
+    writeFileSync(
+      join(stateDir(proj), ".last-render.json"),
+      JSON.stringify({ session_id: sid || null, at: new Date().toISOString() }) + "\n",
+      "utf8",
+    );
+  } catch {}
+
+  if (!sid) return BOOK + strings.statusline_no_work;
+  const p = sessionStatePath(proj, sid);
+  if (!existsSync(p)) return BOOK + strings.statusline_no_work;
+
+  let state;
+  try {
+    state = JSON.parse(readFileSync(p, "utf8"));
+  } catch {
+    return BOOK + strings.statusline_state_error;
+  }
+  if (!state || !state.active_epic) return BOOK + strings.statusline_no_work;
+
+  let seg = BOOK + (state.epic_title || state.active_epic);
+  if (state.active_story) {
+    seg += ARROW + (state.story_title || state.active_story);
+    if (state.story_status) seg += ` (${state.story_status})`;
   }
   return seg;
 }
 
-function safeBook(cfg, input) {
-  try {
-    return bookSegment(cfg, input);
-  } catch {
-    return null;
-  }
-}
-
-// The base statusLine command we compose with — the highest-precedence one
-// BELOW our own local entry: project .claude/settings.json, else user
-// ~/.claude/settings.json. Skips a command that points back at us (recursion).
+// The base statusLine command we compose with — highest-precedence entry BELOW
+// our own local one: project settings.json, else user settings.json.
 function discoverBaseCommand(projectDir) {
   const candidates = [
     join(projectDir, ".claude", "settings.json"),
@@ -173,12 +149,7 @@ function discoverBaseCommand(projectDir) {
   for (const p of candidates) {
     try {
       const cmd = JSON.parse(readFileSync(p, "utf8"))?.statusLine?.command;
-      if (
-        typeof cmd === "string" &&
-        cmd.trim() &&
-        !cmd.includes(SELF) &&
-        !cmd.includes("scripts/statusline.mjs")
-      ) {
+      if (typeof cmd === "string" && cmd.trim() && !cmd.includes(SELF) && !cmd.includes("scripts/statusline.mjs")) {
         return cmd;
       }
     } catch {}
@@ -204,50 +175,31 @@ function runBase(cmd, rawStdin, env) {
   }
 }
 
-function standaloneLine(input, projectDir, book) {
-  const parts = [];
-  const model = input.model && input.model.display_name;
-  if (model) parts.push(model);
-  if (projectDir) parts.push(basename(projectDir));
-  const branch = gitBranch(projectDir);
-  if (branch) parts.push(BRANCH + branch);
-  if (book) parts.push(book);
-  return parts.join(SEP);
-}
-
 function main() {
   const raw = readRawStdin();
   let input = {};
-  try {
-    input = JSON.parse(raw) || {};
-  } catch {
-    input = {};
-  }
+  try { input = JSON.parse(raw) || {}; } catch { input = {}; }
 
-  // statusLine is spawned with no CLAUDE_PROJECT_DIR and an unspecified cwd,
-  // so feed the project dir from stdin BEFORE readConfig() (which resolves
-  // via CLAUDE_PROJECT_DIR || cwd). Mutates only this short-lived process.
+  // statusLine gets no CLAUDE_PROJECT_DIR; feed it from stdin before
+  // readConfig(). Snapshot the previous value for the composed base command.
   const projectDir =
     (input.workspace && input.workspace.project_dir) || input.cwd || process.cwd();
-  // Snapshot CLAUDE_PROJECT_DIR before we inject it, so the composed base
-  // command can be given the env it would have as the top-level statusLine
-  // (which is NOT handed this var).
   const hadCPD = "CLAUDE_PROJECT_DIR" in process.env;
   const prevCPD = process.env.CLAUDE_PROJECT_DIR;
   if (projectDir) process.env.CLAUDE_PROJECT_DIR = projectDir;
 
   let cfg = null;
-  try {
-    cfg = readConfig();
-  } catch {
-    cfg = null;
-  }
+  try { cfg = readConfig(); } catch { cfg = null; }
 
-  const book = safeBook(cfg, input);
+  const strings = loadStrings(cfg && cfg.language);
+  let book = null;
+  try { book = cfg && cfg.vault_path ? bookSegment(cfg, projectDir, input, strings) : null; } catch { book = null; }
+
+  const showVersion = !(cfg && cfg.statusline && cfg.statusline.show_version === false);
+  const ver = showVersion ? pluginVersion() : null;
+  const badge = ver ? `[PS#${ver}] ` : "";
+
   const baseCmd = discoverBaseCommand(projectDir);
-  // The base HUD is re-executed on EVERY render (300ms debounce); a heavy base
-  // may want its own caching / refreshInterval. Hand it the same env a real
-  // top-level statusLine would have (no injected CLAUDE_PROJECT_DIR).
   const baseEnv = { ...process.env };
   if (hadCPD) baseEnv.CLAUDE_PROJECT_DIR = prevCPD;
   else delete baseEnv.CLAUDE_PROJECT_DIR;
@@ -255,15 +207,22 @@ function main() {
 
   const lines = [];
   if (baseOut) {
-    // Compose: keep the base HUD intact, add only our 📚 line.
-    const position =
-      (cfg && cfg.statusline && cfg.statusline.position) || "above";
-    if (book && position === "above") lines.push(book);
+    // Compose: keep the base HUD intact; our line = badge + 📚 segment.
+    const position = (cfg && cfg.statusline && cfg.statusline.position) || "above";
+    const ours = book ? badge + book : null;
+    if (ours && position === "above") lines.push(ours);
     lines.push(baseOut);
-    if (book && position !== "above") lines.push(book);
+    if (ours && position !== "above") lines.push(ours);
   } else {
-    // No base HUD — render our own standalone line.
-    lines.push(standaloneLine(input, projectDir, book));
+    // Standalone: badge leads the whole line; the book value is its 📚 segment.
+    const parts = [];
+    const model = input.model && input.model.display_name;
+    if (model) parts.push(model);
+    if (projectDir) parts.push(basename(projectDir));
+    const branch = gitBranch(projectDir);
+    if (branch) parts.push(BRANCH + branch);
+    if (book) parts.push(book);
+    lines.push(badge + parts.join(SEP));
   }
 
   process.stdout.write(lines.join("\n") + "\n");

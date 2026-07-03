@@ -20,6 +20,7 @@ import {
   readStdinJson,
   projectRoot,
   syncStatusLine,
+  cleanupStaleSessionState,
 } from "../scripts/lib.mjs";
 import { runStartupChecks } from "../scripts/doctor.mjs";
 
@@ -125,6 +126,8 @@ function main() {
 
   const input = readStdinJson();
   const sid = input?.session_id || null;
+
+  try { cleanupStaleSessionState(proj); } catch {}
 
   let warning = "";
   if (sid) {

@@ -1,0 +1,6 @@
+{
+  "statusline_no_work": "Эпик и стори ещё не в работе в этой сессии",
+  "statusline_state_error": "⚠ состояние сессии не читается",
+  "statusline_example_epic": "Супер-фича в супер-продукте",
+  "statusline_example_story": "Ручка для туалетной бумаги"
+}
