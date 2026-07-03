@@ -29,6 +29,11 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      to reconcile the flag, and remind that a restart applies it.
    - `override-copies` staleness → suggest `/projectstore:agents configure`
      (ships with v0.13); do not hand-edit prompt copies.
+   - `auto-update` off → offer adding `extraKnownMarketplaces.<marketplace>.autoUpdate: true`
+     to `~/.claude/settings.json` (Edit with diff preview + approval — this is the
+     user's global settings file), or point at `/plugin` → Marketplaces → toggle.
+     For "newer version available" → tell the user to run
+     `/plugin marketplace update <marketplace>` and `/reload-plugins` themselves.
 
    **Boundary (ADR-005)**: `--fix` never repairs vault-side findings. For those,
    point at `/projectstore:kanban` (board regen) and `reconcile` (indexes +
