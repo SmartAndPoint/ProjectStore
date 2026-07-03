@@ -37,4 +37,4 @@ Steps:
    - Show a proposed Edit that appends `index.line` to that table.
    - Ask AskUserQuestion: "Update `<folder>/README.md` index? [Yes / No]". On Yes — apply the Edit.
 
-8. **Final message**: print the file path, a reminder to fill `Context`, `Decision`, `Rationale`, and a hint that running `/sp:commit` will commit the new ADR.
+8. **Final message**: print the file path, a reminder to fill `Context`, `Decision`, `Rationale`, and a hint to commit the new ADR if the vault is git-tracked.

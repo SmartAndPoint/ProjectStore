@@ -78,7 +78,7 @@ You are running a peer review on a projectstore artifact.
 
    Do this with one final Edit after all content changes are applied.
 
-10. **Final print**: file path, what was applied / noted / skipped, and a one-line hint: "Run `/sp:commit` to save the review."
+10. **Final print**: file path, what was applied / noted / skipped, and a one-line hint to commit the review if the vault is git-tracked.
 
 ## Notes for the implementer (you, Claude)
 

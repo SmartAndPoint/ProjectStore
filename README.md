@@ -85,7 +85,7 @@ You say yes. The agent calls `/projectstore:adr "Use Postgres for primary storag
 
 > **Agent**: "I'll create `epics/AUTH-001/epic.md` and `epics/AUTH-001/stories/001-oidc-discovery.md`."
 
-After both are approved, the agent runs `/projectstore:kanban` so the board is regenerated from the new story's frontmatter. Drag-and-drop in Obsidian updates the kanban; story-frontmatter remains the source of truth.
+After both are approved, the agent runs `/projectstore:kanban` so the board is regenerated from the new story's frontmatter. The board is a derived view — story frontmatter is the source of truth; to move a card, change the story's `status` and regenerate (`/projectstore:kanban`, or `/projectstore:reconcile` to re-derive every view at once).
 
 ### Vignette 3 — research + peer-review
 
@@ -158,15 +158,16 @@ PreCompact [...pre-compact.mjs] completed successfully: {
 
 The packet contains the vault path, the command list, the last 15 vault touches, and the newest in-flight ADR / epic / story / research. The post-compact agent picks up drafting from where the previous one left off, no manual rehydration.
 
-## What's in the box (v0.12)
+## What's in the box (v0.13)
 
-- **14 commands** — `bind`, `scaffold`, `status`, `adr`, `epic`, `story`, `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`, `statusline`
-- **3 passive skills** — `decision-detector`, `story-completion`, `peer-reviewer`. They suggest commands; they never write directly.
-- **3 bundled agents** — `projectstore-critic`, `code-planner`, `code-reviewer`. Opus, max-effort, read-only, independent fresh-context passes. See [Bundled agents](#bundled-agents).
-- **1 layout** — `engineering` (`adr/`, `epics/<id>/stories/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`)
-- **9 templates** — opinionated markdown with frontmatter (English + Russian variants)
-- **3 hooks** — `SessionStart` (vault map + multi-session warning), `PreToolUse` (per-session activity log), `PreCompact` (survival packet)
-- **1 status line** — opt-in HUD line with the current epic & story, composed above an existing status line (e.g. oh-my-claudecode). See [Status line](#status-line).
+- **18 commands** — `bind`, `scaffold`, `status`, `adr`, `epic`, `story`, `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`, `statusline`, `doctor`, `reconcile`, `codemap`, `agents`
+- **4 passive skills** — `decision-detector`, `story-completion`, `peer-reviewer`, `vault-communication`. They suggest and shape; they never write directly.
+- **5 bundled agents** — `critic`, `planner`, `reviewer`, `librarian`, `archaeologist`. Opus, max-effort, read-only, independent fresh-context passes. See [Bundled agents](#bundled-agents).
+- **1 doctor** — deterministic, no-LLM diagnostics: `--install` (wiring/config) + `--vault` (status ↔ kanban ↔ indexes, acceptance boxes, dead links, `code_refs`); a one-line summary at session start when something is off; `reconcile` re-derives every view from frontmatter.
+- **1 layout** — `engineering` (`adr/`, `epics/<id>/stories/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`), now with its agent roster
+- **9 templates × 2 languages** — opinionated markdown with frontmatter (English + Russian), plus localized UI strings
+- **3 hooks** — `SessionStart` (vault map + multi-session warning + doctor line), `PreToolUse` (activity log + per-session pointer + raw-edit nudge), `PreCompact` (survival packet)
+- **1 status line** — opt-in HUD line with this session's epic & story (never blank, `[PS#version]` badge), composed above an existing status line (e.g. oh-my-claudecode). See [Status line](#status-line).
 
 ## Philosophy
 
@@ -192,15 +193,19 @@ For high-stakes artifacts (ADR / research / epic), `/projectstore:review <path>`
 
 ## Bundled agents
 
-`projectstore` ships three Opus, max-effort, **read-only** subagents. Each runs as an independent, fresh-context pass — the point is to catch self-approval bias, not to be a helpful assistant. They report findings; they never edit, stage, or commit. Invoke them via the Agent tool's `subagent_type` using the plugin-scoped name.
+`projectstore` ships five Opus, max-effort, **read-only** subagents. Each runs as an independent, fresh-context pass — the point is to catch self-approval bias, not to be a helpful assistant. They report and propose; they never edit, stage, or commit. Invoke them via the Agent tool's `subagent_type` using the plugin-scoped name.
+
+**The roster rule**: projectstore bundles an agent only if the role *requires the vault* to make sense. General-SWE roles (planner-in-general, analyst, researcher, debugger…) belong to your own setup or suites like oh-my-claudecode — our `planner`/`reviewer` are deliberately narrow, vault-aware specialists, not their replacements.
 
 | Agent | When | What it does |
 |---|---|---|
-| `projectstore:projectstore-critic` | After authoring/revising an artifact (ADR / research / epic / story) or a design proposal, before treating it final | Adversarial critique: pre-commits to likely problems, verifies every claim against its source, rates assumptions (verified / reasonable / fragile), runs gap-analysis + pre-mortem with operator / maintainer / skeptic lenses, then self-audits. Verdict: `ship` / `revise` / `rethink`. |
-| `projectstore:code-planner` | Before writing non-trivial code | Explores the actual codebase and returns *where* the change belongs, *which* existing patterns and utilities to reuse, the conventions to match, the repo-specific pitfalls to avoid, and an ordered placement plan — grounded in this repo, not generic advice. |
-| `projectstore:code-reviewer` | After writing code, before committing | Pre-commit review: spec compliance first, then correctness / regressions / codebase-fit / tests — severity + confidence rated, discovery-not-filtered, self-audited. Verdict: `commit` / `fix first`. |
+| `projectstore:critic` | After authoring/revising an artifact (ADR / research / epic / story) or a design proposal, before treating it final | Adversarial critique: pre-commits to likely problems, verifies every claim against its source, rates assumptions, runs gap-analysis + pre-mortem, then self-audits. Verdict: `ship` / `revise` / `rethink`. |
+| `projectstore:planner` | Before implementing an epic/story | Epic-implementation planning: reads how prior epics landed in the code (`code_refs` — module / adapter / package shapes) and plans the next one consistently; proposes the new footprint for `codemap set`. |
+| `projectstore:reviewer` | After writing code, before commit / story-done | Story-conformance review: a per-acceptance-criterion evidence matrix — does the diff actually close the story? — then correctness / regressions / fit; proposes the story's `code_refs` update. Verdict: `story closed` / `gaps remain`. |
+| `projectstore:librarian` | Periodically / before releases (after `doctor`) | Semantic vault hygiene no rule can check: contradictions (research vs an accepted ADR), duplicates, missing wiki-links, archive candidates — with concrete fix proposals. |
+| `projectstore:archaeologist` | After binding an existing (brownfield) project | Decision archaeology: digs stack choices, architectural shapes, and git-history inflection points out of the code and proposes backfill ADRs/concepts with evidence — the vault starts seeded, not empty. |
 
-`/projectstore:review` uses `projectstore-critic` as its default critic. Because plugin agents resolve at the **lowest** priority, a same-named agent in `.claude/agents/` (project) or `~/.claude/agents/` (user) transparently overrides the bundled one — so your own tuned version always wins where you have one.
+`/projectstore:review` always spawns the **scoped** `projectstore:critic`. Name-precedence shadowing (a same-named agent in `.claude/agents/` or `~/.claude/agents/` overriding the bundled one) applies to bare-name and auto-delegated invocations — your own `critic` wins there; the review command deliberately pins ours. Model and effort are configurable per project via `/projectstore:agents configure` (override copies; `opus` + `max` is the shipped default).
 
 ## Status line
 
@@ -210,7 +215,7 @@ See the epic and story the agent is working on this session, right in Claude Cod
 
 **It does not overwrite your current status-line settings.** `statusLine` is a single slot and not plugin-declarable, so projectstore ships `scripts/statusline.mjs` plus a `/projectstore:statusline on|off` command. Enabling it just flips `statusline.enabled` in `.claude/projectstore.json`; the **SessionStart hook** then wires the project's `.claude/settings.local.json` (local scope, this-project-only, conventionally git-ignored) to the current plugin version's script — re-derived on every session start, so it keeps working across plugin updates with no path to maintain by hand. Rather than clobber your HUD, the script **composes**: it re-runs whatever base `statusLine` command you already have — for example [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)'s HUD, read from `~/.claude/settings.json` — prints its output verbatim, and adds the `📚 <epic> › <story> (<status>)` line above it (position via `projectstore.json` → `statusline.position`, default `above`). With no base command it renders a standalone line: `<model> · <dir> · ⎇ <branch> · 📚 …`.
 
-So in a projectstore project you keep your full [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) context / rate-limit / session HUD **and** gain the current epic & story on top. The epic/story is derived from this session's `recent_activity` log — it appears once you touch an epic or story, and stays transparent (base HUD only) otherwise.
+So in a projectstore project you keep your full [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) context / rate-limit / session HUD **and** gain the current epic & story on top. Resolution is **per-session** (2–6 parallel sessions each see their own work, never a sibling's) via a project-side pointer maintained by the PreToolUse hook — zero vault reads at render time. The line is **never blank while enabled**: a fresh session shows a localized `📚 No epic or story in this session yet` (ru: «Эпик и стори ещё не в работе в этой сессии»), a corrupt state file shows an error marker instead of a false "no work", and the `[PS#version]` badge (config `statusline.show_version`) tells you at a glance the plugin is alive.
 
 ```
 /projectstore:statusline on      # enable (project-local); the hook wires + refreshes it
@@ -222,7 +227,8 @@ So in a projectstore project you keep your full [oh-my-claudecode](https://githu
 
 | Version | What ships | Status |
 |---|---|---|
-| **v0.12** | Status line shows full epic & story titles (from frontmatter, not the filename) | ✅ current |
+| **v0.13** | Umbrella `doctor` + `reconcile` + `codemap`; vault-aware agent suite — **breaking renames**: `projectstore:projectstore-critic` → `projectstore:critic`, `code-planner`/`code-reviewer` → vault-aware `planner`/`reviewer` — plus `librarian` & `archaeologist`; agents block + model presets + statusline offer at bind; per-session never-blank status line; unicode slugs; YAML-safe frontmatter | ✅ current |
+| v0.12 | Status line shows full epic & story titles (from frontmatter, not the filename) | ✅ |
 | v0.11 | Status line install simplified — opt-in flag + self-healing SessionStart wiring | ✅ |
 | v0.10 | Status line — current epic & story in the HUD, composes with an existing status line | ✅ |
 | v0.9 | Bundled review agents (`projectstore-critic`, `code-planner`, `code-reviewer`) | ✅ |
