@@ -284,6 +284,72 @@ export function checkVaultGit(cfg) {
     "Vault is not a git repository — the knowledge has no history/blame/review. Consider `git init` (doctor --fix offers it).")];
 }
 
+function versionNewer(a, b) {
+  const pa = String(a).split(".").map(Number);
+  const pb = String(b).split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+// Marketplace auto-update (maintainer request 2026-07-03): third-party
+// marketplaces do NOT auto-update by default, so a stale plugin looks like
+// "the feature is broken". Read the real registries and, when the flag is
+// off, tell the user the exact correct values.
+export function checkAutoUpdate() {
+  const out = [];
+  const root = pluginRoot();
+  const m = root.match(/\/plugins\/(?:cache|marketplaces)\/([^/]+)\//);
+  if (!m) {
+    out.push(finding("install", "info", "auto-update",
+      "Local dev install (--plugin-dir) — marketplace auto-update not applicable."));
+    return out;
+  }
+  const marketplace = m[1];
+
+  let registry = null;
+  try {
+    registry = JSON.parse(readFileSync(join(homedir(), ".claude", "plugins", "known_marketplaces.json"), "utf8"));
+  } catch {}
+  const entry = registry ? registry[marketplace] : null;
+  if (!entry) {
+    out.push(finding("install", "warn", "auto-update",
+      `Marketplace "${marketplace}" is missing from ~/.claude/plugins/known_marketplaces.json — updates cannot be tracked. Re-add it: /plugin marketplace add <owner/repo>.`));
+    return out;
+  }
+
+  let enabled = entry.autoUpdate === true;
+  if (!enabled) {
+    try {
+      const s = JSON.parse(readFileSync(join(homedir(), ".claude", "settings.json"), "utf8"));
+      if (s?.extraKnownMarketplaces?.[marketplace]?.autoUpdate === true) enabled = true;
+    } catch {}
+  }
+  if (!enabled) {
+    out.push(finding("install", "warn", "auto-update",
+      `Auto-update is OFF for marketplace "${marketplace}" — new projectstore releases will not be noticed. ` +
+      `Correct values: "autoUpdate": true on the "${marketplace}" entry in ~/.claude/plugins/known_marketplaces.json ` +
+      `(set via /plugin → Marketplaces → ${marketplace} → toggle auto-update), or in ~/.claude/settings.json → ` +
+      `extraKnownMarketplaces.${marketplace}.autoUpdate: true. Manual path: /plugin marketplace update ${marketplace}, then /reload-plugins.`));
+  }
+
+  // Bonus: the marketplace checkout's catalog knows the latest released
+  // version — flag when it is newer than the one actually running.
+  try {
+    const name = JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).name;
+    const catalog = JSON.parse(readFileSync(join(entry.installLocation, ".claude-plugin", "marketplace.json"), "utf8"));
+    const latest = (catalog.plugins || []).find((p) => p.name === name)?.version;
+    const running = pluginVersion();
+    if (latest && running && versionNewer(latest, running)) {
+      out.push(finding("install", "warn", "auto-update",
+        `A newer ${name} is available: v${latest} (running v${running}) — run /plugin marketplace update ${marketplace}, then /reload-plugins.`));
+    }
+  } catch {}
+  return out;
+}
+
 // ─── Vault checks ──────────────────────────────────────────────────────
 
 // Collect every structured artifact with parsed frontmatter.
@@ -553,6 +619,7 @@ export function runInstallChecks(cfg, proj) {
     ...checkEnvModel(),
     ...checkGitignore(proj),
     ...checkVaultGit(cfg),
+    ...checkAutoUpdate(),
   );
   return out;
 }
