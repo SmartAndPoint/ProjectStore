@@ -43,10 +43,32 @@
       "readme": true
     }
   ],
-  "commands": ["adr", "epic", "story", "research", "concept", "meeting", "runbook", "kanban"],
+  "commands": [
+    "adr",
+    "epic",
+    "story",
+    "research",
+    "concept",
+    "meeting",
+    "runbook",
+    "kanban"
+  ],
+  "agents": [
+    "critic",
+    "planner",
+    "reviewer",
+    "librarian",
+    "archaeologist"
+  ],
   "kanban": {
     "file": "kanban.md",
-    "columns": ["Backlog", "ToDo", "In Progress", "Review", "Done"],
+    "columns": [
+      "Backlog",
+      "ToDo",
+      "In Progress",
+      "Review",
+      "Done"
+    ],
     "source": "epics/*/stories/*.md"
   }
 }

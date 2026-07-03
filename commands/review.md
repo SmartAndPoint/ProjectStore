@@ -23,7 +23,7 @@ You are running a peer review on a projectstore artifact.
 
 5. **Gather domain context**: read the vault's top-level `README.md` and the folder README of the artifact's parent (e.g. `adr/README.md`). Keep both short — they're context for the critic, not the focus.
 
-6. **Spawn the critic agent**. Prefer this plugin's own `projectstore:projectstore-critic` (purpose-built fresh-context critic, no sycophancy). If unavailable, fall back to `oh-my-claudecode:critic`, then `general-purpose`. Use this exact prompt template:
+6. **Spawn the critic agent**. Prefer this plugin's own `projectstore:critic` (purpose-built fresh-context critic, no sycophancy; named `projectstore:projectstore-critic` before v0.13). If unavailable, fall back to `oh-my-claudecode:critic`, then `general-purpose`. Use this exact prompt template:
 
    ```
    You are a critic-mode reviewer. You have ONLY the artifact and the
@@ -78,7 +78,7 @@ You are running a peer review on a projectstore artifact.
 
    Do this with one final Edit after all content changes are applied.
 
-10. **Final print**: file path, what was applied / noted / skipped, and a one-line hint: "Run `/sp:commit` to save the review."
+10. **Final print**: file path, what was applied / noted / skipped, and a one-line hint to commit the review if the vault is git-tracked.
 
 ## Notes for the implementer (you, Claude)
 

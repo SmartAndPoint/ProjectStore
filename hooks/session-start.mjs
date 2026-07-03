@@ -20,7 +20,9 @@ import {
   readStdinJson,
   projectRoot,
   syncStatusLine,
+  cleanupStaleSessionState,
 } from "../scripts/lib.mjs";
+import { runStartupChecks } from "../scripts/doctor.mjs";
 
 function welcomedMarkerPath(proj) {
   return join(proj, ".claude", ".projectstore-welcomed");
@@ -125,6 +127,8 @@ function main() {
   const input = readStdinJson();
   const sid = input?.session_id || null;
 
+  try { cleanupStaleSessionState(proj); } catch {}
+
   let warning = "";
   if (sid) {
     try {
@@ -138,14 +142,28 @@ function main() {
     }
   }
 
+  // Cheap install-only doctor subset (ADR-005): one line, only when N > 0;
+  // aborted past its budget rather than reporting a false "clean".
+  let doctorMsg = null;
+  try {
+    const r = runStartupChecks(cfg, proj);
+    if (r.skipped) {
+      doctorMsg = "projectstore doctor: startup checks skipped — run /projectstore:doctor";
+    } else if (r.count > 0) {
+      doctorMsg = `projectstore doctor: ${r.count} install issue(s) — run /projectstore:doctor`;
+    }
+  } catch {}
+  const systemMessage =
+    [welcomeSystemMessage, doctorMsg].filter(Boolean).join(" · ") || null;
+
   try {
     const map = buildVaultMap(cfg);
-    emit(welcome + map + warning, welcomeSystemMessage);
+    emit(welcome + map + warning, systemMessage);
   } catch (e) {
     emit(
       welcome +
         `# projectstore: vault load failed\n\n${e.message}\n\nFix \`.claude/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
-      welcomeSystemMessage,
+      systemMessage,
     );
   }
 }

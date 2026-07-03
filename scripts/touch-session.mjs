@@ -21,7 +21,8 @@
 // session_id, or on any error — a PreToolUse hook must never crash the
 // user's tool call.
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   readConfig,
   readStdinJson,
@@ -32,7 +33,55 @@ import {
   projectRoot,
   appendActivity,
   isInsideVault,
+  parseFrontmatter,
+  readSessionState,
+  writeSessionState,
 } from "./lib.mjs";
+
+const WRITE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
+const NUDGE_INTERVAL_MS = 10 * 60 * 1000;
+
+// Per-session active pointer (ADR-006) — denormalized titles/status captured
+// at write time so the statusline renders with zero vault reads — plus the
+// raw-edit nudge (PS-IMPROVE story-003): throttled, never blocking.
+function updatePointerAndNudge(cfg, proj, sid, filePath, toolName) {
+  const rel = filePath.slice(cfg.vault_path.length + 1);
+  let patch = null;
+
+  const m = rel.match(/^epics\/([^/]+)\//);
+  if (m) {
+    const epicId = m[1];
+    patch = { active_epic: epicId };
+    try {
+      const { data } = parseFrontmatter(
+        readFileSync(join(cfg.vault_path, "epics", epicId, "epic.md"), "utf8"));
+      if (data.title) patch.epic_title = String(data.title);
+    } catch {}
+    const sm = rel.match(/^epics\/[^/]+\/stories\/([^/]+\.md)$/);
+    if (sm) {
+      patch.active_story = sm[1].replace(/\.md$/, "");
+      try {
+        const { data } = parseFrontmatter(readFileSync(filePath, "utf8"));
+        if (data.title) patch.story_title = String(data.title);
+        if (data.status) patch.story_status = String(data.status);
+      } catch {}
+    }
+  }
+
+  let nudge = null;
+  if (WRITE_TOOLS.test(toolName || "") && cfg.guard !== "off") {
+    const st = readSessionState(proj, sid);
+    const last = st && st.nudged_at ? Date.parse(st.nudged_at) : 0;
+    if (Date.now() - last > NUDGE_INTERVAL_MS) {
+      nudge =
+        "projectstore: vault file edited directly — if this bypassed a /projectstore:* command, run /projectstore:reconcile (or doctor) afterwards so the board/indexes stay in sync.";
+      patch = { ...(patch || {}), nudged_at: new Date().toISOString() };
+    }
+  }
+
+  if (patch) writeSessionState(proj, sid, patch);
+  if (nudge) process.stdout.write(JSON.stringify({ systemMessage: nudge }) + "\n");
+}
 
 function extractToolPath(input) {
   if (!input || !input.tool_input) return null;
@@ -61,6 +110,7 @@ function main() {
   const filePath = extractToolPath(input);
   if (filePath && isInsideVault(filePath, cfg.vault_path)) {
     try { appendActivity(cfg.vault_path, sid, filePath, input.tool_name); } catch {}
+    try { updatePointerAndNudge(cfg, proj, sid, filePath, input.tool_name); } catch {}
   }
 }
 

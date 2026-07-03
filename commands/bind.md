@@ -59,7 +59,7 @@ Steps:
 
 5. On approval, write the file using the Write tool to `<project>/.claude/projectstore.json`.
 
-6. **Check `.gitignore`**: read `<project>/.gitignore` if it exists. If `.claude/projectstore.json` is not listed, ask via AskUserQuestion: "Add `.claude/projectstore.json` to `.gitignore` (vault path is machine-specific)? [Yes / No]". If yes, append the entry (use Edit).
+6. **Check `.gitignore`**: read `<project>/.gitignore` if it exists. Unless `.claude/` is ignored wholesale, the machine-specific entries are: `.claude/projectstore.json`, `.claude/settings.local.json`, `.claude/.projectstore/` (per-session state). Ask via AskUserQuestion: "Add the missing entries to `.gitignore`? [Yes / No]". If yes, append them (use Edit).
 
 7. **Offer scaffold**: if the vault is empty or missing layout folders, ask: "Vault is empty/incomplete. Run `/projectstore:scaffold` to create the layout? [Yes / No]". If yes, invoke `/projectstore:scaffold` immediately (just describe; do not assume execution).
 
@@ -75,3 +75,15 @@ Steps:
    - **Already enabled** — respond with: "Great. New releases will be detected at the next Claude Code startup."
 
    After the question is answered (regardless of choice), Edit `<project>/.claude/projectstore.json` to add `"autoupdate_asked": true` to the JSON object. This guarantees we ask only once per project.
+
+10. **Agent registration** (v0.13, ADR-002): ask via AskUserQuestion — "Register projectstore's agents in CLAUDE.md/AGENTS.md so every session routes to them (critic after authoring artifacts, planner before implementing, reviewer before commit)? [Yes (Recommended) / No]". On Yes, run the `register` flow from `commands/agents.md` (block generated from the layout's roster; each write individually approved). On a rebind where a block already exists, offer repair/migrate instead of re-asking blindly.
+
+11. **Agent model preset** (v0.13, ADR-003): ask via AskUserQuestion — include this line in the question text: *"These agents don't write code — they are critics, planners, and reviewers; they perform best on strong models at high effort."* Options: **Keep bundled default — opus + max** (Recommended) / **fable + max** / **sonnet + max** / **inherit (follow the session's model)**. Free-form model IDs and per-agent tuning live in `/projectstore:agents configure` — mention it. A non-default choice runs the `configure` apply flow from `commands/agents.md` (override copies, approval-gated). Skippable.
+
+12. **Status line offer** (v0.13, ADR-006 — the final step, language is known by now): read `$CLAUDE_PLUGIN_ROOT/templates/<lang>/strings.json` (fall back to `en`) and the plugin version, then show the fully rendered example:
+
+    > `[PS#<version>] 📚 <statusline_example_epic> › <statusline_example_story> (in-progress)`
+
+    (for `ru`: `[PS#0.13.0] 📚 Супер-фича в супер-продукте › Ручка для туалетной бумаги (in-progress)`)
+
+    Ask via AskUserQuestion: "Show your current epic/story in the status line, composed above any existing HUD? [Yes / No]". On Yes: Edit `projectstore.json` → `"statusline": { "enabled": true }` (approval-gated) and report: "Enabled — restart Claude Code in this project to apply (the SessionStart hook wires it). A fresh session shows: `[PS#<version>] 📚 <statusline_no_work>`."

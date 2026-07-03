@@ -2,8 +2,10 @@
 // projectstore — draft.mjs
 // Pure renderer. Given a kind (adr/epic/story/research/concept/meeting/runbook)
 // and arguments, produces a JSON draft on stdout describing the target file
-// and its rendered content. Does NOT write anything to disk — that is the
-// caller's responsibility after user approval.
+// and its rendered content. Does NOT touch the disk — no writes AND no
+// mkdir: declining the approval gate must leave the vault byte-for-byte
+// unchanged (ADR-001 review / PS-IMPROVE story-006). Directory creation is
+// the caller's job after approval (the Write tool creates parents).
 //
 // Output schema:
 // {
@@ -19,7 +21,7 @@
 //
 // Errors are written to stderr as plain text and exit code 1.
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   readConfig,
@@ -69,7 +71,6 @@ function buildAdr(cfg, layout, args) {
   if (!folder) die("Layout has no folder of kind=adr");
   const vault = cfg.vault_path;
   const dir = join(vault, folder.path);
-  mkdirSync(dir, { recursive: true });
   const number = nextNumber(dir, folder.prefix || "ADR-", folder.pad || 3);
   const slug = slugify(title);
   const id = `${(folder.prefix || "ADR-").replace(/-$/, "")}-${number}`;
@@ -101,7 +102,6 @@ function buildEpic(cfg, layout, args) {
   if (!folder) die("Layout has no folder of kind=epic");
   const vault = cfg.vault_path;
   const epicDir = join(vault, folder.path, id);
-  mkdirSync(join(epicDir, "stories"), { recursive: true });
   const vars = { ...commonVars(cfg), id, title };
   const tpl = loadTemplate(cfg.language || "en", "epic");
   return {
@@ -126,7 +126,6 @@ function buildStory(cfg, layout, args) {
   if (!existsSync(join(vault, folder.path, epicId))) {
     die(`Epic folder not found: ${folder.path}/${epicId}. Create the epic first via /projectstore:epic.`);
   }
-  mkdirSync(storiesDir, { recursive: true });
   const number = nextNumber(storiesDir, "story-", 3);
   const slug = slugify(title);
   const id = `story-${number}`;
@@ -155,7 +154,6 @@ function buildSimple(kind, cfg, layout, args) {
   if (!folder) die(`Layout has no folder of kind=${kind}`);
   const vault = cfg.vault_path;
   const dir = join(vault, folder.path);
-  mkdirSync(dir, { recursive: true });
   const slug = slugify(title);
   const date = today();
   const fileName = folder.date_prefix ? `${date}-${slug}.md` : `${slug}.md`;
