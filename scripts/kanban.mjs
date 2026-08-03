@@ -1,44 +1,73 @@
 #!/usr/bin/env node
 // projectstore — kanban.mjs
-// Regenerates kanban.md by scanning all story files in epics/<id>/stories/*.md,
-// reading their frontmatter (status, priority, title, epic) and rendering into the
-// kanban template. Source of truth = story frontmatter.
+// Regenerates kanban.md by scanning every story under epics/<id>/stories/ —
+// both flat files and story folders (see listStoryFiles) — reading their
+// frontmatter (status, priority, title, epic) and rendering into the kanban
+// template. Source of truth = story frontmatter.
 //
 // Output: JSON { path, content } — caller writes after approval.
 
-import { readdirSync, statSync, readFileSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { readConfig, loadLayout, loadTemplate, renderTemplate, parseFrontmatter, today } from "./lib.mjs";
+import { readConfig, loadLayout, loadTemplate, renderTemplate, parseFrontmatter, today, listEpicStories } from "./lib.mjs";
 
 function die(msg) {
   process.stderr.write(`projectstore/kanban: ${msg}\n`);
   process.exit(1);
 }
 
+// Statuses that describe work which is not on the board by definition: it was
+// replaced, postponed, or set aside. Putting them in a column would claim the
+// work is queued, which is the opposite of what the status says.
+const NOT_ACTIONABLE = new Set(["superseded", "deferred", "parked"]);
+
 function findStories(vault, epicsPath) {
   const root = join(vault, epicsPath);
-  if (!existsSync(root)) return [];
   const stories = [];
+  const skipped = { no_status: [], not_actionable: [] };
+  if (!existsSync(root)) return { stories, skipped };
   for (const epicId of readdirSync(root)) {
-    const storiesDir = join(root, epicId, "stories");
-    if (!existsSync(storiesDir)) continue;
-    for (const file of readdirSync(storiesDir)) {
-      if (!file.endsWith(".md")) continue;
-      const full = join(storiesDir, file);
-      const md = readFileSync(full, "utf8");
+    // `_templates` and friends hold blanks, not work.
+    if (epicId.startsWith("_") || epicId.startsWith(".")) continue;
+    for (const story of listEpicStories(join(root, epicId))) {
+      const md = readFileSync(story.abs, "utf8");
       const { data } = parseFrontmatter(md);
+      const relPath = `${epicsPath}/${epicId}/${story.rel}`;
+
+      // A story with no status has no column. Defaulting it to "planned" would
+      // invent a claim about work nobody made — legacy stories written before
+      // frontmatter existed would show up as queued. They return to the board
+      // the moment they get a status.
+      if (!data.status) {
+        skipped.no_status.push(relPath);
+        continue;
+      }
+      const status = String(data.status).toLowerCase();
+      if (NOT_ACTIONABLE.has(status)) {
+        skipped.not_actionable.push(relPath);
+        continue;
+      }
+
+      // The card is labelled by the epic the story claims in its frontmatter,
+      // falling back to the folder. Stories get re-filed under a new tracker key
+      // without moving on disk, and a standalone story writes `epic: null` —
+      // in both cases the folder name is the better answer only when frontmatter
+      // has nothing to say.
+      const claimed = data.epic == null ? "" : String(data.epic).trim();
+      const epicLabel = claimed && claimed !== "null" ? claimed : epicId;
+
       stories.push({
-        path: full,
-        relPath: `${epicsPath}/${epicId}/stories/${file}`,
-        epicId,
-        status: (data.status || "planned").toLowerCase(),
+        path: story.abs,
+        relPath,
+        epicId: epicLabel,
+        status,
         priority: data.priority || "p2",
-        title: data.title || file.replace(/\.md$/, ""),
-        id: data.id || file.replace(/\.md$/, ""),
+        title: data.title || story.slug,
+        id: data.id || story.slug,
       });
     }
   }
-  return stories;
+  return { stories, skipped };
 }
 
 function statusToColumn(status) {
@@ -74,7 +103,7 @@ function main() {
   const epicsFolder = layout.folders.find((f) => f.kind === "epic");
   if (!epicsFolder) die("No epic folder in layout — kanban needs epics.");
 
-  const stories = findStories(cfg.vault_path, epicsFolder.path);
+  const { stories, skipped } = findStories(cfg.vault_path, epicsFolder.path);
 
   const columns = {};
   for (const col of layout.kanban.columns) columns[col] = [];
@@ -100,6 +129,13 @@ function main() {
     stats: {
       total: stories.length,
       by_column: Object.fromEntries(Object.entries(columns).map(([k, v]) => [k, v.length])),
+      // Reported, not hidden: a story missing from the board must be explainable
+      // without reading the generator.
+      skipped: {
+        no_status: skipped.no_status.length,
+        not_actionable: skipped.not_actionable.length,
+        files: { no_status: skipped.no_status, not_actionable: skipped.not_actionable },
+      },
     },
   };
 
