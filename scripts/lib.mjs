@@ -315,6 +315,68 @@ export function nowIso() {
   return new Date().toISOString();
 }
 
+// ─── Story discovery ──────────────────────────────────────────────────
+//
+// A story is written in one of two shapes, and both are load-bearing in real
+// vaults:
+//
+//   stories/story-001-foo.md            — flat file
+//   stories/story-001-foo/README.md     — folder, when the story owns artifacts
+//
+// The folder shape exists because a story that carries attachments (reviews,
+// diagrams, drafts) needs somewhere to put them; the README is then the story
+// itself. Scanners that only glob `stories/*.md` silently drop those stories —
+// on a board that means the card disappears, which reads as "no such work"
+// rather than "scanner is blind".
+//
+// Only `stories/<name>/README.md` counts, not deeper nesting: an
+// `artifacts/` subfolder under a story holds attachments, not more stories.
+
+export function listStoryFiles(storiesDir) {
+  if (!existsSync(storiesDir)) return [];
+  const out = [];
+  for (const entry of readdirSync(storiesDir).sort()) {
+    const full = join(storiesDir, entry);
+    let st;
+    try { st = statSync(full); } catch { continue; }
+    if (st.isFile() && entry.endsWith(".md")) {
+      out.push({ abs: full, rel: entry, slug: entry.replace(/\.md$/, "") });
+      continue;
+    }
+    if (st.isDirectory()) {
+      const readme = join(full, "README.md");
+      if (existsSync(readme)) {
+        out.push({ abs: readme, rel: `${entry}/README.md`, slug: entry });
+      }
+    }
+  }
+  return out;
+}
+
+// Every story belonging to one epic folder, `rel` given relative to that folder.
+//
+// Besides the two shapes above there is a third: a standalone story — one that
+// has its own tracker key and no epic around it, filed as
+// epics/<key>/story-<slug>.md with no stories/ subfolder. Callers address it by
+// that path (ADRs link straight to it), so it is a real location, not a mistake
+// to normalise away.
+
+export function listEpicStories(epicDir) {
+  const out = [];
+  // epics/ holds loose files too (README, notes) — only folders are epics.
+  try { if (!statSync(epicDir).isDirectory()) return out; } catch { return out; }
+  for (const s of listStoryFiles(join(epicDir, "stories"))) {
+    out.push({ abs: s.abs, rel: `stories/${s.rel}`, slug: s.slug });
+  }
+  for (const entry of readdirSync(epicDir).sort()) {
+    if (!entry.startsWith("story-") || !entry.endsWith(".md")) continue;
+    const full = join(epicDir, entry);
+    try { if (!statSync(full).isFile()) continue; } catch { continue; }
+    out.push({ abs: full, rel: entry, slug: entry.replace(/\.md$/, "") });
+  }
+  return out;
+}
+
 // ─── Vault map (for SessionStart hook) ─────────────────────────────────
 
 export function buildVaultMap(cfg) {
