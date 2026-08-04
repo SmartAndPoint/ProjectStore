@@ -24,6 +24,7 @@ import {
   checkSpecCoverage,
   checkSpecAcceptance,
   checkLifecycleGates,
+  checkOverrideCopies,
   parseSpecAcceptance,
 } from "../scripts/doctor.mjs";
 
@@ -78,6 +79,61 @@ test("isLegacyStory truth table", () => {
   assert.ok(!isLegacyStory({ status: "done", closed_at: "2026-08-04T00:00:00.000Z" }, since));
   assert.ok(!isLegacyStory({ status: "in-progress" }, since), "in-progress at enable → in scope");
   assert.ok(!isLegacyStory({ status: "review" }, since), "review at enable → in scope");
+});
+
+// ─── override copies (ADR-001/004 renames, project + user scope) ───────
+
+function agentDirs() {
+  const root = mkdtempSync(join(tmpdir(), "ps-agents-"));
+  const proj = join(root, "proj");
+  const home = join(root, "home");
+  mkdirSync(join(proj, ".claude", "agents"), { recursive: true });
+  mkdirSync(join(home, ".claude", "agents"), { recursive: true });
+  return { proj, home };
+}
+
+const agentFile = (name, { marker } = {}) =>
+  `---\nname: ${name}\nmodel: opus\n---\n\n${marker ? `# source: projectstore v${marker}\n\n` : ""}body\n`;
+
+test("checkOverrideCopies flags a pre-v0.13 name in the user scope", () => {
+  const { proj, home } = agentDirs();
+  writeFileSync(join(home, ".claude", "agents", "projectstore-critic.md"), agentFile("projectstore-critic"));
+  const out = checkOverrideCopies(proj, home);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].check, "override-copies");
+  assert.match(out[0].message, /overrides nothing/);
+  assert.match(out[0].message, /every project/);
+  // pure rename → renaming the copy restores the override, so we may suggest it
+  assert.match(out[0].message, /rename it to "critic"/);
+  // no provenance marker → cannot prove it is ours, so info rather than warn
+  assert.equal(out[0].level, "info");
+});
+
+test("checkOverrideCopies warns at warn-level when provenance is proven", () => {
+  const { proj, home } = agentDirs();
+  writeFileSync(join(proj, ".claude", "agents", "code-planner.md"), agentFile("code-planner", { marker: "0.9.0" }));
+  const out = checkOverrideCopies(proj, home);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].level, "warn");
+  // planner was transformed, not renamed — suggesting a rename would swap its role
+  assert.match(out[0].message, /narrower vault-aware "planner"/);
+  assert.ok(!/rename it to/.test(out[0].message), "must not suggest renaming onto a transformed role");
+});
+
+test("checkOverrideCopies leaves user-authored agents alone", () => {
+  const { proj, home } = agentDirs();
+  writeFileSync(join(home, ".claude", "agents", "my-helper.md"), agentFile("my-helper"));
+  // a same-named agent with no marker is indistinguishable from the user's own
+  writeFileSync(join(home, ".claude", "agents", "critic.md"), agentFile("critic"));
+  assert.deepEqual(checkOverrideCopies(proj, home), []);
+});
+
+test("checkOverrideCopies still reports a stale current-name override copy", () => {
+  const { proj, home } = agentDirs();
+  writeFileSync(join(proj, ".claude", "agents", "critic.md"), agentFile("critic", { marker: "0.0.1" }));
+  const out = checkOverrideCopies(proj, home);
+  assert.equal(out.length, 1);
+  assert.match(out[0].message, /frozen at projectstore v0\.0\.1/);
 });
 
 // ─── list parsing ──────────────────────────────────────────────────────

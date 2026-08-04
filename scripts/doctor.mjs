@@ -44,11 +44,24 @@ import {
 
 const AGENT_BLOCK_MARKER = /<!--\s*projectstore:agents v(\d+)/g;
 const AGENT_BLOCK_VERSION = 1;
-const BUNDLED_AGENT_NAMES = [
-  // current + post-ADR-001/004 names, so provenance checks survive the rename
-  "critic", "planner", "reviewer", "librarian", "archaeologist",
-  "projectstore-critic", "code-planner", "code-reviewer",
-];
+// The live roster: a copy carrying one of these names still overrides a real
+// bundled agent, which is the supported case (/projectstore:agents configure).
+const CURRENT_AGENT_NAMES = ["critic", "planner", "reviewer", "librarian", "archaeologist"];
+// Names bundled BEFORE v0.13 (ADR-001/004). Provenance checks need them to
+// recognise a copy as ours — but such a copy overrides nothing any more, so it
+// must be reported rather than waved through as a valid override.
+//
+// `renamed` and `replaced` are different advice, and conflating them misleads:
+// critic was a pure rename (same role), so renaming a copy restores the
+// override. planner/reviewer were *transformed* into narrow vault-aware roles
+// that explicitly are not general-purpose — renaming a general-purpose copy
+// onto them would silently swap its job, so we must not suggest it.
+const LEGACY_AGENTS = {
+  "projectstore-critic": { now: "critic", renamed: true },
+  "code-planner": { now: "planner", renamed: false },
+  "code-reviewer": { now: "reviewer", renamed: false },
+};
+const BUNDLED_AGENT_NAMES = [...CURRENT_AGENT_NAMES, ...Object.keys(LEGACY_AGENTS)];
 
 function finding(group, level, check, message, file) {
   const f = { group, level, check, message };
@@ -251,23 +264,63 @@ export function checkAgentsBlock(proj) {
   return out;
 }
 
-export function checkOverrideCopies(proj) {
+// Claude Code resolves agents project > user > plugin, so a copy in EITHER
+// scope shadows the bundle. Checking only the project scope let a stale
+// user-scope copy (~/.claude/agents) compete with the bundled agent in every
+// project while doctor reported healthy — hence both scopes here.
+//
+// Provenance is established by the `# source: projectstore vX` marker OR by a
+// bundled name: copies taken before the marker existed have no other tell, and
+// those are precisely the ones old enough to have gone stale. Where the marker
+// is absent the finding drops to `info`, since a same-named agent the user
+// wrote themselves is indistinguishable from ours.
+export function checkOverrideCopies(proj, home = homedir()) {
   const out = [];
-  const dir = join(proj, ".claude", "agents");
   const ver = pluginVersion();
-  for (const f of listMd(dir)) {
-    let text;
-    try { text = readFileSync(join(dir, f), "utf8"); } catch { continue; }
-    const m = text.match(/#\s*source:\s*projectstore\s+v(\S+)/);
-    if (!m) continue; // user-authored agent — never ours to judge
-    if (ver && m[1] !== ver) {
-      out.push(finding("install", "warn", "override-copies",
-        `Override copy ${f} frozen at projectstore v${m[1]} (installed v${ver}) — re-run /projectstore:agents configure to refresh the prompt.`, join(".claude/agents", f)));
-    }
-    const { data } = parseFrontmatter(text);
-    if (data.name && !BUNDLED_AGENT_NAMES.includes(data.name)) {
-      out.push(finding("install", "warn", "override-copies",
-        `Override copy ${f} has name "${data.name}" which matches no bundled agent — it duplicates instead of overriding.`, join(".claude/agents", f)));
+  const scopes = [
+    { dir: join(proj, ".claude", "agents"), label: ".claude/agents", scope: "project" },
+    { dir: join(home, ".claude", "agents"), label: "~/.claude/agents", scope: "user" },
+  ];
+  for (const { dir, label, scope } of scopes) {
+    for (const f of listMd(dir)) {
+      let text;
+      try { text = readFileSync(join(dir, f), "utf8"); } catch { continue; }
+      const m = text.match(/#\s*source:\s*projectstore\s+v(\S+)/);
+      const { data } = parseFrontmatter(text);
+      const name = data.name || "";
+      if (!m && !BUNDLED_AGENT_NAMES.includes(name)) continue; // user-authored agent — never ours to judge
+
+      const where = join(label, f);
+      const everywhere = scope === "user" ? " User-scoped, so it applies in every project." : "";
+
+      if (Object.hasOwn(LEGACY_AGENTS, name)) {
+        const { now, renamed } = LEGACY_AGENTS[name];
+        const advice = renamed
+          ? `Delete it, or rename it to "${now}" to override again.`
+          : `v0.13 replaced it with a narrower vault-aware "${now}", so renaming would swap its role — keep this copy if you use it outside projectstore, but re-check its pinned model.`;
+        // without a provenance marker we cannot prove lineage — hedge FIRST,
+        // not 40 words in, or the false premise leads for user-authored agents
+        const lead = m ? `${f}` : `If ${f} began as a projectstore copy (no provenance marker — ignore otherwise): it`;
+        out.push(finding("install", m ? "warn" : "info", "override-copies",
+          `${lead} carries the pre-v0.13 name "${name}", which no longer matches a bundled agent, so it overrides nothing and stands alongside "${now}" in the roster.${everywhere} ${advice}`,
+          where));
+        continue; // a stale-version note on top would just be noise
+      }
+      if (name && !CURRENT_AGENT_NAMES.includes(name)) {
+        out.push(finding("install", "warn", "override-copies",
+          `Override copy ${f} has name "${name}" which matches no bundled agent — it duplicates instead of overriding.${everywhere}`, where));
+        continue;
+      }
+      if (m && ver && m[1] !== ver) {
+        // configure writes PROJECT-scope copies only — pointing a user-scope
+        // finding at it would shadow the stale file here and leave it stale
+        // in every other project
+        const refresh = scope === "user"
+          ? `\`/projectstore:agents configure\` writes project-scope copies only — refresh or delete ${where} by hand.`
+          : "re-run /projectstore:agents configure to refresh the prompt.";
+        out.push(finding("install", "warn", "override-copies",
+          `Override copy ${f} frozen at projectstore v${m[1]} (installed v${ver}) — ${refresh}${everywhere}`, where));
+      }
     }
   }
   return out;
