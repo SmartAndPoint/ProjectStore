@@ -49,3 +49,9 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   flows (each behind AskUserQuestion) touch files.
 - The SessionStart hook runs a cheap install-only subset of this engine and
   prints one line when it finds issues; the full vault lint runs only here.
+- Spec gates (`spec-coverage`, `spec-status`, `spec-acceptance`) and lifecycle
+  gates (`evidence`, `plan-gate`, `final-summary`) key off the VAULT-side
+  policy file `<vault>/.projectstore.json` (`spec_policy` / `lifecycle_gates`,
+  ADR-007), never the machine-local config. `spec-links` integrity runs
+  whenever specs exist. Legacy stories (done before `spec_policy_since`, or
+  done with no `closed_at`) are exempt by design.

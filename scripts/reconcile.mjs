@@ -14,7 +14,7 @@ import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { readConfig, loadLayout, projectRoot, pluginRoot } from "./lib.mjs";
+import { readConfig, loadLayout, projectRoot, pluginRoot, indexHeaderRe } from "./lib.mjs";
 import { scanArtifacts } from "./doctor.mjs";
 
 function die(msg) {
@@ -53,7 +53,12 @@ function rebuildIndex(cfg, folder, artifacts) {
   if (!existsSync(readmePath)) return null;
   const original = readFileSync(readmePath, "utf8");
   const lines = original.split("\n");
-  const headIdx = lines.findIndex((l) => /^\|\s*File\s*\|\s*Title\s*\|\s*Status\s*\|\s*Date\s*\|/.test(l));
+  // Header matched via the heading registry (PS-SPEC story-002) — ru vaults'
+  // localized index headers were unreconcilable while this was an English
+  // literal. Unrecognized headers surface as a doctor index-header finding
+  // instead of a silent null here.
+  const headerRe = indexHeaderRe();
+  const headIdx = lines.findIndex((l) => headerRe.test(l));
   if (headIdx === -1 || !/^\|[-\s|]+\|$/.test(lines[headIdx + 1] || "")) return null;
 
   let end = headIdx + 2;

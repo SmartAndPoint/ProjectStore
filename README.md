@@ -118,6 +118,7 @@ Result — a vault that looks like this:
 my-project-vault/
 ├── README.md          ← index of everything
 ├── adr/               ← architecture decisions
+├── specs/             ← normative "how" per subsystem, covering stories (v0.14)
 ├── epics/             ← big pieces of work, each with stories/
 ├── research/          ← investigations and comparisons
 ├── concepts/          ← glossary and mental models
@@ -214,12 +215,13 @@ See the epic and story *this session* is working on, composed **above** your exi
 
 Details that matter with several Claude sessions open on one project: each session shows **its own** epic/story (never a sibling's), a fresh session shows a friendly localized "no epic or story in this session yet" line instead of a blank, and the `[PS#0.13.0]` badge tells you at a glance the plugin is alive and which version. Wiring is self-healing across plugin updates (the SessionStart hook re-points it every start).
 
-## What's in the box (v0.13)
+## What's in the box (v0.14)
 
-- **18 commands** — `bind`, `scaffold`, `status`, `adr`, `epic`, `story`, `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`, `statusline`, `doctor`, `reconcile`, `codemap`, `agents`
-- **5 agents** — `critic`, `planner`, `reviewer`, `librarian`, `archaeologist` (read-only, fresh-context, model-configurable)
+- **19 commands** — `bind`, `scaffold`, `status`, `adr`, `spec`, `epic`, `story` (with `plan`/`close` lifecycle gates), `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`, `statusline`, `doctor`, `reconcile`, `codemap`, `agents`
+- **Spec-first workflow (v0.14, ADR-007)** — a `spec` kind (the durable, normative "how" per subsystem: ADR references, numbered behavioral contracts, acceptance *additive* to the covered stories'), an opt-in vault policy (`spec_policy: required` in `<vault>/.projectstore.json`) under which every story must be covered by an `active` spec, and story lifecycle gates: `/projectstore:story plan` persists the implementation plan before code, `/projectstore:story close` persists the final summary and per-criterion evidence. Doctor enforces all of it; stories done before the policy stay exempt.
+- **5 agents** — `critic`, `planner`, `reviewer`, `librarian`, `archaeologist` (read-only, fresh-context, model-configurable). Planner derives thin plans from spec contracts; reviewer checks additive acceptance and computes `code_refs` proposals from the story-scoped git diff.
 - **4 passive skills** — decision detection, story completion, peer-review nudges, vault-native communication. They suggest; they never write.
-- **1 doctor + reconcile** — deterministic health checks and one-command repair of every generated view
+- **1 doctor + reconcile** — deterministic health checks and one-command repair of every generated view, now localization-aware via the heading registry (`scaffold/headings.json`) — ru vault indexes and section checks work
 - **1 layout** — `engineering`, with English and Russian templates (localized UI strings included)
 - **3 hooks** — session start (vault map + doctor line), tool use (activity + per-session pointer + raw-edit nudge), pre-compact (survival packet)
 
@@ -247,7 +249,8 @@ Deep dive with real session files and the compaction packet: [docs/how-it-works.
 
 | Version | What ships | Status |
 |---|---|---|
-| **v0.13** | Umbrella `doctor` + `reconcile` + `codemap`; vault-aware agent suite — **breaking renames**: `projectstore:projectstore-critic` → `projectstore:critic`, `code-planner`/`code-reviewer` → vault-aware `planner`/`reviewer` — plus `librarian` & `archaeologist`; agents block + model presets + statusline offer at bind; per-session never-blank status line; unicode slugs; YAML-safe frontmatter | ✅ current |
+| **v0.14** | Spec-first workflow (ADR-007): `spec` kind + `/projectstore:spec` with status transitions; vault-side `spec_policy`/`lifecycle_gates`; story lifecycle gates `/projectstore:story plan\|close` with evidence grammar; doctor spec/coverage/acceptance oracles; heading registry (ru vaults lint & reconcile); layout-driven kinds machinery (`extending.md` is now true); story-scoped `code_refs` from git diff; zero-dep test suite | ✅ current |
+| v0.13 | Umbrella `doctor` + `reconcile` + `codemap`; vault-aware agent suite — **breaking renames**: `projectstore:projectstore-critic` → `projectstore:critic`, `code-planner`/`code-reviewer` → vault-aware `planner`/`reviewer` — plus `librarian` & `archaeologist`; agents block + model presets + statusline offer at bind; per-session never-blank status line; unicode slugs; YAML-safe frontmatter | ✅ |
 | v0.12 | Status line shows full epic & story titles (from frontmatter, not the filename) | ✅ |
 | v0.11 | Status line install simplified — opt-in flag + self-healing SessionStart wiring | ✅ |
 | v0.10 | Status line — current epic & story in the HUD, composes with an existing status line | ✅ |

@@ -27,6 +27,19 @@
       "Findings are evidence-based, not opinion. Where opinion appears, it's labelled."
     ]
   },
+  "spec": {
+    "default_review": true,
+    "items": [
+      "How we solve references at least one ADR by id; the references resolve.",
+      "Behavioral contracts are numbered and individually testable — each states an observable outcome, not an implementation step.",
+      "Acceptance items are checkboxes; acceptance is explicitly ADDITIVE to the covered stories' own criteria, not a replacement.",
+      "Acceptance items that belong to specific stories carry a '— stories: <id>' attribution; items meant for all covered stories are unattributed on purpose.",
+      "frontmatter stories: uses <epic-id>/<story-id> path form, inline flow list.",
+      "Mandatory sections present (How we solve / Behavioral contracts / Acceptance); Modules-on-disk and Testing may be omitted only for research spikes.",
+      "For a spike spec: contracts read as questions-to-answer plus exit criteria.",
+      "No TODOs, no '...', no empty bullets in the final body."
+    ]
+  },
   "epic": {
     "default_review": true,
     "items": [

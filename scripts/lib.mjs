@@ -135,6 +135,137 @@ export function renderTemplate(template, vars) {
   });
 }
 
+// ─── Heading / keyword registry (PS-SPEC story-002) ────────────────────
+//
+// scaffold/headings.json is the language-independent registry of the section
+// headings, inline keywords and index-table column names the deterministic
+// scripts (doctor / reconcile / story-section) must recognize. Per id, per
+// language, an ARRAY of accepted forms; the FIRST form of the configured
+// language is the canonical form used when WRITING. Matching always accepts
+// every registered form of every language — a ru-headed file in an en-bound
+// vault must still lint. This is deliberately separate from
+// templates/<lang>/strings.json, which is a render-only map for the statusline.
+
+let _headingsCache = null;
+
+export function loadHeadingsRegistry() {
+  if (_headingsCache) return _headingsCache;
+  const p = join(pluginRoot(), "scaffold", "headings.json");
+  try {
+    _headingsCache = JSON.parse(readFileSync(p, "utf8"));
+  } catch (e) {
+    throw new Error(`heading registry missing or unreadable (${p}): ${e.message}`);
+  }
+  return _headingsCache;
+}
+
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function allForms(section, id) {
+  const entry = loadHeadingsRegistry()[section]?.[id];
+  if (!entry) throw new Error(`headings.json has no ${section} entry "${id}"`);
+  return Object.values(entry).flat();
+}
+
+// Canonical write form for the configured language (en fallback).
+export function heading(id, lang = "en") {
+  const entry = loadHeadingsRegistry().headings?.[id];
+  if (!entry) throw new Error(`headings.json has no headings entry "${id}"`);
+  return (entry[lang] || entry.en)[0];
+}
+
+// Matches a `## <heading>` line in any registered language, case-insensitively
+// (hand-typed `## критерии приёмки` still matches). Anchored to the full line
+// so "Acceptance" never matches "Acceptance Criteria".
+export function headingLineRe(id) {
+  const forms = allForms("headings", id).map(escapeRe);
+  return new RegExp(`^##\\s+(?:${forms.join("|")})\\s*$`, "mi");
+}
+
+// Extract the body of section `id`: text between its heading line and the
+// next `## ` heading (or end of file). Returns null when the section is absent.
+export function sectionOf(body, id) {
+  const m = body.match(headingLineRe(id));
+  if (!m) return null;
+  const rest = body.slice(m.index + m[0].length);
+  const next = rest.search(/^## /m);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+export function keywordRe(id) {
+  const forms = allForms("keywords", id).map(escapeRe);
+  return new RegExp(`(?:${forms.join("|")})`, "i");
+}
+
+// Matches a folder-README index header row in any registered language,
+// in the standard 4-column form: | File | Title | Status | Date |
+export function indexHeaderRe() {
+  const cols = ["file", "title", "status", "date"].map((c) =>
+    allForms("index_columns", c).map(escapeRe).join("|"));
+  return new RegExp(
+    `^\\|\\s*(?:${cols[0]})\\s*\\|\\s*(?:${cols[1]})\\s*\\|\\s*(?:${cols[2]})\\s*\\|\\s*(?:${cols[3]})\\s*\\|`);
+}
+
+// ─── Frontmatter list fields (code_refs / specs / stories / adr) ───────
+//
+// Frontmatter lists must use inline flow form (`specs: ["SPEC-001"]`) —
+// parseFrontmatter is line-based and cannot see block sequences. Single
+// shared parser; doctor emits a dedicated finding for the block-form trap.
+export function listOf(fm, key) {
+  const raw = fm[key];
+  if (!raw || raw === "[]") return [];
+  if (Array.isArray(raw)) return raw.filter((x) => typeof x === "string");
+  if (typeof raw !== "string") return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+// ─── Vault-side policy config (ADR-007 Decision 4) ─────────────────────
+//
+// <vault>/.projectstore.json — vault ROOT, dot-prefixed: git commits it (so
+// the policy survives clones and second machines), Obsidian hides it, and it
+// is intentionally NOT inside <vault>/.projectstore/, whose .gitignore ("*")
+// would defeat the whole point. Keys: spec_policy ("required"|"optional"),
+// lifecycle_gates ("on"|"off"), spec_policy_since (ISO-8601, stamped when
+// spec_policy first becomes "required").
+export function vaultConfigPath(vault) {
+  return join(vault, ".projectstore.json");
+}
+
+export function readVaultConfig(vault) {
+  const p = vaultConfigPath(vault);
+  if (!existsSync(p)) return {};
+  try {
+    const v = JSON.parse(readFileSync(p, "utf8"));
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+
+export function writeVaultConfig(vault, cfg) {
+  writeFileSync(vaultConfigPath(vault), JSON.stringify(cfg, null, 2) + "\n", "utf8");
+}
+
+// Legacy exemption (ADR-007 Decision 6): a story is exempt from spec-first
+// and lifecycle gates iff it was already done before the policy existed —
+// status done AND (no closed_at at all, or closed_at earlier than
+// spec_policy_since). Stories in progress/review at enable time are IN scope.
+export function isLegacyStory(fm, since) {
+  const status = String(fm.status || "").toLowerCase();
+  if (status !== "done") return false;
+  const closed = fm.closed_at && fm.closed_at !== "null" ? String(fm.closed_at) : null;
+  if (!closed) return true;
+  if (!since) return true;
+  return closed < String(since);
+}
+
 // ─── Slug / numbering ──────────────────────────────────────────────────
 
 // Cyrillic → Latin so ru titles produce portable ASCII filenames; every other
@@ -157,9 +288,13 @@ export function slugify(s) {
   return slug || "untitled";
 }
 
+// Prefix is matched case-insensitively and with regex metacharacters escaped:
+// GrammarHelper ships `spec-002-*.md` while the layout prefix is `SPEC-` — a
+// case-sensitive match would hand out SPEC-001 next to an existing spec-001.
 export function nextNumber(dir, prefix, pad = 3) {
   if (!existsSync(dir)) return String(1).padStart(pad, "0");
-  const rx = new RegExp(`^${prefix}(\\d+)`);
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rx = new RegExp(`^${escaped}(\\d+)`, "i");
   const nums = readdirSync(dir)
     .map((n) => n.match(rx))
     .filter(Boolean)
@@ -170,6 +305,14 @@ export function nextNumber(dir, prefix, pad = 3) {
 
 export function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// Full ISO-8601 UTC timestamp — for story lifecycle fields (started_at /
+// closed_at / plan_updated_at) and spec_policy_since, which must be strictly
+// comparable and need sub-day resolution (diff-refs anchors git --since on
+// them). Deliberately finer-grained than the date-only created:/updated:.
+export function nowIso() {
+  return new Date().toISOString();
 }
 
 // ─── Story discovery ──────────────────────────────────────────────────

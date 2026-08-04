@@ -57,7 +57,7 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
    /projectstore:scaffold engineering
    ```
 
-   Creates `adr/`, `epics/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/` and a top-level `README.md`.
+   Creates `adr/`, `specs/`, `epics/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/` and a top-level `README.md`.
 
 ## Daily flow
 

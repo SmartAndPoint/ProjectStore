@@ -18,6 +18,14 @@ its Description, Decomposition, and **Acceptance Criteria** — plus the parent
 epic and the plan if one was produced. If the caller named no story, ask the diff
 which story it serves (grep the vault) before falling back to a plain code review.
 
+**Additive acceptance (ADR-007).** Read the story's `specs:` list and every
+covering spec: its Acceptance items attributed to this story (`— stories:
+<id>`) plus every unattributed item are PART of this story's acceptance —
+verify them exactly like the story's own criteria. A story closes only when
+both sets are green and every covering spec is `active`. Report a covering
+spec still in `draft` as a blocker under `spec_policy: required` (vault's
+`.projectstore.json`).
+
 ## Phase 0 — Pre-commitment
 From the story + file list, predict the 3-5 most likely gaps ("AC #3 needs an
 error path the diff doesn't touch"; "touches a cache — invalidation risk"). Write
@@ -55,11 +63,21 @@ say so plainly.
 ## Output — your LAST message IS the deliverable
 1. **Verdict** — `story closed` / `gaps remain` (+ `commit` / `fix first` for the
    code itself) with the single most important reason.
-2. **Acceptance matrix** — one line per criterion: status + evidence.
+2. **Acceptance matrix** — one line per criterion: status + evidence. Include
+   the covering specs' attributed + unattributed acceptance items (additive).
+   Format each evidence value so it can be persisted verbatim into the story
+   file at close: `— evidence: <test | command | file:line>` — the close gate
+   (`/projectstore:story close`) copies your matrix into the checkboxes.
 3. **Findings** — severity-rated: `🔴 blocker` / `🟡 should-fix` / `🟢 nit`; each
    with file:line, confidence, why it matters, and a specific fix.
-4. **Proposed `code_refs`** — the files this story actually touched (for
-   `/projectstore:codemap set`), and whether the epic's footprint needs widening.
+4. **Proposed `code_refs`** — computed, not recalled: run
+   `node "$CLAUDE_PLUGIN_ROOT/scripts/diff-refs.mjs" --since <story started_at>`
+   (story-scoped range; the script filters lockfiles/generated). When the
+   result looks implausible (`fallback: true`, empty, or obviously
+   over/under-attributed — shared branch, direct-to-main), say so and ask for
+   an explicit `--range` instead of guessing. State whether the parent epic's
+   footprint needs widening — the write happens in the approval-gated
+   `/projectstore:codemap set`, never here.
 5. **Open Questions** — low-confidence findings, surfaced not blocking.
 6. **Good** — genuine strengths, one line each. Skip if none.
 
