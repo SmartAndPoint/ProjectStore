@@ -49,7 +49,7 @@ Six months later, "why Postgres?" has an answer with a date and the alternatives
 **4. Your status line shows what this session is working on** — composed above your existing HUD, never replacing it:
 
 ```
-[PS#0.13.0] 📚 Authentication system › OIDC discovery (in-progress)
+[PS#0.16.0] 📚 Authentication system › OIDC discovery (in-progress)
 ```
 
 A fresh session honestly says `📚 No epic or story in this session yet` instead of showing nothing.
@@ -110,7 +110,7 @@ Bind walks you through a short interview. Every step shows you exactly what it w
 | 3 | Vault is empty — create the folder layout (`adr/`, `epics/`, `research/`, …)? | Yes |
 | 4 | Register the agents in `CLAUDE.md` so every session knows when to use them? | Yes (recommended) |
 | 5 | Which model should the review agents use? | Keep the default (`opus` + max effort) |
-| 6 | Show your current epic/story in the status line? You'll see a preview: `[PS#0.13.0] 📚 Super Feature in a Super Product › Toilet-Paper Handle (in-progress)` | Yes, why not |
+| 6 | Show your current epic/story in the status line? You'll see a preview: `[PS#0.16.0] 📚 Super Feature in a Super Product › Toilet-Paper Handle (in-progress)` | Yes, why not |
 
 Result — a vault that looks like this:
 
@@ -213,9 +213,9 @@ See the epic and story *this session* is working on, composed **above** your exi
 /projectstore:statusline on | off | status
 ```
 
-Details that matter with several Claude sessions open on one project: each session shows **its own** epic/story (never a sibling's), a fresh session shows a friendly localized "no epic or story in this session yet" line instead of a blank, and the `[PS#0.13.0]` badge tells you at a glance the plugin is alive and which version. Wiring is self-healing across plugin updates (the SessionStart hook re-points it every start).
+Details that matter with several Claude sessions open on one project: each session shows **its own** epic/story (never a sibling's), a fresh session shows a friendly localized "no epic or story in this session yet" line instead of a blank, and the `[PS#0.16.0]` badge tells you at a glance the plugin is alive and which version. The badge names the version you actually have: the hook wires a version-free launcher that resolves the installed plugin on every render, so an update needs no restart to show up.
 
-## What's in the box (v0.14)
+## What's in the box (v0.16)
 
 - **19 commands** — `bind`, `scaffold`, `status`, `adr`, `spec`, `epic`, `story` (with `plan`/`close` lifecycle gates), `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`, `statusline`, `doctor`, `reconcile`, `codemap`, `agents`
 - **Spec-first workflow (v0.14, ADR-007)** — a `spec` kind (the durable, normative "how" per subsystem: ADR references, numbered behavioral contracts, acceptance *additive* to the covered stories'), an opt-in vault policy (`spec_policy: required` in `<vault>/.projectstore.json`) under which every story must be covered by an `active` spec, and story lifecycle gates: `/projectstore:story plan` persists the implementation plan before code, `/projectstore:story close` persists the final summary and per-criterion evidence. Doctor enforces all of it; stories done before the policy stay exempt.
@@ -249,7 +249,8 @@ Deep dive with real session files and the compaction packet: [docs/how-it-works.
 
 | Version | What ships | Status |
 |---|---|---|
-| **v0.15** | Doctor sees user-scope (`~/.claude/agents`) override copies and tells renamed from replaced legacy agents; all five bundled agents batch independent reads (librarian works from indexes first); `scripts/tokens.mjs` — token & cost accounting for vault work from Claude Code transcripts (`--runs`/`--sessions`/`--json`, priced with cache multipliers) | ✅ current |
+| **v0.16** | The status line renders the plugin version you actually have: session-start wiring now points at a version-free launcher (`.claude/.projectstore/statusline.mjs`) that resolves the installed plugin on every render — a pinned cache path made every update land one restart late, badge and behaviour both; doctor reports wiring and on-screen drift | ✅ current |
+| v0.15 | Doctor sees user-scope (`~/.claude/agents`) override copies and tells renamed from replaced legacy agents; all five bundled agents batch independent reads (librarian works from indexes first); `scripts/tokens.mjs` — token & cost accounting for vault work from Claude Code transcripts (`--runs`/`--sessions`/`--json`, priced with cache multipliers) | ✅ |
 | v0.14 | Spec-first workflow (ADR-007): `spec` kind + `/projectstore:spec` with status transitions; vault-side `spec_policy`/`lifecycle_gates`; story lifecycle gates `/projectstore:story plan\|close` with evidence grammar; doctor spec/coverage/acceptance oracles; heading registry (ru vaults lint & reconcile); layout-driven kinds machinery (`extending.md` is now true); story-scoped `code_refs` from git diff; zero-dep test suite | ✅ |
 | v0.13 | Umbrella `doctor` + `reconcile` + `codemap`; vault-aware agent suite — **breaking renames**: `projectstore:projectstore-critic` → `projectstore:critic`, `code-planner`/`code-reviewer` → vault-aware `planner`/`reviewer` — plus `librarian` & `archaeologist`; agents block + model presets + statusline offer at bind; per-session never-blank status line; unicode slugs; YAML-safe frontmatter | ✅ |
 | v0.12 | Status line shows full epic & story titles (from frontmatter, not the filename) | ✅ |

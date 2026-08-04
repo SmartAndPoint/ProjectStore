@@ -79,13 +79,18 @@ status`; the vault answers "where were we going".)
 
 ## The status line composition trick
 
-`statusLine` in Claude Code is a single slot and not plugin-declarable. So the
-SessionStart hook (when `statusline.enabled` is true) points the project's
-`.claude/settings.local.json` at the current plugin version's
-`scripts/statusline.mjs` — re-derived every session start, so it survives plugin
-updates with no hand-maintained path. The script then **composes** instead of
+`statusLine` in Claude Code is a single slot, not plugin-declarable, and read
+once when the session starts. So the SessionStart hook (when
+`statusline.enabled` is true) points the project's `.claude/settings.local.json`
+at a launcher it generates at `.claude/.projectstore/statusline.mjs`. Pointing
+it straight at the plugin would pin a versioned cache path
+(`…/projectstore/<version>/scripts/statusline.mjs`) and render the version
+installed at the *previous* session start — every update arrived a restart late.
+The launcher's path never changes, and it resolves the installed plugin from
+Claude Code's own registry on each render. The script then **composes** instead of
 clobbering: it re-runs whatever base statusLine command you already had (e.g.
-oh-my-claudecode's HUD, found in `~/.claude/settings.json`), prints its output
+oh-my-claudecode's HUD, taken from the project's `.claude/settings.json` if it
+has one, else `~/.claude/settings.json`), prints its output
 verbatim, and adds one `[PS#version] 📚 …` line above it (`statusline.position`:
 `above`/`below`). With no base command it renders a standalone line.
 

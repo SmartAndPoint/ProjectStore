@@ -100,6 +100,6 @@ Steps:
 
     > `[PS#<version>] 📚 <statusline_example_epic> › <statusline_example_story> (in-progress)`
 
-    (for `ru`: `[PS#0.13.0] 📚 Супер-фича в супер-продукте › Ручка для туалетной бумаги (in-progress)`)
+    (for `ru`: `[PS#0.16.0] 📚 Супер-фича в супер-продукте › Ручка для туалетной бумаги (in-progress)`)
 
     Ask via AskUserQuestion: "Show your current epic/story in the status line, composed above any existing HUD? [Yes / No]". On Yes: Edit `projectstore.json` → `"statusline": { "enabled": true }` (approval-gated) and report: "Enabled — restart Claude Code in this project to apply (the SessionStart hook wires it). A fresh session shows: `[PS#<version>] 📚 <statusline_no_work>`."
