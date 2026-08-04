@@ -35,6 +35,10 @@ import {
   projectRoot,
   listOf,
   readVaultConfig,
+  claudeHome,
+  installedPluginRoot,
+  isPluginCacheRoot,
+  statusLineIsOurs,
   isLegacyStory,
   sectionOf,
   headingLineRe,
@@ -168,9 +172,23 @@ export function checkHooksAlive(cfg, maxAgeMinutes = 30) {
     `No session registration fresher than ${maxAgeMinutes} min — hooks may not be firing.`)];
 }
 
+// Which plugin version a wired statusLine script belongs to. Null for our
+// launcher (<project>/.claude/.projectstore/statusline.mjs), which has no
+// version of its own — it resolves the installed one at render time.
+export function statusLineScriptVersion(scriptPath) {
+  try {
+    const root = dirname(dirname(scriptPath)); // <root>/scripts/statusline.mjs
+    return (
+      JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).version || null
+    );
+  } catch {
+    return null;
+  }
+}
+
 // Read-only probe of the statusline wiring (never calls syncStatusLine, which
 // is a mutating self-heal that SessionStart already ran — ADR-005).
-export function checkStatusline(cfg, proj) {
+export function checkStatusline(cfg, proj, home = homedir()) {
   const out = [];
   const local = join(proj, ".claude", "settings.local.json");
   let cur = null;
@@ -183,7 +201,7 @@ export function checkStatusline(cfg, proj) {
     }
   }
   const curCmd = cur && typeof cur.command === "string" ? cur.command : null;
-  const isOurs = curCmd ? curCmd.includes("scripts/statusline.mjs") : false;
+  const isOurs = statusLineIsOurs(curCmd);
   const st = cfg.statusline;
 
   if (st && st.enabled === true) {
@@ -194,10 +212,24 @@ export function checkStatusline(cfg, proj) {
       out.push(finding("install", "issue", "statusline",
         "statusline.enabled=true but a foreign statusLine occupies settings.local.json — the hook will not clobber it. Clear it or disable the flag."));
     } else {
-      const m = curCmd.match(/"([^"]+scripts\/statusline\.mjs)"/) || curCmd.match(/(\S+scripts\/statusline\.mjs)/);
+      const m = curCmd.match(/"([^"]+statusline\.mjs)"/) || curCmd.match(/(\S+statusline\.mjs)/);
+      const wiredRoot = m ? dirname(dirname(m[1])) : null;
+      const isLauncher = m ? m[1].replace(/\\/g, "/").includes("/.projectstore/statusline.mjs") : false;
       if (m && !existsSync(m[1])) {
         out.push(finding("install", "issue", "statusline",
-          `statusLine points at a missing script (stale plugin path?): ${m[1]}`));
+          isLauncher
+            ? `statusLine points at a generated launcher that no longer exists: ${m[1]} — the next session start regenerates it.`
+            : `statusLine points at a missing script (stale plugin path?): ${m[1]}`));
+      } else if (m && isPluginCacheRoot(wiredRoot, home)) {
+        // Only a versioned cache path can go stale this way. The launcher
+        // carries no version, and a dev checkout is wired deliberately and
+        // never rewired — warning about either would be a permanent lie.
+        const wired = statusLineScriptVersion(m[1]);
+        const inst = installedPluginRoot(home, dirname(wiredRoot));
+        if (wired && inst && inst.version && wired !== inst.version) {
+          out.push(finding("install", "warn", "statusline",
+            `statusLine is wired to projectstore ${wired} while ${inst.version} is installed — a version-pinned path lags one session behind each update. The next session start rewires it to the version-agnostic launcher.`));
+        }
       }
     }
   } else if (st && st.enabled === false && isOurs) {
@@ -209,9 +241,9 @@ export function checkStatusline(cfg, proj) {
   }
 
   try {
-    const base = JSON.parse(readFileSync(join(homedir(), ".claude", "settings.json"), "utf8"))?.statusLine?.command;
-    if (base && !base.includes("scripts/statusline.mjs")) {
-      out.push(finding("install", "info", "statusline", "Base HUD present in ~/.claude/settings.json — projectstore composes above it."));
+    const base = JSON.parse(readFileSync(join(claudeHome(home), "settings.json"), "utf8"))?.statusLine?.command;
+    if (base && !statusLineIsOurs(base)) {
+      out.push(finding("install", "info", "statusline", "Base HUD present in your user settings.json — projectstore composes above it."));
     }
   } catch {}
   // session_id divergence (ADR-006): the renderer's breadcrumb names the id
@@ -228,6 +260,16 @@ export function checkStatusline(cfg, proj) {
       if (hookIds.length && !hookIds.includes(bc.session_id)) {
         out.push(finding("install", "warn", "statusline",
           `statusLine renderer last saw session_id ${String(bc.session_id).slice(0, 8)}… with no hook-side state file — possible session_id divergence (renderer shows the cold-start line while hooks log activity).`));
+      }
+    }
+    // What the user is actually looking at: the renderer stamps the version
+    // that drew the line. Breadcrumbs without a root (pre-0.16.0) and dev
+    // checkouts are skipped — only a cache install can go stale this way.
+    if (bc && bc.version && isPluginCacheRoot(bc.root, home)) {
+      const inst = installedPluginRoot(home, dirname(bc.root));
+      if (inst && inst.version && inst.version !== bc.version) {
+        out.push(finding("install", "warn", "statusline",
+          `The status line on screen was rendered by projectstore ${bc.version} while ${inst.version} is installed — this session resolved its statusLine command before the update. Restart the session; after that the launcher picks up the installed version at every render.`));
       }
     }
   } catch {}

@@ -4,7 +4,7 @@
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, utimesSync, unlinkSync } from "node:fs";
 import { join, dirname, basename, resolve } from "node:path";
-import { hostname } from "node:os";
+import { hostname, homedir } from "node:os";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
 
@@ -38,22 +38,124 @@ export function writeConfig(cfg) {
   writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n", "utf8");
 }
 
+// ─── Installed-plugin resolution ───────────────────────────────────────
+
+// Claude Code's config directory. Almost always ~/.claude, but CLAUDE_CONFIG_DIR
+// relocates it — and a consumer that hardcodes the default silently resolves
+// nothing for those users instead of failing loudly.
+export function claudeHome(home = homedir()) {
+  return process.env.CLAUDE_CONFIG_DIR || join(home, ".claude");
+}
+
+function cmpVersion(a, b) {
+  const A = String(a || "0").split(".").map((n) => parseInt(n, 10) || 0);
+  const B = String(b || "0").split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) if ((A[i] || 0) !== (B[i] || 0)) return (A[i] || 0) - (B[i] || 0);
+  return 0;
+}
+
+// Where the CURRENTLY installed projectstore lives, per Claude Code's own
+// plugin registry. The cache path carries the version
+// (…/plugins/cache/<marketplace>/projectstore/<version>), so anything that
+// pins it goes stale on the next update — this is how such consumers ask what
+// is real right now. Newest install that is actually on disk wins; entries
+// pointing at wiped directories are ignored.
+// `preferFamily` (a …/<marketplace>/projectstore directory) wins over
+// recency, matching the launcher's own ordering — otherwise doctor could
+// report drift against an install the launcher would never load.
+// Returns { path, version } or null (dev checkout, --plugin-dir, no registry).
+export function installedPluginRoot(home = homedir(), preferFamily = null) {
+  try {
+    const reg = JSON.parse(
+      readFileSync(join(claudeHome(home), "plugins", "installed_plugins.json"), "utf8"),
+    );
+    const found = [];
+    for (const [key, list] of Object.entries((reg && reg.plugins) || {})) {
+      if (key !== "projectstore" && !key.startsWith("projectstore@")) continue;
+      for (const e of Array.isArray(list) ? list : [list]) {
+        const path = e && e.installPath;
+        if (typeof path !== "string") continue;
+        if (!existsSync(join(path, "scripts", "statusline.mjs"))) continue;
+        found.push({
+          path,
+          version: typeof e.version === "string" ? e.version : null,
+          same: preferFamily && dirname(path) === preferFamily ? 1 : 0,
+          at: Date.parse((e && e.lastUpdated) || "") || 0,
+        });
+      }
+    }
+    found.sort((a, b) => b.same - a.same || b.at - a.at || cmpVersion(b.version, a.version));
+    return found.length ? { path: found[0].path, version: found[0].version } : null;
+  } catch {
+    return null;
+  }
+}
+
+// Is this plugin root a versioned cache install (the only kind that goes stale)?
+export function isPluginCacheRoot(root, home = homedir()) {
+  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  return norm(root).startsWith(norm(join(claudeHome(home), "plugins", "cache")) + "/");
+}
+
 // ─── Status line wiring (SessionStart-managed) ─────────────────────────
 //
 // The Claude Code statusLine slot is single and NOT plugin-declarable, so
 // when a bound project opts in (projectstore.json → statusline.enabled=true)
 // the SessionStart hook keeps <project>/.claude/settings.local.json pointing
-// at THIS plugin version's scripts/statusline.mjs. The path is re-derived from
-// pluginRoot() every session start, so it self-heals across plugin updates.
+// at our renderer.
+//
+// It points at a LAUNCHER, not at the plugin script directly. A cache install
+// lives under a versioned path, and the session reads statusLine once at
+// startup — so a direct path always rendered the version installed at the
+// PREVIOUS session start, one restart behind every update. The launcher path
+// never changes, and it resolves the installed plugin at render time, so
+// `/plugin update` + `/reload-plugins` show up immediately. Dev checkouts and
+// --plugin-dir roots carry no version, so those stay wired directly.
+//
 // Idempotent (writes only when the value changes); never clobbers a foreign
 // statusLine; bails on an unparseable settings file. Returns a status string,
 // never throws — the caller wraps it, and this must not break session start.
-export function syncStatusLine(cfg, projectDir) {
+
+export function statusLineLauncherPath(projectDir) {
+  return join(projectDir, ".claude", ".projectstore", "statusline.mjs");
+}
+
+// Both wirings are ours: the launcher, and the legacy version-pinned plugin
+// path (pre-0.16.0 installs, plus dev checkouts, which keep it by design).
+export function statusLineIsOurs(cmd) {
+  if (typeof cmd !== "string") return false;
+  const c = cmd.replace(/\\/g, "/");
+  return c.includes("scripts/statusline.mjs") || c.includes(".projectstore/statusline.mjs");
+}
+
+// Materialise the launcher into the project, substituting the fallback root.
+// Idempotent. Returns its path, or null when the template is unreadable — the
+// caller then wires the plugin script directly, i.e. the old behaviour.
+export function writeStatusLineLauncher(projectDir, root) {
+  const PLACEHOLDER = '"__PROJECTSTORE_ROOT__"';
+  try {
+    const tpl = readFileSync(join(pluginRoot(), "scripts", "statusline-launcher.mjs"), "utf8");
+    if (!tpl.includes(PLACEHOLDER)) return null;
+    const src = tpl.replace(PLACEHOLDER, JSON.stringify(root));
+    const p = statusLineLauncherPath(projectDir);
+    let cur = null;
+    try { cur = readFileSync(p, "utf8"); } catch {}
+    if (cur !== src) {
+      ensureRuntimeDir(projectDir); // carries the nested .gitignore: this path is machine-specific
+      writeFileSync(p, src, "utf8");
+    }
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+export function syncStatusLine(cfg, projectDir, home = homedir()) {
   const st = cfg && cfg.statusline;
   if (!st || typeof st.enabled !== "boolean") return "no-flag"; // absent → leave manual installs alone
 
   const p = join(projectDir, ".claude", "settings.local.json");
-  const desired = `node "${join(pluginRoot(), "scripts", "statusline.mjs")}"`;
+  const root = pluginRoot();
 
   let settings = {};
   if (existsSync(p)) {
@@ -69,17 +171,28 @@ export function syncStatusLine(cfg, projectDir) {
 
   const cur = settings.statusLine;
   const curCmd = cur && typeof cur.command === "string" ? cur.command : null;
-  const isOurs = curCmd ? curCmd.includes("scripts/statusline.mjs") : false;
+  const isOurs = statusLineIsOurs(curCmd);
 
   let changed = false;
   if (st.enabled) {
-    if (cur && !isOurs) return "foreign-present"; // any existing non-ours entry: leave the slot to its owner
+    // Any existing non-ours entry: leave the slot to its owner — and write
+    // nothing into the project, since we are not wiring anything here.
+    if (cur && !isOurs) return "foreign-present";
+    // Refresh the launcher on every session start, not only when the wired
+    // command changes: its embedded fallback root must follow plugin updates,
+    // and the command string stays identical across them by design.
+    let desired = `node "${join(root, "scripts", "statusline.mjs")}"`;
+    if (isPluginCacheRoot(root, home)) {
+      const launcher = writeStatusLineLauncher(projectDir, root);
+      if (launcher) desired = `node "${launcher}"`;
+    }
     if (!cur || curCmd !== desired) {
       settings.statusLine = { type: "command", command: desired };
       changed = true;
     }
   } else if (isOurs) {
     delete settings.statusLine; // disabled: remove only our entry, keep the rest
+    try { unlinkSync(statusLineLauncherPath(projectDir)); } catch {} // and its generated launcher
     changed = true;
   }
 
@@ -604,13 +717,23 @@ export function sessionStatePath(projectDir, sessionId) {
   return join(stateDir(projectDir), `${sessionId}.json`);
 }
 
-export function ensureStateDir(projectDir) {
-  const dir = stateDir(projectDir);
+// <project>/.claude/.projectstore — machine-specific runtime state (session
+// pointers, the generated statusline launcher). Created with its own ignore
+// file so nothing in here can reach git, whichever writer gets there first.
+export function ensureRuntimeDir(projectDir) {
+  const dir = join(projectDir, ".claude", ".projectstore");
   mkdirSync(dir, { recursive: true });
-  const gi = join(projectDir, ".claude", ".projectstore", ".gitignore");
+  const gi = join(dir, ".gitignore");
   if (!existsSync(gi)) {
     writeFileSync(gi, "# projectstore — per-session runtime state, do not commit\n*\n", "utf8");
   }
+  return dir;
+}
+
+export function ensureStateDir(projectDir) {
+  ensureRuntimeDir(projectDir);
+  const dir = stateDir(projectDir);
+  mkdirSync(dir, { recursive: true });
   return dir;
 }
 

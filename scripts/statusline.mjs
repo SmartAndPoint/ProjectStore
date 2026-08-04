@@ -2,13 +2,15 @@
 // projectstore — statusline.mjs (v2, ADR-006)
 //
 // Renders the Claude Code status line for a projectstore-bound project.
-// Wired by the SessionStart hook into .claude/settings.local.json when
-// projectstore.json → statusline.enabled=true (statusLine is NOT a
-// plugin-declarable capability, so it lives in settings with an absolute path).
+// statusLine is NOT a plugin-declarable capability, so it lives in settings
+// with an absolute path: the SessionStart hook points .claude/settings.local.json
+// at the generated .claude/.projectstore/statusline.mjs launcher (when
+// projectstore.json → statusline.enabled=true), and the launcher imports THIS
+// file from whichever plugin version is installed at render time.
 //
 // COMPOSING, not clobbering: the statusLine slot is single. This script
-// DELEGATES to the base statusLine command from ~/.claude/settings.json (or
-// the project's .claude/settings.json), prints its output verbatim, and adds
+// DELEGATES to the base statusLine command from the project's
+// .claude/settings.json, else the user's settings.json, prints it verbatim, and adds
 // ONE projectstore line above it (position configurable). With no base
 // command it renders a standalone line: [PS#v] <model> · <dir> · ⎇ <branch> · 📚 …
 //
@@ -27,7 +29,6 @@
 
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { join, basename, resolve } from "node:path";
-import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
@@ -36,6 +37,8 @@ import {
   sessionStatePath,
   stateDir,
   ensureStateDir,
+  statusLineIsOurs,
+  claudeHome,
 } from "./lib.mjs";
 
 const SELF = fileURLToPath(import.meta.url);
@@ -114,7 +117,15 @@ function bookSegment(cfg, proj, input, strings) {
     ensureStateDir(proj);
     writeFileSync(
       join(stateDir(proj), ".last-render.json"),
-      JSON.stringify({ session_id: sid || null, at: new Date().toISOString() }) + "\n",
+      JSON.stringify({
+        session_id: sid || null,
+        at: new Date().toISOString(),
+        // Which plugin actually rendered this line — doctor compares it with
+        // the installed version to explain a stale badge instead of leaving
+        // the user to wonder why an update did not show up.
+        version: pluginVersion(),
+        root: pluginRoot(),
+      }) + "\n",
       "utf8",
     );
   } catch {}
@@ -144,12 +155,14 @@ function bookSegment(cfg, proj, input, strings) {
 function discoverBaseCommand(projectDir) {
   const candidates = [
     join(projectDir, ".claude", "settings.json"),
-    join(homedir(), ".claude", "settings.json"),
+    join(claudeHome(), "settings.json"), // CLAUDE_CONFIG_DIR-aware: else their HUD vanishes
   ];
   for (const p of candidates) {
     try {
       const cmd = JSON.parse(readFileSync(p, "utf8"))?.statusLine?.command;
-      if (typeof cmd === "string" && cmd.trim() && !cmd.includes(SELF) && !cmd.includes("scripts/statusline.mjs")) {
+      // Never compose over ourselves: any of our own wirings (plugin script or
+      // generated launcher) would recurse.
+      if (typeof cmd === "string" && cmd.trim() && !cmd.includes(SELF) && !statusLineIsOurs(cmd)) {
         return cmd;
       }
     } catch {}

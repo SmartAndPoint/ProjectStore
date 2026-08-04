@@ -6,9 +6,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 import {
   nextNumber,
@@ -18,6 +20,11 @@ import {
   isLegacyStory,
   listOf,
   loadLayout,
+  installedPluginRoot,
+  isPluginCacheRoot,
+  statusLineIsOurs,
+  statusLineLauncherPath,
+  syncStatusLine,
 } from "../scripts/lib.mjs";
 import {
   checkLayoutTemplates,
@@ -25,6 +32,8 @@ import {
   checkSpecAcceptance,
   checkLifecycleGates,
   checkOverrideCopies,
+  checkStatusline,
+  statusLineScriptVersion,
   parseSpecAcceptance,
 } from "../scripts/doctor.mjs";
 
@@ -262,4 +271,311 @@ test("checkLifecycleGates: missing plan/summary/plan_updated_at on a done story"
   const checks = checkLifecycleGates([done], { ...REQUIRED, lifecycle_gates: "on" }).map((x) => x.check);
   assert.ok(checks.includes("final-summary"));
   assert.ok(checks.includes("plan-gate"));
+});
+
+// ─── statusline wiring: installed-version resolution ───────────────────
+//
+// The statusLine slot holds one absolute path read at session start, so a
+// version-pinned path rendered the PREVIOUS session's plugin. These pin the
+// fix: resolve the installed root, and wire a launcher that carries no version.
+
+const LAUNCHER_TEMPLATE = fileURLToPath(
+  new URL("../scripts/statusline-launcher.mjs", import.meta.url),
+);
+
+// These resolve against tmp homes; a real CLAUDE_CONFIG_DIR in the developer's
+// environment would take precedence (claudeHome() prefers it) and mask them.
+delete process.env.CLAUDE_CONFIG_DIR;
+
+function fakeInstall(home, version, { marketplace = "SmartAndPoint", broken = false } = {}) {
+  const root = join(home, ".claude", "plugins", "cache", marketplace, "projectstore", version);
+  mkdirSync(join(root, "scripts"), { recursive: true });
+  mkdirSync(join(root, ".claude-plugin"), { recursive: true });
+  // A renderer that names itself, so a spawned launcher proves WHICH install it
+  // loaded; `broken` mimics a truncated file mid-update (throws on import).
+  writeFileSync(
+    join(root, "scripts", "statusline.mjs"),
+    broken ? "const = ;\n" : `process.stdout.write("rendered-by-${version}\\n");\n`,
+  );
+  writeFileSync(
+    join(root, ".claude-plugin", "plugin.json"),
+    JSON.stringify({ name: "projectstore", version }),
+  );
+  copyFileSync(LAUNCHER_TEMPLATE, join(root, "scripts", "statusline-launcher.mjs"));
+  return root;
+}
+
+// Materialise the launcher exactly as writeStatusLineLauncher would, then run
+// it as its own process against a fixture home — the launcher is what executes
+// on every render, so its contract is worth testing directly.
+function renderViaLauncher(fallbackRoot, home) {
+  const proj = mkdtempSync(join(tmpdir(), "ps-render-"));
+  const p = join(proj, ".claude", ".projectstore", "statusline.mjs");
+  mkdirSync(join(proj, ".claude", ".projectstore"), { recursive: true });
+  writeFileSync(
+    p,
+    readFileSync(LAUNCHER_TEMPLATE, "utf8").replace(
+      '"__PROJECTSTORE_ROOT__"',
+      JSON.stringify(fallbackRoot),
+    ),
+  );
+  const env = { ...process.env, HOME: home };
+  delete env.CLAUDE_CONFIG_DIR;
+  return spawnSync(process.execPath, [p], { input: "{}", encoding: "utf8", env });
+}
+
+function writeRegistry(home, entries) {
+  const dir = join(home, ".claude", "plugins");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "installed_plugins.json"),
+    JSON.stringify({ version: 2, plugins: { "projectstore@SmartAndPoint": entries } }),
+  );
+}
+
+function withPluginRoot(root, fn) {
+  const had = "CLAUDE_PLUGIN_ROOT" in process.env;
+  const prev = process.env.CLAUDE_PLUGIN_ROOT;
+  process.env.CLAUDE_PLUGIN_ROOT = root;
+  try {
+    return fn();
+  } finally {
+    if (had) process.env.CLAUDE_PLUGIN_ROOT = prev;
+    else delete process.env.CLAUDE_PLUGIN_ROOT;
+  }
+}
+
+test("installedPluginRoot: newest install wins, wiped installPaths are ignored", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const r14 = fakeInstall(home, "0.14.0");
+  const r15 = fakeInstall(home, "0.15.0");
+  writeRegistry(home, [
+    // newest timestamp, but the directory is gone — must not be chosen
+    { scope: "user", installPath: join(home, "gone", "0.16.0"), version: "0.16.0", lastUpdated: "2026-08-04T23:00:00Z" },
+    { scope: "user", installPath: r14, version: "0.14.0", lastUpdated: "2026-08-01T10:00:00Z" },
+    { scope: "user", installPath: r15, version: "0.15.0", lastUpdated: "2026-08-04T17:51:53Z" },
+  ]);
+  assert.deepEqual(installedPluginRoot(home), { path: r15, version: "0.15.0" });
+});
+
+test("installedPluginRoot: no registry → null (dev checkout, not an error)", () => {
+  assert.equal(installedPluginRoot(mkdtempSync(join(tmpdir(), "ps-home-"))), null);
+});
+
+test("statusLineIsOurs recognises both the launcher and the pinned plugin path", () => {
+  assert.ok(statusLineIsOurs('node "/x/projectstore/0.15.0/scripts/statusline.mjs"'));
+  assert.ok(statusLineIsOurs('node "/p/.claude/.projectstore/statusline.mjs"'));
+  assert.ok(!statusLineIsOurs("node /Users/x/.claude/hud/omc-hud.mjs"));
+  assert.ok(!statusLineIsOurs(null));
+});
+
+test("syncStatusLine wires a version-free launcher for a cache install", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const root = fakeInstall(home, "0.16.0");
+  const proj = mkdtempSync(join(tmpdir(), "ps-proj-"));
+  assert.ok(isPluginCacheRoot(root, home));
+
+  const res = withPluginRoot(root, () =>
+    syncStatusLine({ statusline: { enabled: true } }, proj, home),
+  );
+  assert.equal(res, "enabled");
+
+  const cmd = JSON.parse(readFileSync(join(proj, ".claude", "settings.local.json"), "utf8"))
+    .statusLine.command;
+  assert.ok(cmd.includes(".projectstore/statusline.mjs"), cmd);
+  assert.ok(!cmd.includes("0.16.0"), `wired path must carry no version: ${cmd}`);
+  assert.ok(statusLineIsOurs(cmd));
+
+  const src = readFileSync(statusLineLauncherPath(proj), "utf8");
+  assert.ok(!src.includes("__PROJECTSTORE_ROOT__"), "placeholder must be substituted");
+  assert.ok(src.includes(JSON.stringify(root)), "generating root is kept as fallback");
+
+  // Second run changes nothing — the path is stable across plugin updates.
+  const again = withPluginRoot(root, () =>
+    syncStatusLine({ statusline: { enabled: true } }, proj, home),
+  );
+  assert.equal(again, "unchanged");
+});
+
+test("syncStatusLine migrates an existing pinned wiring and keeps other settings", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const old = fakeInstall(home, "0.15.0");
+  const root = fakeInstall(home, "0.16.0");
+  const proj = mkdtempSync(join(tmpdir(), "ps-proj-"));
+  mkdirSync(join(proj, ".claude"), { recursive: true });
+  writeFileSync(
+    join(proj, ".claude", "settings.local.json"),
+    JSON.stringify({
+      permissions: { allow: ["Bash(npm:*)"] },
+      statusLine: { type: "command", command: `node "${join(old, "scripts", "statusline.mjs")}"` },
+    }),
+  );
+
+  assert.equal(
+    withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, proj, home)),
+    "enabled",
+  );
+  const after = JSON.parse(readFileSync(join(proj, ".claude", "settings.local.json"), "utf8"));
+  assert.ok(after.statusLine.command.includes(".projectstore/statusline.mjs"));
+  assert.deepEqual(after.permissions, { allow: ["Bash(npm:*)"] }, "unrelated settings survive");
+});
+
+test("syncStatusLine writes nothing into a project whose statusLine is foreign", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const root = fakeInstall(home, "0.16.0");
+  const proj = mkdtempSync(join(tmpdir(), "ps-proj-"));
+  mkdirSync(join(proj, ".claude"), { recursive: true });
+  const foreign = JSON.stringify({
+    statusLine: { type: "command", command: "node /Users/x/.claude/hud/omc-hud.mjs" },
+  });
+  writeFileSync(join(proj, ".claude", "settings.local.json"), foreign);
+
+  assert.equal(
+    withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, proj, home)),
+    "foreign-present",
+  );
+  assert.equal(readFileSync(join(proj, ".claude", "settings.local.json"), "utf8"), foreign);
+  assert.ok(!existsSync(statusLineLauncherPath(proj)), "no launcher in a project we do not wire");
+});
+
+test("syncStatusLine refreshes the launcher's fallback on update, command unchanged", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const proj = mkdtempSync(join(tmpdir(), "ps-proj-"));
+  const fallback = () =>
+    (readFileSync(statusLineLauncherPath(proj), "utf8").match(/const FALLBACK_ROOT = "(.+)"/) ||
+      [])[1];
+
+  const v16 = fakeInstall(home, "0.16.0");
+  withPluginRoot(v16, () => syncStatusLine({ statusline: { enabled: true } }, proj, home));
+  const cmd = JSON.parse(readFileSync(join(proj, ".claude", "settings.local.json"), "utf8"))
+    .statusLine.command;
+  assert.equal(fallback(), v16);
+
+  const v17 = fakeInstall(home, "0.17.0");
+  assert.equal(
+    withPluginRoot(v17, () => syncStatusLine({ statusline: { enabled: true } }, proj, home)),
+    "unchanged",
+    "the wired command is version-free, so it does not change across updates",
+  );
+  assert.equal(
+    JSON.parse(readFileSync(join(proj, ".claude", "settings.local.json"), "utf8")).statusLine
+      .command,
+    cmd,
+  );
+  assert.equal(fallback(), v17, "…but the launcher's fallback root follows the update");
+});
+
+test("syncStatusLine keeps the direct path for a dev checkout (no version to go stale)", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const dev = mkdtempSync(join(tmpdir(), "ps-dev-"));
+  const proj = mkdtempSync(join(tmpdir(), "ps-proj-"));
+  assert.ok(!isPluginCacheRoot(dev, home));
+
+  withPluginRoot(dev, () => syncStatusLine({ statusline: { enabled: true } }, proj, home));
+  const cmd = JSON.parse(readFileSync(join(proj, ".claude", "settings.local.json"), "utf8"))
+    .statusLine.command;
+  assert.equal(cmd, `node "${join(dev, "scripts", "statusline.mjs")}"`);
+  assert.ok(!existsSync(statusLineLauncherPath(proj)), "no launcher for a dev checkout");
+});
+
+test("launcher renders the INSTALLED version, not the one it was generated from", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const old = fakeInstall(home, "0.14.0");
+  const cur = fakeInstall(home, "0.16.0");
+  writeRegistry(home, [
+    { scope: "user", installPath: cur, version: "0.16.0", lastUpdated: "2026-08-04T18:00:00Z" },
+  ]);
+  const r = renderViaLauncher(old, home); // generated back when 0.14.0 was current
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, "rendered-by-0.16.0\n");
+});
+
+test("launcher falls back to its generating root when the registry is unreadable", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const old = fakeInstall(home, "0.14.0"); // no registry written at all
+  const r = renderViaLauncher(old, home);
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, "rendered-by-0.14.0\n");
+});
+
+test("launcher retries the fallback when the installed renderer is broken", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const good = fakeInstall(home, "0.14.0");
+  const broken = fakeInstall(home, "0.16.0", { broken: true }); // truncated mid-update
+  writeRegistry(home, [
+    { scope: "user", installPath: broken, version: "0.16.0", lastUpdated: "2026-08-04T18:00:00Z" },
+  ]);
+  const r = renderViaLauncher(good, home);
+  assert.equal(r.status, 0);
+  // Without the retry the whole HUD — including the base one we compose over —
+  // would blank out while a working fallback sat unused.
+  assert.equal(r.stdout, "rendered-by-0.14.0\n");
+});
+
+test("launcher prints one blank line, exit 0, when nothing resolves", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const r = renderViaLauncher(join(home, "gone", "0.14.0"), home);
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, "\n");
+});
+
+test("statusLineScriptVersion: version for a pinned path, null for the launcher", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const root = fakeInstall(home, "0.14.0");
+  assert.equal(statusLineScriptVersion(join(root, "scripts", "statusline.mjs")), "0.14.0");
+  const proj = mkdtempSync(join(tmpdir(), "ps-proj-"));
+  assert.equal(statusLineScriptVersion(statusLineLauncherPath(proj)), null);
+});
+
+test("checkStatusline warns when the wired version is not the installed one", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const old = fakeInstall(home, "0.14.0");
+  const cur = fakeInstall(home, "0.15.0");
+  writeRegistry(home, [
+    { scope: "user", installPath: cur, version: "0.15.0", lastUpdated: "2026-08-04T17:51:53Z" },
+  ]);
+  const proj = mkdtempSync(join(tmpdir(), "ps-proj-"));
+  mkdirSync(join(proj, ".claude"), { recursive: true });
+  writeFileSync(
+    join(proj, ".claude", "settings.local.json"),
+    JSON.stringify({
+      statusLine: { type: "command", command: `node "${join(old, "scripts", "statusline.mjs")}"` },
+    }),
+  );
+
+  const out = checkStatusline({ statusline: { enabled: true } }, proj, home);
+  const drift = out.filter((f) => f.level === "warn" && /0\.14\.0.*0\.15\.0/.test(f.message));
+  assert.equal(drift.length, 1, JSON.stringify(out));
+
+  // A dev checkout carries a version too, but syncStatusLine wires it on
+  // purpose and never rewires it — warning there would be a permanent lie.
+  const dev = mkdtempSync(join(tmpdir(), "ps-dev-"));
+  mkdirSync(join(dev, "scripts"), { recursive: true });
+  mkdirSync(join(dev, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(dev, "scripts", "statusline.mjs"), "// dev checkout\n");
+  writeFileSync(join(dev, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.99.0" }));
+  writeFileSync(
+    join(proj, ".claude", "settings.local.json"),
+    JSON.stringify({
+      statusLine: { type: "command", command: `node "${join(dev, "scripts", "statusline.mjs")}"` },
+    }),
+  );
+  assert.deepEqual(
+    checkStatusline({ statusline: { enabled: true } }, proj, home).filter((f) => f.level !== "info"),
+    [],
+  );
+
+  // …and stays silent once the launcher is wired: it has no pinned version.
+  writeFileSync(
+    join(proj, ".claude", "settings.local.json"),
+    JSON.stringify({
+      statusLine: { type: "command", command: `node "${statusLineLauncherPath(proj)}"` },
+    }),
+  );
+  mkdirSync(join(proj, ".claude", ".projectstore"), { recursive: true });
+  writeFileSync(statusLineLauncherPath(proj), "// launcher\n");
+  assert.deepEqual(
+    checkStatusline({ statusline: { enabled: true } }, proj, home).filter((f) => f.level !== "info"),
+    [],
+  );
 });
