@@ -39,6 +39,7 @@ import {
   installedPluginRoot,
   isPluginCacheRoot,
   statusLineIsOurs,
+  statusLineIsOurWiring,
   isLegacyStory,
   sectionOf,
   headingLineRe,
@@ -201,7 +202,8 @@ export function checkStatusline(cfg, proj, home = homedir()) {
     }
   }
   const curCmd = cur && typeof cur.command === "string" ? cur.command : null;
-  const isOurs = statusLineIsOurs(curCmd);
+  // Strict: only a wiring we could have written is ours to rewire or delete.
+  const isOurs = statusLineIsOurWiring(curCmd, proj, home);
   const st = cfg.statusline;
 
   if (st && st.enabled === true) {
@@ -269,7 +271,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
       const inst = installedPluginRoot(home, dirname(bc.root));
       if (inst && inst.version && inst.version !== bc.version) {
         out.push(finding("install", "warn", "statusline",
-          `The status line on screen was rendered by projectstore ${bc.version} while ${inst.version} is installed — this session resolved its statusLine command before the update. Restart the session; after that the launcher picks up the installed version at every render.`));
+          `The last status line rendered in this project came from projectstore ${bc.version} while ${inst.version} is installed — a session that resolved its statusLine command before the update (the breadcrumb is per project, so it may belong to a sibling session). Restart that session; after that the launcher picks up the installed version at every render.`));
       }
     }
   } catch {}

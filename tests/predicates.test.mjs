@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, copyFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -519,6 +519,127 @@ test("launcher prints one blank line, exit 0, when nothing resolves", () => {
   assert.equal(r.stdout, "\n");
 });
 
+test("launcher never imports another marketplace's projectstore", () => {
+  // The registry key is per marketplace, so a fork installed as
+  // projectstore@Fork is a different codebase, not a newer copy of ours — and
+  // whatever the launcher picks, it executes on every render.
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const mine = fakeInstall(home, "0.16.0");
+  const fork = fakeInstall(home, "9.9.9", { marketplace: "Fork" });
+  const dir = join(home, ".claude", "plugins");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "installed_plugins.json"),
+    JSON.stringify({
+      plugins: {
+        "projectstore@Fork": [
+          { installPath: fork, version: "9.9.9", lastUpdated: "2026-08-04T23:00:00Z" },
+        ],
+      },
+    }),
+  );
+  const r = renderViaLauncher(mine, home);
+  assert.equal(r.stdout, "rendered-by-0.16.0\n", "falls back to its own family, never the fork");
+});
+
+test("launcher runs the user's base HUD rather than blanking it when projectstore is gone", () => {
+  // Uninstall / cache sweep: no registry, fallback root gone, launcher still
+  // wired. Our entry outranks the user's own statusLine, so a blank line here
+  // would take away a HUD they had before us — in every bound project.
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  mkdirSync(join(home, ".claude"), { recursive: true });
+  writeFileSync(
+    join(home, ".claude", "settings.json"),
+    JSON.stringify({ statusLine: { type: "command", command: "printf 'BASE-HUD'" } }),
+  );
+  const r = renderViaLauncher(join(home, "wiped", "0.16.0"), home);
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, "BASE-HUD\n");
+});
+
+test("both resolvers pick the same install (lib.installedPluginRoot vs the launcher)", () => {
+  // The launcher duplicates the resolution logic on purpose — importing the
+  // shared helper would mean naming a versioned path. The duplication is only
+  // acceptable while the two orderings agree, so pin that with one input.
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const mine016 = fakeInstall(home, "0.16.0");
+  const mine0161 = fakeInstall(home, "0.16.1");
+  const other = fakeInstall(home, "0.99.0", { marketplace: "OtherMarket" });
+  writeRegistry(home, [
+    { scope: "user", installPath: other, version: "0.99.0", lastUpdated: "2026-08-04T23:00:00Z" },
+    { scope: "user", installPath: mine016, version: "0.16", lastUpdated: "2026-08-04T18:00:00Z" },
+    { scope: "user", installPath: mine0161, version: "0.16.1", lastUpdated: "2026-08-04T18:00:00Z" },
+  ]);
+  const family = dirname(mine016); // …/SmartAndPoint/projectstore
+  const lib = installedPluginRoot(home, family);
+  const spawned = renderViaLauncher(mine016, home).stdout.trim();
+  assert.equal(lib.path, mine0161, "family wins over a newer foreign marketplace; 0.16.1 > 0.16");
+  assert.equal(spawned, "rendered-by-0.16.1", "the launcher must land on the same install");
+});
+
+test("installedPluginRoot honours CLAUDE_CONFIG_DIR over the home directory", () => {
+  const base = mkdtempSync(join(tmpdir(), "ps-cfg-"));
+  const cfg = join(base, "elsewhere");
+  const root = join(cfg, "plugins", "cache", "SmartAndPoint", "projectstore", "0.16.0");
+  mkdirSync(join(root, "scripts"), { recursive: true });
+  writeFileSync(join(root, "scripts", "statusline.mjs"), "// stub\n");
+  mkdirSync(join(cfg, "plugins"), { recursive: true });
+  writeFileSync(
+    join(cfg, "plugins", "installed_plugins.json"),
+    JSON.stringify({ plugins: { "projectstore@SmartAndPoint": [{ installPath: root, version: "0.16.0" }] } }),
+  );
+  process.env.CLAUDE_CONFIG_DIR = cfg;
+  try {
+    // The home argument points somewhere with no plugins at all: only the
+    // env var can find this install.
+    assert.deepEqual(installedPluginRoot(join(base, "unused-home")), { path: root, version: "0.16.0" });
+    assert.ok(isPluginCacheRoot(root, join(base, "unused-home")));
+  } finally {
+    delete process.env.CLAUDE_CONFIG_DIR;
+  }
+});
+
+test("syncStatusLine will not clobber a user's own script that merely looks like ours", () => {
+  // ~/.claude/scripts/statusline.mjs is a plausible name for a hand-written HUD
+  // (the platform's own /statusline generates into ~/.claude). Matching on the
+  // path shape alone would overwrite it on `on` and delete it on `off`.
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const root = fakeInstall(home, "0.16.0");
+  const proj = mkdtempSync(join(tmpdir(), "ps-proj-"));
+  const theirs = join(home, ".claude", "scripts", "statusline.mjs");
+  mkdirSync(join(proj, ".claude"), { recursive: true });
+  const before = JSON.stringify({ statusLine: { type: "command", command: `node "${theirs}"` } });
+  writeFileSync(join(proj, ".claude", "settings.local.json"), before);
+
+  assert.equal(
+    withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, proj, home)),
+    "foreign-present",
+  );
+  assert.equal(readFileSync(join(proj, ".claude", "settings.local.json"), "utf8"), before);
+  assert.ok(statusLineIsOurs(`node "${theirs}"`), "the loose shape test still matches — that is why it cannot decide writes");
+});
+
+test("syncStatusLine keeps sibling keys on the statusLine entry", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const root = fakeInstall(home, "0.16.0");
+  const proj = mkdtempSync(join(tmpdir(), "ps-proj-"));
+  mkdirSync(join(proj, ".claude"), { recursive: true });
+  writeFileSync(
+    join(proj, ".claude", "settings.local.json"),
+    JSON.stringify({
+      statusLine: {
+        type: "command",
+        command: `node "${join(root, "scripts", "statusline.mjs")}"`,
+        refreshInterval: 5000,
+      },
+    }),
+  );
+  withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, proj, home));
+  const entry = JSON.parse(readFileSync(join(proj, ".claude", "settings.local.json"), "utf8")).statusLine;
+  assert.ok(entry.command.includes(".projectstore/statusline.mjs"));
+  assert.equal(entry.refreshInterval, 5000, "we own the command, not the whole entry");
+});
+
 test("statusLineScriptVersion: version for a pinned path, null for the launcher", () => {
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   const root = fakeInstall(home, "0.14.0");
@@ -561,7 +682,9 @@ test("checkStatusline warns when the wired version is not the installed one", ()
     }),
   );
   assert.deepEqual(
-    checkStatusline({ statusline: { enabled: true } }, proj, home).filter((f) => f.level !== "info"),
+    withPluginRoot(dev, () =>
+      checkStatusline({ statusline: { enabled: true } }, proj, home).filter((f) => f.level !== "info"),
+    ),
     [],
   );
 

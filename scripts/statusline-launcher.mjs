@@ -19,13 +19,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 // Substituted by writeStatusLineLauncher() in scripts/lib.mjs.
 const FALLBACK_ROOT = "__PROJECTSTORE_ROOT__";
 
 function versionKey(v) {
-  return String(v || "0").split(".").map((n) => parseInt(n, 10) || 0);
+  const p = String(v || "0").split(".").map((n) => parseInt(n, 10) || 0);
+  return [p[0] || 0, p[1] || 0, p[2] || 0]; // pad: a missing component must compare as 0, not NaN
 }
 
 // Newest installed projectstore that is actually on disk. Deliberately a
@@ -54,15 +56,12 @@ function installedRoot() {
         });
       }
     }
-    found.sort(
-      (a, b) =>
-        b.same - a.same ||
-        b.at - a.at ||
-        b.v[0] - a.v[0] ||
-        b.v[1] - a.v[1] ||
-        b.v[2] - a.v[2],
-    );
-    return found.length ? found[0].p : null;
+    // Family is a FILTER, not a tiebreak — an install from another marketplace
+    // is someone else's fork of projectstore, not a newer copy of ours, and
+    // this file imports whatever it picks. Same rule as installedPluginRoot().
+    const pool = found.filter((f) => f.same);
+    pool.sort((a, b) => b.at - a.at || b.v[0] - a.v[0] || b.v[1] - a.v[1] || b.v[2] - a.v[2]);
+    return pool.length ? pool[0].p : null;
   } catch {
     return null;
   }
@@ -80,6 +79,10 @@ for (const root of [installedRoot(), FALLBACK_ROOT]) {
   const target = join(root, "scripts", "statusline.mjs");
   try {
     if (!existsSync(target)) continue;
+    // The renderer resolves its own root from CLAUDE_PLUGIN_ROOT when set —
+    // point it at the install we actually loaded, or the badge, the strings and
+    // the breadcrumb would describe a different one.
+    process.env.CLAUDE_PLUGIN_ROOT = root;
     // Renders on import (statusline.mjs runs main() at module load and reads
     // its own stdin) — one process, no extra spawn.
     await import(pathToFileURL(target).href);
@@ -88,4 +91,35 @@ for (const root of [installedRoot(), FALLBACK_ROOT]) {
     // fall through to the next candidate
   }
 }
-if (!rendered) process.stdout.write("\n");
+
+// Last resort: projectstore is gone (uninstalled, or its cache swept) but this
+// launcher is still wired. Our entry outranks the user's own statusLine, so
+// giving up here would blank the HUD they had before us — in every bound
+// project, with no projectstore left to unwire it. Run their base command
+// instead, exactly as the renderer would have composed over it.
+if (!rendered) {
+  let out = null;
+  try {
+    const stdin = (() => { try { return readFileSync(0, "utf8"); } catch { return ""; } })();
+    const projectDir = (() => {
+      try {
+        const i = JSON.parse(stdin) || {};
+        return (i.workspace && i.workspace.project_dir) || i.cwd || null;
+      } catch { return null; }
+    })();
+    const claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+    const candidates = [
+      projectDir ? join(projectDir, ".claude", "settings.json") : null,
+      join(claudeHome, "settings.json"),
+    ].filter(Boolean);
+    for (const p of candidates) {
+      let cmd = null;
+      try { cmd = JSON.parse(readFileSync(p, "utf8"))?.statusLine?.command; } catch { continue; }
+      if (typeof cmd !== "string" || !cmd.trim()) continue;
+      if (cmd.includes("statusline.mjs")) continue; // ours — would recurse
+      const r = spawnSync(cmd, { shell: true, input: stdin, encoding: "utf8", timeout: 2000, maxBuffer: 1 << 20 });
+      if (r.status === 0 && r.stdout && r.stdout.trim()) { out = r.stdout.replace(/\s+$/, ""); break; }
+    }
+  } catch {}
+  process.stdout.write((out || "") + "\n");
+}

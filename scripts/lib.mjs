@@ -2,9 +2,10 @@
 // Pure node, no external deps. Keep this single-file & dependency-free
 // so plugin install does not require npm install.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, utimesSync, unlinkSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, utimesSync, unlinkSync, renameSync } from "node:fs";
 import { join, dirname, basename, resolve } from "node:path";
 import { hostname, homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
 
@@ -13,7 +14,9 @@ export function projectRoot() {
 }
 
 export function pluginRoot() {
-  return process.env.CLAUDE_PLUGIN_ROOT || dirname(dirname(new URL(import.meta.url).pathname));
+  // fileURLToPath, not URL.pathname: the latter stays percent-encoded, so an
+  // install path containing a space resolves to a directory that does not exist.
+  return process.env.CLAUDE_PLUGIN_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 }
 
 export function configPath() {
@@ -84,8 +87,13 @@ export function installedPluginRoot(home = homedir(), preferFamily = null) {
         });
       }
     }
-    found.sort((a, b) => b.same - a.same || b.at - a.at || cmpVersion(b.version, a.version));
-    return found.length ? { path: found[0].path, version: found[0].version } : null;
+    // Family is a filter, not a tiebreak: when the caller came from a known
+    // marketplace, an install from a DIFFERENT one is not a newer copy of the
+    // same plugin — it is someone else's fork, and we do not execute it.
+    const family = preferFamily ? found.filter((f) => f.same) : [];
+    const pool = family.length ? family : preferFamily ? [] : found;
+    pool.sort((a, b) => b.at - a.at || cmpVersion(b.version, a.version));
+    return pool.length ? { path: pool[0].path, version: pool[0].version } : null;
   } catch {
     return null;
   }
@@ -120,12 +128,33 @@ export function statusLineLauncherPath(projectDir) {
   return join(projectDir, ".claude", ".projectstore", "statusline.mjs");
 }
 
-// Both wirings are ours: the launcher, and the legacy version-pinned plugin
-// path (pre-0.16.0 installs, plus dev checkouts, which keep it by design).
+// Loose shape test — "could this command be a projectstore renderer?". Used
+// where over-matching is the safe direction: never compose a status line over
+// something that might be us (that would recurse).
 export function statusLineIsOurs(cmd) {
   if (typeof cmd !== "string") return false;
   const c = cmd.replace(/\\/g, "/");
   return c.includes("scripts/statusline.mjs") || c.includes(".projectstore/statusline.mjs");
+}
+
+export function statusLineScriptPath(cmd) {
+  if (typeof cmd !== "string") return null;
+  const m = cmd.match(/"([^"]+statusline\.mjs)"/) || cmd.match(/(\S+statusline\.mjs)/);
+  return m ? m[1].replace(/\\/g, "/") : null;
+}
+
+// Strict test — "did WE write this?". Required wherever we would overwrite or
+// delete the entry: the loose shape above also matches a user's own
+// ~/.claude/scripts/statusline.mjs, and clobbering that would take their HUD.
+// Ours means one of: this project's launcher, the running plugin's own script
+// (dev checkouts included), or any versioned install under the plugin cache.
+export function statusLineIsOurWiring(cmd, projectDir, home = homedir(), root = pluginRoot()) {
+  const p = statusLineScriptPath(cmd);
+  if (!p) return false;
+  const norm = (s) => String(s).replace(/\\/g, "/");
+  if (p === norm(statusLineLauncherPath(projectDir))) return true;
+  if (p === norm(join(root, "scripts", "statusline.mjs"))) return true;
+  return isPluginCacheRoot(dirname(dirname(p)), home);
 }
 
 // Materialise the launcher into the project, substituting the fallback root.
@@ -142,7 +171,11 @@ export function writeStatusLineLauncher(projectDir, root) {
     try { cur = readFileSync(p, "utf8"); } catch {}
     if (cur !== src) {
       ensureRuntimeDir(projectDir); // carries the nested .gitignore: this path is machine-specific
-      writeFileSync(p, src, "utf8");
+      // Atomic: parallel sessions rewrite this file while renders read it, and
+      // a torn read is a SyntaxError — i.e. a blank HUD frame.
+      const tmp = `${p}.${process.pid}.tmp`;
+      writeFileSync(tmp, src, "utf8");
+      renameSync(tmp, p);
     }
     return p;
   } catch {
@@ -171,7 +204,7 @@ export function syncStatusLine(cfg, projectDir, home = homedir()) {
 
   const cur = settings.statusLine;
   const curCmd = cur && typeof cur.command === "string" ? cur.command : null;
-  const isOurs = statusLineIsOurs(curCmd);
+  const isOurs = statusLineIsOurWiring(curCmd, projectDir, home, root);
 
   let changed = false;
   if (st.enabled) {
@@ -187,7 +220,9 @@ export function syncStatusLine(cfg, projectDir, home = homedir()) {
       if (launcher) desired = `node "${launcher}"`;
     }
     if (!cur || curCmd !== desired) {
-      settings.statusLine = { type: "command", command: desired };
+      // Keep any sibling keys the platform supports on this object
+      // (refreshInterval and friends) — we own the command, not the entry.
+      settings.statusLine = { ...(cur && typeof cur === "object" ? cur : {}), type: "command", command: desired };
       changed = true;
     }
   } else if (isOurs) {
