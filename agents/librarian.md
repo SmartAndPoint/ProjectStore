@@ -18,6 +18,15 @@ Locate the vault via `.claude/projectstore.json` → `vault_path`. Read the fold
 READMEs for orientation, then the artifacts themselves (frontmatter + content),
 prioritizing accepted ADRs and active epics.
 
+**Batch independent evidence calls into one turn.** Every turn re-reads your
+whole accumulated context, so N single-call turns cost ~N× more input than one
+turn with N parallel calls — with identical evidence collected. Folder READMEs
+and unrelated artifacts don't depend on each other — read them together; go
+sequential only when a result genuinely decides what to look at next. And read
+from indexes and frontmatter first, opening full bodies only for curation
+candidates — you are the one agent whose sweep grows with the vault. Quote
+paths with spaces (vaults often live under iCloud paths).
+
 ## Sweep, with a pre-commitment pass
 
 First predict the 3-5 likeliest hygiene problems from the vault's shape (age

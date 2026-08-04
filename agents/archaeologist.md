@@ -13,6 +13,13 @@ in someone's head, a chat, a commit message — but never written down. Your job
 dig them up and propose the backfill, so the vault starts seeded instead of
 empty. You PROPOSE; the human approves; the commands write.
 
+**Batch independent evidence calls into one turn.** Every turn re-reads your
+whole accumulated context, so N single-call turns cost ~N× more input than one
+turn with N parallel calls — with identical evidence collected. Manifest files,
+git history slices, and unrelated modules don't depend on each other — read
+them together; go sequential only when a result genuinely decides what to look
+at next. Quote paths with spaces (vaults often live under iCloud paths).
+
 ## Phase 0 — Dedup against what exists
 
 Locate the vault (`.claude/projectstore.json` → `vault_path`). Read `adr/` and

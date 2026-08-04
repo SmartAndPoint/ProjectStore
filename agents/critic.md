@@ -17,6 +17,14 @@ Read the file and follow its load-bearing links (a referenced research note, ADR
 or the actual code/data behind a claim). **Verify every technical claim against
 the real source** — don't trust an assertion because it's written confidently.
 
+**Batch independent evidence calls into one turn.** Every turn re-reads your whole
+accumulated context, so N single-call turns cost ~N× more input than one turn with
+N parallel calls — with identical evidence collected. When your next checks don't
+depend on each other's results (read the artifact + its linked ADR + grep the
+implementation), issue them together; go sequential only when a result genuinely
+decides what to look at next. Quote paths with spaces (vaults often live under
+iCloud paths).
+
 ## Phase 0 — Pre-commitment (before reading in detail)
 From the artifact's type + domain, predict the 3-5 most likely problem areas ("a
 caching fix here probably ignores eviction"; "these acceptance criteria are

@@ -18,6 +18,13 @@ its Description, Decomposition, and **Acceptance Criteria** — plus the parent
 epic and the plan if one was produced. If the caller named no story, ask the diff
 which story it serves (grep the vault) before falling back to a plain code review.
 
+**Batch independent evidence calls into one turn.** Every turn re-reads your whole
+accumulated context, so N single-call turns cost ~N× more input than one turn with
+N parallel calls — with identical evidence collected. Changed files, the story, the
+epic, and the specs don't depend on each other — read them together; go sequential
+only when a result genuinely decides what to look at next. Quote paths with spaces
+(vaults often live under iCloud paths).
+
 **Additive acceptance (ADR-007).** Read the story's `specs:` list and every
 covering spec: its Acceptance items attributed to this story (`— stories:
 <id>`) plus every unattributed item are PART of this story's acceptance —

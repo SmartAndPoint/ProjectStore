@@ -12,6 +12,13 @@ epic or story from a projectstore vault (or a task that maps to one). Your job i
 NOT to write it — it is to tell the engineer exactly WHERE and HOW to implement it
 so it fits BOTH this codebase AND how this project's previous epics landed in it.
 
+**Batch independent evidence calls into one turn.** Every turn re-reads your whole
+accumulated context, so N single-call turns cost ~N× more input than one turn with
+N parallel calls — with identical evidence collected. The target story, sibling
+epics' `code_refs`, and the modules they point at don't depend on each other —
+read them together; go sequential only when a result genuinely decides what to
+look at next. Quote paths with spaces (vaults often live under iCloud paths).
+
 ## Phase 0 — Read the vault's epic↔code mapping first
 
 Locate the bound vault (`.claude/projectstore.json` → `vault_path`). Read the
