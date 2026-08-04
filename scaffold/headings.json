@@ -1,0 +1,28 @@
+{
+  "_description": "Language-independent registry of section headings, inline keywords and index-table column names recognized by the deterministic scripts (doctor, reconcile, story-section). Per id, per language: an ARRAY of accepted forms; the FIRST form of the bound language is the canonical form used when writing. Matching accepts every form of every language, so a ru-headed file lints in an en-bound vault. New sections/keywords added by any story MUST register their en+ru forms here (PS-SPEC story-002).",
+  "headings": {
+    "description": { "en": ["Description"], "ru": ["Описание"] },
+    "decomposition": { "en": ["Decomposition"], "ru": ["Декомпозиция"] },
+    "acceptance": { "en": ["Acceptance Criteria"], "ru": ["Критерии приёмки", "Критерии приемки"] },
+    "technical_notes": { "en": ["Technical Notes"], "ru": ["Технические заметки"] },
+    "dependencies": { "en": ["Dependencies"], "ru": ["Зависимости"] },
+    "attachments": { "en": ["Attachments"], "ru": ["Вложения"] },
+    "implementation_plan": { "en": ["Implementation Plan"], "ru": ["План реализации"] },
+    "final_summary": { "en": ["Final Summary"], "ru": ["Итоговое резюме"] },
+    "spec_how": { "en": ["How we solve"], "ru": ["Как решаем"] },
+    "spec_contracts": { "en": ["Behavioral contracts"], "ru": ["Контракты поведения"] },
+    "spec_acceptance": { "en": ["Acceptance"], "ru": ["Приёмка", "Приемка", "Приёмка / сдача"] },
+    "spec_modules": { "en": ["Modules & files on disk"], "ru": ["Модули и файлы"] },
+    "spec_testing": { "en": ["Testing"], "ru": ["Тестирование"] }
+  },
+  "keywords": {
+    "evidence": { "en": ["evidence"], "ru": ["подтверждение"] },
+    "stories": { "en": ["stories"], "ru": ["stories"] }
+  },
+  "index_columns": {
+    "file": { "en": ["File"], "ru": ["Файл"] },
+    "title": { "en": ["Title"], "ru": ["Заголовок"] },
+    "status": { "en": ["Status"], "ru": ["Статус"] },
+    "date": { "en": ["Date"], "ru": ["Дата"] }
+  }
+}

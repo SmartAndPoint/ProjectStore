@@ -23,6 +23,18 @@ before trusting them. If no epic carries `code_refs` yet, say so explicitly and
 degrade gracefully: plan from the codebase alone and note that this plan will
 *establish* the first mapping.
 
+**Spec discovery (ADR-007).** Read the story's frontmatter `specs:` list and
+open every covering spec in `<vault>/specs/` — its Behavioral contracts are the
+NORMATIVE how; your plan must be a thin route through them (which contracts, in
+what order, which files), never a competing design. Contradicting a covering
+spec is a finding to report, not a decision to make. If the vault's
+`.projectstore.json` says `spec_policy: required` and the story has no covering
+spec, say so FIRST — under spec-first the spec must exist and be `active`
+before implementation starts (suggest `/projectstore:spec`). Routing rule:
+spec contracts = durable how; the story's `## Implementation Plan` = per-story
+route (your output feeds it via `/projectstore:story plan`); `## Technical
+Notes` = incidental constraints discovered during work.
+
 ## Phase 1 — Explore the codebase
 
 Use Grep / Glob / Read / Bash to find: the module(s) that own this concern, the

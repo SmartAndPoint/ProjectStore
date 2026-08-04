@@ -63,6 +63,22 @@ Steps:
 
 7. **Offer scaffold**: if the vault is empty or missing layout folders, ask: "Vault is empty/incomplete. Run `/projectstore:scaffold` to create the layout? [Yes / No]". If yes, invoke `/projectstore:scaffold` immediately (just describe; do not assume execution).
 
+7.5. **Vault policy** (v0.14, ADR-007 — vault-side, survives clones): check `<vault>/.projectstore.json`.
+   - If it already exists with a `spec_policy` key — respect it, print the current policy, do not re-ask.
+   - **New bind into an empty/fresh vault**: ask via AskUserQuestion — "Enable spec-first policy for this vault (every story must be covered by a spec; doctor enforces it)?" with options **Yes, `spec_policy: required` (Recommended)** / **Not yet, `optional`**. Second question: "Enable lifecycle gates (plan/close sections + evidence checks on stories)?" — **Yes, `lifecycle_gates: on` (Recommended)** / **Off for now**.
+   - **Bind to an existing vault with artifacts**: default to `spec_policy: optional`, `lifecycle_gates: off` and say doctor will suggest enabling once specs appear. Do not impose the gate on an existing backlog.
+   - On any choice, write `<vault>/.projectstore.json` (vault ROOT — deliberately not inside `<vault>/.projectstore/`, whose .gitignore would keep the policy out of git):
+
+   ```json
+   {
+     "spec_policy": "required",
+     "lifecycle_gates": "on",
+     "spec_policy_since": "<current ISO-8601 timestamp>"
+   }
+   ```
+
+   `spec_policy_since` is stamped ONLY when spec_policy is set to `required` — it anchors the legacy exemption (stories done before it stay exempt; stories in progress/review at enable time are in scope).
+
 8. **Print summary**: confirm the bind, list the layout's folders, suggest next commands (`/projectstore:status`, `/projectstore:adr "<first decision>"`, `/projectstore:epic <ID> "<title>"`).
 
 9. **Auto-update reminder** (v0.7+, only on first successful bind in this project): After Step 5 (config write), check whether the newly-written config has `autoupdate_asked: true`. If not, ask the user via AskUserQuestion:

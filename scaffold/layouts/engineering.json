@@ -11,6 +11,14 @@
       "pad": 3
     },
     {
+      "path": "specs",
+      "kind": "spec",
+      "readme": true,
+      "numbered": true,
+      "prefix": "SPEC-",
+      "pad": 3
+    },
+    {
       "path": "epics",
       "kind": "epic",
       "readme": true,
@@ -45,6 +53,7 @@
   ],
   "commands": [
     "adr",
+    "spec",
     "epic",
     "story",
     "research",

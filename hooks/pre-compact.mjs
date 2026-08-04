@@ -45,7 +45,7 @@ function relativeToVault(absPath, vault) {
   return absPath;
 }
 
-const STRUCTURED_ARTIFACT_RX = /\/(adr|epics|research|concepts|meetings|ops|diagrams)\//;
+const STRUCTURED_ARTIFACT_RX = /\/(adr|specs|epics|research|concepts|meetings|ops|diagrams)\//;
 
 function main() {
   const cfg = readConfig();
@@ -68,7 +68,8 @@ function main() {
   );
   lines.push("- `/projectstore:search <query>` — grep the vault.");
   lines.push(
-    "- `/projectstore:adr`, `/projectstore:epic`, `/projectstore:story`, `/projectstore:research`, `/projectstore:concept`, `/projectstore:meeting`, `/projectstore:runbook` — create new artifacts (with approval gate).",
+    "- `/projectstore:adr`, `/projectstore:spec`, `/projectstore:epic`, `/projectstore:story`, `/projectstore:research`, `/projectstore:concept`, `/projectstore:meeting`, `/projectstore:runbook` — create new artifacts (with approval gate).",
+    "- `/projectstore:story plan|close <story>` — story lifecycle gates (plan before code, close-out with evidence).",
   );
   lines.push(
     "- `/projectstore:review <path>` — peer-review an existing artifact (fresh critic).",

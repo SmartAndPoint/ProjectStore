@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // projectstore — draft.mjs
-// Pure renderer. Given a kind (adr/epic/story/research/concept/meeting/runbook)
+// Pure renderer. Given a kind declared in the bound layout (epic/story are
+// structural special cases; every other kind comes from the layout's folders)
 // and arguments, produces a JSON draft on stdout describing the target file
 // and its rendered content. Does NOT touch the disk — no writes AND no
 // mkdir: declining the approval gate must leave the vault byte-for-byte
@@ -22,13 +23,15 @@
 // Errors are written to stderr as plain text and exit code 1.
 
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   readConfig,
   loadLayout,
   folderByKind,
   loadTemplate,
   renderTemplate,
+  parseFrontmatter,
   slugify,
   nextNumber,
   today,
@@ -47,33 +50,39 @@ function commonVars(cfg) {
   };
 }
 
-function makeIndexLine(kind, fileName, vars) {
-  switch (kind) {
-    case "adr":
-      return `| [${vars.id}](./${fileName}) | ${vars.title} | proposed | ${vars.date} |`;
-    case "epic":
-      return `| [${vars.id}](./${vars.id}/epic.md) | ${vars.title} | planned | ${vars.date} |`;
-    default:
-      return `| [${vars.slug || vars.id}](./${fileName}) | ${vars.title || vars.slug} | draft | ${vars.date} |`;
+// Index row status is derived from the RENDERED template's own frontmatter —
+// never hardcoded per kind — so a new kind's template is the single source of
+// its initial status and the index can never disagree with it at birth.
+function makeIndexLine(kind, fileName, vars, content) {
+  const status = parseFrontmatter(content).data.status || "draft";
+  if (kind === "epic") {
+    return `| [${vars.id}](./${vars.id}/epic.md) | ${vars.title} | ${status} | ${vars.date} |`;
   }
+  const label = vars.id || vars.slug;
+  return `| [${label}](./${fileName}) | ${vars.title || label} | ${status} | ${vars.date} |`;
 }
 
 function indexPath(vault, folderPath) {
   return join(vault, folderPath, "README.md");
 }
 
-// ─── Per-kind builders ─────────────────────────────────────────────────
+// ─── Builders (layout-driven — PS-SPEC story-001) ──────────────────────
+//
+// Any kind declared in the layout with a folder builds here: `numbered`
+// folders get prefix numbering (the recipe formerly hardcoded for ADR),
+// plain folders get slug filenames. epic/story remain structural special
+// cases (subfolder-per-id, stories/ subdirectory).
 
-function buildAdr(cfg, layout, args) {
+function buildNumbered(kind, cfg, layout, args) {
   const title = args.join(" ").trim();
-  if (!title) die("ADR title is required");
-  const folder = folderByKind(layout, "adr");
-  if (!folder) die("Layout has no folder of kind=adr");
+  if (!title) die(`${kind} requires a title`);
+  const folder = folderByKind(layout, kind);
   const vault = cfg.vault_path;
   const dir = join(vault, folder.path);
-  const number = nextNumber(dir, folder.prefix || "ADR-", folder.pad || 3);
+  const prefix = folder.prefix || `${kind.toUpperCase()}-`;
+  const number = nextNumber(dir, prefix, folder.pad || 3);
   const slug = slugify(title);
-  const id = `${(folder.prefix || "ADR-").replace(/-$/, "")}-${number}`;
+  const id = `${prefix.replace(/-$/, "")}-${number}`;
   const fileName = `${id}-${slug}.md`;
   const vars = {
     ...commonVars(cfg),
@@ -82,13 +91,14 @@ function buildAdr(cfg, layout, args) {
     title,
     id,
   };
-  const tpl = loadTemplate(cfg.language || "en", "adr");
+  const tpl = loadTemplate(cfg.language || "en", kind);
+  const content = renderTemplate(tpl, vars);
   return {
-    kind: "adr",
+    kind,
     path: join(dir, fileName),
-    content: renderTemplate(tpl, vars),
+    content,
     index: existsSync(indexPath(vault, folder.path))
-      ? { path: indexPath(vault, folder.path), line: makeIndexLine("adr", fileName, vars) }
+      ? { path: indexPath(vault, folder.path), line: makeIndexLine(kind, fileName, vars, content) }
       : null,
     vars,
   };
@@ -104,12 +114,13 @@ function buildEpic(cfg, layout, args) {
   const epicDir = join(vault, folder.path, id);
   const vars = { ...commonVars(cfg), id, title };
   const tpl = loadTemplate(cfg.language || "en", "epic");
+  const content = renderTemplate(tpl, vars);
   return {
     kind: "epic",
     path: join(epicDir, "epic.md"),
-    content: renderTemplate(tpl, vars),
+    content,
     index: existsSync(indexPath(vault, folder.path))
-      ? { path: indexPath(vault, folder.path), line: makeIndexLine("epic", "epic.md", vars) }
+      ? { path: indexPath(vault, folder.path), line: makeIndexLine("epic", "epic.md", vars, content) }
       : null,
     vars,
   };
@@ -126,9 +137,10 @@ function buildStory(cfg, layout, args) {
   if (!existsSync(join(vault, folder.path, epicId))) {
     die(`Epic folder not found: ${folder.path}/${epicId}. Create the epic first via /projectstore:epic.`);
   }
-  const number = nextNumber(storiesDir, "story-", 3);
+  const storyPrefix = folder.story_prefix || "story-";
+  const number = nextNumber(storiesDir, storyPrefix, folder.story_pad || 3);
   const slug = slugify(title);
-  const id = `story-${number}`;
+  const id = `${storyPrefix}${number}`;
   const fileName = `${id}-${slug}.md`;
   const vars = {
     ...commonVars(cfg),
@@ -151,7 +163,6 @@ function buildSimple(kind, cfg, layout, args) {
   const title = args.join(" ").trim();
   if (!title) die(`${kind} requires a title`);
   const folder = folderByKind(layout, kind);
-  if (!folder) die(`Layout has no folder of kind=${kind}`);
   const vault = cfg.vault_path;
   const dir = join(vault, folder.path);
   const slug = slugify(title);
@@ -163,12 +174,13 @@ function buildSimple(kind, cfg, layout, args) {
     title,
   };
   const tpl = loadTemplate(cfg.language || "en", kind);
+  const content = renderTemplate(tpl, vars);
   return {
     kind,
     path: join(dir, fileName),
-    content: renderTemplate(tpl, vars),
+    content,
     index: existsSync(indexPath(vault, folder.path))
-      ? { path: indexPath(vault, folder.path), line: makeIndexLine(kind, fileName, vars) }
+      ? { path: indexPath(vault, folder.path), line: makeIndexLine(kind, fileName, vars, content) }
       : null,
     vars,
   };
@@ -187,27 +199,24 @@ function main() {
   const layout = loadLayout(cfg.layout);
 
   let result;
-  switch (kind) {
-    case "adr":
-      result = buildAdr(cfg, layout, rest);
-      break;
-    case "epic":
-      result = buildEpic(cfg, layout, rest);
-      break;
-    case "story":
-      result = buildStory(cfg, layout, rest);
-      break;
-    case "research":
-    case "concept":
-    case "meeting":
-    case "runbook":
-      result = buildSimple(kind, cfg, layout, rest);
-      break;
-    default:
-      die(`Unknown kind: ${kind}. Supported: adr, epic, story, research, concept, meeting, runbook.`);
+  if (kind === "epic") {
+    result = buildEpic(cfg, layout, rest);
+  } else if (kind === "story") {
+    result = buildStory(cfg, layout, rest);
+  } else {
+    const folder = folderByKind(layout, kind);
+    if (!folder) {
+      const known = layout.folders.map((f) => f.kind).filter((k) => k !== "epic");
+      die(`Unknown kind: ${kind}. This layout (${cfg.layout}) declares: epic, story, ${known.join(", ")}.`);
+    }
+    result = folder.numbered
+      ? buildNumbered(kind, cfg, layout, rest)
+      : buildSimple(kind, cfg, layout, rest);
   }
 
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
 }
 
-main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}

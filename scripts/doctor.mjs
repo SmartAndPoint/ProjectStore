@@ -33,6 +33,13 @@ import {
   parseFrontmatter,
   pluginRoot,
   projectRoot,
+  listOf,
+  readVaultConfig,
+  isLegacyStory,
+  sectionOf,
+  headingLineRe,
+  indexHeaderRe,
+  keywordRe,
 } from "./lib.mjs";
 
 const AGENT_BLOCK_MARKER = /<!--\s*projectstore:agents v(\d+)/g;
@@ -110,14 +117,25 @@ export function checkLayoutTemplates(cfg) {
     return out;
   }
   const lang = cfg.language || "en";
-  const kinds = (layout.commands || []).filter((k) =>
-    ["adr", "epic", "story", "research", "concept", "meeting", "runbook", "kanban"].includes(k));
+  // Layout-driven (PS-SPEC story-001): a command needs a template iff it maps
+  // to a declared folder kind ("story" maps through the epic folder; "kanban"
+  // through the layout's kanban block). Folders WITHOUT a command (e.g.
+  // diagrams) require no template — no false findings for them.
+  const kinds = (layout.commands || []).filter((k) => {
+    if (k === "kanban") return Boolean(layout.kanban);
+    if (k === "story") return Boolean(folderByKind(layout, "epic"));
+    return Boolean(folderByKind(layout, k));
+  });
   kinds.push("folder-readme");
   for (const k of kinds) {
     const p = join(pluginRoot(), "templates", lang, `${k}.md.tmpl`);
     if (!existsSync(p)) {
       out.push(finding("install", "issue", "templates", `Missing template for language "${lang}": ${k}.md.tmpl`));
     }
+  }
+  if (!existsSync(join(pluginRoot(), "scaffold", "headings.json"))) {
+    out.push(finding("install", "issue", "templates",
+      "scaffold/headings.json is missing — heading-registry checks (index headers, acceptance, spec gates) cannot run. Stale/corrupt plugin install?"));
   }
   return out;
 }
@@ -458,12 +476,37 @@ export function checkIndexes(cfg, layout, artifacts) {
   return out;
 }
 
+// Strip fenced blocks and inline code before counting checkboxes / matching
+// links — a fenced example containing `- [ ]` must not inflate the count.
+function stripCode(s) {
+  return s.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
+}
+
+// RAW lines outside fenced blocks — for checks that must both MATCH (fence-
+// immune) and REPORT the line verbatim (backticks intact in the message).
+function linesOutsideFences(s) {
+  const out = [];
+  let fenced = false;
+  for (const line of s.split("\n")) {
+    if (/^\s*```/.test(line)) { fenced = !fenced; continue; }
+    if (!fenced) out.push(line);
+  }
+  return out;
+}
+
+// Epic id of a story artifact, derived from the layout's epic folder path —
+// never from a hardcoded segment index (custom layouts may nest the folder).
+function epicIdOf(storyRel, epicFolderPath) {
+  if (!storyRel.startsWith(epicFolderPath + "/")) return null;
+  return storyRel.slice(epicFolderPath.length + 1).split("/")[0];
+}
+
 export function checkStoriesAndEpics(artifacts) {
   const out = [];
   for (const a of artifacts) {
     if (a.kind === "story" && (a.fm.status || "").toLowerCase() === "done") {
-      const sec = a.body.split(/\n## Acceptance Criteria/)[1]?.split(/\n## /)[0] || "";
-      const unchecked = (sec.match(/- \[ \]/g) || []).length;
+      const sec = sectionOf(a.body, "acceptance") || "";
+      const unchecked = (stripCode(sec).match(/- \[ \]/g) || []).length;
       if (unchecked > 0) {
         out.push(finding("vault", "warn", "acceptance",
           `Story is "done" with ${unchecked} unchecked acceptance criteria.`, a.rel));
@@ -483,6 +526,283 @@ export function checkStoriesAndEpics(artifacts) {
       out.push(finding("vault", "issue", "epic-status",
         `Epic is "done" while ${open.length} child stor${open.length === 1 ? "y is" : "ies are"} not.`, epic.rel));
     }
+  }
+  return out;
+}
+
+// Folder README whose index table header matches no registered form — the
+// silent-rebuildIndex-null class of failure (ru indexes never reconciled for
+// the whole life of the feature). Standard form is 4 columns; extra hand-kept
+// columns (e.g. a 5-column specs index) are flagged for migration, since
+// reconcile would drop them.
+export function checkIndexHeaders(cfg, layout) {
+  const out = [];
+  const headerRe = indexHeaderRe();
+  for (const folder of layout.folders) {
+    const readme = join(cfg.vault_path, folder.path, "README.md");
+    if (!existsSync(readme)) continue;
+    const lines = readFileSync(readme, "utf8").split("\n");
+    const headIdx = lines.findIndex((l, i) =>
+      /^\|.*\|\s*$/.test(l) && /^\|[-\s|]+\|\s*$/.test(lines[i + 1] || ""));
+    if (headIdx === -1) continue; // no table at all — nothing to lint
+    if (!headerRe.test(lines[headIdx])) {
+      out.push(finding("vault", "warn", "index-header",
+        `${folder.path}/README.md index header "${lines[headIdx].trim()}" matches no registered form — reconcile cannot rebuild this index (standard form: | File | Title | Status | Date |, localized forms in scaffold/headings.json).`,
+        `${folder.path}/README.md`));
+    }
+  }
+  return out;
+}
+
+// ─── Spec checks (PS-SPEC story-006, ADR-007 Decisions 2/3/5/6) ────────
+//
+// All spec gates are no-ops unless the VAULT policy says spec_policy=required.
+// Link integrity (checkSpecLinks) runs whenever specs exist — dead links are
+// defects regardless of policy.
+
+function specStatusOf(spec) {
+  return String(spec.fm.status || "draft").toLowerCase();
+}
+
+// Resolve a spec's `stories:` entry "<epic-id>/<story-id>" to a story artifact.
+function resolveSpecStory(entry, artifacts, epicFolderPath) {
+  const m = String(entry).match(/^([^/]+)\/(.+)$/);
+  if (!m) return { error: `not in <epic-id>/<story-id> form: "${entry}"` };
+  const [, epicId, storyId] = m;
+  const prefix = `${epicFolderPath}/${epicId}/stories/${storyId}`;
+  const story = artifacts.find((a) =>
+    a.kind === "story" && (a.rel.startsWith(prefix + "-") || a.rel === `${prefix}.md`));
+  return story ? { story } : { error: `no story matches ${prefix}-*` };
+}
+
+// Parse a spec's Acceptance section into items:
+// { checked, text, stories: [bare story ids] | null (unattributed) }
+export function parseSpecAcceptance(spec) {
+  const sec = sectionOf(spec.body, "spec_acceptance");
+  if (sec === null) return null;
+  const storiesKw = keywordRe("stories");
+  const items = [];
+  for (const line of linesOutsideFences(sec)) {
+    const m = line.match(/^\s*-\s*\[( |x|X)\]\s*(.*)$/);
+    if (!m) continue;
+    const checked = m[1].toLowerCase() === "x";
+    const text = m[2];
+    const attr = text.match(new RegExp(`[—–-]\\s*${storiesKw.source}\\s*:\\s*(.+)$`, "i"));
+    const stories = attr
+      ? attr[1].split(",").map((s) => s.trim()).filter(Boolean)
+      : null;
+    items.push({ checked, text, stories });
+  }
+  return items;
+}
+
+export function checkSpecLinks(cfg, layout, artifacts) {
+  const out = [];
+  const epicFolder = folderByKind(layout, "epic");
+  if (!epicFolder) return out;
+  const specs = artifacts.filter((a) => a.kind === "spec");
+  const specById = new Map(specs.map((s) => [String(s.fm.id || ""), s]));
+
+  for (const spec of specs) {
+    for (const entry of listOf(spec.fm, "stories")) {
+      const r = resolveSpecStory(entry, artifacts, epicFolder.path);
+      if (r.error) {
+        out.push(finding("vault", "issue", "spec-links",
+          `Spec "${spec.fm.id}" stories entry "${entry}" does not resolve: ${r.error}.`, spec.rel));
+      } else if (spec.fm.id && !listOf(r.story.fm, "specs").includes(String(spec.fm.id))) {
+        out.push(finding("vault", "warn", "spec-links",
+          `Spec "${spec.fm.id}" covers ${entry} but the story's \`specs:\` list lacks "${spec.fm.id}" (bidirectional link).`, r.story.rel));
+      }
+    }
+  }
+  for (const story of artifacts.filter((a) => a.kind === "story")) {
+    for (const id of listOf(story.fm, "specs")) {
+      const spec = specById.get(id);
+      if (!spec) {
+        out.push(finding("vault", "issue", "spec-links",
+          `Story lists spec "${id}" which does not exist in specs/.`, story.rel));
+      } else {
+        const epicId = epicIdOf(story.rel, epicFolder.path);
+        const sid = basename(story.rel).replace(/\.md$/, "");
+        const covered = listOf(spec.fm, "stories").some((e) => {
+          const m = String(e).match(/^([^/]+)\/(.+)$/);
+          return m && m[1] === epicId && (sid === m[2] || sid.startsWith(m[2] + "-"));
+        });
+        if (!covered) {
+          out.push(finding("vault", "warn", "spec-links",
+            `Story lists spec "${id}" but that spec's \`stories:\` does not list it back.`, story.rel));
+        }
+      }
+    }
+    // Block-sequence YAML trap: parseFrontmatter is line-based; `specs:` with
+    // an empty parsed value while the raw FRONTMATTER shows a block list means
+    // the list is invisible to every deterministic check.
+    const fmBlock = story.body.match(/^---\n[\s\S]*?\n---/);
+    if (story.fm.specs === "" && fmBlock && /\nspecs:\s*\n\s+-\s/.test(fmBlock[0])) {
+      out.push(finding("vault", "issue", "spec-links",
+        "`specs:` uses block-sequence YAML which projectstore cannot parse — use inline flow: specs: [\"SPEC-001\"].", story.rel));
+    }
+  }
+  return out;
+}
+
+// In-scope story = status beyond planned, not legacy-exempt.
+function specScopeStatus(fm) {
+  const s = String(fm.status || "").toLowerCase();
+  return ["in-progress", "in_progress", "review", "done"].includes(s) ? s : null;
+}
+
+export function checkSpecCoverage(artifacts, vaultCfg) {
+  if ((vaultCfg.spec_policy || "optional") !== "required") return [];
+  const out = [];
+  const since = vaultCfg.spec_policy_since || null;
+  const specs = new Map(artifacts.filter((a) => a.kind === "spec").map((s) => [String(s.fm.id || ""), s]));
+
+  for (const story of artifacts.filter((a) => a.kind === "story")) {
+    const status = specScopeStatus(story.fm);
+    if (!status) continue;
+    if (isLegacyStory(story.fm, since)) continue;
+    const ids = listOf(story.fm, "specs");
+    if (!ids.length) {
+      out.push(finding("vault", "issue", "spec-coverage",
+        `Story is ${status} with no covering spec (spec_policy: required — every story needs a spec; ADR-007).`, story.rel));
+      continue;
+    }
+    for (const id of ids) {
+      const spec = specs.get(id);
+      if (!spec) continue; // dead link already reported by spec-links
+      const st = specStatusOf(spec);
+      if (status === "done") {
+        if (!["active", "superseded"].includes(st)) {
+          out.push(finding("vault", "issue", "spec-status",
+            `Story is done while covering spec "${id}" is ${st} — a story may close only against an active spec.`, story.rel));
+        }
+      } else if (st === "draft") {
+        out.push(finding("vault", "warn", "spec-status",
+          `Story is ${status} while covering spec "${id}" is still draft — the spec must go active before implementation.`, story.rel));
+      }
+    }
+  }
+  return out;
+}
+
+// Additive acceptance oracle (ADR-007 Decision 3): a done story requires every
+// spec acceptance item ATTRIBUTED to it (bare ids resolved against that spec's
+// own stories list) — plus every UNATTRIBUTED item — checked, in every
+// covering spec.
+export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
+  if ((vaultCfg.spec_policy || "optional") !== "required") return [];
+  const out = [];
+  const since = vaultCfg.spec_policy_since || null;
+  const epicFolder = folderByKind(layout, "epic");
+  if (!epicFolder) return out;
+  const specs = new Map(artifacts.filter((a) => a.kind === "spec").map((s) => [String(s.fm.id || ""), s]));
+  const ambiguousReported = new Set(); // spec-scoped: one finding per spec+item
+
+  for (const story of artifacts.filter((a) => a.kind === "story")) {
+    if (String(story.fm.status || "").toLowerCase() !== "done") continue;
+    if (isLegacyStory(story.fm, since)) continue;
+    const epicId = epicIdOf(story.rel, epicFolder.path);
+    const sid = basename(story.rel).replace(/\.md$/, "");
+
+    for (const id of listOf(story.fm, "specs")) {
+      const spec = specs.get(id);
+      if (!spec) continue;
+      const items = parseSpecAcceptance(spec);
+      if (items === null) {
+        out.push(finding("vault", "warn", "spec-acceptance",
+          `Covering spec "${id}" has no Acceptance section — its criteria cannot gate this story.`, spec.rel));
+        continue;
+      }
+      const coveredEntries = listOf(spec.fm, "stories");
+      for (const item of items) {
+        let applies;
+        if (item.stories === null) {
+          applies = true; // unattributed → applies to all covered stories
+        } else {
+          // Bare ids resolve against THIS spec's own stories list.
+          applies = item.stories.some((bare) =>
+            coveredEntries.some((e) => {
+              const m = String(e).match(/^([^/]+)\/(.+)$/);
+              return m && m[1] === epicId && bare === m[2] && (sid === bare || sid.startsWith(bare + "-"));
+            }));
+          const ambiguous = item.stories.some((bare) =>
+            coveredEntries.filter((e) => {
+              const m = String(e).match(/^([^/]+)\/(.+)$/);
+              return m && bare === m[2];
+            }).length > 1);
+          const ambKey = `${spec.rel}|${item.text}`;
+          if (ambiguous && !ambiguousReported.has(ambKey)) {
+            ambiguousReported.add(ambKey);
+            out.push(finding("vault", "warn", "ambiguous-attribution",
+              `Spec "${id}" acceptance item attributes bare id(s) "${item.stories.join(", ")}" that match more than one covered epic — qualify as <epic-id>/<story-id>.`, spec.rel));
+          }
+        }
+        if (applies && !item.checked) {
+          out.push(finding("vault", "issue", "spec-acceptance",
+            `Story is done but spec "${id}" acceptance item is unchecked: "${item.text.slice(0, 80)}".`, story.rel));
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// ─── Lifecycle gates (PS-SPEC story-008) — behind lifecycle_gates=on ───
+
+export function checkLifecycleGates(artifacts, vaultCfg) {
+  const gates = String(vaultCfg.lifecycle_gates || "off").toLowerCase();
+  if (!["on", "true"].includes(gates)) return [];
+  const out = [];
+  const since = vaultCfg.spec_policy_since || null;
+  const evidenceKw = keywordRe("evidence");
+  const evidenceRe = new RegExp(`[—–-]\\s*${evidenceKw.source}\\s*:`, "i");
+
+  for (const story of artifacts.filter((a) => a.kind === "story")) {
+    if (String(story.fm.status || "").toLowerCase() !== "done") continue;
+    if (isLegacyStory(story.fm, since)) continue;
+
+    const acc = sectionOf(story.body, "acceptance");
+    if (acc !== null) {
+      // Raw lines (fence-immune matching, verbatim reporting — backticks kept).
+      for (const line of linesOutsideFences(acc)) {
+        const m = line.match(/^\s*-\s*\[(x|X)\]\s*(.*)$/);
+        if (m && !evidenceRe.test(m[2])) {
+          out.push(finding("vault", "warn", "evidence",
+            `Checked acceptance criterion carries no evidence suffix ("— evidence: <test | command | file:line>"): "${m[2].slice(0, 70)}".`, story.rel));
+        }
+      }
+    }
+
+    const plan = sectionOf(story.body, "implementation_plan");
+    if (plan !== null && (!story.fm.plan_updated_at || story.fm.plan_updated_at === "null")) {
+      out.push(finding("vault", "warn", "plan-gate",
+        "Story has an Implementation Plan section but no plan_updated_at — the plan bypassed the /projectstore:story plan gate.", story.rel));
+    }
+    const summary = sectionOf(story.body, "final_summary");
+    if (summary === null) {
+      out.push(finding("vault", "warn", "final-summary",
+        "Done story has no Final Summary section (lifecycle_gates: on requires a close-out record).", story.rel));
+    }
+    if (plan === null) {
+      out.push(finding("vault", "warn", "plan-gate",
+        "Done story has no Implementation Plan section (lifecycle_gates: on requires the plan to live in the story).", story.rel));
+    }
+  }
+  return out;
+}
+
+// Suggestion for existing binds: specs exist but no vault policy declared.
+export function checkVaultPolicy(cfg, layout, artifacts, vaultCfg) {
+  const out = [];
+  const hasSpecs = artifacts.some((a) => a.kind === "spec");
+  if (hasSpecs && !vaultCfg.spec_policy) {
+    out.push(finding("vault", "info", "spec-policy",
+      "Vault contains specs but declares no spec_policy — consider enabling spec-first: add { \"spec_policy\": \"required\" } to <vault>/.projectstore.json (doctor gates activate; ADR-007)."));
+  }
+  if (vaultCfg.spec_policy === "required" && !vaultCfg.spec_policy_since) {
+    out.push(finding("vault", "warn", "spec-policy",
+      "spec_policy is required but spec_policy_since is missing — the legacy exemption cannot be evaluated; stamp it with the enable date (ISO-8601)."));
   }
   return out;
 }
@@ -531,14 +851,7 @@ export function checkWikilinks(cfg, artifacts) {
 // Story refs must fall under the parent epic's refs (subset) — that is how
 // drift between the two levels is caught.
 function refsOf(fm) {
-  const raw = fm.code_refs;
-  if (!raw || raw === "[]") return [];
-  try {
-    const v = JSON.parse(raw);
-    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
+  return listOf(fm, "code_refs");
 }
 
 export function checkCodeRefs(artifacts, proj) {
@@ -630,14 +943,33 @@ export function runVaultChecks(cfg) {
     return [finding("vault", "issue", "layout", `Layout not loadable: ${e.message}`)];
   }
   const artifacts = scanArtifacts(cfg, layout);
-  return [
-    ...checkKanbanSync(cfg),
-    ...checkIndexes(cfg, layout, artifacts),
-    ...checkStoriesAndEpics(artifacts),
+  // Vault-side policy read ONCE (ADR-007 Decision 4): spec gates and lifecycle
+  // gates key off <vault>/.projectstore.json, never the machine-local config.
+  const vaultCfg = readVaultConfig(cfg.vault_path);
+  const findings = [...checkKanbanSync(cfg), ...checkIndexes(cfg, layout, artifacts)];
+  // Registry-dependent checks: a missing/corrupt scaffold/headings.json must
+  // become a finding, never a crash that swallows the whole report.
+  const guarded = [
+    () => checkIndexHeaders(cfg, layout),
+    () => checkStoriesAndEpics(artifacts),
+    () => checkSpecLinks(cfg, layout, artifacts),
+    () => checkSpecCoverage(artifacts, vaultCfg),
+    () => checkSpecAcceptance(layout, artifacts, vaultCfg),
+    () => checkLifecycleGates(artifacts, vaultCfg),
+  ];
+  for (const step of guarded) {
+    try { findings.push(...step()); } catch (e) {
+      findings.push(finding("vault", "issue", "registry", e.message));
+      break;
+    }
+  }
+  findings.push(
+    ...checkVaultPolicy(cfg, layout, artifacts, vaultCfg),
     ...checkWikilinks(cfg, artifacts),
     ...checkCodeRefs(artifacts, projectRoot()),
     ...checkCodeMap(cfg),
-  ];
+  );
+  return findings;
 }
 
 // SessionStart subset: install/fs checks only (never the vault group — ADR-005

@@ -1,15 +1,22 @@
 ---
-description: Create a new story inside an existing epic.
-argument-hint: <epic-id> <title>
+description: Create a new story inside an existing epic, or run its lifecycle gates (plan / close).
+argument-hint: <epic-id> <title> [--spec SPEC-ID] | plan <story> | close <story>
 ---
 
-You are creating a new story under an existing epic.
+You are managing a story: creating one, or running its lifecycle gates.
 
-Steps:
+**Dispatch rule** (positional-1 contract, PS-SPEC story-007): if the first
+argument is `plan` or `close` AND the second argument resolves to an existing
+story file (path, or `<epic-id>/<story-id>` searched under
+`<vault>/epics/*/stories/`), run the **Lifecycle gate flow** below. Otherwise
+this is a **create** (first argument = epic id — uppercase by convention, so
+the two cannot collide).
+
+# Create flow
 
 1. **Check config**: stop if `.claude/projectstore.json` missing.
 
-2. **Validate args**: epic-id (positional 1) + title (rest). If only one word, ask for the title.
+2. **Validate args**: epic-id (positional 1) + title (rest). If only one word, ask for the title. An optional `--spec SPEC-ID` names the covering spec — put it into the rendered draft's `specs:` list (inline flow: `specs: ["SPEC-001"]`). Under `spec_policy: required` (vault's `.projectstore.json`), remind that every story needs a covering spec before implementation starts.
 
 3. **Render draft**:
 
@@ -29,4 +36,42 @@ Steps:
 
 7. **On Yes** (path free): Write file.
 
-8. **Suggest next**: "Now decompose the work in the `Decomposition` section, or run `/projectstore:kanban` to refresh the board."
+8. **Suggest next**: "Now decompose the work in the `Decomposition` section, or run `/projectstore:kanban` to refresh the board. Before implementation: `/projectstore:story plan <story>`."
+
+# Lifecycle gate flow (plan / close)
+
+1. **Resolve the story file** (second argument). Ambiguous → list candidates and ask.
+
+2. **Run the compute script** (pure — writes nothing):
+
+   ```bash
+   node "$CLAUDE_PLUGIN_ROOT/scripts/story-section.mjs" <plan|close> "<story-path>"
+   ```
+
+   It returns `{ path, changed, notes, content }`: section inserted when
+   absent, status transition, lifecycle timestamps (`started_at` /
+   `plan_updated_at` / `closed_at` — stamped unconditionally; the
+   `lifecycle_gates` key gates checks, never data).
+
+3. **Fill the section content** in the returned `content` before preview:
+   - `plan` — write the Implementation Plan. When the story's `specs:` names a
+     covering spec, the plan is a THIN ROUTE through that spec's behavioral
+     contracts: which contracts, in what order, which files. Consult the
+     planner agent's output if one ran. Do not restate the spec.
+   - `close` — write the Final Summary (what changed / why / tests executed /
+     risks & follow-ups), and update the Acceptance Criteria checkboxes with
+     evidence suffixes: `- [x] <criterion> — evidence: <test | command | file:line>`.
+     Check a box ONLY with real evidence (reviewer output, test run, command).
+
+4. **Preview** path + notes + the changed sections. **Approval** via
+   AskUserQuestion: Yes / Edit / No.
+
+5. **Immediately before writing**, re-run the script and verify its `content`
+   (before your section edits) still matches what you previewed against — a
+   human may have edited the file in Obsidian meanwhile. On divergence:
+   re-preview, re-ask.
+
+6. **On Yes**: Write the full file. Then suggest `/projectstore:kanban` (status
+   changed) and — on `close` — the reviewer's proposed `code_refs` via
+   `/projectstore:codemap set` (the reviewer computes it from
+   `scripts/diff-refs.mjs --since <started_at>`).
