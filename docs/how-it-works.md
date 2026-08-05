@@ -102,7 +102,7 @@ resistance. v0.13 makes that safe instead of forbidden:
 
 - **`doctor`** is a deterministic, no-LLM check engine (`scripts/doctor.mjs`).
   `--install` verifies the wiring (config, vault path, hooks firing, statusline,
-  agents block, model override copies, gitignore, marketplace auto-update);
+  agents block, leftover agent copies, gitignore, marketplace auto-update);
   `--vault` verifies content consistency (status ↔ board ↔ indexes, acceptance
   boxes, dead wiki/relative links, `code_refs`, code-map staleness). A cheap
   subset runs at session start and prints one line only when something is wrong.

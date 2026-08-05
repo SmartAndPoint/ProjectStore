@@ -32,6 +32,8 @@ import {
   checkSpecAcceptance,
   checkLifecycleGates,
   checkOverrideCopies,
+  checkAutoUpdate,
+  checkEnvEffort,
   checkStatusline,
   statusLineScriptVersion,
   parseSpecAcceptance,
@@ -112,8 +114,13 @@ test("checkOverrideCopies flags a pre-v0.13 name in the user scope", () => {
   assert.equal(out[0].check, "override-copies");
   assert.match(out[0].message, /overrides nothing/);
   assert.match(out[0].message, /every project/);
-  // pure rename → renaming the copy restores the override, so we may suggest it
-  assert.match(out[0].message, /rename it to "critic"/);
+  // ADR-008: this assertion used to require the message to SUGGEST renaming
+  // ("restores the override"). Nothing restores an override — a bare-named copy
+  // never overrode the scoped plugin agent — so the advice, and this test, were
+  // pinning a false claim. The rename is still *mentioned*, but only to say it
+  // would not help.
+  assert.match(out[0].message, /renamed the role to "critic"/);
+  assert.ok(!/to override again/.test(out[0].message), "must not claim a rename restores an override");
   // no provenance marker → cannot prove it is ours, so info rather than warn
   assert.equal(out[0].level, "info");
 });
@@ -129,20 +136,107 @@ test("checkOverrideCopies warns at warn-level when provenance is proven", () => 
   assert.ok(!/rename it to/.test(out[0].message), "must not suggest renaming onto a transformed role");
 });
 
-test("checkOverrideCopies leaves user-authored agents alone", () => {
+test("checkOverrideCopies leaves foreign user-authored agents alone", () => {
   const { proj, home } = agentDirs();
   writeFileSync(join(home, ".claude", "agents", "my-helper.md"), agentFile("my-helper"));
-  // a same-named agent with no marker is indistinguishable from the user's own
-  writeFileSync(join(home, ".claude", "agents", "critic.md"), agentFile("critic"));
+  // a name we never bundled is none of our business, marker or not
   assert.deepEqual(checkOverrideCopies(proj, home), []);
 });
 
-test("checkOverrideCopies still reports a stale current-name override copy", () => {
+test("checkOverrideCopies hedges on an unmarked copy carrying a bundled name", () => {
   const { proj, home } = agentDirs();
-  writeFileSync(join(proj, ".claude", "agents", "critic.md"), agentFile("critic", { marker: "0.0.1" }));
+  // a same-named agent with no marker is indistinguishable from the user's own,
+  // so we may state the sibling fact but must not order a deletion
+  writeFileSync(join(home, ".claude", "agents", "critic.md"), agentFile("critic"));
   const out = checkOverrideCopies(proj, home);
   assert.equal(out.length, 1);
-  assert.match(out[0].message, /frozen at projectstore v0\.0\.1/);
+  assert.equal(out[0].level, "info");
+  assert.match(out[0].message, /^If critic\.md began as a projectstore copy/);
+  assert.ok(!/Delete it/.test(out[0].message), "must not order deletion of a file we cannot prove is ours");
+});
+
+// ADR-008: the copy is a sibling, not an override, at EVERY version — the old
+// behaviour only spoke when the marker was stale, so a freshly written copy (the
+// exact output of `configure`) passed silently. That silence was the defect.
+test("checkOverrideCopies reports a current-name copy as a sibling regardless of version", () => {
+  const { proj, home } = agentDirs();
+  const ver = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../.claude-plugin/plugin.json", import.meta.url)), "utf8"),
+  ).version;
+  writeFileSync(join(proj, ".claude", "agents", "critic.md"), agentFile("critic", { marker: ver }));
+  const fresh = checkOverrideCopies(proj, home);
+  assert.equal(fresh.length, 1);
+  assert.equal(fresh[0].level, "warn");
+  assert.match(fresh[0].message, /overrides nothing/);
+  assert.match(fresh[0].message, /registers as "projectstore:critic"/);
+  assert.match(fresh[0].message, /Delete it/);
+  // a copy at the installed version is not stale, so no parenthetical
+  assert.ok(!/frozen at/.test(fresh[0].message), "current-version copy must not be called frozen");
+
+  writeFileSync(join(proj, ".claude", "agents", "critic.md"), agentFile("critic", { marker: "0.0.1" }));
+  const stale = checkOverrideCopies(proj, home);
+  assert.equal(stale.length, 1);
+  // staleness survives as a parenthetical: still true, no longer the headline
+  assert.match(stale[0].message, /overrides nothing/);
+  assert.match(stale[0].message, /also frozen at projectstore v0\.0\.1/);
+});
+
+// `configure` only cleans project scope, so a user-scope copy must not be told
+// to run it — the same scope split fca8def introduced for the staleness message.
+test("checkOverrideCopies gives scope-appropriate removal advice", () => {
+  const { proj, home } = agentDirs();
+  writeFileSync(join(proj, ".claude", "agents", "critic.md"), agentFile("critic", { marker: "0.0.1" }));
+  writeFileSync(join(home, ".claude", "agents", "planner.md"), agentFile("planner", { marker: "0.0.1" }));
+  const out = checkOverrideCopies(proj, home);
+  const project = out.find((f) => f.file.startsWith(".claude"));
+  const user = out.find((f) => f.file.startsWith("~"));
+  assert.match(project.message, /configure/);
+  assert.match(user.message, /by hand/);
+  assert.ok(!/Delete it via \/projectstore:agents configure/.test(user.message),
+    "user scope must not be pointed at a command that only touches project scope");
+});
+
+// A marked copy with no `name:` used to fall through to the staleness branch;
+// after ADR-008 it must still get an actionable message, not `name ""`.
+test("checkOverrideCopies falls back to the filename when a marked copy has no name", () => {
+  const { proj, home } = agentDirs();
+  writeFileSync(join(proj, ".claude", "agents", "critic.md"), `---\nmodel: opus\n---\n\n# source: projectstore v0.0.1\n\nbody\n`);
+  const out = checkOverrideCopies(proj, home);
+  assert.equal(out.length, 1);
+  assert.ok(!/name ""/.test(out[0].message), "an empty name in the message helps nobody");
+  assert.match(out[0].message, /overrides nothing/);
+});
+
+test("checkEnvEffort reports the variable that now owns effort", () => {
+  const had = "CLAUDE_CODE_EFFORT_LEVEL" in process.env;
+  const prev = process.env.CLAUDE_CODE_EFFORT_LEVEL;
+  try {
+    delete process.env.CLAUDE_CODE_EFFORT_LEVEL;
+    assert.deepEqual(checkEnvEffort(), []);
+    process.env.CLAUDE_CODE_EFFORT_LEVEL = "low";
+    const out = checkEnvEffort();
+    assert.equal(out.length, 1);
+    assert.equal(out[0].level, "warn");
+    assert.equal(out[0].check, "env-effort");
+    assert.match(out[0].message, /low/);
+  } finally {
+    if (had) process.env.CLAUDE_CODE_EFFORT_LEVEL = prev;
+    else delete process.env.CLAUDE_CODE_EFFORT_LEVEL;
+  }
+});
+
+test("checkOverrideCopies reports every configured roster agent, once each", () => {
+  const { proj, home } = agentDirs();
+  const ver = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../.claude-plugin/plugin.json", import.meta.url)), "utf8"),
+  ).version;
+  for (const n of ["critic", "planner", "reviewer", "librarian", "archaeologist"]) {
+    writeFileSync(join(proj, ".claude", "agents", `${n}.md`), agentFile(n, { marker: ver }));
+  }
+  const out = checkOverrideCopies(proj, home);
+  assert.equal(out.length, 5);
+  // legacy advice must not leak into current names
+  assert.ok(!out.some((f) => /pre-v0\.13/.test(f.message)), "current names are not legacy");
 });
 
 // ─── list parsing ──────────────────────────────────────────────────────
@@ -344,6 +438,74 @@ function withPluginRoot(root, fn) {
     else delete process.env.CLAUDE_PLUGIN_ROOT;
   }
 }
+
+// The original check matched /plugins/(cache|marketplaces)/<name>/ — with a
+// trailing slash — so a marketplace CLONE root, whose path ends at the
+// marketplace name, fell through to "local dev install". It also answered about
+// the script's own location rather than the session's plugin. Both misreported a
+// perfectly ordinary marketplace install whenever doctor was run from a checkout.
+test("checkAutoUpdate: a marketplace clone root is not a dev install", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
+  writeFileSync(
+    join(home, ".claude", "plugins", "known_marketplaces.json"),
+    JSON.stringify({ SmartAndPoint: { autoUpdate: true } }),
+  );
+  const clone = join(home, ".claude", "plugins", "marketplaces", "SmartAndPoint");
+  const out = withPluginRoot(clone, () => checkAutoUpdate(home));
+  assert.ok(!out.some((f) => /dev install/.test(f.message)), "clone root names a marketplace");
+  // autoUpdate is on for that marketplace, so nothing to report at all
+  assert.deepEqual(out, []);
+});
+
+test("checkAutoUpdate: falls back to the registered install when run from a checkout", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const installed = fakeInstall(home, "0.16.1");
+  writeRegistry(home, [
+    { scope: "user", installPath: installed, version: "0.16.1", lastUpdated: "2026-08-04T19:07:28Z" },
+  ]);
+  // no known_marketplaces.json at all → the marketplace name still resolves,
+  // and the finding is about the missing registry rather than a phantom dev install
+  const checkout = mkdtempSync(join(tmpdir(), "ps-checkout-"));
+  const out = withPluginRoot(checkout, () => checkAutoUpdate(home));
+  assert.equal(out.length, 1);
+  assert.ok(!/dev install/.test(out[0].message), "a registered marketplace install is not --plugin-dir");
+  assert.equal(out[0].level, "warn");
+  assert.match(out[0].message, /missing from/);
+  assert.match(out[0].message, /SmartAndPoint/);
+});
+
+// Regression guard. Rewriting checkAutoUpdate once left a dangling `root`
+// reference in this branch; the ReferenceError was swallowed by the branch's own
+// `catch {}`, so the newer-release warning silently died while the suite stayed
+// green. Untested error-swallowing branches fail exactly like this.
+test("checkAutoUpdate: reports a newer release from the marketplace catalog", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const installed = fakeInstall(home, "0.16.1");
+  const clone = join(home, ".claude", "plugins", "marketplaces", "SmartAndPoint");
+  mkdirSync(join(clone, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    join(clone, ".claude-plugin", "marketplace.json"),
+    JSON.stringify({ plugins: [{ name: "projectstore", version: "9.9.9" }] }),
+  );
+  writeFileSync(
+    join(home, ".claude", "plugins", "known_marketplaces.json"),
+    JSON.stringify({ SmartAndPoint: { autoUpdate: true, installLocation: clone } }),
+  );
+  const out = withPluginRoot(installed, () => checkAutoUpdate(home));
+  assert.equal(out.length, 1);
+  assert.match(out[0].message, /A newer projectstore is available: v9\.9\.9/);
+  assert.match(out[0].message, /running v0\.16\.1/);
+});
+
+test("checkAutoUpdate: says so honestly when nothing is registered", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const checkout = mkdtempSync(join(tmpdir(), "ps-checkout-"));
+  const out = withPluginRoot(checkout, () => checkAutoUpdate(home));
+  assert.equal(out.length, 1);
+  assert.equal(out[0].level, "info");
+  assert.match(out[0].message, /No marketplace install/);
+});
 
 test("installedPluginRoot: newest install wins, wiped installPaths are ignored", () => {
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));

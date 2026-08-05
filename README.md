@@ -109,7 +109,7 @@ Bind walks you through a short interview. Every step shows you exactly what it w
 | 2 | Add the machine-specific files to `.gitignore`? | Yes |
 | 3 | Vault is empty — create the folder layout (`adr/`, `epics/`, `research/`, …)? | Yes |
 | 4 | Register the agents in `CLAUDE.md` so every session knows when to use them? | Yes (recommended) |
-| 5 | Which model should the review agents use? | Keep the default (`opus` + max effort) |
+| 5 | Which model should the review agents use? | Keep the default (`opus`) |
 | 6 | Show your current epic/story in the status line? You'll see a preview: `[PS#0.16.0] 📚 Super Feature in a Super Product › Toilet-Paper Handle (in-progress)` | Yes, why not |
 
 Result — a vault that looks like this:
@@ -169,7 +169,7 @@ Example of the reviewer in action:
 >
 > **Reviewer:** Verdict: **gaps remain**. AC 1 (exports valid CSV) — met, `src/export/csv.ts:42` + test. AC 2 (handles 10k rows under 2s) — **not met**: no benchmark or test exists. AC 3 (errors surface to the user) — met. Proposed `code_refs`: `src/export/`.
 
-Want them on a different model? `/projectstore:agents configure` — one question, applies to all five (they're critics and reviewers, so strong models at high effort pay off; `opus` + `max` is the default).
+Want them on a different model? `/projectstore:agents configure` — one question, applies to all five (they're critics and reviewers, so strong models pay off; `opus` is the default). It records the choice in `.claude/projectstore.json` and the model rides each invocation — no agent files are copied into your project (ADR-008). Effort stays at the bundled `max`.
 
 ## Updating the plugin — and what doctor does for you
 
@@ -187,8 +187,10 @@ $ /projectstore:doctor
 projectstore doctor — plugin v0.13.0
 
 ## install (1 issue(s), 2 warning(s))
-  ✖ [agents-block] Agents block in CLAUDE.md is v0, expected v1 — re-run /projectstore:agents register.
-  ⚠ [override-copies] Override copy critic.md frozen at projectstore v0.12.0 (installed v0.13.0) — re-run /projectstore:agents configure.
+  ✖ [agents-block] Agents block in CLAUDE.md is v1, expected v2 — re-run /projectstore:agents register.
+  ⚠ [override-copies] Override copy critic.md overrides nothing. It registers as "critic" while the bundled
+    agent registers as "projectstore:critic", so both exist side by side. Delete it — /projectstore:agents
+    configure now records the model in .claude/projectstore.json and passes it per invocation.
   ⚠ [auto-update] Auto-update is OFF for marketplace "SmartAndPoint" — new releases will not be noticed.
     Correct values: "autoUpdate": true on the "SmartAndPoint" entry in ~/.claude/plugins/known_marketplaces.json
     (set via /plugin → Marketplaces → SmartAndPoint → toggle auto-update).
@@ -225,7 +227,7 @@ Details that matter with several Claude sessions open on one project: each sessi
 - **1 layout** — `engineering`, with English and Russian templates (localized UI strings included)
 - **3 hooks** — session start (vault map + doctor line), tool use (activity + per-session pointer + raw-edit nudge), pre-compact (survival packet)
 
-**The roster rule**: ProjectStore bundles an agent only if the role *requires the vault* to make sense. General coding assistants belong to your own setup — our `planner`/`reviewer` are deliberately narrow, vault-aware specialists, not their replacements. `/projectstore:review` always spawns the scoped `projectstore:critic`; your own same-named agents win for bare-name and auto-delegated calls.
+**The roster rule**: ProjectStore bundles an agent only if the role *requires the vault* to make sense. General coding assistants belong to your own setup — our `planner`/`reviewer` are deliberately narrow, vault-aware specialists, not their replacements. `/projectstore:review` always spawns the scoped `projectstore:critic`. Note that our agents live under the `projectstore:` prefix and an agent of your own named `critic` lives under the bare name — **they coexist, neither replaces the other** (which is why we configure models per invocation rather than by copying agent files: ADR-008).
 
 ## Under the hood (the honest version)
 
@@ -249,7 +251,8 @@ Deep dive with real session files and the compaction packet: [docs/how-it-works.
 
 | Version | What ships | Status |
 |---|---|---|
-| **v0.16** | The status line renders the plugin version you actually have: session-start wiring now points at a version-free launcher (`.claude/.projectstore/statusline.mjs`) that resolves the installed plugin on every render — a pinned cache path made every update land one restart late, badge and behaviour both; doctor reports wiring and on-screen drift | ✅ current |
+| **v0.17** | Configuring an agent's model no longer copies agent files into your project (ADR-008): a project copy stands *beside* the plugin agent instead of overriding it — verified by invoking both ids — so `/projectstore:agents configure` now records the model in `.claude/projectstore.json` and it rides each invocation. Doctor reports leftover copies as overriding nothing and reports `CLAUDE_CODE_EFFORT_LEVEL`; `effort` is no longer per-project. **Migration**: the routing block goes v1 → v2, so doctor asks once for `/projectstore:agents register` | ✅ current |
+| v0.16 | The status line renders the plugin version you actually have: session-start wiring now points at a version-free launcher (`.claude/.projectstore/statusline.mjs`) that resolves the installed plugin on every render — a pinned cache path made every update land one restart late, badge and behaviour both; doctor reports wiring and on-screen drift | ✅ |
 | v0.15 | Doctor sees user-scope (`~/.claude/agents`) override copies and tells renamed from replaced legacy agents; all five bundled agents batch independent reads (librarian works from indexes first); `scripts/tokens.mjs` — token & cost accounting for vault work from Claude Code transcripts (`--runs`/`--sessions`/`--json`, priced with cache multipliers) | ✅ |
 | v0.14 | Spec-first workflow (ADR-007): `spec` kind + `/projectstore:spec` with status transitions; vault-side `spec_policy`/`lifecycle_gates`; story lifecycle gates `/projectstore:story plan\|close` with evidence grammar; doctor spec/coverage/acceptance oracles; heading registry (ru vaults lint & reconcile); layout-driven kinds machinery (`extending.md` is now true); story-scoped `code_refs` from git diff; zero-dep test suite | ✅ |
 | v0.13 | Umbrella `doctor` + `reconcile` + `codemap`; vault-aware agent suite — **breaking renames**: `projectstore:projectstore-critic` → `projectstore:critic`, `code-planner`/`code-reviewer` → vault-aware `planner`/`reviewer` — plus `librarian` & `archaeologist`; agents block + model presets + statusline offer at bind; per-session never-blank status line; unicode slugs; YAML-safe frontmatter | ✅ |

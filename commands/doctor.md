@@ -27,8 +27,12 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    - `statusline` issues → explain the SessionStart hook owns the wiring
      (self-heals on restart); offer running `/projectstore:statusline on|off`
      to reconcile the flag, and remind that a restart applies it.
-   - `override-copies` staleness → suggest `/projectstore:agents configure`
-     (ships with v0.13); do not hand-edit prompt copies.
+   - `override-copies` → a copy carrying the provenance marker overrides nothing
+     (ADR-008): offer to **delete** it (approval-gated, one prompt per file), and
+     say that `/projectstore:agents configure` now records the model in
+     `.claude/projectstore.json` instead. Never offer to delete — or edit — a
+     copy reported at `info`: no provenance marker means we cannot prove it is
+     ours, and it may be the user's own agent.
    - `auto-update` off → offer adding `extraKnownMarketplaces.<marketplace>.autoUpdate: true`
      to `~/.claude/settings.json` (Edit with diff preview + approval — this is the
      user's global settings file), or point at `/plugin` → Marketplaces → toggle.

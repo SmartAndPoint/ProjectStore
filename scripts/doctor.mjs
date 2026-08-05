@@ -48,19 +48,24 @@ import {
 } from "./lib.mjs";
 
 const AGENT_BLOCK_MARKER = /<!--\s*projectstore:agents v(\d+)/g;
-const AGENT_BLOCK_VERSION = 1;
-// The live roster: a copy carrying one of these names still overrides a real
-// bundled agent, which is the supported case (/projectstore:agents configure).
+const AGENT_BLOCK_VERSION = 2;
+// The live roster. A copy carrying one of these names does NOT override the
+// bundled agent (ADR-008, verified 2026-08-05): plugin agents register under a
+// scoped id, project/user copies register bare, so the names never collide and
+// the documented scope-priority rule never fires. Such a copy is a sibling, and
+// /projectstore:agents configure no longer writes one.
 const CURRENT_AGENT_NAMES = ["critic", "planner", "reviewer", "librarian", "archaeologist"];
 // Names bundled BEFORE v0.13 (ADR-001/004). Provenance checks need them to
-// recognise a copy as ours — but such a copy overrides nothing any more, so it
-// must be reported rather than waved through as a valid override.
+// recognise a copy as ours.
 //
-// `renamed` and `replaced` are different advice, and conflating them misleads:
-// critic was a pure rename (same role), so renaming a copy restores the
-// override. planner/reviewer were *transformed* into narrow vault-aware roles
-// that explicitly are not general-purpose — renaming a general-purpose copy
-// onto them would silently swap its job, so we must not suggest it.
+// `renamed` and `replaced` still carry different advice, but NOT the advice this
+// table originally held. It used to say a pure rename (projectstore-critic →
+// critic) "restores the override" — under ADR-008 nothing restores an override,
+// because a bare-named copy never overrode the scoped plugin agent to begin
+// with. What survives is the role question: critic was the same role under a new
+// name, whereas planner/reviewer were *transformed* into narrow vault-aware
+// roles that explicitly are not general-purpose, so renaming a general-purpose
+// copy onto them would silently swap its job.
 const LEGACY_AGENTS = {
   "projectstore-critic": { now: "critic", renamed: true },
   "code-planner": { now: "planner", renamed: false },
@@ -308,10 +313,12 @@ export function checkAgentsBlock(proj) {
   return out;
 }
 
-// Claude Code resolves agents project > user > plugin, so a copy in EITHER
-// scope shadows the bundle. Checking only the project scope let a stale
-// user-scope copy (~/.claude/agents) compete with the bundled agent in every
-// project while doctor reported healthy — hence both scopes here.
+// Both scopes are walked. The original reason ("project > user > plugin, so a
+// copy in either scope shadows the bundle") turned out to be wrong — a copy
+// shadows NOTHING, because plugin agents register under a scoped id and copies
+// under a bare one (ADR-008). The conclusion survives its premise: a user-scope
+// copy still stands beside the bundled agent in every project, so reporting only
+// the project scope would leave that permanently invisible.
 //
 // Provenance is established by the `# source: projectstore vX` marker OR by a
 // bundled name: copies taken before the marker existed have no other tell, and
@@ -331,7 +338,9 @@ export function checkOverrideCopies(proj, home = homedir()) {
       try { text = readFileSync(join(dir, f), "utf8"); } catch { continue; }
       const m = text.match(/#\s*source:\s*projectstore\s+v(\S+)/);
       const { data } = parseFrontmatter(text);
-      const name = data.name || "";
+      // A provenance-marked copy with no `name:` still deserves a usable
+      // message: falling back to the filename beats reporting `name ""`.
+      const name = data.name || (m ? basename(f, ".md") : "");
       if (!m && !BUNDLED_AGENT_NAMES.includes(name)) continue; // user-authored agent — never ours to judge
 
       const where = join(label, f);
@@ -340,7 +349,7 @@ export function checkOverrideCopies(proj, home = homedir()) {
       if (Object.hasOwn(LEGACY_AGENTS, name)) {
         const { now, renamed } = LEGACY_AGENTS[name];
         const advice = renamed
-          ? `Delete it, or rename it to "${now}" to override again.`
+          ? `v0.13 renamed the role to "${now}". Renaming this file would NOT make it override the bundled agent — nothing does (ADR-008) — so delete it, or keep it as an agent of your own under a name you invoke deliberately.`
           : `v0.13 replaced it with a narrower vault-aware "${now}", so renaming would swap its role — keep this copy if you use it outside projectstore, but re-check its pinned model.`;
         // without a provenance marker we cannot prove lineage — hedge FIRST,
         // not 40 words in, or the false premise leads for user-authored agents
@@ -350,30 +359,59 @@ export function checkOverrideCopies(proj, home = homedir()) {
           where));
         continue; // a stale-version note on top would just be noise
       }
-      if (name && !CURRENT_AGENT_NAMES.includes(name)) {
+      if (!CURRENT_AGENT_NAMES.includes(name)) {
         out.push(finding("install", "warn", "override-copies",
           `Override copy ${f} has name "${name}" which matches no bundled agent — it duplicates instead of overriding.${everywhere}`, where));
         continue;
       }
-      if (m && ver && m[1] !== ver) {
-        // configure writes PROJECT-scope copies only — pointing a user-scope
-        // finding at it would shadow the stale file here and leave it stale
-        // in every other project
-        const refresh = scope === "user"
-          ? `\`/projectstore:agents configure\` writes project-scope copies only — refresh or delete ${where} by hand.`
-          : "re-run /projectstore:agents configure to refresh the prompt.";
-        out.push(finding("install", "warn", "override-copies",
-          `Override copy ${f} frozen at projectstore v${m[1]} (installed v${ver}) — ${refresh}${everywhere}`, where));
-      }
+      // ADR-008. A current-name copy overrides nothing either: the bundled agent
+      // registers as "projectstore:<name>" and this one as "<name>", so both are
+      // live and the registration block keeps invoking the bundled one — the
+      // model pinned here never runs. This fires at ANY version, because
+      // refreshing such a copy fixes nothing; that is why it replaces the old
+      // "frozen at vX — re-run configure" advice instead of sitting beside it.
+      // Staleness is demoted to a parenthetical: still true, no longer the point.
+      const stale = m && ver && m[1] !== ver
+        ? ` (It is also frozen at projectstore v${m[1]}, installed v${ver}.)`
+        : "";
+      // Without a marker we cannot prove lineage — hedge FIRST, and never issue
+      // a delete imperative against a file the user may well have written.
+      const lead = m
+        ? `Override copy ${f} overrides nothing.`
+        : `If ${f} began as a projectstore copy (no provenance marker — ignore otherwise): it overrides nothing.`;
+      // `configure` only ever touched PROJECT scope, so pointing a user-scope
+      // copy at it would name a command that will not act — the scope split
+      // fca8def introduced for staleness applies here for the same reason.
+      const remove = scope === "user"
+        ? `Delete ${where} by hand (or via /projectstore:doctor --fix) — /projectstore:agents configure only cleans up project-scope copies.`
+        : "Delete it via /projectstore:agents configure, which now records the model in .claude/projectstore.json and passes it per invocation.";
+      const advice = m
+        ? remove
+        : "If you wrote it yourself, nothing is broken; if you meant to change the bundled agent's model, that is /projectstore:agents configure, not a copy.";
+      out.push(finding("install", m ? "warn" : "info", "override-copies",
+        `${lead} It registers as "${name}" while the bundled agent registers as "projectstore:${name}", so both exist side by side.${everywhere}${stale} ${advice}`,
+        where));
     }
   }
   return out;
 }
 
+// ADR-008 made `effort` unconfigurable per project, which promotes this env var
+// from a curiosity to the ONLY thing that can move our agents off `effort: max`.
+// It beats frontmatter, so a value set for cost or latency silently drops all
+// five agents below the quality floor the plugin advertises — exactly the class
+// of silent downgrade doctor exists to name.
+export function checkEnvEffort() {
+  const v = process.env.CLAUDE_CODE_EFFORT_LEVEL;
+  if (!v) return [];
+  return [finding("install", "warn", "env-effort",
+    `CLAUDE_CODE_EFFORT_LEVEL=${v} is set — it overrides the bundled agents' "effort: max" frontmatter, so every projectstore agent runs at "${v}". Effort is not configurable per project (ADR-008); unset the variable to restore the quality floor.`)];
+}
+
 export function checkEnvModel() {
   if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
     return [finding("install", "warn", "env-model",
-      `CLAUDE_CODE_SUBAGENT_MODEL=${process.env.CLAUDE_CODE_SUBAGENT_MODEL} is set — it overrides ALL projectstore agent model configuration.`)];
+      `CLAUDE_CODE_SUBAGENT_MODEL=${process.env.CLAUDE_CODE_SUBAGENT_MODEL} is set — it overrides ALL projectstore agent model configuration, per-invocation parameter included.`)];
   }
   return [];
 }
@@ -413,20 +451,33 @@ function versionNewer(a, b) {
 // marketplaces do NOT auto-update by default, so a stale plugin looks like
 // "the feature is broken". Read the real registries and, when the flag is
 // off, tell the user the exact correct values.
-export function checkAutoUpdate() {
+export function checkAutoUpdate(home = homedir()) {
   const out = [];
-  const root = pluginRoot();
-  const m = root.match(/\/plugins\/(?:cache|marketplaces)\/([^/]+)\//);
-  if (!m) {
+  // Two corrections over the first version of this check, both found by running
+  // doctor straight out of a checkout (2026-08-05):
+  //
+  // 1. The path pattern required a segment AFTER the marketplace name, so a
+  //    marketplace clone root (.../plugins/marketplaces/<name>) never matched
+  //    even though the name is right there. Hence the trailing (?:/|$).
+  // 2. pluginRoot() is the SCRIPT's own location. That equals the session's
+  //    plugin only when Claude Code launched us via $CLAUDE_PLUGIN_ROOT; run
+  //    from a checkout it reported "local dev install" about what was in fact
+  //    an ordinary marketplace install — the check described itself, not the
+  //    session. So fall back to the registered install when our own path says
+  //    nothing, and never claim --plugin-dir as a conclusion.
+  const marketplaceOf = (p) =>
+    (String(p || "").replace(/\\/g, "/").match(/\/plugins\/(?:cache|marketplaces)\/([^/]+)(?:\/|$)/) || [])[1] || null;
+  const inst = installedPluginRoot(home);
+  const marketplace = marketplaceOf(pluginRoot()) || marketplaceOf(inst && inst.path);
+  if (!marketplace) {
     out.push(finding("install", "info", "auto-update",
-      "Local dev install (--plugin-dir) — marketplace auto-update not applicable."));
+      "No marketplace install of projectstore found (--plugin-dir, or a checkout with none registered) — marketplace auto-update not applicable."));
     return out;
   }
-  const marketplace = m[1];
 
   let registry = null;
   try {
-    registry = JSON.parse(readFileSync(join(homedir(), ".claude", "plugins", "known_marketplaces.json"), "utf8"));
+    registry = JSON.parse(readFileSync(join(claudeHome(home), "plugins", "known_marketplaces.json"), "utf8"));
   } catch {}
   const entry = registry ? registry[marketplace] : null;
   if (!entry) {
@@ -438,7 +489,7 @@ export function checkAutoUpdate() {
   let enabled = entry.autoUpdate === true;
   if (!enabled) {
     try {
-      const s = JSON.parse(readFileSync(join(homedir(), ".claude", "settings.json"), "utf8"));
+      const s = JSON.parse(readFileSync(join(claudeHome(home), "settings.json"), "utf8"));
       if (s?.extraKnownMarketplaces?.[marketplace]?.autoUpdate === true) enabled = true;
     } catch {}
   }
@@ -452,11 +503,19 @@ export function checkAutoUpdate() {
 
   // Bonus: the marketplace checkout's catalog knows the latest released
   // version — flag when it is newer than the one actually running.
+  //
+  // "Running" must be read from the SAME root that named the marketplace above.
+  // On the fallback path our own script is a checkout, so pluginRoot() and
+  // pluginVersion() describe the checkout, not the install — reporting that as
+  // the running version is the very confusion this check was just fixed for.
+  const named = marketplaceOf(pluginRoot()) ? { path: pluginRoot(), version: null } : inst;
   try {
+    const root = (named && named.path) || pluginRoot();
     const name = JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).name;
     const catalog = JSON.parse(readFileSync(join(entry.installLocation, ".claude-plugin", "marketplace.json"), "utf8"));
     const latest = (catalog.plugins || []).find((p) => p.name === name)?.version;
-    const running = pluginVersion();
+    const running = (named && named.version)
+      || JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).version;
     if (latest && running && versionNewer(latest, running)) {
       out.push(finding("install", "warn", "auto-update",
         `A newer ${name} is available: v${latest} (running v${running}) — run /plugin marketplace update ${marketplace}, then /reload-plugins.`));
@@ -1027,6 +1086,7 @@ export function runInstallChecks(cfg, proj) {
     ...checkAgentsBlock(proj),
     ...checkOverrideCopies(proj),
     ...checkEnvModel(),
+    ...checkEnvEffort(),
     ...checkGitignore(proj),
     ...checkVaultGit(cfg),
     ...checkAutoUpdate(),
@@ -1080,6 +1140,7 @@ export function runStartupChecks(cfg, proj, budgetMs = 150) {
     () => checkAgentsBlock(proj),
     () => checkGitignore(proj),
     () => checkEnvModel(),
+    () => checkEnvEffort(),
   ];
   const findings = [];
   for (const step of steps) {
