@@ -32,7 +32,7 @@ the two cannot collide).
 
    When prompting "Edit", note that the story template has a `Decomposition` checklist — if the user wants to seed it with concrete tasks from the current conversation, regenerate with those tasks pre-filled in place of the empty checkboxes.
 
-6. **Pre-write race check** (Layer 1): `test -e "<path>"`. If exists → another session just created a story with the same auto-number. Re-run `draft.mjs story "$ARGUMENTS"` to get a fresh number, show new preview, re-ask approval.
+6. **Post-approval race re-check** (Layer 1): re-run `draft.mjs story "$ARGUMENTS"` and re-read its `collision` field — an exact-name `test -e` cannot see normalized cross-era collisions (`story-006-foo.md` vs `story-foo.md`). If `collision` is non-null, surface it as a topic collision (`"<identity>" already exists as <with>`), and ask: extend the existing story, pick a different slug (`-2` is a deliberate distinct identity), or cancel. Render `warnings` entries as `⚠️` lines in the preview too.
 
 7. **On Yes** (path free): Write file.
 

@@ -16,5 +16,5 @@ Steps:
    - List session files in `<vault>/.projectstore/sessions/*.json` with mtime within the last 30 minutes.
    - For each, print: `id`, `project_root`, `started_at`, and how long ago it was last active.
    - Note: from inside a slash command we cannot reliably identify which entry is the current session (Claude's `session_id` is only available to hooks, not commands). The user can match by `project_root` and timestamps if multiple are listed.
-   - If multiple sessions: warn "⚠️ Coordinate via /projectstore:search before creating new artifacts to avoid topic / number collisions."
+   - If multiple sessions: warn "⚠️ Coordinate via /projectstore:search before creating new artifacts to avoid topic collisions (identity is the slug — ADR-010; the draft's `collision` field catches clashes at creation time)."
 8. Suggest the next command based on what's missing (e.g., "Vault looks empty — try `/projectstore:scaffold`" or "Stale kanban — try `/projectstore:kanban`").

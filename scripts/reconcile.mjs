@@ -14,7 +14,16 @@ import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { readConfig, loadLayout, projectRoot, pluginRoot, indexHeaderRe } from "./lib.mjs";
+import {
+  readConfig,
+  loadLayout,
+  projectRoot,
+  pluginRoot,
+  indexHeaderRe,
+  slugIdentity,
+  displayNumberOf,
+  compareArtifactOrder,
+} from "./lib.mjs";
 import { scanArtifacts } from "./doctor.mjs";
 
 function die(msg) {
@@ -69,19 +78,31 @@ function rebuildIndex(cfg, folder, artifacts) {
     folder.kind === "epic"
       ? a.kind === "epic" && a.rel.startsWith(`${folder.path}/`)
       : a.kind === folder.kind && a.rel === `${folder.path}/${basename(a.rel)}`);
-  for (const a of inFolder.sort((x, y) => x.rel.localeCompare(y.rel))) {
+  // Ordering per SPEC-002 contract 8: date ascending (date:, else created:),
+  // display number then slug as tiebreak — the grandfathered ADR-001…N order
+  // survives because same-date groups tiebreak by number.
+  const decorated = inFolder.map((a) => {
     const file = basename(a.rel);
-    const date = a.fm.date || a.fm.created || "";
+    const idOpts = { prefix: folder.prefix || null };
+    return {
+      a,
+      file,
+      date: String(a.fm.date || a.fm.created || ""),
+      number: folder.kind === "epic" ? null : displayNumberOf(a.fm, file, idOpts),
+      slug: folder.kind === "epic" ? a.rel.split("/")[1].toLowerCase() : slugIdentity(file, idOpts).primary,
+    };
+  });
+  for (const d of decorated.sort(compareArtifactOrder)) {
+    const { a, file, date, number } = d;
     if (folder.kind === "epic") {
       const id = a.rel.split("/")[1];
       rows.push(`| [${id}](./${id}/epic.md) | ${a.fm.title || id} | ${a.fm.status || "planned"} | ${date} |`);
-    } else if (folder.numbered && folder.prefix) {
-      const m = file.match(new RegExp(`^(${folder.prefix}\\d+)`));
-      const label = m ? m[1] : file.replace(/\.md$/, "");
-      rows.push(`| [${label}](./${file}) | ${a.fm.title || label} | ${a.fm.status || "proposed"} | ${date} |`);
     } else {
-      const label = file.replace(/\.md$/, "");
-      rows.push(`| [${label}](./${file}) | ${a.fm.title || label} | ${a.fm.status || "draft"} | ${date} |`);
+      // The display number renders only when present — grandfathered
+      // SPEC-NNN rows keep their labels, slug-only rows are labelled by slug.
+      const label = number && folder.prefix ? `${folder.prefix}${number}` : file.replace(/\.md$/, "");
+      const status = a.fm.status || (folder.numbered ? "proposed" : "draft");
+      rows.push(`| [${label}](./${file}) | ${a.fm.title || label} | ${status} | ${date} |`);
     }
   }
 

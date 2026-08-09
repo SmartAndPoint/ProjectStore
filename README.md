@@ -14,7 +14,7 @@ A [Claude Code](https://claude.com/claude-code) plugin. Same markdown-first, age
 
 > **You:** Let's go with Postgres, not Mongo — we need transactions.
 >
-> **Claude:** That reads like an architecture decision. Want me to file it as `adr/ADR-001-use-postgres-for-primary-storage.md`?
+> **Claude:** That reads like an architecture decision. Want me to file it as `adr/use-postgres-for-primary-storage.md`?
 
 You say yes, review the draft, approve — and a real file lands in your vault:
 
@@ -251,7 +251,8 @@ Deep dive with real session files and the compaction packet: [docs/how-it-works.
 
 | Version | What ships | Status |
 |---|---|---|
-| **v0.17** | Configuring an agent's model no longer copies agent files into your project (ADR-008): a project copy stands *beside* the plugin agent instead of overriding it — verified by invoking both ids — so `/projectstore:agents configure` now records the model in `.claude/projectstore.json` and it rides each invocation. Doctor reports leftover copies as overriding nothing and reports `CLAUDE_CODE_EFFORT_LEVEL`; `effort` is no longer per-project. **Migration**: the routing block goes v1 → v2, so doctor asks once for `/projectstore:agents register` | ✅ current |
+| **v0.18** | Slug-first artifact identity (ADR-010): new artifacts are named by slug alone (`adr/use-postgres.md`, `story-<slug>.md`) — sequence numbers stop being allocated, so concurrent sessions can never race for one; legacy numbers become display metadata and `external_refs: {}` is the designed home for Jira/YouTrack-style keys. Existing numbered files are grandfathered in place (no renames, both forms resolve indefinitely); the draft's `collision` field catches same-topic clashes an exact-path check cannot see; doctor gains identity-uniqueness, sync-conflict-filename and cross-folder-basename checks; indexes and kanban order by date with number-then-slug tiebreak. **Migration**: run `/projectstore:reconcile` once — index/board reordering is a generator diff, not a defect | ✅ current |
+| v0.17 | Configuring an agent's model no longer copies agent files into your project (ADR-008): a project copy stands *beside* the plugin agent instead of overriding it — verified by invoking both ids — so `/projectstore:agents configure` now records the model in `.claude/projectstore.json` and it rides each invocation. Doctor reports leftover copies as overriding nothing and reports `CLAUDE_CODE_EFFORT_LEVEL`; `effort` is no longer per-project. **Migration**: the routing block goes v1 → v2, so doctor asks once for `/projectstore:agents register` | ✅ |
 | v0.16 | The status line renders the plugin version you actually have: session-start wiring now points at a version-free launcher (`.claude/.projectstore/statusline.mjs`) that resolves the installed plugin on every render — a pinned cache path made every update land one restart late, badge and behaviour both; doctor reports wiring and on-screen drift | ✅ |
 | v0.15 | Doctor sees user-scope (`~/.claude/agents`) override copies and tells renamed from replaced legacy agents; all five bundled agents batch independent reads (librarian works from indexes first); `scripts/tokens.mjs` — token & cost accounting for vault work from Claude Code transcripts (`--runs`/`--sessions`/`--json`, priced with cache multipliers) | ✅ |
 | v0.14 | Spec-first workflow (ADR-007): `spec` kind + `/projectstore:spec` with status transitions; vault-side `spec_policy`/`lifecycle_gates`; story lifecycle gates `/projectstore:story plan\|close` with evidence grammar; doctor spec/coverage/acceptance oracles; heading registry (ru vaults lint & reconcile); layout-driven kinds machinery (`extending.md` is now true); story-scoped `code_refs` from git diff; zero-dep test suite | ✅ |

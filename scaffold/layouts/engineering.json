@@ -22,7 +22,8 @@
       "path": "epics",
       "kind": "epic",
       "readme": true,
-      "subfolder_per_id": true
+      "subfolder_per_id": true,
+      "story_prefix": "story-"
     },
     {
       "path": "research",

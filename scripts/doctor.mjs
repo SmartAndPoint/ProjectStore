@@ -45,6 +45,10 @@ import {
   headingLineRe,
   indexHeaderRe,
   keywordRe,
+  slugIdentity,
+  isLegacyNumberedId,
+  storyMatchesEntry,
+  legalArtifactName,
 } from "./lib.mjs";
 
 const AGENT_BLOCK_MARKER = /<!--\s*projectstore:agents v(\d+)/g;
@@ -720,15 +724,58 @@ function specStatusOf(spec) {
   return String(spec.fm.status || "draft").toLowerCase();
 }
 
-// Resolve a spec's `stories:` entry "<epic-id>/<story-id>" to a story artifact.
+// Filename stem used for story identity matching; a folder-shape story
+// (stories/<name>/README.md) is identified by its folder name.
+function storyStemOf(storyRel) {
+  const b = basename(storyRel);
+  return b === "README.md" ? basename(dirname(storyRel)) : b.replace(/\.md$/, "");
+}
+
+// Resolve a spec's `stories:` entry "<epic-id>/<story-id>" to a story
+// artifact. Tiered via the shared matcher (SPEC-002 contract 5): exact fm.id,
+// exact filename stem, legacy story-NNN prefix fallback — the strongest tier
+// wins across the epic's stories, and a tie within it is a reported
+// ambiguity, never a silent first match.
 function resolveSpecStory(entry, artifacts, epicFolderPath) {
   const m = String(entry).match(/^([^/]+)\/(.+)$/);
   if (!m) return { error: `not in <epic-id>/<story-id> form: "${entry}"` };
   const [, epicId, storyId] = m;
-  const prefix = `${epicFolderPath}/${epicId}/stories/${storyId}`;
-  const story = artifacts.find((a) =>
-    a.kind === "story" && (a.rel.startsWith(prefix + "-") || a.rel === `${prefix}.md`));
-  return story ? { story } : { error: `no story matches ${prefix}-*` };
+  let best = 0;
+  let hits = [];
+  for (const a of artifacts) {
+    if (a.kind !== "story" || epicIdOf(a.rel, epicFolderPath) !== epicId) continue;
+    const tier = storyMatchesEntry(storyId, { id: a.fm.id, stem: storyStemOf(a.rel) });
+    if (!tier) continue;
+    if (best === 0 || tier < best) { best = tier; hits = [a]; }
+    else if (tier === best) hits.push(a);
+  }
+  if (hits.length === 1) return { story: hits[0] };
+  if (hits.length > 1) {
+    return { error: `ambiguous — "${storyId}" matches ${hits.map((a) => storyStemOf(a.rel)).join(", ")}; qualify the reference` };
+  }
+  return { error: `no story in ${epicFolderPath}/${epicId} matches "${storyId}" (by exact id:, exact filename stem, or legacy story-NNN prefix)` };
+}
+
+// The ONE spec resolver (SPEC-002 contract 5) — shared by checkSpecLinks,
+// checkSpecCoverage and checkSpecAcceptance: dual-keying only some of them
+// would let the others silently skip a resolvable spec (their "dead link
+// already reported" premise breaks). Exact fm.id wins (grandfathered
+// SPEC-NNN entries hit here); normalized filename-stem candidates (legacy
+// prefix stripped, case-insensitive) resolve slug-form references to
+// grandfathered SPEC-NNN-<slug>.md files. Cross-spec identity clashes are
+// the identity check's finding, so first-wins here stays deterministic.
+function buildSpecResolver(artifacts, layout = null) {
+  const prefix = layout ? folderByKind(layout, "spec")?.prefix ?? null : null;
+  const byId = new Map();
+  const byStem = new Map();
+  for (const s of artifacts.filter((a) => a.kind === "spec")) {
+    const id = String(s.fm.id || "");
+    if (id && !byId.has(id)) byId.set(id, s);
+    for (const c of slugIdentity(basename(s.rel), { prefix }).candidates) {
+      if (!byStem.has(c.id)) byStem.set(c.id, s);
+    }
+  }
+  return (ref) => byId.get(String(ref)) ?? byStem.get(String(ref).toLowerCase()) ?? null;
 }
 
 // Parse a spec's Acceptance section into items:
@@ -757,7 +804,7 @@ export function checkSpecLinks(cfg, layout, artifacts) {
   const epicFolder = folderByKind(layout, "epic");
   if (!epicFolder) return out;
   const specs = artifacts.filter((a) => a.kind === "spec");
-  const specById = new Map(specs.map((s) => [String(s.fm.id || ""), s]));
+  const resolveSpec = buildSpecResolver(artifacts, layout);
 
   for (const spec of specs) {
     for (const entry of listOf(spec.fm, "stories")) {
@@ -765,7 +812,10 @@ export function checkSpecLinks(cfg, layout, artifacts) {
       if (r.error) {
         out.push(finding("vault", "issue", "spec-links",
           `Spec "${spec.fm.id}" stories entry "${entry}" does not resolve: ${r.error}.`, spec.rel));
-      } else if (spec.fm.id && !listOf(r.story.fm, "specs").includes(String(spec.fm.id))) {
+      } else if (spec.fm.id &&
+                 !listOf(r.story.fm, "specs").some((ref) => resolveSpec(ref) === spec)) {
+        // Membership through the SAME resolver — a slug-form back-reference
+        // to a grandfathered SPEC-NNN file is a valid link, not a gap.
         out.push(finding("vault", "warn", "spec-links",
           `Spec "${spec.fm.id}" covers ${entry} but the story's \`specs:\` list lacks "${spec.fm.id}" (bidirectional link).`, r.story.rel));
       }
@@ -773,16 +823,17 @@ export function checkSpecLinks(cfg, layout, artifacts) {
   }
   for (const story of artifacts.filter((a) => a.kind === "story")) {
     for (const id of listOf(story.fm, "specs")) {
-      const spec = specById.get(id);
+      const spec = resolveSpec(id);
       if (!spec) {
         out.push(finding("vault", "issue", "spec-links",
           `Story lists spec "${id}" which does not exist in specs/.`, story.rel));
       } else {
         const epicId = epicIdOf(story.rel, epicFolder.path);
-        const sid = basename(story.rel).replace(/\.md$/, "");
+        const stem = storyStemOf(story.rel);
         const covered = listOf(spec.fm, "stories").some((e) => {
           const m = String(e).match(/^([^/]+)\/(.+)$/);
-          return m && m[1] === epicId && (sid === m[2] || sid.startsWith(m[2] + "-"));
+          return m && m[1] === epicId &&
+            storyMatchesEntry(m[2], { id: story.fm.id, stem }) > 0;
         });
         if (!covered) {
           out.push(finding("vault", "warn", "spec-links",
@@ -808,11 +859,11 @@ function specScopeStatus(fm) {
   return ["in-progress", "in_progress", "review", "done"].includes(s) ? s : null;
 }
 
-export function checkSpecCoverage(artifacts, vaultCfg) {
+export function checkSpecCoverage(artifacts, vaultCfg, layout = null) {
   if ((vaultCfg.spec_policy || "optional") !== "required") return [];
   const out = [];
   const since = vaultCfg.spec_policy_since || null;
-  const specs = new Map(artifacts.filter((a) => a.kind === "spec").map((s) => [String(s.fm.id || ""), s]));
+  const resolveSpec = buildSpecResolver(artifacts, layout);
 
   for (const story of artifacts.filter((a) => a.kind === "story")) {
     const status = specScopeStatus(story.fm);
@@ -825,8 +876,8 @@ export function checkSpecCoverage(artifacts, vaultCfg) {
       continue;
     }
     for (const id of ids) {
-      const spec = specs.get(id);
-      if (!spec) continue; // dead link already reported by spec-links
+      const spec = resolveSpec(id);
+      if (!spec) continue; // dead link already reported by spec-links (same resolver)
       const st = specStatusOf(spec);
       if (status === "done") {
         if (!["active", "superseded"].includes(st)) {
@@ -852,17 +903,17 @@ export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
   const since = vaultCfg.spec_policy_since || null;
   const epicFolder = folderByKind(layout, "epic");
   if (!epicFolder) return out;
-  const specs = new Map(artifacts.filter((a) => a.kind === "spec").map((s) => [String(s.fm.id || ""), s]));
+  const resolveSpec = buildSpecResolver(artifacts, layout);
   const ambiguousReported = new Set(); // spec-scoped: one finding per spec+item
 
   for (const story of artifacts.filter((a) => a.kind === "story")) {
     if (String(story.fm.status || "").toLowerCase() !== "done") continue;
     if (isLegacyStory(story.fm, since)) continue;
     const epicId = epicIdOf(story.rel, epicFolder.path);
-    const sid = basename(story.rel).replace(/\.md$/, "");
+    const stem = storyStemOf(story.rel);
 
     for (const id of listOf(story.fm, "specs")) {
-      const spec = specs.get(id);
+      const spec = resolveSpec(id);
       if (!spec) continue;
       const items = parseSpecAcceptance(spec);
       if (items === null) {
@@ -880,7 +931,8 @@ export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
           applies = item.stories.some((bare) =>
             coveredEntries.some((e) => {
               const m = String(e).match(/^([^/]+)\/(.+)$/);
-              return m && m[1] === epicId && bare === m[2] && (sid === bare || sid.startsWith(bare + "-"));
+              return m && m[1] === epicId && bare === m[2] &&
+                storyMatchesEntry(bare, { id: story.fm.id, stem }) > 0;
             }));
           const ambiguous = item.stories.some((bare) =>
             coveredEntries.filter((e) => {
@@ -963,21 +1015,30 @@ export function checkVaultPolicy(cfg, layout, artifacts, vaultCfg) {
   return out;
 }
 
-export function checkWikilinks(cfg, artifacts) {
-  const out = [];
-  const vault = cfg.vault_path;
-  const names = new Set();
-  const walk = (dir) => {
+// One shared recursive walk of the vault's markdown files (dotfiles
+// skipped). scanArtifacts only sees layout-declared folders — vault-wide
+// claims (wikilink targets, identity uniqueness, filename shapes) must use
+// this walk instead, or folder-shape story READMEs and loose notes go blind.
+export function walkVaultFiles(vault) {
+  const files = []; // { rel, name } — rel is /-joined relative to the vault root
+  const walk = (dir, relDir) => {
     for (const n of readdirSync(dir)) {
       if (n.startsWith(".")) continue;
       const p = join(dir, n);
       let st;
       try { st = statSync(p); } catch { continue; }
-      if (st.isDirectory()) walk(p);
-      else if (n.endsWith(".md")) names.add(n.replace(/\.md$/, "").toLowerCase());
+      if (st.isDirectory()) walk(p, relDir ? `${relDir}/${n}` : n);
+      else if (n.endsWith(".md")) files.push({ rel: relDir ? `${relDir}/${n}` : n, name: n });
     }
   };
-  walk(vault);
+  walk(vault, "");
+  return files;
+}
+
+export function checkWikilinks(cfg, artifacts, vaultFiles = null) {
+  const out = [];
+  const files = vaultFiles ?? walkVaultFiles(cfg.vault_path);
+  const names = new Set(files.map((f) => f.name.replace(/\.md$/, "").toLowerCase()));
   for (const a of artifacts) {
     // Notation like `[[...]]` inside code spans/fences is not a link.
     const prose = a.body.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
@@ -998,6 +1059,164 @@ export function checkWikilinks(cfg, artifacts) {
         out.push(finding("vault", "issue", "rel-link", `Dead relative link (${t}).`, a.rel));
       }
     }
+  }
+  return out;
+}
+
+// ─── Artifact identity & filename shapes (ADR-010 / SPEC-002 4, 7) ─────
+
+// Infrastructure names carry no topic identity: README.md is every folder's
+// index, epic.md every epic's root, kanban.md the board.
+const INFRA_NAMES = new Set(["README.md", "epic.md", "kanban.md"]);
+
+// Normalized slug-identity uniqueness per identity scope (a kind folder; an
+// epic for stories), on candidate sets — so `ADR-003-foo.md` vs `foo.md`
+// and `story-006-foo.md` vs `story-foo.md` collide with no rename ever
+// having happened. Severity keys on each member's ERA, decided by
+// frontmatter where the filename alone is ambiguous (a digit-leading
+// story stem reads as either era; the exact machine id settles it):
+//   - two as-written twins (flat story + folder-shape namesake) → issue;
+//   - a new-era name overlapping a certain legacy one → issue (the exact
+//     case the pre-write guard exists to prevent);
+//   - any member of undecidable era (digit-leading, no fm evidence) → warn;
+//   - all members certainly legacy (same slug, different numbers) → info —
+//     in the numbered era the number WAS the identity, so this was legal
+//     and grandfathering must not turn it into a defect (contract 6).
+// Duplicate display numbers are info: numbers are reference metadata
+// (ADR-010), duplicates confuse humans but identify nothing.
+export function checkArtifactIdentity(layout, vaultFiles, artifacts = []) {
+  const out = [];
+  const fmByRel = new Map(artifacts.map((a) => [a.rel, a.fm]));
+  // Era of one directory entry: "new" | "legacy" | "uncertain".
+  const eraOf = (entry, opts) => {
+    const idn = slugIdentity(entry.name, opts);
+    if (!idn.legacyNumber) return "new";
+    const fm = fmByRel.get(entry.rel);
+    const fmId = fm && fm.id != null ? String(fm.id) : "";
+    if (fmId) {
+      const machineId = opts.story ? `story-${idn.primary}` : idn.primary;
+      if (fmId.toLowerCase() === machineId) return "new"; // exact machine id = slug era
+      if (isLegacyNumberedId(fmId, opts)) return "legacy";
+    }
+    const num = fm && fm.number != null ? String(fm.number).trim() : "";
+    if (num && num !== "null") return "legacy";
+    return idn.digitLeading ? "uncertain" : "legacy"; // prefix-anchored names are confident
+  };
+  const scopes = [];
+  const epicFolder = folderByKind(layout, "epic");
+  for (const f of layout.folders) {
+    if (f.kind === "epic") continue;
+    const entries = vaultFiles
+      .filter((x) => dirname(x.rel) === f.path && !INFRA_NAMES.has(x.name))
+      .map((x) => ({ name: x.name, rel: x.rel }));
+    scopes.push({ label: f.path, entries, opts: { prefix: f.prefix || null } });
+  }
+  if (epicFolder) {
+    const byEpic = new Map();
+    for (const x of vaultFiles) {
+      if (!x.rel.startsWith(epicFolder.path + "/")) continue;
+      const parts = x.rel.split("/");
+      let entry = null; // stories/<f>.md | stories/<dir>/README.md | standalone story-*.md
+      if (parts.length === 4 && parts[2] === "stories") entry = { name: parts[3], rel: x.rel };
+      else if (parts.length === 5 && parts[2] === "stories" && parts[4] === "README.md") entry = { name: parts[3], rel: x.rel };
+      else if (parts.length === 3 && parts[2].startsWith("story-")) entry = { name: parts[2], rel: x.rel };
+      if (!entry || INFRA_NAMES.has(entry.name)) continue;
+      if (!byEpic.has(parts[1])) byEpic.set(parts[1], []);
+      byEpic.get(parts[1]).push(entry);
+    }
+    for (const [epicId, entries] of byEpic) {
+      scopes.push({ label: `${epicFolder.path}/${epicId}`, entries, opts: { story: true } });
+    }
+  }
+
+  for (const { label, entries, opts } of scopes) {
+    const groups = new Map(); // candidate identity -> hits
+    const numbers = new Map(); // normalized display number -> entries
+    for (const entry of entries) {
+      const idn = slugIdentity(entry.name, opts);
+      for (const c of idn.candidates) {
+        if (!groups.has(c.id)) groups.set(c.id, []);
+        groups.get(c.id).push({ entry, via: c.via, digitLeading: idn.digitLeading });
+      }
+      if (idn.legacyNumber) {
+        const k = String(parseInt(idn.legacyNumber, 10));
+        if (!numbers.has(k)) numbers.set(k, []);
+        numbers.get(k).push(entry);
+      }
+    }
+    const reported = new Set(); // one finding per file group, not per shared candidate
+    for (const [ident, hits] of groups) {
+      const uniq = [...new Map(hits.map((h) => [h.entry.rel, h])).values()];
+      if (uniq.length < 2) continue;
+      const key = uniq.map((h) => h.entry.rel).sort().join("|");
+      if (reported.has(key)) continue;
+      reported.add(key);
+      const selfOnly = uniq.every((h) => h.via === "self");
+      const classed = uniq.map((h) => ({ h, era: eraOf(h.entry, opts) }));
+      const level = selfOnly ? "issue"
+        // Overlap reached via the legacy reading of a PROVEN slug-era file
+        // (its machine id is the full stem) is spurious — the file's real
+        // identity is the unstripped slug.
+        : classed.some(({ h, era }) => h.via !== "self" && era === "new") ? "warn"
+        : classed.some(({ era }) => era === "uncertain") ? "warn"
+        : classed.every(({ era }) => era === "legacy") ? "info"
+        : "issue"; // a new-era name colliding with a certain legacy one
+      const note = level === "warn" ? "; the overlap depends on a legacy reading that frontmatter does not confirm"
+        : level === "info" ? "; all carry legacy numbers — legal in the numbered era, duplicate topic is hygiene"
+        : "";
+      out.push(finding("vault", level, "identity",
+        `Same normalized identity "${ident}" in ${label}: ${uniq.map((h) => h.entry.name).join(", ")} — two artifacts claim one topic (ADR-010${note}).`,
+        uniq[0].entry.rel));
+    }
+    for (const [num, ents] of numbers) {
+      if (new Set(ents.map((e) => e.rel)).size < 2) continue;
+      out.push(finding("vault", "info", "identity",
+        `Display number ${num} is carried by ${ents.length} artifacts in ${label}: ${ents.map((e) => e.name).join(", ")} — numbers are reference metadata (ADR-010), duplicates confuse humans.`,
+        ents[0].rel));
+    }
+  }
+  return out;
+}
+
+// Block-form YAML trap for `external_refs` (SPEC-002 contract 3): the
+// line-based parseFrontmatter reads a block map as an empty scalar, so every
+// deterministic consumer goes blind — the same guard class protects `specs:`
+// in checkSpecLinks. Applies to every artifact kind that carries the field.
+export function checkExternalRefsForm(artifacts) {
+  const out = [];
+  for (const a of artifacts) {
+    if (a.fm.external_refs !== "") continue;
+    const fmBlock = a.body.match(/^---\n[\s\S]*?\n---/);
+    if (fmBlock && /\nexternal_refs:\s*\n\s+\S/.test(fmBlock[0])) {
+      out.push(finding("vault", "issue", "external-refs",
+        "`external_refs:` uses block-form YAML which projectstore cannot parse — use inline flow: external_refs: {jira: \"ABC-123\"}.", a.rel));
+    }
+  }
+  return out;
+}
+
+// Filename-shape checks over the WHOLE vault walk (SPEC-002 contract 7):
+// sync-conflict shapes by blacklist at warn (a legal-form whitelist would
+// flag hand-created legacy notes), cross-folder basename collisions at info
+// (short wiki-links to that basename become ambiguous).
+export function checkArtifactNames(vaultFiles) {
+  const out = [];
+  const byName = new Map();
+  for (const x of vaultFiles) {
+    const bad = legalArtifactName(x.name);
+    if (bad) {
+      out.push(finding("vault", "warn", "artifact-name",
+        `Sync-conflict filename shape — ${bad}. Merge or remove; sync engines leave these beside the original.`, x.rel));
+    }
+    if (INFRA_NAMES.has(x.name)) continue;
+    if (!byName.has(x.name)) byName.set(x.name, []);
+    byName.get(x.name).push(x.rel);
+  }
+  for (const [name, rels] of byName) {
+    if (rels.length < 2) continue;
+    out.push(finding("vault", "info", "artifact-name",
+      `Basename "${name}" appears in ${rels.length} folders (${rels.map((r) => dirname(r)).join(", ")}) — short wiki-links [[${name.replace(/\.md$/, "")}]] are ambiguous.`,
+      rels[0]));
   }
   return out;
 }
@@ -1110,7 +1329,7 @@ export function runVaultChecks(cfg) {
     () => checkIndexHeaders(cfg, layout),
     () => checkStoriesAndEpics(artifacts),
     () => checkSpecLinks(cfg, layout, artifacts),
-    () => checkSpecCoverage(artifacts, vaultCfg),
+    () => checkSpecCoverage(artifacts, vaultCfg, layout),
     () => checkSpecAcceptance(layout, artifacts, vaultCfg),
     () => checkLifecycleGates(artifacts, vaultCfg),
   ];
@@ -1120,9 +1339,13 @@ export function runVaultChecks(cfg) {
       break;
     }
   }
+  const vaultFiles = walkVaultFiles(cfg.vault_path); // one walk, three consumers
   findings.push(
     ...checkVaultPolicy(cfg, layout, artifacts, vaultCfg),
-    ...checkWikilinks(cfg, artifacts),
+    ...checkWikilinks(cfg, artifacts, vaultFiles),
+    ...checkArtifactIdentity(layout, vaultFiles, artifacts),
+    ...checkArtifactNames(vaultFiles),
+    ...checkExternalRefsForm(artifacts),
     ...checkCodeRefs(artifacts, projectRoot()),
     ...checkCodeMap(cfg),
   );

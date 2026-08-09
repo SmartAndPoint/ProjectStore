@@ -32,11 +32,16 @@ Dispatch on the first argument:
    attribution where items are story-specific). Optional sections (Modules &
    files on disk, Testing) may be omitted for research spikes.
 
-4. **Preview**: path + full content. **Approval** via AskUserQuestion:
+4. **Preview**: path + full content, plus every `warnings` entry as a `⚠️`
+   line. If the draft's `collision` field is non-null, surface it as a
+   **topic collision** (`"<identity>" already exists as <with>`) and ask:
+   extend the existing spec, pick a different slug (`-2` is a deliberate
+   distinct identity), or cancel. **Approval** via AskUserQuestion:
    Yes / Edit / No.
 
-5. **Pre-write race check**: `test -e "<path>"`. On collision re-run draft.mjs
-   for a fresh number, re-preview, re-ask.
+5. **Post-approval race re-check**: re-run draft.mjs and re-read `collision`
+   — an exact-name `test -e` cannot see normalized cross-era collisions. If
+   it is now non-null, re-preview and re-ask.
 
 6. **On Yes**: Write the file. If `index` is non-null, propose the index row
    Edit to `specs/README.md` and ask.

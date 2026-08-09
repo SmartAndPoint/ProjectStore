@@ -14,6 +14,13 @@ import { spawnSync } from "node:child_process";
 
 import {
   nextNumber,
+  slugIdentity,
+  isLegacyNumberedId,
+  storyMatchesEntry,
+  legalArtifactName,
+  findSlugCollision,
+  displayNumberOf,
+  compareArtifactOrder,
   headingLineRe,
   sectionOf,
   indexHeaderRe,
@@ -28,6 +35,10 @@ import {
 } from "../scripts/lib.mjs";
 import {
   checkLayoutTemplates,
+  checkArtifactIdentity,
+  checkArtifactNames,
+  checkExternalRefsForm,
+  checkSpecLinks,
   checkSpecCoverage,
   checkSpecAcceptance,
   checkLifecycleGates,
@@ -52,6 +63,110 @@ test("nextNumber escapes regex metacharacters in the prefix", () => {
   const dir = mkdtempSync(join(tmpdir(), "ps-num-"));
   writeFileSync(join(dir, "A+B-004-x.md"), "");
   assert.equal(nextNumber(dir, "A+B-", 3), "005");
+});
+
+// ─── artifact identity (ADR-010 / SPEC-002) ────────────────────────────
+
+test("slugIdentity: numbered-era names contribute both readings", () => {
+  const adr = slugIdentity("ADR-003-foo.md", { prefix: "ADR-" });
+  assert.equal(adr.primary, "adr-003-foo");
+  assert.deepEqual(adr.candidates.map((c) => c.id), ["adr-003-foo", "foo"]);
+  assert.equal(adr.legacyNumber, "003");
+  assert.equal(adr.digitLeading, false);
+
+  const story = slugIdentity("story-006-foo.md", { story: true });
+  assert.deepEqual(story.candidates.map((c) => c.id), ["006-foo", "foo"]);
+  assert.equal(story.legacyNumber, "006");
+});
+
+test("slugIdentity: lowercase spec-NNN files strip against the uppercase layout prefix", () => {
+  const s = slugIdentity("spec-002-dvizhok-zameny.md", { prefix: "SPEC-" });
+  assert.deepEqual(s.candidates.map((c) => c.id), ["spec-002-dvizhok-zameny", "dvizhok-zameny"]);
+  assert.equal(s.legacyNumber, "002");
+});
+
+test("slugIdentity: slug-only names are single-reading; folder-shape dir names work", () => {
+  assert.deepEqual(slugIdentity("foo.md", { prefix: "ADR-" }).candidates.map((c) => c.id), ["foo"]);
+  const folder = slugIdentity("story-006-foo", { story: true }); // dir name, no .md
+  assert.deepEqual(folder.candidates.map((c) => c.id), ["006-foo", "foo"]);
+});
+
+test("slugIdentity: digit-leading slug is flagged and keeps its full candidate set", () => {
+  const s = slugIdentity("story-2024-review.md", { story: true });
+  assert.equal(s.digitLeading, true);
+  assert.deepEqual(s.candidates.map((c) => c.id), ["2024-review", "review"]);
+});
+
+test("slugIdentity: number-only legacy ids keep a single reading", () => {
+  const s = slugIdentity("SPEC-002.md", { prefix: "SPEC-" });
+  assert.deepEqual(s.candidates.map((c) => c.id), ["spec-002"]);
+  assert.equal(s.legacyNumber, "002");
+});
+
+test("isLegacyNumberedId: both story shapes, prefixed kinds, and non-matches", () => {
+  assert.deepEqual(isLegacyNumberedId("story-001", { story: true }), { number: "001", slug: null });
+  assert.deepEqual(isLegacyNumberedId("story-001-foo", { story: true }), { number: "001", slug: "foo" });
+  assert.deepEqual(isLegacyNumberedId("adr-010-bar.md", { prefix: "ADR-" }), { number: "010", slug: "bar" });
+  assert.equal(isLegacyNumberedId("story-foo", { story: true }), null);
+  assert.equal(isLegacyNumberedId("cache", { story: true }), null);
+  assert.equal(isLegacyNumberedId("A+B-004-x", { prefix: "A+B-" })?.number, "004");
+});
+
+test("storyMatchesEntry: exact fm.id beats stem beats fallback", () => {
+  const story = { id: "story-001", stem: "story-001-slug-first-artifact-identity" };
+  assert.equal(storyMatchesEntry("story-001", story), 1);
+  assert.equal(storyMatchesEntry("story-001-slug-first-artifact-identity", story), 2);
+  assert.equal(storyMatchesEntry("story-001-slug", story), 3); // legacy-shaped partial stem
+  const noId = { id: null, stem: "story-001-foo" };
+  assert.equal(storyMatchesEntry("story-001", noId), 3); // hand-created story without id:
+  assert.equal(storyMatchesEntry("story-001-foo", noId), 2);
+});
+
+test("storyMatchesEntry: slug entries never prefix-match (contract-5 mis-attribution)", () => {
+  // The regression SPEC-002 pins: "PS-X/cache" must NOT match cache-invalidation.md.
+  assert.equal(storyMatchesEntry("cache", { id: null, stem: "cache-invalidation" }), 0);
+  assert.equal(storyMatchesEntry("story-auth", { id: null, stem: "story-auth-rollout" }), 0);
+  assert.equal(storyMatchesEntry("story-auth", { id: "story-auth", stem: "story-auth-rollout" }), 1);
+});
+
+test("legalArtifactName: blacklists sync-conflict shapes, passes everything else", () => {
+  assert.notEqual(legalArtifactName("foo 2.md"), null);
+  assert.notEqual(legalArtifactName("foo (2).md"), null);
+  assert.notEqual(legalArtifactName("foo(3).md"), null);
+  assert.notEqual(legalArtifactName("foo copy.md"), null);
+  assert.notEqual(legalArtifactName("foo copy 2.md"), null);
+  assert.notEqual(legalArtifactName("foo (Evgenii's conflicted copy 2026-08-09).md"), null);
+  assert.equal(legalArtifactName("foo.md"), null);
+  assert.equal(legalArtifactName("story-001-foo.md"), null);
+  assert.equal(legalArtifactName("retro 2026-08.md"), null); // trailing token is not pure digits
+  assert.equal(legalArtifactName("Использование проджект стор в агентских фабриках и графах.md"), null);
+  assert.equal(legalArtifactName("copycat.md"), null); // "copy" only as a whole trailing word
+  assert.equal(legalArtifactName("notes.txt"), null); // non-md is out of scope
+});
+
+test("findSlugCollision: cross-era collisions an exact test -e cannot see", () => {
+  const adr = findSlugCollision("foo.md", ["ADR-003-foo.md", "bar.md"], { prefix: "ADR-" });
+  assert.equal(adr.with, "ADR-003-foo.md");
+  assert.equal(adr.identity, "foo");
+  assert.equal(adr.selfMatch, false);
+  assert.equal(adr.digitLeading, false);
+
+  const story = findSlugCollision("story-foo.md", ["story-006-foo.md"], { story: true });
+  assert.equal(story.with, "story-006-foo.md");
+  assert.equal(story.identity, "foo");
+});
+
+test("findSlugCollision: digit-leading overlap is classified, distinct slugs pass", () => {
+  const amb = findSlugCollision("story-review.md", ["story-2024-review.md"], { story: true });
+  assert.equal(amb.identity, "review");
+  assert.equal(amb.digitLeading, true);
+
+  const dup = findSlugCollision("story-foo.md", ["story-foo"], { story: true }); // folder twin
+  assert.equal(dup.selfMatch, true);
+
+  // Contract 9: foo-2 is a deliberately distinct identity from foo.
+  assert.equal(findSlugCollision("foo-2.md", ["foo.md"], { prefix: "ADR-" }), null);
+  assert.equal(findSlugCollision("baz.md", ["ADR-003-foo.md"], { prefix: "ADR-" }), null);
 });
 
 // ─── heading registry ──────────────────────────────────────────────────
@@ -330,6 +445,198 @@ test("checkSpecAcceptance: unchecked attributed item blocks its story only", () 
   const f = checkSpecAcceptance(loadLayout("engineering"), arts, REQUIRED);
   assert.equal(f.filter((x) => x.check === "spec-acceptance").length, 1);
   assert.ok(f[0].file.includes("story-001"));
+});
+
+// ─── derived-view ordering (SPEC-002 contract 8) ───────────────────────
+
+test("compareArtifactOrder: date asc; in a date group number wins, numbered before unnumbered, slug last", () => {
+  const rows = [
+    { date: "2026-08-09", number: null, slug: "zeta" },
+    { date: "2026-08-09", number: "010", slug: "slug-first" },
+    { date: "2026-07-03", number: "004", slug: "planner" },
+    { date: "2026-08-09", number: "009", slug: "runtime" },
+    { date: "2026-08-09", number: null, slug: "alpha" },
+  ];
+  const sorted = [...rows].sort(compareArtifactOrder);
+  assert.deepEqual(sorted.map((r) => r.number ?? r.slug), ["004", "009", "010", "alpha", "zeta"]);
+});
+
+test("displayNumberOf: frontmatter number wins, legacy filename number falls back, else null", () => {
+  assert.equal(displayNumberOf({ number: "042" }, "foo.md", { prefix: "ADR-" }), "042");
+  assert.equal(displayNumberOf({}, "ADR-010-bar.md", { prefix: "ADR-" }), "010");
+  assert.equal(displayNumberOf({ number: null }, "spec-002-x.md", { prefix: "SPEC-" }), "002");
+  assert.equal(displayNumberOf({}, "story-006-foo.md", { story: true }), "006");
+  assert.equal(displayNumberOf({}, "foo.md", { prefix: "ADR-" }), null);
+});
+
+// ─── identity & filename-shape checks (SPEC-002 contracts 4, 7) ────────
+
+const vf = (...rels) => rels.map((rel) => ({ rel, name: rel.split("/").pop() }));
+
+test("checkArtifactIdentity: cross-era collision is an issue, digit-leading overlap a warn", () => {
+  const layout = loadLayout("engineering");
+  const issue = checkArtifactIdentity(layout, vf("adr/ADR-003-foo.md", "adr/foo.md"));
+  assert.equal(issue.length, 1);
+  assert.equal(issue[0].level, "issue");
+  assert.ok(issue[0].message.includes('"foo"'), issue[0].message);
+
+  const warn = checkArtifactIdentity(layout,
+    vf("epics/E1/stories/story-2024-review.md", "epics/E1/stories/story-review.md"));
+  assert.equal(warn.length, 1);
+  assert.equal(warn[0].level, "warn");
+
+  // Flat story + folder-shape namesake: both as-written readings coincide.
+  const twin = checkArtifactIdentity(layout,
+    vf("epics/E1/stories/story-foo.md", "epics/E1/stories/story-foo/README.md"));
+  assert.equal(twin.length, 1);
+  assert.equal(twin[0].level, "issue");
+});
+
+test("checkArtifactIdentity: frontmatter decides the era where the filename is ambiguous", () => {
+  const layout = loadLayout("engineering");
+  // Contract 4's own story example: a CERTAIN legacy story (id: story-006)
+  // colliding with a new-era name is an issue, not a warn.
+  const files = vf("epics/E1/stories/story-006-foo.md", "epics/E1/stories/story-foo.md");
+  const arts = [{ rel: "epics/E1/stories/story-006-foo.md", fm: { id: "story-006" } }];
+  const certain = checkArtifactIdentity(layout, files, arts);
+  assert.equal(certain.length, 1);
+  assert.equal(certain[0].level, "issue");
+  // The same pair with a new-era machine id on the digit-leading file: the
+  // overlap exists only under the legacy reading of a slug-era file → warn.
+  const newEra = checkArtifactIdentity(layout, files,
+    [{ rel: "epics/E1/stories/story-006-foo.md", fm: { id: "story-006-foo" } }]);
+  assert.equal(newEra[0].level, "warn");
+  // Two same-slug legacy-numbered ADRs were legal in the numbered era —
+  // grandfathering must not turn them into a defect (contract 6) → info.
+  const legacyPair = checkArtifactIdentity(layout,
+    vf("adr/ADR-005-caching-strategy.md", "adr/ADR-012-caching-strategy.md"));
+  assert.equal(legacyPair.length, 1);
+  assert.equal(legacyPair[0].level, "info");
+});
+
+test("checkExternalRefsForm: block-form map is an issue, inline flow is clean (contract 3)", () => {
+  const mk = (frontmatterLines) => ({
+    kind: "story", rel: "epics/E1/stories/story-x.md",
+    fm: { external_refs: "" },
+    body: `---\n${frontmatterLines}\n---\n\n# X\n`,
+  });
+  const bad = mk("type: story\nexternal_refs:\n  jira: ABC-123");
+  const f = checkExternalRefsForm([bad]);
+  assert.equal(f.length, 1);
+  assert.equal(f[0].level, "issue");
+  assert.ok(f[0].message.includes("inline flow"), f[0].message);
+  const inline = { ...mk("type: story\nexternal_refs: {}"), fm: { external_refs: "{}" } };
+  assert.deepEqual(checkExternalRefsForm([inline]), []);
+  const absent = { ...mk("type: story"), fm: {} };
+  assert.deepEqual(checkExternalRefsForm([absent]), []);
+});
+
+test("checkArtifactIdentity: scopes are independent; duplicate display numbers are info", () => {
+  const layout = loadLayout("engineering");
+  // Same slug in different kind folders / different epics: no identity clash.
+  assert.deepEqual(checkArtifactIdentity(layout, vf(
+    "adr/foo.md", "research/foo.md",
+    "epics/E1/stories/story-foo.md", "epics/E2/stories/story-foo.md")).filter((f) => f.check === "identity" && f.level !== "info"), []);
+  // GrammarHelper's double allocation: SPEC-002 twice, distinct slugs → info only.
+  const dup = checkArtifactIdentity(layout, vf("specs/SPEC-002-a.md", "specs/spec-002-b.md"));
+  assert.equal(dup.length, 1);
+  assert.equal(dup[0].level, "info");
+  assert.ok(dup[0].message.includes("Display number 2"), dup[0].message);
+  // This vault's real shape stays clean: sequential numbers, distinct slugs.
+  assert.deepEqual(checkArtifactIdentity(layout, vf(
+    "adr/ADR-009-runtime-neutral-core.md", "adr/ADR-010-slug-first-identity.md",
+    "epics/PS-CORE/stories/story-001-slug-first-artifact-identity.md")), []);
+});
+
+test("checkArtifactNames: sync-conflict shapes warn; cross-folder basenames info; infrastructure exempt", () => {
+  const f = checkArtifactNames(vf(
+    "research/foo 2.md",                       // sync-conflict → warn
+    "adr/topic.md", "research/topic.md",       // cross-folder basename → info
+    "adr/README.md", "research/README.md",     // infrastructure → exempt
+    "epics/E1/epic.md", "epics/E2/epic.md",    // infrastructure → exempt
+    "concepts/clean.md"));
+  const warns = f.filter((x) => x.level === "warn");
+  const infos = f.filter((x) => x.level === "info");
+  assert.equal(warns.length, 1);
+  assert.ok(warns[0].file.includes("foo 2.md"));
+  assert.equal(infos.length, 1);
+  assert.ok(infos[0].message.includes('"topic.md"'), infos[0].message);
+});
+
+// ─── spec↔story resolution (SPEC-002 contract 5) ───────────────────────
+
+test("checkSpecLinks: slug entries never prefix-match a story (mis-attribution regression)", () => {
+  const layout = loadLayout("engineering");
+  const storyArt = {
+    kind: "story",
+    rel: "epics/E1/stories/cache-invalidation.md",
+    abs: "/x/epics/E1/stories/cache-invalidation.md",
+    fm: { type: "story", status: "planned", specs: "[]" },
+    body: "---\ntype: story\n---\n",
+  };
+  // The case SPEC-002 pins: "E1/cache" must NOT resolve to cache-invalidation.md.
+  const wrong = spec("SPEC-009", ["E1/cache"], "active", "- [x] a\n");
+  const f = checkSpecLinks({}, layout, [wrong, storyArt]);
+  assert.ok(f.some((x) => x.check === "spec-links" && x.message.includes("does not resolve")),
+    JSON.stringify(f));
+  // The exact filename stem resolves (hand-created story without id:).
+  const exact = spec("SPEC-009", ["E1/cache-invalidation"], "active", "- [x] a\n");
+  const f2 = checkSpecLinks({}, layout, [exact, storyArt]);
+  assert.ok(!f2.some((x) => x.message.includes("does not resolve")), JSON.stringify(f2));
+});
+
+test("checkSpecLinks: legacy story-NNN fallback resolves, exact id wins, ambiguity is reported", () => {
+  const layout = loadLayout("engineering");
+  const mk = (rel, id) => ({
+    kind: "story", rel, abs: `/x/${rel}`,
+    fm: { ...(id ? { id } : {}), type: "story", status: "planned", specs: "[]" },
+    body: "---\ntype: story\n---\n",
+  });
+  const s = spec("SPEC-010", ["E1/story-001"], "active", "- [x] a\n");
+  // Legacy fallback: story-001 → story-001-a.md (no id:).
+  const legacy = checkSpecLinks({}, layout, [s, mk("epics/E1/stories/story-001-a.md")]);
+  assert.ok(!legacy.some((x) => x.message.includes("does not resolve")), JSON.stringify(legacy));
+  // Two stories both claiming id story-001 → a finding, never a silent first match.
+  const amb = checkSpecLinks({}, layout, [
+    s,
+    mk("epics/E1/stories/story-001-a.md", "story-001"),
+    mk("epics/E1/stories/story-001-b.md", "story-001"),
+  ]);
+  assert.ok(amb.some((x) => x.message.includes("ambiguous")), JSON.stringify(amb));
+});
+
+test("shared spec resolver: slug-form references to grandfathered SPEC-NNN files hit in links AND coverage", () => {
+  const layout = loadLayout("engineering");
+  const grand = {
+    kind: "spec",
+    rel: "specs/SPEC-001-cache-rules.md",
+    abs: "/x/specs/SPEC-001-cache-rules.md",
+    fm: { id: "SPEC-001", type: "spec", status: "draft", stories: '["E1/story-001"]' },
+    body: "---\n---\n\n## Acceptance\n\n- [x] a\n",
+  };
+  const st = story("E1", "story-001", "in-progress", { specs: '["cache-rules"]' });
+  const links = checkSpecLinks({}, layout, [grand, st]);
+  assert.ok(!links.some((x) => x.message.includes("does not exist")), JSON.stringify(links));
+  // Coverage sees the same spec through the SAME resolver (draft while
+  // in-progress → warn) instead of silently skipping the "dead" link.
+  const cov = checkSpecCoverage([grand, st], REQUIRED, layout);
+  assert.ok(cov.some((x) => x.check === "spec-status" && x.level === "warn"), JSON.stringify(cov));
+
+  // GrammarHelper shape end-to-end: lowercase spec-NNN-* filename against the
+  // uppercase layout prefix, story without fm.id — both eras resolve.
+  const gh = {
+    kind: "spec",
+    rel: "specs/spec-003-parsing.md",
+    abs: "/x/specs/spec-003-parsing.md",
+    fm: { id: "SPEC-003", type: "spec", status: "active", stories: '["E1/story-001"]' },
+    body: "---\n---\n\n## Acceptance\n\n- [x] a\n",
+  };
+  const st2 = story("E1", "story-001", "in-progress", { specs: '["parsing"]' });
+  const links2 = checkSpecLinks({}, layout, [gh, st2]);
+  assert.ok(!links2.some((x) => x.message.includes("does not exist")), JSON.stringify(links2));
+  // The bidirectional back-link check runs through the SAME resolver: a
+  // slug-form back-reference is a valid link, not a missing one.
+  assert.ok(!links2.some((x) => x.message.includes("bidirectional")), JSON.stringify(links2));
 });
 
 test("checkLifecycleGates: evidence suffix accepted in en and ru, fenced boxes ignored", () => {

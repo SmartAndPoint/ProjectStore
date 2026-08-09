@@ -9,7 +9,18 @@
 
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { readConfig, loadLayout, loadTemplate, renderTemplate, parseFrontmatter, today, listEpicStories } from "./lib.mjs";
+import {
+  readConfig,
+  loadLayout,
+  loadTemplate,
+  renderTemplate,
+  parseFrontmatter,
+  today,
+  listEpicStories,
+  slugIdentity,
+  displayNumberOf,
+  compareArtifactOrder,
+} from "./lib.mjs";
 
 function die(msg) {
   process.stderr.write(`projectstore/kanban: ${msg}\n`);
@@ -26,9 +37,13 @@ function findStories(vault, epicsPath) {
   const stories = [];
   const skipped = { no_status: [], not_actionable: [] };
   if (!existsSync(root)) return { stories, skipped };
-  for (const epicId of readdirSync(root)) {
+  // Epics iterate in sorted order and each epic's stories are ordered by
+  // created date (number, then slug, as tiebreak — SPEC-002 contract 8), so
+  // the board keeps its per-epic grouping and regenerates deterministically.
+  for (const epicId of readdirSync(root).sort()) {
     // `_templates` and friends hold blanks, not work.
     if (epicId.startsWith("_") || epicId.startsWith(".")) continue;
+    const epicStories = [];
     for (const story of listEpicStories(join(root, epicId))) {
       const md = readFileSync(story.abs, "utf8");
       const { data } = parseFrontmatter(md);
@@ -56,7 +71,7 @@ function findStories(vault, epicsPath) {
       const claimed = data.epic == null ? "" : String(data.epic).trim();
       const epicLabel = claimed && claimed !== "null" ? claimed : epicId;
 
-      stories.push({
+      epicStories.push({
         path: story.abs,
         relPath,
         epicId: epicLabel,
@@ -64,8 +79,12 @@ function findStories(vault, epicsPath) {
         priority: data.priority || "p2",
         title: data.title || story.slug,
         id: data.id || story.slug,
+        date: String(data.created || data.date || ""),
+        number: displayNumberOf(data, story.slug, { story: true }),
+        slug: slugIdentity(story.slug, { story: true }).primary,
       });
     }
+    stories.push(...epicStories.sort(compareArtifactOrder));
   }
   return { stories, skipped };
 }
