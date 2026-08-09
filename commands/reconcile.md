@@ -18,17 +18,33 @@ You are reconciling the vault's derived views with their source of truth (frontm
    Output JSON: `kanban` / `codemap` / `indexes[]`, each `{path, changed, content?}`,
    plus `summary.changed`.
 
-3. **Nothing changed** (`summary.changed == 0`) → report "Derived views already
-   match frontmatter — nothing to reconcile." and stop.
+3. **Nothing changed** (`summary.changed == 0` and `summary.failed == 0`) →
+   report "Derived views already match frontmatter — nothing to reconcile."
+   and stop.
 
 4. **Preview**: list each changed target (path + a one-line what: "kanban board",
    "adr/ index", "code map"). Show a short diff excerpt for indexes.
+   **Surface any target carrying `error` first** — an errored target has no
+   `changed` flag, so it never appears in the changed list; a broken board
+   must not hide behind a clean-looking preview.
 
 5. **Approval** via AskUserQuestion: **Apply all** / **Select targets** / **Cancel**.
+   Disclose in the question that content is recomputed from the vault at write
+   time — the preview is advisory, the approval covers the regeneration action.
 
-6. **On approval**: Write each approved target's `content` to its `path`, verbatim.
-   Manual prose outside the managed Index tables is preserved by construction —
-   the script only replaces table rows.
+6. **On approval**: apply through the core — never the Write/Edit tools:
+
+   ```bash
+   node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs" --write --only <approved,targets>
+   ```
+
+   Selectors: `kanban`, `codemap`, `indexes` (all), `indexes=<folder>` (one).
+   "Apply all" means the targets previewed in step 4, passed explicitly — not a
+   bare `--write`. The script recomputes each target immediately before its own
+   atomic replace; manual prose outside the managed Index tables is preserved by
+   construction (check-and-retry re-reads the README before writing). Render the
+   report: per target `{path, changed, written, error?}` + `summary`. A nonzero
+   exit means at least one target failed — surface its `error`.
 
 7. **Verify**: run `node "$CLAUDE_PLUGIN_ROOT/scripts/doctor.mjs" --vault` and show
    the summary line — reconcile's whole point is a clean doctor afterwards.

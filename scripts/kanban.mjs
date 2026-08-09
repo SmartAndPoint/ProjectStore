@@ -5,7 +5,9 @@
 // frontmatter (status, priority, title, epic) and rendering into the kanban
 // template. Source of truth = story frontmatter.
 //
-// Output: JSON { path, content } — caller writes after approval.
+// Output: JSON { path, content, stats } — compute only. The applier is
+// reconcile.mjs --write (atomic replace, recompute-at-write), not the
+// harness: no Write-tool step remains in the derived-view flows.
 
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";

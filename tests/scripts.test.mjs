@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -194,6 +194,160 @@ test("draft: digit-leading slug warns via the warnings array (contract 4)", () =
 
 test("draft: nextNumber is gone from the creation path (contract 1)", () => {
   assert.ok(!readFileSync(join(REPO, "scripts", "draft.mjs"), "utf8").includes("nextNumber"));
+});
+
+// ─── reconcile --write (spec: atomic-regeneration-of-derived-views) ────
+
+// Raw sibling of runIn for tests that EXPECT a nonzero exit. runIn's
+// status-0 assert is load-bearing as a failure message for six call sites —
+// do not loosen it.
+function runInRaw(projectDir, script, args) {
+  return spawnSync(process.execPath, [join(REPO, "scripts", script), ...args], {
+    encoding: "utf8", env: { ...ENV, CLAUDE_PROJECT_DIR: projectDir }, cwd: REPO, timeout: 15000,
+  });
+}
+
+// A vault with one target of each kind dirty: kanban absent, code-map absent
+// (epic carries code_refs), adr index empty with prose below the table.
+function seedDerivedFixture() {
+  const { proj, vault } = makeVaultProject();
+  const fm = (extra) => `---\n${extra}\n---\n\n# T\n`;
+  writeFileSync(join(vault, "adr", "README.md"),
+    "# ADRs\n\n| File | Title | Status | Date |\n|------|-------|--------|------|\n\nPROSE BELOW THE TABLE.\n");
+  writeFileSync(join(vault, "adr", "caching.md"),
+    fm('type: adr\nid: "caching"\ntitle: "Caching"\nstatus: accepted\ndate: 2026-01-01\nexternal_refs: {}'));
+  writeFileSync(join(vault, "epics", "PS-X", "epic.md"),
+    fm('type: epic\nid: "PS-X"\ntitle: "X"\nstatus: in-progress\ncreated: 2026-01-01\ncode_refs: ["scripts/"]'));
+  writeFileSync(join(vault, "epics", "PS-X", "stories", "story-ship-it.md"),
+    fm('type: story\nid: "story-ship-it"\ntitle: "Ship it"\nstatus: planned\ncreated: 2026-01-01\nexternal_refs: {}'));
+  return { proj, vault };
+}
+
+const normEq = (s) => s.split("\n").filter((l) => !l.startsWith("generated_at:")).join("\n").trimEnd();
+
+test("reconcile --write: applies compute output atomically, idempotent second pass (contracts 1, 4, 8)", () => {
+  const { proj, vault } = seedDerivedFixture();
+  const preview = runIn(proj, "reconcile.mjs", []);
+  const w = runIn(proj, "reconcile.mjs", ["--write"]);
+  assert.equal(w.summary.failed, 0, JSON.stringify(w));
+  assert.ok(w.summary.written >= 3, JSON.stringify(w.summary)); // kanban + codemap + adr index
+  assert.ok(!JSON.stringify(w).includes('"content"'), "--write emits no content on stdout");
+  // On-disk bytes are normalize-equal to what compute previewed (contract 8).
+  assert.equal(normEq(readFileSync(join(vault, "kanban.md"), "utf8")), normEq(preview.kanban.content));
+  const adrIdx = preview.indexes.find((i) => i.folder === "adr");
+  assert.equal(readFileSync(adrIdx.path, "utf8"), adrIdx.content);
+  assert.ok(readFileSync(adrIdx.path, "utf8").includes("PROSE BELOW THE TABLE."), "prose preserved");
+  const again = runIn(proj, "reconcile.mjs", ["--write"]);
+  assert.equal(again.summary.written, 0, "immediately repeated --write is a fixed point");
+  assert.equal(again.summary.changed, 0);
+});
+
+test("reconcile --write: recomputes at write time — status flip and prose edit in the approval gap both land (contract 3)", () => {
+  const { proj, vault } = seedDerivedFixture();
+  runIn(proj, "reconcile.mjs", ["--write"]); // settle
+  assert.equal(runIn(proj, "reconcile.mjs", []).summary.changed, 0);
+  // The approval gap: a second session flips a status and edits README prose.
+  const storyPath = join(vault, "epics", "PS-X", "stories", "story-ship-it.md");
+  writeFileSync(storyPath, readFileSync(storyPath, "utf8").replace("status: planned", "status: in-progress"));
+  const readmePath = join(vault, "adr", "README.md");
+  writeFileSync(readmePath, readFileSync(readmePath, "utf8").replace("PROSE BELOW THE TABLE.", "PROSE EDITED DURING APPROVAL."));
+  const w = runIn(proj, "reconcile.mjs", ["--write"]);
+  assert.equal(w.summary.failed, 0);
+  const board = readFileSync(join(vault, "kanban.md"), "utf8");
+  const inProgress = board.split(/^## In Progress$/m)[1].split(/^## /m)[0];
+  assert.ok(inProgress.includes("Ship it"), "written board reflects the post-preview status");
+  assert.ok(readFileSync(readmePath, "utf8").includes("PROSE EDITED DURING APPROVAL."), "prose edit survives");
+});
+
+test("reconcile --only: limits both modes; unknown/absent selectors die loudly (contract 6)", () => {
+  const { proj, vault } = seedDerivedFixture();
+  const w = runIn(proj, "reconcile.mjs", ["--write", "--only", "kanban"]);
+  assert.ok(w.kanban.written);
+  assert.equal(w.codemap.skipped, "not selected");
+  assert.deepEqual(w.indexes, []);
+  assert.ok(!existsSync(join(vault, "code-map.md")), "codemap untouched");
+  assert.ok(!readFileSync(join(vault, "adr", "README.md"), "utf8").includes("caching"), "adr index untouched");
+
+  const named = runIn(proj, "reconcile.mjs", ["--write", "--only", "indexes=adr"]);
+  assert.equal(named.indexes.length, 1);
+  assert.ok(named.indexes[0].written);
+  assert.ok(readFileSync(join(vault, "adr", "README.md"), "utf8").includes("caching"));
+
+  const unknown = runInRaw(proj, "reconcile.mjs", ["--only", "kanbn"]);
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /unknown selector/);
+
+  const notInLayout = runInRaw(proj, "reconcile.mjs", ["--write", "--only", "indexes=nonexistent"]);
+  assert.notEqual(notInLayout.status, 0);
+  assert.match(notInLayout.stderr, /no folder/);
+
+  // In the layout, named explicitly, but the vault has no README for it.
+  const noReadme = runInRaw(proj, "reconcile.mjs", ["--write", "--only", "indexes=specs"]);
+  assert.notEqual(noReadme.status, 0);
+  assert.match(noReadme.stderr, /README/);
+});
+
+test("reconcile --write: partial failure — per-target error, remaining targets written, nonzero exit (contract 1)", () => {
+  const { proj, vault } = seedDerivedFixture();
+  mkdirSync(join(vault, "kanban.md")); // reading/replacing a directory fails
+  const r = runInRaw(proj, "reconcile.mjs", ["--write"]);
+  assert.notEqual(r.status, 0, "cron caller must notice");
+  const j = JSON.parse(r.stdout);
+  assert.ok(j.kanban.error, "failed target carries its error");
+  assert.ok(j.kanban.path, "failed target still names its path");
+  assert.notEqual(j.kanban.written, true);
+  assert.ok(j.codemap.written, "remaining targets still attempted");
+  assert.ok(j.indexes.find((i) => i.folder === "adr").written);
+  assert.equal(j.summary.failed, 1);
+});
+
+test("reconcile compute: per-target error surfaces in summary.failed, exit stays 0 (reporting tool)", () => {
+  const { proj, vault } = seedDerivedFixture();
+  mkdirSync(join(vault, "kanban.md"));
+  const r = runInRaw(proj, "reconcile.mjs", []);
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.ok(j.kanban.error);
+  assert.equal(j.summary.failed, 1, "compute mode counts failures too");
+});
+
+test("reconcile --write: a named-absent index aborts BEFORE any side effect (contract 1)", () => {
+  const { proj, vault } = seedDerivedFixture();
+  // specs/ is in the layout but this vault has no specs/README.md.
+  const r = runInRaw(proj, "reconcile.mjs", ["--write", "--only", "kanban,indexes=specs"]);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /specs\/README\.md/);
+  assert.ok(!existsSync(join(vault, "kanban.md")),
+    "config errors abort with nothing written — no unreported mutation");
+});
+
+test("core writes only via lib.mjs writeFileAtomic (atomic-regeneration contract 2 guard)", () => {
+  // Globbed so a future script is covered automatically. hooks/ is
+  // deliberately out of scope: session-start's marker write is host-side
+  // plumbing, not a vault write path — do not "complete" this refactor there.
+  const dir = join(REPO, "scripts");
+  for (const n of readdirSync(dir).filter((f) => f.endsWith(".mjs") && f !== "lib.mjs")) {
+    const src = readFileSync(join(dir, n), "utf8");
+    for (const call of ["writeFileSync", "renameSync", "appendFileSync", "createWriteStream",
+                        "writeFile(", "copyFileSync", "truncateSync", "node:fs/promises"]) {
+      assert.ok(!src.includes(call), `${n} contains ${call} — route writes through lib.mjs`);
+    }
+  }
+});
+
+test("command prose routes derived-view applies through reconcile --write (contract 7 guard)", () => {
+  for (const [file, marker] of [
+    ["reconcile.md", "--write --only"],
+    ["kanban.md", "--write --only kanban"],
+    ["codemap.md", "--write --only codemap"],
+  ]) {
+    const src = readFileSync(join(REPO, "commands", file), "utf8");
+    assert.ok(src.includes(marker), `${file} applies via ${marker}`);
+    assert.ok(!/Write (the generated content|each approved target|`content`)/.test(src),
+      `${file} must carry no Write-tool apply step for a derived view`);
+  }
+  // `codemap set` edits SOURCE frontmatter — contract 7 exempts it explicitly.
+  assert.match(readFileSync(join(REPO, "commands", "codemap.md"), "utf8"), /Edit the frontmatter/);
 });
 
 test("diff-refs: no args => fallback true; --since returns file lists", () => {

@@ -8,15 +8,25 @@ You are managing the epic↔code mapping (ADR-004).
 ## Bare `codemap` — regenerate the view
 
 1. **Check config**; stop if missing.
-2. Run the generator (read-only):
+2. Compute (read-only, the unified reconcile path):
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/codemap.mjs"
+   node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs" --only codemap
    ```
 
-   Output JSON: `{ path, content, stats }`.
-3. Show `stats` (epics, epics_with_refs, story_rows) + first ~15 lines.
-4. **Approval** via AskUserQuestion: Yes / No. On Yes → Write `content` to `path`.
+   The `codemap` entry carries `{ path, changed, content?, stats }`.
+3. Show `stats` (epics, epics_with_refs, story_rows) + first ~15 lines of
+   `content` when changed.
+4. **Approval** via AskUserQuestion: Yes / No (disclose: content is recomputed
+   from frontmatter at write time; the preview is advisory). On Yes → apply
+   through the core, never the Write tool:
+
+   ```bash
+   node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs" --write --only codemap
+   ```
+
+   Explicit selection writes the map even on a vault with no `code_refs` yet.
+   Render the report's `codemap` entry; nonzero exit — surface the `error`.
 5. Suggest: "Refs are set via `codemap set`; reviewer proposes updates at story completion."
 
 ## `codemap set <target> <ref…>` — update frontmatter (the write path)

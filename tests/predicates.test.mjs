@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, copyFileSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, copyFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,7 @@ import { spawnSync } from "node:child_process";
 
 import {
   nextNumber,
+  writeFileAtomic,
   slugIdentity,
   isLegacyNumberedId,
   storyMatchesEntry,
@@ -49,6 +50,10 @@ import {
   statusLineScriptVersion,
   parseSpecAcceptance,
 } from "../scripts/doctor.mjs";
+import {
+  resolveSelection,
+  writeIndexWithRetry,
+} from "../scripts/reconcile.mjs";
 
 // ─── numbering ─────────────────────────────────────────────────────────
 
@@ -63,6 +68,126 @@ test("nextNumber escapes regex metacharacters in the prefix", () => {
   const dir = mkdtempSync(join(tmpdir(), "ps-num-"));
   writeFileSync(join(dir, "A+B-004-x.md"), "");
   assert.equal(nextNumber(dir, "A+B-", 3), "005");
+});
+
+// ─── atomic file writes (spec: atomic-regeneration-of-derived-views) ───
+
+test("writeFileAtomic: lands byte-exact content, replaces existing, leaves no temp", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ps-atomic-"));
+  const target = join(dir, "view.md");
+  writeFileAtomic(target, "first\n");
+  assert.equal(readFileSync(target, "utf8"), "first\n");
+  writeFileAtomic(target, "second\n");
+  assert.equal(readFileSync(target, "utf8"), "second\n");
+  assert.deepEqual(readdirSync(dir), ["view.md"]);
+});
+
+test("writeFileAtomic: rename failure with the temp alive — temp removed, target untouched", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ps-atomic-"));
+  const target = join(dir, "taken");
+  mkdirSync(target); // renaming a file over an existing directory fails
+  assert.throws(() => writeFileAtomic(target, "x"));
+  assert.ok(statSync(target).isDirectory(), "target untouched");
+  assert.deepEqual(readdirSync(dir), ["taken"], "no temp litter after a handled failure");
+});
+
+test("writeFileAtomic: dead-pid orphan swept; own-pid temp and .gitignore survive", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ps-atomic-"));
+  const deadPid = spawnSync(process.execPath, ["-e", "0"]).pid; // exited ⇒ dead
+  writeFileSync(join(dir, `.a.md.${deadPid}.tmp`), "orphan");
+  writeFileSync(join(dir, `.b.md.${process.pid}.tmp`), "live writer");
+  writeFileSync(join(dir, ".gitignore"), "*\n");
+  writeFileAtomic(join(dir, "c.md"), "content\n"); // sweep on by default
+  const names = readdirSync(dir);
+  assert.ok(!names.includes(`.a.md.${deadPid}.tmp`), "dead orphan swept");
+  assert.ok(names.includes(`.b.md.${process.pid}.tmp`), "live writer's temp kept");
+  assert.ok(names.includes(".gitignore"), "strict shape never matches dotfiles");
+  assert.equal(readFileSync(join(dir, "c.md"), "utf8"), "content\n");
+});
+
+test("writeFileAtomic: sweep=false leaves orphans alone", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ps-atomic-"));
+  const deadPid = spawnSync(process.execPath, ["-e", "0"]).pid;
+  writeFileSync(join(dir, `.a.md.${deadPid}.tmp`), "orphan");
+  writeFileAtomic(join(dir, "c.md"), "x", { sweep: false });
+  assert.ok(readdirSync(dir).includes(`.a.md.${deadPid}.tmp`));
+});
+
+// ─── reconcile selection & retry (atomic-regeneration contracts 3, 6) ──
+
+test("resolveSelection: bare selects all; selectors compose; unknown and layout-absent error", () => {
+  const layout = loadLayout("engineering");
+  const bare = resolveSelection(layout, null);
+  assert.equal(bare.explicit, false);
+  assert.ok(bare.kanban && bare.codemap);
+  assert.equal(bare.indexes.length, layout.folders.length);
+  assert.ok(bare.indexes.every((i) => !i.named));
+
+  const one = resolveSelection(layout, "kanban");
+  assert.ok(one.explicit && one.kanban && !one.codemap);
+  assert.deepEqual(one.indexes, []);
+
+  const combo = resolveSelection(layout, "indexes=adr,codemap");
+  assert.ok(combo.codemap && combo.indexes.length === 1 && combo.indexes[0].named);
+  assert.equal(combo.indexes[0].path, "adr");
+
+  assert.match(resolveSelection(layout, "kanbn").error, /unknown selector/);
+  assert.match(resolveSelection(layout, "indexes=nonexistent").error, /no folder/);
+  assert.match(resolveSelection(layout, "").error, /empty --only/);
+
+  // Composition keeps named loudness in both orders.
+  for (const raw of ["indexes=adr,indexes", "indexes,indexes=adr"]) {
+    const merged = resolveSelection(layout, raw);
+    assert.equal(merged.indexes.length, layout.folders.length, raw);
+    assert.equal(merged.indexes.find((i) => i.path === "adr").named, true, raw);
+  }
+
+  const kanbanless = { ...layout, kanban: null };
+  assert.match(resolveSelection(kanbanless, "kanban").error, /no kanban/);
+  const epicless = { ...layout, folders: layout.folders.filter((f) => f.kind !== "epic") };
+  assert.match(resolveSelection(epicless, "codemap").error, /no epic folder/);
+});
+
+test("writeIndexWithRetry: drift during rebuild — recomputed from fresh bytes, never written stale", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ps-retry-"));
+  const p = join(dir, "README.md");
+  writeFileSync(p, "prose v1\n");
+  let calls = 0;
+  const rebuild = (bytes) => {
+    calls++;
+    // First attempt: a concurrent edit lands while we rebuild from `bytes`.
+    if (calls === 1) writeFileSync(p, bytes.replace("prose v1", "CONCURRENT EDIT"));
+    return { content: bytes + "ROWS\n" };
+  };
+  const r = writeIndexWithRetry(p, rebuild);
+  assert.deepEqual(r, { changed: true, written: true });
+  assert.equal(calls, 2, "drift forces a recompute from the fresh bytes");
+  const landed = readFileSync(p, "utf8");
+  assert.ok(landed.includes("CONCURRENT EDIT"), "the concurrent edit survives the write");
+  assert.ok(landed.endsWith("ROWS\n"));
+  assert.ok(!landed.includes("prose v1"), "stale bytes never land");
+});
+
+test("writeIndexWithRetry: exhaustion reports an error and leaves the target unwritten", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ps-retry-"));
+  const p = join(dir, "README.md");
+  writeFileSync(p, "x\n");
+  const rebuild = (bytes) => {
+    writeFileSync(p, bytes + "more\n"); // an edit lands on EVERY attempt
+    return { content: bytes + "ROWS\n" };
+  };
+  const r = writeIndexWithRetry(p, rebuild, { attempts: 3 });
+  assert.match(r.error, /concurrent edits persisted/);
+  assert.ok(!readFileSync(p, "utf8").includes("ROWS"), "no stale write landed");
+});
+
+test("writeIndexWithRetry: unusable table and absent file are reported, not written", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ps-retry-"));
+  const p = join(dir, "README.md");
+  writeFileSync(p, "no table here\n");
+  const r = writeIndexWithRetry(p, () => ({ unusable: "no recognised index-table header" }));
+  assert.match(r.unusable, /no recognised/);
+  assert.match(writeIndexWithRetry(join(dir, "missing.md"), () => ({ content: "x" })).unusable, /does not exist/);
 });
 
 // ─── artifact identity (ADR-010 / SPEC-002) ────────────────────────────

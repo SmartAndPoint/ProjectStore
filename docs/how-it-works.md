@@ -108,7 +108,10 @@ resistance. v0.13 makes that safe instead of forbidden:
   subset runs at session start and prints one line only when something is wrong.
 - **`reconcile`** rebuilds every generated view (kanban, folder indexes,
   code-map) from frontmatter — the repair partner. Idempotent: a clean vault
-  yields zero changes.
+  yields zero changes. Since v0.19 reconcile applies the write itself
+  (`--write`): each approved target is recomputed from the vault state at
+  write time and replaced atomically, so a stale preview is never what lands;
+  `--write` is also a sanctioned headless entry point (cron/CI repair job).
 - A throttled PreToolUse **nudge** fires when vault files are edited directly:
   "run reconcile afterwards so the derived views stay in sync" (disable with
   `"guard": "off"` in `projectstore.json`).

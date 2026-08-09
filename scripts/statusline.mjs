@@ -27,7 +27,7 @@
 //
 // Everything is best-effort; on any error emit what we have and exit 0.
 
-import { readFileSync, existsSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join, basename, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -39,6 +39,7 @@ import {
   ensureStateDir,
   statusLineIsOurs,
   claudeHome,
+  writeFileAtomic,
 } from "./lib.mjs";
 
 const SELF = fileURLToPath(import.meta.url);
@@ -115,7 +116,9 @@ function bookSegment(cfg, proj, input, strings) {
   // Breadcrumb for doctor's divergence check — best-effort, never fatal.
   try {
     ensureStateDir(proj);
-    writeFileSync(
+    // sweep=false: this is the hottest path in the plugin (every HUD frame),
+    // and the state dir holds one file per session — no readdir here.
+    writeFileAtomic(
       join(stateDir(proj), ".last-render.json"),
       JSON.stringify({
         session_id: sid || null,
@@ -126,7 +129,7 @@ function bookSegment(cfg, proj, input, strings) {
         version: pluginVersion(),
         root: pluginRoot(),
       }) + "\n",
-      "utf8",
+      { sweep: false },
     );
   } catch {}
 

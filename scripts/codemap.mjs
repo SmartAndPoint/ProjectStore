@@ -4,7 +4,9 @@
 // `code_refs` (ADR-004). Same one-way pattern as kanban.mjs: frontmatter is
 // the source of truth, this file is a regenerated view.
 //
-// Output: JSON { path, content, stats } — caller writes after approval.
+// Output: JSON { path, content, stats } — compute only. The applier is
+// reconcile.mjs --write (atomic replace, recompute-at-write), not the
+// harness: no Write-tool step remains in the derived-view flows.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
