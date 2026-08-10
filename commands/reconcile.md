@@ -1,5 +1,5 @@
 ---
-description: Re-derive every derived view (kanban, folder-index READMEs, code-map) from artifact frontmatter — the repair half of doctor's vault checks. Hand-edits can never permanently desync the board.
+description: Re-derive every derived view (kanban, folder-index READMEs, code-map, graph) from the vault's source of truth — the repair half of doctor's vault checks. Hand-edits can never permanently desync the board.
 argument-hint: ""
 ---
 
@@ -15,15 +15,17 @@ You are reconciling the vault's derived views with their source of truth (frontm
    node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs"
    ```
 
-   Output JSON: `kanban` / `codemap` / `indexes[]`, each `{path, changed, content?}`,
-   plus `summary.changed`.
+   Output JSON: `kanban` / `codemap` / `graph` / `indexes[]`, each
+   `{path, changed, content?}`, plus `summary.changed`. A graph.md that does
+   not exist yet reports `skipped` — bare reconcile never mints the file;
+   first creation goes through `/projectstore:graph` (or `--only graph`).
 
 3. **Nothing changed** (`summary.changed == 0` and `summary.failed == 0`) →
    report "Derived views already match frontmatter — nothing to reconcile."
    and stop.
 
 4. **Preview**: list each changed target (path + a one-line what: "kanban board",
-   "adr/ index", "code map"). Show a short diff excerpt for indexes.
+   "adr/ index", "code map", "link graph"). Show a short diff excerpt for indexes.
    **Surface any target carrying `error` first** — an errored target has no
    `changed` flag, so it never appears in the changed list; a broken board
    must not hide behind a clean-looking preview.
@@ -38,7 +40,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
    node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs" --write --only <approved,targets>
    ```
 
-   Selectors: `kanban`, `codemap`, `indexes` (all), `indexes=<folder>` (one).
+   Selectors: `kanban`, `codemap`, `graph`, `indexes` (all), `indexes=<folder>` (one).
    "Apply all" means the targets previewed in step 4, passed explicitly — not a
    bare `--write`. The script recomputes each target immediately before its own
    atomic replace; manual prose outside the managed Index tables is preserved by

@@ -17,6 +17,9 @@ vault (`.claude/projectstore.json` → `vault_path`) and read the target story �
 its Description, Decomposition, and **Acceptance Criteria** — plus the parent
 epic and the plan if one was produced. If the caller named no story, ask the diff
 which story it serves (grep the vault) before falling back to a plain code review.
+Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes —
+prefer them for orientation, but fall back to a frontmatter sweep when a view is
+missing or its `generated_at` predates recent artifact changes (compare file mtimes; a false-stale just costs a sweep).
 
 **Batch independent evidence calls into one turn.** Every turn re-reads your whole
 accumulated context, so N single-call turns cost ~N× more input than one turn with

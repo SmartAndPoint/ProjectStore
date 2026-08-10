@@ -33,6 +33,10 @@ import {
   statusLineIsOurs,
   statusLineLauncherPath,
   syncStatusLine,
+  stripCodeSpans,
+  extractLinks,
+  buildNodeIndex,
+  resolveLinkTarget,
 } from "../scripts/lib.mjs";
 import {
   checkLayoutTemplates,
@@ -49,6 +53,7 @@ import {
   checkStatusline,
   statusLineScriptVersion,
   parseSpecAcceptance,
+  walkVaultFiles,
 } from "../scripts/doctor.mjs";
 import {
   resolveSelection,
@@ -1295,4 +1300,158 @@ test("checkStatusline warns when the wired version is not the installed one", ()
     checkStatusline({ statusline: { enabled: true } }, proj, home).filter((f) => f.level !== "info"),
     [],
   );
+});
+
+// ─── link graph: extraction, node index, resolver ───────────────────────
+// (spec: vault-link-graph-derived-view-and-shared-link-resolver, contracts 2-3)
+
+test("extractLinks: code excluded; alias/#section/escaped-pipe forms; only relative md links", () => {
+  const text = [
+    "[[plain]] and [[target|alias]] and [[sect#part]]",
+    "[[epics/PS-A/epic\\|PS-A]]",
+    "`[[in-code]]` and [md](./sib.md) [up](../up.md#frag)",
+    "```",
+    "[[in-fence]] [f](./fenced.md)",
+    "```",
+    "[url](https://x.test/a.md) [abs](/abs.md)",
+  ].join("\n");
+  assert.equal(stripCodeSpans("a `b` c\n```\nd\n```\n").includes("b"), false);
+  const links = extractLinks(text);
+  assert.deepEqual(links.filter((l) => l.type === "wikilink").map((l) => l.target),
+    ["plain", "target", "sect", "epics/PS-A/epic"]);
+  assert.deepEqual(links.filter((l) => l.type === "mdlink").map((l) => l.target),
+    ["./sib.md", "../up.md"]);
+});
+
+// A real temp vault for index + resolver tests — engineering layout shapes.
+function graphVault() {
+  const vault = mkdtempSync(join(tmpdir(), "ps-graphidx-"));
+  const put = (rel, content) => {
+    mkdirSync(join(vault, dirname(rel)), { recursive: true });
+    writeFileSync(join(vault, rel), content);
+  };
+  const fm = (lines) => `---\n${lines.join("\n")}\n---\n\n# T\n`;
+  put("adr/ADR-010-slug-first.md", fm(['type: adr', 'id: "ADR-010"', 'title: "Slug first"', 'status: accepted', 'date: 2026-01-01']));
+  put("adr/loose.md", fm(['type: adr', 'id: "loose-decision"', 'title: "Loose"', 'status: proposed', 'date: 2026-01-02']));
+  put("adr/dup.md", fm(['type: adr', 'id: "dup-adr"', 'title: "D2"', 'status: proposed', 'date: 2026-01-01']));
+  put("specs/SPEC-002-slug-first-artifact-identity.md", fm(['type: spec', 'id: "SPEC-002"', 'title: "Identity"', 'status: active', 'date: 2026-01-01']));
+  put("research/some-note.md", fm(['type: research', 'slug: "research-alias"', 'title: "Note"', 'date: 2026-01-03']));
+  put("concepts/MixedCase.md", fm(['type: concept', 'slug: "mixedcase"', 'title: "MC"', 'date: 2026-01-01']));
+  put("concepts/dup.md", fm(['type: concept', 'slug: "dup-concept"', 'title: "D1"', 'date: 2026-01-01']));
+  put("epics/PS-A/epic.md", fm(['type: epic', 'id: "PS-A"', 'title: "A"', 'status: in-progress', 'created: 2026-01-01']));
+  put("epics/PS-B/epic.md", fm(['type: epic', 'id: "PS-B"', 'title: "B"', 'status: planned', 'created: 2026-01-01']));
+  put("epics/PS-A/stories/story-cache.md", fm(['type: story', 'id: "story-cache"', 'title: "Cache"', 'status: planned', 'created: 2026-01-01']));
+  put("epics/PS-A/stories/story-cache-invalidation.md", fm(['type: story', 'id: "story-cache-invalidation"', 'title: "CacheInv"', 'status: planned', 'created: 2026-01-02']));
+  put("epics/PS-A/stories/story-004-old-era.md", fm(['type: story', 'id: "story-004-old-era"', 'title: "Old"', 'status: done', 'created: 2025-01-01']));
+  // Real legacy stories carry a SHORT id (story-013), not the full stem —
+  // the reviewer regression: the as-written stem must be a tier-2 reading.
+  put("epics/PS-A/stories/story-013-short-id.md", fm(['type: story', 'id: "story-013"', 'title: "Short id era"', 'status: done', 'created: 2025-01-02']));
+  put("epics/PS-A/stories/story-folder/README.md", fm(['type: story', 'id: "story-folder"', 'title: "Folder"', 'status: planned', 'created: 2026-01-01']));
+  put("epics/PS-A/story-standalone.md", fm(['type: story', 'id: "story-standalone"', 'title: "Standalone"', 'status: planned', 'created: 2026-01-01']));
+  put("epics/_templates/epic.md", fm(['type: epic', 'id: "T"', 'title: "Blank"']));
+  put("meetings/Plain Note.md", "just text, no frontmatter\n");
+  put("adr/README.md", "# adr index\n");
+  put("specs/README.md", "# specs index\n");
+  writeFileSync(join(vault, "kanban.md"), "board\n");
+  writeFileSync(join(vault, "loose.md"), "root twin of adr/loose.md\n");
+  const layout = loadLayout("engineering");
+  const cfg = { vault_path: vault, layout: "engineering" };
+  const index = buildNodeIndex(cfg, layout);
+  const files = walkVaultFiles(vault);
+  const ctx = (sourceRel, extra = {}) => ({ sourceRel, index, files, ...extra });
+  return { vault, index, files, ctx };
+}
+
+test("buildNodeIndex: all three story shapes are nodes; READMEs, root files and _dirs are not (contract 2)", () => {
+  const { index } = graphVault();
+  const paths = index.nodes.map((n) => n.path);
+  assert.ok(paths.includes("epics/PS-A/stories/story-folder/README.md"), "folder-shape story");
+  assert.ok(paths.includes("epics/PS-A/story-standalone.md"), "standalone story");
+  assert.ok(paths.includes("epics/PS-A/stories/story-cache.md"));
+  assert.ok(!paths.includes("adr/README.md"), "folder README is not a node");
+  assert.ok(!paths.some((p) => p.startsWith("epics/_templates/")), "_dirs hold blanks, not work");
+  assert.ok(!paths.includes("kanban.md") && !paths.includes("loose.md"), "root files are not nodes");
+  const meeting = index.nodes.find((n) => n.path === "meetings/Plain Note.md");
+  assert.equal(meeting.title, "Plain Note", "title falls back to the filename stem");
+  assert.equal(meeting.status, null, "no frontmatter status — renders as -");
+});
+
+test("resolveLinkTarget tiers: identity (id and slug:), stem readings, legacy prefix fallback; slug never prefix-matches (contract 3)", () => {
+  const { ctx } = graphVault();
+  const at = (t, extra) => resolveLinkTarget(t, "wikilink", ctx("adr/loose.md", extra));
+  assert.equal(at("ADR-010").node.path, "adr/ADR-010-slug-first.md", "tier 1: fm.id");
+  assert.equal(at("research-alias").node.path, "research/some-note.md", "tier 1: fm.slug for slug-carrying kinds");
+  assert.equal(at("slug-first-artifact-identity").node.path,
+    "specs/SPEC-002-slug-first-artifact-identity.md", "tier 2: number-stripped stem reading");
+  assert.equal(at("story-004").node.path, "epics/PS-A/stories/story-004-old-era.md", "tier 3: legacy story-NNN prefix");
+  assert.equal(at("story-013-short-id").node.path, "epics/PS-A/stories/story-013-short-id.md",
+    "tier 2: the as-written story stem — the Obsidian-autocompleted form — must resolve (kanban cards never out-of-scope)");
+  assert.equal(at("story-013").node.path, "epics/PS-A/stories/story-013-short-id.md", "tier 1: short legacy id");
+  assert.equal(at("cache").node.path, "epics/PS-A/stories/story-cache.md",
+    "slug form matches exactly — cache must not prefix-match cache-invalidation");
+  assert.equal(at("mixedCASE").node.path, "concepts/MixedCase.md", "stems are case-insensitive");
+});
+
+test("resolveLinkTarget paths: / bypasses tiers; root-relative escape rejected; wrong depth dead (contract 3)", () => {
+  const { ctx } = graphVault();
+  const r1 = resolveLinkTarget("epics/PS-A/epic", "wikilink", ctx("adr/loose.md"));
+  assert.equal(r1.node.path, "epics/PS-A/epic.md", "path bypasses the ambiguous epic stem");
+  const r2 = resolveLinkTarget("epic", "wikilink", ctx("adr/loose.md"));
+  assert.equal(r2.outcome, "ambiguous");
+  assert.deepEqual(r2.candidates, ["epics/PS-A/epic.md", "epics/PS-B/epic.md"]);
+  const r3 = resolveLinkTarget("../epics/PS-B/epic", "wikilink", ctx("adr/loose.md"));
+  assert.equal(r3.node.path, "epics/PS-B/epic.md", "source-relative try fires after the root try is rejected");
+  assert.equal(resolveLinkTarget("../../adr/ADR-010-slug-first", "wikilink", ctx("adr/loose.md")).outcome,
+    "dead", "a wrong relative depth is dead — no basename fallback");
+  assert.equal(resolveLinkTarget("epics/PS-A/epic.md", "wikilink", ctx("adr/loose.md")).node.path,
+    "epics/PS-A/epic.md", ".md-suffixed form accepted");
+});
+
+test("resolveLinkTarget rings: node beats non-node; non-node-only is out-of-scope; kinds scoping skips ring 2 (contract 3)", () => {
+  const { ctx } = graphVault();
+  const at = (t, extra) => resolveLinkTarget(t, "wikilink", ctx("adr/ADR-010-slug-first.md", extra));
+  assert.equal(at("loose").node.path, "adr/loose.md", "node wins over the root twin");
+  const oos = at("kanban");
+  assert.equal(oos.outcome, "out-of-scope");
+  assert.equal(oos.path, "kanban.md", "unique non-node hit reports its path");
+  const multi = at("readme");
+  assert.equal(multi.outcome, "out-of-scope");
+  assert.equal(multi.path, undefined, "several non-nodes share the stem — no single path");
+  assert.equal(at("ghost").outcome, "dead");
+  assert.equal(at("ADR-010", { kinds: ["spec"] }).outcome, "dead", "kind-scoped refs never fall into ring 2");
+  assert.equal(at("SPEC-002", { kinds: ["spec"] }).node.path, "specs/SPEC-002-slug-first-artifact-identity.md");
+  const cross = at("dup");
+  assert.equal(cross.outcome, "ambiguous", "cross-kind stem multi-hit is ambiguous");
+  assert.deepEqual(cross.candidates, ["adr/dup.md", "concepts/dup.md"]);
+});
+
+test("resolveLinkTarget mdlinks: source-relative only; attachments via injected exists; outside vault out-of-scope (contract 3)", () => {
+  const { ctx } = graphVault();
+  const from = "adr/ADR-010-slug-first.md";
+  assert.equal(resolveLinkTarget("./loose.md", "mdlink", ctx(from)).node.path, "adr/loose.md");
+  const readme = resolveLinkTarget("./README.md", "mdlink", ctx(from));
+  assert.equal(readme.outcome, "out-of-scope");
+  assert.equal(readme.path, "adr/README.md");
+  assert.equal(resolveLinkTarget("../kanban.md", "mdlink", ctx(from)).outcome, "out-of-scope");
+  assert.equal(resolveLinkTarget("./missing.md", "mdlink", ctx(from)).outcome, "dead");
+  assert.equal(resolveLinkTarget("../../outside.md", "mdlink", ctx(from)).outcome, "out-of-scope",
+    "escaping the vault root is out-of-scope, never probed");
+  assert.equal(resolveLinkTarget("./art.png", "mdlink", ctx(from)).outcome, "dead", "non-md needs exists()");
+  assert.equal(
+    resolveLinkTarget("./art.png", "mdlink", ctx(from, { exists: (rel) => rel === "adr/art.png" })).outcome,
+    "out-of-scope", "attachment classified via injected exists()");
+});
+
+test("resolveSelection: graph — in bare selection, composable, valid on kanban-less and epic-less layouts", () => {
+  const layout = loadLayout("engineering");
+  assert.ok(resolveSelection(layout, null).graph, "bare invocation includes graph");
+  const g = resolveSelection(layout, "graph");
+  assert.ok(g.explicit && g.graph && !g.kanban && !g.codemap);
+  assert.deepEqual(g.indexes, []);
+  const combo = resolveSelection(layout, "graph,kanban");
+  assert.ok(combo.graph && combo.kanban);
+  const noKanban = { ...layout, kanban: null };
+  assert.ok(resolveSelection(noKanban, "graph").graph, "valid without a kanban");
+  const noEpics = { ...layout, folders: layout.folders.filter((f) => f.kind !== "epic") };
+  assert.ok(resolveSelection(noEpics, "graph").graph, "valid without an epic folder");
 });

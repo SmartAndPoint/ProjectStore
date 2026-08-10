@@ -49,6 +49,10 @@ import {
   isLegacyNumberedId,
   storyMatchesEntry,
   legalArtifactName,
+  stripCodeSpans,
+  extractLinks,
+  buildNodeIndex,
+  resolveLinkTarget,
 } from "./lib.mjs";
 
 const AGENT_BLOCK_MARKER = /<!--\s*projectstore:agents v(\d+)/g;
@@ -636,11 +640,9 @@ export function checkIndexes(cfg, layout, artifacts) {
   return out;
 }
 
-// Strip fenced blocks and inline code before counting checkboxes / matching
-// links — a fenced example containing `- [ ]` must not inflate the count.
-function stripCode(s) {
-  return s.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
-}
+// Fence/inline-code stripping lives in lib.mjs (stripCodeSpans) — one
+// definition shared with the link-graph extractor, so "not a link/checkbox
+// when inside code" means the same thing everywhere.
 
 // RAW lines outside fenced blocks — for checks that must both MATCH (fence-
 // immune) and REPORT the line verbatim (backticks intact in the message).
@@ -666,7 +668,7 @@ export function checkStoriesAndEpics(artifacts) {
   for (const a of artifacts) {
     if (a.kind === "story" && (a.fm.status || "").toLowerCase() === "done") {
       const sec = sectionOf(a.body, "acceptance") || "";
-      const unchecked = (stripCode(sec).match(/- \[ \]/g) || []).length;
+      const unchecked = (stripCodeSpans(sec).match(/- \[ \]/g) || []).length;
       if (unchecked > 0) {
         out.push(finding("vault", "warn", "acceptance",
           `Story is "done" with ${unchecked} unchecked acceptance criteria.`, a.rel));
@@ -1035,28 +1037,44 @@ export function walkVaultFiles(vault) {
   return files;
 }
 
-export function checkWikilinks(cfg, artifacts, vaultFiles = null) {
+// Body links resolved through the ONE shared resolver (spec:
+// vault-link-graph-derived-view-and-shared-link-resolver): dead stays an
+// issue, ambiguous (multiple node candidates — invisible to the old
+// basename-set check) is a NEW warn, out-of-scope (the target exists but
+// is not an artifact: kanban, code-map, READMEs, attachments) is silent at
+// every level. A deliberate, documented behavior change in both
+// directions: tiered matching also accepts links the exact-basename check
+// rejected (number-stripped slug readings), and path-qualified links now
+// resolve as paths — a wrong relative depth is dead here even though
+// Obsidian's basename fallback happens to heal it. The graph generator
+// consumes the same resolver, so a dead edge in graph.md and a dead-link
+// finding here are the same fact reported twice.
+export function checkWikilinks(cfg, artifacts, vaultFiles = null, nodeIndex = null) {
   const out = [];
   const files = vaultFiles ?? walkVaultFiles(cfg.vault_path);
-  const names = new Set(files.map((f) => f.name.replace(/\.md$/, "").toLowerCase()));
-  for (const a of artifacts) {
-    // Notation like `[[...]]` inside code spans/fences is not a link.
-    const prose = a.body.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
-    for (const m of prose.matchAll(/\[\[([^\]]+)\]\]/g)) {
-      const target = m[1].split("|")[0].split("#")[0].trim();
-      if (!target) continue;
-      const base = basename(target).toLowerCase();
-      if (!names.has(base)) {
-        out.push(finding("vault", "issue", "wikilink", `Dead wiki-link [[${target}]].`, a.rel));
-      }
+  let index = nodeIndex;
+  if (!index) {
+    try { index = buildNodeIndex(cfg, loadLayout(cfg.layout)); } catch (e) {
+      // A silent no-op check would read as "links are fine" — say why not.
+      return [finding("vault", "warn", "wikilink", `Link check skipped — node index failed: ${e.message}`)];
     }
-    // Relative markdown links: [text](./x) / (../x) must resolve on disk.
-    for (const m of prose.matchAll(/\]\(([^)\s]+)\)/g)) {
-      const t = m[1];
-      if (!t.startsWith("./") && !t.startsWith("../")) continue;
-      const target = t.split("#")[0];
-      if (target && !existsSync(resolve(dirname(a.abs), target))) {
-        out.push(finding("vault", "issue", "rel-link", `Dead relative link (${t}).`, a.rel));
+  }
+  for (const a of artifacts) {
+    const ctx = {
+      sourceRel: a.rel,
+      index,
+      files,
+      exists: (rel) => existsSync(join(cfg.vault_path, rel)),
+    };
+    for (const link of extractLinks(a.body)) {
+      const r = resolveLinkTarget(link.target, link.type, ctx);
+      if (r.outcome === "dead") {
+        out.push(link.type === "wikilink"
+          ? finding("vault", "issue", "wikilink", `Dead wiki-link [[${link.target}]].`, a.rel)
+          : finding("vault", "issue", "rel-link", `Dead relative link (${link.target}).`, a.rel));
+      } else if (r.outcome === "ambiguous") {
+        out.push(finding("vault", "warn", "wikilink",
+          `Ambiguous wiki-link [[${link.target}]] — matches ${r.candidates.join(", ")}; qualify with a path.`, a.rel));
       }
     }
   }
@@ -1291,6 +1309,34 @@ export function checkCodeMap(cfg) {
   return [];
 }
 
+// graph.md staleness: regenerate with the real generator and compare —
+// kanban's variant of the pattern, INCLUDING its missing-file info
+// (checkCodeMap stays silent on a missing file; the graph deliberately
+// picks the louder branch, because bare reconcile never re-mints a deleted
+// graph.md — this info is the standing signal; spec contract 6).
+export function checkGraph(cfg) {
+  const p = join(cfg.vault_path, "graph.md");
+  if (!existsSync(p)) {
+    return [finding("vault", "info", "graph", "No graph.md yet — run /projectstore:graph to create the link graph.")];
+  }
+  const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", "graph.mjs")], {
+    encoding: "utf8",
+    timeout: 10000,
+    env: { ...process.env, CLAUDE_PROJECT_DIR: projectRoot() },
+  });
+  if (r.status !== 0) return [finding("vault", "warn", "graph", `graph generator failed: ${(r.stderr || "").trim()}`)];
+  let expected;
+  try { expected = JSON.parse(r.stdout).content; } catch {
+    return [finding("vault", "warn", "graph", "graph generator returned unparseable output.")];
+  }
+  const norm = (s) => s.split("\n").filter((l) => !l.startsWith("generated_at:")).join("\n").trimEnd();
+  if (norm(expected) !== norm(readFileSync(p, "utf8"))) {
+    return [finding("vault", "issue", "graph",
+      "graph.md is out of sync with vault links — run /projectstore:graph (or reconcile).", "graph.md")];
+  }
+  return [];
+}
+
 // ─── Runners ───────────────────────────────────────────────────────────
 
 export function runInstallChecks(cfg, proj) {
@@ -1342,12 +1388,13 @@ export function runVaultChecks(cfg) {
   const vaultFiles = walkVaultFiles(cfg.vault_path); // one walk, three consumers
   findings.push(
     ...checkVaultPolicy(cfg, layout, artifacts, vaultCfg),
-    ...checkWikilinks(cfg, artifacts, vaultFiles),
+    ...checkWikilinks(cfg, artifacts, vaultFiles, buildNodeIndex(cfg, layout)),
     ...checkArtifactIdentity(layout, vaultFiles, artifacts),
     ...checkArtifactNames(vaultFiles),
     ...checkExternalRefsForm(artifacts),
     ...checkCodeRefs(artifacts, projectRoot()),
     ...checkCodeMap(cfg),
+    ...checkGraph(cfg),
   );
   return findings;
 }

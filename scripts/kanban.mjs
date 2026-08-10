@@ -17,7 +17,7 @@ import {
   loadTemplate,
   renderTemplate,
   parseFrontmatter,
-  today,
+  nowIso,
   listEpicStories,
   slugIdentity,
   displayNumberOf,
@@ -136,7 +136,10 @@ function main() {
 
   const tpl = loadTemplate(cfg.language || "en", "kanban");
   const vars = {
-    date: today(),
+    // Full ISO, not date-only (spec contract 6). The template var is named
+    // generated_at — renderTemplate substitutes "" for unknown vars, so the
+    // var rename here and in BOTH kanban templates must land together.
+    generated_at: nowIso(),
     backlog_items: (columns["Backlog"] || []).join("\n") || "",
     todo_items: (columns["ToDo"] || []).join("\n") || "",
     in_progress_items: (columns["In Progress"] || []).join("\n") || "",

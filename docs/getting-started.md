@@ -71,6 +71,7 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
 /projectstore:doctor                                      # install + vault diagnostics (no LLM)
 /projectstore:reconcile                                   # re-derive board/indexes/code-map from frontmatter
 /projectstore:codemap                                     # epic ↔ code mapping view
+/projectstore:graph                                       # vault link graph: nodes + typed edges
 /projectstore:agents status                               # routing block + model config state
 ```
 

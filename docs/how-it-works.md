@@ -104,10 +104,13 @@ resistance. v0.13 makes that safe instead of forbidden:
   `--install` verifies the wiring (config, vault path, hooks firing, statusline,
   agents block, leftover agent copies, gitignore, marketplace auto-update);
   `--vault` verifies content consistency (status ↔ board ↔ indexes, acceptance
-  boxes, dead wiki/relative links, `code_refs`, code-map staleness). A cheap
+  boxes, dead and ambiguous wiki/relative links — resolved by the same shared
+  resolver the link graph uses, so the two can never disagree about a body
+  link — `code_refs`,
+  code-map and graph staleness). A cheap
   subset runs at session start and prints one line only when something is wrong.
 - **`reconcile`** rebuilds every generated view (kanban, folder indexes,
-  code-map) from frontmatter — the repair partner. Idempotent: a clean vault
+  code-map, the link graph) from the vault — the repair partner. Idempotent: a clean vault
   yields zero changes. Since v0.19 reconcile applies the write itself
   (`--write`): each approved target is recomputed from the vault state at
   write time and replaced atomically, so a stale preview is never what lands;

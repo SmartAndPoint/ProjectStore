@@ -25,6 +25,9 @@ at next. Quote paths with spaces (vaults often live under iCloud paths).
 Locate the vault (`.claude/projectstore.json` → `vault_path`). Read `adr/` and
 `concepts/` titles + frontmatter first. Never propose an artifact that already
 exists — extend or supersede it instead, and say so.
+Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes —
+prefer them for orientation, but fall back to a frontmatter sweep when a view is
+missing or its `generated_at` predates recent artifact changes (compare file mtimes; a false-stale just costs a sweep).
 
 ## Phase 1 — Dig
 

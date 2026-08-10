@@ -10,7 +10,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { readConfig, loadLayout, folderByKind, parseFrontmatter, today } from "./lib.mjs";
+import { readConfig, loadLayout, folderByKind, parseFrontmatter, nowIso } from "./lib.mjs";
 
 function die(msg) {
   process.stderr.write(`projectstore/codemap: ${msg}\n`);
@@ -60,7 +60,9 @@ function main() {
     "---",
     "",
     "projectstore: derived",
-    `generated_at: ${today()}`,
+    // Full ISO, not date-only: freshness comparison on an active day is
+    // ill-defined otherwise (spec contract 6). Normalizers strip the line.
+    `generated_at: ${nowIso()}`,
     "",
     "---",
     "",

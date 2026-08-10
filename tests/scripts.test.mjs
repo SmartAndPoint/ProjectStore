@@ -321,6 +321,148 @@ test("reconcile --write: a named-absent index aborts BEFORE any side effect (con
     "config errors abort with nothing written — no unreported mutation");
 });
 
+// ─── link graph (spec: vault-link-graph-derived-view-and-shared-link-resolver) ──
+
+// Its own fixture — seedDerivedFixture's exact board/write counts are pinned
+// by six tests above; do not extend it. One artifact of every edge kind:
+// two-sided supersedes and spec↔story declarations (must collapse to one
+// edge each), a dead link, an ambiguous stem, an out-of-scope link repeated
+// twice (dedup), and all three story shapes.
+function seedGraphFixture() {
+  const { proj, vault } = makeVaultProject();
+  const put = (rel, content) => {
+    mkdirSync(join(vault, dirname(rel)), { recursive: true });
+    writeFileSync(join(vault, rel), content);
+  };
+  const fm = (extra, body = "") => `---\n${extra}\n---\n\n# T\n${body}`;
+  put(join("adr", "old-way.md"),
+    fm('type: adr\nid: "old-way"\ntitle: "Old way"\nstatus: superseded\ndate: 2026-01-01\nsuperseded_by: "new-way"'));
+  put(join("adr", "new-way.md"),
+    fm('type: adr\nid: "new-way"\ntitle: "New way"\nstatus: accepted\ndate: 2026-01-02\nsupersedes: "old-way"',
+      "\n[[kanban]] twice: [[kanban]]\n[[missing-target]]\n[[dup]]\n"));
+  put(join("adr", "dup.md"), fm('type: adr\nid: "dup-adr"\ntitle: "Dup A"\nstatus: proposed\ndate: 2026-01-03'));
+  put(join("specs", "dup.md"), fm('type: spec\nid: "dup-spec"\ntitle: "Dup S"\nstatus: draft\ndate: 2026-01-03'));
+  put(join("specs", "covering.md"),
+    fm('type: spec\nid: "covering"\ntitle: "Covering"\nstatus: active\ndate: 2026-01-01\nstories: ["PS-X/story-ship-it"]\nadr: ["new-way"]'));
+  put(join("specs", "one-sided.md"),
+    fm('type: spec\nid: "one-sided"\ntitle: "One sided"\nstatus: draft\ndate: 2026-01-04\nstories: ["PS-X/story-loose"]'));
+  put(join("epics", "PS-X", "epic.md"),
+    fm('type: epic\nid: "PS-X"\ntitle: "X"\nstatus: in-progress\ncreated: 2026-01-01\ncode_refs: ["scripts/"]'));
+  put(join("epics", "PS-X", "stories", "story-ship-it.md"),
+    fm('type: story\nid: "story-ship-it"\ntitle: "Ship it"\nstatus: planned\ncreated: 2026-01-01\nspecs: ["covering"]',
+      "\n[[new-way]]\n"));
+  put(join("epics", "PS-X", "stories", "story-nested", "README.md"),
+    fm('type: story\nid: "story-nested"\ntitle: "Nested"\nstatus: planned\ncreated: 2026-01-02'));
+  put(join("epics", "PS-X", "story-loose.md"),
+    fm('type: story\nid: "story-loose"\ntitle: "Loose | Pipe"\nstatus: planned\ncreated: 2026-01-02'));
+  writeFileSync(join(vault, "kanban.md"), "stub board\n");
+  return { proj, vault };
+}
+
+test("graph.mjs golden: three story shapes are nodes; typed edges normalized, deduplicated, plain-text, deterministic (contracts 2, 4)", () => {
+  const { proj } = seedGraphFixture();
+  const g1 = runIn(proj, "graph.mjs", []);
+  const g2 = runIn(proj, "graph.mjs", []);
+  assert.equal(normEq(g1.content), normEq(g2.content), "byte-identical modulo generated_at");
+  for (const p of ["epics/PS-X/stories/story-ship-it.md",
+                   "epics/PS-X/stories/story-nested/README.md",
+                   "epics/PS-X/story-loose.md"]) {
+    assert.ok(g1.content.includes(`| ${p} |`), `${p} is a node`);
+  }
+  const edges = g1.content.split("\n").filter((l) => l.startsWith("|")).map((l) => l.trim());
+  assert.deepEqual(edges.filter((l) => l.includes("| spec-covers |")),
+    ["| specs/covering.md | spec-covers | epics/PS-X/stories/story-ship-it.md |",
+     "| specs/one-sided.md | spec-covers | epics/PS-X/story-loose.md |"],
+    "two-sided declaration collapses to ONE edge; a one-sided declaration is still an edge");
+  assert.ok(g1.content.includes("| epics/PS-X/story-loose.md | Loose \\| Pipe | story |"),
+    "titles escape | inside tables");
+  assert.deepEqual(edges.filter((l) => l.includes("| supersedes |")),
+    ["| adr/new-way.md | supersedes | adr/old-way.md |"],
+    "two-sided supersedes declaration collapses to one edge");
+  assert.ok(edges.includes("| specs/covering.md | spec-implements-adr | adr/new-way.md |"));
+  assert.ok(edges.includes("| epics/PS-X/epic.md | epic-contains | epics/PS-X/story-loose.md |"),
+    "standalone story is contained by its epic");
+  assert.ok(edges.includes("| adr/new-way.md | dead | missing-target |"), "dead To = raw target text");
+  assert.ok(edges.includes("| adr/new-way.md | ambiguous | dup (matches: adr/dup.md, specs/dup.md) |"),
+    "ambiguous lists candidate paths in the row");
+  assert.equal(edges.filter((l) => l === "| adr/new-way.md | out-of-scope | kanban.md |").length, 1,
+    "duplicate (from, to, kind) triple deduplicated");
+  assert.ok(!g1.content.includes("[["), "plain text — never wikilinks (Obsidian backlink pollution)");
+  assert.equal(g1.stats.by_kind["spec-covers"], 2);
+  assert.ok(g1.stats.nodes >= 8 && g1.stats.edges >= 7);
+});
+
+test("reconcile graph: bare skips while absent, explicit creates, repairs edits, idempotent; grep contract holds (contract 1 + ACs)", () => {
+  const { proj, vault } = seedGraphFixture();
+  const bare = runIn(proj, "reconcile.mjs", ["--write"]);
+  assert.match(bare.graph.skipped, /does not exist/);
+  assert.ok(!existsSync(join(vault, "graph.md")), "bare --write never mints graph.md");
+  // The standing signal for a missing/deleted graph (contracts 1 + 6).
+  const missing = runIn(proj, "doctor.mjs", ["--vault", "--json"]);
+  assert.ok(missing.some((f) => f.check === "graph" && f.level === "info"),
+    "missing graph.md is a standing doctor info");
+
+  const w = runIn(proj, "reconcile.mjs", ["--write", "--only", "graph"]);
+  assert.ok(w.graph.written, "explicit selection creates it");
+  const again = runIn(proj, "reconcile.mjs", ["--write", "--only", "graph"]);
+  assert.equal(again.graph.written, false, "idempotent");
+  const bare2 = runIn(proj, "reconcile.mjs", ["--write"]);
+  assert.ok(!bare2.graph.skipped, "once the file exists, bare invocation includes it");
+
+  // Grep contract: one path returns both directions.
+  const story = "epics/PS-X/stories/story-ship-it.md";
+  const rows = readFileSync(join(vault, "graph.md"), "utf8").split("\n").filter((l) => l.includes(story));
+  assert.ok(rows.some((l) => l.startsWith(`| ${story} | wikilink |`)), "outgoing edge in the neighborhood");
+  assert.ok(rows.some((l) => l.trimEnd().endsWith(`| spec-covers | ${story} |`)), "incoming edge in the neighborhood");
+
+  // Hand-edit → doctor staleness issue → reconcile repairs → doctor clean.
+  const p = join(vault, "graph.md");
+  writeFileSync(p, readFileSync(p, "utf8") + "\nHAND EDIT\n");
+  const stale = runIn(proj, "doctor.mjs", ["--vault", "--json"]);
+  assert.ok(stale.some((f) => f.check === "graph" && f.level === "issue"), "doctor flags a hand-edited graph");
+  const repair = runIn(proj, "reconcile.mjs", ["--write", "--only", "graph"]);
+  assert.ok(repair.graph.written, "reconcile repairs an existing graph.md");
+  const clean = runIn(proj, "doctor.mjs", ["--vault", "--json"]);
+  assert.ok(!clean.some((f) => f.check === "graph"), "no graph findings after repair");
+});
+
+test("doctor↔graph parity: dead and ambiguous body links are the same facts in both reports (contract 5)", () => {
+  const { proj } = seedGraphFixture();
+  const wikilink = runIn(proj, "doctor.mjs", ["--vault", "--json"]).filter((f) => f.check === "wikilink");
+  const dead = wikilink.filter((f) => f.level === "issue");
+  const ambiguous = wikilink.filter((f) => f.level === "warn");
+  assert.equal(dead.length, 1, JSON.stringify(wikilink));
+  assert.match(dead[0].message, /missing-target/);
+  assert.equal(ambiguous.length, 1, "ambiguous is a NEW warn the basename set could not see");
+  assert.match(ambiguous[0].message, /dup.*adr\/dup\.md, specs\/dup\.md/);
+  const g = runIn(proj, "graph.mjs", []);
+  assert.deepEqual(g.content.split("\n").filter((l) => l.includes("| dead |")).map((l) => l.trim()),
+    ["| adr/new-way.md | dead | missing-target |"]);
+  assert.equal(g.content.split("\n").filter((l) => l.includes("| ambiguous |")).length, 1);
+  // out-of-scope is silent in doctor: the [[kanban]] link produced no finding.
+  assert.ok(!wikilink.some((f) => f.message.includes("kanban")), "out-of-scope is not a doctor finding");
+});
+
+test("generated_at is a full ISO timestamp on all three derived views (contract 6)", () => {
+  const { proj } = seedGraphFixture();
+  for (const script of ["kanban.mjs", "codemap.mjs", "graph.mjs"]) {
+    const out = runIn(proj, script, []);
+    assert.match(out.content, /^generated_at: \d{4}-\d\d-\d\dT\d\d:\d\d/m, script);
+  }
+});
+
+test("agent prose carries the derived-views orientation contract (spec contract 7 guard)", () => {
+  const SHARED = "Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes";
+  const FALLBACK = "missing or its `generated_at` predates recent artifact changes";
+  for (const f of ["librarian.md", "reviewer.md", "critic.md", "archaeologist.md"]) {
+    const src = readFileSync(join(REPO, "agents", f), "utf8");
+    assert.ok(src.includes(SHARED), `${f} carries the shared derived-views sentence`);
+    assert.ok(src.includes(FALLBACK), `${f} carries the freshness fallback`);
+  }
+  assert.match(readFileSync(join(REPO, "agents", "librarian.md"), "utf8"), /Edges table/,
+    "librarian reads existing edges from the graph");
+});
+
 test("core writes only via lib.mjs writeFileAtomic (atomic-regeneration contract 2 guard)", () => {
   // Globbed so a future script is covered automatically. hooks/ is
   // deliberately out of scope: session-start's marker write is host-side
@@ -340,6 +482,7 @@ test("command prose routes derived-view applies through reconcile --write (contr
     ["reconcile.md", "--write --only"],
     ["kanban.md", "--write --only kanban"],
     ["codemap.md", "--write --only codemap"],
+    ["graph.md", "--write --only graph"],
   ]) {
     const src = readFileSync(join(REPO, "commands", file), "utf8");
     assert.ok(src.includes(marker), `${file} applies via ${marker}`);

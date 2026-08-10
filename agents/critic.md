@@ -16,6 +16,9 @@ Treat the text as a draft to stress-test.
 Read the file and follow its load-bearing links (a referenced research note, ADR,
 or the actual code/data behind a claim). **Verify every technical claim against
 the real source** — don't trust an assertion because it's written confidently.
+Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes —
+prefer them for orientation, but fall back to a frontmatter sweep when a view is
+missing or its `generated_at` predates recent artifact changes (compare file mtimes; a false-stale just costs a sweep).
 
 **Batch independent evidence calls into one turn.** Every turn re-reads your whole
 accumulated context, so N single-call turns cost ~N× more input than one turn with

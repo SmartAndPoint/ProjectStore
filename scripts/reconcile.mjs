@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // projectstore — reconcile.mjs
-// Re-derives every derived view from frontmatter (the source of truth):
-// kanban.md, folder-index README tables, code-map.md. Hand-edits therefore
-// can never *permanently* desync the board/indexes (PS-IMPROVE story-002,
+// Re-derives every derived view from the vault's source of truth:
+// kanban.md, folder-index README tables, code-map.md, graph.md. Hand-edits
+// therefore can never *permanently* desync the views (PS-IMPROVE story-002,
 // ADR-004/005: vault-side repairs belong to reconcile, not doctor --fix).
 //
 // Two modes (spec: atomic-regeneration-of-derived-views):
@@ -19,12 +19,12 @@
 //     iff a selected target failed, so a cron caller notices. Headless use
 //     is sanctioned by ADR-009 ("reconcile as a scheduled repair job").
 //
-// --only <sel>[,…] limits either mode to: kanban | codemap | indexes |
-//   indexes=<folder-path>. Unknown selectors, and explicitly *named*
-//   targets the layout or vault cannot provide, die loudly — a typo'd cron
-//   job must not silently reconcile nothing. Bare invocation (and the
-//   class-wide `indexes`) keeps the silent-skip behaviour for absent
-//   targets.
+// --only <sel>[,…] limits either mode to: kanban | codemap | graph |
+//   indexes | indexes=<folder-path>. Unknown selectors, and explicitly
+//   *named* targets the layout or vault cannot provide, die loudly — a
+//   typo'd cron job must not silently reconcile nothing. Bare invocation
+//   (and the class-wide `indexes`) keeps the silent-skip behaviour for
+//   absent targets.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
@@ -71,7 +71,7 @@ const errMsg = (e) => String((e && e.message) || e);
 // cannot provide them; the class-wide selectors skip, like bare invocation.
 export function resolveSelection(layout, onlyRaw) {
   const validSelectors = () =>
-    [layout.kanban ? "kanban" : null, "codemap", "indexes",
+    [layout.kanban ? "kanban" : null, "codemap", "graph", "indexes",
      ...layout.folders.map((f) => `indexes=${f.path}`)]
       .filter(Boolean).join(", ");
   if (onlyRaw == null) {
@@ -79,10 +79,11 @@ export function resolveSelection(layout, onlyRaw) {
       explicit: false,
       kanban: true,
       codemap: true,
+      graph: true,
       indexes: layout.folders.map((f) => ({ path: f.path, named: false })),
     };
   }
-  const sel = { explicit: true, kanban: false, codemap: false, indexes: [] };
+  const sel = { explicit: true, kanban: false, codemap: false, graph: false, indexes: [] };
   const parts = String(onlyRaw).split(",").map((s) => s.trim()).filter(Boolean);
   if (!parts.length) return { error: `empty --only selection — valid: ${validSelectors()}` };
   for (const raw of parts) {
@@ -94,6 +95,10 @@ export function resolveSelection(layout, onlyRaw) {
         return { error: `layout has no epic folder, so there is no code map — valid: ${validSelectors()}` };
       }
       sel.codemap = true;
+    } else if (raw === "graph") {
+      // Valid on every layout: the graph's node universe is whatever
+      // artifact kinds the layout declares — there is no layout without one.
+      sel.graph = true;
     } else if (raw === "indexes") {
       // Merge, never assign: `indexes=adr,indexes` must keep adr's named
       // loudness rather than silently demoting it to a skippable member.
@@ -115,12 +120,33 @@ export function resolveSelection(layout, onlyRaw) {
   return sel;
 }
 
-// Compute one generator-backed target (kanban, code-map). `explicit` (the
-// human named it) suppresses the fresh-vault politeness skip: an explicitly
-// requested code map is written even when no code_refs exist yet.
+// Per-target politeness skips for bare invocation. `explicit` (the human
+// named the target with --only) suppresses them wholesale — an explicitly
+// requested target is always produced. Each returns a reason string or null.
+//
+// codemap: skip only a fresh vault (file absent AND zero code_refs) — a
+// deleted code-map.md on a vault with refs IS re-minted by bare --write.
+// graph: STRICTER — skip whenever graph.md is absent (spec contract 1): a
+// routine `reconcile --write` after a plugin upgrade must not silently mint
+// a new root file, and near-simultaneous first creation on two machines
+// would mint an iCloud conflicted copy. Deletion therefore reads as first
+// creation; the standing signal is doctor's missing-graph info.
+const SKIP = {
+  "kanban.mjs": null,
+  "codemap.mjs": (g, onDisk) =>
+    onDisk === null && g.stats && g.stats.epics_with_refs === 0 && g.stats.story_rows === 0
+      ? "no code_refs anywhere and no existing file"
+      : null,
+  "graph.mjs": (g, onDisk) =>
+    onDisk === null
+      ? "graph.md does not exist yet — create it explicitly (--only graph or /projectstore:graph)"
+      : null,
+};
+
+// Compute one generator-backed target (kanban, code-map, graph).
 // `fallbackPath` keeps the report shape ({path, …}) even when the generator
 // itself failed and never told us where its target lives.
-function derivedTarget(script, requireExistingOrRefs, explicit = false, fallbackPath = null) {
+function derivedTarget(script, explicit = false, fallbackPath = null) {
   const g = runGenerator(script);
   if (g.error) return { ...(fallbackPath ? { path: fallbackPath } : {}), error: g.error };
   let onDisk = null;
@@ -129,8 +155,9 @@ function derivedTarget(script, requireExistingOrRefs, explicit = false, fallback
   } catch (e) {
     return { path: g.path, error: errMsg(e) };
   }
-  if (!explicit && requireExistingOrRefs && onDisk === null && g.stats && g.stats.epics_with_refs === 0 && g.stats.story_rows === 0) {
-    return { path: g.path, changed: false, skipped: "no code_refs anywhere and no existing file", stats: g.stats };
+  const skipWhy = !explicit && SKIP[script] ? SKIP[script](g, onDisk) : null;
+  if (skipWhy) {
+    return { path: g.path, changed: false, skipped: skipWhy, stats: g.stats };
   }
   const changed = onDisk === null || normalize(onDisk) !== normalize(g.content);
   const base = { path: g.path, changed, stats: g.stats };
@@ -256,8 +283,8 @@ export function writeIndexWithRetry(readmePath, rebuild, { attempts = 3 } = {}) 
 // Apply a generator-backed target. The compute happens here, immediately
 // before its own write — never compute-all-then-write-all — which is what
 // shrinks the staleness window to microseconds (spec contract 1).
-function applyDerived(script, requireExistingOrRefs, explicit, fallbackPath) {
-  const t = derivedTarget(script, requireExistingOrRefs, explicit, fallbackPath);
+function applyDerived(script, explicit, fallbackPath) {
+  const t = derivedTarget(script, explicit, fallbackPath);
   if (t.error) return { ...(t.path ? { path: t.path } : {}), changed: t.changed === true, written: false, error: t.error };
   if (t.skipped) return { path: t.path, changed: false, written: false, skipped: t.skipped, stats: t.stats };
   if (!t.changed) return { path: t.path, changed: false, written: false, stats: t.stats };
@@ -298,11 +325,15 @@ export function runReconcile({ write = false, only = null } = {}) {
   const kanbanPath = layout.kanban ? join(cfg.vault_path, layout.kanban.file || "kanban.md") : null;
   if (!sel.kanban) out.kanban = { skipped: "not selected" };
   else if (!layout.kanban) out.kanban = { skipped: "layout has no kanban" };
-  else out.kanban = write ? applyDerived("kanban.mjs", false, sel.explicit, kanbanPath) : derivedTarget("kanban.mjs", false, sel.explicit, kanbanPath);
+  else out.kanban = write ? applyDerived("kanban.mjs", sel.explicit, kanbanPath) : derivedTarget("kanban.mjs", sel.explicit, kanbanPath);
 
   const codemapPath = join(cfg.vault_path, "code-map.md");
   if (!sel.codemap) out.codemap = { skipped: "not selected" };
-  else out.codemap = write ? applyDerived("codemap.mjs", true, sel.explicit, codemapPath) : derivedTarget("codemap.mjs", true, sel.explicit, codemapPath);
+  else out.codemap = write ? applyDerived("codemap.mjs", sel.explicit, codemapPath) : derivedTarget("codemap.mjs", sel.explicit, codemapPath);
+
+  const graphPath = join(cfg.vault_path, "graph.md");
+  if (!sel.graph) out.graph = { skipped: "not selected" };
+  else out.graph = write ? applyDerived("graph.mjs", sel.explicit, graphPath) : derivedTarget("graph.mjs", sel.explicit, graphPath);
 
   out.indexes = [];
   for (const { path: folderPath, named } of sel.indexes) {
@@ -342,7 +373,7 @@ export function runReconcile({ write = false, only = null } = {}) {
     }
   }
 
-  const all = [out.kanban, out.codemap, ...out.indexes];
+  const all = [out.kanban, out.codemap, out.graph, ...out.indexes];
   // `failed` is reported in BOTH modes — a compute-mode generator error must
   // be visible in the summary, not buried in a target the prose's "changed
   // targets" preview never lists. Exit-code policy stays write-scoped

@@ -18,6 +18,14 @@ Locate the vault via `.claude/projectstore.json` → `vault_path`. Read the fold
 READMEs for orientation, then the artifacts themselves (frontmatter + content),
 prioritizing accepted ADRs and active epics.
 
+Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes —
+prefer them for orientation, but fall back to a frontmatter sweep when a view is
+missing or its `generated_at` predates recent artifact changes (compare file mtimes; a false-stale just costs a sweep). graph.md in
+particular is YOUR input: its Edges table is the complete set of existing links
+and typed relations (including dead and ambiguous ones), so read existing
+connections from there instead of rediscovering them file by file — your job
+starts where the graph's edges end.
+
 **Batch independent evidence calls into one turn.** Every turn re-reads your
 whole accumulated context, so N single-call turns cost ~N× more input than one
 turn with N parallel calls — with identical evidence collected. Folder READMEs
@@ -39,7 +47,9 @@ spread, folder sizes, naming drift), then verify each. Hunt specifically for:
    topic; propose a merge direction (which absorbs which, what content moves).
 3. **Missing connections** — artifacts that clearly relate (an epic implementing
    an ADR; research that motivated a decision) but carry no wiki-link either way.
-   Propose the exact link line and where it goes.
+   Use graph.md's Edges table as the baseline of what IS linked — candidates are
+   pairs with no edge in either direction. Propose the exact link line and where
+   it goes.
 4. **Misplacement & naming** — artifacts in the wrong folder for their kind,
    titles that no longer match content, drafts that grew into something else.
 5. **Archive candidates** — superseded, abandoned, or long-stale artifacts that
