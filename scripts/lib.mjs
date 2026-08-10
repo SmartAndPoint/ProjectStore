@@ -400,6 +400,31 @@ export function keywordRe(id) {
   return new RegExp(`(?:${forms.join("|")})`, "i");
 }
 
+// The two inline grammars built from a keyword plus a colon: the evidence suffix
+// on a checked acceptance criterion, and the story attribution on a spec
+// acceptance item. Both live here rather than inline at their call sites so the
+// gate and its tests cannot drift, and both accept the CJK-width colon — a zh
+// vault writes `— 证据：<test>` and `— stories：PS-X/story-foo`, and a full-width
+// colon must not read as the marker being absent.
+export function evidenceSuffixRe() {
+  return new RegExp(`[—–-]\\s*${keywordRe("evidence").source}\\s*[:：]`, "i");
+}
+
+export function storiesAttributionRe() {
+  return new RegExp(`[—–-]\\s*${keywordRe("stories").source}\\s*[:：]\\s*(.+)$`, "i");
+}
+
+// The body footer (`*Last updated: 2026-01-01*`) is content rather than a heading,
+// but the lifecycle gates keep it in step with frontmatter `updated:`. Matching
+// accepts every registered language; the rewrite preserves the file's OWN prefix
+// verbatim through capture group 1, so a locale's punctuation convention — fr
+// writes `… : `, zh writes `…：` — survives without the writer needing to know
+// which locale it is looking at, and a hand-mixed vault keeps each file's form.
+export function footerDateRe() {
+  const forms = allForms("footers", "last_updated").map(escapeRe);
+  return new RegExp(`^(\\*(?:${forms.join("|")})\\s*[:：]\\s*).*(\\*)$`, "mi");
+}
+
 // Matches a folder-README index header row in any registered language,
 // in the standard 4-column form: | File | Title | Status | Date |
 export function indexHeaderRe() {

@@ -1,0 +1,6 @@
+{
+  "statusline_no_work": "Noch kein Epic und keine Story in dieser Sitzung",
+  "statusline_state_error": "⚠ Sitzungsstatus nicht lesbar",
+  "statusline_example_epic": "Super-Feature in einem Super-Produkt",
+  "statusline_example_story": "Griff für Toilettenpapier"
+}
