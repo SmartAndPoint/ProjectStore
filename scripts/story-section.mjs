@@ -28,6 +28,7 @@ import {
   parseFrontmatter,
   headingLineRe,
   heading,
+  footerDateRe,
   nowIso,
   today,
 } from "./lib.mjs";
@@ -127,10 +128,10 @@ function main() {
     }
   }
   text = setFm(text, "updated", today());
-  // Keep the body footer in step with frontmatter `updated:` (en + ru forms).
-  text = text
-    .replace(/^\*Last updated: .*\*$/m, `*Last updated: ${today()}*`)
-    .replace(/^\*Обновлено: .*\*$/m, `*Обновлено: ${today()}*`);
+  // Keep the body footer in step with frontmatter `updated:`. Registry-driven, so
+  // every bundled language is covered; the file's own label and punctuation are
+  // preserved and only the date is rewritten.
+  text = text.replace(footerDateRe(), (_m, prefix, suffix) => `${prefix}${today()}${suffix}`);
 
   process.stdout.write(JSON.stringify({
     path: abs,

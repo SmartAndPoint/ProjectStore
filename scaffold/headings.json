@@ -1,28 +1,171 @@
 {
-  "_description": "Language-independent registry of section headings, inline keywords and index-table column names recognized by the deterministic scripts (doctor, reconcile, story-section). Per id, per language: an ARRAY of accepted forms; the FIRST form of the bound language is the canonical form used when writing. Matching accepts every form of every language, so a ru-headed file lints in an en-bound vault. New sections/keywords added by any story MUST register their en+ru forms here (PS-SPEC story-002).",
+  "_description": "Language-independent registry of section headings, inline keywords and index-table column names recognized by the deterministic scripts (doctor, reconcile, story-section). Per id, per language: an ARRAY of accepted forms; the FIRST form of the bound language is the canonical form used when writing. Matching accepts every form of every language, so a ru-headed file lints in an en-bound vault. New sections/keywords added by any story MUST register a form for every bundled language (en, ru, es, de, fr, zh) here (PS-SPEC story-002).",
   "headings": {
-    "description": { "en": ["Description"], "ru": ["Описание"] },
-    "decomposition": { "en": ["Decomposition"], "ru": ["Декомпозиция"] },
-    "acceptance": { "en": ["Acceptance Criteria"], "ru": ["Критерии приёмки", "Критерии приемки"] },
-    "technical_notes": { "en": ["Technical Notes"], "ru": ["Технические заметки"] },
-    "dependencies": { "en": ["Dependencies"], "ru": ["Зависимости"] },
-    "attachments": { "en": ["Attachments"], "ru": ["Вложения"] },
-    "implementation_plan": { "en": ["Implementation Plan"], "ru": ["План реализации"] },
-    "final_summary": { "en": ["Final Summary"], "ru": ["Итоговое резюме"] },
-    "spec_how": { "en": ["How we solve"], "ru": ["Как решаем"] },
-    "spec_contracts": { "en": ["Behavioral contracts"], "ru": ["Контракты поведения"] },
-    "spec_acceptance": { "en": ["Acceptance"], "ru": ["Приёмка", "Приемка", "Приёмка / сдача"] },
-    "spec_modules": { "en": ["Modules & files on disk"], "ru": ["Модули и файлы"] },
-    "spec_testing": { "en": ["Testing"], "ru": ["Тестирование"] }
+    "description": {
+      "en": ["Description"],
+      "ru": ["Описание"],
+      "es": ["Descripción"],
+      "de": ["Beschreibung"],
+      "fr": ["Description"],
+      "zh": ["描述"]
+    },
+    "decomposition": {
+      "en": ["Decomposition"],
+      "ru": ["Декомпозиция"],
+      "es": ["Descomposición"],
+      "de": ["Zerlegung"],
+      "fr": ["Décomposition"],
+      "zh": ["任务分解"]
+    },
+    "acceptance": {
+      "en": ["Acceptance Criteria"],
+      "ru": ["Критерии приёмки", "Критерии приемки"],
+      "es": ["Criterios de aceptación"],
+      "de": ["Abnahmekriterien"],
+      "fr": ["Critères d'acceptation", "Critères d’acceptation"],
+      "zh": ["验收标准"]
+    },
+    "technical_notes": {
+      "en": ["Technical Notes"],
+      "ru": ["Технические заметки"],
+      "es": ["Notas técnicas"],
+      "de": ["Technische Hinweise"],
+      "fr": ["Notes techniques"],
+      "zh": ["技术说明"]
+    },
+    "dependencies": {
+      "en": ["Dependencies"],
+      "ru": ["Зависимости"],
+      "es": ["Dependencias"],
+      "de": ["Abhängigkeiten"],
+      "fr": ["Dépendances"],
+      "zh": ["依赖"]
+    },
+    "attachments": {
+      "en": ["Attachments"],
+      "ru": ["Вложения"],
+      "es": ["Adjuntos"],
+      "de": ["Anhänge"],
+      "fr": ["Pièces jointes"],
+      "zh": ["附件"]
+    },
+    "implementation_plan": {
+      "en": ["Implementation Plan"],
+      "ru": ["План реализации"],
+      "es": ["Plan de implementación"],
+      "de": ["Umsetzungsplan"],
+      "fr": ["Plan d'implémentation", "Plan d’implémentation"],
+      "zh": ["实施计划"]
+    },
+    "final_summary": {
+      "en": ["Final Summary"],
+      "ru": ["Итоговое резюме"],
+      "es": ["Resumen final"],
+      "de": ["Abschlussbericht"],
+      "fr": ["Bilan final"],
+      "zh": ["最终总结"]
+    },
+    "spec_how": {
+      "en": ["How we solve"],
+      "ru": ["Как решаем"],
+      "es": ["Cómo lo resolvemos"],
+      "de": ["Lösungsweg"],
+      "fr": ["Comment on résout"],
+      "zh": ["解决方案"]
+    },
+    "spec_contracts": {
+      "en": ["Behavioral contracts"],
+      "ru": ["Контракты поведения"],
+      "es": ["Contratos de comportamiento"],
+      "de": ["Verhaltensverträge"],
+      "fr": ["Contrats de comportement"],
+      "zh": ["行为契约"]
+    },
+    "spec_acceptance": {
+      "en": ["Acceptance"],
+      "ru": ["Приёмка", "Приемка", "Приёмка / сдача"],
+      "es": ["Aceptación"],
+      "de": ["Abnahme"],
+      "fr": ["Acceptation"],
+      "zh": ["验收"]
+    },
+    "spec_modules": {
+      "en": ["Modules & files on disk"],
+      "ru": ["Модули и файлы"],
+      "es": ["Módulos y archivos"],
+      "de": ["Module und Dateien"],
+      "fr": ["Modules et fichiers"],
+      "zh": ["模块与文件"]
+    },
+    "spec_testing": {
+      "en": ["Testing"],
+      "ru": ["Тестирование"],
+      "es": ["Pruebas"],
+      "de": ["Tests"],
+      "fr": ["Tests"],
+      "zh": ["测试"]
+    }
   },
   "keywords": {
-    "evidence": { "en": ["evidence"], "ru": ["подтверждение"] },
-    "stories": { "en": ["stories"], "ru": ["stories"] }
+    "evidence": {
+      "en": ["evidence"],
+      "ru": ["подтверждение"],
+      "es": ["evidencia"],
+      "de": ["Nachweis"],
+      "fr": ["preuve"],
+      "zh": ["证据"]
+    },
+    "stories": {
+      "en": ["stories"],
+      "ru": ["stories"],
+      "es": ["stories"],
+      "de": ["stories"],
+      "fr": ["stories"],
+      "zh": ["stories"]
+    }
+  },
+  "footers": {
+    "last_updated": {
+      "en": ["Last updated"],
+      "ru": ["Обновлено"],
+      "es": ["Última actualización"],
+      "de": ["Zuletzt aktualisiert"],
+      "fr": ["Dernière mise à jour"],
+      "zh": ["最后更新"]
+    }
   },
   "index_columns": {
-    "file": { "en": ["File"], "ru": ["Файл"] },
-    "title": { "en": ["Title"], "ru": ["Заголовок"] },
-    "status": { "en": ["Status"], "ru": ["Статус"] },
-    "date": { "en": ["Date"], "ru": ["Дата"] }
+    "file": {
+      "en": ["File"],
+      "ru": ["Файл"],
+      "es": ["Archivo"],
+      "de": ["Datei"],
+      "fr": ["Fichier"],
+      "zh": ["文件"]
+    },
+    "title": {
+      "en": ["Title"],
+      "ru": ["Заголовок"],
+      "es": ["Título"],
+      "de": ["Titel"],
+      "fr": ["Titre"],
+      "zh": ["标题"]
+    },
+    "status": {
+      "en": ["Status"],
+      "ru": ["Статус"],
+      "es": ["Estado"],
+      "de": ["Status"],
+      "fr": ["Statut"],
+      "zh": ["状态"]
+    },
+    "date": {
+      "en": ["Date"],
+      "ru": ["Дата"],
+      "es": ["Fecha"],
+      "de": ["Datum"],
+      "fr": ["Date"],
+      "zh": ["日期"]
+    }
   }
 }

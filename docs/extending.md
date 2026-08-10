@@ -54,8 +54,9 @@ vault-side layout or template override):
 
 If the kind introduces **new section headings or inline keywords** that
 deterministic checks must recognize (doctor, reconcile, story-section),
-register their en+ru forms in `scaffold/headings.json` — matchers accept every
-registered language, so a ru-headed file lints in an en-bound vault.
+register a form per bundled language (en, ru, es, de, fr, zh) in
+`scaffold/headings.json` — matchers accept every registered language, so a
+ru-headed file lints in an en-bound vault.
 
 ## Adding a new layout
 
@@ -96,12 +97,58 @@ about triggers, and include an Anti-patterns section.
 
 ## Adding a new language
 
+Bundled: `en`, `ru`, `es`, `de`, `fr`, `zh`. To add another:
+
 Mirror `templates/en/` to `templates/<lang>/` and translate the bodies.
-Frontmatter keys stay English (machine-readable). Additionally register the
-language's heading/keyword/index-column forms in `scaffold/headings.json` —
-without that, doctor's section checks and reconcile's index rebuild silently
-skip files in that language. `templates/<lang>/strings.json` localizes the
-statusline only.
+Frontmatter keys **and their values** stay English (`status: planned` is
+machine-read; only prose and table labels get translated). Then register the
+language's heading/keyword/index-column forms in `scaffold/headings.json`, and
+add the locale to `LOCALES` in `tests/locales.test.mjs` so the suite actually
+runs over it. `templates/<lang>/strings.json` localizes the statusline only.
+
+Skipping the registry does not produce one clean error — it degrades *unevenly*,
+which is why the spec exists: an unregistered index header raises a doctor
+`index-header` warn while reconcile drops the same index silently; an
+unregistered `acceptance` heading is silent everywhere; an unregistered
+`implementation_plan` is misdiagnosed as "this done story has no Implementation
+Plan"; and `heading(id, lang)` falls back to English, so the lifecycle gates
+write English headings into an otherwise translated story.
+
+Constraints the deterministic scripts impose on the translation:
+
+- **Every heading must match *some* registered form.** `insertSection` guards on
+  `headingLineRe`, which accepts every registered form of every language — so a
+  heading in another locale's form is filled, not duplicated. Only a spelling
+  registered nowhere makes the gate append a second section beside it.
+- **Use the FIRST form of your language** — that is what `story-section` writes
+  when it has to insert, so agreeing with it keeps written and rendered
+  documents identical. This is a convention; the gate does not enforce it.
+- **No form may match two ids.** Keep the `acceptance` ("Acceptance Criteria")
+  and `spec_acceptance` ("Acceptance") headings distinct in your language;
+  matching is whole-line, so a prefix relationship is fine but equality is not.
+- **The folder-README index header must use the registered column names**, and
+  the separator row under it must stay a plain `|---|---|---|---|`. Reconcile
+  cannot rebuild an index whose header it does not recognize, and it will not
+  tell you — the warning comes from doctor instead.
+- **Inline grammars carry a keyword and a colon**: the evidence suffix on a
+  checked criterion and the `stories:` attribution on a spec acceptance item.
+  Both accept the CJK-width colon (`evidenceSuffixRe` / `storiesAttributionRe`
+  in `lib.mjs`); if your language punctuates differently, widen them there
+  rather than working around it in the template.
+
+Where two spellings are realistic (Russian `ё`/`е`, a French typographic vs
+ASCII apostrophe), register both: the first is written, all are accepted. No
+test can decide "realistic" — have someone who reads the language check it.
+
+Domain terms follow the language's practitioners, not the dictionary. `epic`
+and `story` are localized where the field localizes them (`ru` "Эпик", `es`
+"Épica") and left in English where teams say the English word (`de`, `fr`,
+`zh`). Nothing reads these table labels, so the only cost of getting it wrong
+is that the document reads like a translation.
+
+The bundled set is currently spelled out by hand in four places (the test's
+`LOCALES`, the registry's `_description`, this page, `commands/bind.md`) with
+nothing checking that they agree — see the PS-I18N epic's backlog.
 
 ## Vault-side policy
 

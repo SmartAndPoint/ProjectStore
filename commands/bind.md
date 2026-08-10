@@ -1,6 +1,6 @@
 ---
 description: Bind this project to an Obsidian vault (or any markdown directory) where projectstore will record artifacts.
-argument-hint: <vault-path> [--layout engineering] [--lang en|ru]
+argument-hint: <vault-path> [--layout engineering] [--lang en|ru|es|de|fr|zh]
 ---
 
 You are binding the current project to a markdown vault for projectstore.
@@ -8,7 +8,7 @@ You are binding the current project to a markdown vault for projectstore.
 Parse `$ARGUMENTS`:
 - First positional arg: vault path. Expand `~` if present.
 - Optional `--layout <name>`: layout to use. Default: `engineering`.
-- Optional `--lang <en|ru>`: template language. Default: `en`.
+- Optional `--lang <en|ru|es|de|fr|zh>`: template language. Default: `en`. (`zh` is Simplified Chinese.)
 
 Steps:
 
@@ -100,6 +100,6 @@ Steps:
 
     > `[PS#<version>] 📚 <statusline_example_epic> › <statusline_example_story> (in-progress)`
 
-    (for `ru`: `[PS#<version>] 📚 Супер-фича в супер-продукте › Ручка для туалетной бумаги (in-progress)`)
+    (for `ru`: `[PS#<version>] 📚 Супер-фича в супер-продукте › Ручка для туалетной бумаги (in-progress)`; every bundled language ships its own example pair)
 
     Ask via AskUserQuestion: "Show your current epic/story in the status line, composed above any existing HUD? [Yes / No]". On Yes: Edit `projectstore.json` → `"statusline": { "enabled": true }` (approval-gated) and report: "Enabled — restart Claude Code in this project to apply (the SessionStart hook wires it). A fresh session shows: `[PS#<version>] 📚 <statusline_no_work>`."

@@ -1,0 +1,6 @@
+{
+  "statusline_no_work": "本次会话还没有进行中的 epic 或 story",
+  "statusline_state_error": "⚠ 会话状态无法读取",
+  "statusline_example_epic": "超级产品里的超级功能",
+  "statusline_example_story": "卫生纸卷手柄"
+}

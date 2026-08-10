@@ -99,13 +99,15 @@ Edit `.claude/projectstore.json`:
 
 ## Multi-language templates
 
-Default is English (`en`). For Russian:
+Default is English (`en`). Also bundled: Russian (`ru`), Spanish (`es`), German (`de`), French (`fr`), Simplified Chinese (`zh`):
 
 ```
-/projectstore:bind <path> --lang ru
+/projectstore:bind <path> --lang de
 ```
 
-Or edit `language: "ru"` in `.claude/projectstore.json` (templates must exist at `templates/ru/`). The language also localizes the status line strings (e.g. the "no epic or story in this session yet" line).
+Or edit `language: "de"` in `.claude/projectstore.json` (templates must exist at `templates/de/`). The language also localizes the status line strings (e.g. the "no epic or story in this session yet" line).
+
+What the language does and does not change: section headings, table labels and prose are translated; frontmatter keys and their values (`status: planned`, `priority: p2`) stay English, because they are machine-read. Section headings are registered in `scaffold/headings.json`, so doctor, reconcile and the story lifecycle gates recognize every bundled language — a Russian-headed file lints in a French-bound vault, and mixed-language vaults reconcile.
 
 ## Updating to a new version
 

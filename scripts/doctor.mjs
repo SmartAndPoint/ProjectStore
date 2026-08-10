@@ -44,7 +44,8 @@ import {
   sectionOf,
   headingLineRe,
   indexHeaderRe,
-  keywordRe,
+  evidenceSuffixRe,
+  storiesAttributionRe,
   slugIdentity,
   isLegacyNumberedId,
   storyMatchesEntry,
@@ -785,14 +786,17 @@ function buildSpecResolver(artifacts, layout = null) {
 export function parseSpecAcceptance(spec) {
   const sec = sectionOf(spec.body, "spec_acceptance");
   if (sec === null) return null;
-  const storiesKw = keywordRe("stories");
+  const attrRe = storiesAttributionRe();
   const items = [];
   for (const line of linesOutsideFences(sec)) {
     const m = line.match(/^\s*-\s*\[( |x|X)\]\s*(.*)$/);
     if (!m) continue;
     const checked = m[1].toLowerCase() === "x";
     const text = m[2];
-    const attr = text.match(new RegExp(`[—–-]\\s*${storiesKw.source}\\s*:\\s*(.+)$`, "i"));
+    // Full-width colon accepted for the same reason as the evidence suffix: a zh
+    // spec writing `— stories：PS-X/story-foo` must attribute the item to that
+    // story, not silently fall through to "applies to every covered story".
+    const attr = text.match(attrRe);
     const stories = attr
       ? attr[1].split(",").map((s) => s.trim()).filter(Boolean)
       : null;
@@ -965,8 +969,7 @@ export function checkLifecycleGates(artifacts, vaultCfg) {
   if (!["on", "true"].includes(gates)) return [];
   const out = [];
   const since = vaultCfg.spec_policy_since || null;
-  const evidenceKw = keywordRe("evidence");
-  const evidenceRe = new RegExp(`[—–-]\\s*${evidenceKw.source}\\s*:`, "i");
+  const evidenceRe = evidenceSuffixRe();
 
   for (const story of artifacts.filter((a) => a.kind === "story")) {
     if (String(story.fm.status || "").toLowerCase() !== "done") continue;
