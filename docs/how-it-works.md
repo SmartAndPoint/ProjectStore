@@ -10,8 +10,13 @@ Every create command follows the same shape:
 1. `scripts/draft.mjs` renders the artifact **in memory** (it never touches the
    disk — no writes, no mkdir; declining leaves the vault byte-for-byte unchanged).
 2. The command shows you the target path + full content via `AskUserQuestion`.
-3. Only on **Yes** does the file land, and the folder's index README is updated
-   (its own approval).
+3. Only on **Yes** does the file land — and that same Yes covers the folder's
+   index. The index row is not appended: the command regenerates the folder's
+   managed table through the core (`reconcile --write --only indexes=<folder>`),
+   so the row arrives in canonical order, the file is replaced atomically, and
+   your own prose around the table is preserved. One consequence worth knowing:
+   the regeneration rewrites the whole table, so creating one artifact can also
+   repair a stale row for another.
 
 Frontmatter scalars are rendered through a JSON-escaping form (`{{title_json}}`),
 so titles containing `"` or `:` cannot corrupt the YAML. Slugs transliterate

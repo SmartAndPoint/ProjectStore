@@ -36,15 +36,32 @@ Dispatch on the first argument:
    line. If the draft's `collision` field is non-null, surface it as a
    **topic collision** (`"<identity>" already exists as <with>`) and ask:
    extend the existing spec, pick a different slug (`-2` is a deliberate
-   distinct identity), or cancel. **Approval** via AskUserQuestion:
-   Yes / Edit / No.
+   distinct identity), or cancel. When `index` is non-null, print `index.line`
+   too — the exact row that will appear in `specs/README.md`, unless the index
+   step reports a failure and no row lands at all. **Approval** via
+   AskUserQuestion: Yes / Edit / No. This is the only gate: **Yes** covers the
+   artifact and its index row. Disclose in the question that the folder's whole
+   managed index table is regenerated from vault state at write time, so the
+   update may also repair a stale row for another artifact.
 
 5. **Post-approval race re-check**: re-run draft.mjs and re-read `collision`
    — an exact-name `test -e` cannot see normalized cross-era collisions. If
    it is now non-null, re-preview and re-ask.
 
-6. **On Yes**: Write the file. If `index` is non-null, propose the index row
-   Edit to `specs/README.md` and ask.
+6. **On Yes**: Write the file. Then, if `index` is non-null, apply its index
+   row through the core — never the Write/Edit tools, no second gate (the
+   step-4 approval covers it):
+
+   ```bash
+   node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs" --write --only indexes=<index.folder>
+   ```
+
+   The row is derived state — regenerated in canonical order, written
+   atomically, manual prose preserved. The artifact is already on disk, so a
+   nonzero exit is a warning naming the folder (stderr with no JSON = rejected
+   before any write, fix the header or restore the README; per-target `error`
+   in JSON = I/O failure, suggest `/projectstore:reconcile`), never a failed
+   creation.
 
 7. **Reciprocal links**: for every entry in `stories:`, propose an Edit to that
    story's frontmatter adding the spec id to its `specs:` list (inline flow —

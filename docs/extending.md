@@ -40,7 +40,11 @@ vault-side layout or template override):
    `external_refs: {}` (the designed home for Jira/YouTrack-style keys —
    ADR-010); `number:` is optional display metadata, never identity. The
    template's own frontmatter `status:` is what the index row shows at
-   creation (derived, never hardcoded).
+   creation (derived, never hardcoded), and its `date:` (or `created:`) is
+   the index row's date. Carry one of them: with neither, the date cell
+   renders empty — consistently, in both the preview and the written row —
+   but an empty date sorts first, so the kind's rows pile up at the top of
+   its index and stay there.
 
 4. **Checklist entry** — `scaffold/checklists.json`, consumed by
    `/projectstore:review` and the peer-reviewer skill. English-only by design.
@@ -126,10 +130,14 @@ Constraints the deterministic scripts impose on the translation:
 - **No form may match two ids.** Keep the `acceptance` ("Acceptance Criteria")
   and `spec_acceptance` ("Acceptance") headings distinct in your language;
   matching is whole-line, so a prefix relationship is fine but equality is not.
-- **The folder-README index header must use the registered column names**, and
-  the separator row under it must stay a plain `|---|---|---|---|`. Reconcile
-  cannot rebuild an index whose header it does not recognize, and it will not
-  tell you — the warning comes from doctor instead.
+- **The folder-README index header must use the registered column names —
+  exactly those four, and no more** — and the separator row under it must stay
+  a plain `|---|---|---|---|`. Matching is end-anchored: adding a fifth column
+  of your own does not extend the managed table, it stops being one. That is
+  deliberate — an unanchored match let the regeneration rewrite your extra
+  column away. An unrecognized header is now loud in both directions: doctor
+  warns, and a creation into that folder fails its index step on stderr
+  (the artifact still lands — see the failure prose in the create commands).
 - **Inline grammars carry a keyword and a colon**: the evidence suffix on a
   checked criterion and the `stories:` attribution on a spec acceptance item.
   Both accept the CJK-width colon (`evidenceSuffixRe` / `storiesAttributionRe`

@@ -40,9 +40,9 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      `/plugin marketplace update <marketplace>` and `/reload-plugins` themselves.
 
    **Boundary (ADR-005)**: `--fix` never repairs vault-side findings. For those,
-   point at `/projectstore:kanban` (board regen) and `reconcile` (indexes +
-   code-map; ships with the "Reliability by construction" epic). Until reconcile
-   exists, offer targeted Edits for index rows only if the user asks.
+   point at `/projectstore:kanban` (board regen) and `/projectstore:reconcile`
+   (indexes + code-map + graph). Never offer a hand-written Edit of an index
+   row: derived views are only ever written by the core's regeneration.
 
 4. **Suggest next**: if issues remain, list the one-line repair per finding; if
    only warnings remain, say they are advisory.

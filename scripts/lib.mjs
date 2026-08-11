@@ -427,11 +427,20 @@ export function footerDateRe() {
 
 // Matches a folder-README index header row in any registered language,
 // in the standard 4-column form: | File | Title | Status | Date |
+//
+// End-anchored on purpose: a header carrying extra hand-added columns
+// (`| File | Title | Status | Date | Notes |`) is NOT this table. Without the
+// anchor it prefix-matched, and rebuildIndexRows then rewrote every managed
+// row to the registered four columns — silently destroying the extra cells,
+// which are human-owned content no regeneration can recompute. Unanchored,
+// doctor's index-header check could not fire either (the header "matched"),
+// so the loss had no detector at all. Anchored, both halves behave as
+// documented: reconcile reports the index unusable and doctor warns.
 export function indexHeaderRe() {
   const cols = ["file", "title", "status", "date"].map((c) =>
     allForms("index_columns", c).map(escapeRe).join("|"));
   return new RegExp(
-    `^\\|\\s*(?:${cols[0]})\\s*\\|\\s*(?:${cols[1]})\\s*\\|\\s*(?:${cols[2]})\\s*\\|\\s*(?:${cols[3]})\\s*\\|`);
+    `^\\|\\s*(?:${cols[0]})\\s*\\|\\s*(?:${cols[1]})\\s*\\|\\s*(?:${cols[2]})\\s*\\|\\s*(?:${cols[3]})\\s*\\|\\s*$`);
 }
 
 // ─── Frontmatter list fields (code_refs / specs / stories / adr) ───────

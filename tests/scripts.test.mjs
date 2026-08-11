@@ -321,6 +321,183 @@ test("reconcile --write: a named-absent index aborts BEFORE any side effect (con
     "config errors abort with nothing written — no unreported mutation");
 });
 
+// ─── creation-time index regeneration ────────────────────────────────────
+// spec: creation-time-index-updates-are-regenerations-not-appends
+//
+// Its own fixture — seedDerivedFixture's exact board/write counts are pinned
+// by six tests above; do not extend it. Every layout folder that carries a
+// README gets an empty managed table plus prose below it, so a creation into
+// any kind can be driven end to end.
+
+const IDX_HEAD = "| File | Title | Status | Date |\n|------|-------|--------|------|\n";
+
+function seedCreationFixture() {
+  const { proj, vault } = makeVaultProject();
+  for (const path of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops"]) {
+    mkdirSync(join(vault, path), { recursive: true });
+    writeFileSync(join(vault, path, "README.md"),
+      `# ${path}\n\n## Index\n\n${IDX_HEAD}\nPROSE BELOW THE TABLE.\n`);
+  }
+  return { proj, vault };
+}
+
+// The creation flow as the command prose performs it: draft (pure), Write the
+// artifact, then regenerate that one folder's index through the core.
+function createThrough(proj, draftArgs, extraDirs = []) {
+  const out = runIn(proj, "draft.mjs", draftArgs);
+  mkdirSync(dirname(out.path), { recursive: true });
+  writeFileSync(out.path, out.content);
+  for (const d of extraDirs) mkdirSync(join(dirname(out.path), d), { recursive: true });
+  const rep = runIn(proj, "reconcile.mjs", ["--write", "--only", `indexes=${out.index.folder}`]);
+  return { out, rep, entry: rep.indexes.find((i) => i.folder === out.index.folder) };
+}
+
+test("creation e2e: the index row lands via the core write path, prose survives, second pass is a no-op (contracts 1, 4)", () => {
+  const { proj, vault } = seedCreationFixture();
+  const { out, entry } = createThrough(proj, ["adr", "Cache invalidation"]);
+  assert.equal(out.index.folder, "adr");
+  assert.equal(entry.written, true, JSON.stringify(entry));
+
+  const idx = readFileSync(join(vault, "adr", "README.md"), "utf8");
+  assert.ok(idx.includes("[cache-invalidation](./cache-invalidation.md)"), idx);
+  assert.ok(idx.includes("PROSE BELOW THE TABLE."), "manual prose outside the table survives");
+
+  const again = runIn(proj, "reconcile.mjs", ["--write", "--only", "indexes=adr"]);
+  assert.equal(again.indexes.find((i) => i.folder === "adr").written, false, "idempotent");
+});
+
+test("creation e2e: epic — subfolder shape, row written after the epic exists on disk (contract 1)", () => {
+  const { proj, vault } = seedCreationFixture();
+  const { out, entry } = createThrough(proj, ["epic", "PS-NEW", "Brand new epic"], ["stories"]);
+  assert.equal(out.index.folder, "epics");
+  assert.equal(entry.written, true, JSON.stringify(entry));
+  const idx = readFileSync(join(vault, "epics", "README.md"), "utf8");
+  assert.ok(idx.includes("[PS-NEW](./PS-NEW/epic.md)"), idx);
+  assert.ok(idx.includes("PROSE BELOW THE TABLE."));
+});
+
+test("draft: index.folder is the layout folder, not the kind; stories carry no index (contract 1)", () => {
+  const { proj } = seedCreationFixture();
+  for (const [kind, folder] of [["runbook", "ops"], ["concept", "concepts"], ["meeting", "meetings"], ["adr", "adr"]]) {
+    assert.equal(runIn(proj, "draft.mjs", [kind, "Some title"]).index.folder, folder,
+      `${kind} must select its layout folder — a kind-derived selector would miss ${folder}`);
+  }
+  assert.equal(runIn(proj, "draft.mjs", ["story", "PS-X", "Some title"]).index, null);
+});
+
+test("draft: the previewed index row is byte-identical to the row the regeneration writes (contract 4)", () => {
+  const { proj, vault } = seedCreationFixture();
+  // meeting is the case that used to disagree: draft labelled by bare slug
+  // while the regeneration labels by the date-prefixed filename stem.
+  for (const args of [["adr", "Some decision"], ["meeting", "Some sync"], ["runbook", "Some drill"], ["epic", "PS-Z", "Some epic"]]) {
+    const { out } = createThrough(proj, args, args[0] === "epic" ? ["stories"] : []);
+    const rows = readFileSync(join(vault, out.index.folder, "README.md"), "utf8")
+      .split("\n").filter((l) => l.startsWith("| ["));
+    assert.ok(rows.includes(out.index.line),
+      `${args[0]}: preview\n  ${out.index.line}\nis not among written rows\n  ${rows.join("\n  ")}`);
+  }
+});
+
+test("creation e2e: rows land in SPEC-002 contract 8 order across eras (contract 4)", () => {
+  const { proj, vault } = seedCreationFixture();
+  const fm = (extra) => `---\n${extra}\n---\n\n# T\n`;
+  writeFileSync(join(vault, "adr", "ADR-001-grandfathered.md"),
+    fm('type: adr\nid: "ADR-001"\nnumber: "001"\ntitle: "Grandfathered"\nstatus: accepted\ndate: 2026-01-01'));
+  writeFileSync(join(vault, "adr", "alpha.md"),
+    fm('type: adr\nid: "alpha"\ntitle: "Alpha"\nstatus: accepted\ndate: 2026-01-01'));
+  runIn(proj, "reconcile.mjs", ["--write", "--only", "indexes=adr"]);
+  createThrough(proj, ["adr", "Zulu"]); // today's date — sorts last
+  const labels = readFileSync(join(vault, "adr", "README.md"), "utf8")
+    .split("\n").filter((l) => l.startsWith("| [")).map((l) => l.slice(3, l.indexOf("]")));
+  assert.deepEqual(labels, ["ADR-001", "alpha", "zulu"]);
+});
+
+test("creation e2e: an unrecognized index header is rejected before any write; the artifact survives (contract 3)", () => {
+  const { proj, vault } = seedCreationFixture();
+  writeFileSync(join(vault, "adr", "README.md"), "# ADRs\n\n| Nope | Nah |\n|------|-----|\n\nPROSE.\n");
+  const out = runIn(proj, "draft.mjs", ["adr", "Still created"]);
+  writeFileSync(out.path, out.content);
+  const r = runInRaw(proj, "reconcile.mjs", ["--write", "--only", `indexes=${out.index.folder}`]);
+  assert.notEqual(r.status, 0);
+  assert.equal(r.stdout.trim(), "", "a named pre-flight rejection emits no stdout JSON");
+  assert.match(r.stderr, /adr\/README\.md/);
+  assert.ok(existsSync(out.path), "the creation is not rolled back by a failed index step");
+  assert.ok(readFileSync(join(vault, "adr", "README.md"), "utf8").includes("PROSE."));
+});
+
+test("index header: extra hand-added columns are not the managed table — no silent column loss (contract 6)", () => {
+  const { proj, vault } = seedCreationFixture();
+  const five = "# ADRs\n\n| File | Title | Status | Date | Notes |\n|------|-------|--------|------|-------|\n" +
+    "| [caching](./caching.md) | Caching | accepted | 2026-01-01 | hand-kept context |\n";
+  writeFileSync(join(vault, "adr", "README.md"), five);
+  writeFileSync(join(vault, "adr", "caching.md"),
+    '---\ntype: adr\nid: "caching"\ntitle: "Caching"\nstatus: accepted\ndate: 2026-01-01\n---\n\n# T\n');
+  const r = runInRaw(proj, "reconcile.mjs", ["--write", "--only", "indexes=adr"]);
+  assert.notEqual(r.status, 0, "a five-column header is not a recognised index table");
+  assert.equal(readFileSync(join(vault, "adr", "README.md"), "utf8"), five,
+    "the hand-kept fifth column is never rewritten away");
+  // doctor sees the same fact, per its own documented intent.
+  const findings = runIn(proj, "doctor.mjs", ["--vault", "--json"]);
+  assert.ok(findings.some((f) => f.check === "index-header" && f.file === "adr/README.md"),
+    JSON.stringify(findings));
+});
+
+test("creation e2e: a localized index header reconciles (registry-driven, not an English literal)", () => {
+  const { proj, vault } = makeVaultProject();
+  writeFileSync(join(proj, ".claude", "projectstore.json"), JSON.stringify({
+    vault_path: vault, layout: "engineering", language: "de", default_author: "Test",
+  }));
+  mkdirSync(join(vault, "adr"), { recursive: true });
+  writeFileSync(join(vault, "adr", "README.md"),
+    "# ADRs\n\n| Datei | Titel | Status | Datum |\n|-------|-------|--------|-------|\n\nPROSA.\n");
+  const { out, entry } = createThrough(proj, ["adr", "Zwischenspeicher leeren"]);
+  assert.equal(entry.written, true, JSON.stringify(entry));
+  const idx = readFileSync(out.index.path, "utf8");
+  assert.ok(idx.includes("[zwischenspeicher-leeren]"), idx);
+  assert.ok(idx.includes("PROSA."), "prose survives in a localized vault too");
+});
+
+test("creation command prose applies index rows through the core, under one disclosed gate (contracts 1, 2)", () => {
+  for (const file of ["adr.md", "spec.md", "epic.md", "research.md", "concept.md", "meeting.md", "runbook.md"]) {
+    // Prose wraps at ~80 columns, so match against a whitespace-flattened
+    // copy — a guard that a reflow can silence guards nothing.
+    const src = readFileSync(join(REPO, "commands", file), "utf8").replace(/\s+/g, " ");
+    assert.ok(src.includes("--write --only indexes="),
+      `${file} must apply its index row via reconcile --write --only indexes=<folder>`);
+    // Contract 2: collapsing two gates into one is only legitimate if the
+    // surviving prompt says what it now covers. Without this assert the
+    // disclosure can quietly regress while the call itself stays correct.
+    assert.ok(/only gate/.test(src) && /whole managed index table is regenerated/.test(src),
+      `${file}'s approval step must disclose the single gate and the whole-table regeneration`);
+    assert.ok(/never (the )?Write\/Edit/i.test(src),
+      `${file} must forbid the Write/Edit tools for the index row`);
+    // No residual append path, including as a fallback beside the core call.
+    assert.doesNotMatch(src, /append(s|ing)? .{0,40}index|index .{0,20}(row )?Edit|Edit .{0,20}index/i,
+      `${file} must carry no Edit-append path for the index row`);
+    // Positional, because the lexical assertions above are satisfiable by prose
+    // that says the right words in the wrong place. These pin the ORDER the
+    // contract actually depends on.
+    const apply = src.indexOf("--write --only indexes=");
+    // Scoped to the index step itself: a LATER step may legitimately gate a
+    // source-artifact edit (spec.md's reciprocal `specs:` writes into stories),
+    // which contract 7 of the atomic-regeneration spec exempts by the same
+    // reasoning as `codemap set`. What must not exist is a prompt about the
+    // index row — that is the second gate contract 2 removes.
+    const rest = src.slice(apply);
+    const nextStep = rest.search(/\s\d+\.\s/);
+    const indexStep = nextStep === -1 ? rest : rest.slice(0, nextStep);
+    assert.equal(indexStep.indexOf("AskUserQuestion"), -1,
+      `${file} must ask nothing inside its index step — the approval at the creation gate already covers the row`);
+    assert.ok(src.indexOf("only gate") < apply,
+      `${file} must disclose the single gate in the approval step, before the index is written`);
+    assert.ok(src.indexOf("index.line") !== -1 && src.indexOf("index.line") < apply,
+      `${file} must print index.line in the preview — contract 4's byte-identity has no other user-visible surface`);
+  }
+  // doctor points at reconcile instead of offering hand-written index Edits.
+  const doc = readFileSync(join(REPO, "commands", "doctor.md"), "utf8");
+  assert.ok(!/Edits? for index rows/.test(doc), "doctor.md offers no index-row Edit");
+});
+
 // ─── link graph (spec: vault-link-graph-derived-view-and-shared-link-resolver) ──
 
 // Its own fixture — seedDerivedFixture's exact board/write counts are pinned

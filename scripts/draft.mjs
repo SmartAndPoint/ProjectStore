@@ -15,7 +15,20 @@
 //   "content": "...rendered markdown...",
 //   "index": {                          // optional, when folder has a README index
 //     "path": "/abs/path/to/vault/adr/README.md",
+//     "folder": "adr",                  //   selector for `reconcile.mjs --write
+//                                       //   --only indexes=<folder>` — the command
+//                                       //   applies the row by regenerating the
+//                                       //   table, never by an Edit append, and
+//                                       //   prose must not derive this path itself
+//                                       //   (ADR-009: no logic in prose). Note the
+//                                       //   folder is NOT the kind: runbook lives
+//                                       //   in ops/.
 //     "line": "| [foo](./foo.md) | Foo | proposed | 2026-05-19 |"
+//                                       //   preview only — the row is written by
+//                                       //   reconcile's rebuildIndexRows. Rendered
+//                                       //   by the same rules, so for a newly
+//                                       //   created artifact it is byte-identical
+//                                       //   to the row that lands.
 //   },
 //   "collision": {                      // null, or the normalized-identity clash
 //     "with": "ADR-003-foo.md",        //   (SPEC-002 contract 4 — computed in
@@ -41,6 +54,7 @@ import {
   parseFrontmatter,
   slugify,
   findSlugCollision,
+  displayNumberOf,
   today,
 } from "./lib.mjs";
 
@@ -57,16 +71,27 @@ function commonVars(cfg) {
   };
 }
 
-// Index row status is derived from the RENDERED template's own frontmatter —
-// never hardcoded per kind — so a new kind's template is the single source of
-// its initial status and the index can never disagree with it at birth.
-function makeIndexLine(kind, fileName, vars, content) {
-  const status = parseFrontmatter(content).data.status || "draft";
+// Preview of the row the regeneration will land. Every cell is read from the
+// RENDERED template's own frontmatter, by the same rules reconcile's
+// rebuildIndexRows applies to an artifact on disk — so for a newly created
+// artifact the preview is byte-identical to the written row, and a new kind's
+// template stays the single source of its initial status. The label in
+// particular must not come from `vars.id`: for date-prefixed kinds that is the
+// bare slug while the regeneration labels by filename stem, and the two rows
+// visibly disagreed.
+function makeIndexLine(kind, fileName, vars, content, folder) {
+  const fm = parseFrontmatter(content).data;
+  // Empty, not today's date, when a template carries neither field — the
+  // regeneration renders "" there, and byte-identity is a contract that must
+  // hold for a custom kind too, not just the bundled ones.
+  const date = fm.date || fm.created || "";
   if (kind === "epic") {
-    return `| [${vars.id}](./${vars.id}/epic.md) | ${vars.title} | ${status} | ${vars.date} |`;
+    return `| [${vars.id}](./${vars.id}/epic.md) | ${fm.title || vars.id} | ${fm.status || "planned"} | ${date} |`;
   }
-  const label = vars.id || vars.slug;
-  return `| [${label}](./${fileName}) | ${vars.title || label} | ${status} | ${vars.date} |`;
+  const status = fm.status || (folder.numbered ? "proposed" : "draft");
+  const number = displayNumberOf(fm, fileName, { prefix: folder.prefix || null });
+  const label = number && folder.prefix ? `${folder.prefix}${number}` : fileName.replace(/\.md$/, "");
+  return `| [${label}](./${fileName}) | ${fm.title || label} | ${status} | ${date} |`;
 }
 
 function indexPath(vault, folderPath) {
@@ -112,7 +137,11 @@ function buildEpic(cfg, layout, args) {
     path: join(epicDir, "epic.md"),
     content,
     index: existsSync(indexPath(vault, folder.path))
-      ? { path: indexPath(vault, folder.path), line: makeIndexLine("epic", "epic.md", vars, content) }
+      ? {
+          path: indexPath(vault, folder.path),
+          folder: folder.path,
+          line: makeIndexLine("epic", "epic.md", vars, content, folder),
+        }
       : null,
     collision: null, // epic ids are user-chosen; the command's own folder check gates them
     warnings: [],
@@ -183,7 +212,11 @@ function buildSimple(kind, cfg, layout, args) {
     path: join(dir, fileName),
     content,
     index: existsSync(indexPath(vault, folder.path))
-      ? { path: indexPath(vault, folder.path), line: makeIndexLine(kind, fileName, vars, content) }
+      ? {
+          path: indexPath(vault, folder.path),
+          folder: folder.path,
+          line: makeIndexLine(kind, fileName, vars, content, folder),
+        }
       : null,
     collision: scanCollision(dir, fileName, { prefix: folder.prefix || null }),
     // A date-prefixed filename (meetings) is digit-leading by design — the
