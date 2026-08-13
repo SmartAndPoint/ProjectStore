@@ -10,7 +10,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, copyFileSync, exis
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
 
 import {
   nextNumber,
@@ -25,6 +25,25 @@ import {
   headingLineRe,
   sectionOf,
   indexHeaderRe,
+  SOURCE_IGNORE,
+  ENTRY_IGNORE,
+  isSourcePath,
+  scoreDir,
+  registerSourcePath,
+  entryScore,
+  openStoryFrom,
+  ENTRY_THRESHOLD,
+  listVaultStoryFiles,
+  resolveOpenStory,
+  markerDir,
+  readOpenStoryCache,
+  writeOpenStoryCache,
+  firedCount,
+  isArmed,
+  armReminder,
+  mayRemind,
+  electEmitter,
+  cleanupStaleSessionState,
   isLegacyStory,
   listOf,
   loadLayout,
@@ -1454,4 +1473,480 @@ test("resolveSelection: graph — in bare selection, composable, valid on kanban
   assert.ok(resolveSelection(noKanban, "graph").graph, "valid without a kanban");
   const noEpics = { ...layout, folders: layout.folders.filter((f) => f.kind !== "epic") };
   assert.ok(resolveSelection(noEpics, "graph").graph, "valid without an epic folder");
+});
+
+// ─── Entry-rule detection (PS-AGENTS: artifact-first order) ────────────
+//
+// Contracts 1, 2, 4 and 5 of the spec "Entry-rule detection: the score, the
+// open-story predicate, and the delivery seams". The case table below was
+// pinned in the story's Implementation Plan BEFORE any of this was written,
+// so these assertions document a decision rather than the code that happened.
+
+function seedEntryFixture() {
+  const root = mkdtempSync(join(tmpdir(), "ps-entry-"));
+  const proj = join(root, "proj");
+  const vault = join(root, "vault");
+  mkdirSync(proj, { recursive: true });
+  mkdirSync(vault, { recursive: true });
+  return { root, proj, vault };
+}
+
+test("isSourcePath: inside project, outside vault, not ignored (contract 1)", () => {
+  const { proj, vault } = seedEntryFixture();
+  const p = (rel) => join(proj, rel);
+
+  assert.equal(isSourcePath(p("scripts/lib.mjs"), proj, vault), true);
+  assert.equal(isSourcePath(p("README.md"), proj, vault), true);
+  assert.equal(isSourcePath(p("docs/getting-started.md"), proj, vault), true);
+
+  assert.equal(isSourcePath(join(vault, "adr/ADR-001.md"), proj, vault), false, "vault is not source");
+  assert.equal(isSourcePath("/elsewhere/x.mjs", proj, vault), false, "outside the project");
+  assert.equal(isSourcePath(proj, proj, vault), false, "the project root itself is not a path");
+
+  assert.equal(isSourcePath(p("node_modules/x/index.js"), proj, vault), false);
+  assert.equal(isSourcePath(p("dist/bundle.js"), proj, vault), false);
+  assert.equal(isSourcePath(p("package-lock.json"), proj, vault), false);
+  assert.equal(isSourcePath(p("app.min.js"), proj, vault), false);
+  assert.equal(isSourcePath(p(".claude/projectstore.json"), proj, vault), false,
+    "plugin state must never count as source work");
+});
+
+test("isSourcePath: bind's own writes are ignored for the counter, root-anchored (contract 1)", () => {
+  const { proj, vault } = seedEntryFixture();
+  const p = (rel) => join(proj, rel);
+
+  // /projectstore:bind writes these three in a session that by construction has
+  // no story open.
+  assert.equal(isSourcePath(p("AGENTS.md"), proj, vault), false);
+  assert.equal(isSourcePath(p("CLAUDE.md"), proj, vault), false);
+  assert.equal(isSourcePath(p(".gitignore"), proj, vault), false);
+
+  // Root-anchored: a monorepo's nested AGENTS.md is ordinary source.
+  assert.equal(isSourcePath(p("packages/web/AGENTS.md"), proj, vault), true);
+  assert.equal(isSourcePath(p("packages/web/CLAUDE.md"), proj, vault), true);
+});
+
+test("the two ignore sets differ on purpose — AGENTS.md stays a code ref (contract 1)", () => {
+  // Folding the bind-managed files into SOURCE_IGNORE would silently drop
+  // AGENTS.md from every proposed code_refs, and the PS-AGENTS epic already
+  // lists it. ENTRY_IGNORE extends; it does not replace.
+  const src = SOURCE_IGNORE.map(String);
+  const entry = ENTRY_IGNORE.map(String);
+  for (const re of src) assert.ok(entry.includes(re), `ENTRY_IGNORE must contain ${re}`);
+  assert.equal(entry.length, src.length + 3);
+  assert.ok(!src.some((re) => /AGENTS/.test(re)), "AGENTS.md must remain a code ref");
+});
+
+test("isSourcePath: matching is project-relative, not absolute (contract 1)", () => {
+  // The base patterns are repo-relative-anchored, so matching an absolute path
+  // would swallow every file in a project that merely lives under `build/`.
+  const root = mkdtempSync(join(tmpdir(), "ps-entry-"));
+  const proj = join(root, "build", "myproject");
+  const vault = join(root, "vault");
+  mkdirSync(proj, { recursive: true });
+  assert.equal(isSourcePath(join(proj, "src/index.js"), proj, vault), true,
+    "a project under a build/ ancestor still has source files");
+});
+
+test("entryScore: distinct paths, idempotent, exact and uncapped (contract 2)", () => {
+  const { proj } = seedEntryFixture();
+  const sid = "sess-1";
+  assert.equal(entryScore(proj, sid), 0, "no directory yet reads as zero");
+
+  registerSourcePath(proj, sid, join(proj, "a.mjs"));
+  registerSourcePath(proj, sid, join(proj, "b.mjs"));
+  registerSourcePath(proj, sid, join(proj, "a.mjs"));
+  assert.equal(entryScore(proj, sid), 2, "re-registering the same path does not double-count");
+
+  for (let i = 0; i < 53; i++) registerSourcePath(proj, sid, join(proj, `f${i}.mjs`));
+  assert.equal(entryScore(proj, sid), 55,
+    "uncapped: the reminder quotes this number, so 55 files must not report 3");
+
+  assert.equal(entryScore(proj, "other-session"), 0, "scores are per session");
+});
+
+test("entryScore: registration never rewrites, so parallel writers cannot lose an increment (contract 2)", () => {
+  const { proj } = seedEntryFixture();
+  const sid = "sess-race";
+  const paths = Array.from({ length: 40 }, (_, i) => join(proj, `p${i}.mjs`));
+  // Interleaved registration of overlapping sets, the shape parallel subagents
+  // produce. Each create is independent; there is no read-modify-write to lose.
+  for (const p of paths) registerSourcePath(proj, sid, p);
+  for (const p of paths) registerSourcePath(proj, sid, p);
+  assert.equal(entryScore(proj, sid), 40);
+  // And the ADR-006 pointer file is untouched by any of it.
+  assert.equal(existsSync(join(scoreDir(proj, sid), "..", `${sid}.json`)), false,
+    "scoring writes nothing into the session pointer's file");
+});
+
+test("openStoryFrom: only in-progress counts as open (contract 5)", () => {
+  assert.equal(openStoryFrom([{ status: "in-progress" }]), true);
+  assert.equal(openStoryFrom([{ status: "planned" }]), false,
+    "a story that never went through /projectstore:story plan is not open work");
+  assert.equal(openStoryFrom([{ status: "done" }]), false);
+  assert.equal(openStoryFrom([{ status: "planned" }, { status: "done" }]), false);
+  assert.equal(openStoryFrom([{ status: "planned" }, { status: "in-progress" }]), true);
+  assert.equal(openStoryFrom([]), false, "an empty vault has no open story");
+  assert.equal(openStoryFrom(null), false);
+  assert.equal(openStoryFrom([null, undefined, {}]), false, "malformed entries do not throw");
+});
+
+test("the pinned case table: which sessions trip the threshold (contracts 2, 4)", () => {
+  const { proj, vault } = seedEntryFixture();
+  const THRESHOLD = ENTRY_THRESHOLD;
+  let n = 0;
+  const score = (rels) => {
+    const sid = `case-${n++}`;
+    for (const rel of rels) {
+      const abs = join(proj, rel);
+      if (isSourcePath(abs, proj, vault)) registerSourcePath(proj, sid, abs);
+    }
+    return entryScore(proj, sid);
+  };
+
+  // Negatives the covered story pre-committed to (its AC 3).
+  assert.equal(score(["src/a.mjs"]), 1, "typo fix");
+  assert.equal(score(["src/a.mjs"]), 1, "single-line change");
+  assert.equal(score([]), 0, "a question writes nothing");
+  assert.equal(score(["README.md"]), 1, "README typo");
+  assert.equal(score(["src/a.mjs", "README.md"]), 2, "two-file fix touching README");
+  assert.equal(score(["package.json"]), 1,
+    "a lone manifest edit is a one-liner — the weighted design scored this 3 and fired");
+
+  // Positives.
+  assert.equal(score(["README.md", "docs/getting-started.md", "docs/how-it-works.md"]), THRESHOLD,
+    "a three-page documentation pass is a content project — true positive");
+
+  // The incident's own commit: 44 templates plus registry, doctor, manifests, README.
+  const incident = [
+    ...Array.from({ length: 44 }, (_, i) => `templates/x/${i}.md.tmpl`),
+    "scaffold/headings.json", "scripts/doctor.mjs",
+    ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json", "README.md",
+  ];
+  assert.ok(score(incident) >= THRESHOLD, "the reported incident trips the threshold");
+  assert.equal(score(incident.slice(0, 3)), THRESHOLD,
+    "and it trips at the third template file, not the fiftieth");
+});
+
+import { readFile as readFileAsyncTest } from "node:fs/promises";
+import { utimesSync as utimesSyncTest } from "node:fs";
+import { stateDir as stateDirOf, writeSessionState as writeSessionStateTest } from "../scripts/lib.mjs";
+
+function seedVaultStories(vault, stories) {
+  // stories: { "PS-A/stories/story-x.md": "planned", ... }
+  for (const [rel, status] of Object.entries(stories)) {
+    const abs = join(vault, "epics", rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, `---\ntype: story\nstatus: ${status}\n---\n\n# x\n`, "utf8");
+  }
+}
+
+test("listVaultStoryFiles: sees flat, folder-shape and standalone stories (contract 5)", () => {
+  const { vault } = seedEntryFixture();
+  seedVaultStories(vault, {
+    "PS-A/stories/story-flat.md": "planned",
+    "PS-A/stories/story-folder/README.md": "planned",
+    "PS-B/story-standalone.md": "planned",
+  });
+  const found = listVaultStoryFiles(vault).map((p) => p.replace(vault + "/", ""));
+  assert.equal(found.length, 3, "all three shapes, none missed");
+  assert.ok(found.some((f) => f.endsWith("story-flat.md")));
+  assert.ok(found.some((f) => f.endsWith("story-folder/README.md")), "folder-shape story");
+  assert.ok(found.some((f) => f.endsWith("story-standalone.md")), "standalone story");
+  assert.deepEqual(listVaultStoryFiles(join(vault, "nope")), [], "missing vault yields nothing");
+});
+
+test("resolveOpenStory: true/false from real reads (contracts 5, 6)", async () => {
+  const { vault } = seedEntryFixture();
+  seedVaultStories(vault, {
+    "PS-A/stories/story-a.md": "planned",
+    "PS-A/stories/story-b.md": "done",
+  });
+  assert.equal(await resolveOpenStory(vault), false, "planned + done is not open");
+
+  const { vault: v2 } = seedEntryFixture();
+  seedVaultStories(v2, {
+    "PS-A/stories/story-a.md": "planned",
+    "PS-A/stories/story-b.md": "in-progress",
+  });
+  assert.equal(await resolveOpenStory(v2), true);
+
+  const { vault: v3 } = seedEntryFixture();
+  assert.equal(await resolveOpenStory(v3), false, "an empty vault has no open story");
+});
+
+test("resolveOpenStory: ONE blocking read yields unknown, not a hang (contract 6)", async () => {
+  const { vault } = seedEntryFixture();
+  seedVaultStories(vault, {
+    "PS-A/stories/story-a.md": "planned",
+    "PS-A/stories/story-b-stuck.md": "planned",
+    "PS-A/stories/story-c.md": "in-progress",
+  });
+  // The failure this guards is an iCloud-evicted file blocking INSIDE one read
+  // while macOS downloads it — not a slow gap between reads. A deadline checked
+  // between files would sail past this and the hook would hang.
+  let stalled = 0;
+  const readFile = (p) => {
+    if (p.endsWith("story-b-stuck.md")) {
+      stalled++;
+      return new Promise(() => {}); // never settles
+    }
+    return readFileAsyncTest(p, "utf8");
+  };
+  const t0 = Date.now();
+  const verdict = await resolveOpenStory(vault, { budgetMs: 60, readFile });
+  const elapsed = Date.now() - t0;
+  assert.equal(verdict, "unknown", "the budget wins over a read that never returns");
+  assert.equal(stalled, 1, "the stall was reached, so the test exercised the real path");
+  assert.ok(elapsed < 2000, `returned in ${elapsed}ms rather than hanging`);
+});
+
+test("resolveOpenStory: the scan short-circuits, so a later stall cannot matter (contract 6)", async () => {
+  const { vault } = seedEntryFixture();
+  seedVaultStories(vault, {
+    "PS-A/stories/story-a.md": "in-progress",
+    "PS-A/stories/story-z-stuck.md": "planned",
+  });
+  // The budget is load-bearing only on the `false` path — which is exactly the
+  // path that fires the reminder. Once an in-progress story is seen the verdict
+  // is settled and nothing after it is read, stalled or not.
+  let reached = 0;
+  const readFile = (p) => {
+    if (p.endsWith("story-z-stuck.md")) { reached++; return new Promise(() => {}); }
+    return readFileAsyncTest(p, "utf8");
+  };
+  assert.equal(await resolveOpenStory(vault, { budgetMs: 60, readFile }), true);
+  assert.equal(reached, 0, "a stall after the answer is never even reached");
+});
+
+test("resolveOpenStory: a fast vault beats the budget and returns a real verdict (contract 6)", async () => {
+  const { vault } = seedEntryFixture();
+  seedVaultStories(vault, { "PS-A/stories/story-a.md": "in-progress" });
+  assert.equal(await resolveOpenStory(vault, { budgetMs: 5000 }), true);
+});
+
+test("open-story cache: written once, O_EXCL, distinguishes unknown from absent (contract 7)", () => {
+  const { proj } = seedEntryFixture();
+  const sid = "sess-cache";
+  assert.equal(readOpenStoryCache(proj, sid), null, "no verdict yet is null, not false");
+
+  assert.equal(writeOpenStoryCache(proj, sid, false), true);
+  assert.equal(readOpenStoryCache(proj, sid), false);
+
+  assert.equal(writeOpenStoryCache(proj, sid, true), false,
+    "a second writer loses the race and does not overwrite the verdict");
+  assert.equal(readOpenStoryCache(proj, sid), false, "the first verdict stands");
+
+  const sid2 = "sess-unknown";
+  writeOpenStoryCache(proj, sid2, "unknown");
+  assert.equal(readOpenStoryCache(proj, sid2), "unknown",
+    "a cached unknown is distinct from no verdict at all");
+});
+
+test("cleanupStaleSessionState: reaps stale score/marker dirs, spares fresh ones (contract 3)", () => {
+  const { proj } = seedEntryFixture();
+  const stale = "sess-old", fresh = "sess-new";
+  registerSourcePath(proj, stale, join(proj, "a.mjs"));
+  writeOpenStoryCache(proj, stale, false);
+  registerSourcePath(proj, fresh, join(proj, "b.mjs"));
+  writeFileSync(join(stateDirOf(proj), `${stale}.json`), "{}", "utf8");
+
+  const old = new Date(Date.now() - 48 * 3600 * 1000);
+  for (const d of [scoreDir(proj, stale), markerDir(proj, stale), join(stateDirOf(proj), `${stale}.json`)]) {
+    utimesSyncTest(d, old, old);
+  }
+
+  const removed = cleanupStaleSessionState(proj, 24);
+  assert.ok(removed >= 3, `reaped the stale trio, got ${removed}`);
+  assert.equal(existsSync(scoreDir(proj, stale)), false, "stale score dir gone — it used to leak forever");
+  assert.equal(existsSync(markerDir(proj, stale)), false, "stale marker dir gone");
+  assert.equal(existsSync(join(stateDirOf(proj), `${stale}.json`)), false, "stale pointer gone, as before");
+  assert.equal(entryScore(proj, fresh), 1, "the fresh session is untouched");
+});
+
+test("electEmitter: exactly one winner per armed context (contract 12)", () => {
+  const { proj } = seedEntryFixture();
+  const sid = "sess-elect";
+  assert.equal(mayRemind(proj, sid), true, "a fresh session may remind");
+  assert.equal(electEmitter(proj, sid), true, "first caller is elected");
+  assert.equal(firedCount(proj, sid), 1);
+
+  assert.equal(electEmitter(proj, sid), false, "a second caller in the same context loses");
+  assert.equal(electEmitter(proj, sid), false);
+  assert.equal(firedCount(proj, sid), 1, "and leaves no extra marker behind");
+  assert.equal(mayRemind(proj, sid), false, "permission is gone until re-arming");
+});
+
+test("electEmitter: contenders cannot take one name each (contract 12)", () => {
+  const { proj } = seedEntryFixture();
+  const sid = "sess-contend";
+  // Sequential contention only. Note what this does NOT catch: under the
+  // rejected "try fired-1, on EEXIST try fired-2" rule this test still passes,
+  // because the second call sees a count of 1 and is refused permission before
+  // it ever reaches the fall-through. The fall-through is reachable only when
+  // two processes observe an empty directory at the same instant — which is why
+  // the racing test below exists and why inspection was never going to be
+  // enough. Verified by mutation: only the racing test goes red.
+  const wins = [electEmitter(proj, sid), electEmitter(proj, sid), electEmitter(proj, sid)];
+  assert.deepEqual(wins, [true, false, false]);
+  assert.equal(firedCount(proj, sid), 1, "no fall-through to the second slot");
+});
+
+test("armReminder + electEmitter: exactly two firings per session id (contracts 12, 16)", () => {
+  const { proj } = seedEntryFixture();
+  const sid = "sess-cap";
+
+  assert.equal(electEmitter(proj, sid), true, "firing 1");
+  assert.equal(electEmitter(proj, sid), false);
+
+  // First compaction: the conversation was discarded, so the delivered reminder
+  // is gone from context even though the marker on disk is not.
+  assert.equal(armReminder(proj, sid), true);
+  assert.equal(isArmed(proj, sid), true);
+  assert.equal(mayRemind(proj, sid), true, "re-armed");
+  assert.equal(electEmitter(proj, sid), true, "firing 2");
+  assert.equal(isArmed(proj, sid), false, "the winner consumes the arming");
+  assert.equal(firedCount(proj, sid), 2);
+
+  // Second compaction: arming still succeeds, but the cap holds.
+  assert.equal(armReminder(proj, sid), true);
+  assert.equal(mayRemind(proj, sid), false, "cap reached — arming cannot lift it");
+  assert.equal(electEmitter(proj, sid), false, "no third firing, ever");
+  assert.equal(firedCount(proj, sid), 2);
+});
+
+test("the cap is reachable at all — the defect the earlier design had (contract 12)", () => {
+  const { proj } = seedEntryFixture();
+  const sid = "sess-reach";
+  // Under the rejected design, compaction CLEARED fired-*, so the directory
+  // never held two and the cap state was unreachable: one firing per compaction
+  // cycle, unbounded. Here two compactions are enough to exhaust it.
+  electEmitter(proj, sid);
+  armReminder(proj, sid); electEmitter(proj, sid);
+  armReminder(proj, sid); electEmitter(proj, sid);
+  armReminder(proj, sid); electEmitter(proj, sid);
+  assert.equal(firedCount(proj, sid), 2, "four compactions still yield two firings");
+});
+
+test("armReminder is idempotent — arming twice is not two permissions (contract 16)", () => {
+  const { proj } = seedEntryFixture();
+  const sid = "sess-arm";
+  electEmitter(proj, sid);
+  assert.equal(armReminder(proj, sid), true);
+  assert.equal(armReminder(proj, sid), false, "already armed");
+  assert.equal(electEmitter(proj, sid), true);
+  assert.equal(electEmitter(proj, sid), false, "one arming buys one firing");
+});
+
+test("election state is disjoint from the score (contracts 2, 12)", () => {
+  const { proj } = seedEntryFixture();
+  const sid = "sess-disjoint";
+  registerSourcePath(proj, sid, join(proj, "a.mjs"));
+  registerSourcePath(proj, sid, join(proj, "b.mjs"));
+  electEmitter(proj, sid);
+  armReminder(proj, sid);
+  writeOpenStoryCache(proj, sid, false);
+  assert.equal(entryScore(proj, sid), 2,
+    "markers and the cached verdict live in a sibling directory and are never counted as paths");
+  assert.notEqual(scoreDir(proj, sid), markerDir(proj, sid));
+});
+
+test("racing: real parallel processes — one emitter, exact count, pointer intact (contracts 2, 9, 12)", async () => {
+  const { proj } = seedEntryFixture();
+  const sid = "sess-parallel";
+  const lib = fileURLToPath(new URL("../scripts/lib.mjs", import.meta.url));
+
+  // Seed the ADR-006 pointer the way a real session would, then let N processes
+  // hammer the score and the election at the same instant. The pointer must
+  // survive: keeping this state out of writeSessionState is what stops its
+  // read-modify-write from erasing active_epic/active_story under this load.
+  writeSessionStateTest(proj, sid, { active_epic: "PS-A", active_story: "story-x" });
+
+  const N = 12;
+  const startAt = Date.now() + 500; // shared barrier — process startup jitter
+                                    // alone would serialize them and prove nothing
+  const src = `
+    import { registerSourcePath, electEmitter } from ${JSON.stringify(lib)};
+    const [proj, sid, i, startAt] = process.argv.slice(1);
+    while (Date.now() < Number(startAt)) {}
+    const won = electEmitter(proj, sid);
+    for (let k = 0; k < 8; k++) registerSourcePath(proj, sid, proj + "/f" + k + ".mjs");
+    registerSourcePath(proj, sid, proj + "/uniq" + i + ".mjs");
+    process.stdout.write(won ? "WON" : "lost");
+  `;
+  const runs = Array.from({ length: N }, (_, i) =>
+    new Promise((resolve) => {
+      const cp = spawn(
+        process.execPath,
+        ["--input-type=module", "-e", src, proj, sid, String(i), String(startAt)],
+        { stdio: ["ignore", "pipe", "ignore"] });
+      let out = "";
+      cp.stdout.on("data", (d) => { out += d; });
+      cp.on("close", () => resolve(out));
+    }));
+  const results = await Promise.all(runs);
+
+  assert.equal(results.filter((r) => r === "WON").length, 1,
+    `exactly one process may emit, got ${JSON.stringify(results)}`);
+  assert.equal(firedCount(proj, sid), 1, "and exactly one marker exists");
+  assert.equal(entryScore(proj, sid), 8 + N,
+    "every distinct path counted once — no increment lost to a concurrent writer");
+
+  const st = JSON.parse(readFileSync(join(stateDirOf(proj), `${sid}.json`), "utf8"));
+  assert.equal(st.active_epic, "PS-A", "ADR-006 pointer survived the storm");
+  assert.equal(st.active_story, "story-x");
+});
+
+test("checkWorkWithoutStory: fires on dirty tree with no open story, silent otherwise (contract 18)", async () => {
+  const { checkWorkWithoutStory } = await import("../scripts/doctor.mjs");
+  const root = mkdtempSync(join(tmpdir(), "ps-wws-"));
+  const proj = join(root, "proj");
+  const vault = join(root, "vault");
+  mkdirSync(proj, { recursive: true });
+  mkdirSync(join(vault, "epics", "PS-A", "stories"), { recursive: true });
+  const cfg = { vault_path: vault };
+  const story = (name, status) =>
+    writeFileSync(join(vault, "epics", "PS-A", "stories", name),
+      `---\ntype: story\nstatus: ${status}\n---\n\n# s\n`, "utf8");
+
+  const prevProj = process.env.CLAUDE_PROJECT_DIR;
+  process.env.CLAUDE_PROJECT_DIR = proj;
+  try {
+    // Not a git repository at all → cannot tell → no finding, not an error.
+    story("story-a.md", "planned");
+    assert.deepEqual(checkWorkWithoutStory(cfg, proj), [], "a non-repository yields nothing");
+
+    spawnSync("git", ["init", "-q"], { cwd: proj });
+    spawnSync("git", ["config", "user.email", "t@example.com"], { cwd: proj });
+    spawnSync("git", ["config", "user.name", "t"], { cwd: proj });
+    assert.deepEqual(checkWorkWithoutStory(cfg, proj), [], "a clean tree yields nothing");
+
+    writeFileSync(join(proj, "a.mjs"), "// work\n", "utf8");
+    const fired = checkWorkWithoutStory(cfg, proj);
+    assert.equal(fired.length, 1, "dirty tree + no story in progress");
+    assert.equal(fired[0].level, "warn", "never issue — spikes legitimately look like this");
+    assert.equal(fired[0].check, "work-without-story");
+    assert.ok(/no reminder fired|No entry reminder/i.test(fired[0].message),
+      "the finding says whether the prompt was ever delivered, and on which machine");
+
+    story("story-b.md", "in-progress");
+    assert.deepEqual(checkWorkWithoutStory(cfg, proj), [],
+      "the same predicate as the hook: in-progress means the work is tracked");
+
+    // An unreadable vault must not read as clean.
+    const unreadable = join(vault, "epics", "PS-A", "stories", "story-c.md");
+    writeFileSync(unreadable, "---\nstatus: planned\n---\n", "utf8");
+    writeFileSync(join(vault, "epics", "PS-A", "stories", "story-b.md"),
+      "---\ntype: story\nstatus: planned\n---\n", "utf8");
+    spawnSync("chmod", ["000", unreadable]);
+    const inconclusive = checkWorkWithoutStory(cfg, proj);
+    spawnSync("chmod", ["644", unreadable]);
+    if (inconclusive.length) {
+      assert.match(inconclusive[0].message, /inconclusive rather than clean/,
+        "a diagnostic that cannot read must say so, not go quiet");
+    }
+  } finally {
+    if (prevProj === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+    else process.env.CLAUDE_PROJECT_DIR = prevProj;
+  }
 });

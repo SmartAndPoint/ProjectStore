@@ -123,6 +123,24 @@ resistance. v0.13 makes that safe instead of forbidden:
 - A throttled PreToolUse **nudge** fires when vault files are edited directly:
   "run reconcile afterwards so the derived views stay in sync" (disable with
   `"guard": "off"` in `projectstore.json`).
+- A once-per-session **entry reminder** fires on PostToolUse when a session has
+  written to three or more distinct *source* files and no story is `in-progress`:
+  "open it in the vault before going further". PostToolUse, not PreToolUse, so
+  declined edits are not counted as work that happened; `Stop` is the fallback
+  carrier for a session that delegates all its writing to subagents and then
+  answers without a tool call of its own. Subagent writes count toward the score
+  but never receive the reminder — a subagent cannot open a story. A session
+  launched with `--agent` carries an agent identity on every call and is
+  therefore never reminded either; for those sessions `doctor`'s
+  `work-without-story` is the only coverage. The same
+  `"guard": "off"` silences it, and silences both nudges together. Firings are
+  appended to `.claude/.projectstore/entry-log.jsonl` (machine-local, since
+  `.claude/` is gitignored) so `doctor` can report whether the prompt was ever
+  delivered — a mechanism that cannot say whether it worked is indistinguishable
+  from one that does not.
+- `doctor` carries the after-the-fact half: **work-without-story** warns when the
+  project tree is dirty and no story is in progress. It is the only seam that
+  sees Bash-mediated writes, which bypass hook path extraction entirely.
 
 The division of labor: deterministic checks catch the mechanical 90% for free;
 the LLM critic (`/projectstore:review`) is saved for the judgment calls.

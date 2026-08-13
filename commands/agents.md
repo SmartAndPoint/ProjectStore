@@ -12,10 +12,13 @@ subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
 1. **Generate the block from the installed plugin, never from documentation**:
    read `$CLAUDE_PLUGIN_ROOT/templates/claude-md-block.md.tmpl` and keep only the
    agent lines whose agent appears in the active layout's `agents` roster
-   (`scaffold/layouts/<layout>.json`); the **model-resolution line and the
-   vault-communication line always stay** — they are not agent lines, and dropping
-   the model line would leave a v2 block with none of its v2 content (which
-   `checkAgentsBlock` cannot detect: it compares the marker version only).
+   (`scaffold/layouts/<layout>.json`); the **entry-rule line, the
+   instruction-conflict line, the model-resolution line and the
+   vault-communication line always stay** — none of them is an agent line, and
+   stripping any would leave a versioned block with none of the content that
+   version exists for (which `checkAgentsBlock` cannot detect: it compares the
+   marker version only). The entry rule matters most here: in a project with
+   hooks disabled the block is the only thing carrying it.
    Only *routable* agents get lines (critic/planner/reviewer) — `librarian` and
    `archaeologist` have no per-turn trigger and are deliberately absent.
 2. **Scan BOTH `CLAUDE.md` and `AGENTS.md`** for `<!-- projectstore:agents` markers:

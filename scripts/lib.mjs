@@ -2,9 +2,11 @@
 // Pure node, no external deps. Keep this single-file & dependency-free
 // so plugin install does not require npm install.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, utimesSync, unlinkSync, renameSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync } from "node:fs";
+import { readFile as readFileAsync } from "node:fs/promises";
 import { join, dirname, basename, resolve } from "node:path";
 import { hostname, homedir } from "node:os";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
@@ -1240,16 +1242,362 @@ export function cleanupStaleSessionState(projectDir, maxAgeHours = 24) {
   const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
   let removed = 0;
   for (const name of readdirSync(dir)) {
-    if (!name.endsWith(".json")) continue;
     const p = join(dir, name);
     try {
-      if (statSync(p).mtimeMs < cutoff) {
+      const st = statSync(p);
+      if (st.mtimeMs >= cutoff) continue;
+      if (st.isDirectory()) {
+        // Entry-rule score and marker directories. Reaped by the directory's
+        // OWN mtime, which advances when an entry is created inside it — so an
+        // actively-scoring session is never reaped mid-flight. The accepted
+        // envelope: a session that registers no NEW distinct path for the whole
+        // window loses its score and its markers together, permitting at most
+        // one duplicate reminder. Before this branch existed they leaked
+        // forever, because the old filter skipped everything but *.json.
+        rmSync(p, { recursive: true, force: true });
+        removed++;
+      } else if (name.endsWith(".json")) {
         unlinkSync(p);
         removed++;
       }
     } catch {}
   }
   return removed;
+}
+
+// ─── Entry-rule detection (artifact-first order) ───────────────────────
+//
+// Normative text: the spec "Entry-rule detection: the score, the open-story
+// predicate, and the delivery seams". The one rule that governs every helper
+// below and is invisible from any single call site: **nothing here may route
+// through writeSessionState**. That function is a read-modify-write, and
+// writeFileSync opens with O_TRUNC — so a concurrent read lands on a
+// zero-byte file, readSessionState swallows the parse error into `null`, and
+// the spread then writes the patch alone, erasing the ADR-006 statusline
+// pointer. Today that path only runs on vault-file tool calls; the score is
+// fed by every source write in every parallel subagent (all sharing one
+// session_id), which is a different order of contention entirely.
+
+// Generated, vendored or machine-local paths — never a source file for any
+// consumer. Lifted out of diff-refs.mjs so the hook, doctor and diff-refs
+// cannot drift apart (contract 1).
+export const SOURCE_IGNORE = [
+  /(^|\/)package-lock\.json$/, /(^|\/)yarn\.lock$/, /(^|\/)pnpm-lock\.yaml$/,
+  /(^|\/)Cargo\.lock$/, /(^|\/)node_modules\//, /(^|\/)dist\//, /(^|\/)build\//,
+  /(^|\/)\.claude\//, /\.min\.(js|css)$/,
+];
+
+// The entry-rule counter ignores strictly more than the base set, and the
+// difference is deliberate rather than an oversight of one or the other.
+// /projectstore:bind writes these three itself, in a session that by
+// construction has no story open — counting them makes the plugin nag about its
+// own setup. They must NOT join SOURCE_IGNORE: an edit to AGENTS.md is a real
+// code reference (the PS-AGENTS epic already lists it), and folding these into
+// the shared set would silently drop it from every proposed code_refs.
+// Root-anchored, unlike the patterns above: a monorepo's nested AGENTS.md is
+// ordinary source and must still count.
+export const ENTRY_IGNORE = [
+  ...SOURCE_IGNORE,
+  /^AGENTS\.md$/, /^CLAUDE\.md$/, /^\.gitignore$/,
+];
+
+export function isSourcePath(absPath, projectDir, vaultPath) {
+  if (!absPath || !projectDir) return false;
+  if (vaultPath && isInsideVault(absPath, vaultPath)) return false;
+  const root = projectDir.endsWith("/") ? projectDir.slice(0, -1) : projectDir;
+  if (!absPath.startsWith(root + "/")) return false;
+  // Matched project-relative, never absolute: SOURCE_IGNORE is
+  // repo-relative-anchored, so `/(^|\/)build\//` would swallow every path in a
+  // project that merely lives under a directory called `build`.
+  const rel = absPath.slice(root.length + 1);
+  if (!rel) return false;
+  return !ENTRY_IGNORE.some((re) => re.test(rel));
+}
+
+export function scoreDir(projectDir, sessionId) {
+  return join(stateDir(projectDir), `${sessionId}.paths`);
+}
+
+function pathKey(p) {
+  return createHash("sha1").update(p).digest("hex").slice(0, 16);
+}
+
+// One empty file per distinct path. Registration is a bare create on a
+// content-derived name, so two subagents registering concurrently cannot lose
+// each other's increment and no reader-writer pair exists to race (contract 2).
+export function registerSourcePath(projectDir, sessionId, absPath) {
+  try {
+    const dir = scoreDir(projectDir, sessionId);
+    ensureStateDir(projectDir);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, pathKey(absPath)), "", { flag: "a" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Exact and uncapped: the reminder quotes this number, so a session that wrote
+// fifty files must not report three.
+export function entryScore(projectDir, sessionId) {
+  try {
+    return readdirSync(scoreDir(projectDir, sessionId)).length;
+  } catch {
+    return 0;
+  }
+}
+
+// The single open-story predicate (contract 5), as a pure core: it decides from
+// already-loaded frontmatter and performs no I/O, so doctor feeds it the
+// artifact scan it already performs while the hook feeds it a budgeted read —
+// one definition, and therefore no way for the two to disagree about the same
+// vault. `planned` is deliberately not open: writing code against a story that
+// never went through /projectstore:story plan is itself the order being skipped.
+export function openStoryFrom(storyFrontmatters) {
+  return (storyFrontmatters || []).some((fm) => fm && fm.status === "in-progress");
+}
+
+// Every story file in the vault, whatever shape it takes. Deliberately
+// synchronous: readdir/stat never materialize an iCloud-evicted file, so
+// enumeration cannot block — only reading contents can. One lister, shared by
+// both adapters; a parallel async copy would drift.
+export function listVaultStoryFiles(vaultPath) {
+  const out = [];
+  const epicsDir = join(vaultPath, "epics");
+  let entries;
+  try { entries = readdirSync(epicsDir).sort(); } catch { return out; }
+  for (const e of entries) {
+    for (const s of listEpicStories(join(epicsDir, e))) out.push(s.abs);
+  }
+  return out;
+}
+
+// The hook's adapter: tri-state, under a hard budget (contract 6).
+//
+// The budget cannot be enforced by checking the clock between files. Node
+// cannot interrupt a synchronous read, and an iCloud-evicted story does not
+// fail — it BLOCKS while macOS downloads it, inside a single call. So the reads
+// are async and raced against a timer: when the timer wins we return "unknown"
+// with reads still outstanding, and the caller (a short-lived hook process) may
+// exit — but only because "unknown" suppresses the reminder, so nothing has
+// been written to stdout. Exiting after a write would truncate it, since
+// process.exit does not flush pending pipe writes.
+export async function resolveOpenStory(vaultPath, opts = {}) {
+  const budgetMs = opts.budgetMs ?? 200;
+  const readFile = opts.readFile || ((p) => readFileAsync(p, "utf8"));
+  const files = listVaultStoryFiles(vaultPath);
+  if (!files.length) return false;
+
+  let timer = null;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve("unknown"), budgetMs);
+  });
+  const scan = (async () => {
+    for (const f of files) {
+      let text;
+      try { text = await readFile(f); } catch { continue; }
+      // String(): the injected reader is a seam, and a caller that forgets an
+      // encoding hands back a Buffer. Coercing here keeps that a non-event.
+      if (openStoryFrom([parseFrontmatter(String(text)).data])) return true;
+    }
+    return false;
+  })();
+
+  try {
+    return await Promise.race([scan, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// Newest mtime across the vault's markdown, ms, or null for an empty vault.
+// `stat` does not materialize a dataless file, so unlike a frontmatter sweep
+// this cannot block on an iCloud download. Advisory by nature: a sync that
+// rewrites mtimes can only make the caller quieter, never noisier.
+export function lastVaultActivityMs(vaultPath) {
+  let newest = 0;
+  const walk = (dir) => {
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith(".")) continue; // .projectstore/, .obsidian/, .git/
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith(".md")) {
+        try {
+          const m = statSync(p).mtimeMs;
+          if (m > newest) newest = m;
+        } catch {}
+      }
+    }
+  };
+  walk(vaultPath);
+  return newest || null;
+}
+
+export function markerDir(projectDir, sessionId) {
+  return join(stateDir(projectDir), `${sessionId}.fired`);
+}
+
+// The sweep runs at most once per session; its verdict — "unknown" included —
+// is written once and never rewritten, so there is no read-modify-write here
+// either. `wx` is O_EXCL: a second invocation racing the first simply loses.
+export function readOpenStoryCache(projectDir, sessionId) {
+  try {
+    const v = readFileSync(join(markerDir(projectDir, sessionId), "open-story"), "utf8").trim();
+    return v === "true" ? true : v === "false" ? false : "unknown";
+  } catch {
+    return null; // no verdict yet — distinct from a cached "unknown"
+  }
+}
+
+export function writeOpenStoryCache(projectDir, sessionId, value) {
+  try {
+    mkdirSync(markerDir(projectDir, sessionId), { recursive: true });
+    writeFileSync(join(markerDir(projectDir, sessionId), "open-story"), String(value), {
+      flag: "wx",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ── Emitter election (contract 12) ──
+//
+// State is three fixed-name marker files in <sid>.fired/: `fired-1`, `fired-2`
+// and `armed`. Fixed names are the whole mechanism — with process-derived names
+// every contender's create succeeds and every contender emits.
+//
+// `fired-*` are never removed. A discarded conversation CREATES `armed`; the
+// winning emitter deletes it. Clearing `fired-*` on compaction instead (the
+// obvious design, and an earlier draft of the spec) makes the cap unreachable:
+// the directory never holds two, so firings are unbounded at one per
+// compaction cycle.
+
+export function firedCount(projectDir, sessionId) {
+  try {
+    return readdirSync(markerDir(projectDir, sessionId))
+      .filter((n) => /^fired-\d+$/.test(n)).length;
+  } catch {
+    return 0;
+  }
+}
+
+export function isArmed(projectDir, sessionId) {
+  return existsSync(join(markerDir(projectDir, sessionId), "armed"));
+}
+
+// Called from SessionStart on source `compact` or `clear`: the session id
+// survives but the conversation — and with it the delivered reminder — did not.
+export function armReminder(projectDir, sessionId) {
+  try {
+    mkdirSync(markerDir(projectDir, sessionId), { recursive: true });
+    writeFileSync(join(markerDir(projectDir, sessionId), "armed"), "", { flag: "wx" });
+    return true;
+  } catch {
+    return false; // already armed; arming twice is not two permissions
+  }
+}
+
+export function mayRemind(projectDir, sessionId) {
+  const n = firedCount(projectDir, sessionId);
+  if (n >= 2) return false;
+  return n === 0 || isArmed(projectDir, sessionId);
+}
+
+// Returns true iff THIS process is the emitter for the current armed context.
+//
+// The prize is chosen by state, never by falling through to the next free name.
+// "try fired-1, on EEXIST try fired-2" reads like the same thing and is not: two
+// processes that both observe an empty directory would take one name each and
+// both emit. Deriving the single legal target from the count means exactly one
+// name is contested per context, and O_EXCL awards it to exactly one caller.
+// ── The efficacy log (contract 19) ──
+//
+// Append-only on the write side; the cap is the reader's job. Two sessions
+// firing at the same instant can both append safely, where both truncating
+// would not be safe. `.claude/` is gitignored, so this never travels — doctor
+// must say "on this machine" or a two-machine maintainer reads a zero as
+// "the mechanism is broken".
+
+export const ENTRY_LOG_CAP = 1000;
+
+export function entryLogPath(projectDir) {
+  return join(projectDir, ".claude", ".projectstore", "entry-log.jsonl");
+}
+
+export function appendEntryLog(projectDir, record) {
+  try {
+    ensureRuntimeDir(projectDir);
+    appendFileSync(entryLogPath(projectDir), JSON.stringify(record) + "\n", "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readEntryLog(projectDir, { withinDays = 30 } = {}) {
+  let lines;
+  try {
+    lines = readFileSync(entryLogPath(projectDir), "utf8").split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+  if (lines.length > ENTRY_LOG_CAP) lines = lines.slice(-ENTRY_LOG_CAP);
+  const cutoff = Date.now() - withinDays * 24 * 60 * 60 * 1000;
+  const out = [];
+  for (const l of lines) {
+    try {
+      const r = JSON.parse(l);
+      if (Date.parse(r.at) >= cutoff) out.push(r);
+    } catch {}
+  }
+  return out;
+}
+
+// ── The reminder (contracts 4, 15) ──
+
+export const ENTRY_THRESHOLD = 3;
+
+// Normative text. Three properties it must keep, whatever the wording: it shows
+// the evidence (the count), it names the action, and it grants the exit — so a
+// false positive costs a glance rather than an argument.
+export function entryReminderText(n) {
+  return [
+    `**projectstore**: this session has written to ${n} source files and no story`,
+    "is in progress. If this is feature-sized work, open it in the vault before",
+    'going further — `/projectstore:story <EPIC> "<title>"`, or',
+    "`/projectstore:epic` if it needs a new one. If it is a one-off fix, carry",
+    "on — this fires once.",
+  ].join("\n");
+}
+
+export function electEmitter(projectDir, sessionId) {
+  const dir = markerDir(projectDir, sessionId);
+  const n = firedCount(projectDir, sessionId);
+  let target = null;
+  if (n === 0) target = "fired-1";
+  else if (n === 1 && isArmed(projectDir, sessionId)) target = "fired-2";
+  if (!target) return false;
+  try { mkdirSync(dir, { recursive: true }); } catch { return false; }
+
+  // In the ARMED state the arming is the scarce thing, so consuming it must be
+  // the atomic act. Creating fired-2 first and unlinking `armed` afterwards
+  // leaves a window in which a second process still sees count==1 && armed and
+  // targets fired-2 too: both create (different moments, same name is gone —
+  // the loser's create fails, but only if it arrives after; widen the gap and
+  // both win). unlink() succeeding is what elects here, exactly as create()
+  // does in the unarmed state.
+  if (target === "fired-2") {
+    try { unlinkSync(join(dir, "armed")); } catch { return false; }
+  }
+  try {
+    writeFileSync(join(dir, target), "", { flag: "wx" });
+  } catch {
+    return false; // another process took this context's slot
+  }
+  return true;
 }
 
 // ─── Frontmatter parsing (minimal) ─────────────────────────────────────

@@ -1,6 +1,16 @@
-<!-- projectstore:agents v2 (managed by projectstore — edit outside markers) -->
+<!-- projectstore:agents v3 (managed by projectstore — edit outside markers) -->
 ## projectstore agents
 
+- **A feature-sized request opens a vault artifact before it opens an editor.**
+  Analysis → placement (which epic, which story) → an ADR and/or spec when the
+  "how" is non-trivial → `projectstore:critic` → only then implementation →
+  `projectstore:reviewer`. "Feature-sized" is not a judgement about how the
+  request was phrased — it is about what the work touches: if you are about to
+  write across several source files, open the story first.
+- **Report instruction conflicts; do not arbitrate them.** If a session-level or
+  harness-level instruction contradicts this block, say so and ask which wins.
+  Resolving it silently is how the contradiction becomes invisible to the person
+  who could have settled it.
 - When spawning any agent below, resolve its model from
   `.claude/projectstore.json` → `agents.per_agent.<name>.model ?? agents.default.model`,
   where `<name>` is the **bare** agent name (`critic` for `projectstore:critic`),

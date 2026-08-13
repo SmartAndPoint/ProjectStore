@@ -44,6 +44,14 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    (indexes + code-map + graph). Never offer a hand-written Edit of an index
    row: derived views are only ever written by the core's regeneration.
 
+   `work-without-story` is not repairable by any command and must not be
+   presented as if it were: it reports that the project tree has uncommitted
+   source work while no story is `in-progress`. The response is a judgement —
+   open a story (`/projectstore:story <EPIC> "<title>"`), or decide the work is
+   a one-off and leave it. Relay the finding's own note about whether an entry
+   reminder fired: "fired and the work still went untracked" and "never fired"
+   are different problems, and the count is for this machine only.
+
 4. **Suggest next**: if issues remain, list the one-line repair per finding; if
    only warnings remain, say they are advisory.
 

@@ -54,10 +54,21 @@ import {
   extractLinks,
   buildNodeIndex,
   resolveLinkTarget,
+  listVaultStoryFiles,
+  openStoryFrom,
+  readEntryLog,
+  lastVaultActivityMs,
+  ENTRY_IGNORE,
 } from "./lib.mjs";
+import { uncommittedProjectFiles, lastCommitMs } from "./diff-refs.mjs";
 
 const AGENT_BLOCK_MARKER = /<!--\s*projectstore:agents v(\d+)/g;
-const AGENT_BLOCK_VERSION = 2;
+// v3 adds the entry rule and the instruction-conflict clause. checkAgentsBlock
+// compares the marker version alone, so the bump IS the propagation mechanism:
+// without it no bound project ever learns the block changed. The cost is that
+// every already-bound project reports an install issue until it re-runs
+// /projectstore:agents register — intended, and disclosed in the release note.
+const AGENT_BLOCK_VERSION = 3;
 // The live roster. A copy carrying one of these names does NOT override the
 // bundled agent (ADR-008, verified 2026-08-05): plugin agents register under a
 // scoped id, project/user copies register bare, so the names never collide and
@@ -1250,6 +1261,58 @@ function refsOf(fm) {
   return listOf(fm, "code_refs");
 }
 
+// Untracked work, after the fact (spec contract 18). The reminder fires at the
+// moment of the act and cannot see Bash-mediated writes at all; this is the
+// backstop, and it is where the reported incident was actually caught — at
+// "done". Warn, never issue: spikes and hotfixes legitimately produce this
+// state, and an issue would poison the SessionStart line.
+export function checkWorkWithoutStory(cfg, proj) {
+  const out = [];
+  if (!cfg || !cfg.vault_path) return out;
+
+  // The same predicate the hook uses, fed by a plain read: doctor is not on a
+  // hot path and needs no budget, but it must not answer a different question.
+  const files = listVaultStoryFiles(cfg.vault_path);
+  const fms = [];
+  let unreadable = 0;
+  for (const f of files) {
+    try { fms.push(parseFrontmatter(readFileSync(f, "utf8")).data); } catch { unreadable++; }
+  }
+  if (unreadable > 0 && !openStoryFrom(fms)) {
+    // A diagnostic that goes quiet because it could not read is a false clean.
+    out.push(finding("vault", "warn", "work-without-story",
+      `Could not read ${unreadable} story file(s), so "is any story in progress" is unproven — this check is inconclusive rather than clean.`));
+    return out;
+  }
+  if (openStoryFrom(fms)) return out;
+
+  // ENTRY_IGNORE, not the shared set: /projectstore:bind writes AGENTS.md,
+  // CLAUDE.md and .gitignore in a session that by construction has no story, so
+  // the shared set would make this fire on every project's first run.
+  const dirty = uncommittedProjectFiles(proj, ENTRY_IGNORE);
+  if (dirty === null) return out; // not a git repo, shallow, no commits, detached
+
+  // The other half: work that WAS committed, with no story to attribute it to.
+  // In a repo of small frequent commits that is the common shape, and a
+  // dirty-tree-only check would never see it.
+  const vaultMs = lastVaultActivityMs(cfg.vault_path);
+  const commitMs = lastCommitMs(proj);
+  const committedSince = vaultMs !== null && commitMs !== null && commitMs > vaultMs;
+
+  if (dirty.length === 0 && !committedSince) return out;
+
+  const fired = readEntryLog(proj, { withinDays: 30 }).length;
+  const firedNote = fired > 0
+    ? ` An entry reminder fired ${fired} time(s) in the last 30 days on this machine, so the prompt was delivered and the work still went untracked.`
+    : " No entry reminder fired in the last 30 days on this machine (the log is machine-local — .claude/ is gitignored).";
+  const what = [];
+  if (dirty.length) what.push(`${dirty.length} uncommitted source file(s)`);
+  if (committedSince) what.push("commits newer than the vault's last activity");
+  out.push(finding("vault", "warn", "work-without-story",
+    `${what.join(" and ")} in the project, and no story is in progress. If this is feature-sized work, open it in the vault: /projectstore:story <EPIC> "<title>".${firedNote}`));
+  return out;
+}
+
 export function checkCodeRefs(artifacts, proj) {
   const out = [];
   const epicRefs = new Map();
@@ -1396,6 +1459,7 @@ export function runVaultChecks(cfg) {
     ...checkArtifactNames(vaultFiles),
     ...checkExternalRefsForm(artifacts),
     ...checkCodeRefs(artifacts, projectRoot()),
+    ...checkWorkWithoutStory(cfg, projectRoot()),
     ...checkCodeMap(cfg),
     ...checkGraph(cfg),
   );

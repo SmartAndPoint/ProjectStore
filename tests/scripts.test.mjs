@@ -678,3 +678,344 @@ test("diff-refs: no args => fallback true; --since returns file lists", () => {
   assert.ok(!since.uncommitted.some((f) => f.endsWith("/")), "directories expanded to files");
   assert.ok(!since.files.some((f) => f.includes("package-lock")), "ignore globs applied");
 });
+
+// ─── Entry-rule hook behaviour (PS-AGENTS: artifact-first order) ───────
+//
+// Drives scripts/touch-session.mjs with synthetic hook payloads on stdin and
+// asserts the parsed stdout. Everything here is contract-level: the event gate,
+// the emitted channel, agent suppression, the once-per-armed-session marker,
+// and guard scope.
+
+function seedHookProject() {
+  const root = mkdtempSync(join(tmpdir(), "ps-hook-"));
+  const proj = join(root, "proj");
+  const vault = join(root, "vault");
+  mkdirSync(join(proj, ".claude"), { recursive: true });
+  mkdirSync(join(vault, "epics", "PS-A", "stories"), { recursive: true });
+  writeFileSync(join(proj, ".claude", "projectstore.json"),
+    JSON.stringify({ vault_path: vault, layout: "engineering", language: "en" }), "utf8");
+  return { root, proj, vault };
+}
+
+function seedStory(vault, name, status) {
+  writeFileSync(join(vault, "epics", "PS-A", "stories", name),
+    `---\ntype: story\nstatus: ${status}\n---\n\n# s\n`, "utf8");
+}
+
+function fireHook(proj, payload) {
+  const r = spawnSync(process.execPath, [join(REPO, "scripts", "touch-session.mjs")], {
+    encoding: "utf8", input: JSON.stringify(payload), timeout: 15000,
+    env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd: proj,
+  });
+  assert.equal(r.status, 0, `hook must exit 0; stderr: ${r.stderr}`);
+  const out = r.stdout.trim();
+  return out ? JSON.parse(out) : null;
+}
+
+function post(proj, file, extra = {}) {
+  return fireHook(proj, {
+    hook_event_name: "PostToolUse", session_id: extra.sid || "s1",
+    tool_name: "Write", tool_input: { file_path: file },
+    tool_response: { success: true }, ...extra,
+  });
+}
+
+test("entry hook: fires once at the threshold, on PostToolUse additionalContext (contracts 10, 12, 15)", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+
+  assert.equal(post(proj, join(proj, "a.mjs")), null, "1 path — silent");
+  assert.equal(post(proj, join(proj, "b.mjs")), null, "2 paths — silent");
+  const out = post(proj, join(proj, "c.mjs"));
+  assert.ok(out, "3 paths with no story in progress — fires");
+  assert.equal(out.hookSpecificOutput.hookEventName, "PostToolUse");
+  const ctx = out.hookSpecificOutput.additionalContext;
+  assert.ok(ctx.includes("3 source files"), "shows the evidence");
+  assert.ok(ctx.includes("/projectstore:story"), "names the action");
+  assert.ok(/one-off fix/.test(ctx), "grants the exit");
+  assert.equal(out.systemMessage, undefined,
+    "systemMessage is user-only and would reach nobody who can act");
+
+  assert.equal(post(proj, join(proj, "d.mjs")), null, "fires once per armed session");
+});
+
+test("entry hook: an in-progress story anywhere suppresses it (contracts 5, 8)", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  seedStory(vault, "story-b.md", "in-progress");
+  for (const f of ["a.mjs", "b.mjs", "c.mjs", "d.mjs"]) {
+    assert.equal(post(proj, join(proj, f)), null, "work is tracked — nothing to say");
+  }
+});
+
+test("entry hook: a planned story does not count as open (contract 5)", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  post(proj, join(proj, "a.mjs")); post(proj, join(proj, "b.mjs"));
+  assert.ok(post(proj, join(proj, "c.mjs")),
+    "a story that never went through /projectstore:story plan is not open work");
+});
+
+test("entry hook: subagent writes count but never receive the reminder (contract 13)", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  const asAgent = { agent_id: "a1", agent_type: "general-purpose" };
+  assert.equal(post(proj, join(proj, "a.mjs"), asAgent), null);
+  assert.equal(post(proj, join(proj, "b.mjs"), asAgent), null);
+  assert.equal(post(proj, join(proj, "c.mjs"), asAgent), null,
+    "the threshold is crossed inside a subagent, which cannot open a story");
+  const out = post(proj, join(proj, "d.mjs"));
+  assert.ok(out, "the main agent's next own call carries it, with the subagents' work counted");
+  assert.ok(out.hookSpecificOutput.additionalContext.includes("4 source files"));
+});
+
+test("entry hook: ignored paths never count (contract 1)", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  for (const f of ["AGENTS.md", "CLAUDE.md", ".gitignore", "node_modules/x.js", ".claude/settings.json"]) {
+    assert.equal(post(proj, join(proj, f)), null);
+  }
+  assert.equal(post(proj, join(proj, "a.mjs")), null, "still only 1 real source path");
+});
+
+test("entry hook: vault writes are not source, and the event gate holds (contracts 1, 11)", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  const inVault = join(vault, "adr", "x.md");
+  mkdirSync(dirname(inVault), { recursive: true });
+  writeFileSync(inVault, "# x", "utf8");
+  for (let i = 0; i < 4; i++) assert.equal(post(proj, inVault), null, "vault work is not source work");
+
+  // The same script on PreToolUse must not run the source branch at all.
+  const pre = fireHook(proj, {
+    hook_event_name: "PreToolUse", session_id: "s1", tool_name: "Write",
+    tool_input: { file_path: join(proj, "a.mjs") },
+  });
+  assert.equal(pre, null, "PreToolUse never emits the entry reminder");
+});
+
+test("entry hook: a failed tool result registers nothing (contract 10)", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  const failed = { tool_response: { success: false } };
+  for (const f of ["a.mjs", "b.mjs", "c.mjs", "d.mjs"]) {
+    assert.equal(post(proj, join(proj, f), failed), null, "work that did not happen is not work");
+  }
+});
+
+test("entry hook: guard off silences it (contract 20)", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+  writeFileSync(cfgPath, JSON.stringify({ ...cfg, guard: "off" }), "utf8");
+  for (const f of ["a.mjs", "b.mjs", "c.mjs", "d.mjs"]) {
+    assert.equal(post(proj, join(proj, f)), null);
+  }
+});
+
+// ─── Hook output shape guard ───────────────────────────────────────────
+//
+// The class of bug this exists for is invisible at runtime: a hook that emits a
+// field its event does not carry RUNS, PRINTS, EXITS ZERO — and reaches nobody.
+// hooks/pre-compact.mjs has been doing exactly that since it shipped, and no
+// test in this suite could have caught it.
+//
+// Sources of truth, cited because the hooks reference does not tabulate this in
+// one place: the per-event sections of the Claude Code hooks reference for the
+// tool-call and SessionStart events, and the 2.1.163 changelog entry for
+// `Stop` / `SubagentStop` ("can now return hookSpecificOutput.additionalContext
+// ... and keep the turn going").
+const HOOK_FIELDS = {
+  PreToolUse: ["permissionDecision", "permissionDecisionReason", "updatedInput", "additionalContext"],
+  PostToolUse: ["additionalContext"],
+  PostToolUseFailure: ["additionalContext"],
+  PostToolBatch: ["additionalContext"],
+  UserPromptSubmit: ["additionalContext"],
+  SessionStart: ["additionalContext"],
+  Stop: ["additionalContext"],
+  SubagentStop: ["additionalContext"],
+  PreCompact: [], // top-level decision/reason only — no model-facing channel
+};
+
+// Known violations, each owned by a story. Listed so the suite stays green while
+// the defect stays visible — never so it stays forgotten.
+const KNOWN_SHAPE_VIOLATIONS = {
+  "hooks/pre-compact.mjs":
+    "story-precompact-survival-packet-targets-a-channel-precompact-does-not-have",
+};
+
+test("no hook emits a field its event does not carry (spec contract 22)", () => {
+  // Derived from the registration, not hard-coded: a hook hosted under
+  // scripts/ (touch-session.mjs already is) would otherwise escape the guard
+  // entirely, which is the evasion most likely to happen by accident.
+  const reg = JSON.parse(readFileSync(join(REPO, "hooks", "hooks.json"), "utf8"));
+  const files = [...new Set(
+    Object.values(reg.hooks).flatMap((entries) =>
+      entries.flatMap((e) => (e.hooks || []).map((h) =>
+        (h.command || "").replace(/^.*\$\{CLAUDE_PLUGIN_ROOT\}\//, "").trim()))))]
+    .filter((f) => f.endsWith(".mjs"));
+  assert.ok(files.length >= 4, `expected every registered hook script, got ${JSON.stringify(files)}`);
+  const offenders = [];
+  for (const rel of files) {
+    const src = readFileSync(join(REPO, rel), "utf8");
+    const re = /hookEventName:\s*['"]([A-Za-z]+)['"]/g;
+    let m;
+    while ((m = re.exec(src))) {
+      const event = m[1];
+      assert.ok(event in HOOK_FIELDS, `${rel}: unknown hook event "${event}"`);
+      // The emitted object is small in every hook here; a window is enough and
+      // avoids pretending to parse JS.
+      const window = src.slice(Math.max(0, m.index - 200), m.index + 300);
+      for (const field of ["additionalContext", "permissionDecision", "updatedInput"]) {
+        const emitted = new RegExp(`\\b${field}\\b\\s*[,:]`).test(window);
+        if (emitted && !HOOK_FIELDS[event].includes(field)) {
+          offenders.push({ rel, event, field });
+        }
+      }
+    }
+  }
+  const unexpected = offenders.filter((o) => !(o.rel in KNOWN_SHAPE_VIOLATIONS));
+  assert.deepEqual(unexpected, [], `hooks emitting an unsupported field: ${JSON.stringify(unexpected)}`);
+
+  // And the known violation must still BE one: if it gets fixed, this fails and
+  // the entry is removed, so the list cannot rot into a permanent excuse.
+  for (const [rel, story] of Object.entries(KNOWN_SHAPE_VIOLATIONS)) {
+    assert.ok(offenders.some((o) => o.rel === rel),
+      `${rel} is listed as a known violation owned by ${story}, but no longer violates — remove the entry`);
+  }
+});
+
+test("the block bump and the block content ship together (spec contract 24)", () => {
+  const tmpl = readFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), "utf8");
+  const doctor = readFileSync(join(REPO, "scripts", "doctor.mjs"), "utf8");
+  const version = Number(doctor.match(/const AGENT_BLOCK_VERSION = (\d+);/)[1]);
+  const marker = Number(tmpl.match(/projectstore:agents v(\d+)/)[1]);
+  assert.equal(marker, version, "the template's marker and doctor's constant must agree");
+
+  const hasEntryRule = /opens a vault artifact before it opens an editor/.test(tmpl);
+  assert.equal(hasEntryRule, version >= 3,
+    "v3 is what carries the entry rule — content and version cannot land apart, " +
+    "because checkAgentsBlock compares the marker version alone");
+  assert.ok(/Report instruction conflicts; do not arbitrate them/.test(tmpl),
+    "the conflict clause is the other half of v3");
+
+  // This repo dogfoods the block, so its own copy must be re-registered too.
+  const own = readFileSync(join(REPO, "AGENTS.md"), "utf8");
+  assert.equal(own, tmpl, "the repo's own AGENTS.md block is the template, re-registered");
+});
+
+test("registration must not strip the new block lines (spec contract 23)", () => {
+  const src = readFileSync(join(REPO, "commands", "agents.md"), "utf8").replace(/\s+/g, " ");
+  assert.ok(/entry-rule line/.test(src) && /instruction-conflict line/.test(src),
+    "the roster filter keeps only agent lines; these two are not agent lines and " +
+    "must be named in the carve-out, or registration silently deletes the durable " +
+    "copy of the rule from every bound project");
+});
+
+test("entry hook: read-only tool calls never count (spec contracts 2, 10)", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  // The defect this pins, found in review: extractToolPath yields a path for
+  // Read (file_path), Grep/Glob/LS (path) and NotebookRead (notebook_path), so
+  // without a write-tool gate three read-only calls tripped the threshold and
+  // the reminder announced work that never happened. Every earlier drive here
+  // hardcoded tool_name: "Write", which is how the tests missed it.
+  for (const t of ["Read", "Read", "Grep", "Glob", "LS", "NotebookRead"]) {
+    assert.equal(
+      fireHook(proj, {
+        hook_event_name: "PostToolUse", session_id: "s1", tool_name: t,
+        tool_input: { file_path: join(proj, `${t}.mjs`), path: join(proj, "docs") },
+        tool_response: { success: true },
+      }), null, `${t} reads; it does not write`);
+  }
+  // And a genuine write after all that noise is still only the first path.
+  assert.equal(post(proj, join(proj, "a.mjs")), null, "score is 1, not 7");
+});
+
+// ── The Stop carrier (spec contract 14) ──
+
+function fireStop(proj, payload) {
+  const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-stop.mjs")], {
+    encoding: "utf8", input: JSON.stringify({ hook_event_name: "Stop", ...payload }),
+    timeout: 15000, env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd: proj,
+  });
+  assert.equal(r.status, 0, `Stop hook must exit 0; stderr: ${r.stderr}`);
+  const out = r.stdout.trim();
+  return out ? JSON.parse(out) : null;
+}
+
+test("Stop carrier: covers the session that delegated all its writing (contract 14)", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  const asAgent = { agent_id: "a1", agent_type: "general-purpose" };
+  for (const f of ["a.mjs", "b.mjs", "c.mjs"]) post(proj, join(proj, f), asAgent);
+
+  const out = fireStop(proj, { session_id: "s1" });
+  assert.ok(out, "the main agent made no write of its own — Stop carries it");
+  assert.equal(out.hookSpecificOutput.hookEventName, "Stop");
+  assert.ok(out.hookSpecificOutput.additionalContext.includes("3 source files"));
+
+  assert.equal(fireStop(proj, { session_id: "s1" }), null,
+    "create-then-emit: the second Stop finds the marker, so additionalContext " +
+    "continuing the turn cannot loop");
+});
+
+test("Stop carrier: silent on stop_hook_active, agent identity, guard off, below threshold (contracts 13, 14, 20)", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  assert.equal(fireStop(proj, { session_id: "s1" }), null, "below the threshold");
+
+  for (const f of ["a.mjs", "b.mjs", "c.mjs"]) post(proj, join(proj, f), { sid: "s2" });
+  assert.equal(fireStop(proj, { session_id: "s2", stop_hook_active: true }), null,
+    "never speaks while another Stop hook is already driving the turn");
+  assert.equal(fireStop(proj, { session_id: "s2", agent_id: "a1", agent_type: "x" }), null,
+    "same audience rule as the tool-call carrier");
+
+  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+  writeFileSync(cfgPath, JSON.stringify({ ...cfg, guard: "off" }), "utf8");
+  assert.equal(fireStop(proj, { session_id: "s2" }), null, "guard off silences BOTH carriers");
+});
+
+test("Stop carrier: an open story suppresses it (contracts 5, 14)", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "in-progress");
+  for (const f of ["a.mjs", "b.mjs", "c.mjs"]) post(proj, join(proj, f), { sid: "s1" });
+  assert.equal(fireStop(proj, { session_id: "s1" }), null);
+});
+
+// ── The rule payload (spec contract 17) ──
+
+function fireRules(proj, payload = {}) {
+  const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-rules.mjs")], {
+    encoding: "utf8", input: JSON.stringify({ hook_event_name: "SessionStart", ...payload }),
+    timeout: 15000, env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd: proj,
+  });
+  assert.equal(r.status, 0, r.stderr);
+  const out = r.stdout.trim();
+  return out ? JSON.parse(out) : null;
+}
+
+test("rule payload: inline, bounded, and silent under auto_inject false (contract 17)", () => {
+  const { proj } = seedHookProject();
+  const out = fireRules(proj, { session_id: "c1", source: "startup" });
+  assert.ok(out, "delivered");
+  assert.equal(out.hookSpecificOutput.hookEventName, "SessionStart");
+  const ctx = out.hookSpecificOutput.additionalContext;
+  assert.ok(ctx.length <= 2000,
+    `payload is ${ctx.length} chars; over 10,000 the harness replaces it with a ` +
+    "file path, and this hook exists precisely because the vault map already is");
+  // Flattened before matching: the payload wraps, and a guard a reflow can
+  // silence guards nothing — the same lesson the index-row prose guards learned.
+  const flat = ctx.replace(/\s+/g, " ");
+  assert.ok(/opens a vault artifact before it opens an editor/.test(flat), "carries the entry rule");
+  assert.ok(/do not arbitrate them/.test(flat), "carries the conflict clause");
+
+  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+  writeFileSync(cfgPath, JSON.stringify({ ...cfg, auto_inject: false }), "utf8");
+  assert.equal(fireRules(proj, { session_id: "c1" }), null,
+    "a session that opted out of injection is exactly where the AGENTS.md block " +
+    "remains the durable copy");
+});

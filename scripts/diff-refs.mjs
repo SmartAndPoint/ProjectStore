@@ -21,21 +21,44 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { projectRoot } from "./lib.mjs";
+import { projectRoot, SOURCE_IGNORE } from "./lib.mjs";
 
-const IGNORE = [
-  /(^|\/)package-lock\.json$/, /(^|\/)yarn\.lock$/, /(^|\/)pnpm-lock\.yaml$/,
-  /(^|\/)Cargo\.lock$/, /(^|\/)node_modules\//, /(^|\/)dist\//, /(^|\/)build\//,
-  /(^|\/)\.claude\//, /\.min\.(js|css)$/,
-];
+// One definition, in lib.mjs, shared with the entry-rule hook and doctor —
+// three consumers of "is this a source file" that must not drift apart.
+const IGNORE = SOURCE_IGNORE;
 
-function git(args) {
+function gitIn(cwd, args) {
   const r = spawnSync("git", args, {
-    cwd: projectRoot(),
+    cwd,
     encoding: "utf8",
     timeout: 15000,
   });
   return r.status === 0 ? r.stdout : null;
+}
+
+const git = (args) => gitIn(projectRoot(), args);
+
+// Doctor's only route to git. Kept here rather than in lib.mjs, whose header
+// pins it as dependency-free with no subprocess anywhere.
+export function uncommittedProjectFiles(cwd = projectRoot(), ignore = IGNORE) {
+  // A non-repository, a shallow clone with no HEAD, or a detached worktree with
+  // no commits all make these fail — null means "cannot tell", which is not the
+  // same as "nothing uncommitted" and must not be reported as a finding.
+  const tracked = gitIn(cwd, ["diff", "--name-only", "HEAD"]);
+  const untracked = gitIn(cwd, ["ls-files", "--others", "--exclude-standard"]);
+  if (tracked === null && untracked === null) return null;
+  return [...new Set([...(tracked || "").split("\n"), ...(untracked || "").split("\n")])]
+    .map((f) => f.trim())
+    .filter((f) => f && !ignore.some((rx) => rx.test(f)))
+    .sort();
+}
+
+// Newest commit timestamp, ms, or null when git cannot answer.
+export function lastCommitMs(cwd = projectRoot()) {
+  const out = gitIn(cwd, ["log", "-1", "--format=%cI"]);
+  if (!out) return null;
+  const t = Date.parse(out.trim());
+  return Number.isFinite(t) ? t : null;
 }
 
 function filterFiles(list) {

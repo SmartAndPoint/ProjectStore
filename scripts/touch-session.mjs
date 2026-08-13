@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // projectstore — touch-session.mjs
 //
-// Called by the PreToolUse hook on every tool call.
+// Called by BOTH the PreToolUse and PostToolUse hooks, and gated on which:
+// a write inside the vault fires both events, so without the gate the pointer
+// patch below would run twice per call — and that patch is the unguarded
+// read-modify-write the entry-rule state deliberately avoids.
 //
 // Responsibilities:
 // 1. Liveness — touches this session's registration file (mtime) so other
@@ -12,6 +15,12 @@
 //    and, if it lives inside the vault, appends an entry to
 //    `recent_activity` in the session file (capped at 50, deduped).
 //    The PreCompact hook reads this list to build a survival packet.
+// 3. Entry-rule detection (PostToolUse only) — counts distinct SOURCE paths
+//    written this session and, once the threshold is reached with no story
+//    open, emits the one advisory reminder. PostToolUse rather than
+//    PreToolUse because it fires only after a call succeeds, so declined
+//    edits are not counted as work that happened. Spec: "Entry-rule
+//    detection: the score, the open-story predicate, and the delivery seams".
 //
 // Session identity comes from Claude's own `session_id` field in the
 // hook input JSON (stdin), so two Claude Code instances open on the
@@ -36,6 +45,17 @@ import {
   parseFrontmatter,
   readSessionState,
   writeSessionState,
+  isSourcePath,
+  registerSourcePath,
+  entryScore,
+  resolveOpenStory,
+  readOpenStoryCache,
+  writeOpenStoryCache,
+  mayRemind,
+  electEmitter,
+  appendEntryLog,
+  entryReminderText,
+  ENTRY_THRESHOLD,
 } from "./lib.mjs";
 
 const WRITE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
@@ -89,7 +109,62 @@ function extractToolPath(input) {
   return ti.file_path || ti.notebook_path || ti.path || null;
 }
 
-function main() {
+// The source-side branch (PostToolUse). Never throws: every failure here must
+// leave the user's tool call untouched.
+async function entryBranch(cfg, proj, sid, filePath, input) {
+  // Writes only. extractToolPath happily yields a path for Read, Grep, Glob and
+  // LS — all of which carry file_path or path — so without this gate three
+  // read-only calls would trip the threshold and the reminder would announce
+  // work that never happened. (Grep's `path` is often a directory, which would
+  // then be counted as a "source file".) The event tells us the call succeeded;
+  // only the tool name tells us it wrote.
+  if (!WRITE_TOOLS.test(input.tool_name || "")) return;
+  if (!isSourcePath(filePath, proj, cfg.vault_path)) return;
+
+  // Belt and braces. PostToolUse only fires after success — failures raise
+  // PostToolUseFailure, which this script is not registered on — so the event
+  // itself is the discrimination. Nothing may DEPEND on this field's shape.
+  if (input.tool_response && input.tool_response.success === false) return;
+
+  registerSourcePath(proj, sid, filePath);
+
+  // Subagents count toward the score but are never the audience: a reminder
+  // delivered there reaches an actor mid-implementation under explicit
+  // instructions, who cannot open a story.
+  if (input.agent_id || input.agent_type) return;
+  if (cfg.guard === "off") return;
+
+  const score = entryScore(proj, sid);
+  if (score < ENTRY_THRESHOLD) return;
+  if (!mayRemind(proj, sid)) return;
+
+  let verdict = readOpenStoryCache(proj, sid);
+  if (verdict === null) {
+    verdict = await resolveOpenStory(cfg.vault_path);
+    writeOpenStoryCache(proj, sid, verdict);
+  }
+  if (verdict === "unknown") {
+    // Reached either from a fresh sweep that hit its budget with reads still
+    // outstanding (the event loop would keep this hook alive until they settle)
+    // or from a cached unknown, where nothing is outstanding and the exit is
+    // merely redundant. Exiting is safe here and only here: an unknown verdict suppresses the reminder, so stdout is
+    // untouched — process.exit does not flush pending pipe writes, and exiting
+    // after emitting would truncate the reminder.
+    process.exit(0);
+  }
+  if (verdict !== false) return;
+
+  if (!electEmitter(proj, sid)) return;
+  appendEntryLog(proj, { at: new Date().toISOString(), session_id: sid, score });
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      additionalContext: entryReminderText(score),
+    },
+  }) + "\n");
+}
+
+async function main() {
   const cfg = readConfig();
   if (!cfg) return;
 
@@ -99,21 +174,36 @@ function main() {
   if (!sid) return;
 
   const proj = projectRoot();
-  if (existsSync(sessionFilePath(cfg.vault_path, sid))) {
-    touchSession(cfg.vault_path, sid);
-  } else {
-    cleanupStaleSessions(cfg.vault_path);
-    writeSession(cfg.vault_path, sid, proj);
+  const event = input.hook_event_name;
+
+  // Liveness and the vault-side branch stay on PreToolUse, exactly as before.
+  // PreToolUse always precedes PostToolUse for the same call, so pinning them
+  // here changes nothing about when they run — it only stops them running twice.
+  if (event !== "PostToolUse") {
+    if (existsSync(sessionFilePath(cfg.vault_path, sid))) {
+      touchSession(cfg.vault_path, sid);
+    } else {
+      cleanupStaleSessions(cfg.vault_path);
+      writeSession(cfg.vault_path, sid, proj);
+    }
   }
 
   if (!input.tool_name) return;
   const filePath = extractToolPath(input);
-  if (filePath && isInsideVault(filePath, cfg.vault_path)) {
+  if (!filePath) return;
+
+  if (event === "PostToolUse") {
+    await entryBranch(cfg, proj, sid, filePath, input);
+    return;
+  }
+
+  if (isInsideVault(filePath, cfg.vault_path)) {
     try { appendActivity(cfg.vault_path, sid, filePath, input.tool_name); } catch {}
     try { updatePointerAndNudge(cfg, proj, sid, filePath, input.tool_name); } catch {}
   }
 }
 
-try { main(); } catch {
-  // PreToolUse must never crash the user's tool call.
-}
+main().catch(() => {
+  // A hook must never crash the user's tool call — sync throws and rejected
+  // promises alike.
+});

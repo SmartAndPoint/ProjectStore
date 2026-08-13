@@ -21,6 +21,7 @@ import {
   projectRoot,
   syncStatusLine,
   cleanupStaleSessionState,
+  armReminder,
 } from "../scripts/lib.mjs";
 import { runStartupChecks } from "../scripts/doctor.mjs";
 
@@ -122,13 +123,25 @@ function main() {
   // auto_inject=false (touch-session writes pointers regardless of it).
   try { cleanupStaleSessionState(proj); } catch {}
 
+  // Read stdin BEFORE the auto_inject gate. The entry reminder's markers must be
+  // re-armed after a compaction whether or not this session injects context —
+  // an auto_inject=false session still writes code, and its reminder was
+  // discarded with the conversation just the same. Below the gate, stdin is
+  // never read and `source` is unreachable.
+  const input = readStdinJson();
+  const sid = input?.session_id || null;
+  // `compact` and `clear` are the two sources where the session id survives but
+  // the conversation does not, so a reminder already delivered is gone from
+  // context while its marker persists on disk. Arming lets it fire once more;
+  // the cap of two is enforced by the election, not here.
+  if (sid && (input?.source === "compact" || input?.source === "clear")) {
+    try { armReminder(proj, sid); } catch {}
+  }
+
   if (cfg.auto_inject === false) {
     if (welcome) emit(welcome, welcomeSystemMessage);
     process.exit(0);
   }
-
-  const input = readStdinJson();
-  const sid = input?.session_id || null;
 
   let warning = "";
   if (sid) {
