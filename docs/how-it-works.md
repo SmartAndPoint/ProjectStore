@@ -65,22 +65,44 @@ divergence between the status line process and the hooks.
 
 ## Surviving `/compact`
 
-When context is about to be compacted (manual or automatic), the PreCompact hook
-hands the post-compact agent a *survival packet* and prints one line so you see
-it ran:
+Continuity across a compaction is delivered by **SessionStart**, not by
+PreCompact — and that is a correction, not a design flourish. PreCompact has no
+model-facing channel: it accepts a top-level `systemMessage` and nothing else,
+so for its whole life the hook assembled a rich packet, printed a red *"Hook
+JSON output validation failed"*, and reached nobody. Worse, the invalid field
+sank the whole object, so the one line PreCompact *does* support never landed
+either.
+
+So the two hooks now split the work by what each can actually do.
+
+PreCompact prints one line, for you:
 
 ```
 PreCompact [...pre-compact.mjs] completed successfully: {
-  "systemMessage": "projectstore: survival packet injected —
-                    vault myapp-vault, layout engineering, 3 recent file(s),
-                    in-flight: epics/WEB-101/epic.md"
+  "systemMessage": "projectstore: compacting — vault myapp-vault,
+                    in flight: `epics/WEB-101/epic.md`,
+                    orientation and this session's recent files return
+                    at session start"
 }
 ```
 
-The packet carries the vault path, the command list, the last 15 vault touches,
-and the newest in-flight artifact — project-level orientation. (Fine-grained
-"where exactly was my cursor" resume is the job of your task list and `git
-status`; the vault answers "where were we going".)
+That last clause is conditional on purpose. It appears only when the compaction
+is **manual** and `auto_inject` is on — the two things the hook can check at the
+moment it speaks. On an automatic compaction the plugin makes no claim that
+SessionStart fires at all, and under `auto_inject: false` the claim would be
+flatly false, so the line offers `/projectstore:status` instead. The
+recent-files half needs one more condition — a nonempty activity log — because
+an empty one renders no continuity section at all.
+
+SessionStart then fires with `source: "compact"` and renders a **Where this
+session left off** block above the derived-views section: up to five vault files
+the previous conversation touched, newest first, plus the newest structured
+write as the in-flight artifact. Both hooks resolve that artifact through one
+shared function, so the compaction line and the section that follows cannot name
+different files seconds apart.
+
+(Fine-grained "where exactly was my cursor" resume is the job of your task list
+and `git status`; the vault answers "where were we going".)
 
 ## The status line composition trick
 

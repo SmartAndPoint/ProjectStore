@@ -6,13 +6,18 @@
 //    keyed by Claude's own session_id from hook stdin. Cleans stale
 //    entries (>24h). Detects other active sessions (mtime < 30min) and
 //    appends a warning so the agent knows it is not alone on this vault.
-// 3. Injects a compact map of the vault (root README + folder READMEs).
+// 3. Injects a NAVIGATION SKELETON — the layout's folders, what each is for,
+//    what is in flight, and the order to descend in. Not a copy of the vault:
+//    it used to inject every folder README, which on a real vault exceeded the
+//    10,000-character hook cap and was written to a file the agent then had to
+//    open. Bounded and O(1) in vault size by construction.
 
 import { existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import {
   readConfig,
-  buildVaultMap,
+  gatherVaultFacts,
+  renderVaultSkeleton,
   writeSession,
   readActiveSessions,
   cleanupStaleSessions,
@@ -22,6 +27,11 @@ import {
   syncStatusLine,
   cleanupStaleSessionState,
   armReminder,
+  truncEnd,
+  truncFront,
+  PATH_CELL,
+  ERROR_CELL,
+  TITLE_CELL,
 } from "../scripts/lib.mjs";
 import { runStartupChecks } from "../scripts/doctor.mjs";
 
@@ -64,6 +74,14 @@ function showWelcomeOnce(proj) {
   return text;
 }
 
+// Writes the payload and ends the process — after the flush, never before.
+//
+// The gather races its reads against a timer, so when the timer wins there are
+// reads still outstanding, and an evicted file could hold the event loop open
+// long past the budget the user is actually waiting on. Exiting here caps the
+// hook's wall time at that budget. The callback is the whole safety of it:
+// process.exit does not flush pending pipe writes, so exiting on the line after
+// a write is how a payload gets truncated.
 function emit(additionalContext, systemMessage) {
   const out = {
     hookSpecificOutput: {
@@ -72,8 +90,15 @@ function emit(additionalContext, systemMessage) {
     },
   };
   if (systemMessage) out.systemMessage = systemMessage;
-  process.stdout.write(JSON.stringify(out) + "\n");
+  process.stdout.write(JSON.stringify(out) + "\n", () => process.exit(0));
 }
+
+// Contract 3 — capped at 5 like the in-flight list, and for the same reason.
+// The warning costs ~138 characters per sibling on top of a 748-character
+// frame, so an uncapped list breaches the 10,000 composed cap at roughly 32
+// concurrent sessions. That bound is empirical, and an empirical bound is what
+// contract 1 exists to forbid; the cap makes it structural instead.
+const SIBLING_CAP = 5;
 
 function buildOthersWarning(others) {
   const lines = [
@@ -86,10 +111,18 @@ function buildOthersWarning(others) {
     "Active session(s):",
     "",
   ];
-  for (const s of others) {
+  for (const s of others.slice(0, SIBLING_CAP)) {
     lines.push(
-      `- project: \`${s.project_root}\` — started ${s.started_at}, last activity ${s.last_active.toISOString()}`,
+      `- project: \`${truncFront(String(s.project_root ?? ""), PATH_CELL)}\`` +
+        // Free text from a session file this process never wrote, rendered five
+        // times over. The last unbounded term in the composed value: `last_active`
+        // is a real Date, the layout fields are plugin-bundled, counts are numbers.
+        ` — started ${truncEnd(String(s.started_at ?? ""), TITLE_CELL)},` +
+        ` last activity ${s.last_active.toISOString()}`,
     );
+  }
+  if (others.length > SIBLING_CAP) {
+    lines.push(`- …and ${others.length - SIBLING_CAP} more — run \`/projectstore:status\``);
   }
   lines.push(
     "",
@@ -102,7 +135,7 @@ function buildOthersWarning(others) {
   return lines.join("\n");
 }
 
-function main() {
+async function main() {
   const cfg = readConfig();
   const proj = projectRoot();
   const welcome = showWelcomeOnce(proj);
@@ -111,7 +144,7 @@ function main() {
     : null;
 
   if (!cfg) {
-    if (welcome) emit(welcome, welcomeSystemMessage);
+    if (welcome) return emit(welcome, welcomeSystemMessage);
     process.exit(0);
   }
 
@@ -139,20 +172,41 @@ function main() {
   }
 
   if (cfg.auto_inject === false) {
-    if (welcome) emit(welcome, welcomeSystemMessage);
+    if (welcome) return emit(welcome, welcomeSystemMessage);
     process.exit(0);
   }
 
+  // Contract 23, first half — the gather (and with it the activity read) runs
+  // BEFORE registration, so the continuity section sees the log exactly as the
+  // previous conversation left it. The exemption below is the other half: it
+  // protects the NEXT compaction, this ordering protects this one.
+  let facts = null;
+  let gatherError = null;
+  try {
+    facts = await gatherVaultFacts(cfg, { sessionId: sid, source: input?.source });
+  } catch (e) {
+    gatherError = e;
+  }
+
   let warning = "";
-  if (sid) {
+  // A bound vault that has vanished must not be silently recreated: ensureSessionsDir's
+  // recursive mkdir would manufacture it, and from the NEXT start the skeleton would
+  // assert eight rows of zeros and "nothing in progress" about a vault nobody
+  // scaffolded. The not-found shape has to survive more than one run to be worth
+  // anything (contract 17).
+  if (sid && !facts?.vaultMissing) {
     try {
-      cleanupStaleSessions(cfg.vault_path);
+      cleanupStaleSessions(cfg.vault_path, 24, sid);
       writeSession(cfg.vault_path, sid, proj);
       removeLegacySessionIdFile(proj);
       const others = readActiveSessions(cfg.vault_path, sid);
       if (others.length > 0) warning = buildOthersWarning(others);
     } catch (e) {
-      warning = `\n\n## projectstore: session registration failed\n\n${e.message}\n`;
+      // Contract 3 — a raw `e.message` is free text and therefore unbounded;
+      // node's own filesystem errors already carry two full paths. Assigned
+      // here rather than appended: registration failure REPLACES the sibling
+      // warning, so the two cannot compound.
+      warning = `\n\n## projectstore: session registration failed\n\n${truncEnd(String(e.message), ERROR_CELL)}\n`;
     }
   }
 
@@ -170,16 +224,18 @@ function main() {
   const systemMessage =
     [welcomeSystemMessage, doctorMsg].filter(Boolean).join(" · ") || null;
 
-  try {
-    const map = buildVaultMap(cfg);
-    emit(welcome + map + warning, systemMessage);
-  } catch (e) {
+  if (gatherError) {
     emit(
       welcome +
-        `# projectstore: vault load failed\n\n${e.message}\n\nFix \`.claude/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
+        `# projectstore: vault load failed\n\n${truncEnd(String(gatherError.message), ERROR_CELL)}\n\nFix \`.claude/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
       systemMessage,
     );
+    return;
   }
+  emit(welcome + renderVaultSkeleton(facts) + warning, systemMessage);
 }
 
-main();
+// A hook must never break session startup (contract 17): an unhandled rejection
+// in the async path would exit non-zero and surface as a hook failure to the
+// user, which is a worse outcome than a session with no orientation.
+main().catch(() => process.exit(0));

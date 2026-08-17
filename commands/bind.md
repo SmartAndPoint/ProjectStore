@@ -44,7 +44,6 @@ Steps:
      "vault_path": "<absolute-path>",
      "layout": "engineering",
      "auto_inject": true,
-     "inject_depth": 1,
      "language": "en",
      "tags": [],
      "default_author": "<git user.name or $USER>",

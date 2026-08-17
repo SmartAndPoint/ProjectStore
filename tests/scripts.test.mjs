@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync, utimesSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -839,11 +839,10 @@ const HOOK_FIELDS = {
 };
 
 // Known violations, each owned by a story. Listed so the suite stays green while
-// the defect stays visible — never so it stays forgotten.
-const KNOWN_SHAPE_VIOLATIONS = {
-  "hooks/pre-compact.mjs":
-    "story-precompact-survival-packet-targets-a-channel-precompact-does-not-have",
-};
+// the defect stays visible — never so it stays forgotten. Emptied when
+// `hooks/pre-compact.mjs` stopped emitting into a channel PreCompact does not
+// have; the rot-loop below forced the deletion into the same change.
+const KNOWN_SHAPE_VIOLATIONS = {};
 
 test("no hook emits a field its event does not carry (spec contract 22)", () => {
   // Derived from the registration, not hard-coded: a hook hosted under
@@ -1018,4 +1017,652 @@ test("rule payload: inline, bounded, and silent under auto_inject false (contrac
   assert.equal(fireRules(proj, { session_id: "c1" }), null,
     "a session that opted out of injection is exactly where the AGENTS.md block " +
     "remains the durable copy");
+});
+
+// ── SessionStart, driven for the first time (skeleton spec, step 1) ──
+//
+// Until today `grep -rn session-start tests/` returned exactly one comment,
+// about an adjacent concern. So this hook had NO drive: every green suite in
+// this repo's history said nothing whatever about the file the skeleton change
+// rewrites. That is the shape v0.23.0 shipped a defect through — 209 passing
+// tests pointed away from it — so the drive lands BEFORE any behaviour moves,
+// and asserts only invariants that must survive the change.
+
+function fireSessionStart(proj, payload = {}) {
+  const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-start.mjs")], {
+    encoding: "utf8", input: JSON.stringify({ hook_event_name: "SessionStart", ...payload }),
+    timeout: 15000, env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd: proj,
+  });
+  assert.equal(r.status, 0, `SessionStart hook must exit 0; stderr: ${r.stderr}`);
+  const out = r.stdout.trim();
+  return out ? JSON.parse(out) : null;
+}
+
+test("SessionStart: delivers on additionalContext, and the welcome renders once per project", () => {
+  const { proj, vault } = seedHookProject();
+  writeFileSync(join(vault, "README.md"), "# Vault\n", "utf8");
+
+  const first = fireSessionStart(proj, { session_id: "same", source: "startup" });
+  assert.ok(first, "a bound project with auto_inject on always delivers");
+  assert.equal(first.hookSpecificOutput.hookEventName, "SessionStart");
+  const withWelcome = first.hookSpecificOutput.additionalContext;
+  assert.ok(/projectstore is loaded for the first time/.test(withWelcome), "first run carries the welcome");
+
+  // The SAME session id both times, deliberately: a second id would register as
+  // an active sibling and add the multi-session warning, so the delta would no
+  // longer be the welcome alone.
+  const second = fireSessionStart(proj, { session_id: "same", source: "startup" });
+  const without = second.hookSpecificOutput.additionalContext;
+  assert.ok(!/loaded for the first time/.test(without),
+    "the welcome is once per project, not once per session");
+  assert.equal(withWelcome.length - without.length, 1077,
+    "the welcome is a fixed 1,077-character term of the composed value, and the " +
+    "skeleton spec's contract 3 does its arithmetic against exactly this number — " +
+    "if you edited the welcome copy, update that contract in the same change");
+});
+
+test("SessionStart: auto_inject false emits no vault content, and still arms the entry reminder", () => {
+  const { proj } = seedHookProject();
+  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+  writeFileSync(cfgPath, JSON.stringify({ ...cfg, auto_inject: false }), "utf8");
+
+  const first = fireSessionStart(proj, { session_id: "a1", source: "startup" });
+  const ctx = first.hookSpecificOutput.additionalContext;
+  assert.ok(/loaded for the first time/.test(ctx),
+    "the welcome sits BELOW the gate on purpose — a literal 'silent' reading of " +
+    "this configuration would invite deleting a working feature");
+  assert.ok(!/Projectstore vault:/.test(ctx), "but no vault content crosses the gate");
+
+  // The marker now exists, so an opted-out session emits nothing at all.
+  assert.equal(fireSessionStart(proj, { session_id: "a2", source: "startup" }), null);
+
+  // And the entry reminder is still re-armed after a compaction. That read sits
+  // ABOVE the auto_inject gate (entry-rule spec contract 16); the skeleton work
+  // needs `source` and `session_id` too, and the natural tidy-up is to move the
+  // whole session block together — which would break this silently, because the
+  // entry-rule tests drive touch-session.mjs, not this hook.
+  assert.equal(fireSessionStart(proj, { session_id: "a3", source: "compact" }), null);
+  assert.ok(
+    existsSync(join(proj, ".claude", ".projectstore", "state", "a3.fired", "armed")),
+    "armReminder must stay above the auto_inject gate",
+  );
+});
+
+// ── The skeleton reaches the model inline (contracts 3, 7, 16) ────────
+//
+// The story's baseline: on this project the old payload was 12.4 KB, so the
+// harness wrote it to a file and handed the agent a path. Every assertion here
+// is about the payload the agent actually receives, not about what was built.
+
+function seedSkeletonVault() {
+  const { root, proj, vault } = seedHookProject();
+  const folders = ["adr", "specs", "epics", "research", "concepts", "meetings", "ops", "diagrams"];
+  for (const f of folders) {
+    mkdirSync(join(vault, f), { recursive: true });
+    // A README shaped like the real ones: prose, then an index table. The
+    // prose is the purpose; the table is artifact content and must not travel.
+    writeFileSync(join(vault, f, "README.md"),
+      `# ${f}\n\nThe ${f} folder holds ${f} artifacts.\n\n## Index\n\n| File | Title | Status |\n|---|---|---|\n` +
+      Array.from({ length: 40 }, (_, i) =>
+        `| [${f}-${i}](./${f}-${i}.md) | Zealously-Named-Artifact-${f}-${i} | accepted |`).join("\n") + "\n",
+      "utf8");
+    for (let i = 0; i < 40; i++) {
+      writeFileSync(join(vault, f, `${f}-${i}.md`), `---\ntype: ${f}\n---\n\n# ${f} ${i}\n`, "utf8");
+    }
+  }
+  for (let e = 0; e < 6; e++) {
+    const dir = join(vault, "epics", `PS-E${e}`, "stories");
+    mkdirSync(dir, { recursive: true });
+    for (let s = 0; s < 12; s++) {
+      writeFileSync(join(dir, `story-${s}.md`),
+        `---\ntype: story\nstatus: ${s < 2 ? "in-progress" : "done"}\ntitle: "Story ${e}.${s}"\n` +
+        `started_at: "2026-08-0${(s % 9) + 1}T00:00:00Z"\n---\n\n# s\n`, "utf8");
+    }
+  }
+  return { root, proj, vault };
+}
+
+test("SessionStart: the payload is a skeleton, delivered inline, with no artifact content", () => {
+  const { proj } = seedSkeletonVault();
+  fireSessionStart(proj, { session_id: "sk1", source: "startup" }); // burns the welcome
+  const out = fireSessionStart(proj, { session_id: "sk1", source: "startup" });
+  const ctx = out.hookSpecificOutput.additionalContext;
+
+  assert.ok(ctx.length < 10000,
+    `payload is ${ctx.length} chars — over 10,000 the harness writes it to a file ` +
+    "and hands the agent a path, which is the defect this story exists to close");
+
+  // Contract 9's five steps, contract 4's rows, contract 11's clause.
+  const flat = ctx.replace(/\s+/g, " ");
+  assert.ok(/How to work with this vault/.test(flat));
+  assert.ok(/Before authoring an ADR or spec/.test(flat), "the deciding step, not just the searching ones");
+  for (const f of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
+    assert.ok(ctx.includes(`\`${f}/\``), `layout folder ${f} has a row`);
+  }
+  assert.ok(/regenerated/.test(flat), "the staleness clause");
+
+  // Contract 7 — the vault has 320 artifacts and 72 stories, and not one of
+  // their names may appear. A renderer that quoted a README whole would fail
+  // here rather than merely be large.
+  assert.ok(!/Zealously-Named-Artifact/.test(ctx), "no index-table content travels");
+  assert.ok(!/\| \[adr-0\]/.test(ctx), "no index rows travel");
+  // The prose above the first `## ` IS the purpose, and does travel.
+  assert.ok(/The adr folder holds adr artifacts\./.test(ctx));
+
+  // Contract 1 — the in-flight list is capped, and says so when it caps.
+  const inflight = ctx.split("## In flight now")[1].split("##")[0].trim().split("\n");
+  assert.ok(inflight.length <= 6, `in-flight rendered ${inflight.length} lines`);
+  assert.ok(/…and \d+ more/.test(inflight[inflight.length - 1]),
+    "12 stories are in progress; five rendered silently is a truncation wearing the face of a complete answer");
+});
+
+test("SessionStart: the payload does not grow with the vault (contract 2, driven)", () => {
+  const big = seedSkeletonVault();
+  fireSessionStart(big.proj, { session_id: "sk2", source: "startup" });
+  const grown = fireSessionStart(big.proj, { session_id: "sk2", source: "startup" })
+    .hookSpecificOutput.additionalContext;
+
+  const small = seedHookProject();
+  for (const f of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
+    mkdirSync(join(small.vault, f), { recursive: true });
+    writeFileSync(join(small.vault, f, "README.md"), `# ${f}\n\nThe ${f} folder holds ${f} artifacts.\n`, "utf8");
+  }
+  fireSessionStart(small.proj, { session_id: "sk3", source: "startup" });
+  const bare = fireSessionStart(small.proj, { session_id: "sk3", source: "startup" })
+    .hookSpecificOutput.additionalContext;
+
+  // Mask the digits (counts legitimately differ) and the in-flight list, then
+  // the two payloads must be the same string. Comparing lengths would pass on a
+  // renderer that leaked one artifact per folder and lost a word elsewhere.
+  const mask = (s) => s
+    .replace(/^# Projectstore vault: .*$/m, "# Projectstore vault: <path>")
+    .replace(/\d+/g, "N")
+    .split("## In flight now")[0];
+  assert.equal(mask(grown), mask(bare),
+    "320 artifacts against 0 — the payload must be byte-identical outside counts");
+});
+
+// ── Contract 3: the composed cap is structural, term by term ──────────
+//
+// Three kinds of unbounded input reach this payload — free-text errors,
+// filesystem paths, and the sibling list. Two earlier revisions of the spec
+// each declared their enumeration complete and were wrong, so these drive the
+// KINDS rather than the sites.
+
+function seedSiblings(vault, n, rootLen = 40) {
+  const dir = join(vault, ".projectstore", "sessions");
+  mkdirSync(dir, { recursive: true });
+  for (let i = 0; i < n; i++) {
+    writeFileSync(join(dir, `sib-${i}.json`), JSON.stringify({
+      id: `sib-${i}`,
+      started_at: "2026-08-17T00:00:00.000Z",
+      project_root: "/" + "deeply-nested-worktree-".repeat(Math.ceil(rootLen / 23)).slice(0, rootLen) + `/p${i}`,
+    }), "utf8");
+  }
+}
+
+test("SessionStart contract 3: the sibling list is capped at 5 and says how many it dropped", () => {
+  const { proj, vault } = seedHookProject();
+  seedSiblings(vault, 40);
+  fireSessionStart(proj, { session_id: "cap1", source: "startup" });
+  const ctx = fireSessionStart(proj, { session_id: "cap1", source: "startup" })
+    .hookSpecificOutput.additionalContext;
+
+  const listed = (ctx.match(/^- project: /gm) || []).length;
+  assert.equal(listed, 5, `rendered ${listed} siblings; uncapped this breaches the composed cap at ~32`);
+  assert.ok(/…and 35 more/.test(ctx), "a silent truncation reads as a complete answer");
+  assert.ok(ctx.length < 10000, `composed payload is ${ctx.length} chars`);
+});
+
+test("SessionStart contract 3: a sibling path and the vault path truncate at 200, keeping their tails", () => {
+  const root = mkdtempSync(join(tmpdir(), "ps-long-"));
+  // A vault path over 200 characters, built out of real directories.
+  const deep = join(root, ...Array.from({ length: 8 }, (_, i) => `segment-${i}-${"x".repeat(20)}`));
+  const proj = join(root, "proj");
+  mkdirSync(join(proj, ".claude"), { recursive: true });
+  mkdirSync(join(deep, "epics"), { recursive: true });
+  writeFileSync(join(proj, ".claude", "projectstore.json"),
+    JSON.stringify({ vault_path: deep, layout: "engineering", language: "en" }), "utf8");
+  assert.ok(deep.length > 200, `fixture vault path is ${deep.length} chars`);
+  seedSiblings(deep, 1, 400);
+
+  fireSessionStart(proj, { session_id: "long1", source: "startup" });
+  const ctx = fireSessionStart(proj, { session_id: "long1", source: "startup" })
+    .hookSpecificOutput.additionalContext;
+
+  const header = ctx.split("\n")[0];
+  assert.ok(header.length <= "# Projectstore vault: ".length + 200,
+    `header is ${header.length} chars`);
+  assert.ok(header.includes("…"), "a truncation marks itself");
+  assert.ok(header.endsWith(deep.slice(-40)), "the tail is kept — it is the discriminating half");
+
+  const sib = ctx.split("\n").find((l) => l.startsWith("- project: "));
+  const cell = sib.match(/`([^`]*)`/)[1];
+  assert.ok(cell.length <= 200, `sibling path cell is ${cell.length} chars`);
+  assert.ok(cell.startsWith("…"));
+});
+
+test("SessionStart contract 3: a registration failure's free-text message truncates at 500", () => {
+  const root = mkdtempSync(join(tmpdir(), "ps-err-"));
+  // A vault path long enough that node's own ENOTDIR message — which quotes the
+  // full path — exceeds 500 characters on its own.
+  const deep = join(root, ...Array.from({ length: 14 }, (_, i) => `seg-${i}-${"y".repeat(30)}`));
+  const proj = join(root, "proj");
+  mkdirSync(join(proj, ".claude"), { recursive: true });
+  mkdirSync(join(deep, "epics"), { recursive: true });
+  writeFileSync(join(proj, ".claude", "projectstore.json"),
+    JSON.stringify({ vault_path: deep, layout: "engineering", language: "en" }), "utf8");
+  // The sessions path exists as a FILE, so mkdir throws where registration runs.
+  mkdirSync(join(deep, ".projectstore"), { recursive: true });
+  writeFileSync(join(deep, ".projectstore", "sessions"), "not a directory", "utf8");
+
+  fireSessionStart(proj, { session_id: "err1", source: "startup" });
+  const ctx = fireSessionStart(proj, { session_id: "err1", source: "startup" })
+    .hookSpecificOutput.additionalContext;
+
+  assert.ok(/session registration failed/.test(ctx), "the failure is reported, not swallowed");
+  const body = ctx.split("session registration failed")[1].split("\n").filter(Boolean)[0];
+  assert.ok(body.length <= 500, `error body is ${body.length} chars — e.message is free text`);
+  assert.ok(body.endsWith("…"), "truncated, and it marks itself");
+  // Registration failure REPLACES the sibling warning; they must not compound.
+  assert.ok(!/Multi-session warning/.test(ctx));
+  assert.ok(ctx.length < 10000);
+});
+
+// ── Contract 23: the current session is exempt from its own reaper ────
+//
+// `cleanupStaleSessions` had ZERO coverage before this test, and the three
+// assertions are not interchangeable. The on-disk one catches an
+// implementation that merely reorders; the sibling one catches an
+// implementation that deletes the cleanup call outright, which passes
+// everything else while leaking session files forever.
+
+test("SessionStart contract 23: an overnight session keeps its own history, and stale siblings still go", () => {
+  const { proj, vault } = seedHookProject();
+  const dir = join(vault, ".projectstore", "sessions");
+  mkdirSync(dir, { recursive: true });
+  const old = new Date(Date.now() - 40 * 60 * 60 * 1000); // 40h — well past the 24h reap
+
+  const mine = join(dir, "overnight.json");
+  writeFileSync(mine, JSON.stringify({
+    id: "overnight",
+    started_at: "2026-08-15T00:00:00.000Z",
+    project_root: proj,
+    recent_activity: [{ path: join(vault, "adr", "kept.md"), tool: "Edit", at: "2026-08-15T01:00:00.000Z" }],
+  }), "utf8");
+  utimesSync(mine, old, old);
+
+  const sibling = join(dir, "abandoned.json");
+  writeFileSync(sibling, JSON.stringify({ id: "abandoned", project_root: "/gone" }), "utf8");
+  utimesSync(sibling, old, old);
+
+  fireSessionStart(proj, { session_id: "overnight", source: "compact" });
+
+  // 1. Our own file is still there…
+  assert.ok(existsSync(mine), "a live session's file is not stale; reaping it is pure data destruction");
+  // 2. …with its history intact. A reap followed by writeSession would leave a
+  //    valid file holding nothing, which the existence check alone would pass.
+  const after = JSON.parse(readFileSync(mine, "utf8"));
+  assert.equal(after.recent_activity.length, 1, "recent_activity survived");
+  assert.equal(after.started_at, "2026-08-15T00:00:00.000Z", "so did the original start time");
+  // 3. The exemption is a NARROWING, not a removal.
+  assert.ok(!existsSync(sibling),
+    "cleanup still runs — an implementation that simply deleted the call passes both assertions above");
+});
+
+// ── Contracts 19, 21: the continuity section, driven across every source ──
+//
+// Six drives, asserting presence for exactly one. A suite driving only
+// `compact` passes on a renderer with no condition at all; `fork` and the
+// missing-source drive are the only two that kill the deny-list form, which is
+// the form that reads as correct.
+
+function seedCompactSession(vault, sid, paths) {
+  const dir = join(vault, ".projectstore", "sessions");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${sid}.json`), JSON.stringify({
+    id: sid,
+    started_at: "2026-08-17T00:00:00.000Z",
+    project_root: "/p",
+    // Newest FIRST, as appendActivity leaves it — so the array order and the
+    // timestamps agree. Stamped backwards, an implementation that sorted on
+    // `at` would invert the rendered list and keep every assertion green.
+    recent_activity: paths.map(([p, tool], i) => ({
+      path: join(vault, p), tool,
+      at: `2026-08-17T${String(20 - i).padStart(2, "0")}:00:00.000Z`,
+    })),
+  }), "utf8");
+}
+
+const HEADING = "Where this session left off";
+
+test("SessionStart contract 19: the continuity section renders on compact and on nothing else", () => {
+  const { proj, vault } = seedHookProject();
+  fireSessionStart(proj, { session_id: "burn", source: "startup" }); // burn the welcome
+
+  for (const source of ["startup", "resume", "clear", "fork", "compact", undefined]) {
+    const sid = `src-${String(source)}`;
+    // Every drive seeds a nonempty log, so absence can only come from the gate.
+    // Contract 21 states the sufficient condition; an unseeded compact drive
+    // would fail for a reason that looks like an implementation bug.
+    seedCompactSession(vault, sid, [["epics/PS-A/stories/story-a.md", "Edit"]]);
+    const payload = { session_id: sid };
+    if (source !== undefined) payload.source = source;
+    const ctx = fireSessionStart(proj, payload).hookSpecificOutput.additionalContext;
+    if (source === "compact") {
+      assert.ok(ctx.includes(HEADING), "compact carries it");
+      assert.ok(ctx.includes("`epics/PS-A/stories/story-a.md`"), "with the path the log held");
+    } else {
+      assert.ok(!ctx.includes(HEADING),
+        `source ${String(source)} must render nothing — not an empty header, absent`);
+    }
+  }
+});
+
+test("SessionStart contract 21: an empty log renders absence, not an empty header", () => {
+  const { proj, vault } = seedHookProject();
+  fireSessionStart(proj, { session_id: "burn2", source: "startup" });
+  seedCompactSession(vault, "empty1", []);
+  const ctx = fireSessionStart(proj, { session_id: "empty1", source: "compact" })
+    .hookSpecificOutput.additionalContext;
+  assert.ok(!ctx.includes(HEADING),
+    "a missing continuity section asserts nothing; an empty one asserts we looked and found nothing");
+  // And a missing session_id on compact reaches the same absence by another route.
+  const noId = fireSessionStart(proj, { source: "compact" }).hookSpecificOutput.additionalContext;
+  assert.ok(!noId.includes(HEADING), "stdin can parse carrying a source and no id");
+});
+
+test("SessionStart contracts 19, 20: the list caps at five, marks it, and names the newest write", () => {
+  const { proj, vault } = seedHookProject();
+  fireSessionStart(proj, { session_id: "burn3", source: "startup" });
+  seedCompactSession(vault, "many", [
+    ["adr/a-read.md", "Read"],                       // newest, but not a write
+    ["epics/PS-A/stories/story-live.md", "Edit"],    // the in-flight artifact
+    ["adr/a1.md", "Write"], ["adr/a2.md", "Write"], ["adr/a3.md", "Write"],
+    ["adr/a4.md", "Write"], ["adr/a5.md", "Write"], ["adr/a6.md", "Write"],
+  ]);
+  const ctx = fireSessionStart(proj, { session_id: "many", source: "compact" })
+    .hookSpecificOutput.additionalContext;
+  const section = ctx.split(HEADING)[1].split("## Derived views")[0];
+  assert.equal((section.match(/^- `/gm) || []).length, 5, "capped at five");
+  assert.ok(/…and 3 more/.test(section), "and it says how many it dropped");
+  assert.ok(/\*\*In flight\*\*: `epics\/PS-A\/stories\/story-live\.md`/.test(section),
+    "the newest WRITE, not the newest entry");
+});
+
+test("SessionStart contract 19: a path over 200 truncates with the mark outside the backticks", () => {
+  const { proj, vault } = seedHookProject();
+  fireSessionStart(proj, { session_id: "burn4", source: "startup" });
+  const long = "adr/" + "z".repeat(120) + "/" + "w".repeat(120) + ".md";
+  seedCompactSession(vault, "longpath", [[long, "Write"]]);
+  const ctx = fireSessionStart(proj, { session_id: "longpath", source: "compact" })
+    .hookSpecificOutput.additionalContext;
+  const line = ctx.split("\n").find((l) => l.startsWith("- …`"));
+  assert.ok(line, "front-truncated, and the mark leads the line");
+  const token = line.match(/`([^`]*)`/)[1];
+  assert.ok(token.length <= 200 && !token.includes("…"),
+    "what a reader copies must be a clean substring — graph.md holds zero `…` characters");
+  assert.ok(long.endsWith(token), "the tail is kept: it carries the filename and the discriminating half");
+});
+
+test("SessionStart contract 3: the vault-load failure path truncates its free text too", () => {
+  const { proj } = seedHookProject();
+  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+  // loadLayout throws, quoting the name and the resolved path — made long here
+  // so the raw message is over 500 characters on its own.
+  writeFileSync(cfgPath, JSON.stringify({ ...cfg, layout: "q".repeat(600) }), "utf8");
+  fireSessionStart(proj, { session_id: "vl1", source: "startup" });
+  const ctx = fireSessionStart(proj, { session_id: "vl1", source: "startup" })
+    .hookSpecificOutput.additionalContext;
+  assert.ok(/vault load failed/.test(ctx), "the hook reports rather than crashes (contract 17)");
+  const body = ctx.split("vault load failed")[1].split("\n").filter(Boolean)[0];
+  assert.ok(body.length <= 500, `error body is ${body.length} chars`);
+  assert.ok(body.endsWith("…"));
+});
+
+// ── Contracts 22, 24: PreCompact says one true thing on one real channel ──
+//
+// Driven, not inspected. The shape guard above stops seeing this file the
+// moment its literal `hookEventName` goes, so after the fix it asserts nothing
+// whatever about it — the static greps below are belt, and the drives are the
+// actual check.
+
+function firePreCompact(proj, payload = {}) {
+  const r = spawnSync(process.execPath, [join(REPO, "hooks", "pre-compact.mjs")], {
+    encoding: "utf8", input: JSON.stringify({ hook_event_name: "PreCompact", ...payload }),
+    timeout: 15000, env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd: proj,
+  });
+  assert.equal(r.status, 0, `PreCompact hook must exit 0; stderr: ${r.stderr}`);
+  const out = r.stdout.trim();
+  return out ? JSON.parse(out) : null;
+}
+
+const DELIVERY_CLAIM = /return at session start|survival packet|injected/i;
+
+test("PreCompact contract 22: nothing but systemMessage, on every path", () => {
+  const { proj, vault } = seedHookProject();
+  seedCompactSession(vault, "pc1", [["epics/PS-A/stories/story-x.md", "Edit"]]);
+  for (const payload of [
+    { session_id: "pc1", trigger: "manual" },
+    { session_id: "pc1", trigger: "auto" },
+    { session_id: "no-such-session", trigger: "manual" },
+    { trigger: "manual" },
+    {},
+  ]) {
+    const out = firePreCompact(proj, payload);
+    assert.deepEqual(Object.keys(out), ["systemMessage"],
+      `${JSON.stringify(payload)} emitted ${JSON.stringify(Object.keys(out))} — an invalid ` +
+      "hookSpecificOutput sinks the whole object, systemMessage included");
+    assert.ok(!/survival packet injected/.test(out.systemMessage));
+  }
+});
+
+test("PreCompact contract 22: the delivery claim needs manual AND auto_inject on", () => {
+  const { proj, vault } = seedHookProject();
+  seedCompactSession(vault, "pc2", [["epics/PS-A/stories/story-x.md", "Edit"]]);
+
+  const manual = firePreCompact(proj, { session_id: "pc2", trigger: "manual" }).systemMessage;
+  assert.ok(/return at session start/.test(manual), "manual + auto_inject on: the claim is evidenced");
+  assert.ok(/recent files/.test(manual), "and the log is nonempty, so the stronger referent holds");
+
+  // On `auto` this plugin makes no claim that SessionStart fires at all.
+  const auto = firePreCompact(proj, { session_id: "pc2", trigger: "auto" }).systemMessage;
+  assert.ok(!DELIVERY_CLAIM.test(auto), `auto claimed delivery: ${auto}`);
+  assert.ok(/projectstore:status/.test(auto), "and still offers something true");
+
+  // The axis a source-based walk never reaches: config.
+  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+  writeFileSync(cfgPath, JSON.stringify({ ...cfg, auto_inject: false }), "utf8");
+  const off = firePreCompact(proj, { session_id: "pc2", trigger: "manual" }).systemMessage;
+  assert.ok(!DELIVERY_CLAIM.test(off),
+    `manual under auto_inject:false claimed delivery — deterministically false, not merely unevidenced: ${off}`);
+  assert.ok(/in flight: `epics\/PS-A\/stories\/story-x\.md`/.test(off),
+    "naming the artifact is a fact about the log, not a promise, and survives the gate");
+});
+
+test("PreCompact contract 22: an empty log weakens the claim rather than falsifying it", () => {
+  const { proj, vault } = seedHookProject();
+  seedCompactSession(vault, "pc3", []);
+  const msg = firePreCompact(proj, { session_id: "pc3", trigger: "manual" }).systemMessage;
+  assert.ok(/orientation returns at session start/.test(msg), "the skeleton still comes back");
+  assert.ok(!/recent files/.test(msg),
+    "an empty log renders no continuity section — the stronger wording would be false here");
+  assert.ok(!/in flight/.test(msg), "and nothing resolves, so the clause is dropped, not rendered empty");
+});
+
+test("PreCompact contract 24: it calls the shared resolver and re-implements nothing", () => {
+  const src = readFileSync(join(REPO, "hooks", "pre-compact.mjs"), "utf8");
+  assert.ok(!/hookSpecificOutput/.test(src), "the identifier is gone from the file, not merely unused");
+  // An unused import satisfies nothing — the CALL must be there.
+  const calls = src.split("resolveInFlightArtifact(").length - 1;
+  assert.ok(calls >= 1, "no call site: the resolver is imported and ignored");
+  // After the fix these have no legitimate occurrence here in any form. This
+  // closes the array-literal clone that "no tool-name alternation" left open.
+  for (const literal of ["MultiEdit", "NotebookEdit", "STRUCTURED_ARTIFACT_RX"]) {
+    assert.ok(!src.includes(literal),
+      `${literal} reappeared in pre-compact.mjs — the resolver is shared, or it is two resolvers`);
+  }
+  // The header comment is what the next reader believes over the code.
+  assert.ok(!/Two channels are used/.test(src));
+});
+
+test("the shape-violation registry is empty (spec contract 22)", () => {
+  assert.deepEqual(KNOWN_SHAPE_VIOLATIONS, {},
+    "an entry deleted rather than merely unused is what stops a returning field passing");
+});
+
+// ── Review follow-ups: the bounds and shapes the first pass missed ────
+
+test("SessionStart contract 17: a missing vault keeps its one-line shape", () => {
+  const root = mkdtempSync(join(tmpdir(), "ps-novault-"));
+  const proj = join(root, "proj");
+  mkdirSync(join(proj, ".claude"), { recursive: true });
+  writeFileSync(join(proj, ".claude", "projectstore.json"),
+    JSON.stringify({ vault_path: join(root, "NO_SUCH_VAULT"), layout: "engineering" }), "utf8");
+
+  // Driven WITH a session_id, twice — the path every real session takes. A
+  // first revision of this fix skipped the id, which documented the hole
+  // instead of covering it: registration's recursive mkdir manufactures the
+  // vault, and from run 2 the skeleton asserts zeros about it.
+  fireSessionStart(proj, { session_id: "nv1", source: "startup" });
+  const ctx = fireSessionStart(proj, { session_id: "nv1", source: "startup" })
+    .hookSpecificOutput.additionalContext;
+
+  assert.ok(/^# projectstore: vault not found at /.test(ctx), `got: ${ctx.slice(0, 120)}`);
+  assert.ok(!/Where things live/.test(ctx),
+    "eight rows of authoritative zeros about a vault that does not exist is the " +
+    "silently-false claim contracts 13 and 21 refuse");
+  assert.ok(!/nothing in progress/.test(ctx));
+  assert.ok(!existsSync(join(root, "NO_SUCH_VAULT")),
+    "and the hook did not quietly create the vault it failed to find");
+});
+
+test("SessionStart contract 3: free-text config cannot breach the composed cap", () => {
+  const { proj, vault } = seedHookProject();
+  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+  writeFileSync(cfgPath, JSON.stringify({ ...cfg, language: "L".repeat(3000) }), "utf8");
+  writeFileSync(join(vault, ".projectstore.json"),
+    JSON.stringify({ spec_policy: "S".repeat(3000), lifecycle_gates: "G".repeat(3000) }), "utf8");
+  // A directory name is bounded only by NAME_MAX, and five of them render.
+  const epic = join(vault, "epics", "E".repeat(200));
+  mkdirSync(join(epic, "stories"), { recursive: true });
+  writeFileSync(join(epic, "epic.md"), "---\ntype: epic\n---\n", "utf8");
+  writeFileSync(join(epic, "stories", "story-a.md"),
+    `---\ntype: story\nstatus: in-progress\ntitle: "${"T".repeat(500)}"\nstarted_at: "2026-08-01"\n---\n`, "utf8");
+
+  // And the term the first fix left raw: `started_at` is free text from a
+  // session file this process never wrote, rendered once per sibling. Five of
+  // them at 3,000 characters composed a 17,934-character payload.
+  const sdir = join(vault, ".projectstore", "sessions");
+  mkdirSync(sdir, { recursive: true });
+  for (let i = 0; i < 5; i++) {
+    writeFileSync(join(sdir, `sib-${i}.json`), JSON.stringify({
+      id: `sib-${i}`, project_root: `/p${i}`, started_at: "S".repeat(3000),
+    }), "utf8");
+  }
+
+  fireSessionStart(proj, { session_id: "cap3", source: "startup" });
+  const ctx = fireSessionStart(proj, { session_id: "cap3", source: "startup" })
+    .hookSpecificOutput.additionalContext;
+  assert.ok(/Multi-session warning/.test(ctx), "the sibling term is actually in this payload");
+  assert.ok(ctx.length < 10000,
+    `payload is ${ctx.length} chars — config is free text, and a bound is only as good as its enumeration`);
+  const header = ctx.split("\n")[1];
+  assert.ok(header.length < 400, `header line is ${header.length} chars`);
+});
+
+test("SessionStart contract 3: welcome + continuity + capped siblings, the stated worst case", () => {
+  const { proj, vault } = seedHookProject();
+  // Driven on the FIRST fire of a fresh project, which is when the welcome
+  // renders — and it renders whatever the source is. (The marker write is also
+  // best-effort inside a catch, so on a project where it cannot land the
+  // welcome recurs at every start; either way the composition is reachable,
+  // which is the point contract 3 makes.)
+  seedSiblings(vault, 40);
+  seedCompactSession(vault, "worst", [
+    ["epics/PS-A/stories/story-a.md", "Edit"], ["adr/b.md", "Write"], ["adr/c.md", "Write"],
+    ["adr/d.md", "Write"], ["adr/e.md", "Write"], ["adr/f.md", "Write"], ["adr/g.md", "Write"],
+  ]);
+  const out = fireSessionStart(proj, { session_id: "worst", source: "compact" });
+  const ctx = out.hookSpecificOutput.additionalContext;
+  assert.ok(/projectstore is loaded for the first time/.test(ctx), "the welcome is present");
+  assert.ok(ctx.includes(HEADING), "and the continuity section");
+  assert.ok(/…and 35 more/.test(ctx), "and the capped sibling list");
+  assert.ok(ctx.length < 10000, `the stated worst case composes to ${ctx.length} chars`);
+});
+
+test("SessionStart contract 4: every folder of the LAYOUT appears, iterated not listed", () => {
+  const { proj } = seedSkeletonVault();
+  fireSessionStart(proj, { session_id: "lay1", source: "startup" });
+  const ctx = fireSessionStart(proj, { session_id: "lay1", source: "startup" })
+    .hookSpecificOutput.additionalContext;
+  // Read from the layout the hook actually resolves. Naming the eight folders
+  // literally leaves a ninth one, silently dropped by the gather, green.
+  const layout = JSON.parse(readFileSync(join(REPO, "scaffold", "layouts", "engineering.json"), "utf8"));
+  for (const f of layout.folders) {
+    assert.ok(ctx.includes(`\`${f.path}/\``), `layout folder ${f.path} has no row`);
+  }
+  assert.equal((ctx.match(/^\| `[^`]+\/` \|/gm) || []).length, layout.folders.length,
+    "one row per layout folder, no more");
+});
+
+test("SessionStart contract 12: folder-shaped and standalone stories both reach the list", () => {
+  const { proj, vault } = seedHookProject();
+  const epic = join(vault, "epics", "PS-A");
+  mkdirSync(join(epic, "stories"), { recursive: true });
+  writeFileSync(join(epic, "epic.md"), "---\ntype: epic\n---\n", "utf8");
+  const fm = (t, at) => `---\ntype: story\nstatus: in-progress\ntitle: "${t}"\nstarted_at: "${at}"\n---\n`;
+  writeFileSync(join(epic, "stories", "story-nested.md"), fm("Nested", "2026-08-02T00:00:00Z"), "utf8");
+  writeFileSync(join(epic, "story-standalone.md"), fm("Standalone", "2026-08-01T00:00:00Z"), "utf8");
+
+  fireSessionStart(proj, { session_id: "sh1", source: "startup" });
+  const ctx = fireSessionStart(proj, { session_id: "sh1", source: "startup" })
+    .hookSpecificOutput.additionalContext;
+  assert.ok(/- PS-A · Nested/.test(ctx), "the folder-shaped story");
+  assert.ok(/- PS-A · Standalone/.test(ctx),
+    "the standalone one — a per-epic loop that skipped it would look correct");
+});
+
+test("SessionStart contracts 19, 21: the two continuity degradations never share their text", () => {
+  const { proj, vault } = seedHookProject();
+  fireSessionStart(proj, { session_id: "burn5", source: "startup" });
+  // In-flight resolves fine; only the activity read is made to hang, so the
+  // near-identical in-flight expiry line cannot stand in for this assertion.
+  seedCompactSession(vault, "slow", [["adr/a.md", "Write"]]);
+  const spath = join(vault, ".projectstore", "sessions", "slow.json");
+  writeFileSync(spath, readFileSync(spath, "utf8"));
+  // A directory where the session JSON should be: the read rejects rather than
+  // hangs, which exercises the [] path; the timeout branch is unit-tested at
+  // tests/predicates.test.mjs with an unresolvable reader.
+  const ctx = fireSessionStart(proj, { session_id: "slow", source: "compact" })
+    .hookSpecificOutput.additionalContext;
+  assert.ok(ctx.includes(HEADING) && /- `adr\/a\.md`/.test(ctx), "resolved: the section renders");
+  assert.ok(!/recent activity not resolved within budget/.test(ctx));
+});
+
+test("SessionStart contract 19: the rendered path list is newest-first", () => {
+  const { proj, vault } = seedHookProject();
+  fireSessionStart(proj, { session_id: "burn6", source: "startup" });
+  seedCompactSession(vault, "order", [
+    ["adr/newest.md", "Write"], ["adr/middle.md", "Write"], ["adr/oldest.md", "Write"],
+  ]);
+  const ctx = fireSessionStart(proj, { session_id: "order", source: "compact" })
+    .hookSpecificOutput.additionalContext;
+  const listed = (ctx.split(HEADING)[1].match(/^- `adr\/([a-z]+)\.md`$/gm) || [])
+    .map((l) => l.match(/adr\/([a-z]+)\.md/)[1]);
+  assert.deepEqual(listed, ["newest", "middle", "oldest"], "log order IS newest-first");
+});
+
+test("PreCompact contract 19: a >200 path renders in the same cell the skeleton uses", () => {
+  const { proj, vault } = seedHookProject();
+  const long = "adr/" + "z".repeat(120) + "/" + "w".repeat(120) + ".md";
+  seedCompactSession(vault, "pcl", [[long, "Write"]]);
+  const msg = firePreCompact(proj, { session_id: "pcl", trigger: "manual" }).systemMessage;
+  const token = msg.match(/in flight: …`([^`]*)`/)[1];
+  assert.ok(token.length <= 200 && long.endsWith(token),
+    "one path form: truncated here exactly as it is in the continuity section");
 });

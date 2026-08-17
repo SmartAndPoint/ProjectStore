@@ -973,44 +973,382 @@ export function resolveLinkTarget(rawTarget, linkType, ctx) {
   return { outcome: "dead" };
 }
 
-// ─── Vault map (for SessionStart hook) ─────────────────────────────────
+// ─── Vault navigation skeleton ────────────────────────────────────────
+// (spec: the-sessionstart-navigation-skeleton-bounded-layout-derived-vault-localized)
+//
+// renderVaultSkeleton(facts) is pure — no filesystem, no clock. Every read it
+// depends on was already made, under one deadline, by gatherVaultFacts. The
+// split is what makes the bounds unit-testable without a slow filesystem, and
+// what stops a second convenience being paid for out of the same budget later.
 
-export function buildVaultMap(cfg) {
-  const lines = [];
-  const vault = cfg.vault_path;
-  if (!existsSync(vault)) {
-    return `# projectstore: vault not found at ${vault}\n`;
+export const PURPOSE_CELL = 160;   // contract 1
+export const TITLE_CELL = 80;      // contract 1
+export const PATH_CELL = 200;      // contracts 1, 19 — measured: longest path here is 123
+export const INFLIGHT_CAP = 5;     // contracts 1, 19
+export const ERROR_CELL = 500;     // contract 3
+
+// A truncation marks itself, and the mark counts toward the budget (contract 1).
+export function truncEnd(s, max) {
+  const t = String(s ?? "");
+  if (t.length <= max) return t;
+  let cut = t.slice(0, max - 1);
+  // Never orphan a table-cell escape: a `\|` sliced in half leaves a stray
+  // backslash AND un-escapes the pipe that follows it, breaking the row.
+  const tail = cut.match(/\\+$/);
+  if (tail && tail[0].length % 2 === 1) cut = cut.slice(0, -1);
+  return cut + "…";
+}
+
+// Front-truncation keeps the tail. For a path that is the discriminating half —
+// siblings share their folder prefix and differ only in slug — and it keeps the
+// filename, so the line still names the artifact to a reader (contract 19).
+export function truncFront(s, max) {
+  const t = String(s ?? "");
+  if (t.length <= max) return t;
+  return "…" + t.slice(t.length - (max - 1));
+}
+
+// Contract 6: a folder's purpose is its README's own prose — the slice above the
+// first `## ` heading. A README that opens with `## ` at byte 0 has no preamble.
+// Missing, empty or unreadable yields the folder's KIND, never an empty cell.
+export function folderPurpose(readmeText, kind) {
+  const text = readmeText == null ? "" : String(readmeText);
+  const m = text.match(/(^|\n)## /);
+  const head = m ? text.slice(0, m.index) : text;
+  const prose = head
+    .split("\n")
+    .filter((l) => !l.startsWith("#"))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\|/g, "\\|");
+  return prose ? truncEnd(prose, PURPOSE_CELL) : String(kind);
+}
+
+// Contract 19 — a path cell, with the truncation mark OUTSIDE the copyable
+// token, so what a reader copies out of the backticks is a clean substring of
+// the real path. `graph.md` contains zero `…` characters, so a pasted cell
+// carrying one matches nothing and grep exits 1 — which reads as "this artifact
+// has no graph entries", a silently false answer. Decided by equality against
+// the untruncated string rather than by a leading "…", which is a character a
+// path is entitled to contain.
+export function pathCell(p) {
+  const s = String(p ?? "");
+  const t = truncFront(s, PATH_CELL);
+  return t === s ? `\`${s}\`` : `…\`${t.slice(1)}\``;
+}
+
+function renderCount(counts) {
+  if (!counts) return "0";
+  if (counts.epics != null) {
+    return `${counts.epics} epics · ${counts.stories ?? 0} stories`;
   }
-  lines.push(`# Projectstore vault: ${vault}`);
-  lines.push(`# Layout: ${cfg.layout}`);
-  lines.push("");
-  const rootReadme = join(vault, "README.md");
-  if (existsSync(rootReadme)) {
-    lines.push(readFileSync(rootReadme, "utf8"));
+  return String(counts.artifacts ?? 0);
+}
+
+function descentOrder({ kanbanFile, adrIndex, epicFile }) {
+  return [
+    `1. **What is in flight** — the list below, or \`${kanbanFile}\` for the whole board.`,
+    `2. **The epic** — \`${epicFile}\` names its stories and how they map to code.`,
+    "3. **A folder's index** — its `README.md` lists every artifact with title, status and date. One read, complete.",
+    `4. **Before authoring an ADR or spec, or making an architectural choice — read \`${adrIndex}\`.** This step fires on *deciding*, not on searching: it is the one moment the decision index is load-bearing, and skipping it is how a settled question gets re-decided.`,
+    "5. **An artifact's neighbourhood** — `grep '<vault-relative-path>' graph.md` returns its typed links in both directions, in one call.",
+  ];
+}
+
+// Contract 5 — per folder, non-recursive, `README.md` excluded. The epic folder
+// counts epics and stories separately, through the shared story lister so that
+// folder-shaped and standalone stories are counted the same way the rest of the
+// plugin sees them. readdir/stat only: contract 14 forbids anything here that
+// could materialize an evicted file, because this path has no budget at all.
+function countFolder(vault, folder) {
+  const dir = join(vault, folder.path);
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return folder.subfolder_per_id ? { epics: 0, stories: 0 } : { artifacts: 0 };
   }
-  if ((cfg.inject_depth ?? 1) >= 1) {
-    const layout = loadLayout(cfg.layout);
-    for (const folder of layout.folders) {
-      const readme = join(vault, folder.path, "README.md");
-      if (existsSync(readme)) {
-        lines.push(`\n---\n\n## ${folder.path}/\n\n${readFileSync(readme, "utf8")}`);
+  if (folder.subfolder_per_id) {
+    let epics = 0;
+    let stories = 0;
+    for (const n of names) {
+      if (n.startsWith(".")) continue;
+      const full = join(dir, n);
+      try {
+        if (!statSync(full).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      // Contract 5 — an epic is a subdirectory containing `epic.md`, AND stories
+      // come from the shared walker. Two clauses, and the gate belongs in front
+      // of only the first: the walker does not require `epic.md`, so gating both
+      // makes the count and the in-flight list disagree about the same vault
+      // three lines apart — contract 12's argument at a smaller scale.
+      stories += listEpicStories(full).length;
+      if (!existsSync(join(full, "epic.md"))) continue;
+      epics += 1;
+    }
+    return { epics, stories };
+  }
+  return { artifacts: names.filter((n) => n.endsWith(".md") && n !== "README.md").length };
+}
+
+// Contracts 12–15, 19–21 — every read this payload needs, under ONE deadline.
+//
+// Three families race a single timer: the folder READMEs, the in-flight story
+// scan, and (on `compact` only) the activity log. One timer rather than three
+// because the budget is the user's startup latency, which does not divide.
+// Each family degrades on its own terms, and a family that finished before
+// expiry keeps its result — partial is the normal outcome, not a failure.
+//
+// Nothing here is synchronous except enumeration. The synchronous reader this
+// module used to carry was deleted with this change rather than left as an
+// invitation: a synchronous read of an evicted file blocks uninterruptibly
+// inside one call and the timer never gets a turn, so the budget is only real
+// if every content read goes through `readActivityAsync`.
+export async function gatherVaultFacts(cfg, opts = {}) {
+  // Trailing slashes: `bind` normalizes, a hand-edited config may not, and the
+  // relativization below is raw arithmetic. Normalizing once here keeps the
+  // gather agreeing with resolveInFlightArtifact, which already normalizes.
+  const vault = String(cfg.vault_path || "").replace(/\/+$/, "");
+  const budgetMs = opts.budgetMs ?? 200;
+  const readFile = opts.readFile || ((p) => readFileAsync(p, "utf8"));
+  const sessionId = opts.sessionId ?? null;
+  const source = opts.source ?? null;
+
+  // Contract 17 — the vault-not-found shape keeps working. Without this the
+  // renderer answers with eight rows of authoritative zeros and the line
+  // "nothing in progress" about a vault that does not exist: exactly the
+  // silently-false claim contracts 13 and 21 spend paragraphs refusing.
+  if (!existsSync(vault)) return { vaultMissing: true, vaultPath: vault };
+
+  const layout = loadLayout(cfg.layout);
+  const vcfg = readVaultConfig(vault);
+  const adrFolder = folderByKind(layout, "adr") || folderByKind(layout, "spec");
+  const epicFolder = folderByKind(layout, "epic");
+
+  const folders = layout.folders.map((f) => ({
+    path: f.path,
+    kind: f.kind,
+    counts: countFolder(vault, f),
+    readme: null, // a read that lands fills this; contract 6 covers the rest
+  }));
+
+  const storyFiles = listVaultStoryFiles(vault);
+  const inFlight = { status: "ok", entries: [], total: 0 };
+  // Present only on `compact` — contract 19's positive test, applied where the
+  // cost is: on every other source the log is not read at all.
+  const wantContinuity = source === "compact" && Boolean(sessionId);
+  const continuity = wantContinuity ? { status: "ok", paths: [], total: 0, artifact: null } : null;
+
+  const done = { readmes: false, inFlight: false, activity: false };
+
+  const readmes = (async () => {
+    for (const f of folders) {
+      try {
+        f.readme = String(await readFile(join(vault, f.path, "README.md")));
+      } catch {
+        /* contract 6: missing, empty and unreadable all fall back to the kind */
       }
     }
-  }
-  if ((cfg.inject_depth ?? 1) >= 2) {
-    const layout = loadLayout(cfg.layout);
-    lines.push(`\n---\n\n## File index (depth 2)\n`);
-    for (const folder of layout.folders) {
-      const dir = join(vault, folder.path);
-      if (!existsSync(dir)) continue;
-      lines.push(`\n### ${folder.path}/\n`);
-      const files = readdirSync(dir).filter((n) => n.endsWith(".md") && n !== "README.md");
-      for (const f of files) {
-        lines.push(`- \`${folder.path}/${f}\``);
+    done.readmes = true;
+  })();
+
+  const stories = (async () => {
+    const found = [];
+    for (const abs of storyFiles) {
+      let text;
+      try {
+        text = await readFile(abs);
+      } catch {
+        continue;
       }
+      const fm = parseFrontmatter(String(text)).data;
+      if (!fm || fm.status !== "in-progress") continue;
+      const rel = abs.startsWith(vault + "/") ? abs.slice(vault.length + 1) : abs;
+      const seg = rel.split("/");
+      const epic = epicFolder && seg[0] === epicFolder.path && seg[1] ? seg[1] : seg[0];
+      found.push({ epic, title: String(fm.title || seg[seg.length - 1]), startedAt: fm.started_at || "" });
+    }
+    // Contract 15 — most recently started first, walker order as the tie-break,
+    // which sort() preserves. Unstated, the cap would silently favour whichever
+    // epic sorts first alphabetically, forever.
+    found.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+    inFlight.entries = found;
+    inFlight.total = found.length;
+    done.inFlight = true;
+  })();
+
+  const activity = (async () => {
+    if (!wantContinuity) {
+      done.activity = true;
+      return;
+    }
+    const entries = await readActivityAsync(vault, sessionId, readFile);
+    const rel = entries
+      .filter((e) => e && typeof e.path === "string" && isInsideVault(e.path, vault))
+      .map((e) => e.path.slice(vault.length + 1))
+      .filter(Boolean);
+    continuity.paths = rel;
+    continuity.total = rel.length;
+    continuity.artifact = resolveInFlightArtifact(entries, layout, vault);
+    done.activity = true;
+  })();
+
+  let timer = null;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), budgetMs);
+  });
+  // Each family swallows its own rejection. Without this, a family that
+  // rejects AFTER the deadline won leaves a derived promise with no handler:
+  // node's default `--unhandled-rejections=throw` then exits the hook non-zero,
+  // which is the "a hook never breaks session startup" contract 17 forbids. The
+  // reachable trigger is a corrupt activity entry whose `path` is not a string.
+  await Promise.race([
+    Promise.all([readmes, stories, activity].map((p) => p.catch(() => {}))).then(() => "ok"),
+    deadline,
+  ]);
+  clearTimeout(timer);
+
+  // Contract 13 — a family still outstanding degrades to its NAMED line. An
+  // unfinished in-flight scan must not render as an empty list: that asserts
+  // the vault is idle, which is a different and possibly false claim.
+  if (!done.inFlight) inFlight.status = "timeout";
+  if (continuity && !done.activity) continuity.status = "timeout";
+
+  return {
+    vaultPath: vault,
+    layoutName: layout.name || cfg.layout,
+    language: cfg.language || "en",
+    specPolicy: vcfg.spec_policy || "optional",
+    lifecycleGates: vcfg.lifecycle_gates || "on",
+    kanbanFile: (layout.kanban && layout.kanban.file) || "kanban.md",
+    adrIndex: adrFolder ? `${adrFolder.path}/README.md` : "README.md",
+    epicFile: epicFolder ? `${epicFolder.path}/<EPIC>/epic.md` : "epic.md",
+    folders,
+    inFlight,
+    continuity,
+  };
+}
+
+export function renderVaultSkeleton(facts) {
+  const f = facts || {};
+  const L = [];
+
+  if (f.vaultMissing) {
+    return `# projectstore: vault not found at ${truncFront(String(f.vaultPath ?? ""), PATH_CELL)}\n`;
+  }
+
+  // Contract 10 — the header carries the session-relevant policy. Absent vault
+  // config renders the documented defaults rather than blanks.
+  // Contract 3 — the vault path is bounded only by PATH_MAX, so it is a term of
+  // the composed cap like any other. Front-truncated for contract 19's second
+  // reason: the tail is the discriminating half of a path.
+  L.push(`# Projectstore vault: ${truncFront(String(f.vaultPath ?? ""), PATH_CELL)}`);
+  // Contract 3 — these four are user-supplied config, and config is free text.
+  // The previous revision interpolated them raw, which put the 10,000-character
+  // breach back into the very line this change added: a 3,000-character
+  // `language` composed a 12,049-character payload. A structural bound is
+  // exactly as good as its enumeration, and this was the third miss.
+  const cell = (v, dflt) => truncEnd(String(v || dflt), TITLE_CELL);
+  L.push(
+    `# Layout: ${cell(f.layoutName, "unknown")} · language: ${cell(f.language, "en")}` +
+      ` · spec_policy: ${cell(f.specPolicy, "optional")}` +
+      ` · lifecycle_gates: ${cell(f.lifecycleGates, "on")}`,
+  );
+  L.push("");
+
+  // Contract 9 — all five steps, resolved through the layout, never typed.
+  L.push("## How to work with this vault");
+  L.push("");
+  L.push("Descend on demand. Nothing below is a copy of the vault; it is the order to read it in.");
+  L.push("");
+  for (const step of descentOrder(f)) L.push(step);
+  L.push("");
+
+  // Contract 4 — one row per layout folder, iterated, never listed literally.
+  L.push("## Where things live");
+  L.push("");
+  L.push("| Folder | Kind | Count | Purpose |");
+  L.push("|---|---|---|---|");
+  for (const folder of f.folders || []) {
+    L.push(
+      `| \`${folder.path}/\` | ${folder.kind} | ${renderCount(folder.counts)} | ` +
+        `${folderPurpose(folder.readme, folder.kind)} |`,
+    );
+  }
+  L.push("");
+
+  // Contracts 15, 21 — ordered most-recently-started first, capped, and the
+  // expired case says so rather than rendering an empty list, which would be a
+  // different and possibly false claim.
+  L.push("## In flight now");
+  L.push("");
+  const inf = f.inFlight || {};
+  if (inf.status === "timeout") {
+    L.push(`- in-flight work not resolved within budget — see \`${f.kanbanFile}\` § In Progress`);
+  } else {
+    const entries = inf.entries || [];
+    if (entries.length === 0) {
+      L.push("- nothing in progress");
+    } else {
+      for (const e of entries.slice(0, INFLIGHT_CAP)) {
+        // `epic` is a directory name — bounded only by NAME_MAX, five times over.
+        L.push(`- ${truncEnd(e.epic, TITLE_CELL)} · ${truncEnd(e.title, TITLE_CELL)}`);
+      }
+      const more = (inf.total ?? entries.length) - Math.min(entries.length, INFLIGHT_CAP);
+      if (more > 0) L.push(`- …and ${more} more; see \`${f.kanbanFile}\``);
     }
   }
-  return lines.join("\n");
+  L.push("");
+
+  // Contracts 19, 21 — the continuity section. Present only when the gather was
+  // asked for it, which is only on `source === "compact"`: a positive test, in
+  // one place. Absence here asserts nothing at all, which is why empty and
+  // unreadable may share it while an empty in-flight list may not.
+  const cont = f.continuity;
+  if (cont) {
+    if (cont.status === "timeout") {
+      L.push("## Where this session left off");
+      L.push("");
+      L.push("- recent activity not resolved within budget — run `/projectstore:status`");
+      L.push("");
+    } else if (cont.paths && cont.paths.length > 0) {
+      L.push("## Where this session left off");
+      L.push("");
+      L.push("Vault files this conversation touched before it was compacted, newest first.");
+      L.push("");
+      for (const p of cont.paths.slice(0, INFLIGHT_CAP)) L.push(`- ${pathCell(p)}`);
+      const more = (cont.total ?? cont.paths.length) - Math.min(cont.paths.length, INFLIGHT_CAP);
+      if (more > 0) L.push(`- …and ${more} more; see \`/projectstore:status\``);
+      if (cont.artifact) {
+        L.push("");
+        L.push(`**In flight**: ${pathCell(cont.artifact)} was the newest structured write before` +
+          " compaction. If we were drafting it, continue from there.");
+      }
+      L.push("");
+    }
+  }
+
+  // Contracts 8, 11 — the recipe, the prohibition, and the staleness clause.
+  L.push("## Derived views");
+  L.push("");
+  L.push(
+    `\`${f.kanbanFile}\`, \`code-map.md\` and \`graph.md\` are **regenerated** from artifact` +
+      " frontmatter. They can lag a very recent edit, they are never hand-edited, and the" +
+      " artifact is the source of truth when they disagree.",
+  );
+  L.push("");
+  L.push(
+    "`graph.md` is queried, **never read whole** — it is far larger than this payload's" +
+      " whole budget. Grep it by **vault-relative path**, which is its node key; a bare slug" +
+      " is not a key and returns a flood (on one real vault, 22 lines by path against 101 by" +
+      " slug). `code-map.md` answers where code for an epic already lives — read it before" +
+      " deciding where new code goes.",
+  );
+
+  return L.join("\n") + "\n";
 }
 
 // ─── Session awareness (layer 2 — multi-Claude coordination) ──────────
@@ -1110,13 +1448,26 @@ export function readActiveSessions(vault, currentSessionId, maxAgeMinutes = 30) 
   return out;
 }
 
-export function cleanupStaleSessions(vault, maxAgeHours = 24) {
+// Contract 23 — `currentSessionId` is exempt. A live session's file is not
+// stale, and reaping it is pure data destruction: `writeSession` recreates it
+// from nothing, so `recent_activity` and `started_at` are gone. A session left
+// open overnight and then compacted would have its own history deleted moments
+// before the continuity section asks for it.
+//
+// Named limitation: a SIBLING session idle beyond 24 hours is still reaped by
+// whichever session runs cleanup, and its next compaction renders absence for a
+// cause contract 21 does not name. Mtime cannot tell idle-alive from dead, so
+// the justification above applies to that session word for word and is not
+// cheaply actionable here.
+export function cleanupStaleSessions(vault, maxAgeHours = 24, currentSessionId = null) {
   const dir = sessionsDir(vault);
   if (!existsSync(dir)) return 0;
   const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
+  const mine = currentSessionId ? `${currentSessionId}.json` : null;
   let removed = 0;
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".json")) continue;
+    if (mine && name === mine) continue;
     const path = join(dir, name);
     try {
       if (statSync(path).mtimeMs < cutoff) {
@@ -1138,13 +1489,27 @@ export function removeLegacySessionIdFile(projectDir) {
   }
 }
 
-// ─── Session activity log (for PreCompact survival packet) ─────────────
+// ─── Session activity log ──────────────────────────────────────────────
 //
 // Each session file may carry a `recent_activity` array, populated by
 // touch-session.mjs from PreToolUse events. Capped at 50 entries, deduped
-// by path (latest tool/timestamp wins). Used by hooks/pre-compact.mjs.
+// by path (latest tool/timestamp wins). Read by hooks/pre-compact.mjs for its
+// compaction line and by hooks/session-start.mjs for the continuity section —
+// through the one resolver below, never by re-deriving the question.
 
 const ACTIVITY_CAP = 50;
+
+// The write family, defined once. touch-session.mjs writes the log with it and
+// resolveInFlightArtifact reads the log with it, so the reader cannot recognise
+// a narrower set than the writer recorded — which is exactly how `NotebookEdit`
+// came to be logged and then ignored. `hooks/hooks.json`'s PostToolUse matcher
+// is a third copy that cannot import; a test pins it against this list.
+export const WRITE_TOOLS = Object.freeze(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+const WRITE_TOOL_SET = new Set(WRITE_TOOLS);
+
+export function isWriteTool(tool) {
+  return WRITE_TOOL_SET.has(tool);
+}
 
 export function appendActivity(vault, sessionId, filePath, toolName) {
   const sp = sessionFilePath(vault, sessionId);
@@ -1167,15 +1532,52 @@ export function appendActivity(vault, sessionId, filePath, toolName) {
   }
 }
 
-export function readSessionActivity(vault, sessionId) {
-  const sp = sessionFilePath(vault, sessionId);
-  if (!existsSync(sp)) return [];
+// The one reader of `recent_activity`, and async because a budget can only
+// interrupt an async read: a synchronous read of an iCloud-evicted file blocks
+// inside one call and the timer never gets a turn. Both consumers — the gather and
+// pre-compact — read this one file, so they read it through one function.
+// Returns [] for missing, unparseable and unreadable alike (contract 21).
+export async function readActivityAsync(vault, sessionId, readFile) {
+  if (!sessionId) return [];
+  const read = readFile || ((p) => readFileAsync(p, "utf8"));
   try {
-    const data = JSON.parse(readFileSync(sp, "utf8"));
+    const data = JSON.parse(String(await read(sessionFilePath(vault, sessionId))));
     return Array.isArray(data.recent_activity) ? data.recent_activity : [];
   } catch {
     return [];
   }
+}
+
+// Contracts 20, 24 — the in-flight artifact: the newest write-family entry
+// whose path lands in a folder of the ACTIVE layout, returned vault-relative.
+//
+// Shared on purpose. The compaction line and the continuity section answer the
+// same question seconds apart on the same screen, so two implementations of it
+// drift in public. Folders come from the layout and are never spelled out here:
+// a layout that gains a kind must not go blind, which is the defect the row
+// renderer is already forbidden to have.
+//
+// `vaultPath` is a parameter rather than a convenience because the anchor
+// cannot be reconstructed from either side alone — the log stores absolute tool
+// paths, `layout.folders[].path` are vault-relative. Without it the only
+// available match is a substring, which fires on a folder name occurring at
+// depth: `notes/adr/x.md` is not an ADR.
+export function resolveInFlightArtifact(activity, layout, vaultPath) {
+  if (!Array.isArray(activity) || !vaultPath) return null;
+  const folders = (layout && Array.isArray(layout.folders) ? layout.folders : [])
+    .map((f) => f && f.path)
+    .filter(Boolean);
+  if (folders.length === 0) return null;
+  const root = vaultPath.endsWith("/") ? vaultPath.slice(0, -1) : vaultPath;
+  // appendActivity unshifts, so the log is newest-first and the first match is
+  // the newest one — no sort, and no second definition of "newest".
+  for (const e of activity) {
+    if (!e || !e.path || !isWriteTool(e.tool)) continue;
+    if (!isInsideVault(e.path, root)) continue;
+    const rel = e.path.slice(root.length + 1);
+    if (folders.some((p) => rel === p || rel.startsWith(p + "/"))) return rel;
+  }
+  return null;
 }
 
 export function isInsideVault(filePath, vaultPath) {

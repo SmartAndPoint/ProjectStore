@@ -1950,3 +1950,507 @@ test("checkWorkWithoutStory: fires on dirty tree with no open story, silent othe
     else process.env.CLAUDE_PROJECT_DIR = prevProj;
   }
 });
+
+// ─── The SessionStart navigation skeleton: the pure render ─────────────
+// (spec: the-sessionstart-navigation-skeleton-bounded-layout-derived-vault-localized)
+//
+// renderVaultSkeleton is pure, so every bound, every fallback and the O(1)
+// property are reachable here with no filesystem and no timing.
+
+import {
+  renderVaultSkeleton,
+  folderPurpose,
+  truncEnd,
+  truncFront,
+  PURPOSE_CELL,
+  TITLE_CELL,
+  PATH_CELL,
+} from "../scripts/lib.mjs";
+
+function factsFor({ folders, inFlight, ...rest } = {}) {
+  return {
+    vaultPath: "/v",
+    layoutName: "engineering",
+    language: "en",
+    specPolicy: "optional",
+    lifecycleGates: "on",
+    kanbanFile: "kanban.md",
+    adrIndex: "adr/README.md",
+    epicFile: "epics/<EPIC>/epic.md",
+    folders: folders || [
+      { path: "adr", kind: "adr", counts: { artifacts: 3 }, readme: "# ADRs\n\nDecisions with context.\n\n## Index\n" },
+      { path: "epics", kind: "epic", counts: { epics: 2, stories: 7 }, readme: "# Epics\n\nEpics and stories.\n" },
+    ],
+    inFlight: inFlight || { status: "ok", entries: [], total: 0 },
+    ...rest,
+  };
+}
+
+test("skeleton contract 2: the payload is O(1) in vault size, decided by a diff", () => {
+  // Two vaults sharing one layout: one near-empty, one with >=200 artifacts
+  // across every folder and more than five stories in progress.
+  const mkFolders = (n) => [
+    { path: "adr", kind: "adr", counts: { artifacts: n }, readme: "# ADRs\n\nDecisions with context.\n" },
+    { path: "specs", kind: "spec", counts: { artifacts: n }, readme: "# Specs\n\nNormative how.\n" },
+    { path: "epics", kind: "epic", counts: { epics: n, stories: n * 4 }, readme: "# Epics\n\nEpics and stories.\n" },
+    { path: "research", kind: "research", counts: { artifacts: n }, readme: "# Research\n\nSpikes.\n" },
+  ];
+  const small = renderVaultSkeleton(factsFor({
+    folders: mkFolders(0),
+    inFlight: { status: "ok", entries: [], total: 0 },
+  }));
+  const large = renderVaultSkeleton(factsFor({
+    folders: mkFolders(50),
+    inFlight: {
+      status: "ok",
+      total: 40,
+      entries: Array.from({ length: 9 }, (_, i) => ({ epic: `PS-${i}`, title: `story number ${i}` })),
+    },
+  }));
+
+  // Mask exactly what the spec allows to differ: digit runs, the capped
+  // in-flight lines, and the "and N more" marker.
+  const mask = (s) => s
+    .split("\n")
+    .filter((l) => !/^- (PS-|nothing in progress|…and )/.test(l))
+    .join("\n")
+    .replace(/\d+/g, "#");
+  assert.equal(mask(large), mask(small),
+    "a renderer leaking even two characters per artifact fails here, while " +
+    "'under the cap for a vault this size' would have passed it");
+});
+
+test("skeleton contract 4: every layout folder gets a row, none is a literal", () => {
+  const folders = [
+    { path: "adr", kind: "adr", counts: { artifacts: 1 }, readme: null },
+    { path: "specs", kind: "spec", counts: { artifacts: 2 }, readme: null },
+    { path: "runbooks", kind: "runbook", counts: { artifacts: 3 }, readme: null },
+  ];
+  const out = renderVaultSkeleton(factsFor({ folders }));
+  for (const f of folders) {
+    assert.ok(out.includes(`\`${f.path}/\``), `${f.path} must appear — rows come from the layout`);
+  }
+  // A layout that gains a kind gains a row, with no renderer change.
+  const grown = renderVaultSkeleton(factsFor({
+    folders: [...folders, { path: "decisions", kind: "decision", counts: { artifacts: 9 }, readme: null }],
+  }));
+  assert.ok(grown.includes("`decisions/`"), "a new layout kind appears without touching the renderer");
+});
+
+test("skeleton contract 5: counts are per folder, and epics report stories separately", () => {
+  const out = renderVaultSkeleton(factsFor({
+    folders: [
+      { path: "epics", kind: "epic", counts: { epics: 5, stories: 48 }, readme: null },
+      { path: "adr", kind: "adr", counts: { artifacts: 12 }, readme: null },
+    ],
+  }));
+  assert.ok(/\| 5 epics · 48 stories \|/.test(out), "epics and stories are separate counts");
+  assert.ok(/\| 12 \|/.test(out), "a plain folder reports one number");
+});
+
+test("skeleton contract 6: purpose is the README's own prose, with named fallbacks", () => {
+  assert.equal(folderPurpose("# ADRs\n\nDecisions with context.\n\n## Index\n| a |\n", "adr"),
+    "Decisions with context.", "prose above the first ## heading, headings dropped");
+  assert.equal(folderPurpose("## Index\n\nrows\n", "adr"), "adr",
+    "a README opening with ## at byte 0 has no preamble — the kind, never a blank");
+  assert.equal(folderPurpose(null, "research"), "research", "missing README yields the kind");
+  assert.equal(folderPurpose("", "ops"), "ops", "empty README yields the kind");
+  assert.equal(folderPurpose("# T\n\nA | B\n", "adr"), "A \\| B", "pipes are escaped for the cell");
+
+  const long = folderPurpose("# T\n\n" + "x".repeat(400) + "\n", "adr");
+  assert.equal(long.length, PURPOSE_CELL, "truncated to the cell, ellipsis included");
+  assert.ok(long.endsWith("…"));
+
+  // A `\|` sliced in half would leave a stray backslash and un-escape the pipe.
+  const escaped = folderPurpose("# T\n\n" + "y".repeat(PURPOSE_CELL - 2) + "|tail\n", "adr");
+  assert.ok(!/\\…$/.test(escaped), "truncation never orphans a cell escape");
+});
+
+test("skeleton contract 7: the payload carries no artifact content", () => {
+  const out = renderVaultSkeleton(factsFor());
+  const re = indexHeaderRe();
+  for (const line of out.split("\n")) {
+    assert.ok(!re.test(line), `payload must not carry an index table: ${line}`);
+  }
+  assert.ok(!/code_refs/.test(out), "no code_refs");
+});
+
+test("skeleton contracts 8, 11: the graph is taught by path, with its prohibition and the staleness clause", () => {
+  const flat = renderVaultSkeleton(factsFor()).replace(/\s+/g, " ");
+  assert.ok(/grep '<vault-relative-path>' graph\.md/.test(flat), "the recipe greps a path");
+  assert.ok(/never read whole/.test(flat), "the prohibition renders alongside it");
+  assert.ok(/a bare slug is not a key/.test(flat), "and says why a slug is not a substitute");
+  assert.ok(/regenerated/.test(flat) && /never hand-edited/.test(flat) && /source of truth/.test(flat),
+    "derived views can lag, are not hand-edited, and lose to the artifact");
+});
+
+test("skeleton contract 9: all five descent steps render, including the one that fires on deciding", () => {
+  const flat = renderVaultSkeleton(factsFor()).replace(/\s+/g, " ");
+  for (const n of [1, 2, 3, 4, 5]) {
+    assert.ok(new RegExp(`${n}\\. \\*\\*`).test(flat), `step ${n} renders`);
+  }
+  assert.ok(/Before authoring an ADR or spec, or making an architectural choice — read `adr\/README\.md`/.test(flat),
+    "step 4 fires on deciding, not on searching — it is the answer to dropping the dump");
+  assert.ok(/fires on \*deciding\*, not on searching/.test(flat));
+});
+
+test("skeleton contract 10: the header carries policy, and absent config renders the documented defaults", () => {
+  const withPolicy = renderVaultSkeleton(factsFor({ specPolicy: "required", lifecycleGates: "off" }));
+  assert.ok(/spec_policy: required/.test(withPolicy) && /lifecycle_gates: off/.test(withPolicy));
+  const bare = renderVaultSkeleton({ vaultPath: "/v", layoutName: "engineering", kanbanFile: "kanban.md" });
+  assert.ok(/spec_policy: optional/.test(bare), "documented default, not a blank");
+  assert.ok(/lifecycle_gates: on/.test(bare), "documented default, not a blank");
+});
+
+test("skeleton contracts 1, 15: in-flight is capped, ordered as given, and never renders an empty list as a claim", () => {
+  const many = renderVaultSkeleton(factsFor({
+    inFlight: {
+      status: "ok", total: 12,
+      entries: Array.from({ length: 12 }, (_, i) => ({ epic: "PS-A", title: `t${i}` })),
+    },
+  }));
+  assert.equal((many.match(/^- PS-A · /gm) || []).length, 5, "capped at five");
+  assert.ok(/…and 7 more; see `kanban\.md`/.test(many), "and the remainder is named, not dropped silently");
+
+  const longTitle = renderVaultSkeleton(factsFor({
+    inFlight: { status: "ok", total: 1, entries: [{ epic: "PS-A", title: "z".repeat(200) }] },
+  }));
+  const titleLine = longTitle.split("\n").find((l) => l.startsWith("- PS-A · "));
+  assert.equal(titleLine.slice("- PS-A · ".length).length, TITLE_CELL, "title truncated to its cell");
+
+  const empty = renderVaultSkeleton(factsFor());
+  assert.ok(/- nothing in progress/.test(empty), "empty renders its own line");
+  const expired = renderVaultSkeleton(factsFor({ inFlight: { status: "timeout" } }));
+  assert.ok(/not resolved within budget/.test(expired), "expiry says so");
+  assert.ok(!/nothing in progress/.test(expired),
+    "an empty list claims the vault is idle; an expired budget claims only that we did not find out");
+});
+
+test("skeleton contract 1: the cell truncators mark themselves and count the mark", () => {
+  assert.equal(truncEnd("abcdef", 4), "abc…");
+  assert.equal(truncEnd("abc", 4), "abc", "under the cap is untouched");
+  assert.equal(truncFront("abcdef", 4), "…def", "a path keeps its tail — the discriminating half");
+  assert.equal(truncFront("x".repeat(PATH_CELL + 50), PATH_CELL).length, PATH_CELL);
+});
+
+// ─── The in-flight resolver: one question, one implementation ──────────
+// (spec contracts 20, 24)
+//
+// Landed with no callers on purpose. Both hooks would pass their own drives on
+// a depth-blind substring match, so the anchoring is pinned here, where a wrong
+// answer is visible, rather than there, where it is merely plausible.
+
+import {
+  resolveInFlightArtifact,
+  isWriteTool,
+  WRITE_TOOLS,
+  writeSession,
+  ensureSessionsDir,
+  sessionFilePath,
+} from "../scripts/lib.mjs";
+
+const VAULT = "/vault";
+const LAYOUT = { folders: [{ path: "adr" }, { path: "specs" }, { path: "epics" }] };
+
+// The log is newest-first, as appendActivity leaves it.
+function log(...entries) {
+  return entries.map(([path, tool]) => ({ path, tool, at: "2026-08-17T00:00:00.000Z" }));
+}
+
+test("resolver contract 20: the newest write-family entry wins, reads are not writes", () => {
+  const activity = log(
+    ["/vault/adr/newest.md", "Read"],
+    ["/vault/specs/second.md", "Edit"],
+    ["/vault/adr/third.md", "Write"],
+  );
+  assert.equal(resolveInFlightArtifact(activity, LAYOUT, VAULT), "specs/second.md",
+    "a Read of a vault file is not evidence of authoring it");
+});
+
+test("resolver contract 20: every tool in the write family resolves, and only those", () => {
+  // Named literally, because the loop below iterates WRITE_TOOLS and therefore
+  // shrinks with it — a narrowed constant would pass its own test.
+  assert.deepEqual([...WRITE_TOOLS].sort(), ["Edit", "MultiEdit", "NotebookEdit", "Write"]);
+  for (const tool of WRITE_TOOLS) {
+    assert.equal(resolveInFlightArtifact(log(["/vault/adr/x.md", tool]), LAYOUT, VAULT),
+      "adr/x.md", `${tool} writes and must resolve`);
+    assert.ok(isWriteTool(tool));
+  }
+  for (const tool of ["Read", "Grep", "Glob", "Bash", "Task"]) {
+    assert.equal(resolveInFlightArtifact(log(["/vault/adr/x.md", tool]), LAYOUT, VAULT), null);
+    assert.ok(!isWriteTool(tool));
+  }
+});
+
+test("resolver contract 20: the match is vault-anchored, not a substring", () => {
+  // A folder name occurring at depth is the case a substring match gets wrong,
+  // and it is not exotic: `notes/adr/` is a plausible vault subfolder.
+  assert.equal(resolveInFlightArtifact(log(["/vault/notes/adr/x.md", "Edit"]), LAYOUT, VAULT), null,
+    "notes/adr/x.md is not an ADR — its anchor is `notes`, which is not a layout folder");
+  // Same folder name, outside the vault entirely.
+  assert.equal(resolveInFlightArtifact(log(["/elsewhere/adr/x.md", "Edit"]), LAYOUT, VAULT), null);
+  // A file at the vault root belongs to no folder.
+  assert.equal(resolveInFlightArtifact(log(["/vault/kanban.md", "Edit"]), LAYOUT, VAULT), null);
+  // A sibling directory that merely starts with a folder name.
+  assert.equal(resolveInFlightArtifact(log(["/vault/adrs/x.md", "Edit"]), LAYOUT, VAULT), null,
+    "`adrs/` is not `adr/` — the separator is part of the anchor");
+  // The folder itself, exactly, is a legitimate match.
+  assert.equal(resolveInFlightArtifact(log(["/vault/adr", "Write"]), LAYOUT, VAULT), "adr");
+});
+
+test("resolver contract 24: the return is vault-relative, and a trailing slash on the root is tolerated", () => {
+  const activity = log(["/vault/epics/PS-X/stories/story-y.md", "Edit"]);
+  assert.equal(resolveInFlightArtifact(activity, LAYOUT, VAULT), "epics/PS-X/stories/story-y.md");
+  assert.equal(resolveInFlightArtifact(activity, LAYOUT, "/vault/"), "epics/PS-X/stories/story-y.md",
+    "relativizing twice is how the two callers would drift; there is one place that does it");
+});
+
+test("resolver contract 20: folders come from the layout, never from a hard-coded set", () => {
+  // A layout with none of engineering's folder names. A resolver carrying the
+  // engineering alternation — the defect being moved away from — answers null
+  // here and resolves `adr/` below; this asserts the exact opposite pairing.
+  const other = { folders: [{ path: "decisions" }, { path: "notebooks" }] };
+  assert.equal(resolveInFlightArtifact(log(["/vault/decisions/d1.md", "Write"]), other, VAULT),
+    "decisions/d1.md");
+  assert.equal(resolveInFlightArtifact(log(["/vault/adr/x.md", "Write"]), other, VAULT), null,
+    "`adr` is not a folder of THIS layout");
+  // And the real thing, loaded rather than transcribed.
+  const eng = loadLayout("engineering");
+  assert.equal(resolveInFlightArtifact(log(["/vault/ops/runbook.md", "Write"]), eng, VAULT),
+    "ops/runbook.md");
+});
+
+test("resolver: degenerate input yields null, never a throw", () => {
+  for (const bad of [null, undefined, "not an array", 42, {}]) {
+    assert.equal(resolveInFlightArtifact(bad, LAYOUT, VAULT), null);
+  }
+  assert.equal(resolveInFlightArtifact([], LAYOUT, VAULT), null);
+  assert.equal(resolveInFlightArtifact(log(["/vault/adr/x.md", "Write"]), LAYOUT, null), null);
+  assert.equal(resolveInFlightArtifact(log(["/vault/adr/x.md", "Write"]), null, VAULT), null);
+  assert.equal(resolveInFlightArtifact(log(["/vault/adr/x.md", "Write"]), { folders: [] }, VAULT), null);
+  // Entries the log should never hold, but might after a hand-edit.
+  assert.equal(resolveInFlightArtifact([null, { tool: "Write" }, { path: "/vault/adr/x.md" }], LAYOUT, VAULT), null);
+});
+
+test("resolver contract 20: hooks.json's PostToolUse matcher lists exactly the write family", () => {
+  // The third copy, which cannot import. If it ever narrows, the log stops
+  // recording a tool the resolver still expects — the NotebookEdit defect in
+  // reverse, and silent in both directions.
+  const hooks = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../hooks/hooks.json", import.meta.url)), "utf8"));
+  const matchers = JSON.stringify(hooks).match(/"matcher":\s*"([^"]*Edit[^"]*)"/g) || [];
+  assert.ok(matchers.length > 0, "expected at least one write-tool matcher");
+  for (const m of matchers) {
+    const alts = m.match(/"matcher":\s*"([^"]*)"/)[1].split("|").sort();
+    assert.deepEqual(alts, [...WRITE_TOOLS].sort(),
+      `matcher ${m} disagrees with WRITE_TOOLS — writer and reader must record the same set`);
+  }
+});
+
+// ─── gatherVaultFacts: one deadline, three families, named degradations ─
+// (spec contracts 5, 13, 14, 15, 19, 21)
+//
+// The `readFile` seam is what makes the budget testable without a slow disk: a
+// reader that never resolves is exactly an iCloud-evicted file, and it is the
+// only honest way to assert that the timer gets a turn.
+
+import { gatherVaultFacts } from "../scripts/lib.mjs";
+
+const NEVER = () => new Promise(() => {});
+
+function mkVault({ stories = [], activity = null, sessionId = "s1", readmes = {} } = {}) {
+  const vault = mkdtempSync(join(tmpdir(), "ps-facts-"));
+  for (const f of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
+    mkdirSync(join(vault, f), { recursive: true });
+    writeFileSync(join(vault, f, "README.md"), readmes[f] ?? `# ${f}\n\nThe ${f} folder.\n\n## Index\n`);
+  }
+  for (const s of stories) {
+    const dir = join(vault, "epics", s.epic, "stories");
+    mkdirSync(dir, { recursive: true });
+    // Contract 5 defines an epic as a subdirectory containing `epic.md`. An
+    // earlier fixture omitted it and asserted the count anyway, which locked in
+    // the "every subdirectory is an epic" reading the contract forbids.
+    writeFileSync(join(vault, "epics", s.epic, "epic.md"),
+      `---\ntype: epic\nid: "${s.epic}"\nstatus: in-progress\n---\n\n# ${s.epic}\n`);
+    writeFileSync(join(dir, `${s.slug}.md`),
+      `---\ntype: story\nstatus: ${s.status}\ntitle: "${s.title}"\nstarted_at: "${s.startedAt || ""}"\n---\n\n# ${s.title}\n`);
+  }
+  if (activity) {
+    mkdirSync(join(vault, ".projectstore", "sessions"), { recursive: true });
+    writeFileSync(join(vault, ".projectstore", "sessions", `${sessionId}.json`),
+      JSON.stringify({ session_id: sessionId, recent_activity: activity }, null, 2));
+  }
+  return vault;
+}
+
+const cfgFor = (vault) => ({ vault_path: vault, layout: "engineering", language: "en" });
+
+test("gather contract 13: an unresolvable read expires the budget and every family says so by name", async () => {
+  // A story must exist, or the in-flight scan finishes instantly with nothing
+  // to read and reports "ok" — correctly, and while testing nothing.
+  const vault = mkVault({
+    activity: [],
+    stories: [{ epic: "E1", slug: "story-a", title: "A", status: "in-progress", startedAt: "2026-08-01" }],
+  });
+  const t0 = Date.now();
+  const facts = await gatherVaultFacts(cfgFor(vault), {
+    sessionId: "s1", source: "compact", budgetMs: 30, readFile: NEVER,
+  });
+  const elapsed = Date.now() - t0;
+  assert.ok(elapsed < 2000, `gather must return on the timer, took ${elapsed}ms`);
+  assert.equal(facts.inFlight.status, "timeout");
+  assert.equal(facts.continuity.status, "timeout");
+  assert.ok(facts.folders.every((f) => f.readme === null), "unread READMEs fall back, they do not hang");
+  // The named line, not an empty list — an empty list asserts the vault is idle.
+  const out = renderVaultSkeleton(facts);
+  assert.ok(/not resolved within budget/.test(out));
+  assert.ok(!/nothing in progress/.test(out));
+  // And the purposes degrade to the folder kind (contract 6), never to blanks.
+  assert.ok(/\| `adr\/` \| adr \| \d+ \| adr \|/.test(out), out.split("\n").find((l) => l.startsWith("| `adr/`")));
+});
+
+test("gather contract 13: a family that finished before expiry keeps its result", async () => {
+  const vault = mkVault({
+    stories: [{ epic: "E1", slug: "story-a", title: "A", status: "in-progress", startedAt: "2026-08-01" }],
+  });
+  // READMEs resolve; anything under epics/ hangs. Partial is the normal outcome.
+  const readFile = (p) => (p.includes("/epics/") ? NEVER() : readFileSync(p, "utf8"));
+  const facts = await gatherVaultFacts(cfgFor(vault), { source: "startup", budgetMs: 30, readFile });
+  assert.equal(facts.inFlight.status, "timeout", "the scan that hung degrades");
+  assert.ok(facts.folders.find((f) => f.path === "adr").readme.includes("The adr folder"),
+    "the family that landed keeps what it read");
+});
+
+test("gather contract 19: continuity facts exist on compact alone, and need a session id", async () => {
+  const vault = mkVault({ activity: [] });
+  const read = (p) => readFileSync(p, "utf8");
+  for (const source of ["startup", "resume", "clear", "fork", "some-future-value", undefined, null]) {
+    const facts = await gatherVaultFacts(cfgFor(vault), { sessionId: "s1", source, budgetMs: 500, readFile: read });
+    assert.equal(facts.continuity, null, `source ${String(source)} must not gather continuity`);
+  }
+  const onCompact = await gatherVaultFacts(cfgFor(vault), { sessionId: "s1", source: "compact", budgetMs: 500, readFile: read });
+  assert.ok(onCompact.continuity, "compact gathers it");
+  // Contract 21: stdin can parse carrying a source and no id.
+  const noId = await gatherVaultFacts(cfgFor(vault), { sessionId: null, source: "compact", budgetMs: 500, readFile: read });
+  assert.equal(noId.continuity, null, "no session id, no log to read");
+});
+
+test("gather contracts 20, 21: continuity carries vault-relative paths and the shared resolver's answer", async () => {
+  const vault = mkVault({
+    activity: [
+      { path: "/somewhere/else/src/app.ts", tool: "Edit" },
+      { path: "", tool: "Edit" },
+      { path: "@@VAULT@@/adr/decision.md", tool: "Read" },
+      { path: "@@VAULT@@/epics/E1/stories/story-a.md", tool: "Edit" },
+    ],
+  });
+  // Rewrite the placeholder now that the vault path exists.
+  const sp = join(vault, ".projectstore", "sessions", "s1.json");
+  writeFileSync(sp, readFileSync(sp, "utf8").replaceAll("@@VAULT@@", vault));
+  const facts = await gatherVaultFacts(cfgFor(vault), {
+    sessionId: "s1", source: "compact", budgetMs: 500, readFile: (p) => readFileSync(p, "utf8"),
+  });
+  assert.deepEqual(facts.continuity.paths, ["adr/decision.md", "epics/E1/stories/story-a.md"],
+    "out-of-vault and empty entries are dropped; the rest are relative");
+  assert.equal(facts.continuity.total, 2);
+  assert.equal(facts.continuity.artifact, "epics/E1/stories/story-a.md",
+    "the Read of the ADR is not evidence of authoring it");
+});
+
+test("gather contracts 5, 15: counts are per folder and in-flight is newest-started first", async () => {
+  const vault = mkVault({
+    stories: [
+      { epic: "E1", slug: "story-old", title: "Old", status: "in-progress", startedAt: "2026-08-01T00:00:00Z" },
+      { epic: "E1", slug: "story-done", title: "Done", status: "done", startedAt: "2026-08-09T00:00:00Z" },
+      { epic: "E2", slug: "story-new", title: "New", status: "in-progress", startedAt: "2026-08-05T00:00:00Z" },
+    ],
+  });
+  writeFileSync(join(vault, "adr", "ADR-001-x.md"), "---\ntype: adr\n---\n");
+  writeFileSync(join(vault, "adr", "ADR-002-y.md"), "---\ntype: adr\n---\n");
+  const facts = await gatherVaultFacts(cfgFor(vault), {
+    source: "startup", budgetMs: 2000, readFile: (p) => readFileSync(p, "utf8"),
+  });
+  const adr = facts.folders.find((f) => f.path === "adr");
+  assert.deepEqual(adr.counts, { artifacts: 2 }, "README.md is not an artifact");
+  const epics = facts.folders.find((f) => f.path === "epics");
+  assert.deepEqual(epics.counts, { epics: 2, stories: 3 }, "the epic folder reports both, and counts done stories too");
+  // Contract 5 — a subdirectory without `epic.md` is not an epic. On a vault
+  // where every subdirectory happens to be a real epic the two definitions
+  // agree, which is exactly how the wrong one survives review.
+  // The fixture must be DISCRIMINATING: an empty scratch folder passes whether
+  // the epic.md gate sits in front of one counter or both. A scratch folder
+  // holding an in-progress story tells those two apart — and contract 5's
+  // second clause says stories come from the shared walker regardless.
+  mkdirSync(join(vault, "epics", "scratch-notes", "stories"), { recursive: true });
+  writeFileSync(join(vault, "epics", "scratch-notes", "stories", "story-orphan.md"),
+    `---\ntype: story\nstatus: in-progress\ntitle: "Orphan"\nstarted_at: "2026-08-09T00:00:00Z"\n---\n`);
+  const again = await gatherVaultFacts(cfgFor(vault), {
+    source: "startup", budgetMs: 2000, readFile: (p) => readFileSync(p, "utf8"),
+  });
+  assert.deepEqual(again.folders.find((f) => f.path === "epics").counts, { epics: 2, stories: 4 },
+    "a scratch folder is not an epic, but its story is still a story — the count " +
+    "and the walker must not disagree about the same vault three lines apart");
+  assert.ok(again.inFlight.entries.some((e) => e.title === "Orphan"),
+    "and the walker did list it, which is what makes the count above checkable");
+  assert.deepEqual(facts.inFlight.entries.map((e) => e.title), ["New", "Old"],
+    "most recently started first — unstated, the cap favours whichever epic sorts first");
+  assert.deepEqual(facts.inFlight.entries.map((e) => e.epic), ["E2", "E1"]);
+  assert.equal(facts.inFlight.total, 2);
+  assert.equal(facts.inFlight.status, "ok");
+});
+
+test("gather contract 6: a folder purpose falls back to its kind, never to a blank cell", async () => {
+  const vault = mkVault({ readmes: { research: "## Index\n\n| File |\n" } });
+  const facts = await gatherVaultFacts(cfgFor(vault), {
+    source: "startup", budgetMs: 2000, readFile: (p) => readFileSync(p, "utf8"),
+  });
+  const out = renderVaultSkeleton(facts);
+  assert.ok(/\| `research\/` \| research \| \d+ \| research \|/.test(out),
+    "a README that opens with `## ` has no preamble to quote");
+});
+
+// ── Review follow-ups (second pass) ───────────────────────────────────
+
+test("gather contract 21: a continuity timeout renders its OWN named line", async () => {
+  const vault = mkVault({
+    activity: [],
+    stories: [{ epic: "E1", slug: "story-a", title: "A", status: "in-progress", startedAt: "2026-08-01" }],
+  });
+  // Only the session file hangs. With the in-flight family ALSO timing out, its
+  // near-identical "in-flight work not resolved within budget" line stands in
+  // for this assertion and the continuity branch can render nothing at all.
+  const readFile = (p) =>
+    p.includes("/.projectstore/sessions/") ? new Promise(() => {}) : readFileSync(p, "utf8");
+  const facts = await gatherVaultFacts(cfgFor(vault), {
+    sessionId: "s1", source: "compact", budgetMs: 40, readFile,
+  });
+  assert.equal(facts.inFlight.status, "ok", "the fixture must not let the sibling line cover for it");
+  assert.equal(facts.continuity.status, "timeout");
+  const out = renderVaultSkeleton(facts);
+  assert.ok(out.includes("Where this session left off"), "the heading renders");
+  assert.ok(out.includes("recent activity not resolved within budget"),
+    "the literal contract 21 names — the timer knows it expired, so silence discards information");
+  assert.ok(!/in-flight work not resolved/.test(out),
+    "and the two degradations must never render the same text");
+});
+
+test("writeSession preserves recent_activity and started_at across a re-registration", () => {
+  // Pinned because it is the SOLE reason contract 23's reordering is inert: with
+  // the exemption in place, gather-before-registration is unobservable only
+  // while this holds. If it stops holding, the ordering becomes load-bearing
+  // and the limitation recorded in the story turns false, silently.
+  const vault = mkVault({});
+  ensureSessionsDir(vault);
+  const path = sessionFilePath(vault, "keepme");
+  writeFileSync(path, JSON.stringify({
+    id: "keepme",
+    started_at: "2026-08-01T00:00:00.000Z",
+    project_root: "/old",
+    recent_activity: [{ path: join(vault, "adr", "x.md"), tool: "Edit", at: "2026-08-01T01:00:00.000Z" }],
+  }));
+  writeSession(vault, "keepme", "/new");
+  const after = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(after.started_at, "2026-08-01T00:00:00.000Z", "the original start time survives");
+  assert.equal(after.recent_activity.length, 1, "and so does the activity log");
+  assert.equal(after.project_root, "/new", "while the mutable field is refreshed");
+});

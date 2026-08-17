@@ -56,9 +56,9 @@ import {
   appendEntryLog,
   entryReminderText,
   ENTRY_THRESHOLD,
+  isWriteTool,
 } from "./lib.mjs";
 
-const WRITE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
 const NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 
 // Per-session active pointer (ADR-006) — denormalized titles/status captured
@@ -89,7 +89,7 @@ function updatePointerAndNudge(cfg, proj, sid, filePath, toolName) {
   }
 
   let nudge = null;
-  if (WRITE_TOOLS.test(toolName || "") && cfg.guard !== "off") {
+  if (isWriteTool(toolName || "") && cfg.guard !== "off") {
     const st = readSessionState(proj, sid);
     const last = st && st.nudged_at ? Date.parse(st.nudged_at) : 0;
     if (Date.now() - last > NUDGE_INTERVAL_MS) {
@@ -118,7 +118,7 @@ async function entryBranch(cfg, proj, sid, filePath, input) {
   // work that never happened. (Grep's `path` is often a directory, which would
   // then be counted as a "source file".) The event tells us the call succeeded;
   // only the tool name tells us it wrote.
-  if (!WRITE_TOOLS.test(input.tool_name || "")) return;
+  if (!isWriteTool(input.tool_name || "")) return;
   if (!isSourcePath(filePath, proj, cfg.vault_path)) return;
 
   // Belt and braces. PostToolUse only fires after success — failures raise
@@ -183,7 +183,12 @@ async function main() {
     if (existsSync(sessionFilePath(cfg.vault_path, sid))) {
       touchSession(cfg.vault_path, sid);
     } else {
-      cleanupStaleSessions(cfg.vault_path);
+      // The exemption (contract 23) is passed for agreement with the other
+      // caller, not for effect: this branch runs only when our own session file
+      // does NOT exist, so there is nothing here to exempt. Two callers of one
+      // function disagreeing about its signature is how the next reader
+      // concludes the argument is optional.
+      cleanupStaleSessions(cfg.vault_path, 24, sid);
       writeSession(cfg.vault_path, sid, proj);
     }
   }
