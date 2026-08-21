@@ -1258,7 +1258,7 @@ test("SessionStart contract 3: the sibling list is capped at 5 and says how many
   const ctx = fireSessionStart(proj, { session_id: "cap1", source: "startup" })
     .hookSpecificOutput.additionalContext;
 
-  const listed = (ctx.match(/^- project: /gm) || []).length;
+  const listed = (ctx.match(/^- .*? — project: /gm) || []).length;
   assert.equal(listed, 5, `rendered ${listed} siblings; uncapped this breaches the composed cap at ~32`);
   assert.ok(/…and 35 more/.test(ctx), "a silent truncation reads as a complete answer");
   assert.ok(ctx.length < 10000, `composed payload is ${ctx.length} chars`);
@@ -1286,7 +1286,7 @@ test("SessionStart contract 3: a sibling path and the vault path truncate at 200
   assert.ok(header.includes("…"), "a truncation marks itself");
   assert.ok(header.endsWith(deep.slice(-40)), "the tail is kept — it is the discriminating half");
 
-  const sib = ctx.split("\n").find((l) => l.startsWith("- project: "));
+  const sib = ctx.split("\n").find((l) => /^- .*? — project: /.test(l));
   const cell = sib.match(/`([^`]*)`/)[1];
   assert.ok(cell.length <= 200, `sibling path cell is ${cell.length} chars`);
   assert.ok(cell.startsWith("…"));

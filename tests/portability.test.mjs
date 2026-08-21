@@ -868,3 +868,41 @@ test("the block template is registered for every harness a project might use", (
       `the block never mentions ${m.id}'s config path (${p}) — an agent on that harness cannot find it`);
   }
 });
+
+test("a session records which harness it runs under", async () => {
+  // A vault is shared by a team, and a team is not all on one tool. Without
+  // this the multi-session warning described every sibling as running the
+  // reader's harness — telling a Codex user "another Codex session" about a
+  // colleague on Claude Code, and with it a command vocabulary that side does
+  // not speak.
+  const { mkdtempSync, readFileSync: rf, mkdirSync: md } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { writeSession } = await import("../scripts/lib.mjs");
+
+  for (const m of loadHarnesses().values()) {
+    const vault = mkdtempSync(join(tmpdir(), "ps-sess-"));
+    md(join(vault, ".projectstore", "sessions"), { recursive: true });
+    const prev = process.env.PROJECTSTORE_HARNESS;
+    process.env.PROJECTSTORE_HARNESS = m.id;
+    try {
+      writeSession(vault, "s1", "/proj");
+      const rec = JSON.parse(rf(join(vault, ".projectstore", "sessions", "s1.json"), "utf8"));
+      assert.equal(rec.harness, m.id, `${m.id}: session file does not record its harness`);
+    } finally {
+      if (prev === undefined) delete process.env.PROJECTSTORE_HARNESS;
+      else process.env.PROJECTSTORE_HARNESS = prev;
+    }
+  }
+});
+
+test("the multi-session warning names each sibling's harness, not the reader's", () => {
+  // Guards the shape rather than the rendering: the warning must read the
+  // sibling's own record. Interpolating the active harness is the bug this
+  // replaced, and it looks identical in a single-harness test.
+  const src = readFileSync(join(REPO, "hooks", "session-start.mjs"), "utf8");
+  assert.match(src, /harnessLabel\(s\.harness\)/,
+    "the sibling line must resolve the label from the sibling's own record");
+  const warn = src.slice(src.indexOf("function buildOthersWarning"), src.indexOf("async function main"));
+  assert.ok(!/activeHarness\(\)/.test(warn),
+    "buildOthersWarning must not name the reader's harness — the sibling may be on another");
+});

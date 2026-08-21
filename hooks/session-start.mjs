@@ -34,7 +34,7 @@ import {
   ERROR_CELL,
   TITLE_CELL,
 } from "../scripts/lib.mjs";
-import { commandRef, updateInstructions, activeHarness, projectConfigDir, adoptHookInput } from "../scripts/harness.mjs";
+import { commandRef, updateInstructions, loadHarness, projectConfigDir, adoptHookInput } from "../scripts/harness.mjs";
 import { runStartupChecks } from "../scripts/doctor.mjs";
 
 function welcomedMarkerPath(proj) {
@@ -104,6 +104,15 @@ function emit(additionalContext, systemMessage) {
 // contract 1 exists to forbid; the cap makes it structural instead.
 const SIBLING_CAP = 5;
 
+// A session file written before harnesses existed carries no `harness` key, and
+// one written by a harness this install does not know carries a name we cannot
+// resolve. Both are ordinary, so neither may render as an error.
+function harnessLabel(id) {
+  if (!id) return "a session";
+  const m = loadHarness(String(id));
+  return m ? m.display_name : truncEnd(String(id), TITLE_CELL);
+}
+
 function buildOthersWarning(others) {
   const lines = [
     "",
@@ -111,13 +120,18 @@ function buildOthersWarning(others) {
     "",
     `## ⚠️ Multi-session warning — ${others.length} other projectstore session(s) active on this vault`,
     "",
-    `Another ${activeHarness()?.display_name || "agent"} session is currently working on the same vault.`,
+    "Another agent session is currently working on the same vault.",
     "Active session(s):",
     "",
   ];
   for (const s of others.slice(0, SIBLING_CAP)) {
+    // The sibling's OWN harness, read from its session file — not this
+    // process's. On a shared vault the other side is often a different tool,
+    // and naming it wrongly is worse than not naming it: it tells the agent
+    // the other session speaks a command vocabulary it does not.
+    const who = harnessLabel(s.harness);
     lines.push(
-      `- project: \`${truncFront(String(s.project_root ?? ""), PATH_CELL)}\`` +
+      `- ${who} — project: \`${truncFront(String(s.project_root ?? ""), PATH_CELL)}\`` +
         // Free text from a session file this process never wrote, rendered five
         // times over. The last unbounded term in the composed value: `last_active`
         // is a real Date, the layout fields are plugin-bundled, counts are numbers.

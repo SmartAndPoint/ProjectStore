@@ -14,6 +14,7 @@ import {
   configPath as harnessConfigPath,
   loadHarnesses,
   sourceHarness,
+  detectHarnessId,
   projectConfigDir,
   hasCapability,
   localizeCommands,
@@ -1454,6 +1455,11 @@ export function writeSession(vault, sessionId, projectRoot) {
     started_at: existing?.started_at || new Date().toISOString(),
     project_root: projectRoot,
     host: hostname(),
+    // Which harness this session is running under. A vault is shared by a team,
+    // and a team is not on one tool: without this the multi-session warning
+    // described every sibling as running the READER's harness, so a Codex user
+    // was told "another Codex session" about a colleague on Claude Code.
+    harness: detectHarnessId(),
     pid: process.pid,
     recent_activity: Array.isArray(existing?.recent_activity) ? existing.recent_activity : [],
   };
