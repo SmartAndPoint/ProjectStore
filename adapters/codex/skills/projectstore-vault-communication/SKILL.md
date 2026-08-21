@@ -8,6 +8,12 @@ description: When communicating with the user about anything stored in the proje
   tests/portability.test.mjs fails while this file is out of date.
 -->
 
+> **Codex harness note.** Translated from projectstore's source. Where this
+> says *an approval prompt*, Codex has no `AskUserQuestion` tool: ask in plain
+> text as a short numbered list and **stop for the user's answer** before
+> writing. Never infer approval from silence.
+
+
 # Vault-native communication
 
 Vault artifacts are the shared vocabulary between the user, this session, *other*

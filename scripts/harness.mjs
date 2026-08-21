@@ -95,14 +95,42 @@ export function detectHarnessId(env = process.env, dir = MANIFEST_DIR) {
     // repeat it in detect_env would otherwise fail to identify its own harness,
     // and misdetection is silent — the wrong write-tool vocabulary, an activity
     // log that simply stays empty. Deriving the obvious keys removes the footgun.
-    const keys = new Set([
-      ...(m.runtime?.detect_env || []),
-      m.runtime?.plugin_root_env,
-      m.runtime?.project_dir_env,
+    // Ranked, not counted. A plugin-root or project-dir variable is the harness
+    // telling us it launched this process; a home variable is just something in
+    // the user's shell profile. Counting them equally meant a developer who
+    // exports CODEX_HOME globally — the exact person this feature is for — had
+    // Claude Code Bash-tool invocations detected as Codex, writing runtime state
+    // to .codex/.projectstore while the hooks used .claude/.projectstore.
+    const strong = [m.runtime?.plugin_root_env, m.runtime?.project_dir_env].filter(Boolean);
+    const weak = [
+      ...(m.runtime?.detect_env || []).filter((k) => !strong.includes(k)),
       m.runtime?.home_env,
-    ].filter(Boolean));
-    const hits = [...keys].filter((k) => env[k]).length;
-    if (hits > 0 && (!best || hits > best.hits)) best = { id: m.id, hits };
+    ].filter(Boolean);
+    const strongHits = strong.filter((k) => env[k]).length;
+    const weakHits = [...new Set(weak)].filter((k) => env[k]).length;
+    if (strongHits === 0 && weakHits === 0) continue;
+    // Any strong signal outranks every weak one; ties fall back to hit counts.
+    // A numeric score, not an array: `>` on arrays compares their string forms,
+    // which happens to work for single digits and stops working silently at ten.
+    const rank = (strongHits > 0 ? 1e6 : 0) + strongHits * 1e3 + weakHits;
+    if (!best || rank > best.rank) best = { id: m.id, rank, strong: strongHits > 0 };
+  }
+  // A strong signal is the harness identifying itself, and it decides.
+  if (best && best.strong) return best.id;
+
+  // Only weak signals (a home variable, which is just something in the users
+  // shell profile). That is not enough to switch harness: a developer who
+  // exports CODEX_HOME globally would otherwise have every Claude Code
+  // Bash-tool invocation write runtime state to .codex/.projectstore while the
+  // hooks used .claude/.projectstore — a split brain nothing reports.
+  //
+  // The project itself carries better evidence: whichever harness directory
+  // actually holds a projectstore config is the harness this project was bound
+  // under, and that is where its state belongs.
+  const cwd = process.cwd();
+  for (const m of loadHarnesses(dir).values()) {
+    const d = m.runtime?.project_config_dir, b2 = m.runtime?.config_basename;
+    if (d && b2 && existsSync(join(cwd, d, b2))) return m.id;
   }
   if (best) return best.id;
   const src = sourceHarness(dir);
@@ -294,15 +322,6 @@ export function applyRewrites(text, harness) {
   return out;
 }
 
-// Does this harness have a rule that would rewrite `token`? Used by the lint:
-// a harness-branded fragment nobody maps is a feature that silently only works
-// on one harness.
-export function coversToken(harness, token) {
-  return (harness?.rewrites || []).some(
-    (r) => typeof r?.from === "string" && (token.includes(r.from) || r.from.includes(token)),
-  );
-}
-
 export function resolvePath(...parts) {
   return resolve(...parts);
 }
@@ -375,4 +394,45 @@ export function localizeCommands(text, env = process.env) {
   return String(text).replace(/\/projectstore:([a-z][a-z0-9-]*|\*)/g, (_all, name) =>
     tpl.replace(/<name>/g, name),
   );
+}
+
+// ─── Lint patterns ─────────────────────────────────────────────────────
+
+// The regexes that mark a fragment as belonging to another harness.
+//
+// DERIVED, not typed. A hand-written allowlist only ever contains what someone
+// already thought of, and the omissions are exactly the tokens that then reach
+// the other harness untranslated — bare `Write`/`Edit` (which carry a safety
+// prohibition), `MultiEdit`, an env var named in a manifest but not repeated
+// here. So the vocabulary that is knowable from the manifests is generated from
+// them, and `lint.forbidden_unmapped` carries only the extras that are not:
+// product names, command namespaces, UI affordances.
+//
+// Generated per OTHER harness: linting Codex output against Codex's own tool
+// names would flag `apply_patch` as foreign.
+export function lintPatterns(harness, dir = MANIFEST_DIR) {
+  const out = [...(harness?.lint?.forbidden_unmapped || [])];
+  const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const mine = new Set(harness?.tools?.write_tools || []);
+
+  for (const other of loadHarnesses(dir).values()) {
+    if (other.id === harness.id) continue;
+
+    // Another harness's write-tool names. A prompt telling Codex "never the
+    // Write/Edit tools" names nothing on Codex, and the prohibition — which is
+    // what forces derived views through the core's atomic regeneration — is
+    // silently void.
+    for (const t of other.tools?.write_tools || []) {
+      if (mine.has(t)) continue;
+      out.push(`\\b${esc(t)}\\b`);
+    }
+
+    // Another harness's environment variables, in both the `$VAR`/`${VAR}` form
+    // and bare — prose names them both ways.
+    for (const k of ["project_dir_env", "plugin_root_env", "home_env"]) {
+      const v = other.runtime?.[k];
+      if (v) out.push(`\\b${esc(v)}\\b`);
+    }
+  }
+  return [...new Set(out)];
 }

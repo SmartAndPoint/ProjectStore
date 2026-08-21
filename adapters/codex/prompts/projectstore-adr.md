@@ -46,7 +46,7 @@ Steps:
 6. **On Yes** (path free): use apply_patch to write `content` to `path`.
 
 7. **Index update** (only if `index` field is non-null — skip silently otherwise):
-   apply through the core — never the Write/Edit tools, and do not ask again:
+   apply through the core — never the apply_patch tool, and do not ask again:
 
    ```bash
    node "$PROJECTSTORE_ROOT/scripts/reconcile.mjs" --write --only indexes=<index.folder>

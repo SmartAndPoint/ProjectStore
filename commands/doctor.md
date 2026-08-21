@@ -49,7 +49,7 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
 
    **Boundary (ADR-005)**: `--fix` never repairs vault-side findings. For those,
    point at `/projectstore:kanban` (board regen) and `/projectstore:reconcile`
-   (indexes + code-map + graph). Never offer a hand-written Edit of an index
+   (indexes + code-map + graph). Never offer a hand-written edit of an index
    row: derived views are only ever written by the core's regeneration.
 
    `work-without-story` is not repairable by any command and must not be

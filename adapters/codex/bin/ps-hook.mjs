@@ -26,9 +26,22 @@ if (!target) process.exit(0);
 
 try {
   await import(pathToFileURL(join(root, target)).href);
-} catch {
-  // A hook must never break the user's session. A missing or broken target is
-  // a silent no-op here and a loud finding in `doctor`, which is where someone
-  // is actually looking.
+} catch (e) {
+  // A hook must never break the user's session, so this stays a no-op and exits
+  // zero. But swallowing it silently is how a hook that throws on every single
+  // turn stays invisible: nothing in the session reports it, and `doctor` only
+  // checks whether the ADAPTERS are stale, never whether a hook actually runs.
+  // The breadcrumb is what makes it detectable at all — doctor reports the
+  // file's presence, and it is the only evidence a user or a bug report has.
+  try {
+    const { appendFileSync, mkdirSync } = await import("node:fs");
+    const dir = join(root, ".projectstore");
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(
+      join(dir, "hook-errors.log"),
+      new Date().toISOString() + "\t" + target + "\t" + ((e && e.message) || e) + "\n",
+      "utf8",
+    );
+  } catch {}
   process.exit(0);
 }

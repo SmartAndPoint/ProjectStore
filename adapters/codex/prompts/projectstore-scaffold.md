@@ -30,6 +30,6 @@ Steps:
      - If `folder.readme === true` and `<vault>/<folder.path>/README.md` does not exist:
        - Read template: `cat "$PROJECTSTORE_ROOT/templates/<lang>/folder-readme.md.tmpl"`.
        - Substitute `{{folder_name}}` and `{{folder_description}}` based on the folder kind.
-       - Write the README via Write tool.
+       - write the README via apply_patch.
    - Also create a top-level `<vault>/README.md` if missing — a simple index pointing to each folder.
 7. **Print result**: tree of newly created files and a one-line "next step" suggestion.

@@ -32,8 +32,12 @@ import {
   nowIso,
   today,
 } from "./lib.mjs";
+import { localizeCommands } from "./harness.mjs";
 
 function die(msg) {
+  // Single choke point: every failure message this script can print names
+  // commands, and the spelling differs per harness.
+  msg = localizeCommands(msg);
   process.stderr.write(`projectstore/story-section: ${msg}\n`);
   process.exit(1);
 }

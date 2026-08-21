@@ -46,7 +46,7 @@ the two cannot collide).
 
 6. **Post-approval race re-check** (Layer 1): re-run `draft.mjs story "$ARGUMENTS"` and re-read its `collision` field — an exact-name `test -e` cannot see normalized cross-era collisions (`story-006-foo.md` vs `story-foo.md`). If `collision` is non-null, surface it as a topic collision (`"<identity>" already exists as <with>`), and ask: extend the existing story, pick a different slug (`-2` is a deliberate distinct identity), or cancel. Render `warnings` entries as `⚠️` lines in the preview too.
 
-7. **On Yes** (path free): Write file.
+7. **On Yes** (path free): write the file.
 
 8. **Suggest next**: "Now decompose the work in the `Decomposition` section, or run `/projectstore-kanban` to refresh the board. Before implementation: `/projectstore-story plan <story>`."
 
@@ -83,7 +83,7 @@ the two cannot collide).
    human may have edited the file in Obsidian meanwhile. On divergence:
    re-preview, re-ask.
 
-6. **On Yes**: Write the full file. Then suggest `/projectstore-kanban` (status
+6. **On Yes**: write the full file. Then suggest `/projectstore-kanban` (status
    changed) and — on `close` — the reviewer's proposed `code_refs` via
    `/projectstore-codemap set` (the reviewer computes it from
    `scripts/diff-refs.mjs --since <started_at>`).

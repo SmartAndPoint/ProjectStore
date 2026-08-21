@@ -102,6 +102,15 @@ function listAttr(attrs, name) {
   return m ? m[1].split(",").map((s) => s.trim()).filter(Boolean) : null;
 }
 
+// Every `key=` in a gate's attribute string. A gate is only meaningful with
+// `only` or `except`; anything else is a typo, and a typo is silent in the
+// worst direction — `onl=claude-code` parses to no constraint at all, so a
+// block meant for one harness renders into every one of them. The test below
+// uses this to reject a gate that constrains nothing.
+export function attrKeys(attrs) {
+  return [...String(attrs).matchAll(/([A-Za-z_-]+)=/g)].map((m) => m[1]);
+}
+
 export function harnessAllows(only, except, id) {
   if (only && only.length && !only.includes(id)) return false;
   if (except && except.length && except.includes(id)) return false;
@@ -243,9 +252,14 @@ function renderSkills(root, harness, out) {
       if (!hasName) fmLines = [`name: projectstore-${name}`, ...fmLines];
     }
     const fm = fmLines.length ? "---\n" + fmLines.join("\n") + "\n---\n" : "";
+    // Skills fire autonomously, with no /projectstore-* prompt in context — so
+    // they are the surface most likely to be the ONLY projectstore text the
+    // model has, and the one where an undefined "approval prompt" costs most.
+    const pre = harness.surfaces?.skills?.preamble;
     const text =
       fm +
       mdBanner(harness.id, `skills/${name}/SKILL.md`) +
+      (pre ? "\n" + pre.trimEnd() + "\n\n" : "") +
       applyRewrites(applyHarnessBlocks(body, harness.id), harness);
     const p = outPath(harness, "skills", name);
     if (p) out.set(p, text);
@@ -299,11 +313,11 @@ function renderAgents(root, harness, out) {
     }
 
     lines.push("");
-    lines.push(
-      `developer_instructions = ${tomlMultiline(
-        applyRewrites(applyHarnessBlocks(body, harness.id).trim(), harness),
-      )}`,
-    );
+    const apre = harness.surfaces?.agents?.preamble;
+    const instructions =
+      (apre ? apre.trimEnd() + "\n\n" : "") +
+      applyRewrites(applyHarnessBlocks(body, harness.id).trim(), harness);
+    lines.push(`developer_instructions = ${tomlMultiline(instructions)}`);
     out.set(p, lines.join("\n") + "\n");
   }
 }
@@ -387,10 +401,23 @@ if (!target) process.exit(0);
 
 try {
   await import(pathToFileURL(join(root, target)).href);
-} catch {
-  // A hook must never break the user's session. A missing or broken target is
-  // a silent no-op here and a loud finding in \`doctor\`, which is where someone
-  // is actually looking.
+} catch (e) {
+  // A hook must never break the user's session, so this stays a no-op and exits
+  // zero. But swallowing it silently is how a hook that throws on every single
+  // turn stays invisible: nothing in the session reports it, and \`doctor\` only
+  // checks whether the ADAPTERS are stale, never whether a hook actually runs.
+  // The breadcrumb is what makes it detectable at all — doctor reports the
+  // file's presence, and it is the only evidence a user or a bug report has.
+  try {
+    const { appendFileSync, mkdirSync } = await import("node:fs");
+    const dir = join(root, ".projectstore");
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(
+      join(dir, "hook-errors.log"),
+      new Date().toISOString() + "\\t" + target + "\\t" + ((e && e.message) || e) + "\\n",
+      "utf8",
+    );
+  } catch {}
   process.exit(0);
 }
 `;

@@ -6,3 +6,4 @@ node_modules/
 .omc/
 .claude/
 .codex/
+.projectstore/

@@ -672,7 +672,7 @@ test("command prose routes derived-view applies through reconcile --write (contr
       `${file} must carry no Write-tool apply step for a derived view`);
   }
   // `codemap set` edits SOURCE frontmatter — contract 7 exempts it explicitly.
-  assert.match(readFileSync(join(REPO, "commands", "codemap.md"), "utf8"), /Edit the frontmatter/);
+  assert.match(readFileSync(join(REPO, "commands", "codemap.md"), "utf8"), /edit the frontmatter/i);
 });
 
 test("diff-refs: no args => fallback true; --since returns file lists", () => {
@@ -904,18 +904,30 @@ test("the block bump and the block content ship together (spec contract 24)", ()
   assert.ok(/Report instruction conflicts; do not arbitrate them/.test(tmpl),
     "the conflict clause is the other half of v3");
 
-  // Same rule, one version on: v4 added the harness-parity clauses, and
-  // checkAgentsBlock compares the marker alone — so a block that says v4 while
-  // missing them is reported current and silently teaches the old workflow.
-  const hasParityRule = /A surface added for one harness is added for all of them/.test(tmpl);
-  assert.equal(hasParityRule, version >= 4,
-    "v4 is what carries the regenerate-the-adapters rule");
-  assert.equal(/Never read a `CLAUDE_\*` environment variable/.test(tmpl), version >= 4,
-    "the harness.mjs boundary is the other half of v4");
+  // The harness-parity rules deliberately do NOT live here. They describe
+  // projectstore's own repository — its commands/ directory, its adapters/
+  // tree, its generator — none of which exist in a project that binds to
+  // projectstore, and this template is written verbatim into every one of them.
+  assert.ok(!/A surface added for one harness/.test(tmpl),
+    "repository-development rules must not ship in the user-facing block");
+  assert.ok(!/build-adapters|adapters\/|harnesses\//.test(tmpl),
+    "the user-facing block must not name this repository's internal layout");
 
-  // This repo dogfoods the block, so its own copy must be re-registered too.
+  // This repo dogfoods the block, so its own copy must be re-registered too —
+  // but only the MANAGED REGION is the template. Content outside the markers is
+  // hand-written by definition (the marker line says so), and this repo keeps
+  // its harness-parity development rules there.
   const own = readFileSync(join(REPO, "AGENTS.md"), "utf8");
-  assert.equal(own, tmpl, "the repo's own AGENTS.md block is the template, re-registered");
+  const region = (s) => {
+    const a = s.indexOf("<!-- projectstore:agents");
+    const b = s.indexOf("<!-- /projectstore:agents -->");
+    assert.ok(a >= 0 && b > a, "managed markers present");
+    return s.slice(a, b + "<!-- /projectstore:agents -->".length);
+  };
+  assert.equal(region(own), region(tmpl),
+    "the repo's own AGENTS.md managed block is the template, re-registered");
+  assert.ok(/A surface added for one harness/.test(own),
+    "this repo keeps its harness-parity rules — outside the managed block");
 });
 
 test("registration must not strip the new block lines (spec contract 23)", () => {

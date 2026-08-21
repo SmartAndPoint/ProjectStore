@@ -70,7 +70,7 @@ Steps:
 
 5. On approval, write the file using apply_patch to `<project>/.codex/projectstore.json`.
 
-6. **Check `.gitignore`**: read `<project>/.gitignore` if it exists. Unless `.codex/` is ignored wholesale, the machine-specific entries are: `.codex/projectstore.json`, `.codex/config.toml`, `.codex/.projectstore/` (per-session state). Ask via an approval prompt: "Add the missing entries to `.gitignore`? [Yes / No]". If yes, append them (use Edit).
+6. **Check `.gitignore`**: read `<project>/.gitignore` if it exists. Unless `.codex/` is ignored wholesale, the machine-specific entries are: `.codex/projectstore.json`, `.codex/config.toml`, `.codex/.projectstore/` (per-session state). Ask via an approval prompt: "Add the missing entries to `.gitignore`? [Yes / No]". If yes, append them (use apply_patch).
 
 7. **Offer scaffold**: if the vault is empty or missing layout folders, ask: "Vault is empty/incomplete. Run `/projectstore-scaffold` to create the layout? [Yes / No]". If yes, invoke `/projectstore-scaffold` immediately (just describe; do not assume execution).
 

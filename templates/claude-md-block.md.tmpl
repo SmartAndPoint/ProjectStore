@@ -1,4 +1,4 @@
-<!-- projectstore:agents v4 (managed by projectstore — edit outside markers) -->
+<!-- projectstore:agents v3 (managed by projectstore — edit outside markers) -->
 ## projectstore agents
 
 - **A feature-sized request opens a vault artifact before it opens an editor.**
@@ -21,20 +21,6 @@
   against how prior epics map to the codebase (`code_refs`).
 - After writing code, before commit / story-done: run `projectstore:reviewer` —
   it verifies the diff actually closes the story's acceptance criteria.
-- **A surface added for one harness is added for all of them.** `commands/`,
-  `agents/`, `skills/` and `hooks/hooks.json` are the source; everything under
-  `adapters/` is generated. After touching any of them run
-  `node scripts/build-adapters.mjs` and commit the regenerated tree in the same
-  change — `tests/portability.test.mjs` fails while it is stale. Never hand-edit
-  a file under `adapters/`. If a passage genuinely does not apply to a harness,
-  gate it (`<!-- projectstore:harness only=… -->`, or `harness-only:` in
-  frontmatter) rather than leaving it to translate into nonsense. Content meant
-  for a harness OTHER than Claude Code goes in the commented `harness-alt` form,
-  because Claude Code reads these files as they are on disk.
-- **Never read a `CLAUDE_*` environment variable outside `scripts/harness.mjs`.**
-  Paths, config locations, tool names and command spellings come from
-  `harnesses/<id>.json` through that module. A direct read silently resolves to
-  the wrong thing on every other harness instead of failing.
 - When discussing vault contents, reference artifacts by their frontmatter
   `title:` (with their parent epic), never by session-invented shorthand.
 <!-- /projectstore:agents -->

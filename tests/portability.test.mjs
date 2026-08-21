@@ -22,11 +22,12 @@ import { join, dirname, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  loadHarnesses, harnessIds, emittingHarnesses, sourceHarness, loadHarness,
+  loadHarnesses, harnessIds, emittingHarnesses, sourceHarness, loadHarness, lintPatterns,
+  applyRewrites,
 } from "../scripts/harness.mjs";
 import {
   renderAll, diffAgainstDisk, splitFrontmatter, harnessAllows, tomlMultiline,
-  harnessBlockAttrs, blockTargets,
+  harnessBlockAttrs, blockTargets, attrKeys,
 } from "../scripts/build-adapters.mjs";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -44,6 +45,22 @@ function sourceFiles() {
     if (!existsSync(join(sk, d, "SKILL.md"))) continue;
     out.push({ kind: "skills", name: d, path: join("skills", d, "SKILL.md") });
   }
+  return out;
+}
+
+// Every surface's preamble. These are manifest-authored passages injected AFTER
+// the rewrite pass, and they name the missing tool on purpose ("Codex has no
+// AskUserQuestion"). Both the lint and the idempotence check must exclude them:
+// they are the one place the harness difference is allowed to be spelled out.
+function preambles(m) {
+  return Object.values(m.surfaces || {})
+    .map((s) => s && s.preamble)
+    .filter((x) => typeof x === "string" && x.length);
+}
+
+function stripPreambles(content, m) {
+  let out = content;
+  for (const p of preambles(m)) out = out.split(p).join("");
   return out;
 }
 
@@ -119,6 +136,71 @@ test("rewrite rules are ordered so a specific rule fires before its catch-all", 
 
 // ─── Invariant 1 — staleness ───────────────────────────────────────────
 
+test("no rewrite rule fires on text an earlier rule produced", () => {
+  // The ordering test above compares `from` against `from`. It cannot see the
+  // other cascade: a rule whose OUTPUT contains a later rule's input, so the
+  // replacement is itself replaced. `/plugin` → `/plugins` re-entering the
+  // `/plugin` rule to yield `/pluginss` is the shape.
+  for (const m of emittingHarnesses()) {
+    const rules = m.rewrites;
+    for (let i = 0; i < rules.length; i++) {
+      for (let j = i + 1; j < rules.length; j++) {
+        assert.ok(
+          !rules[i].to.includes(rules[j].from),
+          `${m.id}: rule #${i} ("${rules[i].from}" → "${rules[i].to}") produces text ` +
+          `containing rule #${j}'s input ("${rules[j].from}"), which then rewrites it again`,
+        );
+      }
+    }
+  }
+});
+
+test("applying the rewrite table twice changes nothing the second time", () => {
+  // Idempotence catches the same cascade from the other side, including a rule
+  // that feeds itself. Run over the real generated corpus, not a fixture, so it
+  // exercises the strings that actually occur.
+  for (const m of emittingHarnesses()) {
+    for (const [p, content] of renderAll(REPO)) {
+      if (!p.startsWith(m.output_dir)) continue;
+      const body = stripPreambles(content, m);
+      assert.equal(
+        applyRewrites(body, m), body,
+        `${p}: re-applying ${m.id}'s rewrites changes the file, so some rule is rewriting its own output`,
+      );
+    }
+  }
+});
+
+test("every harness gate constrains something", () => {
+  // listAttr returns null for an unrecognised attribute and harnessAllows(null,
+  // null) is true, so `onl=claude-code` renders its body into EVERY harness
+  // with nothing reporting it — the precise failure the gating mechanism exists
+  // to prevent.
+  const problems = [];
+  for (const f of sourceFiles()) {
+    const text = readFileSync(join(REPO, f.path), "utf8");
+    for (const b of harnessBlockAttrs(text)) {
+      const keys = attrKeys(b.attrs);
+      const known = keys.filter((k) => k === "only" || k === "except");
+      if (known.length === 0) {
+        problems.push(`  ${f.path}: gate "${b.attrs}" has no only= or except= — it constrains nothing`);
+      }
+      for (const k of keys) {
+        if (k !== "only" && k !== "except") {
+          problems.push(`  ${f.path}: gate "${b.attrs}" has unrecognised attribute "${k}="`);
+        }
+      }
+    }
+    const { keys } = splitFrontmatter(text);
+    for (const k of Object.keys(keys)) {
+      if (/^harness-/.test(k) && k !== "harness-only" && k !== "harness-except") {
+        problems.push(`  ${f.path}: frontmatter key "${k}" looks like a gate but is not one`);
+      }
+    }
+  }
+  assert.equal(problems.length, 0, `gates that do not gate:\n${problems.join("\n")}`);
+});
+
 test("INVARIANT 1: committed adapter trees match what the generator produces", () => {
   const d = diffAgainstDisk(REPO);
   const lines = [
@@ -161,14 +243,16 @@ test("every generated file that CAN carry a provenance banner does", () => {
 test("INVARIANT 2: no harness-branded fragment survives into a generated file", () => {
   const problems = [];
   for (const m of emittingHarnesses()) {
-    const patterns = m.lint.forbidden_unmapped.map((p) => new RegExp(p, "g"));
-    const preamble = m.surfaces?.commands?.preamble || "";
+    // lintPatterns, not the raw list: the write-tool and env-var half is
+    // derived from the other harnesses manifests, so a token nobody thought to
+    // type is still caught.
+    const patterns = lintPatterns(m).map((p) => new RegExp(p, "g"));
     for (const [p, content] of renderAll(REPO)) {
       if (!p.startsWith(m.output_dir)) continue;
-      // The preamble is manifest-authored prose that names the missing tool on
-      // purpose ("Codex has no AskUserQuestion tool"). Linting it would forbid
-      // the one place the difference is allowed to be explained.
-      const body = preamble ? content.split(preamble).join("") : content;
+      let body = stripPreambles(content, m);
+      // Phrases the manifest justifies as not being tool references (an
+      // approval-option label reads the same on every harness).
+      for (const phrase of m.lint.allow || []) body = body.split(phrase).join("");
       for (const re of patterns) {
         re.lastIndex = 0;
         const hit = re.exec(body);
@@ -662,4 +746,63 @@ test("substituteRootDeep only rewrites strings, at any depth", async () => {
   const input = { a: `${tok}/x`, b: [1, true, null, `${tok}/y`], c: { d: 7, e: `${tok}` } };
   const out = substituteRootDeep(input, m, "/R");
   assert.deepEqual(out, { a: "/R/x", b: [1, true, null, "/R/y"], c: { d: 7, e: "/R" } });
+});
+
+// ─── Runtime prose ─────────────────────────────────────────────────────
+
+test("runtime code that names a command routes it through localizeCommands", () => {
+  // The surface lint scans adapters/ only, so it structurally cannot see a
+  // `/projectstore:x` literal in scripts/ or hooks/ — and those reach the user
+  // and the model directly (the SessionStart skeleton is injected into context).
+  // The design argument for localizeCommands was that per-site wrapping leaves
+  // every future message one forgotten call away from shipping broken; this is
+  // what makes that argument true instead of aspirational.
+  const files = [
+    ...readdirSync(join(REPO, "scripts")).filter((n) => n.endsWith(".mjs")).map((n) => join("scripts", n)),
+    ...readdirSync(join(REPO, "hooks")).filter((n) => n.endsWith(".mjs")).map((n) => join("hooks", n)),
+  ];
+  // The generator and the harness module legitimately carry the literal: one
+  // rewrites it, the other defines the rewriting.
+  const EXEMPT = new Set(["scripts/build-adapters.mjs", "scripts/harness.mjs"]);
+  const problems = [];
+
+  for (const f of files) {
+    if (EXEMPT.has(f)) continue;
+    const src = readFileSync(join(REPO, f), "utf8");
+    // Comment lines are documentation, not output.
+    const codeLines = src.split("\n").filter((l) => {
+      const t = l.trim();
+      return !t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*");
+    });
+    const names = codeLines.filter((l) => l.includes("/projectstore:"));
+    if (names.length === 0) continue;
+    if (!src.includes("localizeCommands")) {
+      problems.push(
+        `  ${f} names a command in ${names.length} line(s) but never calls localizeCommands.\n` +
+        `    First: ${names[0].trim().slice(0, 100)}`,
+      );
+    }
+  }
+  assert.equal(
+    problems.length, 0,
+    `runtime prose that would reach a non-Claude-Code harness with a command that does not exist:\n` +
+    `${problems.join("\n")}\n\n` +
+    `  Route the message through localizeCommands() — preferably at the file's\n` +
+    `  own output choke point (its die(), its emit()), not at the call site.\n`,
+  );
+});
+
+test("localizeCommands is applied at a choke point, not sprinkled", () => {
+  // A file that calls it once per message is one message away from a miss. The
+  // scripts that emit failure text all funnel through die(); assert they wrap
+  // there rather than at each call.
+  for (const f of ["graph.mjs", "kanban.mjs", "reconcile.mjs", "story-section.mjs", "draft.mjs", "codemap.mjs"]) {
+    const src = readFileSync(join(REPO, "scripts", f), "utf8");
+    if (!src.includes("function die(")) continue;
+    const body = src.slice(src.indexOf("function die("), src.indexOf("function die(") + 400);
+    assert.ok(
+      body.includes("localizeCommands"),
+      `scripts/${f}: die() does not localize, so its next failure message ships untranslated`,
+    );
+  }
 });

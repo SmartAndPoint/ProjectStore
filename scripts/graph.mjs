@@ -27,8 +27,12 @@ import {
   storyMatchesEntry,
 } from "./lib.mjs";
 import { walkVaultFiles } from "./doctor.mjs";
+import { localizeCommands } from "./harness.mjs";
 
 function die(msg) {
+  // Single choke point: every failure message this script can print names
+  // commands, and the spelling differs per harness.
+  msg = localizeCommands(msg);
   process.stderr.write(`projectstore/graph: ${msg}\n`);
   process.exit(1);
 }
@@ -188,7 +192,10 @@ export function buildGraph(cfg, layout, { files = null } = {}) {
   for (const e of edgeRows) byKind[e.kind] = (byKind[e.kind] || 0) + 1;
 
   return {
-    content: lines.join("\n"),
+    // Localized at the join rather than per line: this block is written INTO
+    // graph.md, which a human then reads in the vault, and the footer names a
+    // command whose spelling is harness-specific.
+    content: localizeCommands(lines.join("\n")),
     stats: {
       nodes: nodeRows.length,
       edges: edgeRows.length,

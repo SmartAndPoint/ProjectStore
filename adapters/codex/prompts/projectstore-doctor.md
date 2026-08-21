@@ -33,9 +33,9 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
 3. **`--fix` requested** → walk the *install-side* findings only, one
    an approval prompt per repair, never batched silently:
    - `vault-git` → offer `git init` (+ optional first commit) inside the vault.
-   - `gitignore` → offer appending the missing entries via Edit.
+   - `gitignore` → offer appending the missing entries via apply_patch.
    - `agents-block` duplicate → show both blocks, offer removing the one in the
-     non-preferred location (Edit after approval).
+     non-preferred location (apply_patch after approval).
    - `override-copies` → a copy carrying the provenance marker overrides nothing
      (ADR-008): offer to **delete** it (approval-gated, one prompt per file), and
      say that `/projectstore-agents configure` now records the model in
@@ -48,7 +48,7 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
 
    **Boundary (ADR-005)**: `--fix` never repairs vault-side findings. For those,
    point at `/projectstore-kanban` (board regen) and `/projectstore-reconcile`
-   (indexes + code-map + graph). Never offer a hand-written Edit of an index
+   (indexes + code-map + graph). Never offer a hand-written edit of an index
    row: derived views are only ever written by the core's regeneration.
 
    `work-without-story` is not repairable by any command and must not be

@@ -32,11 +32,15 @@ import {
   pathCell,
 } from "../scripts/lib.mjs";
 import { adoptHookInput } from "../scripts/harness.mjs";
+import { localizeCommands } from "../scripts/harness.mjs";
 
 // Exits after the flush, never before: process.exit does not drain a pending
 // pipe write, and the budgeted read below can still be outstanding.
 function emit(systemMessage) {
-  process.stdout.write(JSON.stringify({ systemMessage }) + "\n", () => process.exit(0));
+  process.stdout.write(
+    JSON.stringify({ systemMessage: localizeCommands(systemMessage) }) + "\n",
+    () => process.exit(0),
+  );
 }
 
 // Contract 13's budget applies here too. The session file lives inside the

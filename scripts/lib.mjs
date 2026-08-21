@@ -1252,6 +1252,10 @@ export async function gatherVaultFacts(cfg, opts = {}) {
 }
 
 export function renderVaultSkeleton(facts) {
+  return localizeCommands(renderVaultSkeletonRaw(facts));
+}
+
+function renderVaultSkeletonRaw(facts) {
   const f = facts || {};
   const L = [];
 

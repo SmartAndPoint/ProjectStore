@@ -31,7 +31,7 @@ iCloud paths).
 ## Phase 0 — Pre-commitment (before reading in detail)
 From the artifact's type + domain, predict the 3-5 most likely problem areas ("a
 caching fix here probably ignores eviction"; "these acceptance criteria are
-probably not measurable"). Write them, then investigate each.
+probably not measurable"). Note them, then investigate each.
 
 ## Phase 1 — Verify & stress-test
 - **Technical correctness** — does the mechanism actually WORK? Systems gotchas:

@@ -27,7 +27,10 @@ import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { diffAgainstDisk } from "./build-adapters.mjs";
-import { emittingHarnesses, activeHarness, commandRef, localizeCommands, REPO_ROOT } from "./harness.mjs";
+import {
+  emittingHarnesses, activeHarness, commandRef, localizeCommands,
+  hasCapability, projectConfigDir, REPO_ROOT,
+} from "./harness.mjs";
 import {
   readConfig,
   configPath,
@@ -71,7 +74,7 @@ const AGENT_BLOCK_MARKER = /<!--\s*projectstore:agents v(\d+)/g;
 // without it no bound project ever learns the block changed. The cost is that
 // every already-bound project reports an install issue until it re-runs
 // /projectstore:agents register — intended, and disclosed in the release note.
-const AGENT_BLOCK_VERSION = 4;
+const AGENT_BLOCK_VERSION = 3;
 // The live roster. A copy carrying one of these names does NOT override the
 // bundled agent (ADR-008, verified 2026-08-05): plugin agents register under a
 // scoped id, project/user copies register bare, so the names never collide and
@@ -220,6 +223,14 @@ export function statusLineScriptVersion(scriptPath) {
 // Read-only probe of the statusline wiring (never calls syncStatusLine, which
 // is a mutating self-heal that SessionStart already ran — ADR-005).
 export function checkStatusline(cfg, proj, home = homedir()) {
+  // syncStatusLine and checkGitignore both learned this gate; this check did
+  // not, and it is the one inside the startup budget. On a harness with no
+  // status line slot, a project whose config carries statusline.enabled — a
+  // Claude Code bind, opened in Codex, which is this feature's own headline use
+  // case — found no wiring, reported an ISSUE, and advised a restart that can
+  // never wire it, on every single session start. A permanent, unfixable,
+  // once-per-session error is worse than no check.
+  if (!hasCapability("statusline")) return [];
   const out = [];
   const local = join(proj, ".claude", "settings.local.json");
   let cur = null;
@@ -283,7 +294,10 @@ export function checkStatusline(cfg, proj, home = homedir()) {
   // hooks observed. A breadcrumb id with no pointer file while others exist
   // means the two processes disagree — the issue note's second suspect.
   try {
-    const sdir = join(proj, ".claude", ".projectstore", "state");
+    // lib.mjs's sessionStateDir follows the active harness; this read of the
+    // same directory was still pinned to .claude, so under any other harness
+    // doctor inspected a directory nothing writes.
+    const sdir = join(projectConfigDir(proj), ".projectstore", "state");
     const bc = JSON.parse(readFileSync(join(sdir, ".last-render.json"), "utf8"));
     if (bc && bc.session_id) {
       const hookIds = readdirSync(sdir)
@@ -357,10 +371,13 @@ export function checkOverrideCopies(proj, home = homedir()) {
   // shadows nothing on Claude Code and vice versa, so reporting the other
   // harness's directory would be a finding the user cannot act on.
   const d = activeHarness()?.runtime?.project_config_dir || ".claude";
-  const hd = basename(claudeHome(home));
+  // basename, not the raw path: with CLAUDE_CONFIG_DIR=/opt/cc-config the label
+  // read "~/cc-config/agents", which names a directory that does not exist.
+  const agentHomeDir = claudeHome(home);
+  const hd = agentHomeDir.startsWith(home + "/") ? "~/" + agentHomeDir.slice(home.length + 1) : agentHomeDir;
   const scopes = [
     { dir: join(proj, d, "agents"), label: `${d}/agents`, scope: "project" },
-    { dir: join(claudeHome(home), "agents"), label: `~/${hd}/agents`, scope: "user" },
+    { dir: join(agentHomeDir, "agents"), label: `${hd}/agents`, scope: "user" },
   ];
   for (const { dir, label, scope } of scopes) {
     for (const f of listMd(dir)) {
@@ -1440,11 +1457,14 @@ export function checkAdapters() {
     return [];
   }
   if (!harnesses.length) return [];
-  // Nothing generated on disk at all means this is not a source checkout.
-  if (!existsSync(join(REPO_ROOT, harnesses[0].output_dir))) return [];
 
   let d;
   try {
+    // Inside the guard: a manifest declaring emit without output_dir makes
+    // join() throw a TypeError, and runInstallChecks has no guard of its own —
+    // so a malformed manifest would crash the whole doctor run rather than
+    // producing a finding.
+    if (!existsSync(join(REPO_ROOT, harnesses[0].output_dir))) return [];
     d = diffAgainstDisk(REPO_ROOT);
   } catch (e) {
     return [finding("install", "warn", "adapters",
@@ -1464,12 +1484,35 @@ export function checkAdapters() {
     `Repair: node scripts/build-adapters.mjs`)];
 }
 
+// A hook that throws on every turn is invisible: the wrapper exits zero so the
+// session never breaks, and nothing else executes a hook to find out. The
+// wrapper leaves a breadcrumb precisely so this check can exist — without it,
+// the "loud finding in doctor" that justified swallowing the error was a
+// promise nothing kept.
+export function checkHookErrors() {
+  const log = join(REPO_ROOT, ".projectstore", "hook-errors.log");
+  let text;
+  try {
+    if (!existsSync(log)) return [];
+    text = readFileSync(log, "utf8");
+  } catch {
+    return [];
+  }
+  const lines = text.split("\n").filter(Boolean);
+  if (!lines.length) return [];
+  const last = lines[lines.length - 1].split("\t");
+  return [finding("install", "warn", "hook-errors",
+    `${lines.length} hook launch failure(s) recorded in .projectstore/hook-errors.log — ` +
+    `hooks are exiting silently instead of running. Most recent: ${last[1] || "?"} — ` +
+    `${(last[2] || "").slice(0, 160)}. Delete the log after fixing to clear this.`)];
+}
+
 export function runInstallChecks(cfg, proj) {
   // Before the bound-project gate: adapter staleness is a property of the
   // checkout, not of any vault, and it is exactly as wrong in an unbound
   // project. Behind the gate it would only ever be reported to people who
   // already have everything else working.
-  const out = [...checkConfig(cfg), ...checkAdapters()];
+  const out = [...checkConfig(cfg), ...checkAdapters(), ...checkHookErrors()];
   if (!cfg || !cfg.vault_path) return out;
   out.push(...checkVaultPath(cfg));
   if (out.some((f) => f.check === "vault-path" && f.level === "issue")) return out;

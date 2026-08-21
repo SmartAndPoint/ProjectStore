@@ -117,25 +117,42 @@ function extractToolPaths(input) {
   return extractPaths(input);
 }
 
-// The source-side branch (PostToolUse). Never throws: every failure here must
-// leave the user's tool call untouched.
-async function entryBranch(cfg, proj, sid, filePath, input) {
-  // Writes only. extractToolPath happily yields a path for Read, Grep, Glob and
+// PostToolUse, split in two because a tool call now carries MANY paths.
+//
+// Registration is per path; the decision to remind is once per call. Running
+// the decision inside the loop was wrong in two ways that only a multi-path
+// harness exposes:
+//
+//   * the `unknown` verdict exits the process, so paths after the first were
+//     never registered — the same undercount the list-return exists to prevent;
+//   * a patch crossing the threshold mid-loop could spend BOTH reminder slots
+//     in one call and write two JSON objects to one hook's stdout.
+//
+// Never throws: every failure here must leave the user's tool call untouched.
+
+// Per path. Returns whether this path counted as source work.
+function registerPath(cfg, proj, sid, filePath, input) {
+  // Writes only. extractToolPaths happily yields a path for Read, Grep, Glob and
   // LS — all of which carry file_path or path — so without this gate three
   // read-only calls would trip the threshold and the reminder would announce
   // work that never happened. (Grep's `path` is often a directory, which would
   // then be counted as a "source file".) The event tells us the call succeeded;
   // only the tool name tells us it wrote.
-  if (!isWriteTool(input.tool_name || "")) return;
-  if (!isSourcePath(filePath, proj, cfg.vault_path)) return;
+  if (!isWriteTool(input.tool_name || "")) return false;
+  if (!isSourcePath(filePath, proj, cfg.vault_path)) return false;
 
   // Belt and braces. PostToolUse only fires after success — failures raise
   // PostToolUseFailure, which this script is not registered on — so the event
   // itself is the discrimination. Nothing may DEPEND on this field's shape.
-  if (input.tool_response && input.tool_response.success === false) return;
+  if (input.tool_response && input.tool_response.success === false) return false;
 
   registerSourcePath(proj, sid, filePath);
+  return true;
+}
 
+// Once per tool call, after every path has been registered — so the score it
+// reads is the whole call's, and at most one reminder can be elected.
+async function maybeRemind(cfg, proj, sid, input) {
   // Subagents count toward the score but are never the audience: a reminder
   // delivered there reaches an actor mid-implementation under explicit
   // instructions, who cannot open a story.
@@ -155,9 +172,11 @@ async function entryBranch(cfg, proj, sid, filePath, input) {
     // Reached either from a fresh sweep that hit its budget with reads still
     // outstanding (the event loop would keep this hook alive until they settle)
     // or from a cached unknown, where nothing is outstanding and the exit is
-    // merely redundant. Exiting is safe here and only here: an unknown verdict suppresses the reminder, so stdout is
-    // untouched — process.exit does not flush pending pipe writes, and exiting
-    // after emitting would truncate the reminder.
+    // merely redundant. Exiting is safe here and only here: an unknown verdict
+    // suppresses the reminder, so stdout is untouched — process.exit does not
+    // flush pending pipe writes, and exiting after emitting would truncate the
+    // reminder. It is also now reached only AFTER every path is registered,
+    // so it can no longer truncate a multi-file call's registration.
     process.exit(0);
   }
   if (verdict !== false) return;
@@ -209,13 +228,15 @@ async function main() {
   if (filePaths.length === 0) return;
 
   if (event === "PostToolUse") {
-    // Sequential, not Promise.all: entryBranch reads and rewrites this
-    // session's score markers, and the whole point of the marker-file design
-    // is that it never does an unguarded read-modify-write. Concurrency here
-    // would reintroduce exactly that race within a single patch.
+    // Register every path first, then decide once. Sequential, not
+    // Promise.all: registerSourcePath rewrites this session's score markers,
+    // and the whole point of the marker-file design is that it never does an
+    // unguarded read-modify-write.
+    let counted = false;
     for (const filePath of filePaths) {
-      await entryBranch(cfg, proj, sid, filePath, input);
+      if (registerPath(cfg, proj, sid, filePath, input)) counted = true;
     }
+    if (counted) await maybeRemind(cfg, proj, sid, input);
     return;
   }
 

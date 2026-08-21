@@ -82,9 +82,10 @@
   "capabilities": {
     "statusline": true,
     "interactive_approval_tool": true,
-    "permission_decision_hook": false,
+    "permission_decision_hook": "PreToolUse",
     "subagent_tool_allowlist": true,
-    "subagent_model_per_invocation": true
+    "subagent_model_per_invocation": true,
+    "_comment": "permission_decision_hook was recorded as false, which is wrong: PreToolUse accepts hookSpecificOutput.permissionDecision (allow|deny|ask), and there is a separate PermissionRequest event with its own decision object. The error mattered because it made the prose approval gate on other harnesses look like an unavoidable degradation rather than an unimplemented feature on every harness."
   },
   "rewrites": [],
   "update_instructions": [

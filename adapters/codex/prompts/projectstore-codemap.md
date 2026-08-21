@@ -48,7 +48,7 @@ You are managing the epic↔code mapping (ADR-004).
 2. **Read the file**, show current `code_refs` vs proposed (`["src/auth/", …]`).
    Validate: repo-relative paths/globs; warn (don't block) on paths that don't
    exist yet — planning-time refs are legitimate (doctor is status-aware).
-3. **Approval** via an approval prompt (diff preview). On Yes → Edit the frontmatter
+3. **Approval** via an approval prompt (diff preview). On Yes → edit the frontmatter
    `code_refs` line only; also bump `updated:` if the artifact has it.
 4. **Offer regen**: "Refresh the view? (runs bare `codemap`)" — on Yes, run the
    bare flow above.

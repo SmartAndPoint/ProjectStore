@@ -24,7 +24,7 @@ You watch for moments where the conversation indicates progress on a known story
      `closed_at`, moves to done) — and, before closing, the `reviewer` agent,
      whose proposed `code_refs` come from `scripts/diff-refs.mjs` anchored at
      the story's `started_at`.
-   - Intermediate move (e.g. → review) → propose the frontmatter status Edit
+   - Intermediate move (e.g. → review) → propose the frontmatter status edit
      as before:
 
    > 📋 *Looks like `epics/RECPLAT-333/stories/story-007-feature-pipeline.md` is moving to `review`. Want me to update its frontmatter and refresh the kanban?*
@@ -32,12 +32,12 @@ You watch for moments where the conversation indicates progress on a known story
 5. **Do not modify the file** until the user says yes. When they confirm a
    plain status move:
    - Read the story file.
-   - Propose an Edit that changes `status:` and `updated:` in the frontmatter
+   - propose an edit that changes `status:` and `updated:` in the frontmatter
      (plus `started_at` when first entering in-progress outside the plan gate,
      `closed_at` when moving to done outside the close gate — timestamps must
      not be lost just because the gate was skipped; ISO-8601).
-   - Use AskUserQuestion to confirm the Edit before applying.
-   - After Edit, suggest running `/projectstore:kanban` to refresh the board.
+   - Use AskUserQuestion to confirm the edit before applying.
+   - after the edit, suggest running `/projectstore:kanban` to refresh the board.
 
 ## Anti-patterns
 

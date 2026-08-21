@@ -46,7 +46,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
    Disclose in the question that content is recomputed from the vault at write
    time — the preview is advisory, the approval covers the regeneration action.
 
-6. **On approval**: apply through the core — never the Write/Edit tools:
+6. **On approval**: apply through the core — never the apply_patch tool:
 
    ```bash
    node "$PROJECTSTORE_ROOT/scripts/reconcile.mjs" --write --only <approved,targets>

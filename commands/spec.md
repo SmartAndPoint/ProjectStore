@@ -48,7 +48,7 @@ Dispatch on the first argument:
    — an exact-name `test -e` cannot see normalized cross-era collisions. If
    it is now non-null, re-preview and re-ask.
 
-6. **On Yes**: Write the file. Then, if `index` is non-null, apply its index
+6. **On Yes**: write the file. Then, if `index` is non-null, apply its index
    row through the core — never the Write/Edit tools, no second gate (the
    step-4 approval covers it):
 
@@ -63,7 +63,7 @@ Dispatch on the first argument:
    in JSON = I/O failure, suggest `/projectstore:reconcile`), never a failed
    creation.
 
-7. **Reciprocal links**: for every entry in `stories:`, propose an Edit to that
+7. **Reciprocal links**: for every entry in `stories:`, propose an edit to that
    story's frontmatter adding the spec id to its `specs:` list (inline flow —
    `specs: ["SPEC-001"]`). One AskUserQuestion per file.
 
@@ -86,6 +86,6 @@ Dispatch on the first argument:
    first (`/projectstore:review <path>`) if `review_status` is still pending —
    ask whether to proceed anyway.
 
-4. **Approval** via AskUserQuestion, then apply the Edit (frontmatter lines
+4. **Approval** via AskUserQuestion, then apply the edit (frontmatter lines
    only). Suggest `/projectstore:reconcile` if the specs index shows a stale
    status.

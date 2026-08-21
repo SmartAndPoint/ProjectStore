@@ -38,8 +38,7 @@ spec still in `draft` as a blocker under `spec_policy: required` (vault's
 
 ## Phase 0 — Pre-commitment
 From the story + file list, predict the 3-5 most likely gaps ("AC #3 needs an
-error path the diff doesn't touch"; "touches a cache — invalidation risk"). Write
-them down, then hunt each specifically.
+error path the diff doesn't touch"; "touches a cache — invalidation risk"). Note them down, then hunt each specifically.
 
 ## Phase 1 — Story conformance FIRST (the verdict's backbone)
 For EVERY acceptance criterion: `met` / `not met` / `unverifiable`, each with

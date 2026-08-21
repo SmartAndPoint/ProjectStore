@@ -62,14 +62,16 @@
       "file": "projectstore-<name>.toml",
       "format": "agent-toml",
       "invocation": "projectstore-<name>",
-      "name_prefix": "projectstore-"
+      "name_prefix": "projectstore-",
+      "preamble": "> **Codex harness note.** Translated from projectstore's source. Where this\n> says *an approval prompt*, Codex has no `AskUserQuestion` tool: ask in plain\n> text as a short numbered list and **stop for the user's answer** before\n> writing. Never infer approval from silence."
     },
     "skills": {
       "supported": true,
       "dir": "skills",
       "file": "projectstore-<name>/SKILL.md",
       "format": "skill-md",
-      "requires_name_frontmatter": true
+      "requires_name_frontmatter": true,
+      "preamble": "> **Codex harness note.** Translated from projectstore's source. Where this\n> says *an approval prompt*, Codex has no `AskUserQuestion` tool: ask in plain\n> text as a short numbered list and **stop for the user's answer** before\n> writing. Never infer approval from silence."
     },
     "hooks": {
       "supported": true,
@@ -79,11 +81,11 @@
     }
   },
   "agent_translation": {
-    "_comment": "Codex custom agents are TOML, not Markdown+YAML: name/description/developer_instructions are required, and model/model_reasoning_effort/sandbox_mode are optional overrides that inherit from the parent session when omitted. `model` is deliberately NOT mapped — Codex model IDs are a different namespace and inventing a mapping would silently pin every agent to a model nobody chose; omitted means 'inherit the session', which is the honest default. Effort maps because the scale is comparable. The `tools:` allowlist has no Codex analogue, so it is translated into the one thing it was actually being used to express: every bundled agent is read-only.",
+    "_comment": "Codex custom agents are TOML, not Markdown+YAML: name/description/developer_instructions are required, and model/model_reasoning_effort/sandbox_mode are optional overrides that inherit from the parent session when omitted. `model` is deliberately NOT mapped — Codex model IDs are a different namespace and inventing a mapping would silently pin every agent to a model nobody chose; omitted means 'inherit the session', which is the honest default. Effort maps because the scale is comparable: model_reasoning_effort accepts minimal|low|medium|high|xhigh, so projectstore max becomes xhigh. Mapping it to high would cap the agents two notches below what bind.md promises the user, silently. The `tools:` allowlist has no Codex analogue, so it is translated into the one thing it was actually being used to express: every bundled agent is read-only.",
     "model_map": {},
     "effort_key": "model_reasoning_effort",
     "effort_map": {
-      "max": "high",
+      "max": "xhigh",
       "high": "high",
       "medium": "medium",
       "low": "low"
@@ -97,10 +99,10 @@
     ]
   },
   "capabilities": {
-    "_comment": "No statusline slot exists in Codex, so that surface is dropped rather than faked. In exchange Codex offers something Claude Code does not: a PermissionRequest hook that can return permissionDecision:'deny', which can make projectstore's approval gate structural instead of prompt-honoured.",
+    "_comment": "No statusline slot exists in Codex, so that surface is dropped rather than faked. The approval gate is prose here because Codex has no AskUserQuestion tool — NOT because it lacks a structural mechanism: PreToolUse can return permissionDecision:deny on both harnesses, and projectstore uses it on neither yet. Do not describe that as a Codex advantage.",
     "statusline": false,
     "interactive_approval_tool": false,
-    "permission_decision_hook": "PermissionRequest",
+    "permission_decision_hook": "PreToolUse",
     "subagent_tool_allowlist": false,
     "subagent_model_per_invocation": false
   },
@@ -154,6 +156,36 @@
       "from": "AskUserQuestion",
       "to": "an approval prompt",
       "why": "Codex has no AskUserQuestion tool. The phrase reads correctly in every source construction (\"via …\", \"use … with options\", \"ask the user via …\"), and the surface preamble defines what it means exactly once."
+    },
+    {
+      "from": "the Write/Edit tools",
+      "to": "the apply_patch tool",
+      "why": "The prohibition that forces derived views through the core atomic regeneration. On Codex the Claude Code tool names denote nothing, so the rule silently stopped constraining anything."
+    },
+    {
+      "from": "never Write/Edit",
+      "to": "never apply_patch",
+      "why": "Same prohibition, short form used by the create commands."
+    },
+    {
+      "from": "Edit after approval",
+      "to": "apply_patch after approval",
+      "why": "Tool reference in doctor repair prose."
+    },
+    {
+      "from": "Edit with diff",
+      "to": "apply_patch with diff",
+      "why": "Tool reference in doctor repair prose."
+    },
+    {
+      "from": "via Edit",
+      "to": "via apply_patch",
+      "why": "Tool reference in doctor repair prose."
+    },
+    {
+      "from": "use Edit",
+      "to": "use apply_patch",
+      "why": "Tool reference in bind gitignore step."
     },
     {
       "from": "the Write tool",
@@ -212,7 +244,7 @@
     }
   ],
   "lint": {
-    "_comment": "Regexes that mark a fragment as harness-specific. A match in a source surface must be covered by a `from` rule in EVERY emitting harness, or tests/portability.test.mjs fails and names the file, the token and the manifests missing a rule. This is the half of the mechanism that makes a NEW feature portable by default: you cannot land a command that only Claude Code can run.",
+    "_comment": "Regexes that mark a fragment as harness-specific. This list carries only what CANNOT be derived from the manifests — product names, command namespaces, UI affordances. Another harness write-tool names and environment variables are generated by lintPatterns() in scripts/harness.mjs, because a hand-written list only ever contains what someone already thought of. A match in a generated file must be covered by a `from` rule in EVERY emitting harness, or tests/portability.test.mjs fails and names the file, the token and the manifests missing a rule. This is the half of the mechanism that makes a NEW feature portable by default: you cannot land a command that only Claude Code can run.",
     "forbidden_unmapped": [
       "\\$\\{?CLAUDE_[A-Z_]+\\}?",
       "\\.claude/",
@@ -220,9 +252,19 @@
       "Claude Code",
       "/projectstore:",
       "/reload-plugins",
-      "/plugin\\\\b",
+      "/plugin\\b",
       "statusLine"
-    ]
+    ],
+    "allow": [
+      "Edit before saving",
+      "Yes / Edit / No",
+      "Edit a field",
+      "proposing \"Edit\"",
+      "prompting \"Edit\"",
+      "Write `.codex/projectstore.json`",
+      "Write `.claude/projectstore.json`"
+    ],
+    "_allow_comment": "Literal phrases exempt from the DERIVED tool-name patterns, each one a place where a write-tool name is not a tool reference: an approval-option label the user picks between, or an ordinary English verb at the start of a sentence. All of them read identically on every harness. Keep this list short and justified — it is a hole in the guard, and the preferred remedy is always to rephrase the source so it names no tool at all (which is what removed roughly twenty other entries)."
   },
   "update_instructions": [
     "**Keeping projectstore current**: this harness installs from a checkout, not a marketplace.",

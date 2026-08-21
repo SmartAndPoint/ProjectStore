@@ -8,6 +8,12 @@ description: When the user makes or accepts an architectural/technical decision 
   tests/portability.test.mjs fails while this file is out of date.
 -->
 
+> **Codex harness note.** Translated from projectstore's source. Where this
+> says *an approval prompt*, Codex has no `AskUserQuestion` tool: ask in plain
+> text as a short numbered list and **stop for the user's answer** before
+> writing. Never infer approval from silence.
+
+
 # Decision detector
 
 You watch for **decision moments** in the conversation:
@@ -27,9 +33,9 @@ You watch for **decision moments** in the conversation:
    ```bash
    grep -rli "<key-term>" "<vault>/adr/" 2>/dev/null
    ```
-   If a matching ADR exists, suggest **updating** it (Read + propose Edit through normal approval flow) rather than creating a duplicate.
+   If a matching ADR exists, suggest **updating** it (Read + propose an edit through the normal approval flow) rather than creating a duplicate.
 
-4. **Suggest, do not act**. Write one short message to the user:
+4. **Suggest, do not act**. Send one short message to the user:
 
    > 💡 *This looks like a decision worth recording. Want me to draft an ADR? Run `/projectstore-adr "<your-title>"` or just say "yes" and I'll fire it with the title above.*
 

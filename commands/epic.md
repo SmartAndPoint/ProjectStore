@@ -27,7 +27,7 @@ Steps:
 
 7. **Pre-write race check** (Layer 1): run `test -e "<path>"`. The earlier collision check (step 4) covers most cases, but another session could have created this epic during the approval delay. If exists now → ask the user via AskUserQuestion whether to **Overwrite** or **Cancel**. Do not silently overwrite.
 
-8. **On Yes** (path free or overwrite confirmed): Write the file (parent directories are created by the Write tool), then create the stories directory: `mkdir -p "<vault>/epics/<id>/stories"`. The draft script itself never touches the disk — declining at step 6 leaves the vault unchanged.
+8. **On Yes** (path free or overwrite confirmed): write the file (parent directories are created by the Write tool), then create the stories directory: `mkdir -p "<vault>/epics/<id>/stories"`. The draft script itself never touches the disk — declining at step 6 leaves the vault unchanged.
 
 9. **Index update**: if `index` is non-null in the draft JSON, apply the row through the core — never the Write/Edit tools, no second gate (the step-6 approval covers it). Must run **after** step 8: the regeneration scans the disk, so an epic written later would be missing from the table.
 

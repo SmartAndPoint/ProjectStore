@@ -43,8 +43,12 @@ import {
   writeFileAtomic,
 } from "./lib.mjs";
 import { scanArtifacts } from "./doctor.mjs";
+import { localizeCommands } from "./harness.mjs";
 
 function die(msg) {
+  // Single choke point: every failure message this script can print names
+  // commands, and the spelling differs per harness.
+  msg = localizeCommands(msg);
   process.stderr.write(`projectstore/reconcile: ${msg}\n`);
   process.exit(1);
 }
@@ -139,7 +143,7 @@ const SKIP = {
       : null,
   "graph.mjs": (g, onDisk) =>
     onDisk === null
-      ? "graph.md does not exist yet — create it explicitly (--only graph or /projectstore:graph)"
+      ? localizeCommands("graph.md does not exist yet — create it explicitly (--only graph or /projectstore:graph)")
       : null,
 };
 

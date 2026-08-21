@@ -74,11 +74,11 @@ You are running a peer review on a projectstore artifact.
    - **Note for later** — leave artifact untouched, but append a `## Review notes` section at the bottom of the file (after user approval) summarizing findings.
    - **Skip** — do nothing, just close.
 
-9. **On any apply path**, after each Edit (approved by AskUserQuestion), update the frontmatter:
+9. **On any apply path**, after each edit (approved by AskUserQuestion), update the frontmatter:
    - `review_status: reviewed`
    - `reviewed_at: <today's date YYYY-MM-DD>`
 
-   Do this with one final Edit after all content changes are applied.
+   Do this with one final edit after all content changes are applied.
 
 10. **Final print**: file path, what was applied / noted / skipped, and a one-line hint to commit the review if the vault is git-tracked.
 

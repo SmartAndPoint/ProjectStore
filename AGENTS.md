@@ -1,4 +1,4 @@
-<!-- projectstore:agents v4 (managed by projectstore — edit outside markers) -->
+<!-- projectstore:agents v3 (managed by projectstore — edit outside markers) -->
 ## projectstore agents
 
 - **A feature-sized request opens a vault artifact before it opens an editor.**
@@ -21,6 +21,15 @@
   against how prior epics map to the codebase (`code_refs`).
 - After writing code, before commit / story-done: run `projectstore:reviewer` —
   it verifies the diff actually closes the story's acceptance criteria.
+- When discussing vault contents, reference artifacts by their frontmatter
+  `title:` (with their parent epic), never by session-invented shorthand.
+<!-- /projectstore:agents -->
+
+## projectstore development (this repository only)
+
+_Not part of the managed block above: these rules are about developing
+projectstore itself and are not written into projects that bind to it._
+
 - **A surface added for one harness is added for all of them.** `commands/`,
   `agents/`, `skills/` and `hooks/hooks.json` are the source; everything under
   `adapters/` is generated. After touching any of them run
@@ -35,6 +44,3 @@
   Paths, config locations, tool names and command spellings come from
   `harnesses/<id>.json` through that module. A direct read silently resolves to
   the wrong thing on every other harness instead of failing.
-- When discussing vault contents, reference artifacts by their frontmatter
-  `title:` (with their parent epic), never by session-invented shorthand.
-<!-- /projectstore:agents -->

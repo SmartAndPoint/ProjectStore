@@ -8,6 +8,12 @@ description: After a new projectstore artifact is created via /projectstore-adr,
   tests/portability.test.mjs fails while this file is out of date.
 -->
 
+> **Codex harness note.** Translated from projectstore's source. Where this
+> says *an approval prompt*, Codex has no `AskUserQuestion` tool: ask in plain
+> text as a short numbered list and **stop for the user's answer** before
+> writing. Never infer approval from silence.
+
+
 # Peer-reviewer skill
 
 You watch for moments where a new artifact has just been written by a `/projectstore-*` command and could benefit from peer review **before** it lands in git.

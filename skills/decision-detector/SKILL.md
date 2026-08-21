@@ -21,9 +21,9 @@ You watch for **decision moments** in the conversation:
    ```bash
    grep -rli "<key-term>" "<vault>/adr/" 2>/dev/null
    ```
-   If a matching ADR exists, suggest **updating** it (Read + propose Edit through normal approval flow) rather than creating a duplicate.
+   If a matching ADR exists, suggest **updating** it (Read + propose an edit through the normal approval flow) rather than creating a duplicate.
 
-4. **Suggest, do not act**. Write one short message to the user:
+4. **Suggest, do not act**. Send one short message to the user:
 
    > 💡 *This looks like a decision worth recording. Want me to draft an ADR? Run `/projectstore:adr "<your-title>"` or just say "yes" and I'll fire it with the title above.*
 
