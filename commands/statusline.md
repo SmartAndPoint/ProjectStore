@@ -1,6 +1,7 @@
 ---
 description: Enable/disable the projectstore status line (current epic & story in the HUD). Flips a flag; the SessionStart hook does the wiring and keeps it current across plugin updates.
 argument-hint: "on | off | status"
+harness-only: claude-code
 ---
 
 You are toggling the projectstore status line for THIS project. When enabled, the **SessionStart hook** keeps the project's `.claude/settings.local.json` pointed at a launcher it generates at `.claude/.projectstore/statusline.mjs`. That path carries no version, so it never goes stale: the launcher resolves the *currently installed* plugin on every render, and an update is reflected on the spot instead of one restart later. (A dev checkout or `--plugin-dir` root is wired straight to its `scripts/statusline.mjs` — those paths have no version to drift.) The line renders `[PS#<version>] 📚 <epic> › <story> (<status>)` **composed above** any existing HUD (e.g. oh-my-claudecode), never replacing it.

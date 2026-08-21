@@ -11,6 +11,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { readConfig, loadLayout, folderByKind, parseFrontmatter, nowIso } from "./lib.mjs";
+import { localizeCommands } from "./harness.mjs";
 
 function die(msg) {
   process.stderr.write(`projectstore/codemap: ${msg}\n`);
@@ -29,7 +30,7 @@ function parseRefs(raw) {
 
 function main() {
   const cfg = readConfig();
-  if (!cfg) die("No projectstore config. Run /projectstore:bind first.");
+  if (!cfg) die(localizeCommands("No projectstore config. Run /projectstore:bind first."));
   const layout = loadLayout(cfg.layout);
   const folder = folderByKind(layout, "epic");
   if (!folder) die("Layout has no epic folder — nothing to map.");
@@ -69,7 +70,7 @@ function main() {
     "# Code map",
     "",
     "Epic ↔ code mapping, derived from frontmatter `code_refs` (source of truth).",
-    "Regenerate via `/projectstore:codemap`; edit refs via `/projectstore:codemap set`.",
+    localizeCommands("Regenerate via `/projectstore:codemap`; edit refs via `/projectstore:codemap set`."),
     "",
     "| Epic | Title | Status | code_refs |",
     "|------|-------|--------|-----------|",

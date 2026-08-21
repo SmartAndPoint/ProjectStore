@@ -1,0 +1,98 @@
+{
+  "_comment": "Harness capability manifest — Claude Code. This is the SOURCE layout: the plugin's own commands/, agents/, skills/ and hooks/hooks.json are already in Claude Code's shapes, so nothing is emitted for it (emit: false). The manifest still exists in full because the portability lint reads every harness's rewrite table, and a token that only Claude Code understands is only detectable as unmapped if Claude Code's own vocabulary is written down somewhere.",
+  "id": "claude-code",
+  "display_name": "Claude Code",
+  "emit": false,
+  "source_layout": true,
+  "output_dir": null,
+  "docs": "https://code.claude.com/docs",
+  "runtime": {
+    "detect_env": [
+      "CLAUDE_PLUGIN_ROOT",
+      "CLAUDE_PROJECT_DIR",
+      "CLAUDE_CONFIG_DIR"
+    ],
+    "project_dir_env": "CLAUDE_PROJECT_DIR",
+    "plugin_root_env": "CLAUDE_PLUGIN_ROOT",
+    "home_env": "CLAUDE_CONFIG_DIR",
+    "home_default": ".claude",
+    "project_config_dir": ".claude",
+    "config_basename": "projectstore.json"
+  },
+  "tools": {
+    "write_tools": [
+      "Write",
+      "Edit",
+      "MultiEdit",
+      "NotebookEdit"
+    ],
+    "path_fields": [
+      "file_path",
+      "notebook_path",
+      "path"
+    ],
+    "patch_envelope_field": null,
+    "approval_tool": "AskUserQuestion",
+    "write_tool_name": "the Write tool",
+    "edit_tool_name": "the Edit tool"
+  },
+  "hooks": {
+    "config_file": "hooks/hooks.json",
+    "events": {
+      "SessionStart": "SessionStart",
+      "PreToolUse": "PreToolUse",
+      "PostToolUse": "PostToolUse",
+      "Stop": "Stop",
+      "PreCompact": "PreCompact"
+    },
+    "unsupported_events": [],
+    "matchers": {
+      "write": "Edit|Write|MultiEdit|NotebookEdit"
+    },
+    "root_placeholder": "${CLAUDE_PLUGIN_ROOT}"
+  },
+  "surfaces": {
+    "commands": {
+      "supported": true,
+      "dir": "commands",
+      "file": "<name>.md",
+      "format": "command-md",
+      "invocation": "/projectstore:<name>"
+    },
+    "agents": {
+      "supported": true,
+      "dir": "agents",
+      "file": "<name>.md",
+      "format": "agent-md",
+      "invocation": "projectstore:<name>"
+    },
+    "skills": {
+      "supported": true,
+      "dir": "skills",
+      "file": "<name>/SKILL.md",
+      "format": "skill-md"
+    },
+    "hooks": {
+      "supported": true,
+      "dir": "hooks",
+      "file": "hooks.json",
+      "format": "hooks-json"
+    }
+  },
+  "capabilities": {
+    "statusline": true,
+    "interactive_approval_tool": true,
+    "permission_decision_hook": false,
+    "subagent_tool_allowlist": true,
+    "subagent_model_per_invocation": true
+  },
+  "rewrites": [],
+  "update_instructions": [
+    "**About future updates**: Claude Code does NOT auto-update third-party marketplaces by default. To get notified of new releases (v0.7+):",
+    "1. Open `/plugin` → **Marketplaces** tab.",
+    "2. Find **SmartAndPoint**.",
+    "3. Toggle **auto-update** on.",
+    "",
+    "Without it, you would run `/plugin marketplace update SmartAndPoint` manually. See https://github.com/SmartAndPoint/ProjectStore#updates for details."
+  ]
+}

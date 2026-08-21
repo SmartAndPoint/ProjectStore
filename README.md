@@ -70,7 +70,7 @@ Everything is plain markdown in a folder you choose. The plugin can disappear to
 
 ## Install (2 minutes)
 
-Inside Claude Code:
+### Claude Code
 
 ```
 /plugin marketplace add SmartAndPoint/ProjectStore
@@ -90,6 +90,31 @@ claude --plugin-dir ./ProjectStore
 
 To pin a specific release: `/plugin marketplace add SmartAndPoint/ProjectStore#v0.13.0`.
 </details>
+
+### Codex
+
+Codex reads skills, prompts and agents from real directories, so projectstore is
+installed from a checkout rather than a marketplace:
+
+```bash
+git clone https://github.com/SmartAndPoint/ProjectStore.git
+cd ProjectStore
+node scripts/install-codex.mjs        # into ~/.codex; --project for <cwd>/.codex
+```
+
+Then restart Codex. Commands are `/projectstore-adr`, `/projectstore-epic` and so
+on — flat names, because Codex has no `namespace:command` form. `--dry-run`
+shows what would land; `--uninstall` removes it and leaves your own hooks
+untouched.
+
+Hooks run from the checkout, so keep it where it is (or re-run the installer
+after moving it). To update: `git pull` and re-run the installer.
+
+A project bound under one harness is found by the other — `.claude/projectstore.json`
+and `.codex/projectstore.json` are both searched, so you bind once.
+
+See [docs/harnesses.md](./docs/harnesses.md) for what differs between the two,
+what is deliberately not ported, and how to add a third harness.
 
 ## First-time setup — what actually happens
 
@@ -218,7 +243,7 @@ See the epic and story *this session* is working on, composed **above** your exi
 
 Details that matter with several Claude sessions open on one project: each session shows **its own** epic/story (never a sibling's), a fresh session shows a friendly localized "no epic or story in this session yet" line instead of a blank, and the `[PS#0.22.0]` badge tells you at a glance the plugin is alive and which version. The badge names the version you actually have: the hook wires a version-free launcher that resolves the installed plugin on every render, so an update needs no restart to show up.
 
-## What's in the box (v0.23)
+## What's in the box (v0.25)
 
 - **20 commands** — `bind`, `scaffold`, `status`, `adr`, `spec`, `epic`, `story` (with `plan`/`close` lifecycle gates), `kanban`, `research`, `concept`, `meeting`, `runbook`, `search`, `review`, `statusline`, `doctor`, `reconcile`, `codemap`, `graph`, `agents`
 - **Spec-first workflow (v0.14, ADR-007)** — a `spec` kind (the durable, normative "how" per subsystem: ADR references, numbered behavioral contracts, acceptance *additive* to the covered stories'), an opt-in vault policy (`spec_policy: required` in `<vault>/.projectstore.json`) under which every story must be covered by an `active` spec, and story lifecycle gates: `/projectstore:story plan` persists the implementation plan before code, `/projectstore:story close` persists the final summary and per-criterion evidence. Doctor enforces all of it; stories done before the policy stay exempt.
@@ -227,6 +252,7 @@ Details that matter with several Claude sessions open on one project: each sessi
 - **1 doctor + reconcile** — deterministic health checks and one-command repair of every generated view, localization-aware via the heading registry (`scaffold/headings.json`) — indexes and section checks work in every bundled language, and a vault whose files were written in two of them still lints and reconciles
 - **1 layout** — `engineering`, with templates in **6 languages**: English, Russian, Spanish, German, French, Simplified Chinese (localized UI strings included)
 - **5 hooks** — session start (navigation skeleton + doctor line), tool use before and after (activity + per-session pointer + raw-edit nudge + entry-rule reminder), stop (the reminder's second carrier), pre-compact (one honest line in your `/compact` output)
+- **2 harnesses, one source (v0.25)** — Claude Code and Codex. `commands/`, `agents/`, `skills/` and `hooks/hooks.json` are written once; `adapters/<harness>/` is generated from them through a per-harness capability manifest. Three test invariants keep it honest: the committed adapters must match what the generator produces, no harness-branded fragment may survive translation, and every surface must reach every harness or say in its own frontmatter why not. Adding a harness is a JSON file — no source or code changes.
 
 **The roster rule**: ProjectStore bundles an agent only if the role *requires the vault* to make sense. General coding assistants belong to your own setup — our `planner`/`reviewer` are deliberately narrow, vault-aware specialists, not their replacements. `/projectstore:review` always spawns the scoped `projectstore:critic`. Note that our agents live under the `projectstore:` prefix and an agent of your own named `critic` lives under the bare name — **they coexist, neither replaces the other** (which is why we configure models per invocation rather than by copying agent files: ADR-008).
 
@@ -234,7 +260,8 @@ Details that matter with several Claude sessions open on one project: each sessi
 
 - **Frontmatter is the source of truth.** The board, folder indexes, and code map are *generated views* — regenerate anytime (`kanban`, `reconcile`, `codemap`); hand edits can't permanently desync them.
 - **Every write is approval-gated.** Commands render a draft in memory, show you path + content, and write only on Yes. Declining leaves the vault byte-for-byte unchanged.
-- **Sessions don't step on each other.** Each Claude Code session registers under its own `session_id`; parallel sessions get warned about each other, and each status line shows only its own work.
+- **One source, every harness.** Only `scripts/harness.mjs` reads a harness-branded environment variable; everything else asks it for paths, tool names and command spellings and gets the active harness's answer. That is why the same hook files run unmodified under both — and why a feature cannot land on one harness only without failing the suite.
+- **Sessions don't step on each other.** Each session registers under its own `session_id`; parallel sessions get warned about each other, and each status line shows only its own work.
 - **`/compact` survival.** After a compaction, SessionStart adds a "where this session left off" block — the vault files the previous conversation touched and the artifact it was drafting — so the next agent resumes instead of re-deriving. PreCompact prints one line for you, and promises the handover only when it can actually check that it will happen.
 - **Orientation is a map, not a copy.** SessionStart injects the layout's folders, what each is for, what is in flight, and the order to descend in — a few thousand characters that don't grow with the vault. Injecting the vault itself is how you exceed the hook output cap and get handed a file path instead of context.
 - **Raw edits are expected, not punished.** If you (or the agent) edit vault markdown directly, a gentle nudge suggests running `reconcile` afterwards. The guarantees survive the easy path.

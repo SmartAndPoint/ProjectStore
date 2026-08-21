@@ -49,7 +49,13 @@ vault-side layout or template override):
 4. **Checklist entry** — `scaffold/checklists.json`, consumed by
    `/projectstore:review` and the peer-reviewer skill. English-only by design.
 
-5. **Command prompt** — `commands/<kind>.md`, a prompt (not code) that calls
+5. **Regenerate the harness adapters** — `node scripts/build-adapters.mjs`,
+   committed in the same change. Everything under `adapters/` is generated from
+   the source surfaces, and `tests/portability.test.mjs` fails while it is
+   stale. See [docs/harnesses.md](harnesses.md) — including what to do when the
+   lint says a fragment of your prose does not translate.
+
+6. **Command prompt** — `commands/<kind>.md`, a prompt (not code) that calls
    `node "$CLAUDE_PLUGIN_ROOT/scripts/draft.mjs" <kind> "$ARGUMENTS"`, previews,
    and gates every write behind AskUserQuestion. Copy `commands/research.md`
    for a plain kind, `commands/adr.md` for one that renders the draft's
@@ -69,6 +75,14 @@ kinds, commands, agents and (optionally) a kanban block — see
 `engineering.json` for the full shape. Every command that maps to a folder
 kind needs its template per the checklist above.
 
+## Adding a new harness
+
+Copy `harnesses/codex.json`, change the values, run
+`node scripts/build-adapters.mjs`. No source surface and no code changes — every
+command, agent and skill renders for the new harness automatically, and the
+coverage invariant fails if one does not. Full contract in
+[docs/harnesses.md](harnesses.md).
+
 ## Adding a new command
 
 Create `commands/<name>.md` with frontmatter:
@@ -80,10 +94,14 @@ argument-hint: <expected args>
 ---
 ```
 
-Body is a **prompt** for Claude — instructions, not code. To do real work, call
-the plugin's scripts via Bash. Always gate writes through `AskUserQuestion`
-after showing a preview. Scripts are pure compute (they never write); the
-command writes after approval — keep that split.
+Body is a **prompt** for the agent — instructions, not code. To do real work,
+call the plugin's scripts via Bash. Always gate writes through
+`AskUserQuestion` after showing a preview (the generator translates that into
+each harness's own approval mechanism). Scripts are pure compute (they never
+write); the command writes after approval — keep that split.
+
+Then run `node scripts/build-adapters.mjs` and commit the regenerated adapters
+alongside the command.
 
 ## Adding a new skill
 

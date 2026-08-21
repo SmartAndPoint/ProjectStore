@@ -78,12 +78,13 @@ Steps:
 
    `spec_policy_since` is stamped ONLY when spec_policy is set to `required` — it anchors the legacy exemption (stories done before it stay exempt; stories in progress/review at enable time are in scope).
 
-8. **Agent registration** (v0.13, ADR-002): ask via AskUserQuestion — "Register projectstore's agents in CLAUDE.md/AGENTS.md so every session routes to them (critic after authoring artifacts, planner before implementing, reviewer before commit)? [Yes (Recommended) / No]". On Yes, run the `register` flow from `commands/agents.md` (block generated from the layout's roster; each write individually approved). On a rebind where a block already exists, offer repair/migrate instead of re-asking blindly.
+8. **Agent registration** (v0.13, ADR-002): ask via AskUserQuestion — "Register projectstore's agents in the project's agent-instructions file so every session routes to them (critic after authoring artifacts, planner before implementing, reviewer before commit)? [Yes (Recommended) / No]". On Yes, run the `register` flow from `commands/agents.md` (block generated from the layout's roster; each write individually approved). On a rebind where a block already exists, offer repair/migrate instead of re-asking blindly.
 
 9. **Agent model preset** (v0.13, ADR-003; mechanism per ADR-008): ask via AskUserQuestion — include this line in the question text: *"These agents don't write code — they are critics, planners, and reviewers; they perform best on strong models at high effort."* Options: **Keep bundled default — opus** (Recommended) / **fable** / **sonnet**. Do not offer `inherit` — it cannot be expressed per invocation (see `commands/agents.md`). Do not offer effort — it is not configurable per project (the bundled agents already run at `max`). Free-form model IDs and per-agent tuning live in `/projectstore:agents configure` — mention it. A non-default choice runs the `configure` apply flow from `commands/agents.md`, which writes the config only — **never an agent copy**. Skippable.
 
 10. **Print summary**: confirm the bind, list the layout's folders, suggest next commands (`/projectstore:status`, `/projectstore:adr "<first decision>"`, `/projectstore:epic <ID> "<title>"`).
 
+<!-- projectstore:harness only=claude-code -->
 11. **Auto-update reminder** (v0.7+, only on first successful bind in this project): After Step 5 (config write), check whether the newly-written config has `autoupdate_asked: true`. If not, ask the user via AskUserQuestion:
 
    > "Claude Code does not auto-update third-party marketplaces by default. Want to enable auto-update for the SmartAndPoint marketplace so you'll be notified about future projectstore releases?"
@@ -94,7 +95,9 @@ Steps:
    - **Already enabled** — respond with: "Great. New releases will be detected at the next Claude Code startup."
 
    After the question is answered (regardless of choice), Edit `<project>/.claude/projectstore.json` to add `"autoupdate_asked": true` to the JSON object. This guarantees we ask only once per project.
+<!-- /projectstore:harness -->
 
+<!-- projectstore:harness only=claude-code -->
 12. **Status line offer** (v0.13, ADR-006 — the final step, language is known by now): read `$CLAUDE_PLUGIN_ROOT/templates/<lang>/strings.json` (fall back to `en`) and the plugin version, then show the fully rendered example:
 
     > `[PS#<version>] 📚 <statusline_example_epic> › <statusline_example_story> (in-progress)`
@@ -102,3 +105,12 @@ Steps:
     (for `ru`: `[PS#<version>] 📚 Супер-фича в супер-продукте › Ручка для туалетной бумаги (in-progress)`; every bundled language ships its own example pair)
 
     Ask via AskUserQuestion: "Show your current epic/story in the status line, composed above any existing HUD? [Yes / No]". On Yes: Edit `projectstore.json` → `"statusline": { "enabled": true }` (approval-gated) and report: "Enabled — restart Claude Code in this project to apply (the SessionStart hook wires it). A fresh session shows: `[PS#<version>] 📚 <statusline_no_work>`."
+<!-- /projectstore:harness -->
+
+<!-- projectstore:harness-alt except=claude-code
+11. **Keeping projectstore current**: this harness installs projectstore from a
+    checkout rather than a marketplace, so there is no auto-update to enable.
+    Tell the user: pull the checkout and re-run
+    `node scripts/install-codex.mjs`, then restart the harness so skills,
+    prompts and agents are re-read.
+-->

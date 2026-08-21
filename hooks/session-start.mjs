@@ -16,6 +16,7 @@ import { existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import {
   readConfig,
+  configPath,
   gatherVaultFacts,
   renderVaultSkeleton,
   writeSession,
@@ -33,28 +34,31 @@ import {
   ERROR_CELL,
   TITLE_CELL,
 } from "../scripts/lib.mjs";
+import { commandRef, updateInstructions, activeHarness, projectConfigDir } from "../scripts/harness.mjs";
 import { runStartupChecks } from "../scripts/doctor.mjs";
 
 function welcomedMarkerPath(proj) {
-  return join(proj, ".claude", ".projectstore-welcomed");
+  return join(projectConfigDir(proj), ".projectstore-welcomed");
 }
 
 // One-time orientation packet shown when projectstore first loads in a project.
 // Idempotent via a marker file at <project>/.claude/.projectstore-welcomed.
+// Command spellings and the update story both differ per harness, and this is
+// the first thing a user ever reads from projectstore — telling a Codex user to
+// open a Claude Code marketplace tab is the worst possible first impression.
+// Both come from the active harness's manifest.
 function buildWelcome() {
+  const bind = commandRef("bind");
+  const adr = commandRef("adr");
+  const epic = commandRef("epic");
   return [
     "# 👋 projectstore is loaded for the first time in this project",
     "",
     "**What it does**: turns the conversation's decisions into a structured Obsidian-friendly markdown vault — ADRs, epics, stories, runbooks, research. Agent-maintained, you approve every write.",
     "",
-    "**To start using it**: run `/projectstore:bind <vault-path>` and point it at an Obsidian vault (or any folder). After that, the agent will pick up commands like `/projectstore:adr` and `/projectstore:epic` from the conversation; you only approve the writes.",
+    `**To start using it**: run \`${bind} <vault-path>\` and point it at an Obsidian vault (or any folder). After that, the agent will pick up commands like \`${adr}\` and \`${epic}\` from the conversation; you only approve the writes.`,
     "",
-    "**About future updates**: Claude Code does NOT auto-update third-party marketplaces by default. To get notified of new releases (v0.7+):",
-    "1. Open `/plugin` → **Marketplaces** tab.",
-    "2. Find **SmartAndPoint**.",
-    "3. Toggle **auto-update** on.",
-    "",
-    "Without it, you'd run `/plugin marketplace update SmartAndPoint` manually. See https://github.com/SmartAndPoint/ProjectStore#updates for details.",
+    ...updateInstructions(),
     "",
     "_This message appears once per project._",
     "",
@@ -107,7 +111,7 @@ function buildOthersWarning(others) {
     "",
     `## ⚠️ Multi-session warning — ${others.length} other projectstore session(s) active on this vault`,
     "",
-    "Another Claude Code session is currently working on the same vault.",
+    `Another ${activeHarness()?.display_name || "agent"} session is currently working on the same vault.`,
     "Active session(s):",
     "",
   ];
@@ -122,13 +126,13 @@ function buildOthersWarning(others) {
     );
   }
   if (others.length > SIBLING_CAP) {
-    lines.push(`- …and ${others.length - SIBLING_CAP} more — run \`/projectstore:status\``);
+    lines.push(`- …and ${others.length - SIBLING_CAP} more — run \`${commandRef("status")}\``);
   }
   lines.push(
     "",
     "**Before creating new ADRs / epics / stories / research:**",
-    "1. Run `/projectstore:search <topic-keywords>` to check for in-flight artifacts on the same topic.",
-    "2. Run `/projectstore:status` to see what artifacts have been touched recently.",
+    `1. Run \`${commandRef("search")} <topic-keywords>\` to check for in-flight artifacts on the same topic.`,
+    `2. Run \`${commandRef("status")}\` to see what artifacts have been touched recently.`,
     "3. After creation, the plugin re-checks file existence right before write — collisions are detected, but topic / number reservation across sessions is on you and the other agent to coordinate.",
     "",
   );
@@ -140,7 +144,7 @@ async function main() {
   const proj = projectRoot();
   const welcome = showWelcomeOnce(proj);
   const welcomeSystemMessage = welcome
-    ? "👋 projectstore: first-run welcome shown. Start with /projectstore:bind <vault-path>. See /plugin → Marketplaces to enable auto-update."
+    ? `👋 projectstore: first-run welcome shown. Start with ${commandRef("bind")} <vault-path>.`
     : null;
 
   if (!cfg) {
@@ -216,9 +220,9 @@ async function main() {
   try {
     const r = runStartupChecks(cfg, proj);
     if (r.skipped) {
-      doctorMsg = "projectstore doctor: startup checks skipped — run /projectstore:doctor";
+      doctorMsg = `projectstore doctor: startup checks skipped — run ${commandRef("doctor")}`;
     } else if (r.count > 0) {
-      doctorMsg = `projectstore doctor: ${r.count} install issue(s) — run /projectstore:doctor`;
+      doctorMsg = `projectstore doctor: ${r.count} install issue(s) — run ${commandRef("doctor")}`;
     }
   } catch {}
   const systemMessage =
@@ -227,7 +231,7 @@ async function main() {
   if (gatherError) {
     emit(
       welcome +
-        `# projectstore: vault load failed\n\n${truncEnd(String(gatherError.message), ERROR_CELL)}\n\nFix \`.claude/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
+        `# projectstore: vault load failed\n\n${truncEnd(String(gatherError.message), ERROR_CELL)}\n\nFix \`${configPath()}\` or run \`${commandRef("bind")} <path>\` again.`,
       systemMessage,
     );
     return;

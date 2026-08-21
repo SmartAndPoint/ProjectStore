@@ -645,7 +645,12 @@ test("core writes only via lib.mjs writeFileAtomic (atomic-regeneration contract
   // deliberately out of scope: session-start's marker write is host-side
   // plumbing, not a vault write path — do not "complete" this refactor there.
   const dir = join(REPO, "scripts");
-  for (const n of readdirSync(dir).filter((f) => f.endsWith(".mjs") && f !== "lib.mjs")) {
+  // Build-time tooling, not a vault write path: these run before a session
+  // exists, write repository and harness-config files rather than derived
+  // views, and must not depend on a bound vault. Listed by name so the glob
+  // still covers every future script that IS a vault write path.
+  const BUILD_TIME = new Set(["build-adapters.mjs", "install-codex.mjs"]);
+  for (const n of readdirSync(dir).filter((f) => f.endsWith(".mjs") && f !== "lib.mjs" && !BUILD_TIME.has(f))) {
     const src = readFileSync(join(dir, n), "utf8");
     for (const call of ["writeFileSync", "renameSync", "appendFileSync", "createWriteStream",
                         "writeFile(", "copyFileSync", "truncateSync", "node:fs/promises"]) {
@@ -899,6 +904,15 @@ test("the block bump and the block content ship together (spec contract 24)", ()
   assert.ok(/Report instruction conflicts; do not arbitrate them/.test(tmpl),
     "the conflict clause is the other half of v3");
 
+  // Same rule, one version on: v4 added the harness-parity clauses, and
+  // checkAgentsBlock compares the marker alone — so a block that says v4 while
+  // missing them is reported current and silently teaches the old workflow.
+  const hasParityRule = /A surface added for one harness is added for all of them/.test(tmpl);
+  assert.equal(hasParityRule, version >= 4,
+    "v4 is what carries the regenerate-the-adapters rule");
+  assert.equal(/Never read a `CLAUDE_\*` environment variable/.test(tmpl), version >= 4,
+    "the harness.mjs boundary is the other half of v4");
+
   // This repo dogfoods the block, so its own copy must be re-registered too.
   const own = readFileSync(join(REPO, "AGENTS.md"), "utf8");
   assert.equal(own, tmpl, "the repo's own AGENTS.md block is the template, re-registered");
@@ -1055,10 +1069,32 @@ test("SessionStart: delivers on additionalContext, and the welcome renders once 
   const without = second.hookSpecificOutput.additionalContext;
   assert.ok(!/loaded for the first time/.test(without),
     "the welcome is once per project, not once per session");
-  assert.equal(withWelcome.length - without.length, 1077,
-    "the welcome is a fixed 1,077-character term of the composed value, and the " +
-    "skeleton spec's contract 3 does its arithmetic against exactly this number — " +
-    "if you edited the welcome copy, update that contract in the same change");
+  // Claude Code's is the longest of the bundled harnesses (its update
+  // instructions are the marketplace walkthrough), so it is the term contract 3
+  // must budget for. WELCOME_CAP below pins that it stays the longest.
+  assert.equal(withWelcome.length - without.length, 1081,
+    "the welcome is a fixed 1,081-character term of the composed value under " +
+    "claude-code, and the skeleton spec's contract 3 does its arithmetic against " +
+    "exactly this number — if you edited the welcome copy or a harness's " +
+    "update_instructions, update that contract in the same change");
+});
+
+test("SessionStart: no harness's welcome exceeds the term contract 3 budgets for", async () => {
+  // The welcome is assembled from the active harness's update_instructions, so
+  // adding a harness with a chattier update story would silently push the
+  // composed SessionStart payload past the 10,000-character hook cap — where
+  // the harness replaces the text with a file path and the orientation reaches
+  // nobody. Contract 3's arithmetic uses 1,081; this is what keeps that true.
+  const { harnessIds, loadHarness } = await import("../scripts/harness.mjs");
+  const CLAUDE_CODE_WELCOME = 1081;
+  for (const id of harnessIds()) {
+    const lines = loadHarness(id).update_instructions || [];
+    const len = lines.join("\n").length;
+    const ccLen = (loadHarness("claude-code").update_instructions || []).join("\n").length;
+    assert.ok(len <= ccLen,
+      `harness "${id}" has longer update_instructions (${len}) than claude-code (${ccLen}); ` +
+      `contract 3 budgets ${CLAUDE_CODE_WELCOME} characters for the welcome against the claude-code copy`);
+  }
 });
 
 test("SessionStart: auto_inject false emits no vault content, and still arms the entry reminder", () => {

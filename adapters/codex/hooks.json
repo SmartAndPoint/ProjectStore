@@ -1,0 +1,59 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{PROJECTSTORE_ROOT}}/adapters/codex/bin/ps-hook.mjs\" hooks/session-start.mjs"
+          },
+          {
+            "type": "command",
+            "command": "node \"{{PROJECTSTORE_ROOT}}/adapters/codex/bin/ps-hook.mjs\" hooks/session-rules.mjs"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{PROJECTSTORE_ROOT}}/adapters/codex/bin/ps-hook.mjs\" scripts/touch-session.mjs"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{PROJECTSTORE_ROOT}}/adapters/codex/bin/ps-hook.mjs\" scripts/touch-session.mjs"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{PROJECTSTORE_ROOT}}/adapters/codex/bin/ps-hook.mjs\" hooks/session-stop.mjs"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{PROJECTSTORE_ROOT}}/adapters/codex/bin/ps-hook.mjs\" hooks/pre-compact.mjs"
+          }
+        ]
+      }
+    ]
+  }
+}

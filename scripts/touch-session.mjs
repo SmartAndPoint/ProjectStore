@@ -58,6 +58,7 @@ import {
   ENTRY_THRESHOLD,
   isWriteTool,
 } from "./lib.mjs";
+import { extractPaths, localizeCommands } from "./harness.mjs";
 
 const NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -94,7 +95,9 @@ function updatePointerAndNudge(cfg, proj, sid, filePath, toolName) {
     const last = st && st.nudged_at ? Date.parse(st.nudged_at) : 0;
     if (Date.now() - last > NUDGE_INTERVAL_MS) {
       nudge =
-        "projectstore: vault file edited directly — if this bypassed a /projectstore:* command, run /projectstore:reconcile (or doctor) afterwards so the board/indexes stay in sync.";
+        localizeCommands(
+          "projectstore: vault file edited directly — if this bypassed a /projectstore:* command, " +
+          "run /projectstore:reconcile (or doctor) afterwards so the board/indexes stay in sync.");
       patch = { ...(patch || {}), nudged_at: new Date().toISOString() };
     }
   }
@@ -103,10 +106,15 @@ function updatePointerAndNudge(cfg, proj, sid, filePath, toolName) {
   if (nudge) process.stdout.write(JSON.stringify({ systemMessage: nudge }) + "\n");
 }
 
-function extractToolPath(input) {
-  if (!input || !input.tool_input) return null;
-  const ti = input.tool_input;
-  return ti.file_path || ti.notebook_path || ti.path || null;
+// A LIST, not a path. Claude Code's write tools carry one target each, but
+// Codex reports a whole patch as a single apply_patch call, and a patch may add
+// three files and delete a fourth. Returning the first of them would have
+// scored one file where four were written and logged one activity entry where
+// four belonged — an undercount that looks exactly like normal operation.
+// Which fields (and which patch envelope) to read comes from the harness
+// manifest, so this function has no harness knowledge of its own.
+function extractToolPaths(input) {
+  return extractPaths(input);
 }
 
 // The source-side branch (PostToolUse). Never throws: every failure here must
@@ -194,15 +202,22 @@ async function main() {
   }
 
   if (!input.tool_name) return;
-  const filePath = extractToolPath(input);
-  if (!filePath) return;
+  const filePaths = extractToolPaths(input);
+  if (filePaths.length === 0) return;
 
   if (event === "PostToolUse") {
-    await entryBranch(cfg, proj, sid, filePath, input);
+    // Sequential, not Promise.all: entryBranch reads and rewrites this
+    // session's score markers, and the whole point of the marker-file design
+    // is that it never does an unguarded read-modify-write. Concurrency here
+    // would reintroduce exactly that race within a single patch.
+    for (const filePath of filePaths) {
+      await entryBranch(cfg, proj, sid, filePath, input);
+    }
     return;
   }
 
-  if (isInsideVault(filePath, cfg.vault_path)) {
+  for (const filePath of filePaths) {
+    if (!isInsideVault(filePath, cfg.vault_path)) continue;
     try { appendActivity(cfg.vault_path, sid, filePath, input.tool_name); } catch {}
     try { updatePointerAndNudge(cfg, proj, sid, filePath, input.tool_name); } catch {}
   }

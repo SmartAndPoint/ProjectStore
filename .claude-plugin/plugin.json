@@ -1,8 +1,8 @@
 {
   "name": "projectstore",
   "displayName": "projectstore",
-  "version": "0.24.0",
-  "description": "Opinionated project-management paradigms (ADR / epics / stories / kanban / runbooks) for agentic development. Markdown-first, git-portable, human-readable.",
+  "version": "0.25.0",
+  "description": "Opinionated project-management paradigms (ADR / epics / stories / kanban / runbooks) for agentic development. Markdown-first, git-portable, human-readable. Runs on Claude Code and Codex from one source.",
   "author": {
     "name": "Evgenii Konev @ SmartAndPoint",
     "email": "ekonev@smartandpoint.com",
@@ -18,6 +18,8 @@
     "kanban",
     "obsidian",
     "markdown",
-    "engineering-process"
+    "engineering-process",
+    "codex",
+    "multi-harness"
   ]
 }

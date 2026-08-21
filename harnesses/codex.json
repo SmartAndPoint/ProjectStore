@@ -1,0 +1,231 @@
+{
+  "_comment": "Harness capability manifest — OpenAI Codex. Everything projectstore ships for Codex is GENERATED from the source layout through this file; nothing under adapters/codex/ is hand-edited. To teach projectstore a third harness, copy this file, change the values, and run scripts/build-adapters.mjs — no surface file needs to change.",
+  "id": "codex",
+  "display_name": "Codex",
+  "emit": true,
+  "source_layout": false,
+  "output_dir": "adapters/codex",
+  "docs": "https://learn.chatgpt.com/docs/hooks",
+  "runtime": {
+    "detect_env": [
+      "CODEX_HOME",
+      "CODEX_PLUGIN_ROOT",
+      "CODEX_PROJECT_DIR"
+    ],
+    "project_dir_env": "CODEX_PROJECT_DIR",
+    "plugin_root_env": "CODEX_PLUGIN_ROOT",
+    "home_env": "CODEX_HOME",
+    "home_default": ".codex",
+    "project_config_dir": ".codex",
+    "config_basename": "projectstore.json"
+  },
+  "tools": {
+    "_comment": "Codex reports tool_name 'apply_patch' for every file edit, and ONE call can touch MANY files — the paths live in the patch envelope carried by tool_input.command, not in a file_path field. That is why path extraction is manifest-driven and returns a list. Codex emits PreToolUse/PostToolUse only for shell, unified_exec, apply_patch and mcp; reads are silent, which is fine — projectstore only ever scored writes.",
+    "write_tools": [
+      "apply_patch"
+    ],
+    "path_fields": [],
+    "patch_envelope_field": "command",
+    "approval_tool": null,
+    "write_tool_name": "apply_patch",
+    "edit_tool_name": "apply_patch"
+  },
+  "hooks": {
+    "_comment": "Codex's hook event names and its stdin/stdout JSON contract match Claude Code's for every event projectstore uses — same session_id/cwd/tool_name/tool_input on the way in, same hookSpecificOutput.additionalContext and top-level systemMessage on the way out. The event map is therefore an identity; it is written out in full anyway so a harness that renames an event only has to edit this table.",
+    "config_file": "hooks.json",
+    "events": {
+      "SessionStart": "SessionStart",
+      "PreToolUse": "PreToolUse",
+      "PostToolUse": "PostToolUse",
+      "Stop": "Stop",
+      "PreCompact": "PreCompact"
+    },
+    "unsupported_events": [],
+    "matchers": {
+      "write": "apply_patch"
+    },
+    "root_placeholder": "{{PROJECTSTORE_ROOT}}",
+    "root_placeholder_is_literal": true
+  },
+  "surfaces": {
+    "commands": {
+      "supported": true,
+      "dir": "prompts",
+      "file": "projectstore-<name>.md",
+      "format": "prompt-md",
+      "invocation": "/projectstore-<name>",
+      "preamble": "> **Codex harness note.** This file was translated from projectstore's source\n> command. Where it says *an approval prompt*, Codex has no `AskUserQuestion`\n> tool: ask the question in plain text as a short numbered list, then **stop and\n> wait for the user's answer** before writing anything. Never infer approval from\n> silence, and never batch several approvals into one question. `$PROJECTSTORE_ROOT`\n> is substituted with an absolute path by `scripts/install-codex.mjs`."
+    },
+    "agents": {
+      "supported": true,
+      "dir": "agents",
+      "file": "projectstore-<name>.toml",
+      "format": "agent-toml",
+      "invocation": "projectstore-<name>",
+      "name_prefix": "projectstore-"
+    },
+    "skills": {
+      "supported": true,
+      "dir": "skills",
+      "file": "projectstore-<name>/SKILL.md",
+      "format": "skill-md",
+      "requires_name_frontmatter": true
+    },
+    "hooks": {
+      "supported": true,
+      "dir": ".",
+      "file": "hooks.json",
+      "format": "hooks-json"
+    }
+  },
+  "agent_translation": {
+    "_comment": "Codex custom agents are TOML, not Markdown+YAML: name/description/developer_instructions are required, and model/model_reasoning_effort/sandbox_mode are optional overrides that inherit from the parent session when omitted. `model` is deliberately NOT mapped — Codex model IDs are a different namespace and inventing a mapping would silently pin every agent to a model nobody chose; omitted means 'inherit the session', which is the honest default. Effort maps because the scale is comparable. The `tools:` allowlist has no Codex analogue, so it is translated into the one thing it was actually being used to express: every bundled agent is read-only.",
+    "model_map": {},
+    "effort_key": "model_reasoning_effort",
+    "effort_map": {
+      "max": "high",
+      "high": "high",
+      "medium": "medium",
+      "low": "low"
+    },
+    "readonly_sandbox_mode": "read-only",
+    "write_tools_implying_workspace_write": [
+      "Write",
+      "Edit",
+      "MultiEdit",
+      "NotebookEdit"
+    ]
+  },
+  "capabilities": {
+    "_comment": "No statusline slot exists in Codex, so that surface is dropped rather than faked. In exchange Codex offers something Claude Code does not: a PermissionRequest hook that can return permissionDecision:'deny', which can make projectstore's approval gate structural instead of prompt-honoured.",
+    "statusline": false,
+    "interactive_approval_tool": false,
+    "permission_decision_hook": "PermissionRequest",
+    "subagent_tool_allowlist": false,
+    "subagent_model_per_invocation": false
+  },
+  "rewrites": [
+    {
+      "from": "${CLAUDE_PLUGIN_ROOT}",
+      "to": "{{PROJECTSTORE_ROOT}}",
+      "why": "Codex does not expand this variable in hook commands; the installer substitutes an absolute path."
+    },
+    {
+      "from": "$CLAUDE_PLUGIN_ROOT",
+      "to": "$PROJECTSTORE_ROOT",
+      "why": "Exported into the environment by the generated hook wrappers."
+    },
+    {
+      "from": "CLAUDE_PROJECT_DIR",
+      "to": "CODEX_PROJECT_DIR",
+      "why": "Same role, harness-local name."
+    },
+    {
+      "from": "CLAUDE_CONFIG_DIR",
+      "to": "CODEX_HOME",
+      "why": "Codex's config-directory override."
+    },
+    {
+      "from": ".claude/projectstore.json",
+      "to": ".codex/projectstore.json",
+      "why": "Per-harness config dir; harness.mjs reads all candidates so one bind serves both."
+    },
+    {
+      "from": ".claude/settings.local.json",
+      "to": ".codex/config.toml",
+      "why": "Codex's project-scoped settings file."
+    },
+    {
+      "from": "~/.claude/agents/",
+      "to": "~/.codex/agents/",
+      "why": "Personal custom agents."
+    },
+    {
+      "from": ".claude/agents/",
+      "to": ".codex/agents/",
+      "why": "Project-scoped custom agents."
+    },
+    {
+      "from": ".claude/",
+      "to": ".codex/",
+      "why": "Catch-all; declared LAST of the .claude rules so the specific paths above win."
+    },
+    {
+      "from": "AskUserQuestion",
+      "to": "an approval prompt",
+      "why": "Codex has no AskUserQuestion tool. The phrase reads correctly in every source construction (\"via …\", \"use … with options\", \"ask the user via …\"), and the surface preamble defines what it means exactly once."
+    },
+    {
+      "from": "the Write tool",
+      "to": "apply_patch",
+      "why": "Codex's file-writing tool."
+    },
+    {
+      "from": "the Edit tool",
+      "to": "apply_patch",
+      "why": "Codex's file-editing tool."
+    },
+    {
+      "from": "/projectstore:",
+      "to": "/projectstore-",
+      "why": "Codex custom prompts are flat names; the colon namespace does not exist."
+    },
+    {
+      "from": "projectstore:",
+      "to": "projectstore-",
+      "why": "Agent ids follow the same flattening. Declared after the slash form so command references win."
+    },
+    {
+      "from": "/plugin marketplace update SmartAndPoint",
+      "to": "`git -C <projectstore-root> pull` followed by `node scripts/install-codex.mjs`",
+      "why": "Codex has no marketplace for this plugin; updating means pulling the checkout and re-running the installer."
+    },
+    {
+      "from": "/plugin marketplace update <marketplace>",
+      "to": "`git pull` + `node scripts/install-codex.mjs`",
+      "why": "Same, in doctor's generic phrasing."
+    },
+    {
+      "from": "/reload-plugins",
+      "to": "a Codex restart",
+      "why": "Codex reloads skills, prompts and agents on start; there is no in-session reload command."
+    },
+    {
+      "from": "/plugin",
+      "to": "/plugins",
+      "why": "Codex's plugin manager command."
+    },
+    {
+      "from": "Claude Code",
+      "to": "Codex",
+      "why": "Product name in user-facing prose."
+    },
+    {
+      "from": "Claude's",
+      "to": "Codex's",
+      "why": "Possessive in hook prose."
+    },
+    {
+      "from": "Claude",
+      "to": "Codex",
+      "why": "Catch-all; declared LAST so the phrases above win."
+    }
+  ],
+  "lint": {
+    "_comment": "Regexes that mark a fragment as harness-specific. A match in a source surface must be covered by a `from` rule in EVERY emitting harness, or tests/portability.test.mjs fails and names the file, the token and the manifests missing a rule. This is the half of the mechanism that makes a NEW feature portable by default: you cannot land a command that only Claude Code can run.",
+    "forbidden_unmapped": [
+      "\\$\\{?CLAUDE_[A-Z_]+\\}?",
+      "\\.claude/",
+      "AskUserQuestion",
+      "Claude Code",
+      "/projectstore:",
+      "/reload-plugins",
+      "/plugin\\\\b",
+      "statusLine"
+    ]
+  },
+  "update_instructions": [
+    "**Keeping projectstore current**: this harness installs from a checkout, not a marketplace.",
+    "Pull the checkout and re-run `node scripts/install-codex.mjs`, then restart Codex."
+  ]
+}

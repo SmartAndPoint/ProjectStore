@@ -7,22 +7,37 @@ import { readFile as readFileAsync } from "node:fs/promises";
 import { join, dirname, basename, resolve } from "node:path";
 import { hostname, homedir } from "node:os";
 import { createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
+import {
+  projectRoot as harnessProjectRoot,
+  pluginRoot as harnessPluginRoot,
+  agentHome as harnessAgentHome,
+  configPath as harnessConfigPath,
+  loadHarnesses,
+  sourceHarness,
+  projectConfigDir,
+  hasCapability,
+  localizeCommands,
+} from "./harness.mjs";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
 
+// These three used to read CLAUDE_* directly. They now delegate to harness.mjs,
+// which resolves the same values from harnesses/<id>.json — so the answer is
+// correct under Codex too, and a fourth harness needs no edit here. The names
+// and signatures are unchanged: every existing caller is untouched.
 export function projectRoot() {
-  return process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  return harnessProjectRoot(process.env);
 }
 
 export function pluginRoot() {
-  // fileURLToPath, not URL.pathname: the latter stays percent-encoded, so an
-  // install path containing a space resolves to a directory that does not exist.
-  return process.env.CLAUDE_PLUGIN_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
+  return harnessPluginRoot(process.env);
 }
 
+// Not necessarily .claude/: the resolver searches a neutral location and every
+// registered harness's config directory, so a vault bound under one harness is
+// found by the other instead of being reported unbound.
 export function configPath() {
-  return join(projectRoot(), ".claude", "projectstore.json");
+  return harnessConfigPath(projectRoot(), process.env);
 }
 
 // ─── Config ────────────────────────────────────────────────────────────
@@ -101,11 +116,12 @@ function sweepOrphanTemps(dir) {
 
 // ─── Installed-plugin resolution ───────────────────────────────────────
 
-// Claude Code's config directory. Almost always ~/.claude, but CLAUDE_CONFIG_DIR
-// relocates it — and a consumer that hardcodes the default silently resolves
-// nothing for those users instead of failing loudly.
+// The active harness's config directory — ~/.claude under Claude Code (or
+// CLAUDE_CONFIG_DIR where it is set), ~/.codex under Codex, and so on per
+// manifest. Keeps its original name: it is exported and referenced widely, and
+// renaming it would churn call sites for nothing.
 export function claudeHome(home = homedir()) {
-  return process.env.CLAUDE_CONFIG_DIR || join(home, ".claude");
+  return harnessAgentHome(process.env, home);
 }
 
 function cmpVersion(a, b) {
@@ -239,6 +255,9 @@ export function writeStatusLineLauncher(projectDir, root) {
 }
 
 export function syncStatusLine(cfg, projectDir, home = homedir()) {
+  // No slot on this harness: writing a settings file it never reads would be
+  // an edit the user cannot explain and cannot see the effect of.
+  if (!hasCapability("statusline")) return "unsupported-harness";
   const st = cfg && cfg.statusline;
   if (!st || typeof st.enabled !== "boolean") return "no-flag"; // absent → leave manual installs alone
 
@@ -1483,7 +1502,7 @@ export function cleanupStaleSessions(vault, maxAgeHours = 24, currentSessionId =
 // behind by v0.3 – v0.5 (file-based per-project session id). Safe to call
 // on every session start; no-op if the file is absent. Kept until v0.7.
 export function removeLegacySessionIdFile(projectDir) {
-  const p = join(projectDir || projectRoot(), ".claude", ".projectstore-session-id");
+  const p = join(projectConfigDir(projectDir || projectRoot()), ".projectstore-session-id");
   if (existsSync(p)) {
     try { unlinkSync(p); } catch {}
   }
@@ -1504,8 +1523,18 @@ const ACTIVITY_CAP = 50;
 // a narrower set than the writer recorded — which is exactly how `NotebookEdit`
 // came to be logged and then ignored. `hooks/hooks.json`'s PostToolUse matcher
 // is a third copy that cannot import; a test pins it against this list.
-export const WRITE_TOOLS = Object.freeze(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
-const WRITE_TOOL_SET = new Set(WRITE_TOOLS);
+// Sourced from the source harness's manifest rather than spelled out here, so
+// the list and the generated hook matchers cannot drift apart.
+export const WRITE_TOOLS = Object.freeze(sourceHarness()?.tools?.write_tools || []);
+
+// The predicate matches against the UNION of every registered harness's write
+// tools, not just the active one. The tool namespaces do not overlap — Claude
+// Code has no `apply_patch`, Codex has no `Write` — so the union admits no
+// false positives, and it keeps activity logging alive on a harness whose
+// environment did not identify itself. Detection failing should cost nothing.
+const WRITE_TOOL_SET = new Set(
+  [...loadHarnesses().values()].flatMap((m) => m?.tools?.write_tools || []),
+);
 
 export function isWriteTool(tool) {
   return WRITE_TOOL_SET.has(tool);
@@ -1595,7 +1624,7 @@ export function isInsideVault(filePath, vaultPath) {
 // so per-session ids/titles never reach the user's git history.
 
 export function stateDir(projectDir) {
-  return join(projectDir, ".claude", ".projectstore", "state");
+  return join(projectConfigDir(projectDir), ".projectstore", "state");
 }
 
 export function sessionStatePath(projectDir, sessionId) {
@@ -1606,7 +1635,7 @@ export function sessionStatePath(projectDir, sessionId) {
 // pointers, the generated statusline launcher). Created with its own ignore
 // file so nothing in here can reach git, whichever writer gets there first.
 export function ensureRuntimeDir(projectDir) {
-  const dir = join(projectDir, ".claude", ".projectstore");
+  const dir = join(projectConfigDir(projectDir), ".projectstore");
   mkdirSync(dir, { recursive: true });
   const gi = join(dir, ".gitignore");
   if (!existsSync(gi)) {
@@ -1926,7 +1955,7 @@ export function mayRemind(projectDir, sessionId) {
 export const ENTRY_LOG_CAP = 1000;
 
 export function entryLogPath(projectDir) {
-  return join(projectDir, ".claude", ".projectstore", "entry-log.jsonl");
+  return join(projectConfigDir(projectDir), ".projectstore", "entry-log.jsonl");
 }
 
 export function appendEntryLog(projectDir, record) {
@@ -1966,13 +1995,13 @@ export const ENTRY_THRESHOLD = 3;
 // the evidence (the count), it names the action, and it grants the exit — so a
 // false positive costs a glance rather than an argument.
 export function entryReminderText(n) {
-  return [
+  return localizeCommands([
     `**projectstore**: this session has written to ${n} source files and no story`,
     "is in progress. If this is feature-sized work, open it in the vault before",
     'going further — `/projectstore:story <EPIC> "<title>"`, or',
     "`/projectstore:epic` if it needs a new one. If it is a one-off fix, carry",
     "on — this fires once.",
-  ].join("\n");
+  ].join("\n"));
 }
 
 export function electEmitter(projectDir, sessionId) {
