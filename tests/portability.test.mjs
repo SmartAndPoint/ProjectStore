@@ -763,7 +763,14 @@ test("runtime code that names a command routes it through localizeCommands", () 
   ];
   // The generator and the harness module legitimately carry the literal: one
   // rewrites it, the other defines the rewriting.
-  const EXEMPT = new Set(["scripts/build-adapters.mjs", "scripts/harness.mjs"]);
+  const EXEMPT = new Set([
+    "scripts/build-adapters.mjs", // rewrites the literal
+    "scripts/harness.mjs",        // defines the rewriting
+    // Searches FOR the Claude Code spelling in generated output, to report it
+    // as a defect. Localizing it would make the diagnostic unable to name the
+    // thing it exists to catch.
+    "scripts/smoke-codex.mjs",
+  ]);
   const problems = [];
 
   for (const f of files) {

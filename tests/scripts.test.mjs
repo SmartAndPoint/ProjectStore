@@ -647,9 +647,10 @@ test("core writes only via lib.mjs writeFileAtomic (atomic-regeneration contract
   const dir = join(REPO, "scripts");
   // Build-time tooling, not a vault write path: these run before a session
   // exists, write repository and harness-config files rather than derived
-  // views, and must not depend on a bound vault. Listed by name so the glob
+  // views (smoke-codex builds a throwaway fixture in the OS temp dir), and
+  // must not depend on a bound vault. Listed by name so the glob
   // still covers every future script that IS a vault write path.
-  const BUILD_TIME = new Set(["build-adapters.mjs", "install-codex.mjs"]);
+  const BUILD_TIME = new Set(["build-adapters.mjs", "install-codex.mjs", "smoke-codex.mjs"]);
   for (const n of readdirSync(dir).filter((f) => f.endsWith(".mjs") && f !== "lib.mjs" && !BUILD_TIME.has(f))) {
     const src = readFileSync(join(dir, n), "utf8");
     for (const call of ["writeFileSync", "renameSync", "appendFileSync", "createWriteStream",

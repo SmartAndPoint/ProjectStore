@@ -1399,10 +1399,31 @@ export function readStdinJson() {
   try {
     const raw = readFileSync(0, "utf8").trim();
     if (!raw) return null;
+    traceHookPayload(raw);
     return JSON.parse(raw);
   } catch {
     return null;
   }
+}
+
+// Records the RAW hook payload when PROJECTSTORE_HOOK_TRACE names a file.
+//
+// Everything projectstore believes about a harness's hook contract — that Codex
+// sets `cwd`, that apply_patch carries its paths in `tool_input.command`, that
+// they are project-relative — was verified against payloads this repository
+// wrote itself. That is an assumption validating an assumption. This is how a
+// real session answers the question instead: turn it on, work normally for a
+// minute, and read what actually arrived.
+//
+// Off unless the variable is set, appends only, and never throws: a diagnostic
+// that can break a hook is worse than no diagnostic.
+function traceHookPayload(raw) {
+  const target = process.env.PROJECTSTORE_HOOK_TRACE;
+  if (!target) return;
+  try {
+    mkdirSync(dirname(target), { recursive: true });
+    appendFileSync(target, raw.replace(/\n/g, " ") + "\n", "utf8");
+  } catch {}
 }
 
 export function ensureSessionsDir(vault) {

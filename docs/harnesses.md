@@ -175,6 +175,59 @@ Hooks run from the checkout, so keep it in place or re-run the installer after
 moving it. Restart Codex afterwards: it reads skills, prompts and agents at
 startup.
 
+## Verifying it actually works on Codex
+
+Two halves, and the split is the point.
+
+```bash
+node scripts/smoke-codex.mjs            # the half that can be checked here
+```
+
+Checks that the adapter is current, that the surfaces landed where Codex looks
+in the numbers expected, that the hook paths still resolve (they are absolute —
+moving the checkout breaks them), and that each hook runs and produces the right
+JSON, including a three-file relative `apply_patch` scoring all three paths. Exit
+code 1 on any failure.
+
+**What it cannot check is the contract itself.** Everything projectstore believes
+about Codex's hook payload was verified against payloads this repository wrote —
+an assumption checking an assumption. Only a real session settles it:
+
+```bash
+export PROJECTSTORE_HOOK_TRACE=~/.codex/hook-trace.jsonl
+# start Codex, edit two files, run /compact, exit
+node scripts/smoke-codex.mjs --trace ~/.codex/hook-trace.jsonl
+unset PROJECTSTORE_HOOK_TRACE
+```
+
+`PROJECTSTORE_HOOK_TRACE` appends every raw hook payload as it arrives. The
+summary then answers the three questions everything else rests on: does Codex
+set `cwd` (project-root resolution needs it when `CODEX_PROJECT_DIR` is unset),
+does `apply_patch` carry its envelope in `tool_input.command`, and do the paths
+parse. When one is wrong it names the manifest key to change:
+
+```
+✗ apply_patch envelope is NOT in tool_input.command
+    Found keys: patch, changes
+    Update tools.patch_envelope_field in harnesses/codex.json.
+```
+
+Tracing is off unless the variable is set, appends only, and never throws — a
+diagnostic that can break a hook is worse than no diagnostic.
+
+Four things stay manual, because they are about Codex's own behaviour:
+
+* **Discovery** — type `/` and look for `/projectstore-adr`; ask Codex which
+  projectstore skills and agents it can see. Missing usually means Codex was not
+  restarted, or reads a different `CODEX_HOME`.
+* **The approval gate** — run `/projectstore-adr "test"` and check Codex stops
+  and asks before writing. Here it is prose, not a tool; if it writes without
+  asking, that is the known weakness above, not a bug.
+* **Agents** — ask it to use the `projectstore-critic` subagent, confirming the
+  TOML translation loads and its model/effort keys are accepted.
+* **`doctor`** — `node scripts/doctor.mjs --install` inside a Codex session
+  should report no statusline and no adapter findings.
+
 ### Two Codex differences worth knowing
 
 **The approval gate is prose, not a tool — and on Codex that is all it is.**

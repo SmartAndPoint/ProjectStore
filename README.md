@@ -113,6 +113,10 @@ after moving it). To update: `git pull` and re-run the installer.
 A project bound under one harness is found by the other — `.claude/projectstore.json`
 and `.codex/projectstore.json` are both searched, so you bind once.
 
+Verify it landed: `node scripts/smoke-codex.mjs`. That checks everything
+checkable without a live session; the doc below explains how to record a real
+Codex session and confirm the hook contract itself.
+
 See [docs/harnesses.md](./docs/harnesses.md) for what differs between the two,
 what is deliberately not ported, and how to add a third harness.
 
