@@ -226,7 +226,8 @@ function summariseTrace(file) {
   }
 
   const tools = new Set(rows.map((r) => r.tool_name).filter(Boolean));
-  const unknown = [...tools].filter((t) => !M.tools.write_tools.includes(t));
+  const known = new Set([...M.tools.write_tools, ...(M.tools.known_non_write_tools || [])]);
+  const unknown = [...tools].filter((t) => !known.has(t));
   if (tools.size) console.log(`      ${C.dim}tools seen: ${[...tools].join(", ")}${C.off}`);
   // Unconditional: an unrecognised tool name matters most when apply_patch was
   // ALSO seen, because that is the case where everything looks healthy and one

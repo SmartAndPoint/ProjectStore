@@ -28,7 +28,18 @@
     "patch_envelope_field": "command",
     "approval_tool": null,
     "write_tool_name": "apply_patch",
-    "edit_tool_name": "apply_patch"
+    "edit_tool_name": "apply_patch",
+    "known_non_write_tools": [
+      "Bash",
+      "shell",
+      "unified_exec",
+      "read_file",
+      "list_dir",
+      "view_image",
+      "web_search",
+      "update_plan"
+    ],
+    "_known_comment": "Tools this harness reports that are NOT write paths. Purely to keep scripts/smoke-codex.mjs from flagging them when reading a recorded session — an unrecognised name there is worth a warning, a recognised read-only one is not. A shell is excluded on purpose: it can write, but it passes a command line rather than a path, so nothing is extractable and doctor's work-without-story check is the cover, exactly as on Claude Code."
   },
   "hooks": {
     "_comment": "Codex's hook event names and its stdin/stdout JSON contract match Claude Code's for every event projectstore uses — same session_id/cwd/tool_name/tool_input on the way in, same hookSpecificOutput.additionalContext and top-level systemMessage on the way out. The event map is therefore an identity; it is written out in full anyway so a harness that renames an event only has to edit this table.",

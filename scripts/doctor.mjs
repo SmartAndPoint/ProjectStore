@@ -74,7 +74,7 @@ const AGENT_BLOCK_MARKER = /<!--\s*projectstore:agents v(\d+)/g;
 // without it no bound project ever learns the block changed. The cost is that
 // every already-bound project reports an install issue until it re-runs
 // /projectstore:agents register — intended, and disclosed in the release note.
-const AGENT_BLOCK_VERSION = 3;
+const AGENT_BLOCK_VERSION = 4;
 // The live roster. A copy carrying one of these names does NOT override the
 // bundled agent (ADR-008, verified 2026-08-05): plugin agents register under a
 // scoped id, project/user copies register bare, so the names never collide and

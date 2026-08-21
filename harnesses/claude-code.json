@@ -34,7 +34,18 @@
     "patch_envelope_field": null,
     "approval_tool": "AskUserQuestion",
     "write_tool_name": "the Write tool",
-    "edit_tool_name": "the Edit tool"
+    "edit_tool_name": "the Edit tool",
+    "known_non_write_tools": [
+      "Bash",
+      "Read",
+      "Grep",
+      "Glob",
+      "LS",
+      "WebFetch",
+      "WebSearch",
+      "Task",
+      "TodoWrite"
+    ]
   },
   "hooks": {
     "config_file": "hooks/hooks.json",

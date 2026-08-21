@@ -813,3 +813,58 @@ test("localizeCommands is applied at a choke point, not sprinkled", () => {
     );
   }
 });
+
+// ─── The shared instruction file ───────────────────────────────────────
+
+test("the AGENTS.md block is harness-NEUTRAL, because one file serves every harness", () => {
+  // Found in a live Codex session, not by any check here. Codex reads AGENTS.md
+  // natively and before any prompt, so a block written in Claude Code's dialect
+  // told it the config lived at `.claude/projectstore.json` and the agent was
+  // `projectstore:critic` — and it acted on that, binding the project into the
+  // wrong directory while the generated prompt said otherwise.
+  //
+  // This file cannot be generated per harness: it is ONE file, read by all of
+  // them. So it may not carry a token that is right on one and wrong on the
+  // rest — if it names one harness's spelling, it must name the alternative too.
+  const tmpl = readFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), "utf8");
+  const problems = [];
+
+  for (const m of emittingHarnesses()) {
+    for (const r of m.rewrites) {
+      // Only the rules whose input is a concrete path or command spelling: a
+      // catch-all like "Claude" → "Codex" is prose, not a machine-read token.
+      if (!/^[./~]|^\/projectstore:/.test(r.from)) continue;
+      if (!tmpl.includes(r.from)) continue;
+      if (!tmpl.includes(r.to)) {
+        problems.push(
+          `  names "${r.from}" without naming "${r.to}" — correct on ${sourceHarness().id}, wrong on ${m.id}`,
+        );
+      }
+    }
+  }
+  // The agent ids are the other half, and they are not path-shaped.
+  const src = sourceHarness().id;
+  for (const m of emittingHarnesses()) {
+    const a = tmpl.includes("projectstore:critic");
+    const b = tmpl.includes("projectstore-critic");
+    if (a && !b) problems.push(`  names "projectstore:critic" (${src}) without the ${m.id} spelling`);
+  }
+
+  assert.equal(
+    problems.length, 0,
+    `templates/claude-md-block.md.tmpl is written for one harness:\n${problems.join("\n")}\n\n` +
+    `  Every harness you use reads this same file. Name both spellings, or name\n` +
+    `  neither and use the bare form (\`critic\`, "the projectstore config").\n`,
+  );
+});
+
+test("the block template is registered for every harness a project might use", () => {
+  const tmpl = readFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), "utf8");
+  // Each harness's config directory must be discoverable from the block, since
+  // the block is what tells an agent where to look.
+  for (const m of loadHarnesses().values()) {
+    const p = `${m.runtime.project_config_dir}/${m.runtime.config_basename}`;
+    assert.ok(tmpl.includes(p),
+      `the block never mentions ${m.id}'s config path (${p}) — an agent on that harness cannot find it`);
+  }
+});
