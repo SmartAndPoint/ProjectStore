@@ -313,9 +313,10 @@ function install(opts) {
       // Project trust gets them DISCOVERED; this gets them EXECUTED. They show
       // up in the settings list either way, which is why its absence looks like
       // a broken install rather than a pending approval.
-      console.log(`\n▸ NEXT: review and trust these hooks, or they will not run.`);
-      console.log(`  ${m.display_name} lists them but skips them until each definition is`);
-      console.log(`  approved — trust is recorded against the hook's ${rev.keyed_by}.`);
+      console.log(`\n▸ If the hooks are listed but never fire, check they are TRUSTED:`);
+      console.log(`  ${m.display_name} can list a hook while skipping it until its definition`);
+      console.log(`  is approved — trust is recorded against the hook's ${rev.keyed_by}.`);
+      console.log(`  You may not be prompted; check only if hooks appear idle.`);
       console.log(`    CLI:     ${rev.cli_command}`);
       console.log(`    Desktop: ${rev.ui_path}`);
       console.log(`  Re-running this installer can change those definitions, which revokes`);

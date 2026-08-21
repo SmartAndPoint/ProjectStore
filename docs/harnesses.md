@@ -166,22 +166,24 @@ node scripts/install-codex.mjs --dry-run
 node scripts/install-codex.mjs --uninstall
 ```
 
-**Two gates, and only the second one decides whether hooks run.** Project trust
-(above) gets them *discovered*. Each hook definition must then be *reviewed and
-trusted individually* before Codex will execute it — and until that happens they
-appear in the hooks list while being skipped. Six hooks visible in Settings and
-nothing firing is what a pending approval looks like, which is why it reads as a
-broken install.
+**A second gate exists, and it may or may not ask you.** Codex documents that a
+non-managed command hook must have its exact definition reviewed and trusted
+before it will run, with trust recorded against the hook's hash. In testing,
+granting project trust was sufficient and no separate per-hook approval was
+requested — plausibly because the CLI and the desktop app share one
+`~/.codex` trust store, so an approval given in either covers both. Treat this
+as a thing to check when hooks are listed but idle, not as a step you are
+guaranteed to be prompted for.
 
 ```
 CLI:     /hooks
 Desktop: Settings → Hooks → From Projects → <your project>
 ```
 
-Approval is recorded against the hook's **hash**, so anything that rewrites a
-definition — reinstalling after moving the checkout, an update that changes the
-command — revokes it and the hooks stop again, silently. Expect to re-review
-after an update.
+Where it does apply, approval is recorded against the hook's **hash**, so
+anything that rewrites a definition — reinstalling after moving the checkout, an
+update that changes the command — revokes it. Worth knowing before it happens,
+since the cause would be a step already performed once.
 
 This is deliberate: a repository cannot make you execute arbitrary commands by
 shipping a `.codex/` directory. projectstore therefore never writes into that

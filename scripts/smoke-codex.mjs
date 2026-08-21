@@ -265,11 +265,11 @@ function checklist(dest) {
   contract itself — that Codex sends these fields, discovers these files —
   can only be settled by Codex.${C.off}
 
-  a0. Trust the hooks themselves — the step that catches everyone. Codex LISTS
-     project hooks after the project is trusted, but SKIPS them until each
-     definition is individually reviewed. Six hooks visible in the settings
-     pane and none of them running is the expected look of "not yet approved",
-     not of a broken install.
+  a0. If hooks are listed but idle, check they are trusted. Codex can LIST a
+     project hook while SKIPPING it until its definition is reviewed. Granting
+     project trust was enough in testing and no separate approval was asked
+     for — so check this only when hooks appear listed and dead, rather than
+     expecting to be prompted.
        ${C.dim}CLI:     /hooks
        Desktop: Settings → Hooks → From Projects → <your project>${C.off}
      ${C.dim}Approval is keyed to the hook's hash, so re-running the installer or
