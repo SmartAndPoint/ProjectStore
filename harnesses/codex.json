@@ -52,7 +52,7 @@
       "web_search",
       "update_plan"
     ],
-    "_known_comment": "Tools this harness reports that are NOT write paths. Purely to keep scripts/smoke-codex.mjs from flagging them when reading a recorded session — an unrecognised name there is worth a warning, a recognised read-only one is not. A shell is excluded on purpose: it can write, but it passes a command line rather than a path, so nothing is extractable and doctor's work-without-story check is the cover, exactly as on Claude Code."
+    "_known_comment": "Tools this harness reports that are NOT write paths. Purely to keep scripts/smoke-harness.mjs from flagging them when reading a recorded session — an unrecognised name there is worth a warning, a recognised read-only one is not. A shell is excluded on purpose: it can write, but it passes a command line rather than a path, so nothing is extractable and doctor's work-without-story check is the cover, exactly as on Claude Code."
   },
   "hooks": {
     "_comment": "Codex's hook event names and its stdin/stdout JSON contract match Claude Code's for every event projectstore uses — same session_id/cwd/tool_name/tool_input on the way in, same hookSpecificOutput.additionalContext and top-level systemMessage on the way out. The event map is therefore an identity; it is written out in full anyway so a harness that renames an event only has to edit this table.",
@@ -78,7 +78,7 @@
       "file": "projectstore-<name>.md",
       "format": "prompt-md",
       "invocation": "/projectstore-<name>",
-      "preamble": "> **Codex harness note.** This file was translated from projectstore's source\n> command. Where it says *an approval prompt*, Codex has no `AskUserQuestion`\n> tool: ask the question in plain text as a short numbered list, then **stop and\n> wait for the user's answer** before writing anything. Never infer approval from\n> silence, and never batch several approvals into one question. `$PROJECTSTORE_ROOT`\n> is substituted with an absolute path by `scripts/install-codex.mjs`.",
+      "preamble": "> **Codex harness note.** This file was translated from projectstore's source\n> command. Where it says *an approval prompt*, Codex has no `AskUserQuestion`\n> tool: ask the question in plain text as a short numbered list, then **stop and\n> wait for the user's answer** before writing anything. Never infer approval from\n> silence, and never batch several approvals into one question. `$PROJECTSTORE_ROOT`\n> is substituted with an absolute path by `scripts/install-harness.mjs`.",
       "scope": "user",
       "scope_reason": "Codex discovers custom prompts ONLY under $CODEX_HOME/prompts — there is no project-level prompts directory (openai/codex#4734, #9848 are open requests for one). A project-scoped install would silently ship no slash commands at all, so these stay user-level even when everything else is scoped to the project."
     },
@@ -244,12 +244,12 @@
     },
     {
       "from": "/plugin marketplace update SmartAndPoint",
-      "to": "`git -C <projectstore-root> pull` followed by `node scripts/install-codex.mjs`",
+      "to": "`git -C <projectstore-root> pull` followed by `node scripts/install-harness.mjs`",
       "why": "Codex has no marketplace for this plugin; updating means pulling the checkout and re-running the installer."
     },
     {
       "from": "/plugin marketplace update <marketplace>",
-      "to": "`git pull` + `node scripts/install-codex.mjs`",
+      "to": "`git pull` + `node scripts/install-harness.mjs`",
       "why": "Same, in doctor's generic phrasing."
     },
     {
@@ -306,6 +306,6 @@
   },
   "update_instructions": [
     "**Keeping projectstore current**: this harness installs from a checkout, not a marketplace.",
-    "Pull the checkout and re-run `node scripts/install-codex.mjs`, then restart Codex."
+    "Pull the checkout and re-run `node scripts/install-harness.mjs`, then restart Codex."
   ]
 }

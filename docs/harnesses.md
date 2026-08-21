@@ -95,7 +95,7 @@ have three options and should pick honestly:
   Open `/plugin` → Marketplaces and toggle auto-update.
   <!-- /projectstore:harness -->
   <!-- projectstore:harness except=claude-code -->
-  Pull the checkout and re-run `node scripts/install-codex.mjs`.
+  Pull the checkout and re-run `node scripts/install-harness.mjs`.
   <!-- /projectstore:harness -->
   ```
 
@@ -121,10 +121,21 @@ have three options and should pick honestly:
 
 ## Adding a harness
 
-Copy `harnesses/codex.json`, change the values, run the generator. No source
-surface and no code changes — that is the claim the design makes, and it was
-verified by adding a throwaway third harness and watching all 30 surfaces
-appear from a values-only manifest.
+Copy `harnesses/codex.json`, change the values, run the generator, install it:
+
+```bash
+node scripts/build-adapters.mjs
+node scripts/install-harness.mjs --harness <id> /path/to/project
+node scripts/smoke-harness.mjs --harness <id> /path/to/project
+```
+
+No source surface and no code changes — that is the claim the design makes, and
+it is checked two ways. A test asserts the installer and the preflight name no
+harness in their code, so a `if (id === "codex")` cannot creep back in. And it
+was verified by adding a throwaway third harness twice: once to watch all 30
+surfaces appear from a values-only manifest, and again after the tooling was
+generalised, to watch both scripts accept it, require `--harness` now that the
+choice was ambiguous, and render that flag into the messages they print back.
 
 What the manifest has to answer:
 
@@ -156,15 +167,23 @@ What the manifest has to answer:
 Set `emit: false` only for the harness whose shapes the source is already in —
 today that is Claude Code, and exactly one manifest may claim it.
 
-## Installing on Codex
+## Installing
 
 ```bash
-node scripts/install-codex.mjs                 # scope to this project (default)
-node scripts/install-codex.mjs /path/to/repo   # scope to another project
-node scripts/install-codex.mjs --user          # everything into $CODEX_HOME
-node scripts/install-codex.mjs --dry-run
-node scripts/install-codex.mjs --uninstall
+node scripts/install-harness.mjs                 # scope to this project (default)
+node scripts/install-harness.mjs /path/to/repo   # scope to another project
+node scripts/install-harness.mjs --user          # everything into the harness home
+node scripts/install-harness.mjs --trust         # also mark the project trusted
+node scripts/install-harness.mjs --dry-run
+node scripts/install-harness.mjs --uninstall
 ```
+
+`--harness <id>` picks the harness. It is optional while exactly one harness
+emits an adapter — naming it would be ceremony — and required the moment a
+second does, because guessing between them is the kind of convenience that
+installs the wrong thing silently. `--help` describes whichever harness is
+selected, reading its scoping and trust rules from the manifest rather than
+from prose kept here.
 
 **A second gate exists, and it may or may not ask you.** Codex documents that a
 non-managed command hook must have its exact definition reviewed and trusted
@@ -202,7 +221,7 @@ trust_level = "trusted"
 ```
 
 The installer exits nonzero rather than claim a success it cannot deliver,
-`smoke-codex` fails on it, and `doctor`'s `hooks` finding names it — but only on
+`smoke-harness` fails on it, and `doctor`'s `hooks` finding names it — but only on
 a harness that has such a gate and only when this project actually fails it, so
 it never appears as noise elsewhere. `--user` installs are unaffected: user-level
 hooks do not depend on project trust.
@@ -232,7 +251,7 @@ startup.
 Two halves, and the split is the point.
 
 ```bash
-node scripts/smoke-codex.mjs            # the half that can be checked here
+node scripts/smoke-harness.mjs            # the half that can be checked here
 ```
 
 Checks that the adapter is current, that the surfaces landed where Codex looks
@@ -248,7 +267,7 @@ an assumption checking an assumption. Only a real session settles it:
 ```bash
 export PROJECTSTORE_HOOK_TRACE=~/.codex/hook-trace.jsonl
 # start Codex, edit two files, run /compact, exit
-node scripts/smoke-codex.mjs --trace ~/.codex/hook-trace.jsonl
+node scripts/smoke-harness.mjs --trace ~/.codex/hook-trace.jsonl
 unset PROJECTSTORE_HOOK_TRACE
 ```
 

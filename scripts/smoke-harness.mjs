@@ -1,32 +1,47 @@
 #!/usr/bin/env node
-// projectstore — smoke-codex.mjs
+// projectstore — smoke-harness.mjs
 //
-// Answers "is projectstore actually working on Codex?" as far as it can be
-// answered without a live Codex session, then tells you exactly what only a
-// live session can prove.
+// Answers "is projectstore actually working on this harness?" as far as it can
+// be answered without a live session of it, then says exactly what only a live
+// session can prove.
 //
-// The distinction matters. Everything projectstore believes about Codex's hook
-// contract was verified against payloads this repository wrote itself, which is
-// an assumption checking an assumption. This script checks the half that is
-// genuinely checkable — that the files landed where Codex looks, in the shape
-// it expects, and that each hook runs and produces the right JSON — and then
-// prints the short list of claims only real Codex can settle, with the command
-// that settles them.
+// Harness-agnostic: which harness, which directories, which fields a hook
+// payload should carry, all come from harnesses/<id>.json.
+//
+// The distinction matters. Everything projectstore believes about a harness's
+// hook contract was verified against payloads this repository wrote itself,
+// which is an assumption checking an assumption. This script checks the half
+// that is genuinely checkable — that the files landed where the harness looks,
+// in the shape it expects, and that each hook runs and produces the right JSON
+// — and then prints the short list of claims only a live session can settle,
+// with the command that settles them.
 //
 // Usage:
-//   node scripts/smoke-codex.mjs                 # this project (default)
-//   node scripts/smoke-codex.mjs <project-path>
-//   node scripts/smoke-codex.mjs --user          # a home-scoped install
-//   node scripts/smoke-codex.mjs --trace <file>  # summarise a recorded session
+//   node scripts/smoke-harness.mjs                 # this project (default)
+//   node scripts/smoke-harness.mjs <project-path>
+//   node scripts/smoke-harness.mjs --user          # a home-scoped install
+//   node scripts/smoke-harness.mjs --trace <file>  # summarise a recorded session
+//   node scripts/smoke-harness.mjs --harness <id>  # when more than one emits
 
 import { existsSync, readFileSync, readdirSync, mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { loadHarness, REPO_ROOT } from "./harness.mjs";
-import { surfaceDest, destinations, isProjectTrusted, trustStanza } from "./install-codex.mjs";
+import { loadHarness, emittingHarnesses, commandRef, agentRef, REPO_ROOT } from "./harness.mjs";
+import {
+  surfaceDest, destinations, isProjectTrusted, resolveHarnessId, installCommand,
+} from "./install-harness.mjs";
 
-const M = loadHarness("codex");
+// Resolved once, from argv or from the single emitting harness. Everything
+// below reads the manifest through M, so nothing here knows a harness by name.
+const { id: HARNESS_ID } = resolveHarnessId(process.argv.slice(2));
+const M = HARNESS_ID ? loadHarness(HARNESS_ID) : null;
+if (!M) {
+  console.error(
+    `Which harness? Pass --harness <id>.\n  Known: ${emittingHarnesses().map((h) => h.id).join(", ")}`,
+  );
+  process.exit(2);
+}
 let failed = 0, warned = 0;
 
 const C = { ok: "\x1b[32m✓\x1b[0m", bad: "\x1b[31m✗\x1b[0m", warn: "\x1b[33m!\x1b[0m", dim: "\x1b[2m", off: "\x1b[0m" };
@@ -42,14 +57,14 @@ function checkGenerated() {
   const r = spawnSync(process.execPath, [join(REPO_ROOT, "scripts", "build-adapters.mjs"), "--check"],
     { encoding: "utf8" });
   if (r.status === 0) ok("adapters match the source surfaces");
-  else bad("adapters are stale — Codex would be served the previous version",
+  else bad(`adapters are stale — ${M.display_name} would be served the previous version`,
     `${(r.stderr || "").trim().split("\n")[0]}\n      Run: node scripts/build-adapters.mjs`);
 }
 
-// ─── 2. The install landed where Codex looks ───────────────────────────
+// ─── 2. The install landed where the harness looks ────────────────────
 
 // Surfaces do not share one destination: skills, agents and hooks are scoped to
-// the project, while slash commands can only live in the Codex home directory.
+// the project, while some surfaces can only live in the harness home directory.
 // Checking a single directory would report the other half as missing.
 function checkInstalled(opts) {
   head("2. Installed surfaces");
@@ -64,7 +79,7 @@ function checkInstalled(opts) {
     const want = countSource(key);
     const got = existsSync(dir) ? readdirSync(dir).filter((n) => n.startsWith("projectstore-")).length : 0;
     if (got === 0) {
-      bad(`no ${key} installed`, `${dir}\n      Run: node scripts/install-codex.mjs`);
+      bad(`no ${key} installed`, `${dir}\n      Run: node scripts/install-harness.mjs`);
       allThere = false;
     } else if (got < want) { warn(`${got} of ${want} ${key} installed`, dir); allThere = false; }
     else ok(`${got} ${key}`);
@@ -95,24 +110,24 @@ function checkInstalled(opts) {
     const m = cmd.match(/"([^"]+ps-hook\.mjs)"/);
     if (m && !existsSync(m[1])) {
       bad(`${event}: wrapper path does not exist — the checkout moved?`,
-        `${m[1]}\n      Re-run: node scripts/install-codex.mjs`);
+        `${m[1]}\n      Re-run: node scripts/install-harness.mjs`);
     }
   }
-  // The check that decides whether any of the above matters. Codex skips an
-  // untrusted project's .codex/ layer in silence, so hooks installed there
-  // simply never run and every other check here still passes.
-  if (!opts.userOnly) {
+  // The check that decides whether any of the above matters: a harness that
+  // gates project config behind trust skips an untrusted project's layer in
+  // silence, so hooks installed there never run and every other check passes.
+  if (!opts.userOnly && M.runtime?.project_trust) {
     const root = opts.cwd || process.cwd();
-    if (isProjectTrusted(M, root, opts)) ok("project is trusted — its .codex/ hooks will load");
-    else bad("PROJECT IS NOT TRUSTED — Codex will ignore the hooks installed above",
-      `Everything else here passes and nothing fires.\n      Fix: node scripts/install-codex.mjs ${root} --trust`);
+    if (isProjectTrusted(M, root, opts)) ok(`project is trusted — its ${M.runtime.project_config_dir}/ hooks will load`);
+    else bad(`PROJECT IS NOT TRUSTED — ${M.display_name} will ignore the hooks installed above`,
+      `Everything else here passes and nothing fires.\n      Fix: ${installCommand(M, root, "--trust")}`);
   }
   return allThere;
 }
 
 // Counted from the GENERATED tree, not the source directory. A surface gated
 // out of this harness — `commands/statusline.md` carries `harness-only:
-// claude-code`, because Codex has no status line slot — is correctly absent,
+// claude-code`, because no other harness has a status line slot — is absent,
 // and counting the source would report that deliberate omission as a shortfall.
 function countSource(key) {
   const s = M.surfaces[key];
@@ -142,7 +157,9 @@ function runHook(rel, payload, proj) {
   const r = spawnSync(process.execPath, [join(REPO_ROOT, M.output_dir, "bin", "ps-hook.mjs"), rel], {
     input: JSON.stringify(payload),
     encoding: "utf8",
-    env: { ...process.env, PROJECTSTORE_HARNESS: "codex", CODEX_PROJECT_DIR: proj },
+    // Both from the manifest: the harness id it should run as, and the name of
+    // the variable that harness uses to state a project root.
+    env: { ...process.env, PROJECTSTORE_HARNESS: M.id, [M.runtime.project_dir_env]: proj },
   });
   let json = null;
   try { json = JSON.parse((r.stdout || "").trim().split("\n").filter(Boolean).pop() || "null"); } catch {}
@@ -160,8 +177,8 @@ function checkHooks() {
     else {
       const ctx = start.json.hookSpecificOutput.additionalContext;
       const wrong = ctx.match(/\/projectstore:[a-z]+/g);
-      if (wrong) bad("SessionStart used Claude Code command spelling", [...new Set(wrong)].join(" "));
-      else ok("SessionStart injects context", `${ctx.length} chars, Codex spelling`);
+      if (wrong) bad("SessionStart used the source harness" + "'s command spelling", [...new Set(wrong)].join(" "));
+      else ok("SessionStart injects context", `${ctx.length} chars, ${M.display_name} spelling`);
     }
 
     // The load-bearing one: a relative multi-file patch must score every path.
@@ -192,7 +209,7 @@ function checkHooks() {
 
     const pc = runHook("hooks/pre-compact.mjs", { session_id: "smoke", trigger: "manual", cwd: proj }, proj);
     if (pc.json?.systemMessage) {
-      if (/\/projectstore:[a-z]+/.test(pc.json.systemMessage)) bad("PreCompact used Claude Code command spelling");
+      if (/\/projectstore:[a-z]+/.test(pc.json.systemMessage)) bad("PreCompact used the source harness" + "'s command spelling");
       else ok("PreCompact emits its line");
     } else bad("PreCompact produced no systemMessage");
   } finally {
@@ -203,7 +220,7 @@ function checkHooks() {
 // ─── 4. Recorded-session summary ───────────────────────────────────────
 
 function summariseTrace(file) {
-  head(`4. Recorded Codex session  ${C.dim}${file}${C.off}`);
+  head(`4. Recorded ${M.display_name} session  ${C.dim}${file}${C.off}`);
   if (!existsSync(file)) {
     bad("no trace file", `Record one first — see the checklist below.`);
     return;
@@ -258,14 +275,14 @@ function summariseTrace(file) {
 // ─── What only a live session can prove ────────────────────────────────
 
 function checklist(dest) {
-  head("What this script CANNOT prove — do these in a real Codex session");
+  head(`What this script CANNOT prove — do these in a real ${M.display_name} session`);
   const trace = join(dest, "hook-trace.jsonl");
   console.log(`
   ${C.dim}Everything above ran against payloads this repository wrote. The
-  contract itself — that Codex sends these fields, discovers these files —
-  can only be settled by Codex.${C.off}
+  contract itself — that ${M.display_name} sends these fields and discovers
+  these files — can only be settled by ${M.display_name}.${C.off}
 
-  a0. If hooks are listed but idle, check they are trusted. Codex can LIST a
+  a0. If hooks are listed but idle, check they are trusted. ${M.display_name} can LIST a
      project hook while SKIPPING it until its definition is reviewed. Granting
      project trust was enough in testing and no separate approval was asked
      for — so check this only when hooks appear listed and dead, rather than
@@ -275,32 +292,32 @@ function checklist(dest) {
      ${C.dim}Approval is keyed to the hook's hash, so re-running the installer or
      moving the checkout revokes it and you review again.${C.off}
 
-  a. Discovery. Start Codex in a bound project and type "/". You should see
+  a. Discovery. Start ${M.display_name} in a bound project and type "/". You should see
      ${C.dim}/projectstore-adr, /projectstore-epic, /projectstore-status …${C.off}
      Then ask it: "which projectstore skills and agents can you see?"
-     ${C.dim}Missing → Codex was not restarted, or it reads a different CODEX_HOME.${C.off}
+     ${C.dim}Missing → the harness was not restarted, or it reads a different ${M.runtime.home_env}.${C.off}
 
   b. Hooks firing, and what they really send:
 
        export PROJECTSTORE_HOOK_TRACE=${trace}
-       ${C.dim}# start Codex IN A TERMINAL, edit two files, run /compact, exit${C.off}
-       node scripts/smoke-codex.mjs --trace ${trace}
+       ${C.dim}# start ${M.display_name} IN A TERMINAL, edit two files, run /compact, exit${C.off}
+       node scripts/smoke-harness.mjs --trace ${trace}
 
-     ${C.dim}This is the one that matters. It answers whether Codex sets \`cwd\`,
+     ${C.dim}This is the one that matters. It answers whether ${M.display_name} sets \`cwd\`,
      whether apply_patch carries its envelope where the manifest says, and
      whether the paths are relative — the three assumptions everything else
      rests on. Unset the variable afterwards.
 
-     Terminal only: the desktop app does not inherit your shell environment, so
+     Terminal only: a desktop client does not inherit your shell environment, so
      the variable never reaches it and the trace stays empty whether or not its
      hooks run. For the desktop, use (e) instead — it reads the vault rather
      than the environment.${C.off}
 
   c. The approval gate. Run ${C.dim}/projectstore-adr "test decision"${C.off} and check that
-     Codex STOPS and asks before writing. On Codex this is prose, not a tool —
+     ${M.display_name} STOPS and asks before writing. Here this is prose, not a tool —
      if it writes without asking, that is the known weakness, not a bug.
 
-  d. Agents. Ask Codex to "use the projectstore-critic subagent on <file>".
+  d. Agents. Ask ${M.display_name} to use the ${agentRef("critic", { PROJECTSTORE_HARNESS: M.id })} subagent on a file.
      ${C.dim}Confirms the TOML translation loads and the model/effort keys are accepted.${C.off}
 
   e. ${C.dim}node scripts/doctor.mjs --install${C.off} — no statusline and no adapter
@@ -321,11 +338,14 @@ function checklist(dest) {
 function main() {
   const argv = process.argv.slice(2);
   const traceAt = argv.indexOf("--trace");
-  const positional = argv.slice(traceAt >= 0 ? traceAt + 2 : 0).find((a) => !a.startsWith("-"));
+  // Skip the --trace file and the --harness id; neither is the project path.
+  const hAt = argv.indexOf("--harness");
+  const skip = new Set([traceAt >= 0 ? traceAt + 1 : -1, hAt >= 0 ? hAt + 1 : -1]);
+  const positional = argv.find((a, i) => !a.startsWith("-") && !skip.has(i));
   const opts = { userOnly: argv.includes("--user"), cwd: positional ? resolve(positional) : process.cwd() };
   const home = surfaceDest(M, "commands", opts);
 
-  console.log(`projectstore — Codex preflight  ${C.dim}${REPO_ROOT}${C.off}`);
+  console.log(`projectstore — ${M.display_name} preflight  ${C.dim}${REPO_ROOT}${C.off}`);
 
   if (traceAt >= 0) {
     summariseTrace(argv[traceAt + 1] || join(home, "hook-trace.jsonl"));

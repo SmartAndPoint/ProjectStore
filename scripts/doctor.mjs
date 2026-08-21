@@ -27,7 +27,7 @@ import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { diffAgainstDisk } from "./build-adapters.mjs";
-import { isProjectTrusted } from "./install-codex.mjs";
+import { isProjectTrusted } from "./install-harness.mjs";
 import {
   emittingHarnesses, activeHarness, commandRef, localizeCommands,
   hasCapability, projectConfigDir, REPO_ROOT,
@@ -202,7 +202,7 @@ function trustHint() {
     if (isProjectTrusted(m, proj)) return "";
     return `Also: this project is NOT trusted, so ${m.display_name} ignores its ` +
       `${m.runtime.project_config_dir}/ layer entirely — project-scoped hooks never load. ` +
-      `Repair: node scripts/install-codex.mjs ${proj} --trust`;
+      `Repair: node scripts/install-harness.mjs ${proj} --trust`;
   } catch {
     return "";
   }

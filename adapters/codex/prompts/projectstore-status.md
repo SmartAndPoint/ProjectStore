@@ -12,7 +12,7 @@ description: Show what's bound, the active layout, and recent vault activity.
 > tool: ask the question in plain text as a short numbered list, then **stop and
 > wait for the user's answer** before writing anything. Never infer approval from
 > silence, and never batch several approvals into one question. `$PROJECTSTORE_ROOT`
-> is substituted with an absolute path by `scripts/install-codex.mjs`.
+> is substituted with an absolute path by `scripts/install-harness.mjs`.
 
 You are summarizing the projectstore binding and recent vault activity.
 

@@ -13,7 +13,7 @@ argument-hint: <vault-path> [--layout engineering] [--lang en|ru|es|de|fr|zh]
 > tool: ask the question in plain text as a short numbered list, then **stop and
 > wait for the user's answer** before writing anything. Never infer approval from
 > silence, and never batch several approvals into one question. `$PROJECTSTORE_ROOT`
-> is substituted with an absolute path by `scripts/install-codex.mjs`.
+> is substituted with an absolute path by `scripts/install-harness.mjs`.
 
 You are binding the current project to a markdown vault for projectstore.
 
@@ -102,5 +102,5 @@ Steps:
  11. **Keeping projectstore current**: this harness installs projectstore from a
     checkout rather than a marketplace, so there is no auto-update to enable.
     Tell the user: pull the checkout and re-run
-    `node scripts/install-codex.mjs`, then restart the harness so skills,
+    `node scripts/install-harness.mjs`, then restart the harness so skills,
     prompts and agents are re-read.

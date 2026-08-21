@@ -115,6 +115,6 @@ Do NOT offer a preset list of model names — they differ per harness and any li
 11. **Keeping projectstore current**: this harness installs projectstore from a
     checkout rather than a marketplace, so there is no auto-update to enable.
     Tell the user: pull the checkout and re-run
-    `node scripts/install-codex.mjs`, then restart the harness so skills,
+    `node scripts/install-harness.mjs`, then restart the harness so skills,
     prompts and agents are re-read.
 -->

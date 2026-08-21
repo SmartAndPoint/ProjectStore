@@ -99,11 +99,11 @@ installed from a checkout rather than a marketplace:
 ```bash
 git clone https://github.com/SmartAndPoint/ProjectStore.git
 cd ProjectStore
-node scripts/install-codex.mjs /path/to/your/project
+node scripts/install-harness.mjs /path/to/your/project
 ```
 
 ```bash
-node scripts/install-codex.mjs /path/to/your/project --trust
+node scripts/install-harness.mjs /path/to/your/project --trust
 ```
 
 Skills, agents and hooks are scoped to that project, so projectstore's hooks do
@@ -124,7 +124,7 @@ after moving it). To update: `git pull` and re-run the installer.
 A project bound under one harness is found by the other — `.claude/projectstore.json`
 and `.codex/projectstore.json` are both searched, so you bind once.
 
-Verify it landed: `node scripts/smoke-codex.mjs`. That checks everything
+Verify it landed: `node scripts/smoke-harness.mjs`. That checks everything
 checkable without a live session; the doc below explains how to record a real
 Codex session and confirm the hook contract itself.
 

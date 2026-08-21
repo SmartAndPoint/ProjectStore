@@ -13,7 +13,7 @@ argument-hint: <title> | activate <SPEC-ID> | supersede <SPEC-ID>
 > tool: ask the question in plain text as a short numbered list, then **stop and
 > wait for the user's answer** before writing anything. Never infer approval from
 > silence, and never batch several approvals into one question. `$PROJECTSTORE_ROOT`
-> is substituted with an absolute path by `scripts/install-codex.mjs`.
+> is substituted with an absolute path by `scripts/install-harness.mjs`.
 
 You are managing a **spec** — the durable, normative "how" of a subsystem
 (ADR-007): it references the ADR(s) that decided the approach, carries numbered

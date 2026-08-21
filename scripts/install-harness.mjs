@@ -1,9 +1,14 @@
 #!/usr/bin/env node
-// projectstore — install-codex.mjs
+// projectstore — install-harness.mjs
 //
-// Copies the generated Codex adapter into a Codex config directory, so Codex
-// discovers projectstore's skills, prompts, agents and hooks the way it
+// Copies a generated adapter into its harness's config directories, so that
+// harness discovers projectstore's skills, prompts, agents and hooks the way it
 // discovers its own.
+//
+// Harness-agnostic by construction: which harness, which directories, which
+// surfaces are project-scoped and which cannot be, all come from
+// harnesses/<id>.json. Adding a harness means adding that file — this script
+// does not learn a new name.
 //
 // Why an installer exists at all: Codex finds these surfaces by walking real
 // directories under $CODEX_HOME (or <project>/.codex). It cannot be pointed at
@@ -18,11 +23,7 @@
 //     clobbering it would silently remove the user's own hooks, which is the
 //     kind of damage nobody attributes to a plugin installer.
 //
-// Usage:
-//   node scripts/install-codex.mjs                 # into $CODEX_HOME (~/.codex)
-//   node scripts/install-codex.mjs --project       # into <cwd>/.codex
-//   node scripts/install-codex.mjs --dry-run
-//   node scripts/install-codex.mjs --uninstall
+// Usage: node scripts/install-harness.mjs --help
 //
 // Pure node, no external deps.
 
@@ -31,9 +32,19 @@ import {
 } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { homedir } from "node:os";
-import { loadHarness, REPO_ROOT } from "./harness.mjs";
+import { loadHarness, emittingHarnesses, REPO_ROOT } from "./harness.mjs";
 
-const HARNESS_ID = "codex";
+// The harness to install for. With exactly one emitting harness the flag is
+// optional — naming it would be ceremony. With more than one it is required,
+// because guessing which of several the user meant is the kind of convenience
+// that installs the wrong thing silently.
+export function resolveHarnessId(argv = []) {
+  const at = argv.indexOf("--harness");
+  if (at >= 0 && argv[at + 1]) return { id: argv[at + 1], explicit: true };
+  const emitting = emittingHarnesses();
+  if (emitting.length === 1) return { id: emitting[0].id, explicit: false };
+  return { id: null, explicit: false, choices: emitting.map((h) => h.id) };
+}
 
 // The marker that makes uninstall and merge safe. Every projectstore hook runs
 // through the generated wrapper, so a hook entry is ours exactly when its
@@ -42,10 +53,37 @@ const HARNESS_ID = "codex";
 // would let us delete something a user wrote.
 const WRAPPER_MARK = "/bin/ps-hook.mjs";
 
-function harness() {
-  const m = loadHarness(HARNESS_ID);
+// How to invoke this script for a given harness — with the --harness flag only
+// when more than one harness could be meant. Every message that tells the user
+// to re-run goes through here, so none of them can name a stale script.
+export function installCommand(m, ...args) {
+  const need = emittingHarnesses().length > 1;
+  const parts = ["node scripts/install-harness.mjs"];
+  if (need && m?.id) parts.push(`--harness ${m.id}`);
+  parts.push(...args.filter(Boolean));
+  return parts.join(" ");
+}
+
+function harness(opts = {}) {
+  const id = opts.harnessId;
+  if (!id) {
+    const known = emittingHarnesses().map((h) => h.id);
+    console.error(
+      `Which harness? Pass --harness <id>.\n` +
+      `  Known: ${known.join(", ") || "(none declare emit: true)"}`,
+    );
+    process.exit(2);
+  }
+  const m = loadHarness(id);
   if (!m) {
-    console.error(`No harnesses/${HARNESS_ID}.json — cannot install.`);
+    console.error(
+      `No harnesses/${id}.json — cannot install.\n` +
+      `  Known: ${emittingHarnesses().map((h) => h.id).join(", ")}`,
+    );
+    process.exit(2);
+  }
+  if (!m.emit) {
+    console.error(`Harness "${id}" declares emit: false — it has no generated adapter to install.`);
     process.exit(2);
   }
   return m;
@@ -87,10 +125,6 @@ export function destinations(m, opts = {}) {
   return out;
 }
 
-// Back-compat for callers that predate scoping.
-export function codexHome(m, { project = false, ...rest } = {}) {
-  return project ? projectDir(m, rest) : userHome(m, rest);
-}
 
 // ─── File collection ───────────────────────────────────────────────────
 
@@ -239,7 +273,7 @@ function entryIsOurs(entry) {
 // ─── Actions ───────────────────────────────────────────────────────────
 
 function install(opts) {
-  const m = harness();
+  const m = harness(opts);
   const { dryRun } = opts;
   const { copies, hooksFile, hooksDest } = plan(m, REPO_ROOT, opts);
 
@@ -299,7 +333,7 @@ function install(opts) {
       console.log(`  Codex loads a project's .codex/ layer only for trusted projects, and skips`);
       console.log(`  it silently otherwise — the hooks would never fire and nothing would say so.`);
       console.log(`\n  Fix it with either:`);
-      console.log(`    node scripts/install-codex.mjs ${root} --trust`);
+      console.log(`    ${installCommand(m, root, "--trust")}`);
       console.log(`  or add to ${join(userHome(m, opts), "config.toml")}:\n`);
       for (const l of trustStanza(root).trimEnd().split("\n")) console.log(`    ${l}`);
       process.exitCode = 1;
@@ -328,7 +362,7 @@ function install(opts) {
 }
 
 function uninstall(opts) {
-  const m = harness();
+  const m = harness(opts);
   const { dryRun } = opts;
   const { copies, hooksDest } = plan(m, REPO_ROOT, opts);
   const acts = [];
@@ -416,8 +450,17 @@ function report(acts, dryRun, m, opts) {
 
 function main() {
   const argv = process.argv.slice(2);
-  const positional = argv.find((a) => !a.startsWith("-"));
+  const { id: harnessId } = resolveHarnessId(argv);
+  // The harness id is a flag VALUE, so it must not be mistaken for the
+  // project path — the one positional this script takes.
+  // `i !== at + 1` skips the harness id so it is not read as the project path.
+  // Guarded on at >= 0: with the flag absent, indexOf returns -1 and the
+  // expression excludes index 0 — swallowing the one positional this script
+  // takes, so a path argument was silently ignored and the install went to cwd.
+  const at = argv.indexOf("--harness");
+  const positional = argv.find((a, i) => !a.startsWith("-") && (at < 0 || i !== at + 1));
   const opts = {
+    harnessId,
     // Project-scoped by default. `--project` is kept as an accepted no-op so
     // instructions written against the previous default still work.
     userOnly: argv.includes("--user"),
@@ -426,23 +469,37 @@ function main() {
     trust: argv.includes("--trust"),
   };
   if (argv.includes("--help") || argv.includes("-h")) {
-    console.log(`projectstore — install for Codex
-
-  node scripts/install-codex.mjs [project-path]   scope to a project (default: cwd)
-  node scripts/install-codex.mjs --user           install everything into $CODEX_HOME
-  node scripts/install-codex.mjs --dry-run        show what would change
-  node scripts/install-codex.mjs --trust          also mark the project trusted
-  node scripts/install-codex.mjs --uninstall      remove it again
-
-Codex loads a project's .codex/ layer only for TRUSTED projects and skips it
-silently otherwise, so a project-scoped install whose project is untrusted
-installs hooks that never fire. The installer checks this and exits nonzero
-rather than reporting a success it cannot deliver.
-
-Skills, agents and hooks are scoped to the project, so hooks do not fire in
-repositories that have no vault bound. Slash commands are not scopeable —
-Codex discovers them only under $CODEX_HOME/prompts — so they are installed
-there whichever mode you use.`);
+    const emitting = emittingHarnesses();
+    const one = emitting.length === 1 ? emitting[0] : null;
+    const flag = one ? "" : " --harness <id>";
+    const m = harnessId ? loadHarness(harnessId) : one;
+    const L = [
+      `projectstore — install for ${m ? m.display_name : "a harness"}`,
+      ``,
+      `  node scripts/install-harness.mjs${flag} [project-path]   scope to a project (default: cwd)`,
+      `  node scripts/install-harness.mjs${flag} --user           install everything into the harness home`,
+      `  node scripts/install-harness.mjs${flag} --dry-run        show what would change`,
+      `  node scripts/install-harness.mjs${flag} --trust          also mark the project trusted`,
+      `  node scripts/install-harness.mjs${flag} --uninstall      remove it again`,
+      ``,
+      `Harnesses with a generated adapter: ${emitting.map((h) => h.id).join(", ") || "(none)"}`,
+    ];
+    // Everything below is read from the harness's manifest rather than
+    // described here, so a second harness explains itself without editing this.
+    if (m) {
+      const scoped = Object.entries(m.surfaces || {})
+        .filter(([, v]) => v?.supported && v.scope === "project").map(([k]) => k);
+      const userLevel = Object.entries(m.surfaces || {})
+        .filter(([, v]) => v?.supported && v.scope !== "project").map(([k]) => k);
+      if (scoped.length) {
+        L.push(``, `Scoped to the project: ${scoped.join(", ")}.`);
+      }
+      for (const [k, v] of Object.entries(m.surfaces || {})) {
+        if (userLevel.includes(k) && v.scope_reason) L.push(``, `${k}: ${v.scope_reason}`);
+      }
+      if (m.runtime?.project_trust?._comment) L.push(``, m.runtime.project_trust._comment);
+    }
+    console.log(L.join("\n"));
     return;
   }
   if (argv.includes("--uninstall")) uninstall(opts);

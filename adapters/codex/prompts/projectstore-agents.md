@@ -13,7 +13,7 @@ argument-hint: "<register | unregister | status | configure>"
 > tool: ask the question in plain text as a short numbered list, then **stop and
 > wait for the user's answer** before writing anything. Never infer approval from
 > silence, and never batch several approvals into one question. `$PROJECTSTORE_ROOT`
-> is substituted with an absolute path by `scripts/install-codex.mjs`.
+> is substituted with an absolute path by `scripts/install-harness.mjs`.
 
 You are managing projectstore's agent integration (ADR-002 block lifecycle,
 ADR-003 presets as revised by ADR-008 — model per invocation, no copies). Require a bound project for every

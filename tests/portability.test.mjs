@@ -719,7 +719,7 @@ test("a Windows checkout path survives hook-config substitution", async () => {
   // escape sequences inside a JSON string literal and JSON.parse fails before
   // anything is installed. Substituting into the parsed structure means the
   // path is never read as JSON syntax.
-  const { substituteRootDeep } = await import("../scripts/install-codex.mjs");
+  const { substituteRootDeep } = await import("../scripts/install-harness.mjs");
   const m = loadHarness("codex");
   const win = "C:\\Users\\dev\\ProjectStore";
   const parsed = JSON.parse(
@@ -740,7 +740,7 @@ test("a Windows checkout path survives hook-config substitution", async () => {
 });
 
 test("substituteRootDeep only rewrites strings, at any depth", async () => {
-  const { substituteRootDeep } = await import("../scripts/install-codex.mjs");
+  const { substituteRootDeep } = await import("../scripts/install-harness.mjs");
   const m = loadHarness("codex");
   const tok = m.hooks.root_placeholder;
   const input = { a: `${tok}/x`, b: [1, true, null, `${tok}/y`], c: { d: 7, e: `${tok}` } };
@@ -769,7 +769,7 @@ test("runtime code that names a command routes it through localizeCommands", () 
     // Searches FOR the Claude Code spelling in generated output, to report it
     // as a defect. Localizing it would make the diagnostic unable to name the
     // thing it exists to catch.
-    "scripts/smoke-codex.mjs",
+    "scripts/smoke-harness.mjs",
   ]);
   const problems = [];
 
@@ -915,7 +915,7 @@ test("project trust is read correctly from the harness config", async () => {
   // project-scoped by default, getting this predicate wrong means either
   // reporting a working install that can never fire, or nagging about a
   // project that is already fine.
-  const { isProjectTrusted, trustStanza } = await import("../scripts/install-codex.mjs");
+  const { isProjectTrusted, trustStanza } = await import("../scripts/install-harness.mjs");
   const { mkdtempSync, writeFileSync: wf } = await import("node:fs");
   const { tmpdir } = await import("node:os");
 
@@ -958,7 +958,7 @@ test("project trust is read correctly from the harness config", async () => {
 });
 
 test("granting trust preserves the rest of the user's config", async () => {
-  const { grantTrust, isProjectTrusted } = await import("../scripts/install-codex.mjs");
+  const { grantTrust, isProjectTrusted } = await import("../scripts/install-harness.mjs");
   const { mkdtempSync, writeFileSync: wf, readFileSync: rf } = await import("node:fs");
   const { tmpdir } = await import("node:os");
 
@@ -979,4 +979,85 @@ test("granting trust preserves the rest of the user's config", async () => {
   assert.equal(grantTrust(m, "/mine", opts).changed, false);
   const twice = rf(join(home, "config.toml"), "utf8");
   assert.equal((twice.match(/\[projects\."\/mine"\]/g) || []).length, 1);
+});
+
+// ─── The installer is a harness tool, not a Codex tool ─────────────────
+
+test("the installer and the preflight name no harness in their code", () => {
+  // The claim this repository makes is that adding a harness is a JSON file.
+  // A `if (harness === "codex")` anywhere in the tooling makes that false in a
+  // way nothing else here would notice: the generator would still emit a
+  // complete adapter, and installing it would still quietly do the wrong thing.
+  const ids = harnessIds().filter((id) => id !== sourceHarness().id);
+  const problems = [];
+  for (const f of ["scripts/install-harness.mjs", "scripts/smoke-harness.mjs"]) {
+    const src = readFileSync(join(REPO, f), "utf8");
+    // Comments may name a harness as an example; code may not.
+    const code = src.split("\n").filter((l) => {
+      const t = l.trim();
+      return !t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*");
+    }).join("\n");
+    for (const id of ids) {
+      const m = loadHarness(id);
+      for (const needle of [`"${id}"`, `'${id}'`, `"${m.display_name}"`]) {
+        if (code.includes(needle)) {
+          problems.push(`  ${f} hardcodes ${needle} — read it from the manifest instead`);
+        }
+      }
+    }
+  }
+  assert.equal(problems.length, 0, `harness-specific tooling:\n${problems.join("\n")}`);
+});
+
+test("the installer requires --harness only when it could be ambiguous", async () => {
+  const { resolveHarnessId } = await import("../scripts/install-harness.mjs");
+  const emitting = emittingHarnesses();
+
+  // Explicit always wins, and is the only form that works with several.
+  assert.deepEqual(
+    { id: "codex", explicit: true },
+    { ...resolveHarnessId(["--harness", "codex", "/some/path"]) },
+  );
+  // A path that follows --harness must not be read as the harness id, and the
+  // harness id must not be read as the path.
+  assert.equal(resolveHarnessId(["--harness", "codex", "/p"]).id, "codex");
+
+  if (emitting.length === 1) {
+    assert.equal(resolveHarnessId([]).id, emitting[0].id, "one harness needs no flag");
+    assert.equal(resolveHarnessId([]).explicit, false);
+  } else {
+    assert.equal(resolveHarnessId([]).id, null, "several harnesses must not be guessed between");
+  }
+});
+
+test("the invocation the tooling prints back is one that works", async () => {
+  const { installCommand } = await import("../scripts/install-harness.mjs");
+  const emitting = emittingHarnesses();
+  for (const m of emitting) {
+    const cmd = installCommand(m, "/proj", "--trust");
+    assert.ok(cmd.startsWith("node scripts/install-harness.mjs"), cmd);
+    assert.ok(cmd.includes("/proj") && cmd.includes("--trust"), cmd);
+    // The flag appears exactly when omitting it would be ambiguous.
+    assert.equal(cmd.includes("--harness"), emitting.length > 1,
+      `${m.id}: --harness should appear only with more than one emitting harness`);
+  }
+});
+
+test("a project path argument is honoured, with or without --harness", async () => {
+  // Regression: the guard that stops the harness id being read as the project
+  // path was `i !== at + 1`, and indexOf returns -1 when the flag is absent —
+  // so it excluded index 0 and swallowed the one positional the script takes.
+  // The install then went to the current directory instead of the named
+  // project, silently, and reported success about the wrong place.
+  const { resolveHarnessId } = await import("../scripts/install-harness.mjs");
+  const pick = (argv) => {
+    const at = argv.indexOf("--harness");
+    return argv.find((a, i) => !a.startsWith("-") && (at < 0 || i !== at + 1));
+  };
+  assert.equal(pick(["/some/project", "--trust"]), "/some/project", "no flag: path survives");
+  assert.equal(pick(["--trust", "/some/project"]), "/some/project", "flags first: path survives");
+  assert.equal(pick(["--harness", "codex", "/some/project"]), "/some/project",
+    "the harness id is not the path");
+  assert.equal(pick(["--harness", "codex"]), undefined, "no path given is no path");
+  assert.equal(resolveHarnessId(["--harness", "codex", "/some/project"]).id, "codex");
 });
