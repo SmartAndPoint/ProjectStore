@@ -166,6 +166,23 @@ node scripts/install-codex.mjs --dry-run
 node scripts/install-codex.mjs --uninstall
 ```
 
+**Project trust is part of the install, not a detail.** Codex loads a project's
+`.codex/` layer — its config *and its hooks* — only when the project is marked
+trusted in `~/.codex/config.toml`, and skips the whole layer in silence
+otherwise. A project-scoped install into an untrusted project therefore writes
+hooks that can never fire, with nothing reporting it. `--trust` adds the stanza:
+
+```toml
+[projects."/path/to/repo"]
+trust_level = "trusted"
+```
+
+The installer exits nonzero rather than claim a success it cannot deliver,
+`smoke-codex` fails on it, and `doctor`'s `hooks` finding names it — but only on
+a harness that has such a gate and only when this project actually fails it, so
+it never appears as noise elsewhere. `--user` installs are unaffected: user-level
+hooks do not depend on project trust.
+
 **The install is split, and the split is not a choice.** Skills, agents and
 hooks go into `<project>/.codex/` — scoping the hooks is the point, since
 home-level hooks fire in *every* Codex project, costing a node process per tool

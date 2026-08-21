@@ -24,7 +24,7 @@ import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { loadHarness, REPO_ROOT } from "./harness.mjs";
-import { surfaceDest, destinations } from "./install-codex.mjs";
+import { surfaceDest, destinations, isProjectTrusted, trustStanza } from "./install-codex.mjs";
 
 const M = loadHarness("codex");
 let failed = 0, warned = 0;
@@ -97,6 +97,15 @@ function checkInstalled(opts) {
       bad(`${event}: wrapper path does not exist — the checkout moved?`,
         `${m[1]}\n      Re-run: node scripts/install-codex.mjs`);
     }
+  }
+  // The check that decides whether any of the above matters. Codex skips an
+  // untrusted project's .codex/ layer in silence, so hooks installed there
+  // simply never run and every other check here still passes.
+  if (!opts.userOnly) {
+    const root = opts.cwd || process.cwd();
+    if (isProjectTrusted(M, root, opts)) ok("project is trusted — its .codex/ hooks will load");
+    else bad("PROJECT IS NOT TRUSTED — Codex will ignore the hooks installed above",
+      `Everything else here passes and nothing fires.\n      Fix: node scripts/install-codex.mjs ${root} --trust`);
   }
   return allThere;
 }

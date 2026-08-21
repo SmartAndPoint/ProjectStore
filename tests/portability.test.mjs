@@ -906,3 +906,77 @@ test("the multi-session warning names each sibling's harness, not the reader's",
   assert.ok(!/activeHarness\(\)/.test(warn),
     "buildOthersWarning must not name the reader's harness — the sibling may be on another");
 });
+
+// ─── Project trust ─────────────────────────────────────────────────────
+
+test("project trust is read correctly from the harness config", async () => {
+  // Codex loads a project's .codex/ layer — its hooks included — ONLY for
+  // trusted projects, and skips it silently otherwise. Since hooks install
+  // project-scoped by default, getting this predicate wrong means either
+  // reporting a working install that can never fire, or nagging about a
+  // project that is already fine.
+  const { isProjectTrusted, trustStanza } = await import("../scripts/install-codex.mjs");
+  const { mkdtempSync, writeFileSync: wf } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+
+  const home = mkdtempSync(join(tmpdir(), "ps-trust-"));
+  const opts = { env: { CODEX_HOME: home } };
+  const m = loadHarness("codex");
+
+  // No config file at all.
+  assert.equal(isProjectTrusted(m, "/a", opts), false, "missing config is not trust");
+
+  wf(join(home, "config.toml"), [
+    '[mcp_servers.jira]',
+    'command = "jira-mcp"',
+    '',
+    '[projects."/trusted/one"]',
+    'trust_level = "trusted"',
+    '',
+    '[projects."/explicitly/untrusted"]',
+    'trust_level = "untrusted"',
+    '',
+    "[projects.'/single/quoted']",
+    "trust_level = 'trusted'",
+    '',
+    '[projects."/commented"]',
+    '# trust_level = "trusted"',
+    '',
+  ].join("\n"), "utf8");
+
+  assert.equal(isProjectTrusted(m, "/trusted/one", opts), true);
+  assert.equal(isProjectTrusted(m, "/single/quoted", opts), true, "single-quoted forms count");
+  assert.equal(isProjectTrusted(m, "/explicitly/untrusted", opts), false);
+  assert.equal(isProjectTrusted(m, "/commented", opts), false, "a commented key is not a value");
+  assert.equal(isProjectTrusted(m, "/absent", opts), false);
+  // Prefix confusion: /trusted must not inherit /trusted/one's stanza.
+  assert.equal(isProjectTrusted(m, "/trusted", opts), false, "a path prefix is a different project");
+  // And a key in an unrelated section must not leak into the answer.
+  assert.equal(isProjectTrusted(m, "/mcp_servers", opts), false);
+
+  assert.match(trustStanza("/x/y"), /\[projects\."\/x\/y"\]\ntrust_level = "trusted"/);
+});
+
+test("granting trust preserves the rest of the user's config", async () => {
+  const { grantTrust, isProjectTrusted } = await import("../scripts/install-codex.mjs");
+  const { mkdtempSync, writeFileSync: wf, readFileSync: rf } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+
+  const home = mkdtempSync(join(tmpdir(), "ps-trust2-"));
+  const opts = { env: { CODEX_HOME: home } };
+  const m = loadHarness("codex");
+  const before = '[mcp_servers.jira]\ncommand = "jira-mcp"\n\n[projects."/other"]\ntrust_level = "trusted"\n';
+  wf(join(home, "config.toml"), before, "utf8");
+
+  const r = grantTrust(m, "/mine", opts);
+  assert.equal(r.changed, true);
+  const after = rf(join(home, "config.toml"), "utf8");
+  assert.ok(after.startsWith(before), "existing content must be preserved verbatim");
+  assert.equal(isProjectTrusted(m, "/mine", opts), true);
+  assert.equal(isProjectTrusted(m, "/other", opts), true, "the pre-existing grant survives");
+
+  // Idempotent: granting twice must not append a duplicate stanza.
+  assert.equal(grantTrust(m, "/mine", opts).changed, false);
+  const twice = rf(join(home, "config.toml"), "utf8");
+  assert.equal((twice.match(/\[projects\."\/mine"\]/g) || []).length, 1);
+});

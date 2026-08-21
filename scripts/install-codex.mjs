@@ -284,6 +284,28 @@ function install(opts) {
   if (!dryRun) pruneEmptyOwnedDirs(m, opts);
 
   report(acts, dryRun, m, opts);
+
+  // Trust is checked LAST and reported loudest, because everything above can
+  // succeed while the hooks it wrote never run.
+  if (!opts.userOnly) {
+    const root = opts.cwd || process.cwd();
+    if (isProjectTrusted(m, root, opts)) {
+      console.log(`\n✓ project is trusted — its .codex/ hooks will load.`);
+    } else if (opts.trust && !dryRun) {
+      const r = grantTrust(m, root, opts);
+      console.log(`\n✓ marked the project trusted in ${r.path}`);
+    } else {
+      console.log(`\n⚠ THIS PROJECT IS NOT TRUSTED, so Codex will ignore the hooks just installed.`);
+      console.log(`  Codex loads a project's .codex/ layer only for trusted projects, and skips`);
+      console.log(`  it silently otherwise — the hooks would never fire and nothing would say so.`);
+      console.log(`\n  Fix it with either:`);
+      console.log(`    node scripts/install-codex.mjs ${root} --trust`);
+      console.log(`  or add to ${join(userHome(m, opts), "config.toml")}:\n`);
+      for (const l of trustStanza(root).trimEnd().split("\n")) console.log(`    ${l}`);
+      process.exitCode = 1;
+    }
+  }
+
   if (!dryRun) {
     console.log(`\nHooks run from this checkout (${REPO_ROOT}) — keep it in place, or re-run after moving it.`);
     console.log(`Restart Codex so it re-reads skills, prompts and agents.`);
@@ -386,6 +408,7 @@ function main() {
     userOnly: argv.includes("--user"),
     cwd: positional ? resolve(positional) : process.cwd(),
     dryRun: argv.includes("--dry-run"),
+    trust: argv.includes("--trust"),
   };
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(`projectstore — install for Codex
@@ -393,7 +416,13 @@ function main() {
   node scripts/install-codex.mjs [project-path]   scope to a project (default: cwd)
   node scripts/install-codex.mjs --user           install everything into $CODEX_HOME
   node scripts/install-codex.mjs --dry-run        show what would change
+  node scripts/install-codex.mjs --trust          also mark the project trusted
   node scripts/install-codex.mjs --uninstall      remove it again
+
+Codex loads a project's .codex/ layer only for TRUSTED projects and skips it
+silently otherwise, so a project-scoped install whose project is untrusted
+installs hooks that never fire. The installer checks this and exits nonzero
+rather than reporting a success it cannot deliver.
 
 Skills, agents and hooks are scoped to the project, so hooks do not fire in
 repositories that have no vault bound. Slash commands are not scopeable —
@@ -406,3 +435,61 @@ there whichever mode you use.`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main();
+
+// ─── Project trust ─────────────────────────────────────────────────────
+//
+// Codex loads a project's `.codex/` layer — its config and its hooks — only
+// when the project is marked trusted in the user's own config. An untrusted
+// project silently gets none of it: no error, no warning, hooks simply never
+// run. Since projectstore now installs hooks project-scoped by default, that
+// makes trust part of the install rather than a detail, and an installer that
+// reports success while the hooks it just wrote can never fire is lying.
+//
+// The check is deliberately a plain scan rather than a TOML parse: node ships
+// no TOML reader, and this only needs to answer one question about one key.
+// It fails toward "not trusted", which is the safe direction — the cost is a
+// message the user did not need, against silence they cannot debug.
+
+export function trustStanza(projectRoot) {
+  return `[projects."${projectRoot}"]\ntrust_level = "trusted"\n`;
+}
+
+export function isProjectTrusted(m, projectRoot, opts = {}) {
+  const cfg = join(userHome(m, opts), m.runtime.project_trust?.config_file || "config.toml");
+  let text;
+  try { text = readFileSync(cfg, "utf8"); } catch { return false; }
+
+  // Line-based, not a multiline regex. The obvious `^\s*\[` for "next section
+  // header" is wrong in a way that reads fine: `\s` matches newlines, so it
+  // finds the header starting from the blank line BEFORE it, and the section
+  // slice comes back as "\n" — every project reads as untrusted. Splitting
+  // into lines removes the class of bug rather than fixing this instance.
+  const want = [`[projects."${projectRoot}"]`, `[projects.'${projectRoot}']`];
+  const trusted = m.runtime.project_trust?.trusted_value || "trusted";
+  const key = m.runtime.project_trust?.key || "trust_level";
+  let inSection = false;
+
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.startsWith("[")) {
+      inSection = want.includes(line);
+      continue;
+    }
+    if (!inSection || !line || line.startsWith("#")) continue;
+    const kv = line.match(/^([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*(.+?)\s*$/);
+    if (!kv || kv[1] !== key) continue;
+    return kv[2].replace(/^["']|["']$/g, "") === trusted;
+  }
+  return false;
+}
+
+export function grantTrust(m, projectRoot, opts = {}) {
+  const cfg = join(userHome(m, opts), m.runtime.project_trust?.config_file || "config.toml");
+  let text = "";
+  try { text = readFileSync(cfg, "utf8"); } catch {}
+  if (isProjectTrusted(m, projectRoot, opts)) return { changed: false, path: cfg };
+  const sep = text && !text.endsWith("\n") ? "\n" : "";
+  mkdirSync(dirname(cfg), { recursive: true });
+  writeFileSync(cfg, text + sep + (text ? "\n" : "") + trustStanza(projectRoot), "utf8");
+  return { changed: true, path: cfg };
+}

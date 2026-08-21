@@ -27,6 +27,7 @@ import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { diffAgainstDisk } from "./build-adapters.mjs";
+import { isProjectTrusted } from "./install-codex.mjs";
 import {
   emittingHarnesses, activeHarness, commandRef, localizeCommands,
   hasCapability, projectConfigDir, REPO_ROOT,
@@ -191,11 +192,35 @@ export function checkLayoutTemplates(cfg) {
   return out;
 }
 
+// Names the trust requirement only on a harness that has one, and only when
+// this project actually fails it — so it never appears as noise on Claude Code.
+function trustHint() {
+  try {
+    const m = activeHarness();
+    if (!m?.runtime?.project_trust) return "";
+    const proj = projectRoot();
+    if (isProjectTrusted(m, proj)) return "";
+    return `Also: this project is NOT trusted, so ${m.display_name} ignores its ` +
+      `${m.runtime.project_config_dir}/ layer entirely — project-scoped hooks never load. ` +
+      `Repair: node scripts/install-codex.mjs ${proj} --trust`;
+  } catch {
+    return "";
+  }
+}
+
 export function checkHooksAlive(cfg, maxAgeMinutes = 30) {
   const dir = join(cfg.vault_path, ".projectstore", "sessions");
   if (!existsSync(dir)) {
+    // Two ordinary reasons and one real fault share this symptom, and the
+    // generic wording sent a tester chasing the wrong one for an hour. Name
+    // the fault when it is present: on a harness that gates project-scoped
+    // config behind trust, an untrusted project's hooks never load, silently.
     return [finding("install", "warn", "hooks",
-      "No session registry in the vault — SessionStart hook may not be firing (or no session started yet).")];
+      "No session registry in the vault — SessionStart may not be firing. " +
+      "Ordinary causes: no session has started since the vault was created " +
+      "(the session that scaffolds a vault registers nothing, by design), or " +
+      "hooks are not installed. " + trustHint(),
+    )];
   }
   const cutoff = Date.now() - maxAgeMinutes * 60 * 1000;
   const fresh = readdirSync(dir).some((n) => {

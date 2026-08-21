@@ -102,8 +102,14 @@ cd ProjectStore
 node scripts/install-codex.mjs /path/to/your/project
 ```
 
+```bash
+node scripts/install-codex.mjs /path/to/your/project --trust
+```
+
 Skills, agents and hooks are scoped to that project, so projectstore's hooks do
-not fire in every other repository you open. Slash commands go to `~/.codex/prompts`
+not fire in every other repository you open. `--trust` is what makes them run at
+all: Codex ignores an untrusted project's `.codex/` layer entirely, hooks
+included, and says nothing about it. Slash commands go to `~/.codex/prompts`
 because Codex looks for them nowhere else — the installer prints both
 destinations. `--user` puts everything in the home directory instead.
 
