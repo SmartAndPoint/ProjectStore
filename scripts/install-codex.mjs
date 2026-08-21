@@ -75,6 +75,35 @@ function walk(dir, base = dir, out = []) {
 // the one file with special handling (it merges), and bin/ stays in the
 // checkout — the hooks point at it by absolute path, so copying it would
 // create a second copy that updates would not reach.
+// Files under our surface directories that carry the projectstore name prefix.
+// The prefix IS the ownership marker — it is why generated agents and skills are
+// named projectstore-<x> rather than <x> — so this can never reach a file the
+// user put there themselves.
+function ownedInstalledPaths(m, dest) {
+  const owned = new Set();
+  for (const key of ["commands", "agents", "skills"]) {
+    const s = m.surfaces?.[key];
+    if (!s?.supported) continue;
+    const dir = join(dest, s.dir && s.dir !== "." ? s.dir : "");
+    let names = [];
+    try { names = readdirSync(dir); } catch { continue; }
+    for (const n of names) {
+      if (!n.startsWith("projectstore-")) continue;
+      const p = join(dir, n);
+      let st; try { st = statSync(p); } catch { continue; }
+      if (st.isDirectory()) {
+        // A skill is a directory; take the files inside it.
+        for (const inner of (() => { try { return readdirSync(p); } catch { return []; } })()) {
+          owned.add(join(p, inner));
+        }
+      } else {
+        owned.add(p);
+      }
+    }
+  }
+  return owned;
+}
+
 function plan(m, root, dest) {
   const src = join(root, m.output_dir);
   const files = walk(src);
@@ -98,6 +127,25 @@ function substituteRoot(text, m, root) {
   // string and the other is a shell variable the model is told to expand.
   out = out.split("$PROJECTSTORE_ROOT").join(root);
   return out;
+}
+
+// The same substitution, but applied to a PARSED structure rather than to JSON
+// source text.
+//
+// Doing it textually works everywhere the checkout path has no backslashes and
+// fails on Windows, where `C:\workspace` lands inside a JSON string literal as
+// invalid escape sequences and JSON.parse throws before anything is installed.
+// Parsing first and walking the values means the path is never interpreted as
+// JSON syntax — the serializer escapes it correctly on the way back out.
+export function substituteRootDeep(value, m, root) {
+  if (typeof value === "string") return substituteRoot(value, m, root);
+  if (Array.isArray(value)) return value.map((v) => substituteRootDeep(v, m, root));
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = substituteRootDeep(v, m, root);
+    return out;
+  }
+  return value;
 }
 
 // ─── hooks.json merge ──────────────────────────────────────────────────
@@ -149,7 +197,7 @@ function install({ project, dryRun }) {
   }
 
   if (hooksFile) {
-    const ours = JSON.parse(substituteRoot(readFileSync(hooksFile, "utf8"), m, REPO_ROOT));
+    const ours = substituteRootDeep(JSON.parse(readFileSync(hooksFile, "utf8")), m, REPO_ROOT);
     const existingText = existsSync(hooksDest) ? readFileSync(hooksDest, "utf8") : null;
     const merged = mergeHooks(existingText, ours);
     if (merged === null) {
@@ -166,6 +214,19 @@ function install({ project, dryRun }) {
     }
   }
 
+  // An upgrade that renamed or deleted a surface leaves the previous file
+  // installed, and a stale prompt stays discoverable and executable forever —
+  // silently, since nothing reports a file that merely still exists. Uninstall
+  // could not reach it either: it plans from the CURRENT adapter, which no
+  // longer names it.
+  const wanted = new Set(copies.map((c) => c.to));
+  for (const p of ownedInstalledPaths(m, dest)) {
+    if (wanted.has(p)) continue;
+    acts.push(["prune", p]);
+    if (!dryRun) { try { rmSync(p); } catch {} }
+  }
+  if (!dryRun) pruneEmptyOwnedDirs(m, dest);
+
   report(acts, dryRun, dest);
   if (!dryRun) {
     console.log(`\nHooks run from this checkout (${REPO_ROOT}) — keep it in place, or re-run after moving it.`);
@@ -179,16 +240,18 @@ function uninstall({ project, dryRun }) {
   const { copies, hooksDest } = plan(m, REPO_ROOT, dest);
   const acts = [];
 
-  for (const c of copies) {
-    if (!existsSync(c.to)) continue;
-    acts.push(["remove", c.to]);
-    if (!dryRun) { try { rmSync(c.to); } catch {} }
+  // Everything we own, not just what the current adapter would install — so a
+  // surface left behind by an older version is removed rather than orphaned.
+  const targets = new Set([...copies.map((c) => c.to), ...ownedInstalledPaths(m, dest)]);
+  for (const t of targets) {
+    if (!existsSync(t)) continue;
+    acts.push(["remove", t]);
+    if (!dryRun) { try { rmSync(t); } catch {} }
   }
   // Only directories we created, and only while empty — a user file dropped
-  // into our skill folder keeps the folder.
-  if (!dryRun) {
-    for (const c of [...copies].reverse()) { try { rmdirSync(dirname(c.to)); } catch {} }
-  }
+  // into our skill folder keeps the folder. rmdirSync refuses a non-empty
+  // directory, which is the guarantee rather than a check we could get wrong.
+  if (!dryRun) pruneEmptyOwnedDirs(m, dest);
 
   if (existsSync(hooksDest)) {
     const merged = mergeHooks(readFileSync(hooksDest, "utf8"), { hooks: {} });
@@ -201,6 +264,22 @@ function uninstall({ project, dryRun }) {
     }
   }
   report(acts, dryRun, dest);
+}
+
+// Removes our own now-empty surface directories (a skill folder whose SKILL.md
+// is gone). Never touches a directory that still holds anything.
+function pruneEmptyOwnedDirs(m, dest) {
+  for (const key of ["skills", "agents", "commands"]) {
+    const s = m.surfaces?.[key];
+    if (!s?.supported) continue;
+    const dir = join(dest, s.dir && s.dir !== "." ? s.dir : "");
+    let names = [];
+    try { names = readdirSync(dir); } catch { continue; }
+    for (const n of names) {
+      if (!n.startsWith("projectstore-")) continue;
+      try { rmdirSync(join(dir, n)); } catch {}
+    }
+  }
 }
 
 function report(acts, dryRun, dest) {

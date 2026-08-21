@@ -31,6 +31,7 @@ import {
   resolveInFlightArtifact,
   pathCell,
 } from "../scripts/lib.mjs";
+import { adoptHookInput } from "../scripts/harness.mjs";
 
 // Exits after the flush, never before: process.exit does not drain a pending
 // pipe write, and the budgeted read below can still be outstanding.
@@ -64,10 +65,14 @@ async function readActivityBudgeted(vault, sid, budgetMs) {
 }
 
 async function main() {
+  // stdin BEFORE readConfig: config lookup resolves against the project root,
+  // and on a harness that exports no project-dir variable the payload's `cwd` is
+  // the only reliable source for it. Reading config first would search the hook
+  // process's own working directory and report an unbound project.
+  const input = adoptHookInput(readStdinJson());
   const cfg = readConfig();
   if (!cfg) process.exit(0);
 
-  const input = readStdinJson();
   const sid = input?.session_id || null;
   const activity = await readActivityBudgeted(cfg.vault_path, sid, 200);
 

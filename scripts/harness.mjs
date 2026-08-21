@@ -14,7 +14,7 @@
 // Pure node, no external deps — same constraint as lib.mjs.
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname, resolve, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -119,9 +119,29 @@ export function activeHarness(env = process.env, dir = MANIFEST_DIR) {
 // than exporting a project variable, so callers that have hook input should
 // pass it — process.cwd() is a hook's own working directory, which is not
 // reliably the project root.
+// Set from a hook's own stdin payload. Codex does not export a project-dir
+// variable, and a hook process's cwd is not reliably the project — the payload's
+// `cwd` is the only trustworthy answer, and it is only available after stdin has
+// been read. Hooks therefore call adoptHookInput() before readConfig(), because
+// config lookup resolves against the project root and a wrong root means the
+// project reads as unbound and the hook silently does nothing.
+let _hookProjectRoot = null;
+
+export function adoptHookInput(input) {
+  if (input && typeof input.cwd === "string" && input.cwd) _hookProjectRoot = input.cwd;
+  return input;
+}
+
+// Test seam: process-global state that outlives a single call needs a way back.
+export function resetHookInput() {
+  _hookProjectRoot = null;
+}
+
 export function projectRoot(env = process.env, hookInput = null) {
   const m = activeHarness(env);
   const key = m?.runtime?.project_dir_env;
+  // An explicitly exported project directory still wins: it is the harness
+  // stating the answer, where cwd is us inferring it.
   if (key && env[key]) return env[key];
   // Every manifest's variable, not just the active one: a wrapper may set the
   // Claude Code name while running under another harness, and honouring it is
@@ -131,6 +151,7 @@ export function projectRoot(env = process.env, hookInput = null) {
     if (k && env[k]) return env[k];
   }
   if (hookInput && typeof hookInput.cwd === "string" && hookInput.cwd) return hookInput.cwd;
+  if (_hookProjectRoot) return _hookProjectRoot;
   return process.cwd();
 }
 
@@ -225,8 +246,15 @@ export function extractPaths(input, env = process.env) {
     if (text) out.push(...parsePatchEnvelopePaths(text));
   }
 
-  // Dedupe, preserving first-seen order.
-  return [...new Set(out)];
+  // Absolute, always. An apply_patch envelope names paths RELATIVE to the
+  // session's working directory ("src/app.ts"), while every consumer —
+  // isSourcePath, isInsideVault, the activity log, the statusline pointer —
+  // compares against an absolute project or vault root and returns false for
+  // anything else. Returning them unresolved meant Codex edits scored nothing
+  // and logged nothing, with no error anywhere: the exact silent-failure shape
+  // the harness boundary exists to prevent.
+  const base = (input.cwd && typeof input.cwd === "string" && input.cwd) || projectRoot(env, input);
+  return [...new Set(out)].map((p) => (isAbsolute(p) ? p : resolve(base, p)));
 }
 
 // Pull the file paths out of an apply_patch envelope. The format is a plain

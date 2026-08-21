@@ -16,8 +16,8 @@
 // Spec: "Entry-rule detection: the score, the open-story predicate, and the
 // delivery seams", contract 17.
 
-import { readConfig } from "../scripts/lib.mjs";
-import { agentRef } from "../scripts/harness.mjs";
+import { readConfig, readStdinJson } from "../scripts/lib.mjs";
+import { agentRef, adoptHookInput } from "../scripts/harness.mjs";
 
 // Kept well under the cap; asserted by a test rather than by intention.
 const RULES = () => `# projectstore — standing rules for this session
@@ -41,6 +41,9 @@ function emit(additionalContext) {
 }
 
 function main() {
+  // Same ordering rule as every other hook: the payload's `cwd` has to be
+  // adopted before config lookup resolves a project root.
+  adoptHookInput(readStdinJson());
   const cfg = readConfig();
   if (!cfg) return;
   // Honour auto_inject: a session that opted out of context injection is

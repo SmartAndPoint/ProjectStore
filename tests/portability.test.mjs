@@ -18,11 +18,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  loadHarnesses, harnessIds, emittingHarnesses, sourceHarness,
+  loadHarnesses, harnessIds, emittingHarnesses, sourceHarness, loadHarness,
 } from "../scripts/harness.mjs";
 import {
   renderAll, diffAgainstDisk, splitFrontmatter, harnessAllows, tomlMultiline,
@@ -455,13 +455,33 @@ test("apply_patch envelopes yield every path the patch touches", async () => {
   ].join("\n");
   assert.deepEqual(parsePatchEnvelopePaths(envelope), ["src/app.ts", "docs/new.md", "old.txt"]);
 
-  // One call, three files. Returning only the first would undercount the entry
-  // score and log one activity entry where three belonged.
+  // One call, three files, and every one of them ABSOLUTE. Two separate
+  // requirements, both learned the hard way:
+  //   * returning only the first path would undercount the entry score and log
+  //     one activity entry where three belonged;
+  //   * returning them relative — as the envelope writes them — makes
+  //     isSourcePath and isInsideVault reject all three, so Codex edits score
+  //     nothing and log nothing, with no error raised anywhere.
   const got = extractPaths(
-    { tool_name: "apply_patch", tool_input: { command: envelope } },
+    { tool_name: "apply_patch", cwd: "/proj", tool_input: { command: envelope } },
     { PROJECTSTORE_HARNESS: "codex" },
   );
-  assert.deepEqual(got, ["src/app.ts", "docs/new.md", "old.txt"]);
+  assert.deepEqual(got, ["/proj/src/app.ts", "/proj/docs/new.md", "/proj/old.txt"]);
+  for (const g of got) {
+    assert.ok(isAbsolute(g), `${g} is relative; isSourcePath/isInsideVault would silently reject it`);
+  }
+
+  // An envelope that already names an absolute path is left alone rather than
+  // being re-rooted under cwd.
+  const abs = extractPaths(
+    {
+      tool_name: "apply_patch",
+      cwd: "/proj",
+      tool_input: { command: "*** Begin Patch\n*** Update File: /elsewhere/x.ts\n*** End Patch" },
+    },
+    { PROJECTSTORE_HARNESS: "codex" },
+  );
+  assert.deepEqual(abs, ["/elsewhere/x.ts"]);
 
   const cc = extractPaths(
     { tool_name: "Write", tool_input: { file_path: "/a/b.ts" } },
@@ -470,6 +490,51 @@ test("apply_patch envelopes yield every path the patch touches", async () => {
   assert.deepEqual(cc, ["/a/b.ts"], "single-path harnesses still yield a one-element list");
   assert.deepEqual(parsePatchEnvelopePaths("nothing recognisable here"), [],
     "an unrecognised envelope yields nothing rather than throwing");
+});
+
+test("the hook payload's cwd is what resolves the project root when nothing exports one", async () => {
+  // Codex exports no project-dir variable, and a hook process's own cwd is not
+  // reliably the project. The payload's `cwd` is the only trustworthy source —
+  // and it only exists after stdin has been read, which is why every hook adopts
+  // it before calling readConfig. Resolving wrong here does not raise: it
+  // reports the project as unbound and the hook does nothing at all.
+  const { adoptHookInput, resetHookInput, projectRoot } = await import("../scripts/harness.mjs");
+  try {
+    resetHookInput();
+    adoptHookInput({ session_id: "s", cwd: "/from/payload" });
+    assert.equal(projectRoot({ PROJECTSTORE_HARNESS: "codex" }), "/from/payload");
+
+    // An explicitly exported project directory is the harness stating the
+    // answer, where cwd is us inferring it — so it still wins.
+    assert.equal(
+      projectRoot({ PROJECTSTORE_HARNESS: "codex", CODEX_PROJECT_DIR: "/explicit" }),
+      "/explicit",
+    );
+  } finally {
+    resetHookInput();
+  }
+});
+
+test("every hook adopts the payload cwd before it reads config", () => {
+  // Ordering is the whole fix, and it is invisible in behaviour until it is
+  // wrong: config lookup resolves against the project root, so reading config
+  // first searches the hook process's working directory and silently finds
+  // nothing.
+  const files = [
+    "hooks/session-start.mjs",
+    "hooks/session-rules.mjs",
+    "hooks/session-stop.mjs",
+    "hooks/pre-compact.mjs",
+    "scripts/touch-session.mjs",
+  ];
+  for (const f of files) {
+    const src = readFileSync(join(REPO, f), "utf8");
+    const adopt = src.indexOf("adoptHookInput(readStdinJson())");
+    const cfg = src.indexOf("readConfig()");
+    assert.ok(adopt >= 0, `${f}: never adopts the hook payload cwd`);
+    assert.ok(cfg >= 0, `${f}: expected a readConfig() call`);
+    assert.ok(adopt < cfg, `${f}: reads config before adopting the payload cwd`);
+  }
 });
 
 test("harness-only prose helpers render each harness's own spelling", async () => {
@@ -560,4 +625,41 @@ test("content not meant for the source harness is hidden from it", () => {
     }
   }
   assert.equal(problems.length, 0, `harness gate blocks are on the wrong side:\n${problems.join("\n")}`);
+});
+
+// ─── Installer ─────────────────────────────────────────────────────────
+
+test("a Windows checkout path survives hook-config substitution", async () => {
+  // Substituting the root into the JSON SOURCE text works on every path without
+  // a backslash and throws on Windows, where `C:\workspace` becomes invalid
+  // escape sequences inside a JSON string literal and JSON.parse fails before
+  // anything is installed. Substituting into the parsed structure means the
+  // path is never read as JSON syntax.
+  const { substituteRootDeep } = await import("../scripts/install-codex.mjs");
+  const m = loadHarness("codex");
+  const win = "C:\\Users\\dev\\ProjectStore";
+  const parsed = JSON.parse(
+    readFileSync(join(REPO, m.output_dir, m.hooks.config_file), "utf8"),
+  );
+  const out = substituteRootDeep(parsed, m, win);
+
+  // Round-trips: the serializer escapes the backslashes, and reading it back
+  // yields the same path rather than a parse error.
+  const text = JSON.stringify(out, null, 2);
+  const back = JSON.parse(text);
+  const cmd = back.hooks[m.hooks.events.SessionStart][0].hooks[0].command;
+  assert.ok(cmd.includes(win), `substituted command lost the checkout path: ${cmd}`);
+  assert.ok(!cmd.includes(m.hooks.root_placeholder), "placeholder survived substitution");
+
+  // And nothing outside strings was disturbed.
+  assert.deepEqual(Object.keys(back.hooks).sort(), Object.keys(parsed.hooks).sort());
+});
+
+test("substituteRootDeep only rewrites strings, at any depth", async () => {
+  const { substituteRootDeep } = await import("../scripts/install-codex.mjs");
+  const m = loadHarness("codex");
+  const tok = m.hooks.root_placeholder;
+  const input = { a: `${tok}/x`, b: [1, true, null, `${tok}/y`], c: { d: 7, e: `${tok}` } };
+  const out = substituteRootDeep(input, m, "/R");
+  assert.deepEqual(out, { a: "/R/x", b: [1, true, null, "/R/y"], c: { d: 7, e: "/R" } });
 });

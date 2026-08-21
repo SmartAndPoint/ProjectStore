@@ -58,7 +58,7 @@ import {
   ENTRY_THRESHOLD,
   isWriteTool,
 } from "./lib.mjs";
-import { extractPaths, localizeCommands } from "./harness.mjs";
+import { extractPaths, localizeCommands, adoptHookInput } from "./harness.mjs";
 
 const NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -173,10 +173,13 @@ async function entryBranch(cfg, proj, sid, filePath, input) {
 }
 
 async function main() {
+  // stdin BEFORE readConfig: config lookup resolves against the project root,
+  // and on a harness that exports no project-dir variable the payload's `cwd` is
+  // the only reliable source for it. Reading config first would search the hook
+  // process's own working directory and report an unbound project.
+  const input = adoptHookInput(readStdinJson());
   const cfg = readConfig();
   if (!cfg) return;
-
-  const input = readStdinJson();
   if (!input) return;
   const sid = input.session_id;
   if (!sid) return;

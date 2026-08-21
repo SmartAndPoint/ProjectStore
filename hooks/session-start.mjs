@@ -34,7 +34,7 @@ import {
   ERROR_CELL,
   TITLE_CELL,
 } from "../scripts/lib.mjs";
-import { commandRef, updateInstructions, activeHarness, projectConfigDir } from "../scripts/harness.mjs";
+import { commandRef, updateInstructions, activeHarness, projectConfigDir, adoptHookInput } from "../scripts/harness.mjs";
 import { runStartupChecks } from "../scripts/doctor.mjs";
 
 function welcomedMarkerPath(proj) {
@@ -140,6 +140,11 @@ function buildOthersWarning(others) {
 }
 
 async function main() {
+  // stdin BEFORE readConfig: config lookup resolves against the project root,
+  // and on a harness that exports no project-dir variable the payload's `cwd` is
+  // the only reliable source for it. Reading config first would search the hook
+  // process's own working directory and report an unbound project.
+  const input = adoptHookInput(readStdinJson());
   const cfg = readConfig();
   const proj = projectRoot();
   const welcome = showWelcomeOnce(proj);
@@ -160,12 +165,10 @@ async function main() {
   // auto_inject=false (touch-session writes pointers regardless of it).
   try { cleanupStaleSessionState(proj); } catch {}
 
-  // Read stdin BEFORE the auto_inject gate. The entry reminder's markers must be
-  // re-armed after a compaction whether or not this session injects context —
-  // an auto_inject=false session still writes code, and its reminder was
-  // discarded with the conversation just the same. Below the gate, stdin is
-  // never read and `source` is unreachable.
-  const input = readStdinJson();
+  // Read above the auto_inject gate (it now happens at the top of main). The
+  // entry reminder's markers must be re-armed after a compaction whether or not
+  // this session injects context — an auto_inject=false session still writes
+  // code, and its reminder was discarded with the conversation just the same.
   const sid = input?.session_id || null;
   // `compact` and `clear` are the two sources where the session id survives but
   // the conversation does not, so a reminder already delivered is gone from
