@@ -29,7 +29,7 @@
 import {
   readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync, statSync, rmSync, rmdirSync,
 } from "node:fs";
-import { join, dirname, relative } from "node:path";
+import { join, dirname, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { loadHarness, REPO_ROOT } from "./harness.mjs";
 
@@ -51,9 +51,45 @@ function harness() {
   return m;
 }
 
-export function codexHome(m, { project = false, cwd = process.cwd(), env = process.env, home = homedir() } = {}) {
-  if (project) return join(cwd, m.runtime.project_config_dir);
+// The two places a surface can land, and which one each surface uses.
+//
+// PROJECT is the default, because user-level hooks fire in every Codex project
+// — a node process per tool call in repositories that have no vault bound.
+// Scoping them is the point.
+//
+// But it cannot be project-only: Codex discovers custom prompts ONLY under
+// $CODEX_HOME/prompts, with no project-level equivalent, so a purely scoped
+// install would ship no slash commands at all and say nothing about it. Each
+// surface therefore declares its own scope in the manifest, and this resolves
+// them. `--user` overrides everything to the home directory.
+export function userHome(m, { env = process.env, home = homedir() } = {}) {
   return env[m.runtime.home_env] || join(home, m.runtime.home_default);
+}
+
+export function projectDir(m, { cwd = process.cwd() } = {}) {
+  return join(cwd, m.runtime.project_config_dir);
+}
+
+export function surfaceDest(m, key, opts = {}) {
+  if (opts.userOnly) return userHome(m, opts);
+  const scope = m.surfaces?.[key]?.scope || "user";
+  return scope === "project" ? projectDir(m, opts) : userHome(m, opts);
+}
+
+// Every distinct destination this install touches, for reporting and for the
+// hook-config path.
+export function destinations(m, opts = {}) {
+  const out = new Map();
+  for (const key of Object.keys(m.surfaces || {})) {
+    if (!m.surfaces[key]?.supported) continue;
+    out.set(key, surfaceDest(m, key, opts));
+  }
+  return out;
+}
+
+// Back-compat for callers that predate scoping.
+export function codexHome(m, { project = false, ...rest } = {}) {
+  return project ? projectDir(m, rest) : userHome(m, rest);
 }
 
 // ─── File collection ───────────────────────────────────────────────────
@@ -79,12 +115,12 @@ function walk(dir, base = dir, out = []) {
 // The prefix IS the ownership marker — it is why generated agents and skills are
 // named projectstore-<x> rather than <x> — so this can never reach a file the
 // user put there themselves.
-function ownedInstalledPaths(m, dest) {
+function ownedInstalledPaths(m, opts) {
   const owned = new Set();
   for (const key of ["commands", "agents", "skills"]) {
     const s = m.surfaces?.[key];
     if (!s?.supported) continue;
-    const dir = join(dest, s.dir && s.dir !== "." ? s.dir : "");
+    const dir = join(surfaceDest(m, key, opts), s.dir && s.dir !== "." ? s.dir : "");
     let names = [];
     try { names = readdirSync(dir); } catch { continue; }
     for (const n of names) {
@@ -104,7 +140,18 @@ function ownedInstalledPaths(m, dest) {
   return owned;
 }
 
-function plan(m, root, dest) {
+// Which adapter-relative path belongs to which surface, so each lands in the
+// destination its scope names.
+function surfaceOf(m, rel) {
+  for (const [key, s] of Object.entries(m.surfaces || {})) {
+    if (!s?.supported) continue;
+    const dir = s.dir && s.dir !== "." ? s.dir + "/" : "";
+    if (dir && rel.startsWith(dir)) return key;
+  }
+  return null;
+}
+
+function plan(m, root, opts) {
   const src = join(root, m.output_dir);
   const files = walk(src);
   const copies = [];
@@ -112,9 +159,18 @@ function plan(m, root, dest) {
   for (const rel of files) {
     if (rel === m.hooks.config_file) { hooksFile = rel; continue; }
     if (rel.startsWith("bin/")) continue;
-    copies.push({ from: join(src, rel), to: join(dest, rel), rel });
+    const key = surfaceOf(m, rel);
+    // A file under no declared surface directory would land nowhere sensible;
+    // the adapter emits none today, and inventing a destination for one would
+    // be a guess.
+    if (!key) continue;
+    copies.push({ from: join(src, rel), to: join(surfaceDest(m, key, opts), rel), rel, surface: key });
   }
-  return { copies, hooksFile: hooksFile ? join(src, hooksFile) : null, hooksDest: join(dest, m.hooks.config_file) };
+  return {
+    copies,
+    hooksFile: hooksFile ? join(src, hooksFile) : null,
+    hooksDest: join(surfaceDest(m, "hooks", opts), m.hooks.config_file),
+  };
 }
 
 // ─── Root substitution ─────────────────────────────────────────────────
@@ -182,10 +238,10 @@ function entryIsOurs(entry) {
 
 // ─── Actions ───────────────────────────────────────────────────────────
 
-function install({ project, dryRun }) {
+function install(opts) {
   const m = harness();
-  const dest = codexHome(m, { project });
-  const { copies, hooksFile, hooksDest } = plan(m, REPO_ROOT, dest);
+  const { dryRun } = opts;
+  const { copies, hooksFile, hooksDest } = plan(m, REPO_ROOT, opts);
 
   const acts = [];
   for (const c of copies) {
@@ -220,29 +276,29 @@ function install({ project, dryRun }) {
   // could not reach it either: it plans from the CURRENT adapter, which no
   // longer names it.
   const wanted = new Set(copies.map((c) => c.to));
-  for (const p of ownedInstalledPaths(m, dest)) {
+  for (const p of ownedInstalledPaths(m, opts)) {
     if (wanted.has(p)) continue;
     acts.push(["prune", p]);
     if (!dryRun) { try { rmSync(p); } catch {} }
   }
-  if (!dryRun) pruneEmptyOwnedDirs(m, dest);
+  if (!dryRun) pruneEmptyOwnedDirs(m, opts);
 
-  report(acts, dryRun, dest);
+  report(acts, dryRun, m, opts);
   if (!dryRun) {
     console.log(`\nHooks run from this checkout (${REPO_ROOT}) — keep it in place, or re-run after moving it.`);
     console.log(`Restart Codex so it re-reads skills, prompts and agents.`);
   }
 }
 
-function uninstall({ project, dryRun }) {
+function uninstall(opts) {
   const m = harness();
-  const dest = codexHome(m, { project });
-  const { copies, hooksDest } = plan(m, REPO_ROOT, dest);
+  const { dryRun } = opts;
+  const { copies, hooksDest } = plan(m, REPO_ROOT, opts);
   const acts = [];
 
   // Everything we own, not just what the current adapter would install — so a
   // surface left behind by an older version is removed rather than orphaned.
-  const targets = new Set([...copies.map((c) => c.to), ...ownedInstalledPaths(m, dest)]);
+  const targets = new Set([...copies.map((c) => c.to), ...ownedInstalledPaths(m, opts)]);
   for (const t of targets) {
     if (!existsSync(t)) continue;
     acts.push(["remove", t]);
@@ -251,7 +307,7 @@ function uninstall({ project, dryRun }) {
   // Only directories we created, and only while empty — a user file dropped
   // into our skill folder keeps the folder. rmdirSync refuses a non-empty
   // directory, which is the guarantee rather than a check we could get wrong.
-  if (!dryRun) pruneEmptyOwnedDirs(m, dest);
+  if (!dryRun) pruneEmptyOwnedDirs(m, opts);
 
   if (existsSync(hooksDest)) {
     const merged = mergeHooks(readFileSync(hooksDest, "utf8"), { hooks: {} });
@@ -259,20 +315,31 @@ function uninstall({ project, dryRun }) {
       console.error(`✖ ${hooksDest} is not parseable JSON — left untouched.`);
       process.exitCode = 1;
     } else {
-      acts.push(["clean", hooksDest]);
-      if (!dryRun) writeFileSync(hooksDest, JSON.stringify(merged, null, 2) + "\n", "utf8");
+      // A file reduced to `{"hooks":{}}` with nothing else in it is one we
+      // created and just emptied — leaving it behind is litter in the user's
+      // project. Anything else (other top-level keys, surviving hooks) is
+      // theirs and stays, rewritten rather than removed.
+      const emptied =
+        Object.keys(merged).length === 1 &&
+        merged.hooks &&
+        Object.keys(merged.hooks).length === 0;
+      acts.push([emptied ? "remove" : "clean", hooksDest]);
+      if (!dryRun) {
+        if (emptied) { try { rmSync(hooksDest); } catch {} }
+        else writeFileSync(hooksDest, JSON.stringify(merged, null, 2) + "\n", "utf8");
+      }
     }
   }
-  report(acts, dryRun, dest);
+  report(acts, dryRun, m, opts);
 }
 
 // Removes our own now-empty surface directories (a skill folder whose SKILL.md
 // is gone). Never touches a directory that still holds anything.
-function pruneEmptyOwnedDirs(m, dest) {
+function pruneEmptyOwnedDirs(m, opts) {
   for (const key of ["skills", "agents", "commands"]) {
     const s = m.surfaces?.[key];
     if (!s?.supported) continue;
-    const dir = join(dest, s.dir && s.dir !== "." ? s.dir : "");
+    const dir = join(surfaceDest(m, key, opts), s.dir && s.dir !== "." ? s.dir : "");
     let names = [];
     try { names = readdirSync(dir); } catch { continue; }
     for (const n of names) {
@@ -282,10 +349,29 @@ function pruneEmptyOwnedDirs(m, dest) {
   }
 }
 
-function report(acts, dryRun, dest) {
+function report(acts, dryRun, m, opts) {
   const tally = {};
   for (const [kind] of acts) tally[kind] = (tally[kind] || 0) + 1;
-  console.log(`${dryRun ? "[dry run] " : ""}target: ${dest}`);
+
+  // Both destinations, always, and which surfaces went where. A split install
+  // is surprising if you are not told: the prompts land outside the project
+  // even when everything else is scoped to it.
+  console.log(`${dryRun ? "[dry run] " : ""}targets:`);
+  const byDest = new Map();
+  for (const [key, dest] of destinations(m, opts)) {
+    if (!byDest.has(dest)) byDest.set(dest, []);
+    byDest.get(dest).push(key);
+  }
+  for (const [dest, keys] of byDest) {
+    console.log(`  ${dest}`);
+    console.log(`    ${keys.join(", ")}`);
+  }
+  if (!opts.userOnly && byDest.size > 1) {
+    console.log(`  ${"—".repeat(3)} prompts stay in the Codex home directory: Codex discovers`);
+    console.log(`      slash commands only there, with no project-level equivalent.`);
+  }
+
+  if (acts.some(([k]) => k !== "same")) console.log("");
   for (const [kind, p] of acts) if (kind !== "same") console.log(`  ${kind.padEnd(7)} ${p}`);
   const summary = Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(", ");
   console.log(`\n${summary || "nothing to do"}`);
@@ -293,7 +379,28 @@ function report(acts, dryRun, dest) {
 
 function main() {
   const argv = process.argv.slice(2);
-  const opts = { project: argv.includes("--project"), dryRun: argv.includes("--dry-run") };
+  const positional = argv.find((a) => !a.startsWith("-"));
+  const opts = {
+    // Project-scoped by default. `--project` is kept as an accepted no-op so
+    // instructions written against the previous default still work.
+    userOnly: argv.includes("--user"),
+    cwd: positional ? resolve(positional) : process.cwd(),
+    dryRun: argv.includes("--dry-run"),
+  };
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.log(`projectstore — install for Codex
+
+  node scripts/install-codex.mjs [project-path]   scope to a project (default: cwd)
+  node scripts/install-codex.mjs --user           install everything into $CODEX_HOME
+  node scripts/install-codex.mjs --dry-run        show what would change
+  node scripts/install-codex.mjs --uninstall      remove it again
+
+Skills, agents and hooks are scoped to the project, so hooks do not fire in
+repositories that have no vault bound. Slash commands are not scopeable —
+Codex discovers them only under $CODEX_HOME/prompts — so they are installed
+there whichever mode you use.`);
+    return;
+  }
   if (argv.includes("--uninstall")) uninstall(opts);
   else install(opts);
 }

@@ -65,7 +65,9 @@
       "file": "projectstore-<name>.md",
       "format": "prompt-md",
       "invocation": "/projectstore-<name>",
-      "preamble": "> **Codex harness note.** This file was translated from projectstore's source\n> command. Where it says *an approval prompt*, Codex has no `AskUserQuestion`\n> tool: ask the question in plain text as a short numbered list, then **stop and\n> wait for the user's answer** before writing anything. Never infer approval from\n> silence, and never batch several approvals into one question. `$PROJECTSTORE_ROOT`\n> is substituted with an absolute path by `scripts/install-codex.mjs`."
+      "preamble": "> **Codex harness note.** This file was translated from projectstore's source\n> command. Where it says *an approval prompt*, Codex has no `AskUserQuestion`\n> tool: ask the question in plain text as a short numbered list, then **stop and\n> wait for the user's answer** before writing anything. Never infer approval from\n> silence, and never batch several approvals into one question. `$PROJECTSTORE_ROOT`\n> is substituted with an absolute path by `scripts/install-codex.mjs`.",
+      "scope": "user",
+      "scope_reason": "Codex discovers custom prompts ONLY under $CODEX_HOME/prompts — there is no project-level prompts directory (openai/codex#4734, #9848 are open requests for one). A project-scoped install would silently ship no slash commands at all, so these stay user-level even when everything else is scoped to the project."
     },
     "agents": {
       "supported": true,
@@ -74,7 +76,9 @@
       "format": "agent-toml",
       "invocation": "projectstore-<name>",
       "name_prefix": "projectstore-",
-      "preamble": "> **Codex harness note.** Translated from projectstore's source. Where this\n> says *an approval prompt*, Codex has no `AskUserQuestion` tool: ask in plain\n> text as a short numbered list and **stop for the user's answer** before\n> writing. Never infer approval from silence."
+      "preamble": "> **Codex harness note.** Translated from projectstore's source. Where this\n> says *an approval prompt*, Codex has no `AskUserQuestion` tool: ask in plain\n> text as a short numbered list and **stop for the user's answer** before\n> writing. Never infer approval from silence.",
+      "scope": "project",
+      "scope_reason": "Discovered from <project>/.codex/agents, so it can be scoped."
     },
     "skills": {
       "supported": true,
@@ -82,13 +86,17 @@
       "file": "projectstore-<name>/SKILL.md",
       "format": "skill-md",
       "requires_name_frontmatter": true,
-      "preamble": "> **Codex harness note.** Translated from projectstore's source. Where this\n> says *an approval prompt*, Codex has no `AskUserQuestion` tool: ask in plain\n> text as a short numbered list and **stop for the user's answer** before\n> writing. Never infer approval from silence."
+      "preamble": "> **Codex harness note.** Translated from projectstore's source. Where this\n> says *an approval prompt*, Codex has no `AskUserQuestion` tool: ask in plain\n> text as a short numbered list and **stop for the user's answer** before\n> writing. Never infer approval from silence.",
+      "scope": "project",
+      "scope_reason": "Discovered from <project>/.codex/skills, and project skills take precedence over global ones of the same name."
     },
     "hooks": {
       "supported": true,
       "dir": ".",
       "file": "hooks.json",
-      "format": "hooks-json"
+      "format": "hooks-json",
+      "scope": "project",
+      "scope_reason": "Codex reads <repo>/.codex/hooks.json as well as the home copy. Scoping these is the whole point of a project install: user-level hooks fire in EVERY Codex project, costing a node process per tool call in repositories that have no vault bound."
     }
   },
   "agent_translation": {
@@ -107,7 +115,10 @@
       "Edit",
       "MultiEdit",
       "NotebookEdit"
-    ]
+    ],
+    "model_presets": [],
+    "model_preset_advice": "Do not offer a preset list: model IDs are harness-specific and any list hardcoded here goes stale. Ask the user to name a model their own Codex install offers (`/model` lists them), or to skip — skipping leaves the key unset, and an agent with no model inherits the session's, which is the sane default.",
+    "_model_presets_comment": "The bundled agents ship `model: opus` in frontmatter, which is why model_map is empty: opus does not exist on Codex, and translating it would pin every agent to a model nobody chose. That was already handled. What was NOT: the /projectstore-agents and /projectstore-bind prompts offered opus/fable/sonnet as a CHOICE, so a Codex user could pick a model that does not exist there and have it written into projectstore.json and passed as a spawn parameter."
   },
   "capabilities": {
     "_comment": "No statusline slot exists in Codex, so that surface is dropped rather than faked. The approval gate is prose here because Codex has no AskUserQuestion tool — NOT because it lacks a structural mechanism: PreToolUse can return permissionDecision:deny on both harnesses, and projectstore uses it on neither yet. Do not describe that as a Codex advantage.",
@@ -264,7 +275,10 @@
       "/projectstore:",
       "/reload-plugins",
       "/plugin\\b",
-      "statusLine"
+      "statusLine",
+      "\\bopus\\b",
+      "\\bfable\\b",
+      "\\bsonnet\\b"
     ],
     "allow": [
       "Edit before saving",

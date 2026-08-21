@@ -99,8 +99,13 @@ installed from a checkout rather than a marketplace:
 ```bash
 git clone https://github.com/SmartAndPoint/ProjectStore.git
 cd ProjectStore
-node scripts/install-codex.mjs        # into ~/.codex; --project for <cwd>/.codex
+node scripts/install-codex.mjs /path/to/your/project
 ```
+
+Skills, agents and hooks are scoped to that project, so projectstore's hooks do
+not fire in every other repository you open. Slash commands go to `~/.codex/prompts`
+because Codex looks for them nowhere else — the installer prints both
+destinations. `--user` puts everything in the home directory instead.
 
 Then restart Codex. Commands are `/projectstore-adr`, `/projectstore-epic` and so
 on — flat names, because Codex has no `namespace:command` form. `--dry-run`

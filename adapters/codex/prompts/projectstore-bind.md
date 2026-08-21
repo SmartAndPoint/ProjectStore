@@ -92,13 +92,14 @@ Steps:
 
 8. **Agent registration** (v0.13, ADR-002): ask via an approval prompt — "Register projectstore's agents in the project's agent-instructions file so every session routes to them (critic after authoring artifacts, planner before implementing, reviewer before commit)? [Yes (Recommended) / No]". On Yes, run the `register` flow from `commands/agents.md` (block generated from the layout's roster; each write individually approved). On a rebind where a block already exists, offer repair/migrate instead of re-asking blindly.
 
-9. **Agent model preset** (v0.13, ADR-003; mechanism per ADR-008): ask via an approval prompt — include this line in the question text: *"These agents don't write code — they are critics, planners, and reviewers; they perform best on strong models at high effort."* Options: **Keep bundled default — opus** (Recommended) / **fable** / **sonnet**. Do not offer `inherit` — it cannot be expressed per invocation (see `commands/agents.md`). Do not offer effort — it is not configurable per project (the bundled agents already run at `max`). Free-form model IDs and per-agent tuning live in `/projectstore-agents configure` — mention it. A non-default choice runs the `configure` apply flow from `commands/agents.md`, which writes the config only — **never an agent copy**. Skippable.
+9. **Agent model preset** (v0.13, ADR-003; mechanism per ADR-008): ask via an approval prompt — include this line in the question text: *"These agents don't write code — they are critics, planners, and reviewers; they perform best on strong models at high effort."* Do NOT offer a preset list of model names — they differ per harness and any list here goes stale. Ask the user to name a model their own install offers, or to skip; skipping leaves the key unset and the agents inherit the session's model, which is the sane default.
+ Do not offer effort — it is not configurable per project (the bundled agents already run at `max`). Free-form model IDs and per-agent tuning live in `/projectstore-agents configure` — mention it. A non-default choice runs the `configure` apply flow from `commands/agents.md`, which writes the config only — **never an agent copy**. Skippable.
 
 10. **Print summary**: confirm the bind, list the layout's folders, suggest next commands (`/projectstore-status`, `/projectstore-adr "<first decision>"`, `/projectstore-epic <ID> "<title>"`).
 
 
 
-11. **Keeping projectstore current**: this harness installs projectstore from a
+ 11. **Keeping projectstore current**: this harness installs projectstore from a
     checkout rather than a marketplace, so there is no auto-update to enable.
     Tell the user: pull the checkout and re-run
     `node scripts/install-codex.mjs`, then restart the harness so skills,

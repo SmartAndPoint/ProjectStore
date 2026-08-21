@@ -68,27 +68,32 @@
       "dir": "commands",
       "file": "<name>.md",
       "format": "command-md",
-      "invocation": "/projectstore:<name>"
+      "invocation": "/projectstore:<name>",
+      "scope": "user"
     },
     "agents": {
       "supported": true,
       "dir": "agents",
       "file": "<name>.md",
       "format": "agent-md",
-      "invocation": "projectstore:<name>"
+      "invocation": "projectstore:<name>",
+      "scope": "user"
     },
     "skills": {
       "supported": true,
       "dir": "skills",
       "file": "<name>/SKILL.md",
-      "format": "skill-md"
+      "format": "skill-md",
+      "scope": "user"
     },
     "hooks": {
       "supported": true,
       "dir": "hooks",
       "file": "hooks.json",
-      "format": "hooks-json"
-    }
+      "format": "hooks-json",
+      "scope": "user"
+    },
+    "_scope_comment": "Claude Code loads these from the plugin installation itself rather than from a per-project directory, so the distinction does not arise; recorded for the schema's sake."
   },
   "capabilities": {
     "statusline": true,
@@ -106,5 +111,13 @@
     "3. Toggle **auto-update** on.",
     "",
     "Without it, you would run `/plugin marketplace update SmartAndPoint` manually. See https://github.com/SmartAndPoint/ProjectStore#updates for details."
-  ]
+  ],
+  "agent_translation": {
+    "model_presets": [
+      "opus",
+      "fable",
+      "sonnet"
+    ],
+    "model_preset_advice": "Options: keep bundled default (`opus`) / `fable` / `sonnet` / custom model ID (free-form)."
+  }
 }

@@ -159,11 +159,22 @@ today that is Claude Code, and exactly one manifest may claim it.
 ## Installing on Codex
 
 ```bash
-node scripts/install-codex.mjs              # into $CODEX_HOME (default ~/.codex)
-node scripts/install-codex.mjs --project    # into <cwd>/.codex
+node scripts/install-codex.mjs                 # scope to this project (default)
+node scripts/install-codex.mjs /path/to/repo   # scope to another project
+node scripts/install-codex.mjs --user          # everything into $CODEX_HOME
 node scripts/install-codex.mjs --dry-run
 node scripts/install-codex.mjs --uninstall
 ```
+
+**The install is split, and the split is not a choice.** Skills, agents and
+hooks go into `<project>/.codex/` — scoping the hooks is the point, since
+home-level hooks fire in *every* Codex project, costing a node process per tool
+call in repositories with no vault bound. Slash commands cannot be scoped:
+Codex discovers custom prompts only under `$CODEX_HOME/prompts`, with no
+project-level equivalent ([openai/codex#4734](https://github.com/openai/codex/issues/4734),
+[#9848](https://github.com/openai/codex/issues/9848)), so a project-only install
+would ship no `/projectstore-*` commands at all. Each surface declares its scope
+in the manifest and the installer prints both destinations every run.
 
 Two things resolve at install time rather than being committed:
 `{{PROJECTSTORE_ROOT}}` and `$PROJECTSTORE_ROOT` become this checkout's absolute

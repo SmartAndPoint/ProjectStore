@@ -124,8 +124,11 @@ export function applyHarnessBlocks(text, id) {
   // Alt blocks resolve after the visible ones so a visible block may contain an
   // alt block, not the other way round — the reverse would need the comment
   // wrapper to survive its own removal.
+  // The leading separator matters: an alt block often replaces a clause
+  // mid-sentence, and without it the inlined body fuses onto the word before
+  // it ("…at high effort."*Do NOT offer…").
   return visible.replace(ALT_BLOCK_RE, (_all, attrs, inner) =>
-    harnessAllows(listAttr(attrs, "only"), listAttr(attrs, "except"), id) ? inner + "\n" : "",
+    harnessAllows(listAttr(attrs, "only"), listAttr(attrs, "except"), id) ? " " + inner + "\n" : "",
   );
 }
 

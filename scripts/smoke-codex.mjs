@@ -14,16 +14,17 @@
 // that settles them.
 //
 // Usage:
-//   node scripts/smoke-codex.mjs                 # against $CODEX_HOME
-//   node scripts/smoke-codex.mjs --project       # against <cwd>/.codex
+//   node scripts/smoke-codex.mjs                 # this project (default)
+//   node scripts/smoke-codex.mjs <project-path>
+//   node scripts/smoke-codex.mjs --user          # a home-scoped install
 //   node scripts/smoke-codex.mjs --trace <file>  # summarise a recorded session
 
 import { existsSync, readFileSync, readdirSync, mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { loadHarness, REPO_ROOT } from "./harness.mjs";
-import { codexHome } from "./install-codex.mjs";
+import { surfaceDest, destinations } from "./install-codex.mjs";
 
 const M = loadHarness("codex");
 let failed = 0, warned = 0;
@@ -47,24 +48,29 @@ function checkGenerated() {
 
 // ─── 2. The install landed where Codex looks ───────────────────────────
 
-function checkInstalled(dest) {
-  head(`2. Installed surfaces  ${C.dim}${dest}${C.off}`);
-  if (!existsSync(dest)) {
-    bad("nothing installed", `Run: node scripts/install-codex.mjs${dest.endsWith(".codex") && !dest.startsWith(process.env.HOME || "~") ? " --project" : ""}`);
-    return false;
+// Surfaces do not share one destination: skills, agents and hooks are scoped to
+// the project, while slash commands can only live in the Codex home directory.
+// Checking a single directory would report the other half as missing.
+function checkInstalled(opts) {
+  head("2. Installed surfaces");
+  for (const [key, dest] of destinations(M, opts)) {
+    if (key === "hooks") continue;
+    console.log(`  ${C.dim}${key}: ${dest}${C.off}`);
   }
   let allThere = true;
   for (const key of ["commands", "agents", "skills"]) {
     const s = M.surfaces[key];
-    const dir = join(dest, s.dir);
+    const dir = join(surfaceDest(M, key, opts), s.dir);
     const want = countSource(key);
     const got = existsSync(dir) ? readdirSync(dir).filter((n) => n.startsWith("projectstore-")).length : 0;
-    if (got === 0) { bad(`no ${key} installed`, dir); allThere = false; }
-    else if (got < want) { warn(`${got} of ${want} ${key} installed`, dir); allThere = false; }
-    else ok(`${got} ${key}`, dir);
+    if (got === 0) {
+      bad(`no ${key} installed`, `${dir}\n      Run: node scripts/install-codex.mjs`);
+      allThere = false;
+    } else if (got < want) { warn(`${got} of ${want} ${key} installed`, dir); allThere = false; }
+    else ok(`${got} ${key}`);
   }
 
-  const hooks = join(dest, M.hooks.config_file);
+  const hooks = join(surfaceDest(M, "hooks", opts), M.hooks.config_file);
   if (!existsSync(hooks)) { bad("no hooks.json", hooks); return false; }
   let cfg;
   try { cfg = JSON.parse(readFileSync(hooks, "utf8")); }
@@ -283,17 +289,19 @@ function checklist(dest) {
 function main() {
   const argv = process.argv.slice(2);
   const traceAt = argv.indexOf("--trace");
-  const dest = codexHome(M, { project: argv.includes("--project") });
+  const positional = argv.slice(traceAt >= 0 ? traceAt + 2 : 0).find((a) => !a.startsWith("-"));
+  const opts = { userOnly: argv.includes("--user"), cwd: positional ? resolve(positional) : process.cwd() };
+  const home = surfaceDest(M, "commands", opts);
 
   console.log(`projectstore — Codex preflight  ${C.dim}${REPO_ROOT}${C.off}`);
 
   if (traceAt >= 0) {
-    summariseTrace(argv[traceAt + 1] || join(dest, "hook-trace.jsonl"));
+    summariseTrace(argv[traceAt + 1] || join(home, "hook-trace.jsonl"));
   } else {
     checkGenerated();
-    checkInstalled(dest);
+    checkInstalled(opts);
     checkHooks();
-    checklist(dest);
+    checklist(home);
   }
 
   const verdict = failed === 0

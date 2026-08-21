@@ -33,7 +33,7 @@ subcommand (`.codex/projectstore.json`; else point to `/projectstore-bind`).
    hooks disabled the block is the only thing carrying it.
    Only *routable* agents get lines (critic/planner/reviewer) — `librarian` and
    `archaeologist` have no per-turn trigger and are deliberately absent.
-2. **Scan `AGENTS.md`** for `<!-- projectstore-agents` markers: block present and
+ 2. **Scan `AGENTS.md`** for `<!-- projectstore-agents` markers: block present and
    current → report "already registered", stop; stale version marker → offer to
    replace the block in place.
 3. **Placement**: always `AGENTS.md` at the project root — this harness reads it
@@ -45,7 +45,7 @@ subcommand (`.codex/projectstore.json`; else point to `/projectstore-bind`).
 ## `unregister` — remove what register added
 
 1. Remove the marked block (approval with diff preview).
-2. Delete an `AGENTS.md` that registration created if it is now otherwise empty
+ 2. Delete an `AGENTS.md` that registration created if it is now otherwise empty
    (separate approval). Never touch user-authored content.
 
 ## `status` — read-only report
@@ -74,12 +74,19 @@ subcommand (`.codex/projectstore.json`; else point to `/projectstore-bind`).
 1. **Preset question** (one choice for ALL roster agents), with this education
    line in the question text: *"These agents don't write code — they are
    critics, planners, and reviewers; they perform best on strong models at high
-   effort."* Options: keep bundled default (`opus`) / `fable` / `sonnet` /
-   custom model ID (free-form). Offer the current session's model as a hint
-   option — you know what you are running on. **Do not ask about effort** — see
+    effort."* Do NOT offer a preset list of model names: model ids differ per
+   harness and any list written into this prompt goes stale. Ask the user to
+   name a model their own install actually offers (the harness's model picker
+   lists them), offer the current session's model as a hint — you know what you
+   are running on — and make skipping the obvious choice: with no key set, an
+   agent inherits the session's model, which is the sane default.
+ **Do not ask about effort** — see
    step 5. **`inherit` is no longer offered**: it meant "follow the session's
-   model", and that cannot be expressed per invocation — passing nothing falls
-   through to the bundled `model: opus`, not to the session. A user who wants
+    model", and that cannot be expressed per invocation. Passing nothing falls
+   through to the agent's own frontmatter — and since the bundled frontmatter
+   names a model this harness does not have, the translation drops it, so an
+   agent with no configured model does inherit the session's here.
+ A user who wants
    session-follow behaviour should pick their session's model explicitly.
 2. **Optional follow-up**: "configure individually?" → per-agent model for each
    roster agent. Skippable.

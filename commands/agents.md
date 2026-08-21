@@ -83,12 +83,28 @@ subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
 1. **Preset question** (one choice for ALL roster agents), with this education
    line in the question text: *"These agents don't write code — they are
    critics, planners, and reviewers; they perform best on strong models at high
+<!-- projectstore:harness only=claude-code -->
    effort."* Options: keep bundled default (`opus`) / `fable` / `sonnet` /
    custom model ID (free-form). Offer the current session's model as a hint
-   option — you know what you are running on. **Do not ask about effort** — see
+   option — you know what you are running on.
+<!-- /projectstore:harness --><!-- projectstore:harness-alt except=claude-code
+   effort."* Do NOT offer a preset list of model names: model ids differ per
+   harness and any list written into this prompt goes stale. Ask the user to
+   name a model their own install actually offers (the harness's model picker
+   lists them), offer the current session's model as a hint — you know what you
+   are running on — and make skipping the obvious choice: with no key set, an
+   agent inherits the session's model, which is the sane default.
+--> **Do not ask about effort** — see
    step 5. **`inherit` is no longer offered**: it meant "follow the session's
+<!-- projectstore:harness only=claude-code -->
    model", and that cannot be expressed per invocation — passing nothing falls
-   through to the bundled `model: opus`, not to the session. A user who wants
+   through to the bundled `model: opus`, not to the session.
+<!-- /projectstore:harness --><!-- projectstore:harness-alt except=claude-code
+   model", and that cannot be expressed per invocation. Passing nothing falls
+   through to the agent's own frontmatter — and since the bundled frontmatter
+   names a model this harness does not have, the translation drops it, so an
+   agent with no configured model does inherit the session's here.
+--> A user who wants
    session-follow behaviour should pick their session's model explicitly<!-- projectstore:harness only=claude-code -->, or set
    `CLAUDE_CODE_SUBAGENT_MODEL=inherit`, which does mean exactly that<!-- /projectstore:harness -->.
 2. **Optional follow-up**: "configure individually?" → per-agent model for each

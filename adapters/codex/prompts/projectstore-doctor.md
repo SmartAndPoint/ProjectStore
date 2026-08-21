@@ -42,7 +42,7 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      `.codex/projectstore.json` instead. Never offer to delete — or edit — a
      copy reported at `info`: no provenance marker means we cannot prove it is
      ours, and it may be the user's own agent.
-   - `auto-update` / `statusline` findings do not apply on this harness and are
+    - `auto-update` / `statusline` findings do not apply on this harness and are
      not emitted by `doctor` here. If one appears anyway, report it as an
      installation carried over from another harness rather than acting on it.
 
