@@ -264,13 +264,18 @@ function checklist(dest) {
   b. Hooks firing, and what they really send:
 
        export PROJECTSTORE_HOOK_TRACE=${trace}
-       ${C.dim}# start Codex, edit two files, run /compact, exit${C.off}
+       ${C.dim}# start Codex IN A TERMINAL, edit two files, run /compact, exit${C.off}
        node scripts/smoke-codex.mjs --trace ${trace}
 
      ${C.dim}This is the one that matters. It answers whether Codex sets \`cwd\`,
      whether apply_patch carries its envelope where the manifest says, and
      whether the paths are relative — the three assumptions everything else
-     rests on. Unset the variable afterwards.${C.off}
+     rests on. Unset the variable afterwards.
+
+     Terminal only: the desktop app does not inherit your shell environment, so
+     the variable never reaches it and the trace stays empty whether or not its
+     hooks run. For the desktop, use (e) instead — it reads the vault rather
+     than the environment.${C.off}
 
   c. The approval gate. Run ${C.dim}/projectstore-adr "test decision"${C.off} and check that
      Codex STOPS and asks before writing. On Codex this is prose, not a tool —
@@ -279,8 +284,16 @@ function checklist(dest) {
   d. Agents. Ask Codex to "use the projectstore-critic subagent on <file>".
      ${C.dim}Confirms the TOML translation loads and the model/effort keys are accepted.${C.off}
 
-  e. ${C.dim}node scripts/doctor.mjs --install${C.off} inside a real Codex session —
-     should report no statusline and no adapter findings.
+  e. ${C.dim}node scripts/doctor.mjs --install${C.off} — no statusline and no adapter
+     findings, and its \`hooks\` check is how you tell whether hooks fired at
+     all: it reports a session registration fresher than 30 minutes. Run it
+     right after a session (terminal OR desktop) and read that line.
+
+     ${C.dim}One caveat that will mislead you: SessionStart deliberately does NOT
+     register a session when the bound vault does not exist yet. So the very
+     session in which you scaffold the vault registers nothing, and an empty
+     sessions/ directory afterwards proves nothing. Re-test with a session that
+     starts AFTER the vault exists.${C.off}
 `);
 }
 
