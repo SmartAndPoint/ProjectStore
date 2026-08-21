@@ -208,6 +208,22 @@ function trustHint() {
   }
 }
 
+// The second gate. Unlike project trust this cannot be inspected from here —
+// the approval lives in the harness's own store, keyed by hook hash — so it is
+// stated as the thing to check rather than reported as a finding.
+function reviewHint() {
+  try {
+    const m = activeHarness();
+    const rev = m?.runtime?.hook_review;
+    if (!rev) return "";
+    return ` And check the hooks are TRUSTED, not merely listed: ${m.display_name} shows ` +
+      `them in ${rev.ui_path} (or ${rev.cli_command}) while skipping them until each ` +
+      `definition is approved, and an update that rewrites a definition revokes that approval.`;
+  } catch {
+    return "";
+  }
+}
+
 export function checkHooksAlive(cfg, maxAgeMinutes = 30) {
   const dir = join(cfg.vault_path, ".projectstore", "sessions");
   if (!existsSync(dir)) {
@@ -219,7 +235,7 @@ export function checkHooksAlive(cfg, maxAgeMinutes = 30) {
       "No session registry in the vault — SessionStart may not be firing. " +
       "Ordinary causes: no session has started since the vault was created " +
       "(the session that scaffolds a vault registers nothing, by design), or " +
-      "hooks are not installed. " + trustHint(),
+      "hooks are not installed. " + trustHint() + reviewHint(),
     )];
   }
   const cutoff = Date.now() - maxAgeMinutes * 60 * 1000;

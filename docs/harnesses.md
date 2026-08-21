@@ -166,6 +166,28 @@ node scripts/install-codex.mjs --dry-run
 node scripts/install-codex.mjs --uninstall
 ```
 
+**Two gates, and only the second one decides whether hooks run.** Project trust
+(above) gets them *discovered*. Each hook definition must then be *reviewed and
+trusted individually* before Codex will execute it — and until that happens they
+appear in the hooks list while being skipped. Six hooks visible in Settings and
+nothing firing is what a pending approval looks like, which is why it reads as a
+broken install.
+
+```
+CLI:     /hooks
+Desktop: Settings → Hooks → From Projects → <your project>
+```
+
+Approval is recorded against the hook's **hash**, so anything that rewrites a
+definition — reinstalling after moving the checkout, an update that changes the
+command — revokes it and the hooks stop again, silently. Expect to re-review
+after an update.
+
+This is deliberate: a repository cannot make you execute arbitrary commands by
+shipping a `.codex/` directory. projectstore therefore never writes into that
+trust store and never will — the review is the user's to give, and an installer
+that forged it would be defeating the mechanism that protects its own users.
+
 **Project trust is part of the install, not a detail.** Codex loads a project's
 `.codex/` layer — its config *and its hooks* — only when the project is marked
 trusted in `~/.codex/config.toml`, and skips the whole layer in silence

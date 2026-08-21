@@ -24,6 +24,12 @@
       "key": "trust_level",
       "trusted_value": "trusted",
       "_comment": "Codex loads a project's .codex/ layer — project config, project-local hooks — ONLY when the project is trusted, and silently skips all of it otherwise. User-level hooks are unaffected. Since projectstore installs hooks project-scoped by default, an untrusted project means the hooks never run and nothing says so: the exact silent failure the harness boundary exists to prevent. The installer checks this and refuses to claim success without it."
+    },
+    "hook_review": {
+      "cli_command": "/hooks",
+      "ui_path": "Settings → Hooks → From Projects",
+      "keyed_by": "hash of the hook definition",
+      "_comment": "A SECOND gate, independent of project trust and the one that actually decides whether a hook runs. Codex requires each non-managed command hook to be reviewed and trusted individually, and records that trust against the hook's current HASH — so hooks appear in the settings list while being skipped, and any change to a hook definition (a reinstall that moves the checkout path, a version bump that rewrites the command) invalidates the approval and silently stops them again. This is deliberate security, not a defect: a project cannot make you run arbitrary commands by shipping a .codex/ directory. projectstore must never try to write into that trust store — the review is the user's to give."
     }
   },
   "tools": {

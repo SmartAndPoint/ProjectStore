@@ -307,6 +307,20 @@ function install(opts) {
   }
 
   if (!dryRun) {
+    const rev = m.runtime?.hook_review;
+    if (rev) {
+      // The second gate, and the one that actually decides whether hooks run.
+      // Project trust gets them DISCOVERED; this gets them EXECUTED. They show
+      // up in the settings list either way, which is why its absence looks like
+      // a broken install rather than a pending approval.
+      console.log(`\n▸ NEXT: review and trust these hooks, or they will not run.`);
+      console.log(`  ${m.display_name} lists them but skips them until each definition is`);
+      console.log(`  approved — trust is recorded against the hook's ${rev.keyed_by}.`);
+      console.log(`    CLI:     ${rev.cli_command}`);
+      console.log(`    Desktop: ${rev.ui_path}`);
+      console.log(`  Re-running this installer can change those definitions, which revokes`);
+      console.log(`  the approval — expect to review again after an update.`);
+    }
     console.log(`\nHooks run from this checkout (${REPO_ROOT}) — keep it in place, or re-run after moving it.`);
     console.log(`Restart Codex so it re-reads skills, prompts and agents.`);
   }

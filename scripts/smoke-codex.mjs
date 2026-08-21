@@ -265,6 +265,16 @@ function checklist(dest) {
   contract itself — that Codex sends these fields, discovers these files —
   can only be settled by Codex.${C.off}
 
+  a0. Trust the hooks themselves — the step that catches everyone. Codex LISTS
+     project hooks after the project is trusted, but SKIPS them until each
+     definition is individually reviewed. Six hooks visible in the settings
+     pane and none of them running is the expected look of "not yet approved",
+     not of a broken install.
+       ${C.dim}CLI:     /hooks
+       Desktop: Settings → Hooks → From Projects → <your project>${C.off}
+     ${C.dim}Approval is keyed to the hook's hash, so re-running the installer or
+     moving the checkout revokes it and you review again.${C.off}
+
   a. Discovery. Start Codex in a bound project and type "/". You should see
      ${C.dim}/projectstore-adr, /projectstore-epic, /projectstore-status …${C.off}
      Then ask it: "which projectstore skills and agents can you see?"
