@@ -32,7 +32,7 @@ import {
 } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { homedir } from "node:os";
-import { loadHarness, emittingHarnesses, REPO_ROOT } from "./harness.mjs";
+import { loadHarness, emittingHarnesses, harnessIds, REPO_ROOT } from "./harness.mjs";
 
 // The harness to install for. With exactly one emitting harness the flag is
 // optional — naming it would be ceremony. With more than one it is required,
@@ -83,10 +83,33 @@ function harness(opts = {}) {
     process.exit(2);
   }
   if (!m.emit) {
-    console.error(`Harness "${id}" declares emit: false — it has no generated adapter to install.`);
+    // "No adapter to install" answers a question nobody asked. Someone typing
+    // this command wants projectstore installed, and for a harness with its own
+    // package manager the answer is not "you cannot" — it is "not with this
+    // script, here is the one command that does it". The steps are values in the
+    // manifest; this function has never heard of any particular harness.
+    console.error(installElsewhere(m).join("\n"));
     process.exit(2);
   }
   return m;
+}
+
+// The lines shown when a harness installs by some means other than this script.
+// Exported so --help can offer the same answer before the user gets it wrong.
+export function installElsewhere(m) {
+  const inst = m.install;
+  const L = [`${m.display_name} installs through ${inst?.mechanism || "its own mechanism"}, not this script.`];
+  if (inst?.why_not_scripted) L.push(`  ${inst.why_not_scripted}`);
+  if (inst?.steps?.length) L.push(``, ...inst.steps.map((s) => `    ${s}`));
+  for (const n of inst?.notes || []) L.push(``, `  ${n}`);
+  if (inst?.docs) L.push(``, `  ${inst.docs}`);
+  if (!inst) {
+    L.push(
+      `  harnesses/${m.id}.json declares emit: false and no "install" block, so there is`,
+      `  nothing to point you at. Add one there rather than describing it here.`,
+    );
+  }
+  return L;
 }
 
 // The two places a surface can land, and which one each surface uses.
@@ -484,6 +507,11 @@ function main() {
       ``,
       `Harnesses with a generated adapter: ${emitting.map((h) => h.id).join(", ") || "(none)"}`,
     ];
+    // A harness this script cannot install is still a harness projectstore runs
+    // on, and "not listed above" reads as "not supported" unless it says so.
+    for (const h of harnessIds().map((id) => loadHarness(id)).filter((h) => h && !h.emit)) {
+      L.push(``, ...installElsewhere(h));
+    }
     // Everything below is read from the harness's manifest rather than
     // described here, so a second harness explains itself without editing this.
     if (m) {

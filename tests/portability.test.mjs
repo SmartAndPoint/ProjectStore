@@ -1183,6 +1183,42 @@ test("granting trust preserves the rest of the user's config", async () => {
   assert.equal((twice.match(/\[projects\.'\/mine'\]/g) || []).length, 1);
 });
 
+// ─── Every harness says how it is installed ────────────────────────────
+
+test("a harness with no generated adapter still says how to install it", () => {
+  // emit:false means "this script cannot install it", which is not the same
+  // claim as "it does not need installing" — and the script used to make the
+  // first sound like the second, answering someone who wanted projectstore
+  // installed with an internal term and no next step. The manifest carries the
+  // real answer, so the fix holds for a third harness nobody has written yet.
+  for (const id of harnessIds()) {
+    const m = loadHarness(id);
+    if (m.emit) continue;
+    const i = m.install;
+    assert.ok(i, `harnesses/${id}.json: emit is false, so it must carry an "install" block`);
+    assert.ok(i.mechanism, `${id}: install.mechanism must name what installs it`);
+    assert.ok(Array.isArray(i.steps) && i.steps.length, `${id}: install.steps must not be empty`);
+  }
+});
+
+test("the emit:false message tells the user what to run instead", async () => {
+  // Asserted on the rendered lines, not on the manifest: a block nothing prints
+  // is the same dead end with extra JSON.
+  const { installElsewhere } = await import("../scripts/install-harness.mjs");
+  for (const id of harnessIds()) {
+    const m = loadHarness(id);
+    if (m.emit) continue;
+    const out = installElsewhere(m).join("\n");
+    assert.ok(out.includes(m.display_name), `${id}: does not name the harness`);
+    for (const step of m.install.steps) {
+      assert.ok(out.includes(step), `${id}: omits the step "${step}"`);
+    }
+    // The old message said only what did not happen. Nothing here may do that
+    // without also saying what does.
+    assert.ok(!/^\S.*emit: false/m.test(out), `${id}: still explains itself with an internal term`);
+  }
+});
+
 // ─── The installer is a harness tool, not a Codex tool ─────────────────
 
 test("the installer and the preflight name no harness in their code", () => {

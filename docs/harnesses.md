@@ -178,6 +178,17 @@ node scripts/install-harness.mjs --dry-run
 node scripts/install-harness.mjs --uninstall
 ```
 
+This script installs a *generated adapter*, so it serves only harnesses with
+`emit: true`. Ask it for one that emits nothing and it does not report a
+capability gap — it reads that harness's `install` block and prints the commands
+that do install it. A harness with `emit: false` must carry that block, and two
+tests enforce it: one that the block exists and names a mechanism and steps, one
+that those steps actually reach the rendered output. The reason is a real defect
+this had: "declares emit: false — no generated adapter to install" answers a
+question nobody asked. Someone typing that command wants projectstore installed,
+and for Claude Code the answer is not *you cannot*, it is `/plugin marketplace
+add`.
+
 `--harness <id>` picks the harness. It is optional while exactly one harness
 emits an adapter — naming it would be ceremony — and required the moment a
 second does, because guessing between them is the kind of convenience that

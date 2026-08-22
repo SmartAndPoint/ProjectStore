@@ -93,33 +93,45 @@ To pin a specific release: `/plugin marketplace add SmartAndPoint/ProjectStore#v
 
 ### Codex
 
-Codex reads skills, prompts and agents from real directories, so projectstore is
-installed from a checkout rather than a marketplace:
+Codex has no plugin marketplace and reads skills, prompts and agents from real
+directories, so projectstore is installed from a checkout by a script. Three
+commands, once:
 
 ```bash
 git clone https://github.com/SmartAndPoint/ProjectStore.git
 cd ProjectStore
-node scripts/install-harness.mjs /path/to/your/project
-```
-
-```bash
 node scripts/install-harness.mjs /path/to/your/project --trust
 ```
 
-Skills, agents and hooks are scoped to that project, so projectstore's hooks do
-not fire in every other repository you open. `--trust` is what makes them run at
-all: Codex ignores an untrusted project's `.codex/` layer entirely, hooks
-included, and says nothing about it. Slash commands go to `~/.codex/prompts`
-because Codex looks for them nowhere else — the installer prints both
-destinations. `--user` puts everything in the home directory instead.
+Then **restart Codex** and run `/projectstore-bind` in your project.
 
-Then restart Codex. Commands are `/projectstore-adr`, `/projectstore-epic` and so
-on — flat names, because Codex has no `namespace:command` form. `--dry-run`
-shows what would land; `--uninstall` removes it and leaves your own hooks
-untouched.
+**Do not drop `--trust` unless you know you already granted it.** Codex reads a
+project's `.codex/` layer — its config and its hooks — only for projects you have
+marked trusted, and skips all of it in silence otherwise: the hooks land on disk,
+appear in the settings list, and never run. The installer checks, refuses to
+report success without it, and prints the stanza to add by hand if you would
+rather — two lines in `~/.codex/config.toml`.
 
-Hooks run from the checkout, so keep it where it is (or re-run the installer
-after moving it). To update: `git pull` and re-run the installer.
+Where things land, and why the split:
+
+| Surface | Destination | |
+|---|---|---|
+| skills, agents, hooks | `<project>/.codex/` | scoped, so projectstore's hooks do not fire in every other repository you open |
+| slash commands | `~/.codex/prompts/` | Codex looks for prompts nowhere else ([#4734](https://github.com/openai/codex/issues/4734), [#9848](https://github.com/openai/codex/issues/9848)) |
+
+`--user` puts everything in the home directory instead. `--dry-run` shows what
+would land without writing. `--uninstall` removes it and leaves your own prompts,
+skills and hook entries untouched.
+
+Names are flat here — `/projectstore-adr`, `/projectstore-epic`,
+`/projectstore-doctor` — because Codex has no `namespace:command` form. Agents
+follow the same shape: `projectstore-critic`, `projectstore-planner` and the
+rest, where Claude Code spells them `projectstore:critic`.
+
+**Updating:** `git pull` in the checkout, then re-run the installer. Hooks run
+*from* that checkout, so keep it where it is — if you move it, re-run the
+installer from the new location. Re-running also prunes surfaces an older
+version installed.
 
 A project bound under one harness is found by the other — `.claude/projectstore.json`
 and `.codex/projectstore.json` are both searched, so you bind once.

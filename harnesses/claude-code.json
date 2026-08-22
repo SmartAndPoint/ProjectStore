@@ -6,6 +6,22 @@
   "source_layout": true,
   "output_dir": null,
   "docs": "https://code.claude.com/docs",
+  "install": {
+    "_comment": "How projectstore is installed for THIS harness. Present because emit:false means install-harness.mjs cannot do it, and \"cannot\" is not the same as \"not needed\" — without this the script answers a user who wants to install projectstore with an internal term and no next step. The script only prints these values; it knows nothing about what they say.",
+    "mechanism": "the built-in plugin marketplace",
+    "why_not_scripted": "Claude Code ships a plugin manager that installs, updates and removes projectstore itself. A copy of it here would be a second, worse one: it would not know about /plugin, auto-update, or pinning a release.",
+    "steps": [
+      "/plugin marketplace add SmartAndPoint/ProjectStore",
+      "/plugin install projectstore@SmartAndPoint",
+      "/reload-plugins"
+    ],
+    "notes": [
+      "Auto-update is OFF by default for third-party plugins: /plugin -> Marketplaces -> SmartAndPoint -> toggle auto-update.",
+      "Pin a release with: /plugin marketplace add SmartAndPoint/ProjectStore#v0.13.0",
+      "From a checkout instead: claude --plugin-dir ./ProjectStore"
+    ],
+    "docs": "https://github.com/SmartAndPoint/ProjectStore#install-2-minutes"
+  },
   "runtime": {
     "detect_env": [
       "CLAUDE_PLUGIN_ROOT",
