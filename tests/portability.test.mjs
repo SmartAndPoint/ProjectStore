@@ -286,14 +286,29 @@ test("harness gate markers are balanced in every source surface", () => {
 });
 
 test("every harness gate names a harness that actually exists", () => {
+  // Parsed with harnessBlockAttrs(), NOT with a regex written here. This check
+  // used to hand-roll `projectstore:harness\s+(only|except)=…`, which cannot
+  // match `projectstore:harness-alt` — `\s+` does not match `-alt` — so the
+  // commented form was never validated at all. It was the one gate check that
+  // duplicated the parser instead of importing it, and it was the one that
+  // missed a form; sharing the parser is what makes "both forms" true by
+  // construction rather than by remembering.
+  //
+  // The miss was invisible by design: a typo'd `only=` in an alt block renders
+  // for no harness, and the source harness never saw the body anyway because it
+  // is inside a comment. So the passage silently leaves every harness — measured
+  // on a real gate, three lines of doctor guidance vanished from the Codex
+  // adapter, and nothing failed but the staleness invariant, which an author
+  // clears by running the generator.
   const known = new Set(harnessIds());
   for (const f of sourceFiles()) {
     const src = readFileSync(join(REPO, f.path), "utf8");
-    for (const m of src.matchAll(/<!--\s*projectstore:harness\s+(only|except)=([^\s>]+)\s*-->/g)) {
-      for (const id of m[2].split(",").map((s) => s.trim()).filter(Boolean)) {
+    for (const b of harnessBlockAttrs(src)) {
+      const { only, except } = blockTargets(b.attrs);
+      for (const id of [...(only || []), ...(except || [])]) {
         assert.ok(known.has(id),
-          `${f.path}: gate names unknown harness "${id}" — a typo here silently gates the passage ` +
-          `out of every harness (only=) or into every harness (except=)`);
+          `${f.path}: ${b.form} gate names unknown harness "${id}" — a typo here silently gates ` +
+          `the passage out of every harness (only=) or into every harness (except=)`);
       }
     }
     const { keys } = splitFrontmatter(src);
