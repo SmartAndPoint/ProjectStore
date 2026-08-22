@@ -2002,6 +2002,146 @@ export function electEmitter(projectDir, sessionId) {
   return true;
 }
 
+// ─── Session-name anchor (ADR: the settled-anchor offer) ───────────────
+//
+// The session name is an ADDRESS: peers route to a session by it, and nothing
+// a plugin can call sets it — the authoritative value lives in the harness's
+// memory. So projectstore composes a name and OFFERS it; the person accepts.
+// (Covering research: "The session name is an address".)
+//
+// The whole difficulty is WHEN to speak, and the rule below was selected by
+// replaying nine recorded sessions, not by taste. Naive "offer on every
+// epic/story change" fires 19 times in one session. See
+// tests/fixtures/session-anchor-shapes.json and its drives, which reproduce
+// the comparison table the ADR cites.
+//
+// State for this rule must NOT route through writeSessionState — see the
+// entry-rule banner above for the mechanism (O_TRUNC, a zero-byte read, and the
+// ADR-006 statusline pointer erased). This tally is the highest-frequency
+// writer in the system, so the hazard is sharper here than where it is written
+// down. Follow registerSourcePath: one file per key, no reader-writer pair.
+//
+// Two gates that are easy to omit and that the fixtures alone will NOT catch,
+// because every recorded session is an authoring session: the tally counts
+// WRITE-family calls only, and MAIN-AGENT calls only. Without the first, a
+// review session that greps thirty files is offered a name for work it never
+// did; without the second, parallel subagents (which share one session id)
+// vote on a name none of them can accept.
+
+export const ANCHOR_SETTLE = 5;   // tally at which a key becomes offerable
+export const ANCHOR_MARGIN = 10;  // lead a challenger needs to take over
+const ANCHOR_NAME_CELL = 48;      // a name is typed by hand; keep it typeable
+
+// Which cluster an artifact belongs to: its epic, or the document itself.
+// Folders come from the layout, never from a hard-coded set — a vault that
+// renames `research/` must not silently stop being nameable.
+export function anchorKeyOf(rel, layout) {
+  if (typeof rel !== "string" || !rel) return null;
+  const folders = (layout && Array.isArray(layout.folders) ? layout.folders : [])
+    .filter((f) => f && f.path);
+  const epic = folders.find((f) => f.kind === "epic");
+  if (epic && rel.startsWith(epic.path + "/")) {
+    // String ops, never an interpolated RegExp: a layout path is user data, and
+    // `epics.old` would otherwise match `epicsXold/` while a parenthesised path
+    // stopped matching at all — the exact silent failure this function's
+    // layout-driven design exists to avoid.
+    const id = rel.slice(epic.path.length + 1).split("/")[0];
+    if (id) return { key: `epic:${id}`, id, leaf: leafOfStory(rel) };
+  }
+  for (const f of folders) {
+    if (f.kind === "epic") continue;
+    if (rel.startsWith(f.path + "/") && rel.endsWith(".md")) {
+      const base = rel.slice(f.path.length + 1);
+      if (base.includes("/")) continue;      // only files directly in the folder
+      // A folder's generated index is not a document: `adr/README.md` would
+      // otherwise settle an anchor and compose the name "readme".
+      if (f.readme && base.toLowerCase() === "readme.md") continue;
+      return { key: `doc:${rel}`, id: base.replace(/\.md$/, ""), leaf: null };
+    }
+  }
+  return null;
+}
+
+function leafOfStory(rel) {
+  const m = rel.match(/\/stories\/(.+)\.md$/);
+  return m ? m[1].replace(/^story-/, "").replace(/^\d+-/, "") : null;
+}
+
+export function emptyAnchorState() {
+  return { counts: {}, leaves: {}, incumbent: null, offered: null };
+}
+
+// One event folded into the state. Returns the state and, when the anchor
+// moves, the key that should now be offered — the caller composes the name.
+// Pure: no clock, no disk, so a fixture replay and the live hook run the same
+// code path rather than two implementations that agree until they do not.
+export function foldAnchor(state, hit) {
+  const st = state || emptyAnchorState();
+  if (!hit || !hit.key) return { state: st, offer: null };
+  const counts = { ...st.counts, [hit.key]: (st.counts[hit.key] || 0) + 1 };
+  const leaves = { ...st.leaves };
+  if (hit.leaf) {
+    const per = { ...(leaves[hit.key] || {}) };
+    per[hit.leaf] = (per[hit.leaf] || 0) + 1;
+    leaves[hit.key] = per;
+  }
+  let incumbent = st.incumbent;
+  let offered = st.offered;
+  let offer = null;
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  if (top && top[1] >= ANCHOR_SETTLE) {
+    const take = incumbent === null
+      ? true
+      : top[0] !== incumbent && top[1] >= (counts[incumbent] || 0) + ANCHOR_MARGIN;
+    if (take && top[0] !== incumbent) {
+      incumbent = top[0];
+      // A moved anchor is not automatically a new NAME. Two documents can share
+      // a basename across folders, and an A→B→A pivot returns to a name already
+      // offered — in both cases repeating it is noise that looks like a bug.
+      // Suppress here rather than at the call site: the invariant "the same name
+      // is never offered twice running" belongs to the rule, not to one consumer.
+      const name = composeAnchorName({ counts, leaves, incumbent, offered }, incumbent);
+      if (name && name !== offered) {
+        offer = { key: incumbent, name };
+        offered = name;
+      }
+    }
+  }
+  return { state: { counts, leaves, incumbent, offered }, offer };
+}
+
+// epic anchors read as "<epic-id>-<its most-written story>"; a document anchor
+// is its own slug. Truncation is on a word boundary — a name cut mid-word
+// reads as a typo, and this one gets typed back by a person.
+export function composeAnchorName(state, key) {
+  const st = state || emptyAnchorState();
+  const k = key || st.incumbent;
+  if (!k) return null;
+  const [kind, rest] = [k.slice(0, k.indexOf(":")), k.slice(k.indexOf(":") + 1)];
+  let name;
+  if (kind === "epic") {
+    const per = st.leaves[k] || {};
+    const top = Object.entries(per).sort((a, b) => b[1] - a[1])[0];
+    name = rest.toLowerCase() + (top ? `-${top[0]}` : "");
+  } else {
+    name = rest.replace(/^.*\//, "").replace(/\.md$/, "");
+  }
+  // slugify transliterates (Cyrillic included) — without it a non-ASCII title
+  // composed to null and burned the incumbent slot, leaving the session
+  // permanently nameless with nothing to show for it.
+  name = slugify(name);
+  if (name.length <= ANCHOR_NAME_CELL) return name || null;
+  const words = name.split("-");
+  let out = "";
+  for (const w of words) {
+    if (out && (out + "-" + w).length > ANCHOR_NAME_CELL) break;
+    // One exception to the word-boundary rule, and the only one: a single word
+    // longer than the cell has no boundary to cut on, so it is cut anyway.
+    out = out ? out + "-" + w : w.slice(0, ANCHOR_NAME_CELL);
+  }
+  return out || null;
+}
+
 // ─── Frontmatter parsing (minimal) ─────────────────────────────────────
 
 export function parseFrontmatter(md) {

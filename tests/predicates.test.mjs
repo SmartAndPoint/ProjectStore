@@ -13,6 +13,12 @@ import { fileURLToPath } from "node:url";
 import { spawnSync, spawn } from "node:child_process";
 
 import {
+  ANCHOR_SETTLE,
+  ANCHOR_MARGIN,
+  anchorKeyOf,
+  emptyAnchorState,
+  foldAnchor,
+  composeAnchorName,
   nextNumber,
   writeFileAtomic,
   slugIdentity,
@@ -2453,4 +2459,172 @@ test("writeSession preserves recent_activity and started_at across a re-registra
   assert.equal(after.started_at, "2026-08-01T00:00:00.000Z", "the original start time survives");
   assert.equal(after.recent_activity.length, 1, "and so does the activity log");
   assert.equal(after.project_root, "/new", "while the mutable field is refreshed");
+});
+
+// ─── Session-name anchor (ADR: the settled-anchor offer) ───────────────
+//
+// The fixtures are ANONYMISED shapes of nine recorded sessions, produced by the
+// committed extractor beside them: cluster and leaf identities renumbered per
+// session, folder kind kept, write/subagent flags kept, no artifact names. The
+// extractor ships so the ADR's claim that its constants "can be re-measured by
+// anyone who doubts them" is true of anyone's own sessions, not just of this
+// frozen file.
+//
+// Read the first two drives for what they are: REGRESSION PINS. The constants
+// were chosen on these very sessions, so they cannot fail except by someone
+// changing the rule — which is their job, not validation. Every drive after
+// them asserts something the fixtures did not decide.
+
+const ANCHOR_FIXTURES = JSON.parse(readFileSync(
+  fileURLToPath(new URL("./fixtures/session-anchor-shapes.json", import.meta.url)), "utf8"));
+
+// The shipping rule, replayed. The two gates are the CALLER's contract, and are
+// applied here exactly as touch-session.mjs must apply them.
+function replayAnchor(events, { reoffer = true, gates = true } = {}) {
+  let st = emptyAnchorState();
+  const offers = [];
+  for (const [cluster, leaf, write, sub] of events) {
+    if (gates && (!write || sub)) continue;
+    const r = foldAnchor(st, { key: cluster, leaf });
+    st = r.state;
+    if (r.offer && (offers.length === 0 || reoffer)) offers.push(r.offer.name);
+  }
+  return offers;
+}
+
+// The rejected alternatives, so the ADR's comparison table is pinned in full
+// rather than in the two rows the decision happens to use. Each is a rule over
+// the same fixture, not a re-derivation of the shipping one.
+function countAlternative(events, kind) {
+  const w = events.filter(([, , write, sub]) => write && !sub);
+  const pairKey = ([c, l]) => `${c}/${l || ""}`;
+  let n = 0, prev = null, run = 0, cur = null, fired = null;
+  for (const e of w) {
+    if (kind === "every-pair") { const k = pairKey(e); if (k !== prev) { n++; prev = k; } }
+    else if (kind === "cluster-only") { if (e[0] !== prev) { n++; prev = e[0]; } }
+    else if (kind === "dwell-3" || kind === "dwell-5") {
+      const need = kind === "dwell-3" ? 3 : 5;
+      const k = pairKey(e);
+      if (k === cur) run++; else { cur = k; run = 1; }
+      if (run === need && k !== fired) { n++; fired = k; }
+    }
+  }
+  if (kind === "once-per-session") n = w.length ? 1 : 0;
+  return n;
+}
+
+test("anchor: regression pin — the recorded sessions fire 12 times, at most 2 each", () => {
+  const per = ANCHOR_FIXTURES.map((s) => replayAnchor(s.events).length);
+  assert.equal(per.reduce((a, b) => a + b, 0), 12, `per-session: ${per.join(" ")}`);
+  assert.equal(Math.max(...per), 2);
+  assert.equal(per.filter((n) => n === 1).length, 6, `per-session: ${per.join(" ")}`);
+});
+
+test("anchor: regression pin — every row of the ADR's comparison table", () => {
+  const sum = (kind) => ANCHOR_FIXTURES.reduce((a, s) => a + countAlternative(s.events, kind), 0);
+  const max = (kind) => Math.max(...ANCHOR_FIXTURES.map((s) => countAlternative(s.events, kind)));
+  // The table is the ADR's whole argument for rejecting the alternatives; a row
+  // nothing can check is a rejection nobody can audit.
+  // Every row over the IDENTICAL gated event set. An earlier draft measured the
+  // first rows over epic events only and the anchor rows over epics AND
+  // documents, so the table compared rules on different data — invisible until
+  // the harness was committed and had to agree with itself.
+  assert.deepEqual([sum("every-pair"), max("every-pair")], [137, 37], "every artifact change");
+  assert.deepEqual([sum("cluster-only"), max("cluster-only")], [111, 26], "cluster change only");
+  assert.deepEqual([sum("dwell-3"), max("dwell-3")], [42, 14], "settled at 3 writes");
+  assert.deepEqual([sum("dwell-5"), max("dwell-5")], [24, 6], "settled at 5 writes");
+  assert.deepEqual([sum("once-per-session"), max("once-per-session")], [9, 1], "once per session");
+  const no = ANCHOR_FIXTURES.map((s) => replayAnchor(s.events, { reoffer: false }).length);
+  assert.deepEqual([no.reduce((a, b) => a + b, 0), Math.max(...no)], [9, 1], "settled anchor, no re-offer");
+});
+
+test("anchor: the constants are pinned by literal, because nothing else pins them", () => {
+  // Both constants survived mutation while every drive stayed green: the
+  // fixtures are INSENSITIVE to them in this range (settle 4 and margin 9
+  // reproduce 12/max-2 exactly), and the boundary drive below used to build its
+  // input FROM the constant, so the input moved with it. Same trap `WRITE_TOOLS`
+  // fell into — a loop over a constant cannot notice the constant changing.
+  assert.equal(ANCHOR_SETTLE, 5, "ADR: an anchor settles at five writes");
+  assert.equal(ANCHOR_MARGIN, 10, "ADR: a challenger takes over at a ten-write lead");
+});
+
+test("anchor: the margin is a real threshold, not a rounding artifact", () => {
+  const SETTLE = 5, MARGIN = 10;   // literals, not the constants — see above
+  const settle = (key, n) => Array.from({ length: n }, () => ({ key, leaf: null }));
+  const feed = (hits) => {
+    let st = emptyAnchorState(); const offers = [];
+    for (const h of hits) { const r = foldAnchor(st, h); st = r.state; if (r.offer) offers.push(r.offer.key); }
+    return offers;
+  };
+  assert.deepEqual(feed(settle("epic:A", SETTLE)), ["epic:A"], "settles at the threshold");
+  assert.deepEqual(feed(settle("epic:A", SETTLE - 1)), [], "and not before it");
+  const short = feed([...settle("epic:A", 5), ...settle("epic:B", 5 + MARGIN - 1)]);
+  assert.deepEqual(short, ["epic:A"], "a challenger one below the margin does not take over");
+  const exact = feed([...settle("epic:A", 5), ...settle("epic:B", 5 + MARGIN)]);
+  assert.deepEqual(exact, ["epic:A", "epic:B"], "at exactly the margin it does");
+});
+
+test("anchor: the same name is never offered twice running", () => {
+  const n = (key, c) => Array.from({ length: c }, () => ({ key, leaf: null }));
+  const feed = (hits) => {
+    let st = emptyAnchorState(); const out = [];
+    for (const h of hits) { const r = foldAnchor(st, h); st = r.state; if (r.offer) out.push(r.offer.name); }
+    return out;
+  };
+  // Two documents sharing a basename across folders are different ANCHORS that
+  // compose the same NAME. Offering it twice reads as a bug in the mechanism.
+  assert.deepEqual(
+    feed([...n("doc:research/session-name.md", 5), ...n("doc:specs/session-name.md", 15)]),
+    ["session-name"], "a moved anchor that composes the same name is not re-offered");
+  // But returning to an earlier anchor IS a new offer: the work genuinely moved
+  // back, and a name that follows the work has to follow it home. Deliberate,
+  // and the reason the suppression is "twice running" rather than "ever again".
+  assert.deepEqual(
+    feed([...n("epic:FOO", 5), ...n("epic:BAR", 15), ...n("epic:FOO", 30)]),
+    ["foo", "bar", "foo"], "an A->B->A pivot re-offers the first name on purpose");
+});
+
+test("anchor: keys come from the layout, and the match is neither depth-blind nor a regex", () => {
+  const L = { folders: [
+    { path: "epics", kind: "epic" }, { path: "adr", kind: "adr", readme: true },
+    { path: "specs", kind: "spec", readme: true }, { path: "research", kind: "research", readme: true }] };
+  assert.deepEqual(anchorKeyOf("epics/PS-X/stories/story-foo-bar.md", L),
+    { key: "epic:PS-X", id: "PS-X", leaf: "foo-bar" });
+  assert.equal(anchorKeyOf("epics/PS-X/epic.md", L).leaf, null);
+  assert.equal(anchorKeyOf("adr/a-decision.md", L).key, "doc:adr/a-decision.md");
+  assert.equal(anchorKeyOf("notes/adr/x.md", L), null, "a folder name at depth is not that folder");
+  assert.equal(anchorKeyOf("specs/sub/deep.md", L), null, "only files directly in the folder");
+  assert.equal(anchorKeyOf("kanban.md", L), null);
+  // A folder's generated index is not a document — it would compose "readme".
+  assert.equal(anchorKeyOf("adr/README.md", L), null);
+  // Renaming a folder in the layout moves the key with it...
+  const L2 = { folders: [{ path: "decisions", kind: "adr" }] };
+  assert.equal(anchorKeyOf("decisions/a.md", L2).key, "doc:decisions/a.md");
+  assert.equal(anchorKeyOf("adr/a.md", L2), null);
+  // ...and a layout path is DATA, never a pattern: an interpolated RegExp would
+  // let `epics.old` match `epicsXold/`, silently anchoring the wrong vault.
+  const L3 = { folders: [{ path: "epics.old", kind: "epic" }] };
+  assert.equal(anchorKeyOf("epicsXold/E1/epic.md", L3), null);
+  assert.equal(anchorKeyOf("epics.old/E1/epic.md", L3).key, "epic:E1");
+});
+
+test("anchor: composed names are typeable — kebab, capped, transliterated", () => {
+  const settle = (key, leaf) => {
+    let st = emptyAnchorState();
+    for (let i = 0; i < 6; i++) st = foldAnchor(st, { key, leaf }).state;
+    return st;
+  };
+  const long = "statusline-v2-per-session-resolver-never-blank-badge";
+  const n = composeAnchorName(settle("epic:PS-AGENTS", long));
+  assert.ok(n.length <= 48, `got ${n.length}: ${n}`);
+  assert.match(n, /^[a-z0-9]+(-[a-z0-9]+)*$/, `not kebab: ${n}`);
+  assert.ok(n.startsWith("ps-agents-"), n);
+  const words = new Set(("ps-agents-" + long).split("-"));
+  for (const w of n.split("-")) assert.ok(words.has(w), `truncated mid-word: ${w} in ${n}`);
+  assert.equal(composeAnchorName(settle("doc:research/critic-economics.md", null)), "critic-economics");
+  // A non-ASCII title used to compose null and burn the incumbent slot, leaving
+  // the session permanently nameless. Four bundled locales make this ordinary.
+  assert.equal(composeAnchorName(settle("doc:research/\u041a\u044d\u0448\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435-\u0437\u0430\u043f\u0440\u043e\u0441\u043e\u0432.md", null)),
+    "keshirovanie-zaprosov");
+  assert.equal(composeAnchorName(emptyAnchorState()), null, "no anchor, no name");
 });
