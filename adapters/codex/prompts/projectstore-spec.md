@@ -32,7 +32,7 @@ Dispatch on the first argument:
 2. **Render draft**:
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/draft.mjs" spec "$ARGUMENTS"
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/draft.mjs" spec "$ARGUMENTS"
    ```
 
    Capture the JSON `{ kind, path, content, index, vars }`.
@@ -65,7 +65,7 @@ Dispatch on the first argument:
    step-4 approval covers it):
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/reconcile.mjs" --write --only indexes=<index.folder>
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/reconcile.mjs" --write --only indexes=<index.folder>
    ```
 
    The row is derived state — regenerated in canonical order, written

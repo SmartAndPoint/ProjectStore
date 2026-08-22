@@ -24,7 +24,7 @@ Steps:
 2. **Render draft** by running:
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/draft.mjs" adr "$ARGUMENTS"
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/draft.mjs" adr "$ARGUMENTS"
    ```
 
    The script outputs JSON with shape `{ kind, path, content, index, collision, warnings, vars }`. Capture stdout.
@@ -49,7 +49,7 @@ Steps:
    apply through the core — never the apply_patch tool, and do not ask again:
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/reconcile.mjs" --write --only indexes=<index.folder>
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/reconcile.mjs" --write --only indexes=<index.folder>
    ```
 
    The index row is derived state: the regeneration renders it in canonical

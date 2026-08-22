@@ -23,7 +23,7 @@ You are managing the epic↔code mapping (ADR-004).
 2. Compute (read-only, the unified reconcile path):
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/reconcile.mjs" --only codemap
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/reconcile.mjs" --only codemap
    ```
 
    The `codemap` entry carries `{ path, changed, content?, stats }`.
@@ -34,7 +34,7 @@ You are managing the epic↔code mapping (ADR-004).
    through the core, never apply_patch:
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/reconcile.mjs" --write --only codemap
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/reconcile.mjs" --write --only codemap
    ```
 
    Explicit selection writes the map even on a vault with no `code_refs` yet.

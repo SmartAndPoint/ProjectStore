@@ -427,6 +427,58 @@ try {
   out.set(join(harness.output_dir, "bin", "ps-hook.mjs"), text);
 }
 
+// The SECOND entry point, and the one the review found missing. Hooks were
+// stamped; the commands were not. A generated prompt says
+// `node "<root>/scripts/doctor.mjs"`, Codex runs that through its shell tool,
+// and nothing in that process names a harness: Codex exports CODEX_HOME only
+// when the user overrode it, so detection falls through to "whichever harness
+// directory holds a bind file". For a project a colleague bound under Claude
+// Code — the exact case the shared-vault feature exists for — that answers
+// `claude-code` while the hooks in the same session answer `codex`. The result
+// is not an error: the script prints the other harness's command spelling and
+// writes runtime state under the other harness's directory, and the two halves
+// of one session disagree with nobody reporting it.
+//
+// Unlike the hook wrapper this one must NOT swallow failures. A hook that
+// throws should never break a session; a command the user ran is read for its
+// output and branched on by its exit code, so both have to pass through.
+function renderRunWrapper(harness, out) {
+  const depth = harness.output_dir.split("/").filter(Boolean).length + 1; // + bin/
+  const ups = Array(depth).fill("..").join('", "');
+  const text = `#!/usr/bin/env node
+${slashBanner(harness.id, "scripts/build-adapters.mjs (run wrapper)")}//
+// Launches a projectstore script with this harness's identity already stamped.
+//
+// argv[2] is a path relative to the plugin root; everything after it is the
+// script's own arguments.
+
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const root = join(here, "${ups}");
+
+process.env.PROJECTSTORE_HARNESS = ${JSON.stringify(harness.id)};
+if (!process.env.${harness.runtime.plugin_root_env}) process.env.${harness.runtime.plugin_root_env} = root;
+
+const target = process.argv[2];
+if (!target) {
+  console.error("usage: ps-run.mjs <script-path-relative-to-plugin-root> [args...]");
+  process.exit(2);
+}
+
+// Every script guards its main() on \`resolve(process.argv[1])\` matching its own
+// file. Left pointing at this wrapper, each one would import cleanly and then do
+// nothing at all — a command that prints nothing and exits zero, which reads as
+// "there was nothing to report" rather than as a broken launcher.
+const abs = resolve(root, target);
+process.argv = [process.argv[0], abs, ...process.argv.slice(3)];
+
+await import(pathToFileURL(abs).href);
+`;
+  out.set(join(harness.output_dir, "bin", "ps-run.mjs"), text);
+}
+
 // ─── Public API ────────────────────────────────────────────────────────
 
 // The full generated tree as a path → content map. The test calls this and
@@ -442,6 +494,7 @@ export function renderAll(root = REPO_ROOT, only = null) {
     renderAgents(root, harness, out);
     renderHooks(root, harness, out, src);
     renderWrapper(harness, out);
+    renderRunWrapper(harness, out);
   }
   return out;
 }

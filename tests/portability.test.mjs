@@ -18,7 +18,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { join, dirname, isAbsolute } from "node:path";
+import { join, dirname, isAbsolute, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -907,6 +907,114 @@ test("the multi-session warning names each sibling's harness, not the reader's",
     "buildOthersWarning must not name the reader's harness — the sibling may be on another");
 });
 
+// ─── Harness identity at every entry point ─────────────────────────────
+
+test("no generated surface launches a script without stamping the harness", () => {
+  // Hooks went through a stamping wrapper from the start; the commands did not,
+  // and the gap was invisible because nothing fails. Codex runs
+  // `node "<root>/scripts/doctor.mjs"` through its shell tool, that process
+  // names no harness, Codex exports CODEX_HOME only if the user overrode it —
+  // so detection falls through to "whichever harness directory holds a bind
+  // file". On a project a colleague bound under the source harness, the script
+  // answers with THAT harness while the hooks in the same session answer with
+  // this one: the wrong command spelling in the output and runtime state split
+  // across two directories, reported by nothing.
+  //
+  // The check is on the OUTPUT, not the rewrite table, because a rewrite can be
+  // correct and still be shadowed by an earlier rule that consumes its prefix.
+  const BUILD_TIME = new Set(["build-adapters.mjs", "install-harness.mjs", "smoke-harness.mjs"]);
+  const tree = renderAll();
+  const problems = [];
+  for (const h of emittingHarnesses()) {
+    for (const [path, content] of tree) {
+      if (!path.startsWith(h.output_dir)) continue;
+      if (path.includes(`${h.output_dir}/bin/`)) continue; // the wrappers themselves
+      for (const line of String(content).split("\n")) {
+        if (!/\bnode\b/.test(line)) continue;
+        const hit = line.match(/scripts\/([A-Za-z0-9._-]+\.mjs)/);
+        if (!hit) continue;
+        if (line.includes("bin/ps-run.mjs") || line.includes("bin/ps-hook.mjs")) continue;
+        // The build-time scripts are exempt for a reason, not by name: they run
+        // from the checkout BEFORE anything is installed, and each resolves its
+        // harness from its own argv rather than from the environment. There is
+        // no identity for a wrapper to stamp that the command line does not
+        // already carry. Everything else runs inside a session, where the
+        // environment is the only thing that answers and Codex answers nothing.
+        if (BUILD_TIME.has(hit[1])) continue;
+        problems.push(`${path}: ${line.trim()}`);
+      }
+    }
+    // And the wrapper it must route through has to exist.
+    assert.ok(tree.has(join(h.output_dir, "bin", "ps-run.mjs")), `${h.id}: no run wrapper emitted`);
+  }
+  assert.deepEqual(problems, [], "launches bypassing the run wrapper:\n" + problems.join("\n"));
+});
+
+test("the run wrapper stamps the harness and hands main() its own path", async () => {
+  // Two failures the wrapper has to avoid, both silent. Not stamping is the bug
+  // it exists for. Leaving process.argv[1] pointing at the wrapper is the one
+  // introduced BY it: every script guards main() on argv[1] matching its own
+  // file, so each would import cleanly and do nothing — output-free, exit zero,
+  // indistinguishable from "nothing to report".
+  const tree = renderAll();
+  for (const h of emittingHarnesses()) {
+    const src = tree.get(join(h.output_dir, "bin", "ps-run.mjs"));
+    assert.ok(src.includes(`process.env.PROJECTSTORE_HARNESS = ${JSON.stringify(h.id)}`), h.id);
+    assert.match(src, /process\.argv\s*=\s*\[process\.argv\[0\],\s*abs/, `${h.id}: argv[1] not repointed`);
+    // A hook must never break a session; a command must never hide a failure.
+    assert.ok(!/catch\s*\{[^}]*process\.exit\(0\)/s.test(src), `${h.id}: run wrapper swallows failures`);
+  }
+
+  // Behavioural, not textual: run it for real and read back what it stamped.
+  const { writeFileSync: wf, mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { execFileSync } = await import("node:child_process");
+  const h = emittingHarnesses()[0];
+  const probe = join(REPO, "scripts", `.ps-run-probe-${process.pid}.mjs`);
+  wf(probe, [
+    "import { resolve } from 'node:path';",
+    "import { fileURLToPath } from 'node:url';",
+    "if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {",
+    "  console.log(JSON.stringify({ h: process.env.PROJECTSTORE_HARNESS, args: process.argv.slice(2) }));",
+    "} else { console.log('MAIN GUARD DID NOT FIRE'); }",
+  ].join("\n"), "utf8");
+  try {
+    const out = execFileSync(process.execPath, [
+      join(REPO, h.output_dir, "bin", "ps-run.mjs"),
+      `scripts/${basename(probe)}`,
+      "--one", "two",
+    ], { encoding: "utf8" });
+    assert.deepEqual(JSON.parse(out), { h: h.id, args: ["--one", "two"] });
+  } finally {
+    (await import("node:fs")).rmSync(probe, { force: true });
+  }
+});
+
+test("no command spelling from the source harness survives into another harness's output", async () => {
+  // Found by running the wrapper end to end rather than by reading it. Every
+  // finding() message is localized, so the leak was in the ONE line assembled
+  // outside findings — the summary — and it read as correct next to nine lines
+  // that were. Localizing at the output choke point closes the class; this
+  // test is what keeps it closed, and it asserts on the process output rather
+  // than on a function, because the point is what the user actually sees.
+  const { execFileSync } = await import("node:child_process");
+  const src = sourceHarness();
+  for (const h of emittingHarnesses()) {
+    const out = execFileSync(process.execPath, [
+      join(REPO, h.output_dir, "bin", "ps-run.mjs"), "scripts/doctor.mjs", "--install",
+    ], { encoding: "utf8", cwd: REPO, env: { ...process.env, PROJECTSTORE_HARNESS: h.id } });
+    const tpl = src.surfaces.commands.invocation;          // "/projectstore:<name>"
+    const prefix = tpl.slice(0, tpl.indexOf("<name>"));    // "/projectstore:"
+    const leaked = [...out.matchAll(new RegExp(escapeRe(prefix) + "[a-z][a-z0-9-]*", "g"))];
+    assert.deepEqual(
+      [...new Set(leaked.map((x) => x[0]))], [],
+      `${h.id}: doctor printed ${src.display_name} command spellings`,
+    );
+  }
+});
+
+function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
 // ─── Project trust ─────────────────────────────────────────────────────
 
 test("project trust is read correctly from the harness config", async () => {
@@ -954,7 +1062,86 @@ test("project trust is read correctly from the harness config", async () => {
   // And a key in an unrelated section must not leak into the answer.
   assert.equal(isProjectTrusted(m, "/mcp_servers", opts), false);
 
-  assert.match(trustStanza("/x/y"), /\[projects\."\/x\/y"\]\ntrust_level = "trusted"/);
+  // A path is DATA in the key position, and TOML basic strings interpret
+  // backslashes: `C:\repo` written raw parses as `C:<CR>epo`, naming a project
+  // that does not exist, and a path containing `"` closes the key outright.
+  // Literal strings have no escapes, so that is the default form.
+  assert.match(trustStanza("/x/y"), /\[projects\.'\/x\/y'\]\ntrust_level = "trusted"/);
+  assert.equal(trustStanza("C:\\Users\\me\\repo").split("\n")[0], "[projects.'C:\\Users\\me\\repo']");
+});
+
+test("a project path survives the round trip through a TOML key", async () => {
+  // Encoding without a matching decoder is its own bug: an entry Codex itself
+  // wrote in the other string form would never match, and the installer would
+  // append a second table for a project that already has one.
+  const { tomlKey, decodeTomlKey } = await import("../scripts/install-harness.mjs");
+  for (const p of [
+    "/plain/unix/path",
+    "C:\\Users\\me\\repo",
+    "C:\\repo",                      // \r is a legal TOML escape — the silent one
+    "/path/with 'single' quote",
+    '/path/with "double" quote',
+    "/path/with\\both'kinds\"here",
+    "/tab\there",
+  ]) {
+    assert.equal(decodeTomlKey(tomlKey(p)), p, `round trip: ${JSON.stringify(p)}`);
+    // Whichever form was chosen must be a closed string, not raw text.
+    const k = tomlKey(p);
+    assert.ok(/^'.*'$/s.test(k) || /^".*"$/s.test(k), `quoted: ${k}`);
+    if (k.startsWith("'")) assert.ok(!p.includes("'"), "literal form only when it can hold the path");
+  }
+});
+
+test("granting trust rewrites an existing table instead of duplicating it", async () => {
+  // TOML forbids declaring a table twice, so appending beside an existing
+  // `trust_level = "untrusted"` yields a config Codex cannot parse AT ALL —
+  // in exactly the case someone reaches for --trust deliberately: to change a
+  // decision they already made.
+  const { grantTrust, isProjectTrusted } = await import("../scripts/install-harness.mjs");
+  const { mkdtempSync, writeFileSync: wf, readFileSync: rf } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+
+  const home = mkdtempSync(join(tmpdir(), "ps-trust3-"));
+  const opts = { env: { CODEX_HOME: home } };
+  const m = loadHarness("codex");
+
+  wf(join(home, "config.toml"), [
+    '[projects."/mine"]',
+    '# a note the user wrote',
+    'trust_level = "untrusted"',
+    'some_other_key = 1',
+    '',
+    '[projects."/other"]',
+    'trust_level = "trusted"',
+    '',
+  ].join("\n"), "utf8");
+
+  assert.equal(grantTrust(m, "/mine", opts).changed, true);
+  const after = rf(join(home, "config.toml"), "utf8");
+  assert.equal((after.match(/\[projects\./g) || []).length, 2, "no table was duplicated");
+  assert.ok(!after.includes("untrusted"), "the old value is gone, not shadowed");
+  assert.ok(after.includes("# a note the user wrote"), "the user's comment survives");
+  assert.ok(after.includes("some_other_key = 1"), "a sibling key survives");
+  assert.equal(isProjectTrusted(m, "/mine", opts), true);
+  assert.equal(isProjectTrusted(m, "/other", opts), true);
+
+  // A table that exists but says nothing about trust gets the key inserted.
+  const home2 = mkdtempSync(join(tmpdir(), "ps-trust4-"));
+  const opts2 = { env: { CODEX_HOME: home2 } };
+  wf(join(home2, "config.toml"), '[projects."/mine"]\nsome_other_key = 1\n', "utf8");
+  assert.equal(grantTrust(m, "/mine", opts2).changed, true);
+  const after2 = rf(join(home2, "config.toml"), "utf8");
+  assert.equal((after2.match(/\[projects\./g) || []).length, 1);
+  assert.equal(isProjectTrusted(m, "/mine", opts2), true);
+  assert.ok(after2.includes("some_other_key = 1"));
+
+  // And a Windows path grants, then reads back, as the same project.
+  const home3 = mkdtempSync(join(tmpdir(), "ps-trust5-"));
+  const opts3 = { env: { CODEX_HOME: home3 } };
+  const win = "C:\\Users\\me\\repo";
+  assert.equal(grantTrust(m, win, opts3).changed, true);
+  assert.equal(isProjectTrusted(m, win, opts3), true, "the path written is the path matched");
+  assert.equal(grantTrust(m, win, opts3).changed, false, "and it is idempotent");
 });
 
 test("granting trust preserves the rest of the user's config", async () => {
@@ -978,7 +1165,7 @@ test("granting trust preserves the rest of the user's config", async () => {
   // Idempotent: granting twice must not append a duplicate stanza.
   assert.equal(grantTrust(m, "/mine", opts).changed, false);
   const twice = rf(join(home, "config.toml"), "utf8");
-  assert.equal((twice.match(/\[projects\."\/mine"\]/g) || []).length, 1);
+  assert.equal((twice.match(/\[projects\.'\/mine'\]/g) || []).length, 1);
 });
 
 // ─── The installer is a harness tool, not a Codex tool ─────────────────

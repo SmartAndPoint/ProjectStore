@@ -33,7 +33,7 @@ the two cannot collide).
 3. **Render draft**:
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/draft.mjs" story "$ARGUMENTS"
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/draft.mjs" story "$ARGUMENTS"
    ```
 
    The script fails if the epic folder does not exist. Surface the error and suggest `/projectstore-epic <id> "<title>"` first.
@@ -57,7 +57,7 @@ the two cannot collide).
 2. **Run the compute script** (pure — writes nothing):
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/story-section.mjs" <plan|close> "<story-path>"
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/story-section.mjs" <plan|close> "<story-path>"
    ```
 
    It returns `{ path, changed, notes, content }`: section inserted when

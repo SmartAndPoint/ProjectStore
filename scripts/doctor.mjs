@@ -1654,7 +1654,12 @@ function report(findings, groups) {
   const issues = findings.filter((f) => f.level === "issue").length;
   const warns = findings.filter((f) => f.level === "warn").length;
   lines.push("", `Summary: ${issues} issue(s), ${warns} warning(s). ${issues ? "Repairs: /projectstore:doctor --fix (install), /projectstore:kanban / reconcile (vault)." : "Vault and wiring look healthy."}`);
-  return lines.join("\n");
+  // Localized on the way OUT rather than per string. Every finding() message
+  // already goes through it, which is exactly why the summary line above kept
+  // its source spelling unnoticed: it is assembled here, not there. Doing it at
+  // the choke point means the next literal added to this function cannot leak
+  // the source harness's spelling either.
+  return localizeCommands(lines.join("\n"));
 }
 
 function main() {

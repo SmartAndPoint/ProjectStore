@@ -22,7 +22,7 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
 1. **Run the engine** (read-only; pass through section flags, never `--fix`):
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/doctor.mjs" $ARGUMENTS_WITHOUT_FIX
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/doctor.mjs" $ARGUMENTS_WITHOUT_FIX
    ```
 
    Default (no flags) runs both sections: `--install` (wiring/config) and

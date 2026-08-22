@@ -143,6 +143,11 @@
   },
   "rewrites": [
     {
+      "from": "node \"$CLAUDE_PLUGIN_ROOT/scripts/",
+      "to": "node \"$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs\" \"scripts/",
+      "why": "Routes every direct script launch through the generated run wrapper so it carries PROJECTSTORE_HARNESS. Without it the script infers the harness from the environment, Codex exports nothing to infer from, and a project bound under another harness makes it answer with that harness's command spelling and runtime directory while the hooks in the same session answer with this one. Must stay AHEAD of the bare $CLAUDE_PLUGIN_ROOT rule, which would otherwise consume the prefix first and leave the launch unwrapped."
+    },
+    {
       "from": "${CLAUDE_PLUGIN_ROOT}",
       "to": "{{PROJECTSTORE_ROOT}}",
       "why": "Codex does not expand this variable in hook commands; the installer substitutes an absolute path."

@@ -24,7 +24,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
 2. **Compute** (read-only):
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/reconcile.mjs"
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/reconcile.mjs"
    ```
 
    Output JSON: `kanban` / `codemap` / `graph` / `indexes[]`, each
@@ -49,7 +49,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
 6. **On approval**: apply through the core — never the apply_patch tool:
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/reconcile.mjs" --write --only <approved,targets>
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/reconcile.mjs" --write --only <approved,targets>
    ```
 
    Selectors: `kanban`, `codemap`, `graph`, `indexes` (all), `indexes=<folder>` (one).
@@ -60,7 +60,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
    report: per target `{path, changed, written, error?}` + `summary`. A nonzero
    exit means at least one target failed — surface its `error`.
 
-7. **Verify**: run `node "$PROJECTSTORE_ROOT/scripts/doctor.mjs" --vault` and show
+7. **Verify**: run `node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/doctor.mjs" --vault` and show
    the summary line — reconcile's whole point is a clean doctor afterwards.
 
 ## Notes

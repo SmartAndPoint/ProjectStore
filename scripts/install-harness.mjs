@@ -522,46 +522,145 @@ if (import.meta.url === `file://${process.argv[1]}`) main();
 // It fails toward "not trusted", which is the safe direction — the cost is a
 // message the user did not need, against silence they cannot debug.
 
-export function trustStanza(projectRoot) {
-  return `[projects."${projectRoot}"]\ntrust_level = "trusted"\n`;
+// A project path is DATA going into a TOML key, and the two ways that goes
+// wrong are both silent. A Windows root like `C:\Users\me\repo` inside a basic
+// string is not merely invalid: `\r` is a legal TOML escape, so `C:\repo`
+// parses as `C:<CR>epo` and the trust entry quietly names a project that does
+// not exist. A path containing `"` closes the key and turns the rest into
+// syntax. Literal strings ('...') have no escapes at all, so they are the
+// right default; a path containing a quote or a newline falls back to a basic
+// string with everything encoded.
+export function tomlKey(value) {
+  if (!value.includes("'") && !/[\n\r\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)) {
+    return `'${value}'`;
+  }
+  const esc = value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, (c) =>
+      "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"),
+    );
+  return `"${esc}"`;
 }
 
-export function isProjectTrusted(m, projectRoot, opts = {}) {
-  const cfg = join(userHome(m, opts), m.runtime.project_trust?.config_file || "config.toml");
-  let text;
-  try { text = readFileSync(cfg, "utf8"); } catch { return false; }
+// The inverse, used for MATCHING. Writing an encoded key while comparing raw
+// text would be its own bug: an entry Codex itself wrote as a basic string
+// would never match, and the installer would append a duplicate table beside it.
+export function decodeTomlKey(raw) {
+  const s = raw.trim();
+  if (s.startsWith("'") && s.endsWith("'") && s.length >= 2) return s.slice(1, -1);
+  if (!(s.startsWith('"') && s.endsWith('"') && s.length >= 2)) return s;
+  const body = s.slice(1, -1);
+  let out = "";
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] !== "\\") { out += body[i]; continue; }
+    const c = body[++i];
+    if (c === "n") out += "\n";
+    else if (c === "r") out += "\r";
+    else if (c === "t") out += "\t";
+    else if (c === "b") out += "\b";
+    else if (c === "f") out += "\f";
+    else if (c === "u" || c === "U") {
+      const n = c === "u" ? 4 : 8;
+      const hex = body.slice(i + 1, i + 1 + n);
+      out += String.fromCodePoint(parseInt(hex, 16));
+      i += n;
+    } else out += c; // covers \\ and \" and anything malformed
+  }
+  return out;
+}
 
-  // Line-based, not a multiline regex. The obvious `^\s*\[` for "next section
-  // header" is wrong in a way that reads fine: `\s` matches newlines, so it
-  // finds the header starting from the blank line BEFORE it, and the section
-  // slice comes back as "\n" — every project reads as untrusted. Splitting
-  // into lines removes the class of bug rather than fixing this instance.
-  const want = [`[projects."${projectRoot}"]`, `[projects.'${projectRoot}']`];
-  const trusted = m.runtime.project_trust?.trusted_value || "trusted";
-  const key = m.runtime.project_trust?.key || "trust_level";
+export function trustStanza(projectRoot) {
+  return `[projects.${tomlKey(projectRoot)}]\ntrust_level = "trusted"\n`;
+}
+
+// Both readers below walk the same line-based shape, so they agree by
+// construction about which lines belong to the project's table.
+//
+// Line-based, not a multiline regex. The obvious `^\s*\[` for "next section
+// header" is wrong in a way that reads fine: `\s` matches newlines, so it
+// finds the header starting from the blank line BEFORE it, and the section
+// slice comes back as "\n" — every project reads as untrusted. Splitting
+// into lines removes the class of bug rather than fixing this instance.
+function scanTrust(text, projectRoot, m) {
+  const key = m.runtime?.project_trust?.key || "trust_level";
+  const lines = text.split(/\r?\n/);
   let inSection = false;
+  const found = { header: -1, keyLine: -1, endOfSection: -1, value: null };
 
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
     if (line.startsWith("[")) {
-      inSection = want.includes(line);
+      if (inSection) { found.endOfSection = i; break; }
+      const mm = line.match(/^\[\s*projects\s*\.\s*(.+?)\s*\]$/);
+      inSection = !!mm && decodeTomlKey(mm[1]) === projectRoot;
+      if (inSection) found.header = i;
       continue;
     }
     if (!inSection || !line || line.startsWith("#")) continue;
     const kv = line.match(/^([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*(.+?)\s*$/);
     if (!kv || kv[1] !== key) continue;
-    return kv[2].replace(/^["']|["']$/g, "") === trusted;
+    found.keyLine = i;
+    found.value = kv[2].replace(/^["']|["']$/g, "");
   }
-  return false;
+  if (found.header >= 0 && found.endOfSection < 0) found.endOfSection = lines.length;
+  return { lines, ...found };
 }
 
+// Codex loads a project's `.codex/` layer — its config and its hooks — only
+// when the project is marked trusted in the user's own config. An untrusted
+// project silently gets none of it: no error, no warning, hooks simply never
+// run. Since projectstore now installs hooks project-scoped by default, that
+// makes trust part of the install rather than a detail, and an installer that
+// reports success while the hooks it just wrote can never fire is lying.
+//
+// The check is deliberately a plain scan rather than a TOML parse: node ships
+// no TOML reader, and this only needs to answer one question about one key.
+// It fails toward "not trusted", which is the safe direction — the cost is a
+// message the user did not need, against silence they cannot debug.
+export function isProjectTrusted(m, projectRoot, opts = {}) {
+  const cfg = join(userHome(m, opts), m.runtime.project_trust?.config_file || "config.toml");
+  let text;
+  try { text = readFileSync(cfg, "utf8"); } catch { return false; }
+  const trusted = m.runtime.project_trust?.trusted_value || "trusted";
+  return scanTrust(text, projectRoot, m).value === trusted;
+}
+
+// Appending a table unconditionally is only correct when the project has none.
+// TOML forbids declaring the same table twice, so appending beside an existing
+// `trust_level = "untrusted"` produces a config Codex cannot parse AT ALL —
+// breaking every project's settings, in the one case where the user reached for
+// `--trust` deliberately: to change a decision they had already made.
 export function grantTrust(m, projectRoot, opts = {}) {
   const cfg = join(userHome(m, opts), m.runtime.project_trust?.config_file || "config.toml");
   let text = "";
   try { text = readFileSync(cfg, "utf8"); } catch {}
   if (isProjectTrusted(m, projectRoot, opts)) return { changed: false, path: cfg };
-  const sep = text && !text.endsWith("\n") ? "\n" : "";
+
+  const key = m.runtime.project_trust?.key || "trust_level";
+  const trusted = m.runtime.project_trust?.trusted_value || "trusted";
+  const s = scanTrust(text, projectRoot, m);
+  let out;
+
+  if (s.keyLine >= 0) {
+    // The table exists and states a different value: rewrite that one line and
+    // touch nothing else, so a comment or a sibling key in the table survives.
+    const indent = s.lines[s.keyLine].match(/^\s*/)[0];
+    s.lines[s.keyLine] = `${indent}${key} = "${trusted}"`;
+    out = s.lines.join("\n");
+  } else if (s.header >= 0) {
+    // The table exists but says nothing about trust — insert the key into it.
+    s.lines.splice(s.header + 1, 0, `${key} = "${trusted}"`);
+    out = s.lines.join("\n");
+  } else {
+    const sep = text && !text.endsWith("\n") ? "\n" : "";
+    out = text + sep + (text ? "\n" : "") + trustStanza(projectRoot);
+  }
+
   mkdirSync(dirname(cfg), { recursive: true });
-  writeFileSync(cfg, text + sep + (text ? "\n" : "") + trustStanza(projectRoot), "utf8");
+  writeFileSync(cfg, out, "utf8");
   return { changed: true, path: cfg };
 }

@@ -26,7 +26,7 @@ vault-link-graph-derived-view-and-shared-link-resolver).
 2. **Compute** (read-only, the unified reconcile path):
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/reconcile.mjs" --only graph
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/reconcile.mjs" --only graph
    ```
 
    The `graph` entry carries `{ path, changed, content?, stats }` — stats:
@@ -46,7 +46,7 @@ vault-link-graph-derived-view-and-shared-link-resolver).
    never apply_patch:
 
    ```bash
-   node "$PROJECTSTORE_ROOT/scripts/reconcile.mjs" --write --only graph
+   node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/reconcile.mjs" --write --only graph
    ```
 
    Explicit selection creates graph.md when absent — bare reconcile
@@ -54,7 +54,7 @@ vault-link-graph-derived-view-and-shared-link-resolver).
    are this command's job). Render the report's `graph` entry; nonzero exit —
    surface the `error`.
 
-6. **Verify**: run `node "$PROJECTSTORE_ROOT/scripts/doctor.mjs" --vault`
+6. **Verify**: run `node "$PROJECTSTORE_ROOT/adapters/codex/bin/ps-run.mjs" "scripts/doctor.mjs" --vault`
    and show the summary line.
 
 ## Notes
