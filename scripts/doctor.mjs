@@ -1301,7 +1301,9 @@ export function checkWorkWithoutStory(cfg, proj) {
 
   if (dirty.length === 0 && !committedSince) return out;
 
-  const fired = readEntryLog(proj, { withinDays: 30 }).length;
+  // kind: null — entry reminders only. The log is shared with the session-name
+  // offer, whose breadcrumbs would otherwise be reported as reminders delivered.
+  const fired = readEntryLog(proj, { withinDays: 30, kind: null }).length;
   const firedNote = fired > 0
     ? ` An entry reminder fired ${fired} time(s) in the last 30 days on this machine, so the prompt was delivered and the work still went untracked.`
     : " No entry reminder fired in the last 30 days on this machine (the log is machine-local — .claude/ is gitignored).";

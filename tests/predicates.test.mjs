@@ -13,6 +13,9 @@ import { fileURLToPath } from "node:url";
 import { spawnSync, spawn } from "node:child_process";
 
 import {
+  sessionNameOffer,
+  appendEntryLog,
+  readEntryLog,
   ANCHOR_SETTLE,
   ANCHOR_MARGIN,
   anchorKeyOf,
@@ -2627,4 +2630,74 @@ test("anchor: composed names are typeable — kebab, capped, transliterated", ()
   assert.equal(composeAnchorName(settle("doc:research/\u041a\u044d\u0448\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435-\u0437\u0430\u043f\u0440\u043e\u0441\u043e\u0432.md", null)),
     "keshirovanie-zaprosov");
   assert.equal(composeAnchorName(emptyAnchorState()), null, "no anchor, no name");
+});
+
+test("entry log: `kind` keeps two mechanisms from being counted as one", () => {
+  const proj = mkdtempSync(join(tmpdir(), "ps-log-"));
+  mkdirSync(join(proj, ".claude", ".projectstore"), { recursive: true });
+  const at = new Date().toISOString();
+  appendEntryLog(proj, { at, session_id: "s", score: 3 });                     // a reminder
+  appendEntryLog(proj, { at, session_id: "s", kind: "name-offer", name: "x" }); // not one
+  assert.equal(readEntryLog(proj).length, 2, "unfiltered still returns everything");
+  assert.equal(readEntryLog(proj, { kind: null }).length, 1,
+    "doctor's count must see the reminder alone — it renders it as 'an entry reminder fired N time(s)'");
+  assert.equal(readEntryLog(proj, { kind: "name-offer" }).length, 1);
+});
+
+test("checkWorkWithoutStory: name-offer breadcrumbs are not counted as reminders delivered", async () => {
+  // The finding renders the count as "an entry reminder fired N time(s) … so
+  // the prompt was delivered and the work still went untracked". Two mechanisms
+  // share entry-log.jsonl, so an unfiltered count turns that sentence into a
+  // false claim about a prompt the person never saw.
+  const { checkWorkWithoutStory } = await import("../scripts/doctor.mjs");
+  const root = mkdtempSync(join(tmpdir(), "ps-wws-kind-"));
+  const proj = join(root, "proj");
+  const vault = join(root, "vault");
+  mkdirSync(join(proj, ".claude", ".projectstore"), { recursive: true });
+  mkdirSync(join(vault, "epics", "PS-A", "stories"), { recursive: true });
+  writeFileSync(join(vault, "epics", "PS-A", "stories", "story-a.md"),
+    "---\ntype: story\nstatus: planned\n---\n", "utf8");
+  spawnSync("git", ["init", "-q"], { cwd: proj });
+  spawnSync("git", ["config", "user.email", "t@example.com"], { cwd: proj });
+  spawnSync("git", ["config", "user.name", "t"], { cwd: proj });
+  writeFileSync(join(proj, "a.mjs"), "// work\n", "utf8");
+
+  const at = new Date().toISOString();
+  appendEntryLog(proj, { at, session_id: "s", kind: "name-offer", name: "x" });
+  appendEntryLog(proj, { at, session_id: "s", kind: "name-offer", name: "y" });
+
+  const prevProj = process.env.CLAUDE_PROJECT_DIR;
+  process.env.CLAUDE_PROJECT_DIR = proj;
+  try {
+    const fired = checkWorkWithoutStory({ vault_path: vault }, proj);
+    assert.equal(fired.length, 1);
+    assert.match(fired[0].message, /No entry reminder fired/i,
+      `two name offers are not two reminders: ${fired[0].message}`);
+    appendEntryLog(proj, { at, session_id: "s", score: 3 });
+    const again = checkWorkWithoutStory({ vault_path: vault }, proj);
+    assert.match(again[0].message, /fired 1 time\(s\)/,
+      `one real reminder must count as exactly one: ${again[0].message}`);
+  } finally {
+    if (prevProj === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+    else process.env.CLAUDE_PROJECT_DIR = prevProj;
+  }
+});
+
+test("session name: an offer never talks over the name the session already wears", () => {
+  // Two suppressions with different reasons. Wearing the composed name already
+  // makes the offer a no-op; wearing a DIFFERENT name the person chose makes it
+  // an intrusion, and that one must survive every later anchor move.
+  assert.equal(sessionNameOffer("ps-a-alpha", { current: "ps-a-alpha" }), null,
+    "already wearing exactly this name");
+  assert.deepEqual(sessionNameOffer("ps-a-alpha", { current: "my-own-thing", declined: ["my-own-thing"] }), null,
+    "a name we did not compose is the person's, not a slot to overwrite");
+  assert.deepEqual(sessionNameOffer("ps-a-alpha", { current: "ps-a-old", declined: [] }),
+    { name: "ps-a-alpha", qualified: false },
+    "a name WE composed earlier is ours to replace when the work moves");
+  assert.deepEqual(sessionNameOffer("ps-a-alpha", { peers: [{ name: "ps-a-alpha" }] }),
+    { name: "ps-a-alpha-2", qualified: true }, "a peer holds it — qualify rather than go silent");
+  assert.equal(sessionNameOffer("ps-a-alpha",
+    { peers: [{ name: "ps-a-alpha" }, { name: "ps-a-alpha-2" }, { name: "ps-a-alpha-3" }] }), null,
+    "three collisions means the name does not discriminate; silence beats -4");
+  assert.equal(sessionNameOffer(null, {}), null);
 });

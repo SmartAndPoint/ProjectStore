@@ -57,6 +57,18 @@ import {
   entryReminderText,
   ENTRY_THRESHOLD,
   isWriteTool,
+  loadLayout,
+  anchorKeyOf,
+  foldAnchor,
+  composeAnchorName,
+  bumpAnchor,
+  readAnchorState,
+  readAnchorOffer,
+  writeAnchorOffer,
+  liveSessionNames,
+  ownSessionName,
+  sessionNameOffer,
+  sessionNameOfferText,
 } from "./lib.mjs";
 
 const NUDGE_INTERVAL_MS = 10 * 60 * 1000;
@@ -64,6 +76,89 @@ const NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 // Per-session active pointer (ADR-006) — denormalized titles/status captured
 // at write time so the statusline renders with zero vault reads — plus the
 // raw-edit nudge (PS-IMPROVE story-003): throttled, never blocking.
+// The session-name offer (ADR: the settled-anchor offer). Returns a line or
+// null. Separate from the pointer patch because the two answer different
+// questions — the pointer is "what is current", this is "has the session
+// settled" — and because this one must be gated where the pointer is not.
+let LAYOUT = null;
+function layoutOnce(cfg) {
+  if (LAYOUT === null) LAYOUT = loadLayout(cfg.layout);
+  return LAYOUT;
+}
+
+function anchorOffer(cfg, proj, sid, filePath, toolName, isSubagent, sessionsDir = null) {
+  // The two gates. The pointer patch above deliberately has neither: it answers
+  // "what am I looking at", for which a Read is a fine answer. A NAME is a
+  // claim about what the session is DOING, so a review session that greps
+  // thirty files must not be named after them, and a subagent — which shares
+  // this session id and cannot accept a name — must not vote on one.
+  if (!isWriteTool(toolName || "")) return null;
+  if (isSubagent) return null;
+
+  const rel = filePath.slice(cfg.vault_path.length + 1);
+  let hit = null;
+  try { hit = anchorKeyOf(rel, layoutOnce(cfg)); } catch { return null; }
+  if (!hit) return null;
+
+  // Both slots: the key tally is what settles an anchor, the leaf tally only
+  // picks which story names it. Bumping the leaf alone leaves the anchor
+  // permanently unsettled — silently, since a rule that never fires looks
+  // exactly like a quiet one.
+  bumpAnchor(proj, sid, hit.key, null);
+  if (hit.leaf) bumpAnchor(proj, sid, hit.key, hit.leaf);
+
+  const prev = readAnchorState(proj, sid);
+  // The tally on disk already includes this event, so replay it against the
+  // state MINUS this event: fold is what decides an offer, and it must see the
+  // increment happen rather than find it already there.
+  const counts = { ...prev.counts };
+  if (counts[hit.key]) counts[hit.key] -= 1;
+  const leaves = { ...prev.leaves };
+  if (hit.leaf && leaves[hit.key] && leaves[hit.key][hit.leaf]) {
+    leaves[hit.key] = { ...leaves[hit.key], [hit.leaf]: leaves[hit.key][hit.leaf] - 1 };
+  }
+  const { state, offer } = foldAnchor(
+    { counts, leaves, incumbent: prev.incumbent, offered: prev.offered }, hit);
+  if (!offer) return null;
+
+  const rec = readAnchorOffer(proj, sid);
+  const current = ownSessionName(sid, sessionsDir);
+  // A session almost always arrives already wearing a name the harness assigned
+  // — so "current is not our last offer" does NOT mean the person chose it.
+  // Reading it that way silenced the feature permanently for every real
+  // session: on the first offer `offered` is null, so any pre-existing name was
+  // classified as a deliberate choice and nothing was ever spoken again.
+  // A name is the person's only if we have spoken at least once and it is none
+  // of the names we composed.
+  const declined = current && rec.offers.length > 0 && !rec.offers.includes(current)
+    && !rec.declined.includes(current)
+    ? [...rec.declined, current]
+    : rec.declined;
+
+  const chosen = sessionNameOffer(offer.name, {
+    peers: liveSessionNames(sid, sessionsDir),
+    current,
+    declined,
+  });
+  // The incumbent moved whether or not we speak, or the same anchor would
+  // re-arm and offer again on the next write. But `offered` records what was
+  // actually SAID: a name suppressed by the collision ladder was never heard,
+  // and burning it would keep this session silent after the peer exits.
+  writeAnchorOffer(proj, sid, {
+    incumbent: state.incumbent,
+    offered: chosen ? chosen.name : rec.offered,
+    offers: chosen ? [...new Set([...rec.offers, chosen.name])] : rec.offers,
+    declined,
+  });
+  if (!chosen) return null;
+  try {
+    appendEntryLog(proj, {
+      at: new Date().toISOString(), session_id: sid, kind: "name-offer", name: chosen.name,
+    });
+  } catch {}
+  return sessionNameOfferText(chosen);
+}
+
 function updatePointerAndNudge(cfg, proj, sid, filePath, toolName) {
   const rel = filePath.slice(cfg.vault_path.length + 1);
   let patch = null;
@@ -100,7 +195,7 @@ function updatePointerAndNudge(cfg, proj, sid, filePath, toolName) {
   }
 
   if (patch) writeSessionState(proj, sid, patch);
-  if (nudge) process.stdout.write(JSON.stringify({ systemMessage: nudge }) + "\n");
+  return nudge;
 }
 
 function extractToolPath(input) {
@@ -204,7 +299,23 @@ async function main() {
 
   if (isInsideVault(filePath, cfg.vault_path)) {
     try { appendActivity(cfg.vault_path, sid, filePath, input.tool_name); } catch {}
-    try { updatePointerAndNudge(cfg, proj, sid, filePath, input.tool_name); } catch {}
+    let nudge = null, offer = null;
+    try { nudge = updatePointerAndNudge(cfg, proj, sid, filePath, input.tool_name); } catch {}
+    if (cfg.guard !== "off") {
+      try {
+        offer = anchorOffer(cfg, proj, sid, filePath, input.tool_name,
+          Boolean(input.agent_id || input.agent_type),
+          process.env.PROJECTSTORE_SESSIONS_DIR || null);
+      } catch {}
+    }
+    // One invocation carries one systemMessage, so the two compose rather than
+    // race: emitting twice would silently drop whichever went second, and the
+    // offer fires once or twice a session against a nudge that fires every ten
+    // minutes — the rare one would be the one lost.
+    const lines = [nudge, offer].filter(Boolean);
+    if (lines.length) {
+      process.stdout.write(JSON.stringify({ systemMessage: lines.join("\n") }) + "\n");
+    }
   }
 }
 

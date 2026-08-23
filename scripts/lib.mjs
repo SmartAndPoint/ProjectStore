@@ -1939,7 +1939,12 @@ export function appendEntryLog(projectDir, record) {
   }
 }
 
-export function readEntryLog(projectDir, { withinDays = 30 } = {}) {
+// `kind` discriminates records that share this log. An entry reminder is
+// unmarked for backward compatibility with logs written before anything else
+// used the file; every later writer names itself. Callers that mean "entry
+// reminders" must pass `kind: null` — doctor renders this count as "an entry
+// reminder fired N time(s)", a sentence a name-offer breadcrumb would falsify.
+export function readEntryLog(projectDir, { withinDays = 30, kind = undefined } = {}) {
   let lines;
   try {
     lines = readFileSync(entryLogPath(projectDir), "utf8").split("\n").filter(Boolean);
@@ -1952,7 +1957,9 @@ export function readEntryLog(projectDir, { withinDays = 30 } = {}) {
   for (const l of lines) {
     try {
       const r = JSON.parse(l);
-      if (Date.parse(r.at) >= cutoff) out.push(r);
+      if (Date.parse(r.at) < cutoff) continue;
+      if (kind !== undefined && (r.kind ?? null) !== kind) continue;
+      out.push(r);
     } catch {}
   }
   return out;
@@ -2140,6 +2147,200 @@ export function composeAnchorName(state, key) {
     out = out ? out + "-" + w : w.slice(0, ANCHOR_NAME_CELL);
   }
   return out || null;
+}
+
+// ─── Session-name anchor state (on-disk half) ─────────────────────────
+//
+// Same discipline as the entry-rule score directory above, and for the same
+// reason stated there: NOTHING here routes through writeSessionState. A tally
+// incremented on every vault write is the highest-frequency writer in this
+// system, and that function's read-modify-write would eventually truncate the
+// ADR-006 statusline pointer out from under an unrelated feature.
+//
+// So a tally is a file that only ever grows by one byte: O_APPEND of a single
+// byte is atomic, the count is the file's size, and no reader-writer pair
+// exists. Concurrent subagents cannot lose each other's increment.
+//
+// The incumbent/last-offered record is the one small piece that must be read
+// back, and it lives in its OWN file for exactly that reason. It is written at
+// most once per offer (once or twice a session), and its worst failure — a torn
+// read after a crash — costs one duplicate offer and nothing else. Putting it in
+// the shared session state would trade that for a blank statusline.
+
+export function anchorDir(projectDir, sessionId) {
+  return join(stateDir(projectDir), `${sessionId}.anchor`);
+}
+
+function anchorSlot(key, leaf) {
+  const h = createHash("sha1").update(leaf ? `${key}\u0000${leaf}` : key).digest("hex").slice(0, 16);
+  return leaf ? `l${h}` : `k${h}`;
+}
+
+// One byte per event, plus a sidecar naming the key. The sidecar is written
+// with identical bytes every time, so a concurrent rewrite is a no-op rather
+// than a race.
+export function bumpAnchor(projectDir, sessionId, key, leaf = null) {
+  try {
+    const dir = anchorDir(projectDir, sessionId);
+    ensureStateDir(projectDir);
+    mkdirSync(dir, { recursive: true });
+    const slot = anchorSlot(key, leaf);
+    // Create-only. The default flag is O_CREAT|O_TRUNC, so rewriting "the same
+    // bytes" is still observably empty to a concurrent reader — measured at ~4%
+    // of reads losing an entire key, which is the very O_TRUNC failure the
+    // entry-rule banner above condemns. `wx` throws EEXIST after the first
+    // bump; the inner catch is load-bearing, or the tally append below would be
+    // skipped along with it.
+    try {
+      writeFileSync(join(dir, `${slot}.name`), leaf ? `${key}\n${leaf}` : key, { flag: "wx" });
+    } catch {}
+    writeFileSync(join(dir, slot), "x", { flag: "a" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Rebuild the pure rule's state shape from disk. Sizes are the tallies, so a
+// partially-written sidecar loses one key's name rather than the whole tally.
+export function readAnchorState(projectDir, sessionId) {
+  const st = emptyAnchorState();
+  let names;
+  try {
+    names = readdirSync(anchorDir(projectDir, sessionId));
+  } catch {
+    return st;
+  }
+  const dir = anchorDir(projectDir, sessionId);
+  for (const f of names) {
+    if (!f.endsWith(".name")) continue;
+    const slot = f.slice(0, -5);
+    let raw, n;
+    try {
+      raw = readFileSync(join(dir, f), "utf8");
+      n = statSync(join(dir, slot)).size;
+    } catch { continue; }
+    if (!raw || !n) continue;
+    if (slot.startsWith("k")) {
+      st.counts[raw] = n;
+    } else {
+      const nl = raw.indexOf("\n");
+      if (nl < 0) continue;
+      const key = raw.slice(0, nl), leaf = raw.slice(nl + 1);
+      st.leaves[key] = { ...(st.leaves[key] || {}), [leaf]: n };
+    }
+  }
+  const rec = readAnchorOffer(projectDir, sessionId);
+  st.incumbent = rec.incumbent;
+  st.offered = rec.offered;
+  return st;
+}
+
+function anchorOfferPath(projectDir, sessionId) {
+  return join(stateDir(projectDir), `${sessionId}.anchor.json`);
+}
+
+export function readAnchorOffer(projectDir, sessionId) {
+  try {
+    const d = JSON.parse(readFileSync(anchorOfferPath(projectDir, sessionId), "utf8"));
+    return {
+      incumbent: typeof d.incumbent === "string" ? d.incumbent : null,
+      offered: typeof d.offered === "string" ? d.offered : null,
+      // A name the PERSON chose is not ours to talk over. Recorded when we see
+      // the session already carrying a name we did not compose.
+      declined: Array.isArray(d.declined) ? d.declined : [],
+      // Every name we have composed this session. A session almost always
+      // arrives already wearing a harness-assigned name, so "the current name
+      // is not our last offer" cannot mean "the person chose it" — that reading
+      // silenced the feature permanently for every real session.
+      offers: Array.isArray(d.offers) ? d.offers : [],
+    };
+  } catch {
+    // Every field the success path returns, or a caller reading one that only
+    // exists on the happy path throws — and a hook swallows that into silence,
+    // which looks exactly like the mechanism deciding to stay quiet.
+    return { incumbent: null, offered: null, declined: [], offers: [] };
+  }
+}
+
+export function writeAnchorOffer(projectDir, sessionId, rec) {
+  try {
+    ensureStateDir(projectDir);
+    writeFileSync(anchorOfferPath(projectDir, sessionId), JSON.stringify(rec));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Session-name offer (delivery half) ───────────────────────────────
+
+// Names live peers already hold. Read from the harness's own registry of live
+// sessions, which is how names are arbitrated machine-wide: a duplicate is not
+// merely confusing, it is a second session answering to one address.
+//
+// This sees ACCEPTED names only. Two sessions that settle on the same anchor
+// within moments of each other both pass this check and both offer the same
+// name — the race is narrowed, not closed, and the ADR says so.
+export function liveSessionNames(selfSessionId, dir = null) {
+  const root = dir || join(claudeHome(), "sessions");
+  const out = [];
+  let files;
+  try { files = readdirSync(root); } catch { return out; }
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      const d = JSON.parse(readFileSync(join(root, f), "utf8"));
+      if (!d || typeof d.name !== "string" || !d.name) continue;
+      // Match on session id, never on pid: this process is the hook's, not the
+      // session's, and its parent is not reliably the session either.
+      if (selfSessionId && d.sessionId === selfSessionId) continue;
+      out.push({ name: d.name, sessionId: d.sessionId || null });
+    } catch {}
+  }
+  return out;
+}
+
+// What this session is currently called, if the harness has recorded a name.
+export function ownSessionName(selfSessionId, dir = null) {
+  const root = dir || join(claudeHome(), "sessions");
+  let files;
+  try { files = readdirSync(root); } catch { return null; }
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      const d = JSON.parse(readFileSync(join(root, f), "utf8"));
+      if (d && d.sessionId === selfSessionId && typeof d.name === "string" && d.name) return d.name;
+    } catch {}
+  }
+  return null;
+}
+
+// The offer, or null when it must stay silent. Every suppression here is a
+// decision the ADR names; none of them is an implementation detail.
+export function sessionNameOffer(name, { peers = [], current = null, declined = [] } = {}) {
+  if (!name) return null;
+  // Never talk over a name the person chose. `declined` carries names we have
+  // seen the session wear that we did not compose.
+  if (current && current !== name && declined.includes(current)) return null;
+  if (current === name) return null;                       // already wearing it
+  const taken = new Set(peers.map((p) => p && p.name).filter(Boolean));
+  if (!taken.has(name)) return { name, qualified: false };
+  // Taken. Qualify rather than skip: the anchor is still the honest answer, and
+  // a session that stays unnamed because a peer got there first is the worse
+  // outcome. Two suffixes is the whole ladder — a third collision means the
+  // name is not discriminating and silence is the better answer.
+  for (const suffix of ["-2", "-3"]) {
+    if (!taken.has(name + suffix)) return { name: name + suffix, qualified: true };
+  }
+  return null;
+}
+
+export function sessionNameOfferText(offer) {
+  if (!offer || !offer.name) return null;
+  return offer.qualified
+    ? `projectstore: this session looks like "${offer.name}" (a peer holds the unqualified name) — /rename ${offer.name}`
+    : `projectstore: this session looks like "${offer.name}" — /rename ${offer.name}`;
 }
 
 // ─── Frontmatter parsing (minimal) ─────────────────────────────────────

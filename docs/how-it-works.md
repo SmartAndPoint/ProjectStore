@@ -160,12 +160,83 @@ resistance. v0.13 makes that safe instead of forbidden:
   `.claude/` is gitignored) so `doctor` can report whether the prompt was ever
   delivered — a mechanism that cannot say whether it worked is indistinguishable
   from one that does not.
+- A **session-name offer** fires on PreToolUse once a session's vault work has
+  settled on an anchor — see below. Same `"guard": "off"` switch, same log, and
+  its records carry `kind: "name-offer"` so `doctor`'s reminder count does not
+  quietly absorb them.
 - `doctor` carries the after-the-fact half: **work-without-story** warns when the
   project tree is dirty and no story is in progress. It is the only seam that
   sees Bash-mediated writes, which bypass hook path extraction entirely.
 
 The division of labor: deterministic checks catch the mechanical 90% for free;
 the LLM critic (`/projectstore:review`) is saved for the judgment calls.
+
+## Naming a session after the work it settled on
+
+A Claude Code session has a name, and it is an **address**: live peers route to
+each other by it, which is why names are arbitrated for uniqueness across a
+machine. So a session named after its work is addressable by unit of work.
+
+No plugin can set that name. The authoritative value lives in the session
+process's memory behind no reachable API — writing the registry file or the
+transcript record reaches neither the tab nor the arbitration, and only
+desynchronises the three surfaces from each other. What a plugin can do is
+compose the right name and **offer** it:
+
+```
+projectstore: this session looks like "ps-agents-statusline-v2" — /rename ps-agents-statusline-v2
+```
+
+The whole design question is **when to speak**, because an offer is an
+interruption. Replaying nine recorded sessions, the obvious rule — offer on every
+epic/story change — fires **137 times, 37 in the worst session**. Work moves
+between a story, its epic and a sibling many times an hour; that motion is not a
+change of subject.
+
+What is stable is the **anchor**: the cluster a session's writes settle on. Seven
+of nine sessions had a dominant epic holding 62–100% of their epic writes. So:
+
+- every vault write maps to one anchor key — `epic:<ID>` for anything under an
+  epic, or the document itself for an ADR, spec or research note (two of the nine
+  sessions touched no epic at all, and an epic-only rule leaves those permanently
+  nameless);
+- an anchor **settles** at five writes and is offered;
+- a challenger takes over — and is offered — only at a **ten-write lead**;
+- the name is `<epic-id>-<its most-written story>`, or the document's slug;
+  kebab-case, 48 characters, cut on a word boundary.
+
+That is **12 offers across nine sessions, at most two in any one**, and six
+sessions naming themselves exactly once. Re-offering is deliberate: in three
+sessions the anchor moved, and the shape is a session that decides in a document
+and then builds in an epic — a name that does not follow that is a name for the
+first hour only.
+
+Only **write-family calls by the main agent** count. A review session that greps
+thirty files has not done work worth naming, and a subagent shares the session id
+but cannot accept a name. Neither gate is visible in the fixtures — every
+recorded session is an authoring session — so both are pinned by their own drives
+instead.
+
+If a live peer already holds the name it is offered as `-2`, then `-3`; a third
+collision means the name is not discriminating and nothing is said. And a name
+you chose yourself is never overwritten — but note that a session usually
+*arrives* with a harness-assigned name, so "not the name we offered" is not
+enough to infer choice: the plugin treats a name as yours only after it has made
+at least one offer of its own.
+
+**The known blind spot**: vault writes made through Bash never reach this seam,
+because the input is tool-call path extraction. The consequence that matters is
+not a missing name but a **wrong** one — if the bulk of a session's work went
+through scripts, the anchor is computed from the visible minority. And the gap is
+correlated with plugin-idiomatic behaviour: the more work goes through
+`/projectstore:*` and `reconcile`, the less nameable the session becomes.
+
+The rule is a pure fold in `lib.mjs` with no clock and no disk, so the fixture
+replay and the live hook run one implementation. Its tallies are files that grow
+by one byte — the count is the file size — because the shared session-state file
+is an unguarded read-modify-write, and a tally incremented on every vault write
+would eventually truncate the ADR-006 statusline pointer out from under an
+unrelated feature.
 
 ## The epic ↔ code mapping
 

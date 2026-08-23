@@ -226,7 +226,7 @@ Details that matter with several Claude sessions open on one project: each sessi
 - **4 passive skills** — decision detection, story completion, peer-review nudges, vault-native communication. They suggest; they never write.
 - **1 doctor + reconcile** — deterministic health checks and one-command repair of every generated view, localization-aware via the heading registry (`scaffold/headings.json`) — indexes and section checks work in every bundled language, and a vault whose files were written in two of them still lints and reconciles
 - **1 layout** — `engineering`, with templates in **6 languages**: English, Russian, Spanish, German, French, Simplified Chinese (localized UI strings included)
-- **5 hooks** — session start (navigation skeleton + doctor line), tool use before and after (activity + per-session pointer + raw-edit nudge + entry-rule reminder), stop (the reminder's second carrier), pre-compact (one honest line in your `/compact` output)
+- **5 hooks** — session start (navigation skeleton + doctor line), tool use before and after (activity + per-session pointer + raw-edit nudge + entry-rule reminder + session-name offer), stop (the reminder's second carrier), pre-compact (one honest line in your `/compact` output)
 
 **The roster rule**: ProjectStore bundles an agent only if the role *requires the vault* to make sense. General coding assistants belong to your own setup — our `planner`/`reviewer` are deliberately narrow, vault-aware specialists, not their replacements. `/projectstore:review` always spawns the scoped `projectstore:critic`. Note that our agents live under the `projectstore:` prefix and an agent of your own named `critic` lives under the bare name — **they coexist, neither replaces the other** (which is why we configure models per invocation rather than by copying agent files: ADR-008).
 
@@ -238,6 +238,7 @@ Details that matter with several Claude sessions open on one project: each sessi
 - **`/compact` survival.** After a compaction, SessionStart adds a "where this session left off" block — the vault files the previous conversation touched and the artifact it was drafting — so the next agent resumes instead of re-deriving. PreCompact prints one line for you, and promises the handover only when it can actually check that it will happen.
 - **Orientation is a map, not a copy.** SessionStart injects the layout's folders, what each is for, what is in flight, and the order to descend in — a few thousand characters that don't grow with the vault. Injecting the vault itself is how you exceed the hook output cap and get handed a file path instead of context.
 - **Raw edits are expected, not punished.** If you (or the agent) edit vault markdown directly, a gentle nudge suggests running `reconcile` afterwards. The guarantees survive the easy path.
+- **Your session gets named after the work it settled on.** Once a session's vault writes settle on an epic or a document, projectstore offers a name — `/rename ps-agents-statusline-v2` — and you press the button. Session names are how parallel sessions address each other, so this is coordination, not decoration. Measured at roughly one offer per session; the naive "rename on every change" rule fires 37 times in the worst recorded session.
 
 Deep dive with real session files and the compaction packet: [docs/how-it-works.md](./docs/how-it-works.md).
 

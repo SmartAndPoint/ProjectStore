@@ -9,7 +9,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync, utimesSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
+import { readAnchorState } from "../scripts/lib.mjs";
 import { fileURLToPath } from "node:url";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -702,10 +703,16 @@ function seedStory(vault, name, status) {
     `---\ntype: story\nstatus: ${status}\n---\n\n# s\n`, "utf8");
 }
 
-function fireHook(proj, payload) {
+function fireHook(proj, payload, sessionsDir = null) {
   const r = spawnSync(process.execPath, [join(REPO, "scripts", "touch-session.mjs")], {
     encoding: "utf8", input: JSON.stringify(payload), timeout: 15000,
-    env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd: proj,
+    env: {
+      ...process.env, CLAUDE_PROJECT_DIR: proj,
+      // Without this the wired drives read the developer's real session
+      // registry — live machine state inside a test, and two criteria that
+      // cannot be driven at all.
+      ...(sessionsDir ? { PROJECTSTORE_SESSIONS_DIR: sessionsDir } : {}),
+    }, cwd: proj,
   });
   assert.equal(r.status, 0, `hook must exit 0; stderr: ${r.stderr}`);
   const out = r.stdout.trim();
@@ -1665,4 +1672,303 @@ test("PreCompact contract 19: a >200 path renders in the same cell the skeleton 
   const token = msg.match(/in flight: …`([^`]*)`/)[1];
   assert.ok(token.length <= 200 && long.endsWith(token),
     "one path form: truncated here exactly as it is in the continuity section");
+});
+
+// ─── Session-name offer, wired (ADR: the settled-anchor offer) ─────────
+//
+// The pure rule is driven in predicates.test.mjs against recorded fixtures.
+// These drive the HOOK, and they exist because the fixtures cannot: every
+// recorded session is an authoring session, so nothing in them can show that a
+// read or a subagent write is excluded. Those two gates are the difference
+// between the measured rule and the wired one.
+
+function vaultWrite(proj, vault, rel, extra = {}) {
+  const { sessionsDir, ...rest } = extra;
+  return fireHook(proj, {
+    hook_event_name: "PreToolUse", session_id: extra.sid || "n1",
+    tool_name: extra.tool || "Edit", tool_input: { file_path: join(vault, rel) },
+    ...rest,
+  }, sessionsDir);
+}
+
+// A registry of live sessions, as the harness maintains it. Every wired drive
+// above runs against an EMPTY one, which is exactly why the blocker below went
+// unseen: a real session is almost never nameless.
+function seedRegistry(root, records) {
+  const dir = join(root, "sessions");
+  mkdirSync(dir, { recursive: true });
+  records.forEach((r, i) => writeFileSync(join(dir, `${1000 + i}.json`), JSON.stringify(r), "utf8"));
+  return dir;
+}
+
+function offerLine(out) {
+  if (!out || !out.systemMessage) return null;
+  return out.systemMessage.split("\n").find((l) => l.includes("looks like")) || null;
+}
+
+function seedAnchorVault() {
+  const h = seedHookProject();
+  mkdirSync(join(h.vault, "adr"), { recursive: true });
+  writeFileSync(join(h.vault, "epics", "PS-A", "stories", "story-alpha-beta.md"),
+    "---\ntype: story\nstatus: planned\n---\n", "utf8");
+  writeFileSync(join(h.vault, "adr", "some-decision.md"),
+    "---\ntype: adr\nstatus: proposed\n---\n", "utf8");
+  return h;
+}
+
+test("name offer: settles at five writes, speaks once, then stays quiet", () => {
+  const { proj, vault } = seedAnchorVault();
+  const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  const seen = [];
+  for (let i = 0; i < 8; i++) seen.push(offerLine(vaultWrite(proj, vault, rel)));
+  const fired = seen.map((l, i) => (l ? i + 1 : null)).filter(Boolean);
+  assert.deepEqual(fired, [5], `expected one offer on the fifth write, got ${JSON.stringify(fired)}`);
+  assert.match(seen[4], /ps-a-alpha-beta/, seen[4]);
+  assert.match(seen[4], /\/rename ps-a-alpha-beta/, "the offer must carry the command to accept it");
+});
+
+test("name offer: reads never name a session, however many there are", () => {
+  const { proj, vault } = seedAnchorVault();
+  const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  for (let i = 0; i < 8; i++) {
+    assert.equal(offerLine(vaultWrite(proj, vault, rel, { tool: "Read" })), null,
+      "a review session that reads the vault has not done work worth naming");
+  }
+  // And the same paths written DO settle: the gate is the tool, not the path.
+  const after = [];
+  for (let i = 0; i < 5; i++) after.push(offerLine(vaultWrite(proj, vault, rel)));
+  assert.ok(after[4], "writes after the reads still settle the anchor");
+});
+
+test("name offer: a subagent's writes never vote on the name", () => {
+  const { proj, vault } = seedAnchorVault();
+  const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  for (let i = 0; i < 8; i++) {
+    assert.equal(offerLine(vaultWrite(proj, vault, rel, { agent_id: "sub-7" })), null,
+      "a subagent shares the session id and cannot accept a name");
+  }
+});
+
+test("name offer: the anchor moves only on a decisive lead, and renames when it does", () => {
+  const { proj, vault } = seedAnchorVault();
+  const adr = join("adr", "some-decision.md");
+  const story = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  const first = [];
+  for (let i = 0; i < 5; i++) first.push(offerLine(vaultWrite(proj, vault, adr)));
+  assert.match(first[4], /some-decision/, "the document anchors the session first");
+
+  const later = [];
+  for (let i = 0; i < 16; i++) later.push(offerLine(vaultWrite(proj, vault, story)));
+  const at = later.map((l, i) => (l ? i + 1 : null)).filter(Boolean);
+  // Five ADR writes stand; the epic must reach 5 + 10 to take over.
+  assert.deepEqual(at, [15], `takeover must need the full margin, fired at ${JSON.stringify(at)}`);
+  assert.match(later[14], /ps-a-alpha-beta/, later[14]);
+});
+
+test("name offer: it composes with the raw-edit nudge instead of racing it", () => {
+  const { proj, vault } = seedAnchorVault();
+  const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  // The nudge fires on the first vault write of a ten-minute window; the offer
+  // on the fifth. Force both onto one invocation by clearing the nudge stamp.
+  let out = null;
+  for (let i = 0; i < 4; i++) vaultWrite(proj, vault, rel);
+  const statePath = join(proj, ".claude", ".projectstore", "state", "n1.json");
+  const st = JSON.parse(readFileSync(statePath, "utf8"));
+  delete st.nudged_at;
+  writeFileSync(statePath, JSON.stringify(st), "utf8");
+  out = vaultWrite(proj, vault, rel);
+  assert.ok(out && out.systemMessage, "both mechanisms had something to say");
+  assert.match(out.systemMessage, /run \/projectstore:reconcile/, "the nudge survived");
+  assert.match(out.systemMessage, /looks like/, "the offer survived");
+  assert.equal(out.systemMessage.split("\n").length, 2, "one message, two lines — neither dropped");
+});
+
+test("name offer: state never touches the statusline pointer's file", () => {
+  const { proj, vault } = seedAnchorVault();
+  const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  for (let i = 0; i < 6; i++) vaultWrite(proj, vault, rel);
+  // ADR-006's pointer must still be intact and complete: the anchor tally is
+  // the highest-frequency writer here, and lib.mjs forbids it the shared
+  // read-modify-write for exactly this reason.
+  const st = JSON.parse(readFileSync(
+    join(proj, ".claude", ".projectstore", "state", "n1.json"), "utf8"));
+  assert.equal(st.active_epic, "PS-A");
+  assert.equal(st.active_story, "story-alpha-beta");
+  assert.ok(!("counts" in st) && !("incumbent" in st), "anchor state must live in its own files");
+});
+
+test("name offer: guard off silences it, like every other advisory", () => {
+  const { proj, vault } = seedAnchorVault();
+  writeFileSync(join(proj, ".claude", "projectstore.json"),
+    JSON.stringify({ vault_path: vault, layout: "engineering", language: "en", guard: "off" }), "utf8");
+  const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  for (let i = 0; i < 8; i++) {
+    assert.equal(offerLine(vaultWrite(proj, vault, rel)), null, "guard off means silent");
+  }
+});
+
+test("name offer: the breadcrumb is distinguishable from an entry reminder", () => {
+  const { proj, vault } = seedAnchorVault();
+  const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  for (let i = 0; i < 5; i++) vaultWrite(proj, vault, rel);
+  const log = readFileSync(join(proj, ".claude", ".projectstore", "entry-log.jsonl"), "utf8")
+    .split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  const offers = log.filter((r) => r.kind === "name-offer");
+  assert.equal(offers.length, 1, "the offer left a breadcrumb");
+  assert.equal(offers[0].name, "ps-a-alpha-beta");
+  // doctor renders `readEntryLog(...).length` as "an entry reminder fired N
+  // time(s)"; an offer inflating that count would make the sentence false.
+  assert.equal(log.filter((r) => !r.kind).length, 0, "no offer masquerades as a reminder");
+});
+
+test("name offer: the epic is named after its DOMINANT story, across invocations", () => {
+  // The weakness this closes: `foldAnchor` tallies the leaf of the current
+  // event in memory, so with one story per epic the name comes out right even
+  // if the on-disk leaf tally is never written. Two stories are what make the
+  // persisted tally load-bearing — and the last-touched one must NOT win.
+  const { proj, vault } = seedAnchorVault();
+  writeFileSync(join(vault, "epics", "PS-A", "stories", "story-minor-note.md"),
+    "---\ntype: story\nstatus: planned\n---\n", "utf8");
+  const major = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  const minor = join("epics", "PS-A", "stories", "story-minor-note.md");
+  for (let i = 0; i < 4; i++) vaultWrite(proj, vault, major);
+  const out = offerLine(vaultWrite(proj, vault, minor));   // 5th write settles
+  assert.ok(out, "the epic settled on the fifth write");
+  assert.match(out, /ps-a-alpha-beta/,
+    "the name follows where the work went, not where the cursor happens to be");
+  assert.doesNotMatch(out, /minor-note/, out);
+});
+
+test("name offer: a session that arrives already named still gets its offer", () => {
+  // The blocker this pins: a session is almost never nameless — the harness
+  // assigns one — and an earlier reading treated ANY name that was not our last
+  // offer as "the person chose this", which silenced the feature permanently
+  // for every real session. Every other wired drive here runs against an empty
+  // registry and cannot see it.
+  const { root, proj, vault } = seedAnchorVault();
+  const dir = seedRegistry(root, [{ pid: 999, sessionId: "n1", name: "warm-otter-42" }]);
+  const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  const seen = [];
+  for (let i = 0; i < 6; i++) seen.push(offerLine(vaultWrite(proj, vault, rel, { sessionsDir: dir })));
+  const fired = seen.map((l, i) => (l ? i + 1 : null)).filter(Boolean);
+  assert.deepEqual(fired, [5], `a pre-named session must still be offered: ${JSON.stringify(fired)}`);
+  assert.match(seen[4], /ps-a-alpha-beta/, seen[4]);
+});
+
+test("name offer: once the person picks their own name, nothing talks over it", () => {
+  const { root, proj, vault } = seedAnchorVault();
+  const story = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  const adr = join("adr", "some-decision.md");
+  let dir = seedRegistry(root, [{ pid: 999, sessionId: "n1", name: "warm-otter-42" }]);
+  for (let i = 0; i < 5; i++) vaultWrite(proj, vault, story, { sessionsDir: dir });   // we offer
+  // The person ignores it and renames to something of their own.
+  dir = seedRegistry(root, [{ pid: 999, sessionId: "n1", name: "my-own-choice" }]);
+  for (let i = 0; i < 20; i++) {
+    assert.equal(offerLine(vaultWrite(proj, vault, adr, { sessionsDir: dir })), null,
+      "a name we did not compose is the person's, and no later anchor move overrides it");
+  }
+});
+
+test("name offer: a name WE composed is still ours to replace when the work moves", () => {
+  const { root, proj, vault } = seedAnchorVault();
+  const story = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  const adr = join("adr", "some-decision.md");
+  let dir = seedRegistry(root, [{ pid: 999, sessionId: "n1", name: "warm-otter-42" }]);
+  for (let i = 0; i < 5; i++) vaultWrite(proj, vault, story, { sessionsDir: dir });
+  // The person ACCEPTS our offer — the registry now carries the name we composed.
+  dir = seedRegistry(root, [{ pid: 999, sessionId: "n1", name: "ps-a-alpha-beta" }]);
+  const later = [];
+  for (let i = 0; i < 16; i++) later.push(offerLine(vaultWrite(proj, vault, adr, { sessionsDir: dir })));
+  const at = later.map((l, i) => (l ? i + 1 : null)).filter(Boolean);
+  assert.deepEqual(at, [15], `the pivot must still be offered: ${JSON.stringify(at)}`);
+  assert.match(later[14], /some-decision/, later[14]);
+});
+
+test("name offer: Bash-mediated vault writes are invisible — no name, and no tally", () => {
+  // The documented blind spot, pinned rather than merely written down. A Bash
+  // command carries no file_path, so path extraction yields nothing and the
+  // vault branch is never entered.
+  const { root, proj, vault } = seedAnchorVault();
+  const dir = seedRegistry(root, []);
+  const target = join(vault, "epics", "PS-A", "stories", "story-alpha-beta.md");
+  for (let i = 0; i < 8; i++) {
+    const out = fireHook(proj, {
+      hook_event_name: "PreToolUse", session_id: "n1",
+      tool_name: "Bash", tool_input: { command: `printf x >> "${target}"` },
+    }, dir);
+    assert.equal(offerLine(out), null, "a scripted vault write cannot name the session");
+  }
+  // And it contributed nothing to the tally: five tool-calls still settle on
+  // the fifth, not earlier. Absence of an offer alone would not prove that.
+  const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  const seen = [];
+  for (let i = 0; i < 5; i++) seen.push(offerLine(vaultWrite(proj, vault, rel, { sessionsDir: dir })));
+  assert.deepEqual(seen.map((l, i) => (l ? i + 1 : null)).filter(Boolean), [5],
+    "eight Bash writes must leave the tally at zero");
+});
+
+test("name offer: a subagent's writes contribute nothing to the tally, not merely to delivery", () => {
+  // The read gate's drive proves the tally took nothing by showing five later
+  // writes still settle on the fifth. Asserting silence alone passes a mutant
+  // that tallies subagent writes and only suppresses the message — under which
+  // a session whose subagents write elsewhere gets named after their work.
+  const { root, proj, vault } = seedAnchorVault();
+  const dir = seedRegistry(root, []);
+  const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  for (let i = 0; i < 8; i++) {
+    assert.equal(offerLine(vaultWrite(proj, vault, rel, { agent_id: "sub-7", sessionsDir: dir })), null);
+  }
+  const seen = [];
+  for (let i = 0; i < 5; i++) seen.push(offerLine(vaultWrite(proj, vault, rel, { sessionsDir: dir })));
+  assert.deepEqual(seen.map((l, i) => (l ? i + 1 : null)).filter(Boolean), [5],
+    "eight subagent writes must leave the tally at zero");
+});
+
+test("name offer: concurrent writers keep the tally exact and the ADR-006 pointer intact", async () => {
+  // AC 5 asks for concurrency, and the sequential drive above cannot answer it.
+  // Two distinct hazards live here: the tally (one byte appended per event, so
+  // O_APPEND must not lose increments) and the sidecar naming each key, which
+  // an O_TRUNC rewrite makes momentarily empty — a reader then drops the key
+  // entirely and the takeover guard silently falls to zero.
+  const { root, proj, vault } = seedAnchorVault();
+  const dir = seedRegistry(root, []);
+  const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
+  const N = 24;
+  // Read WHILE the writers run. Reading afterwards proves nothing: the sidecar
+  // is only observably empty during the instant it is being rewritten.
+  let lost = 0, reads = 0, racing = true;
+  const reader = (async () => {
+    while (racing) {
+      const seen = readAnchorState(proj, "c1");
+      if (Object.keys(seen.counts).length) reads += 1;
+      else if (reads > 0) lost += 1;
+      if (reads > 0 && !seen.counts["epic:PS-A"]) lost += 1;
+      await new Promise((r) => setImmediate(r));
+    }
+  })();
+  await Promise.all(Array.from({ length: N }, () => new Promise((resolve) => {
+    const c = spawn(process.execPath, [join(REPO, "scripts", "touch-session.mjs")], {
+      env: { ...process.env, CLAUDE_PROJECT_DIR: proj, PROJECTSTORE_SESSIONS_DIR: dir }, cwd: proj,
+    });
+    c.stdin.end(JSON.stringify({
+      hook_event_name: "PreToolUse", session_id: "c1",
+      tool_name: "Edit", tool_input: { file_path: join(vault, rel) },
+    }));
+    c.on("close", resolve);
+  })));
+  racing = false;
+  await reader;
+
+  const st = readAnchorState(proj, "c1");
+  assert.equal(st.counts["epic:PS-A"], N, "no increment lost under concurrency");
+  assert.equal(st.leaves["epic:PS-A"]["alpha-beta"], N, "the leaf tally too");
+  assert.equal(lost, 0,
+    `a key with a live tally vanished from ${lost}/${reads} concurrent reads — ` +
+    "a truncated sidecar drops the key, and foldAnchor then measures a " +
+    "challenger against a zero incumbent");
+  // And the pointer this state was deliberately kept out of is whole.
+  const ptr = JSON.parse(readFileSync(
+    join(proj, ".claude", ".projectstore", "state", "c1.json"), "utf8"));
+  assert.equal(ptr.active_epic, "PS-A");
+  assert.equal(ptr.active_story, "story-alpha-beta");
 });
