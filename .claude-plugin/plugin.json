@@ -2,7 +2,7 @@
   "name": "projectstore",
   "displayName": "projectstore",
   "version": "0.25.0",
-  "description": "Opinionated project-management paradigms (ADR / epics / stories / kanban / runbooks) for agentic development. Markdown-first, git-portable, human-readable.",
+  "description": "Your agent runs the project through a verified loop: task \u2192 artifact (ADR / spec / epic / story) \u2192 adversarial critic \u2192 backlog \u2192 planner \u2192 reviewer \u2192 done. Plain markdown in git \u2014 any model can pick the project up tomorrow.",
   "author": {
     "name": "Evgenii Konev @ SmartAndPoint",
     "email": "ekonev@smartandpoint.com",

@@ -2701,3 +2701,60 @@ test("session name: an offer never talks over the name the session already wears
     "three collisions means the name does not discriminate; silence beats -4");
   assert.equal(sessionNameOffer(null, {}), null);
 });
+
+// ─── README claims are checkable, or they drift ────────────────────────
+//
+// Every version stamp and inventory count in the README has drifted at least
+// once: a heading said v0.23 two releases later, and a status-line example
+// quoted a version three releases old. Prose cannot be reconciled, so it gets
+// asserted instead.
+
+test("README: every version it quotes is the version that ships", () => {
+  const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
+  const version = JSON.parse(readFileSync(
+    fileURLToPath(new URL("../.claude-plugin/plugin.json", import.meta.url)), "utf8")).version;
+  const marketplace = readFileSync(
+    fileURLToPath(new URL("../.claude-plugin/marketplace.json", import.meta.url)), "utf8");
+  assert.ok(marketplace.includes(`"${version}"`),
+    "both manifests must carry the same version — a release with two answers has none");
+  // A concrete version in prose is only ever an example of the status-line
+  // badge; whatever it shows must be what a reader would actually see.
+  for (const m of readme.matchAll(/PS#(\d+\.\d+\.\d+)/g)) {
+    assert.equal(m[1], version,
+      `README quotes PS#${m[1]} but this build is ${version}`);
+  }
+  // A version-stamped section heading is a promise to edit it every release,
+  // and that promise has never been kept.
+  const stamped = [...readme.matchAll(/^#{2,3} .*\(v\d+\.\d+\)/gm)].map((m) => m[0]);
+  assert.deepEqual(stamped, [],
+    `headings must not be version-stamped: ${JSON.stringify(stamped)}`);
+});
+
+test("README: the inventory counts what is actually in the tree", () => {
+  const repo = fileURLToPath(new URL("..", import.meta.url));
+  const readme = readFileSync(join(repo, "README.md"), "utf8");
+  const count = (rel, filter) => readdirSync(join(repo, rel)).filter(filter).length;
+  const md = (f) => f.endsWith(".md");
+  const hooks = new Set(Object.values(
+    JSON.parse(readFileSync(join(repo, "hooks", "hooks.json"), "utf8")).hooks)
+    .flat().flatMap((e) => (e.hooks || []).map((h) => h.command)));
+
+  // The selling rewrite reduced the fact sheet to three counts; skills and
+  // hooks are implementation detail the README no longer advertises. `hooks`
+  // stays computed above so restoring the claim is a one-line diff here.
+  void hooks;
+  const claims = [
+    [/\*\*(\d+) commands\*\*/, count("commands", md), "commands"],
+    [/\*\*(\d+) agents\*\*/, count("agents", md), "agents"],
+    // Directories only: templates/ also holds claude-md-block.md.tmpl, which is
+    // not a language and briefly made this drive report the README as wrong.
+    [/\*\*(\d+) languages\*\*/,
+      readdirSync(join(repo, "templates"), { withFileTypes: true })
+        .filter((d) => d.isDirectory()).length, "template languages"],
+  ];
+  for (const [re, actual, what] of claims) {
+    const m = readme.match(re);
+    assert.ok(m, `README no longer states a count for ${what} — update this drive or restore the claim`);
+    assert.equal(Number(m[1]), actual, `README says ${m[1]} ${what}, tree has ${actual}`);
+  }
+});
