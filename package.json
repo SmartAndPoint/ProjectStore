@@ -1,0 +1,59 @@
+{
+  "name": "projectstore",
+  "version": "0.25.0",
+  "description": "Your agent runs the project through a verified loop: task → artifact (ADR / spec / epic / story) → adversarial critic → backlog → planner → reviewer → done. Plain markdown in git — any model can pick the project up tomorrow.",
+  "keywords": [
+    "project-management",
+    "adr",
+    "epics",
+    "stories",
+    "kanban",
+    "obsidian",
+    "markdown",
+    "knowledge-base",
+    "engineering-process",
+    "claude-code",
+    "codex",
+    "agentic",
+    "ai-agents"
+  ],
+  "homepage": "https://github.com/SmartAndPoint/ProjectStore#readme",
+  "bugs": {
+    "url": "https://github.com/SmartAndPoint/ProjectStore/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SmartAndPoint/ProjectStore.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Evgenii Konev",
+    "email": "ekonev@smartandpoint.com",
+    "url": "https://github.com/SmartAndPoint"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    ".claude-plugin/",
+    "agents/",
+    "commands/",
+    "hooks/",
+    "scripts/",
+    "skills/",
+    "scaffold/",
+    "templates/",
+    "docs/",
+    "AGENTS.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "guard": "node scripts/version-guard.mjs",
+    "packlist": "node scripts/version-guard.mjs --write-packlist",
+    "release:check": "npm run guard && npm test && npm pack --dry-run"
+  }
+}

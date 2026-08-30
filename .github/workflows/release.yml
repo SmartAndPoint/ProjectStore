@@ -1,0 +1,47 @@
+name: release
+
+# Publishes to npm over OIDC — no long-lived token exists in this repository's
+# secrets, and none should ever be added. The trusted publisher is configured
+# on the package's own settings page (npmjs.com → projectstore → Settings →
+# Trusted publisher), which is why the FIRST publish is manual: the form
+# requires the package to already exist.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for npm Trusted Publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted Publishing needs npm >= 11.5.1 and Node >= 22.14.0. The runner
+      # image ships an older npm, so pin an exact version rather than tracking
+      # @latest: a moving npm inside the release path is the same class of
+      # supply-chain surface this workflow exists to avoid.
+      - run: npm install -g npm@11.11.0
+      - run: npm --version
+
+      - name: One version across every manifest and the tag
+        run: node scripts/version-guard.mjs --tag "${GITHUB_REF_NAME}"
+
+      - name: Tests, including the packaging contracts
+        run: node --test tests/*.test.mjs
+
+      # --provenance is requested here rather than in package.json. npm's docs
+      # say Trusted Publishing attaches provenance on its own; a January 2026
+      # field report says the flag was still needed. Asking explicitly costs
+      # nothing, and keeping it out of package.json is what lets a manual
+      # publish work at all — publishConfig.provenance fails outside CI.
+      - run: npm publish --provenance
