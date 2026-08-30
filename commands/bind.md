@@ -1,12 +1,13 @@
 ---
 description: Bind this project to an Obsidian vault (or any markdown directory) where projectstore will record artifacts.
-argument-hint: <vault-path> [--layout engineering] [--lang en|ru|es|de|fr|zh]
+argument-hint: <vault-path> | --inherit [--layout engineering] [--lang en|ru|es|de|fr|zh]
 ---
 
 You are binding the current project to a markdown vault for projectstore.
 
 Parse `$ARGUMENTS`:
 - First positional arg: vault path. Expand `~` if present.
+- Optional `--inherit`: adopt the binding of the checkout this worktree was forked from (step 0a). Mutually exclusive with a positional vault path.
 - Optional `--layout <name>`: layout to use. Default: `engineering`.
 - Optional `--lang <en|ru|es|de|fr|zh>`: template language. Default: `en`. (`zh` is Simplified Chinese.)
 
@@ -14,7 +15,10 @@ Steps:
 
 0. **Check for an existing bind** (safer rebind, v0.4.1):
    - Read `<project>/.claude/projectstore.json` if it exists.
-   - If absent: proceed to step 1 (fresh bind).
+   - `--inherit` and a positional vault path together are a contradiction: say so and stop, rather than silently picking one.
+   - If absent **and** no positional vault path was given (or `--inherit` was passed): run step **0a** first.
+   - If absent otherwise: proceed to step 1 (fresh bind).
+   - If present **and** `--inherit` was passed: print "Already bound to `<path>`." and stop. Do not fall through to the rebind comparison below — with `--inherit` there is no new path to compare, and the comparison would render an empty "proposed" side and offer to replace the binding. A no-op command must not reach a destructive option.
    - If present, compare its `vault_path` with the new path (after `~` expansion):
      - **Same vault**: print "Already bound to `<path>`. Re-run `/projectstore:scaffold` if you need to (re)create the layout, or `/projectstore:status` to inspect it." and stop. Do not rewrite the config.
      - **Different vault**: show the user a one-block diff:
@@ -34,6 +38,19 @@ Steps:
        - **Cancel** — make no changes, print "Cancelled." and stop.
 
        Only on **Replace bind**, continue with the remaining steps below.
+
+0a. **Inherit from the checkout this worktree was forked from** (ADR "A vault worktree is an additional write path…", decision 12). `.gitignore` ignores `.claude/`, so a worktree of a bound checkout starts unbound and every `/projectstore:*` command is dead in it — including this one's usual path.
+
+   ```bash
+   node "$CLAUDE_PLUGIN_ROOT/scripts/worktree.mjs"
+   ```
+
+   It prints `{state, worktree, mainCheckout, vaultPath}` and writes nothing.
+   - `state` is **not** `inheritable` → say why in one line (not a worktree, its parent is unbound too, or git could not answer) and fall through to step 1, which needs a vault path; if none was given, ask for one.
+   - `state` is `inheritable` → read the parent's `<mainCheckout>/.claude/projectstore.json`, show it **verbatim as a code block**, and ask via AskUserQuestion: "Adopt the binding of `<mainCheckout>` (vault `<vaultPath>`)?" — Yes / No.
+   - On **Yes**: Write that JSON verbatim to `<project>/.claude/projectstore.json`, then **jump straight to step 10** (the summary). Steps 1–9 and 11–12 are decisions the parent already made and the copied config already carries — layout, language, statusline, agent models, auto-update. Do not re-ask them, and do not scaffold: the vault exists and is shared.
+   - Copy the **binding only**. Never copy `<project>/.claude/.projectstore/` — that is per-session state belonging to the other checkout.
+   - Do not add a provenance key to the config. The parent is resolvable from git at any time; a key would be a second source of truth for the same fact.
 
 1. **Validate the vault path** with `ls -la "<path>"`. If it does not exist, ask the user (via AskUserQuestion) whether to create it.
 2. **Detect existing layout**: list immediate subdirectories. If you see `adr/`, `epics/`, `concepts/`, `research/` — the vault already uses an engineering-like layout; suggest `engineering`. Otherwise use the user's choice or `engineering` default.

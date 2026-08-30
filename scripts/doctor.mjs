@@ -61,6 +61,7 @@ import {
   ENTRY_IGNORE,
 } from "./lib.mjs";
 import { uncommittedProjectFiles, lastCommitMs } from "./diff-refs.mjs";
+import { resolveBinding } from "./worktree.mjs";
 
 const AGENT_BLOCK_MARKER = /<!--\s*projectstore:agents v(\d+)/g;
 // v3 adds the entry rule and the instruction-conflict clause. checkAgentsBlock
@@ -119,8 +120,22 @@ function listMd(dir) {
 
 // ─── Install checks ────────────────────────────────────────────────────
 
-export function checkConfig(cfg) {
+// `proj` is a parameter rather than a projectRoot() call so the worktree probe
+// is testable, and so a future refactor cannot make this spawn git for a project
+// it was not asked about. The probe runs only on the unbound branch: a bound
+// project never pays for it.
+export function checkConfig(cfg, proj = projectRoot()) {
   if (!cfg) {
+    // An unbound worktree of a bound checkout needs the opposite advice from a
+    // project that was never bound — adopt the parent's vault, do not choose a
+    // new one. Assigned rather than appended: two instructions for one problem
+    // is how a person ends up binding a second vault by hand.
+    let b = null;
+    try { b = resolveBinding(proj); } catch {}
+    if (b && b.state === "inheritable") {
+      return [finding("install", "issue", "worktree-unbound",
+        `This worktree is unbound while the checkout it was forked from (${b.mainCheckout}) is bound to ${b.vaultPath}. Run /projectstore:bind --inherit to adopt that binding.`)];
+    }
     return [finding("install", "issue", "config",
       "No projectstore config (.claude/projectstore.json). Run /projectstore:bind <vault-path>.")];
   }
@@ -1408,7 +1423,7 @@ export function checkGraph(cfg) {
 // ─── Runners ───────────────────────────────────────────────────────────
 
 export function runInstallChecks(cfg, proj) {
-  const out = [...checkConfig(cfg)];
+  const out = [...checkConfig(cfg, proj)];
   if (!cfg || !cfg.vault_path) return out;
   out.push(...checkVaultPath(cfg));
   if (out.some((f) => f.check === "vault-path" && f.level === "issue")) return out;
@@ -1473,7 +1488,7 @@ export function runVaultChecks(cfg) {
 export function runStartupChecks(cfg, proj, budgetMs = 150) {
   const started = Date.now();
   const steps = [
-    () => checkConfig(cfg),
+    () => checkConfig(cfg, proj),
     () => (cfg && cfg.vault_path ? checkVaultPath(cfg) : []),
     () => (cfg && cfg.vault_path ? checkStatusline(cfg, proj) : []),
     () => checkAgentsBlock(proj),

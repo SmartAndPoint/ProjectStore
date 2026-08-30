@@ -1972,3 +1972,100 @@ test("name offer: concurrent writers keep the tally exact and the ADR-006 pointe
   assert.equal(ptr.active_epic, "PS-A");
   assert.equal(ptr.active_story, "story-alpha-beta");
 });
+
+// ─── PS-WT: the unbound-worktree offer at session start ────────────────
+
+function seedWorktreePairForHook({ bindParent = true } = {}) {
+  const root = mkdtempSync(join(tmpdir(), "ps-wthook-"));
+  const main = join(root, "main");
+  const child = join(root, "child");
+  const vault = join(root, "vault");
+  mkdirSync(main, { recursive: true });
+  mkdirSync(join(vault, "epics"), { recursive: true });
+  spawnSync("git", ["init", "-q", "-b", "main"], { cwd: main });
+  spawnSync("git", ["config", "user.email", "t@example.com"], { cwd: main });
+  spawnSync("git", ["config", "user.name", "t"], { cwd: main });
+  writeFileSync(join(main, ".gitignore"), ".claude/\n", "utf8");
+  writeFileSync(join(main, "f.md"), "hi\n", "utf8");
+  spawnSync("git", ["add", "-A"], { cwd: main });
+  spawnSync("git", ["commit", "-qm", "base"], { cwd: main });
+  if (bindParent) {
+    mkdirSync(join(main, ".claude"), { recursive: true });
+    writeFileSync(join(main, ".claude", "projectstore.json"),
+      JSON.stringify({ vault_path: vault, layout: "engineering", language: "en" }), "utf8");
+  }
+  spawnSync("git", ["worktree", "add", "-q", child, "-b", "feat"], { cwd: main });
+  return { root, main, child, vault };
+}
+
+test("SessionStart: an unbound worktree of a bound checkout is offered its parent's binding", () => {
+  const { child, main, vault } = seedWorktreePairForHook();
+  const out = fireSessionStart(child, { session_id: "wt-1", source: "startup" });
+
+  const ctx = out.hookSpecificOutput.additionalContext;
+  assert.ok(ctx.includes("/projectstore:bind --inherit"), "names the command that adopts it");
+  assert.ok(ctx.includes(vault), "names the vault it would adopt");
+  assert.ok(ctx.includes(main), "names the checkout it was forked from");
+  assert.ok(out.systemMessage && out.systemMessage.includes("--inherit"),
+    "the person sees it too, not only the agent");
+
+  // The offer precedes the first-run welcome: a fresh worktree has no welcome
+  // marker either, and the welcome's "bind and point at a vault" is the wrong
+  // move for a checkout whose parent is already bound.
+  const offerAt = ctx.indexOf("this worktree is not bound");
+  const welcomeAt = ctx.indexOf("projectstore is loaded for the first time");
+  assert.ok(offerAt >= 0 && welcomeAt > offerAt, "offer first, welcome after");
+  assert.ok(ctx.length < 10000, "contract 3: the composed value stays under the cap");
+});
+
+test("SessionStart: detecting an inheritable worktree writes nothing", () => {
+  const { child } = seedWorktreePairForHook();
+  const out = fireSessionStart(child, { session_id: "wt-2", source: "startup" });
+
+  // Load-bearing: without it, a resolveBinding that answered "unbound" to
+  // everything would pass this test while proving nothing about detection.
+  assert.ok(out.hookSpecificOutput.additionalContext.includes("--inherit"),
+    "detection did run and did speak — the assertions below are about what it did NOT do");
+
+  // Scoped deliberately: the first-run welcome marker is a pre-existing write on
+  // this path and is not part of detection. What must not appear is a binding
+  // this session never approved, or per-session state for an unbound project.
+  assert.ok(!existsSync(join(child, ".claude", "projectstore.json")),
+    "no binding is adopted without the approval gate");
+  assert.ok(!existsSync(join(child, ".claude", ".projectstore")),
+    "no per-session state for a project that is not bound");
+});
+
+test("SessionStart: no offer when there is no bound parent to inherit from", () => {
+  const orphan = seedWorktreePairForHook({ bindParent: false });
+  const a = fireSessionStart(orphan.child, { session_id: "wt-3", source: "startup" });
+  assert.ok(!(a && a.hookSpecificOutput.additionalContext.includes("--inherit")),
+    "a worktree of an unbound checkout is an ordinary unbound project");
+
+  const plain = mkdtempSync(join(tmpdir(), "ps-wt-plain-hook-"));
+  const b = fireSessionStart(plain, { session_id: "wt-4", source: "startup" });
+  assert.ok(!(b && b.hookSpecificOutput.additionalContext.includes("--inherit")),
+    "a directory that is not a repository at all offers nothing, and does not crash");
+});
+
+test("SessionStart: a bound project is never offered an inherit", () => {
+  const { proj, vault } = seedHookProject();
+  writeFileSync(join(vault, "README.md"), "# Vault\n", "utf8");
+  const out = fireSessionStart(proj, { session_id: "wt-5", source: "startup" });
+  // Scoped honestly to what an assertion can see. That the probe never RUNS on
+  // this path is guarded twice in code (the !cfg gate in the hook, and the bound
+  // early return in resolveBinding) and is not observable from the output.
+  assert.ok(!out.hookSpecificOutput.additionalContext.includes("--inherit"),
+    "a bound project is never told to inherit");
+});
+
+test("bind and doctor prompts carry the inherit path", () => {
+  const bind = readFileSync(join(REPO, "commands", "bind.md"), "utf8");
+  assert.ok(bind.includes("--inherit"), "the argument exists in the prompt");
+  assert.ok(bind.includes("scripts/worktree.mjs"), "it computes through the script, not by prose");
+  assert.ok(/0a\./.test(bind), "the step is inserted as a half-step, not by renumbering");
+  assert.ok(bind.includes("AskUserQuestion"), "adoption stays approval-gated");
+
+  const doc = readFileSync(join(REPO, "commands", "doctor.md"), "utf8");
+  assert.ok(doc.includes("worktree-unbound"), "the repair is listed by its finding id");
+});

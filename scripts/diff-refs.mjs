@@ -27,11 +27,14 @@ import { projectRoot, SOURCE_IGNORE } from "./lib.mjs";
 // three consumers of "is this a source file" that must not drift apart.
 const IGNORE = SOURCE_IGNORE;
 
-function gitIn(cwd, args) {
+// The default 15 s is a batch budget — diff-refs runs off the hot path. A caller
+// on a user-facing path must pass its own: SessionStart's gather budget is 200 ms,
+// so a stalled git there would hold session start for fifteen seconds.
+export function gitIn(cwd, args, { timeout = 15000 } = {}) {
   const r = spawnSync("git", args, {
     cwd,
     encoding: "utf8",
-    timeout: 15000,
+    timeout,
   });
   return r.status === 0 ? r.stdout : null;
 }

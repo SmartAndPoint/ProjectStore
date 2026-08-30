@@ -34,6 +34,7 @@ import {
   TITLE_CELL,
 } from "../scripts/lib.mjs";
 import { runStartupChecks } from "../scripts/doctor.mjs";
+import { resolveBinding, bindingOfferText } from "../scripts/worktree.mjs";
 
 function welcomedMarkerPath(proj) {
   return join(proj, ".claude", ".projectstore-welcomed");
@@ -138,13 +139,36 @@ function buildOthersWarning(others) {
 async function main() {
   const cfg = readConfig();
   const proj = projectRoot();
+  // Asked only on the unbound path. A bound project must not spend a git
+  // subprocess at every session start on a question it has already answered;
+  // an unbound one that is not a worktree pays a single ~10 ms probe.
+  let binding = null;
+  if (!cfg) {
+    try { binding = resolveBinding(proj); } catch {}
+  }
   const welcome = showWelcomeOnce(proj);
   const welcomeSystemMessage = welcome
     ? "👋 projectstore: first-run welcome shown. Start with /projectstore:bind <vault-path>. See /plugin → Marketplaces to enable auto-update."
     : null;
 
   if (!cfg) {
-    if (welcome) return emit(welcome, welcomeSystemMessage);
+    // The offer goes ahead of the welcome, not after it: a fresh worktree has no
+    // welcome marker either, so the first-run welcome fires here too — and its
+    // advice, to bind and point at a vault, is the wrong move for a checkout
+    // whose parent is already bound. Ordering is the cheap fix; the small
+    // redundancy is accepted rather than papered over with copy that will rot.
+    const offer = binding && binding.state === "inheritable" ? bindingOfferText(binding) : "";
+    const offerSystemMessage = offer
+      ? "projectstore: this worktree is unbound — /projectstore:bind --inherit adopts the binding of the checkout it was forked from."
+      : null;
+    const body = offer + (welcome || "");
+    if (body) {
+      // The person's channel carries ONE instruction. Joining both would put
+      // "bind --inherit" and "bind <vault-path>" in one line with no ordering
+      // cue — not redundancy but a contradiction, in the channel that gets read
+      // fastest. The body still carries the welcome for the agent.
+      return emit(body, offerSystemMessage || welcomeSystemMessage);
+    }
     process.exit(0);
   }
 
