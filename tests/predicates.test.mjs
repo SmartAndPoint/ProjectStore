@@ -2758,3 +2758,154 @@ test("README: the inventory counts what is actually in the tree", () => {
     assert.equal(Number(m[1]), actual, `README says ${m[1]} ${what}, tree has ${actual}`);
   }
 });
+
+// ─── PS-WT: worktree binding inheritance ───────────────────────────────
+//
+// A worktree of a bound checkout starts unbound because `.gitignore` ignores
+// `.claude/`. These pin the three states the repair depends on, and the two
+// shapes where we must refuse to guess.
+
+function seedWorktreePair({ bindParent = true } = {}) {
+  const root = mkdtempSync(join(tmpdir(), "ps-wt-"));
+  const main = join(root, "main");
+  const child = join(root, "child");
+  mkdirSync(main, { recursive: true });
+  spawnSync("git", ["init", "-q", "-b", "main"], { cwd: main });
+  spawnSync("git", ["config", "user.email", "t@example.com"], { cwd: main });
+  spawnSync("git", ["config", "user.name", "t"], { cwd: main });
+  writeFileSync(join(main, ".gitignore"), ".claude/\n", "utf8");
+  writeFileSync(join(main, "f.md"), "hi\n", "utf8");
+  spawnSync("git", ["add", "-A"], { cwd: main });
+  // `git worktree add` fails with "not a valid object name: 'HEAD'" on a repo
+  // with no commits — the fixture must commit before it forks.
+  spawnSync("git", ["commit", "-qm", "base"], { cwd: main });
+  if (bindParent) {
+    mkdirSync(join(main, ".claude"), { recursive: true });
+    writeFileSync(join(main, ".claude", "projectstore.json"),
+      JSON.stringify({ vault_path: join(root, "vault"), layout: "engineering" }, null, 2) + "\n", "utf8");
+  }
+  spawnSync("git", ["worktree", "add", "-q", child, "-b", "feat"], { cwd: main });
+  return { root, main, child };
+}
+
+test("resolveBinding: a worktree of a bound checkout is inheritable", async () => {
+  const { resolveBinding } = await import("../scripts/worktree.mjs");
+  const { main, child, root } = seedWorktreePair();
+
+  assert.equal(resolveBinding(main).state, "bound", "the parent itself is bound");
+
+  const b = resolveBinding(child);
+  assert.equal(b.state, "inheritable");
+  assert.equal(b.worktree, true);
+  assert.equal(b.vaultPath, join(root, "vault"), "it names the vault it would adopt");
+  assert.ok(b.mainCheckout && existsSync(join(b.mainCheckout, ".claude", "projectstore.json")),
+    "mainCheckout points at a real checkout carrying the config");
+});
+
+test("resolveBinding: it refuses to guess, and every branch returns every field", async () => {
+  const { resolveBinding } = await import("../scripts/worktree.mjs");
+  const KEYS = ["state", "worktree", "mainCheckout", "vaultPath"];
+
+  const unboundParent = seedWorktreePair({ bindParent: false });
+  const orphan = resolveBinding(unboundParent.child);
+  assert.equal(orphan.state, "unbound", "a worktree of an unbound checkout offers nothing");
+  assert.equal(orphan.worktree, true, "it is still a worktree — the reason differs from 'never bound'");
+
+  const plain = mkdtempSync(join(tmpdir(), "ps-wt-plain-"));
+  const notARepo = resolveBinding(plain);
+  assert.equal(notARepo.state, "unbound");
+  assert.equal(notARepo.worktree, false, "no repository, so no worktree claim");
+
+  // The main checkout of an ordinary repo reports --git-common-dir as the
+  // RELATIVE `.git`; comparing it to --git-dir must still classify correctly.
+  const bare = mkdtempSync(join(tmpdir(), "ps-wt-main-"));
+  spawnSync("git", ["init", "-q"], { cwd: bare });
+  const mainUnbound = resolveBinding(bare);
+  assert.equal(mainUnbound.state, "unbound");
+  assert.equal(mainUnbound.worktree, false, "a main checkout is not a linked worktree");
+
+  const bound = seedWorktreePair();
+  for (const r of [resolveBinding(bound.main), resolveBinding(bound.child), orphan, notARepo, mainUnbound]) {
+    assert.deepEqual(Object.keys(r).sort(), [...KEYS].sort(),
+      "a caller reading a happy-path-only field throws, and a hook swallows that into silence");
+  }
+});
+
+test("resolveBinding: a parent whose config is corrupt or vault-less is not inheritable", async () => {
+  const { resolveBinding } = await import("../scripts/worktree.mjs");
+
+  const corrupt = seedWorktreePair();
+  writeFileSync(join(corrupt.main, ".claude", "projectstore.json"), "{not json", "utf8");
+  assert.equal(resolveBinding(corrupt.child).state, "unbound", "unparseable parent config offers nothing");
+
+  const empty = seedWorktreePair();
+  writeFileSync(join(empty.main, ".claude", "projectstore.json"), "{}\n", "utf8");
+  const b = resolveBinding(empty.child);
+  assert.equal(b.state, "unbound", "a config with no vault_path is not a binding");
+  assert.equal(b.vaultPath, null);
+});
+
+test("bindingOfferText names the vault, the parent and the command", async () => {
+  const { bindingOfferText, resolveBinding } = await import("../scripts/worktree.mjs");
+  const { child, root } = seedWorktreePair();
+  const text = bindingOfferText(resolveBinding(child));
+  assert.ok(text.includes(join(root, "vault")), "names the vault it would adopt");
+  assert.ok(text.includes("/projectstore:bind --inherit"), "names the command that adopts it");
+  assert.ok(/shared and unchanged/.test(text), "says the vault is not forked");
+});
+
+test("checkConfig: an unbound worktree replaces the generic advice, never appends to it", async () => {
+  const d = await import("../scripts/doctor.mjs");
+  const { main, child } = seedWorktreePair();
+
+  const wt = d.checkConfig(null, child);
+  assert.equal(wt.length, 1, "one problem, one instruction");
+  assert.equal(wt[0].check, "worktree-unbound");
+  assert.equal(wt[0].level, "issue");
+  assert.ok(wt[0].message.includes(main), "names the checkout it was forked from");
+  assert.ok(wt[0].message.includes("--inherit"), "names the repair");
+
+  const plain = mkdtempSync(join(tmpdir(), "ps-wt-nb-"));
+  const never = d.checkConfig(null, plain);
+  assert.equal(never.length, 1);
+  assert.equal(never[0].check, "config", "a never-bound project keeps the existing finding verbatim");
+  assert.ok(never[0].message.includes("/projectstore:bind <vault-path>"));
+});
+
+test("resolveBinding: a separate git dir nested in another repo must not offer that repo's vault", async () => {
+  const { resolveBinding } = await import("../scripts/worktree.mjs");
+  const root = mkdtempSync(join(tmpdir(), "ps-wt-sgd-"));
+  const outer = join(root, "outer");
+  const inner = join(root, "inner");
+
+  // An ordinary bound repository...
+  mkdirSync(join(outer, "gitdirs"), { recursive: true });
+  spawnSync("git", ["init", "-q", "-b", "main"], { cwd: outer });
+  spawnSync("git", ["config", "user.email", "t@example.com"], { cwd: outer });
+  spawnSync("git", ["config", "user.name", "t"], { cwd: outer });
+  mkdirSync(join(outer, ".claude"), { recursive: true });
+  writeFileSync(join(outer, ".claude", "projectstore.json"),
+    JSON.stringify({ vault_path: join(root, "vaultOuter") }), "utf8");
+  writeFileSync(join(outer, "o.md"), "o\n", "utf8");
+  spawnSync("git", ["add", "-A"], { cwd: outer });
+  spawnSync("git", ["commit", "-qm", "outer"], { cwd: outer });
+
+  // ...whose tree happens to contain the git directory of a SECOND repository.
+  mkdirSync(inner, { recursive: true });
+  spawnSync("git", ["init", "-q", "-b", "main", "--separate-git-dir", join(outer, "gitdirs", "inner.git")], { cwd: inner });
+  spawnSync("git", ["config", "user.email", "t@example.com"], { cwd: inner });
+  spawnSync("git", ["config", "user.name", "t"], { cwd: inner });
+  writeFileSync(join(inner, "i.md"), "i\n", "utf8");
+  spawnSync("git", ["add", "-A"], { cwd: inner });
+  spawnSync("git", ["commit", "-qm", "inner"], { cwd: inner });
+  const wt = join(root, "wt");
+  spawnSync("git", ["worktree", "add", "-q", wt, "-b", "feat"], { cwd: inner });
+
+  // dirname(common-dir) lands in `outer`, which IS a working tree and IS bound.
+  // Confirming only "is this inside a working tree" would offer outer's vault to
+  // a worktree of inner — a stranger's vault, approved through the gate.
+  const b = resolveBinding(wt);
+  assert.notEqual(b.vaultPath, join(root, "vaultOuter"), "never offer an unrelated repository's vault");
+  assert.equal(b.state, "unbound", "identity unconfirmed means no offer at all");
+  assert.equal(b.mainCheckout, null);
+});

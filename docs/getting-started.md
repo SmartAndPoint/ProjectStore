@@ -51,6 +51,14 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
 
    This creates `.claude/projectstore.json` in your project root (machine-local, gitignored) — and then walks you through a short interview: gitignore entries → scaffold offer → agent registration in `CLAUDE.md` (recommended: Yes) → model preset for the review agents (the default `opus` is fine) → status line offer (you'll see a preview of the exact line). Every step shows what it wants to write and waits for your approval.
 
+   **Working in a git worktree?** That config is gitignored, so a worktree of a bound checkout starts unbound and `/projectstore:*` will not run there. Session start says so and names the fix:
+
+   ```
+   /projectstore:bind --inherit
+   ```
+
+   It copies the binding of the checkout the worktree was forked from — same vault, shared and unchanged, no session state carried over — and skips the interview, since the parent already answered it.
+
 3. **Scaffold the layout** if the vault is empty (bind offers this automatically):
 
    ```

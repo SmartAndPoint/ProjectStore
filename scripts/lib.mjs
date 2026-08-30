@@ -27,14 +27,22 @@ export function configPath() {
 
 // ─── Config ────────────────────────────────────────────────────────────
 
-export function readConfig() {
-  const p = configPath();
+// Config of an arbitrary project, not necessarily this one. The worktree
+// inheritance path needs to read the PARENT checkout's config, and reading it
+// through a second hand-rolled parse is how the two would drift on the one
+// behaviour that matters here: corrupt JSON reads as "not bound", never throws.
+export function readConfigAt(projectDir) {
+  const p = join(projectDir, ".claude", "projectstore.json");
   if (!existsSync(p)) return null;
   try {
     return JSON.parse(readFileSync(p, "utf8"));
   } catch (e) {
     return null;
   }
+}
+
+export function readConfig() {
+  return readConfigAt(projectRoot());
 }
 
 export function writeConfig(cfg) {

@@ -20,6 +20,11 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
 
 3. **`--fix` requested** → walk the *install-side* findings only, one
    AskUserQuestion per repair, never batched silently:
+   - `worktree-unbound` → this checkout is a git worktree of a bound one. Offer
+     `/projectstore:bind --inherit`, and say what it does: copies the parent's
+     binding, leaves the vault shared and unchanged, carries no session state.
+     Do not offer a fresh `bind <vault-path>` here — binding a second vault by
+     hand is exactly what this finding exists to prevent.
    - `vault-git` → offer `git init` (+ optional first commit) inside the vault.
    - `gitignore` → offer appending the missing entries via Edit.
    - `agents-block` duplicate → show both blocks, offer removing the one in the
