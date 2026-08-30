@@ -2112,9 +2112,9 @@ test("clerk: the delegating prompts carry the resolution line and the scratch/ba
     "reconcile's 5a sits before the step it delegates — placement is the contract");
 
   const agents = readFileSync(join(REPO, "commands", "agents.md"), "utf8").replace(/\s+/g, " ");
-  assert.ok(agents.includes('per_agent.clerk.model: "haiku"'),
+  assert.ok(agents.includes('per_agent.clerk.model: "sonnet"'),
     "configure pins the clerk whenever it writes a preset default");
-  assert.ok(agents.includes("clerk resolves to anything but `haiku`"),
+  assert.ok(agents.includes("clerk resolves to anything but `sonnet` or `haiku`"),
     "status carries the warning, and its rule is a literal — never re-derived");
 });
 

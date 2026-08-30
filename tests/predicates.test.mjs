@@ -2942,7 +2942,8 @@ test("clerk: definition carries the contract the ADR pinned", () => {
   const repo = dirname(fileURLToPath(new URL("./", import.meta.url)));
   const src = readFileSync(join(repo, "agents", "clerk.md"), "utf8");
   const fm = src.match(/^---\n([\s\S]*?)\n---/)[1];
-  assert.ok(/^model: haiku$/m.test(fm), "cheap by default — the ADR's decision 5");
+  assert.ok(/^model: sonnet$/m.test(fm),
+    "cheap by default, but not the cheapest — decision 5 as amended: a procedure-following floor");
   assert.ok(/^effort: max$/m.test(fm), "effort is orthogonal to price and mitigates the cheap-model risk");
   assert.ok(/^tools: .*Write/m.test(fm), "the sole write-capable agent");
   assert.ok(!/^tools: .*Edit/m.test(fm), "no Edit: whole approved files only");

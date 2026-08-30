@@ -49,9 +49,9 @@ subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
   whether `CLAUDE_CODE_SUBAGENT_MODEL` is set (it overrides everything) and
   whether `CLAUDE_CODE_EFFORT_LEVEL` is set (ADR-008 makes it the only thing that
   can move the agents off `effort: max`, and it beats frontmatter). **Warn when
-  the clerk resolves to anything but `haiku`** (that literal is the rule, so it
-  is never re-derived; an unknown custom id also warns, with "verify it is
-  cheap"): the clerk transcribes approved
+  the clerk resolves to anything but `sonnet` or `haiku`** (that literal pair is
+  the rule, so it is never re-derived; an unknown custom id also warns, with
+  "verify it is cheap"): the clerk transcribes approved
   content and runs a pinned procedure — paying reasoning-model prices there is
   the misallocation its ADR exists to end; point at `configure` to pin
   `per_agent.clerk`.
@@ -89,7 +89,7 @@ subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
 3. **Apply**: write the choice to `projectstore.json → agents: { default:
    {model}, per_agent: { <name>: {model} } }` (approval-gated config edit).
    **Whenever this step writes `agents.default.model`, it also writes
-   `per_agent.clerk.model: "haiku"`** — a strong roster preset must not silently
+   `per_agent.clerk.model: "sonnet"`** — a strong roster preset must not silently
    lift the clerk with it. An explicit clerk choice made in step 2 wins over
    this automatic pin; only the absence of one triggers it. The same offer
    applies as a **migration**: an existing config carrying `agents.default.model`
