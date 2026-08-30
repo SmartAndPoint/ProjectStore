@@ -6,10 +6,13 @@ name: release
 # Trusted publisher), which is why the FIRST publish is manual: the form
 # requires the package to already exist.
 
+# Tags only, deliberately. A `workflow_dispatch` run has no tag, so
+# GITHUB_REF_NAME would be a branch name and the version guard would reject it
+# every time — a manual trigger here could only ever fail, or publish
+# unchecked. Releases are cut by pushing a tag.
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:

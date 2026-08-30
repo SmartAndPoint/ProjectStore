@@ -74,12 +74,21 @@ installing a stub:
 ```sh
 cd packaging/reserved/<name>
 npm publish
-npm deprecate <name> "Reserved name — install `projectstore` instead."
+npm deprecate <name> 'Reserved name — install `projectstore` instead.'
 ```
+
+Single quotes around the message are load-bearing: the text contains backticks,
+and inside double quotes the shell would run `projectstore` as a command and
+deprecate the package with the output of that instead.
 
 Nothing under `packaging/` ships inside the `projectstore` tarball: the root
 `package.json` uses a `files` allowlist that omits it, and
 `tests/packaging.test.mjs` asserts it stays omitted.
+
+One thing to know before adding a script here: the repository's
+"core writes only through `writeFileAtomic`" guard globs `scripts/` only, so a
+file under `packaging/` is not covered by it. `reserved.mjs` writes directly
+because it generates its own scratch output, not vault or derived state.
 
 `@smartandpoint/*` needs no defensive publish — the scope belongs to the org,
 so no one else can publish into it.

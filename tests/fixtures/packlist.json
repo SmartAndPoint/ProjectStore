@@ -60,6 +60,7 @@
   "scripts/tokens.mjs",
   "scripts/touch-session.mjs",
   "scripts/version-guard.mjs",
+  "scripts/worktree.mjs",
   "skills/decision-detector/SKILL.md",
   "skills/peer-reviewer/SKILL.md",
   "skills/story-completion/SKILL.md",

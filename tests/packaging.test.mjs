@@ -22,10 +22,16 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { readFileSync, readdirSync, mkdtempSync } from "node:fs";
+import { resolve, dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { checkVersions, currentPacklist, PACKLIST } from "../scripts/version-guard.mjs";
+import {
+  checkVersions,
+  currentPacklist,
+  unshippedTopLevel,
+  PACKLIST,
+} from "../scripts/version-guard.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const readRootJson = (rel) => JSON.parse(readFileSync(resolve(ROOT, rel), "utf8"));
@@ -53,14 +59,61 @@ test("packaging contract 1: the tarball matches the checked-in packlist", () => 
   );
 });
 
-test("packaging contract 1b: every shipped directory is one the plugin needs", () => {
-  const expected = readRootJson(PACKLIST);
-  const tops = new Set(expected.map((p) => (p.includes("/") ? p.split("/")[0] : p)));
+test("packaging contract 1b: nothing at the root is silently unshipped", () => {
+  // Contract 1 cannot see this case. `npm pack` reports only what `files[]`
+  // already allows, so a directory missing from `files[]` is missing from both
+  // sides of that comparison and they agree. The working tree is the only
+  // place a forgotten directory is visible — read it, not the fixture.
+  const stray = unshippedTopLevel(readdirSync(ROOT), readRootJson(PACKLIST));
+  assert.deepEqual(
+    stray,
+    [],
+    `at the repository root but neither shipped nor deliberately excluded: ${stray.join(", ")}. ` +
+      `Add each to package.json files[] (then \`npm run packlist\`) or to NOT_SHIPPED in scripts/version-guard.mjs.`,
+  );
+});
 
-  // The tarball is a plugin payload. Anything here that a harness cannot use
-  // is dead weight a reader will have to justify later.
-  for (const dir of [".claude-plugin", "agents", "commands", "hooks", "scripts", "skills", "scaffold", "templates"]) {
-    assert.ok(tops.has(dir), `${dir}/ is missing from the tarball`);
+test("packaging contract 1c: an unshipped directory is actually detected", () => {
+  // The demonstration, not the assertion. `adapters/` and `harnesses/` are
+  // landing from another branch and must not slip out of the tarball quietly;
+  // this is that scenario, run rather than described.
+  // A synthetic tree, deliberately not the real one: this must keep proving
+  // the mechanism even on a checkout where `adapters/` already exists.
+  const tree = [".claude-plugin", "scripts", "tests", "packaging", "adapters", "harnesses"];
+  const shipped = [".claude-plugin/plugin.json", "scripts/lib.mjs"];
+
+  assert.deepEqual(
+    unshippedTopLevel(tree, shipped),
+    ["adapters", "harnesses"],
+    "a new top-level directory absent from files[] must be reported",
+  );
+
+  // And the converse: once shipped, it stops being reported.
+  assert.deepEqual(
+    unshippedTopLevel(tree, [...shipped, "adapters/codex/hooks.json", "harnesses/codex.json"]),
+    [],
+    "a directory present in the packlist must not be reported as stray",
+  );
+});
+
+test("packaging contract 1d: the directories the plugin cannot work without do ship", () => {
+  const tops = new Set(readRootJson(PACKLIST).map((p) => (p.includes("/") ? p.split("/")[0] : p)));
+
+  // npm force-includes README, LICENSE and package.json, so listing those
+  // proves nothing. These are the ones a wrong files[] can actually drop.
+  for (const entry of [
+    ".claude-plugin",
+    "agents",
+    "commands",
+    "hooks",
+    "scripts",
+    "skills",
+    "scaffold",
+    "templates",
+    "docs",
+    "AGENTS.md",
+  ]) {
+    assert.ok(tops.has(entry), `${entry} is missing from the tarball`);
   }
   assert.ok(!tops.has("tests"), "tests/ must not ship");
   assert.ok(!tops.has(".claude"), ".claude/ must not ship — it holds local worktrees");
@@ -86,4 +139,15 @@ test("packaging contract 3: the version guard agrees with itself and fails on a 
   const mismatched = checkVersions({ root: ROOT, tag: "v0.0.0-not-a-release" });
   assert.equal(mismatched.ok, false, "a tag that disagrees must fail");
   assert.equal(mismatched.error, "version mismatch");
+});
+
+test("packaging contract 3b: a checkout missing a required manifest fails, not passes", () => {
+  // Every site used to be optional, which made "no site disagrees" trivially
+  // true on a tree with no manifests at all — the guard reported agreement
+  // with a tag it had nothing to compare against.
+  const empty = mkdtempSync(join(tmpdir(), "ps-guard-"));
+  const result = checkVersions({ root: empty, tag: "v9.9.9" });
+
+  assert.equal(result.ok, false, "a missing package.json must fail the guard");
+  assert.match(result.error, /package\.json: missing/);
 });

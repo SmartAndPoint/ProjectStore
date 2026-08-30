@@ -8,7 +8,7 @@
 // test and no CI step. Doctor's version checks are a different guard entirely
 // (runtime: an installed plugin against the marketplace), and they stay.
 //
-//   node scripts/version-guard.mjs [--tag vX.Y.Z] [--json]
+//   node scripts/version-guard.mjs [--tag vX.Y.Z]
 //   node scripts/version-guard.mjs --write-packlist
 //
 // Checks that every version-bearing manifest agrees, and — when --tag is
@@ -30,15 +30,23 @@ import { writeFileAtomic } from "./lib.mjs";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const PACKLIST = "tests/fixtures/packlist.json";
 
-// Every file that carries the release version, and how to read it out. A
-// manifest that does not exist yet is skipped, not failed: `.codex-plugin/`
-// arrives with the Codex story, and the guard must not block the releases
-// before it.
+// [path, how to read the version, required]. Required sites must exist: with
+// everything optional, a checkout missing package.json reported agreement,
+// because "no site disagrees" is trivially true when there are no sites.
+// `.codex-plugin/` is the deliberate exception — it arrives with the Codex
+// story, and releases before then must not be blocked by its absence.
 const VERSION_SITES = [
-  ["package.json", (j) => j.version],
-  [".claude-plugin/plugin.json", (j) => j.version],
-  [".claude-plugin/marketplace.json", (j) => j.plugins?.[0]?.version],
-  [".codex-plugin/plugin.json", (j) => j.version],
+  ["package.json", (j) => j.version, true],
+  [".claude-plugin/plugin.json", (j) => j.version, true],
+  // Found by name, not by position: `plugins[0]` reads a sibling plugin's
+  // version the moment the marketplace lists more than one, and reports the
+  // disagreement against the wrong file.
+  [
+    ".claude-plugin/marketplace.json",
+    (j) => j.plugins?.find((p) => p.name === "projectstore")?.version,
+    true,
+  ],
+  [".codex-plugin/plugin.json", (j) => j.version, false],
 ];
 
 function die(msg) {
@@ -46,18 +54,13 @@ function die(msg) {
   process.exit(1);
 }
 
-function readJson(rel) {
-  try {
-    return JSON.parse(readFileSync(resolve(ROOT, rel), "utf8"));
-  } catch (e) {
-    die(`${rel}: ${e.message}`);
-  }
-}
-
 export function collectVersions(root = ROOT) {
   const found = [];
-  for (const [rel, pick] of VERSION_SITES) {
-    if (!existsSync(resolve(root, rel))) continue;
+  for (const [rel, pick, required] of VERSION_SITES) {
+    if (!existsSync(resolve(root, rel))) {
+      if (required) return { error: `${rel}: missing, and it carries the release version` };
+      continue;
+    }
     let json;
     try {
       json = JSON.parse(readFileSync(resolve(root, rel), "utf8"));
@@ -94,6 +97,41 @@ export function checkVersions({ root = ROOT, tag = null } = {}) {
       };
 }
 
+// Everything at the repository root that is deliberately NOT in the tarball.
+// This list is the whole point of the tree check below: `npm pack` can only
+// report what `files[]` already allows, so comparing pack output against the
+// fixture is blind to a directory missing from `files[]` — it is absent from
+// both sides and they agree. The tree, not the pack output, is the only place
+// a forgotten directory is visible.
+//
+// Adding a name here is a decision that it must never ship. Anything else new
+// at the root fails the check until it is added to `files[]`.
+export const NOT_SHIPPED = new Set([
+  ".git",
+  ".github", // release/test workflows — not part of the plugin payload
+  ".claude", // local worktrees and this project's own binding
+  ".omc",
+  ".gitignore",
+  ".DS_Store",
+  "node_modules",
+  "CLAUDE.md", // a pointer to AGENTS.md, which does ship
+  "tests", // 240 kB of fixtures nobody installing the plugin needs
+  "packaging", // reserved-name stubs; see packaging/README.md
+  "package-lock.json",
+]);
+
+// Top-level entries that are neither shipped nor deliberately excluded. Kept
+// pure — it takes the tree listing rather than reading it — so a test can hand
+// it a directory that does not exist and watch it fail.
+export function unshippedTopLevel(entries, packlist) {
+  const shipped = new Set(
+    packlist.map((p) => (p.includes("/") ? p.slice(0, p.indexOf("/")) : p)),
+  );
+  return entries
+    .filter((e) => e !== "." && e !== ".." && !shipped.has(e) && !NOT_SHIPPED.has(e))
+    .sort();
+}
+
 // The packlist is the second release-time invariant: what npm would actually
 // ship. Stored as sorted paths only — sizes churn on every content edit and
 // would make the fixture unreviewable.
@@ -120,7 +158,13 @@ function main(argv) {
   if (argv.includes("--write-packlist")) {
     const { files, error } = currentPacklist();
     if (error) die(error);
-    writeFileAtomic(resolve(ROOT, PACKLIST), JSON.stringify(files, null, 2) + "\n");
+    try {
+      writeFileAtomic(resolve(ROOT, PACKLIST), JSON.stringify(files, null, 2) + "\n");
+    } catch (e) {
+      // The header promises JSON on stdout always; an escaping stack trace
+      // would break the one caller that parses this.
+      die(`${PACKLIST}: ${e.message}`);
+    }
     process.stdout.write(
       JSON.stringify({ ok: true, wrote: PACKLIST, count: files.length }) + "\n",
     );

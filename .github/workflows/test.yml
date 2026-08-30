@@ -1,0 +1,32 @@
+name: test
+
+# The release workflow runs the guards, but only when a tag is pushed — which
+# means a merge that breaks the packlist or desynchronises a manifest version
+# stays green until someone cuts a release, and then fails the release instead
+# of the merge. This runs the same suite where the mistake is still cheap.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Manifest versions agree
+        run: node scripts/version-guard.mjs
+
+      - name: Test suite, including the packaging contracts
+        run: node --test tests/*.test.mjs
