@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // projectstore — story-section.mjs (PS-SPEC story-007)
-// Computes the story lifecycle-gate mutations for /projectstore:story
+// Computes the story lifecycle-gate mutations for /projectstore:story.
+// --check <baseline> adds a deterministic drift verdict (volatile fields
+// excluded) to the JSON as `check: {baseline, match, drift}` — exit 0 either
+// way; drift is a computed fact, not a failure.
 // plan|close. Pure compute, models reconcile.mjs rebuildIndex: reads the
 // original, splices the managed pieces, returns {path, changed, content,
 // notes} on stdout — the COMMAND writes after approval, never this script.
@@ -76,10 +79,41 @@ function insertSection(text, id, lang, placeholder, anchors) {
   return { text: text.slice(0, at) + block + text.slice(at), inserted: true };
 }
 
+// The volatile frontmatter fields — the ones a re-run stamps fresh even when
+// nothing else changed. --check must ignore exactly these, or a comparison
+// against a moments-old baseline reports drift on every single run. started_at
+// belongs here by the same mechanism as the rest: a `plan` re-run against a
+// still-null field stamps a fresh nowIso() each time.
+export const VOLATILE_FM = ["updated", "started_at", "closed_at", "plan_updated_at"];
+
+// Both sides of a --check comparison, with the volatile fields and the footer
+// date neutralised. setFm INSERTS an absent key at the END of the frontmatter,
+// which is what makes a null closed_at compare equal to a fresh stamp. A
+// hand-DELETED mid-frontmatter volatile key therefore reads as DRIFT (the
+// insert lands at a different position) — erring safe. The masking that IS
+// accepted: a hand-REWRITTEN volatile value (e.g. a bogus closed_at on a done
+// story) compares equal, and closed_at anchors the legacy predicate and
+// diff-refs --since — --check cannot guard those two consumers.
+function checkNormalize(text) {
+  let t = text;
+  for (const k of VOLATILE_FM) t = setFm(t, k, '"«volatile»"');
+  return t.replace(footerDateRe(), (_m, prefix, suffix) => `${prefix}«volatile»${suffix}`);
+}
+
 function main() {
-  const [mode, storyPath] = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  let checkPath = null;
+  const positional = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--check") checkPath = argv[++i];
+    else if (a.startsWith("--check=")) checkPath = a.slice("--check=".length);
+    else positional.push(a);
+  }
+  if (checkPath === undefined || checkPath === "") die("--check requires a value");
+  const [mode, storyPath] = positional;
   if (!["plan", "close"].includes(mode) || !storyPath) {
-    die("usage: story-section.mjs <plan|close> <story-path>");
+    die("usage: story-section.mjs <plan|close> <story-path> [--check <baseline-file>]");
   }
   const cfg = readConfig();
   if (!cfg) die("No projectstore config. Run /projectstore:bind first.");
@@ -133,10 +167,38 @@ function main() {
   // preserved and only the date is rewritten.
   text = text.replace(footerDateRe(), (_m, prefix, suffix) => `${prefix}${today()}${suffix}`);
 
+  let check = null;
+  if (checkPath !== null) {
+    if (!existsSync(resolve(checkPath))) die(`--check baseline not found: ${checkPath}`);
+    const baseline = readFileSync(resolve(checkPath), "utf8").replace(/\r\n/g, "\n");
+    if (!/^---\n[\s\S]*?\n---/.test(baseline)) die(`--check baseline has no frontmatter block: ${checkPath}`);
+    const a = checkNormalize(text.replace(/\r\n/g, "\n"));
+    const b = checkNormalize(baseline);
+    const drift = [];
+    if (a !== b) {
+      // Trim the common prefix and suffix first: a single inserted line
+      // otherwise shifts every later pairing and the report drowns in
+      // artifacts of the shift instead of naming the change. Line numbers are
+      // post-normalization (volatile keys may have been inserted).
+      const al = a.split("\n"), bl = b.split("\n");
+      let lo = 0;
+      while (lo < al.length && lo < bl.length && al[lo] === bl[lo]) lo++;
+      let hiA = al.length - 1, hiB = bl.length - 1;
+      while (hiA > lo && hiB > lo && al[hiA] === bl[hiB]) { hiA--; hiB--; }
+      for (let i = 0; i <= Math.max(hiA, hiB) - lo && drift.length < 5; i++) {
+        const x = al[lo + i], y = bl[lo + i];
+        if (lo + i > hiA && lo + i > hiB) break;
+        drift.push(`normalized line ${lo + i + 1}: ${JSON.stringify((x ?? "«absent»").slice(0, 120))} vs ${JSON.stringify((y ?? "«absent»").slice(0, 120))}`);
+      }
+    }
+    check = { baseline: resolve(checkPath), match: a === b, drift };
+  }
+
   process.stdout.write(JSON.stringify({
     path: abs,
     mode,
     changed: text !== original,
+    check,
     notes,
     content: text,
   }, null, 2) + "\n");

@@ -2069,3 +2069,122 @@ test("bind and doctor prompts carry the inherit path", () => {
   const doc = readFileSync(join(REPO, "commands", "doctor.md"), "utf8");
   assert.ok(doc.includes("worktree-unbound"), "the repair is listed by its finding id");
 });
+
+// ─── PS-AGENTS: the clerk — block exclusion, prompt guards, --check, divergence signals ──
+
+test("clerk: the registration block never names it (ADR decision 6)", () => {
+  const tmpl = readFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), "utf8");
+  assert.ok(!/\bclerk\b/i.test(tmpl),
+    "the clerk has no per-turn trigger; a regenerated block must not acquire it silently");
+  const rules = readFileSync(join(REPO, "hooks", "session-rules.mjs"), "utf8");
+  assert.ok(!/\bclerk\b/i.test(rules), "the session-rules payload mirrors the block and stays clerk-free");
+});
+
+test("clerk: the delegating prompts carry the resolution line and the scratch/baseline split", () => {
+  const story = readFileSync(join(REPO, "commands", "story.md"), "utf8");
+  const flatStory = story.replace(/\s+/g, " ");
+  assert.ok(flatStory.includes("agents.per_agent.clerk.model ?? agents.default.model"),
+    "ADR-008 resolution line in story close");
+  assert.ok(flatStory.includes("never guess a model"), "the review.md pattern's safety clause");
+  assert.ok(/5a\./.test(story) && /6a\./.test(story) && /6b\./.test(story),
+    "half-step idiom — load-bearing step numbers survive");
+  const gateFlow = story.slice(story.indexOf("# Lifecycle gate flow"));
+  assert.ok(gateFlow.indexOf("AskUserQuestion") < gateFlow.indexOf("projectstore:clerk"),
+    "within the lifecycle flow, the gate precedes the delegation");
+  assert.ok(story.indexOf("5a.") < story.indexOf("6. **On Yes"),
+    "5a physically precedes step 6 — an agent reads top-down");
+  assert.ok(/scratch/.test(flatStory) && /baseline/.test(flatStory) &&
+    flatStory.includes("Handing `--check` the scratch makes it report drift on every run"),
+    "scratch and baseline are named as distinct files with distinct jobs");
+  assert.ok(flatStory.includes("There is no fallback agent") ||
+    flatStory.includes("a general-purpose writer is an unpinned procedure"),
+    "no general-purpose substitute for a pinned procedure");
+  assert.ok(flatStory.includes("pre-state"),
+    "the doctor pre-state is captured and passed — the clerk must not judge which findings pre-existed");
+  assert.ok(/\(close only\)/.test(story), "6a/6b are scoped to close; plan does not silently gain them");
+
+  const rec = readFileSync(join(REPO, "commands", "reconcile.md"), "utf8");
+  const flatRec = rec.replace(/\s+/g, " ");
+  assert.ok(flatRec.includes("agents.per_agent.clerk.model ?? agents.default.model"),
+    "resolution line in reconcile too");
+  assert.ok(flatRec.includes("two or more targets"), "the enumerated trigger is concrete, not a judgement");
+  assert.ok(rec.indexOf("5a.") >= 0 && rec.indexOf("5a.") < rec.indexOf("6. **On approval**"),
+    "reconcile's 5a sits before the step it delegates — placement is the contract");
+
+  const agents = readFileSync(join(REPO, "commands", "agents.md"), "utf8").replace(/\s+/g, " ");
+  assert.ok(agents.includes('per_agent.clerk.model: "haiku"'),
+    "configure pins the clerk whenever it writes a preset default");
+  assert.ok(agents.includes("clerk resolves to anything but `haiku`"),
+    "status carries the warning, and its rule is a literal — never re-derived");
+});
+
+test("story-section --check: fresh stamps are not drift, hand edits are", async () => {
+  const { VOLATILE_FM } = await import("../scripts/story-section.mjs");
+  assert.ok(VOLATILE_FM.includes("started_at"),
+    "started_at is volatile by the same mechanism — the planner's extension of the ADR's list, pinned");
+  const dir = mkdtempSync(join(tmpdir(), "ps-check-"));
+  const p = join(dir, "s.md");
+  const base = join(dir, "baseline.md");
+  writeFileSync(p, STORY, "utf8");
+
+  // First run: capture its content as the baseline the preview was built on.
+  const first = run("story-section.mjs", ["close", p]);
+  writeFileSync(base, first.content, "utf8");
+
+  // Re-check immediately: closed_at/updated/footer are stamped fresh each run,
+  // and the comparison must call that a match — otherwise every close drifts.
+  const clean = run("story-section.mjs", ["close", p, "--check", base]);
+  assert.equal(clean.check.match, true,
+    "volatile stamps alone are never drift");
+  assert.deepEqual(clean.check.drift, []);
+
+  // A hand edit in the body IS drift, and it is named.
+  writeFileSync(p, STORY.replace("# T", "# T (edited in Obsidian)"), "utf8");
+  const drifted = run("story-section.mjs", ["close", p, "--check", base]);
+  assert.equal(drifted.check.match, false, "a real edit is drift");
+  assert.ok(drifted.check.drift.length > 0 && /edited in Obsidian/.test(drifted.check.drift.join("\n")),
+    "the drift report names the diverging line");
+
+  // plan mode with a null started_at: the fresh stamp must not read as drift.
+  const p2 = join(dir, "s2.md");
+  writeFileSync(p2, STORY, "utf8");
+  const planFirst = run("story-section.mjs", ["plan", p2]);
+  const base2 = join(dir, "baseline2.md");
+  writeFileSync(base2, planFirst.content, "utf8");
+  const planCheck = run("story-section.mjs", ["plan", p2, "--check", base2]);
+  assert.equal(planCheck.check.match, true, "started_at is volatile by the same mechanism");
+
+  // A missing baseline is a caller error, not a computed fact — nonzero, loud.
+  const raw = spawnSync(process.execPath,
+    [join(REPO, "scripts", "story-section.mjs"), "close", p, "--check", join(dir, "nope.md")],
+    { encoding: "utf8", env: ENV, cwd: REPO, timeout: 15000 });
+  assert.notEqual(raw.status, 0);
+  assert.ok(/baseline not found/.test(raw.stderr));
+
+  // Without --check nothing changes shape: check is null, existing keys intact.
+  const plain = run("story-section.mjs", ["close", p]);
+  assert.equal(plain.check, null);
+  assert.ok("content" in plain && "notes" in plain && "changed" in plain);
+});
+
+test("clerk divergence signals: each is machine-detectable from script output alone", () => {
+  // These pin the SIGNALS the clerk is instructed to read — not its behaviour,
+  // which only the live-write acceptance criterion can evidence.
+  const { proj, vault } = seedDerivedFixture();
+
+  // Signal 1: draft.mjs collision is non-null when the slug exists.
+  mkdirSync(join(vault, "adr"), { recursive: true });
+  writeFileSync(join(vault, "adr", "taken-slug.md"), "---\ntype: adr\ntitle: t\n---\n# t\n", "utf8");
+  const draft = JSON.parse(spawnSync(process.execPath,
+    [join(REPO, "scripts", "draft.mjs"), "adr", "Taken slug"],
+    { encoding: "utf8", cwd: proj, env: { ...process.env, CLAUDE_PROJECT_DIR: proj } }).stdout);
+  assert.ok(draft.collision !== null, "collision is a readable field, not a prose warning");
+
+  // Signal 2: doctor --vault lists the finding (exit stays 0 — findings are
+  // facts, not failures; the clerk reads the report, not the exit code).
+  writeFileSync(join(vault, "kanban.md"), "hand-edited\n", "utf8");
+  const doc = spawnSync(process.execPath, [join(REPO, "scripts", "doctor.mjs"), "--vault"],
+    { encoding: "utf8", cwd: proj, env: { ...process.env, CLAUDE_PROJECT_DIR: proj } });
+  assert.ok(/\[kanban\]/.test(doc.stdout),
+    "the bracketed check id appears — distinguishable from the repair footer, which names kanban on ANY finding");
+});

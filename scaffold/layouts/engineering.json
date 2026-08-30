@@ -68,7 +68,8 @@
     "planner",
     "reviewer",
     "librarian",
-    "archaeologist"
+    "archaeologist",
+    "clerk"
   ],
   "kanban": {
     "file": "kanban.md",

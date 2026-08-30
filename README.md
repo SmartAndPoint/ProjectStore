@@ -106,7 +106,7 @@ And they are the exit door. The vault is plain markdown in git — no server, no
 
 ## Fact sheet
 
-**20 commands** · **5 agents** — critic, planner, reviewer, librarian, archaeologist, all read-only and fresh-context · **6 languages** — en, ru, es, de, fr, zh · zero runtime dependencies
+**20 commands** · **6 agents** — critic, planner, reviewer, librarian, archaeologist (the advisors: read-only, fresh-context) and clerk (the sole write-capable one — it executes approved writes, post-gate, and composes nothing) · **6 languages** — en, ru, es, de, fr, zh · zero runtime dependencies
 
 The deep dive — real session files, measured payloads, how every mechanism works and where its limits are: [docs/how-it-works.md](./docs/how-it-works.md).
 

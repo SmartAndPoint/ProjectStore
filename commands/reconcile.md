@@ -34,6 +34,20 @@ You are reconciling the vault's derived views with their source of truth (frontm
    Disclose in the question that content is recomputed from the vault at write
    time — the preview is advisory, the approval covers the regeneration action.
 
+5a. **Delegate the apply — enumerated case: two or more targets** (ADR "Artifact
+   content is authored by the context-holder, the write ceremony by a clerk").
+   When the approved set contains two or more targets, hand steps 6-7 to
+   `projectstore:clerk`: pass the exact selector list from step 4's preview and
+   the expectation that doctor ends clean. **Model (ADR-008)**: resolve
+   `agents.per_agent.clerk.model ?? agents.default.model` from
+   `.claude/projectstore.json` and pass it as the spawn's model parameter;
+   missing key, `inherit`, or unreadable config → pass nothing and let the
+   agent's own frontmatter decide; never guess a model. The clerk applies
+   through the core exactly as step 6 specifies and reports per target. A single
+   approved target stays in the main thread — the spawn costs more than it
+   saves. No clerk available → steps 6-7 yourself; never a general-purpose
+   substitute.
+
 6. **On approval**: apply through the core — never the Write/Edit tools:
 
    ```bash
@@ -47,6 +61,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
    construction (check-and-retry re-reads the README before writing). Render the
    report: per target `{path, changed, written, error?}` + `summary`. A nonzero
    exit means at least one target failed — surface its `error`.
+
 
 7. **Verify**: run `node "$CLAUDE_PLUGIN_ROOT/scripts/doctor.mjs" --vault` and show
    the summary line — reconcile's whole point is a clean doctor afterwards.

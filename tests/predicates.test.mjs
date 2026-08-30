@@ -503,11 +503,14 @@ test("checkOverrideCopies reports every configured roster agent, once each", () 
   const ver = JSON.parse(
     readFileSync(fileURLToPath(new URL("../.claude-plugin/plugin.json", import.meta.url)), "utf8"),
   ).version;
-  for (const n of ["critic", "planner", "reviewer", "librarian", "archaeologist"]) {
+  // Derived from the layout, not hardcoded: the roster is the source of truth
+  // and this test must grow with it instead of contradicting it.
+  const roster = loadLayout("engineering").agents;
+  for (const n of roster) {
     writeFileSync(join(proj, ".claude", "agents", `${n}.md`), agentFile(n, { marker: ver }));
   }
   const out = checkOverrideCopies(proj, home);
-  assert.equal(out.length, 5);
+  assert.equal(out.length, roster.length);
   // legacy advice must not leak into current names
   assert.ok(!out.some((f) => /pre-v0\.13/.test(f.message)), "current names are not legacy");
 });
@@ -2908,4 +2911,46 @@ test("resolveBinding: a separate git dir nested in another repo must not offer t
   assert.notEqual(b.vaultPath, join(root, "vaultOuter"), "never offer an unrelated repository's vault");
   assert.equal(b.state, "unbound", "identity unconfirmed means no offer at all");
   assert.equal(b.mainCheckout, null);
+});
+
+// ─── PS-AGENTS: the clerk — roster parity across the three registries ──
+
+test("clerk: the layout roster, the agents/ directory and doctor's name list agree", () => {
+  const repo = dirname(fileURLToPath(new URL("./", import.meta.url)));
+  const roster = [...loadLayout("engineering").agents].sort();
+  const onDisk = readdirSync(join(repo, "agents"))
+    .filter((f) => f.endsWith(".md")).map((f) => f.replace(/\.md$/, "")).sort();
+  assert.deepEqual(onDisk, roster,
+    "every roster agent has a definition file, and no stray definition exists");
+
+  // doctor's CURRENT_AGENT_NAMES is a hardcoded mirror nothing links to the
+  // layout — a mismatch is silent in production (a user's clerk copy would be
+  // reported as 'duplicates instead of overriding'). This is the only detector.
+  const doctorSrc = readFileSync(join(repo, "scripts", "doctor.mjs"), "utf8");
+  const m = doctorSrc.match(/const CURRENT_AGENT_NAMES = \[([^\]]+)\]/);
+  assert.ok(m, "CURRENT_AGENT_NAMES exists");
+  const doctorNames = m[1].split(",").map((x) => x.trim().replace(/"/g, "")).filter(Boolean).sort();
+  assert.deepEqual(doctorNames, roster, "doctor's mirror matches the layout");
+
+  // tokens.mjs must give the clerk a stage, or its runs land in "other" and the
+  // ADR's 'visible cost line' consequence silently fails.
+  const tokensSrc = readFileSync(join(repo, "scripts", "tokens.mjs"), "utf8");
+  assert.ok(/\bclerk: "upkeep"/.test(tokensSrc), "the clerk has a tokens.mjs stage");
+});
+
+test("clerk: definition carries the contract the ADR pinned", () => {
+  const repo = dirname(fileURLToPath(new URL("./", import.meta.url)));
+  const src = readFileSync(join(repo, "agents", "clerk.md"), "utf8");
+  const fm = src.match(/^---\n([\s\S]*?)\n---/)[1];
+  assert.ok(/^model: haiku$/m.test(fm), "cheap by default — the ADR's decision 5");
+  assert.ok(/^effort: max$/m.test(fm), "effort is orthogonal to price and mitigates the cheap-model risk");
+  assert.ok(/^tools: .*Write/m.test(fm), "the sole write-capable agent");
+  assert.ok(!/^tools: .*Edit/m.test(fm), "no Edit: whole approved files only");
+  const flat = src.replace(/\s+/g, " ");
+  assert.ok(/never composes artifact content/i.test(flat), "refusal 1");
+  assert.ok(/never decides? whether or where to write/i.test(flat), "refusal 2");
+  assert.ok(/never interacts? with the user/i.test(flat), "refusal 3");
+  assert.ok(/cp <scratch> <target>/.test(src) && /Write tool is\s+NEVER used on the target/i.test(src),
+    "the copy is cp — content never re-enters the model (alternative F is the disease)");
+  assert.ok(/"verbatim"/.test(src), "the report proves byte fidelity");
 });

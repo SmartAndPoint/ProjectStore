@@ -68,6 +68,7 @@ const STAGE_OF = {
   reviewer: "code-review", "code-reviewer": "code-review",
   // keeping the vault itself coherent
   librarian: "curation", archaeologist: "curation",
+  clerk: "upkeep",
   doctor: "upkeep", kanban: "upkeep", reconcile: "upkeep", codemap: "upkeep",
   status: "upkeep", statusline: "upkeep", search: "upkeep", bind: "upkeep",
   scaffold: "upkeep", agents: "upkeep", tokens: "upkeep",

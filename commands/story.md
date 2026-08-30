@@ -71,7 +71,44 @@ the two cannot collide).
    human may have edited the file in Obsidian meanwhile. On divergence:
    re-preview, re-ask.
 
-6. **On Yes**: Write the full file. Then suggest `/projectstore:kanban` (status
-   changed) and — on `close` — the reviewer's proposed `code_refs` via
-   `/projectstore:codemap set` (the reviewer computes it from
-   `scripts/diff-refs.mjs --since <started_at>`).
+5a. **Delegate the ceremony — enumerated case: story close** (ADR "Artifact
+   content is authored by the context-holder, the write ceremony by a clerk").
+   After the approval in step 4 and the re-check in step 5, on a `close`:
+   - Write TWO files to the session scratchpad: the **scratch** (the full final
+     content you previewed — sections filled) and the **baseline** (the script's
+     raw `content` from step 2, BEFORE your section edits). They are different
+     files with different jobs: the scratch is what gets copied to the target;
+     the baseline is what `--check` compares against. Handing `--check` the
+     scratch makes it report drift on every run.
+   - **Model (ADR-008)**: resolve `agents.per_agent.clerk.model ?? agents.default.model`
+     from `.claude/projectstore.json` and pass it as the spawn's model parameter.
+     Missing key, `inherit`, or unreadable config → pass nothing and let the
+     agent's own frontmatter decide; never guess a model.
+   - Capture doctor's summary line (`node "$CLAUDE_PLUGIN_ROOT/scripts/doctor.mjs"
+     --vault`, last line) — the clerk needs it as the **pre-state**: it must not
+     stop on findings that were already there and are not its own.
+   - Spawn `projectstore:clerk` **as a foreground task** (you need its report to
+     continue) with: the scratch path, the target path, the exact re-check
+     invocation (`story-section.mjs close "<story-path>" --check
+     <baseline-path>`), the derived targets (`kanban`, plus `indexes=<epic
+     folder>` when status changed), and the doctor pre-state line. On a clean
+     report (`verbatim: true`, `stopped_at: null`, doctor no worse than the
+     pre-state) skip steps 6-6b — the clerk's report is the write evidence. On a
+     stopped report: fix what diverged, then re-delegate (the resume rule: after
+     the copy, the ceremony restarts at reconcile, not at the race gate) or
+     finish the remaining steps yourself (the copy is idempotent).
+   - No clerk available → perform steps 6-6b yourself. There is no fallback
+     agent: a general-purpose writer is an unpinned procedure.
+
+6. **On Yes** (undelegated path): Write the full file. On a `plan`, finish by
+   suggesting `/projectstore:kanban` (the status changed) — 6a/6b below are the
+   close's ceremony, not the plan's.
+
+6a. **(close only) Reconcile** the touched derived targets through the core:
+   `node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs" --write --only kanban` (add
+   `indexes=<epic folder>` when the status changed).
+
+6b. **(close only) Verify**: `node "$CLAUDE_PLUGIN_ROOT/scripts/doctor.mjs" --vault`
+   — a close is not done while doctor got worse. Then suggest the reviewer's
+   proposed `code_refs` via `/projectstore:codemap set` (the reviewer computes it
+   from `scripts/diff-refs.mjs --since <started_at>`).

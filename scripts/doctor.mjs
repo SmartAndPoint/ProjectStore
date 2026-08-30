@@ -75,7 +75,7 @@ const AGENT_BLOCK_VERSION = 3;
 // scoped id, project/user copies register bare, so the names never collide and
 // the documented scope-priority rule never fires. Such a copy is a sibling, and
 // /projectstore:agents configure no longer writes one.
-const CURRENT_AGENT_NAMES = ["critic", "planner", "reviewer", "librarian", "archaeologist"];
+const CURRENT_AGENT_NAMES = ["critic", "planner", "reviewer", "librarian", "archaeologist", "clerk"];
 // Names bundled BEFORE v0.13 (ADR-001/004). Provenance checks need them to
 // recognise a copy as ours.
 //

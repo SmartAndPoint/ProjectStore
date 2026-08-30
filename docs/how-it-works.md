@@ -18,6 +18,17 @@ Every create command follows the same shape:
    the regeneration rewrites the whole table, so creating one artifact can also
    repair a stale row for another.
 
+**Who holds the pen.** Content and the gate never delegate: the session's main
+agent composes the artifact (it holds the conversation the artifact captures)
+and answers to you at the approval gate. What *can* delegate is everything after
+"yes" — for the long ceremonies (a story close, a multi-target reconcile) the
+command hands execution to the `clerk` agent, which copies the approved content
+from a scratch file (never re-emitting it through a model — fidelity mechanical,
+proven per write by a byte-level diff), runs reconcile and doctor, and returns a one-line report instead
+of pages of tool output. The clerk composes nothing, decides nothing, and asks
+nothing; the advisors (critic, planner, reviewer, librarian, archaeologist)
+stay read-only.
+
 Frontmatter scalars are rendered through a JSON-escaping form (`{{title_json}}`),
 so titles containing `"` or `:` cannot corrupt the YAML. Slugs transliterate
 Cyrillic (`Кэширование запросов` → `keshirovanie-zaprosov`) and never come out

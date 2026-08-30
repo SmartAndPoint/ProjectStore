@@ -19,8 +19,10 @@ subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
    version exists for (which `checkAgentsBlock` cannot detect: it compares the
    marker version only). The entry rule matters most here: in a project with
    hooks disabled the block is the only thing carrying it.
-   Only *routable* agents get lines (critic/planner/reviewer) — `librarian` and
-   `archaeologist` have no per-turn trigger and are deliberately absent.
+   Only *routable* agents get lines (critic/planner/reviewer) — `librarian`,
+   `archaeologist` and `clerk` have no per-turn trigger and are deliberately
+   absent (for the clerk this is the covering ADR's decision 6: it is invoked by
+   command flows, never by conversation shape).
 2. **Scan BOTH `CLAUDE.md` and `AGENTS.md`** for `<!-- projectstore:agents` markers:
    - block already present in the preferred location and current version → report "already registered", stop;
    - present in the non-preferred location → offer to **migrate** (move, never duplicate);
@@ -46,7 +48,13 @@ subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
   (per-agent value, else default, else "the agent's own frontmatter"), and
   whether `CLAUDE_CODE_SUBAGENT_MODEL` is set (it overrides everything) and
   whether `CLAUDE_CODE_EFFORT_LEVEL` is set (ADR-008 makes it the only thing that
-  can move the agents off `effort: max`, and it beats frontmatter).
+  can move the agents off `effort: max`, and it beats frontmatter). **Warn when
+  the clerk resolves to anything but `haiku`** (that literal is the rule, so it
+  is never re-derived; an unknown custom id also warns, with "verify it is
+  cheap"): the clerk transcribes approved
+  content and runs a pinned procedure — paying reasoning-model prices there is
+  the misallocation its ADR exists to end; point at `configure` to pin
+  `per_agent.clerk`.
 - Leftover copies: anything in `.claude/agents/` or `~/.claude/agents/` carrying
   `# source: projectstore v…`. Report these as **overriding nothing** (ADR-008)
   and point at `configure` to clean them up — do not present them as the active
@@ -67,7 +75,8 @@ subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
 1. **Preset question** (one choice for ALL roster agents), with this education
    line in the question text: *"These agents don't write code — they are
    critics, planners, and reviewers; they perform best on strong models at high
-   effort."* Options: keep bundled default (`opus`) / `fable` / `sonnet` /
+   effort. The one exception is the clerk, which only transcribes approved
+   content — it stays cheap regardless of the preset."* Options: keep bundled default (`opus`) / `fable` / `sonnet` /
    custom model ID (free-form). Offer the current session's model as a hint
    option — you know what you are running on. **Do not ask about effort** — see
    step 5. **`inherit` is no longer offered**: it meant "follow the session's
@@ -79,6 +88,13 @@ subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
    roster agent. Skippable.
 3. **Apply**: write the choice to `projectstore.json → agents: { default:
    {model}, per_agent: { <name>: {model} } }` (approval-gated config edit).
+   **Whenever this step writes `agents.default.model`, it also writes
+   `per_agent.clerk.model: "haiku"`** — a strong roster preset must not silently
+   lift the clerk with it. An explicit clerk choice made in step 2 wins over
+   this automatic pin; only the absence of one triggers it. The same offer
+   applies as a **migration**: an existing config carrying `agents.default.model`
+   with no `per_agent.clerk` gets the pin proposed on any `configure` run, not
+   only when the preset changes.
    That file is the whole output of this command — **never write an agent copy
    into `.claude/agents/`**. Omitting the key means "leave it to the agent's own
    frontmatter". Do not write an `effort` key; if one is present from a
