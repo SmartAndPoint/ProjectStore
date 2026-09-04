@@ -79,6 +79,15 @@ That's the whole setup. Claude adds the marketplace, installs the plugin, and wa
 One switch worth flipping: Claude Code does **not** auto-update third-party plugins by default — `/plugin` → **Marketplaces** → **SmartAndPoint** → toggle **auto-update** on. If you skip it, `/projectstore:doctor` will remind you later with the exact setting.
 
 Contributors: `git clone` this repo, then `claude --plugin-dir ./ProjectStore`.
+
+The same tree is published to npm as [`projectstore`](https://www.npmjs.com/package/projectstore) — one package carrying every harness's manifest. For Claude Code the marketplace above stays the install path; the npm package is how other harnesses will pick it up, and how you can vendor a pinned copy:
+
+```
+npm install projectstore
+claude --plugin-dir ./node_modules/projectstore
+```
+
+Names like `projectstore-claude` or `projectstore-codex` on npm are reserved placeholders pointing back here — there is only one package.
 </details>
 
 ## When an agent starts a task, it can find its way

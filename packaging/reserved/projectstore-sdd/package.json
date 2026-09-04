@@ -1,0 +1,30 @@
+{
+  "name": "projectstore-sdd",
+  "description": "Reserved name. The package you want is `projectstore`.",
+  "version": "0.0.1",
+  "license": "MIT",
+  "author": {
+    "name": "Evgenii Konev",
+    "email": "ekonev@smartandpoint.com",
+    "url": "https://github.com/SmartAndPoint"
+  },
+  "homepage": "https://github.com/SmartAndPoint/ProjectStore#readme",
+  "bugs": {
+    "url": "https://github.com/SmartAndPoint/ProjectStore/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SmartAndPoint/ProjectStore.git"
+  },
+  "keywords": [
+    "projectstore",
+    "placeholder",
+    "reserved"
+  ],
+  "files": [
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
