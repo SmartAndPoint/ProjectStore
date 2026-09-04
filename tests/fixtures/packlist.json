@@ -54,6 +54,7 @@
   "scripts/graph.mjs",
   "scripts/kanban.mjs",
   "scripts/lib.mjs",
+  "scripts/provenance.mjs",
   "scripts/reconcile.mjs",
   "scripts/statusline-launcher.mjs",
   "scripts/statusline.mjs",
