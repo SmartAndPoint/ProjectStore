@@ -372,7 +372,7 @@ function usage() {
 
 // The JSON envelope carries states and actions, never file bodies: a model
 // reading a status report must not receive the whole of CLAUDE.md twice.
-const publicItem = ({ before, after, ...rest }) => rest;
+export const publicItem = ({ before, after, ...rest }) => rest;
 
 async function main() {
   const argv = process.argv.slice(2);

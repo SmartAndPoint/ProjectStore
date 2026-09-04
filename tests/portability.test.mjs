@@ -41,7 +41,12 @@ import { WRITE_TOOLS, isWriteTool } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifests = () => [...loadHarnesses(MANIFEST_DIR).values()];
-const scriptFiles = () => readdirSync(join(ROOT, "scripts")).filter((f) => f.endsWith(".mjs")).sort();
+// scripts/ and bin/, as repo-relative paths: the bin is outside scripts/ but
+// under the same rule.
+const scriptFiles = () => [
+  ...readdirSync(join(ROOT, "scripts")).filter((f) => f.endsWith(".mjs")).sort().map((f) => `scripts/${f}`),
+  ...readdirSync(join(ROOT, "bin")).filter((f) => f.endsWith(".mjs")).sort().map((f) => `bin/${f}`),
+];
 
 // Comments may name a harness (a rationale that says "CLAUDE_PLUGIN_ROOT is not
 // expanded on Codex" is exactly the kind of sentence a good comment carries);
@@ -147,11 +152,11 @@ test("generation acceptance: no file under scripts/ reads a branded environment 
   const ALLOW = [];
   for (const a of ALLOW) assert.ok(typeof a.why === "string" && a.why.length > 0, `allow-list entry ${a.file}/${a.phrase} has no why`);
   for (const n of scriptFiles()) {
-    const code = stripComments(readFileSync(join(ROOT, "scripts", n), "utf8"));
+    const code = stripComments(readFileSync(join(ROOT, n), "utf8"));
     const hit = [...declared].find((k) => new RegExp(`\\b${k}\\b`).test(code)) || (prefix.exec(code) || [])[0];
     if (!hit) continue;
     const allowed = ALLOW.find((a) => a.file === n && a.phrase === hit);
-    assert.ok(allowed, `scripts/${n} names the branded variable ${hit} in code — route it through harness.mjs`);
+    assert.ok(allowed, `${n} names the branded variable ${hit} in code — route it through harness.mjs`);
   }
 });
 
@@ -160,9 +165,9 @@ test("generation acceptance: no script branches on a harness id", () => {
   // id leaves nothing to match — and load-bearing the day codex.json lands.
   const ids = manifests().map((m) => m.id).filter((id) => id !== sourceHarness().id);
   for (const n of scriptFiles()) {
-    const code = stripComments(readFileSync(join(ROOT, "scripts", n), "utf8"));
+    const code = stripComments(readFileSync(join(ROOT, n), "utf8"));
     for (const id of ids) {
-      assert.ok(!new RegExp(`["'\`]${id}["'\`]`).test(code), `scripts/${n} names the harness "${id}" in code — a manifest value, not a branch`);
+      assert.ok(!new RegExp(`["'\`]${id}["'\`]`).test(code), `${n} names the harness "${id}" in code — a manifest value, not a branch`);
     }
   }
 });
@@ -181,7 +186,9 @@ test("install spec modules: doctor never imports the installer, and the installe
   assert.ok(!/from "\.\/surfaces\.mjs"/.test(doctor), "doctor.mjs imports surfaces.mjs statically");
   assert.ok(/await import\("\.\/surfaces\.mjs"\)/.test(doctor), "doctor.mjs reaches surfaces.mjs dynamically");
   for (const n of readdirSync(join(ROOT, "hooks")).filter((f) => f.endsWith(".mjs"))) {
-    assert.ok(!readFileSync(join(ROOT, "hooks", n), "utf8").includes("surfaces.mjs"), `hooks/${n} pulls surfaces.mjs into the SessionStart graph`);
+    const hook = readFileSync(join(ROOT, "hooks", n), "utf8");
+    assert.ok(!hook.includes("surfaces.mjs"), `hooks/${n} pulls surfaces.mjs into the SessionStart graph`);
+    assert.ok(!hook.includes("cli.mjs"), `hooks/${n} pulls the CLI (and through it the installer) into the SessionStart graph`);
   }
   const surfaces = readFileSync(join(ROOT, "scripts", "surfaces.mjs"), "utf8");
   // The banner names the installer as its generator — a string, not an import.

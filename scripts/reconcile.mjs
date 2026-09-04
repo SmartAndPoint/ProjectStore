@@ -33,6 +33,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import {
   readConfig,
+  readConfigAt,
   loadLayout,
   projectRoot,
   pluginRoot,
@@ -43,6 +44,11 @@ import {
   writeFileAtomic,
 } from "./lib.mjs";
 import { childEnv } from "./harness.mjs";
+
+// Set by runReconcile when a caller names the project; the generators it
+// spawns receive it. Null means "this process's own project".
+let _projectDir = null;
+let _env = null;
 import { scanArtifacts } from "./doctor.mjs";
 
 function die(msg) {
@@ -54,7 +60,7 @@ function runGenerator(script) {
   const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", script)], {
     encoding: "utf8",
     timeout: 10000,
-    env: childEnv(process.env, { projectRoot: projectRoot() }),
+    env: _env || childEnv(process.env, { projectRoot: _projectDir || projectRoot() }),
   });
   if (r.status !== 0) return { error: (r.stderr || "generator failed").trim() };
   try { return JSON.parse(r.stdout); } catch { return { error: "unparseable generator output" }; }
@@ -297,9 +303,11 @@ function applyDerived(script, explicit, fallbackPath) {
   }
 }
 
-export function runReconcile({ write = false, only = null } = {}) {
-  const cfg = readConfig();
-  if (!cfg) throw new Error("No projectstore config. Run /projectstore:bind first.");
+export function runReconcile({ write = false, only = null, projectDir = null, env = null } = {}) {
+  _projectDir = projectDir;
+  _env = env;
+  const cfg = projectDir ? readConfigAt(projectDir) : readConfig();
+  if (!cfg) { const e = new Error("No projectstore config. Run /projectstore:bind first."); e.code = "UNBOUND"; throw e; }
   const layout = loadLayout(cfg.layout);
   const sel = resolveSelection(layout, only);
   if (sel.error) throw new Error(sel.error);

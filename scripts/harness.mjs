@@ -246,6 +246,19 @@ export function projectRoot(env = process.env, hookInput = null) {
   return process.cwd();
 }
 
+// The project a harness DECLARED through a project-dir variable, or null —
+// never cwd by inference. For a caller that has its own notion of cwd (the
+// CLI, an in-process server) and must not inherit this process's.
+export function projectRootDeclared(env = process.env) {
+  const key = activeHarness(env)?.runtime?.project_dir_env;
+  if (key && env[key]) return env[key];
+  for (const h of loadHarnesses().values()) {
+    const k = h.runtime?.project_dir_env;
+    if (k && env[k]) return env[k];
+  }
+  return null;
+}
+
 // Where this projectstore installation lives on disk.
 export function pluginRoot(env = process.env) {
   const key = activeHarness(env)?.runtime?.plugin_root_env;
@@ -284,10 +297,13 @@ export function configPath(projectDir, env = process.env) {
 // The ONE place a branded name is WRITTEN: a child process spawned by a core
 // script needs the project handed to it in the harness's own vocabulary, and
 // on a harness with no project-dir variable it needs nothing at all.
-export function childEnv(base = process.env, { projectRoot: root } = {}) {
+export function childEnv(base = process.env, { projectRoot: root, pluginRoot: plugin } = {}) {
   const out = { ...base };
-  const key = activeHarness(base)?.runtime?.project_dir_env;
-  if (key && root) out[key] = root;
+  const r = activeHarness(base)?.runtime || {};
+  if (r.project_dir_env && root) out[r.project_dir_env] = root;
+  // A caller that runs its own copy of the core (the npm bin) names it, so a
+  // child never resolves templates or its version from a sibling install.
+  if (r.plugin_root_env && plugin) out[r.plugin_root_env] = plugin;
   return out;
 }
 

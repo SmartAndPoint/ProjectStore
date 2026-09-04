@@ -646,9 +646,14 @@ test("core writes only via lib.mjs writeFileAtomic (atomic-regeneration contract
   // Globbed so a future script is covered automatically. hooks/ is
   // deliberately out of scope: session-start's marker write is host-side
   // plumbing, not a vault write path — do not "complete" this refactor there.
-  const dir = join(REPO, "scripts");
-  for (const n of readdirSync(dir).filter((f) => f.endsWith(".mjs") && f !== "lib.mjs")) {
-    const src = readFileSync(join(dir, n), "utf8");
+  // …and bin/, which writes nothing and must stay that way.
+  const files = [
+    ...readdirSync(join(REPO, "scripts")).filter((f) => f.endsWith(".mjs") && f !== "lib.mjs").map((n) => join(REPO, "scripts", n)),
+    ...readdirSync(join(REPO, "bin")).filter((f) => f.endsWith(".mjs")).map((n) => join(REPO, "bin", n)),
+  ];
+  for (const p of files) {
+    const n = p.slice(REPO.length + 1);
+    const src = readFileSync(p, "utf8");
     for (const call of ["writeFileSync", "renameSync", "appendFileSync", "createWriteStream",
                         "writeFile(", "copyFileSync", "truncateSync", "node:fs/promises"]) {
       assert.ok(!src.includes(call), `${n} contains ${call} — route writes through lib.mjs`);

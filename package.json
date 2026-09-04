@@ -35,7 +35,11 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "bin": {
+    "projectstore": "bin/projectstore.mjs"
+  },
   "files": [
+    "bin/",
     ".claude-plugin/",
     "agents/",
     "commands/",

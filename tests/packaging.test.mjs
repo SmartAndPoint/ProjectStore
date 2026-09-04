@@ -103,6 +103,7 @@ test("packaging contract 1d: the directories the plugin cannot work without do s
   // proves nothing. These are the ones a wrong files[] can actually drop.
   for (const entry of [
     ".claude-plugin",
+    "bin",
     "agents",
     "commands",
     "hooks",
@@ -116,6 +117,9 @@ test("packaging contract 1d: the directories the plugin cannot work without do s
     assert.ok(tops.has(entry), `${entry} is missing from the tarball`);
   }
   assert.ok(!tops.has("tests"), "tests/ must not ship");
+  const pkg = readRootJson("package.json");
+  assert.equal(pkg.bin && pkg.bin.projectstore, "bin/projectstore.mjs", "the bin is declared (distribution ADR decision 5)");
+  assert.ok(readFileSync(resolve(ROOT, pkg.bin.projectstore), "utf8").startsWith("#!/usr/bin/env node\n"), "the bin has its shebang");
   assert.ok(!tops.has(".claude"), ".claude/ must not ship — it holds local worktrees");
   assert.ok(!tops.has("packaging"), "packaging/ holds reserved-name stubs and must not ship");
 });
