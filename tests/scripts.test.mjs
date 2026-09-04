@@ -896,9 +896,9 @@ test("no hook emits a field its event does not carry (spec contract 22)", () => 
 test("the block bump and the block content ship together (spec contract 24)", () => {
   const tmpl = readFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), "utf8");
   const doctor = readFileSync(join(REPO, "scripts", "doctor.mjs"), "utf8");
-  const version = Number(doctor.match(/const AGENT_BLOCK_VERSION = (\d+);/)[1]);
+  assert.ok(!/AGENT_BLOCK_VERSION = \d+/.test(doctor), "doctor reads the version from the template (lib.mjs agentsBlockVersion), never a constant");
   const marker = Number(tmpl.match(/projectstore:agents v(\d+)/)[1]);
-  assert.equal(marker, version, "the template's marker and doctor's constant must agree");
+  const version = marker;
 
   const hasEntryRule = /opens a vault artifact before it opens an editor/.test(tmpl);
   assert.equal(hasEntryRule, version >= 3,

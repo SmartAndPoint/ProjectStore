@@ -98,49 +98,66 @@
   "output_channels": {
     "_comment": "Per-event output channels (generation spec, contract 17). `fields` are the hookSpecificOutput keys the event honours; `system_message` is the top-level systemMessage; `decision` names the decision object where one exists. `evidence` is `measured` only where this repository's own hooks observe the fact, `documented` where the Claude Code hooks reference says so and we never emit it.",
     "SessionStart": {
-      "fields": ["additionalContext"],
+      "fields": [
+        "additionalContext"
+      ],
       "system_message": true,
       "decision": null,
       "evidence": "measured",
       "note": "hooks/session-start.mjs emits additionalContext and systemMessage in one object; the ~10,000-character cap on additionalContext was measured (vault story: SessionStart context exceeds the hook output cap)."
     },
     "PreToolUse": {
-      "fields": ["permissionDecision", "permissionDecisionReason", "updatedInput", "additionalContext"],
+      "fields": [
+        "permissionDecision",
+        "permissionDecisionReason",
+        "updatedInput",
+        "additionalContext"
+      ],
       "system_message": true,
       "decision": "permissionDecision",
       "evidence": "measured",
       "note": "systemMessage measured — scripts/touch-session.mjs uses it for the pointer nudge and the name offer. additionalContext and permissionDecision (allow|deny|ask) are documented; projectstore never emits them. A separate PermissionRequest event carries its own decision object."
     },
     "PostToolUse": {
-      "fields": ["additionalContext"],
+      "fields": [
+        "additionalContext"
+      ],
       "system_message": null,
       "decision": null,
       "evidence": "measured",
       "note": "scripts/touch-session.mjs — the entry-rule reminder's primary carrier (entry-rule spec, contract 14)."
     },
     "PostToolUseFailure": {
-      "fields": ["additionalContext"],
+      "fields": [
+        "additionalContext"
+      ],
       "system_message": null,
       "decision": null,
       "evidence": "documented",
       "note": "Hooks reference; not registered by projectstore."
     },
     "PostToolBatch": {
-      "fields": ["additionalContext"],
+      "fields": [
+        "additionalContext"
+      ],
       "system_message": null,
       "decision": null,
       "evidence": "documented",
       "note": "Hooks reference; not registered by projectstore."
     },
     "UserPromptSubmit": {
-      "fields": ["additionalContext"],
+      "fields": [
+        "additionalContext"
+      ],
       "system_message": null,
       "decision": null,
       "evidence": "documented",
       "note": "Hooks reference; not registered by projectstore."
     },
     "Stop": {
-      "fields": ["additionalContext"],
+      "fields": [
+        "additionalContext"
+      ],
       "system_message": null,
       "decision": "block",
       "evidence": "measured",
@@ -148,7 +165,9 @@
       "note": "additionalContext on Stop CONTINUES the turn (2.1.163 changelog) — hooks/session-stop.mjs runs a create-then-emit election because of it. Below 2.1.163 only decision:block + reason exists."
     },
     "SubagentStop": {
-      "fields": ["additionalContext"],
+      "fields": [
+        "additionalContext"
+      ],
       "system_message": null,
       "decision": "block",
       "evidence": "documented",
@@ -165,6 +184,7 @@
   "surfaces": {
     "commands": {
       "supported": true,
+      "kind": "host",
       "dir": "commands",
       "file": "<name>.md",
       "format": "command-md",
@@ -174,6 +194,7 @@
     },
     "agents": {
       "supported": true,
+      "kind": "host",
       "dir": "agents",
       "file": "<name>.md",
       "format": "agent-md",
@@ -183,6 +204,7 @@
     },
     "skills": {
       "supported": true,
+      "kind": "host",
       "dir": "skills",
       "file": "<name>/SKILL.md",
       "format": "skill-md",
@@ -191,11 +213,62 @@
     },
     "hooks": {
       "supported": true,
+      "kind": "host",
       "dir": "hooks",
       "file": "hooks.json",
       "format": "hooks-json",
       "scope": "user",
       "scope_reason": "Claude Code loads the plugin's hooks.json from the plugin installation itself; per-project hooks live in settings, which projectstore does not write."
+    },
+    "agents_block": {
+      "supported": true,
+      "kind": "shared",
+      "format": "markdown-block",
+      "scope": "project",
+      "scope_reason": "Claude Code reads CLAUDE.md from the project root; AGENTS.md is the cross-tool convention, bridged by an @AGENTS.md import (ADR-002 decision 3).",
+      "files": [
+        "AGENTS.md",
+        "CLAUDE.md"
+      ],
+      "source": "templates/claude-md-block.md.tmpl",
+      "marker": {
+        "open": "<!-- projectstore:agents v",
+        "close": "<!-- /projectstore:agents -->"
+      }
+    },
+    "statusline": {
+      "supported": true,
+      "kind": "shared",
+      "format": "json-entry",
+      "scope": "project",
+      "scope_reason": "The statusLine slot is per project and not plugin-declarable (ADR-006); our entry lives in settings.local.json, which is machine-specific.",
+      "file": ".claude/settings.local.json",
+      "marker": {
+        "pointer": "statusLine.command",
+        "predicate": "statusLineIsOurWiring"
+      }
+    },
+    "statusline_launcher": {
+      "supported": true,
+      "kind": "exclusive",
+      "format": "mjs",
+      "scope": "project",
+      "scope_reason": "The launcher resolves the currently installed plugin on every render, so the wired command carries no version; it is written only when the plugin runs from the marketplace cache — a dev checkout is wired directly.",
+      "file": ".claude/.projectstore/statusline.mjs",
+      "source": "scripts/statusline-launcher.mjs",
+      "condition": "plugin_cache_install"
+    },
+    "mcp": {
+      "supported": false,
+      "kind": "shared",
+      "format": "json-entry",
+      "scope": "project",
+      "scope_reason": "A project-root .mcp.json registers the server with an absolute --project (MCP ADR, decision 6); per project because the server binds to one.",
+      "file": ".mcp.json",
+      "marker": {
+        "pointer": "mcpServers.projectstore"
+      },
+      "why_unsupported": "no MCP server ships yet (PS-CORE MCP story, roadmap C2); an entry naming a nonexistent command would fail at session start"
     }
   },
   "capabilities": {

@@ -275,6 +275,26 @@ export function writeStatusLineLauncher(projectDir, root) {
   }
 }
 
+// The command our entry should carry for this installation: the version-free
+// launcher for a marketplace-cache install, the plugin's own script for a dev
+// checkout (its path has no version to go stale). One resolver, shared by the
+// SessionStart refresh and the installer, so the two cannot disagree.
+export function desiredStatusLineCommand(projectDir, root = pluginRoot(), home = homedir()) {
+  const launcher = isPluginCacheRoot(root, home);
+  return {
+    launcher,
+    command: launcher ? `node "${statusLineLauncherPath(projectDir)}"` : `node "${join(root, "scripts", "statusline.mjs")}"`,
+  };
+}
+
+// REFRESH ONLY. This runs on every SessionStart, without a gate, so it may
+// keep an entry that is already ours pointing at a working renderer and remove
+// our entry on disable — but it never creates: the launcher is an exclusive,
+// provenance-stamped file, and stamping lives in provenance.mjs, which stays
+// out of the SessionStart module graph by the install spec's own rule. First
+// wiring is install-harness.mjs's, behind its preview and confirmation; the
+// commands that enable the status line invoke it. An enabled flag with no
+// entry reports "needs-install".
 export function syncStatusLine(cfg, projectDir, home = homedir()) {
   const st = cfg && cfg.statusline;
   if (!st || typeof st.enabled !== "boolean") return "no-flag"; // absent → leave manual installs alone
@@ -303,15 +323,15 @@ export function syncStatusLine(cfg, projectDir, home = homedir()) {
     // Any existing non-ours entry: leave the slot to its owner — and write
     // nothing into the project, since we are not wiring anything here.
     if (cur && !isOurs) return "foreign-present";
-    // Refresh the launcher on every session start, not only when the wired
-    // command changes: its embedded fallback root must follow plugin updates,
-    // and the command string stays identical across them by design.
-    let desired = `node "${join(root, "scripts", "statusline.mjs")}"`;
-    if (isPluginCacheRoot(root, home)) {
-      const launcher = writeStatusLineLauncher(projectDir, root);
-      if (launcher) desired = `node "${launcher}"`;
-    }
-    if (!cur || curCmd !== desired) {
+    if (!cur) return "needs-install";
+    // Refresh: the launcher when it is on disk, else the plugin's own script,
+    // so an entry always names a renderer that exists. A missing launcher is
+    // install's to create (stamped), never this path's.
+    const { launcher } = desiredStatusLineCommand(projectDir, root, home);
+    const desired = launcher && existsSync(statusLineLauncherPath(projectDir))
+      ? `node "${statusLineLauncherPath(projectDir)}"`
+      : `node "${join(root, "scripts", "statusline.mjs")}"`;
+    if (curCmd !== desired) {
       // Keep any sibling keys the platform supports on this object
       // (refreshInterval and friends) — we own the command, not the entry.
       settings.statusLine = { ...(cur && typeof cur === "object" ? cur : {}), type: "command", command: desired };
@@ -319,7 +339,15 @@ export function syncStatusLine(cfg, projectDir, home = homedir()) {
     }
   } else if (isOurs) {
     delete settings.statusLine; // disabled: remove only our entry, keep the rest
-    try { unlinkSync(statusLineLauncherPath(projectDir)); } catch {} // and its generated launcher
+    // …and the launcher, but only one we wrote: a foreign file at our path is
+    // refused by every verb (contract 5), and refresh is a verb. The recogniser
+    // is the template's own header line — provenance.mjs stays out of this
+    // module graph.
+    try {
+      const lp = statusLineLauncherPath(projectDir);
+      const text = readFileSync(lp, "utf8");
+      if (text.includes("projectstore — status line launcher") || /projectstore: v\d+ src=/.test(text)) unlinkSync(lp);
+    } catch {}
     changed = true;
   }
 
@@ -333,10 +361,96 @@ export function syncStatusLine(cfg, projectDir, home = homedir()) {
   return st.enabled ? "enabled" : "disabled";
 }
 
+// ─── ADR-002 agents block ──────────────────────────────────────────────
+//
+// The managed routing block in CLAUDE.md / AGENTS.md. One parser, used by
+// doctor (to report) and by install-harness.mjs (to write); the version lives
+// in the template, never in a constant, so a bump cannot land in one place
+// and not the other.
+
+export const AGENTS_BLOCK_OPEN_SRC = String.raw`<!--\s*projectstore:agents v(\d+)[^\n]*?-->`;
+export const AGENTS_BLOCK_CLOSE = "<!-- /projectstore:agents -->";
+
+export function agentsBlockTemplatePath(root = pluginRoot()) {
+  return join(root, "templates", "claude-md-block.md.tmpl");
+}
+
+export function agentsBlockVersion(tmpl = null) {
+  const text = tmpl ?? readFileSync(agentsBlockTemplatePath(), "utf8");
+  const m = new RegExp(AGENTS_BLOCK_OPEN_SRC).exec(text);
+  return m ? Number(m[1]) : null;
+}
+
+// The first block in `text`: its version, its span, whether it closes, and how
+// many open markers the file carries (more than one is a duplicate).
+export function findAgentsBlock(text) {
+  if (typeof text !== "string") return null;
+  const m = new RegExp(AGENTS_BLOCK_OPEN_SRC).exec(text);
+  if (!m) return null;
+  const count = [...text.matchAll(new RegExp(AGENTS_BLOCK_OPEN_SRC, "g"))].length;
+  const closeAt = text.indexOf(AGENTS_BLOCK_CLOSE, m.index + m[0].length);
+  if (closeAt === -1) return { present: true, v: Number(m[1]), start: m.index, end: null, unclosed: true, count, block: null };
+  const end = closeAt + AGENTS_BLOCK_CLOSE.length;
+  return { present: true, v: Number(m[1]), start: m.index, end, unclosed: false, count, block: text.slice(m.index, end) };
+}
+
+// Replace the block in place, else append it after the user's own content.
+export function replaceAgentsBlock(text, block) {
+  const base = String(text ?? "");
+  const f = findAgentsBlock(base);
+  if (f && !f.unclosed) return base.slice(0, f.start) + block + base.slice(f.end);
+  if (!base.trim()) return block + "\n";
+  return base.replace(/\s*$/, "") + "\n\n" + block + "\n";
+}
+
+// Remove the block and the blank line that separated it; everything else is
+// the user's and stays byte-identical.
+export function removeAgentsBlock(text) {
+  const base = String(text ?? "");
+  const f = findAgentsBlock(base);
+  if (!f || f.unclosed) return base;
+  const before = base.slice(0, f.start).replace(/\n+$/, "\n");
+  const rest = base.slice(f.end);
+  const after = rest.trim() ? rest.replace(/^\n+/, "\n") : "";
+  const out = before + after;
+  return out.trim() ? out.replace(/^\n+/, "") : "";
+}
+
+// The block body for a project: the template with agent bullets kept only
+// for agents in the layout's roster. Bullets that name no agent — the entry
+// rule, the instruction-conflict clause, model resolution, vault
+// communication — always stay (ADR-002). No roster: the template verbatim.
+export function renderAgentsBlock(tmpl, roster = null) {
+  const names = roster ? new Set(roster) : null;
+  const lines = String(tmpl).replace(/\r\n/g, "\n").replace(/\n+$/, "").split("\n");
+  const out = [];
+  let bullet = null;
+  // An agent line routes to one agent by its shape — "…: run the
+  // \`projectstore:critic\` agent", "…: consult \`projectstore:planner\`" —
+  // and is dropped when that agent is not in the roster. Every other bullet
+  // stays, however many agents it mentions in passing.
+  // Matched over the whole bullet with its wrapping collapsed, since the
+  // routing verb may sit on the bullet's second physical line.
+  const AGENT_LINE = /^- [^:]*?:\s+(?:run|consult) (?:the )?`projectstore:([a-z]+)`/;
+  const flush = () => {
+    if (!bullet) return;
+    const m = AGENT_LINE.exec(bullet.map((l) => l.trim()).join(" ").replace(/^- /, "- "));
+    if (!names || !m || names.has(m[1])) out.push(...bullet);
+    bullet = null;
+  };
+  for (const l of lines) {
+    if (/^- /.test(l)) { flush(); bullet = [l]; }
+    else if (bullet && /^\s+\S/.test(l)) bullet.push(l);
+    else { flush(); out.push(l); }
+  }
+  flush();
+  return out.join("\n");
+}
+
 // ─── Layouts ───────────────────────────────────────────────────────────
 
-export function loadLayout(name) {
-  const p = join(pluginRoot(), "scaffold", "layouts", `${name}.json`);
+export function loadLayout(name, root = pluginRoot()) {
+  const p = join(root, "scaffold", "layouts", `${name}.json`);
   if (!existsSync(p)) {
     throw new Error(`Layout not found: ${name} (expected at ${p})`);
   }

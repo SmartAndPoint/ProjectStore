@@ -96,6 +96,9 @@ test("generation contract 1: every manifest parses strictly and declares what th
       assert.equal(typeof s.supported, "boolean", `${n}: surfaces.${kind}.supported`);
       assert.ok(typeof s.scope === "string" && typeof s.scope_reason === "string" && s.scope_reason.length > 0,
         `${n}: surfaces.${kind}.scope and scope_reason`);
+      assert.ok(["exclusive", "shared", "host"].includes(s.kind), `${n}: surfaces.${kind}.kind (install spec contract 0)`);
+      if (s.kind === "shared") assert.ok(s.marker && typeof s.marker === "object", `${n}: surfaces.${kind}.marker (install spec contract 6)`);
+      if (s.kind !== "host") assert.equal(typeof s.format, "string", `${n}: surfaces.${kind}.format keys the installer's handler`);
     }
     assert.ok(Array.isArray(m.rewrites), `${n}: rewrites`);
   }
@@ -161,6 +164,17 @@ test("generation acceptance: no script branches on a harness id", () => {
     for (const id of ids) {
       assert.ok(!new RegExp(`["'\`]${id}["'\`]`).test(code), `scripts/${n} names the harness "${id}" in code — a manifest value, not a branch`);
     }
+  }
+});
+
+test("install spec modules: doctor never imports the installer, and the installer names no harness id", () => {
+  // Direction: installer → provenance ← doctor. And the installer is keyed by
+  // surface format, never by harness id — the source id included, which the
+  // branch test above deliberately filters out.
+  assert.ok(!readFileSync(join(ROOT, "scripts", "doctor.mjs"), "utf8").includes("install-harness"), "doctor.mjs imports install-harness");
+  const code = stripComments(readFileSync(join(ROOT, "scripts", "install-harness.mjs"), "utf8"));
+  for (const id of manifests().map((m) => m.id)) {
+    assert.ok(!new RegExp(`["'\`]${id}["'\`]`).test(code), `install-harness.mjs names the harness "${id}"`);
   }
 });
 

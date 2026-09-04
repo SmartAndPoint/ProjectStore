@@ -59,18 +59,20 @@ import {
   readEntryLog,
   lastVaultActivityMs,
   ENTRY_IGNORE,
+  AGENTS_BLOCK_OPEN_SRC,
+  agentsBlockVersion,
 } from "./lib.mjs";
 import { agentOverrides, childEnv } from "./harness.mjs";
 import { uncommittedProjectFiles, lastCommitMs } from "./diff-refs.mjs";
 import { resolveBinding } from "./worktree.mjs";
 
-const AGENT_BLOCK_MARKER = /<!--\s*projectstore:agents v(\d+)/g;
-// v3 adds the entry rule and the instruction-conflict clause. checkAgentsBlock
-// compares the marker version alone, so the bump IS the propagation mechanism:
-// without it no bound project ever learns the block changed. The cost is that
-// every already-bound project reports an install issue until it re-runs
-// /projectstore:agents register — intended, and disclosed in the release note.
-const AGENT_BLOCK_VERSION = 3;
+const AGENT_BLOCK_MARKER = new RegExp(AGENTS_BLOCK_OPEN_SRC, "g");
+// checkAgentsBlock compares the marker version alone, so a bump in the
+// template IS the propagation mechanism: without it no bound project ever
+// learns the block changed. The cost is that every already-bound project
+// reports an install issue until it re-runs /projectstore:agents register —
+// intended, and disclosed in the release note. The version is read from the
+// template (lib.mjs agentsBlockVersion), never from a constant here.
 // The live roster. A copy carrying one of these names does NOT override the
 // bundled agent (ADR-008, verified 2026-08-05): plugin agents register under a
 // scoped id, project/user copies register bare, so the names never collide and
@@ -250,7 +252,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
   if (st && st.enabled === true) {
     if (!curCmd) {
       out.push(finding("install", "issue", "statusline",
-        "statusline.enabled=true but no statusLine wired in settings.local.json — restart the session (the hook wires it) or check hook health."));
+        "statusline.enabled=true but no statusLine wired in settings.local.json — run /projectstore:statusline on (it installs the entry and the launcher behind a preview); the SessionStart hook only refreshes an entry that already exists."));
     } else if (!isOurs) {
       out.push(finding("install", "issue", "statusline",
         "statusline.enabled=true but a foreign statusLine occupies settings.local.json — the hook will not clobber it. Clear it or disable the flag."));
@@ -261,7 +263,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
       if (m && !existsSync(m[1])) {
         out.push(finding("install", "issue", "statusline",
           isLauncher
-            ? `statusLine points at a generated launcher that no longer exists: ${m[1]} — the next session start regenerates it.`
+            ? `statusLine points at a generated launcher that no longer exists: ${m[1]} — run /projectstore:statusline on to reinstall it; until then the next session start repoints the entry at the installed script.`
             : `statusLine points at a missing script (stale plugin path?): ${m[1]}`));
       } else if (m && isPluginCacheRoot(wiredRoot, home)) {
         // Only a versioned cache path can go stale this way. The launcher
@@ -271,7 +273,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
         const inst = installedPluginRoot(home, dirname(wiredRoot));
         if (wired && inst && inst.version && wired !== inst.version) {
           out.push(finding("install", "warn", "statusline",
-            `statusLine is wired to projectstore ${wired} while ${inst.version} is installed — a version-pinned path lags one session behind each update. The next session start rewires it to the version-agnostic launcher.`));
+            `statusLine is wired to projectstore ${wired} while ${inst.version} is installed — a version-pinned path lags one session behind each update. Run /projectstore:statusline on to install the version-agnostic launcher; the SessionStart hook only repoints the pinned path at the current install.`));
         }
       }
     }
@@ -321,6 +323,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
 
 export function checkAgentsBlock(proj) {
   const out = [];
+  const AGENT_BLOCK_VERSION = agentsBlockVersion();
   let blocks = 0;
   let staleVersions = [];
   for (const name of ["CLAUDE.md", "AGENTS.md"]) {

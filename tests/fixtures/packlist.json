@@ -54,6 +54,7 @@
   "scripts/draft.mjs",
   "scripts/graph.mjs",
   "scripts/harness.mjs",
+  "scripts/install-harness.mjs",
   "scripts/kanban.mjs",
   "scripts/lib.mjs",
   "scripts/provenance.mjs",

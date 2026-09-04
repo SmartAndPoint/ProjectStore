@@ -118,9 +118,11 @@ and `git status`; the vault answers "where were we going".)
 ## The status line composition trick
 
 `statusLine` in Claude Code is a single slot, not plugin-declarable, and read
-once when the session starts. So the SessionStart hook (when
-`statusline.enabled` is true) points the project's `.claude/settings.local.json`
-at a launcher it generates at `.claude/.projectstore/statusline.mjs`. Pointing
+once when the session starts. So `/projectstore:statusline on` runs the
+install verb, which points the project's `.claude/settings.local.json` at a
+launcher it writes (provenance-stamped) at `.claude/.projectstore/statusline.mjs`;
+the SessionStart hook keeps an existing entry current across updates and
+never creates one. Pointing
 it straight at the plugin would pin a versioned cache path
 (`…/projectstore/<version>/scripts/statusline.mjs`) and render the version
 installed at the *previous* session start — every update arrived a restart late.

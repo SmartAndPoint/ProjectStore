@@ -27,11 +27,15 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      hand is exactly what this finding exists to prevent.
    - `vault-git` → offer `git init` (+ optional first commit) inside the vault.
    - `gitignore` → offer appending the missing entries via Edit.
-   - `agents-block` duplicate → show both blocks, offer removing the one in the
-     non-preferred location (Edit after approval).
-   - `statusline` issues → explain the SessionStart hook owns the wiring
-     (self-heals on restart); offer running `/projectstore:statusline on|off`
-     to reconcile the flag, and remind that a restart applies it.
+   - `agents-block` duplicate or stale → show the finding, then (after approval)
+     run `node "$CLAUDE_PLUGIN_ROOT/scripts/install-harness.mjs" install --harness claude-code --surface agents_block --project "<abs project dir>"`
+     and print its output: it removes the copy in the non-preferred file and
+     keeps the preferred one current. Never Edit or Write the block yourself —
+     the verb is its only writer (install spec, contract 6).
+   - `statusline` issues → offer running `/projectstore:statusline on|off`,
+     which installs or removes the entry and the launcher behind a preview
+     (the SessionStart hook only refreshes an entry that already exists), and
+     remind that a restart applies it.
    - `override-copies` → a copy carrying the provenance marker overrides nothing
      (ADR-008): offer to **delete** it (approval-gated, one prompt per file), and
      say that `/projectstore:agents configure` now records the model in

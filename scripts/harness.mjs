@@ -174,6 +174,30 @@ export function resetDetection() {
   _detected = null;
 }
 
+// Which harnesses this PROJECT uses — by directory (install spec, contract
+// 8). Not detectHarnessId: that answers "which harness launched this
+// process" from branded environment variables, and using it here would
+// conjure .claude/ for a Codex user. Not memoised: it is per directory, and a
+// test builds a project per case.
+export function detectHarnesses(projectDir, { dir = MANIFEST_DIR } = {}) {
+  const out = [];
+  for (const m of loadHarnesses(dir).values()) {
+    const d = m.runtime?.project_config_dir;
+    if (d && existsSync(join(projectDir, d))) out.push({ id: m.id, why: "directory", evidence: d });
+  }
+  return out;
+}
+
+// The refusal when nothing is detected and nothing is named — built from the
+// manifests, so a new harness appears in it without an edit here.
+export function harnessRefusal(projectDir, dir = MANIFEST_DIR) {
+  const lines = [`No harness detected in ${projectDir}, and none named. Name one:`];
+  for (const m of loadHarnesses(dir).values()) {
+    lines.push(`  --harness ${m.id}    (${m.display_name}; detected by its project directory: ${m.runtime?.project_config_dir || "?"})`);
+  }
+  return lines.join("\n");
+}
+
 export function activeHarness(env = process.env, dir = MANIFEST_DIR) {
   return loadHarness(detectHarnessId(env, dir), dir) || sourceHarness(dir);
 }
