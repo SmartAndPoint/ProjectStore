@@ -15,7 +15,7 @@
 // means the caller must ask the user for an explicit range instead of
 // guessing.
 //
-// Git runs in the PROJECT (CLAUDE_PROJECT_DIR), never the vault — the vault
+// Git runs in the PROJECT (the directory the harness hands us), never the vault — the vault
 // is typically not a git repository.
 
 import { spawnSync } from "node:child_process";

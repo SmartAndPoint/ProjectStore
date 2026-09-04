@@ -32,7 +32,7 @@ import { join, basename, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
-  readConfig,
+  readConfigAt,
   pluginRoot,
   sessionStatePath,
   stateDir,
@@ -158,7 +158,7 @@ function bookSegment(cfg, proj, input, strings) {
 function discoverBaseCommand(projectDir) {
   const candidates = [
     join(projectDir, ".claude", "settings.json"),
-    join(claudeHome(), "settings.json"), // CLAUDE_CONFIG_DIR-aware: else their HUD vanishes
+    join(claudeHome(), "settings.json"), // config-dir-aware: else their HUD vanishes
   ];
   for (const p of candidates) {
     try {
@@ -196,16 +196,15 @@ function main() {
   let input = {};
   try { input = JSON.parse(raw) || {}; } catch { input = {}; }
 
-  // statusLine gets no CLAUDE_PROJECT_DIR; feed it from stdin before
-  // readConfig(). Snapshot the previous value for the composed base command.
+  // The status line gets no project variable from the harness; the project is
+  // on stdin, and it deliberately beats any exported variable. Read the config
+  // for that directory directly — never by mutating process.env, which the
+  // composed base command would then inherit.
   const projectDir =
     (input.workspace && input.workspace.project_dir) || input.cwd || process.cwd();
-  const hadCPD = "CLAUDE_PROJECT_DIR" in process.env;
-  const prevCPD = process.env.CLAUDE_PROJECT_DIR;
-  if (projectDir) process.env.CLAUDE_PROJECT_DIR = projectDir;
 
   let cfg = null;
-  try { cfg = readConfig(); } catch { cfg = null; }
+  try { cfg = readConfigAt(projectDir); } catch { cfg = null; }
 
   const strings = loadStrings(cfg && cfg.language);
   let book = null;
@@ -216,10 +215,7 @@ function main() {
   const badge = ver ? `[PS#${ver}] ` : "";
 
   const baseCmd = discoverBaseCommand(projectDir);
-  const baseEnv = { ...process.env };
-  if (hadCPD) baseEnv.CLAUDE_PROJECT_DIR = prevCPD;
-  else delete baseEnv.CLAUDE_PROJECT_DIR;
-  const baseOut = baseCmd ? runBase(baseCmd, raw, baseEnv) : null;
+  const baseOut = baseCmd ? runBase(baseCmd, raw, process.env) : null;
 
   // "Never blank" must be total: even if the resolver threw (book === null on a
   // bound project), fall back to the cold-start line rather than vanishing.

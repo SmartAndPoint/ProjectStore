@@ -39,6 +39,7 @@
     ".claude-plugin/",
     "agents/",
     "commands/",
+    "harnesses/",
     "hooks/",
     "scripts/",
     "skills/",

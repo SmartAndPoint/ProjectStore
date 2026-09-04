@@ -7,22 +7,30 @@ import { readFile as readFileAsync } from "node:fs/promises";
 import { join, dirname, basename, resolve } from "node:path";
 import { hostname, homedir } from "node:os";
 import { createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
+import {
+  projectRoot as harnessProjectRoot,
+  pluginRoot as harnessPluginRoot,
+  agentHome as harnessAgentHome,
+  configPath as harnessConfigPath,
+  runtimeEnvNames,
+  sourceWriteTools,
+} from "./harness.mjs";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
 
+// The branded environment names live in harnesses/<id>.json and are read by
+// harness.mjs only; these three keep the names the rest of the plugin already
+// calls.
 export function projectRoot() {
-  return process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  return harnessProjectRoot(process.env);
 }
 
 export function pluginRoot() {
-  // fileURLToPath, not URL.pathname: the latter stays percent-encoded, so an
-  // install path containing a space resolves to a directory that does not exist.
-  return process.env.CLAUDE_PLUGIN_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
+  return harnessPluginRoot(process.env);
 }
 
 export function configPath() {
-  return join(projectRoot(), ".claude", "projectstore.json");
+  return harnessConfigPath(projectRoot(), process.env);
 }
 
 // ─── Config ────────────────────────────────────────────────────────────
@@ -32,7 +40,7 @@ export function configPath() {
 // through a second hand-rolled parse is how the two would drift on the one
 // behaviour that matters here: corrupt JSON reads as "not bound", never throws.
 export function readConfigAt(projectDir) {
-  const p = join(projectDir, ".claude", "projectstore.json");
+  const p = harnessConfigPath(projectDir, process.env);
   if (!existsSync(p)) return null;
   try {
     return JSON.parse(readFileSync(p, "utf8"));
@@ -109,11 +117,12 @@ function sweepOrphanTemps(dir) {
 
 // ─── Installed-plugin resolution ───────────────────────────────────────
 
-// Claude Code's config directory. Almost always ~/.claude, but CLAUDE_CONFIG_DIR
-// relocates it — and a consumer that hardcodes the default silently resolves
-// nothing for those users instead of failing loudly.
+// The harness's config directory. Almost always ~/.claude, but the harness's
+// home variable relocates it — and a consumer that hardcodes the default
+// silently resolves nothing for those users instead of failing loudly. The
+// name is kept for its callers; the variable comes from the manifest.
 export function claudeHome(home = homedir()) {
-  return process.env.CLAUDE_CONFIG_DIR || join(home, ".claude");
+  return harnessAgentHome(process.env, home);
 }
 
 function cmpVersion(a, b) {
@@ -223,15 +232,35 @@ export function statusLineIsOurWiring(cmd, projectDir, home = homedir(), root = 
   return isPluginCacheRoot(dirname(dirname(p)), home);
 }
 
-// Materialise the launcher into the project, substituting the fallback root.
-// Idempotent. Returns its path, or null when the template is unreadable — the
-// caller then wires the plugin script directly, i.e. the old behaviour.
+// The launcher template runs standalone, before it knows which plugin root to
+// load, so it cannot import harness.mjs; the branded names it needs are
+// substituted here instead, from the manifest. All three placeholders must be
+// present or the template is not one we know how to fill. Pure — the test
+// renders through the same function the installer does.
+export function renderStatusLineLauncher(tpl, root, env = process.env) {
+  const names = runtimeEnvNames(env);
+  const subs = [
+    ['"__PROJECTSTORE_ROOT__"', JSON.stringify(root)],
+    ['"__PROJECTSTORE_HOME_ENV__"', JSON.stringify(names.home || "")],
+    ['"__PROJECTSTORE_PLUGIN_ROOT_ENV__"', JSON.stringify(names.pluginRoot || "")],
+  ];
+  let src = String(tpl);
+  for (const [ph, val] of subs) {
+    if (!src.includes(ph)) return null;
+    src = src.replace(ph, val);
+  }
+  return src;
+}
+
+// Materialise the launcher into the project, substituting the fallback root
+// and the harness's variable names. Idempotent. Returns its path, or null when
+// the template is unreadable — the caller then wires the plugin script
+// directly, i.e. the old behaviour.
 export function writeStatusLineLauncher(projectDir, root) {
-  const PLACEHOLDER = '"__PROJECTSTORE_ROOT__"';
   try {
     const tpl = readFileSync(join(pluginRoot(), "scripts", "statusline-launcher.mjs"), "utf8");
-    if (!tpl.includes(PLACEHOLDER)) return null;
-    const src = tpl.replace(PLACEHOLDER, JSON.stringify(root));
+    const src = renderStatusLineLauncher(tpl, root);
+    if (src === null) return null;
     const p = statusLineLauncherPath(projectDir);
     let cur = null;
     try { cur = readFileSync(p, "utf8"); } catch {}
@@ -1512,7 +1541,9 @@ const ACTIVITY_CAP = 50;
 // a narrower set than the writer recorded — which is exactly how `NotebookEdit`
 // came to be logged and then ignored. `hooks/hooks.json`'s PostToolUse matcher
 // is a third copy that cannot import; a test pins it against this list.
-export const WRITE_TOOLS = Object.freeze(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+// The list itself is the source manifest's (harnesses/claude-code.json); copied,
+// not aliased, so freezing it cannot freeze the cached manifest object.
+export const WRITE_TOOLS = Object.freeze([...sourceWriteTools()]);
 const WRITE_TOOL_SET = new Set(WRITE_TOOLS);
 
 export function isWriteTool(tool) {

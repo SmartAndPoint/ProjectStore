@@ -22,8 +22,12 @@ import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-// Substituted by writeStatusLineLauncher() in scripts/lib.mjs.
+// Substituted by renderStatusLineLauncher() in scripts/lib.mjs — the fallback
+// root and the harness's own variable names (this file runs before it knows
+// which plugin root to load, so it cannot import harness.mjs to ask).
 const FALLBACK_ROOT = "__PROJECTSTORE_ROOT__";
+const HOME_ENV = "__PROJECTSTORE_HOME_ENV__";
+const PLUGIN_ROOT_ENV = "__PROJECTSTORE_PLUGIN_ROOT_ENV__";
 
 function versionKey(v) {
   const p = String(v || "0").split(".").map((n) => parseInt(n, 10) || 0);
@@ -36,7 +40,7 @@ function versionKey(v) {
 // exists to remove.
 function installedRoot() {
   try {
-    const claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+    const claudeHome = (HOME_ENV && process.env[HOME_ENV]) || join(homedir(), ".claude");
     const reg = JSON.parse(
       readFileSync(join(claudeHome, "plugins", "installed_plugins.json"), "utf8"),
     );
@@ -79,10 +83,10 @@ for (const root of [installedRoot(), FALLBACK_ROOT]) {
   const target = join(root, "scripts", "statusline.mjs");
   try {
     if (!existsSync(target)) continue;
-    // The renderer resolves its own root from CLAUDE_PLUGIN_ROOT when set —
-    // point it at the install we actually loaded, or the badge, the strings and
-    // the breadcrumb would describe a different one.
-    process.env.CLAUDE_PLUGIN_ROOT = root;
+    // The renderer resolves its own root from the harness's plugin-root
+    // variable when set — point it at the install we actually loaded, or the
+    // badge, the strings and the breadcrumb would describe a different one.
+    if (PLUGIN_ROOT_ENV) process.env[PLUGIN_ROOT_ENV] = root;
     // Renders on import (statusline.mjs runs main() at module load and reads
     // its own stdin) — one process, no extra spawn.
     await import(pathToFileURL(target).href);
@@ -107,7 +111,7 @@ if (!rendered) {
         return (i.workspace && i.workspace.project_dir) || i.cwd || null;
       } catch { return null; }
     })();
-    const claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+    const claudeHome = (HOME_ENV && process.env[HOME_ENV]) || join(homedir(), ".claude");
     const candidates = [
       projectDir ? join(projectDir, ".claude", "settings.json") : null,
       join(claudeHome, "settings.json"),

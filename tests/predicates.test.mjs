@@ -65,6 +65,7 @@ import {
   extractLinks,
   buildNodeIndex,
   resolveLinkTarget,
+  renderStatusLineLauncher,
 } from "../scripts/lib.mjs";
 import {
   checkLayoutTemplates,
@@ -874,13 +875,9 @@ function renderViaLauncher(fallbackRoot, home) {
   const proj = mkdtempSync(join(tmpdir(), "ps-render-"));
   const p = join(proj, ".claude", ".projectstore", "statusline.mjs");
   mkdirSync(join(proj, ".claude", ".projectstore"), { recursive: true });
-  writeFileSync(
-    p,
-    readFileSync(LAUNCHER_TEMPLATE, "utf8").replace(
-      '"__PROJECTSTORE_ROOT__"',
-      JSON.stringify(fallbackRoot),
-    ),
-  );
+  const src = renderStatusLineLauncher(readFileSync(LAUNCHER_TEMPLATE, "utf8"), fallbackRoot);
+  assert.ok(src, "the launcher template carries every placeholder the renderer fills");
+  writeFileSync(p, src);
   const env = { ...process.env, HOME: home };
   delete env.CLAUDE_CONFIG_DIR;
   return spawnSync(process.execPath, [p], { input: "{}", encoding: "utf8", env });

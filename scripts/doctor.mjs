@@ -60,6 +60,7 @@ import {
   lastVaultActivityMs,
   ENTRY_IGNORE,
 } from "./lib.mjs";
+import { agentOverrides, childEnv } from "./harness.mjs";
 import { uncommittedProjectFiles, lastCommitMs } from "./diff-refs.mjs";
 import { resolveBinding } from "./worktree.mjs";
 
@@ -436,19 +437,16 @@ export function checkOverrideCopies(proj, home = homedir()) {
 // It beats frontmatter, so a value set for cost or latency silently drops all
 // five agents below the quality floor the plugin advertises — exactly the class
 // of silent downgrade doctor exists to name.
+// The variable names come from the manifest (runtime.agent_overrides); the
+// wording is projectstore's, because the claim — ADR-008's quality floor — is.
 export function checkEnvEffort() {
-  const v = process.env.CLAUDE_CODE_EFFORT_LEVEL;
-  if (!v) return [];
-  return [finding("install", "warn", "env-effort",
-    `CLAUDE_CODE_EFFORT_LEVEL=${v} is set — it overrides the bundled agents' "effort: max" frontmatter, so every projectstore agent runs at "${v}". Effort is not configurable per project (ADR-008); unset the variable to restore the quality floor.`)];
+  return agentOverrides().filter((o) => o.kind === "effort").map((o) => finding("install", "warn", "env-effort",
+    `${o.env}=${o.value} is set — it overrides the bundled agents' "effort: max" frontmatter, so every projectstore agent runs at "${o.value}". Effort is not configurable per project (ADR-008); unset the variable to restore the quality floor.`));
 }
 
 export function checkEnvModel() {
-  if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
-    return [finding("install", "warn", "env-model",
-      `CLAUDE_CODE_SUBAGENT_MODEL=${process.env.CLAUDE_CODE_SUBAGENT_MODEL} is set — it overrides ALL projectstore agent model configuration, per-invocation parameter included.`)];
-  }
-  return [];
+  return agentOverrides().filter((o) => o.kind === "model").map((o) => finding("install", "warn", "env-model",
+    `${o.env}=${o.value} is set — it overrides ALL projectstore agent model configuration, per-invocation parameter included.`));
 }
 
 export function checkGitignore(proj) {
@@ -495,7 +493,7 @@ export function checkAutoUpdate(home = homedir()) {
   //    marketplace clone root (.../plugins/marketplaces/<name>) never matched
   //    even though the name is right there. Hence the trailing (?:/|$).
   // 2. pluginRoot() is the SCRIPT's own location. That equals the session's
-  //    plugin only when Claude Code launched us via $CLAUDE_PLUGIN_ROOT; run
+  //    plugin only when the harness launched us with its plugin-root variable; run
   //    from a checkout it reported "local dev install" about what was in fact
   //    an ordinary marketplace install — the check described itself, not the
   //    session. So fall back to the registered install when our own path says
@@ -603,7 +601,7 @@ export function checkKanbanSync(cfg) {
   const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", "kanban.mjs")], {
     encoding: "utf8",
     timeout: 10000,
-    env: { ...process.env, CLAUDE_PROJECT_DIR: projectRoot() },
+    env: childEnv(process.env, { projectRoot: projectRoot() }),
   });
   if (r.status !== 0) {
     return [finding("vault", "warn", "kanban", `kanban generator failed: ${(r.stderr || "").trim()}`)];
@@ -1377,7 +1375,7 @@ export function checkCodeMap(cfg) {
   const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", "codemap.mjs")], {
     encoding: "utf8",
     timeout: 10000,
-    env: { ...process.env, CLAUDE_PROJECT_DIR: projectRoot() },
+    env: childEnv(process.env, { projectRoot: projectRoot() }),
   });
   if (r.status !== 0) return [finding("vault", "warn", "code-map", "codemap generator failed.")];
   let expected;
@@ -1405,7 +1403,7 @@ export function checkGraph(cfg) {
   const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", "graph.mjs")], {
     encoding: "utf8",
     timeout: 10000,
-    env: { ...process.env, CLAUDE_PROJECT_DIR: projectRoot() },
+    env: childEnv(process.env, { projectRoot: projectRoot() }),
   });
   if (r.status !== 0) return [finding("vault", "warn", "graph", `graph generator failed: ${(r.stderr || "").trim()}`)];
   let expected;

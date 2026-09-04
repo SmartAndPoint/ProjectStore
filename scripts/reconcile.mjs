@@ -42,6 +42,7 @@ import {
   compareArtifactOrder,
   writeFileAtomic,
 } from "./lib.mjs";
+import { childEnv } from "./harness.mjs";
 import { scanArtifacts } from "./doctor.mjs";
 
 function die(msg) {
@@ -53,7 +54,7 @@ function runGenerator(script) {
   const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", script)], {
     encoding: "utf8",
     timeout: 10000,
-    env: { ...process.env, CLAUDE_PROJECT_DIR: projectRoot() },
+    env: childEnv(process.env, { projectRoot: projectRoot() }),
   });
   if (r.status !== 0) return { error: (r.stderr || "generator failed").trim() };
   try { return JSON.parse(r.stdout); } catch { return { error: "unparseable generator output" }; }

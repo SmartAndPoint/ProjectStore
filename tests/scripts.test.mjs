@@ -11,6 +11,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync, spawn } from "node:child_process";
 import { readAnchorState } from "../scripts/lib.mjs";
+import { sourceHarness } from "../scripts/harness.mjs";
 import { fileURLToPath } from "node:url";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -833,17 +834,17 @@ test("entry hook: guard off silences it (contract 20)", () => {
 // tool-call and SessionStart events, and the 2.1.163 changelog entry for
 // `Stop` / `SubagentStop` ("can now return hookSpecificOutput.additionalContext
 // ... and keep the turn going").
-const HOOK_FIELDS = {
-  PreToolUse: ["permissionDecision", "permissionDecisionReason", "updatedInput", "additionalContext"],
-  PostToolUse: ["additionalContext"],
-  PostToolUseFailure: ["additionalContext"],
-  PostToolBatch: ["additionalContext"],
-  UserPromptSubmit: ["additionalContext"],
-  SessionStart: ["additionalContext"],
-  Stop: ["additionalContext"],
-  SubagentStop: ["additionalContext"],
-  PreCompact: [], // top-level decision/reason only — no model-facing channel
-};
+//
+// Since A1 of PS-HARNESS the table is the manifest's (harnesses/claude-code.json,
+// output_channels.<event>.fields — generation spec contract 17), so the test
+// and the plugin cannot hold two copies of a per-event fact. PreCompact's empty
+// list — the channel that "ran, printed, exited zero and reached nobody" — is
+// a manifest fact now.
+const HOOK_FIELDS = Object.fromEntries(
+  Object.entries(sourceHarness().output_channels)
+    .filter(([k, ch]) => !k.startsWith("_") && ch)
+    .map(([event, ch]) => [event, ch.fields]),
+);
 
 // Known violations, each owned by a story. Listed so the suite stays green while
 // the defect stays visible — never so it stays forgotten. Emptied when

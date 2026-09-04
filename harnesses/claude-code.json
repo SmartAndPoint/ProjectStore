@@ -1,0 +1,220 @@
+{
+  "_comment": "Harness capability manifest — Claude Code. This is the SOURCE layout (generation spec, contract 2): the plugin's own commands/, agents/, skills/ and hooks/hooks.json are already in Claude Code's shapes, so nothing is emitted for it (emit: false). The manifest still exists in full because the portability lint reads every harness's vocabulary, and a token only Claude Code understands is only detectable as unmapped in another harness's tree if Claude Code's own names are written down somewhere. It carries no `lint` block and an empty `rewrites` because linting runs over emitted trees only. Shape contributed by Maxim Podreshetnikov (PR #13); `verified`, `output_channels`, `scope_reason`, `root_placeholder_literal` and `agent_overrides` are the spec's additions.",
+  "id": "claude-code",
+  "display_name": "Claude Code",
+  "emit": false,
+  "source_layout": true,
+  "output_dir": null,
+  "docs": "https://code.claude.com/docs",
+  "verified": {
+    "session": "the shipped plugin's own hooks, run continuously in this repository under Claude Code 2.1.163+ — not one session but daily operation; each output_channels row cites where the fact is observed",
+    "date": "2026-09-04"
+  },
+  "install": {
+    "mechanism": "the built-in plugin marketplace",
+    "why_not_scripted": "Claude Code ships a plugin manager that installs, updates and removes projectstore itself. A copy of it here would be a second, worse one: it would not know about /plugin, auto-update, or pinning a release.",
+    "steps": [
+      "/plugin marketplace add SmartAndPoint/ProjectStore",
+      "/plugin install projectstore@SmartAndPoint",
+      "/reload-plugins"
+    ],
+    "notes": [
+      "Auto-update is OFF by default for third-party plugins: /plugin -> Marketplaces -> SmartAndPoint -> toggle auto-update.",
+      "Pin a release with: /plugin marketplace add SmartAndPoint/ProjectStore#v0.27.2",
+      "From a checkout instead: claude --plugin-dir ./ProjectStore"
+    ],
+    "docs": "https://github.com/SmartAndPoint/ProjectStore#install-2-minutes"
+  },
+  "runtime": {
+    "detect_env": [
+      "CLAUDE_PLUGIN_ROOT",
+      "CLAUDE_PROJECT_DIR",
+      "CLAUDE_CONFIG_DIR"
+    ],
+    "project_dir_env": "CLAUDE_PROJECT_DIR",
+    "plugin_root_env": "CLAUDE_PLUGIN_ROOT",
+    "home_env": "CLAUDE_CONFIG_DIR",
+    "home_default": ".claude",
+    "project_config_dir": ".claude",
+    "config_basename": "projectstore.json",
+    "agent_overrides": [
+      {
+        "env": "CLAUDE_CODE_EFFORT_LEVEL",
+        "kind": "effort",
+        "beats": "agent frontmatter"
+      },
+      {
+        "env": "CLAUDE_CODE_SUBAGENT_MODEL",
+        "kind": "model",
+        "beats": "every projectstore model configuration, per-invocation parameter included"
+      }
+    ]
+  },
+  "tools": {
+    "write_tools": [
+      "Write",
+      "Edit",
+      "MultiEdit",
+      "NotebookEdit"
+    ],
+    "path_fields": [
+      "file_path",
+      "notebook_path",
+      "path"
+    ],
+    "patch_envelope_field": null,
+    "approval_tool": "AskUserQuestion",
+    "write_tool_name": "the Write tool",
+    "edit_tool_name": "the Edit tool",
+    "known_non_write_tools": [
+      "Bash",
+      "Read",
+      "Grep",
+      "Glob",
+      "LS",
+      "WebFetch",
+      "WebSearch",
+      "Task",
+      "TodoWrite"
+    ]
+  },
+  "hooks": {
+    "config_file": "hooks/hooks.json",
+    "events": {
+      "SessionStart": "SessionStart",
+      "PreToolUse": "PreToolUse",
+      "PostToolUse": "PostToolUse",
+      "Stop": "Stop",
+      "PreCompact": "PreCompact"
+    },
+    "unsupported_events": [],
+    "matchers": {
+      "write": "Edit|Write|MultiEdit|NotebookEdit"
+    },
+    "root_placeholder": "${CLAUDE_PLUGIN_ROOT}",
+    "root_placeholder_literal": false,
+    "_root_placeholder_literal_comment": "true = the harness passes the placeholder through as literal text and the installer must substitute an absolute path; false = the harness expands it. Claude Code expands ${CLAUDE_PLUGIN_ROOT}, so false. Measured value for Codex comes from the spike."
+  },
+  "output_channels": {
+    "_comment": "Per-event output channels (generation spec, contract 17). `fields` are the hookSpecificOutput keys the event honours; `system_message` is the top-level systemMessage; `decision` names the decision object where one exists. `evidence` is `measured` only where this repository's own hooks observe the fact, `documented` where the Claude Code hooks reference says so and we never emit it.",
+    "SessionStart": {
+      "fields": ["additionalContext"],
+      "system_message": true,
+      "decision": null,
+      "evidence": "measured",
+      "note": "hooks/session-start.mjs emits additionalContext and systemMessage in one object; the ~10,000-character cap on additionalContext was measured (vault story: SessionStart context exceeds the hook output cap)."
+    },
+    "PreToolUse": {
+      "fields": ["permissionDecision", "permissionDecisionReason", "updatedInput", "additionalContext"],
+      "system_message": true,
+      "decision": "permissionDecision",
+      "evidence": "measured",
+      "note": "systemMessage measured — scripts/touch-session.mjs uses it for the pointer nudge and the name offer. additionalContext and permissionDecision (allow|deny|ask) are documented; projectstore never emits them. A separate PermissionRequest event carries its own decision object."
+    },
+    "PostToolUse": {
+      "fields": ["additionalContext"],
+      "system_message": null,
+      "decision": null,
+      "evidence": "measured",
+      "note": "scripts/touch-session.mjs — the entry-rule reminder's primary carrier (entry-rule spec, contract 14)."
+    },
+    "PostToolUseFailure": {
+      "fields": ["additionalContext"],
+      "system_message": null,
+      "decision": null,
+      "evidence": "documented",
+      "note": "Hooks reference; not registered by projectstore."
+    },
+    "PostToolBatch": {
+      "fields": ["additionalContext"],
+      "system_message": null,
+      "decision": null,
+      "evidence": "documented",
+      "note": "Hooks reference; not registered by projectstore."
+    },
+    "UserPromptSubmit": {
+      "fields": ["additionalContext"],
+      "system_message": null,
+      "decision": null,
+      "evidence": "documented",
+      "note": "Hooks reference; not registered by projectstore."
+    },
+    "Stop": {
+      "fields": ["additionalContext"],
+      "system_message": null,
+      "decision": "block",
+      "evidence": "measured",
+      "min_version": "2.1.163",
+      "note": "additionalContext on Stop CONTINUES the turn (2.1.163 changelog) — hooks/session-stop.mjs runs a create-then-emit election because of it. Below 2.1.163 only decision:block + reason exists."
+    },
+    "SubagentStop": {
+      "fields": ["additionalContext"],
+      "system_message": null,
+      "decision": "block",
+      "evidence": "documented",
+      "note": "Same channel as Stop per the 2.1.163 changelog; not registered by projectstore — a subagent is the actor that cannot open a story."
+    },
+    "PreCompact": {
+      "fields": [],
+      "system_message": true,
+      "decision": null,
+      "evidence": "measured",
+      "note": "Measured NEGATIVELY: an output object containing additionalContext is rejected whole, taking systemMessage down with it (hooks/pre-compact.mjs; vault story: PreCompact survival packet targets a channel PreCompact does not have). Only top-level decision/reason and systemMessage exist."
+    }
+  },
+  "surfaces": {
+    "commands": {
+      "supported": true,
+      "dir": "commands",
+      "file": "<name>.md",
+      "format": "command-md",
+      "invocation": "/projectstore:<name>",
+      "scope": "user",
+      "scope_reason": "Claude Code loads commands from the plugin installation itself, not from a per-project directory."
+    },
+    "agents": {
+      "supported": true,
+      "dir": "agents",
+      "file": "<name>.md",
+      "format": "agent-md",
+      "invocation": "projectstore:<name>",
+      "scope": "user",
+      "scope_reason": "Claude Code loads agents from the plugin installation itself, not from a per-project directory."
+    },
+    "skills": {
+      "supported": true,
+      "dir": "skills",
+      "file": "<name>/SKILL.md",
+      "format": "skill-md",
+      "scope": "user",
+      "scope_reason": "Claude Code loads skills from the plugin installation itself, not from a per-project directory."
+    },
+    "hooks": {
+      "supported": true,
+      "dir": "hooks",
+      "file": "hooks.json",
+      "format": "hooks-json",
+      "scope": "user",
+      "scope_reason": "Claude Code loads the plugin's hooks.json from the plugin installation itself; per-project hooks live in settings, which projectstore does not write."
+    }
+  },
+  "capabilities": {
+    "statusline": true,
+    "interactive_approval_tool": true,
+    "permission_decision_hook": "PreToolUse",
+    "subagent_tool_allowlist": true,
+    "subagent_model_per_invocation": true
+  },
+  "rewrites": [],
+  "update_instructions": [
+    "**About future updates**: Claude Code does NOT auto-update third-party marketplaces by default. To get notified of new releases (v0.7+):",
+    "1. Open `/plugin` → **Marketplaces** tab.",
+    "2. Find **SmartAndPoint**.",
+    "3. Toggle **auto-update** on.",
+    "",
+    "Without it, you would run `/plugin marketplace update SmartAndPoint` manually. See https://github.com/SmartAndPoint/ProjectStore#updates for details."
+  ],
+  "agent_translation": {
+    "carries_model": true
+  }
+}
