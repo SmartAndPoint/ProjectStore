@@ -75,10 +75,11 @@ const STAGE_OF = {
 };
 const STAGE_ORDER = ["authoring", "critique", "planning", "code-review", "curation", "upkeep", "other"];
 
-// USD per MTok [input, output], API list prices as of 2026-08-04
+// USD per MTok [input, output], API list prices as of 2026-08-04 (Fable 5.1 added 2026-09-02)
 // (platform.claude.com pricing docs). Cache multipliers applied on top of
 // the input rate.
 export const PRICING = {
+  "claude-fable-5-1": [10, 50],
   "claude-fable-5": [10, 50],
   "claude-opus-5": [5, 25],
   "claude-opus-4-8": [5, 25],
@@ -91,7 +92,7 @@ export const PRICING = {
 // Transcripts carry variant ids ("claude-haiku-4-5-20251001", "opus",
 // "claude-opus-5[1m]") — normalize before the PRICING lookup so they don't
 // silently price at $0.
-const MODEL_ALIASES = { opus: "claude-opus-5", sonnet: "claude-sonnet-5", haiku: "claude-haiku-4-5" };
+const MODEL_ALIASES = { fable: "claude-fable-5-1", opus: "claude-opus-5", sonnet: "claude-sonnet-5", haiku: "claude-haiku-4-5" };
 
 export function normModel(model) {
   const m = model.replace(/\[[^\]]*\]$/, "").replace(/-\d{8}$/, "");
