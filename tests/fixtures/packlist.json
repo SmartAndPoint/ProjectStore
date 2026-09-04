@@ -5,6 +5,7 @@
   "LICENSE",
   "README.md",
   "agents/archaeologist.md",
+  "agents/clerk.md",
   "agents/critic.md",
   "agents/librarian.md",
   "agents/planner.md",
