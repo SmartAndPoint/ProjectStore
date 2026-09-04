@@ -1,6 +1,6 @@
 {
   "name": "projectstore",
-  "version": "0.27.2",
+  "version": "0.28.0",
   "description": "Your agent runs the project through a verified loop: task → artifact (ADR / spec / epic / story) → adversarial critic → backlog → planner → reviewer → done. Plain markdown in git — any model can pick the project up tomorrow.",
   "keywords": [
     "project-management",

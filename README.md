@@ -87,6 +87,16 @@ npm install projectstore
 claude --plugin-dir ./node_modules/projectstore
 ```
 
+The package also carries a `bin`. Without a session — in CI, or in a shell — the same core answers token-free, with a `--json` envelope on every verb:
+
+```
+npx projectstore doctor --json
+npx projectstore install --harness claude-code   # previews, then writes the agents block and the status line; naming the harness is the confirmation, there is no --yes
+npx projectstore reconcile --write --only kanban
+```
+
+The read verbs (`status`, `search`, `show`, `graph`, `codemap`) and `init`/`bind` land with the next slices; `projectstore <verb>` says so until they do.
+
 Names like `projectstore-claude` or `projectstore-codex` on npm are reserved placeholders pointing back here — there is only one package.
 </details>
 

@@ -12,7 +12,7 @@
       "name": "projectstore",
       "displayName": "projectstore",
       "description": "📚 Your agent runs the project through a verified loop: task → artifact (ADR · spec · epic · story) → adversarial critic → backlog → planner → reviewer → done. Plain markdown in an Obsidian-friendly vault, every write approved by you — and any model can pick the project up tomorrow.",
-      "version": "0.27.2",
+      "version": "0.28.0",
       "author": {
         "name": "Evgenii Konev",
         "email": "ekonev@smartandpoint.com",
