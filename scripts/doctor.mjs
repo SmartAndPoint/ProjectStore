@@ -22,7 +22,7 @@ import {
   accessSync,
   constants,
 } from "node:fs";
-import { join, basename, resolve, dirname } from "node:path";
+import { join, basename, resolve, dirname, relative } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -61,8 +61,9 @@ import {
   ENTRY_IGNORE,
   AGENTS_BLOCK_OPEN_SRC,
   agentsBlockVersion,
+  installedPluginEntries,
 } from "./lib.mjs";
-import { agentOverrides, childEnv } from "./harness.mjs";
+import { agentOverrides, childEnv, sourceHarness } from "./harness.mjs";
 import { uncommittedProjectFiles, lastCommitMs } from "./diff-refs.mjs";
 import { resolveBinding } from "./worktree.mjs";
 
@@ -342,8 +343,22 @@ export function checkAgentsBlock(proj) {
       "Agent routing block not registered — optional; ships with /projectstore:agents (v0.13)."));
   }
   if (blocks > 1) {
-    out.push(finding("install", "issue", "agents-block",
-      `Duplicated projectstore:agents block (${blocks} markers across CLAUDE.md/AGENTS.md) — keep exactly one; register migrates, never duplicates.`));
+    // One block in each file is a state install resolves (it keeps the
+    // preferred file's); two in one file is not, and stays an issue.
+    const perFile = {};
+    for (const name of ["CLAUDE.md", "AGENTS.md"]) {
+      const p = join(proj, name);
+      if (!existsSync(p)) continue;
+      try { perFile[name] = [...readFileSync(p, "utf8").matchAll(AGENT_BLOCK_MARKER)].length; } catch {}
+    }
+    const twiceInOne = Object.entries(perFile).find(([, n]) => n > 1);
+    if (twiceInOne) {
+      out.push(finding("install", "issue", "agents-block",
+        `${twiceInOne[0]} carries the projectstore:agents block ${twiceInOne[1]} times — keep exactly one; install refuses until it does.`, twiceInOne[0]));
+    } else {
+      out.push(finding("install", "warn", "agents-block",
+        `The projectstore:agents block is in both CLAUDE.md and AGENTS.md — run /projectstore:agents register: install keeps the one in ${(sourceHarness()?.surfaces?.agents_block?.files || ["AGENTS.md"])[0]} and removes the other.`));
+    }
   }
   for (const s of staleVersions) {
     out.push(finding("install", "issue", "agents-block",
@@ -364,6 +379,95 @@ export function checkAgentsBlock(proj) {
 // those are precisely the ones old enough to have gone stale. Where the marker
 // is absent the finding drops to `info`, since a same-named agent the user
 // wrote themselves is indistinguishable from ours.
+// ─── Installed surfaces: the states the install spec defines ───────────
+//
+// Every surface the manifests name for a harness this project uses, read
+// through surfaces.mjs — the same derivation the verbs use, so the report
+// and install never disagree about a file. Reported BY EXCEPTION: a current
+// surface says nothing, except contract 12's "last written by", which is the
+// one `current` worth saying. Wiring facts the state model cannot express
+// (an entry naming a missing script, a foreign slot, a lagging pinned path)
+// stay with checkStatusline under its own id.
+//
+// Imported dynamically, and only here: hooks/session-start.mjs imports this
+// module statically, and the install spec keeps the provenance leaf — which
+// surfaces.mjs needs — out of the SessionStart module graph. The startup
+// checks never call this.
+// Read the states once per doctor run; both checks below consume the result.
+export async function readSurfaceStates(proj, { home = homedir(), root = pluginRoot(), manifestDir = undefined } = {}) {
+  const { surfaceStates, FOREIGN_TEXT } = await import("./surfaces.mjs");
+  return { result: surfaceStates(proj, { home, root, ...(manifestDir ? { manifestDir } : {}) }), FOREIGN_TEXT };
+}
+
+export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root = pluginRoot(), manifestDir = undefined, read = null } = {}) {
+  const out = [];
+  let r, FOREIGN_TEXT;
+  try {
+    ({ result: r, FOREIGN_TEXT } = read || await readSurfaceStates(proj, { home, root, manifestDir }));
+  } catch (e) {
+    return [finding("install", "warn", "surface", `Installed-surface states could not be read: ${e && e.message}`)];
+  }
+  // Contract 16: a harness is reported only when the project uses it; when
+  // none does and nothing of ours is installed, one line names what can be.
+  if (!r.used.length) {
+    out.push(finding("install", "info", "harness",
+      `No harness detected in this project and nothing of ours installed — install can target: ${r.installable.join(", ")}.`));
+    return out;
+  }
+  for (const s of r.states) {
+    const where = relative(proj, s.path) || s.path;
+    if (s.kind === "exclusive") {
+      if (s.state === "foreign") {
+        out.push(finding("install", "issue", "surface-foreign",
+          `${where} — ${FOREIGN_TEXT}. install, uninstall and upgrade refuse it; nothing repairs it.`, where));
+      } else if (s.state === "stale" && s.produced) {
+        out.push(finding("install", "issue", "surface", `${where} — stale: ${s.reason}. Reinstall it: install-harness.mjs install --surface ${s.surface} (for the status line, /projectstore:statusline on).`, where));
+      } else if (s.state === "stale" && !s.produced) {
+        out.push(finding("install", "info", "surface", `${where} — ${s.reason}; install prunes it.`, where));
+      } else if (s.state === "current" && s.writtenBy && !s.sameProject) {
+        out.push(finding("install", "info", "surface", `${where} — current, last written by ${s.writtenBy}.`, where));
+      }
+    } else if (s.surface === "agents_block") {
+      // Version drift and duplicates are checkAgentsBlock's; what only the
+      // state knows is content that differs at the same version, and a block
+      // that never closes.
+      if (s.state === "unparseable") {
+        out.push(finding("install", "issue", "surface", `${where} — ${s.reason}`, where));
+      } else if (s.state === "ours-stale" && /content differs|migrates/.test(s.reason || "")) {
+        out.push(finding("install", "warn", "surface", `${where} [projectstore:agents] — ${s.reason}. Run /projectstore:agents register.`, where));
+      }
+    }
+    // The statusline entry's states are checkStatusline's, under its own id —
+    // its ours-stale (a command this installation would not write) is
+    // self-healing: syncStatusLine rewrites it on the next SessionStart.
+  }
+  return out;
+}
+
+// Contract 17: two registrations of projectstore at different versions on one
+// machine are a finding, not a failure — install cannot prevent it, since
+// hosts install from different sources. The versions come from the harness
+// registry (one per marketplace key and scope) and from the pkg= field of a
+// file we stamped in this project; each is named with where it was read.
+export function checkVersionDrift(home = homedir(), states = []) {
+  // Pairs, not a map keyed by source: two registrations under one marketplace
+  // key and one scope are the common shape (the registry keeps every install
+  // it made), and they must both be seen. Only installs still on disk count —
+  // a wiped entry is not a copy anyone runs.
+  const seen = [];
+  for (const e of installedPluginEntries(home)) {
+    if (e.version && e.present) seen.push({ source: `registry ${e.key}${e.scope ? " (" + e.scope + ")" : ""} at ${e.path}`, version: e.version });
+  }
+  for (const s of states) {
+    if (s.installedPkg) seen.push({ source: `pkg= of ${s.surface}`, version: s.installedPkg });
+  }
+  const versions = new Set(seen.map((x) => x.version));
+  if (versions.size < 2) return [];
+  const list = seen.map(({ source, version }) => `${version} (${source})`).join(", ");
+  return [finding("install", "warn", "version-drift",
+    `projectstore is registered or installed at more than one version on this machine: ${list}. Update the older one; the launcher renders whichever is registered.`)];
+}
+
 export function checkOverrideCopies(proj, home = homedir()) {
   const out = [];
   const ver = pluginVersion();
@@ -1423,7 +1527,7 @@ export function checkGraph(cfg) {
 
 // ─── Runners ───────────────────────────────────────────────────────────
 
-export function runInstallChecks(cfg, proj) {
+export async function runInstallChecks(cfg, proj, opts = {}) {
   const out = [...checkConfig(cfg, proj)];
   if (!cfg || !cfg.vault_path) return out;
   out.push(...checkVaultPath(cfg));
@@ -1440,6 +1544,10 @@ export function runInstallChecks(cfg, proj) {
     ...checkVaultGit(cfg),
     ...checkAutoUpdate(),
   );
+  let read = null;
+  try { read = await readSurfaceStates(proj, opts); } catch {} // reported as a warn by checkHarnessSurfaces
+  out.push(...await checkHarnessSurfaces(cfg, proj, { ...opts, read }));
+  if (read) out.push(...checkVersionDrift(opts.home, read.result.states));
   return out;
 }
 
@@ -1528,7 +1636,7 @@ function report(findings, groups) {
   return lines.join("\n");
 }
 
-function main() {
+async function main() {
   const args = process.argv.slice(2);
   const wantJson = args.includes("--json");
   const startup = args.includes("--startup");
@@ -1547,7 +1655,7 @@ function main() {
 
   const findings = [];
   const groups = [];
-  if (install) { groups.push("install"); findings.push(...runInstallChecks(cfg, proj)); }
+  if (install) { groups.push("install"); findings.push(...await runInstallChecks(cfg, proj)); }
   if (vault && cfg && cfg.vault_path && existsSync(cfg.vault_path)) {
     groups.push("vault");
     findings.push(...runVaultChecks(cfg));

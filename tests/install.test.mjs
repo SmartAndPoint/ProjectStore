@@ -555,3 +555,176 @@ test("install: the launcher stamp names the installer as generator and doctor as
   const s = stamp("x\n", { format: "mjs", src: "a", srcHash: sourceHash("a"), pkg: "1", project: "/p", harness: "h" });
   assert.ok(s.text.includes("tests/portability.test.mjs"), "the default remedy still names the suite for a committed tree");
 });
+
+// ─── Slice A3: doctor reads the states ──────────────────────────────────
+
+import { surfaceStates, analyseStampedFile } from "../scripts/surfaces.mjs";
+import { checkHarnessSurfaces, checkVersionDrift, checkAgentsBlock, runInstallChecks } from "../scripts/doctor.mjs";
+import { installedPluginEntries } from "../scripts/lib.mjs";
+
+function writeRegistry(home, entries) {
+  const dir = join(home, SRC.runtime.home_default, "plugins");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "installed_plugins.json"), JSON.stringify({ version: 2, plugins: { "projectstore@SmartAndPoint": entries } }));
+}
+
+const byCheck = (fs, id) => fs.filter((f) => f.check === id);
+
+test("install contract 4 (doctor half): each of the four stale reasons on the launcher is one doctor issue, and current is silent", async () => {
+  const one = async (mutate) => {
+    const { home, root, proj } = installed();
+    assert.deepEqual(byCheck(await checkHarnessSurfaces({}, proj, { home, root }), "surface"), [], "a current install says nothing");
+    const opts = mutate({ home, root, proj });
+    const f = byCheck(await checkHarnessSurfaces({}, proj, opts || { home, root }), "surface");
+    assert.equal(f.length, 1);
+    assert.equal(f[0].level, "issue");
+    assert.match(f[0].message, /install-harness\.mjs install --surface statusline_launcher/);
+    return f[0].message;
+  };
+  assert.match(await one(({ proj }) => writeFileSync(statusLineLauncherPath(proj), read(statusLineLauncherPath(proj)) + "\n// hand edit\n")), /stale: edited by hand/);
+  assert.match(await one(({ root }) => writeFileSync(join(root, "scripts", "statusline-launcher.mjs"), read(join(root, "scripts", "statusline-launcher.mjs")) + "\n// new line\n")), /stale: source changed/);
+  assert.match(await one(({ root }) => writeFileSync(join(root, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.29.0" }))), /stale: plugin updated/);
+  assert.match(await one(({ home, root }) => { void root; const other = fakeInstall(home, "0.28.0-b"); writeFileSync(join(other, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.28.0" })); return { home, root: other }; }), /stale: configuration changed/);
+});
+
+test("install contract 5 (doctor half): a foreign file is reported under its own id with the resolution wording, and never repaired", async () => {
+  const { home, root } = fixture();
+  const proj = project();
+  mkdirSync(join(proj, CFG_DIR, ".projectstore"), { recursive: true });
+  writeFileSync(statusLineLauncherPath(proj), "#!/usr/bin/env node\nconsole.log('mine');\n");
+  const f = await checkHarnessSurfaces({}, proj, { home, root });
+  assert.equal(byCheck(f, "surface-foreign").length, 1);
+  assert.match(byCheck(f, "surface-foreign")[0].message, /rename it if it is yours, or delete it/i);
+  assert.equal(byCheck(f, "surface").length, 0);
+  // The repair table never names the id, and every repair it can emit invokes a verb.
+  const doctorMd = read(join(ROOT, "commands", "doctor.md"));
+  const step3 = doctorMd.slice(doctorMd.indexOf("3. **`--fix` requested**"));
+  const repairIds = [...step3.matchAll(/^\s+- `([a-z-]+)`/gm)].map((m) => m[1]);
+  assert.ok(repairIds.includes("surface") && repairIds.includes("surface-foreign"), "both ids are addressed in step 3");
+  assert.ok(/surface-foreign` → \*\*never repairable/.test(step3), "the negative clause exists");
+  const bullet = step3.slice(step3.indexOf("- `surface-foreign`"), step3.indexOf("\n   - `", step3.indexOf("- `surface-foreign`") + 5));
+  assert.ok(!bullet.includes('node "') && !bullet.includes("/projectstore:"), "the surface-foreign bullet invokes nothing");
+  assert.ok(/never Edit, Write or delete the file yourself/.test(step3));
+  // Executable repairs: every verb invocation step 3 can emit leaves a foreign
+  // launcher and a foreign slot byte-identical.
+  const cmds = [...step3.matchAll(/node "\$CLAUDE_PLUGIN_ROOT\/scripts\/([a-z-]+\.mjs)" ([a-z]+)/g)].map((m) => [m[1], m[2]]);
+  assert.ok(cmds.length > 0 && cmds.every(([s]) => s === "install-harness.mjs"), "repairs invoke core verbs only");
+  const foreignSlot = JSON.stringify({ statusLine: { type: "command", command: "node /x/hud.mjs" } }, null, 2) + "\n";
+  const victim = project({ settings: foreignSlot, agents: "# theirs\n" });
+  mkdirSync(join(victim, CFG_DIR, ".projectstore"), { recursive: true });
+  writeFileSync(statusLineLauncherPath(victim), "console.log('theirs')\n");
+  const env = { ...process.env, HOME: home, [SRC.runtime.plugin_root_env]: root };
+  delete env[SRC.runtime.home_env];
+  for (const [script, verb] of cmds) {
+    for (const key of ["statusline", "agents_block"]) {
+      spawnSync(process.execPath, [join(ROOT, "scripts", script), verb, "--harness", SRC.id, "--surface", key, "--project", victim], { encoding: "utf8", env, timeout: 15000 });
+    }
+  }
+  assert.equal(read(statusLineLauncherPath(victim)), "console.log('theirs')\n");
+  assert.equal(read(join(victim, CFG_DIR, "settings.local.json")), foreignSlot);
+  assert.ok(read(join(victim, "AGENTS.md")).startsWith("# theirs\n"), "the user's prose is untouched; the block was appended after it");
+});
+
+test("install contract 12 (doctor half): a launcher another project wrote is one info naming it", async () => {
+  const { home, root, proj } = installed();
+  const other = project();
+  mkdirSync(join(other, CFG_DIR, ".projectstore"), { recursive: true });
+  copyFileSync(statusLineLauncherPath(proj), statusLineLauncherPath(other));
+  const f = byCheck(await checkHarnessSurfaces({}, other, { home, root }), "surface");
+  assert.equal(f.length, 1);
+  assert.equal(f[0].level, "info");
+  assert.ok(f[0].message.includes(`current, last written by ${proj}`));
+});
+
+test("install contract 6 (doctor half): block states — content drift at the same version, one per file, unclosed", async () => {
+  const { home, root } = fixture();
+  const drift = project({ claude: BLOCK.replace("- **Report instruction conflicts", "- **Changed line\n- **Report instruction conflicts") + "\n" });
+  const f = byCheck(await checkHarnessSurfaces({}, drift, { home, root }), "surface");
+  assert.equal(f.length, 1);
+  assert.match(f[0].message, /content differs from the current source/);
+  assert.deepEqual(checkAgentsBlock(drift), [], "the version matches, so the version check is quiet — the state check carries it");
+
+  const both = project({ claude: "# Mine\n\n" + BLOCK + "\n", agents: "# A\n\n" + BLOCK + "\n" });
+  const ab = checkAgentsBlock(both);
+  assert.equal(ab.length, 1);
+  assert.equal(ab[0].level, "warn", "one per file is what install resolves");
+  assert.match(ab[0].message, /keeps the one in AGENTS\.md/);
+  const twice = project({ claude: BLOCK + "\n\n" + BLOCK + "\n" });
+  assert.equal(checkAgentsBlock(twice)[0].level, "issue");
+
+  const unclosed = project({ claude: "<!-- projectstore:agents v3 -->\n## half\n" });
+  const u = byCheck(await checkHarnessSurfaces({}, unclosed, { home, root }), "surface");
+  assert.equal(u.length, 1);
+  assert.equal(u[0].level, "issue");
+  assert.match(u[0].message, /never closes/);
+});
+
+test("install contract 16: a harness is reported only when the project uses it", async () => {
+  const { home, root } = fixture();
+  // A second manifest whose project directory is .codex, in a temp manifest dir.
+  const mdir = mkdtempSync(join(tmpdir(), "ps-manifests-"));
+  copyFileSync(join(ROOT, "harnesses", "claude-code.json"), join(mdir, "claude-code.json"));
+  const fake = JSON.parse(read(join(ROOT, "harnesses", "claude-code.json")));
+  fake.id = "other-harness"; fake.display_name = "Other"; fake.source_layout = false; fake.emit = true;
+  fake.runtime = { ...fake.runtime, project_config_dir: ".other", project_dir_env: "OTHER_PROJECT_DIR", plugin_root_env: "OTHER_PLUGIN_ROOT", home_env: "OTHER_HOME", detect_env: ["OTHER_HOME"] };
+  fake.surfaces = { commands: { ...fake.surfaces.commands } };
+  writeFileSync(join(mdir, "other-harness.json"), JSON.stringify(fake));
+  const proj = project();
+  const r = surfaceStates(proj, { home, root, manifestDir: mdir });
+  assert.deepEqual(r.used, [SRC.id], "only the harness whose directory exists");
+  assert.ok(r.states.every((s) => s.harness === SRC.id));
+  // The other half of contract 16: no directory, but a file of ours.
+  const oursOnly = mkdtempSync(join(tmpdir(), "ps-ours-"));
+  writeFileSync(join(oursOnly, "AGENTS.md"), BLOCK + "\n");
+  assert.deepEqual(surfaceStates(oursOnly, { home, root, manifestDir: mdir }).used, [SRC.id], "a project carrying our block uses the harness");
+  const none = mkdtempSync(join(tmpdir(), "ps-none-"));
+  const f = await checkHarnessSurfaces({}, none, { home, root, manifestDir: mdir });
+  assert.equal(f.length, 1);
+  assert.equal(f[0].check, "harness");
+  assert.match(f[0].message, /claude-code, other-harness/);
+});
+
+test("install contract 17: registrations at different versions are one warning naming both and their sources", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  writeRegistry(home, [{ scope: "user", installPath: "/x/0.27.0", version: "0.27.0" }]);
+  assert.deepEqual(checkVersionDrift(home, []), [], "one registration, nothing to say");
+  assert.equal(installedPluginEntries(home).length, 1);
+  assert.equal(installedPluginEntries(home)[0].present, false);
+  // The common shape: two installs under ONE key and ONE scope, both on disk.
+  const a = fakeInstall(home, "0.27.0"), b = fakeInstall(home, "0.28.0");
+  writeRegistry(home, [{ scope: "user", installPath: a, version: "0.27.0" }, { scope: "user", installPath: b, version: "0.28.0" }]);
+  const f = checkVersionDrift(home, []);
+  assert.equal(f.length, 1);
+  assert.equal(f[0].check, "version-drift");
+  assert.match(f[0].message, /0\.27\.0 \(registry projectstore@SmartAndPoint \(user\) at /);
+  assert.match(f[0].message, /0\.28\.0/);
+  // A wiped install is not a copy anyone runs.
+  writeRegistry(home, [{ scope: "user", installPath: a, version: "0.27.0" }, { scope: "user", installPath: "/gone/0.26.0", version: "0.26.0" }]);
+  assert.deepEqual(checkVersionDrift(home, []), []);
+  // A stamped file at a version the registry does not carry counts too.
+  writeRegistry(home, [{ scope: "user", installPath: a, version: "0.27.0" }]);
+  const g = checkVersionDrift(home, [{ surface: "statusline_launcher", installedPkg: "0.28.0" }]);
+  assert.equal(g.length, 1);
+  assert.match(g[0].message, /0\.28\.0 \(pkg= of statusline_launcher\)/);
+});
+
+test("install: runInstallChecks carries the state findings, and the startup path never loads the leaf", async () => {
+  const { home, root, proj } = installed();
+  writeFileSync(join(proj, CFG_DIR, "settings.local.json"), "{ not json");
+  const cfg = { vault_path: proj, layout: "engineering", statusline: { enabled: true } };
+  const f = await runInstallChecks(cfg, proj, { home, root });
+  assert.ok(Array.isArray(f));
+  assert.ok(f.some((x) => x.check === "statusline"), "checkStatusline still owns the entry's wiring facts");
+  const startup = read(join(ROOT, "scripts", "doctor.mjs"));
+  const body = startup.slice(startup.indexOf("export function runStartupChecks"), startup.indexOf("export function runStartupChecks") + 1200);
+  assert.ok(!body.includes("checkHarnessSurfaces") && !body.includes("surfaces.mjs"), "the startup checks never reach the leaf");
+});
+
+test("install: the installer's item shape did not move when the states moved into surfaces.mjs", () => {
+  const { home, root, proj } = installed();
+  const a = analyseStampedFile(proj, sourceHarness().surfaces.statusline_launcher, { root, home, harness: sourceHarness() });
+  assert.equal(a.state, "current");
+  assert.equal(a.installedPkg, "0.28.0");
+  const i = item(plan(proj, { home, root }), "statusline_launcher");
+  assert.deepEqual([i.state, i.action, i.writtenBy], ["current", "skip", proj]);
+});

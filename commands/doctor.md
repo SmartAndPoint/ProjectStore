@@ -36,6 +36,19 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      which installs or removes the entry and the launcher behind a preview
      (the SessionStart hook only refreshes an entry that already exists), and
      remind that a restart applies it.
+   - `surface` (a stale installed file or a stale shared entry) → offer running
+     the verb for that surface and print its output:
+     `node "$CLAUDE_PLUGIN_ROOT/scripts/install-harness.mjs" install --harness claude-code --surface <key> --project "<abs project dir>"`
+     (`statusline` for the launcher, `agents_block` for the block). Repairs
+     invoke core verbs only — never Edit, Write or delete the file yourself.
+   - `surface-foreign` → **never repairable.** A file under our prefix with no
+     provenance line is not ours: no `--fix` flow may edit, delete, move or
+     overwrite it. Print the finding verbatim and relay its resolution — rename
+     it if it is yours, or delete it yourself to let `install` take the name.
+     The verbs refuse it in code; this clause is the belt.
+   - `version-drift` → report only: name both versions and where each was
+     read; the fix is the host's update path (`/plugin update`), not ours.
+   - `harness` (info) → nothing to repair; it names what `install` can target.
    - `override-copies` → a copy carrying the provenance marker overrides nothing
      (ADR-008): offer to **delete** it (approval-gated, one prompt per file), and
      say that `/projectstore:agents configure` now records the model in

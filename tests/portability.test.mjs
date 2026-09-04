@@ -171,7 +171,22 @@ test("install spec modules: doctor never imports the installer, and the installe
   // Direction: installer → provenance ← doctor. And the installer is keyed by
   // surface format, never by harness id — the source id included, which the
   // branch test above deliberately filters out.
-  assert.ok(!readFileSync(join(ROOT, "scripts", "doctor.mjs"), "utf8").includes("install-harness"), "doctor.mjs imports install-harness");
+  const doctor = readFileSync(join(ROOT, "scripts", "doctor.mjs"), "utf8");
+  // Imports, not mentions: doctor names the verb in its remedies.
+  assert.ok(!/from "\.\/install-harness\.mjs"|import\("\.\/install-harness\.mjs"\)/.test(doctor), "doctor.mjs imports install-harness");
+  // provenance.mjs stays out of the SessionStart graph, which imports doctor
+  // statically: doctor reaches surfaces.mjs (and through it provenance) only
+  // by a dynamic import inside the one check that needs it.
+  assert.ok(!doctor.includes("provenance.mjs"), "doctor.mjs imports provenance.mjs");
+  assert.ok(!/from "\.\/surfaces\.mjs"/.test(doctor), "doctor.mjs imports surfaces.mjs statically");
+  assert.ok(/await import\("\.\/surfaces\.mjs"\)/.test(doctor), "doctor.mjs reaches surfaces.mjs dynamically");
+  for (const n of readdirSync(join(ROOT, "hooks")).filter((f) => f.endsWith(".mjs"))) {
+    assert.ok(!readFileSync(join(ROOT, "hooks", n), "utf8").includes("surfaces.mjs"), `hooks/${n} pulls surfaces.mjs into the SessionStart graph`);
+  }
+  const surfaces = readFileSync(join(ROOT, "scripts", "surfaces.mjs"), "utf8");
+  // The banner names the installer as its generator — a string, not an import.
+  assert.ok(!/from "\.\/install-harness\.mjs"/.test(surfaces), "surfaces.mjs imports the installer");
+  for (const call of ["writeFileSync", "writeFileAtomic", "mkdirSync", "unlinkSync", "rmSync", "rmdirSync", "appendFileSync", "copyFileSync", "renameSync", "cpSync", "writeFile(", "createWriteStream"]) assert.ok(!surfaces.includes(call), `surfaces.mjs writes (${call})`);
   const code = stripComments(readFileSync(join(ROOT, "scripts", "install-harness.mjs"), "utf8"));
   for (const id of manifests().map((m) => m.id)) {
     assert.ok(!new RegExp(`["'\`]${id}["'\`]`).test(code), `install-harness.mjs names the harness "${id}"`);

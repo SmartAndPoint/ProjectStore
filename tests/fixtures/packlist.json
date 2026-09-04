@@ -62,6 +62,7 @@
   "scripts/statusline-launcher.mjs",
   "scripts/statusline.mjs",
   "scripts/story-section.mjs",
+  "scripts/surfaces.mjs",
   "scripts/tokens.mjs",
   "scripts/touch-session.mjs",
   "scripts/version-guard.mjs",

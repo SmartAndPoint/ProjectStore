@@ -76,6 +76,10 @@ export const STALE_TEXT = Object.freeze({
   [STALE.CONFIG]: "configuration changed",
 });
 
+// Contract 5's resolution wording (Ivan Morozov's), in one place for the
+// verbs that refuse and the report that names.
+export const FOREIGN_TEXT = "a file we did not write sits at our path — rename it if it is yours, or delete it to let install take the name";
+
 const normalizeEol = (s) => s.replace(/\r\n/g, "\n");
 
 function unsupportedFormat(format) {

@@ -13,6 +13,10 @@
 // names, and nothing outside that entry is read, rewritten or removed
 // (contract 6). A JSON file cannot carry the line, so it is always shared.
 //
+// The STATE of each surface comes from surfaces.mjs, which doctor reads too,
+// so the verbs and the report can never disagree about a file. This file
+// adds only policy — what a mode does with a state — and the writes.
+//
 // plan() writes nothing and reads no terminal: it is a pure description of
 // what install/uninstall would do, per surface, so the preview, the states and
 // the refusals are unit-tested without a subprocess. renderPreview() is a
@@ -32,7 +36,8 @@
 // (contract 14) — the plan reports the marketplace steps the manifest
 // carries and writes none of them.
 //
-// Direction: installer → provenance ← doctor. Doctor never imports this file.
+// Direction: installer → surfaces ← doctor; installer → provenance ← doctor.
+// Doctor never imports this file.
 //
 // Normative: the spec "Installing, refreshing and disowning a harness
 // surface", contracts 0, 5–10, 13–15. The plan/apply split, the refusal
@@ -40,67 +45,17 @@
 // (MultiProjectStore); the host-managed report shape is Maxim
 // Podreshetnikov's (PR #13, installElsewhere). Pure node, no external deps.
 
-import { readFileSync, existsSync, mkdirSync, unlinkSync, rmdirSync, readdirSync } from "node:fs";
+import { mkdirSync, unlinkSync, rmdirSync, readdirSync } from "node:fs";
 import { join, resolve, dirname, relative, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
-import {
-  loadHarness,
-  harnessIds,
-  sourceHarness,
-  detectHarnesses,
-  harnessRefusal,
-} from "./harness.mjs";
-import { stamp, deriveState, sourceHash, STALE, STALE_TEXT } from "./provenance.mjs";
-import {
-  pluginRoot,
-  writeFileAtomic,
-  ensureRuntimeDir,
-  renderStatusLineLauncher,
-  statusLineLauncherPath,
-  statusLineIsOurWiring,
-  isPluginCacheRoot,
-  desiredStatusLineCommand,
-  findAgentsBlock,
-  replaceAgentsBlock,
-  removeAgentsBlock,
-  agentsBlockVersion,
-  agentsBlockTemplatePath,
-  renderAgentsBlock,
-  loadLayout,
-  readConfigAt,
-} from "./lib.mjs";
+import { loadHarness, harnessIds, sourceHarness, detectHarnesses, harnessRefusal } from "./harness.mjs";
+import { FOREIGN_TEXT } from "./provenance.mjs";
+import { analyseBlock, analyseJsonEntry, analyseStampedFile } from "./surfaces.mjs";
+import { pluginRoot, writeFileAtomic, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot } from "./lib.mjs";
 
-export const GENERATOR = "scripts/install-harness.mjs";
-const INSTALLED_REMEDY = "projectstore doctor reports this file when it is stale; run install again to refresh it.";
-// The line every launcher has carried since the template was written; the
-// recogniser for a pre-provenance launcher (contract 4, rung 1″). Kept as a
-// substring of the template's own header so a reworded comment cannot turn
-// every existing install foreign.
-const LAUNCHER_HEADER = "projectstore — status line launcher";
-
-// ─── Context ───────────────────────────────────────────────────────────
-
-function pluginVersionAt(root, harness) {
-  // The version file is where the source harness's plugin manifest lives —
-  // manifest data, not a path this file knows.
-  const rel = harness?.version_file || sourceHarness()?.version_file || ".claude-plugin/plugin.json";
-  try {
-    return String(JSON.parse(readFileSync(join(root, rel), "utf8")).version || "");
-  } catch {
-    return "";
-  }
-}
-
-function readText(p) {
-  if (!existsSync(p)) return { present: false, text: null };
-  try {
-    return { present: true, text: readFileSync(p, "utf8") };
-  } catch {
-    return { present: true, text: null };
-  }
-}
+export { GENERATOR } from "./surfaces.mjs";
 
 function rel(projectDir, p) {
   const r = relative(projectDir, p);
@@ -115,50 +70,22 @@ function inside(dir, parent) {
 // ─── Surface handlers, keyed by format ─────────────────────────────────
 //
 // Each handler answers plan(ctx) → PlanItem[] for one surface row, in one
-// mode. A PlanItem carries everything the preview and apply need; apply never
-// re-derives a state.
+// mode, from the state surfaces.mjs derived. A PlanItem carries everything
+// the preview and apply need; apply never re-derives a state.
 
 const HANDLERS = {
-  // The ADR-002 block in AGENTS.md (preferred) or CLAUDE.md — a shared
-  // markdown file in which we own one delimited block.
   "markdown-block": planAgentsBlock,
-  // One entry in a JSON file the user co-owns.
   "json-entry": planJsonEntry,
-  // An exclusive file with a `//` provenance line — the statusline launcher.
   "mjs": planStampedFile,
 };
 
 function planAgentsBlock(ctx, key, s) {
   const { projectDir, mode, root } = ctx;
-  const files = s.files || ["AGENTS.md", "CLAUDE.md"];
-  const PREFERRED = files[0], FALLBACK = files[files.length - 1];
-  const found = files.map((f) => ({ file: f, path: join(projectDir, f), ...readText(join(projectDir, f)) }))
-    .map((e) => ({ ...e, block: e.text !== null ? findAgentsBlock(e.text) : null }));
-  const withBlock = found.filter((e) => e.block);
+  const a = analyseBlock(projectDir, s, { root });
+  const { withBlock, preferred, claude, importLine, PREFERRED, FALLBACK } = a;
   const items = [];
-  const refuse = (why) => ({ surface: key, kind: "shared", path: found[0].path, entry: "projectstore:agents", state: "refused", action: "refuse", reason: why });
+  if (a.refusal) return [{ surface: key, kind: "shared", path: a.files[0].path, entry: "projectstore:agents", state: "refused", action: "refuse", reason: a.refusal }];
 
-  if (withBlock.some((e) => e.block.unclosed)) {
-    return [refuse(`${withBlock.find((e) => e.block.unclosed).file}: the block opens and never closes — restore the closing marker or remove the block by hand`)];
-  }
-  if (withBlock.some((e) => e.block.count > 1)) {
-    return [refuse(`${withBlock.find((e) => e.block.count > 1).file} carries the block more than once — keep exactly one`)];
-  }
-
-  const tmpl = readText(agentsBlockTemplatePath(root));
-  if (!tmpl.present || tmpl.text === null) return [refuse(`the block template is missing from the plugin at ${agentsBlockTemplatePath(root)}`)];
-  const version = agentsBlockVersion(tmpl.text);
-  const cfg = readConfigAt(projectDir);
-  let roster = null;
-  if (cfg && typeof cfg.layout === "string") {
-    try { roster = loadLayout(cfg.layout, root).agents || null; } catch { roster = null; }
-  }
-  const desired = renderAgentsBlock(tmpl.text, roster);
-
-  // Placement (ADR-002 decision 3): AGENTS.md when it exists, else CLAUDE.md.
-  const preferred = found.find((e) => e.file === PREFERRED && e.present) || found.find((e) => e.file === FALLBACK);
-  const claude = found.find((e) => e.file === FALLBACK);
-  const importLine = `@${PREFERRED}`;
   const hasImport = (text) => String(text ?? "").split("\n").some((l) => l.trim() === importLine);
   // A CLAUDE.md that is nothing but the import registration added is ours to
   // delete when the block goes (ADR-002 decision 4); anything else stays.
@@ -176,29 +103,27 @@ function planAgentsBlock(ctx, key, s) {
     return items;
   }
 
-  const entry = `projectstore:agents v${version}`;
-  const current = withBlock.find((e) => e.file === preferred.file) || withBlock[0] || null;
+  const entry = `projectstore:agents v${a.version}`;
+  const current = a.current;
   // Two files, one block each: resolve in favour of the preferred file —
   // register migrates, never duplicates (ADR-002 decision 3).
-  for (const e of withBlock) {
-    if (e !== current) items.push(removal(e, { state: "ours-stale", reason: `duplicate of the block in ${current.file}` }));
-  }
+  for (const e of a.duplicates || []) items.push(removal(e, { state: "ours-stale", reason: `duplicate of the block in ${current.file}` }));
 
   if (!current) {
     const target = preferred;
     items.push({ surface: key, kind: "shared", path: target.path, entry, state: "ours-absent", action: target.present ? "add" : "create", reason: null,
-      before: target.present ? target.text : null, after: replaceAgentsBlock(target.present ? target.text : "", desired) });
+      before: target.present ? target.text : null, after: replaceAgentsBlock(target.present ? target.text : "", a.desired) });
   } else if (current.file !== preferred.file && preferred.present) {
     // Present in the non-preferred file: migrate — remove there, add here.
     items.push(removal(current, { state: "ours-stale", reason: `migrating to ${preferred.file}` }));
     items.push({ surface: key, kind: "shared", path: preferred.path, entry, state: "ours-absent", action: "add", reason: `migrated from ${current.file}`,
-      before: preferred.text, after: replaceAgentsBlock(preferred.text, desired) });
-  } else if (current.block.v === version && current.block.block === desired) {
+      before: preferred.text, after: replaceAgentsBlock(preferred.text, a.desired) });
+  } else if (current.block.v === a.version && current.block.block === a.desired) {
     items.push({ surface: key, kind: "shared", path: current.path, entry, state: "ours-current", action: "skip", reason: null });
   } else {
     items.push({ surface: key, kind: "shared", path: current.path, entry, state: "ours-stale", action: "replace-entry",
-      reason: current.block.v !== version ? `v${current.block.v} → v${version}` : "content differs from the current template",
-      before: current.text, after: replaceAgentsBlock(current.text, desired) });
+      reason: current.block.v !== a.version ? `v${current.block.v} → v${a.version}` : "content differs from the current source",
+      before: current.text, after: replaceAgentsBlock(current.text, a.desired) });
   }
 
   // The @AGENTS.md import in CLAUDE.md (ADR-002 decision 3), only when the
@@ -207,7 +132,7 @@ function planAgentsBlock(ctx, key, s) {
   // text, or the two items would race.
   const written = items.find((i) => ["add", "create", "replace-entry", "skip"].includes(i.action) && i.surface === key);
   const blockFile = written ? rel(projectDir, written.path) : null;
-  if (blockFile === PREFERRED && files.length > 1 && claude) {
+  if (blockFile === PREFERRED && a.files.length > 1 && claude) {
     const rewrite = items.find((i) => i.action === "remove" && i.path === claude.path);
     const text = rewrite ? rewrite.after : (claude.present ? claude.text : null);
     if (typeof text === "string" && !hasImport(text)) {
@@ -225,85 +150,62 @@ function planJsonEntry(ctx, key, s) {
     return [{ surface: key, kind: "shared", path: join(projectDir, s.file), entry: s.marker?.pointer || null, state: "unsupported", action: "skip", reason: s.why_unsupported || "not supported for this harness yet" }];
   }
   const path = join(projectDir, s.file);
-  const pointer = s.marker?.pointer || "statusLine.command";
-  const entryKey = pointer.split(".")[0];
+  const entryKey = (s.marker?.pointer || "statusLine.command").split(".")[0];
   // The status line is opt-in (projectstore.json → statusline.enabled), as
   // the SessionStart refresh already honours; naming the surface explicitly
   // is the other way to opt in.
   if (mode === "install" && !ctx.optIn.has(key)) {
     return [{ surface: key, kind: "shared", path, entry: entryKey, state: "opt-out", action: "skip", reason: "statusline.enabled is not true in projectstore.json — name --surface statusline to wire it anyway" }];
   }
-  const cur = readText(path);
-  let settings = {};
-  if (cur.present) {
-    if (cur.text === null) return [{ surface: key, kind: "shared", path, entry: entryKey, state: "unparseable", action: "refuse", reason: "the file cannot be read" }];
-    try { settings = JSON.parse(cur.text); } catch { return [{ surface: key, kind: "shared", path, entry: entryKey, state: "unparseable", action: "refuse", reason: "the file is not valid JSON — nothing outside a marked entry is touched, so nothing is written" }]; }
-    if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
-      return [{ surface: key, kind: "shared", path, entry: entryKey, state: "unparseable", action: "refuse", reason: "the file is not a JSON object" }];
-    }
-  }
-  const curEntry = settings[entryKey];
-  const curCmd = curEntry && typeof curEntry.command === "string" ? curEntry.command : null;
-  const ours = statusLineIsOurWiring(curCmd, projectDir, home, root);
-  const { command: desired } = desiredStatusLineCommand(projectDir, root, home);
+  const a = analyseJsonEntry(projectDir, s, { root, home });
+  if (a.state === "unparseable") return [{ surface: key, kind: "shared", path, entry: entryKey, state: "unparseable", action: "refuse", reason: a.reason }];
 
   if (mode === "uninstall") {
-    if (!curEntry) return [{ surface: key, kind: "shared", path, entry: entryKey, state: "ours-absent", action: "skip", reason: null }];
-    if (!ours) return [{ surface: key, kind: "shared", path, entry: entryKey, state: "theirs", action: "skip", reason: "the entry is not ours — left in place" }];
-    const after = { ...settings }; delete after[entryKey];
-    return [{ surface: key, kind: "shared", path, entry: entryKey, state: "ours-current", action: "remove", reason: null, before: settings, after }];
+    if (!a.curEntry) return [{ surface: key, kind: "shared", path, entry: entryKey, state: "ours-absent", action: "skip", reason: null }];
+    if (!a.ours) return [{ surface: key, kind: "shared", path, entry: entryKey, state: "theirs", action: "skip", reason: "the entry is not ours — left in place" }];
+    const after = { ...a.settings }; delete after[entryKey];
+    return [{ surface: key, kind: "shared", path, entry: entryKey, state: "ours-current", action: "remove", reason: null, before: a.settings, after }];
   }
-  if (curEntry && !ours) {
+  if (a.state === "theirs") {
     ctx.slotForeign.add(key);
     return [{ surface: key, kind: "shared", path, entry: entryKey, state: "theirs", action: "skip", reason: "a status line we did not write owns the slot — left to its owner, and nothing else is wired for it" }];
   }
-  if (curEntry && curCmd === desired) return [{ surface: key, kind: "shared", path, entry: entryKey, state: "ours-current", action: "skip", reason: null }];
-  const after = { ...settings, [entryKey]: { ...(curEntry && typeof curEntry === "object" ? curEntry : {}), type: "command", command: desired } };
-  return [{ surface: key, kind: "shared", path, entry: entryKey, state: curEntry ? "ours-stale" : "ours-absent", action: curEntry ? "replace-entry" : (cur.present ? "add" : "create"),
-    reason: curEntry ? "the command no longer matches this installation" : null, before: cur.present ? settings : null, after }];
+  if (a.state === "ours-current") return [{ surface: key, kind: "shared", path, entry: entryKey, state: "ours-current", action: "skip", reason: null }];
+  const after = { ...a.settings, [entryKey]: { ...(a.curEntry && typeof a.curEntry === "object" ? a.curEntry : {}), type: "command", command: a.desired } };
+  return [{ surface: key, kind: "shared", path, entry: entryKey, state: a.state, action: a.curEntry ? "replace-entry" : (a.cur.present ? "add" : "create"),
+    reason: a.curEntry ? a.reason : null, before: a.cur.present ? a.settings : null, after }];
 }
 
 function planStampedFile(ctx, key, s) {
   const { projectDir, mode, root, home, harness } = ctx;
   const path = join(projectDir, s.file);
-  const src = join(root, s.source);
-  const tpl = readText(src);
-  const file = readText(path);
-  const isLegacy = (text) => typeof text === "string" && text.includes(LAUNCHER_HEADER);
-  const foreignWhy = "a file we did not write sits at our path — rename it if it is yours, or delete it to let install take the name";
-
-  // Not produced for this installation (a dev checkout is wired directly):
-  // an orphan we wrote earlier is pruned (contract 7); anything else is left.
-  if (s.condition === "plugin_cache_install" && !isPluginCacheRoot(root, home)) {
-    if (!file.present) return [];
-    const ours = (file.text && /projectstore: v\d+ src=/.test(file.text)) || isLegacy(file.text);
-    if (!ours) return [{ surface: key, kind: "exclusive", path, entry: null, state: "foreign", action: "skip", reason: "not produced for a dev checkout, and not ours — left in place" }];
-    return [{ surface: key, kind: "exclusive", path, entry: null, state: "stale", action: mode === "uninstall" ? "remove" : "prune", reason: "no longer produced for this installation (a dev checkout is wired directly)" }];
-  }
-  if (mode === "install" && !ctx.optIn.has(s.condition ? "statusline" : key) && !ctx.optIn.has(key)) {
+  const produced = !(s.condition === "plugin_cache_install" && !isPluginCacheRoot(root, home));
+  // The policy early-outs come before the render-and-hash, which they make
+  // unnecessary.
+  if (produced && mode === "install" && !ctx.optIn.has(s.condition ? "statusline" : key) && !ctx.optIn.has(key)) {
     return [{ surface: key, kind: "exclusive", path, entry: null, state: "opt-out", action: "skip", reason: "statusline.enabled is not true in projectstore.json" }];
   }
-  if (mode === "install" && ctx.slotForeign.size) {
-    return [{ surface: key, kind: "exclusive", path, entry: null, state: file.present ? "present" : "absent", action: "skip", reason: "the status line slot is foreign; a launcher nothing points at is not written" }];
+  if (produced && mode === "install" && ctx.slotForeign.size) {
+    return [{ surface: key, kind: "exclusive", path, entry: null, state: "absent-or-present", action: "skip", reason: "the status line slot is foreign; a launcher nothing points at is not written" }];
   }
-  if (!tpl.present || tpl.text === null) return [{ surface: key, kind: "exclusive", path, state: "refused", action: "refuse", reason: `the source ${s.source} is missing from the plugin at ${root}` }];
-  const rendered = renderStatusLineLauncher(tpl.text, root);
-  if (rendered === null) return [{ surface: key, kind: "exclusive", path, state: "refused", action: "refuse", reason: "the launcher template is not one this installer knows how to fill" }];
-  const pkg = pluginVersionAt(root, harness) || "0.0.0";
-  const stamped = stamp(rendered, { format: s.format, src: s.source, srcHash: sourceHash(tpl.text), pkg, project: projectDir, harness: harness.id, generator: GENERATOR, remedy: INSTALLED_REMEDY });
-  let st = deriveState({ file, sourceHash: sourceHash(tpl.text), pkg, renderNowHash: stamped.render, project: projectDir });
-  // Contract 4, rung 1″: a launcher written before provenance existed carries
-  // no line but the template's own header. It is ours, stale, replaceable.
-  if (st.state === "foreign" && isLegacy(file.text)) st = { ...st, state: "stale", reason: STALE.PLUGIN, legacy: true };
-  const base = { surface: key, kind: "exclusive", path, entry: null, state: st.state, reason: st.reason ? STALE_TEXT[st.reason] + (st.legacy ? " (pre-provenance file)" : "") : null, writtenBy: st.writtenBy, sameProject: st.sameProject };
+  const a = analyseStampedFile(projectDir, s, { root, home, harness });
+  // Not produced for this installation (a dev checkout is wired directly):
+  // an orphan we wrote earlier is pruned (contract 7); anything else is left.
+  if (!a.produced) {
+    if (!a.file.present) return [];
+    if (!a.ours) return [{ surface: key, kind: "exclusive", path, entry: null, state: "foreign", action: "skip", reason: "not produced for a dev checkout, and not ours — left in place" }];
+    return [{ surface: key, kind: "exclusive", path, entry: null, state: "stale", action: mode === "uninstall" ? "remove" : "prune", reason: a.reason }];
+  }
+  if (a.refusal) return [{ surface: key, kind: "exclusive", path, state: "refused", action: "refuse", reason: a.refusal }];
+  const base = { surface: key, kind: "exclusive", path, entry: null, state: a.state, reason: a.reason, writtenBy: a.writtenBy, sameProject: a.sameProject };
   if (mode === "uninstall") {
-    if (st.state === "absent") return [{ ...base, action: "skip" }];
-    if (st.state === "foreign") return [{ ...base, action: "refuse", reason: foreignWhy }];
+    if (a.state === "absent") return [{ ...base, action: "skip" }];
+    if (a.state === "foreign") return [{ ...base, action: "refuse", reason: FOREIGN_TEXT }];
     return [{ ...base, action: "remove" }];
   }
-  if (st.state === "foreign") return [{ ...base, action: "refuse", reason: foreignWhy }];
-  if (st.state === "current") return [{ ...base, action: "skip" }];
-  return [{ ...base, action: st.state === "absent" ? "create" : "update", after: stamped.text }];
+  if (a.state === "foreign") return [{ ...base, action: "refuse", reason: FOREIGN_TEXT }];
+  if (a.state === "current") return [{ ...base, action: "skip" }];
+  return [{ ...base, action: a.state === "absent" ? "create" : "update", after: a.stamped.text }];
 }
 
 // ─── plan ──────────────────────────────────────────────────────────────
@@ -377,7 +279,8 @@ export function renderPreview(p) {
     lines.push(`            ${state.padEnd(44)} → ${i.action}${i.action === "refuse" && i.reason ? ": " + i.reason : ""}`);
     if (i.deleteIfEmpty && typeof i.after === "string" && !i.after.trim()) lines.push(`            (the file would hold nothing else and is removed)`);
   }
-  if (p.items.some((i) => i.action === "remove" && i.kind === "exclusive")) lines.push(`            (an emptied ${rel(p.projectDir, dirname(p.items.find((i) => i.action === "remove" && i.kind === "exclusive").path))}/ is pruned)`);
+  const exclusiveRemoval = p.items.find((i) => i.action === "remove" && i.kind === "exclusive");
+  if (exclusiveRemoval) lines.push(`            (an emptied ${rel(p.projectDir, dirname(exclusiveRemoval.path))}/ is pruned)`);
   for (const r of p.refusals) lines.push(`  refused   ${r}`);
   lines.push("", "  Nothing outside a marked entry is read, rewritten or removed.");
   if (!p.ok) lines.push("", "  Nothing will be written: resolve the refusals above first.");

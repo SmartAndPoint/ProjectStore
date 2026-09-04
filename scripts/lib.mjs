@@ -142,26 +142,41 @@ function cmpVersion(a, b) {
 // recency, matching the launcher's own ordering — otherwise doctor could
 // report drift against an install the launcher would never load.
 // Returns { path, version } or null (dev checkout, --plugin-dir, no registry).
+// Every projectstore registration the harness's registry holds — one per
+// marketplace key and scope — whether or not its install is still on disk.
+// The registry is a list, and contract 17 of the install spec (version
+// drift across registrations) needs the list; installedPluginRoot folds it.
+export function installedPluginEntries(home = homedir()) {
+  const out = [];
+  let reg;
+  try {
+    reg = JSON.parse(readFileSync(join(claudeHome(home), "plugins", "installed_plugins.json"), "utf8"));
+  } catch {
+    return out;
+  }
+  for (const [key, list] of Object.entries((reg && reg.plugins) || {})) {
+    if (key !== "projectstore" && !key.startsWith("projectstore@")) continue;
+    for (const e of Array.isArray(list) ? list : [list]) {
+      const path = e && e.installPath;
+      if (typeof path !== "string") continue;
+      out.push({
+        key,
+        path,
+        scope: typeof e.scope === "string" ? e.scope : null,
+        version: typeof e.version === "string" ? e.version : null,
+        at: Date.parse((e && e.lastUpdated) || "") || 0,
+        present: existsSync(join(path, "scripts", "statusline.mjs")),
+      });
+    }
+  }
+  return out;
+}
+
 export function installedPluginRoot(home = homedir(), preferFamily = null) {
   try {
-    const reg = JSON.parse(
-      readFileSync(join(claudeHome(home), "plugins", "installed_plugins.json"), "utf8"),
-    );
-    const found = [];
-    for (const [key, list] of Object.entries((reg && reg.plugins) || {})) {
-      if (key !== "projectstore" && !key.startsWith("projectstore@")) continue;
-      for (const e of Array.isArray(list) ? list : [list]) {
-        const path = e && e.installPath;
-        if (typeof path !== "string") continue;
-        if (!existsSync(join(path, "scripts", "statusline.mjs"))) continue;
-        found.push({
-          path,
-          version: typeof e.version === "string" ? e.version : null,
-          same: preferFamily && dirname(path) === preferFamily ? 1 : 0,
-          at: Date.parse((e && e.lastUpdated) || "") || 0,
-        });
-      }
-    }
+    const found = installedPluginEntries(home)
+      .filter((e) => e.present)
+      .map((e) => ({ path: e.path, version: e.version, same: preferFamily && dirname(e.path) === preferFamily ? 1 : 0, at: e.at }));
     // Family is a filter, not a tiebreak: when the caller came from a known
     // marketplace, an install from a DIFFERENT one is not a newer copy of the
     // same plugin — it is someone else's fork, and we do not execute it.
@@ -346,7 +361,7 @@ export function syncStatusLine(cfg, projectDir, home = homedir()) {
     try {
       const lp = statusLineLauncherPath(projectDir);
       const text = readFileSync(lp, "utf8");
-      if (text.includes("projectstore — status line launcher") || /projectstore: v\d+ src=/.test(text)) unlinkSync(lp);
+      if (text.includes("projectstore — status line launcher")) unlinkSync(lp);
     } catch {}
     changed = true;
   }
