@@ -34,6 +34,7 @@ function bin(args, { cwd = ROOT, env = {} } = {}) {
   delete e[SRC.runtime.project_dir_env];
   delete e.PROJECTSTORE_PROJECT_DIR;
   Object.assign(e, env);
+  for (const k of Object.keys(e)) if (e[k] === undefined) delete e[k];
   return spawnSync(process.execPath, [BIN, ...args], { encoding: "utf8", cwd, env: e, timeout: 60000, maxBuffer: 1 << 24 });
 }
 
@@ -162,7 +163,8 @@ test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   const proj = project();
   writeFileSync(join(proj, "CLAUDE.md"), "# Mine\n");
-  const env = { HOME: home, [SRC.runtime.plugin_root_env]: ROOT };
+  // PATH is emptied and the session marker dropped so the developer's real host CLI never enters this plan.
+  const env = { HOME: home, [SRC.runtime.plugin_root_env]: ROOT, PATH: "", ...Object.fromEntries((SRC.runtime.detect_env || []).map((k) => [k, undefined])) };
   const bare = bin(["install", "--project", proj], { env });
   assert.equal(bare.status, 1, bare.stderr);
   assert.match(bare.stdout, /non-TTY refuses/);
@@ -173,11 +175,17 @@ test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses
   assert.ok("schema_version" in JSON.parse(nowhere.stdout));
   const yes = bin(["install", "--project", proj, "--harness", SRC.id, "--yes"], { env });
   assert.equal(yes.status, 2, "there is no --yes");
+  // No host CLI on this PATH: the registration surface is unavailable, the rest is applied, and the exit says the plan was incomplete (contract 4′).
   const named = bin(["install", "--project", proj, "--harness", SRC.id, "--json"], { env });
-  assert.equal(named.status, 0, named.stderr + named.stdout);
+  assert.equal(named.status, 1, named.stderr + named.stdout);
   const out = JSON.parse(named.stdout);
   assert.equal(out.verb, "install");
   assert.equal(out.result.gate.why, "named");
+  assert.equal(out.result.incomplete, true);
+  assert.equal(out.result.items.find((i) => i.surface === "plugin").state, "unavailable");
+  assert.equal(out.result.applied.length, 1, "the block is applied even though the registration could not be");
+  const narrowed = bin(["install", "--project", proj, "--harness", SRC.id, "--surface", "agents_block", "--json"], { env });
+  assert.equal(narrowed.status, 0, "a plan that never asked for the registration is complete");
   assert.ok(out.result.items.every((i) => !("before" in i) && !("after" in i)), "no file bodies in the envelope");
   assert.ok(readFileSync(join(proj, "CLAUDE.md"), "utf8").includes("projectstore:agents"));
   const planned = JSON.parse(bin(["plan", "--project", proj, "--json"], { env }).stdout);
@@ -243,6 +251,21 @@ test("cli: every invocation in the prompt surface is the bin with a known verb, 
   assert.ok(readdirSync(join(ROOT, "bin")).every((f) => f.endsWith(".mjs")));
   assert.ok(readFileSync(BIN, "utf8").startsWith("#!/usr/bin/env node\n"));
   assert.equal(PKG.bin.projectstore, "bin/projectstore.mjs");
+});
+
+// The npm-registration story: the same bin under bun answers byte-identically
+// for --version and status --json, and doctor --json carries the same check ids.
+const BUN = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
+test("cli: bun runs the bin with the same --json as node", { skip: !BUN && "bun is not on PATH" }, () => {
+  const proj = project();
+  const e = { ...process.env }; delete e[SRC.runtime.project_dir_env]; delete e.PROJECTSTORE_PROJECT_DIR;
+  const run = (exe, args) => spawnSync(exe, [BIN, ...args], { encoding: "utf8", env: e, timeout: 60000, maxBuffer: 1 << 24 });
+  assert.equal(run("bun", ["--version"]).stdout, run(process.execPath, ["--version"]).stdout);
+  const status = ["status", "--json", "--project", proj];
+  assert.equal(run("bun", status).stdout, run(process.execPath, status).stdout, "status --json is byte-identical");
+  const doctor = ["doctor", "--json", "--project", proj];
+  const ids = (r) => JSON.parse(r.stdout).result.map((f) => f.check).sort();
+  assert.deepEqual(ids(run("bun", doctor)), ids(run(process.execPath, doctor)), "doctor --json carries the same check ids");
 });
 
 test("cli: the packed tarball's bin runs", () => {

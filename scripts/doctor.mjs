@@ -468,6 +468,7 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
   }
   for (const s of r.states) {
     const where = relative(proj, s.path) || s.path;
+    if (s.kind === "registration") continue; // checkPluginRegistration's
     if (s.kind === "exclusive") {
       if (s.state === "foreign") {
         out.push(finding("install", "issue", "surface-foreign",
@@ -496,19 +497,49 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
   return out;
 }
 
+// Contract 4′ (2026-09-05): the registration the package made through the
+// host's CLI — one row per registration surface the manifest declares. Current
+// → one info; stale → an issue naming the refresh in the form that can make
+// it (the package's own bin via npx: a cache install never re-registers
+// itself); a competing copy enabled beside ours → an issue (two enabled copies
+// of one plugin); a competitor alone → an info naming the npm path; foreign →
+// never repairable; the host CLI missing → an info.
+export function checkPluginRegistration(proj, states = []) {
+  const out = [];
+  for (const s of states.filter((x) => x.kind === "registration")) {
+    const refresh = `npx projectstore@${s.pkg || "latest"} upgrade --harness ${s.harness} --surface ${s.surface} --project "${proj}"`;
+    const others = (s.others || []).map((o) => `${o.key} (${o.version || "?"})`).join(", ");
+    if (s.state === "foreign") {
+      out.push(finding("install", "issue", "plugin-registration-foreign", `${s.reason} — install, uninstall and upgrade refuse it; nothing repairs it.`, s.path));
+    } else if (s.state === "unavailable") {
+      out.push(finding("install", "info", "plugin-registration", `No npm registration of projectstore for this project, and ${s.reason}.`));
+    } else if (s.state === "absent") {
+      // A git-marketplace install alone is not a finding: a permanent info
+      // advertising the npm path to every marketplace user is noise (2026-09-05).
+    } else if (s.state === "stale") {
+      out.push(finding("install", "issue", "plugin-registration", `${s.entry} — stale: ${s.reason}. Refresh it: ${refresh}`, s.path));
+    } else if (s.state === "current") {
+      if (others) out.push(finding("install", "issue", "plugin-registration", `${s.entry} is current, and ${others} is enabled for this project too — two enabled copies of one plugin load twice. install silences the other for this project: npx projectstore install --harness ${s.harness} --surface ${s.surface} --project "${proj}" (or the host's own disable at the scope the manifest names — never the committed project scope).`, s.path));
+      else out.push(finding("install", "info", "plugin-registration", `${s.entry} ${s.installedVersion} registered from the npm package for this project (loaded from ${s.installPath}); refresh with ${refresh}.`));
+    }
+  }
+  return out;
+}
+
 // Contract 17: two registrations of projectstore at different versions on one
 // machine are a finding, not a failure — install cannot prevent it, since
 // hosts install from different sources. The versions come from the harness
 // registry (one per marketplace key and scope) and from the pkg= field of a
 // file we stamped in this project; each is named with where it was read.
-export function checkVersionDrift(home = homedir(), states = []) {
+export function checkVersionDrift(home = homedir(), states = [], proj = null) {
   // Pairs, not a map keyed by source: two registrations under one marketplace
   // key and one scope are the common shape (the registry keeps every install
   // it made), and they must both be seen. Only installs still on disk count —
   // a wiped entry is not a copy anyone runs.
   const seen = [];
-  for (const e of installedPluginEntries(home)) {
-    if (e.version && e.present) seen.push({ source: `registry ${e.key}${e.scope ? " (" + e.scope + ")" : ""} at ${e.path}`, version: e.version });
+  for (const e of installedPluginEntries(home, proj)) {
+    // A disabled registration is not a copy anyone runs (contract 17, amended 2026-09-05).
+    if (e.version && e.present && e.enabled !== false) seen.push({ source: `registry ${e.key}${e.scope ? " (" + e.scope + ")" : ""} at ${e.path}`, version: e.version });
   }
   for (const s of states) {
     if (s.installedPkg) seen.push({ source: `pkg= of ${s.surface}`, version: s.installedPkg });
@@ -672,6 +703,10 @@ export function checkAutoUpdate(home = homedir()) {
     registry = JSON.parse(readFileSync(join(claudeHome(home), "plugins", "known_marketplaces.json"), "utf8"));
   } catch {}
   const entry = registry ? registry[marketplace] : null;
+  // A directory marketplace — the package's own registration — has no remote
+  // to poll and nothing to toggle; its update path is the package's upgrade
+  // verb, reported by checkPluginRegistration (2026-09-05).
+  if (entry && entry.source && entry.source.source === "directory") return out;
   if (!entry) {
     out.push(finding("install", "warn", "auto-update",
       `Marketplace "${marketplace}" is missing from ~/.claude/plugins/known_marketplaces.json — updates cannot be tracked. Re-add it: /plugin marketplace add <owner/repo>.`));
@@ -1624,7 +1659,8 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
   let read = null;
   try { read = await readSurfaceStates(proj, opts); } catch {} // reported as a warn by checkHarnessSurfaces
   out.push(...await checkHarnessSurfaces(cfg, proj, { ...opts, read }));
-  if (read) out.push(...checkVersionDrift(opts.home, read.result.states));
+  if (read) out.push(...checkPluginRegistration(proj, read.result.states));
+  if (read) out.push(...checkVersionDrift(opts.home, read.result.states, proj));
   return out;
 }
 

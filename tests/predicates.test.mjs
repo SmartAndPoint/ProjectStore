@@ -1581,6 +1581,7 @@ test("entryScore: registration never rewrites, so parallel writers cannot lose a
 
 test("openStoryFrom: only in-progress counts as open (contract 5)", () => {
   assert.equal(openStoryFrom([{ status: "in-progress" }]), true);
+  assert.equal(openStoryFrom([{ status: "in_progress" }]), true, "the underscore spelling the kanban maps counts too (2026-09-05)");
   assert.equal(openStoryFrom([{ status: "planned" }]), false,
     "a story that never went through /projectstore:story plan is not open work");
   assert.equal(openStoryFrom([{ status: "done" }]), false);

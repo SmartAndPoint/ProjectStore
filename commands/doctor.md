@@ -56,7 +56,21 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      it if it is yours, or delete it yourself to let `install` take the name.
      The verbs refuse it in code; this clause is the belt.
    - `version-drift` → report only: name both versions and where each was
-     read; the fix is the host's update path (`/plugin update`), not ours.
+     read; the fix is the host's update path (`/plugin update` for a git-marketplace
+     copy; for the npm registration, the package's own `upgrade` from a terminal —
+     the `plugin-registration` finding spells it), not ours.
+   - `plugin-registration` (info) → nothing to repair; it names where the npm
+     registration loads from. As an **issue** — stale, or two enabled copies —
+     print the finding and relay its command verbatim (the package runner's
+     `upgrade` or `install` with `--surface plugin`): it is run **from a
+     terminal outside this session**. Never run `claude plugin …` from a Bash
+     tool here: the host CLI and this live session both rewrite the same
+     settings files, and the registration verb refuses inside a session for
+     that reason.
+   - `plugin-registration-foreign` → **never repairable**, like `surface-foreign`:
+     a marketplace directory under our name without our provenance field, or a
+     host registry naming our marketplace elsewhere. Print the finding verbatim;
+     the user moves or removes it.
    - `harness` (info) → nothing to repair; it names what `install` can target.
    - `mcp` → the plugin-bundled `.mcp.json` is missing or does not launch
      `bin/projectstore.mjs mcp`: the install is incomplete — the fix is the

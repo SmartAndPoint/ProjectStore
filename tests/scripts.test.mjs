@@ -626,7 +626,7 @@ test("core writes only via lib.mjs writeFileAtomic (atomic-regeneration contract
     const n = p.slice(REPO.length + 1);
     const src = readFileSync(p, "utf8");
     for (const call of ["writeFileSync", "renameSync", "appendFileSync", "createWriteStream",
-                        "writeFile(", "copyFileSync", "truncateSync", "node:fs/promises"]) {
+                        "writeFile(", "copyFileSync", "cpSync", "truncateSync", "node:fs/promises"]) {
       assert.ok(!src.includes(call), `${n} contains ${call} — route writes through lib.mjs`);
     }
   }

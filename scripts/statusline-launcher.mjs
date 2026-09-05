@@ -16,11 +16,11 @@
 // Never crashes: a status line that throws blanks the user's HUD, so every
 // failure path degrades to an empty line.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 
 // Substituted by renderStatusLineLauncher() in scripts/lib.mjs — the fallback
 // root and the harness's own variable names (this file runs before it knows
@@ -45,6 +45,12 @@ function installedRoot() {
       readFileSync(join(claudeHome, "plugins", "installed_plugins.json"), "utf8"),
     );
     const family = dirname(FALLBACK_ROOT); // …/<marketplace>/projectstore
+    // This launcher lives at <project>/<config dir>/<runtime dir>/…: a row the
+    // host recorded for THIS checkout (local scope, one per checkout) comes
+    // first; another checkout's newer install is the fallback, not the pick.
+    let project = null;
+    try { project = realpathSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..")); } catch {}
+    const sameProject = (p) => { try { return Boolean(project && p && realpathSync(p) === project); } catch { return false; } };
     const found = [];
     for (const [key, list] of Object.entries((reg && reg.plugins) || {})) {
       if (key !== "projectstore" && !key.startsWith("projectstore@")) continue;
@@ -55,6 +61,7 @@ function installedRoot() {
         found.push({
           p,
           same: dirname(p) === family ? 1 : 0, // stay on the marketplace we came from
+          mine: sameProject(e && e.projectPath) ? 1 : 0,
           at: Date.parse((e && e.lastUpdated) || "") || 0,
           v: versionKey(e && e.version),
         });
@@ -64,7 +71,7 @@ function installedRoot() {
     // is someone else's fork of projectstore, not a newer copy of ours, and
     // this file imports whatever it picks. Same rule as installedPluginRoot().
     const pool = found.filter((f) => f.same);
-    pool.sort((a, b) => b.at - a.at || b.v[0] - a.v[0] || b.v[1] - a.v[1] || b.v[2] - a.v[2]);
+    pool.sort((a, b) => b.mine - a.mine || b.at - a.at || b.v[0] - a.v[0] || b.v[1] - a.v[1] || b.v[2] - a.v[2]);
     return pool.length ? pool[0].p : null;
   } catch {
     return null;

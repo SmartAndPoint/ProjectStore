@@ -101,7 +101,14 @@ test("generation contract 1: every manifest parses strictly and declares what th
       assert.equal(typeof s.supported, "boolean", `${n}: surfaces.${kind}.supported`);
       assert.ok(typeof s.scope === "string" && typeof s.scope_reason === "string" && s.scope_reason.length > 0,
         `${n}: surfaces.${kind}.scope and scope_reason`);
-      assert.ok(["exclusive", "shared", "host"].includes(s.kind), `${n}: surfaces.${kind}.kind (install spec contract 0)`);
+      assert.ok(["exclusive", "shared", "host", "registration"].includes(s.kind), `${n}: surfaces.${kind}.kind (install spec contract 0, amended 2026-09-05)`);
+      if (s.kind === "registration") {
+        for (const f of ["marketplace_name", "plugin_name", "plugin_subdir", "manifest", "provenance_key", "condition"]) assert.equal(typeof s[f], "string", `${n}: surfaces.${kind}.${f}`);
+        assert.ok(Array.isArray(s.dir) && s.dir.length, `${n}: surfaces.${kind}.dir`);
+        assert.ok(s.registry && typeof s.registry.enabled_pointer === "string", `${n}: surfaces.${kind}.registry`);
+        assert.ok(s.cli && typeof s.cli.bin === "string" && s.cli.commands && typeof s.cli.verified?.date === "string", `${n}: surfaces.${kind}.cli with a measured date`);
+        for (const c of ["validate", "marketplace_add", "marketplace_update", "marketplace_remove", "install", "update", "uninstall", "disable", "enable"]) assert.ok(Array.isArray(s.cli.commands[c]), `${n}: cli.commands.${c}`);
+      }
       if (s.kind === "shared") assert.ok(s.marker && typeof s.marker === "object", `${n}: surfaces.${kind}.marker (install spec contract 6)`);
       if (s.kind !== "host") assert.equal(typeof s.format, "string", `${n}: surfaces.${kind}.format keys the installer's handler`);
     }

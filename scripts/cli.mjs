@@ -460,16 +460,18 @@ async function runInstallVerb({ row, values, project, env, stdin, stdout, ask })
   const opts = { harnesses: values.harness || [], surfaces: values.surface && values.surface.length ? values.surface : null, root: PACKAGE_ROOT, env: ownEnv(env, project), stdin, stdout, ask };
   if (row.verb === "plan") {
     const p = ih.plan(project, opts);
-    stdout.write(values.json ? JSON.stringify(envelope("plan", project, p.ok, { ...p, items: p.items.map(ih.publicItem) }), null, 2) + "\n" : ih.renderPreview(p));
-    return p.ok ? 0 : 1;
+    stdout.write(values.json ? JSON.stringify(envelope("plan", project, p.ok && !p.incomplete, { ...p, items: p.items.map(ih.publicItem) }), null, 2) + "\n" : ih.renderPreview(p));
+    return p.ok && !p.incomplete ? 0 : 1;
   }
   const r = await ih.runVerb(row.verb, project, opts);
-  const ok = r.plan.ok && (r.gate.confirmed || r.gate.why === "nothing-to-do");
+  // A registration the plan could not make (no host CLI) or a host command
+  // that failed is exit 1 with the rest applied (install spec contract 4′).
+  const ok = r.plan.ok && !r.plan.incomplete && !r.failed && (r.gate.confirmed || r.gate.why === "nothing-to-do");
   if (values.json) {
-    stdout.write(JSON.stringify(envelope(row.verb, project, ok, { gate: r.gate, applied: r.applied, items: r.plan.items.map(ih.publicItem), refusals: r.plan.refusals, reports: r.plan.reports }), null, 2) + "\n");
+    stdout.write(JSON.stringify(envelope(row.verb, project, ok, { gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, plannedAgainst: r.plan.plannedAgainst, items: r.plan.items.map(ih.publicItem), refusals: r.plan.refusals, reports: r.plan.reports }), null, 2) + "\n");
   } else {
     stdout.write(r.preview);
-    if (r.gate.confirmed) stdout.write(`applied ${r.applied.length} change(s).\n`);
+    if (r.gate.confirmed) stdout.write(ih.appliedLine(r));
     else if (r.gate.why === "non-tty") stdout.write(`a bare ${row.verb} in a non-TTY refuses; name a harness to confirm: --harness ${r.plan.detected.map((d) => d.id).join(" | ") || harnessIds().join(" | ")}\n`);
     else if (r.gate.why === "declined") stdout.write("nothing written.\n");
   }

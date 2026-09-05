@@ -80,12 +80,13 @@ One switch worth flipping: Claude Code does **not** auto-update third-party plug
 
 Contributors: `git clone` this repo, then `claude --plugin-dir ./ProjectStore`.
 
-The same tree is published to npm as [`projectstore`](https://www.npmjs.com/package/projectstore) — one package carrying every harness's manifest. For Claude Code the marketplace above stays the install path; the npm package is how other harnesses will pick it up, and how you can vendor a pinned copy:
+**Or from npm, in one command** — from a terminal, not inside a Claude Code session:
 
 ```
-npm install projectstore
-claude --plugin-dir ./node_modules/projectstore
+npx projectstore install --harness claude-code --project "$PWD"
 ```
+
+The same tree is published to npm as [`projectstore`](https://www.npmjs.com/package/projectstore) — one package carrying every harness's manifest — and it registers itself with Claude Code: it writes a small local marketplace of its own under your Claude home, then drives `claude plugin marketplace add` / `plugin install` **at local scope**, so the registration lands in this checkout's `.claude/settings.local.json` and nowhere else. Every host command is printed before it runs; naming the harness is the confirmation. Restart Claude Code afterwards. A git-marketplace copy already enabled for the checkout is silenced there (not globally) so the plugin does not load twice; `uninstall` turns it back on. Pin or upgrade with `npx projectstore@<version> upgrade --harness claude-code --project "$PWD"` — the version you name is the version you run. bun works the same on the packed bin.
 
 The package also carries a `bin`. Without a session — in CI, or in a shell — the same core answers token-free, with a `--json` envelope on every verb:
 
@@ -146,6 +147,12 @@ an existing project sees afterwards, and why:
 - **Rolling back** to an earlier version works; that version's first session
   overwrites the stamped launcher, and coming forward again costs the same
   one `--fix`.
+- **Installed from npm?** Then `/plugin update` has nothing to fetch: the
+  registration is refreshed by the package itself — from a terminal outside
+  the session, `npx projectstore@<version> upgrade --harness claude-code
+  --project "$PWD"` rewrites the local marketplace and runs the host's
+  `plugin update` for this checkout. `/projectstore:doctor` says when the
+  registration is behind the package, and names that command.
 
 ## When an agent starts a task, it can find its way
 
@@ -186,7 +193,7 @@ The deep dive — real session files, measured payloads, how every mechanism wor
 
 ## Uninstalling
 
-`/plugin uninstall projectstore@SmartAndPoint`. Your vault is yours — plain markdown, untouched. One leftover: the agents block in `CLAUDE.md`/`AGENTS.md`. Before uninstalling, run `/projectstore:agents unregister` (which runs `npx projectstore uninstall --harness claude-code --surface agents_block --project "$PWD"`), or delete everything between `<!-- projectstore:agents … -->` and `<!-- /projectstore:agents -->` by hand.
+`/plugin uninstall projectstore@SmartAndPoint` for a git-marketplace install; `npx projectstore uninstall --harness claude-code --project "$PWD"` (from a terminal) for an npm one — it forgets the registration for this checkout, turns a silenced git copy back on, and removes the local marketplace directory only when no other checkout uses it. Your vault is yours — plain markdown, untouched. One leftover of the `/plugin` path: the agents block in `CLAUDE.md`/`AGENTS.md`. Before uninstalling, run `/projectstore:agents unregister` (which runs `npx projectstore uninstall --harness claude-code --surface agents_block --project "$PWD"`), or delete everything between `<!-- projectstore:agents … -->` and `<!-- /projectstore:agents -->` by hand.
 
 ## Extending
 

@@ -2,7 +2,7 @@
 // Pure node, no external deps. Keep this single-file & dependency-free
 // so plugin install does not require npm install.
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync, lstatSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync, realpathSync, cpSync } from "node:fs";
 import { readFile as readFileAsync } from "node:fs/promises";
 import { join, dirname, basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,7 @@ import {
   pluginRoot as harnessPluginRoot,
   agentHome as harnessAgentHome,
   configPath as harnessConfigPath,
+  projectConfigDir as harnessProjectConfigDir,
   runtimeEnvNames,
   sourceWriteTools,
 } from "./harness.mjs";
@@ -136,7 +137,7 @@ export function claudeHome(home = homedir()) {
   return harnessAgentHome(process.env, home);
 }
 
-function cmpVersion(a, b) {
+export function cmpVersion(a, b) {
   const A = String(a || "0").split(".").map((n) => parseInt(n, 10) || 0);
   const B = String(b || "0").split(".").map((n) => parseInt(n, 10) || 0);
   for (let i = 0; i < 3; i++) if ((A[i] || 0) !== (B[i] || 0)) return (A[i] || 0) - (B[i] || 0);
@@ -157,7 +158,28 @@ function cmpVersion(a, b) {
 // marketplace key and scope — whether or not its install is still on disk.
 // The registry is a list, and contract 17 of the install spec (version
 // drift across registrations) needs the list; installedPluginRoot folds it.
-export function installedPluginEntries(home = homedir()) {
+// The host's enablement of a plugin, user settings first and the project's
+// settings over it (a project may silence a user-scope plugin). Absent → true.
+export function pluginEnabled(key, home = homedir(), projectDir = null) {
+  const read = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
+  let enabled = true;
+  const user = read(join(claudeHome(home), "settings.json"));
+  if (user && user.enabledPlugins && Object.hasOwn(user.enabledPlugins, key)) enabled = user.enabledPlugins[key] !== false;
+  if (projectDir) {
+    // The committed project file, then the checkout's local one over it — the
+    // host's own precedence (measured 2026-09-05, --scope local).
+    for (const f of ["settings.json", "settings.local.json"]) {
+      const proj = read(join(projectDir, harnessProjectConfigDir(), f));
+      if (proj && proj.enabledPlugins && Object.hasOwn(proj.enabledPlugins, key)) enabled = proj.enabledPlugins[key] !== false;
+    }
+  }
+  return enabled;
+}
+
+// Every projectstore registration the host knows, with whether it is enabled
+// (for the project, when one is named): the registry keeps a disabled row,
+// and a copy nobody runs is not a copy (install spec contract 17, amended).
+export function installedPluginEntries(home = homedir(), projectDir = null) {
   const out = [];
   let reg;
   try {
@@ -177,16 +199,119 @@ export function installedPluginEntries(home = homedir()) {
         version: typeof e.version === "string" ? e.version : null,
         at: Date.parse((e && e.lastUpdated) || "") || 0,
         present: existsSync(join(path, "scripts", "statusline.mjs")),
+        enabled: pluginEnabled(key, home, projectDir),
+        projectPath: typeof e.projectPath === "string" ? e.projectPath : null,
       });
     }
   }
   return out;
 }
 
+// A pure PATH walk for a host binary — a read, not a subprocess: the analysers
+// run on every doctor call. Returns the absolute path or null.
+export function whichOnPath(name, env = process.env) {
+  const sep = process.platform === "win32" ? ";" : ":";
+  const exts = process.platform === "win32" ? ["", ".cmd", ".exe", ".bat"] : [""];
+  for (const dir of String(env.PATH || "").split(sep).filter(Boolean)) {
+    for (const ext of exts) {
+      const p = join(dir, name + ext);
+      try { const st = statSync(p); if (st.isFile() && (process.platform === "win32" || (st.mode & 0o111))) return p; } catch {}
+    }
+  }
+  return null;
+}
+
+// The files a package ships, as the release gate defines them — package.json
+// files[] plus npm's always-included package.json, README and LICENSE — copied
+// from `from` to `to`. Never node_modules, never a symlink (a symlink is a
+// path outside the tree). Returns the relative paths copied, sorted.
+export function packageFiles(root) {
+  let pkg;
+  try { pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")); } catch { return []; }
+  const out = new Set(["package.json"]);
+  for (const n of readdirSync(root)) if (/^(README|LICEN[CS]E)(\.|$)/i.test(n)) out.add(n);
+  const walk = (rel) => {
+    const abs = join(root, rel);
+    let st; try { st = lstatSync(abs); } catch { return; }
+    if (st.isSymbolicLink()) return;
+    if (st.isDirectory()) { for (const n of readdirSync(abs)) if (n !== "node_modules" && !n.startsWith(".DS_Store")) walk(rel ? `${rel}/${n}` : n); }
+    else out.add(rel);
+  };
+  for (const f of pkg.files || []) walk(f.replace(/\/+$/, ""));
+  return [...out].sort();
+}
+
+// The one recursive delete the installer makes: a registration directory of
+// ours (install spec contract 13, amended 2026-09-05). The caller has already
+// proven the manifest is ours; this refuses anything outside the harness home.
+export function removeOwnTree(dir, home = homedir()) {
+  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!norm(dir).startsWith(norm(claudeHome(home)) + "/")) throw new Error(`removeOwnTree: ${dir} is not under the harness home`);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+export function copyPackageTree(from, to) {
+  const files = packageFiles(from);
+  for (const rel of files) {
+    const dst = join(to, rel);
+    mkdirSync(dirname(dst), { recursive: true });
+    cpSync(join(from, rel), dst);
+  }
+  return files;
+}
+
+// Every regular file under a directory, relative, sorted; symlinks skipped.
+export function treeFiles(dir) {
+  const out = [];
+  const walk = (rel) => {
+    const abs = rel ? join(dir, rel) : dir;
+    let st; try { st = lstatSync(abs); } catch { return; }
+    if (st.isSymbolicLink()) return;
+    if (st.isDirectory()) { for (const n of readdirSync(abs)) if (n !== "node_modules" && !n.startsWith(".DS_Store")) walk(rel ? `${rel}/${n}` : n); }
+    else out.push(rel);
+  };
+  walk("");
+  return out.sort();
+}
+
+// The digest a registration's provenance field carries over its payload: the
+// file count and one sha256 over "relpath\nsha256(content)" lines in sorted
+// order. Computed from the package's packlist before the copy and from the
+// directory after it; unequal means a copy that did not finish, or a hand edit.
+export function filesDigest(root, files) {
+  const h = createHash("sha256");
+  for (const rel of files) {
+    h.update(rel + "\n");
+    h.update(createHash("sha256").update(readFileSync(join(root, rel))).digest("hex") + "\n");
+  }
+  return { count: files.length, sha256: h.digest("hex") };
+}
+export const packageDigest = (root) => filesDigest(root, packageFiles(root));
+export const treeDigest = (dir) => filesDigest(dir, treeFiles(dir));
+
+// The registration directory, written whole and atomically: the payload and
+// the manifest are staged beside the target and renamed into place, so a
+// reader never sees a half-copied directory under our name (install spec
+// contract 4′). An existing directory is removed only after the stage is
+// complete — and only by the caller's proof that it is ours.
+export function writeOwnTree(dir, { from, subdir, manifestRel, manifest, home = homedir() }) {
+  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!norm(dir).startsWith(norm(claudeHome(home)) + "/")) throw new Error(`writeOwnTree: ${dir} is not under the harness home`);
+  const stage = dir + ".staging";
+  rmSync(stage, { recursive: true, force: true });
+  mkdirSync(join(stage, subdir), { recursive: true });
+  const files = copyPackageTree(from, join(stage, subdir));
+  mkdirSync(dirname(join(stage, manifestRel)), { recursive: true });
+  writeFileSync(join(stage, manifestRel), JSON.stringify(manifest, null, 2) + "\n");
+  rmSync(dir, { recursive: true, force: true });
+  renameSync(stage, dir);
+  return files;
+}
+
 export function installedPluginRoot(home = homedir(), preferFamily = null) {
   try {
     const found = installedPluginEntries(home)
-      .filter((e) => e.present)
+      .filter((e) => e.present && e.enabled !== false)
       .map((e) => ({ path: e.path, version: e.version, same: preferFamily && dirname(e.path) === preferFamily ? 1 : 0, at: e.at }));
     // Family is a filter, not a tiebreak: when the caller came from a known
     // marketplace, an install from a DIFFERENT one is not a newer copy of the
@@ -1363,7 +1488,7 @@ export async function gatherVaultFacts(cfg, opts = {}) {
         continue;
       }
       const fm = parseFrontmatter(String(text)).data;
-      if (!fm || fm.status !== "in-progress") continue;
+      if (!fm || !isInProgress(fm.status)) continue;
       const rel = abs.startsWith(vault + "/") ? abs.slice(vault.length + 1) : abs;
       const seg = rel.split("/");
       const epic = epicFolder && seg[0] === epicFolder.path && seg[1] ? seg[1] : seg[0];
@@ -1955,8 +2080,15 @@ export function entryScore(projectDir, sessionId) {
 // one definition, and therefore no way for the two to disagree about the same
 // vault. `planned` is deliberately not open: writing code against a story that
 // never went through /projectstore:story plan is itself the order being skipped.
+// Both spellings the vault holds and the kanban maps (statusToColumn): the
+// SessionStart orientation said "nothing in progress" over six in_progress
+// stories, and doctor's work-without-story fired beside them (2026-09-05).
+export function isInProgress(status) {
+  return status === "in-progress" || status === "in_progress" || status === "in progress";
+}
+
 export function openStoryFrom(storyFrontmatters) {
-  return (storyFrontmatters || []).some((fm) => fm && fm.status === "in-progress");
+  return (storyFrontmatters || []).some((fm) => fm && isInProgress(fm.status));
 }
 
 // Every story file in the vault, whatever shape it takes. Deliberately

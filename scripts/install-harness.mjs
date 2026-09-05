@@ -36,6 +36,17 @@
 // (contract 14) — the plan reports the marketplace steps the manifest
 // carries and writes none of them.
 //
+// A REGISTRATION (contract 0 as amended 2026-09-05, contract 4′) is the third
+// kind: a directory of ours under the harness home — a local marketplace whose
+// manifest carries our provenance field — that the host's own CLI is driven
+// to register, install, update and silence a competitor of, at project scope.
+// Its plan item carries steps[]: the directory write and one verbatim argv
+// per host command, each a preview line (contract 9). apply() runs them in
+// order with the harness home pinned in the child's environment, and stops at
+// the first non-zero exit. The registration is planned FIRST, and every other
+// surface is then planned against the install path it produces — from npx,
+// the package's own root is a directory the package manager collects.
+//
 // Direction: installer → surfaces ← doctor; installer → provenance ← doctor.
 // Doctor never imports this file.
 //
@@ -45,21 +56,29 @@
 // (MultiProjectStore); the host-managed report shape is Maxim
 // Podreshetnikov's (PR #13, installElsewhere). Pure node, no external deps.
 
-import { mkdirSync, unlinkSync, rmdirSync, readdirSync } from "node:fs";
+import { mkdirSync, unlinkSync, rmdirSync, readdirSync, existsSync, readFileSync } from "node:fs";
 import { join, resolve, dirname, relative, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
+import { spawnSync } from "node:child_process";
 import { loadHarness, harnessIds, sourceHarness, detectHarnesses, harnessRefusal } from "./harness.mjs";
-import { FOREIGN_TEXT } from "./provenance.mjs";
-import { analyseBlock, analyseJsonEntry, analyseStampedFile } from "./surfaces.mjs";
-import { pluginRoot, writeFileAtomic, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot } from "./lib.mjs";
+import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
+import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration } from "./surfaces.mjs";
+import { pluginRoot, writeFileAtomic, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpVersion, whichOnPath as whichOnPathFromLib } from "./lib.mjs";
 
-export { GENERATOR } from "./surfaces.mjs";
+import { GENERATOR } from "./surfaces.mjs";
+export { GENERATOR };
 
 function rel(projectDir, p) {
   const r = relative(projectDir, p);
   return r && !r.startsWith("..") && !isAbsolute(r) ? r : p;
+}
+
+// npx extracts into a cache under _npx/, npm install into node_modules/: both
+// are the package manager's to remove.
+export function isEphemeralRoot(root) {
+  return /[\\/](_npx|node_modules)[\\/]/.test(String(root || ""));
 }
 
 function inside(dir, parent) {
@@ -77,7 +96,13 @@ const HANDLERS = {
   "markdown-block": planAgentsBlock,
   "json-entry": planJsonEntry,
   "mjs": planStampedFile,
+  "host-plugin-registration": planRegistration,
 };
+
+// The order plan() visits kinds in (contract 4′, two phases): the registration
+// decides the root the rest is planned against; a shared entry (the status
+// line slot) decides whether the exclusive launcher is written at all.
+const KIND_ORDER = { registration: 0, shared: 1, exclusive: 2 };
 
 function planAgentsBlock(ctx, key, s) {
   const { projectDir, mode, root } = ctx;
@@ -144,6 +169,134 @@ function planAgentsBlock(ctx, key, s) {
   return items;
 }
 
+// ─── host-plugin-registration ──────────────────────────────────────────
+
+// One host command as a plan step: the verbatim argv (the manifest's
+// subcommand with its placeholders filled), why it runs, and the host-owned
+// files it is known to touch (measured 2026-09-05 — the manifest's cli.verified).
+function hostStep(a, s, name, fill, why) {
+  const argv = (s.cli.commands[name] || []).map((t) => t.replace(/\{(\w+)\}/g, (_, k) => fill[k] ?? `{${k}}`));
+  const p = a.paths;
+  const touches = {
+    validate: [], marketplace_add: [p.marketplaces, p.projectSettings], marketplace_update: [p.marketplaces], marketplace_remove: [p.marketplaces, p.projectSettings],
+    install: [p.installed, p.projectSettings, p.cacheDir], update: [p.installed, p.cacheDir], uninstall: [p.installed, p.projectSettings], disable: [p.projectSettings], enable: [p.projectSettings],
+  }[name] || [];
+  return { kind: "host", name, bin: s.cli.bin, argv, why, touches: touches.filter(Boolean) };
+}
+
+// The marketplace manifest we write: the host's catalogue shape (measured), plus
+// our provenance field — contract 2 for a JSON file that is wholly ours — with
+// the payload digest the state ladder checks (contract 4′).
+export function registrationManifest(s, { pkg, projectDir, disabled = [], digest = null }) {
+  return {
+    name: s.marketplace_name,
+    description: "projectstore, installed from the npm package on this machine (written by projectstore install; do not edit)",
+    owner: { name: "SmartAndPoint", email: "ekonev@smartandpoint.com" },
+    plugins: [{ name: s.plugin_name, description: "Agent-first project memory: a vault-native workflow for ADRs, specs, epics and stories.", version: pkg, source: `./${s.plugin_subdir}` }],
+    [s.provenance_key]: { grammar: GRAMMAR_VERSION, pkg, project: projectDir, generator: GENERATOR, disabled, digest },
+  };
+}
+
+// Inside a live session of the host, its CLI and the session both rewrite the
+// same settings files on their own schedules; the registration is planned
+// only from a terminal outside one. The host marks its sessions in the
+// environment (manifest runtime.detect_env).
+function insideHostSession(env, harness) {
+  // runtime.session_env, not detect_env: a Bash tool inside a session carries
+  // the session marker, not the plugin-root variables a hook receives
+  // (measured 2026-09-05; the critic's third pass caught the first draft
+  // keying on detect_env, which never fired in a session).
+  return (harness?.runtime?.session_env || []).some((k) => env && env[k]);
+}
+
+function planRegistration(ctx, key, s) {
+  const { projectDir, mode, root, home, env, harness } = ctx;
+  const a = analyseRegistration(projectDir, s, { root, home, harness, env });
+  const id = a.id;
+  const bin = a.bin;
+  const binName = s.cli?.bin || "claude";
+  const base = { surface: key, kind: "registration", path: a.paths.dir, entry: id, state: a.state, reason: a.reason, root: a.installPath || a.predictedInstallPath, home: claudeHome(home), scope: s.scope || null, writtenBy: a.writtenBy };
+  const fill = { dir: a.paths.dir, marketplace: s.marketplace_name, id, other: id };
+  const notOnPath = `\`${binName}\` is not on PATH — the registration is left as it is; put the host's CLI on PATH and run install again`;
+  const named = (ctx.surfaces || []).includes(key);
+  const inSession = `this runs inside a ${harness.display_name} session, whose exit rewrites the same settings files the host's CLI writes — run it from a terminal outside the session`;
+  const other = (o) => ({ surface: `${key}_others`, kind: "registration", path: a.paths.projectSettings, entry: o.key, state: "enabled", home: base.home, scope: base.scope });
+
+  if (mode === "uninstall") {
+    if (a.state === "unavailable" || a.state === "absent") return [{ ...base, action: "skip", reason: a.state === "absent" ? a.reason : a.reason }];
+    if (a.state === "foreign") return [{ ...base, action: "refuse", reason: a.refusal }];
+    if (!bin) { ctx.incomplete = true; return [{ ...base, action: "skip", reason: notOnPath }]; }
+    if (insideHostSession(env, harness)) { ctx.incomplete = true; return [{ ...base, action: "skip", reason: inSession }]; }
+    const steps = [];
+    if (a.installed) steps.push(hostStep(a, s, "uninstall", fill, `the host forgets ${id} for this checkout (its row and enablement; other checkouts keep theirs)`));
+    const last = a.otherProjects === 0;
+    // The host's `marketplace remove` drops EVERY checkout's rows for the
+    // marketplace (measured), so it runs only from the last checkout — and
+    // before anything else touches the declaration it requires. Otherwise our
+    // one entry in the checkout's local settings is removed by hand (contract 6).
+    if (last && a.known && a.registeredHere) steps.push(hostStep(a, s, "marketplace_remove", fill, `no other checkout uses marketplace ${s.marketplace_name}; the host forgets it and this checkout's declaration of it`));
+    else if (a.registeredHere) steps.push({ kind: "unregister", path: a.paths.projectSettings, pointer: s.registry?.known_pointer || "extraKnownMarketplaces", name: s.marketplace_name, why: `this checkout stops declaring the marketplace — our entry only; \`${binName} plugin marketplace remove\` would drop every checkout's rows (measured), so it runs only from the last checkout` });
+    // Re-enable only what THIS checkout holds disabled: the record in the shared
+    // manifest says what install silenced somewhere; a copy the user disabled by
+    // hand in another checkout is not ours to turn on (reviewer, 2026-09-05).
+    for (const o of a.dir.disabled.filter((k) => a.disabledHere.includes(k))) steps.push(hostStep(a, s, "enable", { ...fill, other: o }, `${o} was silenced for this checkout by install; it is turned back on`));
+    if (last && a.dir.present) steps.push({ kind: "remove", path: a.paths.dir, why: "our marketplace directory, removed whole (its manifest carries our provenance field); no other checkout is installed from it" });
+    return [{ ...base, action: "remove", steps, reason: a.otherProjects ? `${a.otherProjects} other checkout(s) are installed from the shared directory; it and the host's marketplace entry stay` : a.reason }];
+  }
+
+  // install / upgrade
+  if (!a.produced) {
+    // A cache install never registers a second copy of itself (condition npm_package_root).
+    if (a.state === "absent" || a.state === "unavailable") return named ? [{ ...base, action: "skip", deferred: true, reason: "this root is the host's own install of the plugin; it does not register a second copy of itself — the npm package does, from a terminal: npx projectstore install --harness " + harness.id + " --project \"" + projectDir + "\"" }] : [];
+    if (a.state === "current") return [{ ...base, action: "skip" }];
+    return [{ ...base, action: "skip", deferred: true, reason: `${a.reason} — this root is the host's own install; refresh the registration from the package, outside a session: npx projectstore@<version> upgrade --harness ${harness.id} --surface ${key} --project "${projectDir}"` }];
+  }
+  if (a.state === "unavailable") { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: a.reason }]; }
+  if (a.state === "foreign") return [{ ...base, action: "refuse", reason: a.refusal }];
+  const items = [];
+  const needsHost = a.state !== "current" || a.others.length > 0;
+  if (needsHost && !bin) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `${a.reason ? a.reason + "; " : ""}${notOnPath}` }]; }
+  if (needsHost && insideHostSession(env, harness)) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `${a.reason ? a.reason + "; " : ""}${inSession}` }]; }
+
+  if (a.state === "current") {
+    items.push({ ...base, action: "skip" });
+  } else {
+    const steps = [];
+    // The directory is rewritten when it is missing, older than this package or
+    // damaged — never when a newer package wrote it (contract 12: reported, not
+    // downgraded); then this checkout registers against what stands.
+    // …or holds a different payload at the SAME version — the maintainer's
+    // pack → install → fix → pack loop never bumps it. The host will not
+    // re-copy at an equal version (measured), so that refresh is uninstall + install.
+    const sameVersionDiffers = a.contentDiffers === true;
+    const rewrite = !a.dir.present || (cmpVersion(a.dir.pkg, a.pkg) < 0) || a.dir.digestOk === false || sameVersionDiffers;
+    const disabled = [...new Set([...a.dir.disabled, ...a.others.map((o) => o.key)])];
+    const digest = rewrite ? packageDigest(root) : (a.dir.prov?.digest || null);
+    const files = digest ? digest.count : 0;
+    if (rewrite) steps.push({ kind: "write", path: a.paths.dir, files, manifest: registrationManifest(s, { pkg: a.pkg, projectDir, disabled, digest }), why: a.dir.present ? `the directory is rewritten from this package (${a.dir.pkg} → ${a.pkg}${a.dir.digestOk === false ? ", the payload did not match its digest" : sameVersionDiffers ? ", same version, different content" : ""})` : `the marketplace directory is written from this package's ${files} shipped files, staged and renamed into place` });
+    else if (a.newer) steps.push({ kind: "note", why: `the directory holds ${a.dir.pkg}${a.writtenBy ? ` (written from ${a.writtenBy})` : ""}, newer than this package (${a.pkg}); this checkout registers ${a.dir.pkg} — not downgraded` });
+    else if (a.others.some((o) => !a.dir.disabled.includes(o.key))) steps.push({ kind: "write", path: a.paths.dir, files: 0, manifestOnly: true, manifest: { ...a.dir.manifest, [s.provenance_key]: { ...a.dir.prov, disabled } }, why: "our manifest records what install silences, so uninstall can turn it back on" });
+    steps.push(hostStep(a, s, "validate", fill, "the host checks the marketplace before it is registered (it warns about our provenance field and exits 0 — measured)"));
+    if (!a.known) steps.push(hostStep(a, s, "marketplace_add", fill, "the host learns our marketplace, declared in this checkout's local settings"));
+    else if (!a.registeredHere) steps.push(hostStep(a, s, "marketplace_add", fill, "the host already knows our marketplace; this checkout declares it (measured: a re-add is idempotent)"));
+    if (!a.installed || !a.installed.present) steps.push(hostStep(a, s, "install", fill, `the host copies the plugin into its cache and enables it for this checkout (-y accepts a marketplace-declared command; ours declares none)`));
+    else if (sameVersionDiffers && a.installedVersion === a.targetPkg) { steps.push(hostStep(a, s, "uninstall", fill, `the host forgets this checkout's row: at an unchanged version \`update\` copies nothing (measured), so the refresh is uninstall + install`)); steps.push(hostStep(a, s, "install", fill, `the host copies the rewritten ${a.targetPkg} into its cache and enables it for this checkout again`)); }
+    else if (a.installedVersion !== a.targetPkg) steps.push(hostStep(a, s, "update", fill, `the host swaps this checkout's cached copy for ${a.targetPkg} (measured: --scope names the row; no uninstall)`));
+    if (a.installed && a.installed.present && !a.enabled) steps.push(hostStep(a, s, "enable", fill, "it is disabled for this checkout; install turns it on"));
+    items.push({ ...base, action: a.state === "absent" ? "create" : "update", steps, root: a.predictedInstallPath, verify: { installPath: a.predictedInstallPath, version: a.targetPkg } });
+  }
+  // A competing enabled registration of the same plugin is silenced for THIS
+  // checkout only, as a precaution the preview names (whether two enabled copies
+  // load twice is the live test's row). Our manifest records it for uninstall.
+  for (const o of a.others) {
+    const steps = [];
+    if (a.state === "current" && !a.dir.disabled.includes(o.key)) steps.push({ kind: "write", path: a.paths.dir, files: 0, manifestOnly: true, manifest: { ...a.dir.manifest, [s.provenance_key]: { ...a.dir.prov, disabled: [...a.dir.disabled, o.key] } }, why: "our manifest records what install silences, so uninstall can turn it back on" });
+    steps.push(hostStep(a, s, "disable", { ...fill, other: o.key }, `${o.key} (${o.version}) is enabled for this checkout too; two enabled copies of one plugin would load twice — silenced in this checkout's local settings only, never globally`));
+    items.push({ ...other(o), action: "disable", steps });
+  }
+  return items;
+}
+
 function planJsonEntry(ctx, key, s) {
   const { projectDir, mode, root, home } = ctx;
   if (s.supported === false) {
@@ -157,7 +310,14 @@ function planJsonEntry(ctx, key, s) {
   if (mode === "install" && !ctx.optIn.has(key)) {
     return [{ surface: key, kind: "shared", path, entry: entryKey, state: "opt-out", action: "skip", reason: "statusline.enabled is not true in projectstore.json — name --surface statusline to wire it anyway" }];
   }
-  const a = analyseJsonEntry(projectDir, s, { root, home });
+  const renderRoot = ctx.renderRoot || root;
+  // A root the package manager will collect (npx's cache, a node_modules) is
+  // never wired directly: the entry would name a path that disappears. It is
+  // wired against a registration's install path — or not at all (contract 4′).
+  if (mode === "install" && !isPluginCacheRoot(renderRoot, home) && isEphemeralRoot(renderRoot)) {
+    return [{ surface: key, kind: "shared", path, entry: entryKey, state: "absent-or-present", action: "skip", reason: "this package root is a package-manager cache; the status line is wired only against a registered install (see the registration above)" }];
+  }
+  const a = analyseJsonEntry(projectDir, s, { root, home, renderRoot });
   if (a.state === "unparseable") return [{ surface: key, kind: "shared", path, entry: entryKey, state: "unparseable", action: "refuse", reason: a.reason }];
 
   if (mode === "uninstall") {
@@ -178,8 +338,9 @@ function planJsonEntry(ctx, key, s) {
 
 function planStampedFile(ctx, key, s) {
   const { projectDir, mode, root, home, harness } = ctx;
+  const renderRoot = ctx.renderRoot || root;
   const path = join(projectDir, s.file);
-  const produced = !(s.condition === "plugin_cache_install" && !isPluginCacheRoot(root, home));
+  const produced = !(s.condition === "plugin_cache_install" && !isPluginCacheRoot(renderRoot, home));
   // The policy early-outs come before the render-and-hash, which they make
   // unnecessary.
   if (produced && mode === "install" && !ctx.optIn.has(s.condition ? "statusline" : key) && !ctx.optIn.has(key)) {
@@ -188,7 +349,7 @@ function planStampedFile(ctx, key, s) {
   if (produced && mode === "install" && ctx.slotForeign.size) {
     return [{ surface: key, kind: "exclusive", path, entry: null, state: "absent-or-present", action: "skip", reason: "the status line slot is foreign; a launcher nothing points at is not written" }];
   }
-  const a = analyseStampedFile(projectDir, s, { root, home, harness });
+  const a = analyseStampedFile(projectDir, s, { root, home, harness, renderRoot });
   // Not produced for this installation (a dev checkout is wired directly):
   // a root that cannot produce a file has, by construction, never written it,
   // so install and upgrade REPORT it and leave it (contract 13's wording;
@@ -220,7 +381,7 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   const detected = detectHarnesses(projectDir);
   const named = harnesses.filter(Boolean);
   const ids = named.length ? named : detected.map((d) => d.id);
-  const out = { projectDir, mode, named: named.length > 0, detected, harnesses: [], reports: [], items: [], refusals: [], ok: true };
+  const out = { projectDir, mode, named: named.length > 0, detected, harnesses: [], reports: [], items: [], refusals: [], ok: true, incomplete: false, root, plannedAgainst: {} };
   const unknown = named.filter((id) => !harnessIds().includes(id));
   if (unknown.length) {
     out.refusals.push(`unknown harness: ${unknown.join(", ")} — known: ${harnessIds().join(", ")}`);
@@ -238,17 +399,41 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   for (const id of ids) {
     const harness = loadHarness(id);
     out.harnesses.push(id);
-    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set() };
+    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [] };
     const hostRows = [];
-    for (const [key, s] of Object.entries(harness.surfaces || {})) {
-      if (key.startsWith("_")) continue;
+    let registration = null;
+    const rows = Object.entries(harness.surfaces || {}).filter(([key]) => !key.startsWith("_"));
+    rows.sort(([, x], [, y]) => (KIND_ORDER[x.kind] ?? 3) - (KIND_ORDER[y.kind] ?? 3));
+    for (const [key, s] of rows) {
       if (surfaces && !surfaces.some((x) => key === x || key.startsWith(x + "_"))) continue;
       if (s.kind === "host") { hostRows.push(key); continue; }
       const handler = HANDLERS[s.format];
       if (!handler) { out.refusals.push(`${id}: surface ${key} has format ${s.format}, which this installer cannot handle`); continue; }
-      for (const item of handler(ctx, key, s)) out.items.push({ harness: id, ...item });
+      const items = handler(ctx, key, s);
+      const dependent = s.kind !== "registration" && ctx.renderRoot !== root && ["json-entry", "mjs"].includes(s.format);
+      for (const item of items) out.items.push({ harness: id, ...item, ...(dependent ? { plannedAgainst: ctx.renderRoot } : {}) });
+      if (s.kind === "registration") {
+        // Phase two (contract 4′): the rest is planned against the root the
+        // registration produces — when it produces one on this run or has.
+        const own = items.find((i) => i.surface === key);
+        registration = own || null;
+        if (own && mode !== "uninstall" && ["create", "update", "skip"].includes(own.action) && own.root && !own.deferred) ctx.renderRoot = own.root;
+      }
     }
-    if (hostRows.length && !surfaces) out.reports.push(hostManagedReport(harness, hostRows));
+    // A registration surface the manifest declares but --surface excluded still decides the render root, read-only.
+    if (surfaces && !registration) {
+      const reg = rows.find(([key, s]) => s.kind === "registration" && !surfaces.some((x) => key === x || key.startsWith(x + "_")));
+      if (reg && !isPluginCacheRoot(root, home)) {
+        const a = analyseRegistration(projectDir, reg[1], { root, home, harness, env });
+        if (a.installed && a.installed.present && a.enabled) ctx.renderRoot = a.installPath;
+      }
+    }
+    if (ctx.renderRoot !== root) {
+      out.plannedAgainst[id] = ctx.renderRoot;
+      // Items planned before the render root was known (none today: the registration sorts first) are not re-planned.
+    }
+    if (ctx.incomplete) out.incomplete = true;
+    if (hostRows.length && !surfaces) out.reports.push(hostManagedReport(harness, hostRows, registration));
   }
   if (out.items.some((i) => i.action === "refuse")) out.ok = false;
   if (out.refusals.length) out.ok = false;
@@ -257,9 +442,13 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
 
 // Contract 14: the host installs and updates these itself; say how, from the
 // manifest, and write nothing. (PR #13's installElsewhere, as a plan line.)
-function hostManagedReport(m, rows) {
+function hostManagedReport(m, rows, registration = null) {
   const inst = m.install || {};
   const lines = [`${m.display_name}: ${rows.join(", ")} are installed by ${inst.mechanism || "the host"} — nothing to write.`];
+  if (registration && registration.entry) {
+    const how = registration.action === "skip" && registration.state === "current" ? "registered here" : registration.action === "refuse" ? "refused, see below" : registration.action === "skip" ? "not registered on this run, see below" : `registered by this run (${registration.action})`;
+    lines.push(`  They come from the registration ${registration.entry}, ${how}${registration.root ? ` — the host loads them from ${registration.root}` : ""}.`);
+  }
   if (inst.why_not_scripted) lines.push(`  ${inst.why_not_scripted}`);
   for (const s of inst.steps || []) lines.push(`    ${s}`);
   for (const n of inst.notes || []) lines.push(`  ${n}`);
@@ -273,6 +462,7 @@ const isWrite = (i) => !["skip", "refuse"].includes(i.action);
 
 export function renderPreview(p) {
   const lines = [`projectstore ${p.mode} — ${p.harnesses.join(", ") || "(no harness)"} — ${p.projectDir}`, ""];
+  for (const [h, r] of Object.entries(p.plannedAgainst || {})) lines.push(`  ${h}: the surfaces below are planned against the host's install path ${r}, not this package at ${p.root}.`, "");
   for (const r of p.reports) lines.push(...r.split("\n").map((l) => "  " + l), "");
   const writes = p.items.filter(isWrite);
   for (const i of p.items) {
@@ -282,15 +472,24 @@ export function renderPreview(p) {
     if (i.reason && i.action !== "refuse") state += ` (${i.reason})`;
     lines.push(`  ${i.kind.padEnd(9)} ${where}`);
     lines.push(`            ${state.padEnd(44)} → ${i.action}${i.action === "refuse" && i.reason ? ": " + i.reason : ""}`);
+    for (const st of i.steps || []) {
+      if (st.kind === "host") lines.push(`            $ ${[st.bin, ...st.argv].join(" ")}`, `              ${st.why}${st.touches.length ? `; touches ${st.touches.map((t) => rel(p.projectDir, t)).join(", ")}` : ""}`);
+      else if (st.kind === "write") lines.push(`            write ${st.path}${st.manifestOnly ? " (manifest only)" : ` (${st.files} files + the manifest)`}`, `              ${st.why}`);
+      else if (st.kind === "remove") lines.push(`            remove ${st.path}`, `              ${st.why}`);
+      else if (st.kind === "unregister") lines.push(`            edit ${rel(p.projectDir, st.path)}  [${st.pointer}.${st.name}] → removed`, `              ${st.why}`);
+      else if (st.kind === "note") lines.push(`            note: ${st.why}`);
+    }
+    if (i.kind === "registration" && i.home && i.surface && !i.surface.endsWith("_others")) lines.push(`            (harness home ${i.home}${i.scope ? `, scope ${i.scope}` : ""})`);
     if (i.deleteIfEmpty && typeof i.after === "string" && !i.after.trim()) lines.push(`            (the file would hold nothing else and is removed)`);
   }
   const exclusiveRemoval = p.items.find((i) => i.action === "remove" && i.kind === "exclusive");
   if (exclusiveRemoval) lines.push(`            (an emptied ${rel(p.projectDir, dirname(exclusiveRemoval.path))}/ is pruned)`);
   for (const r of p.refusals) lines.push(`  refused   ${r}`);
   lines.push("", "  Nothing outside a marked entry is read, rewritten or removed.");
+  if (p.items.some((i) => (i.steps || []).some((s) => s.kind === "host"))) lines.push("  Each $ line runs the host's own CLI, which writes the host-owned files named after it.");
   if (!p.ok) lines.push("", "  Nothing will be written: resolve the refusals above first.");
-  else if (!writes.length) lines.push("", "  Nothing to change.");
-  else lines.push("", `  ${writes.length} change(s) to apply.`);
+  else if (!writes.length) lines.push("", "  Nothing to change." + (p.incomplete ? " One surface could not be planned (see above)." : ""));
+  else lines.push("", `  ${writes.length} change(s) to apply.${p.incomplete ? " One surface could not be planned (see above); the rest proceeds." : ""}`);
   return lines.join("\n") + "\n";
 }
 
@@ -315,14 +514,35 @@ export async function confirm(p, { stdin = process.stdin, stdout = process.stdou
 
 // ─── apply ─────────────────────────────────────────────────────────────
 
-export function apply(p) {
+export function apply(p, { env = process.env, spawn = spawnSync, home = homedir() } = {}) {
   if (!p.ok) throw new Error("apply: the plan carries refusals; nothing is written");
   const done = [];
+  let registrationFailed = false;
   for (const i of p.items) {
     if (!isWrite(i)) continue;
+    if (i.kind === "registration") {
+      const r = applyRegistration(p, i, { env, spawn, home });
+      done.push(r);
+      // A registration that did not complete leaves the surfaces planned against
+      // its install path unwritten: a launcher pointing at nothing is worse than
+      // none. Surfaces rendered from the package root (the block) still apply.
+      if (r.failed) { done.failed = r.failed; registrationFailed = true; }
+      continue;
+    }
+    if (registrationFailed && i.plannedAgainst) { done.push({ path: i.path, action: "skipped", surface: i.surface, reason: "the registration did not complete; this surface was planned against its install path" }); continue; }
     if (i.kind === "shared" && typeof i.after === "object" && i.after !== null && !Array.isArray(i.after)) {
       mkdirSync(dirname(i.path), { recursive: true });
-      writeFileAtomic(i.path, JSON.stringify(i.after, null, 2) + "\n", { sweep: false });
+      // Re-read at write time: a host command run earlier in this apply (the
+      // registration's) may have added sibling keys since plan() read the file.
+      // Our entry is set or deleted on the file as it stands; nothing else moves.
+      let now = null;
+      try { now = JSON.parse(readFileSync(i.path, "utf8")); } catch { now = null; }
+      let merged = i.after;
+      if (now && typeof now === "object" && !Array.isArray(now) && i.entry) {
+        merged = { ...now };
+        if (i.action === "remove") delete merged[i.entry]; else merged[i.entry] = i.after[i.entry];
+      }
+      writeFileAtomic(i.path, JSON.stringify(merged, null, 2) + "\n", { sweep: false });
     } else if ((i.action === "remove" || i.action === "prune") && i.kind === "exclusive") {
       try { unlinkSync(i.path); } catch {}
       pruneEmptyDir(dirname(i.path), p.projectDir);
@@ -337,6 +557,63 @@ export function apply(p) {
     done.push({ path: i.path, action: i.action, surface: i.surface });
   }
   return done;
+}
+
+// The registration's steps, in order, each leaving a state plan() can read.
+// The host binary runs with the harness home pinned in its environment — the
+// same home the plan was read from — and with the project as its cwd, which is
+// how the host resolves `--scope local`. A non-zero exit stops the item and
+// is recorded, never retried, never masked.
+function applyRegistration(p, i, { env, spawn, home }) {
+  const out = { path: i.path, action: i.action, surface: i.surface, steps: [] };
+  const childEnv = { ...env, [homeEnvName(i.harness)]: claudeHome(home) };
+  const s = loadHarness(i.harness).surfaces[i.surface.replace(/_others$/, "")];
+  const fail = (step, status, stderr, argv = null) => { out.failed = { step, status, stderr, ...(argv ? { argv } : {}) }; return out; };
+  for (const st of i.steps || []) {
+    if (st.kind === "write") {
+      const manifestPath = join(st.path, s.manifest);
+      // Re-check at apply time what plan() proved: the directory is absent or ours.
+      if (existsSync(st.path)) {
+        let ours = false;
+        try { ours = Boolean(JSON.parse(readFileSync(manifestPath, "utf8"))[s.provenance_key]); } catch {}
+        if (!ours) { out.steps.push({ kind: "write", ok: false }); return fail("write", null, `${st.path} changed under the plan: its manifest is no longer ours; nothing is written`); }
+      }
+      if (st.manifestOnly) writeFileAtomic(manifestPath, JSON.stringify(st.manifest, null, 2) + "\n", { sweep: false });
+      else writeOwnTree(st.path, { from: p.root, subdir: s.plugin_subdir, manifestRel: s.manifest, manifest: st.manifest, home });
+      out.steps.push({ kind: "write", path: st.path, ok: true });
+    } else if (st.kind === "unregister") {
+      // Our one entry in the checkout's settings file (contract 6): the key is deleted, nothing else is touched.
+      let settings = {};
+      try { settings = JSON.parse(readFileSync(st.path, "utf8")); } catch { settings = null; }
+      if (!settings || typeof settings !== "object" || Array.isArray(settings)) { out.steps.push({ kind: "unregister", ok: false }); return fail("unregister", null, `${st.path} is not a JSON object; the marketplace entry was not removed`); }
+      if (settings[st.pointer] && typeof settings[st.pointer] === "object") { delete settings[st.pointer][st.name]; writeFileAtomic(st.path, JSON.stringify(settings, null, 2) + "\n", { sweep: false }); }
+      out.steps.push({ kind: "unregister", path: st.path, ok: true });
+    } else if (st.kind === "remove") {
+      removeOwnTree(st.path, home);
+      out.steps.push({ kind: "remove", path: st.path, ok: true });
+    } else if (st.kind === "host") {
+      const bin = whichOnPathFromLib(st.bin, env);
+      const r = spawn(bin || st.bin, st.argv, { env: childEnv, cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120000 });
+      const ok = !r.error && r.status === 0;
+      const said = String((r.stderr || "") + (ok ? "" : r.stdout || "") + (r.error ? r.error.message : "")).trim();
+      out.steps.push({ kind: "host", argv: [st.bin, ...st.argv], status: r.status ?? null, ok, ...(ok ? {} : { stderr: said }) });
+      if (!ok) return fail(st.name, r.status ?? null, said, [st.bin, ...st.argv]);
+    }
+  }
+  // The host's registry is read back: the install path the rest of the plan
+  // was rendered against must be the one the host recorded for this checkout.
+  if (i.verify) {
+    const a = analyseRegistration(p.projectDir, s, { root: p.root, home, harness: loadHarness(i.harness), env });
+    if (!a.installPath || resolve(a.installPath) !== resolve(i.verify.installPath) || a.installedVersion !== i.verify.version) {
+      return fail("verify", null, `after the host ran, its registry records ${a.installPath || "no install"} at ${a.installedVersion || "?"} for this checkout; the plan rendered the other surfaces against ${i.verify.installPath} at ${i.verify.version} — they are not written`);
+    }
+    out.verified = { installPath: a.installPath, version: a.installedVersion };
+  }
+  return out;
+}
+
+function homeEnvName(harnessId) {
+  try { return loadHarness(harnessId).runtime.home_env; } catch { return sourceHarness().runtime.home_env; }
 }
 
 // rmdirSync refuses a non-empty directory — that refusal IS the guarantee
@@ -359,8 +636,11 @@ export async function runVerb(verb, projectDir, opts = {}) {
   const p = plan(projectDir, { ...opts, mode });
   const preview = renderPreview(p);
   const gate = await confirm(p, opts);
-  const result = { verb, plan: p, preview, gate, applied: [] };
-  if (gate.confirmed) result.applied = apply(p);
+  const result = { verb, plan: p, preview, gate, applied: [], failed: null };
+  if (gate.confirmed) {
+    result.applied = apply(p, { env: opts.env || process.env, spawn: opts.spawn || spawnSync, home: opts.home || homedir() });
+    result.failed = result.applied.failed || null;
+  }
   return result;
 }
 
@@ -377,7 +657,7 @@ function usage() {
 
 // The JSON envelope carries states and actions, never file bodies: a model
 // reading a status report must not receive the whole of CLAUDE.md twice.
-export const publicItem = ({ before, after, ...rest }) => rest;
+export const publicItem = ({ before, after, steps, ...rest }) => steps ? { ...rest, steps: steps.map(({ manifest, ...s }) => s) } : rest;
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -400,18 +680,26 @@ async function main() {
   if (verb === "plan") {
     const p = plan(projectDir, opts);
     process.stdout.write(json ? JSON.stringify({ ...p, items: p.items.map(publicItem) }, null, 2) + "\n" : renderPreview(p));
-    process.exit(p.ok ? 0 : 1);
+    process.exit(p.ok && !p.incomplete ? 0 : 1);
   }
   const r = await runVerb(verb, projectDir, opts);
   if (json) {
-    process.stdout.write(JSON.stringify({ verb, ok: r.plan.ok, gate: r.gate, applied: r.applied, items: r.plan.items.map(publicItem), refusals: r.plan.refusals, reports: r.plan.reports }, null, 2) + "\n");
+    process.stdout.write(JSON.stringify({ verb, ok: r.plan.ok && !r.plan.incomplete && !r.failed, gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, items: r.plan.items.map(publicItem), refusals: r.plan.refusals, reports: r.plan.reports }, null, 2) + "\n");
   } else {
     process.stdout.write(r.preview);
-    if (r.gate.confirmed) process.stdout.write(`applied ${r.applied.length} change(s).\n`);
+    if (r.gate.confirmed) process.stdout.write(appliedLine(r));
     else if (r.gate.why === "non-tty") process.stdout.write(`a bare ${verb} in a non-TTY refuses; name a harness to confirm: --harness ${r.plan.detected.map((d) => d.id).join(" | ") || harnessIds().join(" | ")}\n`);
     else if (r.gate.why === "declined") process.stdout.write("nothing written.\n");
   }
-  process.exit(r.plan.ok && (r.gate.confirmed || r.gate.why === "nothing-to-do") ? 0 : 1);
+  process.exit(r.plan.ok && !r.plan.incomplete && !r.failed && (r.gate.confirmed || r.gate.why === "nothing-to-do") ? 0 : 1);
+}
+
+// What apply did, for a terminal: the count, and a failed host command with
+// its stderr — the user sees what the host said, verbatim.
+export function appliedLine(r) {
+  let s = `applied ${r.applied.length} change(s).\n`;
+  if (r.failed) s += `stopped: ${r.failed.argv ? "$ " + r.failed.argv.join(" ") : r.failed.step} exited ${r.failed.status ?? "without running"}${r.failed.stderr ? "\n  " + r.failed.stderr.split("\n").join("\n  ") : ""}\n  the surfaces planned against its install path were not written; run the verb again once it succeeds.\n`;
+  return s;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

@@ -18,7 +18,7 @@ import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { fakeInstall, writeRegistry } from "./fixtures/install.mjs";
+import { fakeInstall, writeRegistry, noHostEnv } from "./fixtures/install.mjs";
 import { plan, renderPreview, confirm, apply, runVerb } from "../scripts/install-harness.mjs";
 import { detectHarnesses, harnessRefusal, sourceHarness } from "../scripts/harness.mjs";
 import { stamp, sourceHash, parseProvenance } from "../scripts/provenance.mjs";
@@ -96,7 +96,7 @@ test("install: a fresh cache-installed project plans three creates and writes no
   const p = plan(proj, { home, root });
   assert.equal(p.ok, true);
   assert.equal(p.harnesses[0], SRC.id);
-  assert.ok(p.reports[0].includes("installed by the built-in plugin marketplace"), "host-managed surfaces are reported (contract 14)");
+  assert.match(p.reports[0], /are installed by .*plugin marketplace/, "host-managed surfaces are reported (contract 14)");
   assert.equal(item(p, "agents_block").action, "add");
   assert.equal(item(p, "agents_block").state, "ours-absent");
   assert.equal(item(p, "statusline").action, "create");
@@ -148,7 +148,11 @@ test("install: a dev checkout wires the plugin script directly and plans no laun
   copyFileSync(join(ROOT, "templates", "claude-md-block.md.tmpl"), join(dev, "templates", "claude-md-block.md.tmpl"));
   writeFileSync(join(dev, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.0.0-dev" }));
   const proj = project();
-  const p = plan(proj, { home, root: dev });
+  // Without the host's CLI the registration is unavailable and the plan is incomplete; the rest is planned against the dev root (contract 4′).
+  const p = plan(proj, { home, root: dev, env: noHostEnv() });
+  assert.equal(item(p, "plugin").state, "unavailable");
+  assert.equal(item(p, "plugin").action, "skip");
+  assert.equal(p.incomplete, true);
   assert.equal(item(p, "statusline_launcher"), undefined);
   assert.equal(item(p, "statusline").after.statusLine.command, `node "${join(dev, "scripts", "statusline.mjs")}"`);
 });
@@ -624,9 +628,13 @@ test("install contract 5 (doctor half): a foreign file is reported under its own
   const step3 = doctorMd.slice(doctorMd.indexOf("3. **`--fix` requested**"));
   const repairIds = [...step3.matchAll(/^\s+- `([a-z-]+)`/gm)].map((m) => m[1]);
   assert.ok(repairIds.includes("surface") && repairIds.includes("surface-foreign"), "both ids are addressed in step 3");
-  assert.ok(/surface-foreign` → \*\*never repairable/.test(step3), "the negative clause exists");
-  const bullet = step3.slice(step3.indexOf("- `surface-foreign`"), step3.indexOf("\n   - `", step3.indexOf("- `surface-foreign`") + 5));
-  assert.ok(!bullet.includes('node "') && !bullet.includes("/projectstore:"), "the surface-foreign bullet invokes nothing");
+  // Every foreign id — the file's and the registration's (2026-09-05) — has the negative clause and invokes nothing.
+  for (const id of ["surface-foreign", "plugin-registration-foreign"]) {
+    assert.ok(repairIds.includes(id), `${id} is addressed in step 3`);
+    assert.ok(new RegExp(`${id}\` → \\*\\*never repairable`).test(step3), `${id}: the negative clause exists`);
+    const bullet = step3.slice(step3.indexOf(`- \`${id}\``), step3.indexOf("\n   - `", step3.indexOf(`- \`${id}\``) + 5));
+    assert.ok(!bullet.includes('node "') && !bullet.includes("/projectstore:") && !bullet.includes("claude plugin"), `the ${id} bullet invokes nothing`);
+  }
   assert.ok(/never Edit, Write or delete the file yourself/.test(step3));
   // Executable repairs: every verb invocation step 3 can emit leaves a foreign
   // launcher and a foreign slot byte-identical.
