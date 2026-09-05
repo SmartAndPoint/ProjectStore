@@ -95,7 +95,17 @@ npx projectstore install --harness claude-code   # previews, then writes the age
 npx projectstore reconcile --write --only kanban
 ```
 
-The read verbs (`status`, `search`, `show`, `graph`, `codemap`) and `init`/`bind` land with the next slices; `projectstore <verb>` says so until they do.
+Reads too — the same facts the agents get over MCP:
+
+```
+npx projectstore status --json
+npx projectstore search "entry rule" --kind spec
+npx projectstore show adr/README.md --section index
+npx projectstore graph neighbors epics/PS-CORE/epic.md
+npx projectstore codemap --for scripts/lib.mjs
+```
+
+`init`/`bind` land with the next slice; `projectstore <verb>` says so until they do.
 
 Names like `projectstore-claude` or `projectstore-codex` on npm are reserved placeholders pointing back here — there is only one package.
 </details>

@@ -10,7 +10,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { readConfig, loadLayout, folderByKind, parseFrontmatter, nowIso } from "./lib.mjs";
+import { readConfig, loadLayout, folderByKind, parseFrontmatter, nowIso, isMain } from "./lib.mjs";
 
 function die(msg) {
   process.stderr.write(`projectstore/codemap: ${msg}\n`);
@@ -94,4 +94,6 @@ function main() {
   }, null, 2) + "\n");
 }
 
-main();
+if (isMain(import.meta.url)) {
+  main();
+}

@@ -42,8 +42,9 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createInterface } from "node:readline/promises";
-import { projectRootDeclared, childEnv, harnessIds } from "./harness.mjs";
+import { projectRootDeclared, childEnv, harnessIds, pinPluginRoot } from "./harness.mjs";
 import { readConfigAt } from "./lib.mjs";
+import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_LIMIT, GRAPH_EDGE_CAP, DIRECTIONS } from "./query.mjs";
 
 export const SCHEMA_VERSION = 1;
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -77,6 +78,7 @@ export function resolveProject({ project = null, env = process.env, cwd = proces
 
 const opt = (name, arg, summary, multiple = false) => Object.freeze({ name, arg, summary, multiple });
 const JSON_OPT = opt("json", false, "the envelope");
+const READ_JSON = [JSON_OPT];
 const INSTALL_OPTS = [opt("harness", "<id>", "the harness — and, non-interactively, the confirmation; there is no --yes", true), opt("surface", "<key>", "one surface and those beneath it", true), JSON_OPT];
 
 export const VERBS = Object.freeze([
@@ -113,6 +115,40 @@ export const VERBS = Object.freeze([
     options: INSTALL_OPTS, run: runInstallVerb,
   }),
   Object.freeze({
+    verb: "status", summary: "The binding, what is in progress, and whether the derived views are fresh.",
+    module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze(["status"]),
+    options: READ_JSON, run: runRead("status"),
+  }),
+  Object.freeze({
+    verb: "orientation", summary: "The SessionStart skeleton and the facts behind it.",
+    module: "./query.mjs", wraps: "module", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["orientation"]),
+    options: READ_JSON, run: runRead("orientation"),
+  }),
+  Object.freeze({
+    verb: "search", summary: "Find a phrase in the vault's artifacts — deterministic, bounded, no shell.",
+    module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["search"]),
+    options: [opt("kind", "<type>", "only artifacts of this kind", true), opt("status", "<status>", "only artifacts in this status"), opt("limit", "<n>", `at most n matches (default ${SEARCH_DEFAULT_LIMIT}, hard cap 100)`), opt("include-derived", false, "search the derived views too"), opt("case-sensitive", false, "match case"), JSON_OPT],
+    run: runRead("search"),
+  }),
+  Object.freeze({
+    verb: "show", summary: "One artifact: its frontmatter, and its body or one section on request.",
+    module: "./query.mjs", wraps: "module", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["get_artifact"]),
+    options: [opt("body", false, "include the body"), opt("section", "<id>", "one section by its registry id (description, acceptance, …)"), JSON_OPT],
+    run: runRead("show"),
+  }),
+  Object.freeze({
+    verb: "graph", summary: "graph neighbors <path> | graph lineage <path> — the live link graph by vault path.",
+    module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["neighbors", "lineage"]),
+    options: [opt("kind", "<edge-kind>", "only edges of this kind (lineage: one of its four)", true), opt("direction", DIRECTIONS.join("|"), "neighbors: which edges"), opt("depth", "<n>", `lineage: how far (default ${LINEAGE_DEFAULT_DEPTH})`), opt("limit", "<n>", `neighbors: cap per direction (≤ ${GRAPH_EDGE_CAP})`), JSON_OPT],
+    run: runGraph,
+  }),
+  Object.freeze({
+    verb: "codemap", summary: "codemap --for <selector> — which code an epic or artifact maps to, or which artifacts map to a path.",
+    module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["code_refs"]),
+    options: [opt("for", "<selector>", "an epic id, an artifact, or a repo path"), opt("reverse", false, "read the selector as a path even if it names an artifact"), JSON_OPT],
+    run: runCodemap,
+  }),
+  Object.freeze({
     verb: "version", summary: "Print the package version (also --version).",
     module: null, wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze([]),
     options: [JSON_OPT], run: runVersion,
@@ -120,20 +156,14 @@ export const VERBS = Object.freeze([
 ]);
 
 // The verbs the MCP ADR's table and the distribution ADR's decision 3 name
-// and this bin does not ship yet (roadmap C1, C2). Named so `projectstore
+// and this bin does not ship yet (roadmap A6, A7). Named so `projectstore
 // status` says where it lands instead of "unknown verb", so the drift test
 // can assert the union covers the ADR's eight tools, and — for the four the
 // story marks *new* — so that marker is already in the table.
 export const PLANNED_VERBS = Object.freeze([
-  Object.freeze({ verb: "init", wraps: "new", mcp: Object.freeze([]), lands: "C1" }),
-  Object.freeze({ verb: "bind", wraps: "new", mcp: Object.freeze([]), lands: "C1" }),
-  Object.freeze({ verb: "status", wraps: "new", mcp: Object.freeze(["status"]), lands: "C1" }),
-  Object.freeze({ verb: "orientation", wraps: "module", mcp: Object.freeze(["orientation"]), lands: "C1" }),
-  Object.freeze({ verb: "search", wraps: "new", mcp: Object.freeze(["search"]), lands: "C1" }),
-  Object.freeze({ verb: "show", wraps: "module", mcp: Object.freeze(["get_artifact"]), lands: "C1" }),
-  Object.freeze({ verb: "graph", wraps: "module", mcp: Object.freeze(["neighbors", "lineage"]), lands: "C1" }),
-  Object.freeze({ verb: "codemap", wraps: "module", mcp: Object.freeze(["code_refs"]), lands: "C1" }),
-  Object.freeze({ verb: "mcp", wraps: "new", mcp: Object.freeze([]), lands: "C2" }),
+  Object.freeze({ verb: "init", wraps: "new", mcp: Object.freeze([]), lands: "A6" }),
+  Object.freeze({ verb: "bind", wraps: "new", mcp: Object.freeze([]), lands: "A6" }),
+  Object.freeze({ verb: "mcp", wraps: "new", mcp: Object.freeze([]), lands: "A7" }),
 ]);
 
 export function usage() {
@@ -159,6 +189,8 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
         project: { type: "string" }, json: { type: "boolean" }, help: { type: "boolean", short: "h" }, version: { type: "boolean", short: "v" },
         harness: { type: "string", multiple: true }, surface: { type: "string", multiple: true },
         write: { type: "boolean" }, only: { type: "string" }, install: { type: "boolean" }, vault: { type: "boolean" },
+        kind: { type: "string", multiple: true }, status: { type: "string" }, limit: { type: "string" }, "include-derived": { type: "boolean" }, "case-sensitive": { type: "boolean" },
+        body: { type: "boolean" }, section: { type: "string" }, direction: { type: "string" }, depth: { type: "string" }, for: { type: "string" }, reverse: { type: "boolean" },
       },
     });
   } catch (e) {
@@ -166,6 +198,10 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
     return 2;
   }
   const { values, positionals } = parsed;
+  // In-process reads resolve layouts and registries from THIS package, as the
+  // children already do through ownEnv — not from whichever copy the host
+  // session's variable points at.
+  pinPluginRoot(PACKAGE_ROOT);
   if (values.version) return runVersion({ values, stdout });
   if (values.help || !positionals.length) { (values.help ? stdout : stderr).write(usage() + "\n"); return values.help ? 0 : 2; }
   const verb = positionals[0];
@@ -175,13 +211,21 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
     stderr.write((planned ? `${verb} lands with roadmap ${planned.lands}; not in this release.\n` : `unknown verb: ${verb}\n`) + usage() + "\n");
     return 2;
   }
+  // The options map is global (parseArgs), the rows are not: an option a row
+  // does not declare is a usage error, so help cannot lie about what a verb
+  // takes.
+  const GLOBAL = new Set(["project", "json", "help", "version"]);
+  const declared = new Set(row.options.map((o) => o.name));
+  const stray = Object.keys(values).filter((k) => !GLOBAL.has(k) && !declared.has(k));
+  if (stray.length) { stderr.write(`${verb} does not take --${stray[0]}\n${usage()}\n`); return 2; }
   const project = resolveProject({ project: values.project, env, cwd });
-  if (row.requiresBinding && !readConfigAt(project)) {
-    stderr.write(`${project} is not bound to a vault — run /projectstore:bind <vault> in a session (projectstore init lands with roadmap C1).\n`);
+  const cfg = readConfigAt(project);
+  if (row.requiresBinding && !cfg) {
+    stderr.write(`${project} is not bound to a vault — run /projectstore:bind <vault> in a session (projectstore init lands with roadmap A6).\n`);
     return 3;
   }
   try {
-    return await row.run({ row, values, project, env, cwd, stdin, stdout, stderr, ask });
+    return await row.run({ row, values, positionals: positionals.slice(1), cfg, project, env, cwd, stdin, stdout, stderr, ask });
   } catch (e) {
     // An internal failure is not "findings" (1) — it is 2, with an envelope
     // when one was asked for.
@@ -209,6 +253,72 @@ async function confirmWrite(question, { stdin, stdout, ask }) {
 }
 
 // ─── verbs ─────────────────────────────────────────────────────────────
+
+// The read verbs: one call into query.mjs, the result in the envelope or
+// rendered. A usage error from the operation (a bad path, a missing query)
+// is exit 2 with the message, never a stack trace.
+function emitRead({ verb, values, project, stdout }, op, result, ok = true) {
+  if (values.json) stdout.write(JSON.stringify(envelope(verb, project, ok, result), null, 2) + "\n");
+  else stdout.write(op.render(result));
+  return ok ? 0 : 1;
+}
+
+function usageFail(e, { verb, values, project, stdout, stderr }) {
+  if (values.json) stdout.write(JSON.stringify(envelope(verb, project, false, { error: e.message }), null, 2) + "\n");
+  stderr.write(`${verb}: ${e.message}\n`);
+  return 2;
+}
+
+function runRead(name) {
+  return async (ctx) => {
+    const { row, values, positionals, cfg, project } = ctx;
+    const op = READ_OPERATIONS[name];
+    try {
+      let result;
+      if (name === "status") result = op.fn(cfg, { project });
+      else if (name === "orientation") result = await op.fn(cfg);
+      else if (name === "search") result = op.fn(cfg, positionals.join(" "), { kinds: values.kind || null, status: values.status ?? null, limit: values.limit, includeDerived: Boolean(values["include-derived"]), caseSensitive: Boolean(values["case-sensitive"]) });
+      else if (name === "show") result = op.fn(cfg, positionals[0], { body: Boolean(values.body), section: values.section ?? null });
+      return emitRead({ verb: row.verb, ...ctx }, op, result);
+    } catch (e) {
+      if (e && e.code === "USAGE") return usageFail(e, { verb: row.verb, ...ctx });
+      throw e;
+    }
+  };
+}
+
+async function runGraph(ctx) {
+  const { row, values, positionals, cfg } = ctx;
+  const sub = positionals[0];
+  const path = positionals[1];
+  if (!["neighbors", "lineage"].includes(sub)) return usageFail(Object.assign(new Error("graph takes neighbors <path> or lineage <path>"), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  const op = READ_OPERATIONS[sub];
+  try {
+    // The row declares the union; each mode takes its own — an option the
+    // mode would ignore is a usage error, not a silent no-op.
+    const notFor = sub === "neighbors" ? ["depth"] : ["direction", "limit"];
+    for (const o of notFor) if (values[o] !== undefined) throw Object.assign(new Error(`--${o} is not an option of graph ${sub}`), { code: "USAGE" });
+    const result = sub === "neighbors"
+      ? op.fn(cfg, path, { kinds: values.kind || null, direction: values.direction, limit: values.limit })
+      : op.fn(cfg, path, { depth: values.depth, kinds: values.kind && values.kind.length ? values.kind : LINEAGE_KINDS });
+    return emitRead({ verb: `graph ${sub}`, ...ctx }, op, result);
+  } catch (e) {
+    if (e && e.code === "USAGE") return usageFail(e, { verb: row.verb, ...ctx });
+    throw e;
+  }
+}
+
+async function runCodemap(ctx) {
+  const { row, values, cfg } = ctx;
+  const op = READ_OPERATIONS.codeRefs;
+  try {
+    if (!values.for) throw Object.assign(new Error("codemap takes --for <selector>; regeneration is reconcile --only codemap"), { code: "USAGE" });
+    return emitRead({ verb: row.verb, ...ctx }, op, op.fn(cfg, values.for, { reverse: Boolean(values.reverse) }));
+  } catch (e) {
+    if (e && e.code === "USAGE") return usageFail(e, { verb: row.verb, ...ctx });
+    throw e;
+  }
+}
 
 function runVersion({ values, stdout }) {
   const version = packageVersion();

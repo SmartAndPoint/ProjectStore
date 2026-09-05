@@ -25,7 +25,6 @@ import {
 import { join, basename, resolve, dirname, relative } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import {
   readConfig,
   loadLayout,
@@ -61,7 +60,7 @@ import {
   ENTRY_IGNORE,
   AGENTS_BLOCK_OPEN_SRC,
   agentsBlockVersion,
-  installedPluginEntries,
+  installedPluginEntries, isMain
 } from "./lib.mjs";
 import { agentOverrides, childEnv, sourceHarness } from "./harness.mjs";
 import { uncommittedProjectFiles, lastCommitMs } from "./diff-refs.mjs";
@@ -1667,6 +1666,6 @@ async function main() {
   process.stdout.write((wantJson ? JSON.stringify(findings, null, 2) : report(findings, groups)) + "\n");
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   main();
 }

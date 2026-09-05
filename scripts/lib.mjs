@@ -2,9 +2,10 @@
 // Pure node, no external deps. Keep this single-file & dependency-free
 // so plugin install does not require npm install.
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync, realpathSync } from "node:fs";
 import { readFile as readFileAsync } from "node:fs/promises";
 import { join, dirname, basename, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { hostname, homedir } from "node:os";
 import { createHash } from "node:crypto";
 import {
@@ -57,6 +58,22 @@ export function writeConfig(cfg) {
   const p = configPath();
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n", "utf8");
+}
+
+// ─── Entry-file guard ──────────────────────────────────────────────────
+
+// `if (isMain(import.meta.url)) main()` — a generator runs only as the entry
+// file, so importing it prints nothing (the MCP server's stdout is its
+// protocol channel). argv[1] is compared resolved AND realpath'd: ESM
+// realpaths import.meta.url, so a plugin root reached through a symlink
+// would otherwise never match and the generator would print nothing to a
+// caller that then reports "unparseable generator output".
+export function isMain(metaUrl) {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  const here = fileURLToPath(metaUrl);
+  if (resolve(argv1) === here) return true;
+  try { return realpathSync(argv1) === here; } catch { return false; }
 }
 
 // ─── Atomic file writes (spec: atomic-regeneration-of-derived-views) ──

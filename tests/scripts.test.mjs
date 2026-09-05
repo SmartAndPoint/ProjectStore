@@ -10,6 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statS
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync, spawn } from "node:child_process";
+import { makeVaultProject, seedGraphFixture } from "./fixtures/vault.mjs";
 import { readAnchorState } from "../scripts/lib.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
 import { fileURLToPath } from "node:url";
@@ -94,18 +95,6 @@ function runIn(projectDir, script, args) {
   return JSON.parse(r.stdout);
 }
 
-function makeVaultProject() {
-  const proj = mkdtempSync(join(tmpdir(), "ps-draft-"));
-  const vault = join(proj, "vault");
-  for (const d of ["adr", "specs", join("epics", "PS-X", "stories")]) {
-    mkdirSync(join(vault, d), { recursive: true });
-  }
-  mkdirSync(join(proj, ".claude"), { recursive: true });
-  writeFileSync(join(proj, ".claude", "projectstore.json"), JSON.stringify({
-    vault_path: vault, layout: "engineering", language: "en", default_author: "Test",
-  }));
-  return { proj, vault };
-}
 
 test("draft adr/spec: slug-only filename, machine id, external_refs, no number (contracts 1, 3)", () => {
   const { proj } = makeVaultProject();
@@ -502,41 +491,9 @@ test("creation command prose applies index rows through the core, under one disc
 
 // ─── link graph (spec: vault-link-graph-derived-view-and-shared-link-resolver) ──
 
-// Its own fixture — seedDerivedFixture's exact board/write counts are pinned
-// by six tests above; do not extend it. One artifact of every edge kind:
-// two-sided supersedes and spec↔story declarations (must collapse to one
-// edge each), a dead link, an ambiguous stem, an out-of-scope link repeated
-// twice (dedup), and all three story shapes.
-function seedGraphFixture() {
-  const { proj, vault } = makeVaultProject();
-  const put = (rel, content) => {
-    mkdirSync(join(vault, dirname(rel)), { recursive: true });
-    writeFileSync(join(vault, rel), content);
-  };
-  const fm = (extra, body = "") => `---\n${extra}\n---\n\n# T\n${body}`;
-  put(join("adr", "old-way.md"),
-    fm('type: adr\nid: "old-way"\ntitle: "Old way"\nstatus: superseded\ndate: 2026-01-01\nsuperseded_by: "new-way"'));
-  put(join("adr", "new-way.md"),
-    fm('type: adr\nid: "new-way"\ntitle: "New way"\nstatus: accepted\ndate: 2026-01-02\nsupersedes: "old-way"',
-      "\n[[kanban]] twice: [[kanban]]\n[[missing-target]]\n[[dup]]\n"));
-  put(join("adr", "dup.md"), fm('type: adr\nid: "dup-adr"\ntitle: "Dup A"\nstatus: proposed\ndate: 2026-01-03'));
-  put(join("specs", "dup.md"), fm('type: spec\nid: "dup-spec"\ntitle: "Dup S"\nstatus: draft\ndate: 2026-01-03'));
-  put(join("specs", "covering.md"),
-    fm('type: spec\nid: "covering"\ntitle: "Covering"\nstatus: active\ndate: 2026-01-01\nstories: ["PS-X/story-ship-it"]\nadr: ["new-way"]'));
-  put(join("specs", "one-sided.md"),
-    fm('type: spec\nid: "one-sided"\ntitle: "One sided"\nstatus: draft\ndate: 2026-01-04\nstories: ["PS-X/story-loose"]'));
-  put(join("epics", "PS-X", "epic.md"),
-    fm('type: epic\nid: "PS-X"\ntitle: "X"\nstatus: in-progress\ncreated: 2026-01-01\ncode_refs: ["scripts/"]'));
-  put(join("epics", "PS-X", "stories", "story-ship-it.md"),
-    fm('type: story\nid: "story-ship-it"\ntitle: "Ship it"\nstatus: planned\ncreated: 2026-01-01\nspecs: ["covering"]',
-      "\n[[new-way]]\n"));
-  put(join("epics", "PS-X", "stories", "story-nested", "README.md"),
-    fm('type: story\nid: "story-nested"\ntitle: "Nested"\nstatus: planned\ncreated: 2026-01-02'));
-  put(join("epics", "PS-X", "story-loose.md"),
-    fm('type: story\nid: "story-loose"\ntitle: "Loose | Pipe"\nstatus: planned\ncreated: 2026-01-02'));
-  writeFileSync(join(vault, "kanban.md"), "stub board\n");
-  return { proj, vault };
-}
+// Its own fixture, seedGraphFixture in tests/fixtures/vault.mjs — one
+// artifact of every edge kind; the goldens below deepEqual its edge lists, so
+// it is not extended (seedCliVault composes on top of it instead).
 
 test("graph.mjs golden: three story shapes are nodes; typed edges normalized, deduplicated, plain-text, deterministic (contracts 2, 4)", () => {
   const { proj } = seedGraphFixture();

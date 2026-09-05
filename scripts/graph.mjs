@@ -13,8 +13,7 @@
 // harness: no Write-tool step remains in the derived-view flows.
 
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import {
   readConfig,
   loadLayout,
@@ -24,7 +23,7 @@ import {
   buildNodeIndex,
   extractLinks,
   resolveLinkTarget,
-  storyMatchesEntry,
+  storyMatchesEntry, isMain
 } from "./lib.mjs";
 import { walkVaultFiles } from "./doctor.mjs";
 
@@ -194,6 +193,12 @@ export function buildGraph(cfg, layout, { files = null } = {}) {
       edges: edgeRows.length,
       by_kind: Object.fromEntries(Object.entries(byKind).sort(([a], [b]) => cmp(a, b))),
     },
+    // The facts the view is rendered from, for the query verbs (neighbors,
+    // lineage): the same edges, so `graph neighbors` and `grep graph.md`
+    // cannot disagree. main() prints content and stats only — reconcile's
+    // parse surface and the golden tests are unchanged.
+    nodes: index.nodes.map((n) => ({ path: n.path, type: n.type, title: n.title, status: n.status })),
+    edges: edgeRows.map((e) => ({ from: e.from, kind: e.kind, to: e.to })),
   };
 }
 
@@ -209,6 +214,6 @@ function main() {
   }, null, 2) + "\n");
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   main();
 }

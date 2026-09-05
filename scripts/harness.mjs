@@ -260,7 +260,16 @@ export function projectRootDeclared(env = process.env) {
 }
 
 // Where this projectstore installation lives on disk.
+// The bin runs ITS OWN copy of the core: a child gets that through childEnv's
+// pluginRoot, an in-process read (the query verbs' loadLayout, the headings
+// registry) through this pin. Set once by cli.mjs; nothing else may call it.
+let _pinnedPluginRoot = null;
+export function pinPluginRoot(root) {
+  _pinnedPluginRoot = root || null;
+}
+
 export function pluginRoot(env = process.env) {
+  if (_pinnedPluginRoot) return _pinnedPluginRoot;
   const key = activeHarness(env)?.runtime?.plugin_root_env;
   if (key && env[key]) return env[key];
   for (const h of loadHarnesses().values()) {

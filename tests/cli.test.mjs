@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject } from "../scripts/cli.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
+import { seedCliVault } from "./fixtures/vault.mjs";
+import { neighbors as neighborsOp, LINEAGE_KINDS } from "../scripts/query.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BIN = join(ROOT, "bin", "projectstore.mjs");
@@ -58,7 +60,7 @@ test("cli: the verb table is the contract — every shipped verb wraps a module 
   // Both directions: every tool the table names is one the ADR names.
   const ADR_TOOLS = ["status", "orientation", "search", "get_artifact", "neighbors", "lineage", "code_refs", "doctor"];
   for (const t of tools) assert.ok(ADR_TOOLS.includes(t), `tool ${t} is not in the MCP ADR's table`);
-  for (const v of PLANNED_VERBS.filter((v) => ["init", "bind", "status", "search"].includes(v.verb))) assert.equal(v.wraps, "new", `${v.verb} is marked new`);
+  for (const v of PLANNED_VERBS.filter((v) => ["init", "bind"].includes(v.verb))) assert.equal(v.wraps, "new", `${v.verb} is marked new`);
   for (const t of ["status", "orientation", "search", "get_artifact", "neighbors", "lineage", "code_refs", "doctor"]) assert.ok(tools.has(t), `tool ${t} has a verb`);
   const names = [...VERBS, ...PLANNED_VERBS].map((v) => v.verb);
   assert.equal(new Set(names).size, names.length, "no verb twice");
@@ -80,9 +82,9 @@ test("cli: --version equals package.json, help lists every verb, an unknown verb
   const bad = bin(["frobnicate"]);
   assert.equal(bad.status, 2);
   assert.match(bad.stderr, /unknown verb: frobnicate/);
-  const planned = bin(["status"]);
+  const planned = bin(["init"]);
   assert.equal(planned.status, 2);
-  assert.match(planned.stderr, /lands with roadmap C1/);
+  assert.match(planned.stderr, /lands with roadmap A6/);
   const badOpt = bin(["doctor", "--frob"]);
   assert.equal(badOpt.status, 2);
 });
@@ -206,4 +208,213 @@ test("cli: the packed tarball's bin runs", () => {
   const envd = JSON.parse(viaPack.stdout);
   assert.equal(envd.schema_version, 1);
   assert.deepEqual(envd.result, JSON.parse(bare.stdout), "the packed bin's doctor equals the script's");
+});
+
+// ─── Slice A6a: the read verbs ──────────────────────────────────────────
+
+
+function cliVault() {
+  const { proj, vault } = seedCliVault();
+  // The derived views, so status can report freshness and search can exclude them.
+  const r = bin(["reconcile", "--write", "--only", "graph", "--project", proj]);
+  assert.equal(r.status, 0, r.stderr);
+  return { proj, vault };
+}
+const envOf = (r) => { const e = JSON.parse(r.stdout); assert.equal(e.schema_version, 1); return e; };
+
+test("cli read verbs: the table names them, each wraps query.mjs, and importing the generators prints nothing", () => {
+  for (const v of ["status", "orientation", "search", "show", "graph", "codemap"]) {
+    const row = VERBS.find((x) => x.verb === v);
+    assert.ok(row, `${v} shipped`);
+    assert.equal(row.module, "./query.mjs");
+    assert.ok(!PLANNED_VERBS.some((x) => x.verb === v), `${v} left the planned list`);
+  }
+  for (const v of ["status", "search"]) assert.equal(VERBS.find((x) => x.verb === v).wraps, "new");
+  // kanban.mjs and codemap.mjs used to run main() at import time.
+  // The modules travel in env, not argv: the main guard compares argv[1].
+  const probe = spawnSync(process.execPath, ["--input-type=module", "-e", 'for (const m of process.env.PS_MODULES.split(":")) await import(m); process.stdout.write("quiet")'], { encoding: "utf8", timeout: 30000, cwd: tmpdir(), env: { ...process.env, PS_MODULES: [join(ROOT, "scripts", "kanban.mjs"), join(ROOT, "scripts", "codemap.mjs")].join(":") } });
+  assert.equal(probe.stdout, "quiet", probe.stderr);
+});
+
+test("cli status: unbound is bound:false at exit 0; bound reports the board from frontmatter and the views' freshness", () => {
+  const unbound = project({ bound: false });
+  const u = bin(["status", "--json", "--project", unbound]);
+  assert.equal(u.status, 0);
+  assert.deepEqual(envOf(u).result.bound, false);
+  const { proj } = cliVault();
+  const s = envOf(bin(["status", "--json", "--project", proj])).result;
+  assert.equal(s.bound, true);
+  assert.equal(s.layout, "engineering");
+  assert.equal(s.stories.total, 4, "on the board");
+  assert.deepEqual(s.stories.by_status, { "in-progress": 1, planned: 3 });
+  assert.deepEqual(s.stories.off_board, { not_actionable: 1 }, "the parked story is counted, not dropped");
+  assert.equal(s.stories.off_board_total, 1);
+  assert.deepEqual(s.stories.in_progress.map((x) => x.path), ["epics/PS-X/stories/story-in-flight.md"]);
+  assert.equal(s.stories.in_progress[0].started_at, "2026-02-02");
+  assert.equal(s.views.graph.exists, true);
+  assert.equal(s.views.graph.stale, false);
+  assert.equal(s.views.code_map.exists, false);
+  assert.deepEqual(Object.keys(s).sort(), ["bound", "language", "layout", "lifecycle_gates", "project", "sessions", "spec_policy", "stories", "vault_exists", "vault_path", "views"]);
+  const text = bin(["status", "--project", proj]);
+  assert.match(text.stdout, /In progress \(1\)/);
+});
+
+test("cli orientation: the skeleton equals the SessionStart renderer's, and README bodies never enter the envelope", async () => {
+  const { proj } = cliVault();
+  const o = envOf(bin(["orientation", "--json", "--project", proj])).result;
+  assert.ok(o.skeleton.includes("Projectstore vault:"), o.skeleton.slice(0, 200));
+  assert.ok(o.facts.folders.every((f) => !("readme" in f) && "purpose" in f), "purpose, not readme");
+  const adr = o.facts.folders.find((f) => f.path === "adr");
+  assert.equal(adr.purpose, "Decisions that stick.");
+  const text = bin(["orientation", "--project", proj]).stdout;
+  assert.equal(text.trimEnd(), o.skeleton.trimEnd());
+  const { gatherVaultFacts, renderVaultSkeleton } = await import("../scripts/lib.mjs");
+  const cfg = JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8"));
+  assert.equal(o.skeleton, renderVaultSkeleton(await gatherVaultFacts(cfg)));
+});
+
+test("cli search: deterministic, bounded, case-insensitive by default, derived views excluded, empty is exit 0", () => {
+  const { proj } = cliVault();
+  const r = envOf(bin(["search", "zebra", "--json", "--project", proj])).result;
+  assert.equal(r.status, "ok");
+  assert.ok(r.matches.every((m) => !["kanban.md", "graph.md"].includes(m.path)), "derived views excluded");
+  const note = r.matches.filter((m) => m.path === "research/zebra-note.md");
+  assert.equal(note.length, 3, "per-file cap");
+  assert.equal(note[0].type, "research");
+  assert.equal(note[0].title, "Zebra note");
+  assert.ok(note.every((m) => m.of === 6), "the cap is reported: 6 hits in the file (title + 5 body lines)");
+  assert.equal(r.files_truncated, 1);
+  assert.equal(r.per_file_cap, 3);
+  assert.ok(note.some((m) => m.snippet.includes("zebra crossing, again")), "body lines come back, not only frontmatter");
+  assert.ok(!r.matches.some((m) => m.snippet.startsWith("slug:") || m.snippet.startsWith("id:")), "frontmatter other than title: is not searched");
+  assert.ok(note.some((m) => m.snippet.startsWith("title:")), "the title line is");
+  assert.ok(r.matches.some((m) => m.path === "epics/PS-X/stories/story-in-flight.md" && m.status === "in-progress"));
+  const order = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.line - b.line);
+  assert.deepEqual(r.matches.map((m) => m.path + ":" + m.line), [...r.matches].sort(order).map((m) => m.path + ":" + m.line), "sorted by path then line");
+  const cs = envOf(bin(["search", "Zebra Crossing", "--case-sensitive", "--json", "--project", proj])).result;
+  assert.equal(cs.total, 1);
+  const kind = envOf(bin(["search", "zebra", "--kind", "story", "--json", "--project", proj])).result;
+  assert.ok(kind.matches.every((m) => m.type === "story"));
+  const lim = envOf(bin(["search", "zebra", "--limit", "1", "--json", "--project", proj])).result;
+  assert.equal(lim.returned, 1);
+  assert.equal(lim.truncated, true);
+  const none = bin(["search", "no-such-phrase-anywhere", "--json", "--project", proj]);
+  assert.equal(none.status, 0, "empty is not an error");
+  assert.deepEqual(envOf(none).result.matches, []);
+  assert.equal(bin(["search", "--json", "--project", proj]).status, 2, "a query is required");
+  assert.match(bin(["search", "zebra", "--project", proj]).stdout, /research\/ \(3\)/);
+});
+
+test("cli show: frontmatter by default, body and a registry section on request, paths vault-relative or absolute inside the vault", () => {
+  const { proj, vault } = cliVault();
+  const s = envOf(bin(["show", "epics/PS-X/stories/story-in-flight.md", "--json", "--project", proj])).result;
+  assert.equal(s.type, "story");
+  assert.equal(s.status, "in-progress");
+  assert.ok(!("body" in s));
+  assert.deepEqual(Object.keys(s).sort(), ["bytes", "frontmatter", "lines", "path", "status", "title", "type"]);
+  const sec = envOf(bin(["show", join(vault, "epics/PS-X/stories/story-in-flight.md"), "--section", "description", "--json", "--project", proj])).result;
+  assert.equal(sec.path, "epics/PS-X/stories/story-in-flight.md", "absolute inside the vault is normalised");
+  assert.equal(sec.section.text, "The zebra crossing phrase lives here.");
+  const body = envOf(bin(["show", "adr/new-way.md", "--body", "--json", "--project", proj])).result;
+  assert.ok(body.body.includes("[[kanban]]"));
+  assert.equal(bin(["show", "../outside.md", "--project", proj]).status, 2);
+  assert.equal(bin(["show", "/etc/hosts", "--project", proj]).status, 2);
+  assert.equal(bin(["show", "adr/nope.md", "--project", proj]).status, 2);
+  // An absolute path that starts inside the vault and climbs out of it.
+  writeFileSync(join(vault, "..", "secret.md"), "---\ntitle: secret\n---\n");
+  const climb = bin(["show", join(vault, "adr", "..", "..", "secret.md"), "--json", "--project", proj]);
+  assert.equal(climb.status, 2, "resolved before the containment test");
+  assert.equal(envOf(climb).result.frontmatter, undefined, "nothing outside the vault is read");
+  assert.match(envOf(climb).result.error, /outside the vault/);
+  assert.equal(bin(["show", "adr/new-way.md", "--section", "nope", "--project", proj]).status, 2, "unknown section is usage");
+  assert.match(bin(["show", "adr/new-way.md", "--section", "nope", "--project", proj]).stderr, /one of: .*description/);
+  // In-process reads resolve the registry from this package, not from the host session's plugin root.
+  const foreign = bin(["show", "epics/PS-X/stories/story-in-flight.md", "--section", "description", "--json", "--project", proj], { env: { [SRC.runtime.plugin_root_env]: mkdtempSync(join(tmpdir(), "ps-bogus-root-")) } });
+  assert.equal(foreign.status, 0, foreign.stderr);
+  assert.equal(envOf(foreign).result.section.text, "The zebra crossing phrase lives here.");
+});
+
+test("cli graph neighbors: the same edges graph.md holds, by path, typed, both directions", () => {
+  const { proj, vault } = cliVault();
+  const n = envOf(bin(["graph", "neighbors", "adr/new-way.md", "--json", "--project", proj])).result;
+  assert.equal(n.type, "adr");
+  assert.ok(n.out.some((e) => e.kind === "supersedes" && e.to === "adr/old-way.md" && e.to_title === "Old way"));
+  assert.ok(n.out.some((e) => e.kind === "dead" && e.to === "missing-target"));
+  assert.ok(n.in.some((e) => e.kind === "spec-implements-adr" && e.from === "specs/covering.md"));
+  assert.ok(n.in.some((e) => e.kind === "wikilink" && e.from === "epics/PS-X/stories/story-ship-it.md"));
+  // Parity with the view: every row grep finds for the path is an edge here.
+  const rows = readFileSync(join(vault, "graph.md"), "utf8").split("\n").filter((l) => l.startsWith("| ") && l.includes(" adr/new-way.md ") && l.split("|").length === 5);
+  const asEdges = rows.map((l) => l.split("|").map((c) => c.trim()).filter(Boolean)).filter((c) => c.length === 3 && (c[0] === "adr/new-way.md" || c[2] === "adr/new-way.md"));
+  for (const [from, kind, to] of asEdges) {
+    assert.ok(from === "adr/new-way.md" ? n.out.some((e) => e.kind === kind && e.to === to) : n.in.some((e) => e.kind === kind && e.from === from), `${from} ${kind} ${to}`);
+  }
+  const onlyOut = envOf(bin(["graph", "neighbors", "adr/new-way.md", "--direction", "out", "--kind", "supersedes", "--json", "--project", proj])).result;
+  assert.deepEqual(onlyOut.in, []);
+  assert.deepEqual(onlyOut.out.map((e) => e.kind), ["supersedes"]);
+  assert.equal(bin(["graph", "frob", "x", "--project", proj]).status, 2);
+  assert.equal(bin(["graph", "neighbors", "kanban.md", "--project", proj]).status, 2, "not a node");
+  assert.equal(bin(["graph", "neighbors", "adr/new-way.md", "--body", "--project", proj]).status, 2, "an option the verb does not take");
+  assert.equal(bin(["graph", "neighbors", "adr/new-way.md", "--direction", "sideways", "--project", proj]).status, 2, "a value the option does not take");
+  assert.equal(bin(["graph", "neighbors", "adr/new-way.md", "--depth", "2", "--project", proj]).status, 2, "an option of the other mode");
+  assert.equal(bin(["graph", "neighbors", "adr/new-way.md", "--limit", "0", "--project", proj]).status, 2);
+});
+
+test("cli graph lineage: typed edges only, both directions, depth- and cycle-safe", () => {
+  const { proj } = cliVault();
+  const l = envOf(bin(["graph", "lineage", "epics/PS-X/stories/story-ship-it.md", "--json", "--project", proj])).result;
+  assert.deepEqual(l.kinds, [...LINEAGE_KINDS]);
+  const paths = l.nodes.map((n) => n.path);
+  assert.ok(paths.includes("specs/covering.md"), "spec-covers pulls the covering spec in");
+  assert.ok(paths.includes("adr/new-way.md"), "spec-implements-adr reaches the ADR at depth 2");
+  assert.ok(paths.includes("adr/old-way.md"), "supersedes reaches the old ADR at depth 3");
+  assert.equal(l.nodes.find((n) => n.path === "adr/old-way.md").distance, 3);
+  assert.ok(!paths.includes("specs/dup.md"), "body wikilinks are not lineage");
+  assert.ok(paths.includes("epics/PS-X/epic.md"), "the epic is lineage");
+  assert.ok(!paths.includes("epics/PS-X/stories/story-nested/README.md"), "siblings through the epic are not");
+  const fromEpic = envOf(bin(["graph", "lineage", "epics/PS-X/epic.md", "--depth", "1", "--json", "--project", proj])).result;
+  assert.ok(fromEpic.nodes.some((n) => n.path === "epics/PS-X/stories/story-nested/README.md"), "from the epic itself, its stories are");
+  const shallow = envOf(bin(["graph", "lineage", "epics/PS-X/stories/story-ship-it.md", "--depth", "1", "--json", "--project", proj])).result;
+  assert.ok(!shallow.nodes.some((n) => n.path === "adr/new-way.md"));
+  assert.equal(l.nodes[0].distance, 0);
+  const nodeSet = new Set(l.nodes.map((n) => n.path));
+  assert.ok(l.edges.every((e) => nodeSet.has(e.from) && nodeSet.has(e.to)), "every edge joins two nodes of the result");
+  assert.equal(bin(["graph", "lineage", "adr/new-way.md", "--depth", "abc", "--project", proj]).status, 2, "depth is validated, not coerced");
+  assert.equal(bin(["graph", "lineage", "adr/new-way.md", "--kind", "wikilink", "--project", proj]).status, 2, "wikilinks are not lineage");
+  assert.equal(bin(["graph", "lineage", "adr/new-way.md", "--limit", "5", "--project", proj]).status, 2, "an option of the other mode");
+});
+
+test("cli codemap --for: an epic lists its refs and its stories'; a path lists who covers it; the reading is named", () => {
+  const { proj } = cliVault();
+  const epic = envOf(bin(["codemap", "--for", "PS-X", "--json", "--project", proj])).result;
+  assert.equal(epic.resolved_as, "epic");
+  assert.deepEqual(epic.artifacts[0], { path: "epics/PS-X/epic.md", type: "epic", title: "X", status: "in-progress", code_refs: ["scripts/"] });
+  assert.ok(epic.artifacts.some((a) => a.path === "epics/PS-X/stories/story-in-flight.md" && a.code_refs.includes("scripts/cli.mjs")));
+  const path = envOf(bin(["codemap", "--for", "scripts/cli.mjs", "--json", "--project", proj])).result;
+  assert.equal(path.resolved_as, "path");
+  assert.deepEqual(path.artifacts.map((a) => [a.path, a.matched]), [["epics/PS-X/epic.md", ["scripts/"]], ["epics/PS-X/stories/story-in-flight.md", ["scripts/cli.mjs"]]]);
+  const art = envOf(bin(["codemap", "--for", "story-in-flight", "--json", "--project", proj])).result;
+  assert.equal(art.resolved_as, "artifact");
+  assert.equal(art.truncated, false);
+  const dup = bin(["codemap", "--for", "dup", "--json", "--project", proj]);
+  assert.equal(dup.status, 2, "a tie is ambiguity, never a first match");
+  assert.match(dup.stderr, /adr\/dup\.md.*specs\/dup\.md/);
+  const stem = bin(["codemap", "--for", "epic", "--json", "--project", proj]);
+  assert.equal(stem.status, 2, "the stem every epic.md shares is ambiguous, never an arbitrary epic");
+  assert.match(stem.stderr, /epics\/PS-X\/epic\.md.*epics\/PS-Y\/epic\.md/);
+  assert.equal(bin(["codemap", "--project", proj]).status, 2, "--for is required");
+  assert.match(bin(["codemap", "--for", "bin/", "--project", proj]).stdout, /epics\/PS-Y\/epic\.md/);
+});
+
+test("cli read verbs: unbound is exit 3 for every read but status; the results are small", () => {
+  const unbound = project({ bound: false });
+  for (const args of [["orientation"], ["search", "x"], ["show", "a.md"], ["graph", "neighbors", "a.md"], ["codemap", "--for", "x"]]) {
+    assert.equal(bin([...args, "--project", unbound]).status, 3, args.join(" "));
+  }
+  const { proj } = cliVault();
+  for (const args of [["status"], ["orientation"], ["search", "zebra"], ["show", "adr/new-way.md"], ["graph", "neighbors", "adr/new-way.md"], ["graph", "lineage", "adr/new-way.md"], ["codemap", "--for", "PS-X"]]) {
+    const r = bin([...args, "--json", "--project", proj]);
+    assert.equal(r.status, 0, args.join(" ") + r.stderr);
+    assert.ok(r.stdout.length < 20000, `${args.join(" ")} stays small (${r.stdout.length} bytes)`);
+  }
+  void neighborsOp;
 });

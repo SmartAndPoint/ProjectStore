@@ -21,7 +21,7 @@ import {
   listEpicStories,
   slugIdentity,
   displayNumberOf,
-  compareArtifactOrder,
+  compareArtifactOrder, isMain
 } from "./lib.mjs";
 
 function die(msg) {
@@ -34,7 +34,7 @@ function die(msg) {
 // work is queued, which is the opposite of what the status says.
 const NOT_ACTIONABLE = new Set(["superseded", "deferred", "parked"]);
 
-function findStories(vault, epicsPath) {
+export function findStories(vault, epicsPath) {
   const root = join(vault, epicsPath);
   const stories = [];
   const skipped = { no_status: [], not_actionable: [] };
@@ -91,7 +91,7 @@ function findStories(vault, epicsPath) {
   return { stories, skipped };
 }
 
-function statusToColumn(status) {
+export function statusToColumn(status) {
   const m = {
     planned: "Backlog",
     todo: "ToDo",
@@ -166,4 +166,9 @@ function main() {
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
 }
 
-main();
+// A module now (the query verbs import findStories); the generator runs only
+// as the entry file — importing it must never print to stdout, which is the
+// MCP server's protocol channel.
+if (isMain(import.meta.url)) {
+  main();
+}

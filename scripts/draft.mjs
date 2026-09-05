@@ -43,8 +43,7 @@
 // Errors are written to stderr as plain text and exit code 1.
 
 import { existsSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import {
   readConfig,
   loadLayout,
@@ -55,7 +54,7 @@ import {
   slugify,
   findSlugCollision,
   displayNumberOf,
-  today,
+  today, isMain
 } from "./lib.mjs";
 
 function die(msg, code = 1) {
@@ -257,6 +256,6 @@ function main() {
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   main();
 }

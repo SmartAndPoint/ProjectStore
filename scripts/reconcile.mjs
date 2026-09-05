@@ -29,7 +29,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import {
   readConfig,
@@ -41,7 +40,7 @@ import {
   slugIdentity,
   displayNumberOf,
   compareArtifactOrder,
-  writeFileAtomic,
+  writeFileAtomic, isMain
 } from "./lib.mjs";
 import { childEnv } from "./harness.mjs";
 
@@ -418,6 +417,6 @@ function main() {
   if (write && out.summary.failed > 0) process.exitCode = 1;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   main();
 }
