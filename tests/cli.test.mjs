@@ -60,7 +60,7 @@ test("cli: the verb table is the contract — every shipped verb wraps a module 
   // Both directions: every tool the table names is one the ADR names.
   const ADR_TOOLS = ["status", "orientation", "search", "get_artifact", "neighbors", "lineage", "code_refs", "doctor"];
   for (const t of tools) assert.ok(ADR_TOOLS.includes(t), `tool ${t} is not in the MCP ADR's table`);
-  for (const v of PLANNED_VERBS.filter((v) => ["init", "bind"].includes(v.verb))) assert.equal(v.wraps, "new", `${v.verb} is marked new`);
+  for (const v of VERBS.filter((v) => ["init", "bind", "status", "search"].includes(v.verb))) assert.equal(v.wraps, "new", `${v.verb} is marked new`);
   for (const t of ["status", "orientation", "search", "get_artifact", "neighbors", "lineage", "code_refs", "doctor"]) assert.ok(tools.has(t), `tool ${t} has a verb`);
   const names = [...VERBS, ...PLANNED_VERBS].map((v) => v.verb);
   assert.equal(new Set(names).size, names.length, "no verb twice");
@@ -82,9 +82,9 @@ test("cli: --version equals package.json, help lists every verb, an unknown verb
   const bad = bin(["frobnicate"]);
   assert.equal(bad.status, 2);
   assert.match(bad.stderr, /unknown verb: frobnicate/);
-  const planned = bin(["init"]);
+  const planned = bin(["mcp"]);
   assert.equal(planned.status, 2);
-  assert.match(planned.stderr, /lands with roadmap A6/);
+  assert.match(planned.stderr, /lands with roadmap A7/);
   const badOpt = bin(["doctor", "--frob"]);
   assert.equal(badOpt.status, 2);
 });
@@ -122,7 +122,7 @@ test("cli: reconcile in an unbound project exits 3 naming init; in a bound one i
   const r = bin(["reconcile", "--project", unbound]);
   assert.equal(r.status, 3);
   assert.match(r.stderr, /not bound/);
-  assert.match(r.stderr, /projectstore init/);
+  assert.match(r.stderr, /projectstore (bind|init) <vault>/);
   const bound = project();
   const j = bin(["reconcile", "--json", "--project", bound]);
   assert.equal(j.status, 0, j.stderr);
@@ -417,4 +417,112 @@ test("cli read verbs: unbound is exit 3 for every read but status; the results a
     assert.ok(r.stdout.length < 20000, `${args.join(" ")} stays small (${r.stdout.length} bytes)`);
   }
   void neighborsOp;
+});
+
+// ─── Slice A6b: bind and init ────────────────────────────────────────────
+
+test("cli bind: naming the vault is the confirmation — a headless bind writes the config; the same vault twice is a no-op; another vault needs --rebind and keeps every other key", () => {
+  const proj = project({ bound: false });
+  const vault = mkdtempSync(join(tmpdir(), "ps-vault-"));
+  const r = bin(["bind", vault, "--json", "--project", proj]);
+  assert.equal(r.status, 0, r.stderr);
+  const e = envOf(r);
+  assert.equal(e.result.state, "unbound");
+  assert.equal(e.result.wrote, true);
+  assert.equal(e.result.config, undefined, "no file body in the envelope");
+  assert.deepEqual(Object.keys(e.result).sort(), ["config_path", "created_vault", "ignored", "kept_keys", "language", "layout", "refusals", "state", "vault_exists", "vault_path", "wrote"]);
+  const cfg = JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8"));
+  // The fresh config's keys are commands/bind.md step 3's — the interview and the verb write the same file.
+  const bindMd = readFileSync(join(ROOT, "commands", "bind.md"), "utf8");
+  for (const k of Object.keys(cfg)) assert.ok(bindMd.includes(`"${k}":`), `commands/bind.md step 3 names ${k}`);
+  assert.equal(cfg.vault_path, vault);
+  assert.equal(cfg.layout, "engineering");
+  assert.equal(cfg.language, "en");
+  assert.deepEqual(Object.keys(cfg).sort(), ["active_skills", "approval_mode", "auto_inject", "default_author", "language", "layout", "tags", "vault_path"]);
+  // Same vault again: nothing written, exit 0.
+  const again = bin(["bind", vault + "/", "--json", "--project", proj]);
+  assert.equal(again.status, 0);
+  assert.equal(envOf(again).result.state, "same");
+  assert.equal(envOf(again).result.wrote, false);
+  // A flag on a same-vault bind is reported as ignored, and the result says what is on disk.
+  const flagged = envOf(bin(["bind", vault, "--language", "ru", "--json", "--project", proj])).result;
+  assert.equal(flagged.state, "same");
+  assert.equal(flagged.language, "en", "what is on disk, not what was asked");
+  assert.deepEqual(flagged.ignored, ["language"]);
+  assert.match(bin(["bind", vault, "--language", "ru", "--project", proj]).stdout, /--language ignored/);
+  // Nothing on the project side but the config is touched.
+  writeFileSync(join(proj, "CLAUDE.md"), "# mine\n");
+  // A hand-added key survives a rebind; the vault changes only with --rebind.
+  writeFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), JSON.stringify({ ...cfg, statusline: { enabled: true } }));
+  const other = mkdtempSync(join(tmpdir(), "ps-vault-"));
+  const refused = bin(["bind", other, "--json", "--project", proj]);
+  assert.equal(refused.status, 1);
+  assert.match(envOf(refused).result.refusals[0].message, /--rebind/);
+  assert.equal(JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8")).vault_path, vault, "not rewritten");
+  const rebound = bin(["bind", other, "--rebind", "--language", "ru", "--json", "--project", proj]);
+  assert.equal(rebound.status, 0, rebound.stderr);
+  const after = JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8"));
+  assert.equal(after.vault_path, other);
+  assert.equal(after.language, "ru");
+  assert.deepEqual(after.statusline, { enabled: true }, "other keys kept");
+  assert.deepEqual(envOf(rebound).result.kept_keys, ["active_skills", "approval_mode", "auto_inject", "default_author", "statusline", "tags"]);
+  assert.equal(readFileSync(join(proj, "CLAUDE.md"), "utf8"), "# mine\n", "bind never touches the agents block");
+  assert.ok(!existsSync(join(proj, ".gitignore")), "nor .gitignore");
+  // A corrupt config is refused, never overwritten.
+  writeFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "{ not json");
+  const corrupt = bin(["bind", other, "--rebind", "--json", "--project", proj]);
+  assert.equal(corrupt.status, 1);
+  assert.equal(envOf(corrupt).result.refusals[0].code, "UNREADABLE");
+  assert.equal(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8"), "{ not json");
+  // The stored side is normalised too: a config written with a tilde is the same vault.
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  mkdirSync(join(home, "v"));
+  const p3 = project({ bound: false });
+  writeFileSync(join(p3, CFG_DIR, SRC.runtime.config_basename), JSON.stringify({ vault_path: "~/v", layout: "engineering" }));
+  const tilde = envOf(bin(["bind", join(home, "v"), "--json", "--project", p3], { env: { HOME: home } })).result;
+  assert.equal(tilde.state, "same");
+  const tildeIn = envOf(bin(["bind", "~/v", "--json", "--project", project({ bound: false })], { env: { HOME: home } })).result;
+  assert.equal(tildeIn.vault_path, join(home, "v"), "a tilde expands");
+  assert.equal(bin(["bind", "~someone/v", "--project", project({ bound: false })]).status, 2, "~user is not expanded");
+  assert.equal(bin(["bind", "/", "--project", project({ bound: false })]).status, 2, "the root is not a vault");
+  assert.equal(bin(["bind", vault, "--project", join(tmpdir(), "ps-none-" + Date.now())]).status, 1, "a project directory that does not exist is not created");
+  // Usage: no vault, unknown layout, unknown language, a missing vault.
+  assert.equal(bin(["bind", "--project", project({ bound: false })]).status, 2);
+  assert.equal(bin(["bind", vault, "--layout", "nope", "--project", project({ bound: false })]).status, 2);
+  assert.equal(bin(["bind", vault, "--language", "xx", "--project", project({ bound: false })]).status, 2);
+  const missing = bin(["bind", join(tmpdir(), "ps-none-" + Date.now()), "--json", "--project", project({ bound: false })]);
+  assert.equal(missing.status, 1);
+  assert.match(envOf(missing).result.refusals[0].message, /projectstore init/);
+});
+
+test("cli init: creates the vault directory and binds; refuses when already bound; points at scaffold, never scaffolds", () => {
+  const proj = project({ bound: false });
+  const vault = join(mkdtempSync(join(tmpdir(), "ps-init-")), "vault");
+  const r = bin(["init", vault, "--layout", "engineering", "--json", "--project", proj]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(envOf(r).result.created_vault, true);
+  assert.ok(existsSync(vault));
+  assert.deepEqual(readdirSync(vault), [], "init makes the directory only — the layout is scaffold's");
+  assert.equal(JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8")).vault_path, vault);
+  const text = bin(["init", join(mkdtempSync(join(tmpdir(), "ps-init-")), "v2"), "--project", project({ bound: false })]);
+  assert.match(text.stdout, /scaffold/);
+  const twice = bin(["init", vault, "--json", "--project", proj]);
+  assert.equal(twice.status, 1);
+  assert.match(envOf(twice).result.refusals[0].message, /already bound/);
+  // init into a project bound elsewhere: refused without --rebind, and the message names a flag init takes.
+  const elsewhere = join(mkdtempSync(join(tmpdir(), "ps-init-")), "v3");
+  const moved = bin(["init", elsewhere, "--json", "--project", proj]);
+  assert.equal(moved.status, 1);
+  assert.equal(envOf(moved).result.refusals[0].code, "REBIND");
+  assert.ok(!existsSync(elsewhere), "nothing created on a refusal");
+  const movedOk = bin(["init", elsewhere, "--rebind", "--json", "--project", proj]);
+  assert.equal(movedOk.status, 0, movedOk.stderr);
+  assert.ok(existsSync(elsewhere));
+  assert.equal(JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8")).vault_path, elsewhere);
+  assert.equal(bin(["init", "--project", project({ bound: false })]).status, 2);
+  // A relative path resolves against the project.
+  const p2 = project({ bound: false });
+  const rel = bin(["bind", "./my-vault", "--json", "--project", p2]);
+  assert.equal(rel.status, 1, "relative to the project, and missing");
+  assert.equal(envOf(rel).result.vault_path, join(p2, "my-vault"));
 });

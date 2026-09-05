@@ -45,6 +45,10 @@ import { createInterface } from "node:readline/promises";
 import { projectRootDeclared, childEnv, harnessIds, pinPluginRoot } from "./harness.mjs";
 import { readConfigAt } from "./lib.mjs";
 import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_LIMIT, GRAPH_EDGE_CAP, DIRECTIONS } from "./query.mjs";
+// binding.mjs is a write module imported statically where the install family
+// is lazy: it is a dependency-free leaf with no side effects, so the MCP
+// server's module graph gains nothing it could trip on.
+import { planBind, applyBind, renderBindPlan, bindResult, DEFAULT_LAYOUT, DEFAULT_LANGUAGE } from "./binding.mjs";
 
 export const SCHEMA_VERSION = 1;
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -149,20 +153,28 @@ export const VERBS = Object.freeze([
     run: runCodemap,
   }),
   Object.freeze({
+    verb: "bind", summary: "bind <vault> — bind this project to an existing vault (naming the vault is the confirmation).",
+    module: "./binding.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
+    options: [opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`), opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`), opt("rebind", false, "point an already bound project at another vault; every other setting is kept"), JSON_OPT],
+    run: runBind(false),
+  }),
+  Object.freeze({
+    verb: "init", summary: "init <vault> — create the vault directory and bind to it; the layout's folders come from /projectstore:scaffold.",
+    module: "./binding.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
+    options: [opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`), opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`), opt("rebind", false, "an already bound project: create the new vault and point the project at it; every other setting is kept"), JSON_OPT],
+    run: runBind(true),
+  }),
+  Object.freeze({
     verb: "version", summary: "Print the package version (also --version).",
     module: null, wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze([]),
     options: [JSON_OPT], run: runVersion,
   }),
 ]);
 
-// The verbs the MCP ADR's table and the distribution ADR's decision 3 name
-// and this bin does not ship yet (roadmap A6, A7). Named so `projectstore
-// status` says where it lands instead of "unknown verb", so the drift test
-// can assert the union covers the ADR's eight tools, and — for the four the
-// story marks *new* — so that marker is already in the table.
+// Verbs the story names that land with a later slice — listed so
+// `projectstore <verb>` says where instead of "unknown verb". Only `mcp`
+// remains (roadmap A7).
 export const PLANNED_VERBS = Object.freeze([
-  Object.freeze({ verb: "init", wraps: "new", mcp: Object.freeze([]), lands: "A6" }),
-  Object.freeze({ verb: "bind", wraps: "new", mcp: Object.freeze([]), lands: "A6" }),
   Object.freeze({ verb: "mcp", wraps: "new", mcp: Object.freeze([]), lands: "A7" }),
 ]);
 
@@ -191,6 +203,7 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
         write: { type: "boolean" }, only: { type: "string" }, install: { type: "boolean" }, vault: { type: "boolean" },
         kind: { type: "string", multiple: true }, status: { type: "string" }, limit: { type: "string" }, "include-derived": { type: "boolean" }, "case-sensitive": { type: "boolean" },
         body: { type: "boolean" }, section: { type: "string" }, direction: { type: "string" }, depth: { type: "string" }, for: { type: "string" }, reverse: { type: "boolean" },
+        layout: { type: "string" }, language: { type: "string" }, rebind: { type: "boolean" },
       },
     });
   } catch (e) {
@@ -221,7 +234,7 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
   const project = resolveProject({ project: values.project, env, cwd });
   const cfg = readConfigAt(project);
   if (row.requiresBinding && !cfg) {
-    stderr.write(`${project} is not bound to a vault — run /projectstore:bind <vault> in a session (projectstore init lands with roadmap A6).\n`);
+    stderr.write(`${project} is not bound to a vault — run /projectstore:bind <vault> in a session , or \`projectstore bind <vault>\` (\`projectstore init <vault>\` also creates the vault).\n`);
     return 3;
   }
   try {
@@ -284,6 +297,40 @@ function runRead(name) {
       if (e && e.code === "USAGE") return usageFail(e, { verb: row.verb, ...ctx });
       throw e;
     }
+  };
+}
+
+// bind / init: the vault named on the command line is the confirmation (the
+// distribution ADR's decision 6 read for a binding — there is no --yes and
+// nothing to ask); a change of vault needs --rebind. Exit 1 on a refusal with
+// the reason, 2 on usage, 0 when already bound to the same vault.
+// git's user.name for a fresh config's default_author, from the project's
+// own repository — never from the process cwd; the login name otherwise.
+function gitAuthor(project, env) {
+  if (existsSync(project)) {
+    try {
+      const r = spawnSync("git", ["config", "--get", "user.name"], { cwd: project, encoding: "utf8", timeout: 5000 });
+      if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
+    } catch {}
+  }
+  return env.USER || env.USERNAME || "";
+}
+
+function runBind(init) {
+  return async (ctx) => {
+    const { row, values, positionals, project, env, stdout, stderr } = ctx;
+    const vault = positionals[0];
+    if (!vault) return usageFail(Object.assign(new Error(`${row.verb} takes the vault path`), { code: "USAGE" }), { verb: row.verb, ...ctx });
+    // The author is the caller's to find: the plan reads nothing ambient.
+    const plan = planBind(project, { vault, layout: values.layout ?? null, language: values.language ?? null, rebind: Boolean(values.rebind), init, author: gitAuthor(project, env), env });
+    const usage = plan.refusals.find((r) => r.code === "USAGE");
+    if (usage) return usageFail(Object.assign(new Error(usage.message), { code: "USAGE" }), { verb: row.verb, ...ctx });
+    let done = null;
+    if (plan.ok && plan.writes) done = applyBind(plan);
+    const result = bindResult(plan, done);
+    if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, plan.ok, result), null, 2) + "\n");
+    else (plan.ok ? stdout : stderr).write(renderBindPlan(plan, done));
+    return plan.ok ? 0 : 1;
   };
 }
 

@@ -54,12 +54,6 @@ export function readConfig() {
   return readConfigAt(projectRoot());
 }
 
-export function writeConfig(cfg) {
-  const p = configPath();
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n", "utf8");
-}
-
 // ─── Entry-file guard ──────────────────────────────────────────────────
 
 // `if (isMain(import.meta.url)) main()` — a generator runs only as the entry

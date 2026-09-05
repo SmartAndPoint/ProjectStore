@@ -105,7 +105,12 @@ npx projectstore graph neighbors epics/PS-CORE/epic.md
 npx projectstore codemap --for scripts/lib.mjs
 ```
 
-`init`/`bind` land with the next slice; `projectstore <verb>` says so until they do.
+Binding, too — naming the vault is the confirmation, and changing it needs `--rebind`:
+
+```
+npx projectstore bind ~/vaults/my-project
+npx projectstore init ~/vaults/new-project --language ru
+```
 
 Names like `projectstore-claude` or `projectstore-codex` on npm are reserved placeholders pointing back here — there is only one package.
 </details>
