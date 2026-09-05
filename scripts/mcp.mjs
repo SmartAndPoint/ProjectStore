@@ -40,7 +40,7 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
-import { run, envelope, packageVersion } from "./cli.mjs";
+import { run, envelope, packageVersion, VERBS } from "./cli.mjs";
 
 const BIN = join(dirname(fileURLToPath(import.meta.url)), "..", "bin", "projectstore.mjs");
 
@@ -53,9 +53,10 @@ export const isErrorExit = (code) => code !== 0 && code !== 1;
 // server's loop for up to a minute — no ping answered, no other call served.
 // It runs as an asynchronous spawn of this same bin instead; stdout is still
 // the CLI's envelope, so parity holds.
-function spawnBin(argv, { env, cwd, timeoutMs = DOCTOR_TIMEOUT_MS }) {
+function spawnBin(argv, { env, cwd, timeoutMs = DOCTOR_TIMEOUT_MS, onChild = null }) {
   return new Promise((done) => {
     const child = spawn(process.execPath, [BIN, ...argv], { env, cwd: existsSync(cwd) ? cwd : undefined, stdio: ["ignore", "pipe", "pipe"] });
+    if (onChild) onChild(child);
     let out = "", err = "";
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { err += d; });
@@ -224,7 +225,11 @@ export function createServer({ project, env = process.env, cwd = project, versio
   const cfgOf = () => readConfigAt(project);
   const vaultOf = () => { const c = cfgOf(); return c && c.vault_path ? String(c.vault_path).replace(/\/+$/, "") : null; };
 
-  async function callTool(name, args) {
+  // In-flight doctor children by request id, so notifications/cancelled can
+  // kill the one cancellable operation instead of leaking a process per call.
+  const inFlight = new Map();
+
+  async function callTool(name, args, requestId = null) {
     const t = TOOLS[name];
     if (!t) return { error: rpcError(null, E_INVALID_PARAMS, `unknown tool: ${name}`).error };
     const a = args && typeof args === "object" ? args : {};
@@ -237,14 +242,19 @@ export function createServer({ project, env = process.env, cwd = project, versio
       // An option value that starts with "-" would read as a flag to the CLI's parser; a positional is safe behind "--".
       if (typeof v === "string" && v.startsWith("-") && ["section", "status", "direction", "selector"].includes(k)) return { error: rpcError(null, E_INVALID_PARAMS, `${name}: "${k}" may not start with "-"`).error };
     }
-    if (name !== "status" && !cfgOf()) {
+    // The verb table decides who runs unbound: status and doctor do (doctor
+    // is the tool one calls to learn why a project is unbound); the rest
+    // answer the bind instruction inside the envelope.
+    const rowRequiresBinding = (VERBS.find((v) => v.verb === t.verb) || {}).requiresBinding !== false;
+    if (rowRequiresBinding && !cfgOf()) {
       return { content: [{ type: "text", text: JSON.stringify(envelope(t.verb, project, false, { error: `${project} is not bound to a vault — run /projectstore:bind <vault> in a session, or projectstore bind <vault> --project ${project}` })) }], isError: true };
     }
     const { opts, positionals } = t.argv(a);
     const argv = [t.verb, ...opts, "--json", "--project", project, ...(positionals.length ? ["--", ...positionals] : [])];
     let code, outText, errText;
     if (t.verb === "doctor") {
-      ({ code, out: outText, err: errText } = await spawnBin(argv, { env, cwd }));
+      ({ code, out: outText, err: errText } = await spawnBin(argv, { env, cwd, onChild: (child) => { if (requestId !== null) inFlight.set(requestId, child); } }));
+      if (requestId !== null) inFlight.delete(requestId);
     } else {
       const out = new Sink(), err = new Sink();
       try {
@@ -316,6 +326,11 @@ export function createServer({ project, env = process.env, cwd = project, versio
         return rpcResult(id, { protocolVersion: negotiated, capabilities: { tools: {}, resources: {} }, serverInfo: { name: SERVER_NAME, version }, instructions: `Read-only tools over the projectstore vault bound to ${project}. Every result is the CLI's --json envelope; grep-sized answers, never the vault.` });
       }
       case "notifications/initialized": initialized = true; return null;
+      case "notifications/cancelled": {
+        const child = inFlight.get(params.requestId);
+        if (child) { inFlight.delete(params.requestId); try { child.kill("SIGTERM"); } catch {} }
+        return null;
+      }
       case "ping": return isNotification ? null : rpcResult(id, {});
       case "server/discover":
         // The 2026-07-28 era's probe. -32601 here is the documented answer a
@@ -330,7 +345,7 @@ export function createServer({ project, env = process.env, cwd = project, versio
     switch (msg.method) {
       case "tools/list": return rpcResult(id, { tools: toolList() });
       case "tools/call": {
-        const r = await callTool(params.name, params.arguments);
+        const r = await callTool(params.name, params.arguments, id);
         return r.error ? rpcError(id, r.error.code, r.error.message) : rpcResult(id, r);
       }
       case "resources/list": return rpcResult(id, { resources: resourceList() });

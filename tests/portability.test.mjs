@@ -297,4 +297,5 @@ test(".mcp.json's placeholders are the manifest's, and it launches this package'
   assert.equal(mcp.launch.protocol_era, "initialize");
   assert.deepEqual(mcp.launch.expands_measured, ["args", "env"]);
   assert.ok(mcp.scope_reason.includes("amended 2026-09-05"));
+  assert.ok(!mcp.scope_reason.includes("contract 14"), "the install spec's contract 0 classifies surfaces; 14 is upgrade");
 });

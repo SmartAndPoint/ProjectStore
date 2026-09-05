@@ -264,7 +264,7 @@
       "dir": ".",
       "file": ".mcp.json",
       "scope": "plugin",
-      "scope_reason": "Claude Code loads a plugin's .mcp.json from the plugin installation itself and expands ${CLAUDE_PLUGIN_ROOT} and ${CLAUDE_PROJECT_DIR} in it per session, so the one shipped file binds each server to one project (MCP ADR decision 6, amended 2026-09-05); nothing is installed and nothing is derived (install spec contract 14).",
+      "scope_reason": "Claude Code loads a plugin's .mcp.json from the plugin installation itself and expands ${CLAUDE_PLUGIN_ROOT} and ${CLAUDE_PROJECT_DIR} in it per session, so the one shipped file binds each server to one project (MCP ADR decision 6, amended 2026-09-05); nothing is installed and nothing is derived — the host kind install-harness skips, which the install spec's contract 0 does not yet name.",
       "launch": {
         "cwd": "project",
         "project_dir_in_env": true,

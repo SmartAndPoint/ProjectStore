@@ -129,8 +129,11 @@ test("mcp: started without a project it exits non-zero naming --project and PROJ
     const status = await c.rpc("tools/call", { name: "status", arguments: {} });
     assert.equal(status.result.isError, false);
     assert.equal(JSON.parse(status.result.content[0].text).result.bound, false, "status says unbound");
+    const doc = await c.rpc("tools/call", { name: "doctor", arguments: { install: true } });
+    assert.equal(doc.result.isError, false, "doctor runs unbound — it is how one learns why");
+    assert.ok(JSON.parse(doc.result.content[0].text).result.some((f) => f.check === "config"), "and says the project is unbound");
     const search = await c.rpc("tools/call", { name: "search", arguments: { query: "x" } });
-    assert.equal(search.result.isError, true, "every other tool is an error naming bind");
+    assert.equal(search.result.isError, true, "every tool that requires a binding is an error naming bind");
     assert.match(search.result.content[0].text, /bind/);
     assert.equal(JSON.parse(search.result.content[0].text).schema_version, 1, "still the envelope");
     // Resources on an unbound project: the list answers, a read names the bind, orientation renders the missing-vault line.
@@ -306,6 +309,24 @@ test("mcp lifecycle: stdin close, SIGINT and SIGTERM each end the server with ex
     assert.equal(signal, null, `${how}: exited, not killed`);
     assert.equal(code, 0, how);
   }
+});
+
+test("mcp: a cancelled doctor call kills its child; a mid-session vault edit is visible to the next call", async () => {
+  const { proj, vault } = vaultProject();
+  const c = client(["mcp", "--project", proj], { cwd: tmpdir() });
+  await c.handshake();
+  const before = JSON.parse((await c.rpc("tools/call", { name: "status", arguments: {} })).result.content[0].text).result.stories.total;
+  writeFileSync(join(vault, "epics", "PS-X", "stories", "story-late.md"), "---\ntype: story\nid: \"story-late\"\ntitle: \"Late\"\nstatus: planned\ncreated: 2026-03-01\n---\n\n# Late\n");
+  const after = JSON.parse((await c.rpc("tools/call", { name: "status", arguments: {} })).result.content[0].text).result.stories.total;
+  assert.equal(after, before + 1, "no cache between calls — the vault is re-read");
+  // Cancel a doctor call: the response may still arrive (the child dies with a signal) but must be an error, not a hang, and the loop lives.
+  const docP = c.rpc("tools/call", { name: "doctor", arguments: {} }, 500);
+  c.notify("notifications/cancelled", { requestId: 500, reason: "test" });
+  const doc = await docP;
+  assert.ok(doc.result, "answered");
+  assert.deepEqual((await c.rpc("ping", {})).result, {});
+  c.end();
+  assert.equal((await c.exit()).code, 0);
 });
 
 test("mcp createServer: handle() is pure of I/O and usable in-process", async () => {
