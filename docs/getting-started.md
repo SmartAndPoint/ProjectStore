@@ -70,7 +70,7 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
 ## Daily flow
 
 ```
-/projectstore:status                                      # what's bound, recent activity
+/projectstore:status                                      # what's bound, what's in progress, view freshness
 /projectstore:adr "Use Postgres for primary storage"      # capture a decision
 /projectstore:epic AUTH-001 "Authentication system"       # plan a major piece of work
 /projectstore:story AUTH-001 "OIDC discovery"             # decompose into stories

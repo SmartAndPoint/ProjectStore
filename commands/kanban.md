@@ -11,7 +11,7 @@ Steps:
 2. **Compute** (read-only, the unified reconcile path):
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs" --only kanban
+   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --only kanban
    ```
 
    The `kanban` entry carries `{ path, changed, content?, stats }`.
@@ -30,7 +30,7 @@ Steps:
 6. **On Yes**: apply through the core — never the Write tool:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs" --write --only kanban
+   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --write --only kanban
    ```
 
    The write is atomic (temp + rename) and recomputed at write time. Render

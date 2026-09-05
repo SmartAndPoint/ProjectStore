@@ -15,7 +15,7 @@ subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
    [Yes / No]". On No, stop.
 2. **Run the verb** and print its output verbatim:
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/install-harness.mjs" install --harness claude-code --surface agents_block --project "<abs project dir>"
+   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" install --harness claude-code --surface agents_block --project "<abs project dir>"
    ```
    It renders the block from the installed plugin's template ∩ the layout's
    roster (`scaffold/layouts/<layout>.json` — only routable agents get lines;
@@ -35,7 +35,7 @@ subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
 1. Ask via AskUserQuestion ("Remove projectstore's agents block? [Yes / No]"),
    then run and print verbatim:
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/install-harness.mjs" uninstall --harness claude-code --surface agents_block --project "<abs project dir>"
+   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" uninstall --harness claude-code --surface agents_block --project "<abs project dir>"
    ```
    It removes the marked block; deletes a `CLAUDE.md` that held nothing else,
    or nothing but the `@AGENTS.md` import registration added; and leaves every
@@ -43,8 +43,8 @@ subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
 
 ## `status` — read-only report
 
-Run `node "$CLAUDE_PLUGIN_ROOT/scripts/install-harness.mjs" plan --json --surface agents_block --project "<abs project dir>"`
-and report each item's `state` (`ours-current`, `ours-stale` with its reason,
+Run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" plan --json --surface agents_block --project "<abs project dir>"`
+and report each item's `state` from `result.items[]` — the bin wraps the plan in its envelope (`ours-current`, `ours-stale` with its reason,
 `ours-absent`, or a refusal). Then, from the same read:
 
 - Block: present in which file, marker version vs the installed template, agent

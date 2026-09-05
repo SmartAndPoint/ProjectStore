@@ -25,6 +25,9 @@ at next. Quote paths with spaces (vaults often live under iCloud paths).
 Locate the vault (`.claude/projectstore.json` → `vault_path`). Read `adr/` and
 `concepts/` titles + frontmatter first. Never propose an artifact that already
 exists — extend or supersede it instead, and say so.
+
+**Evidence through the MCP tools when they are available.** When the projectstore MCP read tools are exposed to you (`status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`), gather evidence through them: they answer from the live vault, so no freshness question arises, and an artifact's neighbourhood costs one call instead of a grep plus a read; every result is the CLI's `--json` envelope. When they are not — a host without MCP, or an install older than 0.28 — the derived views below are the fallback, under the rule that follows. `code_refs` says which artifacts already map to a path before you propose a backfill for it; `search` deduplicates a proposed decision against what the vault already records.
+
 Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes —
 prefer them for orientation, but fall back to a frontmatter sweep when a view is
 missing or its `generated_at` predates recent artifact changes (compare file mtimes; a false-stale just costs a sweep).

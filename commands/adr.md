@@ -37,7 +37,7 @@ Steps:
    apply through the core — never the Write/Edit tools, and do not ask again:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs" --write --only indexes=<index.folder>
+   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --write --only indexes=<index.folder>
    ```
 
    The index row is derived state: the regeneration renders it in canonical

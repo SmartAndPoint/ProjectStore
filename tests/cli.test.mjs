@@ -190,10 +190,56 @@ test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses
   assert.ok(!existsSync(join(proj, "CLAUDE.md")) || !readFileSync(join(proj, "CLAUDE.md"), "utf8").includes("projectstore:agents"));
 });
 
-test("cli: the command files still call the scripts directly — a git-marketplace install has no bin on PATH", () => {
-  for (const [f, needle] of [["doctor.md", 'node "$CLAUDE_PLUGIN_ROOT/scripts/doctor.mjs'], ["reconcile.md", 'node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs']]) {
-    assert.ok(readFileSync(join(ROOT, "commands", f), "utf8").includes(needle), `commands/${f} still invokes the script`);
+// Roadmap A8: the prompt surface (commands, agents, skills) invokes ONE path,
+// the bin, with a verb the table knows — except the scripts that have no verb,
+// each named with the reason it stays a script. The list is {script, why} so
+// it cannot quietly become a dumping ground (generation spec contract 8's
+// shape). A git-marketplace install has no bin on PATH, hence the explicit
+// node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" form, never npx.
+const SCRIPT_ONLY = [
+  { script: "draft.mjs", why: "a pure renderer whose consumer is the creation prose, which reads path/content/index/collision at the top level — an envelope would be eight command files of field renames for no gain" },
+  { script: "story-section.mjs", why: "PS-SPEC's lifecycle-gate machinery (story-007); wrapping it is a design decision, not a re-pointing" },
+  { script: "diff-refs.mjs", why: "PS-SPEC's story 'code-refs from diff' owns turning it into a verb" },
+  { script: "worktree.mjs", why: "PS-WT's inherit probe; its consumer copies the parent config verbatim, which bind deliberately does not do" },
+];
+
+test("cli: every invocation in the prompt surface is the bin with a known verb, or a named script-only exception (roadmap A8)", () => {
+  const files = [
+    ...readdirSync(join(ROOT, "commands")).filter((f) => f.endsWith(".md")).map((f) => join("commands", f)),
+    ...readdirSync(join(ROOT, "agents")).filter((f) => f.endsWith(".md")).map((f) => join("agents", f)),
+    ...readdirSync(join(ROOT, "skills")).map((d) => join("skills", d, "SKILL.md")).filter((p) => existsSync(join(ROOT, p))),
+  ];
+  const verbs = new Set(VERBS.map((v) => v.verb));
+  const exceptions = new Set(SCRIPT_ONLY.map((s) => s.script));
+  let binCalls = 0;
+  for (const rel of files) {
+    const src = readFileSync(join(ROOT, rel), "utf8");
+    for (const m of src.matchAll(/node "\$CLAUDE_PLUGIN_ROOT\/([^"]+)"(?:\s+([A-Za-z-]+))?/g)) {
+      const [, path, first] = m;
+      if (path === "bin/projectstore.mjs") {
+        binCalls++;
+        const row = VERBS.find((v) => v.verb === first);
+        assert.ok(row, `${rel}: bin verb "${first}" is not in the verb table`);
+        // The parser is strict: every flag the prose passes must be one the row (or the CLI) declares.
+        const rest = src.slice(m.index + m[0].length).split(/[`\n]/)[0];
+        const declared = new Set([...row.options.map((o) => o.name), "project", "json"]);
+        for (const flag of rest.matchAll(/--([a-z][a-z-]*)/g)) assert.ok(declared.has(flag[1]), `${rel}: ${first} does not take --${flag[1]}`);
+        continue;
+      }
+      const base = path.split("/").pop();
+      assert.ok(path.startsWith("scripts/") && exceptions.has(base), `${rel} invokes ${path} — either the bin or a named exception`);
+    }
+    for (const gone of ["scripts/reconcile.mjs", "scripts/doctor.mjs", "scripts/install-harness.mjs"]) assert.ok(!src.includes(gone), `${rel} still names ${gone}`);
   }
+  assert.ok(binCalls >= 20, `the prompt surface invokes the bin (${binCalls} calls)`);
+  // Every exception is still invoked somewhere (the list stays minimal), and no prose reaches the bin by another spelling.
+  const all = files.map((rel) => readFileSync(join(ROOT, rel), "utf8")).join("\n");
+  for (const s of SCRIPT_ONLY) assert.ok(all.includes(`scripts/${s.script}"`), `exception ${s.script} is still invoked — drop it from SCRIPT_ONLY otherwise`);
+  assert.ok(!/npx projectstore/.test(all), "a git-marketplace install has no bin on PATH — never npx in the prompt surface");
+  assert.ok(!/node \$CLAUDE_PLUGIN_ROOT\//.test(all), "the plugin root is always quoted (paths with spaces)");
+  assert.ok(!/\$\{CLAUDE_PLUGIN_ROOT\}/.test(all), "one spelling of the root in prose");
+  for (const s of SCRIPT_ONLY) { assert.ok(existsSync(join(ROOT, "scripts", s.script)), `exception ${s.script} exists`); assert.ok(s.why.length > 20); }
+  assert.ok(existsSync(BIN), "the path every command names exists");
   assert.ok(readdirSync(join(ROOT, "bin")).every((f) => f.endsWith(".mjs")));
   assert.ok(readFileSync(BIN, "utf8").startsWith("#!/usr/bin/env node\n"));
   assert.equal(PKG.bin.projectstore, "bin/projectstore.mjs");
@@ -265,7 +311,9 @@ test("cli status: unbound is bound:false at exit 0; bound reports the board from
   assert.equal(s.views.graph.exists, true);
   assert.equal(s.views.graph.stale, false);
   assert.equal(s.views.code_map.exists, false);
-  assert.deepEqual(Object.keys(s).sort(), ["bound", "language", "layout", "lifecycle_gates", "project", "sessions", "spec_policy", "stories", "vault_exists", "vault_path", "views"]);
+  assert.deepEqual(Object.keys(s).sort(), ["approval_mode", "auto_inject", "bound", "language", "layout", "lifecycle_gates", "project", "sessions", "spec_policy", "stories", "vault_exists", "vault_path", "views"]);
+  assert.equal(s.auto_inject, true);
+  assert.equal(s.approval_mode, "always");
   const text = bin(["status", "--project", proj]);
   assert.match(text.stdout, /In progress \(1\)/);
 });

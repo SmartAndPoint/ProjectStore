@@ -160,7 +160,7 @@ The deep dive — real session files, measured payloads, how every mechanism wor
 
 ## Uninstalling
 
-`/plugin uninstall projectstore@SmartAndPoint`. Your vault is yours — plain markdown, untouched. One leftover: the agents block in `CLAUDE.md`/`AGENTS.md`. Before uninstalling, run `/projectstore:agents unregister` (which runs `scripts/install-harness.mjs uninstall --harness claude-code --surface agents_block`), or delete everything between `<!-- projectstore:agents … -->` and `<!-- /projectstore:agents -->` by hand.
+`/plugin uninstall projectstore@SmartAndPoint`. Your vault is yours — plain markdown, untouched. One leftover: the agents block in `CLAUDE.md`/`AGENTS.md`. Before uninstalling, run `/projectstore:agents unregister` (which runs `npx projectstore uninstall --harness claude-code --surface agents_block --project "$PWD"`), or delete everything between `<!-- projectstore:agents … -->` and `<!-- /projectstore:agents -->` by hand.
 
 ## Extending
 

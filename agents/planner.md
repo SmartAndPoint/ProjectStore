@@ -19,6 +19,10 @@ epics' `code_refs`, and the modules they point at don't depend on each other —
 read them together; go sequential only when a result genuinely decides what to
 look at next. Quote paths with spaces (vaults often live under iCloud paths).
 
+**Evidence through the MCP tools when they are available.** When the projectstore MCP read tools are exposed to you (`status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`), gather evidence through them: they answer from the live vault, so no freshness question arises, and an artifact's neighbourhood costs one call instead of a grep plus a read; every result is the CLI's `--json` envelope. `code_refs` with an epic id is the epic↔code mapping Phase 0 asks for, in one call. When they are not — a host without MCP, or an install older than 0.28 — the derived views below are the fallback, under the rule that follows.
+
+Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes — prefer them for orientation, but fall back to a frontmatter sweep when a view is missing or its `generated_at` predates recent artifact changes (compare file mtimes; a false-stale just costs a sweep).
+
 ## Phase 0 — Read the vault's epic↔code mapping first
 
 Locate the bound vault (`.claude/projectstore.json` → `vault_path`). Read the

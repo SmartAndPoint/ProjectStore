@@ -536,7 +536,7 @@ test("install: upgrade runs as install, a missing flag value is a usage error, a
 test("install: the command prose invokes the verb and never writes the block or the settings itself", () => {
   for (const f of ["commands/agents.md", "commands/bind.md", "commands/statusline.md", "commands/doctor.md"]) {
     const src = read(join(ROOT, f));
-    assert.ok(src.includes("install-harness.mjs"), `${f} invokes the verb`);
+    assert.match(src, /bin\/projectstore\.mjs" (install|uninstall|plan) /, `${f} invokes the verb through the bin (roadmap A8)`);
   }
   const doctor = read(join(ROOT, "commands", "doctor.md"));
   assert.ok(!/agents-block[^\n]*\n[^\n]*Edit after approval/.test(doctor), "doctor.md no longer repairs the block with Edit");
@@ -608,8 +608,9 @@ test("install contract 5 (doctor half): a foreign file is reported under its own
   assert.ok(/never Edit, Write or delete the file yourself/.test(step3));
   // Executable repairs: every verb invocation step 3 can emit leaves a foreign
   // launcher and a foreign slot byte-identical.
-  const cmds = [...step3.matchAll(/node "\$CLAUDE_PLUGIN_ROOT\/scripts\/([a-z-]+\.mjs)" ([a-z]+)/g)].map((m) => [m[1], m[2]]);
-  assert.ok(cmds.length > 0 && cmds.every(([s]) => s === "install-harness.mjs"), "repairs invoke core verbs only");
+  // Since roadmap A8 the prose invokes the bin; the verb travels to install-harness.mjs unchanged (cli.mjs runInstallVerb).
+  const cmds = [...step3.matchAll(/node "\$CLAUDE_PLUGIN_ROOT\/(bin\/projectstore\.mjs)" ([a-z]+)/g)].map((m) => [m[1], m[2]]);
+  assert.ok(cmds.length > 0 && cmds.every(([s, v]) => s === "bin/projectstore.mjs" && ["install", "uninstall", "upgrade", "plan"].includes(v)), "repairs invoke core verbs only, through the bin");
   const foreignSlot = JSON.stringify({ statusLine: { type: "command", command: "node /x/hud.mjs" } }, null, 2) + "\n";
   const victim = project({ settings: foreignSlot, agents: "# theirs\n" });
   mkdirSync(join(victim, CFG_DIR, ".projectstore"), { recursive: true });
@@ -618,7 +619,7 @@ test("install contract 5 (doctor half): a foreign file is reported under its own
   delete env[SRC.runtime.home_env];
   for (const [script, verb] of cmds) {
     for (const key of ["statusline", "agents_block"]) {
-      spawnSync(process.execPath, [join(ROOT, "scripts", script), verb, "--harness", SRC.id, "--surface", key, "--project", victim], { encoding: "utf8", env, timeout: 15000 });
+      spawnSync(process.execPath, [join(ROOT, script), verb, "--harness", SRC.id, "--surface", key, "--project", victim], { encoding: "utf8", env, timeout: 15000 });
     }
   }
   assert.equal(read(statusLineLauncherPath(victim)), "console.log('theirs')\n");

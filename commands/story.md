@@ -84,7 +84,7 @@ the two cannot collide).
      from `.claude/projectstore.json` and pass it as the spawn's model parameter.
      Missing key, `inherit`, or unreadable config → pass nothing and let the
      agent's own frontmatter decide; never guess a model.
-   - Capture doctor's summary line (`node "$CLAUDE_PLUGIN_ROOT/scripts/doctor.mjs"
+   - Capture doctor's summary line (`node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor
      --vault`, last line) — the clerk needs it as the **pre-state**: it must not
      stop on findings that were already there and are not its own.
    - Spawn `projectstore:clerk` **as a foreground task** (you need its report to
@@ -105,10 +105,10 @@ the two cannot collide).
    close's ceremony, not the plan's.
 
 6a. **(close only) Reconcile** the touched derived targets through the core:
-   `node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs" --write --only kanban` (add
+   `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --write --only kanban` (add
    `indexes=<epic folder>` when the status changed).
 
-6b. **(close only) Verify**: `node "$CLAUDE_PLUGIN_ROOT/scripts/doctor.mjs" --vault`
+6b. **(close only) Verify**: `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor --vault` (exit 1 = findings, not failure)
    — a close is not done while doctor got worse. Then suggest the reviewer's
    proposed `code_refs` via `/projectstore:codemap set` (the reviewer computes it
    from `scripts/diff-refs.mjs --since <started_at>`).

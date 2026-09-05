@@ -12,7 +12,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
 2. **Compute** (read-only):
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs"
+   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile
    ```
 
    Output JSON: `kanban` / `codemap` / `graph` / `indexes[]`, each
@@ -51,7 +51,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
 6. **On approval**: apply through the core — never the Write/Edit tools:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs" --write --only <approved,targets>
+   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --write --only <approved,targets>
    ```
 
    Selectors: `kanban`, `codemap`, `graph`, `indexes` (all), `indexes=<folder>` (one).
@@ -63,7 +63,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
    exit means at least one target failed — surface its `error`.
 
 
-7. **Verify**: run `node "$CLAUDE_PLUGIN_ROOT/scripts/doctor.mjs" --vault` and show
+7. **Verify**: run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor --vault` (exit 1 = findings, not failure) and show
    the summary line — reconcile's whole point is a clean doctor afterwards.
 
 ## Notes

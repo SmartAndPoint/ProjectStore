@@ -59,11 +59,11 @@ is a correct outcome.
    you can be altered by you, and this procedure exists to make that
    impossible. (Write is in your tool list because the covering ADR mandates
    it for the roster's writer; this procedure has no use for it on artifacts.)
-3. **Reconcile.** `node "$CLAUDE_PLUGIN_ROOT/scripts/reconcile.mjs" --write
+3. **Reconcile.** `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --write
    --only <targets>` with exactly the targets you were given. In shape B this
    is the whole job: report reconcile's own per-target
    `{path, changed, written, error?}` objects, not just names.
-4. **Verify.** `node "$CLAUDE_PLUGIN_ROOT/scripts/doctor.mjs" --vault`. Your
+4. **Verify.** `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor --vault` (exit 1 means findings, not a failed check — read them). Your
    instructions include the **pre-state** — doctor's summary line captured just
    before you were spawned. Stop only on a finding that names your target path
    or one of your reconciled targets and was not in that pre-state; everything

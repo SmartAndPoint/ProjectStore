@@ -148,10 +148,10 @@ function layoutOf(cfg) {
 // total is explainable without reading the generator.
 export function status(cfg, { project = null } = {}) {
   if (!cfg || !cfg.vault_path) {
-    return { bound: false, project, vault_path: null, vault_exists: false, layout: null, language: null, spec_policy: null, lifecycle_gates: null, stories: null, views: null, sessions: null };
+    return { bound: false, project, vault_path: null, vault_exists: false, layout: null, language: null, auto_inject: null, approval_mode: null, spec_policy: null, lifecycle_gates: null, stories: null, views: null, sessions: null };
   }
   const vault = vaultOf(cfg);
-  const out = { bound: true, project, vault_path: vault, vault_exists: existsSync(vault), layout: cfg.layout || null, language: cfg.language || "en", spec_policy: null, lifecycle_gates: null, stories: null, views: null, sessions: null };
+  const out = { bound: true, project, vault_path: vault, vault_exists: existsSync(vault), layout: cfg.layout || null, language: cfg.language || "en", auto_inject: cfg.auto_inject !== false, approval_mode: cfg.approval_mode || "always", spec_policy: null, lifecycle_gates: null, stories: null, views: null, sessions: null };
   if (!out.vault_exists) return out;
   const vcfg = readVaultConfig(vault);
   out.spec_policy = vcfg.spec_policy || "optional";
@@ -203,7 +203,7 @@ export function status(cfg, { project = null } = {}) {
 
 export function renderStatus(r) {
   if (!r.bound) return `Not bound${r.project ? ` — ${r.project}` : ""}. Run /projectstore:bind <vault> in a session.\n`;
-  const lines = [`Vault: ${r.vault_path}${r.vault_exists ? "" : "  (missing)"}`, `Layout: ${r.layout} · language: ${r.language} · spec_policy: ${r.spec_policy} · lifecycle_gates: ${r.lifecycle_gates}`];
+  const lines = [`Vault: ${r.vault_path}${r.vault_exists ? "" : "  (missing)"}`, `Layout: ${r.layout} · language: ${r.language} · auto_inject: ${r.auto_inject} · approval_mode: ${r.approval_mode} · spec_policy: ${r.spec_policy} · lifecycle_gates: ${r.lifecycle_gates}`];
   if (r.stories && r.stories.status !== "ok") lines.push(`Stories: not counted — ${r.stories.error}`);
   else if (r.stories) {
     lines.push(`Stories: ${r.stories.total} on the board — ${Object.entries(r.stories.by_status).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}${r.stories.off_board_total ? `; ${r.stories.off_board_total} off it (${Object.entries(r.stories.off_board).map(([k, v]) => `${k} ${v}`).join(", ")})` : ""}`);

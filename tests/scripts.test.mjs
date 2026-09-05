@@ -587,14 +587,28 @@ test("generated_at is a full ISO timestamp on all three derived views (contract 
   }
 });
 
-test("agent prose carries the derived-views orientation contract (spec contract 7 guard)", () => {
+test("agent prose carries the derived-views orientation contract (spec contract 7 guard), with the MCP tier above it (link-graph ADR decision 7, roadmap A8)", () => {
   const SHARED = "Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes";
   const FALLBACK = "missing or its `generated_at` predates recent artifact changes";
-  for (const f of ["librarian.md", "reviewer.md", "critic.md", "archaeologist.md"]) {
+  const MCP_TIER = "When the projectstore MCP read tools are exposed to you";
+  const WITHOUT = "a host without MCP, or an install older than 0.28";
+  for (const f of ["librarian.md", "reviewer.md", "critic.md", "archaeologist.md", "planner.md"]) {
     const src = readFileSync(join(REPO, "agents", f), "utf8");
     assert.ok(src.includes(SHARED), `${f} carries the shared derived-views sentence`);
     assert.ok(src.includes(FALLBACK), `${f} carries the freshness fallback`);
+    assert.ok(src.includes(MCP_TIER) && src.includes(WITHOUT), `${f} carries the MCP tier and names the without-MCP case`);
+    assert.ok(src.indexOf(MCP_TIER) < src.indexOf(SHARED), `${f}: MCP first, derived views as the fallback`);
+    // The coupling that makes the tier real: while the agent's tools: allowlist admits no MCP tool, the prose is
+    // conditional ("when … exposed"); the day A9 adds the tools, this assertion flips and the prose is revisited.
+    const tools = (src.match(/^tools:\s*(.+)$/m) || [])[1] || "";
+    const admitsMcp = /mcp__/.test(tools);
+    assert.equal(src.includes(MCP_TIER), !admitsMcp, `${f}: the MCP paragraph is conditional iff tools: lacks the MCP names (tools: ${tools})`);
+    for (const tool of ["status", "orientation", "search", "get_artifact", "neighbors", "lineage", "code_refs", "doctor"]) assert.ok(src.includes(`\`${tool}\``), `${f} names tool ${tool}`);
   }
+  // The write agent is not a read-only agent: no MCP prose, bin calls only.
+  const clerk = readFileSync(join(REPO, "agents", "clerk.md"), "utf8");
+  assert.ok(!clerk.includes(MCP_TIER), "clerk does not gather through MCP");
+  assert.ok(clerk.includes('bin/projectstore.mjs" reconcile') && clerk.includes('bin/projectstore.mjs" doctor'));
   assert.match(readFileSync(join(REPO, "agents", "librarian.md"), "utf8"), /Edges table/,
     "librarian reads existing edges from the graph");
 });

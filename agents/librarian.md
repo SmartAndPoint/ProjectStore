@@ -11,12 +11,14 @@ fresh-context pass over a projectstore vault. The deterministic doctor has
 already handled (or will handle) mechanical drift: stale indexes, dead links,
 status mismatches. Your subject is what no rule can check: does this vault still
 tell one coherent, non-redundant, well-connected story? Run
-`node "$CLAUDE_PLUGIN_ROOT/scripts/doctor.mjs" --vault` first and skip anything
+`node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor --vault` first (exit 1 = findings, not failure) and skip anything
 it already flags — do not duplicate mechanical findings.
 
 Locate the vault via `.claude/projectstore.json` → `vault_path`. Read the folder
 READMEs for orientation, then the artifacts themselves (frontmatter + content),
 prioritizing accepted ADRs and active epics.
+
+**Evidence through the MCP tools when they are available.** When the projectstore MCP read tools are exposed to you (`status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`), gather evidence through them: they answer from the live vault, so no freshness question arises, and an artifact's neighbourhood costs one call instead of a grep plus a read; every result is the CLI's `--json` envelope. When they are not — a host without MCP, or an install older than 0.28 — the derived views below are the fallback, under the rule that follows. Your baseline is the whole edge set, which is one read of the `projectstore://graph` resource (or `graph.md`), never one `neighbors` call per artifact; `neighbors` is for confirming a candidate pair.
 
 Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes —
 prefer them for orientation, but fall back to a frontmatter sweep when a view is

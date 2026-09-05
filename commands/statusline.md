@@ -22,14 +22,14 @@ Read `.claude/projectstore.json`. If missing → "No vault bound. Run `/projects
 ## 3. `on`
 
 1. **Foreign status line check** (read-only): read `.claude/settings.local.json` if present. If it has a `statusLine` whose `command` is **not** ours (ours contains either `.projectstore/statusline.mjs` — the launcher — or `scripts/statusline.mjs` — an older or dev wiring), warn — the hook will **not** clobber a foreign local status line, so enabling would silently do nothing (and `statusline.mjs` composes only over a base in `.claude/settings.json` or `~/.claude/settings.json`, never one in `settings.local.json`). AskUserQuestion: **Proceed anyway / Help me clear it / Cancel**. If a base HUD lives in `~/.claude/settings.json` (e.g. oh-my-claudecode), that's fine — we compose over it; no warning needed.
-2. **AskUserQuestion** (Yes / No): "Wire the status line for this project?" On Yes, run `node "$CLAUDE_PLUGIN_ROOT/scripts/install-harness.mjs" install --harness claude-code --surface statusline --project "<abs project dir>"` and print its output verbatim — it previews and writes the `statusLine` entry and the launcher (`.claude/.projectstore/statusline.mjs`, provenance-stamped). A non-zero exit is a refusal (a foreign status line, an unparseable settings file) — relay it and stop, leaving the flag as it was.
+2. **AskUserQuestion** (Yes / No): "Wire the status line for this project?" On Yes, run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" install --harness claude-code --surface statusline --project "<abs project dir>"` and print its output verbatim — it previews and writes the `statusLine` entry and the launcher (`.claude/.projectstore/statusline.mjs`, provenance-stamped). A non-zero exit is a refusal (a foreign status line, an unparseable settings file) — relay it and stop, leaving the flag as it was.
 3. On success, read `.claude/projectstore.json`, set `statusline.enabled = true`. **Preserve `statusline.position`** if present (don't drop it); keep all other keys. Preview the change, then Write.
 4. Report: "Enabled. `📚 <epic> › <story>` renders above your existing HUD. **Restart Claude Code in this project** to apply now (statusLine loads at session start). If `.claude/settings.local.json` is tracked in git, add it to `.gitignore` — the entry carries a machine-specific absolute path."
 
 ## 4. `off`
 
 1. **AskUserQuestion** (Yes / No): "Remove the projectstore status line from this project?" On Yes, read `.claude/projectstore.json` and set `statusline.enabled = false` (keep `statusline.position` + other keys) — write it **even if the flag was absent**, so the hook removes any managed `statusLine` entry it previously wrote. Preview, then Write.
-2. Run `node "$CLAUDE_PLUGIN_ROOT/scripts/install-harness.mjs" uninstall --harness claude-code --surface statusline --project "<abs project dir>"` and print its output — it removes our `statusLine` entry and the launcher, previewed, and leaves a foreign entry alone.
+2. Run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" uninstall --harness claude-code --surface statusline --project "<abs project dir>"` and print its output — it removes our `statusLine` entry and the launcher, previewed, and leaves a foreign entry alone.
 3. Report: "Disabled; restart to apply."
 
 ## 5. `status`
