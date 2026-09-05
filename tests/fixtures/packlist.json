@@ -1,6 +1,7 @@
 [
   ".claude-plugin/marketplace.json",
   ".claude-plugin/plugin.json",
+  ".mcp.json",
   "AGENTS.md",
   "LICENSE",
   "README.md",
@@ -60,6 +61,7 @@
   "scripts/install-harness.mjs",
   "scripts/kanban.mjs",
   "scripts/lib.mjs",
+  "scripts/mcp.mjs",
   "scripts/provenance.mjs",
   "scripts/query.mjs",
   "scripts/reconcile.mjs",

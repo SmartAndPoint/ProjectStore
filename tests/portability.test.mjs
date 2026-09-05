@@ -189,6 +189,7 @@ test("install spec modules: doctor never imports the installer, and the installe
     const hook = readFileSync(join(ROOT, "hooks", n), "utf8");
     assert.ok(!hook.includes("surfaces.mjs"), `hooks/${n} pulls surfaces.mjs into the SessionStart graph`);
     assert.ok(!hook.includes("cli.mjs"), `hooks/${n} pulls the CLI (and through it the installer) into the SessionStart graph`);
+    assert.ok(!hook.includes("mcp.mjs"), `hooks/${n} pulls the MCP server into the SessionStart graph`);
   }
   const surfaces = readFileSync(join(ROOT, "scripts", "surfaces.mjs"), "utf8");
   // The banner names the installer as its generator — a string, not an import.
@@ -278,4 +279,22 @@ test("hooks.json's placeholder and write matcher are the manifest's", () => {
   const hooks = readFileSync(join(ROOT, "hooks", "hooks.json"), "utf8");
   assert.ok(hooks.includes(src.hooks.root_placeholder), "hooks/hooks.json IS the source harness's tree and uses its placeholder (contract 2)");
   assert.equal(src.hooks.matchers.write.split("|").sort().join("|"), [...src.tools.write_tools].sort().join("|"));
+});
+
+test(".mcp.json's placeholders are the manifest's, and it launches this package's bin (MCP ADR decision 6, measured)", () => {
+  const src = sourceHarness();
+  const reg = JSON.parse(readFileSync(join(ROOT, ".mcp.json"), "utf8"));
+  const server = reg.mcpServers.projectstore;
+  assert.equal(server.type, "stdio");
+  assert.equal(server.command, "node");
+  assert.ok(Array.isArray(server.args), "args is an array — the plugin path can contain spaces");
+  assert.equal(server.args[0], `${"$"}{${src.runtime.plugin_root_env}}/bin/projectstore.mjs`, "the bin, under the harness's plugin-root variable (runtime, not the hooks surface's placeholder)");
+  assert.deepEqual(server.args.slice(1), ["mcp", "--project", `${"$"}{${src.runtime.project_dir_env}}`], "the project comes from the host's variable, expanded per session — never ambient cwd");
+  assert.equal(server.env, undefined, "one binding channel: --project, not an env block");
+  const mcp = src.surfaces.mcp;
+  assert.equal(mcp.kind, "host");
+  assert.equal(mcp.launch.evidence, "measured");
+  assert.equal(mcp.launch.protocol_era, "initialize");
+  assert.deepEqual(mcp.launch.expands_measured, ["args", "env"]);
+  assert.ok(mcp.scope_reason.includes("amended 2026-09-05"));
 });

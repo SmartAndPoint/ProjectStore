@@ -109,8 +109,9 @@ test("install: a fresh cache-installed project plans three creates and writes no
   assert.equal(item(p, "statusline").action, "create");
   assert.equal(item(p, "statusline_launcher").action, "create");
   assert.equal(item(p, "statusline_launcher").state, "absent");
-  assert.equal(item(p, "mcp").action, "skip");
-  assert.equal(item(p, "mcp").state, "unsupported");
+  assert.equal(item(p, "mcp_project_entry").action, "skip", "the project-root entry stays unsupported; the plugin-bundled registration is a host surface");
+  assert.equal(item(p, "mcp_project_entry").state, "unsupported");
+  assert.ok(p.reports[0].includes("mcp"), "the bundled registration is reported as host-managed");
   assert.equal(read(join(proj, "CLAUDE.md")), "# My project\n", "plan writes nothing");
   assert.ok(!existsSync(join(proj, CFG_DIR, "settings.local.json")));
 

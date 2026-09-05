@@ -68,7 +68,7 @@ test("cli: the verb table is the contract — every shipped verb wraps a module 
   assert.equal(SCHEMA_VERSION, 1);
 });
 
-test("cli: --version equals package.json, help lists every verb, an unknown verb is usage, a planned verb says where it lands", () => {
+test("cli: --version equals package.json, help lists every verb, an unknown verb is usage, nothing is planned and every failure answers in the envelope under --json", () => {
   assert.equal(bin(["--version"]).stdout.trim(), PKG.version);
   const vj = JSON.parse(bin(["--version", "--json"]).stdout);
   assert.deepEqual(vj, { schema_version: 1, verb: "version", project: null, ok: true, result: { version: PKG.version } });
@@ -82,9 +82,20 @@ test("cli: --version equals package.json, help lists every verb, an unknown verb
   const bad = bin(["frobnicate"]);
   assert.equal(bad.status, 2);
   assert.match(bad.stderr, /unknown verb: frobnicate/);
-  const planned = bin(["mcp"]);
-  assert.equal(planned.status, 2);
-  assert.match(planned.stderr, /lands with roadmap A7/);
+  assert.deepEqual(PLANNED_VERBS, [], "every verb the story names has landed");
+  // The envelope on every exit under --json: usage, unknown verb, stray option, not bound.
+  for (const [args, code] of [[["frobnicate", "--json"], 2], [["doctor", "--frob", "--json"], 2], [["doctor", "--json", "--frob"], 2]]) {
+    const r = bin(args);
+    assert.equal(r.status, code, args.join(" "));
+    const e = JSON.parse(r.stdout);
+    assert.equal(e.schema_version, 1);
+    assert.equal(e.ok, false);
+    assert.ok(e.result.error, "the error is in the envelope");
+  }
+  const unbound = bin(["search", "x", "--json", "--project", project({ bound: false })]);
+  assert.equal(unbound.status, 3);
+  assert.equal(JSON.parse(unbound.stdout).result.exit, 3);
+  assert.ok(!help.stdout.includes("planned:"), "help lists no planned line once nothing is planned");
   const badOpt = bin(["doctor", "--frob"]);
   assert.equal(badOpt.status, 2);
 });

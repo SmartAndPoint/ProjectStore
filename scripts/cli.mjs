@@ -165,6 +165,11 @@ export const VERBS = Object.freeze([
     run: runBind(true),
   }),
   Object.freeze({
+    verb: "mcp", summary: "Serve the read tools over MCP (stdio) for the project named by --project or PROJECTSTORE_PROJECT_DIR; never the ambient cwd.",
+    module: "./mcp.mjs", wraps: "new", how: "import", output: "text", writes: false, requiresBinding: false, mcp: Object.freeze([]),
+    options: [], run: runMcp,
+  }),
+  Object.freeze({
     verb: "version", summary: "Print the package version (also --version).",
     module: null, wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze([]),
     options: [JSON_OPT], run: runVersion,
@@ -172,11 +177,10 @@ export const VERBS = Object.freeze([
 ]);
 
 // Verbs the story names that land with a later slice — listed so
-// `projectstore <verb>` says where instead of "unknown verb". Only `mcp`
-// remains (roadmap A7).
-export const PLANNED_VERBS = Object.freeze([
-  Object.freeze({ verb: "mcp", wraps: "new", mcp: Object.freeze([]), lands: "A7" }),
-]);
+// `projectstore <verb>` says where instead of "unknown verb". Empty since
+// A7: every verb the CLI story names has landed. The seam stays for the next
+// story that adds a verb in slices.
+export const PLANNED_VERBS = Object.freeze([]);
 
 export function usage() {
   const lines = ["usage: projectstore <verb> [options] [--project <dir>] [--json]", "", "verbs:"];
@@ -184,7 +188,8 @@ export function usage() {
     lines.push(`  ${v.verb.padEnd(11)} ${v.summary}`);
     for (const o of v.options) lines.push(`    --${o.name}${o.arg ? " " + o.arg : ""}${o.multiple ? " (repeatable)" : ""}  ${o.summary}`);
   }
-  lines.push("", `  planned: ${PLANNED_VERBS.map((v) => `${v.verb} (${v.lands})`).join(", ")}`, "", `  harnesses: ${harnessIds().join(", ")}`, "  --version  print the package version", "  exit codes: 0 ok, 1 findings or refusal, 2 usage, 3 not bound");
+  if (PLANNED_VERBS.length) lines.push("", `  planned: ${PLANNED_VERBS.map((v) => `${v.verb} (${v.lands})`).join(", ")}`);
+  lines.push("", `  harnesses: ${harnessIds().join(", ")}`, "  --version  print the package version", "  exit codes: 0 ok, 1 findings or refusal, 2 usage, 3 not bound");
   return lines.join("\n");
 }
 
@@ -207,10 +212,19 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
       },
     });
   } catch (e) {
+    // --json cannot be known before parsing; a raw scan is enough here.
+    if (argv.includes("--json")) stdout.write(JSON.stringify(envelope(argv.find((a) => !a.startsWith("-")) || null, null, false, { error: e.message }), null, 2) + "\n");
     stderr.write(`${e.message}\n${usage()}\n`);
     return 2;
   }
   const { values, positionals } = parsed;
+  // A failure before a verb runs still answers in the envelope under --json:
+  // a consumer (the MCP server, a script) always has something to parse.
+  const fail = (verb, project, message, code, { help = false } = {}) => {
+    if (values.json) stdout.write(JSON.stringify(envelope(verb, project, false, { error: message, exit: code }), null, 2) + "\n");
+    stderr.write(message + "\n" + (help ? usage() + "\n" : ""));
+    return code;
+  };
   // In-process reads resolve layouts and registries from THIS package, as the
   // children already do through ownEnv — not from whichever copy the host
   // session's variable points at.
@@ -221,8 +235,7 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
   const row = VERBS.find((v) => v.verb === verb);
   if (!row) {
     const planned = PLANNED_VERBS.find((v) => v.verb === verb);
-    stderr.write((planned ? `${verb} lands with roadmap ${planned.lands}; not in this release.\n` : `unknown verb: ${verb}\n`) + usage() + "\n");
-    return 2;
+    return fail(verb, null, (planned ? `${verb} lands with roadmap ${planned.lands}; not in this release.` : `unknown verb: ${verb}`), 2, { help: true });
   }
   // The options map is global (parseArgs), the rows are not: an option a row
   // does not declare is a usage error, so help cannot lie about what a verb
@@ -230,13 +243,10 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
   const GLOBAL = new Set(["project", "json", "help", "version"]);
   const declared = new Set(row.options.map((o) => o.name));
   const stray = Object.keys(values).filter((k) => !GLOBAL.has(k) && !declared.has(k));
-  if (stray.length) { stderr.write(`${verb} does not take --${stray[0]}\n${usage()}\n`); return 2; }
+  if (stray.length) return fail(verb, null, `${verb} does not take --${stray[0]}`, 2, { help: true });
   const project = resolveProject({ project: values.project, env, cwd });
   const cfg = readConfigAt(project);
-  if (row.requiresBinding && !cfg) {
-    stderr.write(`${project} is not bound to a vault — run /projectstore:bind <vault> in a session , or \`projectstore bind <vault>\` (\`projectstore init <vault>\` also creates the vault).\n`);
-    return 3;
-  }
+  if (row.requiresBinding && !cfg) return fail(verb, project, `${project} is not bound to a vault — run /projectstore:bind <vault> in a session, or \`projectstore bind <vault>\` (\`projectstore init <vault>\` also creates the vault).`, 3);
   try {
     return await row.run({ row, values, positionals: positionals.slice(1), cfg, project, env, cwd, stdin, stdout, stderr, ask });
   } catch (e) {
@@ -300,10 +310,16 @@ function runRead(name) {
   };
 }
 
-// bind / init: the vault named on the command line is the confirmation (the
-// distribution ADR's decision 6 read for a binding — there is no --yes and
-// nothing to ask); a change of vault needs --rebind. Exit 1 on a refusal with
-// the reason, 2 on usage, 0 when already bound to the same vault.
+// The MCP server, imported lazily like the install family: no other verb
+// carries the protocol code. A project must have been SUPPLIED — the flag,
+// the neutral variable or the harness's declared directory; resolveProject's
+// cwd fallback is exactly what the MCP ADR's decision 6 forbids here.
+async function runMcp({ values, project, env, stdin, stdout, stderr }) {
+  const supplied = Boolean(values.project || env.PROJECTSTORE_PROJECT_DIR || projectRootDeclared(env));
+  const { serve } = await import("./mcp.mjs");
+  return serve({ project: supplied ? project : null, env, stdin, stdout, stderr });
+}
+
 // git's user.name for a fresh config's default_author, from the project's
 // own repository — never from the process cwd; the login name otherwise.
 function gitAuthor(project, env) {
@@ -316,6 +332,10 @@ function gitAuthor(project, env) {
   return env.USER || env.USERNAME || "";
 }
 
+// bind / init: the vault named on the command line is the confirmation (the
+// distribution ADR's decision 6 read for a binding — there is no --yes and
+// nothing to ask); a change of vault needs --rebind. Exit 1 on a refusal with
+// the reason, 2 on usage, 0 when already bound to the same vault.
 function runBind(init) {
   return async (ctx) => {
     const { row, values, positionals, project, env, stdout, stderr } = ctx;

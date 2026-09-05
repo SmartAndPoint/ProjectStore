@@ -663,6 +663,30 @@ export function checkAutoUpdate(home = homedir()) {
   return out;
 }
 
+// The plugin-bundled MCP registration (MCP ADR decision 6, amended
+// 2026-09-05): Claude Code loads .mcp.json from the plugin root and expands
+// the placeholders per session, so the check is only that the shipped file is
+// there and launches this package's bin. A host surface — nothing to
+// install, nothing to derive — so this is not a surfaces.mjs state.
+export function checkMcpRegistration(root = pluginRoot(), harness = sourceHarness()) {
+  // Whether a plugin-root .mcp.json registers anything is the host's fact,
+  // read from the manifest: a harness whose mcp surface is not host-loaded
+  // has nothing to check here.
+  const mcp = harness && harness.surfaces && harness.surfaces.mcp;
+  if (!mcp || mcp.kind !== "host") return [];
+  const p = join(root, mcp.file || ".mcp.json");
+  if (!existsSync(p)) return [finding("install", "warn", "mcp", "No .mcp.json at the plugin root — the MCP read tools are not registered; the package ships one, so this install is incomplete or predates the MCP surface (0.28).")];
+  let reg;
+  try { reg = JSON.parse(readFileSync(p, "utf8")); } catch (e) { return [finding("install", "issue", "mcp", `.mcp.json at the plugin root is not valid JSON: ${e.message}`, ".mcp.json")]; }
+  const server = reg && reg.mcpServers && reg.mcpServers.projectstore;
+  const args = server && Array.isArray(server.args) ? server.args : [];
+  if (!server || !args.some((a) => String(a).endsWith("/bin/projectstore.mjs")) || !args.includes("mcp")) {
+    return [finding("install", "issue", "mcp", ".mcp.json at the plugin root does not launch bin/projectstore.mjs mcp — the MCP read tools will not answer.", ".mcp.json")];
+  }
+  return [finding("install", "info", "mcp", "MCP read tools registered by the plugin's .mcp.json (one server per project, bound through the host's project directory).")];
+}
+
+
 // ─── Vault checks ──────────────────────────────────────────────────────
 
 // Collect every structured artifact with parsed frontmatter.
@@ -1542,6 +1566,7 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
     ...checkGitignore(proj),
     ...checkVaultGit(cfg),
     ...checkAutoUpdate(),
+    ...checkMcpRegistration(),
   );
   let read = null;
   try { read = await readSurfaceStates(proj, opts); } catch {} // reported as a warn by checkHarnessSurfaces

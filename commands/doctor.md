@@ -49,6 +49,9 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    - `version-drift` → report only: name both versions and where each was
      read; the fix is the host's update path (`/plugin update`), not ours.
    - `harness` (info) → nothing to repair; it names what `install` can target.
+   - `mcp` → the plugin-bundled `.mcp.json` is missing or does not launch
+     `bin/projectstore.mjs mcp`: the install is incomplete — the fix is the
+     host's update path (`/plugin update`), never a hand-written file.
    - `override-copies` → a copy carrying the provenance marker overrides nothing
      (ADR-008): offer to **delete** it (approval-gated, one prompt per file), and
      say that `/projectstore:agents configure` now records the model in

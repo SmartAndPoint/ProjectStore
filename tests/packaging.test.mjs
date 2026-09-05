@@ -113,6 +113,7 @@ test("packaging contract 1d: the directories the plugin cannot work without do s
     "templates",
     "docs",
     "AGENTS.md",
+    ".mcp.json",
   ]) {
     assert.ok(tops.has(entry), `${entry} is missing from the tarball`);
   }

@@ -259,16 +259,40 @@
       "condition": "plugin_cache_install"
     },
     "mcp": {
+      "supported": true,
+      "kind": "host",
+      "dir": ".",
+      "file": ".mcp.json",
+      "scope": "plugin",
+      "scope_reason": "Claude Code loads a plugin's .mcp.json from the plugin installation itself and expands ${CLAUDE_PLUGIN_ROOT} and ${CLAUDE_PROJECT_DIR} in it per session, so the one shipped file binds each server to one project (MCP ADR decision 6, amended 2026-09-05); nothing is installed and nothing is derived (install spec contract 14).",
+      "launch": {
+        "cwd": "project",
+        "project_dir_in_env": true,
+        "expands_measured": ["args", "env"],
+        "expands_inferred": ["command"],
+        "default_syntax": "${VAR:-default}",
+        "unset_placeholder_in_env": "literal",
+        "unset_placeholder_in_args": "inferred literal — the server refuses a --project still carrying a dollar-brace placeholder",
+        "entrypoint": "sdk-cli (headless -p), plugin loaded with --plugin-dir; the marketplace install and an interactive session are A9's",
+        "protocol_era": "initialize",
+        "protocol_version_seen": "2025-11-25",
+        "shutdown_signal": "SIGINT",
+        "evidence": "measured",
+        "client": "claude 2.1.261",
+        "date": "2026-09-05"
+      }
+    },
+    "mcp_project_entry": {
       "supported": false,
       "kind": "shared",
       "format": "json-entry",
       "scope": "project",
-      "scope_reason": "A project-root .mcp.json registers the server with an absolute --project (MCP ADR, decision 6); per project because the server binds to one.",
+      "scope_reason": "A project-root .mcp.json registers the server with an absolute --project for a host that does not expand placeholders (MCP ADR, decision 6); per project because the server binds to one.",
       "file": ".mcp.json",
       "marker": {
         "pointer": "mcpServers.projectstore"
       },
-      "why_unsupported": "no MCP server ships yet (PS-CORE MCP story, roadmap C2); an entry naming a nonexistent command would fail at session start"
+      "why_unsupported": "the plugin-bundled registration already binds per project in Claude Code; this row is for hosts without plugin MCP and lands with their adapters (roadmap B3/C3)"
     }
   },
   "capabilities": {

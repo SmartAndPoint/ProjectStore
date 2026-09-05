@@ -50,7 +50,8 @@
     "scaffold/",
     "templates/",
     "docs/",
-    "AGENTS.md"
+    "AGENTS.md",
+    ".mcp.json"
   ],
   "publishConfig": {
     "access": "public"

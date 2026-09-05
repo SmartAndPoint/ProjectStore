@@ -105,6 +105,12 @@ npx projectstore graph neighbors epics/PS-CORE/epic.md
 npx projectstore codemap --for scripts/lib.mjs
 ```
 
+The same eight reads are an MCP server. The plugin registers it through its own `.mcp.json`, so a Claude Code session has `status`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `orientation` and `doctor` as tools with no shell; every tool result is the CLI's `--json` for the same arguments. Elsewhere:
+
+```
+npx projectstore mcp --project "$PWD"
+```
+
 Binding, too — naming the vault is the confirmation, and changing it needs `--rebind`:
 
 ```

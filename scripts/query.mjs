@@ -3,8 +3,10 @@
 // The read operations behind the CLI's read verbs and the MCP surface's
 // tools — one exported function per MCP tool (MCP ADR decision 2): status,
 // orientation, search, show (get_artifact), neighbors, lineage, codeRefs.
-// Read-only, no stdout side effects, no writes: imported by scripts/cli.mjs
-// and by the MCP server, where stdout is the protocol channel.
+// Read-only, no stdout side effects, no writes: imported by scripts/cli.mjs;
+// the MCP server reaches these only through cli.run(), so the envelope is
+// built in one place — but it shares the module graph, where stdout is the
+// protocol channel.
 //
 // Every result is small on purpose — a model reads it. Artifact paths in
 // results are vault-relative and /-joined (the vault's own path, a project
