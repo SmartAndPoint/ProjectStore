@@ -39,7 +39,9 @@ subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
    ```
    It removes the marked block; deletes a `CLAUDE.md` that held nothing else,
    or nothing but the `@AGENTS.md` import registration added; and leaves every
-   user-authored line in place.
+   user-authored line in place. A non-zero exit is a refusal (a block whose
+   open marker was re-wrapped, or that appears twice in one file) — relay it
+   and stop; never report success over it, and never remove the block by hand.
 
 ## `status` — read-only report
 

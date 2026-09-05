@@ -41,8 +41,15 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    - `surface` (a stale installed file or a stale shared entry) → offer running
      the verb for that surface and print its output:
      `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" install --harness claude-code --surface <key> --project "<abs project dir>"`
-     (`statusline` for the launcher, `agents_block` for the block). Repairs
-     invoke core verbs only — never Edit, Write or delete the file yourself.
+     (`statusline` for the launcher, `agents_block` for the block). When more
+     than one surface is stale — the shape of a plugin update — offer the one
+     command that covers them all:
+     `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" upgrade --harness claude-code --project "<abs project dir>"`.
+     Repairs invoke core verbs only — never Edit, Write or delete the file yourself.
+   - `upgrade` (an info the SessionStart line carries, not a row of this
+     report: a launcher written before file stamps existed) → in this report
+     the same file is the `surface` issue above; the `upgrade` command re-stamps
+     it in one run.
    - `surface-foreign` → **never repairable.** A file under our prefix with no
      provenance line is not ours: no `--fix` flow may edit, delete, move or
      overwrite it. Print the finding verbatim and relay its resolution — rename

@@ -372,7 +372,7 @@ export function syncStatusLine(cfg, projectDir, home = homedir()) {
     try {
       const lp = statusLineLauncherPath(projectDir);
       const text = readFileSync(lp, "utf8");
-      if (text.includes("projectstore — status line launcher")) unlinkSync(lp);
+      if (text.includes(LAUNCHER_HEADER)) unlinkSync(lp);
     } catch {}
     changed = true;
   }
@@ -394,7 +394,21 @@ export function syncStatusLine(cfg, projectDir, home = homedir()) {
 // in the template, never in a constant, so a bump cannot land in one place
 // and not the other.
 
+// The launcher template's own header line — the recogniser for a launcher we
+// wrote before provenance existed (install spec contract 4, rung 1″) and for
+// the one file the disable path may unlink. One literal, three readers
+// (surfaces.mjs, doctor.mjs, syncStatusLine).
+export const LAUNCHER_HEADER = "projectstore — status line launcher";
+
 export const AGENTS_BLOCK_OPEN_SRC = String.raw`<!--\s*projectstore:agents v(\d+)[^\n]*?-->`;
+// The loose form: an open marker a model re-wrapped so `-->` fell to the next
+// line. Anchored like the strict form, so prose that merely mentions the
+// marker inside another comment is not a block; it cannot match the close
+// marker (no " v<digit>"). Detected so a
+// wrapped block is refused as unparseable rather than read as absent — the
+// strict parser reading "absent" is how install appends a second block and
+// uninstall reports "nothing to remove" over a block that is there.
+export const AGENTS_BLOCK_OPEN_LOOSE_SRC = String.raw`<!--\s*projectstore:agents v(\d+)`;
 export const AGENTS_BLOCK_CLOSE = "<!-- /projectstore:agents -->";
 
 export function agentsBlockTemplatePath(root = pluginRoot()) {
@@ -411,9 +425,16 @@ export function agentsBlockVersion(tmpl = null) {
 // many open markers the file carries (more than one is a duplicate).
 export function findAgentsBlock(text) {
   if (typeof text !== "string") return null;
+  // Count with the loose form, so one good block plus one wrapped marker is
+  // "more than once" (refused), never "one block" (half-edited).
+  const count = [...text.matchAll(new RegExp(AGENTS_BLOCK_OPEN_LOOSE_SRC, "g"))].length;
   const m = new RegExp(AGENTS_BLOCK_OPEN_SRC).exec(text);
-  if (!m) return null;
-  const count = [...text.matchAll(new RegExp(AGENTS_BLOCK_OPEN_SRC, "g"))].length;
+  if (!m) {
+    const loose = new RegExp(AGENTS_BLOCK_OPEN_LOOSE_SRC).exec(text);
+    if (!loose) return null;
+    const line = text.slice(0, loose.index).split("\n").length;
+    return { present: true, v: Number(loose[1]), start: loose.index, end: null, unclosed: true, wrapped: true, line, count, block: null };
+  }
   const closeAt = text.indexOf(AGENTS_BLOCK_CLOSE, m.index + m[0].length);
   if (closeAt === -1) return { present: true, v: Number(m[1]), start: m.index, end: null, unclosed: true, count, block: null };
   const end = closeAt + AGENTS_BLOCK_CLOSE.length;

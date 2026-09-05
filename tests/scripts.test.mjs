@@ -1012,6 +1012,18 @@ test("rule payload: inline, bounded, and silent under auto_inject false (contrac
 // tests pointed away from it — so the drive lands BEFORE any behaviour moves,
 // and asserts only invariants that must survive the change.
 
+test("SessionStart renders doctor's offers as their own line, and nothing when nothing is pending (upgrade story)", async () => {
+  const { runStartupChecks, OFFER_CHECKS } = await import("../scripts/doctor.mjs");
+  assert.ok(OFFER_CHECKS.has("upgrade"));
+  const { proj } = makeVaultProject();
+  const r = runStartupChecks(JSON.parse(readFileSync(join(proj, ".claude", "projectstore.json"), "utf8")), proj);
+  assert.deepEqual(r.offers, [], "a fresh project has nothing pending");
+  const out = fireSessionStart(proj, { session_id: "s-offer", source: "startup" });
+  const msg = (out && out.systemMessage) || "";
+  assert.ok(!/re-stamp/.test(msg), "no offer line when nothing is pending");
+  // The rendering itself — "projectstore: <message>" in the system message — is asserted behaviourally in tests/upgrade.test.mjs from a fake cache install.
+});
+
 function fireSessionStart(proj, payload = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-start.mjs")], {
     encoding: "utf8", input: JSON.stringify({ hook_event_name: "SessionStart", ...payload }),

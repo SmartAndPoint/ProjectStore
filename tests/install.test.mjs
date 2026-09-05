@@ -18,10 +18,13 @@ import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { fakeInstall, writeRegistry } from "./fixtures/install.mjs";
 import { plan, renderPreview, confirm, apply, runVerb } from "../scripts/install-harness.mjs";
 import { detectHarnesses, harnessRefusal, sourceHarness } from "../scripts/harness.mjs";
 import { stamp, sourceHash, parseProvenance } from "../scripts/provenance.mjs";
 import {
+  AGENTS_BLOCK_OPEN_SRC,
+  AGENTS_BLOCK_OPEN_LOOSE_SRC,
   statusLineLauncherPath,
   renderStatusLineLauncher,
   findAgentsBlock,
@@ -43,16 +46,6 @@ delete process.env[SRC.runtime.home_env];
 // A marketplace-cache install: enough of the plugin for the installer to
 // render from — the launcher template, the block template, the layout, and a
 // plugin.json carrying the version the stamp records.
-function fakeInstall(home, version) {
-  const root = join(home, SRC.runtime.home_default, "plugins", "cache", "SmartAndPoint", "projectstore", version);
-  for (const d of ["scripts", ".claude-plugin", "templates", join("scaffold", "layouts")]) mkdirSync(join(root, d), { recursive: true });
-  copyFileSync(join(ROOT, "scripts", "statusline-launcher.mjs"), join(root, "scripts", "statusline-launcher.mjs"));
-  writeFileSync(join(root, "scripts", "statusline.mjs"), `process.stdout.write("rendered-by-${version}\\n");\n`);
-  writeFileSync(join(root, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version }));
-  copyFileSync(join(ROOT, "templates", "claude-md-block.md.tmpl"), join(root, "templates", "claude-md-block.md.tmpl"));
-  copyFileSync(join(ROOT, "scaffold", "layouts", "engineering.json"), join(root, "scaffold", "layouts", "engineering.json"));
-  return root;
-}
 
 function project({ bound = true, claude = null, agents = null, settings = null, statusline = true } = {}) {
   const proj = mkdtempSync(join(tmpdir(), "ps-inst-"));
@@ -221,6 +214,29 @@ test("install contract 6: a duplicated or unclosed block is refused and nothing 
   assert.equal(u.ok, false);
   assert.match(item(u, "agents_block").reason, /never closes/);
   assert.equal(read(join(unclosed, "CLAUDE.md")), "<!-- projectstore:agents v3 -->\n## half\n");
+
+  // A marker a model re-wrapped so `-->` fell to the next line (a 0.27.1 install
+  // could leave one): the block is there and unreadable. Neither install
+  // (which would append a second block) nor uninstall (which would report
+  // "nothing to remove") may proceed; the file is byte-identical after both.
+  const WRAPPED = "# Mine\n\n<!-- projectstore:agents v3 (managed by projectstore — edit outside\n     markers) -->\n" + BLOCK.split("\n").slice(1).join("\n") + "\n";
+  const wrapped = project({ agents: WRAPPED });
+  const f = findAgentsBlock(WRAPPED);
+  assert.equal(f.wrapped, true); assert.equal(f.unclosed, true); assert.equal(f.line, 3); assert.equal(f.count, 1); assert.equal(f.v, 3);
+  const w = plan(wrapped, { home, root });
+  assert.equal(w.ok, false);
+  assert.equal(item(w, "agents_block").action, "refuse");
+  assert.match(item(w, "agents_block").reason, /AGENTS\.md:3: .*does not close on its own line/);
+  assert.throws(() => apply(w), /refusals/);
+  assert.equal(read(join(wrapped, "AGENTS.md")), WRAPPED);
+  const wu = plan(wrapped, { home, root, mode: "uninstall" });
+  assert.equal(wu.ok, false, "uninstall refuses too — never 'nothing to remove' over a block that is there");
+  assert.equal(item(wu, "agents_block").action, "refuse");
+  assert.equal(read(join(wrapped, "AGENTS.md")), WRAPPED);
+  // One good block plus one wrapped marker in a file is "more than once", not "one block".
+  const mixed = findAgentsBlock(BLOCK + "\n\n<!-- projectstore:agents v3\n-->\n");
+  assert.equal(mixed.count, 2);
+  assert.ok(!findAgentsBlock("<!-- /projectstore:agents -->\n"), "the close marker alone is not an open marker");
 });
 
 test("install: the block is rendered from the layout's roster, and a roster without an agent drops its bullets", () => {
@@ -488,16 +504,26 @@ test("install contract 13 / ADR-002 decision 4: uninstall removes the import reg
   assert.equal(read(join(kept, "CLAUDE.md")), "@AGENTS.md\n\n# Mine\n", "an import in a CLAUDE.md with the user's prose stays — AGENTS.md still exists");
 });
 
-test("install contract 7: a launcher left behind by a cache install is pruned by a dev checkout's install, and a foreign one is left", () => {
+test("install contract 7 (amended 2026-09-05) / 13: a dev-checkout root reports a launcher it did not write and never deletes it; uninstall removes it; a foreign one is left", () => {
   const { home, root, proj } = installed();
   const dev = mkdtempSync(join(tmpdir(), "ps-dev-"));
   mkdirSync(join(dev, "templates"), { recursive: true });
   mkdirSync(join(dev, ".claude-plugin"), { recursive: true });
   copyFileSync(join(ROOT, "templates", "claude-md-block.md.tmpl"), join(dev, "templates", "claude-md-block.md.tmpl"));
   writeFileSync(join(dev, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.0.0-dev" }));
+  const before = read(statusLineLauncherPath(proj));
   const p = plan(proj, { home, root: dev, surfaces: ["statusline"] });
-  assert.equal(item(p, "statusline_launcher").action, "prune");
+  assert.equal(item(p, "statusline_launcher").action, "skip", "install from a root that does not produce the file leaves it");
+  assert.equal(item(p, "statusline_launcher").state, "stale");
+  assert.match(item(p, "statusline_launcher").reason, /left in place/);
   apply(p);
+  assert.equal(read(statusLineLauncherPath(proj)), before, "byte-identical after apply");
+  const up = plan(proj, { home, root: dev, mode: "install", surfaces: ["statusline"] });
+  assert.ok(!up.items.some((i) => i.action === "prune"), "upgrade is install re-run: no prune either");
+  // Uninstall is the one verb that removes it from a dev root: the user asked to disown, and it is recognisably ours.
+  const un = plan(proj, { home, root: dev, mode: "uninstall", surfaces: ["statusline"] });
+  assert.equal(item(un, "statusline_launcher").action, "remove");
+  apply(un);
   assert.ok(!existsSync(statusLineLauncherPath(proj)));
   void root;
   const foreign = project();
@@ -563,12 +589,6 @@ import { surfaceStates, analyseStampedFile } from "../scripts/surfaces.mjs";
 import { checkHarnessSurfaces, checkVersionDrift, checkAgentsBlock, runInstallChecks } from "../scripts/doctor.mjs";
 import { installedPluginEntries } from "../scripts/lib.mjs";
 
-function writeRegistry(home, entries) {
-  const dir = join(home, SRC.runtime.home_default, "plugins");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "installed_plugins.json"), JSON.stringify({ version: 2, plugins: { "projectstore@SmartAndPoint": entries } }));
-}
-
 const byCheck = (fs, id) => fs.filter((f) => f.check === id);
 
 test("install contract 4 (doctor half): each of the four stale reasons on the launcher is one doctor issue, and current is silent", async () => {
@@ -579,7 +599,9 @@ test("install contract 4 (doctor half): each of the four stale reasons on the la
     const f = byCheck(await checkHarnessSurfaces({}, proj, opts || { home, root }), "surface");
     assert.equal(f.length, 1);
     assert.equal(f[0].level, "issue");
-    assert.match(f[0].message, /install-harness\.mjs install --surface statusline_launcher/);
+    assert.match(f[0].message, /bin\/projectstore\.mjs" install --harness [a-z-]+ --surface statusline_launcher/, "the remedy is the bin form the command prose runs");
+    assert.ok(f[0].message.includes(`node "$${SRC.runtime.plugin_root_env}/bin/projectstore.mjs"`), "a shell reference to the harness's own variable, not its bare name");
+    assert.ok(!f[0].message.includes("install-harness.mjs"));
     return f[0].message;
   };
   assert.match(await one(({ proj }) => writeFileSync(statusLineLauncherPath(proj), read(statusLineLauncherPath(proj)) + "\n// hand edit\n")), /stale: edited by hand/);
@@ -659,6 +681,38 @@ test("install contract 6 (doctor half): block states — content drift at the sa
   assert.equal(u.length, 1);
   assert.equal(u[0].level, "issue");
   assert.match(u[0].message, /never closes/);
+  // A wrapped marker: the surface issue names the line, and the startup check
+  // says "unreadable", never "not registered" (the reading that appends a second block).
+  const wrapped = project({ agents: "# A\n<!-- projectstore:agents v3 (managed)\n-->\n" + BLOCK.split("\n").slice(1).join("\n") + "\n" });
+  const ws = byCheck(await checkHarnessSurfaces({}, wrapped, { home, root }), "surface");
+  assert.equal(ws.length, 1);
+  assert.match(ws[0].message, /AGENTS\.md:2: .*does not close on its own line/);
+  const wa = checkAgentsBlock(wrapped);
+  assert.equal(wa.length, 1);
+  assert.equal(wa[0].level, "issue");
+  assert.match(wa[0].message, /AGENTS\.md:2/);
+  assert.ok(!wa.some((x) => /not registered/.test(x.message)));
+  // A good block in one file and a wrapped marker in the other: the wrapped issue, and NOT the "both files — install keeps one" advice (install refuses).
+  const split = project({ claude: "# Mine\n\n" + BLOCK + "\n", agents: "# A\n<!-- projectstore:agents v3 (managed)\n-->\n" + BLOCK.split("\n").slice(1).join("\n") + "\n" });
+  const sa = checkAgentsBlock(split);
+  assert.ok(sa.some((x) => /AGENTS\.md:2/.test(x.message)));
+  assert.ok(!sa.some((x) => /in both CLAUDE\.md and AGENTS\.md/.test(x.message)), "no contradictory advice");
+  // A good block plus a wrapped marker in the SAME file: startup names it (both verbs refuse), never a quiet session.
+  const same = project({ agents: BLOCK + "\n\n<!-- projectstore:agents v3\n-->\n" });
+  const ma = checkAgentsBlock(same);
+  assert.ok(ma.some((x) => x.level === "issue" && /2 times/.test(x.message)), JSON.stringify(ma));
+  const mp = plan(same, { home, root });
+  assert.equal(mp.ok, false);
+  // The three encodings of the open marker agree: the strict regex, the loose one and the manifest's marker.open.
+  const open = SRC.surfaces.agents_block.marker.open;
+  assert.ok(new RegExp(AGENTS_BLOCK_OPEN_SRC).test(open + "3 -->") && new RegExp(AGENTS_BLOCK_OPEN_LOOSE_SRC).test(open + "3"), "manifest marker.open is what both regexes match");
+});
+
+test("install: no doctor remedy names a raw script — every one is the bin form the command prose runs", () => {
+  const src = read(join(ROOT, "scripts", "doctor.mjs"));
+  assert.ok(!/install-harness\.mjs (install|uninstall|upgrade|plan)/.test(src));
+  assert.ok(!/scripts\/(reconcile|doctor|install-harness)\.mjs"/.test(src.replace(/^\s*\/\/.*$/gm, "")), "no code path names a script the prose no longer runs");
+  assert.match(src, /node "\$\$\{pluginRootVar\(s\.harness\)\}\/bin\/projectstore\.mjs" install --harness/, "the remedy is a shell reference to the surface's harness variable, in the bin form");
 });
 
 test("install contract 16: a harness is reported only when the project uses it", async () => {

@@ -239,6 +239,13 @@ test("provenance contract 2: a JSON surface cannot be stamped — it is shared, 
   assert.throws(() => provenanceLine({ src: SRC, srcHash: "xyz", pkg: "1", project: PROJECT, render: "0".repeat(12) }), /12 lowercase hex/);
 });
 
+test("install spec contract 1: doctor's duplicated stamp prefix is the emitter's own", async () => {
+  const { STAMP_PREFIX } = await import("../scripts/doctor.mjs");
+  const line = provenanceLine({ src: "a.md", srcHash: "a".repeat(12), pkg: "1", project: "/p", render: "b".repeat(12) });
+  assert.ok(line.startsWith(STAMP_PREFIX), "every emitted line carries the literal the startup check greps for");
+  assert.equal(parseProvenance(line.replace(STAMP_PREFIX, "x")), null, "and nothing without it parses");
+});
+
 test("install spec acceptance: one emitter, one parser — no other script or hook carries the grammar", () => {
   for (const dir of ["scripts", "hooks"]) {
     for (const n of readdirSync(join(ROOT, dir)).filter((f) => f.endsWith(".mjs") && f !== "provenance.mjs")) {

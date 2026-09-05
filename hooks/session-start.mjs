@@ -237,6 +237,7 @@ async function main() {
   // Cheap install-only doctor subset (ADR-005): one line, only when N > 0;
   // aborted past its budget rather than reporting a false "clean".
   let doctorMsg = null;
+  let offers = [];
   try {
     const r = runStartupChecks(cfg, proj);
     if (r.skipped) {
@@ -244,9 +245,12 @@ async function main() {
     } else if (r.count > 0) {
       doctorMsg = `projectstore doctor: ${r.count} install issue(s) — run /projectstore:doctor`;
     }
+    // Offers (doctor's OFFER_CHECKS): one-time steps a user should see once,
+    // e.g. the re-stamp after a plugin update — not issues, not silent.
+    offers = (r.offers || []).map((m) => `projectstore: ${m}`);
   } catch {}
   const systemMessage =
-    [welcomeSystemMessage, doctorMsg].filter(Boolean).join(" · ") || null;
+    [welcomeSystemMessage, doctorMsg, ...offers].filter(Boolean).join(" · ") || null;
 
   if (gatherError) {
     emit(

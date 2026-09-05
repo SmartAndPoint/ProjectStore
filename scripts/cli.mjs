@@ -114,7 +114,7 @@ export const VERBS = Object.freeze([
     options: INSTALL_OPTS, run: runInstallVerb,
   }),
   Object.freeze({
-    verb: "upgrade", summary: "Re-run install after a plugin update; prunes what is no longer produced.",
+    verb: "upgrade", summary: "Re-run install after a plugin update; re-stamps what this installation wrote and leaves the rest.",
     module: "./install-harness.mjs", wraps: "module", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: INSTALL_OPTS, run: runInstallVerb,
   }),

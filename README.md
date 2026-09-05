@@ -121,6 +121,32 @@ npx projectstore init ~/vaults/new-project --language ru
 Names like `projectstore-claude` or `projectstore-codex` on npm are reserved placeholders pointing back here — there is only one package.
 </details>
 
+## Upgrading
+
+`/plugin update` (or auto-update) and a restart is the whole procedure. What
+an existing project sees afterwards, and why:
+
+- **The status line keeps rendering.** A launcher written by an earlier
+  version still works, but it now carries no file stamp and its embedded
+  fallback root is frozen at the old version; the startup line says so at
+  every session start until you run the fix — `/projectstore:doctor --fix` — which
+  re-stamps it. Nothing rewrites that file behind your back any more: first
+  wiring and refresh are `install`'s, behind a preview.
+- **`/projectstore:status` and `/projectstore:search` answer differently:**
+  facts from artifact frontmatter and the derived views' freshness instead
+  of an `mtime` walk; a literal, bounded, grouped search instead of a shell
+  `grep`. Every other command prints what it printed before.
+- **`/projectstore:doctor` has new lines** — the state of each installed
+  surface, a version-drift check across plugin versions, and one permanent
+  info line saying the MCP read tools are registered. Its exit code now
+  carries the verdict (1 = findings), so a red Bash result is findings, not
+  a crash.
+- **The plugin registers an MCP server** (eight read-only tools over the
+  vault). Claude Code may ask you to approve it once.
+- **Rolling back** to an earlier version works; that version's first session
+  overwrites the stamped launcher, and coming forward again costs the same
+  one `--fix`.
+
 ## When an agent starts a task, it can find its way
 
 Two generated views exist for exactly that moment. `graph.md` holds every artifact's links, typed, in both directions — one grep returns a document's whole neighborhood. `code-map.md` answers where the code for each epic actually lives, so new code lands where the old code already is. And before any architectural choice, the agent is pointed at the ADR index first — which is how settled questions stay settled.

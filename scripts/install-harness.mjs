@@ -190,11 +190,16 @@ function planStampedFile(ctx, key, s) {
   }
   const a = analyseStampedFile(projectDir, s, { root, home, harness });
   // Not produced for this installation (a dev checkout is wired directly):
-  // an orphan we wrote earlier is pruned (contract 7); anything else is left.
+  // a root that cannot produce a file has, by construction, never written it,
+  // so install and upgrade REPORT it and leave it (contract 13's wording;
+  // contract 7 as amended 2026-09-05 — a dev checkout's plan used to prune a
+  // cache install's launcher, the maintainer's habitual loop). Only uninstall
+  // removes it: the user asked to disown, and the file is recognisably ours.
+  // `prune` stays an action for the day a surface leaves the roster.
   if (!a.produced) {
     if (!a.file.present) return [];
     if (!a.ours) return [{ surface: key, kind: "exclusive", path, entry: null, state: "foreign", action: "skip", reason: "not produced for a dev checkout, and not ours — left in place" }];
-    return [{ surface: key, kind: "exclusive", path, entry: null, state: "stale", action: mode === "uninstall" ? "remove" : "prune", reason: a.reason }];
+    return [{ surface: key, kind: "exclusive", path, entry: null, state: "stale", action: mode === "uninstall" ? "remove" : "skip", reason: a.reason }];
   }
   if (a.refusal) return [{ surface: key, kind: "exclusive", path, state: "refused", action: "refuse", reason: a.refusal }];
   const base = { surface: key, kind: "exclusive", path, entry: null, state: a.state, reason: a.reason, writtenBy: a.writtenBy, sameProject: a.sameProject };

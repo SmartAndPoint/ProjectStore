@@ -41,6 +41,7 @@ import {
   renderAgentsBlock,
   loadLayout,
   readConfigAt,
+  LAUNCHER_HEADER,
 } from "./lib.mjs";
 
 export const GENERATOR = "scripts/install-harness.mjs";
@@ -49,7 +50,7 @@ export const INSTALLED_REMEDY = "projectstore doctor reports this file when it i
 // recogniser for a pre-provenance launcher (contract 4, rung 1″). A substring
 // of the template's own header, so a reworded comment cannot turn every
 // existing install foreign.
-export const LAUNCHER_HEADER = "projectstore — status line launcher";
+export { LAUNCHER_HEADER };
 
 export function readText(p) {
   if (!existsSync(p)) return { present: false, text: null };
@@ -89,6 +90,7 @@ export function analyseBlock(projectDir, s, { root = pluginRoot() } = {}) {
   const a = { files: found, withBlock, preferred, claude, importLine, PREFERRED, FALLBACK, entryKey: "projectstore:agents", version: null, desired: null, current: null, state: "ours-absent", reason: null, refusal: null };
 
   const unclosed = withBlock.find((e) => e.block.unclosed);
+  if (unclosed && unclosed.block.wrapped) return { ...a, state: "unparseable", refusal: `${unclosed.file}:${unclosed.block.line}: the projectstore:agents open marker does not close on its own line — the parser reads one line. Put \`-->\` back on the marker's line, then run /projectstore:agents register` };
   if (unclosed) return { ...a, state: "unparseable", refusal: `${unclosed.file}: the block opens and never closes — restore the closing marker or remove the block by hand` };
   const twice = withBlock.find((e) => e.block.count > 1);
   if (twice) return { ...a, state: "unparseable", refusal: `${twice.file} carries the block more than once — keep exactly one` };
@@ -145,7 +147,7 @@ export function analyseStampedFile(projectDir, s, { root = pluginRoot(), home = 
     a.produced = false;
     if (!file.present) return { ...a, state: "absent" };
     a.ours = isOurFile(file.text);
-    return { ...a, state: a.ours ? "stale" : "foreign", reason: a.ours ? "no longer produced for this installation (a dev checkout is wired directly)" : null };
+    return { ...a, state: a.ours ? "stale" : "foreign", reason: a.ours ? "not produced for this installation (a dev checkout is wired directly) — left in place; a prune of a launcher this root did not write needs the root that wrote it, or uninstall" : null };
   }
   const src = join(root, s.source);
   const tpl = readText(src);

@@ -60,13 +60,34 @@ import {
   ENTRY_IGNORE,
   AGENTS_BLOCK_OPEN_SRC,
   agentsBlockVersion,
+  findAgentsBlock,
+  statusLineLauncherPath,
+  LAUNCHER_HEADER,
   installedPluginEntries, isMain
 } from "./lib.mjs";
-import { agentOverrides, childEnv, sourceHarness } from "./harness.mjs";
+import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness } from "./harness.mjs";
+
+// The plugin-root variable a remedy interpolates, for the harness the surface
+// belongs to — read from that harness's manifest, never a literal (the
+// branded-variable lint), never the active harness's (a multi-harness project
+// disagrees). Falls back to the source harness's variable.
+function pluginRootVar(harnessId) {
+  try { const m = harnessId ? loadHarness(harnessId) : null; if (m && m.runtime && m.runtime.plugin_root_env) return m.runtime.plugin_root_env; } catch {}
+  return runtimeEnvNames().pluginRoot || sourceHarness()?.runtime?.plugin_root_env || "PLUGIN_ROOT";
+}
 import { uncommittedProjectFiles, lastCommitMs } from "./diff-refs.mjs";
 import { resolveBinding } from "./worktree.mjs";
 
 const AGENT_BLOCK_MARKER = new RegExp(AGENTS_BLOCK_OPEN_SRC, "g");
+// The provenance grammar's prefix, duplicated here on purpose: the startup
+// path may not load the provenance leaf, and this is all it needs to tell a
+// stamped launcher from one written before stamps existed. A test in
+// tests/provenance.test.mjs keeps the literal equal to what the emitter writes.
+export const STAMP_PREFIX = "projectstore: v";
+// Startup findings that are offers, not issues: rendered by the SessionStart
+// hook as their own line, so an info a user should act on once is not lost
+// behind the issue count.
+export const OFFER_CHECKS = new Set(["upgrade"]);
 // checkAgentsBlock compares the marker version alone, so a bump in the
 // template IS the propagation mechanism: without it no bound project ever
 // learns the block changed. The cost is that every already-bound project
@@ -321,18 +342,52 @@ export function checkStatusline(cfg, proj, home = homedir()) {
   return out;
 }
 
+// The one-time offer after a plugin update (the story "Seamless upgrade from
+// 0.27.1 to 0.28"): a launcher we wrote before file stamps existed still
+// renders, but its embedded fallback root is frozen at the old version until
+// install re-stamps it — which the SessionStart hook may not do (it cannot
+// load the provenance leaf). So the startup line names the step. Only for a
+// cache install: a dev checkout does not produce the launcher at all, and its
+// install would leave the file, not re-stamp it.
+export function checkPendingUpgrade(proj, home = homedir(), root = pluginRoot()) {
+  if (!isPluginCacheRoot(root, home)) return [];
+  const lp = statusLineLauncherPath(proj);
+  let text;
+  try { text = readFileSync(lp, "utf8"); } catch { return []; }
+  if (!text.includes(LAUNCHER_HEADER) || text.includes(STAMP_PREFIX)) return [];
+  return [finding("install", "info", "upgrade",
+    "The status line launcher predates this plugin's file stamps (plugin updated) — it keeps rendering; run /projectstore:doctor --fix once to re-stamp it.",
+    relative(proj, lp))];
+}
+
 export function checkAgentsBlock(proj) {
   const out = [];
   const AGENT_BLOCK_VERSION = agentsBlockVersion();
+  // One parser for every reader (findAgentsBlock): its count is the loose one,
+  // so a good block plus a re-wrapped marker in one file is "more than once"
+  // here exactly as install and uninstall see it (both refuse), never a quiet
+  // startup; a wrapped marker on its own is named with its line — "not
+  // registered" is the reading that makes install append a second block.
   let blocks = 0;
-  let staleVersions = [];
+  let wrappedFiles = 0;
+  const perFile = {};
+  const staleVersions = [];
   for (const name of ["CLAUDE.md", "AGENTS.md"]) {
     const p = join(proj, name);
     if (!existsSync(p)) continue;
     let text;
     try { text = readFileSync(p, "utf8"); } catch { continue; }
+    const f = findAgentsBlock(text);
+    if (!f) continue;
+    perFile[name] = f.count;
+    blocks += f.count;
+    if (f.wrapped) {
+      wrappedFiles++;
+      out.push(finding("install", "issue", "agents-block",
+        `${name}:${f.line}: the projectstore:agents open marker does not close on its own line — put \`-->\` back on the marker's line, then run /projectstore:agents register (install and uninstall refuse until it does).`, name));
+      continue;
+    }
     for (const m of text.matchAll(AGENT_BLOCK_MARKER)) {
-      blocks++;
       const v = parseInt(m[1], 10);
       if (v !== AGENT_BLOCK_VERSION) staleVersions.push({ file: name, v });
     }
@@ -343,17 +398,15 @@ export function checkAgentsBlock(proj) {
   }
   if (blocks > 1) {
     // One block in each file is a state install resolves (it keeps the
-    // preferred file's); two in one file is not, and stays an issue.
-    const perFile = {};
-    for (const name of ["CLAUDE.md", "AGENTS.md"]) {
-      const p = join(proj, name);
-      if (!existsSync(p)) continue;
-      try { perFile[name] = [...readFileSync(p, "utf8").matchAll(AGENT_BLOCK_MARKER)].length; } catch {}
-    }
+    // preferred file's); two in one file is not, and stays an issue — and a
+    // wrapped marker anywhere means install refuses, so the "both files"
+    // advice is withheld while one is wrapped.
     const twiceInOne = Object.entries(perFile).find(([, n]) => n > 1);
     if (twiceInOne) {
       out.push(finding("install", "issue", "agents-block",
         `${twiceInOne[0]} carries the projectstore:agents block ${twiceInOne[1]} times — keep exactly one; install refuses until it does.`, twiceInOne[0]));
+    } else if (wrappedFiles) {
+      // already named above, file by file
     } else {
       out.push(finding("install", "warn", "agents-block",
         `The projectstore:agents block is in both CLAUDE.md and AGENTS.md — run /projectstore:agents register: install keeps the one in ${(sourceHarness()?.surfaces?.agents_block?.files || ["AGENTS.md"])[0]} and removes the other.`));
@@ -420,9 +473,9 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
         out.push(finding("install", "issue", "surface-foreign",
           `${where} — ${FOREIGN_TEXT}. install, uninstall and upgrade refuse it; nothing repairs it.`, where));
       } else if (s.state === "stale" && s.produced) {
-        out.push(finding("install", "issue", "surface", `${where} — stale: ${s.reason}. Reinstall it: install-harness.mjs install --surface ${s.surface} (for the status line, /projectstore:statusline on).`, where));
+        out.push(finding("install", "issue", "surface", `${where} — stale: ${s.reason}. Reinstall it: node "$${pluginRootVar(s.harness)}/bin/projectstore.mjs" install --harness ${s.harness} --surface ${s.surface} --project "${proj}" (for the status line, /projectstore:statusline on).`, where));
       } else if (s.state === "stale" && !s.produced) {
-        out.push(finding("install", "info", "surface", `${where} — ${s.reason}; install prunes it.`, where));
+        out.push(finding("install", "info", "surface", `${where} — ${s.reason}.`, where));
       } else if (s.state === "current" && s.writtenBy && !s.sameProject) {
         out.push(finding("install", "info", "surface", `${where} — current, last written by ${s.writtenBy}.`, where));
       }
@@ -1624,6 +1677,7 @@ export function runStartupChecks(cfg, proj, budgetMs = 150) {
     () => checkConfig(cfg, proj),
     () => (cfg && cfg.vault_path ? checkVaultPath(cfg) : []),
     () => (cfg && cfg.vault_path ? checkStatusline(cfg, proj) : []),
+    () => (cfg && cfg.vault_path && cfg.statusline && cfg.statusline.enabled === true ? checkPendingUpgrade(proj) : []),
     () => checkAgentsBlock(proj),
     () => checkGitignore(proj),
     () => checkEnvModel(),
@@ -1634,7 +1688,12 @@ export function runStartupChecks(cfg, proj, budgetMs = 150) {
     if (Date.now() - started > budgetMs) return { skipped: true, count: 0, findings };
     try { findings.push(...step()); } catch {}
   }
-  return { skipped: false, count: findings.filter((f) => f.level === "issue").length, findings };
+  return {
+    skipped: false,
+    count: findings.filter((f) => f.level === "issue").length,
+    offers: findings.filter((f) => f.level === "info" && OFFER_CHECKS.has(f.check)).map((f) => f.message),
+    findings,
+  };
 }
 
 // ─── CLI ───────────────────────────────────────────────────────────────
