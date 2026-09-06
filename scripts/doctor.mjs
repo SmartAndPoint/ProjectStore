@@ -63,18 +63,30 @@ import {
   findAgentsBlock,
   statusLineLauncherPath,
   LAUNCHER_HEADER,
-  installedPluginEntries, isMain
+  installedPluginEntries, isMain,
+  pickExisting,
+  legacyStatusLineLauncherPath,
+  stateDir,
+  legacyStateDir,
+  layoutPaths,  sessionsDir,
+  isLauncherPath,
+  LAYOUT,
+  hostSettingsPath,
+  readOverlayAt, layoutRoster,
 } from "./lib.mjs";
-import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness } from "./harness.mjs";
+import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, configPath as harnessConfigPath, packageCommand } from "./harness.mjs";
 
-// The plugin-root variable a remedy interpolates, for the harness the surface
-// belongs to — read from that harness's manifest, never a literal (the
-// branded-variable lint), never the active harness's (a multi-harness project
-// disagrees). Falls back to the source harness's variable.
-function pluginRootVar(harnessId) {
-  try { const m = harnessId ? loadHarness(harnessId) : null; if (m && m.runtime && m.runtime.plugin_root_env) return m.runtime.plugin_root_env; } catch {}
-  return runtimeEnvNames().pluginRoot || sourceHarness()?.runtime?.plugin_root_env || "PLUGIN_ROOT";
-}
+// A remedy used to interpolate the surface's harness variable here. It cannot:
+// measured 2026-09-06, NO harness gives its Bash tool that variable, and a
+// finding is runtime output, which nothing substitutes — braced or not, the
+// reader would get the literal and the shell would expand it to nothing
+// ("Cannot find module '/bin/projectstore.mjs'"). A remedy now names the
+// resolved root, which this installation knows. The prose asks the host for
+// the same path through ${CLAUDE_PLUGIN_ROOT}, which IS substituted in
+// command, skill and agent content — different text, one resolution. See the
+// story "The prompt surface asks the shell for a variable the host would have
+// substituted"; harness neutrality is unaffected, an absolute path carries no
+// brand, and --harness still carries the target.
 import { uncommittedProjectFiles, lastCommitMs } from "./diff-refs.mjs";
 import { resolveBinding } from "./worktree.mjs";
 
@@ -87,7 +99,7 @@ export const STAMP_PREFIX = "projectstore: v";
 // Startup findings that are offers, not issues: rendered by the SessionStart
 // hook as their own line, so an info a user should act on once is not lost
 // behind the issue count.
-export const OFFER_CHECKS = new Set(["upgrade"]);
+export const OFFER_CHECKS = new Set(["upgrade", "layout-legacy"]);
 // checkAgentsBlock compares the marker version alone, so a bump in the
 // template IS the propagation mechanism: without it no bound project ever
 // learns the block changed. The cost is that every already-bound project
@@ -160,8 +172,14 @@ export function checkConfig(cfg, proj = projectRoot()) {
       return [finding("install", "issue", "worktree-unbound",
         `This worktree is unbound while the checkout it was forked from (${b.mainCheckout}) is bound to ${b.vaultPath}. Run /projectstore:bind --inherit to adopt that binding.`)];
     }
+    const p = layoutPaths(proj);
+    const present = [p.binding, p.legacy.binding].find((f) => existsSync(f));
+    if (present) {
+      return [finding("install", "issue", "config-unparseable",
+        `${relative(proj, present)} exists but is not valid JSON — the project reads as unbound until it is fixed; bind refuses to overwrite it.`, relative(proj, present))];
+    }
     return [finding("install", "issue", "config",
-      "No projectstore config (.claude/projectstore.json). Run /projectstore:bind <vault-path>.")];
+      "No projectstore config (.projectstore/projectstore.json). Run /projectstore:bind <vault-path>.")];
   }
   const out = [];
   if (!cfg.vault_path) out.push(finding("install", "issue", "config", "Config has no vault_path."));
@@ -223,7 +241,7 @@ export function checkLayoutTemplates(cfg) {
 }
 
 export function checkHooksAlive(cfg, maxAgeMinutes = 30) {
-  const dir = join(cfg.vault_path, ".projectstore", "sessions");
+  const dir = sessionsDir(cfg.vault_path);
   if (!existsSync(dir)) {
     return [finding("install", "warn", "hooks",
       "No session registry in the vault — SessionStart hook may not be firing (or no session started yet).")];
@@ -238,7 +256,7 @@ export function checkHooksAlive(cfg, maxAgeMinutes = 30) {
 }
 
 // Which plugin version a wired statusLine script belongs to. Null for our
-// launcher (<project>/.claude/.projectstore/statusline.mjs), which has no
+// launcher (<project>/.projectstore/state/claude-code/statusline.mjs), which has no
 // version of its own — it resolves the installed one at render time.
 export function statusLineScriptVersion(scriptPath) {
   try {
@@ -255,7 +273,7 @@ export function statusLineScriptVersion(scriptPath) {
 // is a mutating self-heal that SessionStart already ran — ADR-005).
 export function checkStatusline(cfg, proj, home = homedir()) {
   const out = [];
-  const local = join(proj, ".claude", "settings.local.json");
+  const local = hostSettingsPath(proj);
   let cur = null;
   if (existsSync(local)) {
     try {
@@ -280,7 +298,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
     } else {
       const m = curCmd.match(/"([^"]+statusline\.mjs)"/) || curCmd.match(/(\S+statusline\.mjs)/);
       const wiredRoot = m ? dirname(dirname(m[1])) : null;
-      const isLauncher = m ? m[1].replace(/\\/g, "/").includes("/.projectstore/statusline.mjs") : false;
+      const isLauncher = m ? isLauncherPath(m[1]) : false;
       if (m && !existsSync(m[1])) {
         out.push(finding("install", "issue", "statusline",
           isLauncher
@@ -317,7 +335,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
   // hooks observed. A breadcrumb id with no pointer file while others exist
   // means the two processes disagree — the issue note's second suspect.
   try {
-    const sdir = join(proj, ".claude", ".projectstore", "state");
+    const sdir = pickExisting(stateDir(proj), legacyStateDir(proj));
     const bc = JSON.parse(readFileSync(join(sdir, ".last-render.json"), "utf8"));
     if (bc && bc.session_id) {
       const hookIds = readdirSync(sdir)
@@ -351,7 +369,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
 // install would leave the file, not re-stamp it.
 export function checkPendingUpgrade(proj, home = homedir(), root = pluginRoot()) {
   if (!isPluginCacheRoot(root, home)) return [];
-  const lp = statusLineLauncherPath(proj);
+  const lp = pickExisting(statusLineLauncherPath(proj), legacyStatusLineLauncherPath(proj));
   let text;
   try { text = readFileSync(lp, "utf8"); } catch { return []; }
   if (!text.includes(LAUNCHER_HEADER) || text.includes(STAMP_PREFIX)) return [];
@@ -468,12 +486,13 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
   }
   for (const s of r.states) {
     const where = relative(proj, s.path) || s.path;
+    if (s.kind === "registration") continue; // checkPluginRegistration's
     if (s.kind === "exclusive") {
       if (s.state === "foreign") {
         out.push(finding("install", "issue", "surface-foreign",
           `${where} — ${FOREIGN_TEXT}. install, uninstall and upgrade refuse it; nothing repairs it.`, where));
       } else if (s.state === "stale" && s.produced) {
-        out.push(finding("install", "issue", "surface", `${where} — stale: ${s.reason}. Reinstall it: node "$${pluginRootVar(s.harness)}/bin/projectstore.mjs" install --harness ${s.harness} --surface ${s.surface} --project "${proj}" (for the status line, /projectstore:statusline on).`, where));
+        out.push(finding("install", "issue", "surface", `${where} — stale: ${s.reason}. Reinstall it: node "${join(root, "bin", "projectstore.mjs")}" install --harness ${s.harness} --surface ${s.surface} --project "${proj}" (for the status line, /projectstore:statusline on).`, where));
       } else if (s.state === "stale" && !s.produced) {
         out.push(finding("install", "info", "surface", `${where} — ${s.reason}.`, where));
       } else if (s.state === "current" && s.writtenBy && !s.sameProject) {
@@ -496,19 +515,81 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
   return out;
 }
 
+// The harness overlay (layout spec, contracts 2–4): a key the allowlist
+// rejects is an issue naming key and file; a binding still carrying an
+// agents block is a pre-0.28 leftover the migration moves; an overlay that
+// does not parse is an issue.
+export function checkOverlays(cfg, proj) {
+  const out = [];
+  const o = readOverlayAt(proj);
+  const where = relative(proj, o.path);
+  if (o.unparseable) out.push(finding("install", "issue", "overlay-unparseable", `${where} is not valid JSON — the agents run on their frontmatter models until it is fixed.`, where));
+  for (const k of o.rejected) out.push(finding("install", "issue", "overlay-forbidden-key", `${where} carries \`${k}\`, which an overlay may not: only agents.default.model and agents.per_agent.<name>.model are read; the key is ignored.`, where));
+  if (cfg && cfg.agents && typeof cfg.agents === "object") {
+    // The binding that carries the block is the one the reader found — before
+    // the migration that is the legacy path, and naming the new one would send
+    // the user to a file that does not exist yet.
+    const b = relative(proj, harnessConfigPath(proj, process.env));
+    out.push(finding("install", "warn", "agents-in-binding", `${b} still carries an agents block — since 0.28 the models live in ${where} (the layout ADR); nothing reads it there. Run upgrade --harness ${o.id || "claude-code"} to move it.`, b));
+  }
+  // A configured name no roster agent carries runs nothing: the model never
+  // applies. A warn, not an issue — a newer package's agent is a legitimate
+  // reason for a committed overlay to name one this copy does not ship.
+  const roster = layoutRoster(cfg);
+  if (roster) {
+    for (const n of Object.keys(o.agents.per_agent)) {
+      if (!roster.includes(n)) out.push(finding("install", "warn", "overlay-unknown-agent", `${where} configures \`${n}\`, which is not in the ${cfg.layout} roster (${roster.join(", ")}) — no agent by that name runs, so the model never applies. A typo, or an agent this package does not ship yet.`, where));
+    }
+  }
+  return out;
+}
+
+// Contract 4′ (2026-09-05): the registration the package made through the
+// host's CLI — one row per registration surface the manifest declares. Current
+// → one info; stale → an issue naming the refresh in the form that can make
+// it (the package's own bin via npx: a cache install never re-registers
+// itself); a competing copy enabled beside ours → an issue (two enabled copies
+// of one plugin); a competitor alone → an info naming the npm path; foreign →
+// never repairable; the host CLI missing → an info.
+export function checkPluginRegistration(proj, states = []) {
+  const out = [];
+  for (const s of states.filter((x) => x.kind === "registration")) {
+    // The shell form when the manifest names a shell (contract 12): the
+    // command a user can paste, built in one place.
+    const h = loadHarness(s.harness) || { id: s.harness };
+    const refresh = packageCommand(h, "upgrade", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` });
+    const others = (s.others || []).map((o) => `${o.key} (${o.version || "?"})`).join(", ");
+    if (s.state === "foreign") {
+      out.push(finding("install", "issue", "plugin-registration-foreign", `${s.reason} — install, uninstall and upgrade refuse it; nothing repairs it.`, s.path));
+    } else if (s.state === "unavailable") {
+      out.push(finding("install", "info", "plugin-registration", `No npm registration of projectstore for this project, and ${s.reason}.`));
+    } else if (s.state === "absent") {
+      // A git-marketplace install alone is not a finding: a permanent info
+      // advertising the npm path to every marketplace user is noise (2026-09-05).
+    } else if (s.state === "stale") {
+      out.push(finding("install", "issue", "plugin-registration", `${s.entry} — stale: ${s.reason}. Refresh it: ${refresh}`, s.path));
+    } else if (s.state === "current") {
+      if (others) out.push(finding("install", "issue", "plugin-registration", `${s.entry} is current, and ${others} is enabled for this project too — two enabled copies of one plugin load twice. install silences the other for this project: ${packageCommand(h, "install", { args: `--surface ${s.surface} --project "${proj}"` })} (or the host's own disable at the scope the manifest names — never the committed project scope).`, s.path));
+      else out.push(finding("install", "info", "plugin-registration", `${s.entry} ${s.installedVersion} registered from the npm package for this project (loaded from ${s.installPath}); refresh with ${refresh}.`));
+    }
+  }
+  return out;
+}
+
 // Contract 17: two registrations of projectstore at different versions on one
 // machine are a finding, not a failure — install cannot prevent it, since
 // hosts install from different sources. The versions come from the harness
 // registry (one per marketplace key and scope) and from the pkg= field of a
 // file we stamped in this project; each is named with where it was read.
-export function checkVersionDrift(home = homedir(), states = []) {
+export function checkVersionDrift(home = homedir(), states = [], proj = null) {
   // Pairs, not a map keyed by source: two registrations under one marketplace
   // key and one scope are the common shape (the registry keeps every install
   // it made), and they must both be seen. Only installs still on disk count —
   // a wiped entry is not a copy anyone runs.
   const seen = [];
-  for (const e of installedPluginEntries(home)) {
-    if (e.version && e.present) seen.push({ source: `registry ${e.key}${e.scope ? " (" + e.scope + ")" : ""} at ${e.path}`, version: e.version });
+  for (const e of installedPluginEntries(home, proj)) {
+    // A disabled registration is not a copy anyone runs (contract 17, amended 2026-09-05).
+    if (e.version && e.present && e.enabled !== false) seen.push({ source: `registry ${e.key}${e.scope ? " (" + e.scope + ")" : ""} at ${e.path}`, version: e.version });
   }
   for (const s of states) {
     if (s.installedPkg) seen.push({ source: `pkg= of ${s.surface}`, version: s.installedPkg });
@@ -579,7 +660,7 @@ export function checkOverrideCopies(proj, home = homedir()) {
       // fca8def introduced for staleness applies here for the same reason.
       const remove = scope === "user"
         ? `Delete ${where} by hand (or via /projectstore:doctor --fix) — /projectstore:agents configure only cleans up project-scope copies.`
-        : "Delete it via /projectstore:agents configure, which now records the model in .claude/projectstore.json and passes it per invocation.";
+        : "Delete it via /projectstore:agents configure, which now records the model in .projectstore/harness/<harness>.json (the active harness's overlay) and passes it per invocation.";
       const advice = m
         ? remove
         : "If you wrote it yourself, nothing is broken; if you meant to change the bundled agent's model, that is /projectstore:agents configure, not a copy.";
@@ -608,19 +689,50 @@ export function checkEnvModel() {
     `${o.env}=${o.value} is set — it overrides ALL projectstore agent model configuration, per-invocation parameter included.`));
 }
 
+// The project-level layout (the layout ADR): a legacy .projectstore/projectstore.json
+// or .projectstore/state/ is one warn naming the upgrade; two bindings is an
+// issue. Cheap — a handful of existsSync — so the startup line carries the
+// warn as an offer (OFFER_CHECKS).
+export function checkLayout(proj, harness = sourceHarness(), { level = "warn" } = {}) {
+  const p = layoutPaths(proj, { harnessDir: harness?.runtime?.harness_dir || null });
+  const legacyBinding = existsSync(p.legacy.binding), legacyRuntime = existsSync(p.legacy.runtime);
+  let resumable = false;
+  if (legacyBinding && existsSync(p.binding)) {
+    try { const { agents, ...rest } = JSON.parse(readFileSync(p.legacy.binding, "utf8")); resumable = JSON.stringify(rest) === JSON.stringify(JSON.parse(readFileSync(p.binding, "utf8"))); } catch {}
+  }
+  if (legacyBinding && existsSync(p.binding) && !resumable) {
+    return [finding("install", "issue", "layout-two-configs", `Two bindings: ${relative(proj, p.legacy.binding)} (legacy) and ${relative(proj, p.binding)} — keep one and delete the other; install and upgrade refuse while both exist. Usually the legacy one goes: it is the copy an interrupted migration or a 0.27.x re-bind left behind (when both name the same vault, upgrade removes it itself).`, relative(proj, p.legacy.binding))];
+  }
+  if (!legacyBinding && !legacyRuntime && !existsSync(p.legacy.welcomed) && !existsSync(p.legacy.sessionId)) return [];
+  return [finding("install", level, "layout-legacy",
+    `The project layout moved to .projectstore/ (the layout ADR, 0.28); this project still holds ${[legacyBinding && relative(proj, p.legacy.binding), legacyRuntime && relative(proj, p.legacy.runtime) + "/"].filter(Boolean).join(" and ")}. Migrate it from a terminal outside the session: ${packageCommand(harness, "upgrade", { version: pluginVersion() || "latest", args: `--project "${proj}"` })} (readers fall back to the old paths through 0.29).`,
+    legacyBinding ? relative(proj, p.legacy.binding) : relative(proj, p.legacy.runtime))];
+}
+
 export function checkGitignore(proj) {
-  if (!existsSync(join(proj, ".git"))) return [];
+  const out = [];
+  // .projectstore/.gitignore is line-merged with the vault's own writer; a "*"
+  // (a vault that is also a project, written before 2026-09-06) hides the
+  // committed harness/ overlays.
+  try {
+    const p = layoutPaths(proj);
+    const lines = readFileSync(p.gitignore, "utf8").split("\n").map((l) => l.trim());
+    if (lines.includes("*") && existsSync(p.overlayDir)) out.push(finding("install", "warn", "gitignore", `.projectstore/.gitignore carries "*", which hides harness/ (the committed overlays) from git — replace it with the lines ${[...LAYOUT.gitignore, LAYOUT.vaultSessions + "/"].map((l) => JSON.stringify(l)).join(", ")}.`, ".projectstore/.gitignore"));
+  } catch {}
+  if (!existsSync(join(proj, ".git"))) return out;
   let lines = [];
   try {
     lines = readFileSync(join(proj, ".gitignore"), "utf8").split("\n").map((l) => l.trim());
   } catch {}
   const coveredAll = lines.includes(".claude/") || lines.includes(".claude");
-  if (coveredAll) return [];
-  const wanted = [".claude/projectstore.json", ".claude/settings.local.json", ".claude/.projectstore/"];
+  if (coveredAll) return out;
+  // Our own files are self-ignored inside .projectstore/; what is left is the host's.
+  const wanted = [relative(proj, hostSettingsPath(proj))];
   const missing = wanted.filter((w) => !lines.includes(w));
-  if (!missing.length) return [];
-  return [finding("install", "warn", "gitignore",
-    `Machine-specific files not gitignored: ${missing.join(", ")} (or ignore ".claude/" wholesale).`)];
+  if (!missing.length) return out;
+  out.push(finding("install", "warn", "gitignore",
+    `Machine-specific files not gitignored: ${missing.join(", ")} (or ignore ".claude/" wholesale).`));
+  return out;
 }
 
 export function checkVaultGit(cfg) {
@@ -672,6 +784,10 @@ export function checkAutoUpdate(home = homedir()) {
     registry = JSON.parse(readFileSync(join(claudeHome(home), "plugins", "known_marketplaces.json"), "utf8"));
   } catch {}
   const entry = registry ? registry[marketplace] : null;
+  // A directory marketplace — the package's own registration — has no remote
+  // to poll and nothing to toggle; its update path is the package's upgrade
+  // verb, reported by checkPluginRegistration (2026-09-05).
+  if (entry && entry.source && entry.source.source === "directory") return out;
   if (!entry) {
     out.push(finding("install", "warn", "auto-update",
       `Marketplace "${marketplace}" is missing from ~/.claude/plugins/known_marketplaces.json — updates cannot be tracked. Re-add it: /plugin marketplace add <owner/repo>.`));
@@ -1620,11 +1736,14 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
     ...checkVaultGit(cfg),
     ...checkAutoUpdate(),
     ...checkMcpRegistration(),
+    ...checkLayout(proj),
+    ...checkOverlays(cfg, proj),
   );
   let read = null;
   try { read = await readSurfaceStates(proj, opts); } catch {} // reported as a warn by checkHarnessSurfaces
   out.push(...await checkHarnessSurfaces(cfg, proj, { ...opts, read }));
-  if (read) out.push(...checkVersionDrift(opts.home, read.result.states));
+  if (read) out.push(...checkPluginRegistration(proj, read.result.states));
+  if (read) out.push(...checkVersionDrift(opts.home, read.result.states, proj));
   return out;
 }
 
@@ -1680,6 +1799,9 @@ export function runStartupChecks(cfg, proj, budgetMs = 150) {
     () => (cfg && cfg.vault_path && cfg.statusline && cfg.statusline.enabled === true ? checkPendingUpgrade(proj) : []),
     () => checkAgentsBlock(proj),
     () => checkGitignore(proj),
+    // The layout move is offered from the startup line (info here, warn in the
+    // report) — a user who never runs doctor still learns to migrate.
+    () => checkLayout(proj, undefined, { level: "info" }),
     () => checkEnvModel(),
     () => checkEnvEffort(),
   ];

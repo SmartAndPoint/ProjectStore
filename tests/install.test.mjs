@@ -18,9 +18,10 @@ import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { fakeInstall, writeRegistry } from "./fixtures/install.mjs";
+import { fakeInstall, writeRegistry, noHostEnv } from "./fixtures/install.mjs";
 import { plan, renderPreview, confirm, apply, runVerb } from "../scripts/install-harness.mjs";
 import { detectHarnesses, harnessRefusal, sourceHarness } from "../scripts/harness.mjs";
+import { writeBinding } from "./fixtures/vault.mjs";
 import { stamp, sourceHash, parseProvenance } from "../scripts/provenance.mjs";
 import {
   AGENTS_BLOCK_OPEN_SRC,
@@ -31,11 +32,14 @@ import {
   renderAgentsBlock,
   agentsBlockVersion,
   syncStatusLine,
+  stateDir,
+  sessionStatePath,
+  layoutPaths,
 } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
-const CFG_DIR = SRC.runtime.project_config_dir;
+const CFG_DIR = SRC.runtime.harness_dir; // the harness's own directory (settings.local.json); our binding is layoutPaths(proj).binding
 const TEMPLATE = readFileSync(join(ROOT, "templates", "claude-md-block.md.tmpl"), "utf8");
 const VERSION = agentsBlockVersion(TEMPLATE);
 const BLOCK = renderAgentsBlock(TEMPLATE, null);
@@ -50,7 +54,7 @@ delete process.env[SRC.runtime.home_env];
 function project({ bound = true, claude = null, agents = null, settings = null, statusline = true } = {}) {
   const proj = mkdtempSync(join(tmpdir(), "ps-inst-"));
   mkdirSync(join(proj, CFG_DIR), { recursive: true });
-  if (bound) writeFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), JSON.stringify({ vault_path: "/tmp/nowhere", layout: "engineering", ...(statusline ? { statusline: { enabled: true } } : {}) }));
+  if (bound) writeBinding(proj, JSON.stringify({ vault_path: "/tmp/nowhere", layout: "engineering", ...(statusline ? { statusline: { enabled: true } } : {}) }));
   if (claude !== null) writeFileSync(join(proj, "CLAUDE.md"), claude);
   if (agents !== null) writeFileSync(join(proj, "AGENTS.md"), agents);
   if (settings !== null) writeFileSync(join(proj, CFG_DIR, "settings.local.json"), settings);
@@ -96,7 +100,7 @@ test("install: a fresh cache-installed project plans three creates and writes no
   const p = plan(proj, { home, root });
   assert.equal(p.ok, true);
   assert.equal(p.harnesses[0], SRC.id);
-  assert.ok(p.reports[0].includes("installed by the built-in plugin marketplace"), "host-managed surfaces are reported (contract 14)");
+  assert.match(p.reports[0], /are installed by .*plugin marketplace/, "host-managed surfaces are reported (contract 14)");
   assert.equal(item(p, "agents_block").action, "add");
   assert.equal(item(p, "agents_block").state, "ours-absent");
   assert.equal(item(p, "statusline").action, "create");
@@ -125,7 +129,8 @@ test("install: a fresh cache-installed project plans three creates and writes no
   assert.equal(parseProvenance(launcher).pkg, "0.28.0");
   assert.equal(parseProvenance(launcher).project, proj);
   assert.ok(launcher.includes(JSON.stringify(root)), "the fallback root is substituted");
-  assert.ok(existsSync(join(proj, CFG_DIR, ".projectstore", ".gitignore")), "the runtime dir carries its .gitignore");
+  assert.ok(existsSync(layoutPaths(proj).stateGitignore), "the state dir carries its .gitignore");
+  assert.ok(existsSync(layoutPaths(proj).gitignore), "and .projectstore/ carries its line-merged one (layout ADR)");
 
   // Second plan: everything current, nothing to apply.
   const again = plan(proj, { home, root });
@@ -148,7 +153,11 @@ test("install: a dev checkout wires the plugin script directly and plans no laun
   copyFileSync(join(ROOT, "templates", "claude-md-block.md.tmpl"), join(dev, "templates", "claude-md-block.md.tmpl"));
   writeFileSync(join(dev, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.0.0-dev" }));
   const proj = project();
-  const p = plan(proj, { home, root: dev });
+  // Without the host's CLI the registration is unavailable and the plan is incomplete; the rest is planned against the dev root (contract 4′).
+  const p = plan(proj, { home, root: dev, env: noHostEnv() });
+  assert.equal(item(p, "plugin").state, "unavailable");
+  assert.equal(item(p, "plugin").action, "skip");
+  assert.equal(p.incomplete, true);
   assert.equal(item(p, "statusline_launcher"), undefined);
   assert.equal(item(p, "statusline").after.statusLine.command, `node "${join(dev, "scripts", "statusline.mjs")}"`);
 });
@@ -319,7 +328,7 @@ test("install contract 4: the four stale reasons each fire on the launcher, and 
 test("install contract 5: a foreign launcher is refused by install, uninstall and upgrade, byte-identical", () => {
   const { home, root } = fixture();
   const proj = project();
-  mkdirSync(join(proj, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(proj)), { recursive: true });
   writeFileSync(statusLineLauncherPath(proj), "#!/usr/bin/env node\nconsole.log('mine');\n");
   for (const mode of ["install", "uninstall", "install"]) {
     const p = plan(proj, { home, root, mode });
@@ -334,7 +343,7 @@ test("install contract 5: a foreign launcher is refused by install, uninstall an
 test("install contract 4 rung 1″: a pre-provenance launcher is ours, stale and replaceable — not foreign", () => {
   const { home, root } = fixture();
   const proj = project();
-  mkdirSync(join(proj, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(proj)), { recursive: true });
   writeFileSync(statusLineLauncherPath(proj), renderStatusLineLauncher(read(join(root, "scripts", "statusline-launcher.mjs")), root));
   const p = plan(proj, { home, root, surfaces: ["statusline_launcher"] });
   const i = item(p, "statusline_launcher");
@@ -348,7 +357,7 @@ test("install contract 4 rung 1″: a pre-provenance launcher is ours, stale and
 test("install contract 12: a launcher another project wrote reports current, last written by it", () => {
   const { home, root, proj } = installed();
   const other = project();
-  mkdirSync(join(other, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(other)), { recursive: true });
   copyFileSync(statusLineLauncherPath(proj), statusLineLauncherPath(other));
   const i = item(plan(other, { home, root }), "statusline_launcher");
   assert.equal(i.state, "current");
@@ -360,21 +369,22 @@ test("install contract 12: a launcher another project wrote reports current, las
 
 test("install contract 13: uninstall removes only what it recognises and prunes the runtime dir only when empty", () => {
   const { home, root, proj } = installed();
-  writeFileSync(join(proj, CFG_DIR, "projectstore.json"), JSON.stringify({ vault_path: "/tmp/nowhere", layout: "engineering", statusline: { enabled: true } }));
+  writeBinding(proj, { vault_path: "/tmp/nowhere", layout: "engineering", statusline: { enabled: true } });
   // Something else lives in the runtime dir: it must survive.
-  mkdirSync(join(proj, CFG_DIR, ".projectstore", "state"), { recursive: true });
-  writeFileSync(join(proj, CFG_DIR, ".projectstore", "state", "s1.json"), "{}");
+  mkdirSync(stateDir(proj), { recursive: true });
+  writeFileSync(sessionStatePath(proj, "s1"), "{}");
   const p = plan(proj, { home, root, mode: "uninstall" });
   assert.deepEqual(p.items.filter((i) => i.action === "remove").map((i) => i.surface).sort(), ["agents_block", "statusline", "statusline_launcher"]);
   apply(p);
   assert.ok(!existsSync(join(proj, "CLAUDE.md")), "a CLAUDE.md that held only our block is removed");
   assert.deepEqual(JSON.parse(read(join(proj, CFG_DIR, "settings.local.json"))), {});
   assert.ok(!existsSync(statusLineLauncherPath(proj)));
-  assert.ok(existsSync(join(proj, CFG_DIR, ".projectstore", "state", "s1.json")), "the runtime dir was not empty, so it stays");
+  assert.ok(existsSync(sessionStatePath(proj, "s1")), "the state dir was not empty, so it stays");
 
   const clean = installed();
   apply(plan(clean.proj, { home: clean.home, root: clean.root, mode: "uninstall" }));
-  assert.ok(!existsSync(join(clean.proj, CFG_DIR, ".projectstore")), "an emptied runtime dir is pruned");
+  assert.ok(!existsSync(dirname(statusLineLauncherPath(clean.proj))), "an emptied harness state dir is pruned");
+  assert.ok(existsSync(layoutPaths(clean.proj).stateGitignore), "state/ itself stays with its .gitignore — other harnesses share it (layout ADR decision 4)");
 });
 
 test("install contract 14: upgrade after a version bump re-stamps the launcher and leaves the rest alone", () => {
@@ -527,7 +537,7 @@ test("install contract 7 (amended 2026-09-05) / 13: a dev-checkout root reports 
   assert.ok(!existsSync(statusLineLauncherPath(proj)));
   void root;
   const foreign = project();
-  mkdirSync(join(foreign, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(foreign)), { recursive: true });
   writeFileSync(statusLineLauncherPath(foreign), "console.log('theirs')\n");
   const f = plan(foreign, { home, root: dev, surfaces: ["statusline"] });
   assert.equal(item(f, "statusline_launcher").action, "skip");
@@ -537,7 +547,7 @@ test("install contract 7 (amended 2026-09-05) / 13: a dev-checkout root reports 
 test("install contract 12: the preview says who last wrote a shared-path file", () => {
   const { home, root, proj } = installed();
   const other = project();
-  mkdirSync(join(other, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(other)), { recursive: true });
   copyFileSync(statusLineLauncherPath(proj), statusLineLauncherPath(other));
   assert.ok(renderPreview(plan(other, { home, root })).includes(`current, last written by ${proj}`));
 });
@@ -600,7 +610,10 @@ test("install contract 4 (doctor half): each of the four stale reasons on the la
     assert.equal(f.length, 1);
     assert.equal(f[0].level, "issue");
     assert.match(f[0].message, /bin\/projectstore\.mjs" install --harness [a-z-]+ --surface statusline_launcher/, "the remedy is the bin form the command prose runs");
-    assert.ok(f[0].message.includes(`node "$${SRC.runtime.plugin_root_env}/bin/projectstore.mjs"`), "a shell reference to the harness's own variable, not its bare name");
+    // The effective root: one variant points the check at a second installation,
+    // and the remedy must name the root that produced the finding.
+    const effRoot = (opts && opts.root) || root;
+    assert.ok(f[0].message.includes(`node "${join(effRoot, "bin", "projectstore.mjs")}"`), "the remedy names a path the reader can run — doctor output is never placeholder-substituted (A15)");
     assert.ok(!f[0].message.includes("install-harness.mjs"));
     return f[0].message;
   };
@@ -613,7 +626,7 @@ test("install contract 4 (doctor half): each of the four stale reasons on the la
 test("install contract 5 (doctor half): a foreign file is reported under its own id with the resolution wording, and never repaired", async () => {
   const { home, root } = fixture();
   const proj = project();
-  mkdirSync(join(proj, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(proj)), { recursive: true });
   writeFileSync(statusLineLauncherPath(proj), "#!/usr/bin/env node\nconsole.log('mine');\n");
   const f = await checkHarnessSurfaces({}, proj, { home, root });
   assert.equal(byCheck(f, "surface-foreign").length, 1);
@@ -624,18 +637,24 @@ test("install contract 5 (doctor half): a foreign file is reported under its own
   const step3 = doctorMd.slice(doctorMd.indexOf("3. **`--fix` requested**"));
   const repairIds = [...step3.matchAll(/^\s+- `([a-z-]+)`/gm)].map((m) => m[1]);
   assert.ok(repairIds.includes("surface") && repairIds.includes("surface-foreign"), "both ids are addressed in step 3");
-  assert.ok(/surface-foreign` → \*\*never repairable/.test(step3), "the negative clause exists");
-  const bullet = step3.slice(step3.indexOf("- `surface-foreign`"), step3.indexOf("\n   - `", step3.indexOf("- `surface-foreign`") + 5));
-  assert.ok(!bullet.includes('node "') && !bullet.includes("/projectstore:"), "the surface-foreign bullet invokes nothing");
+  // Every foreign id — the file's and the registration's (2026-09-05) — has the negative clause and invokes nothing.
+  for (const id of ["surface-foreign", "plugin-registration-foreign"]) {
+    assert.ok(repairIds.includes(id), `${id} is addressed in step 3`);
+    assert.ok(new RegExp(`${id}\` → \\*\\*never repairable`).test(step3), `${id}: the negative clause exists`);
+    const bullet = step3.slice(step3.indexOf(`- \`${id}\``), step3.indexOf("\n   - `", step3.indexOf(`- \`${id}\``) + 5));
+    assert.ok(!bullet.includes('node "') && !bullet.includes("/projectstore:") && !bullet.includes("claude plugin"), `the ${id} bullet invokes nothing`);
+  }
   assert.ok(/never Edit, Write or delete the file yourself/.test(step3));
   // Executable repairs: every verb invocation step 3 can emit leaves a foreign
   // launcher and a foreign slot byte-identical.
   // Since roadmap A8 the prose invokes the bin; the verb travels to install-harness.mjs unchanged (cli.mjs runInstallVerb).
-  const cmds = [...step3.matchAll(/node "\$CLAUDE_PLUGIN_ROOT\/(bin\/projectstore\.mjs)" ([a-z]+)/g)].map((m) => [m[1], m[2]]);
+  // Braced since A15: the host substitutes ${CLAUDE_PLUGIN_ROOT} in command
+  // prose and passes the unbraced form through as text.
+  const cmds = [...step3.matchAll(/node "\$\{CLAUDE_PLUGIN_ROOT\}\/(bin\/projectstore\.mjs)" ([a-z]+)/g)].map((m) => [m[1], m[2]]);
   assert.ok(cmds.length > 0 && cmds.every(([s, v]) => s === "bin/projectstore.mjs" && ["install", "uninstall", "upgrade", "plan"].includes(v)), "repairs invoke core verbs only, through the bin");
   const foreignSlot = JSON.stringify({ statusLine: { type: "command", command: "node /x/hud.mjs" } }, null, 2) + "\n";
   const victim = project({ settings: foreignSlot, agents: "# theirs\n" });
-  mkdirSync(join(victim, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(victim)), { recursive: true });
   writeFileSync(statusLineLauncherPath(victim), "console.log('theirs')\n");
   const env = { ...process.env, HOME: home, [SRC.runtime.plugin_root_env]: root };
   delete env[SRC.runtime.home_env];
@@ -652,7 +671,7 @@ test("install contract 5 (doctor half): a foreign file is reported under its own
 test("install contract 12 (doctor half): a launcher another project wrote is one info naming it", async () => {
   const { home, root, proj } = installed();
   const other = project();
-  mkdirSync(join(other, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(other)), { recursive: true });
   copyFileSync(statusLineLauncherPath(proj), statusLineLauncherPath(other));
   const f = byCheck(await checkHarnessSurfaces({}, other, { home, root }), "surface");
   assert.equal(f.length, 1);
@@ -712,7 +731,7 @@ test("install: no doctor remedy names a raw script — every one is the bin form
   const src = read(join(ROOT, "scripts", "doctor.mjs"));
   assert.ok(!/install-harness\.mjs (install|uninstall|upgrade|plan)/.test(src));
   assert.ok(!/scripts\/(reconcile|doctor|install-harness)\.mjs"/.test(src.replace(/^\s*\/\/.*$/gm, "")), "no code path names a script the prose no longer runs");
-  assert.match(src, /node "\$\$\{pluginRootVar\(s\.harness\)\}\/bin\/projectstore\.mjs" install --harness/, "the remedy is a shell reference to the surface's harness variable, in the bin form");
+  assert.match(src, /node "\$\{join\(root, "bin", "projectstore\.mjs"\)\}" install --harness/, "the remedy is the resolved bin path, in the bin form the command prose runs (A15) — old: a shell reference to the surface's harness variable, in the bin form");
 });
 
 test("install contract 16: a harness is reported only when the project uses it", async () => {
@@ -722,7 +741,7 @@ test("install contract 16: a harness is reported only when the project uses it",
   copyFileSync(join(ROOT, "harnesses", "claude-code.json"), join(mdir, "claude-code.json"));
   const fake = JSON.parse(read(join(ROOT, "harnesses", "claude-code.json")));
   fake.id = "other-harness"; fake.display_name = "Other"; fake.source_layout = false; fake.emit = true;
-  fake.runtime = { ...fake.runtime, project_config_dir: ".other", project_dir_env: "OTHER_PROJECT_DIR", plugin_root_env: "OTHER_PLUGIN_ROOT", home_env: "OTHER_HOME", detect_env: ["OTHER_HOME"] };
+  fake.runtime = { ...fake.runtime, harness_dir: ".other", project_dir_env: "OTHER_PROJECT_DIR", plugin_root_env: "OTHER_PLUGIN_ROOT", home_env: "OTHER_HOME", detect_env: ["OTHER_HOME"] };
   fake.surfaces = { commands: { ...fake.surfaces.commands } };
   writeFileSync(join(mdir, "other-harness.json"), JSON.stringify(fake));
   const proj = project();

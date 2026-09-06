@@ -125,13 +125,16 @@ test("packaging contract 1d: the directories the plugin cannot work without do s
   assert.ok(!tops.has("packaging"), "packaging/ holds reserved-name stubs and must not ship");
 });
 
-test("packaging contract 2: package.json declares no publishConfig.provenance", () => {
-  const pkg = readRootJson("package.json");
-  assert.equal(
-    pkg.publishConfig?.provenance,
-    undefined,
-    "publishConfig.provenance breaks a manual publish outside CI; ask for provenance in the workflow instead",
-  );
+test("packaging contract 2: no package.json — the core's or a shell's — declares publishConfig.provenance", () => {
+  const files = ["package.json", ...readdirSync(resolve(ROOT, "packaging", "shells")).map((n) => `packaging/shells/${n}/package.json`)];
+  assert.ok(files.length >= 4, "the core and three shells");
+  for (const f of files) {
+    assert.equal(
+      readRootJson(f).publishConfig?.provenance,
+      undefined,
+      `${f}: publishConfig.provenance breaks a manual publish outside CI; ask for provenance in the workflow instead`,
+    );
+  }
 });
 
 test("packaging contract 3: the version guard agrees with itself and fails on a mismatch", () => {

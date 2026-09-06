@@ -6,11 +6,14 @@
 //   node packaging/reserved.mjs             list them and what they are for
 //
 // The accepted ADR "One package, N manifests" settles the DISTRIBUTION shape —
-// one package, `projectstore`, carrying every harness's manifest — and says in
-// as many words that whether to *reserve* other names defensively is a
+// one source package, `projectstore`, carrying every harness's manifest — and
+// says in as many words that whether to *reserve* other names defensively is a
 // separate question it does not settle. This file is that separate answer:
 // the names are claimed so nobody else takes them, and every one of them says
-// out loud that it is not the package you want.
+// out loud that it is not the package you want. The shells ADR (2026-09-04,
+// amended 2026-09-06) then took three names out of this list and made them
+// real: `projectstore-claude`, `projectstore-codex` and `projectstore-opencode`
+// are distribution shells now (packaging/shells.mjs), not stubs.
 //
 // These are not empty placeholders. npm's dispute policy treats content-free
 // name-holding as squatting, and a package that resolves to nothing is a
@@ -54,23 +57,8 @@ const SHARED = {
 export const RESERVED = [
   {
     name: "opencode-projectstore",
-    why: "opencode discovers plugins by the `opencode-` name prefix. This name is reserved for the thin re-export that will make projectstore installable in opencode; until then, the plugin lives in `projectstore`.",
-    fate: "becomes a real re-export of `projectstore`",
-  },
-  {
-    name: "projectstore-claude",
-    why: "Claude Code installs projectstore from its plugin marketplace, and the npm package is the same one every other harness uses. This name is reserved so it cannot be taken and made to look official.",
-    fate: "defensive only — no such package is planned",
-  },
-  {
-    name: "projectstore-codex",
-    why: "Codex installs the very same `projectstore` package through a marketplace entry. This name is reserved so it cannot be taken and made to look official.",
-    fate: "defensive only — no such package is planned",
-  },
-  {
-    name: "projectstore-opencode",
-    why: "opencode discovers plugins by a `opencode-` prefix, not by a `-opencode` suffix, so this name would never be found by the mechanism it appears to name. Reserved so it cannot mislead.",
-    fate: "defensive only — the working name is `opencode-projectstore`",
+    why: "The first working name of the opencode shell. opencode's `opencode-` prefix is a naming convention, not a discovery requirement, so the shell ships as `projectstore-opencode` — one `projectstore-<harness>` name per harness — and this name stays a deprecated pointer to it.",
+    fate: "deprecated with a pointer to `projectstore-opencode`; never carries a release",
   },
   {
     name: "projectstore-gemini",
@@ -135,9 +123,11 @@ npm install ${REAL}
 
 ${r.why}
 
-ProjectStore ships as **one package carrying every harness's manifest** —
-Claude Code, Codex, opencode and an MCP server all install the same tree. That
-decision is recorded in the project's architecture decision records.
+ProjectStore ships as **one source package carrying every harness's
+manifest** — and, per harness, a distribution shell that pins and bundles it
+with the harness fixed: \`projectstore-claude\`, \`projectstore-codex\`,
+\`projectstore-opencode\`. Those decisions are recorded in the project's
+architecture decision records.
 
 - Source: https://github.com/SmartAndPoint/ProjectStore
 - Issues: https://github.com/SmartAndPoint/ProjectStore/issues

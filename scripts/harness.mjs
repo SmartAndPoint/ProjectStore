@@ -135,8 +135,8 @@ function detect(env, dir) {
     // telling us it launched this process; a home variable is just something in
     // the user's shell profile. Counting them equally meant a developer who
     // exports CODEX_HOME globally — the exact person this feature is for — had
-    // Claude Code Bash-tool invocations detected as Codex, writing runtime state
-    // to .codex/.projectstore while the hooks used .claude/.projectstore.
+    // Claude Code Bash-tool invocations detected as Codex — the wrong write-tool
+    // vocabulary for the whole session.
     const strong = [m.runtime?.plugin_root_env, m.runtime?.project_dir_env].filter(Boolean);
     const weak = [
       ...(m.runtime?.detect_env || []).filter((k) => !strong.includes(k)),
@@ -155,13 +155,14 @@ function detect(env, dir) {
   if (best && best.strong) return best.id;
 
   // Only weak signals. That is not enough to switch harness: the project
-  // itself carries better evidence — whichever harness directory actually
-  // holds a projectstore config is the harness this project was bound under,
-  // and that is where its state belongs.
+  // itself carries better evidence — whichever harness directory is present
+  // in it is the harness this project is used from. (Until 2026-09-06 the
+  // evidence was "which harness directory holds our config"; the binding is
+  // harness-neutral now and carries no such signal.)
   const cwd = process.cwd();
   for (const m of loadHarnesses(dir).values()) {
-    const d = m.runtime?.project_config_dir, b = m.runtime?.config_basename;
-    if (d && b && existsSync(join(cwd, d, b))) return m.id;
+    const d = m.runtime?.harness_dir;
+    if (d && existsSync(join(cwd, d))) return m.id;
   }
   if (best) return best.id;
   const src = sourceHarness(dir);
@@ -182,7 +183,7 @@ export function resetDetection() {
 export function detectHarnesses(projectDir, { dir = MANIFEST_DIR } = {}) {
   const out = [];
   for (const m of loadHarnesses(dir).values()) {
-    const d = m.runtime?.project_config_dir;
+    const d = m.runtime?.harness_dir;
     if (d && existsSync(join(projectDir, d))) out.push({ id: m.id, why: "directory", evidence: d });
   }
   return out;
@@ -193,7 +194,7 @@ export function detectHarnesses(projectDir, { dir = MANIFEST_DIR } = {}) {
 export function harnessRefusal(projectDir, dir = MANIFEST_DIR) {
   const lines = [`No harness detected in ${projectDir}, and none named. Name one:`];
   for (const m of loadHarnesses(dir).values()) {
-    lines.push(`  --harness ${m.id}    (${m.display_name}; detected by its project directory: ${m.runtime?.project_config_dir || "?"})`);
+    lines.push(`  --harness ${m.id}    (${m.display_name}; detected by its project directory: ${m.runtime?.harness_dir || "?"})`);
   }
   return lines.join("\n");
 }
@@ -291,16 +292,123 @@ export function agentHome(env = process.env, home = homedir()) {
   return join(home, r.home_default || ".claude");
 }
 
-// The per-project directory the harness discovers (".claude" for the source
-// layout) and the projectstore config inside it. One resolver, so the config
-// reader for this project and the one for an arbitrary project cannot drift.
-export function projectConfigDir(env = process.env) {
-  return activeHarness(env)?.runtime?.project_config_dir || ".claude";
+// ─── The project-level layout (the layout ADR, 2026-09-06) ─────────────
+//
+// Everything of ours in a project lives under ONE harness-neutral directory,
+// <project>/.projectstore/: the binding (machine-local, never committed), the
+// harness overlays (harness/<id>.json, committed) and the machine-local state
+// (state/, keyed by harness inside). This is the only place a project-side
+// path is spelled — every reader and writer goes through layoutPaths(), and a
+// test greps the rest of scripts/, hooks/ and bin/ for the literals. The
+// legacy shape (.claude/projectstore.json, .claude/.projectstore/…) is named
+// here too, for the readers' fallback through 0.29 (layout spec, contracts
+// 0, 1 and 7); its harness directory is the source harness's own.
+export const LAYOUT = Object.freeze({
+  root: ".projectstore",
+  binding: "projectstore.json",
+  overlayDir: "harness",
+  state: "state",
+  sessions: "sessions",
+  entryLog: "entry-log.jsonl",
+  worktrees: "worktrees", // reserved for the worktree ADR's records (planned); no reader yet
+  launcher: "statusline.mjs",
+  welcomed: "welcomed",
+  // The lines .projectstore/.gitignore must carry; merged by line, never rewritten.
+  gitignore: Object.freeze(["projectstore.json", "state/"]),
+  // The vault's own, unrelated files under the same name (ADR-007 decision 4; sessions).
+  vaultConfig: ".projectstore.json",
+  vaultSessions: "sessions",
+});
+// The header both the legacy and the new state .gitignore carry — how
+// uninstall recognises a state directory as ours (layout spec, contract 6).
+export const RUNTIME_GITIGNORE_HEADER = "projectstore — per-session runtime state";
+
+export function layoutPaths(projectDir, { harnessDir = null, dir = MANIFEST_DIR } = {}) {
+  const legacyDir = harnessDir || sourceHarness(dir)?.runtime?.harness_dir || ".claude";
+  const root = join(projectDir, LAYOUT.root);
+  const state = join(root, LAYOUT.state);
+  const legacyRuntime = join(projectDir, legacyDir, LAYOUT.root);
+  return {
+    root,
+    binding: join(root, LAYOUT.binding),
+    overlayDir: join(root, LAYOUT.overlayDir),
+    overlay: (id) => join(root, LAYOUT.overlayDir, `${id}.json`),
+    gitignore: join(root, ".gitignore"),
+    state,
+    stateGitignore: join(state, ".gitignore"),
+    sessions: join(state, LAYOUT.sessions),
+    harnessState: (id) => join(state, id),
+    launcher: (id) => join(state, id, LAYOUT.launcher),
+    welcomed: (id) => join(state, id, LAYOUT.welcomed),
+    entryLog: join(state, LAYOUT.entryLog),
+    worktrees: join(state, LAYOUT.worktrees),
+    legacy: {
+      dir: legacyDir,
+      binding: join(projectDir, legacyDir, LAYOUT.binding),
+      runtime: legacyRuntime,
+      gitignore: join(legacyRuntime, ".gitignore"),
+      state: join(legacyRuntime, "state"),
+      launcher: join(legacyRuntime, LAYOUT.launcher),
+      entryLog: join(legacyRuntime, LAYOUT.entryLog),
+      welcomed: join(projectDir, legacyDir, ".projectstore-welcomed"),
+      sessionId: join(projectDir, legacyDir, ".projectstore-session-id"),
+    },
+  };
 }
 
+// The command a user types from a terminal for this harness (the layout ADR
+// decision 6; layout spec contract 12): the harness's distribution shell when
+// the manifest names one — `npx projectstore-claude install --project "…"`,
+// the harness fixed by the shell — else the core with --harness. Finding
+// messages and deferred reasons are built here, so the installer names no
+// harness id and no shell name of its own. The shell's name is data
+// (install.shell), not `projectstore-<id>`: the id is claude-code, the
+// published name is projectstore-claude.
+export function packageCommand(harness, verb, { version = null, args = "" } = {}) {
+  const shell = harness?.install?.shell || null;
+  const pkg = `${shell || "projectstore"}${version ? `@${version}` : ""}`;
+  const fixed = shell ? "" : ` --harness ${harness?.id || "<id>"}`;
+  return `npx ${pkg} ${verb}${fixed}${args ? ` ${args}` : ""}`;
+}
+
+// The overlay a harness reads: <project>/.projectstore/harness/<overlay>.json —
+// the manifest's runtime.overlay, the harness id by convention (the layout ADR,
+// decision 3). Null only when no manifest at all can be found.
+export function overlayId(env = process.env, dir = MANIFEST_DIR) {
+  const h = activeHarness(env, dir);
+  return h?.runtime?.overlay || h?.id || null;
+}
+
+// A reader's fallback: the new path when it exists, else the legacy one when
+// THAT exists, else the new path (a writer's target) — at most two existsSync
+// calls, never a directory scan (contract 1; the SessionStart budget).
+export function pickExisting(current, legacy) {
+  if (existsSync(current)) return current;
+  return existsSync(legacy) ? legacy : current;
+}
+
+// The per-project directory the HARNESS discovers (".claude" for the source
+// layout) — how a harness is detected in a project and where its own settings
+// live. Not where our config is: that is layoutPaths() (2026-09-06).
+export function projectConfigDir(env = process.env) {
+  return activeHarness(env)?.runtime?.harness_dir || ".claude";
+}
+
+// The host's own machine-local settings file in a project (the statusline
+// surface's file in the manifest — `.claude/settings.local.json` for Claude
+// Code). A harness surface, not ours: the one `.claude` path the core may
+// build, and it builds it from the manifest (2026-09-06).
+export function hostSettingsPath(projectDir, env = process.env) {
+  const h = activeHarness(env);
+  const file = h?.surfaces?.statusline?.file || join(h?.runtime?.harness_dir || ".claude", "settings.local.json");
+  return join(projectDir, file);
+}
+
+// Our binding for a project: the new layout, falling back to the legacy file
+// while the window is open. A rebind edits the binding where it stands.
 export function configPath(projectDir, env = process.env) {
-  const r = activeHarness(env)?.runtime || {};
-  return join(projectDir, r.project_config_dir || ".claude", r.config_basename || "projectstore.json");
+  const p = layoutPaths(projectDir, { harnessDir: activeHarness(env)?.runtime?.harness_dir || null });
+  return pickExisting(p.binding, p.legacy.binding);
 }
 
 // The ONE place a branded name is WRITTEN: a child process spawned by a core

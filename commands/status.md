@@ -9,7 +9,7 @@ Steps:
 1. Run:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" status --json
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" status --json
    ```
 
    The project resolves from the session's project directory; do not pass `--project`. `status` runs unbound: if `result.bound` is `false`, output "No vault bound. Run `/projectstore:bind <vault-path>` first." and stop.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // projectstore — SessionStart hook.
-// 1. Reads .claude/projectstore.json from the project root. If absent or
+// 1. Reads .projectstore/projectstore.json from the project root. If absent or
 //    auto_inject=false, silently no-ops.
 // 2. Registers this session in <vault>/.projectstore/sessions/<id>.json,
 //    keyed by Claude's own session_id from hook stdin. Cleans stale
@@ -21,9 +21,12 @@ import {
   writeSession,
   readActiveSessions,
   cleanupStaleSessions,
-  removeLegacySessionIdFile,
   readStdinJson,
   projectRoot,
+  layoutPaths,
+  pickExisting,
+  activeHarnessId,
+  ensureRuntimeDir,
   syncStatusLine,
   cleanupStaleSessionState,
   armReminder,
@@ -36,8 +39,14 @@ import {
 import { runStartupChecks } from "../scripts/doctor.mjs";
 import { resolveBinding, bindingOfferText } from "../scripts/worktree.mjs";
 
+// The marker lives under the harness's state directory; a legacy marker at
+// .claude/.projectstore-welcomed still counts while the window is open.
 function welcomedMarkerPath(proj) {
-  return join(proj, ".claude", ".projectstore-welcomed");
+  const p = layoutPaths(proj);
+  return pickExisting(p.welcomed(activeHarnessId()), p.legacy.welcomed);
+}
+function welcomedMarkerWritePath(proj) {
+  return layoutPaths(proj).welcomed(activeHarnessId());
 }
 
 // One-time orientation packet shown when projectstore first loads in a project.
@@ -65,10 +74,11 @@ function buildWelcome() {
 }
 
 function showWelcomeOnce(proj) {
-  const marker = welcomedMarkerPath(proj);
-  if (existsSync(marker)) return "";
+  if (existsSync(welcomedMarkerPath(proj))) return "";
   const text = buildWelcome();
   try {
+    const marker = welcomedMarkerWritePath(proj);
+    ensureRuntimeDir(proj); // .projectstore/.gitignore ignores state/; the marker is not a session file
     mkdirSync(dirname(marker), { recursive: true });
     writeFileSync(marker, new Date().toISOString() + "\n", "utf8");
   } catch {}
@@ -222,7 +232,6 @@ async function main() {
     try {
       cleanupStaleSessions(cfg.vault_path, 24, sid);
       writeSession(cfg.vault_path, sid, proj);
-      removeLegacySessionIdFile(proj);
       const others = readActiveSessions(cfg.vault_path, sid);
       if (others.length > 0) warning = buildOthersWarning(others);
     } catch (e) {
@@ -255,7 +264,7 @@ async function main() {
   if (gatherError) {
     emit(
       welcome +
-        `# projectstore: vault load failed\n\n${truncEnd(String(gatherError.message), ERROR_CELL)}\n\nFix \`.claude/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
+        `# projectstore: vault load failed\n\n${truncEnd(String(gatherError.message), ERROR_CELL)}\n\nFix \`.projectstore/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
       systemMessage,
     );
     return;

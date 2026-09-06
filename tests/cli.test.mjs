@@ -18,13 +18,14 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject } from "../scripts/cli.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
-import { seedCliVault } from "./fixtures/vault.mjs";
+import { layoutPaths } from "../scripts/lib.mjs";
+import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
 import { neighbors as neighborsOp, LINEAGE_KINDS } from "../scripts/query.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BIN = join(ROOT, "bin", "projectstore.mjs");
 const SRC = sourceHarness();
-const CFG_DIR = SRC.runtime.project_config_dir;
+const CFG_DIR = SRC.runtime.harness_dir; // the harness's own directory (settings.local.json); our binding is layoutPaths(proj).binding
 const PKG = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 
 delete process.env[SRC.runtime.home_env];
@@ -34,6 +35,7 @@ function bin(args, { cwd = ROOT, env = {} } = {}) {
   delete e[SRC.runtime.project_dir_env];
   delete e.PROJECTSTORE_PROJECT_DIR;
   Object.assign(e, env);
+  for (const k of Object.keys(e)) if (e[k] === undefined) delete e[k];
   return spawnSync(process.execPath, [BIN, ...args], { encoding: "utf8", cwd, env: e, timeout: 60000, maxBuffer: 1 << 24 });
 }
 
@@ -42,7 +44,7 @@ function project({ bound = true } = {}) {
   mkdirSync(join(proj, CFG_DIR), { recursive: true });
   if (bound) {
     const vault = mkdtempSync(join(tmpdir(), "ps-vault-"));
-    writeFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), JSON.stringify({ vault_path: vault, layout: "engineering" }));
+    writeBinding(proj, JSON.stringify({ vault_path: vault, layout: "engineering" }));
   }
   return proj;
 }
@@ -144,7 +146,7 @@ test("cli: reconcile in an unbound project exits 3 naming init; in a bound one i
   const bare = bin(["reconcile", "--project", bound]);
   assert.ok(!("schema_version" in JSON.parse(bare.stdout)), "without --json the core's own JSON is printed");
   // The gate: a bare --write in a non-TTY refuses; --only names what is written.
-  const vault = JSON.parse(readFileSync(join(bound, CFG_DIR, SRC.runtime.config_basename), "utf8")).vault_path;
+  const vault = JSON.parse(readFileSync(layoutPaths(bound).binding, "utf8")).vault_path;
   const refused = bin(["reconcile", "--write", "--json", "--project", bound]);
   assert.equal(refused.status, 1);
   assert.match(refused.stderr, /non-TTY refuses/);
@@ -162,7 +164,8 @@ test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   const proj = project();
   writeFileSync(join(proj, "CLAUDE.md"), "# Mine\n");
-  const env = { HOME: home, [SRC.runtime.plugin_root_env]: ROOT };
+  // PATH is emptied and the session marker dropped so the developer's real host CLI never enters this plan.
+  const env = { HOME: home, [SRC.runtime.plugin_root_env]: ROOT, PATH: "", ...Object.fromEntries((SRC.runtime.detect_env || []).map((k) => [k, undefined])) };
   const bare = bin(["install", "--project", proj], { env });
   assert.equal(bare.status, 1, bare.stderr);
   assert.match(bare.stdout, /non-TTY refuses/);
@@ -173,11 +176,17 @@ test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses
   assert.ok("schema_version" in JSON.parse(nowhere.stdout));
   const yes = bin(["install", "--project", proj, "--harness", SRC.id, "--yes"], { env });
   assert.equal(yes.status, 2, "there is no --yes");
+  // No host CLI on this PATH: the registration surface is unavailable, the rest is applied, and the exit says the plan was incomplete (contract 4′).
   const named = bin(["install", "--project", proj, "--harness", SRC.id, "--json"], { env });
-  assert.equal(named.status, 0, named.stderr + named.stdout);
+  assert.equal(named.status, 1, named.stderr + named.stdout);
   const out = JSON.parse(named.stdout);
   assert.equal(out.verb, "install");
   assert.equal(out.result.gate.why, "named");
+  assert.equal(out.result.incomplete, true);
+  assert.equal(out.result.items.find((i) => i.surface === "plugin").state, "unavailable");
+  assert.equal(out.result.applied.length, 1, "the block is applied even though the registration could not be");
+  const narrowed = bin(["install", "--project", proj, "--harness", SRC.id, "--surface", "agents_block", "--json"], { env });
+  assert.equal(narrowed.status, 0, "a plan that never asked for the registration is complete");
   assert.ok(out.result.items.every((i) => !("before" in i) && !("after" in i)), "no file bodies in the envelope");
   assert.ok(readFileSync(join(proj, "CLAUDE.md"), "utf8").includes("projectstore:agents"));
   const planned = JSON.parse(bin(["plan", "--project", proj, "--json"], { env }).stdout);
@@ -195,7 +204,9 @@ test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses
 // each named with the reason it stays a script. The list is {script, why} so
 // it cannot quietly become a dumping ground (generation spec contract 8's
 // shape). A git-marketplace install has no bin on PATH, hence the explicit
-// node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" form, never npx.
+// node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" form, never npx.
+// (Spelling superseded 2026-09-06 — the braced placeholder is the one the host
+// substitutes; see the amendment below.)
 const SCRIPT_ONLY = [
   { script: "draft.mjs", why: "a pure renderer whose consumer is the creation prose, which reads path/content/index/collision at the top level — an envelope would be eight command files of field renames for no gain" },
   { script: "story-section.mjs", why: "PS-SPEC's lifecycle-gate machinery (story-007); wrapping it is a design decision, not a re-pointing" },
@@ -214,7 +225,7 @@ test("cli: every invocation in the prompt surface is the bin with a known verb, 
   let binCalls = 0;
   for (const rel of files) {
     const src = readFileSync(join(ROOT, rel), "utf8");
-    for (const m of src.matchAll(/node "\$CLAUDE_PLUGIN_ROOT\/([^"]+)"(?:\s+([A-Za-z-]+))?/g)) {
+    for (const m of src.matchAll(/node "\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)"(?:\s+([A-Za-z-]+))?/g)) {
       const [, path, first] = m;
       if (path === "bin/projectstore.mjs") {
         binCalls++;
@@ -236,13 +247,58 @@ test("cli: every invocation in the prompt surface is the bin with a known verb, 
   const all = files.map((rel) => readFileSync(join(ROOT, rel), "utf8")).join("\n");
   for (const s of SCRIPT_ONLY) assert.ok(all.includes(`scripts/${s.script}"`), `exception ${s.script} is still invoked — drop it from SCRIPT_ONLY otherwise`);
   assert.ok(!/npx projectstore/.test(all), "a git-marketplace install has no bin on PATH — never npx in the prompt surface");
-  assert.ok(!/node \$CLAUDE_PLUGIN_ROOT\//.test(all), "the plugin root is always quoted (paths with spaces)");
-  assert.ok(!/\$\{CLAUDE_PLUGIN_ROOT\}/.test(all), "one spelling of the root in prose");
+  assert.ok(!/node \$\{CLAUDE_PLUGIN_ROOT\}\//.test(all), "the plugin root is always quoted (paths with spaces)");
+  // Measured 2026-09-06 with a probe plugin: the host substitutes the BRACED
+  // placeholder inline in command, skill and agent content before the model
+  // reads it, and passes the unbraced one through as text — which the shell
+  // then expands to nothing. This assertion used to require the unbraced form;
+  // it required the one spelling that cannot work, and every release since at
+  // least 0.21 shipped it. See the story "The prompt surface asks the shell for
+  // a variable the host would have substituted".
+  assert.ok(!/\$CLAUDE_PLUGIN_ROOT/.test(all), "the prompt surface names the root braced — the unbraced form is not substituted and the Bash tool has no such variable");
   for (const s of SCRIPT_ONLY) { assert.ok(existsSync(join(ROOT, "scripts", s.script)), `exception ${s.script} exists`); assert.ok(s.why.length > 20); }
+  // A15: the project argument is the host's placeholder, never a model-filled
+  // blank — ${CLAUDE_PROJECT_DIR} is substituted in command, skill and agent
+  // content (measured 2026-09-06), and the bin's resolveProject otherwise falls
+  // through to the session's cwd, which a `cd` earlier in the turn has moved.
+  for (const rel of files) {
+    const src = readFileSync(join(ROOT, rel), "utf8");
+    for (const m of src.matchAll(/--project "([^"]*)"/g)) {
+      assert.equal(m[1], "${CLAUDE_PROJECT_DIR}", `${rel}: --project takes the host placeholder, not ${JSON.stringify(m[1])}`);
+    }
+  }
+  // One spelling of the plugin root across every surface that names it — the
+  // prompt surface, the hooks payload and the MCP entry. They drifted apart
+  // once (A8 pinned the unbraced form in prose while hooks used the braced
+  // one); this is what keeps them together.
+  {
+    const token = SRC.hooks.root_placeholder;
+    for (const rel of ["hooks/hooks.json", ".mcp.json", "docs/extending.md"]) {
+      const src = readFileSync(join(ROOT, rel), "utf8");
+      if (!src.includes("CLAUDE_PLUGIN_ROOT")) continue;
+      assert.ok(src.includes(token), `${rel} names the plugin root, and must use ${token}`);
+      assert.ok(!/\$CLAUDE_PLUGIN_ROOT/.test(src), `${rel}: the unbraced form is not substituted anywhere`);
+    }
+  }
   assert.ok(existsSync(BIN), "the path every command names exists");
   assert.ok(readdirSync(join(ROOT, "bin")).every((f) => f.endsWith(".mjs")));
   assert.ok(readFileSync(BIN, "utf8").startsWith("#!/usr/bin/env node\n"));
   assert.equal(PKG.bin.projectstore, "bin/projectstore.mjs");
+});
+
+// The npm-registration story: the same bin under bun answers byte-identically
+// for --version and status --json, and doctor --json carries the same check ids.
+const BUN = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
+test("cli: bun runs the bin with the same --json as node", { skip: !BUN && "bun is not on PATH" }, () => {
+  const proj = project();
+  const e = { ...process.env }; delete e[SRC.runtime.project_dir_env]; delete e.PROJECTSTORE_PROJECT_DIR;
+  const run = (exe, args) => spawnSync(exe, [BIN, ...args], { encoding: "utf8", env: e, timeout: 60000, maxBuffer: 1 << 24 });
+  assert.equal(run("bun", ["--version"]).stdout, run(process.execPath, ["--version"]).stdout);
+  const status = ["status", "--json", "--project", proj];
+  assert.equal(run("bun", status).stdout, run(process.execPath, status).stdout, "status --json is byte-identical");
+  const doctor = ["doctor", "--json", "--project", proj];
+  const ids = (r) => JSON.parse(r.stdout).result.map((f) => f.check).sort();
+  assert.deepEqual(ids(run("bun", doctor)), ids(run(process.execPath, doctor)), "doctor --json carries the same check ids");
 });
 
 test("cli: the packed tarball's bin runs", () => {
@@ -328,7 +384,7 @@ test("cli orientation: the skeleton equals the SessionStart renderer's, and READ
   const text = bin(["orientation", "--project", proj]).stdout;
   assert.equal(text.trimEnd(), o.skeleton.trimEnd());
   const { gatherVaultFacts, renderVaultSkeleton } = await import("../scripts/lib.mjs");
-  const cfg = JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8"));
+  const cfg = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8"));
   assert.equal(o.skeleton, renderVaultSkeleton(await gatherVaultFacts(cfg)));
 });
 
@@ -490,7 +546,7 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   assert.equal(e.result.wrote, true);
   assert.equal(e.result.config, undefined, "no file body in the envelope");
   assert.deepEqual(Object.keys(e.result).sort(), ["config_path", "created_vault", "ignored", "kept_keys", "language", "layout", "refusals", "state", "vault_exists", "vault_path", "wrote"]);
-  const cfg = JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8"));
+  const cfg = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8"));
   // The fresh config's keys are commands/bind.md step 3's — the interview and the verb write the same file.
   const bindMd = readFileSync(join(ROOT, "commands", "bind.md"), "utf8");
   for (const k of Object.keys(cfg)) assert.ok(bindMd.includes(`"${k}":`), `commands/bind.md step 3 names ${k}`);
@@ -512,15 +568,15 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   // Nothing on the project side but the config is touched.
   writeFileSync(join(proj, "CLAUDE.md"), "# mine\n");
   // A hand-added key survives a rebind; the vault changes only with --rebind.
-  writeFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), JSON.stringify({ ...cfg, statusline: { enabled: true } }));
+  writeBinding(proj, JSON.stringify({ ...cfg, statusline: { enabled: true } }));
   const other = mkdtempSync(join(tmpdir(), "ps-vault-"));
   const refused = bin(["bind", other, "--json", "--project", proj]);
   assert.equal(refused.status, 1);
   assert.match(envOf(refused).result.refusals[0].message, /--rebind/);
-  assert.equal(JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8")).vault_path, vault, "not rewritten");
+  assert.equal(JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path, vault, "not rewritten");
   const rebound = bin(["bind", other, "--rebind", "--language", "ru", "--json", "--project", proj]);
   assert.equal(rebound.status, 0, rebound.stderr);
-  const after = JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8"));
+  const after = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8"));
   assert.equal(after.vault_path, other);
   assert.equal(after.language, "ru");
   assert.deepEqual(after.statusline, { enabled: true }, "other keys kept");
@@ -528,16 +584,16 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   assert.equal(readFileSync(join(proj, "CLAUDE.md"), "utf8"), "# mine\n", "bind never touches the agents block");
   assert.ok(!existsSync(join(proj, ".gitignore")), "nor .gitignore");
   // A corrupt config is refused, never overwritten.
-  writeFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "{ not json");
+  writeBinding(proj, "{ not json");
   const corrupt = bin(["bind", other, "--rebind", "--json", "--project", proj]);
   assert.equal(corrupt.status, 1);
   assert.equal(envOf(corrupt).result.refusals[0].code, "UNREADABLE");
-  assert.equal(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8"), "{ not json");
+  assert.equal(readFileSync(layoutPaths(proj).binding, "utf8"), "{ not json");
   // The stored side is normalised too: a config written with a tilde is the same vault.
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   mkdirSync(join(home, "v"));
   const p3 = project({ bound: false });
-  writeFileSync(join(p3, CFG_DIR, SRC.runtime.config_basename), JSON.stringify({ vault_path: "~/v", layout: "engineering" }));
+  writeBinding(p3, JSON.stringify({ vault_path: "~/v", layout: "engineering" }));
   const tilde = envOf(bin(["bind", join(home, "v"), "--json", "--project", p3], { env: { HOME: home } })).result;
   assert.equal(tilde.state, "same");
   const tildeIn = envOf(bin(["bind", "~/v", "--json", "--project", project({ bound: false })], { env: { HOME: home } })).result;
@@ -562,7 +618,7 @@ test("cli init: creates the vault directory and binds; refuses when already boun
   assert.equal(envOf(r).result.created_vault, true);
   assert.ok(existsSync(vault));
   assert.deepEqual(readdirSync(vault), [], "init makes the directory only — the layout is scaffold's");
-  assert.equal(JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8")).vault_path, vault);
+  assert.equal(JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path, vault);
   const text = bin(["init", join(mkdtempSync(join(tmpdir(), "ps-init-")), "v2"), "--project", project({ bound: false })]);
   assert.match(text.stdout, /scaffold/);
   const twice = bin(["init", vault, "--json", "--project", proj]);
@@ -577,7 +633,7 @@ test("cli init: creates the vault directory and binds; refuses when already boun
   const movedOk = bin(["init", elsewhere, "--rebind", "--json", "--project", proj]);
   assert.equal(movedOk.status, 0, movedOk.stderr);
   assert.ok(existsSync(elsewhere));
-  assert.equal(JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8")).vault_path, elsewhere);
+  assert.equal(JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path, elsewhere);
   assert.equal(bin(["init", "--project", project({ bound: false })]).status, 2);
   // A relative path resolves against the project.
   const p2 = project({ bound: false });

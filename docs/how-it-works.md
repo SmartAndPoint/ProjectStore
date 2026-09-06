@@ -66,7 +66,7 @@ Create commands additionally re-check file existence right before writing, so tw
 sessions can't silently overwrite each other's new artifact.
 
 **The status line is stricter still**: it renders from a *per-session* pointer
-(`<project>/.claude/.projectstore/state/<session_id>.json`, written by the
+(`<project>/.projectstore/state/sessions/<session_id>.json`, written by the
 PreToolUse hook with denormalized titles) and performs **zero cross-session and
 zero vault reads**. 2–6 parallel sessions each see exactly their own epic/story;
 a fresh session gets a localized "no epic or story in this session yet" line; a
@@ -120,7 +120,7 @@ and `git status`; the vault answers "where were we going".)
 `statusLine` in Claude Code is a single slot, not plugin-declarable, and read
 once when the session starts. So `/projectstore:statusline on` runs the
 install verb, which points the project's `.claude/settings.local.json` at a
-launcher it writes (provenance-stamped) at `.claude/.projectstore/statusline.mjs`;
+launcher it writes (provenance-stamped) at `.projectstore/state/claude-code/statusline.mjs`;
 the SessionStart hook keeps an existing entry current across updates and
 never creates one. Pointing
 it straight at the plugin would pin a versioned cache path
@@ -169,7 +169,7 @@ resistance. v0.13 makes that safe instead of forbidden:
   therefore never reminded either; for those sessions `doctor`'s
   `work-without-story` is the only coverage. The same
   `"guard": "off"` silences it, and silences both nudges together. Firings are
-  appended to `.claude/.projectstore/entry-log.jsonl` (machine-local, since
+  appended to `.projectstore/state/entry-log.jsonl` (machine-local, since
   `.claude/` is gitignored) so `doctor` can report whether the prompt was ever
   delivered — a mechanism that cannot say whether it worked is indistinguishable
   from one that does not.

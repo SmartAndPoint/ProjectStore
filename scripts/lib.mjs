@@ -2,9 +2,9 @@
 // Pure node, no external deps. Keep this single-file & dependency-free
 // so plugin install does not require npm install.
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync, lstatSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync, realpathSync, cpSync } from "node:fs";
 import { readFile as readFileAsync } from "node:fs/promises";
-import { join, dirname, basename, resolve } from "node:path";
+import { join, dirname, basename, resolve, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostname, homedir } from "node:os";
 import { createHash } from "node:crypto";
@@ -13,6 +13,14 @@ import {
   pluginRoot as harnessPluginRoot,
   agentHome as harnessAgentHome,
   configPath as harnessConfigPath,
+  projectConfigDir as harnessProjectConfigDir,
+  detectHarnessId,
+  overlayId,
+  hostSettingsPath,
+  layoutPaths,
+  pickExisting,
+  LAYOUT,
+  RUNTIME_GITIGNORE_HEADER,
   runtimeEnvNames,
   sourceWriteTools,
 } from "./harness.mjs";
@@ -32,6 +40,160 @@ export function pluginRoot() {
 
 export function configPath() {
   return harnessConfigPath(projectRoot(), process.env);
+}
+
+// The layout resolver and its constants, re-exported so hooks and scripts
+// import one module (the layout ADR, 2026-09-06). The active harness's id,
+// for the paths keyed by it (state/<id>/…).
+export { layoutPaths, pickExisting, LAYOUT, RUNTIME_GITIGNORE_HEADER, hostSettingsPath, overlayId };
+
+// ─── Harness overlays (the layout ADR decision 3; layout spec contracts 2–4) ──
+//
+// <project>/.projectstore/harness/<id>.json carries ONE thing: the agents block
+// for that harness — agents.default.model and agents.per_agent.<name>.model.
+// Every other key is ignored on read and named for doctor (rejected). The
+// binding never carries agents: ADR-008's two-term chain is read from here.
+export function readOverlayAt(projectDir, id = overlayId()) {
+  // No id (no manifest at all): nothing is read, and the writer below refuses
+  // the same id rather than inventing a file name for it.
+  const path = id ? layoutPaths(projectDir).overlay(id) : null;
+  const out = { id: id || null, path, present: Boolean(path) && existsSync(path), unparseable: false, agents: { default: null, per_agent: {} }, rejected: [], raw: null };
+  if (!out.present) return out;
+  let raw;
+  try { raw = JSON.parse(readFileSync(path, "utf8")); } catch { out.unparseable = true; return out; }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) { out.unparseable = true; return out; }
+  out.raw = raw;
+  for (const k of Object.keys(raw)) if (k !== "agents") out.rejected.push(k);
+  const a = raw.agents;
+  if (a === undefined) return out;
+  if (!a || typeof a !== "object" || Array.isArray(a)) { out.rejected.push("agents"); return out; }
+  for (const k of Object.keys(a)) if (k !== "default" && k !== "per_agent") out.rejected.push(`agents.${k}`);
+  if (a.default !== undefined) {
+    if (a.default && typeof a.default === "object") {
+      for (const k of Object.keys(a.default)) if (k !== "model") out.rejected.push(`agents.default.${k}`);
+      if (typeof a.default.model === "string" && a.default.model) out.agents.default = a.default.model;
+    } else out.rejected.push("agents.default");
+  }
+  if (a.per_agent !== undefined) {
+    if (a.per_agent && typeof a.per_agent === "object" && !Array.isArray(a.per_agent)) {
+      for (const [name, v] of Object.entries(a.per_agent)) {
+        if (!v || typeof v !== "object") { out.rejected.push(`agents.per_agent.${name}`); continue; }
+        for (const k of Object.keys(v)) if (k !== "model") out.rejected.push(`agents.per_agent.${name}.${k}`);
+        if (typeof v.model === "string" && v.model) out.agents.per_agent[name] = v.model;
+      }
+    } else out.rejected.push("agents.per_agent");
+  }
+  return out;
+}
+
+// ADR-008's two terms, from the active harness's overlay: per-agent, else the
+// default, else null — null means "pass nothing, the agent's frontmatter decides".
+export function resolveAgentModel(projectDir, name, { harness = overlayId() } = {}) {
+  const o = readOverlayAt(projectDir, harness);
+  const per = o.agents.per_agent[name];
+  if (per) return { name, model: per, source: "per_agent", overlay: o.path, harness };
+  if (o.agents.default) return { name, model: o.agents.default, source: "default", overlay: o.path, harness };
+  return { name, model: null, source: null, overlay: o.path, harness };
+}
+
+// The one writer of an overlay: rewrites its agents block, keeps any other key
+// as it found it (doctor names them; this never silently drops a user's key).
+export function writeOverlayAt(projectDir, id, agents) {
+  if (!id) throw new Error("writeOverlayAt: the overlay's harness id is required");
+  const path = layoutPaths(projectDir).overlay(id);
+  let raw = {};
+  try { raw = JSON.parse(readFileSync(path, "utf8")); } catch {}
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) raw = {};
+  const block = {};
+  if (agents.default) block.default = { model: agents.default };
+  const names = Object.keys(agents.per_agent || {}).sort();
+  if (names.length) block.per_agent = Object.fromEntries(names.map((n) => [n, { model: agents.per_agent[n] }]));
+  const next = { ...raw };
+  if (Object.keys(block).length) next.agents = block; else delete next.agents;
+  ensureRuntimeDir(projectDir);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileAtomic(path, JSON.stringify(next, null, 2) + "\n", { sweep: false });
+  return path;
+}
+export function activeHarnessId() {
+  return detectHarnessId(process.env) || "harness";
+}
+
+// .gitignore files we share with other writers (the vault's sessions dir, the
+// project's .projectstore/) are merged by line: each writer ensures its lines
+// exist and never rewrites what is there (layout spec, contract 5).
+export function ensureGitignoreLines(file, lines, header = null) {
+  mkdirSync(dirname(file), { recursive: true });
+  let cur = "";
+  try { cur = readFileSync(file, "utf8"); } catch {}
+  const have = new Set(cur.split(/\r?\n/).map((l) => l.trim()));
+  const add = lines.filter((l) => !have.has(l));
+  if (!add.length) return false;
+  const prefix = cur ? (cur.endsWith("\n") ? cur : cur + "\n") : (header ? `# ${header}\n` : "");
+  writeFileSync(file, prefix + add.join("\n") + "\n", "utf8");
+  return true;
+}
+
+// Move one path inside a project — the migration's only mechanism (layout
+// spec, contract 6). Absent source: nothing to do. Existing target: refused,
+// never overwritten. Both paths must lie inside `within`.
+// Move a legacy state directory's contents into the new one, per file, with
+// the collision policy of the layout spec (contract 6): a session file that
+// exists on both sides keeps the newer mtime; a per-session directory
+// (<sid>.paths/, <sid>.fired/) and the renderer's breadcrumb keep the NEW side;
+// everything else moves when the target is absent. Returns what happened.
+export function moveStateDir(from, to, within) {
+  const out = { moved: [], kept: [], replaced: [], dropped: [] };
+  if (!existsSync(from)) return out;
+  mkdirSync(to, { recursive: true });
+  for (const name of readdirSync(from)) {
+    if (name === ".gitignore") continue;
+    const src = join(from, name), dst = join(to, name);
+    let st; try { st = lstatSync(src); } catch { continue; }
+    if (st.isSymbolicLink()) { out.dropped.push(name); continue; }
+    if (!existsSync(dst)) { movePath(src, dst, within); out.moved.push(name); continue; }
+    if (st.isDirectory() || name.startsWith(".")) { rmSync(src, { recursive: true, force: true }); out.kept.push(name); continue; }
+    const newer = st.mtimeMs > statSync(dst).mtimeMs;
+    if (newer) { rmSync(dst, { force: true }); movePath(src, dst, within); out.replaced.push(name); }
+    else { rmSync(src, { force: true }); out.kept.push(name); }
+  }
+  return out;
+}
+
+// The legacy entry log's lines go BEFORE the new log's (they are older), and
+// the legacy file is removed; an absent side is fine.
+export function mergeEntryLog(from, to, within) {
+  if (!existsSync(from)) return "absent";
+  const inside = (p) => { const r = relative(resolve(within), resolve(p)); return r !== "" && !r.startsWith("..") && !isAbsolute(r); };
+  if (!inside(from) || !inside(to)) throw new Error(`mergeEntryLog: ${from} → ${to} leaves ${within}`);
+  const old = readFileSync(from, "utf8");
+  let cur = ""; try { cur = readFileSync(to, "utf8"); } catch {}
+  mkdirSync(dirname(to), { recursive: true });
+  const glue = old && !old.endsWith("\n") ? "\n" : "";
+  writeFileAtomic(to, old + glue + cur, { sweep: false });
+  rmSync(from, { force: true });
+  return cur ? "merged" : "moved";
+}
+
+// Remove a path inside the project — the layout migration's deletes (the two
+// legacy markers, an emptied legacy runtime directory, a legacy launcher
+// nothing names). Refuses anything outside `within`.
+export function removeInside(path, within, { recursive = false } = {}) {
+  const r = relative(resolve(within), resolve(path));
+  if (r === "" || r.startsWith("..") || isAbsolute(r)) throw new Error(`removeInside: ${path} is not inside ${within}`);
+  if (!existsSync(path)) return false;
+  rmSync(path, { recursive, force: true });
+  return true;
+}
+
+export function movePath(from, to, within) {
+  const inside = (p) => { const r = relative(resolve(within), resolve(p)); return r !== "" && !r.startsWith("..") && !isAbsolute(r); };
+  if (!inside(from) || !inside(to)) throw new Error(`movePath: ${from} → ${to} leaves ${within}`);
+  if (!existsSync(from)) return "absent";
+  if (existsSync(to)) return "target-exists";
+  mkdirSync(dirname(to), { recursive: true });
+  renameSync(from, to);
+  return "moved";
 }
 
 // ─── Config ────────────────────────────────────────────────────────────
@@ -136,7 +298,7 @@ export function claudeHome(home = homedir()) {
   return harnessAgentHome(process.env, home);
 }
 
-function cmpVersion(a, b) {
+export function cmpVersion(a, b) {
   const A = String(a || "0").split(".").map((n) => parseInt(n, 10) || 0);
   const B = String(b || "0").split(".").map((n) => parseInt(n, 10) || 0);
   for (let i = 0; i < 3; i++) if ((A[i] || 0) !== (B[i] || 0)) return (A[i] || 0) - (B[i] || 0);
@@ -157,7 +319,28 @@ function cmpVersion(a, b) {
 // marketplace key and scope — whether or not its install is still on disk.
 // The registry is a list, and contract 17 of the install spec (version
 // drift across registrations) needs the list; installedPluginRoot folds it.
-export function installedPluginEntries(home = homedir()) {
+// The host's enablement of a plugin, user settings first and the project's
+// settings over it (a project may silence a user-scope plugin). Absent → true.
+export function pluginEnabled(key, home = homedir(), projectDir = null) {
+  const read = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
+  let enabled = true;
+  const user = read(join(claudeHome(home), "settings.json"));
+  if (user && user.enabledPlugins && Object.hasOwn(user.enabledPlugins, key)) enabled = user.enabledPlugins[key] !== false;
+  if (projectDir) {
+    // The committed project file, then the checkout's local one over it — the
+    // host's own precedence (measured 2026-09-05, --scope local).
+    for (const f of ["settings.json", "settings.local.json"]) {
+      const proj = read(join(projectDir, harnessProjectConfigDir(), f));
+      if (proj && proj.enabledPlugins && Object.hasOwn(proj.enabledPlugins, key)) enabled = proj.enabledPlugins[key] !== false;
+    }
+  }
+  return enabled;
+}
+
+// Every projectstore registration the host knows, with whether it is enabled
+// (for the project, when one is named): the registry keeps a disabled row,
+// and a copy nobody runs is not a copy (install spec contract 17, amended).
+export function installedPluginEntries(home = homedir(), projectDir = null) {
   const out = [];
   let reg;
   try {
@@ -177,16 +360,119 @@ export function installedPluginEntries(home = homedir()) {
         version: typeof e.version === "string" ? e.version : null,
         at: Date.parse((e && e.lastUpdated) || "") || 0,
         present: existsSync(join(path, "scripts", "statusline.mjs")),
+        enabled: pluginEnabled(key, home, projectDir),
+        projectPath: typeof e.projectPath === "string" ? e.projectPath : null,
       });
     }
   }
   return out;
 }
 
+// A pure PATH walk for a host binary — a read, not a subprocess: the analysers
+// run on every doctor call. Returns the absolute path or null.
+export function whichOnPath(name, env = process.env) {
+  const sep = process.platform === "win32" ? ";" : ":";
+  const exts = process.platform === "win32" ? ["", ".cmd", ".exe", ".bat"] : [""];
+  for (const dir of String(env.PATH || "").split(sep).filter(Boolean)) {
+    for (const ext of exts) {
+      const p = join(dir, name + ext);
+      try { const st = statSync(p); if (st.isFile() && (process.platform === "win32" || (st.mode & 0o111))) return p; } catch {}
+    }
+  }
+  return null;
+}
+
+// The files a package ships, as the release gate defines them — package.json
+// files[] plus npm's always-included package.json, README and LICENSE — copied
+// from `from` to `to`. Never node_modules, never a symlink (a symlink is a
+// path outside the tree). Returns the relative paths copied, sorted.
+export function packageFiles(root) {
+  let pkg;
+  try { pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")); } catch { return []; }
+  const out = new Set(["package.json"]);
+  for (const n of readdirSync(root)) if (/^(README|LICEN[CS]E)(\.|$)/i.test(n)) out.add(n);
+  const walk = (rel) => {
+    const abs = join(root, rel);
+    let st; try { st = lstatSync(abs); } catch { return; }
+    if (st.isSymbolicLink()) return;
+    if (st.isDirectory()) { for (const n of readdirSync(abs)) if (n !== "node_modules" && !n.startsWith(".DS_Store")) walk(rel ? `${rel}/${n}` : n); }
+    else out.add(rel);
+  };
+  for (const f of pkg.files || []) walk(f.replace(/\/+$/, ""));
+  return [...out].sort();
+}
+
+// The one recursive delete the installer makes: a registration directory of
+// ours (install spec contract 13, amended 2026-09-05). The caller has already
+// proven the manifest is ours; this refuses anything outside the harness home.
+export function removeOwnTree(dir, home = homedir()) {
+  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!norm(dir).startsWith(norm(claudeHome(home)) + "/")) throw new Error(`removeOwnTree: ${dir} is not under the harness home`);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+export function copyPackageTree(from, to) {
+  const files = packageFiles(from);
+  for (const rel of files) {
+    const dst = join(to, rel);
+    mkdirSync(dirname(dst), { recursive: true });
+    cpSync(join(from, rel), dst);
+  }
+  return files;
+}
+
+// Every regular file under a directory, relative, sorted; symlinks skipped.
+export function treeFiles(dir) {
+  const out = [];
+  const walk = (rel) => {
+    const abs = rel ? join(dir, rel) : dir;
+    let st; try { st = lstatSync(abs); } catch { return; }
+    if (st.isSymbolicLink()) return;
+    if (st.isDirectory()) { for (const n of readdirSync(abs)) if (n !== "node_modules" && !n.startsWith(".DS_Store")) walk(rel ? `${rel}/${n}` : n); }
+    else out.push(rel);
+  };
+  walk("");
+  return out.sort();
+}
+
+// The digest a registration's provenance field carries over its payload: the
+// file count and one sha256 over "relpath\nsha256(content)" lines in sorted
+// order. Computed from the package's packlist before the copy and from the
+// directory after it; unequal means a copy that did not finish, or a hand edit.
+export function filesDigest(root, files) {
+  const h = createHash("sha256");
+  for (const rel of files) {
+    h.update(rel + "\n");
+    h.update(createHash("sha256").update(readFileSync(join(root, rel))).digest("hex") + "\n");
+  }
+  return { count: files.length, sha256: h.digest("hex") };
+}
+export const packageDigest = (root) => filesDigest(root, packageFiles(root));
+export const treeDigest = (dir) => filesDigest(dir, treeFiles(dir));
+
+// The registration directory, written whole and atomically: the payload and
+// the manifest are staged beside the target and renamed into place, so a
+// reader never sees a half-copied directory under our name (install spec
+// contract 4′). An existing directory is removed only after the stage is
+// complete — and only by the caller's proof that it is ours.
+export function writeOwnTree(dir, { from, subdir, manifestRel, manifest, home = homedir() }) {
+  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!norm(dir).startsWith(norm(claudeHome(home)) + "/")) throw new Error(`writeOwnTree: ${dir} is not under the harness home`);
+  const stage = dir + ".staging";
+  rmSync(stage, { recursive: true, force: true });
+  mkdirSync(join(stage, subdir), { recursive: true });
+  const files = copyPackageTree(from, join(stage, subdir));
+  mkdirSync(dirname(join(stage, manifestRel)), { recursive: true });
+  writeFileSync(join(stage, manifestRel), JSON.stringify(manifest, null, 2) + "\n");
+  rmSync(dir, { recursive: true, force: true });
+  renameSync(stage, dir);
+  return files;
+}
+
 export function installedPluginRoot(home = homedir(), preferFamily = null) {
   try {
     const found = installedPluginEntries(home)
-      .filter((e) => e.present)
+      .filter((e) => e.present && e.enabled !== false)
       .map((e) => ({ path: e.path, version: e.version, same: preferFamily && dirname(e.path) === preferFamily ? 1 : 0, at: e.at }));
     // Family is a filter, not a tiebreak: when the caller came from a known
     // marketplace, an install from a DIFFERENT one is not a newer copy of the
@@ -225,17 +511,29 @@ export function isPluginCacheRoot(root, home = homedir()) {
 // statusLine; bails on an unparseable settings file. Returns a status string,
 // never throws — the caller wraps it, and this must not break session start.
 
-export function statusLineLauncherPath(projectDir) {
-  return join(projectDir, ".claude", ".projectstore", "statusline.mjs");
+// Where the launcher is WRITTEN: under the harness's state directory (layout
+// ADR decision 4). Readers that ask "is this path ours?" accept the legacy
+// .claude/.projectstore/statusline.mjs too — statusLineIsOurs, statusLineIsOurWiring.
+export function statusLineLauncherPath(projectDir, harnessId = activeHarnessId()) {
+  return layoutPaths(projectDir).launcher(harnessId);
+}
+export function legacyStatusLineLauncherPath(projectDir) {
+  return layoutPaths(projectDir).legacy.launcher;
+}
+// Both launcher shapes — the new state/<harness>/ one and the legacy one —
+// in one place; the recognisers below and doctor read it.
+export const LAUNCHER_PATH_RE = new RegExp(`${LAYOUT.root.replace(".", "\\.")}/(${LAYOUT.state}/[^/]+/)?${LAYOUT.launcher.replace(".", "\\.")}$`);
+export function isLauncherPath(p) {
+  return LAUNCHER_PATH_RE.test(String(p || "").replace(/\\/g, "/"));
 }
 
 // Loose shape test — "could this command be a projectstore renderer?". Used
 // where over-matching is the safe direction: never compose a status line over
-// something that might be us (that would recurse).
+// something that might be us (that would recurse). Both launcher shapes count.
 export function statusLineIsOurs(cmd) {
   if (typeof cmd !== "string") return false;
   const c = cmd.replace(/\\/g, "/");
-  return c.includes("scripts/statusline.mjs") || c.includes(".projectstore/statusline.mjs");
+  return c.includes("scripts/statusline.mjs") || isLauncherPath(c.match(/\S*statusline\.mjs/)?.[0] || c);
 }
 
 export function statusLineScriptPath(cmd) {
@@ -253,7 +551,10 @@ export function statusLineIsOurWiring(cmd, projectDir, home = homedir(), root = 
   const p = statusLineScriptPath(cmd);
   if (!p) return false;
   const norm = (s) => String(s).replace(/\\/g, "/");
-  if (p === norm(statusLineLauncherPath(projectDir))) return true;
+  // Ours if it is any harness's launcher in this project's state, or the legacy launcher.
+  const lp = layoutPaths(projectDir);
+  if (p.startsWith(norm(lp.state) + "/") && isLauncherPath(p)) return true;
+  if (p === norm(lp.legacy.launcher)) return true;
   if (p === norm(join(root, "scripts", "statusline.mjs"))) return true;
   return isPluginCacheRoot(dirname(dirname(p)), home);
 }
@@ -263,12 +564,18 @@ export function statusLineIsOurWiring(cmd, projectDir, home = homedir(), root = 
 // substituted here instead, from the manifest. All three placeholders must be
 // present or the template is not one we know how to fill. Pure — the test
 // renders through the same function the installer does.
-export function renderStatusLineLauncher(tpl, root, env = process.env) {
+// `projectDir` is the fourth substitution (2026-09-06): the launcher used to
+// find its project by walking two levels up from its own path, which the move
+// into state/<harness>/ made wrong; it is named instead, as plan() resolved
+// it — the same string the provenance line records, so an npx render and a
+// cache-install render stay byte-identical.
+export function renderStatusLineLauncher(tpl, root, projectDir = projectRoot(), env = process.env) {
   const names = runtimeEnvNames(env);
   const subs = [
     ['"__PROJECTSTORE_ROOT__"', JSON.stringify(root)],
     ['"__PROJECTSTORE_HOME_ENV__"', JSON.stringify(names.home || "")],
     ['"__PROJECTSTORE_PLUGIN_ROOT_ENV__"', JSON.stringify(names.pluginRoot || "")],
+    ['"__PROJECTSTORE_PROJECT__"', JSON.stringify(projectDir)],
   ];
   let src = String(tpl);
   for (const [ph, val] of subs) {
@@ -285,13 +592,14 @@ export function renderStatusLineLauncher(tpl, root, env = process.env) {
 export function writeStatusLineLauncher(projectDir, root) {
   try {
     const tpl = readFileSync(join(pluginRoot(), "scripts", "statusline-launcher.mjs"), "utf8");
-    const src = renderStatusLineLauncher(tpl, root);
+    const src = renderStatusLineLauncher(tpl, root, projectDir);
     if (src === null) return null;
     const p = statusLineLauncherPath(projectDir);
     let cur = null;
     try { cur = readFileSync(p, "utf8"); } catch {}
     if (cur !== src) {
-      ensureRuntimeDir(projectDir); // carries the nested .gitignore: this path is machine-specific
+      ensureStateDir(projectDir); // carries the nested .gitignore: this path is machine-specific
+      mkdirSync(dirname(p), { recursive: true });
       // sweep=false: this runs on session paths, not --write — keep it cheap.
       writeFileAtomic(p, src, { sweep: false });
     }
@@ -325,7 +633,7 @@ export function syncStatusLine(cfg, projectDir, home = homedir()) {
   const st = cfg && cfg.statusline;
   if (!st || typeof st.enabled !== "boolean") return "no-flag"; // absent → leave manual installs alone
 
-  const p = join(projectDir, ".claude", "settings.local.json");
+  const p = hostSettingsPath(projectDir);
   const root = pluginRoot();
 
   let settings = {};
@@ -354,8 +662,11 @@ export function syncStatusLine(cfg, projectDir, home = homedir()) {
     // so an entry always names a renderer that exists. A missing launcher is
     // install's to create (stamped), never this path's.
     const { launcher } = desiredStatusLineCommand(projectDir, root, home);
-    const desired = launcher && existsSync(statusLineLauncherPath(projectDir))
-      ? `node "${statusLineLauncherPath(projectDir)}"`
+    // A launcher on disk at either path — the new one, or the legacy one an
+    // earlier release wrote (the layout ADR) — is kept; moving it is install's.
+    const onDisk = [statusLineLauncherPath(projectDir), legacyStatusLineLauncherPath(projectDir)].find((f) => existsSync(f));
+    const desired = launcher && onDisk
+      ? `node "${onDisk}"`
       : `node "${join(root, "scripts", "statusline.mjs")}"`;
     if (curCmd !== desired) {
       // Keep any sibling keys the platform supports on this object
@@ -502,6 +813,17 @@ export function loadLayout(name, root = pluginRoot()) {
     throw new Error(`Layout not found: ${name} (expected at ${p})`);
   }
   return JSON.parse(readFileSync(p, "utf8"));
+}
+
+// The layout's agent roster (scaffold/layouts/<layout>.json → agents), or null
+// when no binding names a layout that loads — a caller then validates nothing
+// against it rather than refusing every name.
+export function layoutRoster(cfg, root = pluginRoot()) {
+  if (!cfg || typeof cfg.layout !== "string") return null;
+  try {
+    const r = loadLayout(cfg.layout, root).agents;
+    return Array.isArray(r) && r.length ? r : null;
+  } catch { return null; }
 }
 
 export function folderByKind(layout, kind) {
@@ -670,7 +992,7 @@ export function listOf(fm, key) {
 // lifecycle_gates ("on"|"off"), spec_policy_since (ISO-8601, stamped when
 // spec_policy first becomes "required").
 export function vaultConfigPath(vault) {
-  return join(vault, ".projectstore.json");
+  return join(vault, LAYOUT.vaultConfig);
 }
 
 export function readVaultConfig(vault) {
@@ -1363,7 +1685,7 @@ export async function gatherVaultFacts(cfg, opts = {}) {
         continue;
       }
       const fm = parseFrontmatter(String(text)).data;
-      if (!fm || fm.status !== "in-progress") continue;
+      if (!fm || !isInProgress(fm.status)) continue;
       const rel = abs.startsWith(vault + "/") ? abs.slice(vault.length + 1) : abs;
       const seg = rel.split("/");
       const epic = epicFolder && seg[0] === epicFolder.path && seg[1] ? seg[1] : seg[0];
@@ -1561,7 +1883,7 @@ export function renderVaultSkeleton(facts) {
 // removed on next SessionStart.
 
 export function sessionsDir(vault) {
-  return join(vault, ".projectstore", "sessions");
+  return join(vault, LAYOUT.root, LAYOUT.vaultSessions);
 }
 
 export function sessionFilePath(vault, sessionId) {
@@ -1584,12 +1906,10 @@ export function ensureSessionsDir(vault) {
   const dir = sessionsDir(vault);
   mkdirSync(dir, { recursive: true });
   // Make sure no session metadata leaks into git, regardless of where the
-  // vault lives. A nested .gitignore inside .projectstore/ is the simplest
-  // way to handle this idempotently.
-  const gi = join(vault, ".projectstore", ".gitignore");
-  if (!existsSync(gi)) {
-    writeFileSync(gi, "# projectstore — runtime data, do not commit\n*\n", "utf8");
-  }
+  // vault lives. The .gitignore inside <vault>/.projectstore/ is merged by
+  // line (2026-09-06: a vault that is also a project shares the directory
+  // with the project layout, whose committed harness/ a "*" would hide).
+  ensureGitignoreLines(join(vault, LAYOUT.root, ".gitignore"), [`${LAYOUT.vaultSessions}/`], "projectstore — runtime data, do not commit");
   return dir;
 }
 
@@ -1677,15 +1997,12 @@ export function cleanupStaleSessions(vault, maxAgeHours = 24, currentSessionId =
   return removed;
 }
 
-// One-shot migration helper: delete .claude/.projectstore-session-id left
+// (removeLegacySessionIdFile lived here until 2026-09-06; deleting the
+// 0.6-era .claude/.projectstore-session-id is a step of the layout migration.)
+// One-shot migration helper (retired): delete .claude/.projectstore-session-id left
 // behind by v0.3 – v0.5 (file-based per-project session id). Safe to call
 // on every session start; no-op if the file is absent. Kept until v0.7.
-export function removeLegacySessionIdFile(projectDir) {
-  const p = join(projectDir || projectRoot(), ".claude", ".projectstore-session-id");
-  if (existsSync(p)) {
-    try { unlinkSync(p); } catch {}
-  }
-}
+
 
 // ─── Session activity log ──────────────────────────────────────────────
 //
@@ -1794,37 +2111,43 @@ export function isInsideVault(filePath, vaultPath) {
 // .gitignore with "*" is ensured unconditionally (mirrors ensureSessionsDir)
 // so per-session ids/titles never reach the user's git history.
 
+// The WRITER's view: <project>/.projectstore/state/sessions. Readers fall back
+// to the legacy .claude/.projectstore/state through 0.29 (readSessionState).
 export function stateDir(projectDir) {
-  return join(projectDir, ".claude", ".projectstore", "state");
+  return layoutPaths(projectDir).sessions;
+}
+export function legacyStateDir(projectDir) {
+  return layoutPaths(projectDir).legacy.state;
 }
 
 export function sessionStatePath(projectDir, sessionId) {
   return join(stateDir(projectDir), `${sessionId}.json`);
 }
 
-// <project>/.claude/.projectstore — machine-specific runtime state (session
-// pointers, the generated statusline launcher). Created with its own ignore
-// file so nothing in here can reach git, whichever writer gets there first.
+// <project>/.projectstore — ours, harness-neutral. Its .gitignore is merged by
+// line (the binding and state/ are machine-specific; harness/ is committed).
 export function ensureRuntimeDir(projectDir) {
-  const dir = join(projectDir, ".claude", ".projectstore");
-  mkdirSync(dir, { recursive: true });
-  const gi = join(dir, ".gitignore");
-  if (!existsSync(gi)) {
-    writeFileSync(gi, "# projectstore — per-session runtime state, do not commit\n*\n", "utf8");
-  }
-  return dir;
+  const p = layoutPaths(projectDir);
+  mkdirSync(p.root, { recursive: true });
+  ensureGitignoreLines(p.gitignore, [...LAYOUT.gitignore], "projectstore — the binding and the state are machine-local; harness/ is committed");
+  return p.root;
 }
 
+// <project>/.projectstore/state — every harness's runtime files, keyed by
+// harness inside; its own ignore file so nothing in here can reach git,
+// whichever writer gets there first.
 export function ensureStateDir(projectDir) {
   ensureRuntimeDir(projectDir);
-  const dir = stateDir(projectDir);
-  mkdirSync(dir, { recursive: true });
-  return dir;
+  const p = layoutPaths(projectDir);
+  mkdirSync(p.sessions, { recursive: true });
+  if (!existsSync(p.stateGitignore)) writeFileSync(p.stateGitignore, `# ${RUNTIME_GITIGNORE_HEADER}, do not commit\n*\n`, "utf8");
+  return p.sessions;
 }
 
 export function readSessionState(projectDir, sessionId) {
   try {
-    return JSON.parse(readFileSync(sessionStatePath(projectDir, sessionId), "utf8"));
+    const p = pickExisting(sessionStatePath(projectDir, sessionId), join(legacyStateDir(projectDir), `${sessionId}.json`));
+    return JSON.parse(readFileSync(p, "utf8"));
   } catch {
     return null;
   }
@@ -1955,8 +2278,15 @@ export function entryScore(projectDir, sessionId) {
 // one definition, and therefore no way for the two to disagree about the same
 // vault. `planned` is deliberately not open: writing code against a story that
 // never went through /projectstore:story plan is itself the order being skipped.
+// Both spellings the vault holds and the kanban maps (statusToColumn): the
+// SessionStart orientation said "nothing in progress" over six in_progress
+// stories, and doctor's work-without-story fired beside them (2026-09-05).
+export function isInProgress(status) {
+  return status === "in-progress" || status === "in_progress" || status === "in progress";
+}
+
 export function openStoryFrom(storyFrontmatters) {
-  return (storyFrontmatters || []).some((fm) => fm && fm.status === "in-progress");
+  return (storyFrontmatters || []).some((fm) => fm && isInProgress(fm.status));
 }
 
 // Every story file in the vault, whatever shape it takes. Deliberately
@@ -2125,13 +2455,19 @@ export function mayRemind(projectDir, sessionId) {
 
 export const ENTRY_LOG_CAP = 1000;
 
+// The writer appends to the new path; the reader falls back to the legacy log
+// while the window is open (contract 1).
 export function entryLogPath(projectDir) {
-  return join(projectDir, ".claude", ".projectstore", "entry-log.jsonl");
+  return layoutPaths(projectDir).entryLog;
+}
+export function entryLogReadPath(projectDir) {
+  const p = layoutPaths(projectDir);
+  return pickExisting(p.entryLog, p.legacy.entryLog);
 }
 
 export function appendEntryLog(projectDir, record) {
   try {
-    ensureRuntimeDir(projectDir);
+    ensureStateDir(projectDir); // state/ with its own .gitignore
     appendFileSync(entryLogPath(projectDir), JSON.stringify(record) + "\n", "utf8");
     return true;
   } catch {
@@ -2147,7 +2483,7 @@ export function appendEntryLog(projectDir, record) {
 export function readEntryLog(projectDir, { withinDays = 30, kind = undefined } = {}) {
   let lines;
   try {
-    lines = readFileSync(entryLogPath(projectDir), "utf8").split("\n").filter(Boolean);
+    lines = readFileSync(entryLogReadPath(projectDir), "utf8").split("\n").filter(Boolean);
   } catch {
     return [];
   }
