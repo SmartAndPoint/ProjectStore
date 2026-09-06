@@ -2078,8 +2078,10 @@ test("clerk: the registration block never names it (ADR decision 6)", () => {
 test("clerk: the delegating prompts carry the resolution line and the scratch/baseline split", () => {
   const story = readFileSync(join(REPO, "commands", "story.md"), "utf8");
   const flatStory = story.replace(/\s+/g, " ");
-  assert.ok(flatStory.includes("agents.per_agent.clerk.model ?? agents.default.model"),
-    "ADR-008 resolution line in story close");
+  // Since 2026-09-06 the prose resolves the model through the bin's `agents
+  // model` verb (A12) instead of restating ADR-008's two-term rule.
+  assert.ok(flatStory.includes("agents model clerk --json") && flatStory.includes("result.model"),
+    "ADR-008 resolution in story close goes through the agents model verb");
   assert.ok(flatStory.includes("never guess a model"), "the review.md pattern's safety clause");
   assert.ok(/5a\./.test(story) && /6a\./.test(story) && /6b\./.test(story),
     "half-step idiom — load-bearing step numbers survive");
@@ -2100,8 +2102,8 @@ test("clerk: the delegating prompts carry the resolution line and the scratch/ba
 
   const rec = readFileSync(join(REPO, "commands", "reconcile.md"), "utf8");
   const flatRec = rec.replace(/\s+/g, " ");
-  assert.ok(flatRec.includes("agents.per_agent.clerk.model ?? agents.default.model"),
-    "resolution line in reconcile too");
+  assert.ok(flatRec.includes("agents model clerk --json") && flatRec.includes("result.model"),
+    "resolution through the agents model verb in reconcile too");
   assert.ok(flatRec.includes("two or more targets"), "the enumerated trigger is concrete, not a judgement");
   assert.ok(rec.indexOf("5a.") >= 0 && rec.indexOf("5a.") < rec.indexOf("6. **On approval**"),
     "reconcile's 5a sits before the step it delegates — placement is the contract");
@@ -2109,7 +2111,9 @@ test("clerk: the delegating prompts carry the resolution line and the scratch/ba
   const agents = readFileSync(join(REPO, "commands", "agents.md"), "utf8").replace(/\s+/g, " ");
   assert.ok(agents.includes('per_agent.clerk.model: "sonnet"'),
     "configure pins the clerk whenever it writes a preset default");
-  assert.ok(agents.includes("clerk resolves to anything but `sonnet` or `haiku`"),
+  // Since 2026-09-06 status reads the verb's `result.resolved.clerk.model` (A12);
+  // the literal pair is the property, not the sentence around it.
+  assert.ok(/resolved\.clerk\.model` is anything but `sonnet` or `haiku`/.test(agents),
     "status carries the warning, and its rule is a literal — never re-derived");
 });
 

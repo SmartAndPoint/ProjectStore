@@ -72,8 +72,9 @@ import {
   isLauncherPath,
   LAYOUT,
   hostSettingsPath,
+  readOverlayAt, layoutRoster,
 } from "./lib.mjs";
-import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness } from "./harness.mjs";
+import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, configPath as harnessConfigPath } from "./harness.mjs";
 
 // The plugin-root variable a remedy interpolates, for the harness the surface
 // belongs to — read from that harness's manifest, never a literal (the
@@ -507,6 +508,35 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
     // The statusline entry's states are checkStatusline's, under its own id —
     // its ours-stale (a command this installation would not write) is
     // self-healing: syncStatusLine rewrites it on the next SessionStart.
+  }
+  return out;
+}
+
+// The harness overlay (layout spec, contracts 2–4): a key the allowlist
+// rejects is an issue naming key and file; a binding still carrying an
+// agents block is a pre-0.28 leftover the migration moves; an overlay that
+// does not parse is an issue.
+export function checkOverlays(cfg, proj) {
+  const out = [];
+  const o = readOverlayAt(proj);
+  const where = relative(proj, o.path);
+  if (o.unparseable) out.push(finding("install", "issue", "overlay-unparseable", `${where} is not valid JSON — the agents run on their frontmatter models until it is fixed.`, where));
+  for (const k of o.rejected) out.push(finding("install", "issue", "overlay-forbidden-key", `${where} carries \`${k}\`, which an overlay may not: only agents.default.model and agents.per_agent.<name>.model are read; the key is ignored.`, where));
+  if (cfg && cfg.agents && typeof cfg.agents === "object") {
+    // The binding that carries the block is the one the reader found — before
+    // the migration that is the legacy path, and naming the new one would send
+    // the user to a file that does not exist yet.
+    const b = relative(proj, harnessConfigPath(proj, process.env));
+    out.push(finding("install", "warn", "agents-in-binding", `${b} still carries an agents block — since 0.28 the models live in ${where} (the layout ADR); nothing reads it there. Run upgrade --harness ${o.id || "claude-code"} to move it.`, b));
+  }
+  // A configured name no roster agent carries runs nothing: the model never
+  // applies. A warn, not an issue — a newer package's agent is a legitimate
+  // reason for a committed overlay to name one this copy does not ship.
+  const roster = layoutRoster(cfg);
+  if (roster) {
+    for (const n of Object.keys(o.agents.per_agent)) {
+      if (!roster.includes(n)) out.push(finding("install", "warn", "overlay-unknown-agent", `${where} configures \`${n}\`, which is not in the ${cfg.layout} roster (${roster.join(", ")}) — no agent by that name runs, so the model never applies. A typo, or an agent this package does not ship yet.`, where));
+    }
   }
   return out;
 }
@@ -1701,6 +1731,7 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
     ...checkAutoUpdate(),
     ...checkMcpRegistration(),
     ...checkLayout(proj),
+    ...checkOverlays(cfg, proj),
   );
   let read = null;
   try { read = await readSurfaceStates(proj, opts); } catch {} // reported as a warn by checkHarnessSurfaces

@@ -356,6 +356,14 @@ export function layoutPaths(projectDir, { harnessDir = null, dir = MANIFEST_DIR 
   };
 }
 
+// The overlay a harness reads: <project>/.projectstore/harness/<overlay>.json —
+// the manifest's runtime.overlay, the harness id by convention (the layout ADR,
+// decision 3). Null only when no manifest at all can be found.
+export function overlayId(env = process.env, dir = MANIFEST_DIR) {
+  const h = activeHarness(env, dir);
+  return h?.runtime?.overlay || h?.id || null;
+}
+
 // A reader's fallback: the new path when it exists, else the legacy one when
 // THAT exists, else the new path (a writer's target) — at most two existsSync
 // calls, never a directory scan (contract 1; the SessionStart budget).

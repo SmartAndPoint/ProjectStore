@@ -68,7 +68,7 @@ test("generation contract 1: every manifest parses strictly and declares what th
     assert.equal(typeof m.display_name, "string");
     assert.equal(typeof m.emit, "boolean");
     assert.equal(typeof m.source_layout, "boolean");
-    for (const k of ["project_dir_env", "plugin_root_env", "home_env", "home_default", "harness_dir"]) {
+    for (const k of ["project_dir_env", "plugin_root_env", "home_env", "home_default", "harness_dir", "overlay"]) {
       assert.equal(typeof m.runtime?.[k], "string", `${n}: runtime.${k}`);
     }
     assert.ok(Array.isArray(m.runtime.detect_env), `${n}: runtime.detect_env`);

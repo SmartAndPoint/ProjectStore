@@ -54,7 +54,9 @@
     "session_env": [
       "CLAUDECODE"
     ],
-    "session_env_reason": "set to 1 in every Bash tool of a live session (measured 2026-09-05, 2.1.261); detect_env names the variables a hook or plugin process receives, which a Bash tool does not — the two questions differ."
+    "session_env_reason": "set to 1 in every Bash tool of a live session (measured 2026-09-05, 2.1.261); detect_env names the variables a hook or plugin process receives, which a Bash tool does not — the two questions differ.",
+    "overlay": "claude-code",
+    "overlay_reason": "the file under <project>/.projectstore/harness/ that carries this harness's agents block — the models, per agent, that plugin surfaces pass per invocation (ADR-008; the layout ADR decision 3)"
   },
   "tools": {
     "write_tools": [

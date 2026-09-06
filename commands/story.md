@@ -80,8 +80,7 @@ the two cannot collide).
      files with different jobs: the scratch is what gets copied to the target;
      the baseline is what `--check` compares against. Handing `--check` the
      scratch makes it report drift on every run.
-   - **Model (ADR-008)**: resolve `agents.per_agent.clerk.model ?? agents.default.model`
-     from `.projectstore/harness/<harness>.json` (the active harness's overlay — `claude-code.json` here) and pass it as the spawn's model parameter.
+   - **Model (ADR-008)**: resolve it with `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" agents model clerk --json --project "<abs project dir>"` and pass `result.model` as the spawn's model parameter (`null` → pass nothing).
      Missing key, `inherit`, or unreadable config → pass nothing and let the
      agent's own frontmatter decide; never guess a model.
    - Capture doctor's summary line (`node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor

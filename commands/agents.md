@@ -47,18 +47,24 @@ subcommand (`.projectstore/projectstore.json`; else point to `/projectstore:bind
 
 Run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" plan --json --surface agents_block --project "<abs project dir>"`
 and report each item's `state` from `result.items[]` — the bin wraps the plan in its envelope (`ours-current`, `ours-stale` with its reason,
-`ours-absent`, or a refusal). Then, from the same read:
+`ours-absent`, or a refusal). Then:
 
 - Block: present in which file, marker version vs the installed template, agent
   names vs the layout roster.
-- Model: the resolved model per roster agent from `.projectstore/harness/<harness>.json → agents` (the active harness's overlay — `claude-code.json` here; the binding carries no `agents` block since the layout move)
-  (per-agent value, else default, else "the agent's own frontmatter"), and
+- Model: run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" agents show --json --project "<abs project dir>"`
+  and report `result.resolved` — per roster agent, the model the verb would
+  pass and its `source` (`per_agent`, `default`, or `null`: the agent's own
+  frontmatter), resolved by the verb over the active harness's overlay
+  (`result.path`) so nothing here re-derives it; `result.unknown` (configured
+  names no roster agent carries — nothing runs under them), `result.rejected`
+  (keys the overlay may not carry) and `result.agents_in_binding` (a pre-0.28
+  leftover; point at `upgrade`), and
   whether `CLAUDE_CODE_SUBAGENT_MODEL` is set (it overrides everything) and
   whether `CLAUDE_CODE_EFFORT_LEVEL` is set (ADR-008 makes it the only thing that
   can move the agents off `effort: max`, and it beats frontmatter). **Warn when
-  the clerk resolves to anything but `sonnet` or `haiku`** (that literal pair is
-  the rule, so it is never re-derived; an unknown custom id also warns, with
-  "verify it is cheap"): the clerk transcribes approved
+  `result.resolved.clerk.model` is anything but `sonnet` or `haiku`** (that
+  literal pair is the rule, so it is never re-derived; an unknown custom id also
+  warns, with "verify it is cheap"): the clerk transcribes approved
   content and runs a pinned procedure — paying reasoning-model prices there is
   the misallocation its ADR exists to end; point at `configure` to pin
   `per_agent.clerk`.
@@ -93,21 +99,26 @@ and report each item's `state` from `result.items[]` — the bin wraps the plan 
    `CLAUDE_CODE_SUBAGENT_MODEL=inherit`, which does mean exactly that.
 2. **Optional follow-up**: "configure individually?" → per-agent model for each
    roster agent. Skippable.
-3. **Apply**: write the choice to `.projectstore/harness/<harness>.json → agents: { default:
-   {model}, per_agent: { <name>: {model} } }` (approval-gated config edit).
-   **Whenever this step writes `agents.default.model`, it also writes
-   `per_agent.clerk.model: "sonnet"`** — a strong roster preset must not silently
-   lift the clerk with it. An explicit clerk choice made in step 2 wins over
-   this automatic pin; only the absence of one triggers it. The same offer
-   applies as a **migration**: an existing config carrying `agents.default.model`
-   with no `per_agent.clerk` gets the pin proposed on any `configure` run, not
-   only when the preset changes.
-   That file is the whole output of this command — **never write an agent copy
-   into `.claude/agents/`**. Omitting the key means "leave it to the agent's own
-   frontmatter". Do not write an `effort` key; if one is present from a
-   pre-ADR-008 config, drop it in the same edit and say so — it has no effect and
-   leaving it reproduces the very defect this mechanism closes (the effort you
-   configured is not the effort that runs).
+3. **Apply**: after the AskUserQuestion, run the verb and print its output —
+   `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" agents configure --harness claude-code --default <model> [--agent <name>=<model> …] --project "<abs project dir>"`
+   (naming the harness is the confirmation; the verb writes
+   `.projectstore/harness/claude-code.json → agents` and nothing else — never
+   Edit or Write the file yourself). **Whenever `--default` is set and no
+   `--agent clerk=…` is, the verb pins `per_agent.clerk.model: "sonnet"`** and
+   says so — a strong roster preset must not silently lift the clerk with it;
+   an explicit clerk choice in step 2 (`--agent clerk=<model>`) wins. The same
+   applies as a **migration**: an overlay carrying a default with no clerk pin
+   gets the pin on any `configure` run. `--agent <name>=` (empty) removes a
+   per-agent key; `--reset` empties the block ("leave every agent to its own
+   frontmatter"), and a `--default`/`--agent` given with it applies on top of
+   the emptied block. A name outside the layout's roster is a usage error
+   naming the roster — a model written under a name no agent carries would
+   never run. That file is the whole output of this command — **never write
+   an agent copy into `.claude/agents/`**. The verb never writes an `effort`
+   key; one already inside the agents block is dropped by the next `configure`
+   write and named in its preview, and until then doctor reports it as a key the
+   overlay may not carry — it has no effect (the effort you configured is not
+   the effort that runs).
 4. **Migrate away from copies**: if `.claude/agents/` holds copies carrying
    `# source: projectstore v…`, they are pre-ADR-008 leftovers that override
    nothing. Offer to delete them **one approval per file** (matching `/projectstore:doctor --fix`), project scope only — a copy in `~/.claude/agents/` needs a manual removal, and you should say so rather than implying this command will handle it.
@@ -130,15 +141,19 @@ and report each item's `state` from `result.items[]` — the bin wraps the plan 
 ## Model resolution — how the configured model is actually used
 
 Any surface that spawns a roster agent (this plugin's own commands, and the
-registration block's instructions) resolves the model as:
+registration block's instructions) resolves the model with one read:
 
 ```
-agents.per_agent.<name>.model  ??  agents.default.model  ??  (nothing — use the agent's frontmatter)
+node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" agents model <name> --json --project "<abs project dir>"
 ```
 
-read from `<project>/.projectstore/harness/<harness>.json` (the active harness's overlay), and passes it as the spawn's
-model parameter. If the config is missing, unreadable, or has no key for this
-agent, pass nothing — the agent's own frontmatter decides. Never guess a model.
+and passes `result.model` as the spawn's model parameter — `null` means pass
+nothing, the agent's own frontmatter decides. The verb applies
+`agents.per_agent.<name>.model ?? agents.default.model ?? null` over
+`<project>/.projectstore/harness/<harness>.json` (the active harness's
+overlay); besides the agents block itself (harness-neutral prose with no bin
+to call — it states the rule as a file read, deliberately), nothing else
+restates that rule. Never guess a model.
 
 `agents.default` is optional and often absent (a per-agent-only config is normal);
 the resolution must tolerate that. An `effort` key, if present, is a pre-ADR-008

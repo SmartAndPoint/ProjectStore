@@ -70,6 +70,19 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      `.projectstore/projectstore.json` exist: `install` and `upgrade` refuse until
      one is deleted. Show both, ask the user which is the binding they mean, and
      let them delete the other; `uninstall` and this report are not blocked.
+   - `agents-in-binding` (warn) → the binding still carries a pre-0.28 `agents`
+     block that nothing reads; the `layout` item of `upgrade` moves it into the
+     harness overlay. Same rule as `layout-legacy`: relay the finding's command
+     verbatim, run from a terminal outside this session.
+   - `overlay-forbidden-key` / `overlay-unparseable` (issue) →
+     `.projectstore/harness/<id>.json` carries a key an overlay may not (only
+     `agents.default.model` and `agents.per_agent.<name>.model` are read) or is
+     not JSON. Print the finding. A key inside the agents block goes away on the
+     next `/projectstore:agents configure` write; a key outside it, and a parse
+     error, are the user's to edit — never rewrite the file yourself.
+   - `overlay-unknown-agent` (warn) → the overlay configures a name no roster
+     agent carries (a typo, or a newer package's agent): nothing runs under it.
+     Point at `/projectstore:agents configure` with the roster's names.
    - `plugin-registration` (info) → nothing to repair; it names where the npm
      registration loads from. As an **issue** — stale, or two enabled copies —
      print the finding and relay its command verbatim (the package runner's

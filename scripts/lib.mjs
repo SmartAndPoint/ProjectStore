@@ -15,6 +15,7 @@ import {
   configPath as harnessConfigPath,
   projectConfigDir as harnessProjectConfigDir,
   detectHarnessId,
+  overlayId,
   hostSettingsPath,
   layoutPaths,
   pickExisting,
@@ -44,7 +45,76 @@ export function configPath() {
 // The layout resolver and its constants, re-exported so hooks and scripts
 // import one module (the layout ADR, 2026-09-06). The active harness's id,
 // for the paths keyed by it (state/<id>/…).
-export { layoutPaths, pickExisting, LAYOUT, RUNTIME_GITIGNORE_HEADER, hostSettingsPath };
+export { layoutPaths, pickExisting, LAYOUT, RUNTIME_GITIGNORE_HEADER, hostSettingsPath, overlayId };
+
+// ─── Harness overlays (the layout ADR decision 3; layout spec contracts 2–4) ──
+//
+// <project>/.projectstore/harness/<id>.json carries ONE thing: the agents block
+// for that harness — agents.default.model and agents.per_agent.<name>.model.
+// Every other key is ignored on read and named for doctor (rejected). The
+// binding never carries agents: ADR-008's two-term chain is read from here.
+export function readOverlayAt(projectDir, id = overlayId()) {
+  // No id (no manifest at all): nothing is read, and the writer below refuses
+  // the same id rather than inventing a file name for it.
+  const path = id ? layoutPaths(projectDir).overlay(id) : null;
+  const out = { id: id || null, path, present: Boolean(path) && existsSync(path), unparseable: false, agents: { default: null, per_agent: {} }, rejected: [], raw: null };
+  if (!out.present) return out;
+  let raw;
+  try { raw = JSON.parse(readFileSync(path, "utf8")); } catch { out.unparseable = true; return out; }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) { out.unparseable = true; return out; }
+  out.raw = raw;
+  for (const k of Object.keys(raw)) if (k !== "agents") out.rejected.push(k);
+  const a = raw.agents;
+  if (a === undefined) return out;
+  if (!a || typeof a !== "object" || Array.isArray(a)) { out.rejected.push("agents"); return out; }
+  for (const k of Object.keys(a)) if (k !== "default" && k !== "per_agent") out.rejected.push(`agents.${k}`);
+  if (a.default !== undefined) {
+    if (a.default && typeof a.default === "object") {
+      for (const k of Object.keys(a.default)) if (k !== "model") out.rejected.push(`agents.default.${k}`);
+      if (typeof a.default.model === "string" && a.default.model) out.agents.default = a.default.model;
+    } else out.rejected.push("agents.default");
+  }
+  if (a.per_agent !== undefined) {
+    if (a.per_agent && typeof a.per_agent === "object" && !Array.isArray(a.per_agent)) {
+      for (const [name, v] of Object.entries(a.per_agent)) {
+        if (!v || typeof v !== "object") { out.rejected.push(`agents.per_agent.${name}`); continue; }
+        for (const k of Object.keys(v)) if (k !== "model") out.rejected.push(`agents.per_agent.${name}.${k}`);
+        if (typeof v.model === "string" && v.model) out.agents.per_agent[name] = v.model;
+      }
+    } else out.rejected.push("agents.per_agent");
+  }
+  return out;
+}
+
+// ADR-008's two terms, from the active harness's overlay: per-agent, else the
+// default, else null — null means "pass nothing, the agent's frontmatter decides".
+export function resolveAgentModel(projectDir, name, { harness = overlayId() } = {}) {
+  const o = readOverlayAt(projectDir, harness);
+  const per = o.agents.per_agent[name];
+  if (per) return { name, model: per, source: "per_agent", overlay: o.path, harness };
+  if (o.agents.default) return { name, model: o.agents.default, source: "default", overlay: o.path, harness };
+  return { name, model: null, source: null, overlay: o.path, harness };
+}
+
+// The one writer of an overlay: rewrites its agents block, keeps any other key
+// as it found it (doctor names them; this never silently drops a user's key).
+export function writeOverlayAt(projectDir, id, agents) {
+  if (!id) throw new Error("writeOverlayAt: the overlay's harness id is required");
+  const path = layoutPaths(projectDir).overlay(id);
+  let raw = {};
+  try { raw = JSON.parse(readFileSync(path, "utf8")); } catch {}
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) raw = {};
+  const block = {};
+  if (agents.default) block.default = { model: agents.default };
+  const names = Object.keys(agents.per_agent || {}).sort();
+  if (names.length) block.per_agent = Object.fromEntries(names.map((n) => [n, { model: agents.per_agent[n] }]));
+  const next = { ...raw };
+  if (Object.keys(block).length) next.agents = block; else delete next.agents;
+  ensureRuntimeDir(projectDir);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileAtomic(path, JSON.stringify(next, null, 2) + "\n", { sweep: false });
+  return path;
+}
 export function activeHarnessId() {
   return detectHarnessId(process.env) || "harness";
 }
@@ -743,6 +813,17 @@ export function loadLayout(name, root = pluginRoot()) {
     throw new Error(`Layout not found: ${name} (expected at ${p})`);
   }
   return JSON.parse(readFileSync(p, "utf8"));
+}
+
+// The layout's agent roster (scaffold/layouts/<layout>.json → agents), or null
+// when no binding names a layout that loads — a caller then validates nothing
+// against it rather than refusing every name.
+export function layoutRoster(cfg, root = pluginRoot()) {
+  if (!cfg || typeof cfg.layout !== "string") return null;
+  try {
+    const r = loadLayout(cfg.layout, root).agents;
+    return Array.isArray(r) && r.length ? r : null;
+  } catch { return null; }
 }
 
 export function folderByKind(layout, kind) {
