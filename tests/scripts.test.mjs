@@ -2164,7 +2164,7 @@ test("story-section --check: fresh stamps are not drift, hand edits are", async 
   // A missing baseline is a caller error, not a computed fact — nonzero, loud.
   const raw = spawnSync(process.execPath,
     [join(REPO, "scripts", "story-section.mjs"), "close", p, "--check", join(dir, "nope.md")],
-    { encoding: "utf8", env: ENV, cwd: REPO, timeout: 15000 });
+    { encoding: "utf8", env: BOUND_ENV, cwd: REPO, timeout: 15000 });
   assert.notEqual(raw.status, 0);
   assert.ok(/baseline not found/.test(raw.stderr));
 
