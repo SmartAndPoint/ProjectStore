@@ -11,7 +11,7 @@ You are managing the epic↔code mapping (ADR-004).
 2. Compute (read-only, the unified reconcile path):
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --only codemap
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --only codemap
    ```
 
    The `codemap` entry carries `{ path, changed, content?, stats }`.
@@ -22,7 +22,7 @@ You are managing the epic↔code mapping (ADR-004).
    through the core, never the Write tool:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --write --only codemap
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --write --only codemap
    ```
 
    Explicit selection writes the map even on a vault with no `code_refs` yet.

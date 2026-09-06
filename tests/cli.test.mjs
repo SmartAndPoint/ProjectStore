@@ -204,7 +204,9 @@ test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses
 // each named with the reason it stays a script. The list is {script, why} so
 // it cannot quietly become a dumping ground (generation spec contract 8's
 // shape). A git-marketplace install has no bin on PATH, hence the explicit
-// node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" form, never npx.
+// node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" form, never npx.
+// (Spelling superseded 2026-09-06 — the braced placeholder is the one the host
+// substitutes; see the amendment below.)
 const SCRIPT_ONLY = [
   { script: "draft.mjs", why: "a pure renderer whose consumer is the creation prose, which reads path/content/index/collision at the top level — an envelope would be eight command files of field renames for no gain" },
   { script: "story-section.mjs", why: "PS-SPEC's lifecycle-gate machinery (story-007); wrapping it is a design decision, not a re-pointing" },
@@ -223,7 +225,7 @@ test("cli: every invocation in the prompt surface is the bin with a known verb, 
   let binCalls = 0;
   for (const rel of files) {
     const src = readFileSync(join(ROOT, rel), "utf8");
-    for (const m of src.matchAll(/node "\$CLAUDE_PLUGIN_ROOT\/([^"]+)"(?:\s+([A-Za-z-]+))?/g)) {
+    for (const m of src.matchAll(/node "\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)"(?:\s+([A-Za-z-]+))?/g)) {
       const [, path, first] = m;
       if (path === "bin/projectstore.mjs") {
         binCalls++;
@@ -245,9 +247,39 @@ test("cli: every invocation in the prompt surface is the bin with a known verb, 
   const all = files.map((rel) => readFileSync(join(ROOT, rel), "utf8")).join("\n");
   for (const s of SCRIPT_ONLY) assert.ok(all.includes(`scripts/${s.script}"`), `exception ${s.script} is still invoked — drop it from SCRIPT_ONLY otherwise`);
   assert.ok(!/npx projectstore/.test(all), "a git-marketplace install has no bin on PATH — never npx in the prompt surface");
-  assert.ok(!/node \$CLAUDE_PLUGIN_ROOT\//.test(all), "the plugin root is always quoted (paths with spaces)");
-  assert.ok(!/\$\{CLAUDE_PLUGIN_ROOT\}/.test(all), "one spelling of the root in prose");
+  assert.ok(!/node \$\{CLAUDE_PLUGIN_ROOT\}\//.test(all), "the plugin root is always quoted (paths with spaces)");
+  // Measured 2026-09-06 with a probe plugin: the host substitutes the BRACED
+  // placeholder inline in command, skill and agent content before the model
+  // reads it, and passes the unbraced one through as text — which the shell
+  // then expands to nothing. This assertion used to require the unbraced form;
+  // it required the one spelling that cannot work, and every release since at
+  // least 0.21 shipped it. See the story "The prompt surface asks the shell for
+  // a variable the host would have substituted".
+  assert.ok(!/\$CLAUDE_PLUGIN_ROOT/.test(all), "the prompt surface names the root braced — the unbraced form is not substituted and the Bash tool has no such variable");
   for (const s of SCRIPT_ONLY) { assert.ok(existsSync(join(ROOT, "scripts", s.script)), `exception ${s.script} exists`); assert.ok(s.why.length > 20); }
+  // A15: the project argument is the host's placeholder, never a model-filled
+  // blank — ${CLAUDE_PROJECT_DIR} is substituted in command, skill and agent
+  // content (measured 2026-09-06), and the bin's resolveProject otherwise falls
+  // through to the session's cwd, which a `cd` earlier in the turn has moved.
+  for (const rel of files) {
+    const src = readFileSync(join(ROOT, rel), "utf8");
+    for (const m of src.matchAll(/--project "([^"]*)"/g)) {
+      assert.equal(m[1], "${CLAUDE_PROJECT_DIR}", `${rel}: --project takes the host placeholder, not ${JSON.stringify(m[1])}`);
+    }
+  }
+  // One spelling of the plugin root across every surface that names it — the
+  // prompt surface, the hooks payload and the MCP entry. They drifted apart
+  // once (A8 pinned the unbraced form in prose while hooks used the braced
+  // one); this is what keeps them together.
+  {
+    const token = SRC.hooks.root_placeholder;
+    for (const rel of ["hooks/hooks.json", ".mcp.json", "docs/extending.md"]) {
+      const src = readFileSync(join(ROOT, rel), "utf8");
+      if (!src.includes("CLAUDE_PLUGIN_ROOT")) continue;
+      assert.ok(src.includes(token), `${rel} names the plugin root, and must use ${token}`);
+      assert.ok(!/\$CLAUDE_PLUGIN_ROOT/.test(src), `${rel}: the unbraced form is not substituted anywhere`);
+    }
+  }
   assert.ok(existsSync(BIN), "the path every command names exists");
   assert.ok(readdirSync(join(ROOT, "bin")).every((f) => f.endsWith(".mjs")));
   assert.ok(readFileSync(BIN, "utf8").startsWith("#!/usr/bin/env node\n"));

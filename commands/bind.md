@@ -19,7 +19,7 @@ Steps:
    - If absent **and** no positional vault path was given (or `--inherit` was passed): run step **0a** first.
    - If absent otherwise: proceed to step 1 (fresh bind).
    - If present **and** `--inherit` was passed: print "Already bound to `<path>`." and stop. Do not fall through to the rebind comparison below — with `--inherit` there is no new path to compare, and the comparison would render an empty "proposed" side and offer to replace the binding. A no-op command must not reach a destructive option.
-   - If present, let the verb compare — run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" bind "<vault-path>" [--layout <name>] [--language <code>] --json` **without** `--rebind` (pass the user's flags, so the proposed side of the diff is what a rebind would write) (the vault is normalised on both sides: `~`, relative, trailing slash, symlinks):
+   - If present, let the verb compare — run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" bind "<vault-path>" [--layout <name>] [--language <code>] --json` **without** `--rebind` (pass the user's flags, so the proposed side of the diff is what a rebind would write) (the vault is normalised on both sides: `~`, relative, trailing slash, symlinks):
      - `result.state` is `"same"` (exit 0, nothing written): print "Already bound to `<path>`. Re-run `/projectstore:scaffold` if you need to (re)create the layout, or `/projectstore:status` to inspect it." and stop. If `result.ignored` names `layout` or `language`, say the flag was ignored — a change of layout or language is not a rebind.
      - a refusal with code `UNREADABLE` (the config exists but is not valid JSON): relay it and stop — nothing is overwritten; the user fixes or removes the file first.
      - `result.state` is `"different"` (exit 1, a `REBIND` refusal, nothing written — **the refusal is the diff**, and `result.kept_keys` lists what a rebind keeps): show the user a one-block diff built from the existing config and the refusal:
@@ -43,7 +43,7 @@ Steps:
 0a. **Inherit from the checkout this worktree was forked from** (ADR "A vault worktree is an additional write path…", decision 12). `.gitignore` ignores `.claude/`, so a worktree of a bound checkout starts unbound and every `/projectstore:*` command is dead in it — including this one's usual path.
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/worktree.mjs"
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/worktree.mjs"
    ```
 
    It prints `{state, worktree, mainCheckout, vaultPath}` and writes nothing.
@@ -77,7 +77,7 @@ Steps:
 5. On approval, write through the core — never with the Write tool:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" bind "<vault-path>" [--layout <name>] [--language <code>] [--rebind]
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" bind "<vault-path>" [--layout <name>] [--language <code>] [--rebind]
    ```
 
    `init "<vault-path>" …` instead when step 1 chose to create the vault; `--rebind` only when step 0 ended on **Replace bind**. Naming the vault is the verb's confirmation (there is no `--yes`); the interview's AskUserQuestion in step 4 is the in-session gate. Print the verb's output. A non-zero exit is a refusal or a usage error — relay it and stop. Steps 11 and 12 below `Edit` the file this step wrote; keep them after it.
@@ -102,7 +102,7 @@ Steps:
 
    `spec_policy_since` is stamped ONLY when spec_policy is set to `required` — it anchors the legacy exemption (stories done before it stay exempt; stories in progress/review at enable time are in scope).
 
-8. **Agent registration** (v0.13, ADR-002): ask via AskUserQuestion — "Register projectstore's agents in CLAUDE.md/AGENTS.md so every session routes to them (critic after authoring artifacts, planner before implementing, reviewer before commit)? [Yes (Recommended) / No]". On Yes, run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" install --harness claude-code --surface agents_block --project "<abs project dir>"` and print its output (it renders from the layout's roster, migrates rather than duplicates, previews every write, and applies because the harness is named). On a rebind where a block already exists the verb reports it current or replaces it in place — do not re-ask blindly.
+8. **Agent registration** (v0.13, ADR-002): ask via AskUserQuestion — "Register projectstore's agents in CLAUDE.md/AGENTS.md so every session routes to them (critic after authoring artifacts, planner before implementing, reviewer before commit)? [Yes (Recommended) / No]". On Yes, run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" install --harness claude-code --surface agents_block --project "${CLAUDE_PROJECT_DIR}"` and print its output (it renders from the layout's roster, migrates rather than duplicates, previews every write, and applies because the harness is named). On a rebind where a block already exists the verb reports it current or replaces it in place — do not re-ask blindly.
 
 9. **Agent model preset** (v0.13, ADR-003; mechanism per ADR-008): ask via AskUserQuestion — include this line in the question text: *"These agents don't write code — they are critics, planners, and reviewers; they perform best on strong models at high effort."* Options: **Keep bundled default — opus** (Recommended) / **fable** / **sonnet**. Do not offer `inherit` — it cannot be expressed per invocation (see `commands/agents.md`). Do not offer effort — it is not configurable per project (the bundled agents already run at `max`). Free-form model IDs and per-agent tuning live in `/projectstore:agents configure` — mention it. A non-default choice runs the `configure` apply flow from `commands/agents.md`, which writes the config only — **never an agent copy**. Skippable.
 
@@ -119,10 +119,10 @@ Steps:
 
    After the question is answered (regardless of choice), Edit `<project>/.projectstore/projectstore.json` to add `"autoupdate_asked": true` to the JSON object. This guarantees we ask only once per project.
 
-12. **Status line offer** (v0.13, ADR-006 — the final step, language is known by now): read `$CLAUDE_PLUGIN_ROOT/templates/<lang>/strings.json` (fall back to `en`) and the plugin version, then show the fully rendered example:
+12. **Status line offer** (v0.13, ADR-006 — the final step, language is known by now): read `${CLAUDE_PLUGIN_ROOT}/templates/<lang>/strings.json` (fall back to `en`) and the plugin version, then show the fully rendered example:
 
     > `[PS#<version>] 📚 <statusline_example_epic> › <statusline_example_story> (in-progress)`
 
     (for `ru`: `[PS#<version>] 📚 Супер-фича в супер-продукте › Ручка для туалетной бумаги (in-progress)`; every bundled language ships its own example pair)
 
-    Ask via AskUserQuestion: "Show your current epic/story in the status line, composed above any existing HUD? [Yes / No]". On Yes: Edit `projectstore.json` → `"statusline": { "enabled": true }` (approval-gated), then run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" install --harness claude-code --surface statusline --project "<abs project dir>"` and print its output (it writes the `settings.local.json` entry and the launcher, previewed), and report: "Enabled — restart Claude Code in this project to apply. A fresh session shows: `[PS#<version>] 📚 <statusline_no_work>`."
+    Ask via AskUserQuestion: "Show your current epic/story in the status line, composed above any existing HUD? [Yes / No]". On Yes: Edit `projectstore.json` → `"statusline": { "enabled": true }` (approval-gated), then run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" install --harness claude-code --surface statusline --project "${CLAUDE_PROJECT_DIR}"` and print its output (it writes the `settings.local.json` entry and the launcher, previewed), and report: "Enabled — restart Claude Code in this project to apply. A fresh session shows: `[PS#<version>] 📚 <statusline_no_work>`."

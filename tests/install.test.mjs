@@ -610,7 +610,10 @@ test("install contract 4 (doctor half): each of the four stale reasons on the la
     assert.equal(f.length, 1);
     assert.equal(f[0].level, "issue");
     assert.match(f[0].message, /bin\/projectstore\.mjs" install --harness [a-z-]+ --surface statusline_launcher/, "the remedy is the bin form the command prose runs");
-    assert.ok(f[0].message.includes(`node "$${SRC.runtime.plugin_root_env}/bin/projectstore.mjs"`), "a shell reference to the harness's own variable, not its bare name");
+    // The effective root: one variant points the check at a second installation,
+    // and the remedy must name the root that produced the finding.
+    const effRoot = (opts && opts.root) || root;
+    assert.ok(f[0].message.includes(`node "${join(effRoot, "bin", "projectstore.mjs")}"`), "the remedy names a path the reader can run — doctor output is never placeholder-substituted (A15)");
     assert.ok(!f[0].message.includes("install-harness.mjs"));
     return f[0].message;
   };
@@ -645,7 +648,9 @@ test("install contract 5 (doctor half): a foreign file is reported under its own
   // Executable repairs: every verb invocation step 3 can emit leaves a foreign
   // launcher and a foreign slot byte-identical.
   // Since roadmap A8 the prose invokes the bin; the verb travels to install-harness.mjs unchanged (cli.mjs runInstallVerb).
-  const cmds = [...step3.matchAll(/node "\$CLAUDE_PLUGIN_ROOT\/(bin\/projectstore\.mjs)" ([a-z]+)/g)].map((m) => [m[1], m[2]]);
+  // Braced since A15: the host substitutes ${CLAUDE_PLUGIN_ROOT} in command
+  // prose and passes the unbraced form through as text.
+  const cmds = [...step3.matchAll(/node "\$\{CLAUDE_PLUGIN_ROOT\}\/(bin\/projectstore\.mjs)" ([a-z]+)/g)].map((m) => [m[1], m[2]]);
   assert.ok(cmds.length > 0 && cmds.every(([s, v]) => s === "bin/projectstore.mjs" && ["install", "uninstall", "upgrade", "plan"].includes(v)), "repairs invoke core verbs only, through the bin");
   const foreignSlot = JSON.stringify({ statusLine: { type: "command", command: "node /x/hud.mjs" } }, null, 2) + "\n";
   const victim = project({ settings: foreignSlot, agents: "# theirs\n" });
@@ -726,7 +731,7 @@ test("install: no doctor remedy names a raw script — every one is the bin form
   const src = read(join(ROOT, "scripts", "doctor.mjs"));
   assert.ok(!/install-harness\.mjs (install|uninstall|upgrade|plan)/.test(src));
   assert.ok(!/scripts\/(reconcile|doctor|install-harness)\.mjs"/.test(src.replace(/^\s*\/\/.*$/gm, "")), "no code path names a script the prose no longer runs");
-  assert.match(src, /node "\$\$\{pluginRootVar\(s\.harness\)\}\/bin\/projectstore\.mjs" install --harness/, "the remedy is a shell reference to the surface's harness variable, in the bin form");
+  assert.match(src, /node "\$\{join\(root, "bin", "projectstore\.mjs"\)\}" install --harness/, "the remedy is the resolved bin path, in the bin form the command prose runs (A15) — old: a shell reference to the surface's harness variable, in the bin form");
 });
 
 test("install contract 16: a harness is reported only when the project uses it", async () => {

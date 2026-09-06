@@ -15,7 +15,7 @@ subcommand (`.projectstore/projectstore.json`; else point to `/projectstore:bind
    [Yes / No]". On No, stop.
 2. **Run the verb** and print its output verbatim:
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" install --harness claude-code --surface agents_block --project "<abs project dir>"
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" install --harness claude-code --surface agents_block --project "${CLAUDE_PROJECT_DIR}"
    ```
    It renders the block from the installed plugin's template ∩ the layout's
    roster (`scaffold/layouts/<layout>.json` — only routable agents get lines;
@@ -35,7 +35,7 @@ subcommand (`.projectstore/projectstore.json`; else point to `/projectstore:bind
 1. Ask via AskUserQuestion ("Remove projectstore's agents block? [Yes / No]"),
    then run and print verbatim:
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" uninstall --harness claude-code --surface agents_block --project "<abs project dir>"
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" uninstall --harness claude-code --surface agents_block --project "${CLAUDE_PROJECT_DIR}"
    ```
    It removes the marked block; deletes a `CLAUDE.md` that held nothing else,
    or nothing but the `@AGENTS.md` import registration added; and leaves every
@@ -45,13 +45,13 @@ subcommand (`.projectstore/projectstore.json`; else point to `/projectstore:bind
 
 ## `status` — read-only report
 
-Run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" plan --json --surface agents_block --project "<abs project dir>"`
+Run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" plan --json --surface agents_block --project "${CLAUDE_PROJECT_DIR}"`
 and report each item's `state` from `result.items[]` — the bin wraps the plan in its envelope (`ours-current`, `ours-stale` with its reason,
 `ours-absent`, or a refusal). Then:
 
 - Block: present in which file, marker version vs the installed template, agent
   names vs the layout roster.
-- Model: run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" agents show --json --project "<abs project dir>"`
+- Model: run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" agents show --json --project "${CLAUDE_PROJECT_DIR}"`
   and report `result.resolved` — per roster agent, the model the verb would
   pass and its `source` (`per_agent`, `default`, or `null`: the agent's own
   frontmatter), resolved by the verb over the active harness's overlay
@@ -100,7 +100,7 @@ and report each item's `state` from `result.items[]` — the bin wraps the plan 
 2. **Optional follow-up**: "configure individually?" → per-agent model for each
    roster agent. Skippable.
 3. **Apply**: after the AskUserQuestion, run the verb and print its output —
-   `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" agents configure --harness claude-code --default <model> [--agent <name>=<model> …] --project "<abs project dir>"`
+   `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" agents configure --harness claude-code --default <model> [--agent <name>=<model> …] --project "${CLAUDE_PROJECT_DIR}"`
    (naming the harness is the confirmation; the verb writes
    `.projectstore/harness/claude-code.json → agents` and nothing else — never
    Edit or Write the file yourself). **Whenever `--default` is set and no
@@ -144,7 +144,7 @@ Any surface that spawns a roster agent (this plugin's own commands, and the
 registration block's instructions) resolves the model with one read:
 
 ```
-node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" agents model <name> --json --project "<abs project dir>"
+node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" agents model <name> --json --project "${CLAUDE_PROJECT_DIR}"
 ```
 
 and passes `result.model` as the spawn's model parameter — `null` means pass

@@ -21,7 +21,7 @@ the two cannot collide).
 3. **Render draft**:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/draft.mjs" story "$ARGUMENTS"
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/draft.mjs" story "$ARGUMENTS"
    ```
 
    The script fails if the epic folder does not exist. Surface the error and suggest `/projectstore:epic <id> "<title>"` first.
@@ -45,7 +45,7 @@ the two cannot collide).
 2. **Run the compute script** (pure — writes nothing):
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/story-section.mjs" <plan|close> "<story-path>"
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/story-section.mjs" <plan|close> "<story-path>"
    ```
 
    It returns `{ path, changed, notes, content }`: section inserted when
@@ -80,10 +80,10 @@ the two cannot collide).
      files with different jobs: the scratch is what gets copied to the target;
      the baseline is what `--check` compares against. Handing `--check` the
      scratch makes it report drift on every run.
-   - **Model (ADR-008)**: resolve it with `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" agents model clerk --json --project "<abs project dir>"` and pass `result.model` as the spawn's model parameter (`null` → pass nothing).
+   - **Model (ADR-008)**: resolve it with `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" agents model clerk --json --project "${CLAUDE_PROJECT_DIR}"` and pass `result.model` as the spawn's model parameter (`null` → pass nothing).
      Missing key, `inherit`, or unreadable config → pass nothing and let the
      agent's own frontmatter decide; never guess a model.
-   - Capture doctor's summary line (`node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor
+   - Capture doctor's summary line (`node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" doctor
      --vault`, last line) — the clerk needs it as the **pre-state**: it must not
      stop on findings that were already there and are not its own.
    - Spawn `projectstore:clerk` **as a foreground task** (you need its report to
@@ -104,10 +104,10 @@ the two cannot collide).
    close's ceremony, not the plan's.
 
 6a. **(close only) Reconcile** the touched derived targets through the core:
-   `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --write --only kanban` (add
+   `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --write --only kanban` (add
    `indexes=<epic folder>` when the status changed).
 
-6b. **(close only) Verify**: `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor --vault` (exit 1 = findings, not failure)
+6b. **(close only) Verify**: `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" doctor --vault` (exit 1 = findings, not failure)
    — a close is not done while doctor got worse. Then suggest the reviewer's
    proposed `code_refs` via `/projectstore:codemap set` (the reviewer computes it
    from `scripts/diff-refs.mjs --since <started_at>`).

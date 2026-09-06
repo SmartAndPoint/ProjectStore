@@ -84,7 +84,7 @@ say so plainly.
 3. **Findings** — severity-rated: `🔴 blocker` / `🟡 should-fix` / `🟢 nit`; each
    with file:line, confidence, why it matters, and a specific fix.
 4. **Proposed `code_refs`** — computed, not recalled: run
-   `node "$CLAUDE_PLUGIN_ROOT/scripts/diff-refs.mjs" --since <story started_at>`
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/diff-refs.mjs" --since <story started_at>`
    (story-scoped range; the script filters lockfiles/generated). When the
    result looks implausible (`fallback: true`, empty, or obviously
    over/under-attributed — shared branch, direct-to-main), say so and ask for

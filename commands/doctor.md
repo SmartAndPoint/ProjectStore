@@ -10,7 +10,7 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
 1. **Run the engine** (read-only; pass through section flags, never `--fix`):
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor $ARGUMENTS_WITHOUT_FIX
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" doctor $ARGUMENTS_WITHOUT_FIX
    ```
 
    Forward only `--install` / `--vault` from the arguments: the bin's parser is strict, and any other flag is a usage error (exit 2) rather than the shrug the bare script gave. Exit 1 means findings were reported, not that the check failed (exit 2 is usage, 3 not bound) — read the report, never the exit code, as the verdict. (The bare script always exited 0; through the bin the exit code carries the verdict, so a Bash tool that colours non-zero red is colouring findings, not a crash.)
@@ -30,7 +30,7 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    - `vault-git` → offer `git init` (+ optional first commit) inside the vault.
    - `gitignore` → offer appending the missing entries via Edit.
    - `agents-block` duplicate or stale → show the finding, then (after approval)
-     run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" install --harness claude-code --surface agents_block --project "<abs project dir>"`
+     run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" install --harness claude-code --surface agents_block --project "${CLAUDE_PROJECT_DIR}"`
      and print its output: it removes the copy in the non-preferred file and
      keeps the preferred one current. Never Edit or Write the block yourself —
      the verb is its only writer (install spec, contract 6).
@@ -40,11 +40,11 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      remind that a restart applies it.
    - `surface` (a stale installed file or a stale shared entry) → offer running
      the verb for that surface and print its output:
-     `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" install --harness claude-code --surface <key> --project "<abs project dir>"`
+     `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" install --harness claude-code --surface <key> --project "${CLAUDE_PROJECT_DIR}"`
      (`statusline` for the launcher, `agents_block` for the block). When more
      than one surface is stale — the shape of a plugin update — offer the one
      command that covers them all:
-     `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" upgrade --harness claude-code --project "<abs project dir>"`.
+     `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" upgrade --harness claude-code --project "${CLAUDE_PROJECT_DIR}"`.
      Repairs invoke core verbs only — never Edit, Write or delete the file yourself.
    - `upgrade` (an info the SessionStart line carries, not a row of this
      report: a launcher written before file stamps existed) → in this report

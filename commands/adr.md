@@ -12,7 +12,7 @@ Steps:
 2. **Render draft** by running:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/draft.mjs" adr "$ARGUMENTS"
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/draft.mjs" adr "$ARGUMENTS"
    ```
 
    The script outputs JSON with shape `{ kind, path, content, index, collision, warnings, vars }`. Capture stdout.
@@ -37,7 +37,7 @@ Steps:
    apply through the core — never the Write/Edit tools, and do not ask again:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --write --only indexes=<index.folder>
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --write --only indexes=<index.folder>
    ```
 
    The index row is derived state: the regeneration renders it in canonical

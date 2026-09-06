@@ -11,7 +11,7 @@ fresh-context pass over a projectstore vault. The deterministic doctor has
 already handled (or will handle) mechanical drift: stale indexes, dead links,
 status mismatches. Your subject is what no rule can check: does this vault still
 tell one coherent, non-redundant, well-connected story? Run
-`node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor --vault` first (exit 1 = findings, not failure) and skip anything
+`node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" doctor --vault` first (exit 1 = findings, not failure) and skip anything
 it already flags — do not duplicate mechanical findings.
 
 Locate the vault via `.projectstore/projectstore.json` → `vault_path`. Read the folder

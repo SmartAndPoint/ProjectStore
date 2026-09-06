@@ -76,14 +76,17 @@ import {
 } from "./lib.mjs";
 import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, configPath as harnessConfigPath, packageCommand } from "./harness.mjs";
 
-// The plugin-root variable a remedy interpolates, for the harness the surface
-// belongs to — read from that harness's manifest, never a literal (the
-// branded-variable lint), never the active harness's (a multi-harness project
-// disagrees). Falls back to the source harness's variable.
-function pluginRootVar(harnessId) {
-  try { const m = harnessId ? loadHarness(harnessId) : null; if (m && m.runtime && m.runtime.plugin_root_env) return m.runtime.plugin_root_env; } catch {}
-  return runtimeEnvNames().pluginRoot || sourceHarness()?.runtime?.plugin_root_env || "PLUGIN_ROOT";
-}
+// A remedy used to interpolate the surface's harness variable here. It cannot:
+// measured 2026-09-06, NO harness gives its Bash tool that variable, and a
+// finding is runtime output, which nothing substitutes — braced or not, the
+// reader would get the literal and the shell would expand it to nothing
+// ("Cannot find module '/bin/projectstore.mjs'"). A remedy now names the
+// resolved root, which this installation knows. The prose asks the host for
+// the same path through ${CLAUDE_PLUGIN_ROOT}, which IS substituted in
+// command, skill and agent content — different text, one resolution. See the
+// story "The prompt surface asks the shell for a variable the host would have
+// substituted"; harness neutrality is unaffected, an absolute path carries no
+// brand, and --harness still carries the target.
 import { uncommittedProjectFiles, lastCommitMs } from "./diff-refs.mjs";
 import { resolveBinding } from "./worktree.mjs";
 
@@ -489,7 +492,7 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
         out.push(finding("install", "issue", "surface-foreign",
           `${where} — ${FOREIGN_TEXT}. install, uninstall and upgrade refuse it; nothing repairs it.`, where));
       } else if (s.state === "stale" && s.produced) {
-        out.push(finding("install", "issue", "surface", `${where} — stale: ${s.reason}. Reinstall it: node "$${pluginRootVar(s.harness)}/bin/projectstore.mjs" install --harness ${s.harness} --surface ${s.surface} --project "${proj}" (for the status line, /projectstore:statusline on).`, where));
+        out.push(finding("install", "issue", "surface", `${where} — stale: ${s.reason}. Reinstall it: node "${join(root, "bin", "projectstore.mjs")}" install --harness ${s.harness} --surface ${s.surface} --project "${proj}" (for the status line, /projectstore:statusline on).`, where));
       } else if (s.state === "stale" && !s.produced) {
         out.push(finding("install", "info", "surface", `${where} — ${s.reason}.`, where));
       } else if (s.state === "current" && s.writtenBy && !s.sameProject) {

@@ -10,7 +10,7 @@ Steps:
 1. Run the verb. The query is a positional and travels **behind `--`**, so a phrase that starts with `-` (a flag name, say) is searched for rather than parsed; the options, if the user gave any, go before it:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" search [--kind <type>] [--status <status>] [--limit <n>] [--case-sensitive] [--include-derived] -- "<query>"
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" search [--kind <type>] [--status <status>] [--limit <n>] [--case-sensitive] [--include-derived] -- "<query>"
    ```
 
    The project resolves from the session's project directory; do not pass `--project`. Exit 3 means the project is unbound — say so and point at `/projectstore:bind <vault-path>`; exit 2 is a usage error — relay its message.
