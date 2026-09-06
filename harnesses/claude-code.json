@@ -11,16 +11,18 @@
     "date": "2026-09-04"
   },
   "install": {
-    "mechanism": "the package's own registration, or the built-in plugin marketplace",
-    "why_not_scripted": "Two channels. `npx projectstore install --harness claude-code --project <dir>` registers the plugin for that project from the npm package itself (a local marketplace under the Claude home, driven through Claude Code's own `claude plugin` CLI); `/plugin install projectstore@SmartAndPoint` installs it from the git marketplace. `/plugin` lists and toggles either. Upgrading the npm registration is `npx projectstore@<version> upgrade --harness claude-code --project <dir>` — that is also the pin.",
+    "mechanism": "the package's own registration through its distribution shell, or the built-in plugin marketplace",
+    "shell": "projectstore-claude",
+    "shell_reason": "the distribution shell that installs this harness from npm (the layout ADR decision 6; the shells ADR): `npx projectstore-claude install --project <dir>` is the core's `install --harness claude-code`, with the core pinned at the same version and bundled inside the shell's tarball. Data, not `projectstore-<id>`: the id is claude-code and the reserved, published name is projectstore-claude. Every command a finding or a deferred reason names is built from this key (harness.mjs packageCommand).",
+    "why_not_scripted": "Two channels. `npx projectstore-claude install --project <dir>` registers the plugin for that project from the npm package itself — the shell bundles the core and fixes the harness; the core's low-level form is `npx projectstore install --harness claude-code --project <dir>` — through a local marketplace under the Claude home, driven by Claude Code's own `claude plugin` CLI. `/plugin install projectstore@SmartAndPoint` installs it from the git marketplace. `/plugin` lists and toggles either. Upgrading the npm registration is `npx projectstore-claude@<version> upgrade --project <dir>` — that is also the pin.",
     "steps": [
-      "npx projectstore install --harness claude-code --project \"$PWD\"   (npm; registers the plugin for this project)",
+      "npx projectstore-claude install --project \"$PWD\"   (npm; registers the plugin for this project — the shell runs the core's install with the harness fixed)",
       "/plugin marketplace add SmartAndPoint/ProjectStore && /plugin install projectstore@SmartAndPoint   (git marketplace, user-wide)",
       "restart Claude Code"
     ],
     "notes": [
-      "Git marketplace only: auto-update is OFF by default for third-party plugins: /plugin -> Marketplaces -> SmartAndPoint -> toggle auto-update. The npm registration updates when you run `npx projectstore upgrade`.",
-      "Pin a git-marketplace release with: /plugin marketplace add SmartAndPoint/ProjectStore#<tag>; pin the npm registration with npx projectstore@<version>.",
+      "Git marketplace only: auto-update is OFF by default for third-party plugins: /plugin -> Marketplaces -> SmartAndPoint -> toggle auto-update. The npm registration updates when you run `npx projectstore-claude upgrade --project <dir>`.",
+      "Pin a git-marketplace release with: /plugin marketplace add SmartAndPoint/ProjectStore#<tag>; pin the npm registration with npx projectstore-claude@<version>.",
       "Two enabled copies of the plugin (git marketplace and npm) in one checkout would load twice; the npm registration silences the other one for that checkout only (settings.local.json), and says so in its preview.",
       "From a checkout instead: claude --plugin-dir ./ProjectStore",
       "The npm registration is per checkout (local scope) and per machine; a fresh clone or a new worktree runs the install command again. It must run from a terminal outside a Claude Code session: the host CLI and a live session both rewrite settings files."
@@ -452,7 +454,7 @@
   },
   "rewrites": [],
   "update_instructions": [
-    "**About future updates**: installed from the git marketplace, Claude Code does NOT auto-update third-party marketplaces by default (an npm registration updates with `npx projectstore upgrade`). To get notified of new releases (v0.7+):",
+    "**About future updates**: installed from the git marketplace, Claude Code does NOT auto-update third-party marketplaces by default (an npm registration updates with `npx projectstore-claude upgrade --project <dir>`). To get notified of new releases (v0.7+):",
     "1. Open `/plugin` → **Marketplaces** tab.",
     "2. Find **SmartAndPoint**.",
     "3. Toggle **auto-update** on.",

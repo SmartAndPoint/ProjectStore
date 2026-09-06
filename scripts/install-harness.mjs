@@ -62,7 +62,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { spawnSync } from "node:child_process";
-import { loadHarness, harnessIds, sourceHarness, detectHarnesses, harnessRefusal } from "./harness.mjs";
+import { loadHarness, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand } from "./harness.mjs";
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
 import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analyseLayout, isOurFile } from "./surfaces.mjs";
 import { pluginRoot, writeFileAtomic, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpVersion, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths } from "./lib.mjs";
@@ -247,9 +247,9 @@ function planRegistration(ctx, key, s) {
   // install / upgrade
   if (!a.produced) {
     // A cache install never registers a second copy of itself (condition npm_package_root).
-    if (a.state === "absent" || a.state === "unavailable") return named ? [{ ...base, action: "skip", deferred: true, reason: "this root is the host's own install of the plugin; it does not register a second copy of itself — the npm package does, from a terminal: npx projectstore install --harness " + harness.id + " --project \"" + projectDir + "\"" }] : [];
+    if (a.state === "absent" || a.state === "unavailable") return named ? [{ ...base, action: "skip", deferred: true, reason: `this root is the host's own install of the plugin; it does not register a second copy of itself — the npm package does, from a terminal: ${packageCommand(harness, "install", { args: `--project "${projectDir}"` })}` }] : [];
     if (a.state === "current") return [{ ...base, action: "skip" }];
-    return [{ ...base, action: "skip", deferred: true, reason: `${a.reason} — this root is the host's own install; refresh the registration from the package, outside a session: npx projectstore@<version> upgrade --harness ${harness.id} --surface ${key} --project "${projectDir}"` }];
+    return [{ ...base, action: "skip", deferred: true, reason: `${a.reason} — this root is the host's own install; refresh the registration from the package, outside a session: ${packageCommand(harness, "upgrade", { version: "<version>", args: `--surface ${key} --project "${projectDir}"` })}` }];
   }
   if (a.state === "unavailable") { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: a.reason }]; }
   if (a.state === "foreign") return [{ ...base, action: "refuse", reason: a.refusal }];

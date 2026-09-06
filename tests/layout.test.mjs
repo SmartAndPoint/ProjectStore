@@ -225,7 +225,7 @@ test("layout contract 7: doctor's layout-legacy names the upgrade and the startu
   const { proj, lp } = legacyProject(home);
   const f = checkLayout(proj);
   assert.equal(f.length, 1); assert.equal(f[0].check, "layout-legacy"); assert.equal(f[0].level, "warn");
-  assert.match(f[0].message, /upgrade --harness/); assert.match(f[0].message, /through 0\.29/);
+  assert.match(f[0].message, /npx projectstore-claude@[^ ]+ upgrade --project/); assert.match(f[0].message, /through 0\.29/); // the shell form (A13, contract 12)
   const st = runStartupChecks(JSON.parse(read(lp.legacy.binding)), proj);
   assert.ok(st.offers.some((o) => /layout moved to \.projectstore\//.test(o)), "the startup line carries the offer");
   const marker = (SRC.runtime.session_env || [])[0];

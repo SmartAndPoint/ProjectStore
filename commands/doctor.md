@@ -57,13 +57,14 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      The verbs refuse it in code; this clause is the belt.
    - `version-drift` → report only: name both versions and where each was
      read; the fix is the host's update path (`/plugin update` for a git-marketplace
-     copy; for the npm registration, the package's own `upgrade` from a terminal —
-     the `plugin-registration` finding spells it), not ours.
+     copy; for the npm registration, the `projectstore-claude` shell's `upgrade`
+     from a terminal — the `plugin-registration` finding spells the command),
+     not ours.
    - `layout-legacy` (warn; the startup line carries it as an offer) → the project
      still holds the pre-0.28 layout (`.claude/projectstore.json`,
      `.claude/.projectstore/` — legacy, read through 0.29). The migration is one
-     previewed `layout` item of `upgrade`, run **from a terminal outside this
-     session** (it moves files this session reads and writes; the verb defers
+     previewed `layout` item of the `projectstore-claude` shell's `upgrade`, run
+     **from a terminal outside this session** (it moves files this session reads and writes; the verb defers
      inside one). Relay the finding's command verbatim; never move the files
      yourself.
    - `layout-two-configs` (issue) → both `.claude/projectstore.json` (legacy) and

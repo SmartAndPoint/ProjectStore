@@ -19,10 +19,10 @@
 // Exit 0 when everything agrees, 1 on disagreement or a malformed manifest.
 // Output is JSON on stdout, always, so a workflow step can quote it.
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 // Contract 2 of the atomic-regeneration work: nothing under scripts/ writes
 // directly, and tests/scripts.test.mjs enforces it by globbing this directory.
 import { writeFileAtomic } from "./lib.mjs";
@@ -49,6 +49,37 @@ const VERSION_SITES = [
   ],
   [".codex-plugin/plugin.json", (j) => j.version, false],
 ];
+
+// The distribution shells (the shells ADR; layout spec contract 11): one
+// package.json per shell under packaging/shells/, each at the core's version
+// with an exact pin on it. Read directly — the directory is in the repository
+// but not in the tarball, and the guard runs from the repository.
+export const SHELLS_DIR = "packaging/shells";
+
+export function collectShells(root = ROOT) {
+  const dir = resolve(root, SHELLS_DIR);
+  if (!existsSync(dir)) return { shells: [] };
+  const shells = [];
+  // Directories only: a .DS_Store Finder drops on a browse is not a shell.
+  for (const name of readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort()) {
+    const rel = `${SHELLS_DIR}/${name}/package.json`;
+    const abs = resolve(root, rel);
+    if (!existsSync(abs)) return { error: `${rel}: missing — every directory under ${SHELLS_DIR}/ is a shell` };
+    let json;
+    try { json = JSON.parse(readFileSync(abs, "utf8")); } catch (e) { return { error: `${rel}: ${e.message}` }; }
+    if (json.name !== name) return { error: `${rel}: name "${json.name}" is not its directory's` };
+    if (typeof json.version !== "string" || !json.version) return { error: `${rel}: no version found where one is required` };
+    shells.push({
+      name, file: rel, version: json.version,
+      pin: json.dependencies?.projectstore ?? null,
+      private: json.private === true,
+      bin: json.bin?.[name] ?? null,
+      binExists: typeof json.bin?.[name] === "string" && existsSync(resolve(root, SHELLS_DIR, name, json.bin[name])),
+      bundled: Array.isArray(json.bundleDependencies) && json.bundleDependencies.includes("projectstore"),
+    });
+  }
+  return { shells };
+}
 
 function die(msg) {
   process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
@@ -84,18 +115,24 @@ const stripV = (t) => (t.startsWith("v") ? t.slice(1) : t);
 export function checkVersions({ root = ROOT, tag = null } = {}) {
   const { found, error } = collectVersions(root);
   if (error) return { ok: false, error };
+  const sh = collectShells(root);
+  if (sh.error) return { ok: false, error: sh.error };
 
-  const sites = tag ? [...found, { file: "<tag>", version: stripV(tag) }] : found;
+  // A shell's version is one more site under the same rule.
+  const sites = [...found, ...sh.shells.map((s) => ({ file: s.file, version: s.version }))];
+  if (tag) sites.push({ file: "<tag>", version: stripV(tag) });
   const distinct = [...new Set(sites.map((s) => s.version))];
+  if (distinct.length !== 1) return { ok: false, error: "version mismatch", versions: distinct, checked: sites };
 
-  return distinct.length === 1
-    ? { ok: true, version: distinct[0], checked: sites }
-    : {
-        ok: false,
-        error: "version mismatch",
-        versions: distinct,
-        checked: sites,
-      };
+  // Its pin is exact and equal to that version; its core is bundled; its bin
+  // is the one file it ships. A range here is the unverified pairing the
+  // shells ADR rejects; a missing bundle ships an installer with no core.
+  for (const s of sh.shells) {
+    if (s.pin !== `=${s.version}`) return { ok: false, error: "shell pin mismatch", shell: s.name, pin: s.pin, expected: `=${s.version}`, checked: sites };
+    if (!s.bundled) return { ok: false, error: "shell does not bundle the core", shell: s.name, checked: sites };
+    if (s.bin !== `bin/${s.name}.mjs` || !s.binExists) return { ok: false, error: "shell bin missing or misnamed", shell: s.name, bin: s.bin, expected: `bin/${s.name}.mjs`, checked: sites };
+  }
+  return { ok: true, version: distinct[0], checked: sites, shells: sh.shells.map((s) => ({ name: s.name, private: s.private })) };
 }
 
 // Everything at the repository root that is deliberately NOT in the tarball.
@@ -152,7 +189,7 @@ export function currentPacklist(root = ROOT) {
   }
 }
 
-function main(argv) {
+async function main(argv) {
   const tagIdx = argv.indexOf("--tag");
   const tag = tagIdx !== -1 ? argv[tagIdx + 1] : null;
   if (tagIdx !== -1 && !tag) die("--tag requires a value");
@@ -167,8 +204,25 @@ function main(argv) {
       // would break the one caller that parses this.
       die(`${PACKLIST}: ${e.message}`);
     }
+    // The shells' fixtures, from the core's CURRENT pack — after the core's
+    // fixture, since each lists the core's files under node_modules/. A lazy
+    // import: scripts/ ships and packaging/ does not, so a static specifier
+    // here would ship a module that cannot load.
+    const shellsModule = resolve(ROOT, "packaging", "shells.mjs");
+    const shells = [];
+    if (existsSync(shellsModule)) {
+      const m = await import(pathToFileURL(shellsModule).href);
+      const built = m.buildShells({ root: ROOT });
+      if (built.error) die(built.error);
+      for (const b of built.shells) {
+        if (b.error) die(b.error);
+        const rel = m.shellPacklistPath(b.name);
+        try { writeFileAtomic(resolve(ROOT, rel), JSON.stringify(b.files, null, 2) + "\n"); } catch (e) { die(`${rel}: ${e.message}`); }
+        shells.push({ wrote: rel, count: b.files.length });
+      }
+    }
     process.stdout.write(
-      JSON.stringify({ ok: true, wrote: PACKLIST, count: files.length }) + "\n",
+      JSON.stringify({ ok: true, wrote: PACKLIST, count: files.length, shells }) + "\n",
     );
     return;
   }
@@ -179,5 +233,5 @@ function main(argv) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main(process.argv.slice(2));
+  await main(process.argv.slice(2));
 }

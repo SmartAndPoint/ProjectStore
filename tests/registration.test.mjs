@@ -371,7 +371,7 @@ test("registration contract 4′: a checkout that never registered is absent eve
   const fromCache = plan(sb.proj, { home, root: cacheRoot, env });
   const i = sb.item(fromCache, "plugin");
   assert.equal(i.action, "skip");
-  assert.match(i.reason, /npx projectstore@<version> upgrade --harness/);
+  assert.match(i.reason, /npx projectstore-claude@<version> upgrade --surface/); // the shell form (contract 12); the harness is the shell's
   assert.equal(host.log().filter((c) => c.argv[1] === "disable").length, 0);
 });
 

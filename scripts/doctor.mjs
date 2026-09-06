@@ -74,7 +74,7 @@ import {
   hostSettingsPath,
   readOverlayAt, layoutRoster,
 } from "./lib.mjs";
-import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, configPath as harnessConfigPath } from "./harness.mjs";
+import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, configPath as harnessConfigPath, packageCommand } from "./harness.mjs";
 
 // The plugin-root variable a remedy interpolates, for the harness the surface
 // belongs to — read from that harness's manifest, never a literal (the
@@ -551,7 +551,10 @@ export function checkOverlays(cfg, proj) {
 export function checkPluginRegistration(proj, states = []) {
   const out = [];
   for (const s of states.filter((x) => x.kind === "registration")) {
-    const refresh = `npx projectstore@${s.pkg || "latest"} upgrade --harness ${s.harness} --surface ${s.surface} --project "${proj}"`;
+    // The shell form when the manifest names a shell (contract 12): the
+    // command a user can paste, built in one place.
+    const h = loadHarness(s.harness) || { id: s.harness };
+    const refresh = packageCommand(h, "upgrade", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` });
     const others = (s.others || []).map((o) => `${o.key} (${o.version || "?"})`).join(", ");
     if (s.state === "foreign") {
       out.push(finding("install", "issue", "plugin-registration-foreign", `${s.reason} — install, uninstall and upgrade refuse it; nothing repairs it.`, s.path));
@@ -563,7 +566,7 @@ export function checkPluginRegistration(proj, states = []) {
     } else if (s.state === "stale") {
       out.push(finding("install", "issue", "plugin-registration", `${s.entry} — stale: ${s.reason}. Refresh it: ${refresh}`, s.path));
     } else if (s.state === "current") {
-      if (others) out.push(finding("install", "issue", "plugin-registration", `${s.entry} is current, and ${others} is enabled for this project too — two enabled copies of one plugin load twice. install silences the other for this project: npx projectstore install --harness ${s.harness} --surface ${s.surface} --project "${proj}" (or the host's own disable at the scope the manifest names — never the committed project scope).`, s.path));
+      if (others) out.push(finding("install", "issue", "plugin-registration", `${s.entry} is current, and ${others} is enabled for this project too — two enabled copies of one plugin load twice. install silences the other for this project: ${packageCommand(h, "install", { args: `--surface ${s.surface} --project "${proj}"` })} (or the host's own disable at the scope the manifest names — never the committed project scope).`, s.path));
       else out.push(finding("install", "info", "plugin-registration", `${s.entry} ${s.installedVersion} registered from the npm package for this project (loaded from ${s.installPath}); refresh with ${refresh}.`));
     }
   }
@@ -699,7 +702,7 @@ export function checkLayout(proj, harness = sourceHarness(), { level = "warn" } 
   }
   if (!legacyBinding && !legacyRuntime && !existsSync(p.legacy.welcomed) && !existsSync(p.legacy.sessionId)) return [];
   return [finding("install", level, "layout-legacy",
-    `The project layout moved to .projectstore/ (the layout ADR, 0.28); this project still holds ${[legacyBinding && relative(proj, p.legacy.binding), legacyRuntime && relative(proj, p.legacy.runtime) + "/"].filter(Boolean).join(" and ")}. Migrate it from a terminal outside the session: npx projectstore@${pluginVersion() || "latest"} upgrade --harness ${harness?.id || "claude-code"} --project "${proj}" (readers fall back to the old paths through 0.29).`,
+    `The project layout moved to .projectstore/ (the layout ADR, 0.28); this project still holds ${[legacyBinding && relative(proj, p.legacy.binding), legacyRuntime && relative(proj, p.legacy.runtime) + "/"].filter(Boolean).join(" and ")}. Migrate it from a terminal outside the session: ${packageCommand(harness, "upgrade", { version: pluginVersion() || "latest", args: `--project "${proj}"` })} (readers fall back to the old paths through 0.29).`,
     legacyBinding ? relative(proj, p.legacy.binding) : relative(proj, p.legacy.runtime))];
 }
 

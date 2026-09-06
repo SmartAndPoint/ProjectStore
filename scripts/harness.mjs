@@ -356,6 +356,21 @@ export function layoutPaths(projectDir, { harnessDir = null, dir = MANIFEST_DIR 
   };
 }
 
+// The command a user types from a terminal for this harness (the layout ADR
+// decision 6; layout spec contract 12): the harness's distribution shell when
+// the manifest names one — `npx projectstore-claude install --project "…"`,
+// the harness fixed by the shell — else the core with --harness. Finding
+// messages and deferred reasons are built here, so the installer names no
+// harness id and no shell name of its own. The shell's name is data
+// (install.shell), not `projectstore-<id>`: the id is claude-code, the
+// published name is projectstore-claude.
+export function packageCommand(harness, verb, { version = null, args = "" } = {}) {
+  const shell = harness?.install?.shell || null;
+  const pkg = `${shell || "projectstore"}${version ? `@${version}` : ""}`;
+  const fixed = shell ? "" : ` --harness ${harness?.id || "<id>"}`;
+  return `npx ${pkg} ${verb}${fixed}${args ? ` ${args}` : ""}`;
+}
+
 // The overlay a harness reads: <project>/.projectstore/harness/<overlay>.json —
 // the manifest's runtime.overlay, the harness id by convention (the layout ADR,
 // decision 3). Null only when no manifest at all can be found.

@@ -6,11 +6,13 @@
 npm install projectstore
 ```
 
-opencode discovers plugins by the `opencode-` name prefix. This name is reserved for the thin re-export that will make projectstore installable in opencode; until then, the plugin lives in `projectstore`.
+The first working name of the opencode shell. opencode's `opencode-` prefix is a naming convention, not a discovery requirement, so the shell ships as `projectstore-opencode` — one `projectstore-<harness>` name per harness — and this name stays a deprecated pointer to it.
 
-ProjectStore ships as **one package carrying every harness's manifest** —
-Claude Code, Codex, opencode and an MCP server all install the same tree. That
-decision is recorded in the project's architecture decision records.
+ProjectStore ships as **one source package carrying every harness's
+manifest** — and, per harness, a distribution shell that pins and bundles it
+with the harness fixed: `projectstore-claude`, `projectstore-codex`,
+`projectstore-opencode`. Those decisions are recorded in the project's
+architecture decision records.
 
 - Source: https://github.com/SmartAndPoint/ProjectStore
 - Issues: https://github.com/SmartAndPoint/ProjectStore/issues
