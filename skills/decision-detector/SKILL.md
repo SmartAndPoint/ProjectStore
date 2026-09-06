@@ -13,7 +13,7 @@ You watch for **decision moments** in the conversation:
 
 ## When you detect such a moment
 
-1. **Check if a vault is bound**: confirm `.claude/projectstore.json` exists in the current project. If not, do nothing — this skill is silent without binding.
+1. **Check if a vault is bound**: confirm `.projectstore/projectstore.json` exists in the current project. If not, do nothing — this skill is silent without binding.
 
 2. **Check `active_skills` in the config**. If `false`, do nothing.
 

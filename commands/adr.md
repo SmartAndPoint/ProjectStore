@@ -7,7 +7,7 @@ You are creating a new ADR.
 
 Steps:
 
-1. **Check config**: `test -f .claude/projectstore.json` — if missing, tell user to run `/projectstore:bind <path>` and stop.
+1. **Check config**: `test -f .projectstore/projectstore.json` — if missing, tell user to run `/projectstore:bind <path>` and stop.
 
 2. **Render draft** by running:
 

@@ -59,6 +59,17 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      read; the fix is the host's update path (`/plugin update` for a git-marketplace
      copy; for the npm registration, the package's own `upgrade` from a terminal —
      the `plugin-registration` finding spells it), not ours.
+   - `layout-legacy` (warn; the startup line carries it as an offer) → the project
+     still holds the pre-0.28 layout (`.claude/projectstore.json`,
+     `.claude/.projectstore/` — legacy, read through 0.29). The migration is one
+     previewed `layout` item of `upgrade`, run **from a terminal outside this
+     session** (it moves files this session reads and writes; the verb defers
+     inside one). Relay the finding's command verbatim; never move the files
+     yourself.
+   - `layout-two-configs` (issue) → both `.claude/projectstore.json` (legacy) and
+     `.projectstore/projectstore.json` exist: `install` and `upgrade` refuse until
+     one is deleted. Show both, ask the user which is the binding they mean, and
+     let them delete the other; `uninstall` and this report are not blocked.
    - `plugin-registration` (info) → nothing to repair; it names where the npm
      registration loads from. As an **issue** — stale, or two enabled copies —
      print the finding and relay its command verbatim (the package runner's
@@ -78,7 +89,7 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    - `override-copies` → a copy carrying the provenance marker overrides nothing
      (ADR-008): offer to **delete** it (approval-gated, one prompt per file), and
      say that `/projectstore:agents configure` now records the model in
-     `.claude/projectstore.json` instead. Never offer to delete — or edit — a
+     `.projectstore/harness/<harness>.json` (the active harness's overlay) instead. Never offer to delete — or edit — a
      copy reported at `info`: no provenance marker means we cannot prove it is
      ours, and it may be the user's own agent.
    - `auto-update` off → offer adding `extraKnownMarketplaces.<marketplace>.autoUpdate: true`

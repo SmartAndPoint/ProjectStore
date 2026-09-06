@@ -14,7 +14,7 @@ Parse `$ARGUMENTS`:
 Steps:
 
 0. **Check for an existing bind** (safer rebind, v0.4.1):
-   - Read `<project>/.claude/projectstore.json` if it exists.
+   - Read `<project>/.projectstore/projectstore.json` if it exists.
    - `--inherit` and a positional vault path together are a contradiction: say so and stop, rather than silently picking one.
    - If absent **and** no positional vault path was given (or `--inherit` was passed): run step **0a** first.
    - If absent otherwise: proceed to step 1 (fresh bind).
@@ -48,9 +48,9 @@ Steps:
 
    It prints `{state, worktree, mainCheckout, vaultPath}` and writes nothing.
    - `state` is **not** `inheritable` → say why in one line (not a worktree, its parent is unbound too, or git could not answer) and fall through to step 1, which needs a vault path; if none was given, ask for one.
-   - `state` is `inheritable` → read the parent's `<mainCheckout>/.claude/projectstore.json`, show it **verbatim as a code block**, and ask via AskUserQuestion: "Adopt the binding of `<mainCheckout>` (vault `<vaultPath>`)?" — Yes / No.
-   - On **Yes**: Write that JSON verbatim to `<project>/.claude/projectstore.json`, then **jump straight to step 10** (the summary). Steps 1–9 and 11–12 are decisions the parent already made and the copied config already carries — layout, language, statusline, agent models, auto-update. Do not re-ask them, and do not scaffold: the vault exists and is shared.
-   - Copy the **binding only**. Never copy `<project>/.claude/.projectstore/` — that is per-session state belonging to the other checkout.
+   - `state` is `inheritable` → read the parent's `<mainCheckout>/.projectstore/projectstore.json` (or, in a checkout not yet migrated, the legacy `<mainCheckout>/.claude/projectstore.json`), show it **verbatim as a code block**, and ask via AskUserQuestion: "Adopt the binding of `<mainCheckout>` (vault `<vaultPath>`)?" — Yes / No.
+   - On **Yes**: Write that JSON verbatim to `<project>/.projectstore/projectstore.json`, then **jump straight to step 10** (the summary). Steps 1–9 and 11–12 are decisions the parent already made and the copied config already carries — layout, language, statusline, agent models, auto-update. Do not re-ask them, and do not scaffold: the vault exists and is shared.
+   - Copy the **binding only** (`projectstore.json`). Never copy `.projectstore/state/` — per-session state belonging to the other checkout — and never `harness/`: the overlays are committed and arrive from git.
    - Do not add a provenance key to the config. The parent is resolvable from git at any time; a key would be a second source of truth for the same fact.
 
 1. **Validate the vault path** read-only first: `ls -d "<path>"` (the verb has no dry run — running it on a fresh project would write the config before step 4's approval). If it does not exist, ask the user (via AskUserQuestion) whether to create it; on Yes, step 5 runs `init` instead of `bind` (it creates the directory and binds; the layout's folders remain `/projectstore:scaffold`'s). Never `mkdir` it yourself.
@@ -72,7 +72,7 @@ Steps:
 
    `default_author` comes from `git config --get user.name` in the project (fallback to the login name) — the verb reads it; the block above is the preview of what the verb writes on a fresh bind (a rebind rewrites `vault_path`, `layout`, `language` and keeps every other key).
 
-4. **Show the user the proposed config** as a code block. Use AskUserQuestion to confirm: "Write `.claude/projectstore.json` with this config? [Yes / Edit a field / No]".
+4. **Show the user the proposed config** as a code block. Use AskUserQuestion to confirm: "Write `.projectstore/projectstore.json` with this config? [Yes / Edit a field / No]".
 
 5. On approval, write through the core — never with the Write tool:
 
@@ -82,7 +82,7 @@ Steps:
 
    `init "<vault-path>" …` instead when step 1 chose to create the vault; `--rebind` only when step 0 ended on **Replace bind**. Naming the vault is the verb's confirmation (there is no `--yes`); the interview's AskUserQuestion in step 4 is the in-session gate. Print the verb's output. A non-zero exit is a refusal or a usage error — relay it and stop. Steps 11 and 12 below `Edit` the file this step wrote; keep them after it.
 
-6. **Check `.gitignore`**: read `<project>/.gitignore` if it exists. Unless `.claude/` is ignored wholesale, the machine-specific entries are: `.claude/projectstore.json`, `.claude/settings.local.json`, `.claude/.projectstore/` (per-session state). Ask via AskUserQuestion: "Add the missing entries to `.gitignore`? [Yes / No]". If yes, append them (use Edit).
+6. **Check `.gitignore`**: read `<project>/.gitignore` if it exists. Our own files are self-ignored inside `.projectstore/` (its `.gitignore` carries `projectstore.json` and `state/`; `harness/` is committed on purpose — the layout ADR). Unless `.claude/` is ignored wholesale, the one machine-specific entry left is the host's `.claude/settings.local.json`. If it is missing, offer (AskUserQuestion) to append it. If the user declines, skip silently.
 
 7. **Offer scaffold**: if the vault is empty or missing layout folders, ask: "Vault is empty/incomplete. Run `/projectstore:scaffold` to create the layout? [Yes / No]". If yes, invoke `/projectstore:scaffold` immediately (just describe; do not assume execution).
 
@@ -117,7 +117,7 @@ Steps:
    - **No, I'll handle it manually** — respond with: "OK. To pull the latest version at any time, run `/plugin marketplace update SmartAndPoint`, then `/reload-plugins`."
    - **Already enabled** — respond with: "Great. New releases will be detected at the next Claude Code startup."
 
-   After the question is answered (regardless of choice), Edit `<project>/.claude/projectstore.json` to add `"autoupdate_asked": true` to the JSON object. This guarantees we ask only once per project.
+   After the question is answered (regardless of choice), Edit `<project>/.projectstore/projectstore.json` to add `"autoupdate_asked": true` to the JSON object. This guarantees we ask only once per project.
 
 12. **Status line offer** (v0.13, ADR-006 — the final step, language is known by now): read `$CLAUDE_PLUGIN_ROOT/templates/<lang>/strings.json` (fall back to `en`) and the plugin version, then show the fully rendered example:
 

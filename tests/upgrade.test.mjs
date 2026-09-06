@@ -24,22 +24,22 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { sourceHarness } from "../scripts/harness.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
-import { renderStatusLineLauncher, statusLineLauncherPath, renderAgentsBlock, syncStatusLine, LAUNCHER_HEADER } from "../scripts/lib.mjs";
+import { renderStatusLineLauncher, statusLineLauncherPath, renderAgentsBlock, syncStatusLine, LAUNCHER_HEADER, layoutPaths} from "../scripts/lib.mjs";
 import { plan, apply } from "../scripts/install-harness.mjs";
-import { checkHarnessSurfaces, checkPendingUpgrade, runStartupChecks } from "../scripts/doctor.mjs";
-import { fakeInstall, writeRegistry, installEnv } from "./fixtures/install.mjs";
+import { checkHarnessSurfaces, checkPendingUpgrade, runStartupChecks, checkLayout } from "../scripts/doctor.mjs";
+import { fakeInstall, writeRegistry, installEnv, noHostEnv } from "./fixtures/install.mjs";
 import { seedCliVault } from "./fixtures/vault.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
-const CFG_DIR = SRC.runtime.project_config_dir;
+const CFG_DIR = SRC.runtime.harness_dir; // the harness's own directory (settings.local.json); our binding is layoutPaths(proj).binding
 const VERSION = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
 const TPL_027 = readFileSync(join(ROOT, "tests", "fixtures", "statusline-launcher-0.27.1.txt"), "utf8");
 const TEMPLATE = readFileSync(join(ROOT, "templates", "claude-md-block.md.tmpl"), "utf8");
@@ -63,10 +63,15 @@ function project027(home) {
   mkdirSync(join(old, "scripts"), { recursive: true });
   writeFileSync(join(old, "scripts", "statusline.mjs"), 'process.stdout.write("rendered-by-0.27.1\\n");\n');
   const { proj, vault } = seedCliVault();
-  const cfgPath = join(proj, CFG_DIR, "projectstore.json");
-  writeFileSync(cfgPath, JSON.stringify({ ...JSON.parse(read(cfgPath)), statusline: { enabled: true } }, null, 2) + "\n");
-  mkdirSync(join(proj, CFG_DIR, ".projectstore"), { recursive: true });
-  const launcher = statusLineLauncherPath(proj);
+  // The 0.27.1 shape is the LEGACY layout: the binding under the harness's
+  // directory, the launcher under .claude/.projectstore/ (the layout ADR, 2026-09-06).
+  const lp = layoutPaths(proj);
+  const cfgPath = lp.legacy.binding;
+  mkdirSync(dirname(cfgPath), { recursive: true });
+  writeFileSync(cfgPath, JSON.stringify({ ...JSON.parse(read(lp.binding)), statusline: { enabled: true } }, null, 2) + "\n");
+  rmSync(lp.root, { recursive: true, force: true });
+  mkdirSync(lp.legacy.runtime, { recursive: true });
+  const launcher = lp.legacy.launcher;
   writeFileSync(launcher, render027(TPL_027, old));
   writeFileSync(join(proj, CFG_DIR, "settings.local.json"), JSON.stringify({ statusLine: { type: "command", command: `node "${launcher}"` } }, null, 2) + "\n");
   writeFileSync(join(proj, "AGENTS.md"), BLOCK + "\n");
@@ -75,7 +80,7 @@ function project027(home) {
 }
 
 function snapshot(proj, vault) {
-  const files = [join(proj, CFG_DIR, "settings.local.json"), statusLineLauncherPath(proj), join(proj, "AGENTS.md"), join(proj, "CLAUDE.md"), join(vault, "kanban.md"), join(vault, "graph.md"), join(vault, "code-map.md")];
+  const files = [join(proj, CFG_DIR, "settings.local.json"), layoutPaths(proj).legacy.launcher, join(proj, "AGENTS.md"), join(proj, "CLAUDE.md"), join(vault, "kanban.md"), join(vault, "graph.md"), join(vault, "code-map.md")];
   return Object.fromEntries(files.filter(existsSync).map((f) => [f, read(f)]));
 }
 
@@ -87,7 +92,7 @@ function install028() {
 }
 
 const bin = (root, env, args) => spawnSync(process.execPath, [join(root, "bin", "projectstore.mjs"), ...args], { encoding: "utf8", env, timeout: 90000, maxBuffer: 1 << 24 });
-const INSTALL_FAMILY = ["surface", "surface-foreign", "version-drift", "harness", "mcp", "upgrade", "plugin-registration", "plugin-registration-foreign"];
+const INSTALL_FAMILY = ["surface", "surface-foreign", "version-drift", "harness", "mcp", "upgrade", "plugin-registration", "plugin-registration-foreign", "layout-legacy", "layout-two-configs"];
 
 test("upgrade: the first 0.28 session touches nothing of ours, names the one pending step, and doctor reports exactly the stale launcher plus the mcp info", async () => {
   const { home, root } = install028();
@@ -105,6 +110,7 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   const sys = (out.systemMessage || "") + " " + JSON.stringify(out.hookSpecificOutput || {});
   assert.match(sys, /plugin updated/, "the startup line names the pending step");
   assert.match(sys, /doctor --fix/);
+  assert.match(sys, /layout moved to \.projectstore\//, "and the layout move (the layout ADR, 2026-09-06)");
   assert.deepEqual(snapshot(proj, vault), before, "settings, launcher, block and views are byte-identical after the first session");
   assert.ok(existsSync(join(vault, ".projectstore", "sessions", "up-1.json")) || readdirSync(join(vault, ".projectstore", "sessions")).length > 0, "the session marker is the write");
 
@@ -112,24 +118,33 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   const doc = bin(root, installEnv(home, root, proj), ["doctor", "--json", "--install", "--project", proj]);
   const findings = JSON.parse(doc.stdout).result;
   const fam = findings.filter((f) => INSTALL_FAMILY.includes(f.check)).map((f) => [f.check, f.level]).sort();
-  assert.deepEqual(fam, [["mcp", "info"], ["surface", "issue"]], "the install family is exactly the stale launcher and the permanent mcp info");
+  assert.deepEqual(fam, [["layout-legacy", "warn"], ["mcp", "info"], ["surface", "issue"]], "the install family is exactly the stale launcher, the legacy layout and the permanent mcp info");
   const stale = findings.find((f) => f.check === "surface");
   assert.match(stale.message, /plugin updated \(pre-provenance file\)/);
   assert.match(stale.message, /bin\/projectstore\.mjs" install --harness/);
   assert.deepEqual(checkPendingUpgrade(proj, home, root).map((f) => f.check), ["upgrade"]);
-  // In-process, this repo is the root — a dev checkout — so the offer is correctly absent; the hook spawned from the install carried it (asserted above).
-  assert.deepEqual(runStartupChecks(JSON.parse(read(join(proj, CFG_DIR, "projectstore.json"))), proj).offers, []);
+  // In-process, this repo is the root — a dev checkout — so the re-stamp offer is correctly absent; the layout offer does not depend on the root.
+  const offers = runStartupChecks(JSON.parse(read(join(proj, CFG_DIR, "projectstore.json"))), proj).offers;
+  assert.equal(offers.length, 1); assert.match(offers[0], /layout moved/);
 
-  // One upgrade: the launcher is stamped with the install's version, nothing else moves.
+  // One upgrade: the layout moves, the launcher is stamped at its new path, the
+  // entry is re-pointed, the legacy launcher and runtime dir are gone (the
+  // layout ADR); the block and the views do not move.
   const up = bin(root, installEnv(home, root, proj), ["upgrade", "--harness", SRC.id, "--project", proj]);
   assert.equal(up.status, 0, up.stderr + up.stdout);
+  const lp = layoutPaths(proj);
   const stamped = read(statusLineLauncherPath(proj));
   const prov = parseProvenance(stamped);
   assert.ok(prov, "stamped");
   assert.equal(prov.pkg, VERSION);
   assert.ok(stamped.includes(LAUNCHER_HEADER));
+  assert.ok(stamped.includes(JSON.stringify(proj)), "the launcher names its project");
+  assert.ok(!existsSync(lp.legacy.launcher), "the legacy launcher is removed once the entry names the new one");
+  assert.ok(!existsSync(lp.legacy.runtime), "the emptied legacy runtime directory is pruned");
+  assert.ok(!existsSync(lp.legacy.binding) && existsSync(lp.binding), "the binding moved");
+  assert.equal(JSON.parse(read(join(proj, CFG_DIR, "settings.local.json"))).statusLine.command, `node "${statusLineLauncherPath(proj)}"`, "the entry is re-pointed");
   const after = snapshot(proj, vault);
-  for (const [f, text] of Object.entries(before)) if (f !== statusLineLauncherPath(proj)) assert.equal(after[f], text, `${f} untouched by upgrade`);
+  for (const [f, text] of Object.entries(before)) if (f !== lp.legacy.launcher && f !== join(proj, CFG_DIR, "settings.local.json")) assert.equal(after[f], text, `${f} untouched by upgrade`);
   const doc2 = JSON.parse(bin(root, installEnv(home, root, proj), ["doctor", "--json", "--install", "--project", proj]).stdout).result;
   assert.deepEqual(doc2.filter((f) => INSTALL_FAMILY.includes(f.check)).map((f) => [f.check, f.level]), [["mcp", "info"]], "clean but for the permanent mcp info");
   assert.deepEqual(checkPendingUpgrade(proj, home, root), [], "nothing pending after the re-stamp");
@@ -179,28 +194,45 @@ test("upgrade: a wrapped block marker and a hand-edited block are named, never d
   assert.equal(read(join(proj, "AGENTS.md")), BLOCK + "\n", "one block, the template's");
 });
 
-test("upgrade rollback: 0.28 cannot fill 0.27.1's template, 0.27.1 overwrites the stamp on its first session, and one re-stamp clears it on the way forward", async () => {
+test("upgrade rollback (rewritten for the layout move): 0.28 cannot fill 0.27.1's template; forward moves the launcher; a 0.27.1 re-bind makes two bindings, which install and upgrade refuse and uninstall does not; forward again is a no-op", async () => {
   const { home, root } = install028();
-  const { proj, launcher, old } = project027(home);
-  assert.equal(renderStatusLineLauncher(TPL_027, root), null, "the old template lacks two placeholders: a rollback is not papered over by re-rendering it");
-  // Forward: stamp.
-  apply(plan(proj, { home, root, surfaces: ["statusline"] }));
-  const stamped = read(launcher);
-  assert.ok(parseProvenance(stamped));
-  // Rollback: 0.27.1's writer rewrites whenever the bytes differ from its render — they do.
-  const src027 = render027(TPL_027, old);
-  assert.notEqual(stamped, src027, "0.27.1's `cur !== src` is true, so its first session overwrites the stamp");
-  writeFileSync(launcher, src027);
-  // Forward again: stale, one re-stamp.
-  const p = plan(proj, { home, root, surfaces: ["statusline"] });
-  const i = p.items.find((x) => x.surface === "statusline_launcher");
-  assert.equal(i.state, "stale"); assert.match(i.reason, /plugin updated \(pre-provenance file\)/); assert.equal(i.action, "update");
-  assert.equal((await checkHarnessSurfaces({}, proj, { home, root })).filter((x) => x.check === "surface").length, 1);
-  apply(p);
+  const { proj, launcher: legacyLauncher } = project027(home);
+  const lp = layoutPaths(proj);
+  assert.equal(renderStatusLineLauncher(TPL_027, root, proj), null, "the old template lacks the newer placeholders: a rollback is not papered over by re-rendering it");
+  // Forward: the layout moves (planned whatever --surface names), the launcher is
+  // stamped at its new path, the entry re-pointed, the legacy launcher removed.
+  const env = noHostEnv();
+  const fwd = plan(proj, { home, root, surfaces: ["statusline"], env });
+  assert.equal(fwd.items[0].kind, "layout"); assert.equal(fwd.items[0].action, "migrate");
+  const i0 = fwd.items.find((x) => x.surface === "statusline_launcher");
+  assert.equal(i0.state, "stale"); assert.match(i0.reason, /plugin updated \(pre-provenance file\).*moving from/); assert.equal(i0.action, "create");
+  apply(fwd, { env, home });
+  const launcher = statusLineLauncherPath(proj);
   assert.ok(parseProvenance(read(launcher)));
-  // 0.28's disable path unlinks only a file that carries our header; 0.27.1's unlinked unconditionally.
+  assert.ok(!existsSync(legacyLauncher), "the legacy launcher is gone once nothing names it");
+  assert.ok(!existsSync(lp.legacy.binding) && existsSync(lp.binding));
+  // Rollback below 0.28 is one-way: 0.27.1 reads .claude/projectstore.json, which is
+  // gone, so it sees the project as unbound and writes no status line; the
+  // version-free launcher keeps rendering from the registry. A 0.27.1 session that
+  // re-binds writes the legacy file back — two bindings: install and upgrade
+  // refuse, doctor names both, uninstall is not blocked.
+  writeFileSync(lp.legacy.binding, JSON.stringify({ ...JSON.parse(read(lp.binding)), default_author: "someone-on-0.27.1" }, null, 2) + "\n");
+  const both = plan(proj, { home, root, env });
+  assert.equal(both.ok, false);
+  const li = both.items.find((x) => x.surface === "layout");
+  assert.equal(li.action, "refuse"); assert.match(li.reason, /two bindings/);
+  assert.throws(() => apply(both, { env, home }));
+  assert.equal(checkLayout(proj)[0].check, "layout-two-configs");
+  assert.equal(plan(proj, { home, root, env, mode: "uninstall" }).ok, true, "uninstall proceeds");
+  rmSync(lp.legacy.binding);
+  // Forward again: nothing pending, the launcher current.
+  const again = plan(proj, { home, root, surfaces: ["statusline"], env });
+  assert.ok(!again.items.some((x) => x.kind === "layout"), "no layout item once the legacy files are gone");
+  assert.equal(again.items.find((x) => x.surface === "statusline_launcher").action, "skip");
+  assert.deepEqual(checkLayout(proj), []);
+  // 0.28's disable path unlinks only a file that carries our header.
   writeFileSync(launcher, "console.log('theirs')\n");
-  const cfg = JSON.parse(read(join(proj, CFG_DIR, "projectstore.json")));
+  const cfg = JSON.parse(read(lp.binding));
   syncStatusLine({ ...cfg, statusline: { enabled: false } }, proj, home);
   assert.equal(read(launcher), "console.log('theirs')\n", "a foreign file at the launcher path survives disable");
 });

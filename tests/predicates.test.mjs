@@ -1061,7 +1061,8 @@ test("syncStatusLine keeps a launcher entry across updates and leaves the launch
   const proj = mkdtempSync(join(tmpdir(), "ps-proj-"));
   const v16 = fakeInstall(home, "0.16.0");
   // A launcher install wrote, rendered from the 0.16.0 root.
-  mkdirSync(join(proj, ".claude", ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(proj)), { recursive: true });
+  mkdirSync(join(proj, ".claude"), { recursive: true }); // the harness directory: settings.local.json lives there
   writeFileSync(statusLineLauncherPath(proj), renderStatusLineLauncher(readFileSync(LAUNCHER_TEMPLATE, "utf8"), v16));
   writeFileSync(
     join(proj, ".claude", "settings.local.json"),
@@ -1313,7 +1314,8 @@ test("checkStatusline warns when the wired version is not the installed one", ()
       statusLine: { type: "command", command: `node "${statusLineLauncherPath(proj)}"` },
     }),
   );
-  mkdirSync(join(proj, ".claude", ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(proj)), { recursive: true });
+  mkdirSync(join(proj, ".claude"), { recursive: true }); // the harness directory: settings.local.json lives there
   writeFileSync(statusLineLauncherPath(proj), "// launcher\n");
   assert.deepEqual(
     checkStatusline({ statusline: { enabled: true } }, proj, home).filter((f) => f.level !== "info"),

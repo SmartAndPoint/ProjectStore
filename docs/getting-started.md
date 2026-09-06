@@ -49,7 +49,7 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
    /projectstore:bind ~/Documents/projects/my-project-vault
    ```
 
-   This creates `.claude/projectstore.json` in your project root (machine-local, gitignored) — and then walks you through a short interview: gitignore entries → scaffold offer → agent registration in `CLAUDE.md` (recommended: Yes) → model preset for the review agents (the default `opus` is fine) → status line offer (you'll see a preview of the exact line). Every step shows what it wants to write and waits for your approval.
+   This creates `.projectstore/projectstore.json` in your project root (machine-local, gitignored) — and then walks you through a short interview: gitignore entries → scaffold offer → agent registration in `CLAUDE.md` (recommended: Yes) → model preset for the review agents (the default `opus` is fine) → status line offer (you'll see a preview of the exact line). Every step shows what it wants to write and waits for your approval.
 
    **Working in a git worktree?** That config is gitignored, so a worktree of a bound checkout starts unbound and `/projectstore:*` will not run there. Session start says so and names the fix:
 
@@ -101,7 +101,7 @@ Skills (decision-detector, story-completion) are passive — they suggest comman
 
 ## Disabling skills
 
-Edit `.claude/projectstore.json`:
+Edit `.projectstore/projectstore.json`:
 
 ```jsonc
 {
@@ -117,7 +117,7 @@ Default is English (`en`). Also bundled: Russian (`ru`), Spanish (`es`), German 
 /projectstore:bind <path> --lang de
 ```
 
-Or edit `language: "de"` in `.claude/projectstore.json` (templates must exist at `templates/de/`). The language also localizes the status line strings (e.g. the "no epic or story in this session yet" line).
+Or edit `language: "de"` in `.projectstore/projectstore.json` (templates must exist at `templates/de/`). The language also localizes the status line strings (e.g. the "no epic or story in this session yet" line).
 
 What the language does and does not change: section headings, table labels and prose are translated; frontmatter keys and their values (`status: planned`, `priority: p2`) stay English, because they are machine-read. Section headings are registered in `scaffold/headings.json`, so doctor, reconcile and the story lifecycle gates recognize every bundled language — a Russian-headed file lints in a French-bound vault, and mixed-language vaults reconcile.
 

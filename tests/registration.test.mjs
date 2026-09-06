@@ -21,7 +21,8 @@ import { fakeInstall, fakePackageRoot, fakeClaude, noHostEnv, writeRegistry } fr
 import { plan, renderPreview, apply, runVerb, publicItem, appliedLine } from "../scripts/install-harness.mjs";
 import { analyseRegistration, registrationPaths, surfaceStates } from "../scripts/surfaces.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
-import { statusLineLauncherPath, whichOnPath, treeFiles, installedPluginEntries, installedPluginRoot } from "../scripts/lib.mjs";
+import { writeBinding } from "./fixtures/vault.mjs";
+import { statusLineLauncherPath, whichOnPath, treeFiles, installedPluginEntries, installedPluginRoot, layoutPaths} from "../scripts/lib.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
 import { checkPluginRegistration, checkVersionDrift, checkAutoUpdate } from "../scripts/doctor.mjs";
 
@@ -29,7 +30,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
 const S = SRC.surfaces.plugin;
 const ID = `${S.plugin_name}@${S.marketplace_name}`;
-const CFG_DIR = SRC.runtime.project_config_dir;
+const CFG_DIR = SRC.runtime.harness_dir; // the harness's own directory (settings.local.json); our binding is layoutPaths(proj).binding
 const PACKLIST = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "packlist.json"), "utf8"));
 const tmp = (p) => realpathSync(mkdtempSync(join(tmpdir(), p)));
 
@@ -39,7 +40,7 @@ function sandbox({ version = "0.28.0", statusline = true } = {}) {
   const home = tmp("ps-reg-home-");
   const proj = tmp("ps-reg-proj-");
   mkdirSync(join(proj, CFG_DIR), { recursive: true });
-  writeFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), JSON.stringify({ vault_path: "/tmp/nowhere", layout: "engineering", ...(statusline ? { statusline: { enabled: true } } : {}) }));
+  writeBinding(proj, JSON.stringify({ vault_path: "/tmp/nowhere", layout: "engineering", ...(statusline ? { statusline: { enabled: true } } : {}) }));
   writeFileSync(join(proj, "CLAUDE.md"), "# Mine\n");
   const root = fakePackageRoot(join(tmp("ps-reg-npx-"), "node_modules", "projectstore"), version);
   const host = fakeClaude(tmp("ps-reg-bin-"));

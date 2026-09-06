@@ -7,7 +7,7 @@ You are creating a new epic.
 
 Steps:
 
-1. **Check config**: if `.claude/projectstore.json` is missing — instruct user to `/projectstore:bind` and stop.
+1. **Check config**: if `.projectstore/projectstore.json` is missing — instruct user to `/projectstore:bind` and stop.
 
 2. **Validate args**: `$ARGUMENTS` must contain at least an ID and a title. ID is a short uppercase token (e.g. `AUTH-001`, `RECPLAT-269`). If only one word was given, ask user for the title via AskUserQuestion.
 

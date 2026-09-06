@@ -13,7 +13,7 @@ marked done that isn't closed is exactly the vault-rot this role exists to stop.
 
 Inspect everything yourself: `git status`, `git diff`, `git diff --staged`, and
 read the changed files in FULL context (not just the hunks). Locate the bound
-vault (`.claude/projectstore.json` → `vault_path`) and read the target story —
+vault (`.projectstore/projectstore.json` → `vault_path`) and read the target story —
 its Description, Decomposition, and **Acceptance Criteria** — plus the parent
 epic and the plan if one was produced. If the caller named no story, ask the diff
 which story it serves (grep the vault) before falling back to a plain code review.

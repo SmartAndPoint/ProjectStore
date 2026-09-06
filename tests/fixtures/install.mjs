@@ -15,7 +15,8 @@ import { mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync, rmSync } 
 import { resolve, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sourceHarness } from "../../scripts/harness.mjs";
-import { copyPackageTree } from "../../scripts/lib.mjs";
+import { copyPackageTree, layoutPaths, renderAgentsBlock } from "../../scripts/lib.mjs";
+import { seedCliVault } from "./vault.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SRC = sourceHarness();
@@ -59,6 +60,9 @@ export function writeRegistry(home, entries) {
 export function installEnv(home, root, proj, extra = {}) {
   const env = { ...process.env, HOME: home, [SRC.runtime.home_env]: join(home, SRC.runtime.home_default), [SRC.runtime.plugin_root_env]: root, [SRC.runtime.project_dir_env]: proj, ...extra };
   delete env.PROJECTSTORE_PROJECT_DIR;
+  // The suite may run inside a live session; a spawned install must not defer
+  // its migration or registration because the developer's shell says so.
+  for (const k of SRC.runtime.session_env || []) if (!(k in extra)) delete env[k];
   return env;
 }
 
@@ -93,7 +97,7 @@ const read = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } cat
 const write = (p, o) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(o, null, 2) + "\\n"); };
 const flag = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : null; };
 const scope = flag("--scope") || "user";
-const local = path.join(process.cwd(), ${JSON.stringify(SRC.runtime.project_config_dir)}, scope === "local" ? "settings.local.json" : scope === "project" ? "settings.json" : "settings.json");
+const local = path.join(process.cwd(), ${JSON.stringify(SRC.runtime.harness_dir)}, scope === "local" ? "settings.local.json" : scope === "project" ? "settings.json" : "settings.json");
 const settingsPath = scope === "user" ? path.join(home, "settings.json") : local;
 const known = path.join(home, "plugins", "known_marketplaces.json"), installed = path.join(home, "plugins", "installed_plugins.json");
 const sub = argv[0] === "plugin" ? (argv[1] === "marketplace" ? "marketplace_" + argv[2] : argv[1]) : argv[0];
@@ -166,4 +170,44 @@ export function fakePackageRoot(dir, version) {
   const pk = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
   writeFileSync(join(dir, "package.json"), JSON.stringify({ ...pk, version }, null, 2) + "\n");
   return dir;
+}
+
+// legacyProject(home) — a project in the exact pre-0.28 shape (the layout ADR's
+// migration input): the binding with an `agents` block and statusline enabled
+// under .claude/, the runtime dir .claude/.projectstore/ with the 0.27.1
+// launcher (rendered from the vendored template against a 0.27.1 install),
+// state/ with a session file, a per-session directory and the renderer's
+// breadcrumb, an entry log, the welcome marker and the 0.6-era session-id
+// file, settings.local.json naming the legacy launcher, the v3 block in
+// AGENTS.md. Bound to a seeded vault. Everything absolute-path-bearing is
+// built here, which is why this is a function and not a checked-in tree.
+export function legacyProject(home, { version = "0.27.1", agents = { default: { model: "sonnet" }, per_agent: { critic: { model: "opus" } } } } = {}) {
+  const old = join(home, SRC.runtime.home_default, "plugins", "cache", "SmartAndPoint", "projectstore", version);
+  mkdirSync(join(old, "scripts"), { recursive: true });
+  writeFileSync(join(old, "scripts", "statusline.mjs"), `process.stdout.write("rendered-by-${version}\\n");\n`);
+  const { proj, vault } = seedCliVault();
+  const lp = layoutPaths(proj);
+  const cfg = { ...JSON.parse(readFileSync(lp.binding, "utf8")), statusline: { enabled: true }, agents };
+  rmSync(lp.root, { recursive: true, force: true });
+  mkdirSync(dirname(lp.legacy.binding), { recursive: true });
+  writeFileSync(lp.legacy.binding, JSON.stringify(cfg, null, 2) + "\n");
+  mkdirSync(lp.legacy.state, { recursive: true });
+  writeFileSync(lp.legacy.gitignore, "# projectstore — per-session runtime state, do not commit\n*\n");
+  const tpl027 = readFileSync(join(REPO, "tests", "fixtures", "statusline-launcher-0.27.1.txt"), "utf8");
+  writeFileSync(lp.legacy.launcher, tpl027.replace('"__PROJECTSTORE_ROOT__"', JSON.stringify(old)));
+  writeFileSync(join(lp.legacy.state, "s1.json"), JSON.stringify({ session_id: "s1", active_story: "story-a" }));
+  mkdirSync(join(lp.legacy.state, "s1.paths"), { recursive: true });
+  writeFileSync(join(lp.legacy.state, "s1.paths", "a.mjs"), "");
+  writeFileSync(join(lp.legacy.state, ".last-render.json"), JSON.stringify({ session_id: "s1", version }));
+  writeFileSync(lp.legacy.entryLog, JSON.stringify({ at: "2026-09-01T00:00:00Z", session_id: "s1", score: 3 }) + "\n" + JSON.stringify({ at: "2026-09-02T00:00:00Z", session_id: "s1", score: 4 }) + "\n");
+  writeFileSync(lp.legacy.welcomed, "2026-09-01T00:00:00Z\n");
+  writeFileSync(lp.legacy.sessionId, "s1\n");
+  writeFileSync(join(proj, SRC.runtime.harness_dir, "settings.local.json"), JSON.stringify({ statusLine: { type: "command", command: `node "${lp.legacy.launcher}"` }, other: { keep: true } }, null, 2) + "\n");
+  // The v3 block a 0.27.x install registered: the v3 marker and the config
+  // path the v3 template named (the v4 template names the overlay).
+  const tmpl = readFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), "utf8");
+  const v3 = renderAgentsBlock(tmpl, null).replace("projectstore:agents v4 ", "projectstore:agents v3 ").replace("`.projectstore/harness/<harness>.json`", "`.claude/projectstore.json`");
+  writeFileSync(join(proj, "AGENTS.md"), v3 + "\n");
+  writeFileSync(join(proj, "CLAUDE.md"), "# My project\n\n@AGENTS.md\n");
+  return { proj, vault, old, lp };
 }

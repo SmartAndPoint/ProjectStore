@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 // Contract 2 of the atomic-regeneration work: nothing under scripts/ writes
 // directly, and tests/scripts.test.mjs enforces it by globbing this directory.
 import { writeFileAtomic } from "./lib.mjs";
+import { LAYOUT } from "./harness.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const PACKLIST = "tests/fixtures/packlist.json";
@@ -109,7 +110,8 @@ export function checkVersions({ root = ROOT, tag = null } = {}) {
 export const NOT_SHIPPED = new Set([
   ".git",
   ".github", // release/test workflows — not part of the plugin payload
-  ".claude", // local worktrees and this project's own binding
+  ".claude", // local worktrees and the harness's own files
+  LAYOUT.root, // this project's own binding, overlays and state (the layout ADR)
   ".omc",
   ".gitignore",
   ".DS_Store",

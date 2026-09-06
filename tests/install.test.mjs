@@ -21,6 +21,7 @@ import { spawnSync } from "node:child_process";
 import { fakeInstall, writeRegistry, noHostEnv } from "./fixtures/install.mjs";
 import { plan, renderPreview, confirm, apply, runVerb } from "../scripts/install-harness.mjs";
 import { detectHarnesses, harnessRefusal, sourceHarness } from "../scripts/harness.mjs";
+import { writeBinding } from "./fixtures/vault.mjs";
 import { stamp, sourceHash, parseProvenance } from "../scripts/provenance.mjs";
 import {
   AGENTS_BLOCK_OPEN_SRC,
@@ -31,11 +32,14 @@ import {
   renderAgentsBlock,
   agentsBlockVersion,
   syncStatusLine,
+  stateDir,
+  sessionStatePath,
+  layoutPaths,
 } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
-const CFG_DIR = SRC.runtime.project_config_dir;
+const CFG_DIR = SRC.runtime.harness_dir; // the harness's own directory (settings.local.json); our binding is layoutPaths(proj).binding
 const TEMPLATE = readFileSync(join(ROOT, "templates", "claude-md-block.md.tmpl"), "utf8");
 const VERSION = agentsBlockVersion(TEMPLATE);
 const BLOCK = renderAgentsBlock(TEMPLATE, null);
@@ -50,7 +54,7 @@ delete process.env[SRC.runtime.home_env];
 function project({ bound = true, claude = null, agents = null, settings = null, statusline = true } = {}) {
   const proj = mkdtempSync(join(tmpdir(), "ps-inst-"));
   mkdirSync(join(proj, CFG_DIR), { recursive: true });
-  if (bound) writeFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), JSON.stringify({ vault_path: "/tmp/nowhere", layout: "engineering", ...(statusline ? { statusline: { enabled: true } } : {}) }));
+  if (bound) writeBinding(proj, JSON.stringify({ vault_path: "/tmp/nowhere", layout: "engineering", ...(statusline ? { statusline: { enabled: true } } : {}) }));
   if (claude !== null) writeFileSync(join(proj, "CLAUDE.md"), claude);
   if (agents !== null) writeFileSync(join(proj, "AGENTS.md"), agents);
   if (settings !== null) writeFileSync(join(proj, CFG_DIR, "settings.local.json"), settings);
@@ -125,7 +129,8 @@ test("install: a fresh cache-installed project plans three creates and writes no
   assert.equal(parseProvenance(launcher).pkg, "0.28.0");
   assert.equal(parseProvenance(launcher).project, proj);
   assert.ok(launcher.includes(JSON.stringify(root)), "the fallback root is substituted");
-  assert.ok(existsSync(join(proj, CFG_DIR, ".projectstore", ".gitignore")), "the runtime dir carries its .gitignore");
+  assert.ok(existsSync(layoutPaths(proj).stateGitignore), "the state dir carries its .gitignore");
+  assert.ok(existsSync(layoutPaths(proj).gitignore), "and .projectstore/ carries its line-merged one (layout ADR)");
 
   // Second plan: everything current, nothing to apply.
   const again = plan(proj, { home, root });
@@ -323,7 +328,7 @@ test("install contract 4: the four stale reasons each fire on the launcher, and 
 test("install contract 5: a foreign launcher is refused by install, uninstall and upgrade, byte-identical", () => {
   const { home, root } = fixture();
   const proj = project();
-  mkdirSync(join(proj, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(proj)), { recursive: true });
   writeFileSync(statusLineLauncherPath(proj), "#!/usr/bin/env node\nconsole.log('mine');\n");
   for (const mode of ["install", "uninstall", "install"]) {
     const p = plan(proj, { home, root, mode });
@@ -338,7 +343,7 @@ test("install contract 5: a foreign launcher is refused by install, uninstall an
 test("install contract 4 rung 1″: a pre-provenance launcher is ours, stale and replaceable — not foreign", () => {
   const { home, root } = fixture();
   const proj = project();
-  mkdirSync(join(proj, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(proj)), { recursive: true });
   writeFileSync(statusLineLauncherPath(proj), renderStatusLineLauncher(read(join(root, "scripts", "statusline-launcher.mjs")), root));
   const p = plan(proj, { home, root, surfaces: ["statusline_launcher"] });
   const i = item(p, "statusline_launcher");
@@ -352,7 +357,7 @@ test("install contract 4 rung 1″: a pre-provenance launcher is ours, stale and
 test("install contract 12: a launcher another project wrote reports current, last written by it", () => {
   const { home, root, proj } = installed();
   const other = project();
-  mkdirSync(join(other, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(other)), { recursive: true });
   copyFileSync(statusLineLauncherPath(proj), statusLineLauncherPath(other));
   const i = item(plan(other, { home, root }), "statusline_launcher");
   assert.equal(i.state, "current");
@@ -364,21 +369,22 @@ test("install contract 12: a launcher another project wrote reports current, las
 
 test("install contract 13: uninstall removes only what it recognises and prunes the runtime dir only when empty", () => {
   const { home, root, proj } = installed();
-  writeFileSync(join(proj, CFG_DIR, "projectstore.json"), JSON.stringify({ vault_path: "/tmp/nowhere", layout: "engineering", statusline: { enabled: true } }));
+  writeBinding(proj, { vault_path: "/tmp/nowhere", layout: "engineering", statusline: { enabled: true } });
   // Something else lives in the runtime dir: it must survive.
-  mkdirSync(join(proj, CFG_DIR, ".projectstore", "state"), { recursive: true });
-  writeFileSync(join(proj, CFG_DIR, ".projectstore", "state", "s1.json"), "{}");
+  mkdirSync(stateDir(proj), { recursive: true });
+  writeFileSync(sessionStatePath(proj, "s1"), "{}");
   const p = plan(proj, { home, root, mode: "uninstall" });
   assert.deepEqual(p.items.filter((i) => i.action === "remove").map((i) => i.surface).sort(), ["agents_block", "statusline", "statusline_launcher"]);
   apply(p);
   assert.ok(!existsSync(join(proj, "CLAUDE.md")), "a CLAUDE.md that held only our block is removed");
   assert.deepEqual(JSON.parse(read(join(proj, CFG_DIR, "settings.local.json"))), {});
   assert.ok(!existsSync(statusLineLauncherPath(proj)));
-  assert.ok(existsSync(join(proj, CFG_DIR, ".projectstore", "state", "s1.json")), "the runtime dir was not empty, so it stays");
+  assert.ok(existsSync(sessionStatePath(proj, "s1")), "the state dir was not empty, so it stays");
 
   const clean = installed();
   apply(plan(clean.proj, { home: clean.home, root: clean.root, mode: "uninstall" }));
-  assert.ok(!existsSync(join(clean.proj, CFG_DIR, ".projectstore")), "an emptied runtime dir is pruned");
+  assert.ok(!existsSync(dirname(statusLineLauncherPath(clean.proj))), "an emptied harness state dir is pruned");
+  assert.ok(existsSync(layoutPaths(clean.proj).stateGitignore), "state/ itself stays with its .gitignore — other harnesses share it (layout ADR decision 4)");
 });
 
 test("install contract 14: upgrade after a version bump re-stamps the launcher and leaves the rest alone", () => {
@@ -531,7 +537,7 @@ test("install contract 7 (amended 2026-09-05) / 13: a dev-checkout root reports 
   assert.ok(!existsSync(statusLineLauncherPath(proj)));
   void root;
   const foreign = project();
-  mkdirSync(join(foreign, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(foreign)), { recursive: true });
   writeFileSync(statusLineLauncherPath(foreign), "console.log('theirs')\n");
   const f = plan(foreign, { home, root: dev, surfaces: ["statusline"] });
   assert.equal(item(f, "statusline_launcher").action, "skip");
@@ -541,7 +547,7 @@ test("install contract 7 (amended 2026-09-05) / 13: a dev-checkout root reports 
 test("install contract 12: the preview says who last wrote a shared-path file", () => {
   const { home, root, proj } = installed();
   const other = project();
-  mkdirSync(join(other, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(other)), { recursive: true });
   copyFileSync(statusLineLauncherPath(proj), statusLineLauncherPath(other));
   assert.ok(renderPreview(plan(other, { home, root })).includes(`current, last written by ${proj}`));
 });
@@ -617,7 +623,7 @@ test("install contract 4 (doctor half): each of the four stale reasons on the la
 test("install contract 5 (doctor half): a foreign file is reported under its own id with the resolution wording, and never repaired", async () => {
   const { home, root } = fixture();
   const proj = project();
-  mkdirSync(join(proj, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(proj)), { recursive: true });
   writeFileSync(statusLineLauncherPath(proj), "#!/usr/bin/env node\nconsole.log('mine');\n");
   const f = await checkHarnessSurfaces({}, proj, { home, root });
   assert.equal(byCheck(f, "surface-foreign").length, 1);
@@ -643,7 +649,7 @@ test("install contract 5 (doctor half): a foreign file is reported under its own
   assert.ok(cmds.length > 0 && cmds.every(([s, v]) => s === "bin/projectstore.mjs" && ["install", "uninstall", "upgrade", "plan"].includes(v)), "repairs invoke core verbs only, through the bin");
   const foreignSlot = JSON.stringify({ statusLine: { type: "command", command: "node /x/hud.mjs" } }, null, 2) + "\n";
   const victim = project({ settings: foreignSlot, agents: "# theirs\n" });
-  mkdirSync(join(victim, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(victim)), { recursive: true });
   writeFileSync(statusLineLauncherPath(victim), "console.log('theirs')\n");
   const env = { ...process.env, HOME: home, [SRC.runtime.plugin_root_env]: root };
   delete env[SRC.runtime.home_env];
@@ -660,7 +666,7 @@ test("install contract 5 (doctor half): a foreign file is reported under its own
 test("install contract 12 (doctor half): a launcher another project wrote is one info naming it", async () => {
   const { home, root, proj } = installed();
   const other = project();
-  mkdirSync(join(other, CFG_DIR, ".projectstore"), { recursive: true });
+  mkdirSync(dirname(statusLineLauncherPath(other)), { recursive: true });
   copyFileSync(statusLineLauncherPath(proj), statusLineLauncherPath(other));
   const f = byCheck(await checkHarnessSurfaces({}, other, { home, root }), "surface");
   assert.equal(f.length, 1);
@@ -730,7 +736,7 @@ test("install contract 16: a harness is reported only when the project uses it",
   copyFileSync(join(ROOT, "harnesses", "claude-code.json"), join(mdir, "claude-code.json"));
   const fake = JSON.parse(read(join(ROOT, "harnesses", "claude-code.json")));
   fake.id = "other-harness"; fake.display_name = "Other"; fake.source_layout = false; fake.emit = true;
-  fake.runtime = { ...fake.runtime, project_config_dir: ".other", project_dir_env: "OTHER_PROJECT_DIR", plugin_root_env: "OTHER_PLUGIN_ROOT", home_env: "OTHER_HOME", detect_env: ["OTHER_HOME"] };
+  fake.runtime = { ...fake.runtime, harness_dir: ".other", project_dir_env: "OTHER_PROJECT_DIR", plugin_root_env: "OTHER_PLUGIN_ROOT", home_env: "OTHER_HOME", detect_env: ["OTHER_HOME"] };
   fake.surfaces = { commands: { ...fake.surfaces.commands } };
   writeFileSync(join(mdir, "other-harness.json"), JSON.stringify(fake));
   const proj = project();

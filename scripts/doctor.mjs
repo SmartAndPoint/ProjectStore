@@ -63,7 +63,15 @@ import {
   findAgentsBlock,
   statusLineLauncherPath,
   LAUNCHER_HEADER,
-  installedPluginEntries, isMain
+  installedPluginEntries, isMain,
+  pickExisting,
+  legacyStatusLineLauncherPath,
+  stateDir,
+  legacyStateDir,
+  layoutPaths,  sessionsDir,
+  isLauncherPath,
+  LAYOUT,
+  hostSettingsPath,
 } from "./lib.mjs";
 import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness } from "./harness.mjs";
 
@@ -87,7 +95,7 @@ export const STAMP_PREFIX = "projectstore: v";
 // Startup findings that are offers, not issues: rendered by the SessionStart
 // hook as their own line, so an info a user should act on once is not lost
 // behind the issue count.
-export const OFFER_CHECKS = new Set(["upgrade"]);
+export const OFFER_CHECKS = new Set(["upgrade", "layout-legacy"]);
 // checkAgentsBlock compares the marker version alone, so a bump in the
 // template IS the propagation mechanism: without it no bound project ever
 // learns the block changed. The cost is that every already-bound project
@@ -160,8 +168,14 @@ export function checkConfig(cfg, proj = projectRoot()) {
       return [finding("install", "issue", "worktree-unbound",
         `This worktree is unbound while the checkout it was forked from (${b.mainCheckout}) is bound to ${b.vaultPath}. Run /projectstore:bind --inherit to adopt that binding.`)];
     }
+    const p = layoutPaths(proj);
+    const present = [p.binding, p.legacy.binding].find((f) => existsSync(f));
+    if (present) {
+      return [finding("install", "issue", "config-unparseable",
+        `${relative(proj, present)} exists but is not valid JSON — the project reads as unbound until it is fixed; bind refuses to overwrite it.`, relative(proj, present))];
+    }
     return [finding("install", "issue", "config",
-      "No projectstore config (.claude/projectstore.json). Run /projectstore:bind <vault-path>.")];
+      "No projectstore config (.projectstore/projectstore.json). Run /projectstore:bind <vault-path>.")];
   }
   const out = [];
   if (!cfg.vault_path) out.push(finding("install", "issue", "config", "Config has no vault_path."));
@@ -223,7 +237,7 @@ export function checkLayoutTemplates(cfg) {
 }
 
 export function checkHooksAlive(cfg, maxAgeMinutes = 30) {
-  const dir = join(cfg.vault_path, ".projectstore", "sessions");
+  const dir = sessionsDir(cfg.vault_path);
   if (!existsSync(dir)) {
     return [finding("install", "warn", "hooks",
       "No session registry in the vault — SessionStart hook may not be firing (or no session started yet).")];
@@ -238,7 +252,7 @@ export function checkHooksAlive(cfg, maxAgeMinutes = 30) {
 }
 
 // Which plugin version a wired statusLine script belongs to. Null for our
-// launcher (<project>/.claude/.projectstore/statusline.mjs), which has no
+// launcher (<project>/.projectstore/state/claude-code/statusline.mjs), which has no
 // version of its own — it resolves the installed one at render time.
 export function statusLineScriptVersion(scriptPath) {
   try {
@@ -255,7 +269,7 @@ export function statusLineScriptVersion(scriptPath) {
 // is a mutating self-heal that SessionStart already ran — ADR-005).
 export function checkStatusline(cfg, proj, home = homedir()) {
   const out = [];
-  const local = join(proj, ".claude", "settings.local.json");
+  const local = hostSettingsPath(proj);
   let cur = null;
   if (existsSync(local)) {
     try {
@@ -280,7 +294,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
     } else {
       const m = curCmd.match(/"([^"]+statusline\.mjs)"/) || curCmd.match(/(\S+statusline\.mjs)/);
       const wiredRoot = m ? dirname(dirname(m[1])) : null;
-      const isLauncher = m ? m[1].replace(/\\/g, "/").includes("/.projectstore/statusline.mjs") : false;
+      const isLauncher = m ? isLauncherPath(m[1]) : false;
       if (m && !existsSync(m[1])) {
         out.push(finding("install", "issue", "statusline",
           isLauncher
@@ -317,7 +331,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
   // hooks observed. A breadcrumb id with no pointer file while others exist
   // means the two processes disagree — the issue note's second suspect.
   try {
-    const sdir = join(proj, ".claude", ".projectstore", "state");
+    const sdir = pickExisting(stateDir(proj), legacyStateDir(proj));
     const bc = JSON.parse(readFileSync(join(sdir, ".last-render.json"), "utf8"));
     if (bc && bc.session_id) {
       const hookIds = readdirSync(sdir)
@@ -351,7 +365,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
 // install would leave the file, not re-stamp it.
 export function checkPendingUpgrade(proj, home = homedir(), root = pluginRoot()) {
   if (!isPluginCacheRoot(root, home)) return [];
-  const lp = statusLineLauncherPath(proj);
+  const lp = pickExisting(statusLineLauncherPath(proj), legacyStatusLineLauncherPath(proj));
   let text;
   try { text = readFileSync(lp, "utf8"); } catch { return []; }
   if (!text.includes(LAUNCHER_HEADER) || text.includes(STAMP_PREFIX)) return [];
@@ -610,7 +624,7 @@ export function checkOverrideCopies(proj, home = homedir()) {
       // fca8def introduced for staleness applies here for the same reason.
       const remove = scope === "user"
         ? `Delete ${where} by hand (or via /projectstore:doctor --fix) — /projectstore:agents configure only cleans up project-scope copies.`
-        : "Delete it via /projectstore:agents configure, which now records the model in .claude/projectstore.json and passes it per invocation.";
+        : "Delete it via /projectstore:agents configure, which now records the model in .projectstore/harness/<harness>.json (the active harness's overlay) and passes it per invocation.";
       const advice = m
         ? remove
         : "If you wrote it yourself, nothing is broken; if you meant to change the bundled agent's model, that is /projectstore:agents configure, not a copy.";
@@ -639,19 +653,50 @@ export function checkEnvModel() {
     `${o.env}=${o.value} is set — it overrides ALL projectstore agent model configuration, per-invocation parameter included.`));
 }
 
+// The project-level layout (the layout ADR): a legacy .projectstore/projectstore.json
+// or .projectstore/state/ is one warn naming the upgrade; two bindings is an
+// issue. Cheap — a handful of existsSync — so the startup line carries the
+// warn as an offer (OFFER_CHECKS).
+export function checkLayout(proj, harness = sourceHarness(), { level = "warn" } = {}) {
+  const p = layoutPaths(proj, { harnessDir: harness?.runtime?.harness_dir || null });
+  const legacyBinding = existsSync(p.legacy.binding), legacyRuntime = existsSync(p.legacy.runtime);
+  let resumable = false;
+  if (legacyBinding && existsSync(p.binding)) {
+    try { const { agents, ...rest } = JSON.parse(readFileSync(p.legacy.binding, "utf8")); resumable = JSON.stringify(rest) === JSON.stringify(JSON.parse(readFileSync(p.binding, "utf8"))); } catch {}
+  }
+  if (legacyBinding && existsSync(p.binding) && !resumable) {
+    return [finding("install", "issue", "layout-two-configs", `Two bindings: ${relative(proj, p.legacy.binding)} (legacy) and ${relative(proj, p.binding)} — keep one and delete the other; install and upgrade refuse while both exist. Usually the legacy one goes: it is the copy an interrupted migration or a 0.27.x re-bind left behind (when both name the same vault, upgrade removes it itself).`, relative(proj, p.legacy.binding))];
+  }
+  if (!legacyBinding && !legacyRuntime && !existsSync(p.legacy.welcomed) && !existsSync(p.legacy.sessionId)) return [];
+  return [finding("install", level, "layout-legacy",
+    `The project layout moved to .projectstore/ (the layout ADR, 0.28); this project still holds ${[legacyBinding && relative(proj, p.legacy.binding), legacyRuntime && relative(proj, p.legacy.runtime) + "/"].filter(Boolean).join(" and ")}. Migrate it from a terminal outside the session: npx projectstore@${pluginVersion() || "latest"} upgrade --harness ${harness?.id || "claude-code"} --project "${proj}" (readers fall back to the old paths through 0.29).`,
+    legacyBinding ? relative(proj, p.legacy.binding) : relative(proj, p.legacy.runtime))];
+}
+
 export function checkGitignore(proj) {
-  if (!existsSync(join(proj, ".git"))) return [];
+  const out = [];
+  // .projectstore/.gitignore is line-merged with the vault's own writer; a "*"
+  // (a vault that is also a project, written before 2026-09-06) hides the
+  // committed harness/ overlays.
+  try {
+    const p = layoutPaths(proj);
+    const lines = readFileSync(p.gitignore, "utf8").split("\n").map((l) => l.trim());
+    if (lines.includes("*") && existsSync(p.overlayDir)) out.push(finding("install", "warn", "gitignore", `.projectstore/.gitignore carries "*", which hides harness/ (the committed overlays) from git — replace it with the lines ${[...LAYOUT.gitignore, LAYOUT.vaultSessions + "/"].map((l) => JSON.stringify(l)).join(", ")}.`, ".projectstore/.gitignore"));
+  } catch {}
+  if (!existsSync(join(proj, ".git"))) return out;
   let lines = [];
   try {
     lines = readFileSync(join(proj, ".gitignore"), "utf8").split("\n").map((l) => l.trim());
   } catch {}
   const coveredAll = lines.includes(".claude/") || lines.includes(".claude");
-  if (coveredAll) return [];
-  const wanted = [".claude/projectstore.json", ".claude/settings.local.json", ".claude/.projectstore/"];
+  if (coveredAll) return out;
+  // Our own files are self-ignored inside .projectstore/; what is left is the host's.
+  const wanted = [relative(proj, hostSettingsPath(proj))];
   const missing = wanted.filter((w) => !lines.includes(w));
-  if (!missing.length) return [];
-  return [finding("install", "warn", "gitignore",
-    `Machine-specific files not gitignored: ${missing.join(", ")} (or ignore ".claude/" wholesale).`)];
+  if (!missing.length) return out;
+  out.push(finding("install", "warn", "gitignore",
+    `Machine-specific files not gitignored: ${missing.join(", ")} (or ignore ".claude/" wholesale).`));
+  return out;
 }
 
 export function checkVaultGit(cfg) {
@@ -1655,6 +1700,7 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
     ...checkVaultGit(cfg),
     ...checkAutoUpdate(),
     ...checkMcpRegistration(),
+    ...checkLayout(proj),
   );
   let read = null;
   try { read = await readSurfaceStates(proj, opts); } catch {} // reported as a warn by checkHarnessSurfaces
@@ -1716,6 +1762,9 @@ export function runStartupChecks(cfg, proj, budgetMs = 150) {
     () => (cfg && cfg.vault_path && cfg.statusline && cfg.statusline.enabled === true ? checkPendingUpgrade(proj) : []),
     () => checkAgentsBlock(proj),
     () => checkGitignore(proj),
+    // The layout move is offered from the startup line (info here, warn in the
+    // report) — a user who never runs doctor still learns to migrate.
+    () => checkLayout(proj, undefined, { level: "info" }),
     () => checkEnvModel(),
     () => checkEnvEffort(),
   ];

@@ -37,8 +37,8 @@
     "plugin_root_env": "CLAUDE_PLUGIN_ROOT",
     "home_env": "CLAUDE_CONFIG_DIR",
     "home_default": ".claude",
-    "project_config_dir": ".claude",
-    "config_basename": "projectstore.json",
+    "harness_dir": ".claude",
+    "harness_dir_reason": "the harness's own directory in a project: how it is detected, where its settings live — never where projectstore's config is (the layout ADR, 2026-09-06: that is <project>/.projectstore/, one for every harness)",
     "agent_overrides": [
       {
         "env": "CLAUDE_CODE_EFFORT_LEVEL",
@@ -264,9 +264,11 @@
       "format": "mjs",
       "scope": "project",
       "scope_reason": "The launcher resolves the currently installed plugin on every render, so the wired command carries no version; it is written only when the plugin runs from the marketplace cache — a dev checkout is wired directly.",
-      "file": ".claude/.projectstore/statusline.mjs",
+      "file": ".projectstore/state/claude-code/statusline.mjs",
       "source": "scripts/statusline-launcher.mjs",
-      "condition": "plugin_cache_install"
+      "condition": "plugin_cache_install",
+      "file_reason": "the harness's generated runtime files live under .projectstore/state/<harness id>/ (layout ADR decision 4); the 0.27.x path .claude/.projectstore/statusline.mjs is read as ours through 0.29",
+      "legacy_file": ".claude/.projectstore/statusline.mjs"
     },
     "mcp": {
       "supported": true,

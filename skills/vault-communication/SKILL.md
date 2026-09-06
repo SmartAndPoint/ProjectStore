@@ -89,7 +89,7 @@ path as the pointer.
 
 ## Activation
 
-Default-on when a vault is bound (`.claude/projectstore.json` exists) and
+Default-on when a vault is bound (`.projectstore/projectstore.json` exists) and
 `active_skills` is not `false` — same gating as the other passive skills. Silent
 otherwise. This skill changes *how you phrase things*; it never writes files and
 never blocks an action.

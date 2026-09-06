@@ -24,7 +24,7 @@
 // derive), 16 (a harness is in use when detected or when it has files of
 // ours). Pure node, no external deps.
 
-import { readFileSync, existsSync, realpathSync } from "node:fs";
+import { readFileSync, existsSync, realpathSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { loadHarnesses, loadHarness, harnessIds, detectHarnesses, sourceHarness, MANIFEST_DIR } from "./harness.mjs";
@@ -48,6 +48,8 @@ import {
   treeDigest,
   packageDigest,
   cmpVersion,
+  layoutPaths,
+  RUNTIME_GITIGNORE_HEADER,
   LAUNCHER_HEADER,
 } from "./lib.mjs";
 
@@ -153,8 +155,14 @@ export function analyseJsonEntry(projectDir, s, { root = pluginRoot(), home = ho
 
 export function analyseStampedFile(projectDir, s, { root = pluginRoot(), home = homedir(), harness = null, renderRoot = root } = {}) {
   const path = join(projectDir, s.file);
-  const file = readText(path);
-  const a = { path, file, produced: true, ours: null, refusal: null, stamped: null, state: "absent", reason: null, writtenBy: null, sameProject: false, legacy: false, renderRoot };
+  let file = readText(path);
+  // The manifest may name where an earlier release wrote this file
+  // (legacy_file, the layout ADR): read it when the current path is absent, so
+  // the file is classified and, once the new one is written, cleaned up.
+  const legacyPath = s.legacy_file ? join(projectDir, s.legacy_file) : null;
+  const atLegacy = !file.present && legacyPath && existsSync(legacyPath);
+  if (atLegacy) file = readText(legacyPath);
+  const a = { path, file, produced: true, ours: null, refusal: null, stamped: null, state: "absent", reason: null, writtenBy: null, sameProject: false, legacy: false, renderRoot, legacyPath: atLegacy ? legacyPath : null };
   if (s.condition === "plugin_cache_install" && !isPluginCacheRoot(renderRoot, home)) {
     // Not produced for this installation (a dev checkout is wired directly).
     a.produced = false;
@@ -165,7 +173,7 @@ export function analyseStampedFile(projectDir, s, { root = pluginRoot(), home = 
   const src = join(root, s.source);
   const tpl = readText(src);
   if (!tpl.present || tpl.text === null) return { ...a, state: "unparseable", refusal: `the source ${s.source} is missing from the plugin at ${root}` };
-  const rendered = renderStatusLineLauncher(tpl.text, renderRoot);
+  const rendered = renderStatusLineLauncher(tpl.text, renderRoot, projectDir);
   if (rendered === null) return { ...a, state: "unparseable", refusal: "the launcher template is not one this installer knows how to fill" };
   const pkg = pluginVersionAt(root, harness) || "0.0.0";
   a.pkg = pkg;
@@ -199,7 +207,7 @@ export function registrationPaths(s, { home = homedir(), projectDir = null, harn
   const hh = claudeHome(home);
   const dir = join(hh, ...s.dir);
   const reg = s.registry || {};
-  const cfgDir = harness?.runtime?.project_config_dir || ".claude";
+  const cfgDir = harness?.runtime?.harness_dir || ".claude";
   return {
     dir,
     manifest: join(dir, s.manifest),
@@ -291,6 +299,45 @@ export function analyseRegistration(projectDir, s, { root = pluginRoot(), home =
   return { ...a, state: "current", reason: a.newer ? `the directory is at ${a.dir.pkg}, newer than this package (${pkg})${a.writtenBy ? `, written from ${a.writtenBy}` : ""} — not downgraded` : null };
 }
 
+// ─── the project-level layout: legacy / new / both (the layout ADR) ─────
+//
+// Which of the two layouts a project holds, file by file — what the `layout`
+// migration item and doctor's layout-legacy read (layout spec, contracts 6–7).
+// The legacy runtime directory is ours when its nested .gitignore carries the
+// header every release since 0.6 wrote; a directory without it is left alone.
+export function analyseLayout(projectDir, { harness = null } = {}) {
+  const p = layoutPaths(projectDir, { harnessDir: harness?.runtime?.harness_dir || null });
+  const has = (f) => existsSync(f);
+  const legacy = {
+    dir: p.legacy.dir,
+    binding: has(p.legacy.binding), runtime: has(p.legacy.runtime), state: has(p.legacy.state), launcher: has(p.legacy.launcher),
+    entryLog: has(p.legacy.entryLog), welcomed: has(p.legacy.welcomed), sessionId: has(p.legacy.sessionId),
+    runtimeOurs: false, stateFiles: [],
+  };
+  if (legacy.runtime) {
+    try { legacy.runtimeOurs = readFileSync(p.legacy.gitignore, "utf8").includes(RUNTIME_GITIGNORE_HEADER); } catch { legacy.runtimeOurs = false; }
+    if (legacy.state) { try { legacy.stateFiles = readdirSync(p.legacy.state).filter((n) => n !== ".gitignore"); } catch {} }
+  }
+  const current = { root: has(p.root), binding: has(p.binding) };
+  const any = legacy.binding || legacy.runtime || legacy.welcomed || legacy.sessionId;
+  // Two bindings whose only difference is the legacy agents block are an
+  // interrupted move (the new file written, the old not yet removed): resumable.
+  let resumable = false;
+  if (legacy.binding && current.binding) {
+    try {
+      const { agents, ...oldRest } = JSON.parse(readFileSync(p.legacy.binding, "utf8"));
+      const cur = JSON.parse(readFileSync(p.binding, "utf8"));
+      resumable = JSON.stringify(oldRest) === JSON.stringify(cur);
+    } catch { resumable = false; }
+  }
+  return {
+    paths: p, legacy, current, resumable,
+    twoConfigs: legacy.binding && current.binding,
+    pending: any,
+    state: !any ? "current" : (legacy.binding && current.binding) ? "both" : legacy.binding ? "legacy" : "partial",
+  };
+}
+
 // ─── every surface, for doctor ─────────────────────────────────────────
 
 const ANALYSERS = { "markdown-block": analyseBlock, "json-entry": analyseJsonEntry, "mjs": analyseStampedFile, "host-plugin-registration": analyseRegistration };
@@ -309,7 +356,7 @@ export function surfaceStates(projectDir, { home = homedir(), root = pluginRoot(
     for (const [key, s] of rows) {
       const a = ANALYSERS[s.format](projectDir, s, { root, home, harness: m });
       const entry = s.kind === "shared" ? (a.entryKey || s.marker?.pointer || null) : null;
-      const path = a.path || (a.current ? a.current.path : (a.preferred ? a.preferred.path : join(projectDir, s.file || "")));
+      const path = a.legacyPath || a.path || (a.current ? a.current.path : (a.preferred ? a.preferred.path : join(projectDir, s.file || "")));
       const row = { harness: m.id, surface: key, kind: s.kind, path, entry, state: a.state, reason: a.reason || a.refusal || null, writtenBy: a.writtenBy || null, sameProject: Boolean(a.sameProject), produced: a.produced !== false, legacy: Boolean(a.legacy), installedPkg: a.installedPkg || null, present: a.file ? a.file.present : (a.current ? true : (a.curEntry ? true : false)) };
       if (s.kind === "registration") Object.assign(row, { entry: a.id, present: Boolean(a.dir.present || a.known || a.installed), produced: a.produced, pkg: a.pkg, dirPkg: a.dir.pkg, installedVersion: a.installedVersion, installPath: a.installPath, enabled: a.enabled, others: a.others, otherProjects: a.otherProjects, writtenBy: a.writtenBy, newer: a.newer, bin: a.bin });
       states.push(row);

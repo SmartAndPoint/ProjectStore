@@ -37,7 +37,7 @@ import {
   writeTools,
   lintPatterns,
 } from "../scripts/harness.mjs";
-import { WRITE_TOOLS, isWriteTool } from "../scripts/lib.mjs";
+import { WRITE_TOOLS, isWriteTool, layoutPaths } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifests = () => [...loadHarnesses(MANIFEST_DIR).values()];
@@ -68,7 +68,7 @@ test("generation contract 1: every manifest parses strictly and declares what th
     assert.equal(typeof m.display_name, "string");
     assert.equal(typeof m.emit, "boolean");
     assert.equal(typeof m.source_layout, "boolean");
-    for (const k of ["project_dir_env", "plugin_root_env", "home_env", "home_default", "project_config_dir", "config_basename"]) {
+    for (const k of ["project_dir_env", "plugin_root_env", "home_env", "home_default", "harness_dir"]) {
       assert.equal(typeof m.runtime?.[k], "string", `${n}: runtime.${k}`);
     }
     assert.ok(Array.isArray(m.runtime.detect_env), `${n}: runtime.detect_env`);
@@ -239,7 +239,7 @@ test("harness resolvers: the branded names are read from the manifest, fresh on 
   assert.equal(pluginRoot(env), "/tmp/plug in");
   assert.equal(agentHome(env), "/tmp/ho me");
   assert.equal(agentHome({}, "/home/x"), join("/home/x", r.home_default));
-  assert.equal(configPath("/tmp/p roj", env), join("/tmp/p roj", r.project_config_dir, r.config_basename));
+  assert.equal(configPath("/tmp/p roj", env), layoutPaths("/tmp/p roj").binding, "the binding is harness-neutral (layout ADR, 2026-09-06); the legacy file is read only when it exists");
   assert.equal(pluginRoot({}), ROOT, "no variable set: the repository root, resolved through fileURLToPath");
   assert.deepEqual(runtimeEnvNames(env), { projectDir: r.project_dir_env, pluginRoot: r.plugin_root_env, home: r.home_env });
   const child = childEnv({ A: "1" }, { projectRoot: "/tmp/x" });

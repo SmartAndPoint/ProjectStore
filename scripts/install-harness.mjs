@@ -64,8 +64,8 @@ import { createInterface } from "node:readline/promises";
 import { spawnSync } from "node:child_process";
 import { loadHarness, harnessIds, sourceHarness, detectHarnesses, harnessRefusal } from "./harness.mjs";
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
-import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration } from "./surfaces.mjs";
-import { pluginRoot, writeFileAtomic, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpVersion, whichOnPath as whichOnPathFromLib } from "./lib.mjs";
+import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analyseLayout, isOurFile } from "./surfaces.mjs";
+import { pluginRoot, writeFileAtomic, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpVersion, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths } from "./lib.mjs";
 
 import { GENERATOR } from "./surfaces.mjs";
 export { GENERATOR };
@@ -357,21 +357,31 @@ function planStampedFile(ctx, key, s) {
   // cache install's launcher, the maintainer's habitual loop). Only uninstall
   // removes it: the user asked to disown, and the file is recognisably ours.
   // `prune` stays an action for the day a surface leaves the roster.
+  // A file found at its legacy path (the layout ADR): classified from there,
+  // removed from there, created at the new path — the legacy copy is then
+  // the layout cleanup's to delete once nothing names it.
+  const at = a.legacyPath || path;
   if (!a.produced) {
     if (!a.file.present) return [];
-    if (!a.ours) return [{ surface: key, kind: "exclusive", path, entry: null, state: "foreign", action: "skip", reason: "not produced for a dev checkout, and not ours — left in place" }];
-    return [{ surface: key, kind: "exclusive", path, entry: null, state: "stale", action: mode === "uninstall" ? "remove" : "skip", reason: a.reason }];
+    if (!a.ours) return [{ surface: key, kind: "exclusive", path: at, entry: null, state: "foreign", action: "skip", reason: "not produced for a dev checkout, and not ours — left in place" }];
+    return [{ surface: key, kind: "exclusive", path: at, entry: null, state: "stale", action: mode === "uninstall" ? "remove" : "skip", reason: a.reason }];
   }
-  if (a.refusal) return [{ surface: key, kind: "exclusive", path, state: "refused", action: "refuse", reason: a.refusal }];
-  const base = { surface: key, kind: "exclusive", path, entry: null, state: a.state, reason: a.reason, writtenBy: a.writtenBy, sameProject: a.sameProject };
+  if (a.refusal) return [{ surface: key, kind: "exclusive", path: at, state: "refused", action: "refuse", reason: a.refusal }];
+  const base = { surface: key, kind: "exclusive", path: at, entry: null, state: a.state, reason: a.reason, writtenBy: a.writtenBy, sameProject: a.sameProject };
   if (mode === "uninstall") {
     if (a.state === "absent") return [{ ...base, action: "skip" }];
     if (a.state === "foreign") return [{ ...base, action: "refuse", reason: FOREIGN_TEXT }];
     return [{ ...base, action: "remove" }];
   }
   if (a.state === "foreign") return [{ ...base, action: "refuse", reason: FOREIGN_TEXT }];
-  if (a.state === "current") return [{ ...base, action: "skip" }];
-  return [{ ...base, action: a.state === "absent" ? "create" : "update", after: a.stamped.text }];
+  // Current, but written for another project (a copied or moved checkout):
+  // the file lives inside THIS project and its render names its project since
+  // 2026-09-06, so it is re-rendered here — doctor still reports who wrote it
+  // (contract 12); only the installer acts on it.
+  if (a.state === "current" && !a.legacyPath && a.writtenBy && !a.sameProject) return [{ ...base, path, action: "update", reason: `current, written for ${a.writtenBy} — re-rendered for this project`, after: a.stamped.text }];
+  if (a.state === "current" && !a.legacyPath) return [{ ...base, action: "skip" }];
+  // Written at the NEW path; a legacy file's state is why (stale, or current-but-moving).
+  return [{ ...base, path, action: a.state === "absent" || a.legacyPath ? "create" : "update", reason: a.legacyPath ? `${a.reason ? a.reason + "; " : ""}moving from ${rel(projectDir, a.legacyPath)} (the layout ADR)` : a.reason, after: a.stamped.text, legacyPath: a.legacyPath }];
 }
 
 // ─── plan ──────────────────────────────────────────────────────────────
@@ -396,6 +406,14 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   const cfg = readConfigAt(projectDir);
   const optIn = new Set(surfaces || []);
   if (cfg?.statusline?.enabled === true) optIn.add("statusline");
+  // The project-level layout (the layout ADR): one harness-neutral item, planned
+  // once whatever --surface names — planned first, so every surface below is
+  // planned against the new paths; its cleanup is planned last (below).
+  const layoutHarness = loadHarness(ids.find((id) => { const p = layoutPaths(projectDir, { harnessDir: loadHarness(id).runtime?.harness_dir || null }); return existsSync(p.legacy.binding) || existsSync(p.legacy.runtime); }) || ids[0]);
+  const layoutCtx = { projectDir, mode, env, home, root, harness: layoutHarness, incomplete: false };
+  const layout = planLayout(layoutCtx);
+  for (const item of layout.first) out.items.push({ harness: layoutHarness.id, ...item });
+  if (layoutCtx.incomplete) out.incomplete = true;
   for (const id of ids) {
     const harness = loadHarness(id);
     out.harnesses.push(id);
@@ -435,9 +453,126 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
     if (ctx.incomplete) out.incomplete = true;
     if (hostRows.length && !surfaces) out.reports.push(hostManagedReport(harness, hostRows, registration));
   }
+  for (const item of layout.last) out.items.push({ harness: layoutHarness.id, ...item });
   if (out.items.some((i) => i.action === "refuse")) out.ok = false;
   if (out.refusals.length) out.ok = false;
   return out;
+}
+
+// ─── the layout migration (the layout ADR; layout spec contract 6) ──────
+//
+// Two items, kind `layout`. The FIRST moves what only we read — the legacy
+// state directory (per-file collision policy), the entry log (merged), the
+// two legacy markers — and, last of its steps, the binding, whose `agents`
+// block becomes the harness's overlay. It never touches the launcher: the
+// settings entry names it, and the entry is re-pointed by the statusline item
+// only after the launcher item has written the new one. The LAST item, planned
+// after every surface, removes the legacy launcher once nothing names it and
+// prunes the emptied legacy runtime directory. Two config files is the one
+// refusal (a merge is the user's); uninstall is never blocked by it.
+function planLayout(ctx) {
+  const { projectDir, mode, env, harness } = ctx;
+  const a = analyseLayout(projectDir, { harness });
+  const P = a.paths;
+  const none = { first: [], last: [] };
+  if (!a.pending) return none;
+  const base = { surface: "layout", kind: "layout", path: P.legacy.binding, entry: null, state: a.state, reason: null };
+  if (mode === "uninstall") {
+    // Disowning: the legacy runtime directory goes with the new one when it is
+    // ours (its header); the legacy binding is bind's, never uninstall's.
+    if (!a.legacy.runtime || !a.legacy.runtimeOurs) return none;
+    return { first: [], last: [{ ...base, surface: "layout_cleanup", path: P.legacy.runtime, state: "legacy", action: "remove", reason: "the legacy runtime directory is ours (its .gitignore header) and goes with the state", steps: [
+      { kind: "remove-legacy-runtime", path: P.legacy.runtime, why: "the pre-0.28 state directory, removed whole" },
+      { kind: "note", why: ".projectstore/state/ (sessions, the entry log, the welcome marker) and the binding stay: the hooks' records and bind's file, not install's — delete .projectstore/ by hand to disown fully" },
+    ] }] };
+  }
+  if (a.twoConfigs && !a.resumable) return { first: [{ ...base, action: "refuse", reason: `two bindings: ${P.legacy.binding} (legacy) and ${P.binding} — keep one and delete the other (usually the legacy one), then run install again; nothing is written while both exist` }], last: [] };
+  if (insideHostSession(env, harness)) { ctx.incomplete = true; return { first: [{ ...base, action: "skip", deferred: true, reason: `the layout migration moves files this ${harness.display_name} session reads and writes — run it from a terminal outside the session` }], last: [] }; }
+  const steps = [
+    { kind: "note", why: `close other ${harness.display_name} sessions in this project first and restart afterwards: the migration moves files a running session reads and writes, and the status line does not reload mid-session` },
+    { kind: "ensure", path: P.root, why: ".projectstore/ with its .gitignore (projectstore.json, state/)" },
+  ];
+  if (a.legacy.state) steps.push({ kind: "move-state", from: P.legacy.state, to: P.sessions, files: a.legacy.stateFiles.length, why: "session files move into state/sessions/; one present on both sides keeps the newer, a per-session directory keeps the new side" });
+  if (a.legacy.entryLog) steps.push({ kind: "merge-log", from: P.legacy.entryLog, to: P.entryLog, why: "the legacy entry log's lines go before the new log's" });
+  if (a.legacy.welcomed) steps.push({ kind: "move-marker", from: P.legacy.welcomed, to: P.welcomed(harness.id), why: "the welcome marker moves under state/<harness>/ — a migrated project is not welcomed twice" });
+  if (a.legacy.sessionId) steps.push({ kind: "delete", path: P.legacy.sessionId, why: "the 0.6-era session-id file" });
+  if (a.legacy.binding && a.resumable) steps.push({ kind: "delete", path: P.legacy.binding, why: "the binding was already moved (an interrupted run left the legacy copy, byte-equal but for its agents block)" });
+  else if (a.legacy.binding) steps.push({ kind: "move-binding", from: P.legacy.binding, to: P.binding, overlay: P.overlay(harness.id), why: `the binding moves; its agents block becomes harness/${harness.id}.json` });
+  const first = [{ ...base, action: "migrate", steps, reason: `${a.legacy.binding ? "binding" : "state"} in the pre-0.28 layout under ${a.legacy.dir}/` }];
+  const last = [];
+  if (a.legacy.launcher || a.legacy.runtime) {
+    const cleanup = [];
+    if (a.legacy.launcher) cleanup.push({ kind: "remove-legacy-launcher", path: P.legacy.launcher, why: "removed once the new launcher is written and the settings entry names it; kept if anything still points at it" });
+    if (a.legacy.runtime) cleanup.push({ kind: "rmdir-legacy", path: P.legacy.runtime, why: "the emptied pre-0.28 runtime directory" });
+    last.push({ ...base, surface: "layout_cleanup", path: P.legacy.runtime, state: "legacy", action: "cleanup", reason: null, steps: cleanup });
+  }
+  return { first, last };
+}
+
+function applyLayout(p, i, { failed }) {
+  const out = { path: i.path, action: i.action, surface: i.surface, steps: [] };
+  const within = p.projectDir;
+  if (i.action === "cleanup" && failed) { out.action = "skipped"; out.reason = "an earlier item failed; the legacy files stay until the next run"; return out; }
+  const fail = (step, message) => { out.failed = { step, status: null, stderr: message }; return out; };
+  for (const st of i.steps || []) {
+    try {
+      if (st.kind === "ensure") { ensureRuntimeDir(within); out.steps.push({ kind: st.kind, ok: true }); }
+      else if (st.kind === "move-state") { const r = moveStateDir(st.from, st.to, within); ensureStateDir(within); out.steps.push({ kind: st.kind, ok: true, ...r }); }
+      else if (st.kind === "merge-log") { const r = mergeEntryLog(st.from, st.to, within); out.steps.push({ kind: st.kind, ok: true, result: r }); }
+      else if (st.kind === "delete") { out.steps.push({ kind: st.kind, path: st.path, ok: true, removed: removeInside(st.path, within) }); }
+      else if (st.kind === "move-marker") { const r = movePath(st.from, st.to, within); if (r === "target-exists") removeInside(st.from, within); out.steps.push({ kind: st.kind, ok: true, result: r }); }
+      else if (st.kind === "move-binding") {
+        let cfg; try { cfg = JSON.parse(readFileSync(st.from, "utf8")); } catch (e) { return fail(st.kind, `${st.from} is not valid JSON; the binding was not moved`); }
+        if (existsSync(st.to)) return fail(st.kind, `${st.to} appeared under the plan; two bindings are a refusal`);
+        const { agents, ...binding } = cfg && typeof cfg === "object" ? cfg : {};
+        if (agents && typeof agents === "object") {
+          let overlay = {}; try { overlay = JSON.parse(readFileSync(st.overlay, "utf8")); } catch {}
+          mkdirSync(dirname(st.overlay), { recursive: true });
+          writeFileAtomic(st.overlay, JSON.stringify({ ...overlay, agents }, null, 2) + "\n", { sweep: false });
+        }
+        mkdirSync(dirname(st.to), { recursive: true });
+        writeFileAtomic(st.to, JSON.stringify(binding, null, 2) + "\n", { sweep: false });
+        removeInside(st.from, within);
+        out.steps.push({ kind: st.kind, ok: true, overlay: Boolean(agents) });
+      }
+      else if (st.kind === "remove-legacy-launcher") {
+        // Only ours, and only when no settings entry names it any more.
+        let text = null; try { text = readFileSync(st.path, "utf8"); } catch {}
+        const named = entryNames(p.projectDir, i.harness, st.path);
+        // Moved, never just deleted: the legacy launcher goes only once the new
+        // one exists (a dev root produces none — contract 7 leaves it in place).
+        const moved = existsSync(layoutPaths(p.projectDir).launcher(i.harness));
+        if (text === null) out.steps.push({ kind: st.kind, ok: true, removed: false });
+        else if (!moved) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "no launcher at the new path yet (this root does not produce one) — left in place" });
+        else if (!isOurFile(text)) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "not ours — left in place" });
+        else if (named) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "the settings entry still names it — left in place" });
+        else out.steps.push({ kind: st.kind, ok: true, removed: removeInside(st.path, within) });
+      }
+      else if (st.kind === "rmdir-legacy") {
+        // Prune the legacy runtime dir when only its own .gitignore (and an empty state/) remain.
+        let left = []; try { left = readdirSync(st.path).filter((n) => n !== ".gitignore"); } catch { out.steps.push({ kind: st.kind, ok: true, removed: false }); continue; }
+        if (left.length === 1 && left[0] === "state") { try { if (readdirSync(join(st.path, "state")).length === 0) { rmdirSync(join(st.path, "state")); left = []; } } catch {} }
+        if (left.length) { out.steps.push({ kind: st.kind, ok: true, removed: false, reason: `${left.join(", ")} remain` }); continue; }
+        removeInside(st.path, within, { recursive: true });
+        out.steps.push({ kind: st.kind, ok: true, removed: true });
+      }
+      else if (st.kind === "remove-legacy-runtime") { removeInside(st.path, within, { recursive: true }); out.steps.push({ kind: st.kind, ok: true, removed: true }); }
+    } catch (e) { return fail(st.kind, e && e.message ? e.message : String(e)); }
+  }
+  return out;
+}
+
+// Does the harness's settings entry still name this launcher path?
+function entryNames(projectDir, harnessId, launcherPath) {
+  try {
+    const h = loadHarness(harnessId);
+    const s = h.surfaces?.statusline;
+    if (!s || !s.file) return false;
+    const settings = JSON.parse(readFileSync(join(projectDir, s.file), "utf8"));
+    const cmd = settings?.statusLine?.command;
+    const named = statusLineScriptPath(typeof cmd === "string" ? cmd : null);
+    return Boolean(named) && resolve(named) === resolve(launcherPath);
+  } catch { return false; }
 }
 
 // Contract 14: the host installs and updates these itself; say how, from the
@@ -478,6 +613,13 @@ export function renderPreview(p) {
       else if (st.kind === "remove") lines.push(`            remove ${st.path}`, `              ${st.why}`);
       else if (st.kind === "unregister") lines.push(`            edit ${rel(p.projectDir, st.path)}  [${st.pointer}.${st.name}] → removed`, `              ${st.why}`);
       else if (st.kind === "note") lines.push(`            note: ${st.why}`);
+      else if (st.kind === "ensure") lines.push(`            ensure ${rel(p.projectDir, st.path)}/`, `              ${st.why}`);
+      else if (st.kind === "move-state") lines.push(`            move ${rel(p.projectDir, st.from)}/ → ${rel(p.projectDir, st.to)}/ (${st.files} entries)`, `              ${st.why}`);
+      else if (st.kind === "merge-log") lines.push(`            merge ${rel(p.projectDir, st.from)} → ${rel(p.projectDir, st.to)}`, `              ${st.why}`);
+      else if (st.kind === "delete") lines.push(`            delete ${rel(p.projectDir, st.path)}`, `              ${st.why}`);
+      else if (st.kind === "move-marker") lines.push(`            move ${rel(p.projectDir, st.from)} → ${rel(p.projectDir, st.to)}`, `              ${st.why}`);
+      else if (st.kind === "move-binding") lines.push(`            move ${rel(p.projectDir, st.from)} → ${rel(p.projectDir, st.to)}  (agents → ${rel(p.projectDir, st.overlay)})`, `              ${st.why}`);
+      else if (st.kind === "remove-legacy-launcher" || st.kind === "rmdir-legacy" || st.kind === "remove-legacy-runtime") lines.push(`            remove ${rel(p.projectDir, st.path)}`, `              ${st.why}`);
     }
     if (i.kind === "registration" && i.home && i.surface && !i.surface.endsWith("_others")) lines.push(`            (harness home ${i.home}${i.scope ? `, scope ${i.scope}` : ""})`);
     if (i.deleteIfEmpty && typeof i.after === "string" && !i.after.trim()) lines.push(`            (the file would hold nothing else and is removed)`);
@@ -518,8 +660,15 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
   if (!p.ok) throw new Error("apply: the plan carries refusals; nothing is written");
   const done = [];
   let registrationFailed = false;
+  let layoutFailed = false;
   for (const i of p.items) {
     if (!isWrite(i)) continue;
+    if (i.kind === "layout") {
+      const r = applyLayout(p, i, { failed: layoutFailed || registrationFailed || Boolean(done.failed) });
+      done.push(r);
+      if (r.failed) { done.failed = r.failed; layoutFailed = true; }
+      continue;
+    }
     if (i.kind === "registration") {
       const r = applyRegistration(p, i, { env, spawn, home });
       done.push(r);
@@ -550,8 +699,8 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
       if (i.deleteIfEmpty && !i.after.trim()) { try { unlinkSync(i.path); } catch {} }
       else writeFileAtomic(i.path, i.after, { sweep: false });
     } else if (typeof i.after === "string") {
-      if (i.kind === "exclusive") ensureRuntimeDir(p.projectDir); // carries the nested .gitignore
-      else mkdirSync(dirname(i.path), { recursive: true });
+      if (i.kind === "exclusive") ensureStateDir(p.projectDir); // carries the nested .gitignore
+      mkdirSync(dirname(i.path), { recursive: true });
       writeFileAtomic(i.path, i.after, { sweep: false });
     }
     done.push({ path: i.path, action: i.action, surface: i.surface });

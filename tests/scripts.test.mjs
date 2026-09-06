@@ -10,8 +10,13 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statS
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync, spawn } from "node:child_process";
-import { makeVaultProject, seedGraphFixture } from "./fixtures/vault.mjs";
-import { readAnchorState } from "../scripts/lib.mjs";
+import { makeVaultProject, seedGraphFixture, writeBinding } from "./fixtures/vault.mjs";
+import { readAnchorState,
+  layoutPaths,
+  stateDir,
+  sessionStatePath,
+  entryLogPath,
+} from "../scripts/lib.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -435,7 +440,7 @@ test("index header: extra hand-added columns are not the managed table — no si
 
 test("creation e2e: a localized index header reconciles (registry-driven, not an English literal)", () => {
   const { proj, vault } = makeVaultProject();
-  writeFileSync(join(proj, ".claude", "projectstore.json"), JSON.stringify({
+  writeBinding(proj, JSON.stringify({
     vault_path: vault, layout: "engineering", language: "de", default_author: "Test",
   }));
   mkdirSync(join(vault, "adr"), { recursive: true });
@@ -670,8 +675,7 @@ function seedHookProject() {
   const vault = join(root, "vault");
   mkdirSync(join(proj, ".claude"), { recursive: true });
   mkdirSync(join(vault, "epics", "PS-A", "stories"), { recursive: true });
-  writeFileSync(join(proj, ".claude", "projectstore.json"),
-    JSON.stringify({ vault_path: vault, layout: "engineering", language: "en" }), "utf8");
+  writeBinding(proj, JSON.stringify({ vault_path: vault, layout: "engineering", language: "en" }), "utf8");
   return { root, proj, vault };
 }
 
@@ -790,7 +794,8 @@ test("entry hook: a failed tool result registers nothing (contract 10)", () => {
 test("entry hook: guard off silences it (contract 20)", () => {
   const { proj, vault } = seedHookProject();
   seedStory(vault, "story-a.md", "planned");
-  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfgPath = layoutPaths(proj).binding;
+  mkdirSync(dirname(cfgPath), { recursive: true });
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
   writeFileSync(cfgPath, JSON.stringify({ ...cfg, guard: "off" }), "utf8");
   for (const f of ["a.mjs", "b.mjs", "c.mjs", "d.mjs"]) {
@@ -955,7 +960,8 @@ test("Stop carrier: silent on stop_hook_active, agent identity, guard off, below
   assert.equal(fireStop(proj, { session_id: "s2", agent_id: "a1", agent_type: "x" }), null,
     "same audience rule as the tool-call carrier");
 
-  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfgPath = layoutPaths(proj).binding;
+  mkdirSync(dirname(cfgPath), { recursive: true });
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
   writeFileSync(cfgPath, JSON.stringify({ ...cfg, guard: "off" }), "utf8");
   assert.equal(fireStop(proj, { session_id: "s2" }), null, "guard off silences BOTH carriers");
@@ -995,7 +1001,8 @@ test("rule payload: inline, bounded, and silent under auto_inject false (contrac
   assert.ok(/opens a vault artifact before it opens an editor/.test(flat), "carries the entry rule");
   assert.ok(/do not arbitrate them/.test(flat), "carries the conflict clause");
 
-  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfgPath = layoutPaths(proj).binding;
+  mkdirSync(dirname(cfgPath), { recursive: true });
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
   writeFileSync(cfgPath, JSON.stringify({ ...cfg, auto_inject: false }), "utf8");
   assert.equal(fireRules(proj, { session_id: "c1" }), null,
@@ -1016,7 +1023,7 @@ test("SessionStart renders doctor's offers as their own line, and nothing when n
   const { runStartupChecks, OFFER_CHECKS } = await import("../scripts/doctor.mjs");
   assert.ok(OFFER_CHECKS.has("upgrade"));
   const { proj } = makeVaultProject();
-  const r = runStartupChecks(JSON.parse(readFileSync(join(proj, ".claude", "projectstore.json"), "utf8")), proj);
+  const r = runStartupChecks(JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")), proj);
   assert.deepEqual(r.offers, [], "a fresh project has nothing pending");
   const out = fireSessionStart(proj, { session_id: "s-offer", source: "startup" });
   const msg = (out && out.systemMessage) || "";
@@ -1059,7 +1066,8 @@ test("SessionStart: delivers on additionalContext, and the welcome renders once 
 
 test("SessionStart: auto_inject false emits no vault content, and still arms the entry reminder", () => {
   const { proj } = seedHookProject();
-  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfgPath = layoutPaths(proj).binding;
+  mkdirSync(dirname(cfgPath), { recursive: true });
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
   writeFileSync(cfgPath, JSON.stringify({ ...cfg, auto_inject: false }), "utf8");
 
@@ -1080,7 +1088,7 @@ test("SessionStart: auto_inject false emits no vault content, and still arms the
   // entry-rule tests drive touch-session.mjs, not this hook.
   assert.equal(fireSessionStart(proj, { session_id: "a3", source: "compact" }), null);
   assert.ok(
-    existsSync(join(proj, ".claude", ".projectstore", "state", "a3.fired", "armed")),
+    existsSync(join(stateDir(proj), "a3.fired", "armed")),
     "armReminder must stay above the auto_inject gate",
   );
 });
@@ -1218,8 +1226,7 @@ test("SessionStart contract 3: a sibling path and the vault path truncate at 200
   const proj = join(root, "proj");
   mkdirSync(join(proj, ".claude"), { recursive: true });
   mkdirSync(join(deep, "epics"), { recursive: true });
-  writeFileSync(join(proj, ".claude", "projectstore.json"),
-    JSON.stringify({ vault_path: deep, layout: "engineering", language: "en" }), "utf8");
+  writeBinding(proj, JSON.stringify({ vault_path: deep, layout: "engineering", language: "en" }), "utf8");
   assert.ok(deep.length > 200, `fixture vault path is ${deep.length} chars`);
   seedSiblings(deep, 1, 400);
 
@@ -1247,8 +1254,7 @@ test("SessionStart contract 3: a registration failure's free-text message trunca
   const proj = join(root, "proj");
   mkdirSync(join(proj, ".claude"), { recursive: true });
   mkdirSync(join(deep, "epics"), { recursive: true });
-  writeFileSync(join(proj, ".claude", "projectstore.json"),
-    JSON.stringify({ vault_path: deep, layout: "engineering", language: "en" }), "utf8");
+  writeBinding(proj, JSON.stringify({ vault_path: deep, layout: "engineering", language: "en" }), "utf8");
   // The sessions path exists as a FILE, so mkdir throws where registration runs.
   mkdirSync(join(deep, ".projectstore"), { recursive: true });
   writeFileSync(join(deep, ".projectstore", "sessions"), "not a directory", "utf8");
@@ -1404,7 +1410,8 @@ test("SessionStart contract 19: a path over 200 truncates with the mark outside 
 
 test("SessionStart contract 3: the vault-load failure path truncates its free text too", () => {
   const { proj } = seedHookProject();
-  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfgPath = layoutPaths(proj).binding;
+  mkdirSync(dirname(cfgPath), { recursive: true });
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
   // loadLayout throws, quoting the name and the resolved path — made long here
   // so the raw message is over 500 characters on its own.
@@ -1469,7 +1476,8 @@ test("PreCompact contract 22: the delivery claim needs manual AND auto_inject on
   assert.ok(/projectstore:status/.test(auto), "and still offers something true");
 
   // The axis a source-based walk never reaches: config.
-  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfgPath = layoutPaths(proj).binding;
+  mkdirSync(dirname(cfgPath), { recursive: true });
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
   writeFileSync(cfgPath, JSON.stringify({ ...cfg, auto_inject: false }), "utf8");
   const off = firePreCompact(proj, { session_id: "pc2", trigger: "manual" }).systemMessage;
@@ -1516,8 +1524,7 @@ test("SessionStart contract 17: a missing vault keeps its one-line shape", () =>
   const root = mkdtempSync(join(tmpdir(), "ps-novault-"));
   const proj = join(root, "proj");
   mkdirSync(join(proj, ".claude"), { recursive: true });
-  writeFileSync(join(proj, ".claude", "projectstore.json"),
-    JSON.stringify({ vault_path: join(root, "NO_SUCH_VAULT"), layout: "engineering" }), "utf8");
+  writeBinding(proj, JSON.stringify({ vault_path: join(root, "NO_SUCH_VAULT"), layout: "engineering" }), "utf8");
 
   // Driven WITH a session_id, twice — the path every real session takes. A
   // first revision of this fix skipped the id, which documented the hole
@@ -1538,7 +1545,8 @@ test("SessionStart contract 17: a missing vault keeps its one-line shape", () =>
 
 test("SessionStart contract 3: free-text config cannot breach the composed cap", () => {
   const { proj, vault } = seedHookProject();
-  const cfgPath = join(proj, ".claude", "projectstore.json");
+  const cfgPath = layoutPaths(proj).binding;
+  mkdirSync(dirname(cfgPath), { recursive: true });
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
   writeFileSync(cfgPath, JSON.stringify({ ...cfg, language: "L".repeat(3000) }), "utf8");
   writeFileSync(join(vault, ".projectstore.json"),
@@ -1761,7 +1769,7 @@ test("name offer: it composes with the raw-edit nudge instead of racing it", () 
   // on the fifth. Force both onto one invocation by clearing the nudge stamp.
   let out = null;
   for (let i = 0; i < 4; i++) vaultWrite(proj, vault, rel);
-  const statePath = join(proj, ".claude", ".projectstore", "state", "n1.json");
+  const statePath = sessionStatePath(proj, "n1");
   const st = JSON.parse(readFileSync(statePath, "utf8"));
   delete st.nudged_at;
   writeFileSync(statePath, JSON.stringify(st), "utf8");
@@ -1780,7 +1788,7 @@ test("name offer: state never touches the statusline pointer's file", () => {
   // the highest-frequency writer here, and lib.mjs forbids it the shared
   // read-modify-write for exactly this reason.
   const st = JSON.parse(readFileSync(
-    join(proj, ".claude", ".projectstore", "state", "n1.json"), "utf8"));
+    sessionStatePath(proj, "n1"), "utf8"));
   assert.equal(st.active_epic, "PS-A");
   assert.equal(st.active_story, "story-alpha-beta");
   assert.ok(!("counts" in st) && !("incumbent" in st), "anchor state must live in its own files");
@@ -1788,8 +1796,7 @@ test("name offer: state never touches the statusline pointer's file", () => {
 
 test("name offer: guard off silences it, like every other advisory", () => {
   const { proj, vault } = seedAnchorVault();
-  writeFileSync(join(proj, ".claude", "projectstore.json"),
-    JSON.stringify({ vault_path: vault, layout: "engineering", language: "en", guard: "off" }), "utf8");
+  writeBinding(proj, JSON.stringify({ vault_path: vault, layout: "engineering", language: "en", guard: "off" }), "utf8");
   const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
   for (let i = 0; i < 8; i++) {
     assert.equal(offerLine(vaultWrite(proj, vault, rel)), null, "guard off means silent");
@@ -1800,7 +1807,7 @@ test("name offer: the breadcrumb is distinguishable from an entry reminder", () 
   const { proj, vault } = seedAnchorVault();
   const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
   for (let i = 0; i < 5; i++) vaultWrite(proj, vault, rel);
-  const log = readFileSync(join(proj, ".claude", ".projectstore", "entry-log.jsonl"), "utf8")
+  const log = readFileSync(entryLogPath(proj), "utf8")
     .split("\n").filter(Boolean).map((l) => JSON.parse(l));
   const offers = log.filter((r) => r.kind === "name-offer");
   assert.equal(offers.length, 1, "the offer left a breadcrumb");
@@ -1957,7 +1964,7 @@ test("name offer: concurrent writers keep the tally exact and the ADR-006 pointe
     "challenger against a zero incumbent");
   // And the pointer this state was deliberately kept out of is whole.
   const ptr = JSON.parse(readFileSync(
-    join(proj, ".claude", ".projectstore", "state", "c1.json"), "utf8"));
+    sessionStatePath(proj, "c1"), "utf8"));
   assert.equal(ptr.active_epic, "PS-A");
   assert.equal(ptr.active_story, "story-alpha-beta");
 });
@@ -1980,8 +1987,7 @@ function seedWorktreePairForHook({ bindParent = true } = {}) {
   spawnSync("git", ["commit", "-qm", "base"], { cwd: main });
   if (bindParent) {
     mkdirSync(join(main, ".claude"), { recursive: true });
-    writeFileSync(join(main, ".claude", "projectstore.json"),
-      JSON.stringify({ vault_path: vault, layout: "engineering", language: "en" }), "utf8");
+    writeBinding(main, JSON.stringify({ vault_path: vault, layout: "engineering", language: "en" }), "utf8");
   }
   spawnSync("git", ["worktree", "add", "-q", child, "-b", "feat"], { cwd: main });
   return { root, main, child, vault };
@@ -2019,10 +2025,10 @@ test("SessionStart: detecting an inheritable worktree writes nothing", () => {
   // Scoped deliberately: the first-run welcome marker is a pre-existing write on
   // this path and is not part of detection. What must not appear is a binding
   // this session never approved, or per-session state for an unbound project.
-  assert.ok(!existsSync(join(child, ".claude", "projectstore.json")),
+  assert.ok(!existsSync(layoutPaths(child).binding) && !existsSync(join(child, ".claude", "projectstore.json")),
     "no binding is adopted without the approval gate");
-  assert.ok(!existsSync(join(child, ".claude", ".projectstore")),
-    "no per-session state for a project that is not bound");
+  assert.ok(!existsSync(layoutPaths(child).sessions) && !existsSync(join(child, ".claude", ".projectstore")),
+    "no per-session state for a project that is not bound (the welcome marker under state/<harness>/ is not session state)");
 });
 
 test("SessionStart: no offer when there is no bound parent to inherit from", () => {

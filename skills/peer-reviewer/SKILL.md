@@ -18,7 +18,7 @@ After a successful invocation of any of:
 
 ## What to do
 
-1. **Confirm a vault is bound** (`.claude/projectstore.json` exists). Otherwise stay silent.
+1. **Confirm a vault is bound** (`.projectstore/projectstore.json` exists). Otherwise stay silent.
 2. **Confirm `active_skills: true`** in config.
 3. **Read the frontmatter** of the freshly created file. If `review_status: pending` — eligible for suggestion. If `review_status: reviewed` or `n/a` — do nothing.
 4. **Suggest, do not act**. One short message:

@@ -14,7 +14,7 @@ tell one coherent, non-redundant, well-connected story? Run
 `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor --vault` first (exit 1 = findings, not failure) and skip anything
 it already flags — do not duplicate mechanical findings.
 
-Locate the vault via `.claude/projectstore.json` → `vault_path`. Read the folder
+Locate the vault via `.projectstore/projectstore.json` → `vault_path`. Read the folder
 READMEs for orientation, then the artifacts themselves (frontmatter + content),
 prioritizing accepted ADRs and active epics.
 

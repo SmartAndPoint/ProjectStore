@@ -19,4 +19,4 @@ Steps:
 
 3. Zero matches is exit 0 and the output already suggests a shorter or case-insensitive phrase. Do not fall back to a shell `grep`: the verb is the search.
 
-4. At the end, print a hint: "Open a file with the Read tool: `Read <vault_path>/<path>`" — `vault_path` is in `.claude/projectstore.json` (or `status --json` → `result.vault_path`); the search output prints vault-relative paths.
+4. At the end, print a hint: "Open a file with the Read tool: `Read <vault_path>/<path>`" — `vault_path` is in `.projectstore/projectstore.json` (or `status --json` → `result.vault_path`); the search output prints vault-relative paths.

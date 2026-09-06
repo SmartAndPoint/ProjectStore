@@ -5,7 +5,7 @@ argument-hint: "<register | unregister | status | configure>"
 
 You are managing projectstore's agent integration (ADR-002 block lifecycle,
 ADR-003 presets as revised by ADR-008 — model per invocation, no copies). Require a bound project for every
-subcommand (`.claude/projectstore.json`; else point to `/projectstore:bind`).
+subcommand (`.projectstore/projectstore.json`; else point to `/projectstore:bind`).
 
 ## `register` — write the managed routing block
 
@@ -51,7 +51,7 @@ and report each item's `state` from `result.items[]` — the bin wraps the plan 
 
 - Block: present in which file, marker version vs the installed template, agent
   names vs the layout roster.
-- Model: the resolved model per roster agent from `projectstore.json → agents`
+- Model: the resolved model per roster agent from `.projectstore/harness/<harness>.json → agents` (the active harness's overlay — `claude-code.json` here; the binding carries no `agents` block since the layout move)
   (per-agent value, else default, else "the agent's own frontmatter"), and
   whether `CLAUDE_CODE_SUBAGENT_MODEL` is set (it overrides everything) and
   whether `CLAUDE_CODE_EFFORT_LEVEL` is set (ADR-008 makes it the only thing that
@@ -93,7 +93,7 @@ and report each item's `state` from `result.items[]` — the bin wraps the plan 
    `CLAUDE_CODE_SUBAGENT_MODEL=inherit`, which does mean exactly that.
 2. **Optional follow-up**: "configure individually?" → per-agent model for each
    roster agent. Skippable.
-3. **Apply**: write the choice to `projectstore.json → agents: { default:
+3. **Apply**: write the choice to `.projectstore/harness/<harness>.json → agents: { default:
    {model}, per_agent: { <name>: {model} } }` (approval-gated config edit).
    **Whenever this step writes `agents.default.model`, it also writes
    `per_agent.clerk.model: "sonnet"`** — a strong roster preset must not silently
@@ -136,7 +136,7 @@ registration block's instructions) resolves the model as:
 agents.per_agent.<name>.model  ??  agents.default.model  ??  (nothing — use the agent's frontmatter)
 ```
 
-read from `<project>/.claude/projectstore.json`, and passes it as the spawn's
+read from `<project>/.projectstore/harness/<harness>.json` (the active harness's overlay), and passes it as the spawn's
 model parameter. If the config is missing, unreadable, or has no key for this
 agent, pass nothing — the agent's own frontmatter decides. Never guess a model.
 

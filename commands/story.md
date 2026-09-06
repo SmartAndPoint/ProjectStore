@@ -14,7 +14,7 @@ the two cannot collide).
 
 # Create flow
 
-1. **Check config**: stop if `.claude/projectstore.json` missing.
+1. **Check config**: stop if `.projectstore/projectstore.json` missing.
 
 2. **Validate args**: epic-id (positional 1) + title (rest). If only one word, ask for the title. An optional `--spec SPEC-ID` names the covering spec — put it into the rendered draft's `specs:` list (inline flow: `specs: ["SPEC-001"]`). Under `spec_policy: required` (vault's `.projectstore.json`), remind that every story needs a covering spec before implementation starts.
 
@@ -81,7 +81,7 @@ the two cannot collide).
      the baseline is what `--check` compares against. Handing `--check` the
      scratch makes it report drift on every run.
    - **Model (ADR-008)**: resolve `agents.per_agent.clerk.model ?? agents.default.model`
-     from `.claude/projectstore.json` and pass it as the spawn's model parameter.
+     from `.projectstore/harness/<harness>.json` (the active harness's overlay — `claude-code.json` here) and pass it as the spawn's model parameter.
      Missing key, `inherit`, or unreadable config → pass nothing and let the
      agent's own frontmatter decide; never guess a model.
    - Capture doctor's summary line (`node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor

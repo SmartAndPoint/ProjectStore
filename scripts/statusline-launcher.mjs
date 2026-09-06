@@ -28,6 +28,11 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 const FALLBACK_ROOT = "__PROJECTSTORE_ROOT__";
 const HOME_ENV = "__PROJECTSTORE_HOME_ENV__";
 const PLUGIN_ROOT_ENV = "__PROJECTSTORE_PLUGIN_ROOT_ENV__";
+// The project this launcher was written for (2026-09-06): named at render
+// time, not derived from this file's depth — the file lives under
+// <project>/.projectstore/state/<harness>/ now, and a depth walk would name
+// the state directory.
+const PROJECT_DIR = "__PROJECTSTORE_PROJECT__";
 
 function versionKey(v) {
   const p = String(v || "0").split(".").map((n) => parseInt(n, 10) || 0);
@@ -49,7 +54,7 @@ function installedRoot() {
     // host recorded for THIS checkout (local scope, one per checkout) comes
     // first; another checkout's newer install is the fallback, not the pick.
     let project = null;
-    try { project = realpathSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..")); } catch {}
+    try { project = realpathSync(PROJECT_DIR); } catch { project = PROJECT_DIR || null; }
     const sameProject = (p) => { try { return Boolean(project && p && realpathSync(p) === project); } catch { return false; } };
     const found = [];
     for (const [key, list] of Object.entries((reg && reg.plugins) || {})) {

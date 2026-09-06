@@ -7,7 +7,7 @@ You are creating the folder structure of the projectstore layout inside the boun
 
 Steps:
 
-1. **Read config**: `cat .claude/projectstore.json`. If missing, tell user to run `/projectstore:bind <path>` and stop.
+1. **Read config**: `cat .projectstore/projectstore.json`. If missing, tell user to run `/projectstore:bind <path>` and stop.
 2. **Determine layout**: use `$ARGUMENTS` if provided, else `config.layout`.
 3. **Load layout spec**: `cat "$CLAUDE_PLUGIN_ROOT/scaffold/layouts/<layout>.json"`. Parse it.
 4. **Show plan**: list every folder that will be created and which folders already exist. Mark new ones with `(create)`, existing with `(exists)`.

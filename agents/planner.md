@@ -25,7 +25,7 @@ Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes �
 
 ## Phase 0 — Read the vault's epic↔code mapping first
 
-Locate the bound vault (`.claude/projectstore.json` → `vault_path`). Read the
+Locate the bound vault (`.projectstore/projectstore.json` → `vault_path`). Read the
 target epic/story (goal, decomposition, acceptance criteria) and then EVERY other
 epic's frontmatter `code_refs` — that list is the project's real mapping of
 features to code shapes ("EPIC-AUTH became `src/auth/`; EPIC-EXPORT became an

@@ -4,7 +4,7 @@
 // Renders the Claude Code status line for a projectstore-bound project.
 // statusLine is NOT a plugin-declarable capability, so it lives in settings
 // with an absolute path: the SessionStart hook points .claude/settings.local.json
-// at the generated .claude/.projectstore/statusline.mjs launcher (when
+// at the generated .projectstore/state/claude-code/statusline.mjs launcher (when
 // projectstore.json → statusline.enabled=true), and the launcher imports THIS
 // file from whichever plugin version is installed at render time.
 //
@@ -17,7 +17,7 @@
 // The 📚 segment is resolved PER SESSION with zero cross-session and zero
 // vault reads (ADR-006):
 //   1. this session's pointer file
-//      (<project>/.claude/.projectstore/state/<session_id>.json — written by
+//      (<project>/.projectstore/state/sessions/<session_id>.json — written by
 //      the PreToolUse hook with denormalized titles), else
 //   2. an explicit localized cold-start line ("no epic or story in this
 //      session yet"). Never blank while enabled; a pointer that exists but

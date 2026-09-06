@@ -18,13 +18,14 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject } from "../scripts/cli.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
-import { seedCliVault } from "./fixtures/vault.mjs";
+import { layoutPaths } from "../scripts/lib.mjs";
+import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
 import { neighbors as neighborsOp, LINEAGE_KINDS } from "../scripts/query.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BIN = join(ROOT, "bin", "projectstore.mjs");
 const SRC = sourceHarness();
-const CFG_DIR = SRC.runtime.project_config_dir;
+const CFG_DIR = SRC.runtime.harness_dir; // the harness's own directory (settings.local.json); our binding is layoutPaths(proj).binding
 const PKG = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 
 delete process.env[SRC.runtime.home_env];
@@ -43,7 +44,7 @@ function project({ bound = true } = {}) {
   mkdirSync(join(proj, CFG_DIR), { recursive: true });
   if (bound) {
     const vault = mkdtempSync(join(tmpdir(), "ps-vault-"));
-    writeFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), JSON.stringify({ vault_path: vault, layout: "engineering" }));
+    writeBinding(proj, JSON.stringify({ vault_path: vault, layout: "engineering" }));
   }
   return proj;
 }
@@ -145,7 +146,7 @@ test("cli: reconcile in an unbound project exits 3 naming init; in a bound one i
   const bare = bin(["reconcile", "--project", bound]);
   assert.ok(!("schema_version" in JSON.parse(bare.stdout)), "without --json the core's own JSON is printed");
   // The gate: a bare --write in a non-TTY refuses; --only names what is written.
-  const vault = JSON.parse(readFileSync(join(bound, CFG_DIR, SRC.runtime.config_basename), "utf8")).vault_path;
+  const vault = JSON.parse(readFileSync(layoutPaths(bound).binding, "utf8")).vault_path;
   const refused = bin(["reconcile", "--write", "--json", "--project", bound]);
   assert.equal(refused.status, 1);
   assert.match(refused.stderr, /non-TTY refuses/);
@@ -351,7 +352,7 @@ test("cli orientation: the skeleton equals the SessionStart renderer's, and READ
   const text = bin(["orientation", "--project", proj]).stdout;
   assert.equal(text.trimEnd(), o.skeleton.trimEnd());
   const { gatherVaultFacts, renderVaultSkeleton } = await import("../scripts/lib.mjs");
-  const cfg = JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8"));
+  const cfg = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8"));
   assert.equal(o.skeleton, renderVaultSkeleton(await gatherVaultFacts(cfg)));
 });
 
@@ -513,7 +514,7 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   assert.equal(e.result.wrote, true);
   assert.equal(e.result.config, undefined, "no file body in the envelope");
   assert.deepEqual(Object.keys(e.result).sort(), ["config_path", "created_vault", "ignored", "kept_keys", "language", "layout", "refusals", "state", "vault_exists", "vault_path", "wrote"]);
-  const cfg = JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8"));
+  const cfg = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8"));
   // The fresh config's keys are commands/bind.md step 3's — the interview and the verb write the same file.
   const bindMd = readFileSync(join(ROOT, "commands", "bind.md"), "utf8");
   for (const k of Object.keys(cfg)) assert.ok(bindMd.includes(`"${k}":`), `commands/bind.md step 3 names ${k}`);
@@ -535,15 +536,15 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   // Nothing on the project side but the config is touched.
   writeFileSync(join(proj, "CLAUDE.md"), "# mine\n");
   // A hand-added key survives a rebind; the vault changes only with --rebind.
-  writeFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), JSON.stringify({ ...cfg, statusline: { enabled: true } }));
+  writeBinding(proj, JSON.stringify({ ...cfg, statusline: { enabled: true } }));
   const other = mkdtempSync(join(tmpdir(), "ps-vault-"));
   const refused = bin(["bind", other, "--json", "--project", proj]);
   assert.equal(refused.status, 1);
   assert.match(envOf(refused).result.refusals[0].message, /--rebind/);
-  assert.equal(JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8")).vault_path, vault, "not rewritten");
+  assert.equal(JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path, vault, "not rewritten");
   const rebound = bin(["bind", other, "--rebind", "--language", "ru", "--json", "--project", proj]);
   assert.equal(rebound.status, 0, rebound.stderr);
-  const after = JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8"));
+  const after = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8"));
   assert.equal(after.vault_path, other);
   assert.equal(after.language, "ru");
   assert.deepEqual(after.statusline, { enabled: true }, "other keys kept");
@@ -551,16 +552,16 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   assert.equal(readFileSync(join(proj, "CLAUDE.md"), "utf8"), "# mine\n", "bind never touches the agents block");
   assert.ok(!existsSync(join(proj, ".gitignore")), "nor .gitignore");
   // A corrupt config is refused, never overwritten.
-  writeFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "{ not json");
+  writeBinding(proj, "{ not json");
   const corrupt = bin(["bind", other, "--rebind", "--json", "--project", proj]);
   assert.equal(corrupt.status, 1);
   assert.equal(envOf(corrupt).result.refusals[0].code, "UNREADABLE");
-  assert.equal(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8"), "{ not json");
+  assert.equal(readFileSync(layoutPaths(proj).binding, "utf8"), "{ not json");
   // The stored side is normalised too: a config written with a tilde is the same vault.
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   mkdirSync(join(home, "v"));
   const p3 = project({ bound: false });
-  writeFileSync(join(p3, CFG_DIR, SRC.runtime.config_basename), JSON.stringify({ vault_path: "~/v", layout: "engineering" }));
+  writeBinding(p3, JSON.stringify({ vault_path: "~/v", layout: "engineering" }));
   const tilde = envOf(bin(["bind", join(home, "v"), "--json", "--project", p3], { env: { HOME: home } })).result;
   assert.equal(tilde.state, "same");
   const tildeIn = envOf(bin(["bind", "~/v", "--json", "--project", project({ bound: false })], { env: { HOME: home } })).result;
@@ -585,7 +586,7 @@ test("cli init: creates the vault directory and binds; refuses when already boun
   assert.equal(envOf(r).result.created_vault, true);
   assert.ok(existsSync(vault));
   assert.deepEqual(readdirSync(vault), [], "init makes the directory only — the layout is scaffold's");
-  assert.equal(JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8")).vault_path, vault);
+  assert.equal(JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path, vault);
   const text = bin(["init", join(mkdtempSync(join(tmpdir(), "ps-init-")), "v2"), "--project", project({ bound: false })]);
   assert.match(text.stdout, /scaffold/);
   const twice = bin(["init", vault, "--json", "--project", proj]);
@@ -600,7 +601,7 @@ test("cli init: creates the vault directory and binds; refuses when already boun
   const movedOk = bin(["init", elsewhere, "--rebind", "--json", "--project", proj]);
   assert.equal(movedOk.status, 0, movedOk.stderr);
   assert.ok(existsSync(elsewhere));
-  assert.equal(JSON.parse(readFileSync(join(proj, CFG_DIR, SRC.runtime.config_basename), "utf8")).vault_path, elsewhere);
+  assert.equal(JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path, elsewhere);
   assert.equal(bin(["init", "--project", project({ bound: false })]).status, 2);
   // A relative path resolves against the project.
   const p2 = project({ bound: false });

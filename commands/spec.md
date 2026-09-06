@@ -15,7 +15,7 @@ Dispatch on the first argument:
 
 ## Creation flow
 
-1. **Check config**: stop if `.claude/projectstore.json` missing.
+1. **Check config**: stop if `.projectstore/projectstore.json` missing.
 
 2. **Render draft**:
 
