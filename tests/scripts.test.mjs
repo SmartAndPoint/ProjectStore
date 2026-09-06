@@ -1,7 +1,11 @@
 // projectstore — CLI-script tests (PS-SPEC story-007/009 follow-up from the
 // reviewer pass). The two new scripts are pure compute; drive them via
-// spawnSync with CLAUDE_PROJECT_DIR pointed at this repo (its config supplies
-// language/vault for story-section).
+// spawnSync. `diff-refs` reads git history, so it runs against this repo;
+// `story-section` reads a binding for language and the vault, so it runs
+// against a temp project this file binds itself. Pointing the second one at
+// this repo too made the suite depend on the maintainer having bound their
+// own checkout: green on their machine, "No projectstore config" on a clean
+// CI runner, where the suite had been red since 2026-09-05.
 //   node --test tests/*.test.mjs
 
 import { test } from "node:test";
@@ -22,14 +26,18 @@ import { fileURLToPath } from "node:url";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const ENV = { ...process.env, CLAUDE_PROJECT_DIR: REPO, CLAUDE_PLUGIN_ROOT: REPO };
+// A bound project of our own, for the scripts that need a binding rather than
+// a git history. Made once: story-section only reads it.
+const BOUND_ENV = { ...ENV, CLAUDE_PROJECT_DIR: makeVaultProject().proj };
 
-function run(script, args) {
+function run(script, args, env = ENV) {
   const r = spawnSync(process.execPath, [join(REPO, "scripts", script), ...args], {
-    encoding: "utf8", env: ENV, cwd: REPO, timeout: 15000,
+    encoding: "utf8", env, cwd: REPO, timeout: 15000,
   });
   assert.equal(r.status, 0, r.stderr);
   return JSON.parse(r.stdout);
 }
+const runBound = (script, args) => run(script, args, BOUND_ENV);
 
 const STORY = `---
 type: story
@@ -64,7 +72,7 @@ HAND WRITTEN — must survive.
 test("story-section plan: idempotent, preserves hand-written plan, no downgrade from review", () => {
   const p = join(mkdtempSync(join(tmpdir(), "ps-ss-")), "s.md");
   writeFileSync(p, STORY);
-  const out = run("story-section.mjs", ["plan", p]);
+  const out = runBound("story-section.mjs", ["plan", p]);
   assert.equal((out.content.match(/## Implementation Plan/g) || []).length, 1);
   assert.ok(out.content.includes("HAND WRITTEN — must survive."));
   assert.match(out.content, /status: review/);           // never downgraded
@@ -76,13 +84,13 @@ test("story-section plan: idempotent, preserves hand-written plan, no downgrade 
 test("story-section close: inserts Final Summary, stamps closed_at, status done", () => {
   const p = join(mkdtempSync(join(tmpdir(), "ps-ss-")), "s.md");
   writeFileSync(p, STORY);
-  const out = run("story-section.mjs", ["close", p]);
+  const out = runBound("story-section.mjs", ["close", p]);
   assert.match(out.content, /## Final Summary/);
   assert.match(out.content, /status: done/);
   assert.match(out.content, /closed_at: "20/);
   assert.ok(out.content.includes("HAND WRITTEN — must survive."));
   writeFileSync(p, out.content);
-  const again = run("story-section.mjs", ["close", p]);
+  const again = runBound("story-section.mjs", ["close", p]);
   assert.equal(again.notes.filter((n) => n.includes("closed_at")).length, 0, "closed_at stamped once");
 });
 
@@ -2127,19 +2135,19 @@ test("story-section --check: fresh stamps are not drift, hand edits are", async 
   writeFileSync(p, STORY, "utf8");
 
   // First run: capture its content as the baseline the preview was built on.
-  const first = run("story-section.mjs", ["close", p]);
+  const first = runBound("story-section.mjs", ["close", p]);
   writeFileSync(base, first.content, "utf8");
 
   // Re-check immediately: closed_at/updated/footer are stamped fresh each run,
   // and the comparison must call that a match — otherwise every close drifts.
-  const clean = run("story-section.mjs", ["close", p, "--check", base]);
+  const clean = runBound("story-section.mjs", ["close", p, "--check", base]);
   assert.equal(clean.check.match, true,
     "volatile stamps alone are never drift");
   assert.deepEqual(clean.check.drift, []);
 
   // A hand edit in the body IS drift, and it is named.
   writeFileSync(p, STORY.replace("# T", "# T (edited in Obsidian)"), "utf8");
-  const drifted = run("story-section.mjs", ["close", p, "--check", base]);
+  const drifted = runBound("story-section.mjs", ["close", p, "--check", base]);
   assert.equal(drifted.check.match, false, "a real edit is drift");
   assert.ok(drifted.check.drift.length > 0 && /edited in Obsidian/.test(drifted.check.drift.join("\n")),
     "the drift report names the diverging line");
@@ -2147,10 +2155,10 @@ test("story-section --check: fresh stamps are not drift, hand edits are", async 
   // plan mode with a null started_at: the fresh stamp must not read as drift.
   const p2 = join(dir, "s2.md");
   writeFileSync(p2, STORY, "utf8");
-  const planFirst = run("story-section.mjs", ["plan", p2]);
+  const planFirst = runBound("story-section.mjs", ["plan", p2]);
   const base2 = join(dir, "baseline2.md");
   writeFileSync(base2, planFirst.content, "utf8");
-  const planCheck = run("story-section.mjs", ["plan", p2, "--check", base2]);
+  const planCheck = runBound("story-section.mjs", ["plan", p2, "--check", base2]);
   assert.equal(planCheck.check.match, true, "started_at is volatile by the same mechanism");
 
   // A missing baseline is a caller error, not a computed fact — nonzero, loud.
@@ -2161,7 +2169,7 @@ test("story-section --check: fresh stamps are not drift, hand edits are", async 
   assert.ok(/baseline not found/.test(raw.stderr));
 
   // Without --check nothing changes shape: check is null, existing keys intact.
-  const plain = run("story-section.mjs", ["close", p]);
+  const plain = runBound("story-section.mjs", ["close", p]);
   assert.equal(plain.check, null);
   assert.ok("content" in plain && "notes" in plain && "changed" in plain);
 });

@@ -117,7 +117,12 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   // Doctor: the install family is exactly {surface issue, mcp info} plus the offer.
   const doc = bin(root, installEnv(home, root, proj), ["doctor", "--json", "--install", "--project", proj]);
   const findings = JSON.parse(doc.stdout).result;
-  const fam = findings.filter((f) => INSTALL_FAMILY.includes(f.check)).map((f) => [f.check, f.level]).sort();
+  // Registration rows are left out on purpose: they read whether the host's
+  // CLI is on PATH — present on a maintainer's machine, absent on a CI runner,
+  // where this assertion gained a `plugin-registration` info and went red.
+  // registration.test.mjs pins that environment with a fake CLI and owns those
+  // rows; this test owns the launcher, the layout and the mcp line.
+  const fam = findings.filter((f) => INSTALL_FAMILY.includes(f.check) && !f.check.startsWith("plugin-registration")).map((f) => [f.check, f.level]).sort();
   assert.deepEqual(fam, [["layout-legacy", "warn"], ["mcp", "info"], ["surface", "issue"]], "the install family is exactly the stale launcher, the legacy layout and the permanent mcp info");
   const stale = findings.find((f) => f.check === "surface");
   assert.match(stale.message, /plugin updated \(pre-provenance file\)/);
@@ -146,7 +151,7 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   const after = snapshot(proj, vault);
   for (const [f, text] of Object.entries(before)) if (f !== lp.legacy.launcher && f !== join(proj, CFG_DIR, "settings.local.json")) assert.equal(after[f], text, `${f} untouched by upgrade`);
   const doc2 = JSON.parse(bin(root, installEnv(home, root, proj), ["doctor", "--json", "--install", "--project", proj]).stdout).result;
-  assert.deepEqual(doc2.filter((f) => INSTALL_FAMILY.includes(f.check)).map((f) => [f.check, f.level]), [["mcp", "info"]], "clean but for the permanent mcp info");
+  assert.deepEqual(doc2.filter((f) => INSTALL_FAMILY.includes(f.check) && !f.check.startsWith("plugin-registration")).map((f) => [f.check, f.level]), [["mcp", "info"]], "clean but for the permanent mcp info");
   assert.deepEqual(checkPendingUpgrade(proj, home, root), [], "nothing pending after the re-stamp");
   // The views owe no reconcile.
   const rec2 = JSON.parse(bin(root, installEnv(home, root, proj), ["reconcile", "--project", proj]).stdout);
