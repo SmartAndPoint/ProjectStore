@@ -26,7 +26,7 @@ import { sourceHarness, packageCommand, loadHarness } from "../scripts/harness.m
 import { VERBS } from "../scripts/cli.mjs";
 import { checkVersions, collectShells, PACKLIST } from "../scripts/version-guard.mjs";
 import { checkPluginRegistration, checkLayout } from "../scripts/doctor.mjs";
-import { SHELLS, SHELLS_DIR, CORE, shellDir, shellPacklistPath, publishable, shellFor, harnessVerbs, checkShells, packCore, buildShell, compareWithFixture, corePackage } from "../packaging/shells.mjs";
+import { SHELLS, SHELLS_DIR, CORE, shellDir, shellPacklistPath, publishable, shellFor, harnessVerbs, checkShells, packCore, buildShell, buildShells, compareWithFixture, corePackage } from "../packaging/shells.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
@@ -200,6 +200,26 @@ test("shells contract 11: every shell builds from the core's own pack tarball, b
       assert.ok(Array.isArray(a.result.items) && a.result.items.length > 0, "the preview has items");
     }
   }
+});
+
+test("shells contract 11: buildShells — the one builder the CLI and the guard call — packs the core into its own scratch, keeps the built tree beside the tarball under --out, and leaves nothing behind without it", { timeout: 180000 }, () => {
+  // With --out: the tarball and the built directory (the publish-from-directory fallback) land under it.
+  const out = mkdtempSync(join(TMP, "out-"));
+  const kept = buildShells({ only: CLAUDE.name, out });
+  assert.equal(kept.ok, true, JSON.stringify({ ...kept, shells: kept.shells?.map((s) => ({ ...s, files: undefined })) }));
+  assert.equal(kept.shells.length, 1);
+  assert.equal(kept.shells[0].tgz, join(out, `${CLAUDE.name}-${kept.core.version}.tgz`));
+  assert.ok(existsSync(kept.shells[0].tgz));
+  assert.equal(kept.shells[0].dir, join(out, "build", CLAUDE.name), "the built tree is beside the tarball");
+  assert.ok(existsSync(join(kept.shells[0].dir, "node_modules", CORE, "package.json")), "with the core installed");
+  assert.ok(existsSync(kept.core.tgz) && kept.core.tgz.startsWith(join(out, "build", "core")), "the core's tarball is under the same build directory");
+  assert.deepEqual(kept.shells[0].fixture.unexpected, []); assert.deepEqual(kept.shells[0].fixture.missing, []);
+  // Without --out (the guard's --write-packlist): the listing is returned, no tarball and no directory survive.
+  const gone = buildShells({ only: CLAUDE.name });
+  assert.equal(gone.ok, true, gone.error);
+  assert.equal(gone.shells[0].tgz, null); assert.equal(gone.shells[0].dir, null); assert.equal(gone.core.tgz, null);
+  assert.deepEqual(gone.shells[0].files, kept.shells[0].files, "the same listing either way");
+  assert.match(JSON.stringify(buildShells({ only: "projectstore-ghost" })), /no shell named projectstore-ghost/);
 });
 
 test("shells contract 11 / AC 3: the guard counts every shell — a version, a pin, a missing bundle or a misnamed bin fails it, and the release commit passes", () => {

@@ -322,7 +322,9 @@ export function compareWithFixture(name, files, root = ROOT) {
 export function buildShells({ root = ROOT, only = null, out = null } = {}) {
   const keep = Boolean(out);
   const scratch = keep ? join(out, "build") : mkdtempSync(join(tmpdir(), "ps-shells-"));
-  mkdirSync(scratch, { recursive: true });
+  // npm pack requires --pack-destination to exist; the core's own directory
+  // under the scratch is created here, not by npm (an ENOENT otherwise).
+  mkdirSync(join(scratch, "core"), { recursive: true });
   try {
     const core = packCore({ root, dest: join(scratch, "core") });
     if (core.error) return { ok: false, error: core.error };
