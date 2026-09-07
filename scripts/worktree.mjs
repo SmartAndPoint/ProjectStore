@@ -87,7 +87,7 @@ export function bindingOfferText(b) {
   return [
     "# projectstore — this worktree is not bound",
     "",
-    "This checkout has no `.claude/projectstore.json`, so `/projectstore:*` commands",
+    "This checkout has no `.projectstore/projectstore.json`, so `/projectstore:*` commands",
     "cannot run here. The checkout it was forked from is bound:",
     "",
     `- main checkout: \`${truncFront(String(b.mainCheckout), PATH_CELL)}\``,

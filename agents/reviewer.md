@@ -13,7 +13,7 @@ marked done that isn't closed is exactly the vault-rot this role exists to stop.
 
 Inspect everything yourself: `git status`, `git diff`, `git diff --staged`, and
 read the changed files in FULL context (not just the hunks). Locate the bound
-vault (`.claude/projectstore.json` → `vault_path`) and read the target story —
+vault (`.projectstore/projectstore.json` → `vault_path`) and read the target story —
 its Description, Decomposition, and **Acceptance Criteria** — plus the parent
 epic and the plan if one was produced. If the caller named no story, ask the diff
 which story it serves (grep the vault) before falling back to a plain code review.
@@ -84,7 +84,7 @@ say so plainly.
 3. **Findings** — severity-rated: `🔴 blocker` / `🟡 should-fix` / `🟢 nit`; each
    with file:line, confidence, why it matters, and a specific fix.
 4. **Proposed `code_refs`** — computed, not recalled: run
-   `node "$CLAUDE_PLUGIN_ROOT/scripts/diff-refs.mjs" --since <story started_at>`
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/diff-refs.mjs" --since <story started_at>`
    (story-scoped range; the script filters lockfiles/generated). When the
    result looks implausible (`fallback: true`, empty, or obviously
    over/under-attributed — shared branch, direct-to-main), say so and ask for

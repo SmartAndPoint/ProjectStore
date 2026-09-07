@@ -2,14 +2,23 @@ name: release
 
 # Publishes to npm over OIDC — no long-lived token exists in this repository's
 # secrets, and none should ever be added. The trusted publisher is configured
-# on the package's own settings page (npmjs.com → projectstore → Settings →
-# Trusted publisher), which is why the FIRST publish is manual: the form
-# requires the package to already exist.
+# on each package's own settings page (npmjs.com → <package> → Settings →
+# Trusted publisher), which is why the FIRST publish of a name is manual: the
+# form requires the package to already exist. The shells' names exist as
+# 0.0.1 placeholders, so their forms accept this workflow before their first
+# real release.
 
 # Tags only, deliberately. A `workflow_dispatch` run has no tag, so
 # GITHUB_REF_NAME would be a branch name and the version guard would reject it
 # every time — a manual trigger here could only ever fail, or publish
 # unchecked. Releases are cut by pushing a tag.
+
+# One package, N tarballs (the shells ADR): the core publishes first, then a
+# matrix over the shells `packaging/shells.mjs --list --json` names — the
+# non-private ones, so a shell whose plugin root is not rendered yet cannot
+# reach the registry by construction. Every publish step skips a
+# name@version the registry already has, so a partial release is recovered by
+# re-running the same tag, never by hand.
 on:
   push:
     tags: ["v*"]
@@ -19,8 +28,11 @@ permissions:
   id-token: write # required for npm Trusted Publishing
 
 jobs:
-  publish:
+  core:
     runs-on: ubuntu-latest
+    outputs:
+      shells: ${{ steps.shells.outputs.shells }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,15 +50,78 @@ jobs:
       - run: npm install -g npm@11.11.0
       - run: npm --version
 
-      - name: One version across every manifest and the tag
+      - name: One version across every manifest, every shell and the tag
         run: node scripts/version-guard.mjs --tag "${GITHUB_REF_NAME}"
+
+      - name: The shells' committed package.json and bin equal their render
+        run: node packaging/shells.mjs --check
 
       - name: Tests, including the packaging contracts
         run: node --test tests/*.test.mjs
+
+      - id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - id: shells
+        name: The publishable shells (a private shell never reaches the matrix)
+        run: echo "shells=$(node packaging/shells.mjs --list --json)" >> "$GITHUB_OUTPUT"
 
       # --provenance is requested here rather than in package.json. npm's docs
       # say Trusted Publishing attaches provenance on its own; a January 2026
       # field report says the flag was still needed. Asking explicitly costs
       # nothing, and keeping it out of package.json is what lets a manual
       # publish work at all — publishConfig.provenance fails outside CI.
-      - run: npm publish --provenance
+      #
+      # `npm view <name>@<version> version` prints the version when it is
+      # published, nothing when the name exists at other versions, and exits 1
+      # when the name does not exist at all; `-n "$(…)"` reads all three.
+      - name: Publish the core, unless this version is on the registry already
+        run: |
+          if [ -n "$(npm view "projectstore@${GITHUB_REF_NAME#v}" version 2>/dev/null)" ]; then
+            echo "projectstore@${GITHUB_REF_NAME#v} is published already — skipping (a re-run of the tag recovers a partial release)"
+          else
+            npm publish --provenance
+          fi
+
+  shells:
+    needs: core
+    if: needs.core.outputs.shells != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: ${{ fromJSON(needs.core.outputs.shells) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - run: npm install -g npm@11.11.0
+
+      # From the core's OWN pack tarball, never from the registry: the copy
+      # published seconds ago may not have propagated, and the pair the
+      # release verified is the pair that ships.
+      - name: Build the shell from the core's pack tarball
+        run: node packaging/shells.mjs --build --only "${SHELL_NAME}" --out dist
+        env:
+          SHELL_NAME: ${{ matrix.shell }}
+
+      # The tarball form keeps "the file that ships is the file the fixture was
+      # compared with". Should npm refuse provenance for a tarball spec (its docs
+      # describe the directory form only), the built directory is beside it:
+      #   cd dist/build/<shell> && npm publish --provenance
+      - name: Publish the shell, unless this version is on the registry already
+        env:
+          SHELL_NAME: ${{ matrix.shell }}
+          VERSION: ${{ needs.core.outputs.version }}
+        run: |
+          if [ -n "$(npm view "${SHELL_NAME}@${VERSION}" version 2>/dev/null)" ]; then
+            echo "${SHELL_NAME}@${VERSION} is published already — skipping"
+          else
+            npm publish "dist/${SHELL_NAME}-${VERSION}.tgz" --provenance
+          fi

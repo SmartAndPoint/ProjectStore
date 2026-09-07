@@ -43,7 +43,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createInterface } from "node:readline/promises";
 import { projectRootDeclared, childEnv, harnessIds, pinPluginRoot } from "./harness.mjs";
-import { readConfigAt } from "./lib.mjs";
+import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster } from "./lib.mjs";
 import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_LIMIT, GRAPH_EDGE_CAP, DIRECTIONS } from "./query.mjs";
 // binding.mjs is a write module imported statically where the install family
 // is lazy: it is a dependency-free leaf with no side effects, so the MCP
@@ -153,6 +153,12 @@ export const VERBS = Object.freeze([
     run: runCodemap,
   }),
   Object.freeze({
+    verb: "agents", summary: "agents model <name> | agents show | agents configure — the harness overlay's agents block (ADR-008, read per invocation).",
+    module: "./lib.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
+    options: [opt("harness", "<id>", "configure: the overlay to write — and, non-interactively, the confirmation; there is no --yes", true), opt("default", "<model>", "configure: agents.default.model (pins the clerk to sonnet unless --agent clerk=… says otherwise; an empty model clears it)"), opt("agent", "<name>=<model>", "configure: agents.per_agent.<name>.model (an empty model removes the key)", true), opt("reset", false, "configure: empty the agents block first; --default and --agent given with it apply on top"), JSON_OPT],
+    run: runAgents,
+  }),
+  Object.freeze({
     verb: "bind", summary: "bind <vault> — bind this project to an existing vault (naming the vault is the confirmation).",
     module: "./binding.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: [opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`), opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`), opt("rebind", false, "point an already bound project at another vault; every other setting is kept"), JSON_OPT],
@@ -209,6 +215,7 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
         kind: { type: "string", multiple: true }, status: { type: "string" }, limit: { type: "string" }, "include-derived": { type: "boolean" }, "case-sensitive": { type: "boolean" },
         body: { type: "boolean" }, section: { type: "string" }, direction: { type: "string" }, depth: { type: "string" }, for: { type: "string" }, reverse: { type: "boolean" },
         layout: { type: "string" }, language: { type: "string" }, rebind: { type: "boolean" },
+        default: { type: "string" }, agent: { type: "string", multiple: true }, reset: { type: "boolean" },
       },
     });
   } catch (e) {
@@ -354,6 +361,88 @@ function runBind(init) {
   };
 }
 
+// agents model <name> — the model a plugin surface passes for that agent, from
+// the active harness's overlay (ADR-008's two terms); agents show — the overlay
+// as read, with the keys the allowlist rejected; agents configure — the one
+// writer, behind the same gate as install: naming --harness is the
+// confirmation, a bare non-TTY call refuses (layout spec, contracts 2–4).
+async function runAgents(ctx) {
+  const { row, values, positionals, project, env, stdout, stderr, stdin, ask } = ctx;
+  const sub = positionals[0];
+  const usage = (m) => usageFail(Object.assign(new Error(m), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (!["model", "show", "configure"].includes(sub)) return usage("agents takes model <name>, show, or configure");
+  // The flag IS the confirmation, so it names exactly one overlay: two are a
+  // question, not an answer.
+  if (values.harness && values.harness.length > 1) return usage("--harness names exactly one overlay (it is the confirmation); given twice");
+  const named = values.harness && values.harness[0];
+  if (named && !harnessIds().includes(named)) return usage(`unknown harness: ${named} — known: ${harnessIds().join(", ")}`);
+  const harness = named || overlayId(env);
+  const forConfigure = ["default", "agent", "reset"].filter((o) => values[o] !== undefined);
+  if (sub !== "configure" && forConfigure.length) return usage(`--${forConfigure[0]} is an option of agents configure`);
+  // A refusal goes to stderr, as bind's does; --json keeps its envelope on stdout.
+  const emit = (verb, ok, result, text) => { if (values.json) stdout.write(JSON.stringify(envelope(verb, project, ok, result), null, 2) + "\n"); else (ok ? stdout : stderr).write(text); return ok ? 0 : 1; };
+  const cfg = readConfigAt(project);
+  const roster = layoutRoster(cfg);
+  if (sub === "model") {
+    const name = positionals[1];
+    if (!name) return usage("agents model takes the agent's bare name (critic, planner, …)");
+    const r = resolveAgentModel(project, name, { harness });
+    return emit("agents model", true, r, `${name}: ${r.model ? `${r.model} (${r.source}, ${r.overlay})` : "no model configured — the agent's frontmatter decides"}\n`);
+  }
+  const before = readOverlayAt(project, harness);
+  const inBinding = Boolean(cfg && cfg.agents && typeof cfg.agents === "object");
+  if (sub === "show") {
+    // Resolved per roster agent (per configured name when no layout loads), so
+    // a reader reports what would run without restating the two-term rule.
+    const names = [...new Set([...(roster || []), ...Object.keys(before.agents.per_agent)])].sort();
+    const resolved = Object.fromEntries(names.map((n) => { const r = resolveAgentModel(project, n, { harness }); return [n, { model: r.model, source: r.source }]; }));
+    const unknown = roster ? Object.keys(before.agents.per_agent).filter((n) => !roster.includes(n)) : [];
+    const lines = [`overlay: ${before.path || "(none: no harness detected and none named)"}${before.path && !before.present ? " (absent)" : ""}`];
+    if (before.unparseable) lines.push("  not valid JSON");
+    if (before.agents.default) lines.push(`  default: ${before.agents.default}`);
+    for (const n of names) lines.push(`  ${n}: ${resolved[n].model ? `${resolved[n].model} (${resolved[n].source})` : "— (the agent's frontmatter)"}${unknown.includes(n) ? " — not in the roster: nothing runs under this name" : ""}`);
+    if (before.rejected.length) lines.push(`  ignored (not an overlay key): ${before.rejected.join(", ")}`);
+    if (inBinding) lines.push("  the binding still carries an agents block — a pre-0.28 leftover; run upgrade");
+    return emit("agents show", true, { harness, path: before.path, present: before.present, unparseable: before.unparseable, agents: before.agents, resolved, roster, unknown, rejected: before.rejected, agents_in_binding: inBinding }, lines.join("\n") + "\n");
+  }
+  // configure
+  if (!harness) return usage("no harness detected and none named: agents configure names --harness <id>");
+  if (before.unparseable) return emit("agents configure", false, { error: `${before.path} is not valid JSON; fix or remove it first`, harness, path: before.path }, `${before.path} is not valid JSON; fix or remove it first\n`);
+  if (!values.reset && values.default === undefined && !(values.agent || []).length) return usage("agents configure takes --default <model>, --agent <name>=<model> (repeatable) or --reset");
+  // --reset empties the block first; --default and --agent then apply on top of
+  // the emptied block — "reset, then set" is one call, and nothing given is
+  // silently dropped.
+  const base = values.reset ? { default: null, per_agent: {} } : before.agents;
+  const next = { default: values.default !== undefined ? (values.default || null) : base.default, per_agent: { ...base.per_agent } };
+  for (const spec of values.agent || []) {
+    const m = /^([a-z][a-z0-9-]*)=(.*)$/.exec(spec);
+    if (!m) return usage(`--agent takes <name>=<model>, got ${spec}`);
+    // A name outside the roster would be written, listed, and never run.
+    if (roster && !roster.includes(m[1])) return usage(`no agent named ${m[1]} in the ${cfg.layout} roster — known: ${roster.join(", ")}`);
+    if (m[2]) next.per_agent[m[1]] = m[2]; else delete next.per_agent[m[1]];
+  }
+  // The clerk transcribes; a strong default must not lift it (commands/agents.md, ADR-008).
+  let pinnedClerk = false;
+  if (next.default && !next.per_agent.clerk && !(values.agent || []).some((s) => s.startsWith("clerk="))) { next.per_agent.clerk = "sonnet"; pinnedClerk = true; }
+  // Keys inside the agents block that the allowlist rejected (an `effort`, a
+  // stray shape) are rewritten out by the write and announced here; keys
+  // outside the block are kept, and stay doctor's to name.
+  const dropped = before.rejected.filter((k) => k.startsWith("agents."));
+  const same = !dropped.length && JSON.stringify({ d: before.agents.default, p: before.agents.per_agent }) === JSON.stringify({ d: next.default, p: next.per_agent });
+  const preview = [`agents configure — ${harness} — ${before.path}`, `  default: ${before.agents.default || "—"} → ${next.default || "—"}`];
+  const names = new Set([...Object.keys(before.agents.per_agent), ...Object.keys(next.per_agent)]);
+  for (const n of [...names].sort()) preview.push(`  ${n}: ${before.agents.per_agent[n] || "—"} → ${next.per_agent[n] || "—"}${pinnedClerk && n === "clerk" ? " (pinned: the clerk stays cheap under a strong default)" : ""}`);
+  if (dropped.length) preview.push(`  drops from the agents block (an overlay carries only models): ${dropped.join(", ")}`);
+  if (same) return emit("agents configure", true, { harness, path: before.path, wrote: false, agents: next, pinnedClerk, dropped }, preview.join("\n") + "\n  Nothing to change.\n");
+  // The gate: a named harness confirms; otherwise ask, and refuse without a terminal.
+  let confirmed = Boolean(named);
+  if (!confirmed) { const a = await confirmWrite(preview.join("\n") + `\nWrite ${before.path}? [y/N] `, { stdin, stdout, ask }); if (a === null) return usage("a non-interactive agents configure names --harness <id> to confirm; there is no --yes"); confirmed = a; }
+  if (!confirmed) return emit("agents configure", false, { harness, path: before.path, wrote: false, declined: true, agents: next, dropped }, preview.join("\n") + "\n  nothing written.\n");
+  const path = writeOverlayAt(project, harness, next);
+  const after = readOverlayAt(project, harness);
+  return emit("agents configure", true, { harness, path, wrote: true, agents: after.agents, pinnedClerk, dropped, rejected: after.rejected, agents_in_binding: inBinding }, preview.join("\n") + `\n  wrote ${path}.${inBinding ? " The binding still carries an agents block (pre-0.28); run upgrade to move it." : ""}\n`);
+}
+
 async function runGraph(ctx) {
   const { row, values, positionals, cfg } = ctx;
   const sub = positionals[0];
@@ -460,16 +549,18 @@ async function runInstallVerb({ row, values, project, env, stdin, stdout, ask })
   const opts = { harnesses: values.harness || [], surfaces: values.surface && values.surface.length ? values.surface : null, root: PACKAGE_ROOT, env: ownEnv(env, project), stdin, stdout, ask };
   if (row.verb === "plan") {
     const p = ih.plan(project, opts);
-    stdout.write(values.json ? JSON.stringify(envelope("plan", project, p.ok, { ...p, items: p.items.map(ih.publicItem) }), null, 2) + "\n" : ih.renderPreview(p));
-    return p.ok ? 0 : 1;
+    stdout.write(values.json ? JSON.stringify(envelope("plan", project, p.ok && !p.incomplete, { ...p, items: p.items.map(ih.publicItem) }), null, 2) + "\n" : ih.renderPreview(p));
+    return p.ok && !p.incomplete ? 0 : 1;
   }
   const r = await ih.runVerb(row.verb, project, opts);
-  const ok = r.plan.ok && (r.gate.confirmed || r.gate.why === "nothing-to-do");
+  // A registration the plan could not make (no host CLI) or a host command
+  // that failed is exit 1 with the rest applied (install spec contract 4′).
+  const ok = r.plan.ok && !r.plan.incomplete && !r.failed && (r.gate.confirmed || r.gate.why === "nothing-to-do");
   if (values.json) {
-    stdout.write(JSON.stringify(envelope(row.verb, project, ok, { gate: r.gate, applied: r.applied, items: r.plan.items.map(ih.publicItem), refusals: r.plan.refusals, reports: r.plan.reports }), null, 2) + "\n");
+    stdout.write(JSON.stringify(envelope(row.verb, project, ok, { gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, plannedAgainst: r.plan.plannedAgainst, items: r.plan.items.map(ih.publicItem), refusals: r.plan.refusals, reports: r.plan.reports }), null, 2) + "\n");
   } else {
     stdout.write(r.preview);
-    if (r.gate.confirmed) stdout.write(`applied ${r.applied.length} change(s).\n`);
+    if (r.gate.confirmed) stdout.write(ih.appliedLine(r));
     else if (r.gate.why === "non-tty") stdout.write(`a bare ${row.verb} in a non-TTY refuses; name a harness to confirm: --harness ${r.plan.detected.map((d) => d.id).join(" | ") || harnessIds().join(" | ")}\n`);
     else if (r.gate.why === "declined") stdout.write("nothing written.\n");
   }

@@ -11,19 +11,23 @@
     "date": "2026-09-04"
   },
   "install": {
-    "mechanism": "the built-in plugin marketplace",
-    "why_not_scripted": "Claude Code ships a plugin manager that installs, updates and removes projectstore itself. A copy of it here would be a second, worse one: it would not know about /plugin, auto-update, or pinning a release.",
+    "mechanism": "the package's own registration through its distribution shell, or the built-in plugin marketplace",
+    "shell": "projectstore-claude",
+    "shell_reason": "the distribution shell that installs this harness from npm (the layout ADR decision 6; the shells ADR): `npx projectstore-claude install --project <dir>` is the core's `install --harness claude-code`, with the core pinned at the same version and bundled inside the shell's tarball. Data, not `projectstore-<id>`: the id is claude-code and the reserved, published name is projectstore-claude. Every command a finding or a deferred reason names is built from this key (harness.mjs packageCommand).",
+    "why_not_scripted": "Two channels. `npx projectstore-claude install --project <dir>` registers the plugin for that project from the npm package itself — the shell bundles the core and fixes the harness; the core's low-level form is `npx projectstore install --harness claude-code --project <dir>` — through a local marketplace under the Claude home, driven by Claude Code's own `claude plugin` CLI. `/plugin install projectstore@SmartAndPoint` installs it from the git marketplace. `/plugin` lists and toggles either. Upgrading the npm registration is `npx projectstore-claude@<version> upgrade --project <dir>` — that is also the pin.",
     "steps": [
-      "/plugin marketplace add SmartAndPoint/ProjectStore",
-      "/plugin install projectstore@SmartAndPoint",
-      "/reload-plugins"
+      "npx projectstore-claude install --project \"$PWD\"   (npm; registers the plugin for this project — the shell runs the core's install with the harness fixed)",
+      "/plugin marketplace add SmartAndPoint/ProjectStore && /plugin install projectstore@SmartAndPoint   (git marketplace, user-wide)",
+      "restart Claude Code"
     ],
     "notes": [
-      "Auto-update is OFF by default for third-party plugins: /plugin -> Marketplaces -> SmartAndPoint -> toggle auto-update.",
-      "Pin a release with: /plugin marketplace add SmartAndPoint/ProjectStore#<tag>",
-      "From a checkout instead: claude --plugin-dir ./ProjectStore"
+      "Git marketplace only: auto-update is OFF by default for third-party plugins: /plugin -> Marketplaces -> SmartAndPoint -> toggle auto-update. The npm registration updates when you run `npx projectstore-claude upgrade --project <dir>`.",
+      "Pin a git-marketplace release with: /plugin marketplace add SmartAndPoint/ProjectStore#<tag>; pin the npm registration with npx projectstore-claude@<version>.",
+      "Two enabled copies of the plugin (git marketplace and npm) in one checkout would load twice; the npm registration silences the other one for that checkout only (settings.local.json), and says so in its preview.",
+      "From a checkout instead: claude --plugin-dir ./ProjectStore",
+      "The npm registration is per checkout (local scope) and per machine; a fresh clone or a new worktree runs the install command again. It must run from a terminal outside a Claude Code session: the host CLI and a live session both rewrite settings files."
     ],
-    "docs": "https://github.com/SmartAndPoint/ProjectStore#install-2-minutes"
+    "docs": "https://github.com/SmartAndPoint/ProjectStore#install--one-message"
   },
   "runtime": {
     "detect_env": [
@@ -35,8 +39,8 @@
     "plugin_root_env": "CLAUDE_PLUGIN_ROOT",
     "home_env": "CLAUDE_CONFIG_DIR",
     "home_default": ".claude",
-    "project_config_dir": ".claude",
-    "config_basename": "projectstore.json",
+    "harness_dir": ".claude",
+    "harness_dir_reason": "the harness's own directory in a project: how it is detected, where its settings live — never where projectstore's config is (the layout ADR, 2026-09-06: that is <project>/.projectstore/, one for every harness)",
     "agent_overrides": [
       {
         "env": "CLAUDE_CODE_EFFORT_LEVEL",
@@ -48,7 +52,13 @@
         "kind": "model",
         "beats": "every projectstore model configuration, per-invocation parameter included"
       }
-    ]
+    ],
+    "session_env": [
+      "CLAUDECODE"
+    ],
+    "session_env_reason": "set to 1 in every Bash tool of a live session (measured 2026-09-05, 2.1.261); detect_env names the variables a hook or plugin process receives, which a Bash tool does not — the two questions differ.",
+    "overlay": "claude-code",
+    "overlay_reason": "the file under <project>/.projectstore/harness/ that carries this harness's agents block — the models, per agent, that plugin surfaces pass per invocation (ADR-008; the layout ADR decision 3)"
   },
   "tools": {
     "write_tools": [
@@ -190,7 +200,8 @@
       "format": "command-md",
       "invocation": "/projectstore:<name>",
       "scope": "user",
-      "scope_reason": "Claude Code loads commands from the plugin installation itself, not from a per-project directory."
+      "scope_reason": "Claude Code loads commands from the plugin installation itself, not from a per-project directory.",
+      "registered_by": "plugin"
     },
     "agents": {
       "supported": true,
@@ -200,7 +211,8 @@
       "format": "agent-md",
       "invocation": "projectstore:<name>",
       "scope": "user",
-      "scope_reason": "Claude Code loads agents from the plugin installation itself, not from a per-project directory."
+      "scope_reason": "Claude Code loads agents from the plugin installation itself, not from a per-project directory.",
+      "registered_by": "plugin"
     },
     "skills": {
       "supported": true,
@@ -209,7 +221,8 @@
       "file": "<name>/SKILL.md",
       "format": "skill-md",
       "scope": "user",
-      "scope_reason": "Claude Code loads skills from the plugin installation itself, not from a per-project directory."
+      "scope_reason": "Claude Code loads skills from the plugin installation itself, not from a per-project directory.",
+      "registered_by": "plugin"
     },
     "hooks": {
       "supported": true,
@@ -218,7 +231,8 @@
       "file": "hooks.json",
       "format": "hooks-json",
       "scope": "user",
-      "scope_reason": "Claude Code loads the plugin's hooks.json from the plugin installation itself; per-project hooks live in settings, which projectstore does not write."
+      "scope_reason": "Claude Code loads the plugin's hooks.json from the plugin installation itself; per-project hooks live in settings, which projectstore does not write.",
+      "registered_by": "plugin"
     },
     "agents_block": {
       "supported": true,
@@ -254,9 +268,11 @@
       "format": "mjs",
       "scope": "project",
       "scope_reason": "The launcher resolves the currently installed plugin on every render, so the wired command carries no version; it is written only when the plugin runs from the marketplace cache — a dev checkout is wired directly.",
-      "file": ".claude/.projectstore/statusline.mjs",
+      "file": ".projectstore/state/claude-code/statusline.mjs",
       "source": "scripts/statusline-launcher.mjs",
-      "condition": "plugin_cache_install"
+      "condition": "plugin_cache_install",
+      "file_reason": "the harness's generated runtime files live under .projectstore/state/<harness id>/ (layout ADR decision 4); the 0.27.x path .claude/.projectstore/statusline.mjs is read as ours through 0.29",
+      "legacy_file": ".claude/.projectstore/statusline.mjs"
     },
     "mcp": {
       "supported": true,
@@ -268,8 +284,13 @@
       "launch": {
         "cwd": "project",
         "project_dir_in_env": true,
-        "expands_measured": ["args", "env"],
-        "expands_inferred": ["command"],
+        "expands_measured": [
+          "args",
+          "env"
+        ],
+        "expands_inferred": [
+          "command"
+        ],
         "default_syntax": "${VAR:-default}",
         "unset_placeholder_in_env": "literal",
         "unset_placeholder_in_args": "inferred literal — the server refuses a --project still carrying a dollar-brace placeholder",
@@ -280,7 +301,8 @@
         "evidence": "measured",
         "client": "claude 2.1.261",
         "date": "2026-09-05"
-      }
+      },
+      "registered_by": "plugin"
     },
     "mcp_project_entry": {
       "supported": false,
@@ -293,6 +315,134 @@
         "pointer": "mcpServers.projectstore"
       },
       "why_unsupported": "the plugin-bundled registration already binds per project in Claude Code; this row is for hosts without plugin MCP and lands with their adapters (roadmap B3/C3)"
+    },
+    "plugin": {
+      "supported": true,
+      "kind": "registration",
+      "format": "host-plugin-registration",
+      "scope": "local",
+      "scope_reason": "Claude Code registers a plugin per scope (user, project, local, managed). The registration carries a machine-absolute path and an enablement, so it lands in the checkout's settings.local.json — the same machine-specific file the status line uses — never in the committed settings.json and never in the user's own settings (install spec contract 4′, 2026-09-05). Local scope is per checkout: a worktree registers again.",
+      "condition": "npm_package_root",
+      "marketplace_name": "projectstore-npm",
+      "plugin_name": "projectstore",
+      "dir": [
+        "projectstore",
+        "marketplace"
+      ],
+      "plugin_subdir": "projectstore",
+      "manifest": ".claude-plugin/marketplace.json",
+      "provenance_key": "projectstore",
+      "registry": {
+        "installed": [
+          "plugins",
+          "installed_plugins.json"
+        ],
+        "marketplaces": [
+          "plugins",
+          "known_marketplaces.json"
+        ],
+        "user_settings": [
+          "settings.json"
+        ],
+        "project_settings": [
+          "settings.local.json"
+        ],
+        "cache_dir": [
+          "plugins",
+          "cache"
+        ],
+        "enabled_pointer": "enabledPlugins",
+        "known_pointer": "extraKnownMarketplaces",
+        "install_path_layout": "<cache_dir>/<marketplace>/<plugin>/<version>"
+      },
+      "cli": {
+        "bin": "claude",
+        "verified": {
+          "version": "2.1.261",
+          "date": "2026-09-05",
+          "evidence": "measured in a sandboxed CLAUDE_CONFIG_DIR with two projects",
+          "notes": [
+            "plugin.json wins over the marketplace entry's version",
+            "--scope local writes only <project>/.claude/settings.local.json (extraKnownMarketplaces, enabledPlugins) and one registry row per project carrying projectPath",
+            "`plugin update <id> --scope local -y` swaps that project's row in place after the directory is rewritten; without --scope it looks at user scope and fails",
+            "`plugin uninstall --scope local -y` removes only the calling project's row and enablement",
+            "`marketplace remove` (any scope) empties known_marketplaces.json AND every project's rows for that marketplace — run only when no other project uses it; the project's own extraKnownMarketplaces entry is removed by install itself",
+            "`plugin validate` warns about the unknown `projectstore` field and exits 0",
+            "-y accepts a marketplace-declared command; this marketplace declares none",
+            "the project of a --scope local command is the process cwd; there is no --project flag",
+            "a live session marks its Bash environment with CLAUDECODE=1 (not the plugin-root or project-dir variables, which reach hooks only); the registration defers on that marker",
+            "`plugin update` at an unchanged version answers \"already at the latest version\" and copies nothing, even after `marketplace update`: a same-version content refresh is uninstall + install"
+          ]
+        },
+        "commands": {
+          "validate": [
+            "plugin",
+            "validate",
+            "{dir}"
+          ],
+          "marketplace_add": [
+            "plugin",
+            "marketplace",
+            "add",
+            "{dir}",
+            "--scope",
+            "local"
+          ],
+          "marketplace_update": [
+            "plugin",
+            "marketplace",
+            "update",
+            "{marketplace}"
+          ],
+          "marketplace_remove": [
+            "plugin",
+            "marketplace",
+            "remove",
+            "{marketplace}",
+            "--scope",
+            "local"
+          ],
+          "install": [
+            "plugin",
+            "install",
+            "{id}",
+            "--scope",
+            "local",
+            "-y"
+          ],
+          "update": [
+            "plugin",
+            "update",
+            "{id}",
+            "--scope",
+            "local",
+            "-y"
+          ],
+          "uninstall": [
+            "plugin",
+            "uninstall",
+            "{id}",
+            "--scope",
+            "local",
+            "-y"
+          ],
+          "disable": [
+            "plugin",
+            "disable",
+            "{other}",
+            "--scope",
+            "local"
+          ],
+          "enable": [
+            "plugin",
+            "enable",
+            "{other}",
+            "--scope",
+            "local"
+          ]
+        }
+      },
+      "condition_reason": "any root that is not the host's own plugin cache — the npm package under npx, a global install, a dev checkout — registers; a session running from the cache never registers a second copy of itself."
     }
   },
   "capabilities": {
@@ -304,7 +454,7 @@
   },
   "rewrites": [],
   "update_instructions": [
-    "**About future updates**: Claude Code does NOT auto-update third-party marketplaces by default. To get notified of new releases (v0.7+):",
+    "**About future updates**: installed from the git marketplace, Claude Code does NOT auto-update third-party marketplaces by default (an npm registration updates with `npx projectstore-claude upgrade --project <dir>`). To get notified of new releases (v0.7+):",
     "1. Open `/plugin` → **Marketplaces** tab.",
     "2. Find **SmartAndPoint**.",
     "3. Toggle **auto-update** on.",

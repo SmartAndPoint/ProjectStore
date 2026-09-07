@@ -42,6 +42,16 @@ import { createHash } from "node:crypto";
 
 export const GRAMMAR_VERSION = 1;
 export const PROVENANCE_TOKEN = "%PROJECTSTORE-PROVENANCE%";
+// The project path is provenance data (the line's project= field) and may also
+// appear in the body — the status-line launcher names its project since
+// 2026-09-06. It is neutralised before the render hash, so a file another
+// project wrote at our path still reads "current, last written by <project>"
+// (install spec, contract 12) instead of "edited by hand".
+export const PROJECT_TOKEN = "%PROJECTSTORE-PROJECT%";
+export function neutralizeProject(text, project) {
+  if (typeof text !== "string" || typeof project !== "string" || !project) return text;
+  return text.split(JSON.stringify(project)).join(PROJECT_TOKEN);
+}
 export const HASH_LEN = 12;
 export const DEFAULT_GENERATOR = "scripts/build-adapters.mjs";
 
@@ -242,7 +252,7 @@ export function substituteProvenance(tokenized, { format, src, srcHash, pkg, pro
 // `render=`; strictly narrower harm than a permanent false positive.
 export function stamp(body, { format, src, srcHash, pkg, project, harness, generator = DEFAULT_GENERATOR, remedy = DEFAULT_REMEDY }) {
   const tokenized = insertStamp(body, { format, harness, source: src, generator, remedy });
-  const render = renderHash(tokenizeProvenance(tokenized) ?? tokenized);
+  const render = renderHash(neutralizeProject(tokenizeProvenance(tokenized) ?? tokenized, project));
   const text = substituteProvenance(tokenized, { format, src, srcHash, pkg, project, render });
   return { text, render, tokenized };
 }
@@ -289,7 +299,8 @@ export function tokenizeProvenance(text) {
   if (typeof text !== "string") return null;
   const normalized = normalizeEol(text);
   if (!parseRe().test(normalized)) return null;
-  return normalized.replace(tokenizeRe(), PROVENANCE_TOKEN);
+  const parsed = parseProvenance(normalized);
+  return neutralizeProject(normalized.replace(tokenizeRe(), PROVENANCE_TOKEN), parsed && parsed.project);
 }
 
 // The claimed `render=` against what the file hashes to now.

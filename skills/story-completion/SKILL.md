@@ -13,7 +13,7 @@ You watch for moments where the conversation indicates progress on a known story
 
 ## What to do
 
-1. **Confirm a vault is bound** (`.claude/projectstore.json` exists). Otherwise stay silent.
+1. **Confirm a vault is bound** (`.projectstore/projectstore.json` exists). Otherwise stay silent.
 2. **Confirm `active_skills` is true** in config.
 3. **Try to identify the story file**: search `<vault>/epics/*/stories/` for files matching keywords from the conversation. If multiple candidates, ask the user which one via plain text (not AskUserQuestion — keep it light).
 4. **Propose the right transition**:

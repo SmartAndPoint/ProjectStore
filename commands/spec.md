@@ -15,12 +15,12 @@ Dispatch on the first argument:
 
 ## Creation flow
 
-1. **Check config**: stop if `.claude/projectstore.json` missing.
+1. **Check config**: stop if `.projectstore/projectstore.json` missing.
 
 2. **Render draft**:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/draft.mjs" spec "$ARGUMENTS"
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/draft.mjs" spec "$ARGUMENTS"
    ```
 
    Capture the JSON `{ kind, path, content, index, vars }`.
@@ -53,7 +53,7 @@ Dispatch on the first argument:
    step-4 approval covers it):
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --write --only indexes=<index.folder>
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --write --only indexes=<index.folder>
    ```
 
    The row is derived state — regenerated in canonical order, written

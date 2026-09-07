@@ -1,4 +1,4 @@
-<!-- projectstore:agents v3 (managed by projectstore — edit outside markers) -->
+<!-- projectstore:agents v4 (managed by projectstore — edit outside markers) -->
 ## projectstore agents
 
 - **A feature-sized request opens a vault artifact before it opens an editor.**
@@ -12,7 +12,7 @@
   Resolving it silently is how the contradiction becomes invisible to the person
   who could have settled it.
 - When spawning any agent below, resolve its model from
-  `.claude/projectstore.json` → `agents.per_agent.<name>.model ?? agents.default.model`,
+  `.projectstore/harness/<harness>.json` → `agents.per_agent.<name>.model ?? agents.default.model`,
   where `<name>` is the **bare** agent name (`critic` for `projectstore:critic`),
   and pass it as the spawn's model parameter. No key — pass nothing.
 - After authoring or revising any vault artifact (ADR/research/epic/story) or

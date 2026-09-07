@@ -5,3 +5,6 @@ node_modules/
 .cache/
 .omc/
 .claude/
+# npm pack and the shell build write here
+*.tgz
+dist/

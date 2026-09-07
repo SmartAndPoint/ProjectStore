@@ -50,7 +50,7 @@ vault-side layout or template override):
    `/projectstore:review` and the peer-reviewer skill. English-only by design.
 
 5. **Command prompt** — `commands/<kind>.md`, a prompt (not code) that calls
-   `node "$CLAUDE_PLUGIN_ROOT/scripts/draft.mjs" <kind> "$ARGUMENTS"`, previews,
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/draft.mjs" <kind> "$ARGUMENTS"`, previews,
    and gates every write behind AskUserQuestion. Copy `commands/research.md`
    for a plain kind, `commands/adr.md` for one that renders the draft's
    `collision`/`warnings` fields and updates an index, `commands/spec.md`

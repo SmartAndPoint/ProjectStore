@@ -6,6 +6,7 @@
 
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { layoutPaths } from "../../scripts/lib.mjs";
 import { tmpdir } from "node:os";
 
 export function makeVaultProject() {
@@ -14,8 +15,9 @@ export function makeVaultProject() {
   for (const d of ["adr", "specs", join("epics", "PS-X", "stories")]) {
     mkdirSync(join(vault, d), { recursive: true });
   }
-  mkdirSync(join(proj, ".claude"), { recursive: true });
-  writeFileSync(join(proj, ".claude", "projectstore.json"), JSON.stringify({
+  mkdirSync(join(proj, ".claude"), { recursive: true }); // the harness's own directory: detection
+  mkdirSync(join(proj, ".projectstore"), { recursive: true });
+  writeFileSync(join(proj, ".projectstore", "projectstore.json"), JSON.stringify({
     vault_path: vault, layout: "engineering", language: "en", default_author: "Test",
   }));
   return { proj, vault };
@@ -70,4 +72,14 @@ export function seedCliVault() {
     `---\ntype: story\nid: "story-parked"\ntitle: "Parked"\nstatus: parked\ncreated: 2026-02-01\n---\n\n# Parked\n`);
   put(join("adr", "README.md"), "# ADRs\n\nDecisions that stick.\n\n## Index\n");
   return { proj, vault };
+}
+
+// Write a project's binding in the harness-neutral layout (the layout ADR,
+// 2026-09-06), creating .projectstore/ on the way — what every test that used
+// to write .claude/projectstore.json calls now.
+export function writeBinding(proj, cfg) {
+  const p = layoutPaths(proj).binding;
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, typeof cfg === "string" ? cfg : JSON.stringify(cfg, null, 2) + "\n");
+  return p;
 }

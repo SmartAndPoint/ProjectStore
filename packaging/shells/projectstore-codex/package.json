@@ -1,0 +1,49 @@
+{
+  "name": "projectstore-codex",
+  "version": "0.28.0",
+  "private": true,
+  "description": "Installs projectstore for Codex from npm: the core pinned and bundled, the harness fixed. Not published until its plugin root is rendered.",
+  "keywords": [
+    "projectstore",
+    "installer",
+    "codex",
+    "project-management",
+    "adr",
+    "markdown",
+    "agentic"
+  ],
+  "homepage": "https://github.com/SmartAndPoint/ProjectStore#readme",
+  "bugs": {
+    "url": "https://github.com/SmartAndPoint/ProjectStore/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SmartAndPoint/ProjectStore.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Evgenii Konev",
+    "email": "ekonev@smartandpoint.com",
+    "url": "https://github.com/SmartAndPoint"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "projectstore-codex": "bin/projectstore-codex.mjs"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "dependencies": {
+    "projectstore": "=0.28.0"
+  },
+  "bundleDependencies": [
+    "projectstore"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

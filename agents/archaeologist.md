@@ -22,7 +22,7 @@ at next. Quote paths with spaces (vaults often live under iCloud paths).
 
 ## Phase 0 — Dedup against what exists
 
-Locate the vault (`.claude/projectstore.json` → `vault_path`). Read `adr/` and
+Locate the vault (`.projectstore/projectstore.json` → `vault_path`). Read `adr/` and
 `concepts/` titles + frontmatter first. Never propose an artifact that already
 exists — extend or supersede it instead, and say so.
 

@@ -27,7 +27,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, realpathSync } from "node:fs";
 import { join, resolve, isAbsolute, dirname } from "node:path";
 import { homedir } from "node:os";
-import { writeFileAtomic, pluginRoot } from "./lib.mjs";
+import { writeFileAtomic, pluginRoot, ensureRuntimeDir, layoutPaths } from "./lib.mjs";
 import { configPath as harnessConfigPath } from "./harness.mjs";
 
 export const DEFAULT_LAYOUT = "engineering";
@@ -123,6 +123,17 @@ export function applyBind(plan) {
   const done = { created_vault: false, wrote_config: false };
   if (plan.createsVault) { mkdirSync(plan.vault, { recursive: true }); done.created_vault = true; }
   if (plan.writes) {
+    // Contract 5 names bind among the writers of the line-merged
+    // .projectstore/.gitignore, and it was the one writer that never did:
+    // measured 2026-09-06 on a fresh project, `init` left .projectstore/
+    // holding the binding alone, so `git add -A` committed a machine-local
+    // absolute vault path. Only when we are writing the NEW path — a rebind of
+    // a not-yet-migrated project still writes the legacy file (contract 8),
+    // and creating .projectstore/ beside a legacy layout is the migration
+    // item's write, not ours.
+    if (plan.configPath === layoutPaths(plan.projectDir).binding) {
+      try { ensureRuntimeDir(plan.projectDir); } catch {}
+    }
     mkdirSync(dirname(plan.configPath), { recursive: true });
     writeFileAtomic(plan.configPath, JSON.stringify(plan.after, null, 2) + "\n");
     done.wrote_config = true;

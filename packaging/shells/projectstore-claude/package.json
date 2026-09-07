@@ -1,0 +1,48 @@
+{
+  "name": "projectstore-claude",
+  "version": "0.28.0",
+  "description": "Installs projectstore for Claude Code from npm: the core pinned and bundled, the harness fixed — npx projectstore-claude install --project \"$PWD\".",
+  "keywords": [
+    "projectstore",
+    "installer",
+    "claude-code",
+    "project-management",
+    "adr",
+    "markdown",
+    "agentic"
+  ],
+  "homepage": "https://github.com/SmartAndPoint/ProjectStore#readme",
+  "bugs": {
+    "url": "https://github.com/SmartAndPoint/ProjectStore/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SmartAndPoint/ProjectStore.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Evgenii Konev",
+    "email": "ekonev@smartandpoint.com",
+    "url": "https://github.com/SmartAndPoint"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "projectstore-claude": "bin/projectstore-claude.mjs"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "dependencies": {
+    "projectstore": "=0.28.0"
+  },
+  "bundleDependencies": [
+    "projectstore"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

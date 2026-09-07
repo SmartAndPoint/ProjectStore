@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // projectstore — SessionStart hook.
-// 1. Reads .claude/projectstore.json from the project root. If absent or
+// 1. Reads .projectstore/projectstore.json from the project root. If absent or
 //    auto_inject=false, silently no-ops.
 // 2. Registers this session in <vault>/.projectstore/sessions/<id>.json,
 //    keyed by Claude's own session_id from hook stdin. Cleans stale
@@ -21,9 +21,12 @@ import {
   writeSession,
   readActiveSessions,
   cleanupStaleSessions,
-  removeLegacySessionIdFile,
   readStdinJson,
   projectRoot,
+  layoutPaths,
+  pickExisting,
+  activeHarnessId,
+  ensureRuntimeDir,
   syncStatusLine,
   cleanupStaleSessionState,
   armReminder,
@@ -36,19 +39,34 @@ import {
 import { runStartupChecks } from "../scripts/doctor.mjs";
 import { resolveBinding, bindingOfferText } from "../scripts/worktree.mjs";
 
+// The marker lives under the harness's state directory; a legacy marker at
+// .claude/.projectstore-welcomed still counts while the window is open.
 function welcomedMarkerPath(proj) {
-  return join(proj, ".claude", ".projectstore-welcomed");
+  const p = layoutPaths(proj);
+  return pickExisting(p.welcomed(activeHarnessId()), p.legacy.welcomed);
+}
+function welcomedMarkerWritePath(proj) {
+  return layoutPaths(proj).welcomed(activeHarnessId());
 }
 
 // One-time orientation packet shown when projectstore first loads in a project.
 // Idempotent via a marker file at <project>/.claude/.projectstore-welcomed.
-function buildWelcome() {
+// The welcome fires once per project, and a project can already be bound when
+// it does — a fresh install into a project someone bound first is the ordinary
+// case, not a corner (measured 2026-09-06: the first line a new user read told
+// them to bind a project whose vault the install preview had just named). So
+// the one instruction it carries branches on the binding; everything else is
+// the same message.
+function buildWelcome(cfg = null) {
+  const start = cfg && cfg.vault_path
+    ? `**Already bound**: this project's vault is \`${truncFront(String(cfg.vault_path), PATH_CELL)}\`. Ask for what you want — the agent picks up commands like \`/projectstore:adr\` and \`/projectstore:epic\` from the conversation, and you approve every write. If the vault has no folders yet, \`/projectstore:scaffold\` lays them out.`
+    : "**To start using it**: run `/projectstore:bind <vault-path>` and point it at an Obsidian vault (or any folder). After that, the agent will pick up commands like `/projectstore:adr` and `/projectstore:epic` from the conversation; you only approve the writes.";
   return [
     "# 👋 projectstore is loaded for the first time in this project",
     "",
     "**What it does**: turns the conversation's decisions into a structured Obsidian-friendly markdown vault — ADRs, epics, stories, runbooks, research. Agent-maintained, you approve every write.",
     "",
-    "**To start using it**: run `/projectstore:bind <vault-path>` and point it at an Obsidian vault (or any folder). After that, the agent will pick up commands like `/projectstore:adr` and `/projectstore:epic` from the conversation; you only approve the writes.",
+    start,
     "",
     "**About future updates**: Claude Code does NOT auto-update third-party marketplaces by default. To get notified of new releases (v0.7+):",
     "1. Open `/plugin` → **Marketplaces** tab.",
@@ -64,11 +82,12 @@ function buildWelcome() {
   ].join("\n");
 }
 
-function showWelcomeOnce(proj) {
-  const marker = welcomedMarkerPath(proj);
-  if (existsSync(marker)) return "";
-  const text = buildWelcome();
+function showWelcomeOnce(proj, cfg = null) {
+  if (existsSync(welcomedMarkerPath(proj))) return "";
+  const text = buildWelcome(cfg);
   try {
+    const marker = welcomedMarkerWritePath(proj);
+    ensureRuntimeDir(proj); // .projectstore/.gitignore ignores state/; the marker is not a session file
     mkdirSync(dirname(marker), { recursive: true });
     writeFileSync(marker, new Date().toISOString() + "\n", "utf8");
   } catch {}
@@ -146,9 +165,13 @@ async function main() {
   if (!cfg) {
     try { binding = resolveBinding(proj); } catch {}
   }
-  const welcome = showWelcomeOnce(proj);
+  const welcome = showWelcomeOnce(proj, cfg);
+  // The person's channel carries one instruction, and it has to be the right
+  // one: a bound project is told what it is bound to, not to bind again.
   const welcomeSystemMessage = welcome
-    ? "👋 projectstore: first-run welcome shown. Start with /projectstore:bind <vault-path>. See /plugin → Marketplaces to enable auto-update."
+    ? (cfg && cfg.vault_path
+      ? `👋 projectstore: first-run welcome shown. Bound to ${cfg.vault_path}. See /plugin → Marketplaces to enable auto-update.`
+      : "👋 projectstore: first-run welcome shown. Start with /projectstore:bind <vault-path>. See /plugin → Marketplaces to enable auto-update.")
     : null;
 
   if (!cfg) {
@@ -222,7 +245,6 @@ async function main() {
     try {
       cleanupStaleSessions(cfg.vault_path, 24, sid);
       writeSession(cfg.vault_path, sid, proj);
-      removeLegacySessionIdFile(proj);
       const others = readActiveSessions(cfg.vault_path, sid);
       if (others.length > 0) warning = buildOthersWarning(others);
     } catch (e) {
@@ -255,7 +277,7 @@ async function main() {
   if (gatherError) {
     emit(
       welcome +
-        `# projectstore: vault load failed\n\n${truncEnd(String(gatherError.message), ERROR_CELL)}\n\nFix \`.claude/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
+        `# projectstore: vault load failed\n\n${truncEnd(String(gatherError.message), ERROR_CELL)}\n\nFix \`.projectstore/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
       systemMessage,
     );
     return;

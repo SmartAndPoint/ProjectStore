@@ -37,7 +37,7 @@ import {
   writeTools,
   lintPatterns,
 } from "../scripts/harness.mjs";
-import { WRITE_TOOLS, isWriteTool } from "../scripts/lib.mjs";
+import { WRITE_TOOLS, isWriteTool, layoutPaths } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifests = () => [...loadHarnesses(MANIFEST_DIR).values()];
@@ -68,7 +68,7 @@ test("generation contract 1: every manifest parses strictly and declares what th
     assert.equal(typeof m.display_name, "string");
     assert.equal(typeof m.emit, "boolean");
     assert.equal(typeof m.source_layout, "boolean");
-    for (const k of ["project_dir_env", "plugin_root_env", "home_env", "home_default", "project_config_dir", "config_basename"]) {
+    for (const k of ["project_dir_env", "plugin_root_env", "home_env", "home_default", "harness_dir", "overlay"]) {
       assert.equal(typeof m.runtime?.[k], "string", `${n}: runtime.${k}`);
     }
     assert.ok(Array.isArray(m.runtime.detect_env), `${n}: runtime.detect_env`);
@@ -101,7 +101,14 @@ test("generation contract 1: every manifest parses strictly and declares what th
       assert.equal(typeof s.supported, "boolean", `${n}: surfaces.${kind}.supported`);
       assert.ok(typeof s.scope === "string" && typeof s.scope_reason === "string" && s.scope_reason.length > 0,
         `${n}: surfaces.${kind}.scope and scope_reason`);
-      assert.ok(["exclusive", "shared", "host"].includes(s.kind), `${n}: surfaces.${kind}.kind (install spec contract 0)`);
+      assert.ok(["exclusive", "shared", "host", "registration"].includes(s.kind), `${n}: surfaces.${kind}.kind (install spec contract 0, amended 2026-09-05)`);
+      if (s.kind === "registration") {
+        for (const f of ["marketplace_name", "plugin_name", "plugin_subdir", "manifest", "provenance_key", "condition"]) assert.equal(typeof s[f], "string", `${n}: surfaces.${kind}.${f}`);
+        assert.ok(Array.isArray(s.dir) && s.dir.length, `${n}: surfaces.${kind}.dir`);
+        assert.ok(s.registry && typeof s.registry.enabled_pointer === "string", `${n}: surfaces.${kind}.registry`);
+        assert.ok(s.cli && typeof s.cli.bin === "string" && s.cli.commands && typeof s.cli.verified?.date === "string", `${n}: surfaces.${kind}.cli with a measured date`);
+        for (const c of ["validate", "marketplace_add", "marketplace_update", "marketplace_remove", "install", "update", "uninstall", "disable", "enable"]) assert.ok(Array.isArray(s.cli.commands[c]), `${n}: cli.commands.${c}`);
+      }
       if (s.kind === "shared") assert.ok(s.marker && typeof s.marker === "object", `${n}: surfaces.${kind}.marker (install spec contract 6)`);
       if (s.kind !== "host") assert.equal(typeof s.format, "string", `${n}: surfaces.${kind}.format keys the installer's handler`);
     }
@@ -232,7 +239,7 @@ test("harness resolvers: the branded names are read from the manifest, fresh on 
   assert.equal(pluginRoot(env), "/tmp/plug in");
   assert.equal(agentHome(env), "/tmp/ho me");
   assert.equal(agentHome({}, "/home/x"), join("/home/x", r.home_default));
-  assert.equal(configPath("/tmp/p roj", env), join("/tmp/p roj", r.project_config_dir, r.config_basename));
+  assert.equal(configPath("/tmp/p roj", env), layoutPaths("/tmp/p roj").binding, "the binding is harness-neutral (layout ADR, 2026-09-06); the legacy file is read only when it exists");
   assert.equal(pluginRoot({}), ROOT, "no variable set: the repository root, resolved through fileURLToPath");
   assert.deepEqual(runtimeEnvNames(env), { projectDir: r.project_dir_env, pluginRoot: r.plugin_root_env, home: r.home_env });
   const child = childEnv({ A: "1" }, { projectRoot: "/tmp/x" });

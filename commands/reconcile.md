@@ -12,7 +12,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
 2. **Compute** (read-only):
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile
    ```
 
    Output JSON: `kanban` / `codemap` / `graph` / `indexes[]`, each
@@ -39,8 +39,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
    When the approved set contains two or more targets, hand steps 6-7 to
    `projectstore:clerk`: pass the exact selector list from step 4's preview and
    the expectation that doctor ends clean. **Model (ADR-008)**: resolve
-   `agents.per_agent.clerk.model ?? agents.default.model` from
-   `.claude/projectstore.json` and pass it as the spawn's model parameter;
+   the model with `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" agents model clerk --json --project "${CLAUDE_PROJECT_DIR}"` and pass `result.model` as the spawn's model parameter (`null` → pass nothing);
    missing key, `inherit`, or unreadable config → pass nothing and let the
    agent's own frontmatter decide; never guess a model. The clerk applies
    through the core exactly as step 6 specifies and reports per target. A single
@@ -51,7 +50,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
 6. **On approval**: apply through the core — never the Write/Edit tools:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --write --only <approved,targets>
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --write --only <approved,targets>
    ```
 
    Selectors: `kanban`, `codemap`, `graph`, `indexes` (all), `indexes=<folder>` (one).
@@ -63,7 +62,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
    exit means at least one target failed — surface its `error`.
 
 
-7. **Verify**: run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor --vault` (exit 1 = findings, not failure) and show
+7. **Verify**: run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" doctor --vault` (exit 1 = findings, not failure) and show
    the summary line — reconcile's whole point is a clean doctor afterwards.
 
 ## Notes

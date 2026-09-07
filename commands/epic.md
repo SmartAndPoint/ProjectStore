@@ -7,14 +7,14 @@ You are creating a new epic.
 
 Steps:
 
-1. **Check config**: if `.claude/projectstore.json` is missing — instruct user to `/projectstore:bind` and stop.
+1. **Check config**: if `.projectstore/projectstore.json` is missing — instruct user to `/projectstore:bind` and stop.
 
 2. **Validate args**: `$ARGUMENTS` must contain at least an ID and a title. ID is a short uppercase token (e.g. `AUTH-001`, `RECPLAT-269`). If only one word was given, ask user for the title via AskUserQuestion.
 
 3. **Render draft**:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/scripts/draft.mjs" epic "$ARGUMENTS"
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/draft.mjs" epic "$ARGUMENTS"
    ```
 
    Capture the JSON output.
@@ -32,7 +32,7 @@ Steps:
 9. **Index update**: if `index` is non-null in the draft JSON, apply the row through the core — never the Write/Edit tools, no second gate (the step-6 approval covers it). Must run **after** step 8: the regeneration scans the disk, so an epic written later would be missing from the table.
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --write --only indexes=<index.folder>
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --write --only indexes=<index.folder>
    ```
 
    The row is derived state — regenerated in canonical order, written atomically, manual prose preserved. The epic is already on disk, so a nonzero exit is a warning naming the folder (stderr with no JSON = rejected before any write, fix the header or restore the README; per-target `error` in JSON = I/O failure, suggest `/projectstore:reconcile`), never a failed creation.

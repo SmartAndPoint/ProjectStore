@@ -14,7 +14,7 @@ vault-link-graph-derived-view-and-shared-link-resolver).
 2. **Compute** (read-only, the unified reconcile path):
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --only graph
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --only graph
    ```
 
    The `graph` entry carries `{ path, changed, content?, stats }` — stats:
@@ -34,7 +34,7 @@ vault-link-graph-derived-view-and-shared-link-resolver).
    never the Write tool:
 
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" reconcile --write --only graph
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --write --only graph
    ```
 
    Explicit selection creates graph.md when absent — bare reconcile
@@ -42,7 +42,7 @@ vault-link-graph-derived-view-and-shared-link-resolver).
    are this command's job). Render the report's `graph` entry; nonzero exit —
    surface the `error`.
 
-6. **Verify**: run `node "$CLAUDE_PLUGIN_ROOT/bin/projectstore.mjs" doctor --vault` (exit 1 = findings, not failure)
+6. **Verify**: run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" doctor --vault` (exit 1 = findings, not failure)
    and show the summary line.
 
 ## Notes
