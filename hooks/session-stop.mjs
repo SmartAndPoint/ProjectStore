@@ -26,6 +26,7 @@
 import {
   readConfig,
   readStdinJson,
+  adoptHookInput,
   projectRoot,
   entryScore,
   readOpenStoryCache,
@@ -39,10 +40,15 @@ import {
 } from "../scripts/lib.mjs";
 
 async function main() {
+  // The payload before the project: readConfig() resolves through
+  // projectRoot(), and on a harness that exports no project-dir variable the
+  // payload's cwd is the only answer better than this process's cwd. Read once
+  // — fd 0 is empty on a second read.
+  const input = adoptHookInput(readStdinJson());
+
   const cfg = readConfig();
   if (!cfg || cfg.guard === "off") return;
 
-  const input = readStdinJson();
   const sid = input?.session_id;
   if (!sid) return;
   if (input.stop_hook_active) return;

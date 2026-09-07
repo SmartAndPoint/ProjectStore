@@ -19,9 +19,10 @@ import { readAnchorState,
   layoutPaths,
   stateDir,
   sessionStatePath,
+  sessionFilePath,
   entryLogPath,
 } from "../scripts/lib.mjs";
-import { sourceHarness } from "../scripts/harness.mjs";
+import { sourceHarness, loadHarnesses } from "../scripts/harness.mjs";
 import { fileURLToPath } from "node:url";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -692,16 +693,16 @@ function seedStory(vault, name, status) {
     `---\ntype: story\nstatus: ${status}\n---\n\n# s\n`, "utf8");
 }
 
-function fireHook(proj, payload, sessionsDir = null) {
+function fireHook(proj, payload, sessionsDir = null, { env = null, cwd = proj } = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "scripts", "touch-session.mjs")], {
     encoding: "utf8", input: JSON.stringify(payload), timeout: 15000,
     env: {
-      ...process.env, CLAUDE_PROJECT_DIR: proj,
+      ...(env || { ...process.env, CLAUDE_PROJECT_DIR: proj }),
       // Without this the wired drives read the developer's real session
       // registry — live machine state inside a test, and two criteria that
       // cannot be driven at all.
       ...(sessionsDir ? { PROJECTSTORE_SESSIONS_DIR: sessionsDir } : {}),
-    }, cwd: proj,
+    }, cwd,
   });
   assert.equal(r.status, 0, `hook must exit 0; stderr: ${r.stderr}`);
   const out = r.stdout.trim();
@@ -931,10 +932,10 @@ test("entry hook: read-only tool calls never count (spec contracts 2, 10)", () =
 
 // ── The Stop carrier (spec contract 14) ──
 
-function fireStop(proj, payload) {
+function fireStop(proj, payload, { env = null, cwd = proj } = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-stop.mjs")], {
     encoding: "utf8", input: JSON.stringify({ hook_event_name: "Stop", ...payload }),
-    timeout: 15000, env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd: proj,
+    timeout: 15000, env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd,
   });
   assert.equal(r.status, 0, `Stop hook must exit 0; stderr: ${r.stderr}`);
   const out = r.stdout.trim();
@@ -984,10 +985,10 @@ test("Stop carrier: an open story suppresses it (contracts 5, 14)", () => {
 
 // ── The rule payload (spec contract 17) ──
 
-function fireRules(proj, payload = {}) {
+function fireRules(proj, payload = {}, { env = null, cwd = proj } = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-rules.mjs")], {
     encoding: "utf8", input: JSON.stringify({ hook_event_name: "SessionStart", ...payload }),
-    timeout: 15000, env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd: proj,
+    timeout: 15000, env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd,
   });
   assert.equal(r.status, 0, r.stderr);
   const out = r.stdout.trim();
@@ -1039,15 +1040,168 @@ test("SessionStart renders doctor's offers as their own line, and nothing when n
   // The rendering itself — "projectstore: <message>" in the system message — is asserted behaviourally in tests/upgrade.test.mjs from a fake cache install.
 });
 
-function fireSessionStart(proj, payload = {}) {
+// A child env shaped like a harness that exports no project-dir variable —
+// every harness but the source one, today. DELETING the keys is the point:
+// these drives spread process.env, so a developer running the suite from
+// inside a live session would otherwise leak their own project in and the
+// payload would never be reached. Named through the manifests, never typed.
+function envWithoutProjectDir(extra = {}) {
+  const env = { ...process.env };
+  for (const h of loadHarnesses().values()) {
+    const k = h.runtime?.project_dir_env;
+    if (k) delete env[k];
+  }
+  // Applied AFTER the deletion, so a caller can put exactly one variable back.
+  return { ...env, ...extra };
+}
+
+// The vault a run answered for: the skeleton's first line is
+// "# Projectstore vault: <path>".
+const vaultNamedBy = (emitted) =>
+  emitted?.hookSpecificOutput?.additionalContext?.split("\n")[0] ?? "";
+
+function fireSessionStart(proj, payload = {}, { env = null, cwd = proj } = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-start.mjs")], {
     encoding: "utf8", input: JSON.stringify({ hook_event_name: "SessionStart", ...payload }),
-    timeout: 15000, env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd: proj,
+    timeout: 15000, env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd,
   });
   assert.equal(r.status, 0, `SessionStart hook must exit 0; stderr: ${r.stderr}`);
   const out = r.stdout.trim();
   return out ? JSON.parse(out) : null;
 }
+
+// Two bound projects whose vaults have DIFFERENT basenames — pre-compact names
+// the vault by basename, and seedHookProject calls every vault "vault", which
+// would make that assertion pass for either project.
+function seedTaggedProject(tag, binding = {}) {
+  const root = mkdtempSync(join(tmpdir(), `ps-${tag}-`));
+  const proj = join(root, "proj");
+  const vault = join(root, `vault-${tag}`);
+  mkdirSync(join(proj, ".claude"), { recursive: true });
+  mkdirSync(join(vault, "epics", "PS-A", "stories"), { recursive: true });
+  writeFileSync(join(vault, "README.md"), `# ${tag}\n`, "utf8");
+  writeBinding(proj, { vault_path: vault, layout: "engineering", language: "en", ...binding });
+  return { root, proj, vault };
+}
+
+// In the drives below the first argument only feeds the DEFAULT env and cwd,
+// and both are overridden — what puts the process in a directory is `cwd:`,
+// and what names the project is the payload. Passing the same project as both
+// keeps the reading honest.
+
+// The precedence, driven end to end. A declared project dir is where the
+// SESSION STARTED; the payload's cwd is where the harness currently is, and it
+// follows every `cd` and every worktree switch. The binding and the state
+// directory must not move mid-session, so the declared variable wins — the same
+// choice scripts/statusline.mjs makes when it reads workspace.project_dir
+// before input.cwd. This drive lands before the behaviour moves and asserts
+// only the half that must survive it.
+test("SessionStart: a declared project dir beats the payload's cwd", () => {
+  const a = seedHookProject();
+  const b = seedHookProject();
+  writeFileSync(join(a.vault, "README.md"), "# A\n", "utf8");
+  writeFileSync(join(b.vault, "README.md"), "# B\n", "utf8");
+  const declared = sourceHarness().runtime.project_dir_env;
+
+  // Burn the once-per-project welcome so the second run is the plain skeleton.
+  const env = envWithoutProjectDir({ [declared]: a.proj });
+  fireSessionStart(a.proj, { session_id: "s1", source: "startup" }, { env, cwd: b.proj });
+  const emitted = fireSessionStart(a.proj, { session_id: "s2", source: "startup", cwd: b.proj }, { env, cwd: b.proj });
+
+  assert.ok(emitted, "a bound project with auto_inject on always delivers");
+  assert.equal(
+    vaultNamedBy(emitted), `# Projectstore vault: ${a.vault}`,
+    "the declared project dir wins over both the payload's cwd and the process's cwd",
+  );
+});
+
+// With no project-dir variable — every harness but the source one, today — the
+// payload's cwd is what names the project. Before this behaviour landed, all
+// three of these answered for the directory the process happened to start in.
+test("SessionStart: with no declared project dir, the payload's cwd names the project", () => {
+  const a = seedTaggedProject("start-a");
+  const b = seedTaggedProject("start-b");
+  const env = envWithoutProjectDir();
+
+  // Burn the once-per-project welcome, then read the plain skeleton.
+  fireSessionStart(a.proj, { session_id: "p1", source: "startup", cwd: b.proj }, { env, cwd: a.proj });
+  const emitted = fireSessionStart(a.proj, { session_id: "p2", source: "startup", cwd: b.proj }, { env, cwd: a.proj });
+
+  assert.equal(
+    vaultNamedBy(emitted), `# Projectstore vault: ${b.vault}`,
+    "the payload's cwd names the project, not the directory the hook process started in",
+  );
+});
+
+test("PreCompact: with no declared project dir, the payload's cwd names the vault", () => {
+  const a = seedTaggedProject("pc-a");
+  const b = seedTaggedProject("pc-b");
+  const out = firePreCompact(a.proj, { session_id: "pc1", trigger: "auto", cwd: b.proj },
+    { env: envWithoutProjectDir(), cwd: a.proj });
+
+  const msg = (out && out.systemMessage) || "";
+  assert.ok(msg.includes("vault-pc-b"), `expected the payload's vault, got: ${msg}`);
+  assert.ok(!msg.includes("vault-pc-a"), "must not name the process's own project");
+});
+
+// The sharpest of the three: session-rules ships one constant text, so only its
+// GATE can be wrong — and the gate is a per-project setting. This hook shares
+// SessionStart with session-start.mjs, so a disagreement here would have the
+// pair answering for two different projects in one session start.
+test("session-rules: the auto_inject gate follows the payload's project", () => {
+  const speaking = seedTaggedProject("rules-on", { auto_inject: true });
+  const silent = seedTaggedProject("rules-off", { auto_inject: false });
+  const env = envWithoutProjectDir();
+
+  assert.ok(fireRules(speaking.proj, { cwd: speaking.proj }, { env, cwd: speaking.proj }),
+    "control: a project with auto_inject on speaks");
+  assert.equal(
+    fireRules(speaking.proj, { cwd: silent.proj }, { env, cwd: speaking.proj }), null,
+    "the gate is read from the payload's project, which opted out — not from the process's cwd",
+  );
+});
+
+test("touch-session: with no declared project dir, the session file lands in the payload's vault", () => {
+  const a = seedTaggedProject("touch-a");
+  const b = seedTaggedProject("touch-b");
+  const env = envWithoutProjectDir();
+
+  fireHook(a.proj, {
+    hook_event_name: "PreToolUse", session_id: "t1", cwd: b.proj,
+    tool_name: "Read", tool_input: { file_path: join(b.proj, "x.mjs") },
+  }, null, { env, cwd: a.proj });
+
+  assert.ok(existsSync(sessionFilePath(b.vault, "t1")),
+    "the session registers in the payload's vault");
+  assert.ok(!existsSync(sessionFilePath(a.vault, "t1")),
+    "and not in the vault of the project the process started in");
+});
+
+// The discriminator is `guard`, which lives in the CONFIG. `proj` is resolved
+// after the adopt either way, so a drive keyed on the score alone would still
+// pass with the config read hoisted back above it — which is exactly the hole
+// this test exists to close.
+test("Stop carrier: with no declared project dir, the config is read from the payload's project", () => {
+  const a = seedTaggedProject("stop-a", { guard: "off" });
+  const b = seedTaggedProject("stop-b");
+  seedStory(a.vault, "story-a.md", "planned");
+  seedStory(b.vault, "story-b.md", "planned");
+  // The writes are an agent's, so the main agent made none of its own and Stop
+  // is the carrier (contract 14). Only B earns a score; A stays at zero, so a
+  // hook that read A would be silent. Two session ids because the carrier
+  // writes a marker and will not speak twice for the same one.
+  const asAgent = { agent_id: "a1", agent_type: "general-purpose" };
+  for (const sid of ["s1", "s2"]) {
+    for (const f of ["a.mjs", "b.mjs", "c.mjs"]) post(b.proj, join(b.proj, f), { ...asAgent, sid });
+  }
+
+  assert.ok(fireStop(b.proj, { session_id: "s1" }), "control: B is over threshold on its own env");
+
+  const out = fireStop(a.proj, { session_id: "s2", cwd: b.proj },
+    { env: envWithoutProjectDir(), cwd: a.proj });
+  assert.ok(out, "the carrier speaks for the payload's project, which is over threshold");
+  assert.ok(out.hookSpecificOutput.additionalContext.includes("3 source files"));
+});
 
 test("SessionStart: delivers on additionalContext, and the welcome renders once per project", () => {
   const { proj, vault } = seedHookProject();
@@ -1452,10 +1606,10 @@ test("SessionStart contract 3: the vault-load failure path truncates its free te
 // whatever about it — the static greps below are belt, and the drives are the
 // actual check.
 
-function firePreCompact(proj, payload = {}) {
+function firePreCompact(proj, payload = {}, { env = null, cwd = proj } = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "pre-compact.mjs")], {
     encoding: "utf8", input: JSON.stringify({ hook_event_name: "PreCompact", ...payload }),
-    timeout: 15000, env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd: proj,
+    timeout: 15000, env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd,
   });
   assert.equal(r.status, 0, `PreCompact hook must exit 0; stderr: ${r.stderr}`);
   const out = r.stdout.trim();

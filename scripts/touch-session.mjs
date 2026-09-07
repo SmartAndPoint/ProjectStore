@@ -35,6 +35,7 @@ import { join } from "node:path";
 import {
   readConfig,
   readStdinJson,
+  adoptHookInput,
   touchSession,
   writeSession,
   cleanupStaleSessions,
@@ -260,11 +261,17 @@ async function entryBranch(cfg, proj, sid, filePath, input) {
 }
 
 async function main() {
+  // The payload before the project. On a harness that exports no project-dir
+  // variable the payload's cwd is the only answer better than "whatever
+  // directory this process started in", and readConfig() resolves through
+  // projectRoot() — so anything read before this line answers for the wrong
+  // project, silently. Read once: fd 0 is empty on a second read.
+  const input = adoptHookInput(readStdinJson());
+  if (!input) return;
+
   const cfg = readConfig();
   if (!cfg) return;
 
-  const input = readStdinJson();
-  if (!input) return;
   const sid = input.session_id;
   if (!sid) return;
 

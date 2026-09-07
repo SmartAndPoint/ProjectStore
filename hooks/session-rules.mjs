@@ -16,7 +16,7 @@
 // Spec: "Entry-rule detection: the score, the open-story predicate, and the
 // delivery seams", contract 17.
 
-import { readConfig } from "../scripts/lib.mjs";
+import { readConfig, readStdinJson, adoptHookInput } from "../scripts/lib.mjs";
 
 // Kept well under the cap; asserted by a test rather than by intention.
 const RULES = `# projectstore — standing rules for this session
@@ -40,6 +40,16 @@ function emit(additionalContext) {
 }
 
 function main() {
+  // The RULES text below is the same for every project, so it is tempting to
+  // skip the payload here. The GATE is not: both `!cfg` and `auto_inject`
+  // are facts about one specific project, and this hook shares its event with
+  // session-start.mjs. If only one of the two adopted the payload, the pair
+  // could answer for two different projects in the same session start — one
+  // emitting a vault's skeleton while the other decided, from the process's
+  // cwd, whether to speak at all. One readFileSync(0) is the whole cost of
+  // keeping them symmetric.
+  adoptHookInput(readStdinJson());
+
   const cfg = readConfig();
   if (!cfg) return;
   // Honour auto_inject: a session that opted out of context injection is
