@@ -1,6 +1,6 @@
 {
   "name": "projectstore-claude",
-  "version": "0.28.0-rc.1",
+  "version": "0.28.0-rc.2",
   "description": "Installs projectstore for Claude Code from npm: the core pinned and bundled, the harness fixed — npx projectstore-claude install --project \"$PWD\".",
   "keywords": [
     "projectstore",
@@ -37,7 +37,7 @@
     "README.md"
   ],
   "dependencies": {
-    "projectstore": "=0.28.0-rc.1"
+    "projectstore": "=0.28.0-rc.2"
   },
   "bundleDependencies": [
     "projectstore"

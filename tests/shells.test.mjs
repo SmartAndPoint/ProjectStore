@@ -262,17 +262,20 @@ test("shells AC 4: the release matrix is the publishable list, computed — neve
   assert.ok(yml.includes("fail-fast: false"), "one shell's failure does not cancel another's publish (the shells ADR decision 7)");
   assert.ok(yml.includes("if: needs.core.outputs.shells != '[]'"), "an empty list skips the job instead of failing the matrix");
   assert.ok(yml.includes('node packaging/shells.mjs --build --only "${SHELL_NAME}" --out dist'), "a shell is built from the core's pack tarball, in CI too");
-  assert.ok(yml.includes('npm publish "dist/${SHELL_NAME}-${VERSION}.tgz" --provenance'));
   assert.equal((yml.match(/npm view "/g) || []).length, 2, "both publishes skip an already-published name@version");
   // A prerelease must never land on \`latest\`: npm defaults there when --tag is
   // omitted, so a release candidate would answer a bare \`npx projectstore-claude\`.
   assert.match(yml, /disttag=next/, "a version with a prerelease marker goes to its own dist-tag");
-  assert.equal((yml.match(/--provenance --tag /g) || []).length, 2, "every publish names the dist-tag it computed");
   // Comment lines are prose (the documented publish-from-directory fallback);
   // only executable lines are held to the rule.
   const publishes = yml.split("\n").filter((l) => /npm publish/.test(l) && !/^\s*#/.test(l));
+  // The leading "./" is what makes npm read a path as a file rather than a git
+  // spec: without it the publish dies in `git ls-remote`, which is how the
+  // shell half of v0.28.0-rc.1 failed. Measured 2026-09-07.
+  const tarball = publishes.find((l) => /\.tgz/.test(l));
+  assert.ok(tarball && /npm publish "\.\/dist\//.test(tarball), `the tarball path is file-shaped, not git-shaped: ${(tarball || "").trim()}`);
   assert.equal(publishes.length, 2, "two publishes, the core and the shell");
-  for (const l of publishes) assert.match(l, /--tag /, `no publish is left to npm's default tag: ${l.trim()}`);
+  for (const l of publishes) assert.match(l, /--provenance --tag /, `every publish names the dist-tag it computed, and none is left to npm's default: ${l.trim()}`);
   assert.ok(yml.includes("node packaging/shells.mjs --check"), "the render check runs before the publish");
   for (const s of SHELLS) assert.ok(!yml.includes(s.name), `${s.name} is not hard-coded in the workflow`);
   const check = spawnSync(process.execPath, [join(ROOT, "packaging", "shells.mjs"), "--check"], { encoding: "utf8", timeout: 60000 });

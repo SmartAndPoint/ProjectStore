@@ -122,9 +122,14 @@ jobs:
           SHELL_NAME: ${{ matrix.shell }}
 
       # The tarball form keeps "the file that ships is the file the fixture was
-      # compared with". Should npm refuse provenance for a tarball spec (its docs
-      # describe the directory form only), the built directory is beside it:
-      #   cd dist/build/<shell> && npm publish --provenance
+      # compared with". The leading "./" is load-bearing: measured 2026-09-07,
+      # npm reads a bare relative path as a git spec and tries
+      # `git ls-remote ssh://git@github.com/dist/<file>.tgz.git`, which is how
+      # v0.28.0-rc.1's shell publish died. Same family as npx reading a bare
+      # tarball path as a command. Should npm refuse provenance for a tarball
+      # spec (its docs describe the directory form only), the built directory is
+      # beside it:
+      #   cd dist/build/<shell> && npm publish --provenance --tag "$DIST_TAG"
       - name: Publish the shell, unless this version is on the registry already
         env:
           SHELL_NAME: ${{ matrix.shell }}
@@ -134,5 +139,5 @@ jobs:
           if [ -n "$(npm view "${SHELL_NAME}@${VERSION}" version 2>/dev/null)" ]; then
             echo "${SHELL_NAME}@${VERSION} is published already — skipping"
           else
-            npm publish "dist/${SHELL_NAME}-${VERSION}.tgz" --provenance --tag "${DIST_TAG}"
+            npm publish "./dist/${SHELL_NAME}-${VERSION}.tgz" --provenance --tag "${DIST_TAG}"
           fi
