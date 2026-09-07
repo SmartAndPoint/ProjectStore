@@ -15,6 +15,8 @@ import {
   configPath as harnessConfigPath,
   projectConfigDir as harnessProjectConfigDir,
   detectHarnessId,
+  adoptHookInput,
+  resetHookInput,
   overlayId,
   hostSettingsPath,
   layoutPaths,
@@ -46,6 +48,14 @@ export function configPath() {
 // import one module (the layout ADR, 2026-09-06). The active harness's id,
 // for the paths keyed by it (state/<id>/…).
 export { layoutPaths, pickExisting, LAYOUT, RUNTIME_GITIGNORE_HEADER, hostSettingsPath, overlayId };
+
+// A hook's payload carries the `cwd` of the session that fired it, and on a
+// harness that exports no project-dir variable it is the only answer better
+// than "whatever directory this process started in". adoptHookInput lives in
+// harness.mjs, which may import node builtins only; readStdinJson lives here.
+// So the pairing can only be composed here, and it is re-exported rather than
+// wrapped so each hook shows its own ordering at its own entry point.
+export { adoptHookInput, resetHookInput };
 
 // ─── Harness overlays (the layout ADR decision 3; layout spec contracts 2–4) ──
 //

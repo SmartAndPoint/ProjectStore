@@ -22,6 +22,7 @@ import {
   readActiveSessions,
   cleanupStaleSessions,
   readStdinJson,
+  adoptHookInput,
   projectRoot,
   layoutPaths,
   pickExisting,
@@ -156,6 +157,14 @@ function buildOthersWarning(others) {
 }
 
 async function main() {
+  // The payload before the project. readConfig() resolves through
+  // projectRoot(), so anything read above this line answers for whatever
+  // directory the process started in — silently, on any harness that exports
+  // no project-dir variable. Read once: fd 0 is empty on a second read, and
+  // `sid` below is this object's, not a re-read.
+  const input = adoptHookInput(readStdinJson());
+  const sid = input?.session_id || null;
+
   const cfg = readConfig();
   const proj = projectRoot();
   // Asked only on the unbound path. A bound project must not spend a git
@@ -203,13 +212,14 @@ async function main() {
   // auto_inject=false (touch-session writes pointers regardless of it).
   try { cleanupStaleSessionState(proj); } catch {}
 
-  // Read stdin BEFORE the auto_inject gate. The entry reminder's markers must be
+  // Arm BEFORE the auto_inject gate. The entry reminder's markers must be
   // re-armed after a compaction whether or not this session injects context —
   // an auto_inject=false session still writes code, and its reminder was
-  // discarded with the conversation just the same. Below the gate, stdin is
-  // never read and `source` is unreachable.
-  const input = readStdinJson();
-  const sid = input?.session_id || null;
+  // discarded with the conversation just the same.
+  //
+  // `input` and `sid` are read at the top of main() now, because the project
+  // resolves from that payload; this block only consumes them.
+  //
   // `compact` and `clear` are the two sources where the session id survives but
   // the conversation does not, so a reminder already delivered is gone from
   // context while its marker persists on disk. Arming lets it fire once more;

@@ -26,6 +26,8 @@ import {
   emittingHarnesses,
   detectHarnessId,
   resetDetection,
+  adoptHookInput,
+  resetHookInput,
   projectRoot,
   pluginRoot,
   agentHome,
@@ -249,6 +251,73 @@ test("harness resolvers: the branded names are read from the manifest, fresh on 
   assert.equal(detectHarnessId({ PROJECTSTORE_HARNESS: src.id }), src.id);
   assert.equal(detectHarnessId({ PROJECTSTORE_HARNESS: "no-such-harness" }), src.id, "an unknown forced id falls through");
   resetDetection();
+});
+
+// The payload's cwd is the answer on a harness that exports no project-dir
+// variable — every harness but the source one, today. It must sit BELOW the
+// declared variable (which is the harness stating the answer) and ABOVE
+// process.cwd() (which is us inferring it).
+test("harness resolvers: an adopted hook payload beats cwd and loses to a declared project dir", () => {
+  const r = sourceHarness().runtime;
+  resetHookInput();
+  assert.equal(projectRoot({}), process.cwd(), "nothing adopted: the process's own directory");
+
+  adoptHookInput({ cwd: "/tmp/from-pay load" });
+  assert.equal(projectRoot({}), "/tmp/from-pay load", "adopted: the payload, not cwd");
+  assert.equal(
+    projectRoot({ [r.project_dir_env]: "/tmp/decl ared" }),
+    "/tmp/decl ared",
+    "a declared project dir still wins — adopting a payload must never invert this",
+  );
+  assert.equal(
+    projectRoot({}, { cwd: "/tmp/explic it" }),
+    "/tmp/explic it",
+    "an explicitly passed payload beats the adopted one",
+  );
+
+  // Nothing usable leaves the adopted root alone, rather than clearing it: a
+  // hook that gets no payload must not lose an answer an earlier call gave.
+  adoptHookInput(null);
+  adoptHookInput({});
+  adoptHookInput({ cwd: "" });
+  adoptHookInput({ cwd: 42 });
+  assert.equal(projectRoot({}), "/tmp/from-pay load");
+
+  resetHookInput();
+  assert.equal(projectRoot({}), process.cwd(), "reset returns the resolver to cwd");
+  // projectRoot() memoises the detected harness on the way through; its
+  // neighbour above resets for the same reason. Inert while one manifest
+  // exists, load-bearing the moment a second one lands.
+  resetDetection();
+});
+
+// Presence, not text order. Execution order is asserted behaviourally in
+// tests/scripts.test.mjs, where a payload naming another project must win over
+// the process's cwd; a source-order regex would have to special-case import
+// lines and helpers defined above main(), and would still be checking text.
+// What this catches is what those drives cannot see: a SIXTH hook, registered
+// later, that never adopts its payload at all. The list comes from hooks.json —
+// globbing hooks/*.mjs would miss scripts/touch-session.mjs, which is
+// registered but not co-located.
+test("every registered hook adopts its payload before it can resolve a project", () => {
+  const reg = JSON.parse(readFileSync(join(ROOT, "hooks", "hooks.json"), "utf8"));
+  // The placeholder comes from the manifest, never typed here — this is the
+  // file whose whole thesis is that branded names live in harnesses/*.json.
+  const placeholder = sourceHarness().hooks.root_placeholder;
+  const files = [...new Set(
+    Object.values(reg.hooks).flatMap((entries) =>
+      entries.flatMap((e) => (e.hooks || []).map((h) =>
+        (h.command || "").split(`${placeholder}/`).pop().trim()))))]
+    .filter((f) => f.endsWith(".mjs"));
+  assert.equal(files.length, 5, `expected every registered hook script, got ${JSON.stringify(files)}`);
+
+  const offenders = files.filter(
+    (rel) => !/\badoptHookInput\s*\(/.test(readFileSync(join(ROOT, rel), "utf8")));
+  assert.deepEqual(
+    offenders, [],
+    "a hook that never calls adoptHookInput resolves its project from whatever directory "
+    + "the process started in — silently, on any harness that exports no project-dir variable",
+  );
 });
 
 test("harness resolvers: agent overrides are named by the manifest and reported only when set", () => {

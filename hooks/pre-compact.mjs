@@ -26,6 +26,7 @@ import { basename } from "node:path";
 import {
   readConfig,
   readStdinJson,
+  adoptHookInput,
   loadLayout,
   readActivityAsync,
   resolveInFlightArtifact,
@@ -64,10 +65,15 @@ async function readActivityBudgeted(vault, sid, budgetMs) {
 }
 
 async function main() {
+  // The payload before the project: readConfig() resolves through
+  // projectRoot(), and on a harness that exports no project-dir variable the
+  // payload's cwd is the only answer better than this process's cwd. Read once
+  // — fd 0 is empty on a second read.
+  const input = adoptHookInput(readStdinJson());
+
   const cfg = readConfig();
   if (!cfg) process.exit(0);
 
-  const input = readStdinJson();
   const sid = input?.session_id || null;
   const activity = await readActivityBudgeted(cfg.vault_path, sid, 200);
 
