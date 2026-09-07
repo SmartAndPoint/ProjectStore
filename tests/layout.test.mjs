@@ -324,3 +324,100 @@ test("layout contract 13: the prose moved in one pass — commands, agents, skil
   }
   assert.deepEqual(hits, []);
 });
+
+// ─── A14: the fresh-install path ────────────────────────────────────────
+//
+// Contract 5 names `bind` among the writers of the line-merged
+// .projectstore/.gitignore. It was the one writer that never wrote it, and
+// nothing noticed: a project bound and committed before its first session
+// carried a machine-local binding with an absolute vault path into git.
+// Measured on a real install 2026-09-06 — `install` does not repair it either,
+// because planLayout produces no item unless a legacy path is pending.
+
+const gitInit = (dir) => {
+  spawnSync("git", ["init", "-q"], { cwd: dir });
+  spawnSync("git", ["config", "user.email", "t@example.com"], { cwd: dir });
+  spawnSync("git", ["config", "user.name", "t"], { cwd: dir });
+};
+const gitLsFiles = (dir) => spawnSync("git", ["ls-files"], { cwd: dir, encoding: "utf8" }).stdout.split("\n").filter(Boolean);
+
+test("layout contract 5 (A14): bind writes its ignore lines, so a fresh project never commits its binding", async () => {
+  const { proj: source, vault } = seedCliVault();
+  const proj = mkdtempSync(join(TMP, "ps-a14-"));
+  gitInit(proj);
+  writeFileSync(join(proj, "README.md"), "x\n");
+  void source;
+
+  const { planBind, applyBind } = await import("../scripts/binding.mjs");
+  const p = planBind(proj, { vault, env: noHostEnv() });
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  applyBind(p);
+
+  const lp = layoutPaths(proj);
+  assert.ok(existsSync(lp.gitignore), "bind wrote .projectstore/.gitignore");
+  const lines = readFileSync(lp.gitignore, "utf8").split("\n").map((l) => l.trim());
+  for (const l of LAYOUT.gitignore) assert.ok(lines.includes(l), `the ignore file carries ${l}`);
+  assert.ok(lines.some((l) => l.startsWith("#") && l.includes("machine-local")), "and the header that says why");
+
+  // The point of the lines: `git add -A` stages the ignore file and NOT the binding.
+  spawnSync("git", ["add", "-A"], { cwd: proj });
+  const staged = gitLsFiles(proj);
+  assert.ok(staged.includes(".projectstore/.gitignore"), "the ignore file is committed — it is shared, not machine-local");
+  assert.ok(!staged.includes(".projectstore/projectstore.json"), "the binding is not: it carries an absolute vault path");
+
+  // A second writer composes rather than rewrites (contract 5 is line-merged).
+  const before = readFileSync(lp.gitignore, "utf8");
+  const { ensureRuntimeDir } = await import("../scripts/lib.mjs");
+  ensureRuntimeDir(proj);
+  assert.equal(readFileSync(lp.gitignore, "utf8"), before, "a second ensure leaves the file byte-identical");
+});
+
+test("layout contract 8 (A14): a rebind of a not-yet-migrated project writes the legacy file and creates nothing under .projectstore/", async () => {
+  const home = mkdtempSync(join(TMP, "ps-a14-home-"));
+  const { proj } = legacyProject(home);
+  const lp = layoutPaths(proj);
+  assert.ok(existsSync(lp.legacy.binding) && !existsSync(lp.binding), "the fixture is on the legacy layout");
+  const other = mkdtempSync(join(TMP, "ps-a14-vault-"));
+
+  const { planBind, applyBind } = await import("../scripts/binding.mjs");
+  const p = planBind(proj, { vault: other, rebind: true, env: noHostEnv() });
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  applyBind(p);
+
+  assert.equal(p.configPath, lp.legacy.binding, "the rebind writes where the reader found the binding");
+  assert.ok(!existsSync(lp.gitignore), "and creates nothing under .projectstore/ — that write belongs to the migration item");
+});
+
+test("layout contract 9 (A14): doctor names an ignore file that is missing or short a line, and a binding git already tracks", async () => {
+  const { checkGitignore, checkTrackedRuntime } = await import("../scripts/doctor.mjs");
+  const proj = mkdtempSync(join(TMP, "ps-a14-doc-"));
+  gitInit(proj);
+  const lp = layoutPaths(proj);
+  mkdirSync(lp.root, { recursive: true });
+  writeFileSync(lp.binding, JSON.stringify({ vault_path: "/tmp/nowhere" }) + "\n");
+
+  // Missing entirely.
+  let f = checkGitignore(proj).filter((x) => x.check === "gitignore");
+  assert.ok(f.some((x) => /exists without its \.gitignore/.test(x.message)), JSON.stringify(f));
+
+  // Present but short a line.
+  writeFileSync(lp.gitignore, "# projectstore\nprojectstore.json\n");
+  f = checkGitignore(proj).filter((x) => x.check === "gitignore");
+  assert.ok(f.some((x) => /is missing "state\/"/.test(x.message)), JSON.stringify(f));
+
+  // Complete: quiet about our own directory.
+  const { ensureRuntimeDir } = await import("../scripts/lib.mjs");
+  rmSync(lp.gitignore); ensureRuntimeDir(proj);
+  f = checkGitignore(proj).filter((x) => x.check === "gitignore" && /projectstore/.test(x.file || ""));
+  assert.deepEqual(f, [], "a complete ignore file says nothing");
+
+  // A binding already in the index: an ignore line cannot untrack it.
+  assert.deepEqual(checkTrackedRuntime(proj), [], "nothing tracked yet");
+  spawnSync("git", ["add", "-f", ".projectstore/projectstore.json"], { cwd: proj });
+  const t = checkTrackedRuntime(proj);
+  assert.equal(t.length, 1);
+  assert.equal(t[0].check, "gitignore-tracked");
+  assert.match(t[0].message, /git rm --cached \.projectstore\/projectstore\.json/);
+  spawnSync("git", ["rm", "--cached", "-q", ".projectstore/projectstore.json"], { cwd: proj });
+  assert.deepEqual(checkTrackedRuntime(proj), [], "and quiet once it is untracked");
+});

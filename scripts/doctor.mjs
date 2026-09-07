@@ -714,11 +714,30 @@ export function checkGitignore(proj) {
   // .projectstore/.gitignore is line-merged with the vault's own writer; a "*"
   // (a vault that is also a project, written before 2026-09-06) hides the
   // committed harness/ overlays.
-  try {
-    const p = layoutPaths(proj);
-    const lines = readFileSync(p.gitignore, "utf8").split("\n").map((l) => l.trim());
-    if (lines.includes("*") && existsSync(p.overlayDir)) out.push(finding("install", "warn", "gitignore", `.projectstore/.gitignore carries "*", which hides harness/ (the committed overlays) from git — replace it with the lines ${[...LAYOUT.gitignore, LAYOUT.vaultSessions + "/"].map((l) => JSON.stringify(l)).join(", ")}.`, ".projectstore/.gitignore"));
-  } catch {}
+  const p = layoutPaths(proj);
+  if (existsSync(p.root)) {
+    let lines = null;
+    try { lines = readFileSync(p.gitignore, "utf8").split("\n").map((l) => l.trim()); } catch {}
+    if (lines === null) {
+      // Contract 5's ignore file is what keeps a machine-local binding — with
+      // an absolute vault path — out of a commit. Until 2026-09-06 bind never
+      // wrote it, so a project bound and committed before its first session
+      // carried one; doctor reasoned from the self-ignoring without ever
+      // checking it.
+      out.push(finding("install", "warn", "gitignore",
+        `.projectstore/ exists without its .gitignore — the binding and state/ are machine-local and would be committed. Write the lines ${[...LAYOUT.gitignore].map((l) => JSON.stringify(l)).join(", ")}.`, ".projectstore/.gitignore"));
+    } else {
+      if (lines.includes("*") && existsSync(p.overlayDir)) out.push(finding("install", "warn", "gitignore", `.projectstore/.gitignore carries "*", which hides harness/ (the committed overlays) from git — replace it with the lines ${[...LAYOUT.gitignore, LAYOUT.vaultSessions + "/"].map((l) => JSON.stringify(l)).join(", ")}.`, ".projectstore/.gitignore"));
+      else if (!lines.includes("*")) {
+        // A lone "*" is the pre-2026-09-06 vault-that-is-a-project shape: it
+        // ignores the binding and state/ already, and only hides harness/ when
+        // that directory exists — which the branch above is for.
+        const short = [...LAYOUT.gitignore].filter((l) => !lines.includes(l));
+        if (short.length) out.push(finding("install", "warn", "gitignore",
+          `.projectstore/.gitignore is missing ${short.map((l) => JSON.stringify(l)).join(", ")} — the file is line-merged, so add the line rather than rewriting it.`, ".projectstore/.gitignore"));
+      }
+    }
+  }
   if (!existsSync(join(proj, ".git"))) return out;
   let lines = [];
   try {
@@ -733,6 +752,22 @@ export function checkGitignore(proj) {
   out.push(finding("install", "warn", "gitignore",
     `Machine-specific files not gitignored: ${missing.join(", ")} (or ignore ".claude/" wholesale).`));
   return out;
+}
+
+// An ignore line never untracks a file already in the index, so the project
+// that committed its binding before 2026-09-06 keeps committing it. Only git
+// can answer this, so it lives outside checkGitignore, which the SessionStart
+// budget forbids a subprocess.
+export function checkTrackedRuntime(proj) {
+  if (!existsSync(join(proj, ".git"))) return [];
+  const p = layoutPaths(proj);
+  const want = [relative(proj, p.binding), relative(proj, p.state)];
+  const r = spawnSync("git", ["ls-files", "--", ...want], { cwd: proj, encoding: "utf8", timeout: 5000 });
+  if (r.status !== 0 || !r.stdout) return [];
+  const tracked = r.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (!tracked.length) return [];
+  return [finding("install", "warn", "gitignore-tracked",
+    `git already tracks ${tracked.join(", ")} — machine-local files with an absolute vault path, committed before the ignore lines existed. An ignore line does not untrack them: run \`git rm --cached ${tracked.join(" ")}\` and commit.`, tracked[0])];
 }
 
 export function checkVaultGit(cfg) {
@@ -1733,6 +1768,7 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
     ...checkEnvModel(),
     ...checkEnvEffort(),
     ...checkGitignore(proj),
+    ...checkTrackedRuntime(proj),
     ...checkVaultGit(cfg),
     ...checkAutoUpdate(),
     ...checkMcpRegistration(),

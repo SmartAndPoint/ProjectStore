@@ -1066,10 +1066,22 @@ test("SessionStart: delivers on additionalContext, and the welcome renders once 
   const without = second.hookSpecificOutput.additionalContext;
   assert.ok(!/loaded for the first time/.test(without),
     "the welcome is once per project, not once per session");
-  assert.equal(withWelcome.length - without.length, 1077,
-    "the welcome is a fixed 1,077-character term of the composed value, and the " +
-    "skeleton spec's contract 3 does its arithmetic against exactly this number — " +
-    "if you edited the welcome copy, update that contract in the same change");
+  // Two variants since A15/A14 (2026-09-06): a bound project is told what it is
+  // bound to instead of being told to bind. Measured — 1,077 unbound, 1,198 with
+  // this fixture's vault path, 1,293 worst case, the ceiling structural because
+  // the path goes through truncFront(…, PATH_CELL) exactly as the inheritance
+  // offer does. The skeleton spec's contract 3 carries both numbers; if you edit
+  // the welcome copy, update that contract in the same change.
+  // The bound variant is a constant plus the vault path, and the path is capped
+  // by truncFront(…, PATH_CELL): 1,093 + min(len, 200), so 1,293 worst case. The
+  // unbound variant — the one contract 3 quotes as 1,077 — is pinned by the
+  // buildWelcome arithmetic below rather than by this delta, because this
+  // fixture is bound. Edit the copy and this fails with the number to update.
+  const WELCOME_BOUND_BASE = 1093, WELCOME_UNBOUND = 1077;
+  const vaultPath = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path;
+  const delta = withWelcome.length - without.length;
+  assert.equal(delta, WELCOME_BOUND_BASE + Math.min(vaultPath.length, 200),
+    `the welcome is ${WELCOME_BOUND_BASE} + the capped vault path; the skeleton spec's contract 3 quotes ${WELCOME_UNBOUND} unbound and ${WELCOME_BOUND_BASE + 200} worst case — update it in the same change`);
 });
 
 test("SessionStart: auto_inject false emits no vault content, and still arms the entry reminder", () => {

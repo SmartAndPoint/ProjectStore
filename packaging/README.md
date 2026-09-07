@@ -112,6 +112,21 @@ NOT honour `private` (measured 2026-09-06: it prints `+ name@version` and exits
 0); a real publish refuses one (`EPRIVATE`). The matrix filter is the first of
 those two gates, and the only one a dry run exercises.
 
+**Running a shell tarball before it is published.** `npx --yes <path>.tgz`
+reads the path as a *package* only when it begins with `./`. Given an absolute
+path, or one starting `../`, npx reads it as a **command**: it hands the path to
+`sh`, which answers `Permission denied`, and the run ends 126 with no sign that
+the package was never installed (measured 2026-09-06, npm 11.19.0). Two forms
+work from anywhere:
+
+```sh
+npx --yes -p /abs/path/projectstore-claude-<v>.tgz projectstore-claude install --project "$PWD"
+npx --yes file:/abs/path/projectstore-claude-<v>.tgz install --project "$PWD"
+```
+
+The `-p` form needs the bin name; the `file:` form does not. Either way the
+path must be shell-expanded — a quoted `'~/…'` is ENOENT.
+
 **First publish of a shell name, by hand — once.** The names exist on the
 registry as deprecated 0.0.1 placeholders owned by the maintainer, which is
 what lets npm's trusted-publisher form accept this workflow before the first
