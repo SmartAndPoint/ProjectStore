@@ -153,6 +153,10 @@ export const NOT_SHIPPED = new Set([
   ".gitignore",
   ".DS_Store",
   "node_modules",
+  // `packaging/shells.mjs --build --out dist` writes here, and the release
+  // workflow does exactly that. Gitignored, so it is invisible to git status —
+  // and the tree check is the only place an unlisted root directory shows up.
+  "dist",
   "CLAUDE.md", // a pointer to AGENTS.md, which does ship
   "tests", // 240 kB of fixtures nobody installing the plugin needs
   "packaging", // reserved-name stubs; see packaging/README.md
