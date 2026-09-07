@@ -44,6 +44,29 @@ npm install /tmp/projectstore-<version>.tgz
 ls -a node_modules/projectstore
 ```
 
+## Release candidates
+
+A version with a prerelease marker — `0.28.0-rc.1` — publishes to the **`next`**
+dist-tag, never `latest`: the workflow computes the tag from the version and
+passes it to every publish, because npm defaults to `latest` when `--tag` is
+omitted and a bare `npx <shell>` would then serve a candidate to everyone.
+
+Install one by naming it:
+
+```sh
+npx --yes -p projectstore-claude@0.28.0-rc.1 projectstore-claude install --project "$PWD"
+```
+
+A shell whose only other published version is its 0.0.1 placeholder keeps that
+placeholder as `latest` for the duration of the candidate window. That is the
+intended shape: nothing installs a candidate by accident, and the first real
+release moves `latest` for the first time.
+
+Bumping to a candidate touches the three core version sites; `npm run shells`
+re-renders the shells from them and `npm run packlist` regenerates the four
+fixtures. `node scripts/version-guard.mjs --tag v0.28.0-rc.1` is what proves
+they agree.
+
 ## CI publish
 
 Push a `vX.Y.Z` tag. `.github/workflows/release.yml` pins npm to a

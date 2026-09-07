@@ -264,6 +264,15 @@ test("shells AC 4: the release matrix is the publishable list, computed — neve
   assert.ok(yml.includes('node packaging/shells.mjs --build --only "${SHELL_NAME}" --out dist'), "a shell is built from the core's pack tarball, in CI too");
   assert.ok(yml.includes('npm publish "dist/${SHELL_NAME}-${VERSION}.tgz" --provenance'));
   assert.equal((yml.match(/npm view "/g) || []).length, 2, "both publishes skip an already-published name@version");
+  // A prerelease must never land on \`latest\`: npm defaults there when --tag is
+  // omitted, so a release candidate would answer a bare \`npx projectstore-claude\`.
+  assert.match(yml, /disttag=next/, "a version with a prerelease marker goes to its own dist-tag");
+  assert.equal((yml.match(/--provenance --tag /g) || []).length, 2, "every publish names the dist-tag it computed");
+  // Comment lines are prose (the documented publish-from-directory fallback);
+  // only executable lines are held to the rule.
+  const publishes = yml.split("\n").filter((l) => /npm publish/.test(l) && !/^\s*#/.test(l));
+  assert.equal(publishes.length, 2, "two publishes, the core and the shell");
+  for (const l of publishes) assert.match(l, /--tag /, `no publish is left to npm's default tag: ${l.trim()}`);
   assert.ok(yml.includes("node packaging/shells.mjs --check"), "the render check runs before the publish");
   for (const s of SHELLS) assert.ok(!yml.includes(s.name), `${s.name} is not hard-coded in the workflow`);
   const check = spawnSync(process.execPath, [join(ROOT, "packaging", "shells.mjs"), "--check"], { encoding: "utf8", timeout: 60000 });

@@ -33,6 +33,7 @@ jobs:
     outputs:
       shells: ${{ steps.shells.outputs.shells }}
       version: ${{ steps.version.outputs.version }}
+      disttag: ${{ steps.version.outputs.disttag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,8 +60,17 @@ jobs:
       - name: Tests, including the packaging contracts
         run: node --test tests/*.test.mjs
 
+      # A prerelease must not become `latest`, or a bare `npx <shell>` serves a
+      # release candidate to everyone who did not ask for one. npm
+      # defaults to `latest` when --tag is omitted, so the tag is computed here
+      # and passed to every publish: anything with a "-" in its version (semver's
+      # prerelease marker) goes to `next`.
       - id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if [ "$V" != "${V%%-*}" ]; then echo "disttag=next" >> "$GITHUB_OUTPUT"; else echo "disttag=latest" >> "$GITHUB_OUTPUT"; fi
+          echo "publishing $V to the \"$([ "$V" != "${V%%-*}" ] && echo next || echo latest)\" dist-tag"
 
       - id: shells
         name: The publishable shells (a private shell never reaches the matrix)
@@ -80,7 +90,7 @@ jobs:
           if [ -n "$(npm view "projectstore@${GITHUB_REF_NAME#v}" version 2>/dev/null)" ]; then
             echo "projectstore@${GITHUB_REF_NAME#v} is published already — skipping (a re-run of the tag recovers a partial release)"
           else
-            npm publish --provenance
+            npm publish --provenance --tag "${{ steps.version.outputs.disttag }}"
           fi
 
   shells:
@@ -119,9 +129,10 @@ jobs:
         env:
           SHELL_NAME: ${{ matrix.shell }}
           VERSION: ${{ needs.core.outputs.version }}
+          DIST_TAG: ${{ needs.core.outputs.disttag }}
         run: |
           if [ -n "$(npm view "${SHELL_NAME}@${VERSION}" version 2>/dev/null)" ]; then
             echo "${SHELL_NAME}@${VERSION} is published already — skipping"
           else
-            npm publish "dist/${SHELL_NAME}-${VERSION}.tgz" --provenance
+            npm publish "dist/${SHELL_NAME}-${VERSION}.tgz" --provenance --tag "${DIST_TAG}"
           fi
