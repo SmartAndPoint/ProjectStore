@@ -135,6 +135,15 @@ NOT honour `private` (measured 2026-09-06: it prints `+ name@version` and exits
 0); a real publish refuses one (`EPRIVATE`). The matrix filter is the first of
 those two gates, and the only one a dry run exercises.
 
+**npm reads a bare relative path as a git spec, twice over.** `npm publish
+`dist/x.tgz`` does not publish that file: npm treats it as `owner/repo`
+shorthand and runs `git ls-remote ssh://git@github.com/dist/x.tgz.git`, which
+is how the shell half of v0.28.0-rc.1 died with exit 128. A leading `./` is
+what makes it a file. The same rule bites `npx` below, for the same reason —
+assume any bare path npm is handed is a name, not a file, until it starts with
+`./`. npm also **refuses** to publish a prerelease without `--tag`, so the
+dist-tag rule above is not merely prudent.
+
 **Running a shell tarball before it is published.** `npx --yes <path>.tgz`
 reads the path as a *package* only when it begins with `./`. Given an absolute
 path, or one starting `../`, npx reads it as a **command**: it hands the path to
