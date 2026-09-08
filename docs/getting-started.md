@@ -97,7 +97,7 @@ Every command that writes or edits a file goes through `AskUserQuestion`:
    One consequence the prompt tells you about: the regeneration rewrites the
    whole table, so a creation can also repair a stale row for another artifact.
 
-Skills (decision-detector, story-completion) are passive — they suggest commands; they never write directly.
+Skills (`projectstore-decision-detector`, `projectstore-story-completion`) are passive — they suggest commands; they never write directly.
 
 ## Disabling skills
 

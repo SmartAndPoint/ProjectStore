@@ -1,5 +1,5 @@
 ---
-name: vault-communication
+name: projectstore-vault-communication
 description: When communicating with the user about anything stored in the projectstore vault (epics, stories, ADRs, research, kanban, backlog), reference every artifact by its human title from frontmatter — never by session-invented shorthand. Name the parent epic for stories; include status/priority when discussing state or plans. Applies by default in bound projects to summaries, plans, and progress reports.
 ---
 

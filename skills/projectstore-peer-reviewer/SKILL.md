@@ -1,5 +1,5 @@
 ---
-name: peer-reviewer
+name: projectstore-peer-reviewer
 description: After a new projectstore artifact is created via /projectstore:adr, /projectstore:research, or /projectstore:epic (and similar generative commands), suggest running /projectstore:review <path> to peer-review the artifact with a fresh critic agent before it's committed. Only suggest for artifact kinds whose checklist has default_review=true. Never auto-execute — always ask first.
 ---
 

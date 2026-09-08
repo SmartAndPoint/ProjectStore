@@ -611,6 +611,38 @@ test("skills: every shipped skill carries the frontmatter EVERY loading harness 
   }
 });
 
+// The namespace every surface of ours is published under, taken from the
+// package rather than typed: a literal here would be one more place to forget.
+const NAMESPACE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).name;
+
+test("skills: every skill is published under our namespace — a generic name in a flat registry belongs to whoever got there first", () => {
+  // Commands are already namespaced by the harness that loads them:
+  // `/projectstore:adr` cannot collide, because the plugin owns the prefix.
+  // Skills have no such protection on Codex — they resolve in ONE registry per
+  // machine, fed by $CWD/.agents/skills, $REPO_ROOT/.agents/skills,
+  // $HOME/.agents/skills, /etc/codex/skills and every installed plugin, and a
+  // user calls one by typing `$<name>`. So a skill called `peer-reviewer` is a
+  // claim on a word, on that user's machine, against every other tool that
+  // wanted it. Ours are prefixed for the same reason our commands are: the
+  // surfaces must be identical in what they promise, and an unprefixed name
+  // promises something we cannot keep.
+  const dirs = skillDirs();
+  assert.ok(dirs.length > 0);
+  for (const d of dirs) {
+    assert.ok(d.startsWith(`${NAMESPACE}-`), `skills/${d}: a skill directory is published as ${NAMESPACE}-<name> — a bare name collides in the flat registry Codex resolves $<name> against`);
+    assert.notEqual(d, NAMESPACE, `skills/${d}: the prefix names a family, not a member`);
+    assert.equal(frontmatterOf(d).fields.name, d, `skills/${d}: the frontmatter name is what a user types, so it carries the prefix too`);
+  }
+  // And the same rule stated for what the generator will produce: a command
+  // rendered as a skill keeps the namespace it had as a command, so
+  // `/projectstore:adr` becomes `$projectstore-adr` rather than `$adr`.
+  const commands = readdirSync(join(ROOT, "commands")).filter((f) => f.endsWith(".md")).map((f) => f.replace(/\.md$/, ""));
+  assert.ok(commands.length > 0);
+  for (const c of commands) {
+    assert.ok(!dirs.includes(c), `skills/${c}: a rendered command must be published as ${NAMESPACE}-${c}, not under its bare verb`);
+  }
+});
+
 test("skills: a harness that loads the source tree unrendered declares it, and the declaration matches what actually leaks", () => {
   // Contract 11 is right: source files stay in the SOURCE harness's vocabulary,
   // so `/projectstore:adr` in a skill body is correct authoring. What is not
@@ -661,10 +693,10 @@ test("skills: a harness that loads the source tree unrendered declares it, and t
   // portable by construction; that is worth knowing before the generator is
   // built, because it is cheaper than rendering.
   assert.deepEqual(
-    leaks, ["decision-detector", "peer-reviewer", "story-completion"],
+    leaks, ["projectstore-decision-detector", "projectstore-peer-reviewer", "projectstore-story-completion"],
     "the set of skills naming the source harness's commands changed — if the generator now renders them, drop unrendered_source; if a skill gained or lost the namespace, say which and why here",
   );
-  assert.ok(!leaks.includes("vault-communication"), "vault-communication names no command surface, and that is why it needs no rendering");
+  assert.ok(!leaks.includes(`${NAMESPACE}-vault-communication`), "the vault-communication skill names no command surface, and that is why it needs no rendering");
 });
 
 test("generation contract 6: lint patterns are derived from the OTHER manifests, and empty for the source layout", () => {
