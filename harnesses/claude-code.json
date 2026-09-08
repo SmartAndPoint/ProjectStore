@@ -222,7 +222,16 @@
       "format": "skill-md",
       "scope": "user",
       "scope_reason": "Claude Code loads skills from the plugin installation itself, not from a per-project directory.",
-      "registered_by": "plugin"
+      "registered_by": "plugin",
+      "frontmatter_required": [
+        "name",
+        "description"
+      ],
+      "frontmatter_reason": "`description` is what Claude Code matches a skill on; `name` was added 2026-09-08 because Codex's documentation requires it and this is the tree both harnesses load until the generator renders one per harness. Harmless here, required there.",
+      "invocation": null,
+      "invocation_reason": "UNMEASURED. Claude Code activates a skill from its description rather than from a form the user types; there is no explicit call syntax to record, and null says that rather than leaving the key out and reading as forgotten.",
+      "unrendered_source": false,
+      "unrendered_source_reason": "This IS the source tree (source_layout: true), so there is nothing to render and no foreign vocabulary to leak into it."
     },
     "hooks": {
       "supported": true,

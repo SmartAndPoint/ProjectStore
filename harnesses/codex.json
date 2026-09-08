@@ -202,7 +202,29 @@
       "supported": true,
       "kind": "host",
       "scope": "user",
-      "scope_reason": "Codex loads skills from the plugin root's skills/ directory, declared in the manifest as skills: \"./skills/\" — 47 of the 64 curated plugin manifests on the measuring machine declare theirs that way, and ours loaded."
+      "scope_reason": "Codex loads skills from the plugin root's skills/ directory, declared in the manifest as skills: \"./skills/\" — 47 of the 64 curated plugin manifests on the measuring machine declare theirs that way, and ours loaded.",
+      "dir": "skills",
+      "file": "<name>/SKILL.md",
+      "registered_by": "plugin",
+      "frontmatter_required": [
+        "name",
+        "description"
+      ],
+      "frontmatter_reason": "\"The SKILL.md file must include name and description\" — learn.chatgpt.com/docs/build-skills, read 2026-09-08. DOCUMENTED, and it disagrees with what we measured: our four skills carried only `description` and loaded anyway, and the model listed them. Either the name falls back to the directory or the loader is laxer than the page. We now ship both fields, so the discrepancy stops mattering for us and stays recorded for whoever meets it.",
+      "invocation": "$<name>",
+      "invocation_evidence": "documented",
+      "invocation_reason": "Explicitly: type `$<skill-name>`, or `/skills` to list what is loaded (examples given: `$skill-installer linear`). Implicitly: the model chooses a skill when the task matches its `description` — `allow_implicit_invocation` defaults true and is disabled per skill in agents/openai.yaml. So `description` is the TRIGGER here, not a hint for a human picking from a menu, which is what it is on the source harness. learn.chatgpt.com/docs/build-skills, read 2026-09-08. NOT measured: nobody has typed a $ at this stand's prompt.",
+      "discovery": [
+        "$CWD/.agents/skills",
+        "$REPO_ROOT/.agents/skills",
+        "$HOME/.agents/skills",
+        "/etc/codex/skills",
+        "bundled with Codex"
+      ],
+      "discovery_reason": "The four scopes the documentation lists, in its order. Note what is ABSENT from that list: a plugin's own skills/ directory. Ours loads all the same, declared as skills: \"./skills/\" in the plugin manifest and measured on the spike — 47 of 64 curated plugin manifests on the measuring machine declare theirs the same way. The plugin route is real and undocumented on this page; do not conclude from the page that it does not exist.",
+      "description_limit": "shortened above 2% of the context window, or 8000 characters",
+      "unrendered_source": true,
+      "unrendered_source_reason": "THE GAP, declared rather than discovered later. This harness host-loads the SOURCE skills/ tree, unrendered, because emit is false and no generator exists yet (B2b). Contract 11 says source files stay in the source harness's vocabulary — correctly — so those files name `/projectstore:<command>`, a form Codex does not have: its commands surface is unsupported. The result ships today: the skills load and then instruct the reader to run a command that cannot exist. This is precisely contract 10's lint class, arriving before the lint. The flag comes out when the generator renders skills per harness, and tests/portability.test.mjs holds the pairing in both directions so it cannot be removed while the leak is still there."
     },
     "statusline": {
       "supported": false,

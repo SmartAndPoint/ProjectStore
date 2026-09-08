@@ -567,6 +567,106 @@ test("generation contract 1: every manifest's overlay key resolves back to that 
   assert.equal(harnessForOverlay("nothing-declares-this"), null);
 });
 
+// ─── Skills: the surface two harnesses load from ONE tree ──────────────
+//
+// `skills/` is the only source surface both manifests host-load today, and it
+// is loaded UNRENDERED — emit is false, there is no generator yet. So the one
+// tree has to satisfy both loaders at once, and where it cannot, the manifest
+// has to say so rather than let a user discover it.
+
+const skillDirs = () => readdirSync(join(ROOT, "skills"), { withFileTypes: true })
+  .filter((e) => e.isDirectory()).map((e) => e.name).sort();
+
+const frontmatterOf = (dir) => {
+  const src = readFileSync(join(ROOT, "skills", dir, "SKILL.md"), "utf8");
+  const m = /^---\n([\s\S]*?)\n---/.exec(src);
+  assert.ok(m, `skills/${dir}/SKILL.md has no frontmatter block`);
+  const out = {};
+  for (const line of m[1].split("\n")) {
+    const kv = /^([a-z_]+):\s*(.*)$/.exec(line);
+    if (kv) out[kv[1]] = kv[2];
+  }
+  return { fields: out, body: src };
+};
+
+test("skills: every shipped skill carries the frontmatter EVERY loading harness requires", () => {
+  // Union, not the source harness's own list: one tree, two loaders, and the
+  // strictest wins. Codex's documentation requires `name` (read 2026-09-08);
+  // ours carried only `description` and loaded anyway, which is a laxer loader
+  // rather than a licence — a skill that does not satisfy the documented
+  // contract is one release away from not loading.
+  const required = new Set(manifests().flatMap((m) => m.surfaces?.skills?.frontmatter_required || []));
+  assert.ok(required.size > 0, "no manifest declares what a skill's frontmatter must carry");
+  const dirs = skillDirs();
+  assert.ok(dirs.length > 0);
+  for (const d of dirs) {
+    const { fields } = frontmatterOf(d);
+    for (const key of required) {
+      assert.ok(fields[key] && fields[key].length > 0, `skills/${d}/SKILL.md is missing frontmatter \`${key}\`, which a loading harness requires`);
+    }
+    // The name is the handle a user types (`$<name>` on Codex), so it has to be
+    // the directory's — a name that disagrees with its folder is a skill nobody
+    // can call by the name they can see.
+    if (required.has("name")) assert.equal(fields.name, d, `skills/${d}/SKILL.md: name must equal its directory — it is what a user types`);
+  }
+});
+
+test("skills: a harness that loads the source tree unrendered declares it, and the declaration matches what actually leaks", () => {
+  // Contract 11 is right: source files stay in the SOURCE harness's vocabulary,
+  // so `/projectstore:adr` in a skill body is correct authoring. What is not
+  // correct is shipping that tree, unrendered, to a harness whose commands
+  // surface is unsupported — the skill loads and then tells the reader to run
+  // something that cannot exist there. Contract 10's lint is the real fix and
+  // it arrives with the generator; until then the manifest declares the gap and
+  // this test holds the declaration to the facts IN BOTH DIRECTIONS.
+  const src = sourceHarness();
+  const namespace = /\/projectstore:[a-z-]+/;
+  const leaks = skillDirs().filter((d) => namespace.test(frontmatterOf(d).body));
+
+  for (const m of manifests()) {
+    const skills = m.surfaces?.skills;
+    if (!skills || skills.supported === false) continue;
+    assert.ok("unrendered_source" in skills, `${m.id}: surfaces.skills must say whether it loads the source tree unrendered`);
+    if (m.id === src.id) {
+      assert.equal(skills.unrendered_source, false, "the source harness cannot leak a foreign vocabulary into its own tree");
+      continue;
+    }
+    // A foreign harness loading the source tree: it either renders (emit) or
+    // declares that it does not.
+    assert.equal(skills.unrendered_source, !m.emit, `${m.id}: emit is ${m.emit}, so unrendered_source must be ${!m.emit}`);
+    const lacksCommands = m.surfaces?.commands?.supported === false;
+    if (skills.unrendered_source && lacksCommands) {
+      // The declaration is only honest while there is something to declare.
+      // When the generator lands and the leak is gone, this assertion fails and
+      // the flag must come out — which is the point: the gap cannot be quietly
+      // kept after it is fixed, nor quietly dropped while it is still real.
+      assert.ok(
+        leaks.length > 0,
+        `${m.id}: declares unrendered_source, but no shipped skill names the source harness's command namespace any more — remove the flag`,
+      );
+      assert.ok(
+        (skills.unrendered_source_reason || "").length > 80,
+        `${m.id}: a declared gap carries the reason a reader can evaluate it by`,
+      );
+    }
+  }
+
+  // And the leak itself is recorded, so its size is visible rather than a
+  // sentence. THREE of the four, not all four, and the exception is the
+  // instructive part: `vault-communication` says how to REFER to an artifact
+  // (by its frontmatter title, with its epic) and never how to run anything, so
+  // it carries no command namespace and needs no rendering to be correct on any
+  // harness. The other three each end in "run /projectstore:<x>", which is the
+  // sentence a Codex reader cannot act on. A skill written the first way is
+  // portable by construction; that is worth knowing before the generator is
+  // built, because it is cheaper than rendering.
+  assert.deepEqual(
+    leaks, ["decision-detector", "peer-reviewer", "story-completion"],
+    "the set of skills naming the source harness's commands changed — if the generator now renders them, drop unrendered_source; if a skill gained or lost the namespace, say which and why here",
+  );
+  assert.ok(!leaks.includes("vault-communication"), "vault-communication names no command surface, and that is why it needs no rendering");
+});
+
 test("generation contract 6: lint patterns are derived from the OTHER manifests, and empty for the source layout", () => {
   assert.deepEqual(lintPatterns(sourceHarness()), []);
   // A fictitious emitting harness sees the source harness's tools and variables as forbidden tokens.
