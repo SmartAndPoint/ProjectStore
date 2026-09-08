@@ -14,7 +14,7 @@
 import { mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync, rmSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { sourceHarness } from "../../scripts/harness.mjs";
+import { sourceHarness, loadHarnesses } from "../../scripts/harness.mjs";
 import { copyPackageTree, layoutPaths, renderAgentsBlock } from "../../scripts/lib.mjs";
 import { seedCliVault } from "./vault.mjs";
 
@@ -71,8 +71,23 @@ export function installEnv(home, root, proj, extra = {}) {
 // Claude Code session the suite may be running inside — never enters a plan.
 export function noHostEnv(extra = {}) {
   const env = { ...process.env, PATH: "" };
-  for (const k of [...(SRC.runtime.detect_env || []), ...(SRC.runtime.session_env || [])]) delete env[k];
-  delete env[SRC.runtime.home_env];
+  // EVERY manifest's names, not just the source one: with a second harness in
+  // the tree, a developer's exported CODEX_HOME would otherwise steer detection
+  // from inside the suite. A no-op while one manifest exists, which is when to
+  // write it. tests/scripts.test.mjs's envWithoutProjectDir does the same.
+  for (const m of loadHarnesses().values()) {
+    const r = m.runtime || {};
+    for (const k of [...(r.detect_env || []), ...(r.session_env || []), ...(r.shared_env || [])]) delete env[k];
+    // The three runtime names are already in every current manifest's
+    // detect_env, so these three lines delete nothing today. They are here
+    // because detect() derives the same union rather than trusting detect_env
+    // to be complete — a manifest may name its plugin root under runtime and
+    // forget to repeat it — and a fixture that cleared less than detection
+    // reads would leak the developer's environment into a plan.
+    if (r.home_env) delete env[r.home_env];
+    if (r.project_dir_env) delete env[r.project_dir_env];
+    if (r.plugin_root_env) delete env[r.plugin_root_env];
+  }
   return { ...env, ...extra };
 }
 

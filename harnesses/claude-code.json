@@ -464,6 +464,9 @@
     "**Upgrading from 0.27.x to 0.28**: restart after the update. The status line keeps rendering; the first session names the one step — `/projectstore:doctor --fix` — that re-stamps the launcher written before file stamps existed. `status` and `search` answer from artifact facts; `doctor` gains surface, version-drift and mcp lines and exits 1 on findings; the plugin registers an MCP server the host may ask you to approve once. Rolling back overwrites the stamp; coming forward costs the same one `--fix`."
   ],
   "agent_translation": {
-    "carries_model": true
+    "carries_model": true,
+    "cheap_model": "sonnet",
+    "cheap_model_evidence": "measured",
+    "cheap_model_reason": "The model the clerk is pinned to when a strong default would otherwise lift it (ADR-008). A literal here, in the one file allowed to name a harness's vocabulary; it used to be a literal in scripts/cli.mjs, which made `agents configure --harness codex` write an Anthropic model name into a Codex overlay. MEASURED in the sense that matters: this is the model the clerk has been running on since ADR-008, in this repository, and tests/overlay.test.mjs asserts the pin end to end."
   }
 }

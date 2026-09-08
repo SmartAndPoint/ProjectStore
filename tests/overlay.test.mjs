@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
 import { noHostEnv } from "./fixtures/install.mjs";
-import { sourceHarness, overlayId } from "../scripts/harness.mjs";
+import { sourceHarness, overlayId, loadHarnesses } from "../scripts/harness.mjs";
 import { readOverlayAt, resolveAgentModel, writeOverlayAt, readConfigAt, layoutPaths } from "../scripts/lib.mjs";
 import { checkOverlays } from "../scripts/doctor.mjs";
 import { run } from "../scripts/cli.mjs";
@@ -23,6 +23,7 @@ const SRC = sourceHarness();
 const BIN = join(ROOT, "bin", "projectstore.mjs");
 const TMP = realpathSync(tmpdir());
 const read = (p) => readFileSync(p, "utf8");
+const manifests = () => [...loadHarnesses().values()];
 delete process.env[SRC.runtime.home_env];
 
 function project() {
@@ -192,4 +193,39 @@ test("overlay: the prose resolves models through the verb, never by restating th
     assert.ok(!/from `\.projectstore\/harness\/<harness>\.json` \(the active harness's overlay[^)]*\) and pass it/.test(t), `${f} does not restate the two-term rule as a file read`);
   }
   assert.equal(JSON.parse(read(join(ROOT, "harnesses", "claude-code.json"))).runtime.overlay, SRC.id);
+});
+
+// A project used from two harnesses has two overlays, and neither inherits the
+// other's models (ADR-008: a model name is harness-specific). Doctor says so
+// only when one IS configured — a project with no overlay at all is the
+// ordinary fresh state, and advice there would be noise on every install.
+test("overlay: doctor names the harness whose overlay is missing, but only next to one that exists", () => {
+  const proj = project();
+  const others = manifests().filter((m) => m.id !== SRC.id);
+  assert.ok(others.length, "this case needs a second manifest; it is vacuous with one");
+  for (const m of others) mkdirSync(join(proj, m.runtime.harness_dir), { recursive: true });
+
+  // Keyed on the finding's FILE, not on the message: the message names the
+  // configured harnesses too, and matching that would call a finding about
+  // codex a finding about claude-code.
+  const check = (overlay) => checkOverlays(readConfigAt(proj), proj)
+    .filter((x) => x.check === "overlay-absent" && x.file === join(".projectstore", "harness", `${overlay}.json`));
+  // Neither configured: nothing to say.
+  assert.deepEqual(checkOverlays(readConfigAt(proj), proj).filter((x) => x.check === "overlay-absent"), []);
+
+  // One configured, the other not: an info naming the missing one and the verb.
+  writeOverlayAt(proj, SRC.id, { default: "opus", per_agent: {} });
+  for (const m of others) {
+    const f = check(m.runtime.overlay);
+    assert.equal(f.length, 1, `${m.id}: one finding`);
+    assert.equal(f[0].level, "info");
+    assert.match(f[0].message, new RegExp(`agents configure --harness ${m.id}`));
+    assert.match(f[0].message, /frontmatter models/);
+    assert.equal(f[0].file, join(".projectstore", "harness", `${m.runtime.overlay}.json`));
+  }
+  assert.deepEqual(check(SRC.runtime.overlay), [], "the configured one is not named");
+
+  // Both configured: silence again.
+  for (const m of others) writeOverlayAt(proj, m.runtime.overlay, { default: null, per_agent: {} });
+  assert.deepEqual(checkOverlays(readConfigAt(proj), proj).filter((x) => x.check === "overlay-absent"), []);
 });

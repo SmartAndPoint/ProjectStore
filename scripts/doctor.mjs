@@ -74,7 +74,7 @@ import {
   hostSettingsPath,
   readOverlayAt, layoutRoster,
 } from "./lib.mjs";
-import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, configPath as harnessConfigPath, packageCommand } from "./harness.mjs";
+import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, detectHarnesses, configPath as harnessConfigPath, packageCommand } from "./harness.mjs";
 
 // A remedy used to interpolate the surface's harness variable here. It cannot:
 // measured 2026-09-06, NO harness gives its Bash tool that variable, and a
@@ -531,6 +531,32 @@ export function checkOverlays(cfg, proj) {
     // the user to a file that does not exist yet.
     const b = relative(proj, harnessConfigPath(proj, process.env));
     out.push(finding("install", "warn", "agents-in-binding", `${b} still carries an agents block — since 0.28 the models live in ${where} (the layout ADR); nothing reads it there. Run upgrade --harness ${o.id || "claude-code"} to move it.`, b));
+  }
+  // A project can be used from more than one harness, and a model name is
+  // harness-specific (ADR-008) — so each one has its own overlay and they do
+  // not inherit from each other. Silence about a missing one would read as
+  // "configured"; it means the agents there run on their frontmatter models,
+  // and in particular the clerk is NOT pinned cheap.
+  //
+  // Only when another harness in this project HAS an overlay. A project with
+  // none at all is the ordinary fresh state and needs no advice; the asymmetry
+  // is what is actionable, because it is almost always the second harness that
+  // was forgotten rather than the first that was deliberate.
+  const used = detectHarnesses(proj).map((d) => d.id);
+  if (used.length > 1) {
+    const overlays = used.map((id) => ({ id, o: readOverlayAt(proj, loadHarness(id)?.runtime?.overlay || id) }));
+    const configured = overlays.filter(({ o }) => o.present);
+    if (configured.length) {
+      for (const { id, o } of overlays) {
+        if (o.present) continue;
+        out.push(finding("install", "info", "overlay-absent",
+          `This project is used from ${id} too, and ${relative(proj, o.path)} does not exist — `
+          + `its agents run on their frontmatter models (${configured.map((c) => c.id).join(", ")} `
+          + `${configured.length > 1 ? "have" : "has"} an overlay; a model name is harness-specific, so nothing carries over). `
+          + `Configure it: /projectstore:agents configure --harness ${id}.`,
+          relative(proj, o.path)));
+      }
+    }
   }
   // A configured name no roster agent carries runs nothing: the model never
   // applies. A warn, not an issue — a newer package's agent is a legitimate

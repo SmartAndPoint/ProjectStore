@@ -124,6 +124,21 @@ function detect(env, dir) {
   // Explicit plugin-root/home variables beat merely-present ones: a shell that
   // exports CODEX_HOME globally should not make a Claude Code session read as
   // Codex when Claude Code also handed us CLAUDE_PLUGIN_ROOT.
+  // A variable two harnesses both set identifies neither. Codex hands a plugin
+  // hook `CLAUDE_PLUGIN_ROOT` for compatibility alongside its own `PLUGIN_ROOT`
+  // (measured 2026-09-07 from a live hook payload), and that is Claude Code's
+  // plugin-root variable — so without this, a Codex session scores a strong hit
+  // for claude-code, ties with codex, and loses the tie to `readdirSync().sort()`
+  // putting claude-code.json first. The manifest that also sets a foreign name
+  // declares it in `runtime.shared_env`, and the name is demoted to weak for
+  // EVERY manifest: the harness that owns it no longer gets to be identified by
+  // it, which is the whole point. Data, not an id branch (generation spec,
+  // contract 1).
+  const shared = new Set();
+  for (const m of loadHarnesses(dir).values()) {
+    for (const k of m.runtime?.shared_env || []) shared.add(k);
+  }
+
   let best = null;
   for (const m of loadHarnesses(dir).values()) {
     // detect_env UNION the three runtime variables, not detect_env alone: a
@@ -137,9 +152,11 @@ function detect(env, dir) {
     // exports CODEX_HOME globally — the exact person this feature is for — had
     // Claude Code Bash-tool invocations detected as Codex — the wrong write-tool
     // vocabulary for the whole session.
-    const strong = [m.runtime?.plugin_root_env, m.runtime?.project_dir_env].filter(Boolean);
+    const claimed = [m.runtime?.plugin_root_env, m.runtime?.project_dir_env].filter(Boolean);
+    const strong = claimed.filter((k) => !shared.has(k));
     const weak = [
       ...(m.runtime?.detect_env || []).filter((k) => !strong.includes(k)),
+      ...claimed.filter((k) => shared.has(k)),
       m.runtime?.home_env,
     ].filter(Boolean);
     const strongHits = strong.filter((k) => env[k]).length;
@@ -379,6 +396,19 @@ export function overlayId(env = process.env, dir = MANIFEST_DIR) {
   return h?.runtime?.overlay || h?.id || null;
 }
 
+// The manifest an OVERLAY key belongs to. `agents` addresses overlays, not
+// manifests: --harness names an id, but a detected harness contributes its
+// runtime.overlay, and the two are free to differ. Looking such a key up with
+// loadHarness() alone returns null the day a manifest sets overlay !== id, and
+// a null there is not an error anyone sees — it is the clerk quietly not being
+// pinned. Overlay first, then id, so a key that is one manifest's overlay and
+// another's id resolves to the overlay's owner rather than to filename order.
+export function harnessForOverlay(key, dir = MANIFEST_DIR) {
+  if (!key) return null;
+  const all = [...loadHarnesses(dir).values()];
+  return all.find((m) => m.runtime?.overlay === key) || all.find((m) => m.id === key) || null;
+}
+
 // A reader's fallback: the new path when it exists, else the legacy one when
 // THAT exists, else the new path (a writer's target) — at most two existsSync
 // calls, never a directory scan (contract 1; the SessionStart budget).
@@ -472,12 +502,22 @@ export function lintPatterns(harness, dir = MANIFEST_DIR) {
     // to say whether it matches by name (case-insensitive) or token.
     if (p && typeof p.pattern === "string") out.push({ pattern: p.pattern, class: p.class, derived: false });
   }
+  // A name the linted harness declares ITSELF is never foreign, however many
+  // other manifests also name it. Codex declares CLAUDE_PLUGIN_ROOT under
+  // shared_env because it really does set it; without this exclusion, adding
+  // shared_env to the derivation below would forbid Claude Code's own variable
+  // inside Claude Code's own tree.
+  const o = harness.runtime || {};
+  const own = new Set([o.project_dir_env, o.plugin_root_env, o.home_env, ...(o.detect_env || []), ...(o.shared_env || [])].filter(Boolean));
   for (const m of loadHarnesses(dir).values()) {
     if (m.id === harness.id) continue;
     for (const t of m.tools?.write_tools || []) out.push({ pattern: `\\b${t}\\b`, class: "token", derived: true });
     const r = m.runtime || {};
-    for (const k of [r.project_dir_env, r.plugin_root_env, r.home_env, ...(r.detect_env || [])]) {
-      if (k) out.push({ pattern: `\\b${k}\\b`, class: "token", derived: true });
+    // shared_env included: a name is no less branded for being set by two
+    // harnesses, and it exists in no other field of the manifest that declares
+    // it — CLAUDE_PLUGIN_DATA appears nowhere but codex.json's shared_env.
+    for (const k of [r.project_dir_env, r.plugin_root_env, r.home_env, ...(r.detect_env || []), ...(r.shared_env || [])]) {
+      if (k && !own.has(k)) out.push({ pattern: `\\b${k}\\b`, class: "token", derived: true });
     }
   }
   return out;

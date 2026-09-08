@@ -15,7 +15,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -26,6 +27,7 @@ import {
   emittingHarnesses,
   detectHarnessId,
   resetDetection,
+  resetManifests,
   adoptHookInput,
   resetHookInput,
   projectRoot,
@@ -38,6 +40,7 @@ import {
   sourceWriteTools,
   writeTools,
   lintPatterns,
+  harnessForOverlay,
 } from "../scripts/harness.mjs";
 import { WRITE_TOOLS, isWriteTool, layoutPaths } from "../scripts/lib.mjs";
 
@@ -70,13 +73,34 @@ test("generation contract 1: every manifest parses strictly and declares what th
     assert.equal(typeof m.display_name, "string");
     assert.equal(typeof m.emit, "boolean");
     assert.equal(typeof m.source_layout, "boolean");
-    for (const k of ["project_dir_env", "plugin_root_env", "home_env", "home_default", "harness_dir", "overlay"]) {
+    for (const k of ["plugin_root_env", "home_env", "home_default", "harness_dir", "overlay"]) {
       assert.equal(typeof m.runtime?.[k], "string", `${n}: runtime.${k}`);
     }
+    // project_dir_env is `string | null`: a harness may export no project
+    // directory at all, which is measured of Codex (2026-09-07 — its hook
+    // payload carries `cwd` and its environment carries no such variable). The
+    // key must still be present, so the omission is a decision on the record
+    // rather than a field someone forgot. Both consumers are already null-safe:
+    // harness.mjs's projectRoot and childEnv guard on it.
+    assert.ok("project_dir_env" in (m.runtime || {}), `${n}: runtime.project_dir_env must be present, even as null`);
+    assert.ok(
+      m.runtime.project_dir_env === null || typeof m.runtime.project_dir_env === "string",
+      `${n}: runtime.project_dir_env must be a string or null`,
+    );
     assert.ok(Array.isArray(m.runtime.detect_env), `${n}: runtime.detect_env`);
     assert.ok(Array.isArray(m.tools?.write_tools) && m.tools.write_tools.length > 0, `${n}: tools.write_tools`);
     assert.ok(Array.isArray(m.tools.path_fields), `${n}: tools.path_fields`);
     assert.ok(Array.isArray(m.tools.known_non_write_tools), `${n}: tools.known_non_write_tools`);
+    // approval_tool follows project_dir_env's rule: `string | null`, key
+    // required. Contract 10's approval-gate lint has a case for "this harness
+    // has no such tool", and it can only take it from a declared null — an
+    // absent key is indistinguishable from a forgotten one, and the safe
+    // reading (no structured-choice tool) is the one nobody would guess.
+    assert.ok("approval_tool" in m.tools, `${n}: tools.approval_tool must be present, even as null`);
+    assert.ok(
+      m.tools.approval_tool === null || typeof m.tools.approval_tool === "string",
+      `${n}: tools.approval_tool must be a string or null`,
+    );
     assert.ok(m.hooks && typeof m.hooks.events === "object", `${n}: hooks.events`);
     assert.equal(typeof m.hooks.root_placeholder, "string", `${n}: hooks.root_placeholder`);
     assert.equal(typeof m.hooks.root_placeholder_literal, "boolean", `${n}: hooks.root_placeholder_literal`);
@@ -131,12 +155,35 @@ test("generation contract 2: exactly one manifest is the source layout, and it n
 });
 
 test("generation contract 16: the source harness is verified, so it is not experimental", () => {
-  // The verified ↔ *experimental* label half of the contract closes with
-  // docs/harnesses.md in the generator story; there is no such file on main.
   const m = sourceHarness();
   assert.notEqual(m.verified, null);
   assert.equal(m.output_channels.PreCompact.fields.length, 0, "PreCompact has no model-facing hookSpecificOutput channel — measured negatively");
   assert.equal(m.output_channels.Stop.evidence, "measured");
+});
+
+// The other half of contract 16: the label a reader sees is DERIVED from
+// `verified`, not written next to it. Both directions, because either drift is
+// a lie — an experimental harness described as supported promises something no
+// run backs, and a verified one still called experimental wastes the run.
+test("generation contract 16: docs/harnesses.md labels a harness experimental exactly when verified is null", () => {
+  const doc = readFileSync(join(ROOT, "docs/harnesses.md"), "utf8");
+  const rows = new Map();
+  for (const line of doc.split("\n")) {
+    const m = /^\|[^|]+\|\s*`([a-z0-9-]+)`\s*\|\s*\*\*(supported|experimental)\*\*\s*\|/.exec(line);
+    if (m) rows.set(m[1], m[2]);
+  }
+  assert.ok(rows.size > 0, "docs/harnesses.md carries a status table keyed by harness id");
+  for (const h of manifests()) {
+    const label = rows.get(h.id);
+    assert.ok(label, `docs/harnesses.md has no status row for ${h.id} — a harness a user can install and cannot read about`);
+    assert.equal(
+      label, h.verified === null ? "experimental" : "supported",
+      `${h.id}: verified is ${h.verified === null ? "null" : "set"}, so the docs must say `
+      + `${h.verified === null ? "experimental" : "supported"}`,
+    );
+  }
+  const ids = new Set(manifests().map((m) => m.id));
+  for (const id of rows.keys()) assert.ok(ids.has(id), `docs/harnesses.md lists ${id}, which has no manifest`);
 });
 
 // ─── Acceptance 1 / 2: the branded-env discipline ──────────────────────
@@ -320,6 +367,152 @@ test("every registered hook adopts its payload before it can resolve a project",
   );
 });
 
+// The environment a Codex plugin hook actually receives, captured verbatim on
+// 2026-09-07 (ps-smoke/codex-run2/hook-payloads-full.jsonl). It carries BOTH
+// harnesses' plugin-root names, because Codex sets CLAUDE_PLUGIN_ROOT for
+// compatibility — which is why detection needs more than a second manifest.
+const MEASURED_CODEX_HOOK_ENV = Object.freeze({
+  PLUGIN_ROOT: "/Users/x/.codex/plugins/cache/projectstore/projectstore/0.28.0-rc.2",
+  PLUGIN_DATA: "/Users/x/.codex/plugins/data/projectstore-projectstore",
+  CLAUDE_PLUGIN_ROOT: "/Users/x/.codex/plugins/cache/projectstore/projectstore/0.28.0-rc.2",
+  CLAUDE_PLUGIN_DATA: "/Users/x/.codex/plugins/data/projectstore-projectstore",
+});
+
+test("generation contract 1: a variable two harnesses set identifies neither (shared_env)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ps-manifests-"));
+  const src = JSON.parse(readFileSync(join(MANIFEST_DIR, "claude-code.json"), "utf8"));
+  writeFileSync(join(dir, "claude-code.json"), JSON.stringify(src), "utf8");
+
+  // A minimal second manifest, only the fields detection reads. It sorts AFTER
+  // claude-code.json, which is what makes the tie-break decide the answer.
+  const codex = {
+    id: "codex", display_name: "Codex", emit: false, source_layout: false,
+    runtime: {
+      detect_env: ["PLUGIN_ROOT", "CODEX_HOME"],
+      project_dir_env: null,
+      plugin_root_env: "PLUGIN_ROOT",
+      home_env: "CODEX_HOME",
+      home_default: ".codex",
+      harness_dir: ".codex",
+      overlay: "codex",
+      shared_env: ["CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA"],
+    },
+  };
+  writeFileSync(join(dir, "codex.json"), JSON.stringify(codex), "utf8");
+
+  try {
+    resetManifests(); resetDetection();
+    assert.equal(
+      detectHarnessId(MEASURED_CODEX_HOOK_ENV, dir), "codex",
+      "a Codex hook environment must detect as codex, not as the harness whose "
+      + "plugin-root name Codex also sets for compatibility",
+    );
+
+    // The demotion is symmetric, and that is the point: the shared name stops
+    // identifying EITHER harness. Claude Code is still detected from its own
+    // project-dir variable, which Codex does not set.
+    const claudeEnv = { CLAUDE_PLUGIN_ROOT: "/x", CLAUDE_PROJECT_DIR: "/p" };
+    assert.equal(detectHarnessId(claudeEnv, dir), "claude-code");
+
+    // Nothing but the shared name. The demotion leaves it a WEAK signal for
+    // claude-code — the owner keeps it, it just stops deciding — so detection
+    // does not fall to the source harness by default. What it must not do is
+    // answer from filename order. Driven from an empty directory, because
+    // detect()'s middle step probes `process.cwd()` for a harness directory and
+    // the repository root has `.claude/`: an earlier version of this assertion
+    // passed for that reason rather than the one it claimed.
+    const cwd = process.cwd();
+    const empty = mkdtempSync(join(tmpdir(), "ps-cwd-"));
+    try {
+      process.chdir(empty);
+      resetDetection();
+      assert.equal(
+        detectHarnessId({ CLAUDE_PLUGIN_ROOT: "/x" }, dir), "claude-code",
+        "the owner still recognises its own name weakly when no project evidence exists",
+      );
+
+      // Both harness directories present is the case the probe cannot break:
+      // it iterates manifests in filename order, so it would answer
+      // claude-code for a project that is plainly both. Recorded as the
+      // known limit rather than asserted as correct — the fix belongs with
+      // the `--project` decision item on the generator story.
+      mkdirSync(join(empty, ".claude"), { recursive: true });
+      mkdirSync(join(empty, ".codex"), { recursive: true });
+      resetDetection();
+      assert.equal(
+        detectHarnessId({}, dir), "claude-code",
+        "KNOWN LIMIT: with no environment evidence and both harness directories "
+        + "present, the project probe answers in manifest filename order",
+      );
+    } finally {
+      process.chdir(cwd);
+      rmSync(empty, { recursive: true, force: true });
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    resetManifests(); resetDetection();
+  }
+});
+
+// The test above drives a fixture it writes itself, so it exercises the RULE
+// and never the shipped data. That distinction cost this slice a false pass:
+// against the full measured Codex environment, deleting `shared_env` from the
+// real harnesses/codex.json changes nothing, because PLUGIN_DATA in detect_env
+// happens to break the tie by one weak hit — which is counting rather than
+// reasoning, and is the mechanism contract 1's amendment explicitly rejects (it
+// inverts the moment a Codex user exports one more Claude Code variable). So
+// the assertion that keeps `shared_env` load-bearing has to be made on the real
+// manifests, with an environment carrying nothing BUT the two plugin roots.
+test("generation contract 1: the shipped manifests identify a Codex session by the demotion, not by a hit count", () => {
+  const cwd = process.cwd();
+  // From an empty directory: detect()'s middle step probes process.cwd() for a
+  // harness directory, and this repository has .claude/.
+  const empty = mkdtempSync(join(tmpdir(), "ps-cwd-"));
+  try {
+    process.chdir(empty);
+    resetManifests(); resetDetection();
+    assert.equal(
+      detectHarnessId({ PLUGIN_ROOT: "/p", CLAUDE_PLUGIN_ROOT: "/p" }, MANIFEST_DIR), "codex",
+      "the two plugin-root names alone, which is all the demotion has to work with: "
+      + "without runtime.shared_env this answers claude-code, on the shipped files",
+    );
+    resetDetection();
+    assert.equal(
+      detectHarnessId(MEASURED_CODEX_HOOK_ENV, MANIFEST_DIR), "codex",
+      "and the full captured environment agrees",
+    );
+  } finally {
+    process.chdir(cwd);
+    rmSync(empty, { recursive: true, force: true });
+    resetManifests(); resetDetection();
+  }
+});
+
+// The global demotion has one shape it cannot survive: a harness whose ONLY
+// strong variable is one another manifest declares as shared. Codex is exactly
+// that shape — its project_dir_env is null, so PLUGIN_ROOT is all it has. This
+// keeps the tripwire on the data rather than on someone remembering.
+//
+// What it does NOT protect: a harness that declares a strong variable it does
+// not always set. claude-code passes here on CLAUDE_PROJECT_DIR, while a Claude
+// Code process that ships CLAUDE_PLUGIN_ROOT without it has no strong signal at
+// all after the demotion and falls to detect()'s cwd probe. Whether such a
+// process exists is unmeasured, and is recorded as an open question on the
+// generator story rather than assumed away here.
+test("generation contract 1: every manifest keeps a strong variable no other manifest shares", () => {
+  const all = manifests();
+  const shared = new Set(all.flatMap((m) => m.runtime?.shared_env || []));
+  for (const m of all) {
+    const strong = [m.runtime?.plugin_root_env, m.runtime?.project_dir_env].filter(Boolean);
+    assert.ok(
+      strong.some((k) => !shared.has(k)),
+      `${m.id}: every strong variable it declares is listed in some manifest's shared_env, `
+      + "so nothing can identify it strongly — detection would fall back to weak signals "
+      + "and then to filename order",
+    );
+  }
+});
+
 test("harness resolvers: agent overrides are named by the manifest and reported only when set", () => {
   const list = sourceHarness().runtime.agent_overrides;
   assert.ok(Array.isArray(list) && list.length >= 2);
@@ -327,6 +520,43 @@ test("harness resolvers: agent overrides are named by the manifest and reported 
   const one = list[0];
   const got = agentOverrides({ [one.env]: "low" });
   assert.deepEqual(got, [{ env: one.env, kind: one.kind, beats: one.beats, value: "low" }]);
+});
+
+// The events map is what a generator would REGISTER for a harness, so an entry
+// with no handler on our side renders a hook that fires into nothing. codex.json
+// listed six and named them "the six projectstore registers"; hooks/hooks.json
+// registers five. Measured against the file rather than against the sentence.
+test("generation contract 1: no manifest maps an event projectstore does not register", () => {
+  const registered = new Set(Object.keys(JSON.parse(readFileSync(join(ROOT, "hooks/hooks.json"), "utf8")).hooks));
+  assert.ok(registered.size > 0);
+  for (const m of manifests()) {
+    for (const ev of Object.keys(m.hooks?.events || {})) {
+      assert.ok(registered.has(ev), `${m.id}: hooks.events maps ${ev}, which hooks/hooks.json does not register`);
+    }
+  }
+  // The other direction is deliberately NOT asserted: a harness that lacks one
+  // of our events omits it here, and that omission is data the generator needs
+  // (contract 9 makes it state the gap in the emitted file). Both manifests
+  // happen to carry all five today.
+});
+
+// `agents` addresses OVERLAYS. Every overlay key must lead back to the manifest
+// that owns it, or the clerk's pin — the one thing ADR-008 says must not be
+// left to the default — silently stops happening.
+test("generation contract 1: every manifest's overlay key resolves back to that manifest", () => {
+  for (const m of manifests()) {
+    assert.equal(harnessForOverlay(m.runtime.overlay)?.id, m.id, `${m.id}: overlay ${m.runtime.overlay}`);
+    assert.equal(harnessForOverlay(m.id)?.id, m.id, `${m.id}: id`);
+    // What the resolution is FOR: a harness that declares a cheap model gets
+    // its clerk pinned to that model and no other harness's.
+    const cheap = harnessForOverlay(m.runtime.overlay)?.agent_translation?.cheap_model;
+    if (cheap) {
+      const foreign = manifests().filter((o) => o.id !== m.id).map((o) => o.agent_translation?.cheap_model);
+      assert.ok(!foreign.includes(cheap), `${m.id}: its cheap model is another harness's — a model name is harness-specific (ADR-008)`);
+    }
+  }
+  assert.equal(harnessForOverlay(null), null);
+  assert.equal(harnessForOverlay("nothing-declares-this"), null);
 });
 
 test("generation contract 6: lint patterns are derived from the OTHER manifests, and empty for the source layout", () => {

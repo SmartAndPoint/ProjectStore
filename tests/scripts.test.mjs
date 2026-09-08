@@ -717,6 +717,38 @@ function post(proj, file, extra = {}) {
   });
 }
 
+// `tool_response` has no single shape, and the entry score rides on the read.
+// Claude Code sends an object; Codex sent a string for 368 of 371 PostToolUse
+// firings in the measured run and a content-block array for the other three
+// (all `webrun`). Only "an object saying success === false" may suppress a
+// count — every other shape counts, because the event itself is the
+// discrimination and PostToolUse only fires after success.
+test("entry hook: the score counts whatever shape tool_response arrives in", () => {
+  for (const [label, response] of [
+    ["a string, as Codex sends for shell and edit tools", "ok"],
+    ["a content-block array, as Codex sends for webrun", [{ type: "input_text", text: "…" }]],
+    ["an object without success, as a tool may invent", { output: "…" }],
+    ["absent entirely", undefined],
+  ]) {
+    const { proj, vault } = seedHookProject();
+    seedStory(vault, "story-a.md", "planned");
+    post(proj, join(proj, "a.mjs"), { tool_response: response });
+    post(proj, join(proj, "b.mjs"), { tool_response: response });
+    const out = post(proj, join(proj, "c.mjs"), { tool_response: response });
+    assert.ok(out, `the third source path must reach the threshold with ${label}`);
+  }
+});
+
+test("entry hook: only an object saying success === false suppresses the count", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  for (const f of ["a.mjs", "b.mjs", "c.mjs", "d.mjs"]) {
+    post(proj, join(proj, f), { tool_response: { success: false } });
+  }
+  assert.equal(post(proj, join(proj, "e.mjs"), { tool_response: { success: false } }), null,
+    "a declared failure never counts, however many arrive");
+});
+
 test("entry hook: fires once at the threshold, on PostToolUse additionalContext (contracts 10, 12, 15)", () => {
   const { proj, vault } = seedHookProject();
   seedStory(vault, "story-a.md", "planned");

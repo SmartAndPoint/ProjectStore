@@ -219,8 +219,16 @@ async function entryBranch(cfg, proj, sid, filePath, input) {
 
   // Belt and braces. PostToolUse only fires after success — failures raise
   // PostToolUseFailure, which this script is not registered on — so the event
-  // itself is the discrimination. Nothing may DEPEND on this field's shape.
-  if (input.tool_response && input.tool_response.success === false) return;
+  // itself is the discrimination. Nothing may DEPEND on this field's shape, and
+  // the shape varies by BOTH harness and tool: Claude Code sends an object;
+  // Codex sent a string for 368 of 371 PostToolUse firings and a content-block
+  // array for the other 3, all of them `webrun` (measured 2026-09-07). So the
+  // guard is written for "an object with success === false", and every other
+  // shape is a pass-through. Narrowed explicitly rather than relying on
+  // `"…".success` being undefined — that is an accident of JavaScript, not a
+  // decision, and it does not hold for every shape a tool may invent.
+  const response = input.tool_response;
+  if (response && typeof response === "object" && response.success === false) return;
 
   registerSourcePath(proj, sid, filePath);
 

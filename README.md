@@ -197,7 +197,7 @@ The deep dive — real session files, measured payloads, how every mechanism wor
 
 ## Extending
 
-See [`docs/extending.md`](./docs/extending.md) for adding layouts, templates, and skills.
+See [`docs/extending.md`](./docs/extending.md) for adding layouts, templates, and skills, and [`docs/harnesses.md`](./docs/harnesses.md) for which coding agents projectstore runs on — what "experimental" means there, and what adding one takes.
 
 ## Contributing
 

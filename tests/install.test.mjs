@@ -183,6 +183,43 @@ test("install contract 6: a current block is skipped, a stale one is replaced in
   assert.equal(after, prose + BLOCK + tail, "only the block changed");
 });
 
+// The defect this pins, measured on the smoke stand 2026-09-07: a fresh install
+// on a project with neither file wrote CLAUDE.md — because the block's file list
+// was the source harness's, and analyseBlock takes the LAST entry when none of
+// them exists. Codex never reads CLAUDE.md; the rules had to be pasted into
+// AGENTS.md by hand before it saw them at all. The list is per-harness data now,
+// and this asserts it from the plan rather than from the manifest.
+test("install contract 6: on a project with neither file, the harness's own list decides — Codex gets AGENTS.md and no CLAUDE.md", () => {
+  const { home, root } = fixture();
+  const bare = project({ claude: null, agents: null });
+  const p = plan(bare, { home, root, harnesses: ["codex"], surfaces: ["agents_block"], env: noHostEnv() });
+  assert.equal(p.ok, true);
+  assert.deepEqual(p.harnesses, ["codex"]);
+  assert.equal(item(p, "agents_block").path, join(bare, "AGENTS.md"));
+  assert.equal(item(p, "agents_block").action, "create", "neither file exists, so the block's file is created");
+  assert.equal(item(p, "agents_block_import"), undefined, "a one-file list has nothing to import from");
+  apply(p);
+  assert.ok(read(join(bare, "AGENTS.md")).includes(BLOCK));
+  assert.ok(!existsSync(join(bare, "CLAUDE.md")), "Codex never reads CLAUDE.md — a fresh install must not create one");
+
+  // The contrast, on the same shape of project: the source harness's list has
+  // two entries and none of them exists, so analyseBlock takes the LAST — it
+  // writes CLAUDE.md, which Claude Code does read. Recorded, not celebrated:
+  // ADR-002 decision 3 prefers AGENTS.md as the cross-tool convention, and a
+  // bare project installed for Claude Code alone therefore leaves a Codex
+  // session in the same checkout with nothing to read until codex is installed
+  // too. Changing the tie-break is a behaviour change and belongs to the
+  // rendering slice, not here; what this slice fixes is that the CHOICE is now
+  // per-harness data instead of one list applied to everyone.
+  const src = project({ claude: null, agents: null });
+  const q = plan(src, { home, root, harnesses: [SRC.id], surfaces: ["agents_block"], env: noHostEnv() });
+  assert.equal(item(q, "agents_block").path, join(src, "CLAUDE.md"),
+    "KNOWN: with neither file present the two-entry list falls to its last entry");
+  apply(q);
+  assert.ok(read(join(src, "CLAUDE.md")).includes(BLOCK));
+  assert.ok(!existsSync(join(src, "AGENTS.md")));
+});
+
 test("install contract 6 / ADR-002 decision 3: AGENTS.md is preferred, CLAUDE.md gets the import, and a block in the other file migrates", () => {
   const { home, root } = fixture();
   const proj = project({ claude: "# Mine\n", agents: "# Agents\n" });
