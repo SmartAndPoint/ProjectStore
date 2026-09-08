@@ -671,6 +671,25 @@ test("diff-refs: no args => fallback true; --since returns file lists", () => {
   assert.ok(!since.files.some((f) => f.includes("package-lock")), "ignore globs applied");
 });
 
+// A story's `started_at` is a bare date, and git reads a date with no time as
+// THAT DATE AT THE CURRENT TIME OF DAY — so before 2026-09-08 a story started
+// and finished in one day proposed `files: []`, indistinguishable from "nothing
+// was committed". The window must open at midnight, and the emitted `range`
+// must say so, because `range` is what a reader checks when the answer looks
+// empty.
+test("diff-refs: a bare date opens the window at midnight, so same-day commits are not silently dropped", () => {
+  // HEAD's own commit date, read through git rather than from a clock, so the
+  // case cannot go stale or depend on the hour it runs.
+  const day = spawnSync("git", ["log", "-1", "--format=%cd", "--date=format:%Y-%m-%d"], { cwd: REPO, encoding: "utf8" }).stdout.trim();
+  assert.match(day, /^\d{4}-\d{2}-\d{2}$/);
+  const r = run("diff-refs.mjs", ["--since", day]);
+  assert.equal(r.since, day, "the echoed `since` is what the caller passed");
+  assert.equal(r.range, `--since=${day} 00:00:00`, "the window git was actually given opens at midnight");
+  assert.ok(r.files.length > 0, `no file attributed to ${day}, the date of HEAD itself — the window closed before its own commit`);
+  // A timestamp the caller supplies is passed through untouched.
+  assert.equal(run("diff-refs.mjs", ["--since", "2020-01-01T00:00:00Z"]).range, "--since=2020-01-01T00:00:00Z");
+});
+
 // ─── Entry-rule hook behaviour (PS-AGENTS: artifact-first order) ───────
 //
 // Drives scripts/touch-session.mjs with synthetic hook payloads on stdin and

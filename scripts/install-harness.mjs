@@ -419,12 +419,20 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
     out.harnesses.push(id);
     const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [] };
     const hostRows = [];
+    const unsupportedHost = [];
     let registration = null;
     const rows = Object.entries(harness.surfaces || {}).filter(([key]) => !key.startsWith("_"));
     rows.sort(([, x], [, y]) => (KIND_ORDER[x.kind] ?? 3) - (KIND_ORDER[y.kind] ?? 3));
     for (const [key, s] of rows) {
       if (surfaces && !surfaces.some((x) => key === x || key.startsWith(x + "_"))) continue;
-      if (s.kind === "host") { hostRows.push(key); continue; }
+      // `kind: host` and `supported: false` are different facts and the report
+      // must not merge them: the first says the host installs this surface, the
+      // second says the harness has no such surface at all. Reporting both as
+      // "installed by the host" told a Codex user that its commands, agents,
+      // MCP and status line — four rows the manifest declares absent — were
+      // waiting for it somewhere. An unsupported surface is named below by its
+      // own row, with the reason the manifest gives.
+      if (s.kind === "host") { if (s.supported !== false) hostRows.push(key); else unsupportedHost.push([key, s]); continue; }
       const handler = HANDLERS[s.format];
       if (!handler) { out.refusals.push(`${id}: surface ${key} has format ${s.format}, which this installer cannot handle`); continue; }
       const items = handler(ctx, key, s);
@@ -452,6 +460,14 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
     }
     if (ctx.incomplete) out.incomplete = true;
     if (hostRows.length && !surfaces) out.reports.push(hostManagedReport(harness, hostRows, registration));
+    // An unsupported host surface gets the same row shape a shared one does
+    // (planJsonEntry's unsupported branch): state "unsupported", action "skip",
+    // and the manifest's own reason. One treatment for one fact, so a reader —
+    // and a test — meets "this harness does not have that" in one form rather
+    // than two.
+    for (const [key, s] of unsupportedHost) {
+      out.items.push({ harness: id, surface: key, kind: "host", path: null, entry: null, state: "unsupported", action: "skip", reason: s.why_unsupported || "not supported for this harness yet" });
+    }
   }
   for (const item of layout.last) out.items.push({ harness: layoutHarness.id, ...item });
   if (out.items.some((i) => i.action === "refuse")) out.ok = false;

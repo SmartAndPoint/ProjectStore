@@ -59,7 +59,15 @@ const scriptFiles = () => [
 // comments. Over-strips a `//` inside a string literal, which is the safe
 // direction for a lint over our own tree.
 function stripComments(src) {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1");
+  // LINE comments first, block comments second, and the order is the whole
+  // point: a `//` comment may contain a `/*` — this repository's own test
+  // headers carry `node --test tests/*.test.mjs` — and a later line may
+  // contain a `*/`, as `[^\n]*/g` does inside any regex that scans to end of
+  // line. Stripping blocks first pairs those two accidents and deletes
+  // everything between them. Measured 2026-09-08: it was swallowing 11KB of
+  // scripts/lib.mjs, the largest file this lint is supposed to read, and the
+  // lint passed because it never saw it.
+  return src.replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1").replace(/\/\*[\s\S]*?\*\//g, "");
 }
 
 // ─── Contract 1 / 2: the manifests ─────────────────────────────────────
