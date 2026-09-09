@@ -203,11 +203,19 @@ function planAgentsBlock(ctx, key, s) {
     const target = preferred;
     items.push({ surface: key, kind: "shared", path: target.path, entry, state: "ours-absent", action: target.present ? "add" : "create", reason: null,
       before: target.present ? target.text : null, after: replaceAgentsBlock(target.present ? target.text : "", a.desired) });
-  } else if (current.file !== preferred.file && preferred.present) {
-    // Present in the non-preferred file: migrate — remove there, add here.
+  } else if (!current.own || (current.file !== preferred.file && preferred.present)) {
+    // Two reasons to move, and they are not the same reason:
+    //   - the block sits in a file this harness cannot read (`!own`). It must
+    //     move, and its target is CREATED if it does not exist — this is a
+    //     second harness arriving in a project that had one.
+    //   - it sits in a readable but non-preferred file while the preferred one
+    //     already exists. A preference, satisfied because the file is there.
+    // The distinction is what keeps a Claude-Code-only project from acquiring
+    // an AGENTS.md it never asked for, while still moving the substance the
+    // moment a harness that can only read AGENTS.md is installed.
     items.push(removal(current, { state: "ours-stale", reason: `migrating to ${preferred.file}` }));
-    items.push({ surface: key, kind: "shared", path: preferred.path, entry, state: "ours-absent", action: "add", reason: `migrated from ${current.file}`,
-      before: preferred.text, after: replaceAgentsBlock(preferred.text, a.desired) });
+    items.push({ surface: key, kind: "shared", path: preferred.path, entry, state: "ours-absent", action: preferred.present ? "add" : "create", reason: `migrated from ${current.file}`,
+      before: preferred.present ? preferred.text : null, after: replaceAgentsBlock(preferred.present ? preferred.text : "", a.desired) });
   } else if (current.block.v === a.version && current.block.block === a.desired) {
     items.push({ surface: key, kind: "shared", path: current.path, entry, state: "ours-current", action: "skip", reason: null });
   } else {
@@ -222,14 +230,24 @@ function planAgentsBlock(ctx, key, s) {
   // text, or the two items would race.
   const written = items.find((i) => ["add", "create", "replace-entry", "skip"].includes(i.action) && i.surface === key);
   const blockFile = written ? rel(projectDir, written.path) : null;
-  if (blockFile === PREFERRED && a.files.length > 1 && claude) {
-    const rewrite = items.find((i) => i.action === "remove" && i.path === claude.path);
-    const text = rewrite ? rewrite.after : (claude.present ? claude.text : null);
-    if (typeof text === "string" && !hasImport(text)) {
-      const after = importLine + "\n" + (text.startsWith("\n") || !text.trim() ? "" : "\n") + text;
-      if (rewrite) { rewrite.after = after; rewrite.deleteIfEmpty = false; rewrite.reason += `; ${importLine} import added`; }
-      else items.push({ surface: `${key}_import`, kind: "shared", path: claude.path, entry: importLine, state: "ours-absent", action: "add", reason: `${PREFERRED} carries the block; ${claude.file} must import it`, before: text, after });
-    }
+  // Every OTHER file any manifest names, and only if it already exists: a
+  // reader whose file no longer holds the substance is pointed at the one that
+  // does. Never a file we would have to create — a project with no CLAUDE.md
+  // does not acquire one because Codex was installed.
+  //
+  // It used to key on `a.files.length > 1`, which is a property of the
+  // INSTALLING harness's list: Codex's has one entry, so installing Codex left
+  // a CLAUDE.md that still exists, still reads as authoritative, and no longer
+  // holds anything. The block's file is what decides, not the list's length.
+  for (const e of a.files) {
+    if (!blockFile || e.file === blockFile || !e.present) continue;
+    const line = `@${blockFile}`;
+    const rewrite = items.find((i) => i.action === "remove" && i.path === e.path);
+    const text = rewrite ? rewrite.after : e.text;
+    if (typeof text !== "string" || text.split("\n").some((l) => l.trim() === line)) continue;
+    const after = line + "\n" + (text.startsWith("\n") || !text.trim() ? "" : "\n") + text;
+    if (rewrite) { rewrite.after = after; rewrite.deleteIfEmpty = false; rewrite.reason += `; ${line} import added`; }
+    else items.push({ surface: `${key}_import`, kind: "shared", path: e.path, entry: line, state: "ours-absent", action: "add", reason: `${blockFile} carries the block; ${e.file} must import it`, before: text, after });
   }
   return items;
 }

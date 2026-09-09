@@ -552,6 +552,59 @@ test("install contract 13 / ADR-002 decision 4: uninstall removes the import reg
   assert.equal(read(join(kept, "CLAUDE.md")), "@AGENTS.md\n\n# Mine\n", "an import in a CLAUDE.md with the user's prose stays — AGENTS.md still exists");
 });
 
+// Where the block LANDS, once a project is used from more than one harness.
+// The rule, and it is manifest data rather than a branch: look for an existing
+// block across the union of every manifest's list; write to a file this harness
+// can read; point every other existing file at it. Measured against the code as
+// it was on 2026-09-08, each of these produced a different and wrong answer.
+test("install contract 6: the block lands in the file every installed harness can read, and the others import it", () => {
+  const { home, root } = fixture();
+  const others = manifests().filter((m) => m.id !== SRC.id);
+  assert.ok(others.length, "this case needs a second manifest; it is vacuous with one");
+  const other = others[0];
+  const shared = other.surfaces.agents_block.files[0]; // the file both lists name
+  const own = SRC.surfaces.agents_block.files.find((f) => !other.surfaces.agents_block.files.includes(f));
+  assert.ok(shared && own, "the manifests must differ for this case to mean anything");
+
+  // 1. The source harness alone, with its own file present: nothing new is
+  //    created. A single-harness user does not acquire a file they never asked
+  //    for — the maintainer's rule, 2026-09-09.
+  const solo = project({ claude: "# Mine\n" });
+  apply(plan(solo, { harnesses: [SRC.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+  assert.ok(read(join(solo, own)).includes(BLOCK), `the block is in ${own}`);
+  assert.ok(!existsSync(join(solo, shared)), `${shared} is not created for a single harness`);
+
+  // 2. A second harness arrives. The block MOVES to the file both can read and
+  //    the first harness's file is left importing it — one block, not two.
+  //    Before this, each harness created its own copy and the project carried
+  //    the block twice until some later run repaired it.
+  apply(plan(solo, { harnesses: [other.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+  assert.ok(read(join(solo, shared)).includes(BLOCK), `the block moved to ${shared}`);
+  assert.ok(!read(join(solo, own)).includes(BLOCK), `${own} no longer carries a second copy`);
+  assert.ok(read(join(solo, own)).includes(`@${shared}`), `${own} imports ${shared}`);
+  assert.equal(read(join(solo, own)).trim().split("\n").pop(), "# Mine", "the user's prose survives the move");
+  // And both harnesses now agree there is nothing left to do.
+  for (const m of manifests()) {
+    assert.equal(item(plan(solo, { harnesses: [m.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }), "agents_block").action, "skip", `${m.id}: settled`);
+  }
+
+  // 3. The other harness alone, into a project that has the source harness's
+  //    file: the block goes where that harness can read it AND the existing
+  //    file is pointed at it. It used to be left untouched, so a Claude Code
+  //    session went on reading a file the substance had left.
+  const fresh = project({ claude: "# Mine\n" });
+  apply(plan(fresh, { harnesses: [other.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+  assert.ok(read(join(fresh, shared)).includes(BLOCK));
+  assert.ok(read(join(fresh, own)).includes(`@${shared}`), `${own} must import ${shared}, whichever harness installed`);
+
+  // 4. And no file is conjured: a project without the source harness's file
+  //    does not acquire one because another harness was installed.
+  const bare = project({});
+  apply(plan(bare, { harnesses: [other.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+  assert.ok(read(join(bare, shared)).includes(BLOCK));
+  assert.ok(!existsSync(join(bare, own)), `${own} is not created just to hold an import`);
+});
+
 // The agents block is the one surface the PROJECT owns rather than a harness:
 // several harnesses read the same file. Measured 2026-09-09 against the code as
 // it then was — `uninstall --harness <other>` DELETED AGENTS.md while the source

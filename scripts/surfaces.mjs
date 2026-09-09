@@ -87,16 +87,25 @@ export function isOurFile(text) {
 
 // ─── markdown-block: the ADR-002 block ─────────────────────────────────
 
-export function analyseBlock(projectDir, s, { root = pluginRoot() } = {}) {
+export function analyseBlock(projectDir, s, { root = pluginRoot(), manifestDir = MANIFEST_DIR } = {}) {
   const files = s.files || ["AGENTS.md", "CLAUDE.md"];
   const PREFERRED = files[0], FALLBACK = files[files.length - 1];
-  const found = files.map((f) => ({ file: f, path: join(projectDir, f), ...readText(join(projectDir, f)) }))
-    .map((e) => ({ ...e, block: e.text !== null ? findAgentsBlock(e.text) : null }));
+  // LOOK across every file any manifest names; WRITE to one this harness can
+  // read. The two are different questions and conflating them is what let the
+  // block be created twice: a harness that scanned only its own list could not
+  // see the copy another harness had already written, so it created a second.
+  // Scanning is free and static — the union is manifest data, not project
+  // state — while the write target stays this manifest's own preference.
+  const scan = [...files, ...[...loadHarnesses(manifestDir).values()]
+    .flatMap((m) => m.surfaces?.agents_block?.files || [])
+    .filter((f) => !files.includes(f))];
+  const found = scan.map((f) => ({ file: f, path: join(projectDir, f), ...readText(join(projectDir, f)) }))
+    .map((e) => ({ ...e, block: e.text !== null ? findAgentsBlock(e.text) : null, own: files.includes(e.file) }));
   const withBlock = found.filter((e) => e.block);
   const preferred = found.find((e) => e.file === PREFERRED && e.present) || found.find((e) => e.file === FALLBACK);
   const claude = found.find((e) => e.file === FALLBACK);
   const importLine = `@${PREFERRED}`;
-  const a = { files: found, withBlock, preferred, claude, importLine, PREFERRED, FALLBACK, entryKey: "projectstore:agents", version: null, desired: null, current: null, state: "ours-absent", reason: null, refusal: null };
+  const a = { files: found, own: files, withBlock, preferred, claude, importLine, PREFERRED, FALLBACK, entryKey: "projectstore:agents", version: null, desired: null, current: null, state: "ours-absent", reason: null, refusal: null };
 
   const unclosed = withBlock.find((e) => e.block.unclosed);
   if (unclosed && unclosed.block.wrapped) return { ...a, state: "unparseable", refusal: `${unclosed.file}:${unclosed.block.line}: the projectstore:agents open marker does not close on its own line — the parser reads one line. Put \`-->\` back on the marker's line, then run /projectstore:agents register` };
@@ -116,6 +125,14 @@ export function analyseBlock(projectDir, s, { root = pluginRoot() } = {}) {
   a.current = withBlock.find((e) => e.file === preferred.file) || withBlock[0] || null;
   a.duplicates = withBlock.filter((e) => e !== a.current);
   if (!a.current) return { ...a, state: "ours-absent" };
+  // A block this harness CANNOT READ moves, and its target is created if it has
+  // to be: that is the whole difference between a second harness arriving and a
+  // preference. A block it can read moves only when the preferred file already
+  // exists — so a Claude-Code-only project keeps its block in CLAUDE.md and
+  // never acquires an AGENTS.md it did not ask for, while installing Codex into
+  // that same project moves the substance to the file Codex can read and leaves
+  // CLAUDE.md importing it.
+  if (!a.current.own) return { ...a, state: "ours-stale", reason: `in ${a.current.file}, which ${s.harness_display || "this harness"} does not read; install moves it to ${preferred.file}` };
   if (a.current.file !== preferred.file && preferred.present) return { ...a, state: "ours-stale", reason: `in ${a.current.file}; install migrates it to ${preferred.file}` };
   if (a.duplicates.length) return { ...a, state: "ours-stale", reason: `also in ${a.duplicates.map((e) => e.file).join(", ")}; install keeps the one in ${a.current.file}` };
   if (a.current.block.v === a.version && a.current.block.block === a.desired) return { ...a, state: "ours-current" };
