@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { fakeInstall, writeRegistry, noHostEnv } from "./fixtures/install.mjs";
 import { plan, renderPreview, confirm, apply, runVerb } from "../scripts/install-harness.mjs";
-import { detectHarnesses, harnessRefusal, sourceHarness } from "../scripts/harness.mjs";
+import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses } from "../scripts/harness.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
 import { stamp, sourceHash, parseProvenance } from "../scripts/provenance.mjs";
 import {
@@ -68,6 +68,7 @@ function fixture() {
 }
 
 const item = (p, surface) => p.items.find((i) => i.surface === surface);
+const manifests = () => [...loadHarnesses().values()];
 const read = (f) => readFileSync(f, "utf8");
 
 // ─── Detection and refusal (contract 8) ─────────────────────────────────
@@ -549,6 +550,65 @@ test("install contract 13 / ADR-002 decision 4: uninstall removes the import reg
   apply(plan(kept, { home, root, surfaces: ["agents_block"] }));
   apply(plan(kept, { home, root, mode: "uninstall", surfaces: ["agents_block"] }));
   assert.equal(read(join(kept, "CLAUDE.md")), "@AGENTS.md\n\n# Mine\n", "an import in a CLAUDE.md with the user's prose stays — AGENTS.md still exists");
+});
+
+// The agents block is the one surface the PROJECT owns rather than a harness:
+// several harnesses read the same file. Measured 2026-09-09 against the code as
+// it then was — `uninstall --harness <other>` DELETED AGENTS.md while the source
+// harness was still reading it through an @AGENTS.md import, and the reverse
+// stripped the block Codex reads. Either way, disowning one harness silently
+// disabled the other. Both directions are asserted here because the defect was
+// symmetric and only one of them is obvious.
+test("install contract 13: disowning one harness leaves the project's agents block alone while another harness reads it", () => {
+  const { home, root } = fixture();
+  const others = manifests().filter((m) => m.id !== SRC.id);
+  assert.ok(others.length, "this case needs a second manifest; it is vacuous with one");
+
+  for (const victim of [others[0], SRC]) {
+    const proj = project({ claude: "# Mine\n" });
+    for (const m of manifests()) mkdirSync(join(proj, m.runtime.harness_dir), { recursive: true });
+    // Installed in the order that reaches the shared end state: the block in
+    // the file every harness can read, and CLAUDE.md importing it.
+    for (const id of [others[0].id, SRC.id]) apply(plan(proj, { harnesses: [id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+    assert.ok(read(join(proj, "AGENTS.md")).includes(BLOCK), "precondition: the block is in the shared file");
+    assert.ok(read(join(proj, "CLAUDE.md")).includes("@AGENTS.md"), "precondition: CLAUDE.md imports it");
+
+    const u = plan(proj, { harnesses: [victim.id], mode: "uninstall", home, root, env: noHostEnv() });
+    const item = u.items.find((i) => i.surface === "agents_block");
+    assert.equal(item.action, "skip", `${victim.id}: a bare uninstall must not touch a block another harness reads`);
+    assert.match(item.reason, /read by another harness|--surface agents_block/, `${victim.id}: the skip says why and how to force it`);
+    apply(u, { env: noHostEnv(), home });
+    assert.ok(read(join(proj, "AGENTS.md")).includes(BLOCK), `${victim.id}: the block survived`);
+    assert.ok(read(join(proj, "CLAUDE.md")).includes("@AGENTS.md"), `${victim.id}: the import survived`);
+  }
+});
+
+test("install contract 13: the last harness still clears the block, and naming the surface forces it — with no import left pointing at nothing", () => {
+  const { home, root } = fixture();
+  // One harness only: nothing else reads its file, so a bare uninstall clears
+  // it exactly as it always has. This is the common case and must not change.
+  const alone = project({ claude: "# Mine\n" });
+  apply(plan(alone, { home, root, surfaces: ["agents_block"] }));
+  assert.ok(read(join(alone, "CLAUDE.md")).includes(BLOCK));
+  apply(plan(alone, { home, root, mode: "uninstall" }));
+  assert.equal(read(join(alone, "CLAUDE.md")), "# Mine\n", "the user's prose is returned byte-for-byte");
+
+  // Naming the surface is the confirmation, as it is for every other write this
+  // bin makes — and when the file the import names goes with it, the import
+  // goes too. Before 2026-09-09 that cleanup could not fire for a harness whose
+  // block list has ONE entry: its PREFERRED and FALLBACK are the same file, and
+  // the old condition asked for a block in one and not the other.
+  const others = manifests().filter((m) => m.id !== SRC.id);
+  if (!others.length) return;
+  const shared = project({ claude: "# Mine\n" });
+  for (const m of manifests()) mkdirSync(join(shared, m.runtime.harness_dir), { recursive: true });
+  for (const id of [others[0].id, SRC.id]) apply(plan(shared, { harnesses: [id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+
+  const forced = plan(shared, { harnesses: [others[0].id], mode: "uninstall", home, root, env: noHostEnv(), surfaces: ["agents_block"] });
+  assert.equal(forced.items.find((i) => i.surface === "agents_block").action, "remove", "naming the surface removes it");
+  apply(forced, { env: noHostEnv(), home });
+  assert.ok(!existsSync(join(shared, "AGENTS.md")), "the file it created and nothing else held is gone");
+  assert.equal(read(join(shared, "CLAUDE.md")), "# Mine\n", "and no @AGENTS.md is left pointing at a file that no longer exists");
 });
 
 test("install contract 7 (amended 2026-09-05) / 13: a dev-checkout root reports a launcher it did not write and never deletes it; uninstall removes it; a foreign one is left", () => {

@@ -284,20 +284,34 @@ test("shells: a shell is publishable only if its harness owns the source tree or
       assert.ok(typeof s.plugin_root === "string" && s.plugin_root.length > 0, `${s.name}: says nothing about the plugin root it still needs`);
       continue;
     }
-    // The core is one harness's tree. That harness ships as-is; every other
-    // needs a rendered tree, and until it has one the shell stays private.
+    // NECESSARY, not sufficient — and the first version of this assertion got
+    // that wrong, as an equivalence. `emit` says a rendered tree exists in THIS
+    // repository. Publishable says the shell's package root IS that tree, which
+    // is a second step and another story's (B5: the plugin root, its manifest,
+    // its registration). Written as an equivalence, flipping `emit` on a
+    // harness would have *demanded* its shell be published while that shell's
+    // root was still the source harness's layout — the exact defect the rule
+    // exists to prevent, made mandatory by its own test.
     const canShipTheCore = m.source_layout === true || m.emit === true;
-    assert.equal(
-      !s.private, canShipTheCore,
-      `${s.name}: private is ${Boolean(s.private)}, but ${m.id} has source_layout=${m.source_layout} and emit=${m.emit}. `
-      + "A published shell hands its harness the bundled core verbatim: that is right only for the harness whose "
-      + "tree the core is, or one the generator renders for. Publishing otherwise ships another harness's commands, "
-      + "agents and MCP dialect into a plugin root this host will load anyway.",
-    );
-    // And the row must say where the tree comes from: null when the core IS it,
-    // a description of what has to be rendered otherwise.
-    if (canShipTheCore) assert.equal(s.plugin_root, null, `${s.name}: its harness owns the core, so there is no separate plugin root to render`);
-    else assert.ok(typeof s.plugin_root === "string" && s.plugin_root.length > 0, `${s.name}: says nothing about the plugin root it still needs`);
+    if (!s.private) {
+      assert.ok(
+        canShipTheCore,
+        `${s.name} is publishable, but ${m.id} has source_layout=${m.source_layout} and emit=${m.emit}. `
+        + "A published shell hands its harness the bundled core verbatim: that is right only for the harness whose "
+        + "tree the core is, or one the generator renders for. Publishing otherwise ships another harness's commands, "
+        + "agents and MCP dialect into a plugin root this host will load anyway.",
+      );
+    }
+    // Where the tree comes from, which is the fact `private` alone cannot
+    // carry: null when the core IS the harness's tree, otherwise a description
+    // of what still has to be rendered. This is what keeps a harness that emits
+    // from being read as ready to publish.
+    if (m.source_layout === true) {
+      assert.equal(s.plugin_root, null, `${s.name}: its harness owns the core, so there is no separate plugin root to render`);
+      assert.equal(s.private, false, `${s.name}: the shell of the harness that owns the core has nothing left to render and should publish`);
+    } else {
+      assert.ok(typeof s.plugin_root === "string" && s.plugin_root.length > 0, `${s.name}: says nothing about the plugin root it still needs`);
+    }
   }
   // Exactly one harness owns the core, so at most one shell can ship it
   // unrendered. If a second ever reads as publishable without emitting, the

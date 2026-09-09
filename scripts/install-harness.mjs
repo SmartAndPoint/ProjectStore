@@ -62,9 +62,9 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { spawnSync } from "node:child_process";
-import { loadHarness, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand } from "./harness.mjs";
+import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand } from "./harness.mjs";
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
-import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analyseLayout, isOurFile } from "./surfaces.mjs";
+import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analyseLayout, isOurFile, readText } from "./surfaces.mjs";
 import { pluginRoot, writeFileAtomic, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpVersion, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths } from "./lib.mjs";
 
 import { GENERATOR } from "./surfaces.mjs";
@@ -120,10 +120,75 @@ function planAgentsBlock(ctx, key, s) {
 
   if (mode === "uninstall") {
     if (!withBlock.length) return [{ surface: key, kind: "shared", path: preferred.path, entry: "projectstore:agents", state: "ours-absent", action: "skip", reason: "no block to remove" }];
-    for (const e of withBlock) items.push(removal(e));
-    // The import line registration inserted, when it is all CLAUDE.md holds.
-    if (withBlock.some((e) => e.file === PREFERRED) && claude && claude.present && claude.text !== null && hasImport(claude.text) && onlyImport(claude.text) && !withBlock.some((e) => e.file === FALLBACK)) {
-      items.push({ surface: `${key}_import`, kind: "shared", path: claude.path, entry: importLine, state: "ours-current", action: "remove", reason: `${claude.file} holds only the import registration added`, before: claude.text, after: "", deleteIfEmpty: true });
+    // The agents block is the one surface the PROJECT owns rather than a
+    // harness: several harnesses read the same file. So disowning one harness
+    // may not remove it, and measurably did — `uninstall --harness <other>`
+    // deleted AGENTS.md while the source harness was still reading it through
+    // an @AGENTS.md import, and the reverse stripped the block Codex reads
+    // (both measured 2026-09-09). Either way, disowning one harness silently
+    // disabled the other.
+    //
+    // The test is static manifest data, not detection: is the file the block
+    // lives in one that ANOTHER manifest also names? No project state is read,
+    // so there is no circularity — and the single-harness case is untouched,
+    // because a file only one manifest names is that harness's to clear.
+    // Over-conservative on purpose: a block left behind is a marked,
+    // self-describing region a user can delete, where a deleted file another
+    // harness reads is silent breakage. `--surface agents_block` still removes
+    // it, which is the confirmation the gate asks for everywhere else.
+    const alsoRead = (file) => [...loadHarnesses().values()]
+      .filter((m) => m.id !== ctx.harness?.id)
+      .some((m) => (m.surfaces?.agents_block?.files || []).includes(file));
+    for (const e of withBlock) {
+      // Naming the surface IS the confirmation, as it is for every other
+      // write this bin makes: `--surface agents_block` removes it regardless.
+      if (!(ctx.surfaces || []).includes(key) && alsoRead(e.file)) {
+        items.push({ surface: key, kind: "shared", path: e.path, entry: `projectstore:agents v${e.block.v}`, state: "ours-current", action: "skip",
+          reason: `${e.file} is read by another harness too — a per-harness uninstall leaves the project's block alone. Remove it with --surface ${key}` });
+        continue;
+      }
+      items.push(removal(e));
+    }
+    // An import that points at a file whose block has just gone is a pointer to
+    // nothing. Look across every file any manifest names, not just this one's:
+    // with a single-entry list PREFERRED and FALLBACK are the same file, which
+    // made the old condition — block in PREFERRED and not in FALLBACK —
+    // impossible to satisfy, so the import was never cleaned up at all.
+    // An import is dangling only when the file it names will be GONE — not
+    // merely when the block left it. A user's own AGENTS.md keeps its prose and
+    // survives, and importing it stays meaningful (install contract 13 /
+    // ADR-002 decision 4). The condition is therefore apply's own: marked for
+    // deletion and left holding nothing (`install-harness.mjs:760`).
+    const vanishing = new Set(items
+      .filter((i) => i.action === "remove" && i.deleteIfEmpty && typeof i.after === "string" && !i.after.trim())
+      .map((i) => rel(projectDir, i.path)));
+    // Two independent reasons to take an import out, and the first version of
+    // this replaced one with the other:
+    //   (1) it is OURS and nothing else is there — the registration we added to
+    //       a file that held nothing else goes with the block (ADR-002
+    //       decision 4), whether or not its target survives;
+    //   (2) it DANGLES — the file it names will be gone, so it points at
+    //       nothing even though the reader's own prose keeps the file alive.
+    // A user's AGENTS.md that keeps its prose satisfies neither, and its import
+    // stays: that is install contract 13, and it is what caught the mistake.
+    //
+    // Over the UNION of every manifest's list, not this one's: the file holding
+    // the import need not be one this harness can read. Codex's list is a
+    // single entry, which also made the old condition — block in PREFERRED and
+    // not in FALLBACK — impossible to satisfy, so nothing was ever cleaned up.
+    const blockGone = new Set(items.filter((i) => i.action === "remove" && i.surface === key).map((i) => rel(projectDir, i.path)));
+    const union = [...new Set([...loadHarnesses().values()].flatMap((m) => m.surfaces?.agents_block?.files || []))];
+    for (const file of union) {
+      if (blockGone.has(file)) continue;
+      const e = readText(join(projectDir, file));
+      if (!e.present || e.text === null || !hasImport(e.text)) continue;
+      const ours = onlyImport(e.text);
+      const dangles = vanishing.has(importLine.slice(1));
+      if (!ours && !dangles) continue;
+      const after = e.text.split("\n").filter((l) => l.trim() !== importLine).join("\n").replace(/^\n+/, "");
+      items.push({ surface: `${key}_import`, kind: "shared", path: join(projectDir, file), entry: importLine, state: "ours-current", action: "remove",
+        reason: ours ? `${file} holds only the import registration added` : `${importLine} points at a file this uninstall removes`,
+        before: e.text, after, deleteIfEmpty: ours });
     }
     return items;
   }
