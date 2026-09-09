@@ -144,6 +144,16 @@ test("generation contract 1: every manifest parses strictly and declares what th
         for (const c of ["validate", "marketplace_add", "marketplace_update", "marketplace_remove", "install", "update", "uninstall", "disable", "enable"]) assert.ok(Array.isArray(s.cli.commands[c]), `${n}: cli.commands.${c}`);
       }
       if (s.kind === "shared") assert.ok(s.marker && typeof s.marker === "object", `${n}: surfaces.${kind}.marker (install spec contract 6)`);
+      // The agents block is the one surface a project shares between harnesses,
+      // so its list has to say which file this harness reads BY ITSELF as well
+      // as where the block prefers to live. Conflating the two made a harness
+      // install a block into a file it can only reach through a bridge, and
+      // then not build the bridge.
+      if (kind === "agents_block") {
+        assert.ok(Array.isArray(s.files) && s.files.length > 0, `${n}: surfaces.agents_block.files`);
+        assert.ok(typeof s.reads_natively === "string" && s.reads_natively.length > 0, `${n}: surfaces.agents_block.reads_natively — which file this harness reads unaided`);
+        assert.ok(s.files.includes(s.reads_natively), `${n}: reads_natively ${s.reads_natively} is not in this surface's own files`);
+      }
       if (s.kind !== "host") assert.equal(typeof s.format, "string", `${n}: surfaces.${kind}.format keys the installer's handler`);
     }
     assert.ok(Array.isArray(m.rewrites), `${n}: rewrites`);

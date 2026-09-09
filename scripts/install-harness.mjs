@@ -239,15 +239,28 @@ function planAgentsBlock(ctx, key, s) {
   // INSTALLING harness's list: Codex's has one entry, so installing Codex left
   // a CLAUDE.md that still exists, still reads as authoritative, and no longer
   // holds anything. The block's file is what decides, not the list's length.
+  // Installing FOR a harness means the file that harness reads by itself ends
+  // up present. It holds the block when the block lands there; it holds the
+  // import when the block lands elsewhere. Without this, a project that already
+  // had an AGENTS.md took the block into it and created no bridge — so Claude
+  // Code, the harness that ran the install, could not see what it had just
+  // installed. `reads_natively` is the manifest's, so this is a file list, not
+  // a harness name.
+  const native = s.reads_natively;
+  const nativeEntry = native ? a.files.find((e) => e.file === native) : null;
   for (const e of a.files) {
-    if (!blockFile || e.file === blockFile || !e.present) continue;
+    const mustExist = nativeEntry && e.file === native;
+    if (!blockFile || e.file === blockFile || (!e.present && !mustExist)) continue;
     const line = `@${blockFile}`;
     const rewrite = items.find((i) => i.action === "remove" && i.path === e.path);
-    const text = rewrite ? rewrite.after : e.text;
+    // An absent native file is empty text, not a reason to skip: it is created.
+    const text = rewrite ? rewrite.after : (e.present ? e.text : "");
     if (typeof text !== "string" || text.split("\n").some((l) => l.trim() === line)) continue;
     const after = line + "\n" + (text.startsWith("\n") || !text.trim() ? "" : "\n") + text;
     if (rewrite) { rewrite.after = after; rewrite.deleteIfEmpty = false; rewrite.reason += `; ${line} import added`; }
-    else items.push({ surface: `${key}_import`, kind: "shared", path: e.path, entry: line, state: "ours-absent", action: "add", reason: `${blockFile} carries the block; ${e.file} must import it`, before: text, after });
+    else items.push({ surface: `${key}_import`, kind: "shared", path: e.path, entry: line, state: "ours-absent", action: e.present ? "add" : "create",
+      reason: e.present ? `${blockFile} carries the block; ${e.file} must import it` : `${e.file} is what this harness reads by itself; it is created to import ${blockFile}`,
+      before: e.present ? text : null, after });
   }
   return items;
 }

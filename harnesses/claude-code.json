@@ -253,6 +253,8 @@
         "AGENTS.md",
         "CLAUDE.md"
       ],
+      "reads_natively": "CLAUDE.md",
+      "reads_natively_reason": "The file this harness reads BY ITSELF. `files` is the block's placement preference and conflates two things: AGENTS.md is first because it is the cross-tool convention, but Claude Code reaches it only through the @AGENTS.md import WE install — remove the bridge and the block is invisible. So installing for this harness must leave CLAUDE.md present: holding the block when it lands here, holding the import when it lands in AGENTS.md. Measured 2026-09-09: a project with an AGENTS.md and no CLAUDE.md took the block into AGENTS.md and created no bridge, so the harness that ran the install could not see it.",
       "source": "templates/claude-md-block.md.tmpl",
       "marker": {
         "open": "<!-- projectstore:agents v",

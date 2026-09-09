@@ -171,6 +171,8 @@
       "files": [
         "AGENTS.md"
       ],
+      "reads_natively": "AGENTS.md",
+      "reads_natively_reason": "Codex reads AGENTS.md from the project root by itself, and reads no other file of this kind — its `files` list is the same single entry, so placement and native reading coincide here and the distinction costs nothing.",
       "files_reason": "One entry, deliberately. analyseBlock takes files[0] when it exists and the last entry otherwise; with claude-code's two-entry list and neither file present, a fresh install wrote CLAUDE.md — which Codex never reads. Measured on the smoke stand, where AGENTS.md had to be written by hand before Codex saw the rules at all.",
       "source": "templates/claude-md-block.md.tmpl",
       "marker": {

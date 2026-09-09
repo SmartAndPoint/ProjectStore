@@ -597,12 +597,41 @@ test("install contract 6: the block lands in the file every installed harness ca
   assert.ok(read(join(fresh, shared)).includes(BLOCK));
   assert.ok(read(join(fresh, own)).includes(`@${shared}`), `${own} must import ${shared}, whichever harness installed`);
 
-  // 4. And no file is conjured: a project without the source harness's file
-  //    does not acquire one because another harness was installed.
+  // 4. And no file is conjured for a harness that does not read it: installing
+  //    the other harness alone into a bare project creates the file IT reads
+  //    and nothing else.
   const bare = project({});
   apply(plan(bare, { harnesses: [other.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
   assert.ok(read(join(bare, shared)).includes(BLOCK));
-  assert.ok(!existsSync(join(bare, own)), `${own} is not created just to hold an import`);
+  assert.ok(!existsSync(join(bare, own)), `${own} is not created for a harness that does not read it`);
+});
+
+// Installing FOR a harness means the file that harness reads BY ITSELF ends up
+// present — holding the block when it lands there, holding the import when it
+// lands elsewhere. Measured 2026-09-09 against the code as it then was: a
+// project with an AGENTS.md and no CLAUDE.md took the block into AGENTS.md and
+// built no bridge, so Claude Code — the harness that ran the install — could
+// not see what it had just installed, while every placement assertion passed.
+test("install contract 6: installing for a harness leaves the file that harness reads natively present, block or bridge", () => {
+  const { home, root } = fixture();
+  for (const m of manifests()) {
+    const native = m.surfaces.agents_block.reads_natively;
+    assert.ok(native, `${m.id}: the manifest must say which file this harness reads by itself`);
+    const foreign = manifests().filter((o) => o.id !== m.id).flatMap((o) => o.surfaces.agents_block.files).filter((f) => f !== native);
+
+    // The block already sits in a file this harness prefers but cannot read
+    // unaided — the cell that used to leave it blind.
+    const proj = project({});
+    writeFileSync(join(proj, m.surfaces.agents_block.files[0]), "# Theirs\n");
+    apply(plan(proj, { harnesses: [m.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+
+    assert.ok(existsSync(join(proj, native)), `${m.id}: ${native} must exist after installing for this harness`);
+    const text = read(join(proj, native));
+    const here = text.includes(BLOCK);
+    const elsewhere = foreign.some((f) => existsSync(join(proj, f)) && read(join(proj, f)).includes(BLOCK) && text.includes(`@${f}`));
+    assert.ok(here || elsewhere, `${m.id}: ${native} carries neither the block nor an import to the file that does`);
+    assert.equal(here && elsewhere, false, `${m.id}: ${native} carries both the block and an import — one or the other`);
+  }
 });
 
 // The agents block is the one surface the PROJECT owns rather than a harness:
