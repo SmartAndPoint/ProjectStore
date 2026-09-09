@@ -89,9 +89,19 @@ function main() {
   } else if (since) {
     // committer-date window; work committed before the story went in-progress
     // is invisible by design (story-scoped attribution).
-    const out = git(["log", `--since=${since}`, "--name-only", "--pretty=format:"]);
+    //
+    // A bare YYYY-MM-DD gets midnight appended, and it is not cosmetic. Git's
+    // approxidate reads a date with no time as THAT DATE AT THE CURRENT TIME OF
+    // DAY, so `--since=2026-09-08` run at 17:46 silently excludes everything
+    // committed earlier the same day. `started_at` is written as a bare date,
+    // so a story started and finished in one day proposed `files: []` and the
+    // caller had no way to tell that from "nothing was committed" (measured
+    // 2026-09-08: --since=2026-09-08 returned nothing while
+    // --since="2026-09-08 00:00" returned the day's commit).
+    const window = /^\d{4}-\d{2}-\d{2}$/.test(since) ? `${since} 00:00:00` : since;
+    const out = git(["log", `--since=${window}`, "--name-only", "--pretty=format:"]);
     committed = out ? out.split("\n") : [];
-    usedRange = `--since=${since}`;
+    usedRange = `--since=${window}`;
   }
 
   // ls-files --others expands untracked DIRECTORIES to individual files

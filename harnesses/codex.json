@@ -1,0 +1,265 @@
+{
+  "_comment": "Harness capability manifest — Codex. emit: false for now: this manifest exists to make harness IDENTITY true (detection, the per-harness overlay and state key), which is what parallel harnesses over one project need first. The generated tree, the lint and the rewrites are the generator's slice (roadmap B2b) and turn emit on. Every value here that carries evidence: \"measured\" was observed in the Codex spike's runs 2 and 3, 2026-09-07/08, codex-cli 0.153.4 (759 captured hook firings); the rest is absent rather than guessed, and `verified` stays null so the docs label this harness experimental (generation spec, contract 16).",
+  "id": "codex",
+  "display_name": "Codex",
+  "emit": false,
+  "source_layout": false,
+  "output_dir": null,
+  "docs": "https://developers.openai.com/codex/",
+  "verified": null,
+  "runtime": {
+    "detect_env": [
+      "PLUGIN_ROOT",
+      "PLUGIN_DATA",
+      "CODEX_HOME"
+    ],
+    "project_dir_env": null,
+    "project_dir_env_reason": "Codex exports no project-directory variable. Measured: a plugin hook process receives PLUGIN_ROOT, PLUGIN_DATA, CLAUDE_PLUGIN_ROOT and CLAUDE_PLUGIN_DATA and nothing else of ours. The project comes from the hook payload's `cwd`, which the hooks adopt before they resolve anything (story: Every hook resolves the project before reading the payload that names it). Null, not absent: the key states the decision.",
+    "plugin_root_env": "PLUGIN_ROOT",
+    "home_env": "CODEX_HOME",
+    "home_default": ".codex",
+    "harness_dir": ".codex",
+    "harness_dir_reason": "Codex's own directory in a project. Never where projectstore's config lives — that is <project>/.projectstore/, one for every harness (the layout ADR).",
+    "overlay": "codex",
+    "overlay_reason": "The file under <project>/.projectstore/harness/ carrying this harness's agents block. Separate from claude-code's because a model name is harness-specific (ADR-008).",
+    "shared_env": [
+      "CLAUDE_PLUGIN_ROOT",
+      "CLAUDE_PLUGIN_DATA"
+    ],
+    "shared_env_reason": "Codex sets Claude Code's plugin-root names too, for compatibility — measured in every one of the 759 captured hook payloads. Without declaring them, a Codex session scores a strong detection hit for claude-code, ties with codex, and loses the tie to manifest filename order. A variable two harnesses both set identifies neither, so these are demoted to weak for every manifest (generation spec, contract 1, amended 2026-09-08).",
+    "session_env": [],
+    "session_env_reason": "Unmeasured. CODEX_HOME never appeared in a hook environment — it is a shell-profile signal, not a session marker — and no equivalent of CLAUDECODE was observed."
+  },
+  "tools": {
+    "write_tools": [
+      "apply_patch"
+    ],
+    "write_tools_reason": "The only file-writing tool observed: 26 apply_patch firings against 571 Bash. Bash writes too, and is excluded here for the same reason claude-code excludes it — a shell call is not a declared write and counting it would make every command an edit.",
+    "path_fields": [],
+    "path_fields_reason": "MEASURED EMPTY, and this is a known gap rather than an absence. apply_patch carries its path inside tool_input.command (26 of 26 firings), not in file_path/notebook_path/path, so extractToolPath returns null and the activity log and the entry rule do nothing on Codex. Parsing the patch envelope needs the envelope's shape measured first — spike criterion (c), unreached — and PR #13's parser must not be ported from an unmeasured payload.",
+    "patch_envelope_field": "command",
+    "approval_tool": null,
+    "approval_tool_reason": "UNMEASURED, and null rather than absent. Claude Code has AskUserQuestion; no equivalent structured-choice tool appeared in the 759 captured firings, and Codex's own tool list has not been read for one. Null means contract 10's approval-gate lint treats this harness as having no such tool — the safe reading — instead of inheriting the source harness's.",
+    "known_non_write_tools": [
+      "Bash",
+      "webrun",
+      "collaborationspawn_agent",
+      "collaborationlist_agents",
+      "collaborationwait_agent",
+      "collaborationsend_message",
+      "collaborationfollowup_task"
+    ],
+    "known_non_write_tools_reason": "Every other tool name observed. The collaboration* family is Codex's subagent mechanism — spawn_agent takes task_name, fork_turns and message — which is how it ran our roster's roles without loading agents/*.md (story: Subagent registration per host)."
+  },
+  "hooks": {
+    "config_file": ".codex-plugin/plugin.json",
+    "config_file_reason": "Hooks are declared IN the plugin manifest, under hooks.hooks.<Event>, the nesting the shipped browser and chrome plugins use. That form fires: 757 events across five event types. A plugin-root hooks/hooks.json was not observed to fire, but the elimination that produced that reading was confounded by registration lagging the installed plugin by at least one session, so it is not asserted here.",
+    "events": {
+      "SessionStart": "SessionStart",
+      "PreToolUse": "PreToolUse",
+      "PostToolUse": "PostToolUse",
+      "Stop": "Stop",
+      "PreCompact": "PreCompact"
+    },
+    "events_reason": "The five projectstore registers, and the list is checked against hooks/hooks.json rather than remembered: the map is what a generator would register, so an event here with no handler would render a hook that does nothing. Codex's full vocabulary, read from the binary, also has UserPromptSubmit (measured firing, and its payload is recorded under output_channels), PermissionRequest, PostCompact, SessionEnd, SubagentStart, SubagentStop and Interrupt, and no Notification. Handler kinds are Command, Async and MCP Server.",
+    "root_placeholder": "${PLUGIN_ROOT}",
+    "root_placeholder_literal": true,
+    "_root_placeholder_literal_comment": "true: Codex substitutes nothing in a hook command string. It does not need to — the hook process receives PLUGIN_ROOT in its environment (measured). The generator therefore renders an absolute interpreter and an absolute script path; a bare `node` is a PATH gamble."
+  },
+  "output_channels": {
+    "_comment": "Per-event payload fields, captured from live firings. `fields` here are the STDIN keys the event delivers — Codex's documented output channels (additionalContext and a decision object) are not yet measured, so `decision` stays null and `system_message` null rather than false.",
+    "SessionStart": {
+      "fields": [
+        "session_id",
+        "transcript_path",
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "source"
+      ],
+      "system_message": null,
+      "decision": null,
+      "evidence": "measured",
+      "note": "additionalContext reaches the model: asked to name the vault and count its ADRs without reading files, the model answered from the skeleton and was right."
+    },
+    "UserPromptSubmit": {
+      "fields": [
+        "session_id",
+        "turn_id",
+        "transcript_path",
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "prompt"
+      ],
+      "system_message": null,
+      "decision": null,
+      "evidence": "measured"
+    },
+    "PreToolUse": {
+      "fields": [
+        "session_id",
+        "turn_id",
+        "transcript_path",
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "tool_name",
+        "tool_input",
+        "tool_use_id"
+      ],
+      "system_message": null,
+      "decision": null,
+      "evidence": "measured",
+      "note": "372 firings. Codex has a dedicated PermissionRequest event, so whether a decision returned from PreToolUse is honoured is unmeasured and must not be assumed."
+    },
+    "PostToolUse": {
+      "fields": [
+        "session_id",
+        "turn_id",
+        "transcript_path",
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "tool_name",
+        "tool_input",
+        "tool_response",
+        "tool_use_id"
+      ],
+      "system_message": null,
+      "decision": null,
+      "evidence": "measured",
+      "note": "371 firings. tool_response is NOT one shape: 368 strings and 3 content-block arrays (all webrun). Claude Code sends an object. Nothing may depend on it."
+    },
+    "Stop": {
+      "fields": [
+        "session_id",
+        "turn_id",
+        "transcript_path",
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "stop_hook_active",
+        "last_assistant_message"
+      ],
+      "system_message": null,
+      "decision": null,
+      "evidence": "measured",
+      "note": "stop_hook_active is present, so hooks/session-stop.mjs's loop guard ports unchanged. last_assistant_message has no Claude Code counterpart."
+    },
+    "PreCompact": null
+  },
+  "surfaces": {
+    "agents": {
+      "supported": false,
+      "kind": "host",
+      "scope": "user",
+      "scope_reason": "Codex spawns subagents through a tool (collaborationspawn_agent), not by loading a plugin's agents/ directory.",
+      "why_unsupported": "Measured: told to run projectstore:critic, Codex spawned six of its own generic subagents named after our roster and briefed them itself; none of our agents/*.md prose reached them. No route from a plugin's agents/ entry to that mechanism has been found (roadmap B4)."
+    },
+    "agents_block": {
+      "supported": true,
+      "kind": "shared",
+      "format": "markdown-block",
+      "scope": "project",
+      "scope_reason": "Codex reads AGENTS.md from the project root; it does not read CLAUDE.md.",
+      "files": [
+        "AGENTS.md"
+      ],
+      "reads_natively": "AGENTS.md",
+      "reads_natively_reason": "Codex reads AGENTS.md from the project root by itself, and reads no other file of this kind — its `files` list is the same single entry, so placement and native reading coincide here and the distinction costs nothing.",
+      "files_reason": "One entry, deliberately. analyseBlock takes files[0] when it exists and the last entry otherwise; with claude-code's two-entry list and neither file present, a fresh install wrote CLAUDE.md — which Codex never reads. Measured on the smoke stand, where AGENTS.md had to be written by hand before Codex saw the rules at all.",
+      "source": "templates/claude-md-block.md.tmpl",
+      "marker": {
+        "open": "<!-- projectstore:agents v",
+        "close": "<!-- /projectstore:agents -->"
+      }
+    },
+    "commands": {
+      "supported": false,
+      "kind": "host",
+      "scope": "user",
+      "scope_reason": "Codex has no registrable root slash command; the /prompts: mechanism is deprecated.",
+      "why_unsupported": "Shipping commands/ is actively harmful here: Codex rewrites them into skills itself and keeps ${CLAUDE_PLUGIN_ROOT} in the body, producing entry points that exit 1 with Cannot find module '/bin/projectstore.mjs' (reproduced). The generator renders them as skills instead (roadmap B5)."
+    },
+    "hooks": {
+      "supported": true,
+      "kind": "host",
+      "scope": "user",
+      "scope_reason": "Declared in .codex-plugin/plugin.json and loaded with the plugin; trust is granted per hook, machine-wide, and cannot be silenced per checkout."
+    },
+    "mcp": {
+      "supported": false,
+      "kind": "host",
+      "scope": "project",
+      "scope_reason": "Codex auto-discovers a plugin-root .mcp.json even when the manifest does not declare mcpServers — measured.",
+      "why_unsupported": "Our .mcp.json is in Claude Code's dialect: its argv carries ${CLAUDE_PLUGIN_ROOT} and ${CLAUDE_PROJECT_DIR}, which nothing substitutes there, so the server failed its handshake and printed a red error in every session. Ships only once the Codex dialect is rendered and the spike's criterion (h) says what cwd and environment the server receives."
+    },
+    "skills": {
+      "supported": true,
+      "kind": "host",
+      "scope": "user",
+      "scope_reason": "Codex loads skills from the plugin root's skills/ directory, declared in the manifest as skills: \"./skills/\" — 47 of the 64 curated plugin manifests on the measuring machine declare theirs that way, and ours loaded.",
+      "dir": "skills",
+      "file": "<name>/SKILL.md",
+      "registered_by": "plugin",
+      "frontmatter_required": [
+        "name",
+        "description"
+      ],
+      "frontmatter_reason": "\"The SKILL.md file must include name and description\" — learn.chatgpt.com/docs/build-skills, read 2026-09-08. DOCUMENTED, and it disagrees with what we measured: our four skills carried only `description` and loaded anyway, and the model listed them. Either the name falls back to the directory or the loader is laxer than the page. We now ship both fields, so the discrepancy stops mattering for us and stays recorded for whoever meets it.",
+      "invocation": "$<name>",
+      "invocation_evidence": "documented",
+      "invocation_reason": "Explicitly: type `$<skill-name>`, or `/skills` to list what is loaded (examples given: `$skill-installer linear`). Implicitly: the model chooses a skill when the task matches its `description` — `allow_implicit_invocation` defaults true and is disabled per skill in agents/openai.yaml. So `description` is the TRIGGER here, not a hint for a human picking from a menu, which is what it is on the source harness. learn.chatgpt.com/docs/build-skills, read 2026-09-08. NOT measured: nobody has typed a $ at this stand's prompt.",
+      "discovery": [
+        "$CWD/.agents/skills",
+        "$REPO_ROOT/.agents/skills",
+        "$HOME/.agents/skills",
+        "/etc/codex/skills",
+        "bundled with Codex"
+      ],
+      "discovery_reason": "The four scopes the documentation lists, in its order. Note what is ABSENT from that list: a plugin's own skills/ directory. Ours loads all the same, declared as skills: \"./skills/\" in the plugin manifest and measured on the spike — 47 of 64 curated plugin manifests on the measuring machine declare theirs the same way. The plugin route is real and undocumented on this page; do not conclude from the page that it does not exist.",
+      "description_limit": "shortened above 2% of the context window, or 8000 characters",
+      "unrendered_source": true,
+      "unrendered_source_reason": "THE GAP, declared rather than discovered later. This harness host-loads the SOURCE skills/ tree, unrendered, because emit is false and no generator exists yet (B2b). Contract 11 says source files stay in the source harness's vocabulary — correctly — so those files name `/projectstore:<command>`, a form Codex does not have: its commands surface is unsupported. The result ships today: the skills load and then instruct the reader to run a command that cannot exist. This is precisely contract 10's lint class, arriving before the lint. The flag comes out when the generator renders skills per harness, and tests/portability.test.mjs holds the pairing in both directions so it cannot be removed while the leak is still there."
+    },
+    "statusline": {
+      "supported": false,
+      "kind": "host",
+      "scope": "user",
+      "scope_reason": "There is no per-project status-line slot to occupy: Codex has no status-line surface at all, so nothing of ours is written anywhere and the scope is the host's, not a file's.",
+      "why_unsupported": "No status-line mechanism was found in the harness — no settings slot, no plugin field, no handler contract. Recorded as a row rather than an absence so the generator's coverage invariant sees a stated omission (contract 9) instead of a surface that quietly does not exist here."
+    },
+    "_plugin_comment": "No plugin row yet: kind 'registration' requires the full host-CLI table (validate, marketplace_add/remove, install, update, uninstall, disable, enable) with a verified date. The spike measured `codex plugin marketplace add` / `plugin add` / `plugin remove <plugin>@<marketplace>` and the two config.toml stanzas they write, and there is no validate, no update and no enable/disable — but the shell that would drive them is private and unpublished, so the row lands with roadmap B5 rather than describing an install nothing runs."
+  },
+  "capabilities": {},
+  "rewrites": [],
+  "update_instructions": "There is no plugin update verb: the ladder is `codex plugin remove <plugin>@<marketplace>` then `codex plugin add`. The plugin@marketplace form is required or remove refuses. Hook trust is keyed by plugin identity and a relative path with no version segment, so a release does not re-prompt by version alone — but registration lags the installed plugin by at least one session, so a release that changes hooks may not take effect until the session after next.",
+  "agent_translation": {
+    "carries_model": false,
+    "carries_model_reason": "The surface projectstore ships — a plugin's agents/ entry — carries no model on Codex: surfaces.agents is supported:false because no route from a plugin's agents/ directory to collaborationspawn_agent has been found (measured). Codex DOES have a definition file that carries model and effort, recorded below, but it is project- or user-scoped and not plugin-shippable, so contract 12 holds as written: what we ship cannot carry a model. Was true here until 2026-09-08, which contradicted both contract 12 and this file's own agents row.",
+    "definition_file": ".codex/agents/<name>.toml",
+    "definition_file_evidence": "documented",
+    "definition_file_reason": "Codex agent definitions are TOML under .codex/agents/ (project) or ~/.codex/agents/ (personal) and accept `model`, `model_reasoning_effort`, `sandbox_mode` and `mcp_servers`. Documented at learn.chatgpt.com/docs/agent-configuration/subagents, read 2026-09-08; NOT measured, and not reachable from a plugin today. This is the route the rendering story (Per-agent effort returns, PS-AGENTS) has to decide on, and B4 has to measure.",
+    "cheap_model": "gpt-5.6-luna",
+    "cheap_model_evidence": "chosen",
+    "cheap_model_reason": "CHOSEN, not measured: no Codex session has been observed running this model, and `verified` on this manifest is null. It reaches a user's overlay — `agents configure --harness codex` writes it as the clerk's pin — so if the id is wrong the failure is at spawn time, on the harness, not here. The transcriber's model. gpt-5.6-luna at $0.20/$1.20 per Mtok is the cost tier gpt-5.6-sol ($4/$20) is twenty times above, and the clerk composes nothing: it copies an approved file and runs a pinned ceremony (ADR-008). Chosen 2026-09-08 from the published model list, by the same reasoning that pins the clerk to the cheap tier on Claude Code.",
+    "effort_levels": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra"
+    ],
+    "effort_key": "model_reasoning_effort",
+    "effort_evidence": "documented",
+    "effort_precedence": "explicit spawn value, then the [agents] default from config, then the parent agent's value. A model chosen without an effort uses that model's default effort.",
+    "effort_reason": "Recorded, not yet consumed: the overlay's allowlist rejects an effort key and rewrites it out, deliberately, until the story Per-agent effort returns decides whether a role's effort travels in a rendered definition or at spawn. Documented 2026-09-08; the `ultra` level is Codex's and is not a level Claude Code accepts."
+  }
+}

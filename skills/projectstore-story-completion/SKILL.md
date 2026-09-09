@@ -1,4 +1,5 @@
 ---
+name: projectstore-story-completion
 description: When the user finishes work that maps to a known story (story file exists in epics/<id>/stories/) — all acceptance criteria appear satisfied, code merged, tests passing — suggest updating the story's frontmatter status (e.g. planned → in-progress → review → done) and regenerating the kanban. Never write to vault directly without /projectstore:* commands and explicit approval.
 ---
 

@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { seedCliVault } from "./fixtures/vault.mjs";
 import { noHostEnv } from "./fixtures/install.mjs";
-import { sourceHarness, packageCommand, loadHarness } from "../scripts/harness.mjs";
+import { sourceHarness, packageCommand, loadHarness, loadHarnesses } from "../scripts/harness.mjs";
 import { VERBS } from "../scripts/cli.mjs";
 import { checkVersions, collectShells, PACKLIST } from "../scripts/version-guard.mjs";
 import { checkPluginRegistration, checkLayout } from "../scripts/doctor.mjs";
@@ -34,6 +34,7 @@ const TMP = mkdtempSync(join(tmpdir(), "ps-shells-"));
 const CLAUDE = SHELLS.find((s) => s.harness === SRC.id);
 const read = (p) => readFileSync(p, "utf8");
 const readJson = (p) => JSON.parse(read(p));
+const manifests = () => [...loadHarnesses().values()];
 const walk = (dir, out = []) => { for (const n of readdirSync(dir)) { const p = join(dir, n); if (statSync(p).isDirectory()) walk(p, out); else out.push(p); } return out; };
 
 // A shell root with the COMMITTED bin and a fake core that records its argv.
@@ -250,6 +251,87 @@ test("shells contract 11 / AC 3: the guard counts every shell — a version, a p
   // A directory under packaging/shells/ without a package.json is an error, not a silently skipped shell.
   mkdirSync(join(scratch, SHELLS_DIR, "projectstore-ghost"));
   assert.match(checkVersions({ root: scratch }).error, /projectstore-ghost\/package\.json: missing/);
+});
+
+// The rule that makes several projectstore-* packages safe to install over one
+// project, and the one nothing was enforcing until 2026-09-08.
+//
+// Every shell bundles the SAME core — measured: the three packlists differ only
+// in a bin, a README and a package.json, and the bundled half is byte-identical,
+// carrying 20 commands, 6 agents, 4 skills, the hooks and .mcp.json. That is
+// correct for exactly one harness: the one whose tree the core IS. For any
+// other, the core has to be RENDERED first (`emit`), because a host loads what
+// it finds in the plugin root whether or not our manifest calls that surface
+// supported — Codex proved it by converting our commands into six entry points
+// that exit 1, and by failing the handshake on a .mcp.json written in Claude
+// Code's dialect.
+//
+// So publishability is not a packaging preference. A shell may be published
+// only when its harness can actually read what the package carries.
+test("shells: a shell is publishable only if its harness owns the source tree or emits a rendered one", () => {
+  assert.ok(SHELLS.length > 0);
+  for (const s of SHELLS) {
+    const m = loadHarness(s.harness);
+    // A shell may name a harness that has no manifest yet — the roster is
+    // allowed to run ahead of the measurements, and `projectstore-opencode`
+    // does exactly that. What it may not be is publishable: with no manifest
+    // there is nothing that describes what the package would carry, which
+    // surfaces the host would load, or what would have to be rendered first.
+    // The strongest form of "cannot ship the core" is "nobody has said what
+    // this harness is".
+    if (!m) {
+      assert.equal(s.private, true, `${s.name}: names harness ${s.harness}, which has no manifest — a shell for a harness nothing describes cannot be published`);
+      assert.ok(typeof s.plugin_root === "string" && s.plugin_root.length > 0, `${s.name}: says nothing about the plugin root it still needs`);
+      continue;
+    }
+    // NECESSARY, not sufficient — and the first version of this assertion got
+    // that wrong, as an equivalence. `emit` says a rendered tree exists in THIS
+    // repository. Publishable says the shell's package root IS that tree, which
+    // is a second step and another story's (B5: the plugin root, its manifest,
+    // its registration). Written as an equivalence, flipping `emit` on a
+    // harness would have *demanded* its shell be published while that shell's
+    // root was still the source harness's layout — the exact defect the rule
+    // exists to prevent, made mandatory by its own test.
+    const canShipTheCore = m.source_layout === true || m.emit === true;
+    if (!s.private) {
+      assert.ok(
+        canShipTheCore,
+        `${s.name} is publishable, but ${m.id} has source_layout=${m.source_layout} and emit=${m.emit}. `
+        + "A published shell hands its harness the bundled core verbatim: that is right only for the harness whose "
+        + "tree the core is, or one the generator renders for. Publishing otherwise ships another harness's commands, "
+        + "agents and MCP dialect into a plugin root this host will load anyway.",
+      );
+    }
+    // Where the tree comes from, which is the fact `private` alone cannot
+    // carry: null when the core IS the harness's tree, otherwise a description
+    // of what still has to be rendered. This is what keeps a harness that emits
+    // from being read as ready to publish.
+    if (m.source_layout === true) {
+      assert.equal(s.plugin_root, null, `${s.name}: its harness owns the core, so there is no separate plugin root to render`);
+      assert.equal(s.private, false, `${s.name}: the shell of the harness that owns the core has nothing left to render and should publish`);
+    } else {
+      assert.ok(typeof s.plugin_root === "string" && s.plugin_root.length > 0, `${s.name}: says nothing about the plugin root it still needs`);
+    }
+  }
+  // Exactly one harness owns the core, so at most one shell can ship it
+  // unrendered. If a second ever reads as publishable without emitting, the
+  // assertion above fires — this pins the premise it rests on.
+  assert.equal(SHELLS.filter((s) => loadHarness(s.harness)?.source_layout).length, 1, "exactly one shell targets the source-layout harness");
+
+  // The mirror direction, and the half that faces a USER rather than a
+  // release: `packageCommand` turns `install.shell` into the command doctor
+  // and the install prose tell people to run. A manifest that names an
+  // unpublished shell sends them to `npx <name>`, which 404s — so a manifest
+  // may name a shell only when that shell is actually publishable. Without the
+  // key the command falls back to the core with `--harness <id>`, which works.
+  for (const m of manifests()) {
+    const named = m.install?.shell;
+    if (!named) continue;
+    const row = SHELLS.find((s) => s.name === named);
+    assert.ok(row, `${m.id}: install.shell names ${named}, which is not in the roster`);
+    assert.equal(row.private, false, `${m.id}: install.shell names ${named}, which is private — the prose would send a user to a package npm does not have. Drop the key and the command falls back to the core with --harness ${m.id}`);
+    assert.equal(row.harness, m.id, `${m.id}: install.shell names ${named}, which targets ${row.harness}`);
+  }
 });
 
 test("shells AC 4: the release matrix is the publishable list, computed — never a hand-written name", () => {

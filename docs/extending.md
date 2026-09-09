@@ -47,7 +47,7 @@ vault-side layout or template override):
    its index and stay there.
 
 4. **Checklist entry** — `scaffold/checklists.json`, consumed by
-   `/projectstore:review` and the peer-reviewer skill. English-only by design.
+   `/projectstore:review` and the `projectstore-peer-reviewer` skill. English-only by design.
 
 5. **Command prompt** — `commands/<kind>.md`, a prompt (not code) that calls
    `node "${CLAUDE_PLUGIN_ROOT}/scripts/draft.mjs" <kind> "$ARGUMENTS"`, previews,

@@ -671,6 +671,25 @@ test("diff-refs: no args => fallback true; --since returns file lists", () => {
   assert.ok(!since.files.some((f) => f.includes("package-lock")), "ignore globs applied");
 });
 
+// A story's `started_at` is a bare date, and git reads a date with no time as
+// THAT DATE AT THE CURRENT TIME OF DAY — so before 2026-09-08 a story started
+// and finished in one day proposed `files: []`, indistinguishable from "nothing
+// was committed". The window must open at midnight, and the emitted `range`
+// must say so, because `range` is what a reader checks when the answer looks
+// empty.
+test("diff-refs: a bare date opens the window at midnight, so same-day commits are not silently dropped", () => {
+  // HEAD's own commit date, read through git rather than from a clock, so the
+  // case cannot go stale or depend on the hour it runs.
+  const day = spawnSync("git", ["log", "-1", "--format=%cd", "--date=format:%Y-%m-%d"], { cwd: REPO, encoding: "utf8" }).stdout.trim();
+  assert.match(day, /^\d{4}-\d{2}-\d{2}$/);
+  const r = run("diff-refs.mjs", ["--since", day]);
+  assert.equal(r.since, day, "the echoed `since` is what the caller passed");
+  assert.equal(r.range, `--since=${day} 00:00:00`, "the window git was actually given opens at midnight");
+  assert.ok(r.files.length > 0, `no file attributed to ${day}, the date of HEAD itself — the window closed before its own commit`);
+  // A timestamp the caller supplies is passed through untouched.
+  assert.equal(run("diff-refs.mjs", ["--since", "2020-01-01T00:00:00Z"]).range, "--since=2020-01-01T00:00:00Z");
+});
+
 // ─── Entry-rule hook behaviour (PS-AGENTS: artifact-first order) ───────
 //
 // Drives scripts/touch-session.mjs with synthetic hook payloads on stdin and
@@ -716,6 +735,38 @@ function post(proj, file, extra = {}) {
     tool_response: { success: true }, ...extra,
   });
 }
+
+// `tool_response` has no single shape, and the entry score rides on the read.
+// Claude Code sends an object; Codex sent a string for 368 of 371 PostToolUse
+// firings in the measured run and a content-block array for the other three
+// (all `webrun`). Only "an object saying success === false" may suppress a
+// count — every other shape counts, because the event itself is the
+// discrimination and PostToolUse only fires after success.
+test("entry hook: the score counts whatever shape tool_response arrives in", () => {
+  for (const [label, response] of [
+    ["a string, as Codex sends for shell and edit tools", "ok"],
+    ["a content-block array, as Codex sends for webrun", [{ type: "input_text", text: "…" }]],
+    ["an object without success, as a tool may invent", { output: "…" }],
+    ["absent entirely", undefined],
+  ]) {
+    const { proj, vault } = seedHookProject();
+    seedStory(vault, "story-a.md", "planned");
+    post(proj, join(proj, "a.mjs"), { tool_response: response });
+    post(proj, join(proj, "b.mjs"), { tool_response: response });
+    const out = post(proj, join(proj, "c.mjs"), { tool_response: response });
+    assert.ok(out, `the third source path must reach the threshold with ${label}`);
+  }
+});
+
+test("entry hook: only an object saying success === false suppresses the count", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  for (const f of ["a.mjs", "b.mjs", "c.mjs", "d.mjs"]) {
+    post(proj, join(proj, f), { tool_response: { success: false } });
+  }
+  assert.equal(post(proj, join(proj, "e.mjs"), { tool_response: { success: false } }), null,
+    "a declared failure never counts, however many arrive");
+});
 
 test("entry hook: fires once at the threshold, on PostToolUse additionalContext (contracts 10, 12, 15)", () => {
   const { proj, vault } = seedHookProject();

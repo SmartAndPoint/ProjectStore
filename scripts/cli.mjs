@@ -42,7 +42,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createInterface } from "node:readline/promises";
-import { projectRootDeclared, childEnv, harnessIds, pinPluginRoot } from "./harness.mjs";
+import { projectRootDeclared, childEnv, harnessIds, harnessForOverlay, pinPluginRoot } from "./harness.mjs";
 import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster } from "./lib.mjs";
 import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_LIMIT, GRAPH_EDGE_CAP, DIRECTIONS } from "./query.mjs";
 // binding.mjs is a write module imported statically where the install family
@@ -421,9 +421,26 @@ async function runAgents(ctx) {
     if (roster && !roster.includes(m[1])) return usage(`no agent named ${m[1]} in the ${cfg.layout} roster — known: ${roster.join(", ")}`);
     if (m[2]) next.per_agent[m[1]] = m[2]; else delete next.per_agent[m[1]];
   }
-  // The clerk transcribes; a strong default must not lift it (commands/agents.md, ADR-008).
+  // The clerk transcribes; a strong default must not lift it (commands/agents.md,
+  // ADR-008). WHICH model it is pinned to is the harness's vocabulary, so the
+  // manifest names it and this file does not: pinning every harness to
+  // "sonnet" wrote an Anthropic model name into a Codex overlay, which is a
+  // model that does not exist there. A manifest with no cheap model declared
+  // does not pin, and the preview says so rather than inventing one.
+  // No fallback model here, deliberately, and it is not the same call as
+  // SOURCE_WRITE_TOOLS_FALLBACK: a missing manifest cannot reach this line.
+  // harnessIds() derives from the manifests, so with none loadable `--harness`
+  // is refused as unknown and `overlayId(env)` is null, and configure has
+  // already returned "no harness detected and none named". A literal here would
+  // be the deleted `"sonnet"` restored for a case that cannot happen.
   let pinnedClerk = false;
-  if (next.default && !next.per_agent.clerk && !(values.agent || []).some((s) => s.startsWith("clerk="))) { next.per_agent.clerk = "sonnet"; pinnedClerk = true; }
+  let clerkPinUnavailable = false;
+  const clerkAsked = (values.agent || []).some((s) => s.startsWith("clerk="));
+  if (next.default && !next.per_agent.clerk && !clerkAsked) {
+    const cheap = harnessForOverlay(harness)?.agent_translation?.cheap_model || null;
+    if (cheap) { next.per_agent.clerk = cheap; pinnedClerk = true; }
+    else clerkPinUnavailable = true;
+  }
   // Keys inside the agents block that the allowlist rejected (an `effort`, a
   // stray shape) are rewritten out by the write and announced here; keys
   // outside the block are kept, and stay doctor's to name.
@@ -432,15 +449,18 @@ async function runAgents(ctx) {
   const preview = [`agents configure — ${harness} — ${before.path}`, `  default: ${before.agents.default || "—"} → ${next.default || "—"}`];
   const names = new Set([...Object.keys(before.agents.per_agent), ...Object.keys(next.per_agent)]);
   for (const n of [...names].sort()) preview.push(`  ${n}: ${before.agents.per_agent[n] || "—"} → ${next.per_agent[n] || "—"}${pinnedClerk && n === "clerk" ? " (pinned: the clerk stays cheap under a strong default)" : ""}`);
+  // Silence here would read as "the clerk is fine", and it is not: it takes the
+  // strong default, which is the one thing ADR-008 says must not happen to it.
+  if (clerkPinUnavailable) preview.push(`  clerk: takes the default — ${harness} declares no cheap model to pin it to, so name one with --agent clerk=<model>`);
   if (dropped.length) preview.push(`  drops from the agents block (an overlay carries only models): ${dropped.join(", ")}`);
-  if (same) return emit("agents configure", true, { harness, path: before.path, wrote: false, agents: next, pinnedClerk, dropped }, preview.join("\n") + "\n  Nothing to change.\n");
+  if (same) return emit("agents configure", true, { harness, path: before.path, wrote: false, agents: next, pinnedClerk, clerkPinUnavailable, dropped }, preview.join("\n") + "\n  Nothing to change.\n");
   // The gate: a named harness confirms; otherwise ask, and refuse without a terminal.
   let confirmed = Boolean(named);
   if (!confirmed) { const a = await confirmWrite(preview.join("\n") + `\nWrite ${before.path}? [y/N] `, { stdin, stdout, ask }); if (a === null) return usage("a non-interactive agents configure names --harness <id> to confirm; there is no --yes"); confirmed = a; }
   if (!confirmed) return emit("agents configure", false, { harness, path: before.path, wrote: false, declined: true, agents: next, dropped }, preview.join("\n") + "\n  nothing written.\n");
   const path = writeOverlayAt(project, harness, next);
   const after = readOverlayAt(project, harness);
-  return emit("agents configure", true, { harness, path, wrote: true, agents: after.agents, pinnedClerk, dropped, rejected: after.rejected, agents_in_binding: inBinding }, preview.join("\n") + `\n  wrote ${path}.${inBinding ? " The binding still carries an agents block (pre-0.28); run upgrade to move it." : ""}\n`);
+  return emit("agents configure", true, { harness, path, wrote: true, agents: after.agents, pinnedClerk, clerkPinUnavailable, dropped, rejected: after.rejected, agents_in_binding: inBinding }, preview.join("\n") + `\n  wrote ${path}.${inBinding ? " The binding still carries an agents block (pre-0.28); run upgrade to move it." : ""}\n`);
 }
 
 async function runGraph(ctx) {

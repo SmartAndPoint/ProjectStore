@@ -20,7 +20,7 @@ subcommand (`.projectstore/projectstore.json`; else point to `/projectstore:bind
    It renders the block from the installed plugin's template ∩ the layout's
    roster (`scaffold/layouts/<layout>.json` — only routable agents get lines;
    the entry-rule line, the instruction-conflict line, the
-   model-resolution line and the vault-communication line always stay), places it (`AGENTS.md` when it
+   model-resolution line and the vault-native communication line always stay), places it (`AGENTS.md` when it
    exists, else `CLAUDE.md`; a block in the other file is migrated, never
    duplicated; `CLAUDE.md` gets an `@AGENTS.md` import), previews every
    write, and applies because the harness is named. A current block is

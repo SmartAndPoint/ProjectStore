@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { fakeInstall, writeRegistry, noHostEnv } from "./fixtures/install.mjs";
 import { plan, renderPreview, confirm, apply, runVerb } from "../scripts/install-harness.mjs";
-import { detectHarnesses, harnessRefusal, sourceHarness } from "../scripts/harness.mjs";
+import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses } from "../scripts/harness.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
 import { stamp, sourceHash, parseProvenance } from "../scripts/provenance.mjs";
 import {
@@ -68,6 +68,7 @@ function fixture() {
 }
 
 const item = (p, surface) => p.items.find((i) => i.surface === surface);
+const manifests = () => [...loadHarnesses().values()];
 const read = (f) => readFileSync(f, "utf8");
 
 // ─── Detection and refusal (contract 8) ─────────────────────────────────
@@ -181,6 +182,43 @@ test("install contract 6: a current block is skipped, a stale one is replaced in
   apply(p);
   const after = read(join(stale, "CLAUDE.md"));
   assert.equal(after, prose + BLOCK + tail, "only the block changed");
+});
+
+// The defect this pins, measured on the smoke stand 2026-09-07: a fresh install
+// on a project with neither file wrote CLAUDE.md — because the block's file list
+// was the source harness's, and analyseBlock takes the LAST entry when none of
+// them exists. Codex never reads CLAUDE.md; the rules had to be pasted into
+// AGENTS.md by hand before it saw them at all. The list is per-harness data now,
+// and this asserts it from the plan rather than from the manifest.
+test("install contract 6: on a project with neither file, the harness's own list decides — Codex gets AGENTS.md and no CLAUDE.md", () => {
+  const { home, root } = fixture();
+  const bare = project({ claude: null, agents: null });
+  const p = plan(bare, { home, root, harnesses: ["codex"], surfaces: ["agents_block"], env: noHostEnv() });
+  assert.equal(p.ok, true);
+  assert.deepEqual(p.harnesses, ["codex"]);
+  assert.equal(item(p, "agents_block").path, join(bare, "AGENTS.md"));
+  assert.equal(item(p, "agents_block").action, "create", "neither file exists, so the block's file is created");
+  assert.equal(item(p, "agents_block_import"), undefined, "a one-file list has nothing to import from");
+  apply(p);
+  assert.ok(read(join(bare, "AGENTS.md")).includes(BLOCK));
+  assert.ok(!existsSync(join(bare, "CLAUDE.md")), "Codex never reads CLAUDE.md — a fresh install must not create one");
+
+  // The contrast, on the same shape of project: the source harness's list has
+  // two entries and none of them exists, so analyseBlock takes the LAST — it
+  // writes CLAUDE.md, which Claude Code does read. Recorded, not celebrated:
+  // ADR-002 decision 3 prefers AGENTS.md as the cross-tool convention, and a
+  // bare project installed for Claude Code alone therefore leaves a Codex
+  // session in the same checkout with nothing to read until codex is installed
+  // too. Changing the tie-break is a behaviour change and belongs to the
+  // rendering slice, not here; what this slice fixes is that the CHOICE is now
+  // per-harness data instead of one list applied to everyone.
+  const src = project({ claude: null, agents: null });
+  const q = plan(src, { home, root, harnesses: [SRC.id], surfaces: ["agents_block"], env: noHostEnv() });
+  assert.equal(item(q, "agents_block").path, join(src, "CLAUDE.md"),
+    "KNOWN: with neither file present the two-entry list falls to its last entry");
+  apply(q);
+  assert.ok(read(join(src, "CLAUDE.md")).includes(BLOCK));
+  assert.ok(!existsSync(join(src, "AGENTS.md")));
 });
 
 test("install contract 6 / ADR-002 decision 3: AGENTS.md is preferred, CLAUDE.md gets the import, and a block in the other file migrates", () => {
@@ -512,6 +550,147 @@ test("install contract 13 / ADR-002 decision 4: uninstall removes the import reg
   apply(plan(kept, { home, root, surfaces: ["agents_block"] }));
   apply(plan(kept, { home, root, mode: "uninstall", surfaces: ["agents_block"] }));
   assert.equal(read(join(kept, "CLAUDE.md")), "@AGENTS.md\n\n# Mine\n", "an import in a CLAUDE.md with the user's prose stays — AGENTS.md still exists");
+});
+
+// Where the block LANDS, once a project is used from more than one harness.
+// The rule, and it is manifest data rather than a branch: look for an existing
+// block across the union of every manifest's list; write to a file this harness
+// can read; point every other existing file at it. Measured against the code as
+// it was on 2026-09-08, each of these produced a different and wrong answer.
+test("install contract 6: the block lands in the file every installed harness can read, and the others import it", () => {
+  const { home, root } = fixture();
+  const others = manifests().filter((m) => m.id !== SRC.id);
+  assert.ok(others.length, "this case needs a second manifest; it is vacuous with one");
+  const other = others[0];
+  const shared = other.surfaces.agents_block.files[0]; // the file both lists name
+  const own = SRC.surfaces.agents_block.files.find((f) => !other.surfaces.agents_block.files.includes(f));
+  assert.ok(shared && own, "the manifests must differ for this case to mean anything");
+
+  // 1. The source harness alone, with its own file present: nothing new is
+  //    created. A single-harness user does not acquire a file they never asked
+  //    for — the maintainer's rule, 2026-09-09.
+  const solo = project({ claude: "# Mine\n" });
+  apply(plan(solo, { harnesses: [SRC.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+  assert.ok(read(join(solo, own)).includes(BLOCK), `the block is in ${own}`);
+  assert.ok(!existsSync(join(solo, shared)), `${shared} is not created for a single harness`);
+
+  // 2. A second harness arrives. The block MOVES to the file both can read and
+  //    the first harness's file is left importing it — one block, not two.
+  //    Before this, each harness created its own copy and the project carried
+  //    the block twice until some later run repaired it.
+  apply(plan(solo, { harnesses: [other.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+  assert.ok(read(join(solo, shared)).includes(BLOCK), `the block moved to ${shared}`);
+  assert.ok(!read(join(solo, own)).includes(BLOCK), `${own} no longer carries a second copy`);
+  assert.ok(read(join(solo, own)).includes(`@${shared}`), `${own} imports ${shared}`);
+  assert.equal(read(join(solo, own)).trim().split("\n").pop(), "# Mine", "the user's prose survives the move");
+  // And both harnesses now agree there is nothing left to do.
+  for (const m of manifests()) {
+    assert.equal(item(plan(solo, { harnesses: [m.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }), "agents_block").action, "skip", `${m.id}: settled`);
+  }
+
+  // 3. The other harness alone, into a project that has the source harness's
+  //    file: the block goes where that harness can read it AND the existing
+  //    file is pointed at it. It used to be left untouched, so a Claude Code
+  //    session went on reading a file the substance had left.
+  const fresh = project({ claude: "# Mine\n" });
+  apply(plan(fresh, { harnesses: [other.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+  assert.ok(read(join(fresh, shared)).includes(BLOCK));
+  assert.ok(read(join(fresh, own)).includes(`@${shared}`), `${own} must import ${shared}, whichever harness installed`);
+
+  // 4. And no file is conjured for a harness that does not read it: installing
+  //    the other harness alone into a bare project creates the file IT reads
+  //    and nothing else.
+  const bare = project({});
+  apply(plan(bare, { harnesses: [other.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+  assert.ok(read(join(bare, shared)).includes(BLOCK));
+  assert.ok(!existsSync(join(bare, own)), `${own} is not created for a harness that does not read it`);
+});
+
+// Installing FOR a harness means the file that harness reads BY ITSELF ends up
+// present — holding the block when it lands there, holding the import when it
+// lands elsewhere. Measured 2026-09-09 against the code as it then was: a
+// project with an AGENTS.md and no CLAUDE.md took the block into AGENTS.md and
+// built no bridge, so Claude Code — the harness that ran the install — could
+// not see what it had just installed, while every placement assertion passed.
+test("install contract 6: installing for a harness leaves the file that harness reads natively present, block or bridge", () => {
+  const { home, root } = fixture();
+  for (const m of manifests()) {
+    const native = m.surfaces.agents_block.reads_natively;
+    assert.ok(native, `${m.id}: the manifest must say which file this harness reads by itself`);
+    const foreign = manifests().filter((o) => o.id !== m.id).flatMap((o) => o.surfaces.agents_block.files).filter((f) => f !== native);
+
+    // The block already sits in a file this harness prefers but cannot read
+    // unaided — the cell that used to leave it blind.
+    const proj = project({});
+    writeFileSync(join(proj, m.surfaces.agents_block.files[0]), "# Theirs\n");
+    apply(plan(proj, { harnesses: [m.id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+
+    assert.ok(existsSync(join(proj, native)), `${m.id}: ${native} must exist after installing for this harness`);
+    const text = read(join(proj, native));
+    const here = text.includes(BLOCK);
+    const elsewhere = foreign.some((f) => existsSync(join(proj, f)) && read(join(proj, f)).includes(BLOCK) && text.includes(`@${f}`));
+    assert.ok(here || elsewhere, `${m.id}: ${native} carries neither the block nor an import to the file that does`);
+    assert.equal(here && elsewhere, false, `${m.id}: ${native} carries both the block and an import — one or the other`);
+  }
+});
+
+// The agents block is the one surface the PROJECT owns rather than a harness:
+// several harnesses read the same file. Measured 2026-09-09 against the code as
+// it then was — `uninstall --harness <other>` DELETED AGENTS.md while the source
+// harness was still reading it through an @AGENTS.md import, and the reverse
+// stripped the block Codex reads. Either way, disowning one harness silently
+// disabled the other. Both directions are asserted here because the defect was
+// symmetric and only one of them is obvious.
+test("install contract 13: disowning one harness leaves the project's agents block alone while another harness reads it", () => {
+  const { home, root } = fixture();
+  const others = manifests().filter((m) => m.id !== SRC.id);
+  assert.ok(others.length, "this case needs a second manifest; it is vacuous with one");
+
+  for (const victim of [others[0], SRC]) {
+    const proj = project({ claude: "# Mine\n" });
+    for (const m of manifests()) mkdirSync(join(proj, m.runtime.harness_dir), { recursive: true });
+    // Installed in the order that reaches the shared end state: the block in
+    // the file every harness can read, and CLAUDE.md importing it.
+    for (const id of [others[0].id, SRC.id]) apply(plan(proj, { harnesses: [id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+    assert.ok(read(join(proj, "AGENTS.md")).includes(BLOCK), "precondition: the block is in the shared file");
+    assert.ok(read(join(proj, "CLAUDE.md")).includes("@AGENTS.md"), "precondition: CLAUDE.md imports it");
+
+    const u = plan(proj, { harnesses: [victim.id], mode: "uninstall", home, root, env: noHostEnv() });
+    const item = u.items.find((i) => i.surface === "agents_block");
+    assert.equal(item.action, "skip", `${victim.id}: a bare uninstall must not touch a block another harness reads`);
+    assert.match(item.reason, /read by another harness|--surface agents_block/, `${victim.id}: the skip says why and how to force it`);
+    apply(u, { env: noHostEnv(), home });
+    assert.ok(read(join(proj, "AGENTS.md")).includes(BLOCK), `${victim.id}: the block survived`);
+    assert.ok(read(join(proj, "CLAUDE.md")).includes("@AGENTS.md"), `${victim.id}: the import survived`);
+  }
+});
+
+test("install contract 13: the last harness still clears the block, and naming the surface forces it — with no import left pointing at nothing", () => {
+  const { home, root } = fixture();
+  // One harness only: nothing else reads its file, so a bare uninstall clears
+  // it exactly as it always has. This is the common case and must not change.
+  const alone = project({ claude: "# Mine\n" });
+  apply(plan(alone, { home, root, surfaces: ["agents_block"] }));
+  assert.ok(read(join(alone, "CLAUDE.md")).includes(BLOCK));
+  apply(plan(alone, { home, root, mode: "uninstall" }));
+  assert.equal(read(join(alone, "CLAUDE.md")), "# Mine\n", "the user's prose is returned byte-for-byte");
+
+  // Naming the surface is the confirmation, as it is for every other write this
+  // bin makes — and when the file the import names goes with it, the import
+  // goes too. Before 2026-09-09 that cleanup could not fire for a harness whose
+  // block list has ONE entry: its PREFERRED and FALLBACK are the same file, and
+  // the old condition asked for a block in one and not the other.
+  const others = manifests().filter((m) => m.id !== SRC.id);
+  if (!others.length) return;
+  const shared = project({ claude: "# Mine\n" });
+  for (const m of manifests()) mkdirSync(join(shared, m.runtime.harness_dir), { recursive: true });
+  for (const id of [others[0].id, SRC.id]) apply(plan(shared, { harnesses: [id], home, root, env: noHostEnv(), surfaces: ["agents_block"] }));
+
+  const forced = plan(shared, { harnesses: [others[0].id], mode: "uninstall", home, root, env: noHostEnv(), surfaces: ["agents_block"] });
+  assert.equal(forced.items.find((i) => i.surface === "agents_block").action, "remove", "naming the surface removes it");
+  apply(forced, { env: noHostEnv(), home });
+  assert.ok(!existsSync(join(shared, "AGENTS.md")), "the file it created and nothing else held is gone");
+  assert.equal(read(join(shared, "CLAUDE.md")), "# Mine\n", "and no @AGENTS.md is left pointing at a file that no longer exists");
 });
 
 test("install contract 7 (amended 2026-09-05) / 13: a dev-checkout root reports a launcher it did not write and never deletes it; uninstall removes it; a foreign one is left", () => {
