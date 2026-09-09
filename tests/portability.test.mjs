@@ -709,6 +709,75 @@ test("skills: a harness that loads the source tree unrendered declares it, and t
   assert.ok(!leaks.includes(`${NAMESPACE}-vault-communication`), "the vault-communication skill names no command surface, and that is why it needs no rendering");
 });
 
+// The layout ADR's decision 2, as accepted: no manifest names the binding, the
+// overlay or the state key — those are computed — while a SURFACE may name its
+// own file, and that name is held to what the layout produces.
+//
+// The first version of this test asserted only the second half, and said it
+// asserted both. Mutation showed the gap: its check was "is this path one the
+// layout produces", and the layout produces the binding, the overlay and the
+// state key too — so declaring the launcher AT the binding passed. It also
+// swept two field names and disengaged entirely once a path left
+// `.projectstore/`, which is the original violation shape. Both halves are
+// asserted here, over every string the surfaces carry.
+const OURS = /(^|\/)\.projectstore\//;
+
+test("layout ADR decision 2: a surface may name its own file; no manifest names the binding, the overlay or the state key", () => {
+  const proj = "/p";
+  const rel = (x) => x.slice(proj.length + 1);
+  // Every string value under `surfaces`, whatever the field is called: a new
+  // surface reintroducing the drift through `dir`, `files[]` or `source` is the
+  // same defect through a different key.
+  const strings = (o, path = []) => Object.entries(o || {}).flatMap(([k, v]) => {
+    if (/_reason$|_comment$/.test(k) || k.startsWith("_")) return [];
+    if (Array.isArray(v)) return v.flatMap((x, i) => (typeof x === "string" ? [[[...path, `${k}[${i}]`].join("."), x]] : (x && typeof x === "object" ? strings(x, [...path, `${k}[${i}]`]) : [])));
+    if (v && typeof v === "object") return strings(v, [...path, k]);
+    return typeof v === "string" ? [[[...path, k].join("."), v]] : [];
+  });
+
+  let checked = 0;
+  for (const m of manifests()) {
+    const p = layoutPaths(proj, { harnessDir: m.runtime.harness_dir });
+    // What is OURS to compute and no manifest may name, however it spells it.
+    const reserved = new Map([
+      [rel(p.binding), "the binding"],
+      [rel(p.overlayDir), "the overlay directory"],
+      [rel(p.overlay(m.runtime.overlay)), "this harness's overlay"],
+      [rel(p.state), "the state root"],
+      [rel(p.sessions), "the shared session store"],
+      [rel(p.entryLog), "the entry log"],
+      [rel(p.gitignore), "the layout's ignore file"],
+      [rel(p.stateGitignore), "the state ignore file"],
+      [rel(p.legacy.binding), "the legacy binding"],
+    ]);
+    // What a surface of THIS harness may name, split by WHICH path it is. A
+    // legacy field may name where an earlier release wrote — under the
+    // harness's own directory, which is exactly what the layout move ended.
+    // A current field may not: declaring `file` as the legacy path is the
+    // pre-layout shape restored, and it passed while the two shared one set.
+    const allowedCurrent = new Set([
+      p.launcher(m.runtime.overlay), p.welcomed(m.runtime.overlay), p.harnessState(m.runtime.overlay),
+    ].filter(Boolean).map(rel));
+    const allowedLegacy = new Set([p.legacy.launcher, p.legacy.runtime, p.legacy.state].filter(Boolean).map(rel));
+
+    for (const [field, value] of strings(m.surfaces)) {
+      if (!OURS.test(value)) continue;
+      checked++;
+      const why = reserved.get(value);
+      assert.ok(!why, `${m.id}: surfaces.${field} names ${value} — that is ${why}, which the layout computes and no manifest may declare (layout ADR decision 2)`);
+      const legacy = /legacy/i.test(field);
+      const allowed = legacy ? allowedLegacy : allowedCurrent;
+      assert.ok(
+        allowed.has(value),
+        `${m.id}: surfaces.${field} declares ${value}, which layoutPaths() does not produce as `
+        + `${legacy ? "a legacy" : "a current"} path for this harness — either the manifest and the layout have `
+        + "drifted, or a current path has been declared where an earlier release wrote (the shape the layout move ended)",
+      );
+    }
+  }
+  assert.ok(checked >= 2, "no surface declares a path under our directory — this test would be asserting nothing");
+});
+
 test("generation contract 6: lint patterns are derived from the OTHER manifests, and empty for the source layout", () => {
   assert.deepEqual(lintPatterns(sourceHarness()), []);
   // A fictitious emitting harness sees the source harness's tools and variables as forbidden tokens.
