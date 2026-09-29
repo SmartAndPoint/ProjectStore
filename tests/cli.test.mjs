@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject } from "../scripts/cli.mjs";
-import { sourceHarness } from "../scripts/harness.mjs";
+import { loadHarness, sourceHarness } from "../scripts/harness.mjs";
 import { layoutPaths } from "../scripts/lib.mjs";
 import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
 import { neighbors as neighborsOp, LINEAGE_KINDS } from "../scripts/query.mjs";
@@ -47,6 +47,27 @@ function project({ bound = true } = {}) {
     writeBinding(proj, JSON.stringify({ vault_path: vault, layout: "engineering" }));
   }
   return proj;
+}
+
+function projectForHarness(harness) {
+  const proj = mkdtempSync(join(tmpdir(), "ps-cli-harness-"));
+  mkdirSync(join(proj, harness.runtime.harness_dir), { recursive: true });
+  const vault = mkdtempSync(join(tmpdir(), "ps-vault-"));
+  writeBinding(proj, JSON.stringify({ vault_path: vault, layout: "engineering" }));
+  return proj;
+}
+
+function semanticInstallItems(items, projectDir) {
+  return items.map((item) => ({
+    harness: item.harness,
+    surface: item.surface,
+    kind: item.kind,
+    path: item.path === null ? null : item.path.replace(projectDir, "<project>"),
+    entry: item.entry ?? null,
+    state: item.state,
+    action: item.action,
+    reason: item.reason ?? null,
+  }));
 }
 
 test("cli: the verb table is the contract — every shipped verb wraps a module that exists, and the union covers the MCP ADR's eight tools", () => {
@@ -197,6 +218,58 @@ test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses
   const un = JSON.parse(bin(["uninstall", "--project", proj, "--harness", SRC.id, "--json"], { env }).stdout);
   assert.equal(un.ok, true);
   assert.ok(!existsSync(join(proj, "CLAUDE.md")) || !readFileSync(join(proj, "CLAUDE.md"), "utf8").includes("projectstore:agents"));
+});
+
+test("cli: Codex plan/install preserve pathless rows and semantics in text and JSON", () => {
+  const codex = loadHarness("codex");
+  assert.ok(codex, "the Codex identity manifest is present");
+
+  const run = (verb, json) => {
+    const proj = projectForHarness(codex);
+    const home = mkdtempSync(join(tmpdir(), "ps-codex-home-"));
+    const env = {
+      [codex.runtime.home_env]: home,
+      PATH: "",
+      ...Object.fromEntries((codex.runtime.detect_env || []).map((key) => [key, undefined])),
+    };
+    const args = [verb, "--project", proj, "--harness", codex.id];
+    if (json) args.push("--json");
+    const result = bin(args, { env });
+    return { proj, result, output: json ? JSON.parse(result.stdout) : null };
+  };
+
+  const planText = run("plan", false);
+  const planJson = run("plan", true);
+  const installText = run("install", false);
+  const installJson = run("install", true);
+
+  for (const sample of [planText, planJson, installText, installJson]) {
+    assert.equal(sample.result.status, 0, sample.result.stderr || sample.result.stdout);
+  }
+  assert.ok(!existsSync(join(planText.proj, "AGENTS.md")), "text plan writes nothing");
+  assert.ok(!existsSync(join(planJson.proj, "AGENTS.md")), "JSON plan writes nothing");
+
+  const planItems = semanticInstallItems(planJson.output.result.items, planJson.proj);
+  const installItems = semanticInstallItems(installJson.output.result.items, installJson.proj);
+  assert.deepEqual(installItems, planItems, "output selection and verb preserve the fresh-state plan");
+  const pathless = planItems.filter((item) => item.path === null);
+  assert.ok(pathless.length > 0, "the public Codex plan exercises pathless host rows");
+  for (const item of pathless) {
+    for (const text of [planText.result.stdout, installText.result.stdout]) {
+      assert.ok(text.includes(`harness=${item.harness}`), `text names ${item.harness}`);
+      assert.ok(text.includes(`surface=${item.surface}`), `text names ${item.surface}`);
+      assert.ok(text.includes("[no filesystem path]"), "text marks the absent target explicitly");
+    }
+  }
+
+  assert.equal(installJson.output.result.gate.why, "named");
+  assert.equal(installJson.output.result.applied.length, 1);
+  assert.match(installText.result.stdout, /applied 1 change\(s\)\./);
+  assert.equal(
+    readFileSync(join(installText.proj, "AGENTS.md"), "utf8"),
+    readFileSync(join(installJson.proj, "AGENTS.md"), "utf8"),
+    "text and JSON installs produce the same managed file",
+  );
 });
 
 // Roadmap A8: the prompt surface (commands, agents, skills) invokes ONE path,

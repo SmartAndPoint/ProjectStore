@@ -713,7 +713,10 @@ export function renderPreview(p) {
   for (const r of p.reports) lines.push(...r.split("\n").map((l) => "  " + l), "");
   const writes = p.items.filter(isWrite);
   for (const i of p.items) {
-    const where = rel(p.projectDir, i.path) + (i.entry ? `  [${i.entry}]` : "");
+    const target = i.path === null
+      ? `harness=${i.harness}  surface=${i.surface}  [no filesystem path]`
+      : rel(p.projectDir, i.path);
+    const where = target + (i.entry ? `  [${i.entry}]` : "");
     let state = i.state;
     if (i.state === "current" && i.writtenBy && !i.sameProject) state = `current, last written by ${i.writtenBy}`;
     if (i.reason && i.action !== "refuse") state += ` (${i.reason})`;

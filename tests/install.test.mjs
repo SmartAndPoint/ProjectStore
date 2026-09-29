@@ -145,6 +145,37 @@ test("install: a fresh cache-installed project plans three creates and writes no
   finally { if (prevRoot === undefined) delete process.env[SRC.runtime.plugin_root_env]; else process.env[SRC.runtime.plugin_root_env] = prevRoot; }
 });
 
+test("install preview: a pathless public harness row keeps its identity without inventing a filesystem target", () => {
+  const p = {
+    mode: "install",
+    harnesses: ["codex"],
+    projectDir: "/tmp/project",
+    plannedAgainst: {},
+    root: "/tmp/plugin",
+    reports: [],
+    items: [{
+      harness: "codex",
+      surface: "commands",
+      kind: "host",
+      path: null,
+      entry: null,
+      state: "unsupported",
+      action: "skip",
+      reason: "Codex has no registrable root slash command",
+    }],
+    refusals: [],
+    ok: true,
+    incomplete: false,
+  };
+
+  const preview = renderPreview(p);
+  assert.match(preview, /harness=codex/);
+  assert.match(preview, /surface=commands/);
+  assert.match(preview, /\[no filesystem path\]/);
+  assert.match(preview, /unsupported/);
+  assert.match(preview, /→ skip/);
+});
+
 test("install: a dev checkout wires the plugin script directly and plans no launcher", () => {
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   const dev = mkdtempSync(join(tmpdir(), "ps-dev-"));
