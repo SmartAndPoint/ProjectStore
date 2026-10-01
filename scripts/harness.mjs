@@ -488,6 +488,31 @@ export function isWriteTool(tool, env = process.env) {
   return writeTools(env).includes(tool);
 }
 
+// Paths carried by a harness tool payload. Ordinary tools expose one of the
+// manifest's path_fields directly. Codex's apply_patch carries a complete patch
+// envelope in a string field instead, so every Add/Update/Delete path is
+// extracted without teaching the hook a harness name or a patch field name.
+export function toolPaths(input, env = process.env) {
+  const ti = input?.tool_input;
+  if (!ti || typeof ti !== "object") return [];
+  const tools = activeHarness(env)?.tools || {};
+  const out = [];
+  for (const field of tools.path_fields || []) {
+    const value = ti[field];
+    if (typeof value === "string" && value) out.push(value);
+  }
+  const envelope = tools.patch_envelope_field && ti[tools.patch_envelope_field];
+  if (typeof envelope === "string") {
+    for (const line of envelope.split(/\r?\n/)) {
+      const m = line.match(/^\*\*\* (?:Add|Update|Delete) File:\s*(.+?)\s*$/);
+      if (m) out.push(m[1]);
+      const moved = line.match(/^\*\*\* Move to:\s*(.+?)\s*$/);
+      if (moved) out.push(moved[1]);
+    }
+  }
+  return [...new Set(out)];
+}
+
 // ─── Lint patterns (contract 6) ────────────────────────────────────────
 
 // The forbidden-unmapped list for one EMITTING harness: its own declared

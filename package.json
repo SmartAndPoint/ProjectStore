@@ -60,9 +60,11 @@
     "test": "node --test tests/*.test.mjs",
     "guard": "node scripts/version-guard.mjs",
     "packlist": "node scripts/version-guard.mjs --write-packlist",
+    "adapters": "node scripts/build-adapters.mjs --write",
+    "adapters:check": "node scripts/build-adapters.mjs --check",
     "shells": "node packaging/shells.mjs --write",
     "shells:check": "node packaging/shells.mjs --check",
     "shells:build": "node packaging/shells.mjs --build --out dist",
-    "release:check": "npm run guard && npm run shells:check && npm test && npm pack --dry-run"
+    "release:check": "npm run adapters:check && npm run guard && npm run shells:check && npm test && npm pack --dry-run"
   }
 }

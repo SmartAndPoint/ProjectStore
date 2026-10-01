@@ -39,10 +39,12 @@ import {
   runtimeEnvNames,
   sourceWriteTools,
   writeTools,
+  toolPaths,
   lintPatterns,
   harnessForOverlay,
 } from "../scripts/harness.mjs";
 import { WRITE_TOOLS, isWriteTool, layoutPaths } from "../scripts/lib.mjs";
+import { checkCodexAdapter, renderCodexAdapter } from "../scripts/build-adapters.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifests = () => [...loadHarnesses(MANIFEST_DIR).values()];
@@ -139,9 +141,22 @@ test("generation contract 1: every manifest parses strictly and declares what th
       if (s.kind === "registration") {
         for (const f of ["marketplace_name", "plugin_name", "plugin_subdir", "manifest", "provenance_key", "condition"]) assert.equal(typeof s[f], "string", `${n}: surfaces.${kind}.${f}`);
         assert.ok(Array.isArray(s.dir) && s.dir.length, `${n}: surfaces.${kind}.dir`);
-        assert.ok(s.registry && typeof s.registry.enabled_pointer === "string", `${n}: surfaces.${kind}.registry`);
         assert.ok(s.cli && typeof s.cli.bin === "string" && s.cli.commands && typeof s.cli.verified?.date === "string", `${n}: surfaces.${kind}.cli with a measured date`);
-        for (const c of ["validate", "marketplace_add", "marketplace_update", "marketplace_remove", "install", "update", "uninstall", "disable", "enable"]) assert.ok(Array.isArray(s.cli.commands[c]), `${n}: cli.commands.${c}`);
+        if (s.format === "host-plugin-registration") {
+          assert.ok(s.registry && typeof s.registry.enabled_pointer === "string", `${n}: surfaces.${kind}.registry`);
+          for (const c of ["validate", "marketplace_add", "marketplace_update", "marketplace_remove", "install", "update", "uninstall", "disable", "enable"]) assert.ok(Array.isArray(s.cli.commands[c]), `${n}: cli.commands.${c}`);
+        } else {
+          assert.equal(s.format, "portable-plugin-registration");
+          assert.equal(s.ownership, "global");
+          assert.equal(s.registry?.format, "toml");
+          assert.equal(typeof s.ownership_manifest, "string");
+          for (const c of s.cli.required || []) assert.ok(Array.isArray(s.cli.commands[c]) && s.cli.commands[c].length > 0, `${n}: required cli.commands.${c}`);
+          for (const c of s.cli.optional || []) {
+            const command = s.cli.commands[c];
+            assert.ok((Array.isArray(command) && command.length > 0) || typeof s.cli.fallbacks?.[c] === "string", `${n}: optional ${c} has a command or declared fallback`);
+          }
+          for (const [c, argv] of Object.entries(s.cli.commands)) assert.ok(Array.isArray(argv) && argv.length > 0, `${n}: ${c} never uses empty argv`);
+        }
       }
       if (s.kind === "shared") assert.ok(s.marker && typeof s.marker === "object", `${n}: surfaces.${kind}.marker (install spec contract 6)`);
       // The agents block is the one surface a project shares between harnesses,
@@ -160,7 +175,7 @@ test("generation contract 1: every manifest parses strictly and declares what th
   }
 });
 
-test("generation contract 2: exactly one manifest is the source layout, and it neither emits, lints nor rewrites", () => {
+test("generation contract 2: exactly one manifest is the source layout, while the measured target emits a committed adapter", () => {
   const src = manifests().filter((m) => m.source_layout);
   assert.equal(src.length, 1);
   const m = src[0];
@@ -169,7 +184,11 @@ test("generation contract 2: exactly one manifest is the source layout, and it n
   assert.ok(!("lint" in m), "the source manifest carries no lint block — linting runs over emitted trees only");
   assert.deepEqual(m.rewrites, []);
   assert.equal(sourceHarness().id, m.id);
-  assert.deepEqual(emittingHarnesses(), [], "no emitting harness yet — the generator story fills this seam");
+  const emitting = emittingHarnesses();
+  assert.equal(emitting.length, 1);
+  assert.equal(emitting[0].source_layout, false);
+  assert.equal(emitting[0].output_dir, `adapters/${emitting[0].id}`);
+  assert.ok(readdirSync(join(ROOT, emitting[0].output_dir)).length > 0, "the emitted tree is committed, not only declared");
 });
 
 test("generation contract 16: the source harness is verified, so it is not experimental", () => {
@@ -177,6 +196,40 @@ test("generation contract 16: the source harness is verified, so it is not exper
   assert.notEqual(m.verified, null);
   assert.equal(m.output_channels.PreCompact.fields.length, 0, "PreCompact has no model-facing hookSpecificOutput channel — measured negatively");
   assert.equal(m.output_channels.Stop.evidence, "measured");
+});
+
+test("Codex adapter: every command, role and passive skill is rendered deterministically under the projectstore namespace", () => {
+  const rendered = renderCodexAdapter();
+  const skillPaths = [...rendered.keys()].filter((p) => p.endsWith("/SKILL.md"));
+  const commandCount = readdirSync(join(ROOT, "commands")).filter((n) => n.endsWith(".md")).length;
+  const roleCount = readdirSync(join(ROOT, "agents")).filter((n) => n.endsWith(".md")).length;
+  const passiveCount = readdirSync(join(ROOT, "skills"), { withFileTypes: true }).filter((e) => e.isDirectory() && e.name.startsWith("projectstore-")).length;
+  assert.equal(skillPaths.length, commandCount + roleCount + passiveCount);
+  assert.ok(skillPaths.every((p) => /^skills\/projectstore-[^/]+\/SKILL\.md$/.test(p)));
+  for (const path of skillPaths) {
+    assert.doesNotMatch(rendered.get(path), /\$ARGUMENTS|\/projectstore:/, `${path}: host-substituted source command vocabulary must not survive rendering`);
+    assert.match(rendered.get(path), /export `PROJECTSTORE_CORE_ROOT`.*own shell statement/s, `${path}: runtime setup must forbid the shell-scoping trap seen in a fresh Codex session`);
+  }
+  for (const path of skillPaths.filter((p) => /projectstore-(?:critic|planner|reviewer|clerk|librarian|archaeologist)/.test(p))) {
+    assert.doesNotMatch(rendered.get(path).split("---")[1], /\b(?:Opus|Sonnet)\b|max-effort/, `${path}: source-harness model branding must not leak into Codex discovery text`);
+  }
+  const hooks = JSON.parse(rendered.get("hooks/hooks.json"));
+  assert.ok(hooks.hooks.SessionStart[0].hooks.every((h) => h.command.startsWith('node "${PLUGIN_ROOT}/node_modules/projectstore/')));
+  assert.deepEqual(checkCodexAdapter(), { ok: true, count: rendered.size, missing: [], unexpected: [], drift: [] });
+  assert.deepEqual([...renderCodexAdapter()], [...rendered], "the same source renders byte-identically twice");
+});
+
+test("Codex command overrides are capability-aware, not token-rewritten Claude workflows", () => {
+  const rendered = renderCodexAdapter();
+  const get = (name) => rendered.get(`skills/projectstore-${name}/SKILL.md`);
+  const joined = [...rendered.values()].join("\n");
+  assert.doesNotMatch(joined, /CLAUDE_CODE_|\/reload-plugins\b|\/plugin(?:\s|\b)|harness\/codex-code\.json|\b(?:opus|sonnet|fable)\b/i);
+  assert.match(get("agents"), /agents configure --harness codex/);
+  assert.match(get("bind"), /Codex has no ProjectStore status-line surface/);
+  assert.doesNotMatch(get("bind"), /--surface statusline|statusline\.enabled/);
+  assert.match(get("doctor"), /upgrade --harness codex/);
+  assert.match(get("statusline"), /not supported by the Codex\s+harness/);
+  assert.doesNotMatch(get("statusline"), /projectstore\.mjs[^\n]*--surface statusline|statusline\.enabled\s*=/);
 });
 
 // The other half of contract 16: the label a reader sees is DERIVED from
@@ -788,15 +841,15 @@ test("generation contract 6: lint patterns are derived from the OTHER manifests,
   assert.ok(pats.some((p) => p.pattern === `\\b${sourceHarness().runtime.plugin_root_env}\\b`));
 });
 
-test("tools.path_fields is the extractor's list — pinned until harness.mjs owns extraction", () => {
-  // scripts/touch-session.mjs still extracts the path itself
-  // (`ti.file_path || ti.notebook_path || ti.path`); routing it through the
-  // manifest is the generator story's path-extraction item (Codex's
-  // apply_patch needs it). Until then the two lists may not drift.
-  const src = readFileSync(join(ROOT, "scripts", "touch-session.mjs"), "utf8");
-  const m = /ti\.(\w+)\s*\|\|\s*ti\.(\w+)\s*\|\|\s*ti\.(\w+)/.exec(src);
-  assert.ok(m, "touch-session.mjs's three-field extractor is where this test expects it");
-  assert.deepEqual(sourceHarness().tools.path_fields, [m[1], m[2], m[3]]);
+test("tool paths are manifest-driven, including every path in Codex's patch envelope", () => {
+  resetDetection();
+  const source = toolPaths({ tool_input: { file_path: "/a", notebook_path: "/b", path: "/c" } }, { CLAUDE_PLUGIN_ROOT: ROOT });
+  assert.deepEqual(source, ["/a", "/b", "/c"]);
+  resetDetection();
+  const codex = toolPaths({ tool_input: { command: "*** Begin Patch\n*** Update File: /a.js\n*** Move to: /b.js\n*** Add File: /c.js\n*** Delete File: /d.js\n*** End Patch" } }, { PLUGIN_ROOT: ROOT });
+  assert.deepEqual(codex, ["/a.js", "/b.js", "/c.js", "/d.js"]);
+  assert.deepEqual(writeTools({ PLUGIN_ROOT: ROOT }), ["apply_patch"]);
+  resetDetection();
 });
 
 test("hooks.json's placeholder and write matcher are the manifest's", () => {

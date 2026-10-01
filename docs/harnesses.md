@@ -14,19 +14,17 @@ This page says which harnesses exist, how far each one is trusted, and what
 | Harness | id | Status | Verified | Surfaces installed |
 |---|---|---|---|---|
 | Claude Code | `claude-code` | **supported** | 2026-08-30 | hooks, commands, agents, skills, MCP, status line, agents block |
-| Codex | `codex` | **experimental** | — | hooks, skills, agents block |
+| Codex | `codex` | **supported** | 2026-09-30 | portable plugin, hooks, rendered workflow skills, agents block |
 
 **supported** means the manifest carries a `verified` block: a session id and a
 date on which this harness's surfaces were installed and exercised end to end,
 and the measurements in the manifest came from that run.
 
-**experimental** means `verified` is `null`. The manifest is built from what was
-measured in a spike — for Codex, 759 captured hook firings across three
-interactive runs on 2026-09-07/08 — and every field that was not measured is
-absent or `null` rather than guessed. It is enough to run on; it is not enough
-to promise. Two consequences you can rely on: an experimental harness is never
-the source layout, and it never emits a generated tree until the maintainer
-turns `emit` on.
+**experimental** means `verified` is `null`. Every field that was not measured
+is absent or `null` rather than guessed. It is enough to run on; it is not enough
+to promise. An experimental harness is never the source layout. A generated
+adapter may exist while it is experimental, but its distribution shell stays
+private until the complete built artifact passes the live gate.
 
 The label is not prose. It is derived from the manifest, and
 `tests/portability.test.mjs` fails if this table and `verified` disagree.
@@ -45,31 +43,53 @@ model names and those are harness-specific — is
 
 ## Codex
 
-Experimental. What is known, and how:
+Supported on `codex-cli 0.153.4`. The initial spike captured 759 hook firings;
+the 2026-09-30 gate then built the npm shell from a packed core, passed the
+Codex plugin validator, installed and upgraded it through an isolated
+`CODEX_HOME`, verified the materialised cache by version and digest, and loaded
+`$projectstore-status` in a fresh Codex session.
 
-- **Hooks fire.** They are declared inside the plugin manifest
-  (`.codex-plugin/plugin.json`, under `hooks.hooks.<Event>`), not in a
-  plugin-root `hooks/hooks.json`. Five events: `SessionStart`, `PreToolUse`,
+The shell has passed its local release gate but is not published yet. Install
+the built tarball through npx from this checkout with:
+
+```sh
+npm run shells:build -- --only projectstore-codex --dev --out dist
+npx --package ./dist/projectstore-codex-0.28.0-rc.2.tgz projectstore-codex install --project "$PWD"
+```
+
+The shell package is release-gated until its first npm publication. From this
+repository, the same flow is exercised against the packed tarball. Installation
+is user-global because Codex stores marketplace registrations and plugin caches
+in `CODEX_HOME`; the agents block in `AGENTS.md` remains project-local. After
+the first explicit npm publication, the shorter registry form is
+`npx projectstore-codex@<version> install --project "$PWD"` (or `upgrade`). Ordinary
+uninstall leaves the global plugin in place; add `--global` only when you mean
+to remove it for every project.
+
+What is known, and how:
+
+- **Hooks fire.** The canonical portable `plugin.json` selects
+  `./hooks/hooks.json` through `extensions.com.openai`; the compatibility
+  `.codex-plugin/plugin.json` stays inside the current ingestion schema. Five events: `SessionStart`, `PreToolUse`,
   `PostToolUse`, `Stop`, `PreCompact`. The hook process receives `PLUGIN_ROOT`
   in its environment and **no project-directory variable at all** — the project
   comes from the payload's `cwd`, which every projectstore hook adopts before it
   resolves anything.
 - **Trust is granted per hook, machine-wide**, and it lags: a release that
   changes hooks may not take effect until the session after next.
-- **Commands are not shipped.** Codex has no registrable root slash command, and
+- **Source commands are not shipped.** Codex has no registrable root slash command, and
   shipping `commands/` is actively harmful — it rewrites them into skills itself
   and leaves `${CLAUDE_PLUGIN_ROOT}` in the body, producing entry points that
   exit 1. They are rendered as skills instead.
-- **Agents are not shipped either.** Codex spawns subagents through a tool of
-  its own, not by loading a plugin's `agents/` directory: told to run
-  `projectstore:critic`, it spawned six generic subagents named after the roster
-  and briefed them itself. Codex does have a definition file that carries a model
-  and a reasoning effort (`.codex/agents/<name>.toml`), but no route from a
-  plugin to it has been found, so a role's model is not shipped today.
-- **The activity log stays empty on Codex.** Its `apply_patch` carries the file
-  path inside the patch envelope rather than in a payload field, and the envelope
-  has not been measured, so nothing is parsed from it. This is a known gap, not
-  a silent one.
+- **Roles are rendered as orchestration skills.** Codex spawns subagents through
+  its collaboration tool, not by loading a plugin's `agents/` directory. The
+  six ProjectStore roles therefore ship as namespaced skills that resolve their
+  configured model through the core and ask Codex to spawn the role. No effort
+  is forced: it inherits unless the user has configured a model policy.
+- **Multi-file edits reach the activity log and entry rule.** Codex's
+  `apply_patch` carries paths inside `tool_input.command`; the shared extractor
+  reads every `Add`, `Update`, `Delete` and `Move to` path from that measured
+  envelope field. The field name remains manifest data, not a Codex branch.
 - **MCP does not ship.** Our `.mcp.json` is in Claude Code's dialect.
 
 Codex also sets Claude Code's `CLAUDE_PLUGIN_ROOT` for compatibility. A variable

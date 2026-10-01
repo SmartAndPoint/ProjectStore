@@ -84,6 +84,7 @@ const opt = (name, arg, summary, multiple = false) => Object.freeze({ name, arg,
 const JSON_OPT = opt("json", false, "the envelope");
 const READ_JSON = [JSON_OPT];
 const INSTALL_OPTS = [opt("harness", "<id>", "the harness — and, non-interactively, the confirmation; there is no --yes", true), opt("surface", "<key>", "one surface and those beneath it", true), JSON_OPT];
+const UNINSTALL_OPTS = [...INSTALL_OPTS.slice(0, -1), opt("global", false, "also remove the harness-global plugin registration"), JSON_OPT];
 
 export const VERBS = Object.freeze([
   Object.freeze({
@@ -111,7 +112,7 @@ export const VERBS = Object.freeze([
   Object.freeze({
     verb: "uninstall", summary: "Remove what install wrote, and only that.",
     module: "./install-harness.mjs", wraps: "module", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
-    options: INSTALL_OPTS, run: runInstallVerb,
+    options: UNINSTALL_OPTS, run: runInstallVerb,
   }),
   Object.freeze({
     verb: "upgrade", summary: "Re-run install after a plugin update; re-stamps what this installation wrote and leaves the rest.",
@@ -210,7 +211,7 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
       strict: true,
       options: {
         project: { type: "string" }, json: { type: "boolean" }, help: { type: "boolean", short: "h" }, version: { type: "boolean", short: "v" },
-        harness: { type: "string", multiple: true }, surface: { type: "string", multiple: true },
+        harness: { type: "string", multiple: true }, surface: { type: "string", multiple: true }, global: { type: "boolean" },
         write: { type: "boolean" }, only: { type: "string" }, install: { type: "boolean" }, vault: { type: "boolean" },
         kind: { type: "string", multiple: true }, status: { type: "string" }, limit: { type: "string" }, "include-derived": { type: "boolean" }, "case-sensitive": { type: "boolean" },
         body: { type: "boolean" }, section: { type: "string" }, direction: { type: "string" }, depth: { type: "string" }, for: { type: "string" }, reverse: { type: "boolean" },
@@ -566,7 +567,7 @@ async function runReconcile({ values, project, env, stdin, stdout, stderr, ask }
 
 async function runInstallVerb({ row, values, project, env, stdin, stdout, ask }) {
   const ih = await import("./install-harness.mjs");
-  const opts = { harnesses: values.harness || [], surfaces: values.surface && values.surface.length ? values.surface : null, root: PACKAGE_ROOT, env: ownEnv(env, project), stdin, stdout, ask };
+  const opts = { harnesses: values.harness || [], surfaces: values.surface && values.surface.length ? values.surface : null, globalRemoval: Boolean(values.global), root: PACKAGE_ROOT, env: ownEnv(env, project), stdin, stdout, ask };
   if (row.verb === "plan") {
     const p = ih.plan(project, opts);
     stdout.write(values.json ? JSON.stringify(envelope("plan", project, p.ok && !p.incomplete, { ...p, items: p.items.map(ih.publicItem) }), null, 2) + "\n" : ih.renderPreview(p));

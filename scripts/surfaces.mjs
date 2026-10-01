@@ -52,6 +52,7 @@ import {
   RUNTIME_GITIGNORE_HEADER,
   LAUNCHER_HEADER,
 } from "./lib.mjs";
+import { analysePortableRegistration, portableRegistrationPaths } from "./portable-registration.mjs";
 
 export const GENERATOR = "scripts/install-harness.mjs";
 export const INSTALLED_REMEDY = "projectstore doctor reports this file when it is stale; run install again to refresh it.";
@@ -357,7 +358,8 @@ export function analyseLayout(projectDir, { harness = null } = {}) {
 
 // ─── every surface, for doctor ─────────────────────────────────────────
 
-const ANALYSERS = { "markdown-block": analyseBlock, "json-entry": analyseJsonEntry, "mjs": analyseStampedFile, "host-plugin-registration": analyseRegistration };
+export { analysePortableRegistration, portableRegistrationPaths };
+const ANALYSERS = { "markdown-block": analyseBlock, "json-entry": analyseJsonEntry, "mjs": analyseStampedFile, "host-plugin-registration": analyseRegistration, "portable-plugin-registration": analysePortableRegistration };
 
 // The states of every non-host, supported surface of every harness this
 // project uses — detected by directory, or carrying a file of ours (contract
@@ -375,13 +377,34 @@ export function surfaceStates(projectDir, { home = homedir(), root = pluginRoot(
       const entry = s.kind === "shared" ? (a.entryKey || s.marker?.pointer || null) : null;
       const path = a.legacyPath || a.path || (a.current ? a.current.path : (a.preferred ? a.preferred.path : join(projectDir, s.file || "")));
       const row = { harness: m.id, surface: key, kind: s.kind, path, entry, state: a.state, reason: a.reason || a.refusal || null, writtenBy: a.writtenBy || null, sameProject: Boolean(a.sameProject), produced: a.produced !== false, legacy: Boolean(a.legacy), installedPkg: a.installedPkg || null, present: a.file ? a.file.present : (a.current ? true : (a.curEntry ? true : false)) };
-      if (s.kind === "registration") Object.assign(row, { entry: a.id, present: Boolean(a.dir.present || a.known || a.installed), produced: a.produced, pkg: a.pkg, dirPkg: a.dir.pkg, installedVersion: a.installedVersion, installPath: a.installPath, enabled: a.enabled, others: a.others, otherProjects: a.otherProjects, writtenBy: a.writtenBy, newer: a.newer, bin: a.bin });
+      if (s.kind === "registration") Object.assign(row, {
+        entry: a.id,
+        present: Boolean(a.dir?.present || a.ownership || a.known || a.market || a.installed),
+        produced: a.produced,
+        pkg: a.pkg || a.desiredVersion || null,
+        dirPkg: a.dir?.pkg || a.ownership?.version || null,
+        installedVersion: a.installedVersion,
+        installPath: a.installPath,
+        enabled: a.enabled,
+        others: a.others || [],
+        otherProjects: a.otherProjects || 0,
+        writtenBy: a.writtenBy || null,
+        newer: Boolean(a.newer),
+        bin: a.bin,
+      });
       states.push(row);
     }
     // A registration is the host's to load and never counts as a file of ours
     // (contract 16): it decides nothing about whether the harness is in use.
     const hasOurs = states.some((x) => (x.kind === "exclusive" && ["current", "stale"].includes(x.state)) || (x.kind === "shared" && ["ours-current", "ours-stale"].includes(x.state)));
-    if (detected.includes(m.id) || hasOurs) { out.used.push(m.id); out.states.push(...states); }
+    if (detected.includes(m.id) || hasOurs) {
+      out.used.push(m.id);
+      // The agents block is deliberately shared across harnesses. Its presence
+      // must not advertise an unavailable global registration for every other
+      // harness on the machine; a registration joins doctor only when that
+      // harness is detected in the project or the registration actually exists.
+      out.states.push(...states.filter((x) => x.kind !== "registration" || detected.includes(m.id) || x.present));
+    }
   }
   return out;
 }

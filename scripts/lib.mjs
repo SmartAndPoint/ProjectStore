@@ -2,12 +2,12 @@
 // Pure node, no external deps. Keep this single-file & dependency-free
 // so plugin install does not require npm install.
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync, lstatSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync, realpathSync, cpSync } from "node:fs";
+import { readFileSync, writeFileSync, writeSync, appendFileSync, existsSync, readdirSync, statSync, lstatSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync, realpathSync, cpSync } from "node:fs";
 import { readFile as readFileAsync } from "node:fs/promises";
 import { join, dirname, basename, resolve, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostname, homedir } from "node:os";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   projectRoot as harnessProjectRoot,
   pluginRoot as harnessPluginRoot,
@@ -25,6 +25,8 @@ import {
   RUNTIME_GITIGNORE_HEADER,
   runtimeEnvNames,
   sourceWriteTools,
+  isWriteTool as harnessIsWriteTool,
+  toolPaths as harnessToolPaths,
 } from "./harness.mjs";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
@@ -269,6 +271,13 @@ export function writeFileAtomic(p, content, { sweep = true } = {}) {
   }
 }
 
+// Write metadata into a descriptor the caller acquired with O_EXCL. The
+// exclusive create is the lock; keeping this tiny write in lib preserves the
+// repository's single write boundary without weakening the atomic lock race.
+export function writeExclusiveMetadata(fd, value) {
+  return writeSync(fd, typeof value === "string" ? value : JSON.stringify(value) + "\n");
+}
+
 // Crash orphans (SIGKILL, power loss between write and rename) are invisible
 // to every reader by design, so nothing else ever removes them. The sweep
 // runs where writes are frequent enough to matter — reconcile --write's
@@ -477,6 +486,52 @@ export function writeOwnTree(dir, { from, subdir, manifestRel, manifest, home = 
   rmSync(dir, { recursive: true, force: true });
   renameSync(stage, dir);
   return files;
+}
+
+// Atomically replace a portable marketplace source with a complete immutable
+// plugin payload. `files` was enumerated and digested during planning; every
+// entry is re-checked as a regular file at apply time, so a symlink swap cannot
+// escape the source root. The previous directory is retained until the caller
+// verifies the host cache and returns the backup path for commit/rollback.
+export function stagePortableMarketplace(dir, { from, files, subdir, catalogRel, catalog, ownershipRel, ownership, homeBase, token = `${process.pid}-${randomUUID()}` }) {
+  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!norm(dir).startsWith(norm(homeBase) + "/")) throw new Error(`stagePortableMarketplace: ${dir} is not under ${homeBase}`);
+  const stage = `${dir}.staging-${token}`;
+  const backup = existsSync(dir) ? `${dir}.previous-${token}` : null;
+  rmSync(stage, { recursive: true, force: true });
+  for (const rel of files) {
+    const src = join(from, rel);
+    const st = lstatSync(src);
+    if (!st.isFile() || st.isSymbolicLink()) throw new Error(`portable payload changed under the plan: ${rel} is not a regular file`);
+    const dst = join(stage, subdir, rel);
+    mkdirSync(dirname(dst), { recursive: true });
+    cpSync(src, dst);
+  }
+  mkdirSync(dirname(join(stage, catalogRel)), { recursive: true });
+  mkdirSync(dirname(join(stage, ownershipRel)), { recursive: true });
+  writeFileAtomic(join(stage, catalogRel), JSON.stringify(catalog, null, 2) + "\n", { sweep: false });
+  writeFileAtomic(join(stage, ownershipRel), JSON.stringify(ownership, null, 2) + "\n", { sweep: false });
+  if (backup) renameSync(dir, backup);
+  try { renameSync(stage, dir); }
+  catch (e) { if (backup && !existsSync(dir)) renameSync(backup, dir); throw e; }
+  return { stage, backup };
+}
+
+export function finishPortableMarketplace(dir, backup = null) {
+  if (backup) rmSync(backup, { recursive: true, force: true });
+  return dir;
+}
+
+export function rollbackPortableMarketplace(dir, backup = null) {
+  rmSync(dir, { recursive: true, force: true });
+  if (backup && existsSync(backup)) renameSync(backup, dir);
+  return dir;
+}
+
+export function removeTreeUnder(dir, homeBase) {
+  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!norm(dir).startsWith(norm(homeBase) + "/")) throw new Error(`removeTreeUnder: ${dir} is not under ${homeBase}`);
+  rmSync(dir, { recursive: true, force: true });
 }
 
 export function installedPluginRoot(home = homedir(), preferFamily = null) {
@@ -2032,10 +2087,13 @@ const ACTIVITY_CAP = 50;
 // The list itself is the source manifest's (harnesses/claude-code.json); copied,
 // not aliased, so freezing it cannot freeze the cached manifest object.
 export const WRITE_TOOLS = Object.freeze([...sourceWriteTools()]);
-const WRITE_TOOL_SET = new Set(WRITE_TOOLS);
 
 export function isWriteTool(tool) {
-  return WRITE_TOOL_SET.has(tool);
+  return harnessIsWriteTool(tool, process.env);
+}
+
+export function toolPaths(input) {
+  return harnessToolPaths(input, process.env);
 }
 
 export function appendActivity(vault, sessionId, filePath, toolName) {

@@ -70,6 +70,7 @@ import {
   ownSessionName,
   sessionNameOffer,
   sessionNameOfferText,
+  toolPaths,
 } from "./lib.mjs";
 
 const NUDGE_INTERVAL_MS = 10 * 60 * 1000;
@@ -199,12 +200,6 @@ function updatePointerAndNudge(cfg, proj, sid, filePath, toolName) {
   return nudge;
 }
 
-function extractToolPath(input) {
-  if (!input || !input.tool_input) return null;
-  const ti = input.tool_input;
-  return ti.file_path || ti.notebook_path || ti.path || null;
-}
-
 // The source-side branch (PostToolUse). Never throws: every failure here must
 // leave the user's tool call untouched.
 async function entryBranch(cfg, proj, sid, filePath, input) {
@@ -304,15 +299,16 @@ async function main() {
   }
 
   if (!input.tool_name) return;
-  const filePath = extractToolPath(input);
-  if (!filePath) return;
+  const filePaths = toolPaths(input);
+  if (!filePaths.length) return;
 
   if (event === "PostToolUse") {
-    await entryBranch(cfg, proj, sid, filePath, input);
+    for (const filePath of filePaths) await entryBranch(cfg, proj, sid, filePath, input);
     return;
   }
 
-  if (isInsideVault(filePath, cfg.vault_path)) {
+  const messages = [];
+  for (const filePath of filePaths) if (isInsideVault(filePath, cfg.vault_path)) {
     try { appendActivity(cfg.vault_path, sid, filePath, input.tool_name); } catch {}
     let nudge = null, offer = null;
     try { nudge = updatePointerAndNudge(cfg, proj, sid, filePath, input.tool_name); } catch {}
@@ -327,10 +323,10 @@ async function main() {
     // race: emitting twice would silently drop whichever went second, and the
     // offer fires once or twice a session against a nudge that fires every ten
     // minutes — the rare one would be the one lost.
-    const lines = [nudge, offer].filter(Boolean);
-    if (lines.length) {
-      process.stdout.write(JSON.stringify({ systemMessage: lines.join("\n") }) + "\n");
-    }
+    messages.push(...[nudge, offer].filter(Boolean));
+  }
+  if (messages.length) {
+    process.stdout.write(JSON.stringify({ systemMessage: [...new Set(messages)].join("\n") }) + "\n");
   }
 }
 

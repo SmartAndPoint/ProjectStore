@@ -76,7 +76,10 @@ if (!core) {
     // without one, so the child must see the real stdin and stdout. No
     // timeout — the child waits on a human at the preview. exitCode, not
     // exit(): the core's own bin says why (a pending write on a pipe).
-    const r = spawnSync(process.execPath, [core, ...fixed.argv], { stdio: "inherit" });
+    const r = spawnSync(process.execPath, [core, ...fixed.argv], {
+      stdio: "inherit",
+      env: { ...process.env, PROJECTSTORE_DISTRIBUTION_ROOT: root },
+    });
     if (r.error) process.stderr.write(`${SHELL}: ${r.error.message}\n`);
     // A signal is relayed the shell way (128 + its number): Ctrl-C at the
     // preview is 130 here as it would be on the core itself.

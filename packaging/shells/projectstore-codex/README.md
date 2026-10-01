@@ -1,16 +1,24 @@
 # projectstore-codex
 
-The Codex installer for [projectstore](https://www.npmjs.com/package/projectstore) — **not published yet.** This shell's plugin root (`.codex-plugin/plugin.json`, the rendered hooks and skills, `.mcp.json`) lands with the Codex story of the PS-HARNESS epic; until then the package is marked private and the release skips it.
+The Codex installer for [ProjectStore](https://github.com/SmartAndPoint/ProjectStore). It ships a canonical portable `plugin.json`, rendered namespaced workflow skills, lifecycle hooks, and the ProjectStore core pinned at the exact same version and bundled inside the tarball.
 
-Its shape is the same as `projectstore-claude`'s: the core, pinned at exactly this version and bundled inside the tarball, with the harness fixed by the bin. Codex installs an npm plugin with `npm pack` and unpacks it without installing dependencies, which is why the core travels inside the tarball rather than as a dependency.
-
-When it ships, from a terminal:
+Published releases use:
 
 ```sh
 npx projectstore-codex install --project "$PWD"
 ```
 
-Until then, the name on the registry is a deprecated 0.0.1 placeholder pointing at `projectstore`.
+Before the first publication, build from the repository and exercise the same
+npx execution path against the resulting tarball:
+
+```sh
+npm run shells:build -- --only projectstore-codex --dev --out dist
+npx --package ./dist/projectstore-codex-0.28.0-rc.2.tgz projectstore-codex install --project "$PWD"
+```
+
+The installer previews every mutation, stages a stable local marketplace under `CODEX_HOME`, asks Codex's own CLI to install the plugin, and verifies the materialised cache by version and payload digest. Restart Codex, approve the ProjectStore hooks when prompted, then run `$projectstore-bind <vault-path>`.
+
+Upgrade a published release with `npx projectstore-codex@<version> upgrade --project "$PWD"`. Project uninstall leaves the user-global Codex plugin in place; `uninstall --global` is the explicit machine-wide removal. Publishing and dist-tag changes remain a separate explicit release action.
 
 - Source: https://github.com/SmartAndPoint/ProjectStore
 - Issues: https://github.com/SmartAndPoint/ProjectStore/issues

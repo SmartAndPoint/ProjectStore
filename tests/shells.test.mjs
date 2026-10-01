@@ -59,7 +59,7 @@ function runShell(dir, args, env = {}) {
   return { ...r, core: existsSync(log) ? readJson(log) : null };
 }
 
-test("shells contract 10: the roster is rendered and committed — package.json pins and bundles the core, the bin is the only code, private shells say so, and no shell carries a plugin manifest", async () => {
+test("shells contract 10: the roster is rendered and committed — package.json pins and bundles the core, and an emitted harness carries its plugin root", async () => {
   assert.deepEqual(SHELLS.map((s) => s.name), ["projectstore-claude", "projectstore-codex", "projectstore-opencode"]);
   assert.equal(CLAUDE.private, false, "the Claude Code shell publishes at 0.28.0");
   assert.deepEqual(publishable(), ["projectstore-claude"], "codex and opencode stay private until B5/C4");
@@ -74,14 +74,30 @@ test("shells contract 10: the roster is rendered and committed — package.json 
     assert.equal(pkg.dependencies[CORE], `=${core.version}`, `${s.name} pins the core exactly`);
     assert.deepEqual(pkg.bundleDependencies, [CORE], `${s.name} bundles the core`);
     assert.deepEqual(pkg.bin, { [s.name]: `bin/${s.name}.mjs` });
-    assert.deepEqual(pkg.files, ["bin/", "README.md"], "a bin and a README ship; the fixture does not");
+    const expectedFiles = s.harness === "codex"
+      ? ["bin/", "README.md", "plugin.json", ".codex-plugin/", "skills/", "hooks/"]
+      : ["bin/", "README.md"];
+    assert.deepEqual(pkg.files, expectedFiles);
     assert.equal(pkg.private, s.private ? true : undefined);
     assert.equal(pkg.publishConfig?.provenance, undefined);
     assert.equal(pkg.engines.node, core.engines.node);
     assert.ok(read(join(dir, `bin/${s.name}.mjs`)).startsWith("#!/usr/bin/env node\n"), `${s.name}: the bin has its shebang`);
     assert.ok(existsSync(join(dir, "README.md")) && read(join(dir, "README.md")).includes(`npx ${s.name} install --project`), `${s.name}: the README names the one command`);
     assert.ok(existsSync(resolve(ROOT, shellPacklistPath(s.name))), `${s.name}: the packlist fixture exists`);
-    for (const f of walk(dir)) assert.ok(!f.includes(".claude-plugin") && !f.includes(".codex-plugin"), `${f}: a shell carries no plugin manifest of its own until its story renders one`);
+    if (s.harness === "codex") {
+      const portable = readJson(join(dir, "plugin.json"));
+      const fallback = readJson(join(dir, ".codex-plugin", "plugin.json"));
+      assert.equal(portable.$schema, "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json");
+      assert.equal(portable.version, core.version);
+      assert.equal(fallback.version, core.version);
+      assert.equal(portable.extensions["com.openai"].hooks, "./hooks/hooks.json");
+      assert.equal(fallback.hooks, undefined, "the compatibility manifest stays inside the current ingestion schema; the canonical portable extension owns hooks");
+      assert.equal(fallback.interface.defaultPrompt.length, 3);
+      assert.ok(existsSync(join(dir, "skills", "projectstore-status", "SKILL.md")));
+      assert.ok(!existsSync(join(dir, "commands")) && !existsSync(join(dir, "agents")) && !existsSync(join(dir, ".claude-plugin")));
+    } else {
+      for (const f of walk(dir)) assert.ok(!f.includes(".claude-plugin") && !f.includes(".codex-plugin"), `${f}: a non-plugin shell carries no plugin manifest`);
+    }
   }
   // The bin's verb set is the core's table, computed — not copied.
   const expected = VERBS.filter((v) => (v.options || []).some((o) => o.name === "harness")).map((v) => v.verb);
@@ -180,7 +196,13 @@ test("shells contract 11: every shell builds from the core's own pack tarball, b
     const bundledHalf = b.files.filter((f) => f.startsWith(prefix)).map((f) => f.slice(prefix.length));
     assert.deepEqual(bundledHalf, core.files, `${s.name}: the bundled core is exactly the core's pack`);
     const own = b.files.filter((f) => !f.startsWith(prefix));
-    assert.deepEqual(own, ["README.md", `bin/${s.name}.mjs`, "package.json"], `${s.name}: a bin, a README and the manifest — nothing else of its own`);
+    if (s.harness === "codex") {
+      assert.ok(own.includes("plugin.json") && own.includes(".codex-plugin/plugin.json") && own.includes("hooks/hooks.json"));
+      assert.ok(own.some((f) => f.startsWith("skills/projectstore-")), `${s.name}: rendered skills ship`);
+      assert.ok(!own.some((f) => f.startsWith("commands/") || f.startsWith("agents/") || f.startsWith(".claude-plugin/")));
+    } else {
+      assert.deepEqual(own, ["README.md", `bin/${s.name}.mjs`, "package.json"], `${s.name}: installer-only shells carry no plugin root`);
+    }
     assert.ok(!b.files.some((f) => f.includes("packlist.json")), "the fixture does not ship");
     if (s === CLAUDE) {
       assert.ok(b.tgz && existsSync(b.tgz) && b.tgz.endsWith(`${s.name}-${core.version}.tgz`), "the tarball lands under --out with npm's name");
@@ -251,6 +273,25 @@ test("shells contract 11 / AC 3: the guard counts every shell — a version, a p
   // A directory under packaging/shells/ without a package.json is an error, not a silently skipped shell.
   mkdirSync(join(scratch, SHELLS_DIR, "projectstore-ghost"));
   assert.match(checkVersions({ root: scratch }).error, /projectstore-ghost\/package\.json: missing/);
+});
+
+test("Codex development build: cache-buster is deterministic, lives at both manifest sites, and never edits release files", { timeout: 180000 }, () => {
+  const shell = SHELLS.find((s) => s.harness === "codex");
+  const source = shellDir(shell.name);
+  const before = ["plugin.json", ".codex-plugin/plugin.json"].map((rel) => read(join(source, rel)));
+  const core = packCore({ dest: mkdtempSync(join(TMP, "dev-core-")) });
+  assert.equal(core.error, undefined, core.error);
+  const a = buildShell(shell.name, { coreTgz: core.tgz, scratch: mkdtempSync(join(TMP, "dev-a-")), dev: true });
+  const b = buildShell(shell.name, { coreTgz: core.tgz, scratch: mkdtempSync(join(TMP, "dev-b-")), dev: true });
+  assert.equal(a.error, undefined, a.error);
+  assert.equal(b.error, undefined, b.error);
+  assert.match(a.devVersion, new RegExp(`^${core.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\+codex\\.dev\\.[a-f0-9]{12}$`));
+  assert.equal(a.devVersion, b.devVersion);
+  for (const rel of ["plugin.json", ".codex-plugin/plugin.json"]) {
+    assert.equal(readJson(join(a.dir, rel)).version, a.devVersion);
+    assert.equal(readJson(join(b.dir, rel)).version, b.devVersion);
+  }
+  assert.deepEqual(["plugin.json", ".codex-plugin/plugin.json"].map((rel) => read(join(source, rel))), before);
 });
 
 // The rule that makes several projectstore-* packages safe to install over one
