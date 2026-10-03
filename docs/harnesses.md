@@ -14,7 +14,7 @@ This page says which harnesses exist, how far each one is trusted, and what
 | Harness | id | Status | Verified | Surfaces installed |
 |---|---|---|---|---|
 | Claude Code | `claude-code` | **supported** | 2026-08-30 | hooks, commands, agents, skills, MCP, status line, agents block |
-| Codex | `codex` | **supported** | 2026-09-30 | portable plugin, hooks, rendered workflow skills, agents block |
+| Codex | `codex` | **experimental** | — | portable plugin, hooks, rendered workflow skills, agents block |
 
 **supported** means the manifest carries a `verified` block: a session id and a
 date on which this harness's surfaces were installed and exercised end to end,
@@ -43,18 +43,27 @@ model names and those are harness-specific — is
 
 ## Codex
 
-Supported on `codex-cli 0.153.4`. The initial spike captured 759 hook firings;
-the 2026-09-30 gate then built the npm shell from a packed core, passed the
-Codex plugin validator, installed and upgraded it through an isolated
+Experimental, measured on `codex-cli 0.153.4`. The initial spike captured 759
+hook firings. The 2026-09-30 gate then built the npm shell from a packed core,
+passed the Codex plugin validator, installed and upgraded it through an isolated
 `CODEX_HOME`, verified the materialised cache by version and digest, and loaded
 `$projectstore-status` in a fresh Codex session.
 
-The shell has passed its local release gate but is not published yet. Install
-the built tarball through npx from this checkout with:
+That run exercised one skill, not every installed surface, so `verified` stays
+`null`. The hooks are the reason it matters. On 2026-10-03 the first real
+install's cached hooks, run by hand the way Codex runs them, could not load the
+vault in any session. In the first, the failure sat in the model's context under
+the welcome, which was all the user saw. The core had taken the shell's root for
+its own. That is fixed, and the suite now runs every rendered hook from the
+built shell. A live Codex session firing them from an installed release is still
+owed.
+
+The shell is not published. Build it and install the tarball through npx from
+this checkout:
 
 ```sh
 npm run shells:build -- --only projectstore-codex --dev --out dist
-npx --package ./dist/projectstore-codex-0.28.0-rc.2.tgz projectstore-codex install --project "$PWD"
+npx --package "./dist/projectstore-codex-$(node -p 'require("./package.json").version').tgz" projectstore-codex install --project "$PWD"
 ```
 
 The shell package is release-gated until its first npm publication. From this
@@ -68,13 +77,16 @@ to remove it for every project.
 
 What is known, and how:
 
-- **Hooks fire.** The canonical portable `plugin.json` selects
+- **Hooks are rendered; their live firing from an installed release is not
+  yet observed.** The canonical portable `plugin.json` selects
   `./hooks/hooks.json` through `extensions.com.openai`; the compatibility
-  `.codex-plugin/plugin.json` stays inside the current ingestion schema. Five events: `SessionStart`, `PreToolUse`,
-  `PostToolUse`, `Stop`, `PreCompact`. The hook process receives `PLUGIN_ROOT`
-  in its environment and **no project-directory variable at all** — the project
-  comes from the payload's `cwd`, which every projectstore hook adopts before it
-  resolves anything.
+  `.codex-plugin/plugin.json` stays inside the current ingestion schema. Five
+  events: `SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`, `PreCompact`.
+  The 759 firings were captured from the earlier inline form. The hook process
+  receives `PLUGIN_ROOT` in its environment, naming the shell's root with the
+  core beneath it in `node_modules/projectstore/`, and **no project-directory
+  variable at all**. The project comes from the payload's `cwd`, which every
+  projectstore hook adopts before it resolves anything.
 - **Trust is granted per hook, machine-wide**, and it lags: a release that
   changes hooks may not take effect until the session after next.
 - **Source commands are not shipped.** Codex has no registrable root slash command, and
@@ -86,10 +98,12 @@ What is known, and how:
   six ProjectStore roles therefore ship as namespaced skills that resolve their
   configured model through the core and ask Codex to spawn the role. No effort
   is forced: it inherits unless the user has configured a model policy.
-- **Multi-file edits reach the activity log and entry rule.** Codex's
-  `apply_patch` carries paths inside `tool_input.command`; the shared extractor
-  reads every `Add`, `Update`, `Delete` and `Move to` path from that measured
-  envelope field. The field name remains manifest data, not a Codex branch.
+- **Multi-file edits reach the activity log and entry rule when their paths
+  are absolute.** Codex's `apply_patch` carries paths inside
+  `tool_input.command`; the shared extractor reads every `Add`, `Update`,
+  `Delete` and `Move to` path from that measured envelope field. A relative
+  path is not yet resolved against the payload's `cwd`, so it is not recorded.
+  The field name remains manifest data, not a Codex branch.
 - **MCP does not ship.** Our `.mcp.json` is in Claude Code's dialect.
 
 Codex also sets Claude Code's `CLAUDE_PLUGIN_ROOT` for compatibility. A variable

@@ -6,10 +6,8 @@
   "source_layout": false,
   "output_dir": "adapters/codex",
   "docs": "https://developers.openai.com/codex/",
-  "verified": {
-    "session": "01a0f079-7ecd-7331-95a9-2471def3cb22 — a fresh `codex exec` session loaded projectstore-status from the materialised cache after the canonical portable manifest passed the Codex plugin validator",
-    "date": "2026-09-30"
-  },
+  "verified": null,
+  "verified_reason": "Null, restored 2026-10-03. Contract 16 asks for every installed surface exercised end to end, and the 2026-09-30 run (session 01a0f079-7ecd-7331-95a9-2471def3cb22) exercised one: a fresh `codex exec` session loaded projectstore-status from the materialised cache after the canonical portable manifest passed the Codex plugin validator. The hooks were not exercised, and the first real install showed why that matters: its cached hooks, run by hand the way Codex runs them, could not load the vault in any session (in the first, the failure sat beneath the welcome), because the core took the shell's root for its own. That is fixed and pinned by a test that runs every rendered hook from the built shell. A live session that fires them from an installed release is still owed, and it is what sets this block.",
   "runtime": {
     "detect_env": [
       "PLUGIN_ROOT",

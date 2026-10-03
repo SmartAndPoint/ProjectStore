@@ -24,8 +24,8 @@
 //
 // Pure node, no external deps — same constraint as lib.mjs. Read-only.
 
-import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { readFileSync, existsSync, readdirSync, realpathSync } from "node:fs";
+import { join, dirname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -277,8 +277,8 @@ export function projectRootDeclared(env = process.env) {
   return null;
 }
 
-// Where this projectstore installation lives on disk.
-// The bin runs ITS OWN copy of the core: a child gets that through childEnv's
+// Where this projectstore's core lives on disk: its layouts, templates and
+// scripts. The bin runs ITS OWN copy of the core: a child gets that through childEnv's
 // pluginRoot, an in-process read (the query verbs' loadLayout, the headings
 // registry) through this pin. Set once by cli.mjs; nothing else may call it.
 let _pinnedPluginRoot = null;
@@ -288,15 +288,42 @@ export function pinPluginRoot(root) {
 
 export function pluginRoot(env = process.env) {
   if (_pinnedPluginRoot) return _pinnedPluginRoot;
+  const named = hostPluginRoot(env);
+  // fileURLToPath, not URL.pathname: the latter stays percent-encoded, so an
+  // install path containing a space resolves to a directory that does not exist.
+  if (!named) return REPO_ROOT;
+  return containsThisCore(named) ? REPO_ROOT : named;
+}
+
+function hostPluginRoot(env) {
   const key = activeHarness(env)?.runtime?.plugin_root_env;
   if (key && env[key]) return env[key];
   for (const h of loadHarnesses().values()) {
     const k = h.runtime?.plugin_root_env;
     if (k && env[k]) return env[k];
   }
-  // fileURLToPath, not URL.pathname: the latter stays percent-encoded, so an
-  // install path containing a space resolves to a directory that does not exist.
-  return REPO_ROOT;
+  return null;
+}
+
+// The host's variable names its PLUGIN root, and the core is that root only in
+// the source layout. In a shell the core sits beneath it (node_modules/
+// projectstore/), so the variable names a directory with none of our layouts,
+// templates or scripts in it — measured on the first Codex install's cached
+// hooks, 2026-10-03: every session said "vault load failed — Layout not
+// found", the first one beneath its welcome. A root that CONTAINS the core this
+// code runs from is that case, whatever the shell's layout, and the core
+// answers from its own location. Any other ancestor counts too ($HOME, a main
+// checkout above a worktree); none of them holds our assets, so the answer is
+// the same. A root equal to the core, or unrelated to it (a test's fixture, the
+// bin's child), is honoured as named. Real paths on both sides: the module's
+// own is already real, so a root under a symlink (macOS's /var and /tmp)
+// would never compare.
+const realOr = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
+let _realCore = null;
+function containsThisCore(root) {
+  const core = (_realCore ??= realOr(REPO_ROOT));
+  const r = realOr(root);
+  return core !== r && core.startsWith(r.endsWith(sep) ? r : r + sep);
 }
 
 // The harness's own config directory (~/.claude, ~/.codex, …). Almost always

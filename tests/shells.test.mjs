@@ -16,7 +16,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, copyFileSync, cpSync, rmSync, statSync } from "node:fs";
-import { resolve, dirname, join } from "node:path";
+import { resolve, dirname, join, delimiter } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -26,6 +26,7 @@ import { sourceHarness, packageCommand, loadHarness, loadHarnesses } from "../sc
 import { VERBS } from "../scripts/cli.mjs";
 import { checkVersions, collectShells, PACKLIST } from "../scripts/version-guard.mjs";
 import { checkPluginRegistration, checkLayout } from "../scripts/doctor.mjs";
+import { truncFront, PATH_CELL } from "../scripts/lib.mjs";
 import { SHELLS, SHELLS_DIR, CORE, shellDir, shellPacklistPath, publishable, shellFor, harnessVerbs, checkShells, packCore, buildShell, buildShells, compareWithFixture, corePackage } from "../packaging/shells.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -294,6 +295,72 @@ test("Codex development build: cache-buster is deterministic, lives at both mani
   assert.deepEqual(["plugin.json", ".codex-plugin/plugin.json"].map((rel) => read(join(source, rel))), before);
 });
 
+// A shell is a plugin root with the core beneath it, and the host hands the
+// hooks the SHELL's root. The rendered commands reach the core through it; the
+// core must not mistake it for its own. The first Codex install shipped exactly
+// that defect, and nothing caught it, because no test had run a rendered hook
+// from a built tree. Measured on the real install's cache, 2026-10-03: every
+// session said "vault load failed — Layout not found", the first one beneath
+// the welcome, which was all the user saw. So the hooks run here from the
+// release shape (the core installed from its own pack), the way a host runs
+// them: a shell expands the placeholder, and every manifest's plugin-root
+// variable names the shell, because Codex sets Claude Code's too. `sh -c`, not
+// the `-lc` Codex uses, because a login shell would read the developer's
+// profile into the suite. SessionStart is not the only reader of the core's
+// assets: PreCompact names the work in flight, and on the defect it dropped that
+// line with exit 0 and no error, so a write to a vault story and a compaction
+// are fired too.
+test("shells: every hook a shell renders runs from the built tree, and a bound project's vault loads in every session, the first one included", { timeout: 180000 }, () => {
+  const hooksOf = (s) => loadHarness(s.harness)?.hooks?.config_file;
+  const emitting = SHELLS.filter((s) => hooksOf(s) && existsSync(join(shellDir(s.name), hooksOf(s))));
+  assert.ok(emitting.length > 0, "no shell renders hooks, so this test would pass by proving nothing");
+  const core = packCore({ dest: mkdtempSync(join(TMP, "hooks-core-")) });
+  assert.equal(core.error, undefined, core.error);
+  for (const s of emitting) {
+    const h = loadHarness(s.harness);
+    const b = buildShell(s.name, { coreTgz: core.tgz, scratch: mkdtempSync(join(TMP, "hooks-build-")) });
+    assert.equal(b.error, undefined, b.error);
+    const hooks = readJson(join(b.dir, hooksOf(s))).hooks;
+    const { proj, vault } = seedCliVault();
+    const roots = Object.fromEntries(manifests().map((m) => m.runtime?.plugin_root_env).filter(Boolean).map((k) => [k, b.dir]));
+    const env = noHostEnv({ ...roots, PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter), HOME: mkdtempSync(join(TMP, "hooks-home-")) });
+    // Ours and node's: a forced harness, a sessions dir or a preloaded module
+    // from the developer's shell would steer the hooks from inside the suite.
+    for (const k of Object.keys(env)) if (k.startsWith("PROJECTSTORE_") || k === "NODE_OPTIONS") delete env[k];
+    const skeleton = `# Projectstore vault: ${truncFront(vault, PATH_CELL)}`;
+    const fire = (event, extra = {}) => {
+      const commands = (hooks[h.hooks.events[event]] || []).flatMap((g) => g.hooks.map((x) => x.command));
+      assert.ok(commands.length > 0, `${s.name}: renders no ${event} hook`);
+      const input = JSON.stringify({ session_id: "built-shell", cwd: proj, hook_event_name: h.hooks.events[event], ...extra });
+      return commands.map((command) => {
+        const r = spawnSync("/bin/sh", ["-c", command], { input, cwd: proj, env, encoding: "utf8", timeout: 60000 });
+        assert.equal(r.status, 0, `${s.name} ${event}: ${command}\n${r.stderr}`);
+        assert.doesNotMatch(r.stdout + r.stderr, /vault load failed|Layout not found|Cannot find module|ENOENT/, `${s.name} ${event}: ${command}`);
+        return r.stdout;
+      }).join("\n");
+    };
+    for (const n of [1, 2, 3]) {
+      const out = fire("SessionStart", { source: "startup" });
+      if (n === 1) assert.match(out, /loaded for the first time/, `${s.name}: the first session carries the welcome`);
+      assert.ok(out.includes(skeleton), `${s.name}: session ${n} orients on the bound vault\n${out.slice(0, 400)}`);
+    }
+    // A write to a vault story through the harness's own write tool, in the
+    // shape its manifest says the tool carries a path.
+    const story = join(vault, "epics", "PS-X", "stories", "story-in-flight.md");
+    const t = h.tools;
+    const write = {
+      tool_name: t.write_tools[0],
+      tool_input: t.patch_envelope_field
+        ? { [t.patch_envelope_field]: `*** Begin Patch\n*** Update File: ${story}\n@@\n-one\n+two\n*** End Patch` }
+        : { [t.path_fields[0]]: story },
+    };
+    fire("PreToolUse", write);
+    fire("PostToolUse", write);
+    assert.match(fire("PreCompact", { trigger: "manual" }), /in flight: `epics\/PS-X\/stories\/story-in-flight\.md`/, `${s.name}: the compaction names the story just written`);
+    for (const event of Object.keys(h.hooks.events).filter((e) => !["SessionStart", "PreToolUse", "PostToolUse", "PreCompact"].includes(e))) fire(event);
+  }
+});
+
 // The rule that makes several projectstore-* packages safe to install over one
 // project, and the one nothing was enforcing until 2026-09-08.
 //
@@ -434,6 +501,17 @@ test("shells contract 12: the documented install is the shell — README, the ma
   const reserved = readdirSync(join(ROOT, "packaging", "reserved"));
   for (const s of SHELLS) assert.ok(!reserved.includes(s.name), `${s.name} is a shell, not a stub`);
   assert.ok(read(join(ROOT, "packaging", "reserved", "opencode-projectstore", "README.md")).includes("projectstore-opencode"));
+  // A built tarball's file name carries the version, so a document that spells
+  // one out is wrong from the next bump on, and no version site would notice:
+  // the Codex instructions named rc.2's until 2026-10-03. Documents read the
+  // version at the moment they are run instead.
+  // Every shipped document, read from where it lives: a renamed one fails here
+  // rather than dropping out of the check.
+  const docs = ["README.md", ...readdirSync(join(ROOT, "docs")).filter((n) => n.endsWith(".md")).map((n) => `docs/${n}`), ...SHELLS.map((s) => `${SHELLS_DIR}/${s.name}/README.md`)];
+  assert.ok(docs.includes("docs/harnesses.md"), "the harness page is among the documents read");
+  for (const rel of docs) {
+    assert.doesNotMatch(read(join(ROOT, rel)), /projectstore(?:-[a-z]+)*-\d+\.\d+\.\d+[^\s"')]*\.tgz/, `${rel}: names a versioned tarball`);
+  }
 });
 
 test.after(() => { try { rmSync(TMP, { recursive: true, force: true }); } catch {} });

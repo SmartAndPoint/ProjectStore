@@ -15,7 +15,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -369,6 +369,29 @@ test("harness resolvers: the branded names are read from the manifest, fresh on 
   assert.equal(detectHarnessId({ PROJECTSTORE_HARNESS: src.id }), src.id);
   assert.equal(detectHarnessId({ PROJECTSTORE_HARNESS: "no-such-harness" }), src.id, "an unknown forced id falls through");
   resetDetection();
+});
+
+// A host's plugin-root variable names the PLUGIN root. In a shell that is a
+// directory containing the core, not the core, and taking it as the core is how
+// the first Codex install lost its layouts (review 2026-10-03, F2). So a root
+// that contains this core resolves to the core; a root equal to it or unrelated
+// to it is returned as named, which keeps the source layout byte-for-byte as
+// it was. The comparison is on real paths: the module's own location is
+// already real, so a shell reached through a symlink must still count.
+test("harness resolvers: a plugin root that contains this core is a shell, and the core answers from its own location", () => {
+  for (const m of loadHarnesses().values()) {
+    const k = m.runtime?.plugin_root_env;
+    if (!k) continue;
+    assert.equal(pluginRoot({ [k]: dirname(ROOT) }), ROOT, `${m.id}: a root containing the core is a shell — the core resolves from itself`);
+    assert.equal(pluginRoot({ [k]: dirname(ROOT) + "/" }), ROOT, `${m.id}: with a trailing separator too`);
+    assert.equal(pluginRoot({ [k]: ROOT }), ROOT, `${m.id}: the core named exactly is the source layout`);
+    assert.equal(pluginRoot({ [k]: "/tmp/plug in" }), "/tmp/plug in", `${m.id}: an unrelated root is honoured as named`);
+    assert.equal(pluginRoot({ [k]: ROOT + "-sibling" }), ROOT + "-sibling", `${m.id}: a sibling sharing the core's prefix is not its parent`);
+  }
+  const dir = mkdtempSync(join(tmpdir(), "ps-shell-link-"));
+  symlinkSync(dirname(ROOT), join(dir, "shell"));
+  assert.equal(pluginRoot({ [sourceHarness().runtime.plugin_root_env]: join(dir, "shell") }), ROOT, "a shell reached through a symlink still contains the core");
+  rmSync(dir, { recursive: true, force: true });
 });
 
 // The payload's cwd is the answer on a harness that exports no project-dir
