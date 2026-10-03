@@ -21,6 +21,8 @@ import { readAnchorState,
   sessionStatePath,
   sessionFilePath,
   entryLogPath,
+  writeSessionState,
+  writeAnchorOffer,
 } from "../scripts/lib.mjs";
 import { sourceHarness, loadHarnesses } from "../scripts/harness.mjs";
 import { fileURLToPath } from "node:url";
@@ -2157,13 +2159,20 @@ test("name offer: concurrent writers keep the tally exact and the ADR-006 pointe
   const N = 24;
   // Read WHILE the writers run. Reading afterwards proves nothing: the sidecar
   // is only observably empty during the instant it is being rewritten.
-  let lost = 0, reads = 0, racing = true;
+  // The pointer is read the same way: a truncate-and-write is momentarily empty
+  // or, from two writers, a JSON with a tail — both unparseable, both silently
+  // null to readSessionState. Only an atomic replace never shows either.
+  let lost = 0, reads = 0, torn = 0, whole = 0, racing = true;
+  const pointer = sessionStatePath(proj, "c1");
   const reader = (async () => {
     while (racing) {
       const seen = readAnchorState(proj, "c1");
       if (Object.keys(seen.counts).length) reads += 1;
       else if (reads > 0) lost += 1;
       if (reads > 0 && !seen.counts["epic:PS-A"]) lost += 1;
+      let text = null;
+      try { text = readFileSync(pointer, "utf8"); } catch {}
+      if (text !== null) { try { JSON.parse(text); whole += 1; } catch { torn += 1; } }
       await new Promise((r) => setImmediate(r));
     }
   })();
@@ -2187,11 +2196,35 @@ test("name offer: concurrent writers keep the tally exact and the ADR-006 pointe
     `a key with a live tally vanished from ${lost}/${reads} concurrent reads — ` +
     "a truncated sidecar drops the key, and foldAnchor then measures a " +
     "challenger against a zero incumbent");
+  assert.ok(whole > 0, "the reader parsed the pointer during the race at least once — otherwise `torn` proves nothing");
+  assert.equal(torn, 0, `the session pointer was unparseable in ${torn} concurrent reads — it must be replaced atomically`);
   // And the pointer this state was deliberately kept out of is whole.
   const ptr = JSON.parse(readFileSync(
     sessionStatePath(proj, "c1"), "utf8"));
   assert.equal(ptr.active_epic, "PS-A");
   assert.equal(ptr.active_story, "story-alpha-beta");
+});
+
+// The race above catches an in-place write only probabilistically (about six
+// runs in ten, through the empty instant after a truncate). This is the
+// deterministic half: a file replaced by rename is a new inode on every write,
+// and a file rewritten in place keeps its inode — for both JSON files in the
+// sessions directory that are rewritten rather than appended.
+test("session state: the pointer and the offer record are replaced by rename, never rewritten in place", () => {
+  const proj = mkdtempSync(join(tmpdir(), "ps-atomic-"));
+  writeSessionState(proj, "a1", { active_epic: "PS-A" });
+  const before = statSync(sessionStatePath(proj, "a1")).ino;
+  writeSessionState(proj, "a1", { active_story: "story-x" });
+  assert.notEqual(statSync(sessionStatePath(proj, "a1")).ino, before, "writeSessionState publishes a new file");
+  assert.deepEqual(
+    (({ active_epic, active_story }) => ({ active_epic, active_story }))(JSON.parse(readFileSync(sessionStatePath(proj, "a1"), "utf8"))),
+    { active_epic: "PS-A", active_story: "story-x" }, "and still merges the patch");
+  const offerFile = join(stateDir(proj), "a1.anchor.json");
+  assert.ok(writeAnchorOffer(proj, "a1", { offers: 1 }));
+  const offer = statSync(offerFile).ino;
+  assert.ok(writeAnchorOffer(proj, "a1", { offers: 2, declined: true }));
+  assert.notEqual(statSync(offerFile).ino, offer, "writeAnchorOffer publishes a new file");
+  assert.equal(readdirSync(dirname(sessionStatePath(proj, "a1"))).filter((n) => n.endsWith(".tmp")).length, 0, "no temp is left behind");
 });
 
 // ─── PS-WT: the unbound-worktree offer at session start ────────────────

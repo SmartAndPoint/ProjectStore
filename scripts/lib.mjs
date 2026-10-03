@@ -2225,7 +2225,18 @@ export function writeSessionState(projectDir, sessionId, patch) {
   ensureStateDir(projectDir);
   const cur = readSessionState(projectDir, sessionId) || {};
   const next = { ...cur, ...patch, updated_at: new Date().toISOString() };
-  writeFileSync(sessionStatePath(projectDir, sessionId), JSON.stringify(next, null, 2), "utf8");
+  // Atomic, because one session's hooks run concurrently: parallel tool calls
+  // each fire PreToolUse. Two truncate-and-writes interleave into the shorter
+  // JSON followed by the longer one's tail — CI run 37116511756, 2026-10-03:
+  // "Unexpected non-whitespace character after JSON at position 139". While the
+  // file is torn the status line reports the state unreadable; worse,
+  // readSessionState answers null, so the next write keeps only its own patch
+  // and the rest of the pointer is gone for good. The rename also hides the
+  // empty instant after the truncate. The
+  // default sweep stays on: this writer runs only on vault-file tool calls, so
+  // it can afford the readdir that reaps orphan temps here (the status line's
+  // breadcrumb, written beside it, opts out because it renders every refresh).
+  writeFileAtomic(sessionStatePath(projectDir, sessionId), JSON.stringify(next, null, 2));
   return next;
 }
 
@@ -2263,13 +2274,14 @@ export function cleanupStaleSessionState(projectDir, maxAgeHours = 24) {
 // Normative text: the spec "Entry-rule detection: the score, the open-story
 // predicate, and the delivery seams". The one rule that governs every helper
 // below and is invisible from any single call site: **nothing here may route
-// through writeSessionState**. That function is a read-modify-write, and
-// writeFileSync opens with O_TRUNC — so a concurrent read lands on a
-// zero-byte file, readSessionState swallows the parse error into `null`, and
-// the spread then writes the patch alone, erasing the ADR-006 statusline
-// pointer. Today that path only runs on vault-file tool calls; the score is
-// fed by every source write in every parallel subagent (all sharing one
-// session_id), which is a different order of contention entirely.
+// through writeSessionState**. That function is an unlocked read-modify-write:
+// it now publishes atomically, so a reader never sees a torn or empty pointer,
+// but two concurrent writers still race and the last rename wins — a patch
+// written in between is silently lost. Until 2026-10-03 it also truncated in
+// place (O_TRUNC), and a concurrent read then erased the ADR-006 statusline
+// pointer outright. Today that path only runs on vault-file tool calls; the
+// score is fed by every source write in every parallel subagent (all sharing
+// one session_id), where a lost increment is a wrong score.
 
 // Generated, vendored or machine-local paths — never a source file for any
 // consumer. Lifted out of diff-refs.mjs so the hook, doctor and diff-refs
@@ -2627,10 +2639,12 @@ export function electEmitter(projectDir, sessionId) {
 // the comparison table the ADR cites.
 //
 // State for this rule must NOT route through writeSessionState — see the
-// entry-rule banner above for the mechanism (O_TRUNC, a zero-byte read, and the
-// ADR-006 statusline pointer erased). This tally is the highest-frequency
-// writer in the system, so the hazard is sharper here than where it is written
-// down. Follow registerSourcePath: one file per key, no reader-writer pair.
+// entry-rule banner above for the mechanism (an unlocked read-modify-write, so
+// concurrent increments are lost; before 2026-10-03 it also truncated in place
+// and could erase the ADR-006 statusline pointer). This tally is the
+// highest-frequency writer in the system, so the hazard is sharper here than
+// where it is written down. Follow registerSourcePath: one file per key, no
+// reader-writer pair.
 //
 // Two gates that are easy to omit and that the fixtures alone will NOT catch,
 // because every recorded session is an authoring session: the tally counts
@@ -2758,8 +2772,8 @@ export function composeAnchorName(state, key) {
 // Same discipline as the entry-rule score directory above, and for the same
 // reason stated there: NOTHING here routes through writeSessionState. A tally
 // incremented on every vault write is the highest-frequency writer in this
-// system, and that function's read-modify-write would eventually truncate the
-// ADR-006 statusline pointer out from under an unrelated feature.
+// system, and that function's unlocked read-modify-write would lose its
+// increments to every concurrent writer — the last rename wins.
 //
 // So a tally is a file that only ever grows by one byte: O_APPEND of a single
 // byte is atomic, the count is the file's size, and no reader-writer pair
@@ -2767,9 +2781,11 @@ export function composeAnchorName(state, key) {
 //
 // The incumbent/last-offered record is the one small piece that must be read
 // back, and it lives in its OWN file for exactly that reason. It is written at
-// most once per offer (once or twice a session), and its worst failure — a torn
-// read after a crash — costs one duplicate offer and nothing else. Putting it in
-// the shared session state would trade that for a blank statusline.
+// most once per offer (once or twice a session), atomically since 2026-10-03:
+// two writers with different payloads used to leave a JSON with the longer
+// one's tail, which reads as an empty record and forgets `declined`. Its worst
+// failure now is a lost write — one duplicate offer and nothing else. Putting
+// it in the shared session state would trade that for a blank statusline.
 
 export function anchorDir(projectDir, sessionId) {
   return join(stateDir(projectDir), `${sessionId}.anchor`);
@@ -2870,7 +2886,7 @@ export function readAnchorOffer(projectDir, sessionId) {
 export function writeAnchorOffer(projectDir, sessionId, rec) {
   try {
     ensureStateDir(projectDir);
-    writeFileSync(anchorOfferPath(projectDir, sessionId), JSON.stringify(rec));
+    writeFileAtomic(anchorOfferPath(projectDir, sessionId), JSON.stringify(rec), { sweep: false });
     return true;
   } catch {
     return false;

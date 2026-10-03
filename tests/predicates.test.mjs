@@ -1862,7 +1862,8 @@ test("racing: real parallel processes — one emitter, exact count, pointer inta
   // Seed the ADR-006 pointer the way a real session would, then let N processes
   // hammer the score and the election at the same instant. The pointer must
   // survive: keeping this state out of writeSessionState is what stops its
-  // read-modify-write from erasing active_epic/active_story under this load.
+  // unlocked read-modify-write from losing active_epic/active_story — or, as it
+  // did before it published atomically, erasing them — under this load.
   writeSessionStateTest(proj, sid, { active_epic: "PS-A", active_story: "story-x" });
 
   const N = 12;
