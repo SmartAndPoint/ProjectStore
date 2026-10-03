@@ -146,15 +146,38 @@ npx projectstore init ~/vaults/new-project --language ru
 
 ## Upgrading
 
-`/plugin update` (or auto-update) and a restart is the whole procedure. What
-an existing project sees afterwards, and why:
+`/plugin update` (or auto-update) and a restart, then one command per project
+bound before 0.28. What an existing project sees afterwards, and why:
 
-- **The status line keeps rendering.** A launcher written by an earlier
-  version still works, but it now carries no file stamp and its embedded
-  fallback root is frozen at the old version; the startup line says so at
-  every session start until you run the fix — `/projectstore:doctor --fix` — which
-  re-stamps it. Nothing rewrites that file behind your back any more: first
-  wiring and refresh are `install`'s, behind a preview.
+- **The project's files move to `.projectstore/`.** `.claude/projectstore.json`
+  and `.claude/.projectstore/` become `.projectstore/projectstore.json`,
+  `.projectstore/harness/claude-code.json` and `.projectstore/state/`. Nothing
+  breaks before you move them: every reader falls back to the old paths through
+  0.29, and the startup line names the command until the move is done. Close
+  every Claude Code session in the project, run that command from a terminal,
+  then restart. The command depends on how you installed:
+  - **From the git marketplace** (every 0.27.x install): the installed copy's
+    own `bin/projectstore.mjs`, with its path spelled out in the startup line —
+    `node "<plugin cache>/bin/projectstore.mjs" upgrade --harness claude-code --no-register --project "$PWD"`.
+    `--no-register` leaves your plugin registration as it is.
+  - **From npm**: `npx projectstore-claude@<version> upgrade --no-register --project "$PWD"`.
+
+  Both forms move only the project's files, so neither touches your plugin
+  registration. The same run re-stamps the status-line launcher at its new path
+  and re-registers the agents block, whose template is now v4. A plain
+  `npx projectstore-claude upgrade` on a git-marketplace install does more: it
+  also registers the plugin from npm for this checkout and turns the
+  git-marketplace copy off here, so `/plugin update` stops reaching the
+  checkout. If that already happened,
+  `npx projectstore-claude@<version> uninstall --surface plugin --project "$PWD"`
+  turns the git-marketplace copy back on. Restart, then run
+  `/projectstore:doctor --fix` in the new session, which re-stamps the status
+  line against that copy.
+- **The status line keeps rendering.** A launcher written by an earlier version
+  still works, but it carries no file stamp and its embedded fallback root is
+  frozen at the old version; the move above re-stamps it. Nothing rewrites that
+  file behind your back any more: first wiring and refresh are `install`'s,
+  behind a preview.
 - **`/projectstore:status` and `/projectstore:search` answer differently:**
   facts from artifact frontmatter and the derived views' freshness instead
   of an `mtime` walk; a literal, bounded, grouped search instead of a shell
@@ -166,9 +189,20 @@ an existing project sees afterwards, and why:
   a crash.
 - **The plugin registers an MCP server** (eight read-only tools over the
   vault). Claude Code may ask you to approve it once.
-- **Rolling back** to an earlier version works; that version's first session
-  overwrites the stamped launcher, and coming forward again costs the same
-  one `--fix`.
+- **The agents block stays where Claude Code reads it.** In a project with an
+  `AGENTS.md`, the block goes there and `CLAUDE.md` carries a one-line
+  `@AGENTS.md` import; otherwise the block goes into `CLAUDE.md`. A project with
+  an `AGENTS.md` and no `CLAUDE.md` now gains that one-line `CLAUDE.md`.
+- **The passive skills are published under the `projectstore-` prefix**
+  (`projectstore-decision-detector`, `projectstore-peer-reviewer`,
+  `projectstore-story-completion`, `projectstore-vault-communication`). Nothing
+  in a project names them; only a skill listing shows the new names.
+- **Rolling back** to 0.27.x after the move: 0.27.x looks for its binding under
+  `.claude/`, finds none and offers `bind`. Do not accept. A re-bind writes
+  `.claude/projectstore.json` again, and 0.28's `install` and `upgrade` refuse
+  while two bindings exist. To come forward again, delete
+  `.claude/projectstore.json`, then run the command the startup line names
+  once more: a 0.27.x session writes its welcome marker back under `.claude/`.
 - **Installed from npm?** Then `/plugin update` has nothing to fetch: the
   registration is refreshed by the package itself — from a terminal outside
   the session, `npx projectstore-claude@<version> upgrade --project "$PWD"`
@@ -215,7 +249,7 @@ The deep dive — real session files, measured payloads, how every mechanism wor
 
 ## Uninstalling
 
-`/plugin uninstall projectstore@SmartAndPoint` for a Claude git-marketplace install; `npx projectstore-claude uninstall --project "$PWD"` for its npm registration. For Codex, `npx projectstore-codex uninstall --project "$PWD"` removes only project-owned wiring; add `--global` only to remove the user-global Codex plugin and marketplace. Your vault is yours — plain markdown, untouched. One leftover of a host-managed plugin path can be the agents block in `CLAUDE.md`/`AGENTS.md`; remove it with the harness's agents unregister skill, or delete everything between `<!-- projectstore:agents … -->` and `<!-- /projectstore:agents -->` by hand.
+`/plugin uninstall projectstore@SmartAndPoint` for a Claude git-marketplace install; `npx projectstore-claude uninstall --project "$PWD"` for its npm registration. For Codex, `npx projectstore-codex uninstall --project "$PWD"` removes only project-owned wiring; add `--global` only to remove the user-global Codex plugin and marketplace. Your vault is yours — plain markdown, untouched. One leftover of a host-managed plugin path can be the agents block in `CLAUDE.md`/`AGENTS.md`; remove it with the harness's agents unregister skill, or delete everything between `<!-- projectstore:agents … -->` and `<!-- /projectstore:agents -->` by hand. `uninstall` leaves a block that lives in `AGENTS.md`, because that file is read by other coding agents too, and removes the `CLAUDE.md` import when that file holds nothing else; `uninstall --surface agents_block` removes the block as well.
 
 ## Extending
 

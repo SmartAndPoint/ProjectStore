@@ -52,7 +52,7 @@ import {
   RUNTIME_GITIGNORE_HEADER,
   LAUNCHER_HEADER,
 } from "./lib.mjs";
-import { analysePortableRegistration, portableRegistrationPaths } from "./portable-registration.mjs";
+import { analysePortableRegistration, portableRegistrationPaths, portablePayloadRoot } from "./portable-registration.mjs";
 
 export const GENERATOR = "scripts/install-harness.mjs";
 export const INSTALLED_REMEDY = "projectstore doctor reports this file when it is stale; run install again to refresh it.";
@@ -364,16 +364,22 @@ const ANALYSERS = { "markdown-block": analyseBlock, "json-entry": analyseJsonEnt
 // The states of every non-host, supported surface of every harness this
 // project uses — detected by directory, or carrying a file of ours (contract
 // 16). Host-managed rows have nothing to derive (contract 14).
-export function surfaceStates(projectDir, { home = homedir(), root = pluginRoot(), manifestDir = MANIFEST_DIR, harnesses = null } = {}) {
+export function surfaceStates(projectDir, { home = homedir(), root = pluginRoot(), manifestDir = MANIFEST_DIR, harnesses = null, env = process.env } = {}) {
   projectDir = resolve(projectDir);
   const detected = detectHarnesses(projectDir, { dir: manifestDir }).map((d) => d.id);
   const out = { projectDir, detected, used: [], installable: harnessIds(manifestDir), states: [] };
   for (const m of loadHarnesses(manifestDir).values()) {
     if (harnesses && !harnesses.includes(m.id)) continue;
-    const rows = Object.entries(m.surfaces || {}).filter(([k, s]) => !k.startsWith("_") && s.kind !== "host" && s.supported !== false && ANALYSERS[s.format]);
+    // A registration conditioned on a distribution root has no state to read
+    // from a run that has none — the installer defers it before reading any,
+    // and so does this (S2, the 2026-10-03 review): reporting it from the
+    // core printed "<core> is not a portable plugin root" into every project
+    // that merely contained the harness's directory.
+    const rows = Object.entries(m.surfaces || {}).filter(([k, s]) => !k.startsWith("_") && s.kind !== "host" && s.supported !== false && ANALYSERS[s.format]
+      && !(s.condition === "distribution_root" && !portablePayloadRoot(s, { root, env })));
     const states = [];
     for (const [key, s] of rows) {
-      const a = ANALYSERS[s.format](projectDir, s, { root, home, harness: m });
+      const a = ANALYSERS[s.format](projectDir, s, { root, home, harness: m, env });
       const entry = s.kind === "shared" ? (a.entryKey || s.marker?.pointer || null) : null;
       const path = a.legacyPath || a.path || (a.current ? a.current.path : (a.preferred ? a.preferred.path : join(projectDir, s.file || "")));
       const row = { harness: m.id, surface: key, kind: s.kind, path, entry, state: a.state, reason: a.reason || a.refusal || null, writtenBy: a.writtenBy || null, sameProject: Boolean(a.sameProject), produced: a.produced !== false, legacy: Boolean(a.legacy), installedPkg: a.installedPkg || null, present: a.file ? a.file.present : (a.current ? true : (a.curEntry ? true : false)) };

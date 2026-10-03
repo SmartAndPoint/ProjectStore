@@ -83,9 +83,12 @@ test("registration contract 4′/9: from an npx root the plan registers first, p
   assert.ok(preview.includes("Each $ line runs the host's own CLI"));
   assert.equal(host.log().length, 0, "plan runs nothing");
   assert.ok(!existsSync(paths.dir), "plan writes nothing");
-  // publicItem drops the manifest bodies from steps, keeps the argv.
+  // publicItem drops the manifest bodies from steps, keeps the argv — and keeps
+  // the write's file count, which a public envelope had until 4aa142d
+  // stripped `files` from every step (S1, the 2026-10-03 review).
   const pub = publicItem(reg);
   assert.ok(pub.steps.every((s) => !("manifest" in s)));
+  assert.equal(pub.steps.find((s) => s.kind === "write").files, PACKLIST.length, "the write's file count survives");
 });
 
 test("registration contract 4′: apply writes the directory whole, runs the host with the pinned home and the project as cwd, verifies the install path, and the launcher is byte-identical to a cache install's", () => {
@@ -387,6 +390,37 @@ test("registration: the copied payload is the packlist, and installedPluginEntri
   assert.equal(installedPluginEntries(home, proj)[0].enabled, false);
   assert.equal(installedPluginEntries(home)[0].enabled, true, "without a project only the user's settings speak");
   assert.equal(analyseRegistration(proj, S, { root, home, harness: SRC, env }).reason, "disabled for this checkout");
+});
+
+// --no-register (and a --surface that excludes the registration) still reads
+// the registration for the render root — before the surfaces that render
+// against it. Read after them, it moved only the preview line, and a run from
+// a package root re-pointed the status line at that root (the second review of
+// the 2026-10-03 fixes, S1).
+test("registration: a run that leaves the registration out still renders the project's surfaces against its install path", () => {
+  const sb = sandbox();
+  const { home, proj, root, env, item } = sb;
+  const done = apply(plan(proj, { home, root, env }), { env, home });
+  assert.ok(!done.failed, JSON.stringify(done.failed));
+  const installPath = item(plan(proj, { home, root, env }), "plugin").root;
+  assert.ok(installPath, "the registration is current and names its install path");
+  const p = plan(proj, { home, root, env, register: false });
+  assert.ok(!p.items.some((i) => i.kind === "registration"), "no registration row");
+  assert.equal(p.plannedAgainst[SRC.id], installPath);
+  for (const k of ["statusline_launcher", "statusline"]) {
+    const it = item(p, k);
+    if (it) assert.equal(it.plannedAgainst, installPath, `${k} is planned against the install path`);
+  }
+  assert.ok(item(p, "statusline_launcher") || item(p, "statusline"), "a status-line surface was planned");
+  // The --surface half: a run narrowed to the status line reads the left-out
+  // registration the same way…
+  const narrowed = plan(proj, { home, root, env, surfaces: ["statusline"] });
+  assert.equal(item(narrowed, "statusline").plannedAgainst, installPath, "--surface statusline renders against the install path");
+  // …and only an enabled one: disabled for this project, it decides nothing.
+  const sp = join(proj, CFG_DIR, "settings.local.json");
+  const s0 = JSON.parse(readFileSync(sp, "utf8"));
+  writeFileSync(sp, JSON.stringify({ ...s0, enabledPlugins: { ...(s0.enabledPlugins || {}), [item(plan(proj, { home, root, env }), "plugin").entry]: false } }, null, 2) + "\n");
+  assert.equal(item(plan(proj, { home, root, env, surfaces: ["statusline"] }), "statusline").plannedAgainst, undefined, "a disabled registration is not the render root");
 });
 
 test("registration: a dev checkout's directly wired status line stays ours when the plan renders against the registration's install path; a competitor the user disabled elsewhere is not re-enabled; a failed registration skips only the dependent surfaces", () => {

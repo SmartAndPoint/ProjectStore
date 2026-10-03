@@ -78,8 +78,11 @@ test("overlay contract 2: the allowlist is two keys — everything else is ignor
   assert.deepEqual(JSON.parse(read(p)).agents, { default: { model: "haiku" } });
   // A binding that still carries agents (pre-0.28) is a warn naming the upgrade.
   writeBinding(proj, { ...readConfigAt(proj), agents: { default: { model: "opus" } } });
-  const g = checkOverlays(readConfigAt(proj), proj);
-  assert.ok(g.some((x) => x.check === "agents-in-binding" && x.level === "warn" && /upgrade --harness/.test(x.message)));
+  // With its own root and an empty home, never the developer's ~/.claude: the
+  // command is the layout move's, in the running copy's own form.
+  const g = checkOverlays(readConfigAt(proj), proj, { root: ROOT, home: mkdtempSync(join(TMP, "ps-overlay-home-")) });
+  const move = `node "${join(ROOT, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj}"`;
+  assert.ok(g.some((x) => x.check === "agents-in-binding" && x.level === "warn" && x.message.includes(move)), JSON.stringify(g.map((x) => x.message)));
   // A configured name outside the roster is a warn naming the roster: nothing runs under it.
   writeOverlayAt(proj, SRC.id, { default: null, per_agent: { critc: "opus" } });
   assert.ok(checkOverlays(readConfigAt(proj), proj).some((x) => x.check === "overlay-unknown-agent" && x.level === "warn" && /critc.*critic/.test(x.message)));

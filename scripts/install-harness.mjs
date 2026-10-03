@@ -56,7 +56,7 @@
 // (MultiProjectStore); the host-managed report shape is Maxim
 // Podreshetnikov's (PR #13, installElsewhere). Pure node, no external deps.
 
-import { mkdirSync, unlinkSync, rmdirSync, readdirSync, existsSync, readFileSync, openSync, closeSync } from "node:fs";
+import { mkdirSync, unlinkSync, rmdirSync, readdirSync, existsSync, readFileSync, openSync, closeSync, statSync } from "node:fs";
 import { join, resolve, dirname, relative, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -67,7 +67,7 @@ import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses,
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
 import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, isOurFile, readText } from "./surfaces.mjs";
 import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
-import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpVersion, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder } from "./lib.mjs";
+import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpVersion, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder } from "./lib.mjs";
 
 import { GENERATOR } from "./surfaces.mjs";
 export { GENERATOR };
@@ -77,11 +77,9 @@ function rel(projectDir, p) {
   return r && !r.startsWith("..") && !isAbsolute(r) ? r : p;
 }
 
-// npx extracts into a cache under _npx/, npm install into node_modules/: both
-// are the package manager's to remove.
-export function isEphemeralRoot(root) {
-  return /[\\/](_npx|node_modules)[\\/]/.test(String(root || ""));
-}
+// isEphemeralRoot lives in lib.mjs beside the channel classifier that uses it;
+// re-exported here under the name the installer's callers already import.
+export { isEphemeralRoot };
 
 function inside(dir, parent) {
   const r = relative(parent, dir);
@@ -333,8 +331,14 @@ function planPortableRegistration(ctx, key, s) {
       enabled: a.enabled,
     },
   };
-  if (s.condition === "distribution_root" && !env.PROJECTSTORE_DISTRIBUTION_ROOT) {
-    return [{ ...base, action: "skip", deferred: true, reason: "the core package is not the Codex plugin root; registration runs only from the built projectstore-codex distribution shell" }];
+  // The same fact the analyser computed: no portable payload in this run. A
+  // shell that named a root which is not a plugin root is broken, and says so
+  // through `incomplete`; the core run alone simply defers.
+  if (!a.payloadRoot) {
+    if (env.PROJECTSTORE_DISTRIBUTION_ROOT) ctx.incomplete = true;
+    return [{ ...base, action: "skip", deferred: true, reason: env.PROJECTSTORE_DISTRIBUTION_ROOT
+      ? `${env.PROJECTSTORE_DISTRIBUTION_ROOT} is not a portable plugin root; ${harness.display_name}'s registration runs only from its built distribution shell`
+      : `the core package is not ${harness.display_name}'s plugin root; registration runs only from its built distribution shell` }];
   }
   if (mode === "uninstall" && !globalRemoval) {
     return [{ ...base, action: "skip", reason: "the plugin package and cache are global; project uninstall removes only project-owned surfaces. Use uninstall --global with an explicit harness to preview global removal" }];
@@ -568,7 +572,7 @@ function planStampedFile(ctx, key, s) {
 
 // ─── plan ──────────────────────────────────────────────────────────────
 
-export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false } = {}) {
+export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true } = {}) {
   projectDir = resolve(projectDir);
   const detected = detectHarnesses(projectDir);
   const named = harnesses.filter(Boolean);
@@ -606,7 +610,25 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
     const rows = Object.entries(harness.surfaces || {}).filter(([key]) => !key.startsWith("_"));
     rows.sort(([, x], [, y]) => (KIND_ORDER[x.kind] ?? 3) - (KIND_ORDER[y.kind] ?? 3));
     for (const [key, s] of rows) {
-      if (surfaces && !surfaces.some((x) => key === x || key.startsWith(x + "_"))) continue;
+      // --no-register: this run changes the project's files and nothing of the
+      // host's (the layout move run from an installed copy; the layout spec,
+      // contract 12 as amended 2026-10-03).
+      const excluded = (surfaces && !surfaces.some((x) => key === x || key.startsWith(x + "_"))) || (register === false && s.kind === "registration");
+      if (excluded) {
+        // A registration this run leaves out still decides the render root,
+        // read-only — HERE, before the surfaces that render against it (the
+        // registration sorts first). Read after the loop, as it was until
+        // 2026-10-03, it moved only the preview's "planned against" line and
+        // never an item: a --no-register run from a checkout re-pointed the
+        // status line at the checkout (the second review of the 2026-10-03
+        // fixes, S1).
+        if (s.kind === "registration" && !isPluginCacheRoot(root, home)) {
+          const analyser = s.format === "portable-plugin-registration" ? analysePortableRegistration : analyseRegistration;
+          const a = analyser(projectDir, s, { root, home, harness, env });
+          if (a.installed && (a.installed.present ?? true) && a.enabled) ctx.renderRoot = a.installPath;
+        }
+        continue;
+      }
       // `kind: host` and `supported: false` are different facts and the report
       // must not merge them: the first says the host installs this surface, the
       // second says the harness has no such surface at all. Reporting both as
@@ -626,15 +648,6 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
         const own = items.find((i) => i.surface === key);
         registration = own || null;
         if (own && mode !== "uninstall" && ["create", "update", "skip"].includes(own.action) && own.root && !own.deferred) ctx.renderRoot = own.root;
-      }
-    }
-    // A registration surface the manifest declares but --surface excluded still decides the render root, read-only.
-    if (surfaces && !registration) {
-      const reg = rows.find(([key, s]) => s.kind === "registration" && !surfaces.some((x) => key === x || key.startsWith(x + "_")));
-      if (reg && !isPluginCacheRoot(root, home)) {
-        const analyser = reg[1].format === "portable-plugin-registration" ? analysePortableRegistration : analyseRegistration;
-        const a = analyser(projectDir, reg[1], { root, home, harness, env });
-        if (a.installed && (a.installed.present ?? true) && a.enabled) ctx.renderRoot = a.installPath;
       }
     }
     if (ctx.renderRoot !== root) {
@@ -701,14 +714,14 @@ function planLayout(ctx) {
   const last = [];
   if (a.legacy.launcher || a.legacy.runtime) {
     const cleanup = [];
-    if (a.legacy.launcher) cleanup.push({ kind: "remove-legacy-launcher", path: P.legacy.launcher, why: "removed once the new launcher is written and the settings entry names it; kept if anything still points at it" });
+    if (a.legacy.launcher) cleanup.push({ kind: "remove-legacy-launcher", path: P.legacy.launcher, why: "removed once the new launcher is written and the settings entry names it — or at once when the status-line slot is not ours (foreign, or empty because the status line is off); kept if anything still points at it" });
     if (a.legacy.runtime) cleanup.push({ kind: "rmdir-legacy", path: P.legacy.runtime, why: "the emptied pre-0.28 runtime directory" });
     last.push({ ...base, surface: "layout_cleanup", path: P.legacy.runtime, state: "legacy", action: "cleanup", reason: null, steps: cleanup });
   }
   return { first, last };
 }
 
-function applyLayout(p, i, { failed }) {
+function applyLayout(p, i, { failed, home = homedir() }) {
   const out = { path: i.path, action: i.action, surface: i.surface, steps: [] };
   const within = p.projectDir;
   if (i.action === "cleanup" && failed) { out.action = "skipped"; out.reason = "an earlier item failed; the legacy files stay until the next run"; return out; }
@@ -737,12 +750,22 @@ function applyLayout(p, i, { failed }) {
       else if (st.kind === "remove-legacy-launcher") {
         // Only ours, and only when no settings entry names it any more.
         let text = null; try { text = readFileSync(st.path, "utf8"); } catch {}
-        const named = entryNames(p.projectDir, i.harness, st.path);
+        // "Still in use" is decided by the FILE, not the spelling: an entry
+        // written through a symlinked or differently-cased path, or living in
+        // the committed or the user's settings, still runs it (the third review
+        // of the 2026-10-03 fixes — a string comparison of the local file alone
+        // deleted a launcher the status line was running).
+        const named = entryNames(p.projectDir, i.harness, st.path) || settingsRunFile(p.projectDir, i.harness, st.path, home);
         // Moved, never just deleted: the legacy launcher goes only once the new
-        // one exists (a dev root produces none — contract 7 leaves it in place).
+        // one exists (a dev root produces none — contract 7 leaves it in place)
+        // — unless the status-line slot is not ours (any wiring of ours counts).
+        // Under a foreign or empty slot the new launcher is never made, and
+        // keeping the old one kept layout-legacy alive forever (the critic of
+        // the layout spec's 2026-10-03 amendment, case S1).
         const moved = existsSync(layoutPaths(p.projectDir).launcher(i.harness));
+        const slotOurs = slotIsOurs(p.projectDir, i.harness, { home, root: p.root });
         if (text === null) out.steps.push({ kind: st.kind, ok: true, removed: false });
-        else if (!moved) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "no launcher at the new path yet (this root does not produce one) — left in place" });
+        else if (!moved && slotOurs) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "no launcher at the new path yet (this root does not produce one) — left in place" });
         else if (!isOurFile(text)) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "not ours — left in place" });
         else if (named) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "the settings entry still names it — left in place" });
         else out.steps.push({ kind: st.kind, ok: true, removed: removeInside(st.path, within) });
@@ -759,6 +782,38 @@ function applyLayout(p, i, { failed }) {
     } catch (e) { return fail(st.kind, e && e.message ? e.message : String(e)); }
   }
   return out;
+}
+
+// Does any settings file the host reads run this file as its status line?
+// Compared by identity (device and inode), so a path spelled through a symlink
+// or in another case still counts; the project-directory variable a command
+// may carry is substituted first.
+function settingsRunFile(projectDir, harnessId, file, home) {
+  const id = (f) => { try { const s = statSync(f); return `${s.dev}:${s.ino}`; } catch { return null; } };
+  const want = id(file);
+  if (!want) return false;
+  const h = loadHarness(harnessId);
+  const dir = h.runtime?.harness_dir || ".claude", v = h.runtime?.project_dir_env;
+  const files = [join(projectDir, h.surfaces?.statusline?.file || join(dir, "settings.local.json")), join(projectDir, dir, "settings.json"), join(claudeHome(home), "settings.json")];
+  return files.some((f) => {
+    try {
+      let cmd = JSON.parse(readFileSync(f, "utf8"))?.statusLine?.command;
+      if (typeof cmd !== "string") return false;
+      if (v) cmd = cmd.split("${" + v + "}").join(projectDir).split("$" + v).join(projectDir);
+      const sp = statusLineScriptPath(cmd);
+      return Boolean(sp) && id(isAbsolute(sp) ? sp : join(projectDir, sp)) === want;
+    } catch { return false; }
+  });
+}
+
+// Is the harness's status-line slot wired to anything of ours (any wiring)?
+function slotIsOurs(projectDir, harnessId, { home, root }) {
+  try {
+    const s = loadHarness(harnessId).surfaces?.statusline;
+    if (!s || !s.file) return false;
+    const cmd = JSON.parse(readFileSync(join(projectDir, s.file), "utf8"))?.statusLine?.command;
+    return typeof cmd === "string" && statusLineIsOurWiring(cmd, projectDir, home, root);
+  } catch { return false; }
 }
 
 // Does the harness's settings entry still name this launcher path?
@@ -868,7 +923,7 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
   for (const i of p.items) {
     if (!isWrite(i)) continue;
     if (i.kind === "layout") {
-      const r = applyLayout(p, i, { failed: layoutFailed || registrationFailed || Boolean(done.failed) });
+      const r = applyLayout(p, i, { failed: layoutFailed || registrationFailed || Boolean(done.failed), home });
       done.push(r);
       if (r.failed) { done.failed = r.failed; layoutFailed = true; }
       continue;
@@ -1249,7 +1304,7 @@ export async function runVerb(verb, projectDir, opts = {}) {
 
 function usage() {
   return [
-    "usage: install-harness.mjs <install|uninstall|upgrade|plan> [--harness <id>]... [--surface <key>]... [--project <dir>] [--global] [--json]",
+    "usage: install-harness.mjs <install|uninstall|upgrade|plan> [--harness <id>]... [--surface <key>]... [--project <dir>] [--global] [--no-register] [--json]",
     `  harnesses: ${harnessIds().join(", ")}`,
     "  --surface narrows the plan to a surface and the surfaces beneath it (statusline covers statusline_launcher)",
     "  --harness names the harness — and, non-interactively, is the confirmation; there is no --yes",
@@ -1258,8 +1313,22 @@ function usage() {
 
 // The JSON envelope carries states and actions, never file bodies: a model
 // reading a status report must not receive the whole of CLAUDE.md twice.
+// Per step kind, because one field name means different things in different
+// steps. A layout step's `from`/`to`/`files` ARE its preview, and a
+// registration `write` carries `files` as a count beside its `manifest` body.
+// Only `portable-write` carries bodies under other names (`catalog`,
+// `ownership`), its payload root (`from`) and its file list. Stripping every
+// name from every step took the layout migration's `from` out of
+// `plan --json` (S1 of the 2026-10-03 review in "The Codex shell's plugin root:
+// .codex-plugin, the rendered surfaces, and the first Codex install").
+const PRIVATE_STEP_FIELDS = { "portable-write": ["catalog", "ownership", "from"] };
+function publicStep({ manifest, ...s }) {
+  for (const k of PRIVATE_STEP_FIELDS[s.kind] || []) delete s[k];
+  if (s.kind === "portable-write" && Array.isArray(s.files)) s.files = s.files.length;
+  return s;
+}
 export const publicItem = ({ before, after, steps, observed, ...rest }) => steps
-  ? { ...rest, steps: steps.map(({ manifest, catalog, ownership, files, from, ...s }) => s) }
+  ? { ...rest, steps: steps.map(publicStep) }
   : rest;
 
 async function main() {
@@ -1267,7 +1336,7 @@ async function main() {
   const verb = argv[0];
   if (!["install", "uninstall", "upgrade", "plan"].includes(verb)) { process.stderr.write(usage() + "\n"); process.exit(2); }
   const harnesses = [], surfaces = [];
-  let projectDir = null, json = false, globalRemoval = false;
+  let projectDir = null, json = false, globalRemoval = false, register = true;
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
     const value = () => { const v = argv[++i]; if (v === undefined || v.startsWith("--")) { process.stderr.write(`${a} needs a value\n${usage()}\n`); process.exit(2); } return v; };
@@ -1275,12 +1344,13 @@ async function main() {
     else if (a === "--surface") surfaces.push(value());
     else if (a === "--project") projectDir = value();
     else if (a === "--global") globalRemoval = true;
+    else if (a === "--no-register" && verb !== "uninstall") register = false;
     else if (a === "--json") json = true;
     else { process.stderr.write(`unknown argument ${a}\n${usage()}\n`); process.exit(2); }
   }
   const src = sourceHarness();
   projectDir = resolve(projectDir || (src && process.env[src.runtime?.project_dir_env]) || process.cwd());
-  const opts = { harnesses, surfaces: surfaces.length ? surfaces : null, globalRemoval };
+  const opts = { harnesses, surfaces: surfaces.length ? surfaces : null, globalRemoval, register };
   if (verb === "plan") {
     const p = plan(projectDir, opts);
     process.stdout.write(json ? JSON.stringify({ ...p, items: p.items.map(publicItem) }, null, 2) + "\n" : renderPreview(p));

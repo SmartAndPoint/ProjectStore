@@ -129,10 +129,27 @@ function cacheEntries(paths, s) {
   }).filter(Boolean).sort((a, b) => b.at - a.at || b.version.localeCompare(a.version));
 }
 
+// Where the payload to register lives. A surface conditioned on a distribution
+// root has one only when a distribution shell named itself
+// (PROJECTSTORE_DISTRIBUTION_ROOT) AND that root is a portable plugin root: the
+// Claude Code shell sets the same variable, and the core alone is never a
+// payload. Null means nothing is registered from this run — callers defer and
+// never fall back to the core. That fallback is how doctor came to report
+// "<core> is not a portable plugin root" in any project that merely contained
+// the harness's directory (S2 of the 2026-10-03 review in "The Codex shell's
+// plugin root: .codex-plugin, the rendered surfaces, and the first Codex
+// install").
+export function portablePayloadRoot(s, { root, env = process.env } = {}) {
+  const named = env.PROJECTSTORE_DISTRIBUTION_ROOT || null;
+  if (s.condition !== "distribution_root") return named || root;
+  if (!named) return null;
+  return existsSync(join(named, "plugin.json")) || existsSync(join(named, ".codex-plugin", "plugin.json")) ? named : null;
+}
+
 export function analysePortableRegistration(projectDir, s, { root, payloadRoot: explicitPayloadRoot = null, home = homedir(), harness, env = process.env, ignoreJournal = false } = {}) {
   const paths = portableRegistrationPaths(s, { home, projectDir, harness, env });
-  const payloadRoot = explicitPayloadRoot || env.PROJECTSTORE_DISTRIBUTION_ROOT || root;
-  const desiredManifest = readJson(join(payloadRoot, "plugin.json")) || readJson(join(payloadRoot, ".codex-plugin", "plugin.json"));
+  const payloadRoot = explicitPayloadRoot || portablePayloadRoot(s, { root, env });
+  const desiredManifest = payloadRoot ? (readJson(join(payloadRoot, "plugin.json")) || readJson(join(payloadRoot, ".codex-plugin", "plugin.json"))) : null;
   const desiredVersion = desiredManifest?.version || null;
   const id = `${s.plugin_name}@${s.marketplace_name}`;
   const bin = whichOnPath(s.cli.bin, env);
@@ -156,7 +173,7 @@ export function analysePortableRegistration(projectDir, s, { root, payloadRoot: 
   const out = { id, paths, path: paths.dir, payloadRoot, desiredVersion, bin, ownership, journal, catalog, market, globalPlugin, projectPlugin, enabled, others, caches, installed, installPath: installed?.path || null, installedVersion: installed?.version || null, state: "absent", reason: null, produced: Boolean(desiredManifest), contentDiffers: null };
   const enabledOther = others.find((other) => other.enabled);
   const nothing = !existsSync(paths.dir) && !market && !globalPlugin && !installed && !enabledOther;
-  if (!desiredManifest) return { ...out, state: "unavailable", reason: `${payloadRoot} is not a portable plugin root` };
+  if (!desiredManifest) return { ...out, state: "unavailable", reason: payloadRoot ? `${payloadRoot} is not a portable plugin root` : `nothing to register from this run: ${harness?.display_name || "this harness"}'s plugin is registered from its distribution shell, not from the core` };
   if (!bin && nothing) return { ...out, state: "unavailable", reason: `\`${s.cli.bin}\` is not on PATH — the registration needs the host CLI` };
   let desiredDigest = null;
   try { desiredDigest = payloadDigest(payloadRoot); } catch (e) { return { ...out, state: "unavailable", reason: e.message }; }

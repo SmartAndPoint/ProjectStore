@@ -21,7 +21,10 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
 2. **No findings** → done. One line: "Doctor is clean — N info note(s) above."
 
 3. **`--fix` requested** → walk the *install-side* findings only, one
-   AskUserQuestion per repair, never batched silently:
+   AskUserQuestion per repair, never batched silently. **When `layout-legacy`
+   is in the report, it goes first and its command is the one repair** for a
+   stale-launcher `surface`, a v3 `agents-block` and `agents-in-binding` as
+   well: relay it and run nothing in-session for those (see its bullet below).
    - `worktree-unbound` → this checkout is a git worktree of a bound one. Offer
      `/projectstore:bind --inherit`, and say what it does: copies the parent's
      binding, leaves the vault shared and unchanged, carries no session state.
@@ -49,7 +52,8 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    - `upgrade` (an info the SessionStart line carries, not a row of this
      report: a launcher written before file stamps existed) → in this report
      the same file is the `surface` issue above; the `upgrade` command re-stamps
-     it in one run.
+     it in one run. While `layout-legacy` is pending the startup line does not
+     carry it: the move re-stamps the launcher at its new path.
    - `surface-foreign` → **never repairable.** A file under our prefix with no
      provenance line is not ours: no `--fix` flow may edit, delete, move or
      overwrite it. Print the finding verbatim and relay its resolution — rename
@@ -63,10 +67,18 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    - `layout-legacy` (warn; the startup line carries it as an offer) → the project
      still holds the pre-0.28 layout (`.claude/projectstore.json`,
      `.claude/.projectstore/` — legacy, read through 0.29). The migration is one
-     previewed `layout` item of the `projectstore-claude` shell's `upgrade`, run
-     **from a terminal outside this session** (it moves files this session reads and writes; the verb defers
-     inside one). Relay the finding's command verbatim; never move the files
-     yourself.
+     previewed `layout` item of `upgrade`, run **from a terminal outside this
+     session** (it moves files this session reads and writes; the verb defers
+     inside one). The finding names the form for the channel this plugin was
+     installed through: the installed copy's own `bin/projectstore.mjs` for a
+     git-marketplace install or a checkout, the `projectstore-claude` shell for
+     the npm registration. Relay the finding's command verbatim and never
+     substitute the other form — the shell, run for a git-marketplace install,
+     would also move this checkout to the npm channel. Never move the files
+     yourself. While this finding is in the report, its command is also the one
+     repair for a stale-launcher `surface`, a v3 `agents-block` and
+     `agents-in-binding`: do not run the in-session `install` or `upgrade` for
+     those — the deferred move makes that run stop part-way.
    - `layout-two-configs` (issue) → both `.claude/projectstore.json` (legacy) and
      `.projectstore/projectstore.json` exist: `install` and `upgrade` refuse until
      one is deleted. Show both, ask the user which is the binding they mean, and

@@ -26,7 +26,7 @@ import { sourceHarness, packageCommand, loadHarness, loadHarnesses } from "../sc
 import { VERBS } from "../scripts/cli.mjs";
 import { checkVersions, collectShells, PACKLIST } from "../scripts/version-guard.mjs";
 import { checkPluginRegistration, checkLayout } from "../scripts/doctor.mjs";
-import { truncFront, PATH_CELL } from "../scripts/lib.mjs";
+import { truncFront, PATH_CELL, claudeHome } from "../scripts/lib.mjs";
 import { SHELLS, SHELLS_DIR, CORE, shellDir, shellPacklistPath, publishable, shellFor, harnessVerbs, checkShells, packCore, buildShell, buildShells, compareWithFixture, corePackage } from "../packaging/shells.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -494,8 +494,13 @@ test("shells contract 12: the documented install is the shell — README, the ma
   const legacy = mkdtempSync(join(TMP, "legacy-"));
   mkdirSync(join(legacy, SRC.runtime.harness_dir));
   writeFileSync(join(legacy, SRC.runtime.harness_dir, "projectstore.json"), "{}");
-  const lay = checkLayout(legacy);
-  assert.ok(lay.some((f) => f.check === "layout-legacy" && new RegExp(`npx ${CLAUDE.name}@[^ ]+ upgrade --project`).test(f.message)), JSON.stringify(lay));
+  // The shell form is the remedy where the session runs the package's own
+  // registration; a git-marketplace copy names its own bin instead (the layout
+  // spec, contract 12 as amended 2026-10-03 — tests/layout.test.mjs pins both).
+  const regHome = mkdtempSync(join(TMP, "reg-home-"));
+  const regRoot = join(claudeHome(regHome), "plugins", "cache", SRC.surfaces.plugin.marketplace_name, "projectstore", corePackage().version);
+  const lay = checkLayout(legacy, undefined, { root: regRoot, home: regHome });
+  assert.ok(lay.some((f) => f.check === "layout-legacy" && new RegExp(`npx ${CLAUDE.name}@[^ ]+ upgrade --no-register --project`).test(f.message)), JSON.stringify(lay));
   // The prompt surface: the shell by name, never `npx` (the A8 lint keeps the literal out; contract 12).
   const doctorMd = read(join(ROOT, "commands", "doctor.md"));
   assert.ok(doctorMd.includes(`\`${CLAUDE.name}\` shell's \`upgrade\``), "doctor.md routes the refresh to the shell");

@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, cpSync, chmodSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { plan, apply } from "../scripts/install-harness.mjs";
+import { plan, apply, publicItem } from "../scripts/install-harness.mjs";
+import { surfaceStates } from "../scripts/surfaces.mjs";
+import { checkHarnessSurfaces, checkPluginRegistration } from "../scripts/doctor.mjs";
+import { fileURLToPath } from "node:url";
+
+const CORE = fileURLToPath(new URL("..", import.meta.url));
 
 function fixture(version = "0.28.0+codex.dev.one") {
   const base = mkdtempSync(join(tmpdir(), "ps-codex-registration-"));
@@ -75,6 +80,48 @@ test("Codex portable registration: install is verified and the next plan is idem
   const conflict = plan(f.project, opts(f));
   assert.equal(registration(conflict).action, "refuse");
   assert.match(registration(conflict).reason, /same.*different payload|different payload digest/i);
+});
+
+test("Codex portable registration: the public envelope drops the staged payload's bodies, root and listing, and keeps its count", () => {
+  const f = fixture();
+  const step = registration(plan(f.project, opts(f))).steps.find((s) => s.kind === "portable-write");
+  assert.ok(step && Array.isArray(step.files) && step.from && step.catalog && step.ownership, "the private plan carries them");
+  const pub = publicItem(registration(plan(f.project, opts(f)))).steps.find((s) => s.kind === "portable-write");
+  for (const k of ["catalog", "ownership", "from", "manifest"]) assert.ok(!(k in pub), `${k} is not public`);
+  assert.equal(pub.files, step.files.length, "the listing becomes its count, as a registration write reports it");
+});
+
+// S2 of the 2026-10-03 review: doctor read this registration from the core,
+// fell back to the core as the payload, and told every project that merely
+// contained .codex/ that "<core> is not a portable plugin root". The installer
+// already deferred the surface in that run; doctor now does the same, and only
+// a run whose distribution root IS a portable plugin root reads its state.
+test("Codex portable registration, doctor half: a run with no portable payload has no registration row, and nothing names the core", async () => {
+  const f = fixture();
+  mkdirSync(join(f.project, ".codex"), { recursive: true });
+  mkdirSync(join(f.project, ".claude"), { recursive: true });
+  const rows = (env) => surfaceStates(f.project, { home: f.home, root: CORE, env }).states.filter((x) => x.harness === "codex" && x.kind === "registration");
+  const { PROJECTSTORE_DISTRIBUTION_ROOT: _named, ...bare } = f.env;
+  assert.deepEqual(rows(bare), [], "the core alone: no row");
+  const otherShell = mkdtempSync(join(tmpdir(), "ps-other-shell-"));
+  writeFileSync(join(otherShell, "package.json"), "{}\n");
+  assert.deepEqual(rows({ ...bare, PROJECTSTORE_DISTRIBUTION_ROOT: otherShell }), [], "a shell whose root is not a plugin root names no payload either");
+  const read = rows(f.env);
+  assert.equal(read.length, 1, "the portable root: the row is read");
+  assert.equal(read[0].state, "absent", "and analysed against that root, not the core");
+  // The S2 line came from checkPluginRegistration, which reads every state;
+  // checkHarnessSurfaces skips registration rows, so asserting on it alone
+  // could not fail.
+  const states = surfaceStates(f.project, { home: f.home, root: CORE, env: bare }).states;
+  const lines = [...checkPluginRegistration(f.project, states), ...await checkHarnessSurfaces(null, f.project, { home: f.home, root: CORE, env: bare })];
+  assert.ok(!lines.some((x) => /portable plugin root/.test(x.message)), JSON.stringify(lines.map((x) => x.message)));
+  // The installer's half: the core run defers without failing; a shell that
+  // names a root which is not a plugin root is broken, and says so.
+  const p = plan(f.project, opts(f, { env: bare }));
+  assert.equal(registration(p).action, "skip"); assert.equal(registration(p).deferred, true); assert.ok(!p.incomplete);
+  const broken = plan(f.project, opts(f, { env: { ...bare, PROJECTSTORE_DISTRIBUTION_ROOT: otherShell } }));
+  assert.equal(registration(broken).action, "skip"); assert.equal(broken.incomplete, true);
+  assert.match(registration(broken).reason, /is not a portable plugin root/);
 });
 
 test("Codex portable registration: verification requires host-reported enablement and the materialised cache digest", () => {

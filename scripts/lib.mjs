@@ -27,6 +27,7 @@ import {
   sourceWriteTools,
   isWriteTool as harnessIsWriteTool,
   toolPaths as harnessToolPaths,
+  sourceHarness,
 } from "./harness.mjs";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
@@ -551,10 +552,55 @@ export function installedPluginRoot(home = homedir(), preferFamily = null) {
   }
 }
 
+// The path of `root` below the host's plugin cache, or null when it is not
+// there. Compared as given first, then as real paths on both sides: Node
+// resolves an entry script's real path, so a terminal run from a cache under a
+// symlinked home (dotfiles) sees the real path where the session's variable
+// names the link, and the two must classify alike — otherwise the terminal run
+// took its own copy for a checkout and planned the package's registration
+// (measured 2026-10-03, the critic of the layout spec's contract 12 amendment).
+function underPluginCache(root, home = homedir()) {
+  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  const cache = join(claudeHome(home), "plugins", "cache");
+  const below = (r, c) => { const a = norm(r), b = norm(c); return a.startsWith(b + "/") ? a.slice(b.length + 1) : null; };
+  const direct = below(root, cache);
+  if (direct !== null || !root) return direct;
+  const real = (x) => { try { return realpathSync(x); } catch { return null; } };
+  const rr = real(root), rc = real(cache);
+  return rr && rc ? below(rr, rc) : null;
+}
+
 // Is this plugin root a versioned cache install (the only kind that goes stale)?
 export function isPluginCacheRoot(root, home = homedir()) {
-  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
-  return norm(root).startsWith(norm(join(claudeHome(home), "plugins", "cache")) + "/");
+  return underPluginCache(root, home) !== null;
+}
+
+// npx extracts into a cache under _npx/, npm install into node_modules/: both
+// are the package manager's to remove.
+export function isEphemeralRoot(root) {
+  return /[\\/](_npx|node_modules)[\\/]/.test(String(root || ""));
+}
+
+// Which channel the copy at `root` came through. A remedy that re-runs the
+// installer has to ask this first, because the package's shell registers the
+// plugin through its OWN channel: run for a git-marketplace user, it adds a
+// second copy and turns the installed one off for the checkout (the layout
+// spec, contract 12 as amended 2026-10-03). The answers:
+// - "registration": the host's cache copy of the registration marketplace the
+//   manifest names, i.e. the package's own channel;
+// - "marketplace": any other host cache copy (the git marketplace, a fork);
+// - "package": a package manager's root (npx, node_modules);
+// - "checkout": anything else (a dev checkout, --plugin-dir).
+// String tests, plus at most two realpath calls when a root does not match as
+// given (a symlinked home); no file is read, so the SessionStart budget is
+// untouched, and the marketplace name comes from the manifest, never from here.
+export function installChannel(root, { home = homedir(), harness = sourceHarness() } = {}) {
+  if (isEphemeralRoot(root)) return "package";
+  const rel = underPluginCache(root, home);
+  if (rel === null) return "checkout";
+  const marketplace = rel.split("/")[0];
+  const own = Object.values(harness?.surfaces || {}).find((x) => x && x.kind === "registration" && x.marketplace_name);
+  return own && marketplace === own.marketplace_name ? "registration" : "marketplace";
 }
 
 // ─── Status line wiring (SessionStart-managed) ─────────────────────────
