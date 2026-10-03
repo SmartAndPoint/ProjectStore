@@ -141,7 +141,7 @@ npx projectstore bind ~/vaults/my-project
 npx projectstore init ~/vaults/new-project --language ru
 ```
 
-`projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are this package's per-harness shells — the core pinned and bundled, the harness fixed. Codex's shell is experimental and stays private until a live Codex session has exercised its hooks from an installed release ([`docs/harnesses.md`](./docs/harnesses.md)). The opencode shell publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs.
+`projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are this package's per-harness shells — the core pinned and bundled, the harness fixed. Codex's shell is experimental and stays private until a live run has exercised every surface it installs, from an installed release ([`docs/harnesses.md`](./docs/harnesses.md)). The opencode shell publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs.
 </details>
 
 ## Upgrading
