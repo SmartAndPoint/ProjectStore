@@ -1,0 +1,59 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/node_modules/projectstore/hooks/session-start.mjs\""
+          },
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/node_modules/projectstore/hooks/session-rules.mjs\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/node_modules/projectstore/scripts/touch-session.mjs\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/node_modules/projectstore/scripts/touch-session.mjs\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/node_modules/projectstore/hooks/session-stop.mjs\""
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/node_modules/projectstore/hooks/pre-compact.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}

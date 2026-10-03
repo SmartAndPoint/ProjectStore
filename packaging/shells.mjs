@@ -38,11 +38,12 @@
 // Nothing here ships inside `projectstore`: `packaging/` is not on the root
 // package.json's files allowlist, and tests/packaging.test.mjs keeps it so.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, cpSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, cpSync, rmSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve, dirname, join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { filesDigest } from "../scripts/lib.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const ROOT = resolve(HERE, "..");
@@ -66,8 +67,8 @@ export const SHELLS = Object.freeze([
     harness: "codex",
     display: "Codex",
     private: true,
-    plugin_root: "rendered by roadmap B5 (the Codex plugin root: .codex-plugin/plugin.json, hooks/, skills/, .mcp.json)",
-    description: "Installs projectstore for Codex from npm: the core pinned and bundled, the harness fixed. Not published until its plugin root is rendered.",
+    plugin_root: "adapters/codex",
+    description: "ProjectStore for Codex: portable project memory, rendered workflow skills and lifecycle hooks, with the core pinned and bundled.",
   }),
   Object.freeze({
     name: "projectstore-opencode",
@@ -99,6 +100,7 @@ export async function harnessVerbs(root = ROOT) {
 // they never drift, the pin is exact and the core is bundled (the shells ADR
 // decision 2), the bin is the only code, and nothing else ships.
 export function renderShellPackageJson(shell, core) {
+  const pluginFiles = shell.harness === "codex" ? ["plugin.json", ".codex-plugin/", "skills/", "hooks/"] : [];
   const pkg = {
     name: shell.name,
     version: core.version,
@@ -113,12 +115,71 @@ export function renderShellPackageJson(shell, core) {
     type: "module",
     engines: core.engines,
     bin: { [shell.name]: `bin/${shell.name}.mjs` },
-    files: ["bin/", "README.md"],
+    files: ["bin/", "README.md", ...pluginFiles],
     dependencies: { [CORE]: `=${core.version}` },
     bundleDependencies: [CORE],
     publishConfig: { access: "public" },
   };
   return JSON.stringify(pkg, null, 2) + "\n";
+}
+
+function openAiInterface(core) {
+  return {
+    displayName: "ProjectStore",
+    shortDescription: "Versioned project memory for developer teams and agents.",
+    longDescription: core.description,
+    developerName: "SmartAndPoint",
+    category: "Developer Tools",
+    capabilities: ["Project memory", "Architecture decisions", "Planning", "Peer review"],
+    websiteURL: core.homepage,
+    defaultPrompt: [
+      "Show the current ProjectStore status and work in progress.",
+      "Capture this technical decision as a ProjectStore ADR.",
+      "Plan the next ProjectStore story, then review the implementation.",
+    ],
+  };
+}
+
+export function renderCodexManifests(core) {
+  const repository = typeof core.repository === "string" ? core.repository : core.repository?.url;
+  const identity = {
+    name: "projectstore",
+    version: core.version,
+    description: core.description,
+    author: core.author,
+    homepage: core.homepage,
+    repository,
+    license: core.license,
+    keywords: core.keywords,
+  };
+  const hooks = "./hooks/hooks.json";
+  const portable = {
+    $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+    ...identity,
+    extensions: { "com.openai": { hooks, interface: openAiInterface(core) } },
+  };
+  const compatibility = {
+    ...identity,
+    skills: "./skills/",
+    interface: openAiInterface(core),
+  };
+  return {
+    "plugin.json": JSON.stringify(portable, null, 2) + "\n",
+    ".codex-plugin/plugin.json": JSON.stringify(compatibility, null, 2) + "\n",
+  };
+}
+
+function textTree(dir, prefix = "") {
+  const out = {};
+  const walk = (at, rel) => {
+    for (const e of readdirSync(at, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const p = join(at, e.name), r = join(rel, e.name);
+      if (e.isDirectory()) walk(p, r);
+      else out[join(prefix, r)] = readFileSync(p, "utf8");
+    }
+  };
+  walk(dir, "");
+  return out;
 }
 
 // The bin. One template for every shell; only the two constants differ.
@@ -201,7 +262,10 @@ if (!core) {
     // without one, so the child must see the real stdin and stdout. No
     // timeout — the child waits on a human at the preview. exitCode, not
     // exit(): the core's own bin says why (a pending write on a pipe).
-    const r = spawnSync(process.execPath, [core, ...fixed.argv], { stdio: "inherit" });
+    const r = spawnSync(process.execPath, [core, ...fixed.argv], {
+      stdio: "inherit",
+      env: { ...process.env, PROJECTSTORE_DISTRIBUTION_ROOT: root },
+    });
     if (r.error) process.stderr.write(\`\${SHELL}: \${r.error.message}\\n\`);
     // A signal is relayed the shell way (128 + its number): Ctrl-C at the
     // preview is 130 here as it would be on the core itself.
@@ -213,10 +277,16 @@ if (!core) {
 
 export function renderShell(shell, { root = ROOT, verbs }) {
   const core = corePackage(root);
-  return {
+  const rendered = {
     "package.json": renderShellPackageJson(shell, core),
     [`bin/${shell.name}.mjs`]: renderShellBin(shell, verbs),
   };
+  if (shell.harness === "codex") {
+    const adapter = resolve(root, shell.plugin_root);
+    if (!existsSync(adapter)) throw new Error(`${shell.plugin_root} is missing — run node scripts/build-adapters.mjs --write`);
+    Object.assign(rendered, renderCodexManifests(core), textTree(adapter));
+  }
+  return rendered;
 }
 
 // --write: every shell's rendered files, in place.
@@ -227,6 +297,7 @@ export async function writeShells(root = ROOT) {
     const dir = shellDir(s.name, root);
     mkdirSync(join(dir, "bin"), { recursive: true });
     for (const [rel, text] of Object.entries(renderShell(s, { root, verbs }))) {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
       writeFileSync(join(dir, rel), text);
       wrote.push(`${SHELLS_DIR}/${s.name}/${rel}`);
     }
@@ -276,7 +347,7 @@ export function packCore({ root = ROOT, dest = mkdtempSync(join(tmpdir(), "ps-co
 // is a hazard nobody needs. `{error}` on any failure, like currentPacklist.
 // `scratch` is the caller's to keep or remove (buildShells owns its own): the
 // built directory is what a publish-from-directory fallback needs.
-export function buildShell(name, { coreTgz, root = ROOT, out = null, scratch = mkdtempSync(join(tmpdir(), "ps-shell-")) } = {}) {
+export function buildShell(name, { coreTgz, root = ROOT, out = null, scratch = mkdtempSync(join(tmpdir(), "ps-shell-")), dev = false } = {}) {
   const shell = SHELLS.find((s) => s.name === name);
   if (!shell) return { error: `no shell named ${name} — known: ${SHELLS.map((s) => s.name).join(", ")}` };
   if (!coreTgz || !existsSync(coreTgz)) return { error: `the core's tarball is missing: ${coreTgz}` };
@@ -292,6 +363,19 @@ export function buildShell(name, { coreTgz, root = ROOT, out = null, scratch = m
   if (dry.status !== 0) return { error: `npm pack --dry-run (${name}) failed: ${dry.stderr?.trim()}` };
   let pkg;
   try { [pkg] = JSON.parse(dry.stdout); } catch (e) { return { error: `npm pack output unparseable (${name}): ${e.message}` }; }
+  let devVersion = null;
+  if (dev) {
+    if (shell.harness !== "codex") return { error: `${name}: --dev is supported only for a shell with the portable plugin root` };
+    const digest = filesDigest(dst, pkg.files.map((f) => f.path).sort());
+    const release = corePackage(root).version;
+    devVersion = `${release}+codex.dev.${digest.sha256.slice(0, 12)}`;
+    for (const rel of ["plugin.json", ".codex-plugin/plugin.json"]) {
+      const p = join(dst, rel);
+      const manifest = JSON.parse(readFileSync(p, "utf8"));
+      manifest.version = devVersion;
+      writeFileSync(p, JSON.stringify(manifest, null, 2) + "\n");
+    }
+  }
   const bundled = pkg.bundled || [];
   if (!bundled.includes(CORE)) return { error: `${name}: the pack bundles ${JSON.stringify(bundled)} — node_modules/${CORE} is not in the tree, so the tarball would carry no core (a shell packed without its install exits 0 and ships three files)` };
   const files = pkg.files.map((f) => f.path).sort();
@@ -302,7 +386,7 @@ export function buildShell(name, { coreTgz, root = ROOT, out = null, scratch = m
     if (real.status !== 0) return { error: `npm pack (${name}) failed: ${real.stderr?.trim()}` };
     try { tgz = resolve(out, JSON.parse(real.stdout)[0].filename); } catch (e) { return { error: `npm pack output unparseable (${name}): ${e.message}` }; }
   }
-  return { name, dir: dst, files, bundled, tgz };
+  return { name, dir: dst, files, bundled, tgz, devVersion };
 }
 
 // The fixture comparison, both ways — the same two questions the core's
@@ -319,7 +403,7 @@ export function compareWithFixture(name, files, root = ROOT) {
 // scratch lives at <out>/build/ and stays — the built directory beside the
 // tarball is the publish-from-directory fallback; without it the scratch is
 // removed on the way out (the guard's --write-packlist leaves nothing behind).
-export function buildShells({ root = ROOT, only = null, out = null } = {}) {
+export function buildShells({ root = ROOT, only = null, out = null, dev = false } = {}) {
   const keep = Boolean(out);
   const scratch = keep ? join(out, "build") : mkdtempSync(join(tmpdir(), "ps-shells-"));
   // npm pack requires --pack-destination to exist; the core's own directory
@@ -332,7 +416,7 @@ export function buildShells({ root = ROOT, only = null, out = null } = {}) {
     let ok = true;
     for (const s of SHELLS) {
       if (only && s.name !== only) continue;
-      const b = buildShell(s.name, { coreTgz: core.tgz, root, out, scratch });
+      const b = buildShell(s.name, { coreTgz: core.tgz, root, out, scratch, dev });
       if (b.error) { ok = false; shells.push({ name: s.name, error: b.error }); continue; }
       const cmp = compareWithFixture(s.name, b.files, root);
       if (!cmp.present || cmp.unexpected.length || cmp.missing.length) ok = false;
@@ -362,7 +446,7 @@ async function main(argv) {
   if (flag("--write")) { emit(await writeShells()); return 0; }
   if (flag("--check")) { const r = await checkShells(); emit(r); return r.ok ? 0 : 1; }
   if (flag("--build")) {
-    const r = buildShells({ only: value("--only"), out: value("--out") ? resolve(value("--out")) : null });
+    const r = buildShells({ only: value("--only"), out: value("--out") ? resolve(value("--out")) : null, dev: flag("--dev") });
     // The listings stay out of the report — 148 lines per shell say nothing a count and a fixture diff do not.
     emit({ ...r, core: r.core && { ...r.core, files: undefined }, shells: (r.shells || []).map((s) => ({ ...s, files: undefined })) });
     return r.ok ? 0 : 1;

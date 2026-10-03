@@ -56,16 +56,18 @@
 // (MultiProjectStore); the host-managed report shape is Maxim
 // Podreshetnikov's (PR #13, installElsewhere). Pure node, no external deps.
 
-import { mkdirSync, unlinkSync, rmdirSync, readdirSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, unlinkSync, rmdirSync, readdirSync, existsSync, readFileSync, openSync, closeSync, statSync } from "node:fs";
 import { join, resolve, dirname, relative, isAbsolute } from "node:path";
 import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { spawnSync } from "node:child_process";
 import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand } from "./harness.mjs";
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
-import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analyseLayout, isOurFile, readText } from "./surfaces.mjs";
-import { pluginRoot, writeFileAtomic, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpVersion, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths } from "./lib.mjs";
+import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, isOurFile, readText } from "./surfaces.mjs";
+import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
+import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpVersion, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder } from "./lib.mjs";
 
 import { GENERATOR } from "./surfaces.mjs";
 export { GENERATOR };
@@ -75,11 +77,9 @@ function rel(projectDir, p) {
   return r && !r.startsWith("..") && !isAbsolute(r) ? r : p;
 }
 
-// npx extracts into a cache under _npx/, npm install into node_modules/: both
-// are the package manager's to remove.
-export function isEphemeralRoot(root) {
-  return /[\\/](_npx|node_modules)[\\/]/.test(String(root || ""));
-}
+// isEphemeralRoot lives in lib.mjs beside the channel classifier that uses it;
+// re-exported here under the name the installer's callers already import.
+export { isEphemeralRoot };
 
 function inside(dir, parent) {
   const r = relative(parent, dir);
@@ -97,6 +97,7 @@ const HANDLERS = {
   "json-entry": planJsonEntry,
   "mjs": planStampedFile,
   "host-plugin-registration": planRegistration,
+  "portable-plugin-registration": planPortableRegistration,
 };
 
 // The order plan() visits kinds in (contract 4′, two phases): the registration
@@ -271,13 +272,102 @@ function planAgentsBlock(ctx, key, s) {
 // subcommand with its placeholders filled), why it runs, and the host-owned
 // files it is known to touch (measured 2026-09-05 — the manifest's cli.verified).
 function hostStep(a, s, name, fill, why) {
-  const argv = (s.cli.commands[name] || []).map((t) => t.replace(/\{(\w+)\}/g, (_, k) => fill[k] ?? `{${k}}`));
+  const template = s.cli.commands[name];
+  if (!Array.isArray(template) || !template.length) throw new Error(`${s.format}: host operation ${name} is not declared`);
+  const argv = template.map((t) => t.replace(/\{(\w+)\}/g, (_, k) => fill[k] ?? `{${k}}`));
   const p = a.paths;
   const touches = {
     validate: [], marketplace_add: [p.marketplaces, p.projectSettings], marketplace_update: [p.marketplaces], marketplace_remove: [p.marketplaces, p.projectSettings],
     install: [p.installed, p.projectSettings, p.cacheDir], update: [p.installed, p.cacheDir], uninstall: [p.installed, p.projectSettings], disable: [p.projectSettings], enable: [p.projectSettings],
   }[name] || [];
   return { kind: "host", name, bin: s.cli.bin, argv, why, touches: touches.filter(Boolean) };
+}
+
+function portableListFacts(stdout) {
+  let parsed;
+  try { parsed = JSON.parse(String(stdout || "")); } catch { return null; }
+  if (!Array.isArray(parsed?.installed)) return null;
+  return parsed.installed;
+}
+
+function portableListFact(stdout, id) {
+  const rows = portableListFacts(stdout);
+  if (!rows) return null;
+  const row = rows.find((entry) => entry?.pluginId === id);
+  if (!row) return null;
+  return {
+    id: row.pluginId,
+    version: typeof row.version === "string" ? row.version : null,
+    installed: row.installed === true,
+    enabled: row.enabled === true,
+    marketplaceSource: row.marketplaceSource?.source || null,
+  };
+}
+
+function planPortableRegistration(ctx, key, s) {
+  const { projectDir, mode, root, home, env, harness, globalRemoval } = ctx;
+  const a = analysePortableRegistration(projectDir, s, { root, home, harness, env });
+  const fill = { dir: a.paths.dir, marketplace: s.marketplace_name, id: a.id };
+  const base = {
+    surface: key,
+    kind: "registration",
+    path: a.paths.dir,
+    entry: a.id,
+    state: a.state,
+    reason: a.reason || a.refusal || null,
+    root: a.installPath,
+    home: a.paths.home,
+    scope: s.scope,
+    ownership: s.ownership,
+    observed: {
+      dir_exists: existsSync(a.paths.dir),
+      ownership_version: a.ownership?.version || null,
+      ownership_digest: a.ownership?.digest || null,
+      marketplace_source: a.market?.source || null,
+      global_plugin: a.globalPlugin || null,
+      project_plugin: a.projectPlugin || null,
+      installed_version: a.installedVersion || null,
+      installed_digest: a.installed?.digest || null,
+      enabled: a.enabled,
+    },
+  };
+  // The same fact the analyser computed: no portable payload in this run. A
+  // shell that named a root which is not a plugin root is broken, and says so
+  // through `incomplete`; the core run alone simply defers.
+  if (!a.payloadRoot) {
+    if (env.PROJECTSTORE_DISTRIBUTION_ROOT) ctx.incomplete = true;
+    return [{ ...base, action: "skip", deferred: true, reason: env.PROJECTSTORE_DISTRIBUTION_ROOT
+      ? `${env.PROJECTSTORE_DISTRIBUTION_ROOT} is not a portable plugin root; ${harness.display_name}'s registration runs only from its built distribution shell`
+      : `the core package is not ${harness.display_name}'s plugin root; registration runs only from its built distribution shell` }];
+  }
+  if (mode === "uninstall" && !globalRemoval) {
+    return [{ ...base, action: "skip", reason: "the plugin package and cache are global; project uninstall removes only project-owned surfaces. Use uninstall --global with an explicit harness to preview global removal" }];
+  }
+  if (["foreign", "conflict"].includes(a.state)) return [{ ...base, action: "refuse", reason: a.refusal }];
+  if (a.state === "unavailable") { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true }]; }
+  if (mode === "uninstall") {
+    if (a.state === "absent") return [{ ...base, action: "skip", reason: "no global registration of ours" }];
+    if (!a.bin) { ctx.incomplete = true; return [{ ...base, action: "skip", reason: `\`${s.cli.bin}\` is not on PATH; global registration is left untouched` }]; }
+    const steps = [];
+    if (a.installed) steps.push(hostStep(a, s, "uninstall", fill, `explicit global removal forgets ${a.id}`));
+    if (a.market && s.cli.commands.marketplace_remove) steps.push(hostStep(a, s, "marketplace_remove", fill, `explicit global removal forgets marketplace ${s.marketplace_name}`));
+    if (a.ownership) steps.push({ kind: "portable-remove", path: a.paths.dir, homeBase: a.paths.home, why: "the stable marketplace source is owned by this installer" });
+    return [{ ...base, action: "remove", steps, reason: "explicit global removal; project overrides are preserved" }];
+  }
+  if (a.state === "current") return [{ ...base, action: "skip", reason: a.reason }];
+  if (!a.bin) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `\`${s.cli.bin}\` is not on PATH; no registration mutation was attempted` }]; }
+  const steps = [];
+  const digest = a.desiredDigest;
+  const mustWrite = !a.ownership || a.ownership.version !== a.desiredVersion || a.contentDiffers || a.state === "stale";
+  if (mustWrite) {
+    const files = payloadFiles(a.payloadRoot);
+    const ownership = { [s.provenance_key]: { grammar: GRAMMAR_VERSION, version: a.desiredVersion, generator: GENERATOR, digest } };
+    steps.push({ kind: "portable-write", path: a.paths.dir, from: a.payloadRoot, files, subdir: s.plugin_subdir, catalogRel: s.manifest, catalog: renderPortableCatalog(s), ownershipRel: s.ownership_manifest, ownership, why: a.ownership ? `stage ${a.desiredVersion} over ${a.ownership.version}` : `stage ${a.desiredVersion}` });
+  }
+  if (!a.market) steps.push(hostStep(a, s, "marketplace_add", fill, "register the stable local marketplace source globally"));
+  if (!a.installed || a.installedVersion !== a.desiredVersion || mustWrite) steps.push(hostStep(a, s, "install", fill, `materialise and enable ${a.id} from the staged source`));
+  steps.push(hostStep(a, s, "list", fill, "read back host-reported installation and effective enablement"));
+  return [{ ...base, action: a.state === "absent" ? "create" : "update", steps, verify: { version: a.desiredVersion, digest }, reason: a.reason }];
 }
 
 // The marketplace manifest we write: the host's catalogue shape (measured), plus
@@ -482,7 +572,7 @@ function planStampedFile(ctx, key, s) {
 
 // ─── plan ──────────────────────────────────────────────────────────────
 
-export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null } = {}) {
+export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true } = {}) {
   projectDir = resolve(projectDir);
   const detected = detectHarnesses(projectDir);
   const named = harnesses.filter(Boolean);
@@ -513,14 +603,32 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   for (const id of ids) {
     const harness = loadHarness(id);
     out.harnesses.push(id);
-    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [] };
+    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [], globalRemoval };
     const hostRows = [];
     const unsupportedHost = [];
     let registration = null;
     const rows = Object.entries(harness.surfaces || {}).filter(([key]) => !key.startsWith("_"));
     rows.sort(([, x], [, y]) => (KIND_ORDER[x.kind] ?? 3) - (KIND_ORDER[y.kind] ?? 3));
     for (const [key, s] of rows) {
-      if (surfaces && !surfaces.some((x) => key === x || key.startsWith(x + "_"))) continue;
+      // --no-register: this run changes the project's files and nothing of the
+      // host's (the layout move run from an installed copy; the layout spec,
+      // contract 12 as amended 2026-10-03).
+      const excluded = (surfaces && !surfaces.some((x) => key === x || key.startsWith(x + "_"))) || (register === false && s.kind === "registration");
+      if (excluded) {
+        // A registration this run leaves out still decides the render root,
+        // read-only — HERE, before the surfaces that render against it (the
+        // registration sorts first). Read after the loop, as it was until
+        // 2026-10-03, it moved only the preview's "planned against" line and
+        // never an item: a --no-register run from a checkout re-pointed the
+        // status line at the checkout (the second review of the 2026-10-03
+        // fixes, S1).
+        if (s.kind === "registration" && !isPluginCacheRoot(root, home)) {
+          const analyser = s.format === "portable-plugin-registration" ? analysePortableRegistration : analyseRegistration;
+          const a = analyser(projectDir, s, { root, home, harness, env });
+          if (a.installed && (a.installed.present ?? true) && a.enabled) ctx.renderRoot = a.installPath;
+        }
+        continue;
+      }
       // `kind: host` and `supported: false` are different facts and the report
       // must not merge them: the first says the host installs this surface, the
       // second says the harness has no such surface at all. Reporting both as
@@ -540,14 +648,6 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
         const own = items.find((i) => i.surface === key);
         registration = own || null;
         if (own && mode !== "uninstall" && ["create", "update", "skip"].includes(own.action) && own.root && !own.deferred) ctx.renderRoot = own.root;
-      }
-    }
-    // A registration surface the manifest declares but --surface excluded still decides the render root, read-only.
-    if (surfaces && !registration) {
-      const reg = rows.find(([key, s]) => s.kind === "registration" && !surfaces.some((x) => key === x || key.startsWith(x + "_")));
-      if (reg && !isPluginCacheRoot(root, home)) {
-        const a = analyseRegistration(projectDir, reg[1], { root, home, harness, env });
-        if (a.installed && a.installed.present && a.enabled) ctx.renderRoot = a.installPath;
       }
     }
     if (ctx.renderRoot !== root) {
@@ -614,14 +714,14 @@ function planLayout(ctx) {
   const last = [];
   if (a.legacy.launcher || a.legacy.runtime) {
     const cleanup = [];
-    if (a.legacy.launcher) cleanup.push({ kind: "remove-legacy-launcher", path: P.legacy.launcher, why: "removed once the new launcher is written and the settings entry names it; kept if anything still points at it" });
+    if (a.legacy.launcher) cleanup.push({ kind: "remove-legacy-launcher", path: P.legacy.launcher, why: "removed once the new launcher is written and the settings entry names it — or at once when the status-line slot is not ours (foreign, or empty because the status line is off); kept if anything still points at it" });
     if (a.legacy.runtime) cleanup.push({ kind: "rmdir-legacy", path: P.legacy.runtime, why: "the emptied pre-0.28 runtime directory" });
     last.push({ ...base, surface: "layout_cleanup", path: P.legacy.runtime, state: "legacy", action: "cleanup", reason: null, steps: cleanup });
   }
   return { first, last };
 }
 
-function applyLayout(p, i, { failed }) {
+function applyLayout(p, i, { failed, home = homedir() }) {
   const out = { path: i.path, action: i.action, surface: i.surface, steps: [] };
   const within = p.projectDir;
   if (i.action === "cleanup" && failed) { out.action = "skipped"; out.reason = "an earlier item failed; the legacy files stay until the next run"; return out; }
@@ -650,12 +750,22 @@ function applyLayout(p, i, { failed }) {
       else if (st.kind === "remove-legacy-launcher") {
         // Only ours, and only when no settings entry names it any more.
         let text = null; try { text = readFileSync(st.path, "utf8"); } catch {}
-        const named = entryNames(p.projectDir, i.harness, st.path);
+        // "Still in use" is decided by the FILE, not the spelling: an entry
+        // written through a symlinked or differently-cased path, or living in
+        // the committed or the user's settings, still runs it (the third review
+        // of the 2026-10-03 fixes — a string comparison of the local file alone
+        // deleted a launcher the status line was running).
+        const named = entryNames(p.projectDir, i.harness, st.path) || settingsRunFile(p.projectDir, i.harness, st.path, home);
         // Moved, never just deleted: the legacy launcher goes only once the new
-        // one exists (a dev root produces none — contract 7 leaves it in place).
+        // one exists (a dev root produces none — contract 7 leaves it in place)
+        // — unless the status-line slot is not ours (any wiring of ours counts).
+        // Under a foreign or empty slot the new launcher is never made, and
+        // keeping the old one kept layout-legacy alive forever (the critic of
+        // the layout spec's 2026-10-03 amendment, case S1).
         const moved = existsSync(layoutPaths(p.projectDir).launcher(i.harness));
+        const slotOurs = slotIsOurs(p.projectDir, i.harness, { home, root: p.root });
         if (text === null) out.steps.push({ kind: st.kind, ok: true, removed: false });
-        else if (!moved) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "no launcher at the new path yet (this root does not produce one) — left in place" });
+        else if (!moved && slotOurs) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "no launcher at the new path yet (this root does not produce one) — left in place" });
         else if (!isOurFile(text)) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "not ours — left in place" });
         else if (named) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "the settings entry still names it — left in place" });
         else out.steps.push({ kind: st.kind, ok: true, removed: removeInside(st.path, within) });
@@ -672,6 +782,38 @@ function applyLayout(p, i, { failed }) {
     } catch (e) { return fail(st.kind, e && e.message ? e.message : String(e)); }
   }
   return out;
+}
+
+// Does any settings file the host reads run this file as its status line?
+// Compared by identity (device and inode), so a path spelled through a symlink
+// or in another case still counts; the project-directory variable a command
+// may carry is substituted first.
+function settingsRunFile(projectDir, harnessId, file, home) {
+  const id = (f) => { try { const s = statSync(f); return `${s.dev}:${s.ino}`; } catch { return null; } };
+  const want = id(file);
+  if (!want) return false;
+  const h = loadHarness(harnessId);
+  const dir = h.runtime?.harness_dir || ".claude", v = h.runtime?.project_dir_env;
+  const files = [join(projectDir, h.surfaces?.statusline?.file || join(dir, "settings.local.json")), join(projectDir, dir, "settings.json"), join(claudeHome(home), "settings.json")];
+  return files.some((f) => {
+    try {
+      let cmd = JSON.parse(readFileSync(f, "utf8"))?.statusLine?.command;
+      if (typeof cmd !== "string") return false;
+      if (v) cmd = cmd.split("${" + v + "}").join(projectDir).split("$" + v).join(projectDir);
+      const sp = statusLineScriptPath(cmd);
+      return Boolean(sp) && id(isAbsolute(sp) ? sp : join(projectDir, sp)) === want;
+    } catch { return false; }
+  });
+}
+
+// Is the harness's status-line slot wired to anything of ours (any wiring)?
+function slotIsOurs(projectDir, harnessId, { home, root }) {
+  try {
+    const s = loadHarness(harnessId).surfaces?.statusline;
+    if (!s || !s.file) return false;
+    const cmd = JSON.parse(readFileSync(join(projectDir, s.file), "utf8"))?.statusLine?.command;
+    return typeof cmd === "string" && statusLineIsOurWiring(cmd, projectDir, home, root);
+  } catch { return false; }
 }
 
 // Does the harness's settings entry still name this launcher path?
@@ -725,6 +867,8 @@ export function renderPreview(p) {
     for (const st of i.steps || []) {
       if (st.kind === "host") lines.push(`            $ ${[st.bin, ...st.argv].join(" ")}`, `              ${st.why}${st.touches.length ? `; touches ${st.touches.map((t) => rel(p.projectDir, t)).join(", ")}` : ""}`);
       else if (st.kind === "write") lines.push(`            write ${st.path}${st.manifestOnly ? " (manifest only)" : ` (${st.files} files + the manifest)`}`, `              ${st.why}`);
+      else if (st.kind === "portable-write") lines.push(`            stage ${st.path} (${st.files.length} payload files + catalogue + ownership)`, `              ${st.why}`);
+      else if (st.kind === "portable-remove") lines.push(`            remove ${st.path}`, `              ${st.why}`);
       else if (st.kind === "remove") lines.push(`            remove ${st.path}`, `              ${st.why}`);
       else if (st.kind === "unregister") lines.push(`            edit ${rel(p.projectDir, st.path)}  [${st.pointer}.${st.name}] → removed`, `              ${st.why}`);
       else if (st.kind === "note") lines.push(`            note: ${st.why}`);
@@ -779,7 +923,7 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
   for (const i of p.items) {
     if (!isWrite(i)) continue;
     if (i.kind === "layout") {
-      const r = applyLayout(p, i, { failed: layoutFailed || registrationFailed || Boolean(done.failed) });
+      const r = applyLayout(p, i, { failed: layoutFailed || registrationFailed || Boolean(done.failed), home });
       done.push(r);
       if (r.failed) { done.failed = r.failed; layoutFailed = true; }
       continue;
@@ -830,11 +974,231 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
 // is recorded, never retried, never masked.
 function applyRegistration(p, i, { env, spawn, home }) {
   const out = { path: i.path, action: i.action, surface: i.surface, steps: [] };
-  const childEnv = { ...env, [homeEnvName(i.harness)]: claudeHome(home) };
-  const s = loadHarness(i.harness).surfaces[i.surface.replace(/_others$/, "")];
-  const fail = (step, status, stderr, argv = null) => { out.failed = { step, status, stderr, ...(argv ? { argv } : {}) }; return out; };
+  const harness = loadHarness(i.harness);
+  const childEnv = { ...env, [homeEnvName(i.harness)]: i.home || claudeHome(home) };
+  const s = harness.surfaces[i.surface.replace(/_others$/, "")];
+  const portable = s.format === "portable-plugin-registration";
+  let staged = null;
+  const completedHost = [];
+  let hostList = null;
+  let lock = null;
+  let lockPath = null;
+  const journalPath = portable ? join(i.home, "projectstore", `${s.marketplace_name}.journal.json`) : null;
+  const releaseLock = () => {
+    if (lock !== null) { try { closeSync(lock); } catch {} lock = null; }
+    if (lockPath) { try { unlinkSync(lockPath); } catch {} lockPath = null; }
+  };
+  const readHostList = () => {
+    const argv = s.cli.commands.list || [];
+    const bin = whichOnPathFromLib(s.cli.bin, env);
+    const r = spawn(bin || s.cli.bin, argv, { env: childEnv, cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120000 });
+    const rows = !r.error && r.status === 0 ? portableListFacts(r.stdout) : null;
+    out.steps.push({ kind: "portable-recovery-list", argv: [s.cli.bin, ...argv], status: r.status ?? null, ok: Boolean(rows) });
+    return { rows, stderr: String((r.stderr || "") + (r.error ? r.error.message : "")).trim() };
+  };
+  const observedPortable = (a) => ({
+    dir_exists: existsSync(a.paths.dir),
+    ownership_version: a.ownership?.version || null,
+    ownership_digest: a.ownership?.digest || null,
+    marketplace_source: a.market?.source || null,
+    global_plugin: a.globalPlugin || null,
+    project_plugin: a.projectPlugin || null,
+    installed_version: a.installedVersion || null,
+    installed_digest: a.installed?.digest || null,
+    enabled: a.enabled,
+  });
+  const sameObserved = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
+  const ownedTargetMatches = (target, expected) => {
+    if (!expected?.version || !expected?.digest) return false;
+    let owned = null;
+    try { owned = JSON.parse(readFileSync(join(target, s.ownership_manifest), "utf8"))?.[s.provenance_key] || null; } catch {}
+    return owned?.version === expected.version
+      && owned?.digest?.sha256 === expected.digest.sha256
+      && owned?.digest?.count === expected.digest.count;
+  };
+  const verifyPrevious = (previous) => {
+    const listed = readHostList();
+    if (!listed.rows) return { ok: false, why: listed.stderr || "Codex plugin list did not return JSON" };
+    const row = listed.rows.find((entry) => entry?.pluginId === i.entry) || null;
+    if (!previous) {
+      const a = analysePortableRegistration(p.projectDir, s, { root: p.root, home, harness, env: childEnv, ignoreJournal: true });
+      const cacheRoot = join(i.home, ...(s.registry.cache_dir || ["plugins", "cache"]), s.marketplace_name, s.plugin_name);
+      let cached = [];
+      try { cached = readdirSync(cacheRoot); } catch {}
+      if (existsSync(i.path)) return { ok: false, why: `first-install rollback left the stable marketplace source at ${i.path}` };
+      if (a.market) return { ok: false, why: `first-install rollback left marketplace ${s.marketplace_name} in ${a.paths.globalConfig}` };
+      if (a.globalPlugin || a.projectPlugin) return { ok: false, why: `first-install rollback left plugin enablement for ${i.entry}` };
+      if (row) return { ok: false, why: `${i.entry} remains host-reported after first-install rollback` };
+      if (cached.length) return { ok: false, why: `first-install rollback left ${cached.length} materialised cache version(s) under ${cacheRoot}` };
+      return { ok: true };
+    }
+    const a = analysePortableRegistration(p.projectDir, s, {
+      root: p.root,
+      payloadRoot: join(i.path, s.plugin_subdir),
+      home,
+      harness,
+      env: childEnv,
+      ignoreJournal: true,
+    });
+    const digest = previous.digest || {};
+    const sourceOk = a.sourceDigest?.sha256 === digest.sha256 && a.sourceDigest?.count === digest.count;
+    const cacheOk = a.installed?.digest?.sha256 === digest.sha256 && a.installed?.digest?.count === digest.count;
+    const hostOk = row && row.version === previous.version && row.installed === true && row.enabled === previous.enabled && resolve(row.marketplaceSource?.source || "") === resolve(i.path);
+    const ok = a.state === "current" && a.installedVersion === previous.version && a.enabled === previous.enabled && sourceOk && cacheOk && hostOk;
+    return ok ? { ok: true } : { ok: false, why: `restored source/cache/enablement could not be proven (state=${a.state}, version=${a.installedVersion || "?"}, enabled=${String(a.enabled)})` };
+  };
+  const requireRecovery = (journal, why) => {
+    writeFileAtomic(journalPath, JSON.stringify({ ...journal, phase: "recovery-required", error: why }, null, 2) + "\n", { sweep: false });
+    releaseLock();
+    out.failed = { step: "recovery-required", status: null, stderr: `${why}; ${journalPath} was retained and blocks automatic mutation` };
+    return out;
+  };
+  if (portable) {
+    const lockDir = join(i.home, "projectstore");
+    mkdirSync(lockDir, { recursive: true });
+    lockPath = join(lockDir, `${s.marketplace_name}.lock`);
+    const acquire = () => {
+      try { lock = openSync(lockPath, "wx", 0o600); return true; }
+      catch (e) {
+        if (e?.code !== "EEXIST") throw e;
+        let owner = null;
+        try { owner = JSON.parse(readFileSync(lockPath, "utf8")); } catch {}
+        let dead = false;
+        if (Number.isSafeInteger(owner?.pid) && owner.pid > 0) {
+          try { process.kill(owner.pid, 0); }
+          catch (probe) { dead = probe?.code === "ESRCH"; }
+        }
+        if (!dead) return false;
+        unlinkSync(lockPath);
+        out.steps.push({ kind: "portable-stale-lock", pid: owner.pid, ok: true });
+        lock = openSync(lockPath, "wx", 0o600);
+        return true;
+      }
+    };
+    try {
+      if (!acquire()) {
+        out.failed = { step: "lock", status: null, stderr: `${lockPath} is held by a live or unidentifiable owner; another ProjectStore registration may be running. Inspect the lock before removing it` };
+        return out;
+      }
+      writeExclusiveMetadata(lock, { pid: process.pid, started_at: new Date().toISOString() });
+    } catch (e) {
+      releaseLock();
+      out.failed = { step: "lock", status: null, stderr: e && e.message ? e.message : String(e) };
+      return out;
+    }
+    if (existsSync(journalPath)) {
+      let journal;
+      try { journal = JSON.parse(readFileSync(journalPath, "utf8")); }
+      catch { releaseLock(); out.failed = { step: "recovery", status: null, stderr: `${journalPath} is not valid JSON; inspect it before retrying` }; return out; }
+      const ownedPath = (value) => typeof value === "string" && (resolve(value) === resolve(i.path) || inside(resolve(value), resolve(i.home)));
+      if (!journal || resolve(journal.target || "") !== resolve(i.path) || !ownedPath(journal.stage) || (journal.backup && !ownedPath(journal.backup))) {
+        releaseLock(); out.failed = { step: "recovery", status: null, stderr: `${journalPath} does not describe this owned marketplace; inspect it before retrying` }; return out;
+      }
+      try {
+        if (journal.phase === "recovery-required") return requireRecovery(journal, journal.error || "a prior registration could not prove restoration");
+        if (journal.phase === "verified") finishPortableMarketplace(journal.target, journal.backup || null);
+        else if (journal.phase === "swapped" || (journal.phase === "prepare" && journal.backup && existsSync(journal.backup))) rollbackPortableMarketplace(journal.target, journal.backup || null);
+        else if (journal.phase === "prepare" && !journal.previous && existsSync(journal.target)) {
+          if (!ownedTargetMatches(journal.target, journal.next)) return requireRecovery(journal, `first-install recovery found an unrecognised target at ${journal.target}`);
+          rollbackPortableMarketplace(journal.target, null);
+        }
+        if (existsSync(journal.stage)) removeTreeUnder(journal.stage, i.home);
+        if (journal.phase !== "verified") {
+          const restored = verifyPrevious(journal.previous || null);
+          if (!restored.ok) return requireRecovery(journal, restored.why);
+        }
+        unlinkSync(journalPath);
+        out.steps.push({ kind: "portable-recover", phase: journal.phase || "unknown", ok: true });
+      } catch (e) {
+        releaseLock(); out.failed = { step: "recovery", status: null, stderr: e && e.message ? e.message : String(e) }; return out;
+      }
+    }
+    const current = analysePortableRegistration(p.projectDir, s, { root: p.root, home, harness, env: childEnv, ignoreJournal: true });
+    const desiredCurrent = current.state === "current"
+      && current.desiredVersion === i.verify?.version
+      && current.desiredDigest?.sha256 === i.verify?.digest?.sha256
+      && current.desiredDigest?.count === i.verify?.digest?.count;
+    if (i.action !== "remove" && desiredCurrent) {
+      out.action = "skip";
+      out.state = "current";
+      out.reason = "another completed registration while this plan waited for the lock";
+      out.steps.push({ kind: "portable-recheck", state: current.state, action: "skip", ok: true });
+      releaseLock();
+      return out;
+    }
+    if (i.action === "remove" && current.state === "absent") {
+      out.action = "skip";
+      out.state = "absent";
+      out.reason = "another removal completed while this plan waited for the lock";
+      out.steps.push({ kind: "portable-recheck", state: current.state, action: "skip", ok: true });
+      releaseLock();
+      return out;
+    }
+    const desiredChanged = i.action !== "remove" && (current.desiredVersion !== i.verify?.version
+      || current.desiredDigest?.sha256 !== i.verify?.digest?.sha256
+      || current.desiredDigest?.count !== i.verify?.digest?.count);
+    if (["foreign", "conflict", "unavailable"].includes(current.state) || desiredChanged || !sameObserved(observedPortable(current), i.observed)) {
+      releaseLock();
+      out.failed = { step: "recheck", status: null, stderr: current.refusal || current.reason || "the portable registration changed after preview; re-run the command to produce a fresh plan" };
+      return out;
+    }
+  }
+  const fail = (step, status, stderr, argv = null) => {
+    if (staged) {
+      // A first install can fail after Codex has accepted the marketplace but
+      // before verification. Best-effort compensation happens while the staged
+      // source still exists, then the filesystem swap is rolled back. A refresh
+      // keeps its existing registration and cache; the prior source is restored.
+      if (!staged.backup && (completedHost.includes("marketplace_add") || step === "marketplace_add")) {
+        const fill = { dir: i.path, marketplace: s.marketplace_name, id: i.entry };
+        for (const name of ["uninstall", "marketplace_remove"]) {
+          const template = s.cli.commands[name];
+          if (!Array.isArray(template)) continue;
+          const args = template.map((t) => t.replace(/\{(\w+)\}/g, (_, k) => fill[k] ?? `{${k}}`));
+          const bin = whichOnPathFromLib(s.cli.bin, env);
+          const r = spawn(bin || s.cli.bin, args, { env: childEnv, cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120000 });
+          out.steps.push({ kind: "portable-compensate", name, argv: [s.cli.bin, ...args], status: r.status ?? null, ok: !r.error && r.status === 0 });
+        }
+      }
+      try {
+        rollbackPortableMarketplace(staged.dir, staged.backup);
+        out.steps.push({ kind: "portable-rollback", path: staged.dir, ok: true });
+        const restored = verifyPrevious(staged.previous || null);
+        if (!restored.ok) {
+          return requireRecovery({ version: 1, target: staged.dir, stage: `${staged.dir}.none`, backup: null, previous: staged.previous || null }, restored.why);
+        }
+        if (staged.journal) { try { unlinkSync(staged.journal); } catch {} }
+      } catch (e) {
+        out.steps.push({ kind: "portable-rollback", path: staged.dir, ok: false, stderr: e.message });
+        return requireRecovery({ version: 1, target: staged.dir, stage: `${staged.dir}.none`, backup: staged.backup, previous: staged.previous || null }, `rollback failed: ${e.message}`);
+      }
+      staged = null;
+    }
+    out.failed = { step, status, stderr, ...(argv ? { argv } : {}) };
+    releaseLock();
+    return out;
+  };
   for (const st of i.steps || []) {
-    if (st.kind === "write") {
+    try {
+    if (st.kind === "portable-write") {
+      const token = `${process.pid}-${randomUUID()}`;
+      const stage = `${st.path}.staging-${token}`;
+      const backup = existsSync(st.path) ? `${st.path}.previous-${token}` : null;
+      let previous = null;
+      if (backup) {
+        const before = analysePortableRegistration(p.projectDir, s, { root: p.root, payloadRoot: join(st.path, st.subdir), home, harness, env: childEnv, ignoreJournal: true });
+        if (before.ownership?.version && before.ownership?.digest) previous = { version: before.ownership.version, digest: before.ownership.digest, enabled: before.enabled };
+      }
+      const next = { version: i.verify?.version || null, digest: i.verify?.digest || null };
+      writeFileAtomic(journalPath, JSON.stringify({ version: 1, phase: "prepare", target: st.path, stage, backup, previous, next }, null, 2) + "\n", { sweep: false });
+      const result = stagePortableMarketplace(st.path, { from: st.from, files: st.files, subdir: st.subdir, catalogRel: st.catalogRel, catalog: st.catalog, ownershipRel: st.ownershipRel, ownership: st.ownership, homeBase: i.home, token });
+      writeFileAtomic(journalPath, JSON.stringify({ version: 1, phase: "swapped", target: st.path, stage: result.stage, backup: result.backup, previous, next }, null, 2) + "\n", { sweep: false });
+      staged = { dir: st.path, backup: result.backup, journal: journalPath, previous };
+      out.steps.push({ kind: "portable-write", path: st.path, ok: true });
+    } else if (st.kind === "portable-remove") {
+      removeTreeUnder(st.path, st.homeBase);
+      out.steps.push({ kind: "portable-remove", path: st.path, ok: true });
+    } else if (st.kind === "write") {
       const manifestPath = join(st.path, s.manifest);
       // Re-check at apply time what plan() proved: the directory is absent or ours.
       if (existsSync(st.path)) {
@@ -862,17 +1226,45 @@ function applyRegistration(p, i, { env, spawn, home }) {
       const said = String((r.stderr || "") + (ok ? "" : r.stdout || "") + (r.error ? r.error.message : "")).trim();
       out.steps.push({ kind: "host", argv: [st.bin, ...st.argv], status: r.status ?? null, ok, ...(ok ? {} : { stderr: said }) });
       if (!ok) return fail(st.name, r.status ?? null, said, [st.bin, ...st.argv]);
+      if (portable && st.name === "list") {
+        hostList = portableListFact(r.stdout, i.entry);
+        if (!hostList) return fail("list", null, `${st.bin} ${st.argv.join(" ")} did not report ${i.entry} in JSON output`, [st.bin, ...st.argv]);
+      }
+      completedHost.push(st.name);
+    }
+    } catch (e) {
+      return fail(st.kind, null, e && e.message ? e.message : String(e));
     }
   }
   // The host's registry is read back: the install path the rest of the plan
   // was rendered against must be the one the host recorded for this checkout.
   if (i.verify) {
-    const a = analyseRegistration(p.projectDir, s, { root: p.root, home, harness: loadHarness(i.harness), env });
-    if (!a.installPath || resolve(a.installPath) !== resolve(i.verify.installPath) || a.installedVersion !== i.verify.version) {
+    const a = portable
+      ? analysePortableRegistration(p.projectDir, s, { root: p.root, home, harness, env: childEnv, ignoreJournal: true })
+      : analyseRegistration(p.projectDir, s, { root: p.root, home, harness, env });
+    if (portable) {
+      const sourceDigestOk = a.sourceDigest?.sha256 === i.verify.digest?.sha256 && a.sourceDigest?.count === i.verify.digest?.count;
+      const cacheDigestOk = a.installed?.digest?.sha256 === i.verify.digest?.sha256 && a.installed?.digest?.count === i.verify.digest?.count;
+      const listed = hostList && hostList.version === i.verify.version && hostList.installed && hostList.enabled && resolve(hostList.marketplaceSource || "") === resolve(i.path);
+      if (a.state !== "current" || a.installedVersion !== i.verify.version || !a.enabled || !sourceDigestOk || !cacheDigestOk || !listed) {
+        return fail("verify", null, `after Codex ran, registration is ${a.state} at ${a.installedVersion || "?"}; expected current ${i.verify.version} with digest ${i.verify.digest?.sha256 || "?"}`);
+      }
+      out.verified = { installPath: a.installPath, version: a.installedVersion, sourceDigest: a.sourceDigest, cacheDigest: a.installed.digest, host: hostList };
+    } else if (!a.installPath || resolve(a.installPath) !== resolve(i.verify.installPath) || a.installedVersion !== i.verify.version) {
       return fail("verify", null, `after the host ran, its registry records ${a.installPath || "no install"} at ${a.installedVersion || "?"} for this checkout; the plan rendered the other surfaces against ${i.verify.installPath} at ${i.verify.version} — they are not written`);
+    } else {
+      out.verified = { installPath: a.installPath, version: a.installedVersion };
     }
-    out.verified = { installPath: a.installPath, version: a.installedVersion };
   }
+  try {
+    if (staged) {
+      writeFileAtomic(staged.journal, JSON.stringify({ version: 1, phase: "verified", target: staged.dir, stage: `${staged.dir}.none`, backup: staged.backup, previous: staged.previous || null }, null, 2) + "\n", { sweep: false });
+      finishPortableMarketplace(staged.dir, staged.backup);
+      unlinkSync(staged.journal);
+    }
+  }
+  catch (e) { return fail("finish", null, e && e.message ? e.message : String(e)); }
+  releaseLock();
   return out;
 }
 
@@ -912,7 +1304,7 @@ export async function runVerb(verb, projectDir, opts = {}) {
 
 function usage() {
   return [
-    "usage: install-harness.mjs <install|uninstall|upgrade|plan> [--harness <id>]... [--surface <key>]... [--project <dir>] [--json]",
+    "usage: install-harness.mjs <install|uninstall|upgrade|plan> [--harness <id>]... [--surface <key>]... [--project <dir>] [--global] [--no-register] [--json]",
     `  harnesses: ${harnessIds().join(", ")}`,
     "  --surface narrows the plan to a surface and the surfaces beneath it (statusline covers statusline_launcher)",
     "  --harness names the harness — and, non-interactively, is the confirmation; there is no --yes",
@@ -921,26 +1313,44 @@ function usage() {
 
 // The JSON envelope carries states and actions, never file bodies: a model
 // reading a status report must not receive the whole of CLAUDE.md twice.
-export const publicItem = ({ before, after, steps, ...rest }) => steps ? { ...rest, steps: steps.map(({ manifest, ...s }) => s) } : rest;
+// Per step kind, because one field name means different things in different
+// steps. A layout step's `from`/`to`/`files` ARE its preview, and a
+// registration `write` carries `files` as a count beside its `manifest` body.
+// Only `portable-write` carries bodies under other names (`catalog`,
+// `ownership`), its payload root (`from`) and its file list. Stripping every
+// name from every step took the layout migration's `from` out of
+// `plan --json` (S1 of the 2026-10-03 review in "The Codex shell's plugin root:
+// .codex-plugin, the rendered surfaces, and the first Codex install").
+const PRIVATE_STEP_FIELDS = { "portable-write": ["catalog", "ownership", "from"] };
+function publicStep({ manifest, ...s }) {
+  for (const k of PRIVATE_STEP_FIELDS[s.kind] || []) delete s[k];
+  if (s.kind === "portable-write" && Array.isArray(s.files)) s.files = s.files.length;
+  return s;
+}
+export const publicItem = ({ before, after, steps, observed, ...rest }) => steps
+  ? { ...rest, steps: steps.map(publicStep) }
+  : rest;
 
 async function main() {
   const argv = process.argv.slice(2);
   const verb = argv[0];
   if (!["install", "uninstall", "upgrade", "plan"].includes(verb)) { process.stderr.write(usage() + "\n"); process.exit(2); }
   const harnesses = [], surfaces = [];
-  let projectDir = null, json = false;
+  let projectDir = null, json = false, globalRemoval = false, register = true;
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
     const value = () => { const v = argv[++i]; if (v === undefined || v.startsWith("--")) { process.stderr.write(`${a} needs a value\n${usage()}\n`); process.exit(2); } return v; };
     if (a === "--harness") harnesses.push(value());
     else if (a === "--surface") surfaces.push(value());
     else if (a === "--project") projectDir = value();
+    else if (a === "--global") globalRemoval = true;
+    else if (a === "--no-register" && verb !== "uninstall") register = false;
     else if (a === "--json") json = true;
     else { process.stderr.write(`unknown argument ${a}\n${usage()}\n`); process.exit(2); }
   }
   const src = sourceHarness();
   projectDir = resolve(projectDir || (src && process.env[src.runtime?.project_dir_env]) || process.cwd());
-  const opts = { harnesses, surfaces: surfaces.length ? surfaces : null };
+  const opts = { harnesses, surfaces: surfaces.length ? surfaces : null, globalRemoval, register };
   if (verb === "plan") {
     const p = plan(projectDir, opts);
     process.stdout.write(json ? JSON.stringify({ ...p, items: p.items.map(publicItem) }, null, 2) + "\n" : renderPreview(p));

@@ -11,21 +11,22 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync, rmSync, statSync, utimesSync } from "node:fs";
-import { resolve, dirname, join } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync, rmSync, statSync, utimesSync, symlinkSync } from "node:fs";
+import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { fakeInstall, writeRegistry, installEnv, noHostEnv, legacyProject } from "./fixtures/install.mjs";
+import { fakeInstall, cacheRoot, writeRegistry, installEnv, noHostEnv, legacyProject } from "./fixtures/install.mjs";
 import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
-import { plan, apply, renderPreview, runVerb } from "../scripts/install-harness.mjs";
+import { plan, apply, renderPreview, runVerb, publicItem } from "../scripts/install-harness.mjs";
 import { analyseLayout } from "../scripts/surfaces.mjs";
 import { sourceHarness, loadHarness, LAYOUT, layoutPaths, pickExisting, RUNTIME_GITIGNORE_HEADER } from "../scripts/harness.mjs";
-import { checkLayout, checkGitignore, runStartupChecks } from "../scripts/doctor.mjs";
+import { checkLayout, checkGitignore, runStartupChecks, runInstallChecks, layoutRemedy } from "../scripts/doctor.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
 import {
   readConfigAt, readSessionState, readEntryLog, appendEntryLog, statusLineIsOurWiring, statusLineIsOurs, statusLineLauncherPath,
   legacyStatusLineLauncherPath, renderStatusLineLauncher, ensureRuntimeDir, ensureStateDir, ensureSessionsDir, cmpVersion, stateDir, sessionStatePath, entryLogPath,
+  installChannel,
 } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -110,6 +111,15 @@ test("layout contract 6: one ordered `layout` item first, the launcher created a
   assert.equal(block.action, "replace-entry"); assert.match(block.reason, /v3 → v4/, "the block template's config path moved with the layout");
   const preview = renderPreview(p);
   for (const s of first.steps) if (s.path || s.from) assert.ok(preview.includes(s.path ? s.path.split("/").pop() : s.from.split("/").pop()), `preview names ${s.kind}`);
+  // The JSON envelope is the same preview: every migration step keeps where it
+  // moves from and to (S1 of the 2026-10-03 review — a public envelope that
+  // stripped `from` from every step hid the source of the move it describes).
+  const pub = publicItem(first);
+  for (const s of first.steps.filter((x) => "from" in x)) {
+    const ps = pub.steps.find((x) => x.kind === s.kind);
+    assert.equal(ps.from, s.from, `${s.kind} keeps from`); assert.equal(ps.to, s.to, `${s.kind} keeps to`);
+  }
+  assert.equal(pub.steps.find((x) => x.kind === "move-state").files, first.steps.find((x) => x.kind === "move-state").files, "and the moved-file count");
   assert.ok(preview.includes("layout") && preview.includes("agents → "));
   // Nothing moved by plan.
   assert.ok(existsSync(lp.legacy.binding) && !existsSync(lp.root));
@@ -220,12 +230,46 @@ test("layout contract 6: the layout item is planned whatever --surface names, an
   assert.equal(plan(p2, { home, root, env }).ok, false);
 });
 
-test("layout contract 7: doctor's layout-legacy names the upgrade and the startup line offers it; inside a live session the migration is deferred", () => {
-  const { home, root } = home028();
+test("layout contract 7 / 12: doctor's layout-legacy names the upgrade in the channel of the copy the project runs, and the startup line offers it; inside a live session the migration is deferred", () => {
+  const { home, root } = home028(); // a git-marketplace cache copy, enabled for the project in the registry
   const { proj, lp } = legacyProject(home);
-  const f = checkLayout(proj);
+  const ownBin = (r) => `node "${join(r, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj}"`;
+  const shell = /npx projectstore-claude@[^ ]+ upgrade --no-register --project/; // both forms leave the registration alone
+  // A git-marketplace copy runs its own bin, registration left out: the shell
+  // would register the npm copy here and turn this one off (contract 12,
+  // amended 2026-10-03).
+  const f = checkLayout(proj, undefined, { root, home });
   assert.equal(f.length, 1); assert.equal(f[0].check, "layout-legacy"); assert.equal(f[0].level, "warn");
-  assert.match(f[0].message, /npx projectstore-claude@[^ ]+ upgrade --project/); assert.match(f[0].message, /through 0\.29/); // the shell form (A13, contract 12)
+  assert.ok(f[0].message.includes(ownBin(root)), f[0].message); assert.doesNotMatch(f[0].message, /npx /); assert.match(f[0].message, /through 0\.29/);
+  // The package's own registration: the shell form (A13).
+  const npm = fakeInstall(home, VERSION, { marketplace: SRC.surfaces.plugin.marketplace_name });
+  assert.match(checkLayout(proj, undefined, { root: npm, home })[0].message, shell);
+  // Not a host copy — a terminal npx run, a checkout: the copy the project has
+  // enabled decides, so a git-marketplace project is never told to run the shell.
+  const npx = join(home, ".npm", "_npx", "x", "node_modules", "projectstore");
+  assert.ok(checkLayout(proj, undefined, { root: npx, home })[0].message.includes(ownBin(root)), "a terminal npx doctor names the enabled git copy");
+  assert.ok(checkLayout(proj, undefined, { root: ROOT, home })[0].message.includes(ownBin(root)), "a checkout names the enabled git copy too");
+  // With nothing enabled: a package root takes the shell, a checkout its own bin.
+  const bare = mkdtempSync(join(TMP, "ps-layout-bare-"));
+  const { proj: proj2 } = legacyProject(bare);
+  assert.match(checkLayout(proj2, undefined, { root: npx, home: bare })[0].message, shell);
+  assert.ok(checkLayout(proj2, undefined, { root: ROOT, home: bare })[0].message.includes(`node "${join(ROOT, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj2}"`));
+  // A local-scope row that belongs to ANOTHER checkout never counts, however
+  // new: the machine this was measured on held five such npm rows beside one
+  // user-scope git row (the critic of the amendment, finding 1).
+  const other = fakeInstall(bare, VERSION, { marketplace: SRC.surfaces.plugin.marketplace_name });
+  const gitBare = fakeInstall(bare, "0.28.0-git", { full: true });
+  writeRegistry(bare, [
+    { scope: "user", installPath: gitBare, version: "0.28.0-git", lastUpdated: "2026-09-07T00:00:00.000Z" },
+    { scope: "local", projectPath: join(bare, "some-other-checkout"), installPath: other, version: VERSION, lastUpdated: "2026-09-29T00:00:00.000Z" },
+  ]);
+  assert.ok(checkLayout(proj2, undefined, { root: npx, home: bare })[0].message.includes(`node "${join(gitBare, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj2}"`), "another checkout's newer npm row is ignored");
+  // A copy that predates the move (0.27.x ships no bin) cannot run it.
+  const old = cacheRoot(bare, "0.27.1");
+  mkdirSync(join(old, "scripts"), { recursive: true }); writeFileSync(join(old, "scripts", "statusline.mjs"), "");
+  writeRegistry(bare, [{ scope: "user", installPath: old, version: "0.27.1", lastUpdated: "2026-09-08T00:00:00.000Z" }]);
+  const stale = checkLayout(proj2, undefined, { root: npx, home: bare })[0].message;
+  assert.match(stale, /\(0\.27\.1\) predates the move/); assert.doesNotMatch(stale, /npx |node "/, "no command a pre-move copy cannot run");
   const st = runStartupChecks(JSON.parse(read(lp.legacy.binding)), proj);
   assert.ok(st.offers.some((o) => /layout moved to \.projectstore\//.test(o)), "the startup line carries the offer");
   const marker = (SRC.runtime.session_env || [])[0];
@@ -234,6 +278,97 @@ test("layout contract 7: doctor's layout-legacy names the upgrade and the startu
   assert.equal(li.action, "skip"); assert.equal(li.deferred, true); assert.match(li.reason, /outside the session/);
   assert.equal(inSession.incomplete, true);
   assert.ok(!inSession.items.some((i) => i.surface === "layout_cleanup"), "no cleanup without the migration");
+});
+
+// The layout remedy's registry branch, cell by cell (the second review of the
+// 2026-10-03 fixes found each of these reversible without a test failing).
+test("layout contract 12: the copy a terminal or checkout run names is this project's newest present enabled copy that can run the move", () => {
+  const home = mkdtempSync(join(TMP, "ps-layout-reg-"));
+  const { proj } = legacyProject(home);
+  const npx = join(home, ".npm", "_npx", "x", "node_modules", "projectstore");
+  const ownBin = (r) => `node "${join(r, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj}"`;
+  const msg = () => checkLayout(proj, undefined, { root: npx, home })[0].message;
+  const gitA = fakeInstall(home, "0.28.0-a", { full: true });
+  const gitB = fakeInstall(home, "0.28.0-b", { full: true });
+  // The newest wins.
+  writeRegistry(home, [
+    { scope: "user", installPath: gitA, version: "0.28.0-a", lastUpdated: "2026-09-01T00:00:00.000Z" },
+    { scope: "user", installPath: gitB, version: "0.28.0-b", lastUpdated: "2026-09-02T00:00:00.000Z" },
+  ]);
+  assert.ok(msg().includes(ownBin(gitB)), "the newest copy");
+  // This project's own row beats a newer user-scope one.
+  writeRegistry(home, [
+    { scope: "local", projectPath: proj, installPath: gitA, version: "0.28.0-a", lastUpdated: "2026-09-01T00:00:00.000Z" },
+    { scope: "user", installPath: gitB, version: "0.28.0-b", lastUpdated: "2026-09-02T00:00:00.000Z" },
+  ]);
+  assert.ok(msg().includes(ownBin(gitA)), "this project's own row first");
+  // A wiped copy does not count.
+  writeRegistry(home, [{ scope: "user", installPath: join(home, "gone"), version: "0.28.0", lastUpdated: "2026-09-03T00:00:00.000Z" }]);
+  assert.match(msg(), /npx projectstore-claude@[^ ]+ upgrade --no-register --project/, "nothing present: the package root's own form");
+  // A copy this project disabled does not count.
+  writeRegistry(home, [{ scope: "user", installPath: gitB, version: "0.28.0-b", lastUpdated: "2026-09-02T00:00:00.000Z" }]);
+  const sp = join(proj, SRC.runtime.harness_dir, "settings.local.json");
+  const s0 = JSON.parse(read(sp));
+  writeFileSync(sp, JSON.stringify({ ...s0, enabledPlugins: { "projectstore@SmartAndPoint": false } }, null, 2) + "\n");
+  assert.match(msg(), /npx projectstore-claude@[^ ]+ upgrade --no-register --project/, "disabled here: not this project's copy");
+  writeFileSync(sp, JSON.stringify(s0, null, 2) + "\n");
+  // A session's own host-cache root comes first, whatever the registry says.
+  writeRegistry(home, [{ scope: "local", projectPath: proj, installPath: gitA, version: "0.28.0-a", lastUpdated: "2026-09-05T00:00:00.000Z" }]);
+  assert.ok(checkLayout(proj, undefined, { root: gitB, home })[0].message.includes(ownBin(gitB)), "the session's own copy wins");
+  // This project's enabled copy is the npm registration's: the shell form, at that copy's version.
+  const npm = fakeInstall(home, "0.28.0-npm", { full: true, marketplace: SRC.surfaces.plugin.marketplace_name });
+  writeRegistry(home, [{ scope: "local", projectPath: proj, installPath: npm, version: "0.28.0-npm", lastUpdated: "2026-09-04T00:00:00.000Z" }]);
+  assert.match(msg(), /npx projectstore-claude@0\.28\.0-npm upgrade --no-register --project/, "the npm copy: the shell, at its own version");
+});
+
+test("layout contract 12: a host-cache copy reached through a symlinked home is still a host-cache copy", () => {
+  const real = mkdtempSync(join(TMP, "ps-layout-realhome-"));
+  const copy = join(real, SRC.runtime.home_default, "plugins", "cache", "SmartAndPoint", "projectstore", "0.28.0");
+  mkdirSync(copy, { recursive: true });
+  const link = join(mkdtempSync(join(TMP, "ps-layout-link-")), "home");
+  symlinkSync(real, link);
+  assert.equal(installChannel(copy, { home: link }), "marketplace", "the real root against the linked home");
+  assert.equal(installChannel(join(link, SRC.runtime.home_default, "plugins", "cache", "SmartAndPoint", "projectstore", "0.28.0"), { home: real }), "marketplace", "the linked root against the real home");
+});
+
+test("layout contract 12: a session under a relocated host home hands it on — both forms carry the variable", () => {
+  const { home, root } = home028();
+  const { proj } = legacyProject(home);
+  const v = SRC.runtime.home_env;
+  const dir = join(home, SRC.runtime.home_default);
+  const own = layoutRemedy(proj, { root, home, env: { [v]: dir } }).command;
+  assert.ok(own.startsWith(`${v}="${dir}" node "`), own);
+  const npm = fakeInstall(home, VERSION, { marketplace: SRC.surfaces.plugin.marketplace_name });
+  const shell = layoutRemedy(proj, { root: npm, home, env: { [v]: dir } }).command;
+  assert.ok(shell.startsWith(`${v}="${dir}" npx `), shell);
+  assert.ok(!layoutRemedy(proj, { root, home, env: {} }).command.includes(`${v}=`), "no variable, no prefix");
+});
+
+test("layout contract 7: every legacy file that keeps the finding alive is named in it — the welcome marker alone included", () => {
+  const proj = mkdtempSync(join(TMP, "ps-layout-marker-"));
+  const lp = layoutPaths(proj);
+  mkdirSync(dirname(lp.legacy.welcomed), { recursive: true });
+  writeFileSync(lp.legacy.welcomed, "2026-09-01T00:00:00Z\n");
+  const f = checkLayout(proj, undefined, { root: ROOT, home: mkdtempSync(join(TMP, "ps-layout-markerhome-")) });
+  assert.equal(f.length, 1);
+  assert.ok(f[0].message.includes(`still holds ${relative(proj, lp.legacy.welcomed)}.`), f[0].message);
+});
+
+test("layout contract 12: doctor's install report threads its root and home into the layout remedy", async () => {
+  const { home, root } = home028();
+  const { proj, lp } = legacyProject(home);
+  const cfg = JSON.parse(read(lp.legacy.binding));
+  const f = (await runInstallChecks(cfg, proj, { root, home })).find((x) => x.check === "layout-legacy");
+  assert.ok(f && f.message.includes(`node "${join(root, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj}"`), f && f.message);
+});
+
+test("installer: its own entry point honours --no-register (driven through plan)", () => {
+  const home = mkdtempSync(join(TMP, "ps-layout-main-"));
+  const { proj } = legacyProject(home);
+  const env = noHostEnv({ HOME: home, [SRC.runtime.home_env]: join(home, SRC.runtime.home_default) });
+  const run = (...extra) => JSON.parse(spawnSync(process.execPath, [join(ROOT, "scripts", "install-harness.mjs"), "plan", "--harness", SRC.id, ...extra, "--json", "--project", proj], { encoding: "utf8", env, timeout: 60000 }).stdout);
+  assert.ok(run().items.some((i) => i.kind === "registration"), "from a checkout the registration is planned");
+  assert.ok(!run("--no-register").items.some((i) => i.kind === "registration"), "--no-register leaves it out");
 });
 
 test("layout contract 7: the fallback window closes at 0.30 — this test is the sunset", () => {

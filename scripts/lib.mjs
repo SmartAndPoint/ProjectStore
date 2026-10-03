@@ -2,12 +2,12 @@
 // Pure node, no external deps. Keep this single-file & dependency-free
 // so plugin install does not require npm install.
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync, lstatSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync, realpathSync, cpSync } from "node:fs";
+import { readFileSync, writeFileSync, writeSync, appendFileSync, existsSync, readdirSync, statSync, lstatSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync, realpathSync, cpSync } from "node:fs";
 import { readFile as readFileAsync } from "node:fs/promises";
 import { join, dirname, basename, resolve, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostname, homedir } from "node:os";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   projectRoot as harnessProjectRoot,
   pluginRoot as harnessPluginRoot,
@@ -25,6 +25,9 @@ import {
   RUNTIME_GITIGNORE_HEADER,
   runtimeEnvNames,
   sourceWriteTools,
+  isWriteTool as harnessIsWriteTool,
+  toolPaths as harnessToolPaths,
+  sourceHarness,
 } from "./harness.mjs";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
@@ -269,6 +272,13 @@ export function writeFileAtomic(p, content, { sweep = true } = {}) {
   }
 }
 
+// Write metadata into a descriptor the caller acquired with O_EXCL. The
+// exclusive create is the lock; keeping this tiny write in lib preserves the
+// repository's single write boundary without weakening the atomic lock race.
+export function writeExclusiveMetadata(fd, value) {
+  return writeSync(fd, typeof value === "string" ? value : JSON.stringify(value) + "\n");
+}
+
 // Crash orphans (SIGKILL, power loss between write and rename) are invisible
 // to every reader by design, so nothing else ever removes them. The sweep
 // runs where writes are frequent enough to matter — reconcile --write's
@@ -479,6 +489,52 @@ export function writeOwnTree(dir, { from, subdir, manifestRel, manifest, home = 
   return files;
 }
 
+// Atomically replace a portable marketplace source with a complete immutable
+// plugin payload. `files` was enumerated and digested during planning; every
+// entry is re-checked as a regular file at apply time, so a symlink swap cannot
+// escape the source root. The previous directory is retained until the caller
+// verifies the host cache and returns the backup path for commit/rollback.
+export function stagePortableMarketplace(dir, { from, files, subdir, catalogRel, catalog, ownershipRel, ownership, homeBase, token = `${process.pid}-${randomUUID()}` }) {
+  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!norm(dir).startsWith(norm(homeBase) + "/")) throw new Error(`stagePortableMarketplace: ${dir} is not under ${homeBase}`);
+  const stage = `${dir}.staging-${token}`;
+  const backup = existsSync(dir) ? `${dir}.previous-${token}` : null;
+  rmSync(stage, { recursive: true, force: true });
+  for (const rel of files) {
+    const src = join(from, rel);
+    const st = lstatSync(src);
+    if (!st.isFile() || st.isSymbolicLink()) throw new Error(`portable payload changed under the plan: ${rel} is not a regular file`);
+    const dst = join(stage, subdir, rel);
+    mkdirSync(dirname(dst), { recursive: true });
+    cpSync(src, dst);
+  }
+  mkdirSync(dirname(join(stage, catalogRel)), { recursive: true });
+  mkdirSync(dirname(join(stage, ownershipRel)), { recursive: true });
+  writeFileAtomic(join(stage, catalogRel), JSON.stringify(catalog, null, 2) + "\n", { sweep: false });
+  writeFileAtomic(join(stage, ownershipRel), JSON.stringify(ownership, null, 2) + "\n", { sweep: false });
+  if (backup) renameSync(dir, backup);
+  try { renameSync(stage, dir); }
+  catch (e) { if (backup && !existsSync(dir)) renameSync(backup, dir); throw e; }
+  return { stage, backup };
+}
+
+export function finishPortableMarketplace(dir, backup = null) {
+  if (backup) rmSync(backup, { recursive: true, force: true });
+  return dir;
+}
+
+export function rollbackPortableMarketplace(dir, backup = null) {
+  rmSync(dir, { recursive: true, force: true });
+  if (backup && existsSync(backup)) renameSync(backup, dir);
+  return dir;
+}
+
+export function removeTreeUnder(dir, homeBase) {
+  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!norm(dir).startsWith(norm(homeBase) + "/")) throw new Error(`removeTreeUnder: ${dir} is not under ${homeBase}`);
+  rmSync(dir, { recursive: true, force: true });
+}
+
 export function installedPluginRoot(home = homedir(), preferFamily = null) {
   try {
     const found = installedPluginEntries(home)
@@ -496,10 +552,55 @@ export function installedPluginRoot(home = homedir(), preferFamily = null) {
   }
 }
 
+// The path of `root` below the host's plugin cache, or null when it is not
+// there. Compared as given first, then as real paths on both sides: Node
+// resolves an entry script's real path, so a terminal run from a cache under a
+// symlinked home (dotfiles) sees the real path where the session's variable
+// names the link, and the two must classify alike — otherwise the terminal run
+// took its own copy for a checkout and planned the package's registration
+// (measured 2026-10-03, the critic of the layout spec's contract 12 amendment).
+function underPluginCache(root, home = homedir()) {
+  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  const cache = join(claudeHome(home), "plugins", "cache");
+  const below = (r, c) => { const a = norm(r), b = norm(c); return a.startsWith(b + "/") ? a.slice(b.length + 1) : null; };
+  const direct = below(root, cache);
+  if (direct !== null || !root) return direct;
+  const real = (x) => { try { return realpathSync(x); } catch { return null; } };
+  const rr = real(root), rc = real(cache);
+  return rr && rc ? below(rr, rc) : null;
+}
+
 // Is this plugin root a versioned cache install (the only kind that goes stale)?
 export function isPluginCacheRoot(root, home = homedir()) {
-  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
-  return norm(root).startsWith(norm(join(claudeHome(home), "plugins", "cache")) + "/");
+  return underPluginCache(root, home) !== null;
+}
+
+// npx extracts into a cache under _npx/, npm install into node_modules/: both
+// are the package manager's to remove.
+export function isEphemeralRoot(root) {
+  return /[\\/](_npx|node_modules)[\\/]/.test(String(root || ""));
+}
+
+// Which channel the copy at `root` came through. A remedy that re-runs the
+// installer has to ask this first, because the package's shell registers the
+// plugin through its OWN channel: run for a git-marketplace user, it adds a
+// second copy and turns the installed one off for the checkout (the layout
+// spec, contract 12 as amended 2026-10-03). The answers:
+// - "registration": the host's cache copy of the registration marketplace the
+//   manifest names, i.e. the package's own channel;
+// - "marketplace": any other host cache copy (the git marketplace, a fork);
+// - "package": a package manager's root (npx, node_modules);
+// - "checkout": anything else (a dev checkout, --plugin-dir).
+// String tests, plus at most two realpath calls when a root does not match as
+// given (a symlinked home); no file is read, so the SessionStart budget is
+// untouched, and the marketplace name comes from the manifest, never from here.
+export function installChannel(root, { home = homedir(), harness = sourceHarness() } = {}) {
+  if (isEphemeralRoot(root)) return "package";
+  const rel = underPluginCache(root, home);
+  if (rel === null) return "checkout";
+  const marketplace = rel.split("/")[0];
+  const own = Object.values(harness?.surfaces || {}).find((x) => x && x.kind === "registration" && x.marketplace_name);
+  return own && marketplace === own.marketplace_name ? "registration" : "marketplace";
 }
 
 // ─── Status line wiring (SessionStart-managed) ─────────────────────────
@@ -2032,10 +2133,13 @@ const ACTIVITY_CAP = 50;
 // The list itself is the source manifest's (harnesses/claude-code.json); copied,
 // not aliased, so freezing it cannot freeze the cached manifest object.
 export const WRITE_TOOLS = Object.freeze([...sourceWriteTools()]);
-const WRITE_TOOL_SET = new Set(WRITE_TOOLS);
 
 export function isWriteTool(tool) {
-  return WRITE_TOOL_SET.has(tool);
+  return harnessIsWriteTool(tool, process.env);
+}
+
+export function toolPaths(input) {
+  return harnessToolPaths(input, process.env);
 }
 
 export function appendActivity(vault, sessionId, filePath, toolName) {
@@ -2167,7 +2271,18 @@ export function writeSessionState(projectDir, sessionId, patch) {
   ensureStateDir(projectDir);
   const cur = readSessionState(projectDir, sessionId) || {};
   const next = { ...cur, ...patch, updated_at: new Date().toISOString() };
-  writeFileSync(sessionStatePath(projectDir, sessionId), JSON.stringify(next, null, 2), "utf8");
+  // Atomic, because one session's hooks run concurrently: parallel tool calls
+  // each fire PreToolUse. Two truncate-and-writes interleave into the shorter
+  // JSON followed by the longer one's tail — CI run 37116511756, 2026-10-03:
+  // "Unexpected non-whitespace character after JSON at position 139". While the
+  // file is torn the status line reports the state unreadable; worse,
+  // readSessionState answers null, so the next write keeps only its own patch
+  // and the rest of the pointer is gone for good. The rename also hides the
+  // empty instant after the truncate. The
+  // default sweep stays on: this writer runs only on vault-file tool calls, so
+  // it can afford the readdir that reaps orphan temps here (the status line's
+  // breadcrumb, written beside it, opts out because it renders every refresh).
+  writeFileAtomic(sessionStatePath(projectDir, sessionId), JSON.stringify(next, null, 2));
   return next;
 }
 
@@ -2205,13 +2320,14 @@ export function cleanupStaleSessionState(projectDir, maxAgeHours = 24) {
 // Normative text: the spec "Entry-rule detection: the score, the open-story
 // predicate, and the delivery seams". The one rule that governs every helper
 // below and is invisible from any single call site: **nothing here may route
-// through writeSessionState**. That function is a read-modify-write, and
-// writeFileSync opens with O_TRUNC — so a concurrent read lands on a
-// zero-byte file, readSessionState swallows the parse error into `null`, and
-// the spread then writes the patch alone, erasing the ADR-006 statusline
-// pointer. Today that path only runs on vault-file tool calls; the score is
-// fed by every source write in every parallel subagent (all sharing one
-// session_id), which is a different order of contention entirely.
+// through writeSessionState**. That function is an unlocked read-modify-write:
+// it now publishes atomically, so a reader never sees a torn or empty pointer,
+// but two concurrent writers still race and the last rename wins — a patch
+// written in between is silently lost. Until 2026-10-03 it also truncated in
+// place (O_TRUNC), and a concurrent read then erased the ADR-006 statusline
+// pointer outright. Today that path only runs on vault-file tool calls; the
+// score is fed by every source write in every parallel subagent (all sharing
+// one session_id), where a lost increment is a wrong score.
 
 // Generated, vendored or machine-local paths — never a source file for any
 // consumer. Lifted out of diff-refs.mjs so the hook, doctor and diff-refs
@@ -2569,10 +2685,12 @@ export function electEmitter(projectDir, sessionId) {
 // the comparison table the ADR cites.
 //
 // State for this rule must NOT route through writeSessionState — see the
-// entry-rule banner above for the mechanism (O_TRUNC, a zero-byte read, and the
-// ADR-006 statusline pointer erased). This tally is the highest-frequency
-// writer in the system, so the hazard is sharper here than where it is written
-// down. Follow registerSourcePath: one file per key, no reader-writer pair.
+// entry-rule banner above for the mechanism (an unlocked read-modify-write, so
+// concurrent increments are lost; before 2026-10-03 it also truncated in place
+// and could erase the ADR-006 statusline pointer). This tally is the
+// highest-frequency writer in the system, so the hazard is sharper here than
+// where it is written down. Follow registerSourcePath: one file per key, no
+// reader-writer pair.
 //
 // Two gates that are easy to omit and that the fixtures alone will NOT catch,
 // because every recorded session is an authoring session: the tally counts
@@ -2700,8 +2818,8 @@ export function composeAnchorName(state, key) {
 // Same discipline as the entry-rule score directory above, and for the same
 // reason stated there: NOTHING here routes through writeSessionState. A tally
 // incremented on every vault write is the highest-frequency writer in this
-// system, and that function's read-modify-write would eventually truncate the
-// ADR-006 statusline pointer out from under an unrelated feature.
+// system, and that function's unlocked read-modify-write would lose its
+// increments to every concurrent writer — the last rename wins.
 //
 // So a tally is a file that only ever grows by one byte: O_APPEND of a single
 // byte is atomic, the count is the file's size, and no reader-writer pair
@@ -2709,9 +2827,11 @@ export function composeAnchorName(state, key) {
 //
 // The incumbent/last-offered record is the one small piece that must be read
 // back, and it lives in its OWN file for exactly that reason. It is written at
-// most once per offer (once or twice a session), and its worst failure — a torn
-// read after a crash — costs one duplicate offer and nothing else. Putting it in
-// the shared session state would trade that for a blank statusline.
+// most once per offer (once or twice a session), atomically since 2026-10-03:
+// two writers with different payloads used to leave a JSON with the longer
+// one's tail, which reads as an empty record and forgets `declined`. Its worst
+// failure now is a lost write — one duplicate offer and nothing else. Putting
+// it in the shared session state would trade that for a blank statusline.
 
 export function anchorDir(projectDir, sessionId) {
   return join(stateDir(projectDir), `${sessionId}.anchor`);
@@ -2812,7 +2932,7 @@ export function readAnchorOffer(projectDir, sessionId) {
 export function writeAnchorOffer(projectDir, sessionId, rec) {
   try {
     ensureStateDir(projectDir);
-    writeFileSync(anchorOfferPath(projectDir, sessionId), JSON.stringify(rec));
+    writeFileAtomic(anchorOfferPath(projectDir, sessionId), JSON.stringify(rec), { sweep: false });
     return true;
   } catch {
     return false;

@@ -2,7 +2,7 @@
   "name": "projectstore-codex",
   "version": "0.28.0-rc.2",
   "private": true,
-  "description": "Installs projectstore for Codex from npm: the core pinned and bundled, the harness fixed. Not published until its plugin root is rendered.",
+  "description": "ProjectStore for Codex: portable project memory, rendered workflow skills and lifecycle hooks, with the core pinned and bundled.",
   "keywords": [
     "projectstore",
     "installer",
@@ -35,7 +35,11 @@
   },
   "files": [
     "bin/",
-    "README.md"
+    "README.md",
+    "plugin.json",
+    ".codex-plugin/",
+    "skills/",
+    "hooks/"
   ],
   "dependencies": {
     "projectstore": "=0.28.0-rc.2"

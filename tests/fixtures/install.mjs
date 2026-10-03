@@ -21,12 +21,15 @@ import { seedCliVault } from "./vault.mjs";
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SRC = sourceHarness();
 
-export function cacheRoot(home, version) {
-  return join(home, SRC.runtime.home_default, "plugins", "cache", "SmartAndPoint", "projectstore", version);
+// `marketplace` names the channel the copy came through: the git marketplace
+// by default; the registration's own marketplace name makes it the package's
+// npm registration (the layout spec, contract 12 as amended 2026-10-03).
+export function cacheRoot(home, version, marketplace = "SmartAndPoint") {
+  return join(home, SRC.runtime.home_default, "plugins", "cache", marketplace, "projectstore", version);
 }
 
-export function fakeInstall(home, version, { full = false } = {}) {
-  const root = cacheRoot(home, version);
+export function fakeInstall(home, version, { full = false, marketplace = "SmartAndPoint" } = {}) {
+  const root = cacheRoot(home, version, marketplace);
   if (full) {
     cpSync(REPO, root, {
       recursive: true,

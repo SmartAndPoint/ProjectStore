@@ -74,9 +74,9 @@ test("packaging contract 1b: nothing at the root is silently unshipped", () => {
 });
 
 test("packaging contract 1c: an unshipped directory is actually detected", () => {
-  // The demonstration, not the assertion. `adapters/` and `harnesses/` are
-  // landing from another branch and must not slip out of the tarball quietly;
-  // this is that scenario, run rather than described.
+  // The demonstration, not the assertion. `adapters/` is now a deliberately
+  // unshipped build input, while a new `harnesses/` directory must not slip out
+  // of the tarball quietly; this is that scenario, run rather than described.
   // A synthetic tree, deliberately not the real one: this must keep proving
   // the mechanism even on a checkout where `adapters/` already exists.
   const tree = [".claude-plugin", "scripts", "tests", "packaging", "adapters", "harnesses"];
@@ -84,7 +84,7 @@ test("packaging contract 1c: an unshipped directory is actually detected", () =>
 
   assert.deepEqual(
     unshippedTopLevel(tree, shipped),
-    ["adapters", "harnesses"],
+    ["harnesses"],
     "a new top-level directory absent from files[] must be reported",
   );
 

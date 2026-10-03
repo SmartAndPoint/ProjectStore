@@ -24,8 +24,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync, rmSync } from "node:fs";
-import { resolve, dirname, join } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { resolve, dirname, join, delimiter } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -34,7 +34,7 @@ import { parseProvenance } from "../scripts/provenance.mjs";
 import { renderStatusLineLauncher, statusLineLauncherPath, renderAgentsBlock, syncStatusLine, LAUNCHER_HEADER, layoutPaths} from "../scripts/lib.mjs";
 import { plan, apply } from "../scripts/install-harness.mjs";
 import { checkHarnessSurfaces, checkPendingUpgrade, runStartupChecks, checkLayout } from "../scripts/doctor.mjs";
-import { fakeInstall, writeRegistry, installEnv, noHostEnv } from "./fixtures/install.mjs";
+import { fakeInstall, writeRegistry, installEnv, noHostEnv, fakeClaude, legacyProject } from "./fixtures/install.mjs";
 import { seedCliVault } from "./fixtures/vault.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -45,9 +45,10 @@ const TPL_027 = readFileSync(join(ROOT, "tests", "fixtures", "statusline-launche
 const TEMPLATE = readFileSync(join(ROOT, "templates", "claude-md-block.md.tmpl"), "utf8");
 const BLOCK = renderAgentsBlock(TEMPLATE, null);
 const read = (p) => readFileSync(p, "utf8");
-// The fake home must be a real path: isPluginCacheRoot is a string-prefix test
-// between the bin's own root (realpath'd by ESM) and <home>/plugins/cache, and
-// on macOS tmpdir() is /var/… while its realpath is /private/var/….
+// The fake home is a real path: isPluginCacheRoot compares the bin's own root
+// (realpath'd by ESM) with <home>/plugins/cache as given first, then as real
+// paths; on macOS tmpdir() is /var/… while its realpath is /private/var/…, and
+// a real-path home keeps these tests on the first, cheaper comparison.
 const TMP = realpathSync(tmpdir());
 
 // A real CLAUDE_CONFIG_DIR in the developer's environment would mask the temp home for in-process calls.
@@ -108,9 +109,16 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   assert.equal(hook.status, 0, hook.stderr);
   const out = hook.stdout.trim() ? JSON.parse(hook.stdout) : {};
   const sys = (out.systemMessage || "") + " " + JSON.stringify(out.hookSpecificOutput || {});
-  assert.match(sys, /plugin updated/, "the startup line names the pending step");
-  assert.match(sys, /doctor --fix/);
-  assert.match(sys, /layout moved to \.projectstore\//, "and the layout move (the layout ADR, 2026-09-06)");
+  // One step (the layout spec, contract 7 as amended 2026-10-03): the move
+  // re-stamps the launcher, so the line does not also offer `doctor --fix`;
+  // and the move runs this copy's own bin, because the copy came from the git
+  // marketplace (contract 12, amended the same day).
+  const ownBin = `node "${join(root, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj}"`;
+  assert.match(sys, /layout moved to \.projectstore\//, "the startup line names the layout move (the layout ADR, 2026-09-06)");
+  assert.ok(sys.includes(ownBin), "in the copy's own channel: " + sys);
+  assert.match(sys, /The same run re-stamps the status line launcher\./, "and says it covers the re-stamp");
+  assert.doesNotMatch(sys, /doctor --fix/, "not a second step");
+  assert.doesNotMatch(sys, /npx /, "not the shell, which would switch the channel");
   assert.deepEqual(snapshot(proj, vault), before, "settings, launcher, block and views are byte-identical after the first session");
   assert.ok(existsSync(join(vault, ".projectstore", "sessions", "up-1.json")) || readdirSync(join(vault, ".projectstore", "sessions")).length > 0, "the session marker is the write");
 
@@ -135,8 +143,16 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   // One upgrade: the layout moves, the launcher is stamped at its new path, the
   // entry is re-pointed, the legacy launcher and runtime dir are gone (the
   // layout ADR); the block and the views do not move.
-  const up = bin(root, installEnv(home, root, proj), ["upgrade", "--harness", SRC.id, "--project", proj]);
+  // The command the line named, with a host CLI on PATH that logs every call:
+  // the move calls none, so the checkout keeps its channel.
+  const host = fakeClaude(mkdtempSync(join(TMP, "ps-up-host-")));
+  const settingsBefore = JSON.parse(read(join(proj, CFG_DIR, "settings.local.json")));
+  const up = bin(root, installEnv(home, root, proj, { PATH: [host.dir, dirname(process.execPath)].join(delimiter) }), ["upgrade", "--harness", SRC.id, "--no-register", "--project", proj]);
   assert.equal(up.status, 0, up.stderr + up.stdout);
+  assert.deepEqual(host.log(), [], "the move calls no host command");
+  const settingsAfter = JSON.parse(read(join(proj, CFG_DIR, "settings.local.json")));
+  assert.deepEqual(settingsAfter.enabledPlugins, settingsBefore.enabledPlugins, "no plugin is enabled or silenced for the checkout");
+  assert.deepEqual(settingsAfter.extraKnownMarketplaces, settingsBefore.extraKnownMarketplaces, "and no marketplace is added");
   const lp = layoutPaths(proj);
   const stamped = read(statusLineLauncherPath(proj));
   const prov = parseProvenance(stamped);
@@ -156,6 +172,107 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   // The views owe no reconcile.
   const rec2 = JSON.parse(bin(root, installEnv(home, root, proj), ["reconcile", "--project", proj]).stdout);
   assert.equal(rec2.summary.changed, 0, "no view owes a reconcile: " + JSON.stringify(rec2.summary));
+});
+
+// The layout remedy's own-bin form carries --no-register, so "no host command"
+// holds by construction, not by recognising the root: from a checkout the plan
+// has a registration row, and with a host CLI on PATH the run without the flag
+// registers the npm copy and silences the git one (the critic of the layout
+// spec's 2026-10-03 amendment). With the flag, no row and no call.
+test("upgrade --no-register: from a checkout root the plan has no registration row and the run calls no host command", () => {
+  const home = mkdtempSync(join(TMP, "ps-up-noreg-"));
+  const { proj } = legacyProject(home);
+  const host = fakeClaude(mkdtempSync(join(TMP, "ps-up-noreg-host-")));
+  const env = { ...host.env(), HOME: home, [SRC.runtime.home_env]: join(home, SRC.runtime.home_default) };
+  const p = plan(proj, { home, root: ROOT, env, register: false });
+  assert.ok(!p.items.some((i) => i.kind === "registration"), "no registration row");
+  assert.ok(p.items.some((i) => i.surface === "layout"), "the move is still planned");
+  const run = spawnSync(process.execPath, [join(ROOT, "bin", "projectstore.mjs"), "upgrade", "--harness", SRC.id, "--no-register", "--project", proj], { encoding: "utf8", env, timeout: 90000 });
+  assert.deepEqual(host.log(), [], "no host command: " + run.stdout + run.stderr);
+  const settings = JSON.parse(readFileSync(join(proj, CFG_DIR, "settings.local.json"), "utf8"));
+  assert.ok(!settings.enabledPlugins && !settings.extraKnownMarketplaces, "the checkout's channel is untouched");
+  assert.ok(existsSync(layoutPaths(proj).binding), "the binding moved");
+  // The control: the same plan without the flag carries the registration.
+  assert.ok(plan(proj, { home, root: ROOT, env }).items.some((i) => i.kind === "registration"), "without --no-register a checkout plans the registration");
+});
+
+// The re-stamp offer is for a launcher our entry runs. Under a foreign status
+// line the install leaves the slot alone, so the offer could never clear.
+test("upgrade: the re-stamp offer needs our status-line entry — under a foreign one there is nothing to offer", () => {
+  const { home, root } = install028();
+  const { proj } = project027(home);
+  assert.deepEqual(checkPendingUpgrade(proj, home, root).map((f) => f.check), ["upgrade"], "our entry: offered");
+  const sp = join(proj, CFG_DIR, "settings.local.json");
+  const s = JSON.parse(readFileSync(sp, "utf8"));
+  writeFileSync(sp, JSON.stringify({ ...s, statusLine: { type: "command", command: "node /opt/someone-else/statusline.js" } }, null, 2) + "\n");
+  assert.deepEqual(checkPendingUpgrade(proj, home, root), [], "a foreign entry: not offered");
+  // The session's line, through the real hook from the cache root: the layout
+  // offer is there, without the re-stamp clause.
+  const hook = spawnSync(process.execPath, [join(root, "hooks", "session-start.mjs")], { encoding: "utf8", input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "fs-1", source: "startup", cwd: proj }), env: installEnv(home, root, proj), cwd: proj, timeout: 30000 });
+  const said = hook.stdout.trim() ? JSON.parse(hook.stdout).systemMessage || "" : "";
+  assert.match(said, /layout moved to \.projectstore\//, said);
+  assert.doesNotMatch(said, /re-stamps the status line launcher/, "no re-stamp is promised under a foreign slot");
+  // And the move clears the legacy layout under that foreign slot. The slot
+  // runs no launcher of ours, so no new one is made — and the cleanup used to
+  // keep the old one for want of it, which kept layout-legacy alive forever
+  // (the critic of the layout spec's 2026-10-03 amendment, case S1).
+  const lp = layoutPaths(proj);
+  assert.ok(existsSync(lp.legacy.launcher), "the legacy launcher is there to clean up");
+  const up = bin(root, installEnv(home, root, proj), ["upgrade", "--harness", SRC.id, "--no-register", "--project", proj]);
+  assert.equal(up.status, 0, up.stderr + up.stdout);
+  assert.ok(!existsSync(lp.legacy.launcher), "a launcher no slot runs goes with the move");
+  assert.deepEqual(checkLayout(proj, undefined, { root, home }), [], "and the layout offer clears");
+  assert.equal(JSON.parse(readFileSync(sp, "utf8")).statusLine.command, "node /opt/someone-else/statusline.js", "the foreign slot is untouched");
+});
+
+// The same under an EMPTY slot: the status line is off, nothing names the
+// legacy launcher, and the move clears the legacy layout without making one.
+test("upgrade: under an empty status-line slot (the status line is off) the move clears the legacy layout without making a launcher", () => {
+  const { home, root } = install028();
+  const { proj } = project027(home);
+  const sp = join(proj, CFG_DIR, "settings.local.json");
+  const { statusLine, ...rest } = JSON.parse(readFileSync(sp, "utf8"));
+  writeFileSync(sp, JSON.stringify(rest, null, 2) + "\n");
+  const lp = layoutPaths(proj);
+  const cfg = JSON.parse(readFileSync(lp.legacy.binding, "utf8"));
+  writeFileSync(lp.legacy.binding, JSON.stringify({ ...cfg, statusline: { enabled: false } }, null, 2) + "\n");
+  assert.ok(existsSync(lp.legacy.launcher));
+  const up = bin(root, installEnv(home, root, proj), ["upgrade", "--harness", SRC.id, "--no-register", "--project", proj]);
+  assert.equal(up.status, 0, up.stderr + up.stdout);
+  assert.ok(!existsSync(lp.legacy.launcher), "a launcher no slot runs goes with the move");
+  assert.ok(!existsSync(statusLineLauncherPath(proj)), "and none is made: the status line is off");
+  assert.equal(JSON.parse(readFileSync(sp, "utf8")).statusLine, undefined, "the slot stays empty");
+  assert.deepEqual(checkLayout(proj, undefined, { root, home }), [], "and the layout offer clears");
+});
+
+// The blocker of the third review: a legacy launcher the status line still runs
+// must survive the move whatever spells its path — a symlinked parent here —
+// and wherever the entry lives (the committed settings, the status line off).
+test("upgrade: a legacy launcher still run by any settings file survives the move, however its path is spelled", () => {
+  const { home, root } = install028();
+  const { proj } = project027(home);
+  const lp = layoutPaths(proj);
+  const sp = join(proj, CFG_DIR, "settings.local.json");
+  const link = join(mkdtempSync(join(TMP, "ps-up-link-")), "p");
+  symlinkSync(proj, link);
+  const s0 = JSON.parse(readFileSync(sp, "utf8"));
+  writeFileSync(sp, JSON.stringify({ ...s0, statusLine: { type: "command", command: `node "${join(link, CFG_DIR, ".projectstore", "statusline.mjs")}"` } }, null, 2) + "\n");
+  const up = bin(root, installEnv(home, root, proj), ["upgrade", "--harness", SRC.id, "--no-register", "--project", proj]);
+  assert.equal(up.status, 0, up.stderr + up.stdout);
+  assert.ok(existsSync(lp.legacy.launcher), "spelled through a symlink, it is still the file the status line runs");
+  // The committed settings, the local slot empty and the status line off.
+  const { home: h2, root: r2 } = install028();
+  const { proj: p2 } = project027(h2);
+  const lp2 = layoutPaths(p2);
+  const sp2 = join(p2, CFG_DIR, "settings.local.json");
+  const { statusLine, ...rest } = JSON.parse(readFileSync(sp2, "utf8"));
+  writeFileSync(sp2, JSON.stringify(rest, null, 2) + "\n");
+  writeFileSync(join(p2, CFG_DIR, "settings.json"), JSON.stringify({ statusLine }, null, 2) + "\n");
+  const cfg = JSON.parse(readFileSync(lp2.legacy.binding, "utf8"));
+  writeFileSync(lp2.legacy.binding, JSON.stringify({ ...cfg, statusline: { enabled: false } }, null, 2) + "\n");
+  const up2 = bin(r2, installEnv(h2, r2, p2), ["upgrade", "--harness", SRC.id, "--no-register", "--project", p2]);
+  assert.equal(up2.status, 0, up2.stderr + up2.stdout);
+  assert.ok(existsSync(lp2.legacy.launcher), "named by the committed settings, it is still in use");
 });
 
 test("upgrade: a dev-checkout root (this repo's bin) reports the 0.27.1 launcher and never deletes it; uninstall removes it", () => {

@@ -34,8 +34,6 @@ export const PACKLIST = "tests/fixtures/packlist.json";
 // [path, how to read the version, required]. Required sites must exist: with
 // everything optional, a checkout missing package.json reported agreement,
 // because "no site disagrees" is trivially true when there are no sites.
-// `.codex-plugin/` is the deliberate exception — it arrives with the Codex
-// story, and releases before then must not be blocked by its absence.
 const VERSION_SITES = [
   ["package.json", (j) => j.version, true],
   [".claude-plugin/plugin.json", (j) => j.version, true],
@@ -47,7 +45,6 @@ const VERSION_SITES = [
     (j) => j.plugins?.find((p) => p.name === "projectstore")?.version,
     true,
   ],
-  [".codex-plugin/plugin.json", (j) => j.version, false],
 ];
 
 // The distribution shells (the shells ADR; layout spec contract 11): one
@@ -69,6 +66,18 @@ export function collectShells(root = ROOT) {
     try { json = JSON.parse(readFileSync(abs, "utf8")); } catch (e) { return { error: `${rel}: ${e.message}` }; }
     if (json.name !== name) return { error: `${rel}: name "${json.name}" is not its directory's` };
     if (typeof json.version !== "string" || !json.version) return { error: `${rel}: no version found where one is required` };
+    const pluginVersions = [];
+    if (name === "projectstore-codex") {
+      for (const manifest of ["plugin.json", ".codex-plugin/plugin.json"]) {
+        const manifestRel = `${SHELLS_DIR}/${name}/${manifest}`;
+        const manifestAbs = resolve(root, manifestRel);
+        if (!existsSync(manifestAbs)) return { error: `${manifestRel}: missing — the Codex shell carries both canonical and compatibility manifests` };
+        let parsed;
+        try { parsed = JSON.parse(readFileSync(manifestAbs, "utf8")); } catch (e) { return { error: `${manifestRel}: ${e.message}` }; }
+        if (typeof parsed.version !== "string" || !parsed.version) return { error: `${manifestRel}: no version found where one is required` };
+        pluginVersions.push({ file: manifestRel, version: parsed.version });
+      }
+    }
     shells.push({
       name, file: rel, version: json.version,
       pin: json.dependencies?.projectstore ?? null,
@@ -76,6 +85,7 @@ export function collectShells(root = ROOT) {
       bin: json.bin?.[name] ?? null,
       binExists: typeof json.bin?.[name] === "string" && existsSync(resolve(root, SHELLS_DIR, name, json.bin[name])),
       bundled: Array.isArray(json.bundleDependencies) && json.bundleDependencies.includes("projectstore"),
+      pluginVersions,
     });
   }
   return { shells };
@@ -87,6 +97,9 @@ function die(msg) {
 }
 
 export function collectVersions(root = ROOT) {
+  if (existsSync(resolve(root, ".codex-plugin", "plugin.json"))) {
+    return { error: ".codex-plugin/plugin.json must live in the projectstore-codex shell, not at the core package root" };
+  }
   const found = [];
   for (const [rel, pick, required] of VERSION_SITES) {
     if (!existsSync(resolve(root, rel))) {
@@ -119,7 +132,7 @@ export function checkVersions({ root = ROOT, tag = null } = {}) {
   if (sh.error) return { ok: false, error: sh.error };
 
   // A shell's version is one more site under the same rule.
-  const sites = [...found, ...sh.shells.map((s) => ({ file: s.file, version: s.version }))];
+  const sites = [...found, ...sh.shells.flatMap((s) => [{ file: s.file, version: s.version }, ...(s.pluginVersions || [])])];
   if (tag) sites.push({ file: "<tag>", version: stripV(tag) });
   const distinct = [...new Set(sites.map((s) => s.version))];
   if (distinct.length !== 1) return { ok: false, error: "version mismatch", versions: distinct, checked: sites };
@@ -160,6 +173,7 @@ export const NOT_SHIPPED = new Set([
   "CLAUDE.md", // a pointer to AGENTS.md, which does ship
   "tests", // 240 kB of fixtures nobody installing the plugin needs
   "packaging", // reserved-name stubs; see packaging/README.md
+  "adapters", // generated harness inputs copied into their distribution shells at build time
   "package-lock.json",
 ]);
 
