@@ -332,8 +332,11 @@ test("shells: every hook a shell renders runs from the built tree, and a bound p
       const commands = (hooks[h.hooks.events[event]] || []).flatMap((g) => g.hooks.map((x) => x.command));
       assert.ok(commands.length > 0, `${s.name}: renders no ${event} hook`);
       const input = JSON.stringify({ session_id: "built-shell", cwd: proj, hook_event_name: h.hooks.events[event], ...extra });
+      // The process starts in HOME, not the project: on a harness with no
+      // project-dir variable only the payload's cwd names the project, and a
+      // hook that resolved from its own cwd would pass here by accident.
       return commands.map((command) => {
-        const r = spawnSync("/bin/sh", ["-c", command], { input, cwd: proj, env, encoding: "utf8", timeout: 60000 });
+        const r = spawnSync("/bin/sh", ["-c", command], { input, cwd: env.HOME, env, encoding: "utf8", timeout: 60000 });
         assert.equal(r.status, 0, `${s.name} ${event}: ${command}\n${r.stderr}`);
         assert.doesNotMatch(r.stdout + r.stderr, /vault load failed|Layout not found|Cannot find module|ENOENT/, `${s.name} ${event}: ${command}`);
         return r.stdout;

@@ -51,12 +51,14 @@ passed the Codex plugin validator, installed and upgraded it through an isolated
 
 That run exercised one skill, not every installed surface, so `verified` stays
 `null`. The hooks are the reason it matters. On 2026-10-03 the first real
-install's cached hooks, run by hand the way Codex runs them, could not load the
-vault in any session. In the first, the failure sat in the model's context under
-the welcome, which was all the user saw. The core had taken the shell's root for
-its own. That is fixed, and the suite now runs every rendered hook from the
-built shell. A live Codex session firing them from an installed release is still
-owed.
+install's cached hooks could not load the vault in any session. They were run by
+hand through `zsh -lc`: that machine's default shell, started the way Codex's
+command runner starts a hook on its main branch (`<default shell> -lc`). That
+0.153.4 does the same is not confirmed. In the first session
+the failure sat in the model's context under the welcome, which was all the user
+saw. The core had taken the shell's root for its own. That is fixed, and the
+suite now runs every rendered hook from the built shell. A live Codex session
+firing them from an installed release is still owed.
 
 The shell is not published. Build it and install the tarball through npx from
 this checkout:
@@ -82,7 +84,11 @@ What is known, and how:
   `./hooks/hooks.json` through `extensions.com.openai`; the compatibility
   `.codex-plugin/plugin.json` stays inside the current ingestion schema. Five
   events: `SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`, `PreCompact`.
-  The 759 firings were captured from the earlier inline form. The hook process
+  Of the 759 captured firings, 757 came from the earlier inline form, across
+  `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse` and `Stop`,
+  and 2 from a file-site `hooks/hooks.json` with an absolute `node` path.
+  `PreCompact` has never been observed firing on Codex, and neither has the
+  `${PLUGIN_ROOT}` form selected through `extensions.com.openai`. The hook process
   receives `PLUGIN_ROOT` in its environment, naming the shell's root with the
   core beneath it in `node_modules/projectstore/`, and **no project-directory
   variable at all**. The project comes from the payload's `cwd`, which every
