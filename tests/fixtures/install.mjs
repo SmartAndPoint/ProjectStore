@@ -50,6 +50,26 @@ export function fakeInstall(home, version, { full = false, marketplace = "SmartA
   return root;
 }
 
+// An rc.2-shaped copy, in the two facts the layout remedy reads: it has the
+// bin, and its CLI parses strictly without `--no-register`
+// (v0.28.0-rc.2:scripts/cli.mjs). The four-file install keeps the copy
+// "present". Nothing in it may spell that flag: the remedy's capability read
+// looks for exactly that, and CI may lack the tags `git show` would need.
+export function preFlagInstall(home, version, { marketplace = "SmartAndPoint" } = {}) {
+  const root = fakeInstall(home, version, { marketplace });
+  mkdirSync(join(root, "bin"), { recursive: true });
+  writeFileSync(join(root, "bin", "projectstore.mjs"), `import { run } from "../scripts/cli.mjs";\nprocess.exitCode = await run(process.argv.slice(2));\n`);
+  writeFileSync(join(root, "scripts", "cli.mjs"), [
+    `import { parseArgs } from "node:util";`,
+    `export async function run(argv) {`,
+    `  try { parseArgs({ args: argv, allowPositionals: true, strict: true, options: { project: { type: "string" }, harness: { type: "string", multiple: true }, surface: { type: "string", multiple: true }, json: { type: "boolean" }, help: { type: "boolean", short: "h" } } }); }`,
+    `  catch (e) { process.stderr.write(e.message + "\\n"); return 2; }`,
+    `  return 0;`,
+    `}`,
+  ].join("\n") + "\n");
+  return root;
+}
+
 export function writeRegistry(home, entries) {
   const dir = join(home, SRC.runtime.home_default, "plugins");
   mkdirSync(dir, { recursive: true });
@@ -66,6 +86,9 @@ export function installEnv(home, root, proj, extra = {}) {
   // The suite may run inside a live session; a spawned install must not defer
   // its migration or registration because the developer's shell says so.
   for (const k of SRC.runtime.session_env || []) if (!(k in extra)) delete env[k];
+  // Our own identity variables decide harness identity too; a suite run under
+  // one of our spawns, or with the override exported, must not carry them in.
+  for (const k of ["PROJECTSTORE_IDENTIFIED", "PROJECTSTORE_HARNESS"]) if (!(k in extra)) delete env[k];
   return env;
 }
 
@@ -91,6 +114,10 @@ export function noHostEnv(extra = {}) {
     if (r.project_dir_env) delete env[r.project_dir_env];
     if (r.plugin_root_env) delete env[r.plugin_root_env];
   }
+  // Our own identity variables decide harness identity too (harness.mjs's
+  // identifiedHarnessId); `extra` may still set them on purpose.
+  delete env.PROJECTSTORE_IDENTIFIED;
+  delete env.PROJECTSTORE_HARNESS;
   return { ...env, ...extra };
 }
 

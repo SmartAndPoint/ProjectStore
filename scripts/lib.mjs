@@ -318,10 +318,40 @@ export function claudeHome(home = homedir()) {
   return harnessAgentHome(process.env, home);
 }
 
+// The release triple only: 0.28.0-rc.2 and 0.28.0 compare equal. Right for
+// "which release line" (the layout window's sunset); wrong for "which build is
+// newer" — that is cmpPrecedence.
 export function cmpVersion(a, b) {
   const A = String(a || "0").split(".").map((n) => parseInt(n, 10) || 0);
   const B = String(b || "0").split(".").map((n) => parseInt(n, 10) || 0);
   for (let i = 0; i < 3; i++) if ((A[i] || 0) !== (B[i] || 0)) return (A[i] || 0) - (B[i] || 0);
+  return 0;
+}
+
+// Semver 2.0 precedence: 0.28.0-rc.2 < 0.28.0-rc.3 < 0.28.0. A registration
+// made at a release candidate read as current against the release while the
+// comparison stopped at the triple, so `upgrade` never refreshed it (the
+// critic's probe, 2026-10-03). Build metadata (`+…`) never ranks.
+export function cmpPrecedence(a, b) {
+  const parse = (v) => {
+    const s = String(v || "0").split("+")[0];
+    const dash = s.indexOf("-");
+    return { core: (dash < 0 ? s : s.slice(0, dash)).split(".").map((n) => parseInt(n, 10) || 0), pre: dash < 0 ? [] : s.slice(dash + 1).split(".") };
+  };
+  const A = parse(a), B = parse(b);
+  for (let i = 0; i < 3; i++) if ((A.core[i] || 0) !== (B.core[i] || 0)) return (A.core[i] || 0) - (B.core[i] || 0);
+  // A release outranks every candidate for it.
+  if (!A.pre.length || !B.pre.length) return B.pre.length - A.pre.length;
+  for (let i = 0; i < Math.max(A.pre.length, B.pre.length); i++) {
+    if (i >= A.pre.length) return -1;
+    if (i >= B.pre.length) return 1;
+    const x = A.pre[i], y = B.pre[i];
+    const nx = /^\d+$/.test(x), ny = /^\d+$/.test(y);
+    if (nx && ny) { if (Number(x) !== Number(y)) return Number(x) - Number(y); continue; }
+    // A numeric identifier ranks below an alphanumeric one.
+    if (nx !== ny) return nx ? -1 : 1;
+    if (x !== y) return x < y ? -1 : 1;
+  }
   return 0;
 }
 
@@ -861,6 +891,30 @@ export function findAgentsBlock(text) {
   if (closeAt === -1) return { present: true, v: Number(m[1]), start: m.index, end: null, unclosed: true, count, block: null };
   const end = closeAt + AGENTS_BLOCK_CLOSE.length;
   return { present: true, v: Number(m[1]), start: m.index, end, unclosed: false, count, block: text.slice(m.index, end) };
+}
+
+// Whether `text` holds `line` as a line of its own, trimmed and exact — the
+// installer's match for the `@<file>` import, so `@./AGENTS.md` reads as
+// absent to install and doctor alike.
+export function importsLine(text, line) {
+  return String(text ?? "").split("\n").some((l) => l.trim() === line);
+}
+
+// Whether a harness sees the one agents block where it stands — the predicate
+// doctor reports by (the install spec, contract 6 as amended after the rc.3
+// tag). Install's placement rules agree with it: it moves a block whose file
+// is not among the harness's files and bridges one that is, through the same
+// import match (importsLine); a test holds the two to one answer. Visible when
+// the block's file is among the harness's agents_block.files and is either the
+// file it reads by itself or imported from that file. A harness with no agents
+// block has nothing to see it with. `texts` maps a file name to its text; an
+// absent file is undefined.
+export function blockVisibleTo(manifest, file, texts = {}) {
+  const ab = manifest?.surfaces?.agents_block;
+  if (!ab || ab.supported === false) return true;
+  if (!(ab.files || []).includes(file)) return false;
+  const native = ab.reads_natively;
+  return !native || native === file || importsLine(texts[native], `@${file}`);
 }
 
 // Replace the block in place, else append it after the user's own content.

@@ -120,7 +120,49 @@ export function detectHarnessId(env = process.env, dir = MANIFEST_DIR) {
 function detect(env, dir) {
   const forced = env.PROJECTSTORE_HARNESS;
   if (forced && loadHarnesses(dir).has(forced)) return forced;
+  const best = ranked(env, dir);
+  // A strong signal is the harness identifying itself, and it decides.
+  if (best && best.strong) return best.id;
 
+  // Only weak signals. That is not enough to switch harness: the project
+  // itself carries better evidence — whichever harness directory is present
+  // in it is the harness this project is used from. (Until 2026-09-06 the
+  // evidence was "which harness directory holds our config"; the binding is
+  // harness-neutral now and carries no such signal.)
+  const cwd = process.cwd();
+  for (const m of loadHarnesses(dir).values()) {
+    const d = m.runtime?.harness_dir;
+    if (d && existsSync(join(cwd, d))) return m.id;
+  }
+  if (best) return best.id;
+  const src = sourceHarness(dir);
+  return src ? src.id : null;
+}
+
+// The harness that identifies ITSELF from the environment, or null: a strong
+// signal (its own plugin-root or project-dir variable, not one another
+// harness shares), or its session marker — runtime.session_env, which a Bash
+// tool inside a session carries while the variables a hook receives are
+// absent (measured 2026-09-05). Never the weak ranking, never the cwd's
+// directory, never the source harness detectHarnessId falls back to. A
+// finding that must not fire for a harness the project only might use asks
+// this (the install spec, contract 6 as amended after the rc.3 tag).
+export const IDENTIFIED_ENV = "PROJECTSTORE_IDENTIFIED";
+export function identifiedHarnessId(env = process.env, dir = MANIFEST_DIR) {
+  const forced = env.PROJECTSTORE_HARNESS;
+  if (forced && loadHarnesses(dir).has(forced)) return forced;
+  // A parent of ours decided before it named the project in the harness's own
+  // vocabulary (childEnv), so its answer stands — an empty one included.
+  if (env[IDENTIFIED_ENV] !== undefined) return loadHarnesses(dir).has(env[IDENTIFIED_ENV]) ? env[IDENTIFIED_ENV] : null;
+  const best = ranked(env, dir);
+  if (best && best.strong) return best.id;
+  for (const m of loadHarnesses(dir).values()) {
+    if ((m.runtime?.session_env || []).some((k) => env[k])) return m.id;
+  }
+  return null;
+}
+
+function ranked(env, dir) {
   // Explicit plugin-root/home variables beat merely-present ones: a shell that
   // exports CODEX_HOME globally should not make a Claude Code session read as
   // Codex when Claude Code also handed us CLAUDE_PLUGIN_ROOT.
@@ -168,22 +210,7 @@ function detect(env, dir) {
     const rank = (strongHits > 0 ? 1e6 : 0) + strongHits * 1e3 + weakHits;
     if (!best || rank > best.rank) best = { id: m.id, rank, strong: strongHits > 0 };
   }
-  // A strong signal is the harness identifying itself, and it decides.
-  if (best && best.strong) return best.id;
-
-  // Only weak signals. That is not enough to switch harness: the project
-  // itself carries better evidence — whichever harness directory is present
-  // in it is the harness this project is used from. (Until 2026-09-06 the
-  // evidence was "which harness directory holds our config"; the binding is
-  // harness-neutral now and carries no such signal.)
-  const cwd = process.cwd();
-  for (const m of loadHarnesses(dir).values()) {
-    const d = m.runtime?.harness_dir;
-    if (d && existsSync(join(cwd, d))) return m.id;
-  }
-  if (best) return best.id;
-  const src = sourceHarness(dir);
-  return src ? src.id : null;
+  return best;
 }
 
 // Test seam: the detected id is memoised for the process; a test that changes
@@ -474,6 +501,11 @@ export function configPath(projectDir, env = process.env) {
 export function childEnv(base = process.env, { projectRoot: root, pluginRoot: plugin } = {}) {
   const out = { ...base };
   const r = activeHarness(base)?.runtime || {};
+  // Who called is decided here, before the project is named below: a
+  // project-dir variable we write would otherwise read, in the child, as the
+  // harness identifying itself — a terminal `doctor` took Claude Code for the
+  // session's own harness (the review of the post-rc.3 fixes, 2026-10-04).
+  if (base[IDENTIFIED_ENV] === undefined) out[IDENTIFIED_ENV] = identifiedHarnessId(base) || "";
   if (r.project_dir_env && root) out[r.project_dir_env] = root;
   // A caller that runs its own copy of the core (the npm bin) names it, so a
   // child never resolves templates or its version from a sibling install.

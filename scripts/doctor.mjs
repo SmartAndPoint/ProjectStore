@@ -60,6 +60,7 @@ import {
   lastVaultActivityMs,
   ENTRY_IGNORE,
   AGENTS_BLOCK_OPEN_SRC,
+  AGENTS_BLOCK_CLOSE,
   agentsBlockVersion,
   findAgentsBlock,
   statusLineLauncherPath,
@@ -75,8 +76,11 @@ import {
   hostSettingsPath,
   readOverlayAt, layoutRoster,
   installChannel,
+  cmpPrecedence,
+  cmpVersion,
+  blockVisibleTo,
 } from "./lib.mjs";
-import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, detectHarnesses, configPath as harnessConfigPath, packageCommand } from "./harness.mjs";
+import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, detectHarnesses, identifiedHarnessId, configPath as harnessConfigPath, packageCommand } from "./harness.mjs";
 
 // A remedy used to interpolate the surface's harness variable here. It cannot:
 // measured 2026-09-06, NO harness gives its Bash tool that variable, and a
@@ -387,9 +391,14 @@ export function checkPendingUpgrade(proj, home = homedir(), root = pluginRoot())
     relative(proj, lp))];
 }
 
-export function checkAgentsBlock(proj) {
+// The two findings the layout move itself repairs carry what they say without
+// their remedy, so a pending move can name itself instead (foldIntoMove).
+const moveRepairs = (f, fact) => ({ ...f, byMove: fact });
+
+export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() } = {}) {
   const out = [];
   const AGENT_BLOCK_VERSION = agentsBlockVersion();
+  const texts = {};
   // One parser for every reader (findAgentsBlock): its count is the loose one,
   // so a good block plus a re-wrapped marker in one file is "more than once"
   // here exactly as install and uninstall see it (both refuse), never a quiet
@@ -397,6 +406,7 @@ export function checkAgentsBlock(proj) {
   // registered" is the reading that makes install append a second block.
   let blocks = 0;
   let wrappedFiles = 0;
+  let unclosedFiles = 0;
   const perFile = {};
   const staleVersions = [];
   for (const name of ["CLAUDE.md", "AGENTS.md"]) {
@@ -404,6 +414,7 @@ export function checkAgentsBlock(proj) {
     if (!existsSync(p)) continue;
     let text;
     try { text = readFileSync(p, "utf8"); } catch { continue; }
+    texts[name] = text;
     const f = findAgentsBlock(text);
     if (!f) continue;
     perFile[name] = f.count;
@@ -413,6 +424,13 @@ export function checkAgentsBlock(proj) {
       out.push(finding("install", "issue", "agents-block",
         `${name}:${f.line}: the projectstore:agents open marker does not close on its own line — put \`-->\` back on the marker's line, then run /projectstore:agents register (install and uninstall refuse until it does).`, name));
       continue;
+    }
+    if (f.unclosed) {
+      // Named here as the wrapped marker is, so the startup count carries it:
+      // the agents-block plan refuses it, and the layout move with it.
+      unclosedFiles++;
+      out.push(finding("install", "issue", "agents-block",
+        `${name}: the projectstore:agents block opens and never closes — close it with \`${AGENTS_BLOCK_CLOSE}\` or delete the half block, then run /projectstore:agents register (install and uninstall refuse until then).`, name));
     }
     for (const m of text.matchAll(AGENT_BLOCK_MARKER)) {
       const v = parseInt(m[1], 10);
@@ -427,23 +445,73 @@ export function checkAgentsBlock(proj) {
     // One block in each file is a state install resolves (it keeps the
     // preferred file's); two in one file is not, and stays an issue — and a
     // wrapped marker anywhere means install refuses, so the "both files"
-    // advice is withheld while one is wrapped.
+    // advice is withheld while one is wrapped or never closes.
     const twiceInOne = Object.entries(perFile).find(([, n]) => n > 1);
     if (twiceInOne) {
       out.push(finding("install", "issue", "agents-block",
         `${twiceInOne[0]} carries the projectstore:agents block ${twiceInOne[1]} times — keep exactly one; install refuses until it does.`, twiceInOne[0]));
-    } else if (wrappedFiles) {
+    } else if (wrappedFiles || unclosedFiles) {
       // already named above, file by file
     } else {
       out.push(finding("install", "warn", "agents-block",
         `The projectstore:agents block is in both CLAUDE.md and AGENTS.md — run /projectstore:agents register: install keeps the one in ${(sourceHarness()?.surfaces?.agents_block?.files || ["AGENTS.md"])[0]} and removes the other.`));
     }
   }
+  // A state the agents-block plan refuses — a wrapped marker, a block that
+  // never closes, a block twice in one file — refuses the move with it, so
+  // nothing here is the move's to repair while one stands.
+  const refuses = wrappedFiles > 0 || unclosedFiles > 0 || Object.values(perFile).some((n) => n > 1);
   for (const s of staleVersions) {
-    out.push(finding("install", "issue", "agents-block",
-      `Agents block in ${s.file} is v${s.v}, expected v${AGENT_BLOCK_VERSION} — re-run /projectstore:agents register.`, s.file));
+    const fact = `Agents block in ${s.file} is v${s.v}, expected v${AGENT_BLOCK_VERSION}`;
+    const f = finding("install", "issue", "agents-block", `${fact} — re-run /projectstore:agents register.`, s.file);
+    out.push(refuses ? f : moveRepairs(f, fact));
+  }
+  // Placement, held to the predicate install plans from (the install spec,
+  // contract 6 as amended after the rc.3 tag): one well-formed block, seen by
+  // every harness the project uses. rc.1 and rc.2 left a block in an
+  // AGENTS.md-only project with no CLAUDE.md, so Claude Code saw nothing, and
+  // nothing said so. Used means detected by directory, or identified from the
+  // environment — never the source harness a terminal run falls back to, so a
+  // Codex-only project hears nothing about CLAUDE.md (contract 16). An issue
+  // for the harness that identified itself, a warning for one only detected.
+  const blockFile = blocks === 1 && !refuses ? Object.keys(perFile)[0] : null;
+  if (blockFile) {
+    const identified = identifiedHarnessId(env);
+    const used = new Set([...detectHarnesses(proj).map((d) => d.id), ...(identified ? [identified] : [])]);
+    for (const id of used) {
+      const m = loadHarness(id);
+      if (!m || blockVisibleTo(m, blockFile, texts)) continue;
+      const ab = m.surfaces.agents_block;
+      const why = (ab.files || []).includes(blockFile)
+        ? `${ab.reads_natively} does not import it (\`@${blockFile}\`)`
+        : `it reads ${(ab.files || []).join(" and ")} only`;
+      const fact = `The projectstore:agents block is in ${blockFile}, which ${m.display_name} does not see: ${why}`;
+      // The resolved-root form the surface remedy uses: the running copy's own bin.
+      const remedy = `install the block for ${m.display_name}: node "${join(root, "bin", "projectstore.mjs")}" install --harness ${id} --surface agents_block --project "${proj}"`;
+      const f = finding("install", id === identified ? "issue" : "warn", "agents-block", `${fact} — ${remedy}.`, blockFile);
+      // The layout's harness is the one the move's command installs for, so the
+      // move plans this import; another harness's is not the move's to repair.
+      out.push(id === sourceHarness()?.id ? moveRepairs(f, fact) : f);
+    }
   }
   return out;
+}
+
+// While the layout move is pending, the findings the move itself repairs fold
+// into it instead of being counted beside it (the layout spec, contract 7 as
+// amended after the rc.3 tag; the upgrade story's O1): the stale block, which
+// the move re-registers, and the block's invisibility to the layout's
+// harness, whose import the move plans. Nothing else folds — a block twice in
+// one file, one that never closes or a wrapped marker makes the agents-block
+// plan refuse, which blocks the move itself. The message points at the layout
+// finding rather than computing its command again. The tag is internal: no
+// finding leaves here carrying it.
+export function foldIntoMove(findings) {
+  const layout = findings.find((f) => f.check === "layout-legacy" || f.check === "layout-two-configs");
+  const step = layout && (layout.check === "layout-two-configs"
+    ? "delete the binding the layout-two-configs finding names, then run the layout move, which repairs this"
+    : "the layout move repairs this: run what the layout-legacy finding names");
+  return findings.map(({ byMove, ...f }) => (byMove && layout ? { ...f, level: "info", message: `${byMove} — ${step}.` } : f));
 }
 
 // Both scopes are walked. The original reason ("project > user > plugin, so a
@@ -509,8 +577,10 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
       }
     } else if (s.surface === "agents_block") {
       // Version drift and duplicates are checkAgentsBlock's; what only the
-      // state knows is content that differs at the same version, and a block
-      // that never closes.
+      // state knows is content that differs at the same version. A block that
+      // never closes is named by both: checkAgentsBlock carries it to the
+      // startup line, and the state names it with the file's own reason, as a
+      // wrapped marker already was.
       if (s.state === "unparseable") {
         out.push(finding("install", "issue", "surface", `${where} — ${s.reason}`, where));
       } else if (s.state === "ours-stale" && /content differs|migrates/.test(s.reason || "")) {
@@ -590,13 +660,38 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
 // itself); a competing copy enabled beside ours → an issue (two enabled copies
 // of one plugin); a competitor alone → an info naming the npm path; foreign →
 // never repairable; the host CLI missing → an info.
-export function checkPluginRegistration(proj, states = []) {
+export function checkPluginRegistration(proj, states = [], { home = homedir() } = {}) {
   const out = [];
   for (const s of states.filter((x) => x.kind === "registration")) {
     // The shell form when the manifest names a shell (contract 12): the
     // command a user can paste, built in one place.
     const h = loadHarness(s.harness) || { id: s.harness };
     const refresh = packageCommand(h, "upgrade", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` });
+    // A copy this registration silenced for the checkout and the checkout
+    // still holds off, one per key (the install spec, contract 13 as amended
+    // after the rc.3 tag): rc.1 and rc.2's startup offer left exactly this on
+    // git-marketplace projects, and nothing said so. Only for a registration
+    // this checkout holds; the record lives in our directory, so a directory
+    // removed by hand takes it along and leaves nothing to name.
+    if ((s.silenced || []).length && (s.state === "current" || s.state === "stale")) {
+      // The row this checkout loads: its own local-scope row first, then a
+      // user-scope one — never another checkout's (layoutRemedy's rule).
+      const real = (x) => { try { return realpathSync.native(x); } catch { return resolve(x); } };
+      const here = real(proj);
+      const rows = installedPluginEntries(home, proj).filter((e) => e.present && (!e.projectPath || real(e.projectPath) === here));
+      for (const key of s.silenced) {
+        const row = rows.filter((e) => e.key === key).sort((a, b) => Number(Boolean(b.projectPath)) - Number(Boolean(a.projectPath)))[0];
+        if (!row) {
+          out.push(finding("install", "info", "plugin-registration", `${key} is held off in this checkout's local settings, where the npm registration turned it off — and that copy is no longer installed, so the entry is stale.`, s.path));
+          continue;
+        }
+        // The release line, not the build: a 0.28 release candidate reads a
+        // moved project; 0.27.x reads it as unbound. No version reads as old.
+        const old = !row.version || cmpVersion(row.version, "0.28.0") < 0;
+        out.push(finding("install", "info", "plugin-registration",
+          `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and a /plugin update no longer reaches the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it: from a terminal outside the session, ${packageCommand(h, "uninstall", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` })}, restart, then /projectstore:doctor --fix. If moving to npm was meant, ignore this.`, s.path));
+      }
+    }
     const others = (s.others || []).map((o) => `${o.key} (${o.version || "?"})`).join(", ");
     if (s.state === "foreign") {
       out.push(finding("install", "issue", "plugin-registration-foreign", `${s.reason} — install, uninstall and upgrade refuse it; nothing repairs it.`, s.path));
@@ -770,6 +865,21 @@ export function checkLayout(proj, harness = sourceHarness(), { level = "warn", r
 // the move never needs the registration, so a misread channel can cost a
 // launcher stamp but never a channel switch. A copy that predates the move
 // (no bin/projectstore.mjs — 0.27.x) cannot run it: update that copy first.
+// Nor can one whose CLI predates --no-register (takesNoRegister).
+//
+// Whether a registry copy can run the command named for it. `--no-register`
+// arrived in 0.28.0-rc.3, and rc.1 and rc.2 parse strictly, so the command
+// exits 2 on the flag and writes nothing (the layout spec, contract 12 as
+// amended after the rc.3 tag). Read from the copy's own parse table, never
+// from its version: a never-published 0.28.0 build ranks above rc.3 and lacks
+// the flag, while a copy labelled rc.2 taken from main at 418448e has it. A
+// file read, because this runs in the SessionStart subset: never an import()
+// of the copy, never a spawn. Add files to the read, never drop cli.mjs:
+// released copies keep their parse there.
+export function takesNoRegister(copy) {
+  try { return readFileSync(join(copy, "scripts", "cli.mjs"), "utf8").includes('"no-register"'); } catch { return false; }
+}
+
 export function layoutRemedy(proj, { root = pluginRoot(), home = homedir(), harness = sourceHarness(), env = process.env } = {}) {
   // A session under a relocated host home hands it on: a terminal without it
   // would classify the copy as a checkout, render no launcher and never clear
@@ -790,10 +900,22 @@ export function layoutRemedy(proj, { root = pluginRoot(), home = homedir(), harn
     .filter((e) => e.present && e.enabled && (!e.projectPath || mine(e)))
     .sort((a, b) => (Number(mine(b)) - Number(mine(a))) || (b.at - a.at))[0];
   if (copy) {
+    const v = copy.version ? ` (${copy.version})` : "";
     if (!existsSync(join(copy.path, "bin", "projectstore.mjs"))) {
-      return { advice: `This project's projectstore plugin${copy.version ? ` (${copy.version})` : ""} predates the move and cannot run it: update it first (in Claude Code: /plugin marketplace update, then /plugin update, then restart), and the startup line names the command` };
+      return { advice: `This project's projectstore plugin${v} predates the move and cannot run it: update it first (in Claude Code: /plugin marketplace update, then /plugin update, then restart), and the startup line names the command` };
     }
-    return installChannel(copy.path, { home, harness }) === "registration" ? shell(copy.version) : own(copy.path);
+    // Chosen first, gated after: the copy is what the project runs, so an
+    // incapable one gets advice even beside a capable user-scope copy.
+    const viaRegistration = installChannel(copy.path, { home, harness }) === "registration";
+    if (!takesNoRegister(copy.path)) {
+      return { advice: viaRegistration
+        // Its channel's ordinary refresh, at the running version: the plain
+        // upgrade re-registers from npm — not a switch for an npm project — and
+        // moves the project in the same run.
+        ? `This project's projectstore plugin${v} is the npm registration's copy and predates --no-register, so it cannot run the move as named: refresh that registration, which moves the project too, from a terminal outside the session: ${prefix}${packageCommand(harness, "upgrade", { version: pluginVersion(root) || "latest", args: `--project "${proj}"` })}`
+        : `This project's projectstore plugin${v} predates --no-register and cannot run the move as named: update it first (in Claude Code: /plugin marketplace update, then /plugin update, then restart), and the startup line names the command` };
+    }
+    return viaRegistration ? shell(copy.version) : own(copy.path);
   }
   return channel === "package" ? shell(pluginVersion(root)) : own(root);
 }
@@ -863,16 +985,6 @@ export function checkVaultGit(cfg) {
   if (existsSync(join(cfg.vault_path, ".git"))) return [];
   return [finding("install", "warn", "vault-git",
     "Vault is not a git repository — the knowledge has no history/blame/review. Consider `git init` (doctor --fix offers it).")];
-}
-
-function versionNewer(a, b) {
-  const pa = String(a).split(".").map(Number);
-  const pb = String(b).split(".").map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i] || 0, y = pb[i] || 0;
-    if (x !== y) return x > y;
-  }
-  return false;
 }
 
 // Marketplace auto-update (maintainer request 2026-07-03): third-party
@@ -948,7 +1060,8 @@ export function checkAutoUpdate(home = homedir()) {
     const latest = (catalog.plugins || []).find((p) => p.name === name)?.version;
     const running = (named && named.version)
       || JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).version;
-    if (latest && running && versionNewer(latest, running)) {
+    // Precedence, not the triple: a session on 0.28.0-rc.3 hears that 0.28.0 is out.
+    if (latest && running && cmpPrecedence(latest, running) > 0) {
       out.push(finding("install", "warn", "auto-update",
         `A newer ${name} is available: v${latest} (running v${running}) — run /plugin marketplace update ${marketplace}, then /reload-plugins.`));
     }
@@ -1852,7 +1965,7 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
     ...checkLayoutTemplates(cfg),
     ...checkHooksAlive(cfg),
     ...checkStatusline(cfg, proj),
-    ...checkAgentsBlock(proj),
+    ...checkAgentsBlock(proj, { env: opts.env, root: opts.root }),
     ...checkOverrideCopies(proj),
     ...checkEnvModel(),
     ...checkEnvEffort(),
@@ -1867,9 +1980,9 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
   let read = null;
   try { read = await readSurfaceStates(proj, opts); } catch {} // reported as a warn by checkHarnessSurfaces
   out.push(...await checkHarnessSurfaces(cfg, proj, { ...opts, read }));
-  if (read) out.push(...checkPluginRegistration(proj, read.result.states));
+  if (read) out.push(...checkPluginRegistration(proj, read.result.states, { home: opts.home }));
   if (read) out.push(...checkVersionDrift(opts.home, read.result.states, proj));
-  return out;
+  return foldIntoMove(out);
 }
 
 export function runVaultChecks(cfg) {
@@ -1932,24 +2045,26 @@ export function runStartupChecks(cfg, proj, budgetMs = 150) {
   ];
   const findings = [];
   for (const step of steps) {
-    if (Date.now() - started > budgetMs) return { skipped: true, count: 0, findings };
+    if (Date.now() - started > budgetMs) return { skipped: true, count: 0, findings: foldIntoMove(findings) };
     try { findings.push(...step()); } catch {}
   }
+  // The findings the move repairs are not counted beside it (foldIntoMove).
+  const settled = foldIntoMove(findings);
   // While the move is pending, the re-stamp is not a step of its own: the move
   // re-stamps the launcher at its new path (the layout spec, contract 7 as
   // amended 2026-10-03), and an in-session `doctor --fix` would write that
   // launcher and then stop at the deferred move with exit 1. So the line names
   // one step, and says what it covers when the dropped offer would have fired.
-  const movePending = findings.some((f) => f.check === "layout-legacy" || f.check === "layout-two-configs");
-  const restamp = findings.some((f) => f.level === "info" && f.check === "upgrade");
-  const offers = findings
+  const movePending = settled.some((f) => f.check === "layout-legacy" || f.check === "layout-two-configs");
+  const restamp = settled.some((f) => f.level === "info" && f.check === "upgrade");
+  const offers = settled
     .filter((f) => f.level === "info" && OFFER_CHECKS.has(f.check) && !(movePending && f.check === "upgrade"))
     .map((f) => (movePending && restamp && f.check === "layout-legacy" ? `${f.message} The same run re-stamps the status line launcher.` : f.message));
   return {
     skipped: false,
-    count: findings.filter((f) => f.level === "issue").length,
+    count: settled.filter((f) => f.level === "issue").length,
     offers,
-    findings,
+    findings: settled,
   };
 }
 

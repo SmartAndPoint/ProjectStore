@@ -29,11 +29,11 @@ import { resolve, dirname, join, delimiter } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { sourceHarness } from "../scripts/harness.mjs";
+import { sourceHarness, loadHarness } from "../scripts/harness.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
 import { renderStatusLineLauncher, statusLineLauncherPath, renderAgentsBlock, syncStatusLine, LAUNCHER_HEADER, layoutPaths} from "../scripts/lib.mjs";
 import { plan, apply } from "../scripts/install-harness.mjs";
-import { checkHarnessSurfaces, checkPendingUpgrade, runStartupChecks, checkLayout } from "../scripts/doctor.mjs";
+import { checkHarnessSurfaces, checkPendingUpgrade, runStartupChecks, checkLayout, checkAgentsBlock, foldIntoMove } from "../scripts/doctor.mjs";
 import { fakeInstall, writeRegistry, installEnv, noHostEnv, fakeClaude, legacyProject } from "./fixtures/install.mjs";
 import { seedCliVault } from "./fixtures/vault.mjs";
 
@@ -257,9 +257,10 @@ test("upgrade: a legacy launcher still run by any settings file survives the mov
   symlinkSync(proj, link);
   const s0 = JSON.parse(readFileSync(sp, "utf8"));
   writeFileSync(sp, JSON.stringify({ ...s0, statusLine: { type: "command", command: `node "${join(link, CFG_DIR, ".projectstore", "statusline.mjs")}"` } }, null, 2) + "\n");
-  const up = bin(root, installEnv(home, root, proj), ["upgrade", "--harness", SRC.id, "--no-register", "--project", proj]);
+  const up = bin(root, installEnv(home, root, proj), ["upgrade", "--harness", SRC.id, "--no-register", "--json", "--project", proj]);
   assert.equal(up.status, 0, up.stderr + up.stdout);
   assert.ok(existsSync(lp.legacy.launcher), "spelled through a symlink, it is still the file the status line runs");
+  assert.match(up.stdout, /still runs it as the status line/, "the run says why it kept the launcher");
   // The committed settings, the local slot empty and the status line off.
   const { home: h2, root: r2 } = install028();
   const { proj: p2 } = project027(h2);
@@ -273,6 +274,65 @@ test("upgrade: a legacy launcher still run by any settings file survives the mov
   const up2 = bin(r2, installEnv(h2, r2, p2), ["upgrade", "--harness", SRC.id, "--no-register", "--project", p2]);
   assert.equal(up2.status, 0, up2.stderr + up2.stdout);
   assert.ok(existsSync(lp2.legacy.launcher), "named by the committed settings, it is still in use");
+});
+
+// O1, decided 2026-10-03: while the move is pending, the findings the move
+// itself repairs fold into it instead of being counted beside it (the layout
+// spec, contract 7 as amended after the rc.3 tag) — the stale block, and the
+// block's invisibility to the layout's harness. Nothing else folds. The env
+// is explicit: a Bash tool in a Claude Code session carries CLAUDECODE, CI
+// does not, and the invisibility finding's level depends on it.
+test("upgrade O1: while the move is pending, the v3 block and Claude Code's view of the block fold into the move; a broken block and another harness's view stay counted", () => {
+  const { home, root } = install028();
+  const { proj } = project027(home);
+  const lp = layoutPaths(proj);
+  const V3 = BLOCK.replace(/projectstore:agents v\d+/, "projectstore:agents v3");
+  writeFileSync(join(proj, "AGENTS.md"), V3 + "\n");
+  // The startup line: the v3 block is not counted beside the move, and says the move repairs it.
+  const st = runStartupChecks(JSON.parse(read(lp.legacy.binding)), proj);
+  const v3 = st.findings.find((f) => /is v3, expected v4/.test(f.message));
+  assert.ok(v3 && v3.level === "info" && /layout move repairs this/.test(v3.message), JSON.stringify(v3));
+  assert.ok(!st.findings.some((f) => f.check === "agents-block" && f.level === "issue"), "nothing of the block's is counted");
+  assert.equal(st.offers.filter((o) => /layout moved to \.projectstore\//.test(o)).length, 1);
+  const pending = (env) => foldIntoMove([...checkAgentsBlock(proj, { env }), ...checkLayout(proj, undefined, { root, home })]);
+  const settled = (env) => foldIntoMove(checkAgentsBlock(proj, { env }));
+  // With no move pending, the same block counts.
+  assert.equal(settled({}).find((f) => /is v3/.test(f.message)).level, "issue");
+  // An AGENTS.md-only project in a Claude Code session: Claude Code's view folds too.
+  writeFileSync(join(proj, "AGENTS.md"), BLOCK + "\n");
+  rmSync(join(proj, "CLAUDE.md"));
+  const session = { [SRC.runtime.session_env[0]]: "1" };
+  const unseen = pending(session).find((f) => /Claude Code does not see/.test(f.message));
+  assert.ok(unseen && unseen.level === "info" && /layout move repairs this/.test(unseen.message), JSON.stringify(unseen));
+  assert.equal(settled(session).find((f) => /Claude Code does not see/.test(f.message)).level, "issue", "and counts once the move is done");
+  // The fold's tag is internal: no finding leaves carrying it, folded or not.
+  assert.ok([...pending(session), ...settled(session)].every((f) => !("byMove" in f)));
+  // Another harness's view is not the move's to repair: Codex, identified, with the block where it cannot read it.
+  writeFileSync(join(proj, "CLAUDE.md"), BLOCK + "\n");
+  rmSync(join(proj, "AGENTS.md"));
+  const kept = (f, level) => f && f.level === level && !/layout move repairs this/.test(f.message);
+  const codex = pending({ [loadHarness("codex").runtime.plugin_root_env]: "/x" }).find((f) => /Codex does not see/.test(f.message));
+  assert.ok(kept(codex, "issue"), JSON.stringify(codex));
+  // A block twice in one file, one that never closes, or a wrapped marker makes
+  // the agents-block plan refuse — the move itself: counted, with its own remedy,
+  // and its stale version is not the move's to repair either.
+  writeFileSync(join(proj, "CLAUDE.md"), V3 + "\n\n" + V3 + "\n");
+  const twice = pending({});
+  assert.ok(kept(twice.find((f) => /times — keep exactly one/.test(f.message)), "issue"), JSON.stringify(twice));
+  assert.ok(twice.filter((f) => /is v3/.test(f.message)).every((f) => kept(f, "issue")), JSON.stringify(twice));
+  // Unclosed, in the file Claude Code reaches only through an import it lacks.
+  rmSync(join(proj, "CLAUDE.md"));
+  writeFileSync(join(proj, "AGENTS.md"), "<!-- projectstore:agents v3 -->\n## half a block\n");
+  const unclosed = pending(session);
+  assert.ok(kept(unclosed.find((f) => /is v3/.test(f.message)), "issue"), JSON.stringify(unclosed));
+  assert.ok(!unclosed.some((f) => /does not see/.test(f.message)), "no view of a block the plan refuses");
+  rmSync(join(proj, "AGENTS.md"));
+  writeFileSync(join(proj, "CLAUDE.md"), "# Mine\n<!-- projectstore:agents v3 (managed)\n-->\n" + V3.split("\n").slice(1).join("\n") + "\n");
+  assert.ok(kept(pending({}).find((f) => /does not close on its own line/.test(f.message)), "issue"));
+  // A block in both files is a warning the move clears: never counted, never folded.
+  writeFileSync(join(proj, "CLAUDE.md"), BLOCK + "\n");
+  writeFileSync(join(proj, "AGENTS.md"), BLOCK + "\n");
+  assert.ok(kept(pending({}).find((f) => /in both CLAUDE\.md and AGENTS\.md/.test(f.message)), "warn"));
 });
 
 test("upgrade: a dev-checkout root (this repo's bin) reports the 0.27.1 launcher and never deletes it; uninstall removes it", () => {

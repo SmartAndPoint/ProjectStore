@@ -28,7 +28,13 @@ subcommand (`.projectstore/projectstore.json`; else point to `/projectstore:bind
    prose byte-identical.
 3. A non-zero exit is a refusal — a duplicated or unclosed block, a missing
    template — relay it and stop. Never write the block with the Write or Edit
-   tool: the verb is the only writer (install spec, contract 6).
+   tool: the verb is the only writer (install spec, contract 6). One exception,
+   read from the output, not assumed: when it shows the block applied and the
+   `layout` item skipped as deferred to a terminal outside the session, the
+   exit 1 is that deferral. The block is registered — say so, and for the move
+   relay the command the startup line or `/projectstore:doctor`'s
+   `layout-legacy` finding names; never compose one. Any other non-zero exit
+   is a refusal.
 
 ## `unregister` — remove what register added
 

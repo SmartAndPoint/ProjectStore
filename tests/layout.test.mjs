@@ -16,12 +16,12 @@ import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { fakeInstall, cacheRoot, writeRegistry, installEnv, noHostEnv, legacyProject } from "./fixtures/install.mjs";
+import { fakeInstall, cacheRoot, writeRegistry, installEnv, noHostEnv, legacyProject, preFlagInstall } from "./fixtures/install.mjs";
 import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
 import { plan, apply, renderPreview, runVerb, publicItem } from "../scripts/install-harness.mjs";
 import { analyseLayout } from "../scripts/surfaces.mjs";
 import { sourceHarness, loadHarness, LAYOUT, layoutPaths, pickExisting, RUNTIME_GITIGNORE_HEADER } from "../scripts/harness.mjs";
-import { checkLayout, checkGitignore, runStartupChecks, runInstallChecks, layoutRemedy } from "../scripts/doctor.mjs";
+import { checkLayout, checkGitignore, runStartupChecks, runInstallChecks, layoutRemedy, takesNoRegister } from "../scripts/doctor.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
 import {
   readConfigAt, readSessionState, readEntryLog, appendEntryLog, statusLineIsOurWiring, statusLineIsOurs, statusLineLauncherPath,
@@ -104,6 +104,9 @@ test("layout contract 6: one ordered `layout` item first, the launcher created a
   const last = p.items[p.items.length - 1];
   assert.equal(last.surface, "layout_cleanup"); assert.equal(last.action, "cleanup");
   assert.deepEqual(last.steps.map((s) => s.kind), ["remove-legacy-launcher", "rmdir-legacy"]);
+  // "Kept" means a settings file still runs it, not a script that calls it.
+  assert.match(last.steps[0].why, /runs it as the status line/);
+  assert.match(last.steps[0].why, /indirectly is not seen/);
   const launcher = p.items.find((i) => i.surface === "statusline_launcher");
   assert.equal(launcher.action, "create"); assert.equal(launcher.path, lp.launcher(SRC.id)); assert.match(launcher.reason, /moving from/);
   assert.equal(p.items.find((i) => i.surface === "statusline").action, "replace-entry", "the entry is re-pointed at the new launcher");
@@ -319,6 +322,68 @@ test("layout contract 12: the copy a terminal or checkout run names is this proj
   const npm = fakeInstall(home, "0.28.0-npm", { full: true, marketplace: SRC.surfaces.plugin.marketplace_name });
   writeRegistry(home, [{ scope: "local", projectPath: proj, installPath: npm, version: "0.28.0-npm", lastUpdated: "2026-09-04T00:00:00.000Z" }]);
   assert.match(msg(), /npx projectstore-claude@0\.28\.0-npm upgrade --no-register --project/, "the npm copy: the shell, at its own version");
+});
+
+// A copy with the bin but not the flag: rc.1 and rc.2 parse strictly, so the
+// named command exits 2 on --no-register and writes nothing (the layout spec,
+// contract 12 as amended after the rc.3 tag). The capability is the copy's
+// own parse table, never its version.
+test("layout contract 12: a copy whose CLI does not declare --no-register gets advice in its own channel, never a command it would reject", () => {
+  const home = mkdtempSync(join(TMP, "ps-layout-flag-"));
+  const { proj } = legacyProject(home);
+  // A terminal npx run of a newer package: it carries its own version.
+  const npx = join(home, ".npm", "_npx", "x", "node_modules", "projectstore");
+  mkdirSync(join(npx, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(npx, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.28.1" }));
+  const msg = () => checkLayout(proj, undefined, { root: npx, home })[0].message;
+  // This project's own row is an rc.2-shaped git copy.
+  const rc2 = preFlagInstall(home, "0.28.0-rc.2");
+  writeRegistry(home, [{ scope: "local", projectPath: proj, installPath: rc2, version: "0.28.0-rc.2", lastUpdated: "2026-09-07T00:00:00.000Z" }]);
+  const git = msg();
+  assert.match(git, /\(0\.28\.0-rc\.2\) predates --no-register/);
+  assert.match(git, /\/plugin update/);
+  assert.doesNotMatch(git, /npx |node "/, "no command the copy would reject");
+  const ran = spawnSync(process.execPath, [join(rc2, "bin", "projectstore.mjs"), "upgrade", "--harness", SRC.id, "--no-register", "--project", proj], { encoding: "utf8" });
+  assert.equal(ran.status, 2, "the fixture rejects the flag, as rc.2 does: " + ran.stderr);
+  // A newer label does not make it capable — this machine's never-published 0.28.0 build.
+  const later = preFlagInstall(home, "99.0.0");
+  writeRegistry(home, [{ scope: "local", projectPath: proj, installPath: later, version: "99.0.0", lastUpdated: "2026-09-08T00:00:00.000Z" }]);
+  assert.match(msg(), /\(99\.0\.0\) predates --no-register/, "the version is not the capability");
+  // The npm registration's copy: refresh it in its own channel, at the running version, never at its own.
+  const npm = preFlagInstall(home, "0.28.0-rc.2", { marketplace: SRC.surfaces.plugin.marketplace_name });
+  writeRegistry(home, [{ scope: "local", projectPath: proj, installPath: npm, version: "0.28.0-rc.2", lastUpdated: "2026-09-09T00:00:00.000Z" }]);
+  const reg = msg();
+  assert.match(reg, /npm registration's copy and predates --no-register/);
+  assert.ok(reg.includes(`npx projectstore-claude@0.28.1 upgrade --project "${proj}"`), "the running version refreshes it: " + reg);
+  assert.doesNotMatch(reg, /--no-register --project/, "the refresh registers: npm is this project's channel");
+  assert.doesNotMatch(reg, /@0\.28\.0-rc\.2 /, "never at the copy's own version: that refresh would change nothing");
+  // Chosen first, gated after: the project's own copy is what it runs, so a capable user-scope copy does not stand in.
+  const capable = fakeInstall(home, "0.28.0-b", { full: true });
+  writeRegistry(home, [
+    { scope: "local", projectPath: proj, installPath: rc2, version: "0.28.0-rc.2", lastUpdated: "2026-09-01T00:00:00.000Z" },
+    { scope: "user", installPath: capable, version: "0.28.0-b", lastUpdated: "2026-09-10T00:00:00.000Z" },
+  ]);
+  assert.match(msg(), /\(0\.28\.0-rc\.2\) predates --no-register/);
+  // The 0.27.x case keeps its own words: the bin check comes first.
+  // The read itself: this tree and a full fake copy declare the flag; the fixture does not.
+  assert.equal(takesNoRegister(ROOT), true);
+  assert.equal(takesNoRegister(capable), true);
+  assert.equal(takesNoRegister(rc2), false);
+});
+
+// The way back from an npm switch is `uninstall --surface plugin`; a narrowed
+// uninstall must not take a not-yet-moved project's legacy runtime with it —
+// its sessions, its log, the launcher its status line still runs (the
+// critic's fourth pass, 2026-10-04).
+test("layout contract 6: a narrowed uninstall leaves the legacy runtime alone; only a full one removes it", () => {
+  const { home, root } = home028();
+  const { proj, lp } = legacyProject(home);
+  const narrowed = plan(proj, { home, root, env: noHostEnv(), mode: "uninstall", surfaces: ["plugin"] });
+  assert.ok(!narrowed.items.some((i) => i.surface === "layout_cleanup"), JSON.stringify(narrowed.items.map((i) => i.surface)));
+  const full = plan(proj, { home, root, env: noHostEnv(), mode: "uninstall" });
+  const cleanup = full.items.find((i) => i.surface === "layout_cleanup");
+  assert.ok(cleanup, "a full uninstall still disowns the legacy runtime");
+  assert.equal(cleanup.path, lp.legacy.runtime);
 });
 
 test("layout contract 12: a host-cache copy reached through a symlinked home is still a host-cache copy", () => {
