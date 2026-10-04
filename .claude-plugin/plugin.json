@@ -1,7 +1,7 @@
 {
   "name": "projectstore",
   "displayName": "projectstore",
-  "version": "0.28.0-rc.3",
+  "version": "0.28.0",
   "description": "Your agent runs the project through a verified loop: task → artifact (ADR / spec / epic / story) → adversarial critic → backlog → planner → reviewer → done. Plain markdown in git — any model can pick the project up tomorrow.",
   "author": {
     "name": "Evgenii Konev @ SmartAndPoint",
