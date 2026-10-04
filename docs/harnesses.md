@@ -45,20 +45,30 @@ model names and those are harness-specific — is
 
 Experimental, measured on `codex-cli 0.153.4`. The initial spike captured 759
 hook firings. The 2026-09-30 gate then built the npm shell from a packed core,
-passed the Codex plugin validator, installed and upgraded it through an isolated
+passed Codex's plugin validator, installed and upgraded it through an isolated
 `CODEX_HOME`, verified the materialised cache by version and digest, and loaded
-`$projectstore-status` in a fresh Codex session.
+`$projectstore-status` in a fresh Codex session. The validator (the
+plugin-creator skill's `validate_plugin.py`) reads only
+`.codex-plugin/plugin.json`, so the canonical root `plugin.json` has not been
+validated.
 
 That run exercised one skill, not every installed surface, so `verified` stays
 `null`. The hooks are the reason it matters. On 2026-10-03 the first real
-install's cached hooks could not load the vault in any session. They were run by
-hand through `zsh -lc`: that machine's default shell, started the way Codex's
-command runner starts a hook on its main branch (`<default shell> -lc`). That
-0.153.4 does the same is not confirmed. In the first session
-the failure sat in the model's context under the welcome, which was all the user
-saw. The core had taken the shell's root for its own. That is fixed, and the
-suite now runs every rendered hook from the built shell. A live Codex session
-firing them from an installed release is still owed.
+install's cached hooks could not load the vault in any session. They were run
+by hand through `zsh -lc`; the failure did not depend on the shell form. In the
+first session the failure sat in the model's context under the welcome, which
+was all the user saw. The core had taken the shell's root for its own. That is
+fixed, and the suite now runs every rendered hook from the built shell. A live
+Codex session firing them from an installed release is still owed.
+
+How 0.153.4 starts a hook was read from its source, not measured: under the
+session's shell as `<shell> -c`, with the environment the Codex process had when
+it built the session's hooks. `$SHELL -lc` (or `/bin/sh -lc`) is the fallback
+when the hooks are built without exactly one ready local environment. So a hook
+finds `node` on the Codex process's own `PATH`, plus whatever `.zshenv` adds:
+zsh reads `.zshenv` for a `-c` command, not `.zprofile` or `.zshrc`, so a Codex
+not started from a terminal can miss a `node` that only `.zprofile` puts on
+`PATH`.
 
 The shell is not published. Build it and install the tarball through npx from
 this checkout:
