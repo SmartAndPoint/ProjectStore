@@ -82,6 +82,25 @@ test("Codex portable registration: install is verified and the next plan is idem
   assert.match(registration(conflict).reason, /same.*different payload|different payload digest/i);
 });
 
+// S8 of the 2026-10-03 review: the consent preview listed the cache it touches
+// but never config.toml, the file `marketplace add`, `plugin add` and the
+// global removals actually rewrite. The file is the manifest's
+// registry.global_config, so a host that keeps its registry elsewhere names that.
+test("Codex portable registration: every host step that rewrites the global config names it in the preview (S8)", () => {
+  const f = fixture();
+  const config = join(f.home, "config.toml");
+  const touches = (p, name) => registration(p).steps.find((s) => s.kind === "host" && s.name === name)?.touches;
+  const create = plan(f.project, opts(f));
+  assert.ok(touches(create, "marketplace_add").includes(config), "marketplace add writes [marketplaces.<name>]");
+  assert.ok(touches(create, "install").includes(config), "plugin add writes the enablement stanza");
+  assert.ok(touches(create, "install").includes(join(f.home, "plugins", "cache")), "and still materialises the cache");
+  assert.deepEqual(touches(create, "list"), [], "the read-back touches nothing");
+  apply(create, { env: f.env, home: f.home, spawn: fakeCodex(f) });
+  const global = plan(f.project, opts(f, { mode: "uninstall", globalRemoval: true }));
+  assert.ok(touches(global, "uninstall").includes(config), "plugin remove drops the enablement stanza");
+  assert.ok(touches(global, "marketplace_remove").includes(config), "marketplace remove drops the marketplace stanza");
+});
+
 test("Codex portable registration: the public envelope drops the staged payload's bodies, root and listing, and keeps its count", () => {
   const f = fixture();
   const step = registration(plan(f.project, opts(f))).steps.find((s) => s.kind === "portable-write");
