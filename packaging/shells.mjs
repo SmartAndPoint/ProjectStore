@@ -66,7 +66,7 @@ export const SHELLS = Object.freeze([
     name: "projectstore-codex",
     harness: "codex",
     display: "Codex",
-    private: true,
+    private: false,
     plugin_root: "adapters/codex",
     description: "ProjectStore for Codex: portable project memory, rendered workflow skills and lifecycle hooks, with the core pinned and bundled.",
   }),

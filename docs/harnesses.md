@@ -23,8 +23,10 @@ and the measurements in the manifest came from that run.
 **experimental** means `verified` is `null`. Every field that was not measured
 is absent or `null` rather than guessed. It is enough to run on; it is not enough
 to promise. An experimental harness is never the source layout. A generated
-adapter may exist while it is experimental, but its distribution shell stays
-private until the complete built artifact passes the live gate.
+adapter may exist while it is experimental. Its distribution shell may
+publish before the live run that sets `verified`, but only by the maintainer's
+decision (Codex's does, from 0.28.1); the label stays experimental until that
+run.
 
 The label is not prose. It is derived from the manifest, and
 `tests/portability.test.mjs` fails if this table and `verified` disagree.
@@ -47,10 +49,10 @@ Experimental, measured on `codex-cli 0.153.4`. The initial spike captured 759
 hook firings. The 2026-09-30 gate then built the npm shell from a packed core,
 passed Codex's plugin validator, installed and upgraded it through an isolated
 `CODEX_HOME`, verified the materialised cache by version and digest, and loaded
-`$projectstore-status` in a fresh Codex session. The validator (the
+the `projectstore-status` skill in a fresh Codex session. The validator (the
 plugin-creator skill's `validate_plugin.py`) reads only
-`.codex-plugin/plugin.json`, so the canonical root `plugin.json` has not been
-validated.
+`.codex-plugin/plugin.json`. The canonical root `plugin.json` was validated
+separately on 2026-10-04, against the schema it declares (Agent Plugins 1.0.0).
 
 That run exercised one skill, not every installed surface, so `verified` stays
 `null`. The hooks are the reason it matters. On 2026-10-03 the first real
@@ -70,22 +72,24 @@ zsh reads `.zshenv` for a `-c` command, not `.zprofile` or `.zshrc`, so a Codex
 not started from a terminal can miss a `node` that only `.zprofile` puts on
 `PATH`.
 
-The shell is not published. Build it and install the tarball through npx from
-this checkout:
+The shell is published as `projectstore-codex` from 0.28.1, ahead of that live
+run, by the maintainer's decision:
+
+```sh
+npx projectstore-codex install --project "$PWD"
+```
+
+For later releases, `npx projectstore-codex@<version> upgrade --project "$PWD"`.
+Installation is user-global because Codex stores marketplace registrations and
+plugin caches in `CODEX_HOME`; the agents block in `AGENTS.md` remains
+project-local. Ordinary uninstall leaves the global plugin in place; add
+`--global` only when you mean to remove it for every project. From this
+checkout, the same flow runs against a built tarball:
 
 ```sh
 npm run shells:build -- --only projectstore-codex --dev --out dist
 npx --package "./dist/projectstore-codex-$(node -p 'require("./package.json").version').tgz" projectstore-codex install --project "$PWD"
 ```
-
-The shell package is release-gated until its first npm publication. From this
-repository, the same flow is exercised against the packed tarball. Installation
-is user-global because Codex stores marketplace registrations and plugin caches
-in `CODEX_HOME`; the agents block in `AGENTS.md` remains project-local. After
-the first explicit npm publication, the shorter registry form is
-`npx projectstore-codex@<version> install --project "$PWD"` (or `upgrade`). Ordinary
-uninstall leaves the global plugin in place; add `--global` only when you mean
-to remove it for every project.
 
 What is known, and how:
 

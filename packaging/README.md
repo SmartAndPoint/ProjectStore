@@ -31,7 +31,8 @@ npm publish               # NOT --provenance: that needs OIDC, i.e. CI
 Then, once on npmjs.com, configure the trusted publisher so every later release
 comes from CI with no token: **projectstore → Settings → Trusted publisher →
 GitHub Actions**, repository `SmartAndPoint/ProjectStore`, workflow
-`release.yml`.
+`release.yml`, with `npm publish` allowed. The form's default permits only a
+staged publish, and a publish it refuses fails that package's job.
 
 Before a *first* publish of real content, install the tarball somewhere
 disposable and walk it. A published version is immutable — a wrong `files` set
@@ -128,9 +129,10 @@ A shell packed without that install exits 0 and ships three files with
 `bundled: []` — measured — which is why the build asserts `bundled` before it
 compares anything.
 
-`projectstore-codex` and `projectstore-opencode` are `"private": true` until
-their plugin roots are rendered (roadmap B5, C4); they are guarded and built
-like the others and never listed for the matrix. `npm publish --dry-run` does
+`projectstore-opencode` is `"private": true` until its plugin root is rendered
+(roadmap C4); it is guarded and built like the others and never listed for the
+matrix. `projectstore-codex` was private on the same terms until 0.28.1; from
+that release it publishes, with Codex still experimental (roadmap B5). `npm publish --dry-run` does
 NOT honour `private` (measured 2026-09-06: it prints `+ name@version` and exits
 0); a real publish refuses one (`EPRIVATE`). The matrix filter is the first of
 those two gates, and the only one a dry run exercises.
@@ -163,7 +165,10 @@ path must be shell-expanded — a quoted `'~/…'` is ENOENT.
 registry as deprecated 0.0.1 placeholders owned by the maintainer, which is
 what lets npm's trusted-publisher form accept this workflow before the first
 real release: **`<name>` → Settings → Trusted publisher → GitHub Actions**,
-repository `SmartAndPoint/ProjectStore`, workflow `release.yml`. Deprecation
+repository `SmartAndPoint/ProjectStore`, workflow `release.yml`, with
+`npm publish` allowed. The form's default permits only a staged publish (the
+shells ADR, decision 7, measured on rc.2); without it the shell's job fails and
+the release is partial until that tag is re-run. Deprecation
 is per version — 0.0.1 stays deprecated, a real release is not — so nothing
 needs un-deprecating. The one manual step the rename leaves is the old
 opencode name:

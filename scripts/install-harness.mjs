@@ -271,14 +271,17 @@ function planAgentsBlock(ctx, key, s) {
 // One host command as a plan step: the verbatim argv (the manifest's
 // subcommand with its placeholders filled), why it runs, and the host-owned
 // files it is known to touch (measured 2026-09-05 — the manifest's cli.verified).
+// A portable registration keeps its marketplace and enablement stanzas in one
+// global config (registry.global_config; Codex's config.toml, measured
+// 2026-09-07), so the preview names that file wherever a step rewrites it.
 function hostStep(a, s, name, fill, why) {
   const template = s.cli.commands[name];
   if (!Array.isArray(template) || !template.length) throw new Error(`${s.format}: host operation ${name} is not declared`);
   const argv = template.map((t) => t.replace(/\{(\w+)\}/g, (_, k) => fill[k] ?? `{${k}}`));
   const p = a.paths;
   const touches = {
-    validate: [], marketplace_add: [p.marketplaces, p.projectSettings], marketplace_update: [p.marketplaces], marketplace_remove: [p.marketplaces, p.projectSettings],
-    install: [p.installed, p.projectSettings, p.cacheDir], update: [p.installed, p.cacheDir], uninstall: [p.installed, p.projectSettings], disable: [p.projectSettings], enable: [p.projectSettings],
+    validate: [], marketplace_add: [p.marketplaces, p.globalConfig, p.projectSettings], marketplace_update: [p.marketplaces], marketplace_remove: [p.marketplaces, p.globalConfig, p.projectSettings],
+    install: [p.installed, p.globalConfig, p.projectSettings, p.cacheDir], update: [p.installed, p.cacheDir], uninstall: [p.installed, p.globalConfig, p.projectSettings], disable: [p.projectSettings], enable: [p.projectSettings],
   }[name] || [];
   return { kind: "host", name, bin: s.cli.bin, argv, why, touches: touches.filter(Boolean) };
 }

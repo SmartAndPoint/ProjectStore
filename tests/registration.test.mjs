@@ -83,6 +83,14 @@ test("registration contract 4′/9: from an npx root the plan registers first, p
   assert.ok(preview.includes("Each $ line runs the host's own CLI"));
   assert.equal(host.log().length, 0, "plan runs nothing");
   assert.ok(!existsSync(paths.dir), "plan writes nothing");
+  // What each host step is previewed as touching. Claude Code's registry is its
+  // JSON files, so a portable registration's global config (S8, 2026-10-04)
+  // never appears here.
+  assert.deepEqual(Object.fromEntries(reg.steps.filter((s) => s.kind === "host").map((s) => [s.name, s.touches])), {
+    validate: [],
+    marketplace_add: [paths.marketplaces, paths.projectSettings],
+    install: [paths.installed, paths.projectSettings, paths.cacheDir],
+  });
   // publicItem drops the manifest bodies from steps, keeps the argv — and keeps
   // the write's file count, which a public envelope had until 4aa142d
   // stripped `files` from every step (S1, the 2026-10-03 review).
