@@ -14,8 +14,10 @@
 //
 // The `npx` arm is deliberately NOT duplicated here: tests/shells.test.mjs
 // already packs the core, builds the shell, and compares a preview taken
-// through the shipped bin against the core's own. It covers the publishable
-// shell; the Codex shell is private until B5 publishes it.
+// through the shipped bin against the core's own. It compares Claude Code's
+// shell. The Codex shell publishes from 0.28.1, so the Codex npx arm that waited
+// on it is now due: the built-tarball npx smoke (plan/install × text/JSON) of
+// "The Codex shell's plugin root…" (PS-HARNESS).
 //
 //   node --test tests/*.test.mjs
 

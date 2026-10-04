@@ -4,7 +4,7 @@
 
 [![release](https://img.shields.io/github/v/release/SmartAndPoint/ProjectStore?label=release)](https://github.com/SmartAndPoint/ProjectStore/releases) [![license](https://img.shields.io/github/license/SmartAndPoint/ProjectStore?label=license)](./LICENSE) [![Star on GitHub](https://img.shields.io/badge/%E2%AD%90-star_us-yellow?logo=github)](https://github.com/SmartAndPoint/ProjectStore/stargazers)
 
-A project workflow plugin for [Claude Code](https://claude.com/claude-code) and [OpenAI Codex](https://developers.openai.com/codex/) (experimental).
+A project workflow plugin for [Claude Code](https://claude.com/claude-code) and [OpenAI Codex](https://developers.openai.com/codex/) (experimental). Both are released together at one version, and each installs with one command.
 
 ---
 
@@ -66,6 +66,14 @@ Open Claude Code in your project and say:
 
 That's the whole setup. Claude adds the marketplace, installs the plugin, and walks you through binding a vault, scaffolding it and wiring the status line — every step previewed, nothing written without your Yes.
 
+**On Codex**, run one command from a terminal in your project:
+
+```
+npx projectstore-codex install --project "$PWD"
+```
+
+Then restart Codex, approve the ProjectStore hooks when it asks, and run `$projectstore-bind ~/Documents/my-project-vault`. Codex support is newer and still labelled experimental: [`docs/harnesses.md`](./docs/harnesses.md#codex) says what has been verified and what has not. A project can be worked from both agents: they share the binding in `.projectstore/`, and each keeps its own overlay and session state beside it ([running both over one project](./docs/harnesses.md#running-both-over-one-project)).
+
 <details>
 <summary>Prefer to type it yourself?</summary>
 
@@ -88,27 +96,25 @@ npx projectstore-claude install --project "$PWD"
 
 The same tree is published to npm as [`projectstore`](https://www.npmjs.com/package/projectstore) — one source package carrying every harness's manifest — and `projectstore-claude` is its Claude Code shell: the core pinned at the same version and bundled inside, the harness fixed, so the one command has the same shape on every harness. It registers the plugin with Claude Code: it writes a small local marketplace of its own under your Claude home, then drives `claude plugin marketplace add` / `plugin install` **at local scope**, so the registration lands in this checkout's `.claude/settings.local.json` and nowhere else. Every host command is printed before it runs; naming the harness is the confirmation. Restart Claude Code afterwards. A git-marketplace copy already enabled for the checkout is silenced there (not globally) so the plugin does not load twice; `uninstall` turns it back on. Pin or upgrade with `npx projectstore-claude@<version> upgrade --project "$PWD"` — the version you name is the version you run. The core's low-level form, `npx projectstore <verb> --harness claude-code …`, is exactly what the shell runs. bun works the same on the packed bin.
 
-**Codex uses its own rendered plugin root and the same one-command shape.**
-Codex support is **experimental** (see [`docs/harnesses.md`](./docs/harnesses.md)
-for what has been measured and what has not), and its shell is not published
-yet. From this checkout, exercise the exact npx path against the built tarball:
+**Codex has its own shell with the same one-command shape:**
+`npx projectstore-codex install --project "$PWD"`. It carries a canonical
+portable manifest, namespaced workflow and role skills, lifecycle hooks, and
+the exact bundled core. It stages a stable marketplace under `CODEX_HOME`,
+drives `codex plugin marketplace add` and `codex plugin add`, then reads the
+installation back and verifies its version and payload digest. Restart Codex,
+approve the hooks, and run `$projectstore-bind <vault-path>`. For later
+releases, `npx projectstore-codex@<version> upgrade --project "$PWD"`. Because
+Codex's plugin registry is user-global, ordinary uninstall removes only the
+project's agents block; `uninstall --global` is the explicit machine-wide
+removal. Codex is **experimental** until a live session has exercised every
+surface it installs; [`docs/harnesses.md`](./docs/harnesses.md) says what has
+been measured and what has not. From a checkout, the same npx path runs against
+a built tarball:
 
 ```sh
 npm run shells:build -- --only projectstore-codex --dev --out dist
 npx --package "./dist/projectstore-codex-$(node -p 'require("./package.json").version').tgz" projectstore-codex install --project "$PWD"
 ```
-
-The Codex shell carries a canonical portable manifest, namespaced workflow and
-role skills, lifecycle hooks, and the exact bundled core. It stages a stable
-marketplace under `CODEX_HOME`, drives `codex plugin marketplace add` and
-`codex plugin add`, then reads the installation back and verifies its version
-and payload digest. Restart Codex, approve the hooks, and run
-`$projectstore-bind <vault-path>`. After the first explicit npm publication,
-the shorter command is
-`npx projectstore-codex@<version> install --project "$PWD"`; use its `upgrade`
-verb for later releases. Because Codex's
-plugin registry is user-global, ordinary uninstall removes only the project's
-agents block; `uninstall --global` is the explicit machine-wide removal.
 
 The package also carries a `bin`. Without a session — in CI, or in a shell — the same core answers token-free, with a `--json` envelope on every verb:
 
@@ -141,7 +147,7 @@ npx projectstore bind ~/vaults/my-project
 npx projectstore init ~/vaults/new-project --language ru
 ```
 
-`projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are this package's per-harness shells — the core pinned and bundled, the harness fixed. Codex's shell is experimental and stays private until a live run has exercised every surface it installs, from an installed release ([`docs/harnesses.md`](./docs/harnesses.md)). The opencode shell publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs.
+`projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are this package's per-harness shells — the core pinned and bundled, the harness fixed. The Claude Code and Codex shells are published at the core's version; Codex stays labelled experimental until a live run has exercised every surface it installs ([`docs/harnesses.md`](./docs/harnesses.md)). The opencode shell publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs.
 </details>
 
 ## Upgrading

@@ -63,7 +63,7 @@ function runShell(dir, args, env = {}) {
 test("shells contract 10: the roster is rendered and committed — package.json pins and bundles the core, and an emitted harness carries its plugin root", async () => {
   assert.deepEqual(SHELLS.map((s) => s.name), ["projectstore-claude", "projectstore-codex", "projectstore-opencode"]);
   assert.equal(CLAUDE.private, false, "the Claude Code shell publishes at 0.28.0");
-  assert.deepEqual(publishable(), ["projectstore-claude"], "codex and opencode stay private until B5/C4");
+  assert.deepEqual(publishable(), ["projectstore-claude", "projectstore-codex"], "the Codex shell publishes from 0.28.1 (maintainer decision 2026-10-04); opencode stays private until C4");
   const core = corePackage();
   const check = await checkShells();
   assert.equal(check.ok, true, `the committed files equal their render: ${JSON.stringify(check.shells)}`);
@@ -205,12 +205,14 @@ test("shells contract 11: every shell builds from the core's own pack tarball, b
       assert.deepEqual(own, ["README.md", `bin/${s.name}.mjs`, "package.json"], `${s.name}: installer-only shells carry no plugin root`);
     }
     assert.ok(!b.files.some((f) => f.includes("packlist.json")), "the fixture does not ship");
-    if (s === CLAUDE) {
-      assert.ok(b.tgz && existsSync(b.tgz) && b.tgz.endsWith(`${s.name}-${core.version}.tgz`), "the tarball lands under --out with npm's name");
-      // AC 2: the built bin's --version is the core's.
+    if (!s.private) {
+      // AC 2: a published shell's built bin answers --version with the core's.
       const v = spawnSync(process.execPath, [join(b.dir, "bin", `${s.name}.mjs`), "--version"], { encoding: "utf8", timeout: 60000 });
       assert.equal(v.status, 0, v.stderr);
-      assert.equal(v.stdout.trim(), core.version);
+      assert.equal(v.stdout.trim(), core.version, `${s.name} --version`);
+    }
+    if (s === CLAUDE) {
+      assert.ok(b.tgz && existsSync(b.tgz) && b.tgz.endsWith(`${s.name}-${core.version}.tgz`), "the tarball lands under --out with npm's name");
       assert.equal(spawnSync(process.execPath, [join(b.dir, "bin", `${s.name}.mjs`), "install", "--harness", "codex", "--project", "/x"], { encoding: "utf8", timeout: 60000 }).status, 2);
       // AC 1 (offline half): the shell's preview is the core's with --harness named — same envelope, same items.
       const { proj } = seedCliVault();
@@ -444,6 +446,16 @@ test("shells: a shell is publishable only if its harness owns the source tree or
     assert.equal(row.private, false, `${m.id}: install.shell names ${named}, which is private — the prose would send a user to a package npm does not have. Drop the key and the command falls back to the core with --harness ${m.id}`);
     assert.equal(row.harness, m.id, `${m.id}: install.shell names ${named}, which targets ${row.harness}`);
   }
+  // The converse: a published shell must be named by its harness's manifest.
+  // Without the key every remedy for that harness names the core with
+  // --harness, and for Codex that form defers the registration to the shell, so
+  // npm would serve a shell that no finding points to. A Codex shell published
+  // over 0.28.0's core would have shipped exactly that gap.
+  for (const s of SHELLS.filter((x) => !x.private)) {
+    const m = loadHarness(s.harness);
+    assert.ok(m, `${s.name} is published, so its harness ${s.harness} has a manifest`);
+    assert.equal(m.install?.shell, s.name, `${s.name} is published, so ${m.id}'s manifest names it in install.shell`);
+  }
 });
 
 test("shells AC 4: the release matrix is the publishable list, computed — never a hand-written name", () => {
@@ -488,10 +500,21 @@ test("shells contract 12: the documented install is the shell — README, the ma
   const h = loadHarness(SRC.id);
   assert.equal(packageCommand(h, "install", { args: '--project "/p"' }), `npx ${CLAUDE.name} install --project "/p"`);
   assert.equal(packageCommand(h, "upgrade", { version: "0.28.0", args: "--surface plugin" }), `npx ${CLAUDE.name}@0.28.0 upgrade --surface plugin`);
-  assert.equal(packageCommand({ id: "codex" }, "install", { args: '--project "/p"' }), 'npx projectstore install --harness codex --project "/p"', "a manifest without a shell names the core with --harness");
+  assert.equal(packageCommand({ id: "opencode" }, "install", { args: '--project "/p"' }), 'npx projectstore install --harness opencode --project "/p"', "a manifest without a shell names the core with --harness");
   const stale = checkPluginRegistration("/p", [{ kind: "registration", state: "stale", harness: SRC.id, surface: "plugin", pkg: "0.28.0", entry: "e", reason: "r", path: "x" }]);
   assert.match(stale[0].message, new RegExp(`npx ${CLAUDE.name}@0\\.28\\.0 upgrade --surface plugin --project "/p"`));
   assert.ok(!stale[0].message.includes("--harness"), "the shell fixes the harness");
+  // Every published shell, read from the real manifests: Codex's remedies name
+  // projectstore-codex from 0.28.1, which is what that release exists for. The
+  // README documents each one's install.
+  for (const s of SHELLS.filter((x) => !x.private)) {
+    assert.ok(readme.includes(`npx ${s.name} install --project "$PWD"`), `the README documents ${s.name}'s install`);
+    const m = loadHarness(s.harness);
+    assert.equal(packageCommand(m, "upgrade", { version: "0.28.1", args: "--surface plugin" }), `npx ${s.name}@0.28.1 upgrade --surface plugin`, `${s.harness}: a remedy names ${s.name}`);
+    const row = checkPluginRegistration("/p", [{ kind: "registration", state: "stale", harness: s.harness, surface: "plugin", pkg: "0.28.1", entry: "e", reason: "r", path: "x" }]);
+    assert.match(row[0].message, new RegExp(`npx ${s.name}@0\\.28\\.1 upgrade --surface plugin --project "/p"`), `${s.harness}: the stale-registration finding names its shell`);
+    assert.ok(!row[0].message.includes("--harness"), `${s.harness}: the shell fixes the harness`);
+  }
   const legacy = mkdtempSync(join(TMP, "legacy-"));
   mkdirSync(join(legacy, SRC.runtime.harness_dir));
   writeFileSync(join(legacy, SRC.runtime.harness_dir, "projectstore.json"), "{}");
