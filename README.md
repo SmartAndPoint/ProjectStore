@@ -168,9 +168,14 @@ bound before 0.28. What an existing project sees afterwards, and why:
   `npx projectstore-claude upgrade` on a git-marketplace install does more: it
   also registers the plugin from npm for this checkout and turns the
   git-marketplace copy off here, so `/plugin update` stops reaching the
-  checkout. If that already happened,
+  checkout. The 0.28.0-rc.1 and rc.2 startup lines named that shell form
+  (`npx projectstore-claude@<version> upgrade`, without `--no-register`), so on
+  those, update first and run what the new startup line names. If it already
+  happened,
   `npx projectstore-claude@<version> uninstall --surface plugin --project "$PWD"`
-  turns the git-marketplace copy back on. Restart, then run
+  (0.28.0 or later) turns the git-marketplace copy back on. That copy must be 0.28 or later — an
+  older one reads a moved project as unbound — so update it first if it is not.
+  Restart, then run
   `/projectstore:doctor --fix` in the new session, which re-stamps the status
   line against that copy.
 - **The status line keeps rendering.** A launcher written by an earlier version
@@ -197,6 +202,15 @@ bound before 0.28. What an existing project sees afterwards, and why:
   (`projectstore-decision-detector`, `projectstore-peer-reviewer`,
   `projectstore-story-completion`, `projectstore-vault-communication`). Nothing
   in a project names them; only a skill listing shows the new names.
+- **Rolling back** to 0.27.x before the move: everything keeps working, since
+  0.27.x still reads the old layout. It rewrites the status-line launcher in its
+  own form, as it always did; coming forward again, the startup line names the
+  move once more, and the move re-stamps the launcher. If a session already
+  re-stamped the status line or re-registered the agents block before the move
+  (rc.2's `/projectstore:doctor --fix` did both), 0.27.x reports a foreign
+  status line and a v4 block and leaves both alone — unless you run its
+  `/projectstore:agents register`, which rewrites the block; the status line
+  still renders, and the move settles both.
 - **Rolling back** to 0.27.x after the move: 0.27.x looks for its binding under
   `.claude/`, finds none and offers `bind`. Do not accept. A re-bind writes
   `.claude/projectstore.json` again, and 0.28's `install` and `upgrade` refuse

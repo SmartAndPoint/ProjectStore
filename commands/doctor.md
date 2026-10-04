@@ -25,6 +25,8 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    is in the report, it goes first and its command is the one repair** for a
    stale-launcher `surface`, a v3 `agents-block` and `agents-in-binding` as
    well: relay it and run nothing in-session for those (see its bullet below).
+   The report already shows the v3 block, and a block Claude Code cannot see,
+   as info that points at the move.
    - `worktree-unbound` → this checkout is a git worktree of a bound one. Offer
      `/projectstore:bind --inherit`, and say what it does: copies the parent's
      binding, leaves the vault shared and unchanged, carries no session state.
@@ -35,7 +37,10 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    - `agents-block` duplicate or stale → show the finding, then (after approval)
      run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" install --harness claude-code --surface agents_block --project "${CLAUDE_PROJECT_DIR}"`
      and print its output: it removes the copy in the non-preferred file and
-     keeps the preferred one current. Never Edit or Write the block yourself —
+     keeps the preferred one current. A block Claude Code cannot see — in
+     `AGENTS.md`, with no `@AGENTS.md` line in `CLAUDE.md` — is the same repair:
+     the verb adds the import. For another harness the finding names its own
+     `--harness`; relay that command. Never Edit or Write the block yourself —
      the verb is its only writer (install spec, contract 6).
    - `statusline` issues → offer running `/projectstore:statusline on|off`,
      which installs or removes the entry and the launcher behind a preview
@@ -74,8 +79,10 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      git-marketplace install or a checkout, the `projectstore-claude` shell for
      the npm registration. Relay the finding's command verbatim and never
      substitute the other form — the shell, run for a git-marketplace install,
-     would also move this checkout to the npm channel. Never move the files
-     yourself. While this finding is in the report, its command is also the one
+     would also move this checkout to the npm channel. When the finding carries
+     advice instead of a command — the installed copy predates the move, or
+     predates `--no-register` — relay the advice and never compose a command
+     yourself. Never move the files yourself. While this finding is in the report, its command is also the one
      repair for a stale-launcher `surface`, a v3 `agents-block` and
      `agents-in-binding`: do not run the in-session `install` or `upgrade` for
      those — the deferred move makes that run stop part-way.

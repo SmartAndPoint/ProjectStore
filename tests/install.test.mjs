@@ -13,15 +13,15 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, copyFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, copyFileSync, rmSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { fakeInstall, writeRegistry, noHostEnv } from "./fixtures/install.mjs";
 import { plan, renderPreview, confirm, apply, runVerb } from "../scripts/install-harness.mjs";
-import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses } from "../scripts/harness.mjs";
-import { writeBinding } from "./fixtures/vault.mjs";
+import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses, loadHarness, identifiedHarnessId } from "../scripts/harness.mjs";
+import { writeBinding, seedCliVault } from "./fixtures/vault.mjs";
 import { stamp, sourceHash, parseProvenance } from "../scripts/provenance.mjs";
 import {
   AGENTS_BLOCK_OPEN_SRC,
@@ -935,6 +935,99 @@ test("install contract 6 (doctor half): block states — content drift at the sa
   // The three encodings of the open marker agree: the strict regex, the loose one and the manifest's marker.open.
   const open = SRC.surfaces.agents_block.marker.open;
   assert.ok(new RegExp(AGENTS_BLOCK_OPEN_SRC).test(open + "3 -->") && new RegExp(AGENTS_BLOCK_OPEN_LOOSE_SRC).test(open + "3"), "manifest marker.open is what both regexes match");
+});
+
+// Placement held to install's own predicate (the install spec, contract 6 as
+// amended after the rc.3 tag). rc.1 and rc.2 left a block in an AGENTS.md-only
+// project, which Claude Code never saw, and nothing said so. The env is
+// explicit: a Bash tool in a Claude Code session carries CLAUDECODE; CI does not.
+test("install contract 6 (doctor half): a block a used harness cannot see is named — an issue for the harness that identified itself, a warning for one only detected, nothing for one the project does not use; install plans exactly the import doctor asks for", () => {
+  const { home, root } = fixture();
+  const codex = loadHarness("codex");
+  const session = { [SRC.runtime.session_env[0]]: "1" };
+  const unseen = (fs) => fs.filter((f) => /does not see/.test(f.message));
+  const only = project({ agents: BLOCK + "\n" });
+  const inSession = unseen(checkAgentsBlock(only, { env: session, root }));
+  assert.equal(inSession.length, 1, JSON.stringify(inSession));
+  assert.equal(inSession[0].level, "issue");
+  assert.match(inSession[0].message, /in AGENTS\.md, which Claude Code does not see: CLAUDE\.md does not import it/);
+  assert.ok(inSession[0].message.includes(`node "${join(root, "bin", "projectstore.mjs")}" install --harness ${SRC.id} --surface agents_block --project "${only}"`), inSession[0].message);
+  const terminal = unseen(checkAgentsBlock(only, { env: {}, root }));
+  assert.equal(terminal.length, 1);
+  assert.equal(terminal[0].level, "warn", "detected by its directory, not identified");
+  // Install agrees: planning the block for this harness creates exactly that import.
+  const p = plan(only, { home, root, harnesses: [SRC.id], surfaces: ["agents_block"] });
+  const bridge = p.items.find((i) => i.surface === "agents_block_import");
+  assert.ok(bridge && bridge.action === "create" && bridge.after.startsWith("@AGENTS.md"), JSON.stringify(p.items.map((i) => [i.surface, i.action])));
+  writeFileSync(join(only, "CLAUDE.md"), "@AGENTS.md\n");
+  assert.deepEqual(unseen(checkAgentsBlock(only, { env: session, root })), [], "the import is there: nothing to say");
+  // The installer's exact line: `@./AGENTS.md` reads as absent to both.
+  writeFileSync(join(only, "CLAUDE.md"), "@./AGENTS.md\n");
+  assert.equal(unseen(checkAgentsBlock(only, { env: session, root })).length, 1);
+  // A block in CLAUDE.md is invisible to a detected Codex, which reads AGENTS.md only.
+  const claudeOnly = project({ claude: BLOCK + "\n" });
+  mkdirSync(join(claudeOnly, codex.runtime.harness_dir), { recursive: true });
+  const cx = unseen(checkAgentsBlock(claudeOnly, { env: {}, root }));
+  assert.equal(cx.length, 1);
+  assert.match(cx[0].message, /Codex does not see: it reads AGENTS\.md only/);
+  assert.equal(cx[0].level, "warn");
+  assert.equal(unseen(checkAgentsBlock(claudeOnly, { env: { [codex.runtime.plugin_root_env]: "/x" }, root }))[0].level, "issue", "identified: an issue");
+  // A Codex-only project, from a terminal: nothing about Claude Code, which it does not use.
+  const codexOnly = mkdtempSync(join(tmpdir(), "ps-inst-codex-"));
+  mkdirSync(join(codexOnly, codex.runtime.harness_dir), { recursive: true });
+  writeFileSync(join(codexOnly, "AGENTS.md"), BLOCK + "\n");
+  assert.deepEqual(unseen(checkAgentsBlock(codexOnly, { env: {}, root })), []);
+  // A wrapped marker stays one finding, and so does a block that never closes —
+  // named even at the current version, since the plan refuses both.
+  const wrapped = project({ agents: "# A\n<!-- projectstore:agents v3 (managed)\n-->\n" + BLOCK.split("\n").slice(1).join("\n") + "\n" });
+  assert.equal(checkAgentsBlock(wrapped, { env: session, root }).length, 1);
+  const half = checkAgentsBlock(project({ agents: BLOCK.replace("<!-- /projectstore:agents -->", "") + "\n" }), { env: session, root });
+  assert.equal(half.length, 1, JSON.stringify(half));
+  assert.equal(half[0].level, "issue");
+  assert.match(half[0].message, /AGENTS\.md: the projectstore:agents block opens and never closes/);
+  // Beside a good block in CLAUDE.md: no "both files — run register" advice the plan would refuse.
+  const split = checkAgentsBlock(project({ claude: BLOCK + "\n", agents: BLOCK.replace("<!-- /projectstore:agents -->", "") + "\n" }), { env: session, root });
+  assert.ok(!split.some((f) => /in both CLAUDE\.md and AGENTS\.md/.test(f.message)), JSON.stringify(split));
+});
+
+// Through the bin, from a terminal: the bin names the project to its doctor
+// child in the harness's own vocabulary, and that must not read there as the
+// harness identifying itself — it made a terminal doctor raise a Claude Code
+// issue in a Codex-only project (the review of the post-rc.3 fixes, 2026-10-04).
+test("install contract 6 (doctor half), through the bin from a terminal: a Claude Code project gets a warning, and a Codex-only one hears nothing about Claude Code", () => {
+  const codex = loadHarness("codex");
+  const home = mkdtempSync(join(tmpdir(), "ps-inst-term-home-"));
+  const elsewhere = mkdtempSync(join(tmpdir(), "ps-inst-term-cwd-"));
+  const unseen = (proj) => {
+    const r = spawnSync(process.execPath, [join(ROOT, "bin", "projectstore.mjs"), "doctor", "--install", "--json", "--project", proj], { encoding: "utf8", cwd: elsewhere, env: noHostEnv({ HOME: home }), timeout: 60000 });
+    return JSON.parse(r.stdout).result.filter((f) => /does not see/.test(f.message));
+  };
+  const { proj: claudeProj } = seedCliVault();
+  mkdirSync(join(claudeProj, SRC.runtime.harness_dir), { recursive: true });
+  rmSync(join(claudeProj, "CLAUDE.md"), { force: true });
+  writeFileSync(join(claudeProj, "AGENTS.md"), BLOCK + "\n");
+  const c = unseen(claudeProj);
+  assert.equal(c.length, 1, JSON.stringify(c));
+  assert.equal(c[0].level, "warn", "detected by its directory; a terminal identifies no harness");
+  const { proj: codexProj } = seedCliVault();
+  rmSync(join(codexProj, SRC.runtime.harness_dir), { recursive: true, force: true });
+  rmSync(join(codexProj, "CLAUDE.md"), { force: true });
+  mkdirSync(join(codexProj, codex.runtime.harness_dir), { recursive: true });
+  writeFileSync(join(codexProj, "AGENTS.md"), BLOCK + "\n");
+  assert.deepEqual(unseen(codexProj), [], "Codex reads AGENTS.md itself, and Claude Code is not used here");
+});
+
+test("harness: identified from the environment means a strong signal or the session marker — never the weak ranking or the source fallback", () => {
+  const codex = loadHarness("codex");
+  assert.equal(identifiedHarnessId({ [SRC.runtime.session_env[0]]: "1" }), SRC.id, "a Bash tool inside a session");
+  assert.equal(identifiedHarnessId({ [SRC.runtime.project_dir_env]: "/p" }), SRC.id, "a hook");
+  assert.equal(identifiedHarnessId({ [codex.runtime.plugin_root_env]: "/x" }), codex.id);
+  assert.equal(identifiedHarnessId({ [SRC.runtime.plugin_root_env]: "/x" }), null, "a variable two harnesses set identifies neither");
+  assert.equal(identifiedHarnessId({ [codex.runtime.home_env]: "/h" }), null, "a home variable is a shell profile, not a launch");
+  assert.equal(identifiedHarnessId({}), null, "no fallback");
+  // What a parent of ours decided crosses the spawn and stands, empty included.
+  assert.equal(identifiedHarnessId({ PROJECTSTORE_IDENTIFIED: "", [SRC.runtime.project_dir_env]: "/p" }), null, "the project-dir variable the bin wrote is not an identity");
+  assert.equal(identifiedHarnessId({ PROJECTSTORE_IDENTIFIED: codex.id }), codex.id);
 });
 
 test("install: no doctor remedy names a raw script — every one is the bin form the command prose runs", () => {

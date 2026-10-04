@@ -67,7 +67,7 @@ import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses,
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
 import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, isOurFile, readText } from "./surfaces.mjs";
 import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
-import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpVersion, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder } from "./lib.mjs";
+import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder } from "./lib.mjs";
 
 import { GENERATOR } from "./surfaces.mjs";
 export { GENERATOR };
@@ -112,7 +112,7 @@ function planAgentsBlock(ctx, key, s) {
   const items = [];
   if (a.refusal) return [{ surface: key, kind: "shared", path: a.files[0].path, entry: "projectstore:agents", state: "refused", action: "refuse", reason: a.refusal }];
 
-  const hasImport = (text) => String(text ?? "").split("\n").some((l) => l.trim() === importLine);
+  const hasImport = (text) => importsLine(text, importLine);
   // A CLAUDE.md that is nothing but the import registration added is ours to
   // delete when the block goes (ADR-002 decision 4); anything else stays.
   const onlyImport = (text) => String(text ?? "").split("\n").every((l) => !l.trim() || l.trim() === importLine);
@@ -256,7 +256,7 @@ function planAgentsBlock(ctx, key, s) {
     const rewrite = items.find((i) => i.action === "remove" && i.path === e.path);
     // An absent native file is empty text, not a reason to skip: it is created.
     const text = rewrite ? rewrite.after : (e.present ? e.text : "");
-    if (typeof text !== "string" || text.split("\n").some((l) => l.trim() === line)) continue;
+    if (typeof text !== "string" || importsLine(text, line)) continue;
     const after = line + "\n" + (text.startsWith("\n") || !text.trim() ? "" : "\n") + text;
     if (rewrite) { rewrite.after = after; rewrite.deleteIfEmpty = false; rewrite.reason += `; ${line} import added`; }
     else items.push({ surface: `${key}_import`, kind: "shared", path: e.path, entry: line, state: "ours-absent", action: e.present ? "add" : "create",
@@ -455,7 +455,7 @@ function planRegistration(ctx, key, s) {
     // pack → install → fix → pack loop never bumps it. The host will not
     // re-copy at an equal version (measured), so that refresh is uninstall + install.
     const sameVersionDiffers = a.contentDiffers === true;
-    const rewrite = !a.dir.present || (cmpVersion(a.dir.pkg, a.pkg) < 0) || a.dir.digestOk === false || sameVersionDiffers;
+    const rewrite = !a.dir.present || (cmpPrecedence(a.dir.pkg, a.pkg) < 0) || a.dir.digestOk === false || sameVersionDiffers;
     const disabled = [...new Set([...a.dir.disabled, ...a.others.map((o) => o.key)])];
     const digest = rewrite ? packageDigest(root) : (a.dir.prov?.digest || null);
     const files = digest ? digest.count : 0;
@@ -596,7 +596,7 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   // once whatever --surface names — planned first, so every surface below is
   // planned against the new paths; its cleanup is planned last (below).
   const layoutHarness = loadHarness(ids.find((id) => { const p = layoutPaths(projectDir, { harnessDir: loadHarness(id).runtime?.harness_dir || null }); return existsSync(p.legacy.binding) || existsSync(p.legacy.runtime); }) || ids[0]);
-  const layoutCtx = { projectDir, mode, env, home, root, harness: layoutHarness, incomplete: false };
+  const layoutCtx = { projectDir, mode, env, home, root, harness: layoutHarness, incomplete: false, surfaces };
   const layout = planLayout(layoutCtx);
   for (const item of layout.first) out.items.push({ harness: layoutHarness.id, ...item });
   if (layoutCtx.incomplete) out.incomplete = true;
@@ -691,7 +691,12 @@ function planLayout(ctx) {
   const base = { surface: "layout", kind: "layout", path: P.legacy.binding, entry: null, state: a.state, reason: null };
   if (mode === "uninstall") {
     // Disowning: the legacy runtime directory goes with the new one when it is
-    // ours (its header); the legacy binding is bind's, never uninstall's.
+    // ours (its header); the legacy binding is bind's, never uninstall's. A
+    // narrowed uninstall leaves it alone: the way back from an npm switch is
+    // `uninstall --surface plugin`, and it deleted a not-yet-moved project's
+    // sessions, log and the launcher its status line still ran (the critic's
+    // fourth pass, 2026-10-04). `surfaces` is null when nothing was named.
+    if (ctx.surfaces) return none;
     if (!a.legacy.runtime || !a.legacy.runtimeOurs) return none;
     return { first: [], last: [{ ...base, surface: "layout_cleanup", path: P.legacy.runtime, state: "legacy", action: "remove", reason: "the legacy runtime directory is ours (its .gitignore header) and goes with the state", steps: [
       { kind: "remove-legacy-runtime", path: P.legacy.runtime, why: "the pre-0.28 state directory, removed whole" },
@@ -714,7 +719,7 @@ function planLayout(ctx) {
   const last = [];
   if (a.legacy.launcher || a.legacy.runtime) {
     const cleanup = [];
-    if (a.legacy.launcher) cleanup.push({ kind: "remove-legacy-launcher", path: P.legacy.launcher, why: "removed once the new launcher is written and the settings entry names it — or at once when the status-line slot is not ours (foreign, or empty because the status line is off); kept if anything still points at it" });
+    if (a.legacy.launcher) cleanup.push({ kind: "remove-legacy-launcher", path: P.legacy.launcher, why: "removed once the new launcher is written and the settings entry names it — or at once when the status-line slot is not ours (foreign, or empty because the status line is off); kept while a settings file the host reads (this project's local or committed settings, or the user's) still runs it as the status line — a script that calls it indirectly is not seen" });
     if (a.legacy.runtime) cleanup.push({ kind: "rmdir-legacy", path: P.legacy.runtime, why: "the emptied pre-0.28 runtime directory" });
     last.push({ ...base, surface: "layout_cleanup", path: P.legacy.runtime, state: "legacy", action: "cleanup", reason: null, steps: cleanup });
   }
@@ -767,7 +772,7 @@ function applyLayout(p, i, { failed, home = homedir() }) {
         if (text === null) out.steps.push({ kind: st.kind, ok: true, removed: false });
         else if (!moved && slotOurs) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "no launcher at the new path yet (this root does not produce one) — left in place" });
         else if (!isOurFile(text)) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "not ours — left in place" });
-        else if (named) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "the settings entry still names it — left in place" });
+        else if (named) out.steps.push({ kind: st.kind, ok: true, removed: false, reason: "a settings file the host reads still runs it as the status line — left in place" });
         else out.steps.push({ kind: st.kind, ok: true, removed: removeInside(st.path, within) });
       }
       else if (st.kind === "rmdir-legacy") {

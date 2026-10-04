@@ -22,7 +22,7 @@ import { plan, renderPreview, apply, runVerb, publicItem, appliedLine } from "..
 import { analyseRegistration, registrationPaths, surfaceStates } from "../scripts/surfaces.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
-import { statusLineLauncherPath, whichOnPath, treeFiles, installedPluginEntries, installedPluginRoot, layoutPaths} from "../scripts/lib.mjs";
+import { statusLineLauncherPath, whichOnPath, treeFiles, installedPluginEntries, installedPluginRoot, layoutPaths, cmpPrecedence, cmpVersion } from "../scripts/lib.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
 import { checkPluginRegistration, checkVersionDrift, checkAutoUpdate } from "../scripts/doctor.mjs";
 
@@ -143,7 +143,7 @@ test("registration contract 4′: apply writes the directory whole, runs the hos
   const st = surfaceStates(proj, { home, root }).states.find((s) => s.kind === "registration");
   assert.equal(st.state, "current");
   assert.equal(st.installPath, row.installPath);
-  assert.deepEqual(checkPluginRegistration(proj, [st]).map((f) => f.level), ["info"]);
+  assert.deepEqual(checkPluginRegistration(proj, [st], { home }).map((f) => f.level), ["info"]);
 });
 
 test("registration contract 4′/14: a newer package rewrites the directory and runs plugin update at local scope; an older one does not downgrade what a newer wrote", () => {
@@ -196,6 +196,42 @@ test("registration contract 4′/14: a newer package rewrites the directory and 
   assert.equal(host.log().length, 0);
 });
 
+// The npm channel's release candidates: a registration made at rc.2 read as
+// current against rc.3 and against 0.28.0, because the comparison stopped at the
+// triple — `upgrade` never refreshed it (the critic's probe, 2026-10-03).
+test("registration contract 4′/14: a registration made at a release candidate refreshes from the next candidate and from the release, and a release is never downgraded to its candidate", () => {
+  const sb = sandbox({ version: "0.28.0-rc.2" });
+  const { home, proj, root, host, env, item, paths, registry } = sb;
+  apply(plan(proj, { home, root, env }), { env, home });
+  for (const version of ["0.28.0-rc.3", "0.28.0"]) {
+    host.reset();
+    const next = fakePackageRoot(join(tmp("ps-reg-npx-rc-"), "node_modules", "projectstore"), version);
+    const p = plan(proj, { home, root: next, env, mode: "install" });
+    const reg = item(p, "plugin");
+    assert.equal(reg.state, "stale", `${version} over the previous registration`);
+    assert.match(reg.reason, /plugin updated/);
+    assert.deepEqual(hostArgv(reg), ["plugin validate", "plugin update"]);
+    const done = apply(p, { env, home });
+    assert.equal(done.failed, undefined, JSON.stringify(done));
+    assert.equal(registry().plugins[ID][0].version, version);
+    assert.equal(JSON.parse(readFileSync(paths.manifest, "utf8"))[S.provenance_key].pkg, version);
+  }
+  host.reset();
+  const back = plan(proj, { home, root, env });
+  assert.equal(item(back, "plugin").state, "current");
+  assert.match(item(back, "plugin").reason, /newer than this package.*not downgraded/);
+  assert.equal(host.log().length, 0);
+});
+
+test("cmpPrecedence: a candidate ranks below its release and by its own counter, an alphanumeric identifier above a numeric one, and build metadata never ranks", () => {
+  const order = ["0.27.1", "0.28.0-1", "0.28.0-alpha", "0.28.0-rc.1", "0.28.0-rc.2", "0.28.0-rc.10", "0.28.0", "0.28.1-rc.1", "0.28.1", "0.29.0"];
+  for (let i = 0; i < order.length; i++)
+    for (let j = 0; j < order.length; j++)
+      assert.equal(Math.sign(cmpPrecedence(order[i], order[j])), Math.sign(i - j), `${order[i]} against ${order[j]}`);
+  assert.equal(cmpPrecedence("0.28.0-rc.2+codex.dev.15c346cc0791", "0.28.0-rc.2"), 0);
+  assert.equal(cmpVersion("0.28.0-rc.2", "0.28.0"), 0, "cmpVersion keeps comparing the release triple, which the layout window's sunset wants");
+});
+
 test("registration contract 4′/13: a competing enabled copy is silenced for this checkout only and recorded; uninstall reverts exactly that, forgets this checkout, and removes the shared directory only when no other checkout uses it", () => {
   const sb = sandbox();
   const { home, proj, root, host, env, item, paths, local, registry, known } = sb;
@@ -219,7 +255,14 @@ test("registration contract 4′/13: a competing enabled copy is silenced for th
   // doctor: version drift is quiet — the other row is disabled for this project; the registration is one info.
   const states = surfaceStates(proj, { home, root }).states;
   assert.deepEqual(checkVersionDrift(home, states, proj), [], "a copy disabled for the project is not a drift (contract 17, amended)");
-  assert.deepEqual(checkPluginRegistration(proj, states).map((f) => f.level), ["info"]);
+  const doc = checkPluginRegistration(proj, states, { home });
+  assert.deepEqual(doc.map((f) => f.level), ["info", "info"]);
+  // The copy it turned off is named, with the way back (contract 13 as amended after the rc.3 tag).
+  const off = doc.find((f) => f.message.startsWith("projectstore@SmartAndPoint"));
+  assert.ok(off, JSON.stringify(doc));
+  assert.match(off.message, /\(0\.27\.1\) is off for this checkout/);
+  assert.match(off.message, /Update that copy first/, "0.27.x reads a moved project as unbound");
+  assert.match(off.message, /npx projectstore-claude@\S+ uninstall --surface plugin --project/);
   assert.deepEqual(checkAutoUpdate(home).filter((f) => f.level !== "info"), [], "a directory marketplace has nothing to toggle");
   // A second checkout installed from the same directory.
   const reg = registry();
@@ -237,6 +280,7 @@ test("registration contract 4′/13: a competing enabled copy is silenced for th
   const undone = apply(un, { env, home });
   assert.equal(undone.failed, undefined, JSON.stringify(undone));
   assert.equal(local().enabledPlugins["projectstore@SmartAndPoint"], true, "the silenced copy is turned back on");
+  assert.ok(!checkPluginRegistration(proj, surfaceStates(proj, { home, root }).states, { home }).some((f) => /is off for this checkout/.test(f.message)), "and doctor no longer names it");
   assert.equal(local().enabledPlugins[ID], undefined);
   assert.equal(local().extraKnownMarketplaces[S.marketplace_name], undefined, "our entry is gone");
   assert.ok(existsSync(paths.dir), "the shared directory stays for the other checkout");
@@ -301,7 +345,7 @@ test("registration contract 5: a directory at our path without the provenance fi
   }
   assert.equal(sb.host.log().length, 0);
   const st = surfaceStates(proj, { home, root }).states.find((s) => s.kind === "registration");
-  assert.equal(checkPluginRegistration(proj, [st])[0].check, "plugin-registration-foreign");
+  assert.equal(checkPluginRegistration(proj, [st], { home })[0].check, "plugin-registration-foreign");
   // A registry naming our marketplace elsewhere.
   const sb2 = sandbox();
   mkdirSync(dirname(sb2.paths.marketplaces), { recursive: true });
@@ -354,14 +398,14 @@ test("registration contract 4′: a checkout that never registered is absent eve
   const a = analyseRegistration(proj2, S, { root, home, harness: SRC, env });
   assert.equal(a.state, "absent");
   assert.match(a.reason, /directory is present.*not registered/);
-  assert.deepEqual(checkPluginRegistration(proj2, surfaceStates(proj2, { home, root, harnesses: [SRC.id] }).states), [], "no nag in a checkout that never registered");
+  assert.deepEqual(checkPluginRegistration(proj2, surfaceStates(proj2, { home, root, harnesses: [SRC.id] }).states, { home }), [], "no nag in a checkout that never registered");
   // Two enabled copies in the registered checkout.
   const other = fakeInstall(home, "0.27.1");
   const reg = JSON.parse(readFileSync(sb.paths.installed, "utf8"));
   reg.plugins["projectstore@SmartAndPoint"] = [{ scope: "user", installPath: other, version: "0.27.1", lastUpdated: "2026-09-01T00:00:00Z" }];
   writeFileSync(sb.paths.installed, JSON.stringify(reg));
   const states = surfaceStates(sb.proj, { home, root }).states;
-  const f = checkPluginRegistration(sb.proj, states);
+  const f = checkPluginRegistration(sb.proj, states, { home: sb.home });
   assert.equal(f.length, 1); assert.equal(f[0].level, "issue"); assert.match(f[0].message, /two enabled copies/);
   assert.equal(checkVersionDrift(home, states, sb.proj).length, 1, "and the drift between the two enabled copies is reported");
   // The plan silences it, without touching the directory beyond its manifest.
@@ -376,6 +420,41 @@ test("registration contract 4′: a checkout that never registered is absent eve
   assert.equal(i.action, "skip");
   assert.match(i.reason, /npx projectstore-claude@<version> upgrade --surface/); // the shell form (contract 12); the harness is the shell's
   assert.equal(host.log().filter((c) => c.argv[1] === "disable").length, 0);
+});
+
+// The way back for a project the plain shell switched to npm, named by doctor
+// (the install spec, contract 13 as amended after the rc.3 tag): rc.1 and
+// rc.2's startup offer left exactly this, and nothing said so.
+test("registration contract 13: doctor names each copy the registration silenced and the checkout still holds off — update first only below 0.28, stale once uninstalled, never a copy held off by hand", () => {
+  const sb = sandbox();
+  const { home, proj, root, env, paths, local, registry } = sb;
+  const git = fakeInstall(home, "0.28.0-rc.2");
+  writeRegistry(home, [{ scope: "user", installPath: git, version: "0.28.0-rc.2", lastUpdated: "2026-09-07T00:00:00Z" }]);
+  apply(plan(proj, { home, root, env }), { env, home });
+  const offs = () => checkPluginRegistration(proj, surfaceStates(proj, { home, root }).states, { home }).filter((f) => /off for this checkout|held off/.test(f.message));
+  let off = offs();
+  assert.equal(off.length, 1, JSON.stringify(off));
+  assert.match(off[0].message, /^projectstore@SmartAndPoint \(0\.28\.0-rc\.2\) is off for this checkout/);
+  assert.doesNotMatch(off[0].message, /Update that copy first/, "a 0.28 release candidate reads a moved project");
+  // A key held off by hand, which the registration never recorded, is not ours to name.
+  const s = local(); s.enabledPlugins["projectstore@elsewhere"] = false; writeFileSync(paths.projectSettings, JSON.stringify(s, null, 2));
+  assert.ok(!offs().some((f) => f.message.includes("projectstore@elsewhere")));
+  // The recorded copy turned back on by hand: the checkout loads it again, so nothing to say.
+  const on = local(); on.enabledPlugins["projectstore@SmartAndPoint"] = true; writeFileSync(paths.projectSettings, JSON.stringify(on, null, 2));
+  assert.deepEqual(offs(), []);
+  on.enabledPlugins["projectstore@SmartAndPoint"] = false; writeFileSync(paths.projectSettings, JSON.stringify(on, null, 2));
+  // Another checkout's local row is not the copy this checkout loads, however old.
+  const r0 = registry(); r0.plugins["projectstore@SmartAndPoint"].unshift({ ...r0.plugins["projectstore@SmartAndPoint"][0], scope: "local", projectPath: "/elsewhere/checkout", version: "0.27.1" }); writeFileSync(paths.installed, JSON.stringify(r0, null, 2));
+  assert.doesNotMatch(offs()[0].message, /Update that copy first/, "the user-scope 0.28 rc row is the one this checkout loads");
+  r0.plugins["projectstore@SmartAndPoint"].shift(); writeFileSync(paths.installed, JSON.stringify(r0, null, 2));
+  // A row with no version reads as old.
+  const r = registry(); r.plugins["projectstore@SmartAndPoint"][0].version = null; writeFileSync(paths.installed, JSON.stringify(r, null, 2));
+  assert.match(offs()[0].message, /Update that copy first/);
+  // The silenced copy uninstalled since: no row, so the local entry is stale.
+  const r2 = registry(); r2.plugins["projectstore@SmartAndPoint"] = []; writeFileSync(paths.installed, JSON.stringify(r2, null, 2));
+  off = offs();
+  assert.equal(off.length, 1);
+  assert.match(off[0].message, /no longer installed, so the entry is stale/);
 });
 
 test("registration: the copied payload is the packlist, and installedPluginEntries reads enablement and projectPath", () => {

@@ -963,6 +963,19 @@ test("checkAutoUpdate: reports a newer release from the marketplace catalog", ()
   assert.match(out[0].message, /running v0\.16\.1/);
 });
 
+test("checkAutoUpdate: a release candidate hears that its release or the next candidate is out; a release never hears of its own candidate", () => {
+  for (const [running, latest, notice] of [["0.28.0-rc.3", "0.28.0", true], ["0.28.0-rc.2", "0.28.0-rc.3", true], ["0.28.0", "0.28.0-rc.3", false]]) {
+    const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+    const installed = fakeInstall(home, running);
+    const clone = join(home, ".claude", "plugins", "marketplaces", "SmartAndPoint");
+    mkdirSync(join(clone, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(clone, ".claude-plugin", "marketplace.json"), JSON.stringify({ plugins: [{ name: "projectstore", version: latest }] }));
+    writeFileSync(join(home, ".claude", "plugins", "known_marketplaces.json"), JSON.stringify({ SmartAndPoint: { autoUpdate: true, installLocation: clone } }));
+    const out = withPluginRoot(installed, () => checkAutoUpdate(home)).filter((f) => /is available/.test(f.message));
+    assert.equal(out.length, notice ? 1 : 0, `running ${running}, the catalog at ${latest}`);
+  }
+});
+
 test("checkAutoUpdate: says so honestly when nothing is registered", () => {
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   const checkout = mkdtempSync(join(tmpdir(), "ps-checkout-"));

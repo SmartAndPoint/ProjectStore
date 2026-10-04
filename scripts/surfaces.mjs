@@ -47,7 +47,7 @@ import {
   pluginEnabled,
   treeDigest,
   packageDigest,
-  cmpVersion,
+  cmpPrecedence,
   layoutPaths,
   RUNTIME_GITIGNORE_HEADER,
   LAUNCHER_HEADER,
@@ -284,7 +284,7 @@ export function analyseRegistration(projectDir, s, { root = pluginRoot(), home =
     if (e.projectPath && !samePath(e.projectPath, projectDir)) continue;
     seen.add(e.key); a.others.push({ key: e.key, path: e.path, version: e.version });
   }
-  a.newer = Boolean(a.dir.pkg) && cmpVersion(a.dir.pkg, pkg) > 0;
+  a.newer = Boolean(a.dir.pkg) && cmpPrecedence(a.dir.pkg, pkg) > 0;
   // Same version, different payload: the directory's recorded digest against
   // this package's — contract 4's rung 3 (source changed) for a directory.
   a.contentDiffers = null;
@@ -307,7 +307,7 @@ export function analyseRegistration(projectDir, s, { root = pluginRoot(), home =
   // The directory is shared by every checkout on the machine; a project that never registered is absent, whatever the directory holds.
   if (nothingOfOursHere) return { ...a, state: "absent", reason: a.dir.present ? `the marketplace directory is present${a.writtenBy ? ` (written from ${a.writtenBy})` : ""}; this checkout is not registered` : null };
   if (!a.dir.present) return { ...a, state: "stale", reason: STALE_TEXT[STALE.PLUGIN] + " (the directory is gone)" };
-  if (cmpVersion(a.dir.pkg, pkg) < 0) return { ...a, state: "stale", reason: STALE_TEXT[STALE.PLUGIN] + ` (directory at ${a.dir.pkg}, package at ${pkg})` };
+  if (cmpPrecedence(a.dir.pkg, pkg) < 0) return { ...a, state: "stale", reason: STALE_TEXT[STALE.PLUGIN] + ` (directory at ${a.dir.pkg}, package at ${pkg})` };
   if (a.dir.digestOk === false) return { ...a, state: "stale", reason: "edited by hand or half-written (the payload does not match the digest its manifest carries)" };
   if (a.contentDiffers === true) return { ...a, state: "stale", reason: STALE_TEXT[STALE.PLUGIN] + ` (same version ${pkg}, different content — the directory's digest is not this package's)` };
   if (!a.known || !a.registeredHere) return { ...a, state: "stale", reason: STALE_TEXT[STALE.CONFIG] + (a.known ? " (this checkout does not declare the marketplace)" : " (the host does not know the marketplace)") };
@@ -397,6 +397,9 @@ export function surfaceStates(projectDir, { home = homedir(), root = pluginRoot(
         writtenBy: a.writtenBy || null,
         newer: Boolean(a.newer),
         bin: a.bin,
+        // What this registration silenced for the checkout and the checkout
+        // still holds off: exactly the set uninstall re-enables (contract 13).
+        silenced: (a.dir?.disabled || []).filter((k) => (a.disabledHere || []).includes(k)),
       });
       states.push(row);
     }

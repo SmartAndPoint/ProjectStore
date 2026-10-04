@@ -304,9 +304,10 @@ test("Codex development build: cache-buster is deterministic, lives at both mani
 // the welcome, which was all the user saw. So the hooks run here from the
 // release shape (the core installed from its own pack), the way a host runs
 // them: a shell expands the placeholder, and every manifest's plugin-root
-// variable names the shell, because Codex sets Claude Code's too. `sh -c`, not
-// the `-lc` Codex uses, because a login shell would read the developer's
-// profile into the suite. SessionStart is not the only reader of the core's
+// variable names the shell, because Codex sets Claude Code's too. `sh -c` has
+// the form Codex 0.153.4 uses (`<session shell> -c`, read from its source; `-lc`
+// is only its fallback), and a login shell would read the developer's profile
+// into the suite. SessionStart is not the only reader of the core's
 // assets: PreCompact names the work in flight, and on the defect it dropped that
 // line with exit 0 and no error, so a write to a vault story and a compaction
 // are fired too.
