@@ -1,6 +1,6 @@
 # projectstore-codex
 
-The Codex installer for [ProjectStore](https://github.com/SmartAndPoint/ProjectStore). It ships a canonical portable `plugin.json`, rendered namespaced workflow skills, lifecycle hooks, and the ProjectStore core pinned at the exact same version and bundled inside the tarball.
+The Codex installer for [ProjectStore](https://github.com/SmartAndPoint/ProjectStore). It ships a Codex plugin manifest (`.codex-plugin/plugin.json`), rendered namespaced workflow skills, lifecycle hooks, and the ProjectStore core pinned at the exact same version and bundled inside the tarball.
 
 From a terminal in your project:
 
