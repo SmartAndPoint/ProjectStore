@@ -153,7 +153,6 @@
   "node_modules/projectstore/templates/zh/story.md.tmpl",
   "node_modules/projectstore/templates/zh/strings.json",
   "package.json",
-  "plugin.json",
   "skills/projectstore-adr/SKILL.md",
   "skills/projectstore-agents/SKILL.md",
   "skills/projectstore-archaeologist/SKILL.md",

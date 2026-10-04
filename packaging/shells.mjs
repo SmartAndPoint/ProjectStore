@@ -100,7 +100,7 @@ export async function harnessVerbs(root = ROOT) {
 // they never drift, the pin is exact and the core is bundled (the shells ADR
 // decision 2), the bin is the only code, and nothing else ships.
 export function renderShellPackageJson(shell, core) {
-  const pluginFiles = shell.harness === "codex" ? ["plugin.json", ".codex-plugin/", "skills/", "hooks/"] : [];
+  const pluginFiles = shell.harness === "codex" ? [".codex-plugin/", "skills/", "hooks/"] : [];
   const pkg = {
     name: shell.name,
     version: core.version,
@@ -140,9 +140,19 @@ function openAiInterface(core) {
   };
 }
 
+// One manifest, `.codex-plugin/plugin.json`, and no `hooks` key in it.
+// Codex picks a root Agent Plugins `plugin.json` before it and then loads no
+// hooks from that format at all. That is a runtime boundary from
+// openai/codex#37027, merged 2026-08-05: codex-rs/core-plugins/src/loader.rs
+// line 955 at rust-v0.153.4, lines 952-962 at rust-v0.160.0. So every shell
+// built with one, 0.28.1 on npm and the checkout builds since rc.3, reached
+// Codex with no hook loaded. With no `hooks` key, a legacy manifest falls back
+// to `hooks/hooks.json` (DEFAULT_HOOKS_CONFIG_FILE), which is where ours is.
+// Revisit if Codex starts running an Agent Plugin's hooks; the root manifest
+// would then be the better form again.
 export function renderCodexManifests(core) {
   const repository = typeof core.repository === "string" ? core.repository : core.repository?.url;
-  const identity = {
+  const manifest = {
     name: "projectstore",
     version: core.version,
     description: core.description,
@@ -151,21 +161,11 @@ export function renderCodexManifests(core) {
     repository,
     license: core.license,
     keywords: core.keywords,
-  };
-  const hooks = "./hooks/hooks.json";
-  const portable = {
-    $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-    ...identity,
-    extensions: { "com.openai": { hooks, interface: openAiInterface(core) } },
-  };
-  const compatibility = {
-    ...identity,
     skills: "./skills/",
     interface: openAiInterface(core),
   };
   return {
-    "plugin.json": JSON.stringify(portable, null, 2) + "\n",
-    ".codex-plugin/plugin.json": JSON.stringify(compatibility, null, 2) + "\n",
+    ".codex-plugin/plugin.json": JSON.stringify(manifest, null, 2) + "\n",
   };
 }
 
@@ -369,7 +369,7 @@ export function buildShell(name, { coreTgz, root = ROOT, out = null, scratch = m
     const digest = filesDigest(dst, pkg.files.map((f) => f.path).sort());
     const release = corePackage(root).version;
     devVersion = `${release}+codex.dev.${digest.sha256.slice(0, 12)}`;
-    for (const rel of ["plugin.json", ".codex-plugin/plugin.json"]) {
+    for (const rel of [".codex-plugin/plugin.json"]) {
       const p = join(dst, rel);
       const manifest = JSON.parse(readFileSync(p, "utf8"));
       manifest.version = devVersion;

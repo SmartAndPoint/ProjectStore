@@ -45,14 +45,15 @@ model names and those are harness-specific — is
 
 ## Codex
 
-Experimental, measured on `codex-cli 0.153.4`. The initial spike captured 759
+Experimental, measured on `codex-cli 0.153.4` and, for hook loading, 0.160.0.
+The initial spike captured 759
 hook firings. The 2026-09-30 gate then built the npm shell from a packed core,
 passed Codex's plugin validator, installed and upgraded it through an isolated
 `CODEX_HOME`, verified the materialised cache by version and digest, and loaded
 the `projectstore-status` skill in a fresh Codex session. The validator (the
 plugin-creator skill's `validate_plugin.py`) reads only
-`.codex-plugin/plugin.json`. The canonical root `plugin.json` was validated
-separately on 2026-10-04, against the schema it declares (Agent Plugins 1.0.0).
+`.codex-plugin/plugin.json`, which from 0.28.2 is the shell's only manifest
+(below).
 
 That run exercised one skill, not every installed surface, so `verified` stays
 `null`. The hooks are the reason it matters. On 2026-10-03 the first real
@@ -63,7 +64,8 @@ was all the user saw. The core had taken the shell's root for its own. That is
 fixed, and the suite now runs every rendered hook from the built shell. A live
 Codex session firing them from an installed release is still owed.
 
-How 0.153.4 starts a hook was read from its source, not measured: under the
+How 0.153.4 starts a hook was read from its source; on 0.160.0 it was seen
+once, with the hook's `$0` reading `/bin/zsh` and `node` found. Under the
 session's shell as `<shell> -c`, with the environment the Codex process had when
 it built the session's hooks. `$SHELL -lc` (or `/bin/sh -lc`) is the fallback
 when the hooks are built without exactly one ready local environment. So a hook
@@ -93,16 +95,27 @@ npx --package "./dist/projectstore-codex-$(node -p 'require("./package.json").ve
 
 What is known, and how:
 
-- **Hooks are rendered; their live firing from an installed release is not
-  yet observed.** The canonical portable `plugin.json` selects
-  `./hooks/hooks.json` through `extensions.com.openai`; the compatibility
-  `.codex-plugin/plugin.json` stays inside the current ingestion schema. Five
+- **Hooks load from Codex's default file, so the shell carries no root
+  `plugin.json`.** `.codex-plugin/plugin.json` is its only manifest and names
+  no hooks, so Codex falls back to `hooks/hooks.json`. 0.28.1, and every
+  build from a checkout since rc.3, also carried a root Agent Plugins
+  `plugin.json`, with the hooks under `extensions.com.openai`. Codex picks
+  that manifest first, and since openai/codex#37027 (merged 2026-08-05; in
+  `codex-cli` 0.153.4 and 0.160.0 alike) it loads no hooks from that format.
+  So no hook of ours loaded from those builds on any Codex measured here
+  (0.153.4, 0.160.0). On the maintainer's machine
+  on 2026-10-04, `/hooks` listed none of ours; with that file renamed away in
+  the installed cache, it listed all six, and the app server's `hooks/list`
+  gives 0 for 0.28.1's root and 6 for 0.28.2's. Five
   events: `SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`, `PreCompact`.
   Of the 759 captured firings, 757 came from the earlier inline form, across
   `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse` and `Stop`,
   and 2 from a file-site `hooks/hooks.json` with an absolute `node` path.
-  `PreCompact` has never been observed firing on Codex, and neither has the
-  `${PLUGIN_ROOT}` form selected through `extensions.com.openai`. The hook process
+  That live `codex-cli` 0.160.0 session ran on a hand-edited 0.28.1 cache, not
+  an installed release. Our SessionStart and PreCompact were observed in it. A
+  throwaway recorder saw PreToolUse, PostToolUse and Stop fire, but ours on
+  PostToolUse, matched to `apply_patch`, still awaits a write. SessionStart ran
+  on the session's first message, not when the window opened. The hook process
   receives `PLUGIN_ROOT` in its environment, naming the shell's root with the
   core beneath it in `node_modules/projectstore/`, and **no project-directory
   variable at all**. The project comes from the payload's `cwd`, which every

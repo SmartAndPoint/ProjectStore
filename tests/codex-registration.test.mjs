@@ -13,8 +13,9 @@ const CORE = fileURLToPath(new URL("..", import.meta.url));
 function fixture(version = "0.28.0+codex.dev.one") {
   const base = mkdtempSync(join(tmpdir(), "ps-codex-registration-"));
   const home = join(base, "home"), project = join(base, "project"), root = join(base, "shell"), bin = join(base, "bin");
-  for (const dir of [home, project, root, bin, join(root, "skills", "projectstore-status")]) mkdirSync(dir, { recursive: true });
-  writeFileSync(join(root, "plugin.json"), JSON.stringify({ name: "projectstore", version }) + "\n");
+  for (const dir of [home, project, root, bin, join(root, ".codex-plugin"), join(root, "skills", "projectstore-status")]) mkdirSync(dir, { recursive: true });
+  // The shipped shape from 0.28.2: one legacy manifest, no root plugin.json.
+  writeFileSync(join(root, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version }) + "\n");
   writeFileSync(join(root, "skills", "projectstore-status", "SKILL.md"), `---\nname: projectstore-status\n---\n${version}\n`);
   const codex = join(bin, "codex");
   writeFileSync(codex, "#!/bin/sh\nexit 0\n"); chmodSync(codex, 0o755);
@@ -33,7 +34,7 @@ function fakeCodex(f, { fail = null } = {}) {
       writeFileSync(config, text);
     } else if (op === "plugin add projectstore@projectstore-npx") {
       const payload = join(f.home, "projectstore", "marketplace", "plugins", "projectstore");
-      const version = JSON.parse(readFileSync(join(payload, "plugin.json"), "utf8")).version;
+      const version = JSON.parse(readFileSync(join(payload, ".codex-plugin", "plugin.json"), "utf8")).version;
       const cache = join(f.home, "plugins", "cache", "projectstore-npx", "projectstore", version);
       mkdirSync(cache, { recursive: true }); cpSync(payload, cache, { recursive: true });
       if (!text.includes('[plugins."projectstore@projectstore-npx"]')) text += `\n[plugins."projectstore@projectstore-npx"]\nenabled = true\n`;
@@ -178,7 +179,7 @@ test("Codex portable registration: a failed refresh restores the prior stable so
   apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) });
   const ownership = join(f.home, "projectstore", "marketplace", ".projectstore-registration.json");
   const before = readFileSync(ownership, "utf8");
-  writeFileSync(join(f.root, "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.28.0+codex.dev.two" }) + "\n");
+  writeFileSync(join(f.root, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.28.0+codex.dev.two" }) + "\n");
   const p = plan(f.project, opts(f));
   assert.equal(registration(p).action, "update");
   const result = apply(p, { env: f.env, home: f.home, spawn: fakeCodex(f, { fail: "plugin add" }) });
@@ -191,7 +192,7 @@ test("Codex portable registration: a failed refresh restores the prior stable so
 test("Codex portable registration: a partially mutating failed refresh becomes recovery-required", () => {
   const f = fixture();
   apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) });
-  writeFileSync(join(f.root, "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.28.0+codex.dev.two" }) + "\n");
+  writeFileSync(join(f.root, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.28.0+codex.dev.two" }) + "\n");
   const base = fakeCodex(f);
   const partial = (bin, argv) => {
     const r = base(bin, argv);

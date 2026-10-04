@@ -97,8 +97,8 @@ npx projectstore-claude install --project "$PWD"
 The same tree is published to npm as [`projectstore`](https://www.npmjs.com/package/projectstore) — one source package carrying every harness's manifest — and `projectstore-claude` is its Claude Code shell: the core pinned at the same version and bundled inside, the harness fixed, so the one command has the same shape on every harness. It registers the plugin with Claude Code: it writes a small local marketplace of its own under your Claude home, then drives `claude plugin marketplace add` / `plugin install` **at local scope**, so the registration lands in this checkout's `.claude/settings.local.json` and nowhere else. Every host command is printed before it runs; naming the harness is the confirmation. Restart Claude Code afterwards. A git-marketplace copy already enabled for the checkout is silenced there (not globally) so the plugin does not load twice; `uninstall` turns it back on. Pin or upgrade with `npx projectstore-claude@<version> upgrade --project "$PWD"` — the version you name is the version you run. The core's low-level form, `npx projectstore <verb> --harness claude-code …`, is exactly what the shell runs. bun works the same on the packed bin.
 
 **Codex has its own shell with the same one-command shape:**
-`npx projectstore-codex install --project "$PWD"`. It carries a canonical
-portable manifest, namespaced workflow and role skills, lifecycle hooks, and
+`npx projectstore-codex install --project "$PWD"`. It carries a Codex
+plugin manifest, namespaced workflow and role skills, lifecycle hooks, and
 the exact bundled core. It stages a stable marketplace under `CODEX_HOME`,
 drives `codex plugin marketplace add` and `codex plugin add`, then reads the
 installation back and verifies its version and payload digest. Restart Codex,

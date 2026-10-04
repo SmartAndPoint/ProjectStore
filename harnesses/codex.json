@@ -1,5 +1,5 @@
 {
-  "_comment": "Harness capability manifest — Codex. The committed adapters/codex tree renders the source commands, roles, passive skills and hooks into Codex vocabulary. Measurements began with 759 captured hook firings on 2026-09-07/08; the complete built shell, isolated marketplace install, upgrade, validator and fresh-session skill load passed on codex-cli 0.153.4 on 2026-09-30. The validator reads only .codex-plugin/plugin.json; the canonical root plugin.json was validated separately on 2026-10-04 against the schema it declares (Agent Plugins 1.0.0).",
+  "_comment": "Harness capability manifest — Codex. The committed adapters/codex tree renders the source commands, roles, passive skills and hooks into Codex vocabulary. Measurements began with 759 captured hook firings on 2026-09-07/08; the complete built shell, isolated marketplace install, upgrade, validator and fresh-session skill load passed on codex-cli 0.153.4 on 2026-09-30. The validator reads only .codex-plugin/plugin.json, which from 0.28.2 is the shell's one manifest: Codex picks a root Agent Plugins plugin.json first and has loaded no hooks from that format since openai/codex#37027 (merged 2026-08-05).",
   "id": "codex",
   "display_name": "Codex",
   "emit": true,
@@ -54,7 +54,7 @@
   },
   "hooks": {
     "config_file": "hooks/hooks.json",
-    "config_file_reason": "The canonical portable plugin.json selects ./hooks/hooks.json under extensions.com.openai; the compatibility manifest selects the same root-relative file. This keeps one rendered hook definition for both loaders. The legacy inline form fired 757 events across five event types; the file-selected portable form is gated by the compatibility matrix and fresh-session run.",
+    "config_file_reason": "Codex's default hooks file. A legacy .codex-plugin/plugin.json with no `hooks` key falls back to hooks/hooks.json (DEFAULT_HOOKS_CONFIG_FILE in codex-rs/core-plugins/src/loader.rs at rust-v0.160.0), so the manifest names no hooks at all. The shell ships no root Agent Plugins plugin.json. Codex picks that manifest first and then loads no hooks from it, a runtime boundary since openai/codex#37027 (loader.rs:955 at rust-v0.153.4, 952-962 at rust-v0.160.0). With one, the maintainer's codex-cli 0.160.0 listed none of ours in /hooks on 2026-10-04; with the file renamed away in the installed cache, it listed all six. The app-server's hooks/list agrees: 0 for 0.28.1's root, 6 for 0.28.2's. The spike's inline form fired 757 events across five event types.",
     "events": {
       "SessionStart": "SessionStart",
       "PreToolUse": "PreToolUse",
@@ -192,7 +192,7 @@
       "supported": true,
       "kind": "host",
       "scope": "user",
-      "scope_reason": "Selected by canonical plugin.json and the compatibility manifest, then loaded with the plugin; trust is granted per hook, machine-wide, and cannot be silenced per checkout."
+      "scope_reason": "Loaded with the plugin from its default hooks/hooks.json, which .codex-plugin/plugin.json leaves to Codex by naming no hooks; trust is granted per hook, machine-wide, and cannot be silenced per checkout."
     },
     "mcp": {
       "supported": false,

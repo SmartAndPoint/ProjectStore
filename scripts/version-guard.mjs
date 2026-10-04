@@ -68,10 +68,16 @@ export function collectShells(root = ROOT) {
     if (typeof json.version !== "string" || !json.version) return { error: `${rel}: no version found where one is required` };
     const pluginVersions = [];
     if (name === "projectstore-codex") {
-      for (const manifest of ["plugin.json", ".codex-plugin/plugin.json"]) {
+      // A root plugin.json is an Agent Plugins manifest Codex picks first, and
+      // Codex loads no hooks from that format (openai/codex#37027, merged
+      // 2026-08-05): every hook goes missing.
+      if (existsSync(resolve(root, SHELLS_DIR, name, "plugin.json"))) {
+        return { error: `${SHELLS_DIR}/${name}/plugin.json: refused — Codex picks a root Agent Plugins manifest first and loads no hooks from it (openai/codex#37027; codex-rs/core-plugins/src/loader.rs); the shell's manifest is .codex-plugin/plugin.json alone` };
+      }
+      for (const manifest of [".codex-plugin/plugin.json"]) {
         const manifestRel = `${SHELLS_DIR}/${name}/${manifest}`;
         const manifestAbs = resolve(root, manifestRel);
-        if (!existsSync(manifestAbs)) return { error: `${manifestRel}: missing — the Codex shell carries both canonical and compatibility manifests` };
+        if (!existsSync(manifestAbs)) return { error: `${manifestRel}: missing — the Codex shell's one manifest` };
         let parsed;
         try { parsed = JSON.parse(readFileSync(manifestAbs, "utf8")); } catch (e) { return { error: `${manifestRel}: ${e.message}` }; }
         if (typeof parsed.version !== "string" || !parsed.version) return { error: `${manifestRel}: no version found where one is required` };
