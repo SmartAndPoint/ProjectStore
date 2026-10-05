@@ -75,6 +75,7 @@
   "node_modules/projectstore/scripts/statusline.mjs",
   "node_modules/projectstore/scripts/story-section.mjs",
   "node_modules/projectstore/scripts/surfaces.mjs",
+  "node_modules/projectstore/scripts/term.mjs",
   "node_modules/projectstore/scripts/tokens.mjs",
   "node_modules/projectstore/scripts/touch-session.mjs",
   "node_modules/projectstore/scripts/version-guard.mjs",

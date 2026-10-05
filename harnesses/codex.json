@@ -298,6 +298,10 @@
       "restart Codex and approve the ProjectStore hooks when prompted",
       "run `$projectstore-bind <vault-path>` in Codex"
     ],
+    "next": [
+      "restart Codex from a terminal and approve the ProjectStore hooks when it asks",
+      "in an unbound project, run `$projectstore-bind <vault-path>` in Codex"
+    ],
     "notes": [
       "The installation is user-global because Codex's marketplace, plugin row and cache live in CODEX_HOME; the AGENTS.md block is project-local.",
       "Upgrade with `npx projectstore-codex@<version> upgrade --project \"$PWD\"`; the named package version is also the plugin version.",

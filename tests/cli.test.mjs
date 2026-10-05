@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject } from "../scripts/cli.mjs";
-import { loadHarness, sourceHarness } from "../scripts/harness.mjs";
+import { loadHarness, sourceHarness, harnessIds } from "../scripts/harness.mjs";
 import { layoutPaths } from "../scripts/lib.mjs";
 import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
 import { neighbors as neighborsOp, LINEAGE_KINDS } from "../scripts/query.mjs";
@@ -34,6 +34,10 @@ function bin(args, { cwd = ROOT, env = {} } = {}) {
   const e = { ...process.env };
   delete e[SRC.runtime.project_dir_env];
   delete e.PROJECTSTORE_PROJECT_DIR;
+  // The test runner forces colour into its children when it reports to a
+  // terminal; text assertions read the plain layout unless a test asks.
+  delete e.FORCE_COLOR;
+  delete e.PROJECTSTORE_SHELL;
   Object.assign(e, env);
   for (const k of Object.keys(e)) if (e[k] === undefined) delete e[k];
   return spawnSync(process.execPath, [BIN, ...args], { encoding: "utf8", cwd, env: e, timeout: 60000, maxBuffer: 1 << 24 });
@@ -123,6 +127,44 @@ test("cli: --version equals package.json, help lists every verb, an unknown verb
   assert.equal(badOpt.status, 2);
 });
 
+test("cli: <verb> --help prints the verb's options and examples, a shell's name replaces the core's, and a near miss is named", () => {
+  for (const v of VERBS) {
+    const h = bin([v.verb, "--help"]);
+    assert.equal(h.status, 0, v.verb);
+    assert.ok(h.stdout.startsWith(`npx projectstore ${v.verb} — `), h.stdout.split("\n")[0]);
+    for (const o of v.options) assert.ok(h.stdout.includes(`--${o.name}`), `${v.verb} --help names --${o.name}`);
+  }
+  const install = bin(["install", "--help"]).stdout;
+  assert.match(install, /\nExamples\n {2}npx projectstore install --harness <id>\n/);
+  // The ids come from the manifests, never from the help's own text (a Codex user reads it too).
+  assert.ok(install.includes(`\nHarnesses   ${harnessIds().join(", ")}\n`), install);
+  const core = bin(["--help"]).stdout;
+  assert.match(core, /Unattended in a terminal .*--json.*CI=1.*<\/dev\/null/);
+  // Through a shell, agents --help offers no --harness either: the shell inserts it.
+  const agents = bin(["agents", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
+  assert.ok(!agents.includes("--harness"), agents);
+  assert.match(agents, /npx projectstore-codex agents show/, "the read examples use the shell's name too");
+  // Through a shell the harness is fixed: the examples drop it, and so does the option list.
+  const shell = bin(["upgrade", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
+  assert.ok(shell.startsWith("npx projectstore-codex upgrade — "), shell);
+  assert.ok(!shell.includes("--harness"), "a shell's harness is not an option");
+  assert.match(shell, /npx projectstore-codex@<version> upgrade +# the version you name is the version that runs/);
+  const top = bin(["--help"], { env: { PROJECTSTORE_SHELL: "projectstore-claude" } }).stdout;
+  assert.match(top, /Usage\n {2}npx projectstore-claude <verb> \[options\]/);
+  for (const g of ["Set up", "Read", "Check and repair", "Serve", "Every verb", "Tips"]) assert.ok(top.includes(`\n${g}\n`), g);
+  // Near misses: a verb, an option of the verb, an option before any verb.
+  const verb = bin(["instal"]);
+  assert.equal(verb.status, 2);
+  assert.match(verb.stderr, /^unknown verb: instal — did you mean install\?/);
+  const opt = bin(["install", "--verbos"]);
+  assert.equal(opt.status, 2);
+  assert.match(opt.stderr, /^install does not take --verbos — did you mean --verbose\?/);
+  const stray = bin(["status", "--surfac", "x"]);
+  assert.equal(stray.status, 2);
+  assert.match(stray.stderr, /status does not take --surfac/);
+  assert.ok(!bin(["frobnicate"]).stderr.includes("did you mean"), "nothing near is suggested when nothing is near");
+});
+
 test("cli: doctor through the bin equals the bare script's findings, inside the envelope; exit 1 on issues", () => {
   const proj = project({ bound: false });
   const viaBin = bin(["doctor", "--json", "--project", proj]);
@@ -189,7 +231,7 @@ test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses
   const env = { HOME: home, [SRC.runtime.plugin_root_env]: ROOT, PATH: "", ...Object.fromEntries((SRC.runtime.detect_env || []).map((k) => [k, undefined])) };
   const bare = bin(["install", "--project", proj], { env });
   assert.equal(bare.status, 1, bare.stderr);
-  assert.match(bare.stdout, /non-TTY refuses/);
+  assert.match(bare.stdout, /Nothing written: without a terminal, a bare install refuses/);
   assert.ok(bare.stdout.includes("CLAUDE.md"), "the preview precedes the refusal");
   assert.equal(readFileSync(join(proj, "CLAUDE.md"), "utf8"), "# Mine\n");
   const nowhere = bin(["doctor", "--json", "--project", "/nonexistent/project"]);
@@ -254,17 +296,25 @@ test("cli: Codex plan/install preserve pathless rows and semantics in text and J
   assert.deepEqual(installItems, planItems, "output selection and verb preserve the fresh-state plan");
   const pathless = planItems.filter((item) => item.path === null);
   assert.ok(pathless.length > 0, "the public Codex plan exercises pathless host rows");
+  // The default folds them into one line naming the harness, each surface,
+  // the state and the action; --verbose lists each, marked as pathless.
+  const verbose = bin(["plan", "--project", planText.proj, "--harness", codex.id, "--verbose"], { env: { [codex.runtime.home_env]: mkdtempSync(join(tmpdir(), "ps-codex-home-")), PATH: "", ...Object.fromEntries((codex.runtime.detect_env || []).map((key) => [key, undefined])) } });
+  assert.equal(verbose.status, 0, verbose.stderr);
   for (const item of pathless) {
     for (const text of [planText.result.stdout, installText.result.stdout]) {
-      assert.ok(text.includes(`harness=${item.harness}`), `text names ${item.harness}`);
-      assert.ok(text.includes(`surface=${item.surface}`), `text names ${item.surface}`);
-      assert.ok(text.includes("[no filesystem path]"), "text marks the absent target explicitly");
+      const folded = text.split("\n").find((l) => l.includes(`not on ${codex.display_name}:`));
+      assert.ok(folded, `text names ${codex.display_name}'s unsupported rows`);
+      assert.ok(folded.includes(item.surface), `text names ${item.surface}`);
+      assert.match(folded, /unsupported → skip/);
     }
+    assert.ok(verbose.stdout.includes(`${item.surface} [${item.harness}, no filesystem path]`), `--verbose marks ${item.surface} as having no filesystem path`);
   }
 
   assert.equal(installJson.output.result.gate.why, "named");
   assert.equal(installJson.output.result.applied.length, 1);
-  assert.match(installText.result.stdout, /applied 1 change\(s\)\./);
+  assert.match(installText.result.stdout, /\nAPPLY\n {2}✓ shared +AGENTS\.md \[projectstore:agents v\d+\] +\d/);
+  assert.match(installText.result.stdout, /\nDONE — 1 change in \d/);
+  for (const s of codex.install.next) assert.ok(installText.result.stdout.includes(`next  ${s}`), `DONE names the manifest's next step: ${s}`);
   assert.equal(
     readFileSync(join(installText.proj, "AGENTS.md"), "utf8"),
     readFileSync(join(installJson.proj, "AGENTS.md"), "utf8"),

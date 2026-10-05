@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { seedCliVault } from "./fixtures/vault.mjs";
 import { noHostEnv } from "./fixtures/install.mjs";
-import { sourceHarness, packageCommand, loadHarness, loadHarnesses } from "../scripts/harness.mjs";
+import { sourceHarness, packageCommand, loadHarness, loadHarnesses, harnessIds } from "../scripts/harness.mjs";
 import { VERBS } from "../scripts/cli.mjs";
 import { checkVersions, collectShells, PACKLIST } from "../scripts/version-guard.mjs";
 import { checkPluginRegistration, checkLayout } from "../scripts/doctor.mjs";
@@ -113,6 +113,15 @@ test("shells contract 10: the roster is rendered and committed — package.json 
   assert.equal(m.install.shell, CLAUDE.name);
   assert.equal(shellFor(SRC.id), CLAUDE);
   assert.ok(m.install.steps[0].startsWith(`npx ${CLAUDE.name} install --project`), "the first install step is the shell");
+  // DONE's next steps are manifest data (install spec, contract 18): every
+  // manifest with a shell says what its user does after an install.
+  for (const id of harnessIds()) {
+    const h = readJson(join(ROOT, "harnesses", `${id}.json`));
+    if (!h.install?.shell) continue;
+    assert.ok(Array.isArray(h.install.next) && h.install.next.length > 0 && h.install.next.every((s) => typeof s === "string" && s.trim()), `${id}: install.next is a non-empty list of steps`);
+  }
+  // The bin tells the core which shell ran it — for --help only.
+  assert.ok(read(join(shellDir(CLAUDE.name), "bin", `${CLAUDE.name}.mjs`)).includes("PROJECTSTORE_SHELL: SHELL"), "the committed bin names itself to the core");
 });
 
 test("shells contract 10: the bin execs the bundled core with --harness fixed after a verb that takes it; everything else passes through; the exit code is the core's", () => {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, cpSync, chmodSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { plan, apply, publicItem } from "../scripts/install-harness.mjs";
+import { plan, apply, publicItem, renderPreview, runVerb } from "../scripts/install-harness.mjs";
 import { surfaceStates } from "../scripts/surfaces.mjs";
 import { checkHarnessSurfaces, checkPluginRegistration } from "../scripts/doctor.mjs";
 import { fileURLToPath } from "node:url";
@@ -96,10 +96,37 @@ test("Codex portable registration: every host step that rewrites the global conf
   assert.ok(touches(create, "install").includes(config), "plugin add writes the enablement stanza");
   assert.ok(touches(create, "install").includes(join(f.home, "plugins", "cache")), "and still materialises the cache");
   assert.deepEqual(touches(create, "list"), [], "the read-back touches nothing");
+  // …and the default preview says so in its text, beneath each $ line (contract 18 keeps it out of --verbose).
+  const text = renderPreview(create);
+  for (const name of ["marketplace_add", "install"]) {
+    const st = registration(create).steps.find((s) => s.kind === "host" && s.name === name);
+    const at = text.indexOf(`$ ${[st.bin, ...st.argv].join(" ")}`);
+    assert.ok(at >= 0, `${name}: its argv is shown`);
+    assert.ok(text.slice(at).split("\n")[1].includes(`touches ${st.touches.join(", ")}`), `${name}: what it touches is the next line`);
+  }
   apply(create, { env: f.env, home: f.home, spawn: fakeCodex(f) });
   const global = plan(f.project, opts(f, { mode: "uninstall", globalRemoval: true }));
   assert.ok(touches(global, "uninstall").includes(config), "plugin remove drops the enablement stanza");
   assert.ok(touches(global, "marketplace_remove").includes(config), "marketplace remove drops the marketplace stanza");
+});
+
+// Contract 18: APPLY names every step of the registration as it runs — the
+// staging write and each host command — beneath the registration's own line,
+// and DONE follows. A named run without a terminal is never asked.
+test("Codex portable registration: APPLY reports the staging write and each host command, then DONE", async () => {
+  const f = fixture();
+  const chunks = [];
+  const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+  const r = await runVerb("install", f.project, { ...opts(f), spawn: fakeCodex(f), out });
+  assert.equal(r.gate.why, "named");
+  assert.equal(r.failed, null, JSON.stringify(r.failed));
+  const text = chunks.join("");
+  const apply_ = text.slice(text.indexOf("\nAPPLY\n"));
+  assert.match(apply_, /\n {2}\+ registration .+\n {6}✓ stage \S+ +\d/, apply_);
+  for (const st of registration(r.plan).steps.filter((s) => s.kind === "host")) {
+    assert.match(apply_, new RegExp(`\\n {6}✓ \\$ ${[st.bin, ...st.argv].join(" ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} +\\d`), `${st.name} has its APPLY line`);
+  }
+  assert.match(text, /\nDONE — 1 change in \d/);
 });
 
 test("Codex portable registration: the public envelope drops the staged payload's bodies, root and listing, and keeps its count", () => {

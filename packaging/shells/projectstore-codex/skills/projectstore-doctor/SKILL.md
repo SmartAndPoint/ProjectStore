@@ -28,6 +28,8 @@ arguments and `--json`. Summarize every finding without re-deriving it.
 When `--fix` is absent, remain read-only. When it is present, separate fixes
 by owner: derived vault views use `$projectstore-reconcile`; Codex plugin or
 agents-block drift uses the core's `upgrade --harness codex` path. Preview
-each mutation and ask for explicit approval before running it. Unsupported
+each mutation with `plan --harness codex` and ask for explicit approval before
+running it; then run `upgrade --harness codex --json`, whose envelope is the
+result — `--json` never waits on a terminal's question. Unsupported
 surfaces remain unsupported; do not create host configuration by hand. Never
 claim a fix after a non-zero exit.

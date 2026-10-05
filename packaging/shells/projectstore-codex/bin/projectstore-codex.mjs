@@ -8,8 +8,10 @@
 // `--harness codex` inserted after a verb that takes it. Every other
 // argument passes through, so `projectstore-codex <verb> …` is exactly
 // `projectstore <verb> --harness codex …` — the same preview, the
-// same files, the same exit code. Naming the shell is the confirmation the
-// core's install gate asks for, exactly as naming --harness is.
+// same files, the same exit code. Naming the shell names the harness, exactly
+// as --harness does: without a terminal that is the confirmation the core's
+// install gate asks for; at a terminal the core shows the plan and asks (the
+// install spec, contract 9 as amended 2026-10-04).
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { constants as osConstants } from "node:os";
@@ -72,17 +74,20 @@ if (!core) {
     process.stderr.write(`${SHELL}: ${fixed.error}\n`);
     process.exitCode = 2;
   } else {
-    // stdio inherited: the core's install gate asks on a terminal and refuses
-    // without one, so the child must see the real stdin and stdout. No
-    // timeout — the child waits on a human at the preview. exitCode, not
-    // exit(): the core's own bin says why (a pending write on a pipe).
+    // stdio inherited: the core's install gate shows the plan and asks on a
+    // terminal, and refuses a bare run without one, so the child must see the
+    // real stdin and stdout. No timeout — the child waits on a human at the
+    // question. exitCode, not exit(): the core's own bin says why (a pending
+    // write on a pipe). PROJECTSTORE_SHELL lets the core's --help speak this
+    // shell's name; nothing the core plans or writes reads it.
     const r = spawnSync(process.execPath, [core, ...fixed.argv], {
       stdio: "inherit",
-      env: { ...process.env, PROJECTSTORE_DISTRIBUTION_ROOT: root },
+      env: { ...process.env, PROJECTSTORE_DISTRIBUTION_ROOT: root, PROJECTSTORE_SHELL: SHELL },
     });
     if (r.error) process.stderr.write(`${SHELL}: ${r.error.message}\n`);
-    // A signal is relayed the shell way (128 + its number): Ctrl-C at the
-    // preview is 130 here as it would be on the core itself.
+    // A signal is relayed the shell way (128 + its number): the core reads
+    // its answer in the terminal's line mode, so Ctrl-C at the question is a
+    // real SIGINT — 130 here as it would be on the core itself.
     process.exitCode = r.status ?? (r.signal ? 128 + (osConstants.signals[r.signal] || 0) : 2);
   }
 }
