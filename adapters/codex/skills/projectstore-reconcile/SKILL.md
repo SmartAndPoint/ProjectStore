@@ -56,7 +56,7 @@ You are reconciling the vault's derived views with their source of truth (frontm
 5a. **Delegate the apply — enumerated case: two or more targets** (ADR "Artifact
    content is authored by the context-holder, the write ceremony by a clerk").
    When the approved set contains two or more targets, hand steps 6-7 to
-   `projectstore:clerk`: pass the exact selector list from step 4's preview and
+   `$projectstore-clerk`: pass the exact selector list from step 4's preview and
    the expectation that doctor ends clean. **Model (ADR-008)**: resolve
    the model with `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model clerk --json --project "$PWD"` and pass `result.model` as the spawn's model parameter (`null` → pass nothing);
    missing key, `inherit`, or unreadable config → pass nothing and let the

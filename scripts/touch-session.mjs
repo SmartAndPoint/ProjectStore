@@ -71,6 +71,8 @@ import {
   sessionNameOffer,
   sessionNameOfferText,
   toolPaths,
+  commandForm,
+  speakingHarness,
 } from "./lib.mjs";
 
 const NUDGE_INTERVAL_MS = 10 * 60 * 1000;
@@ -96,6 +98,9 @@ function anchorOffer(cfg, proj, sid, filePath, toolName, isSubagent, sessionsDir
   // this session id and cannot accept a name — must not vote on one.
   if (!isWriteTool(toolName || "")) return null;
   if (isSubagent) return null;
+  // A harness with no way to rename a session gets no offer, and so keeps no
+  // tally and logs nothing for one (generation spec, contract 18).
+  if (!speakingHarness()?.capabilities?.session_rename) return null;
 
   const rel = filePath.slice(cfg.vault_path.length + 1);
   let hit = null;
@@ -191,7 +196,7 @@ function updatePointerAndNudge(cfg, proj, sid, filePath, toolName) {
     const last = st && st.nudged_at ? Date.parse(st.nudged_at) : 0;
     if (Date.now() - last > NUDGE_INTERVAL_MS) {
       nudge =
-        "projectstore: vault file edited directly — if this bypassed a /projectstore:* command, run /projectstore:reconcile (or doctor) afterwards so the board/indexes stay in sync.";
+        `projectstore: vault file edited directly — if this bypassed a ${commandForm("*")} command, run ${commandForm("reconcile")} (or doctor) afterwards so the board/indexes stay in sync.`;
       patch = { ...(patch || {}), nudged_at: new Date().toISOString() };
     }
   }

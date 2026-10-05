@@ -900,3 +900,168 @@ test(".mcp.json's placeholders are the manifest's, and it launches this package'
   assert.ok(mcp.scope_reason.includes("amended 2026-09-05"));
   assert.ok(!mcp.scope_reason.includes("contract 14"), "the install spec's contract 0 classifies surfaces; 14 is upgrade");
 });
+
+// ─── Generation spec, contract 18: what the core prints, on every harness ──
+//
+// Invariant two keeps a foreign vocabulary out of the generated tree; these
+// keep it out of what the core prints. Layer 1 refuses any literal in any
+// manifest's invocation form in the runtime code — so a message cannot name
+// `/projectstore:doctor` to a Codex user. Layer 2 resolves every name the
+// messages use on every harness — so renaming or removing a command on one
+// harness fails here, naming the message and the harness it would break.
+// Layer 3 (tests/vocabulary.test.mjs) runs the hooks and doctor under each.
+
+test("contract 18, layer 1: no runtime file carries a literal in any manifest's invocation form", async () => {
+  const v = await import("./fixtures/vocabulary.mjs");
+  const files = v.runtimeFiles(ROOT);
+  assert.ok(files.includes("hooks/session-start.mjs") && files.includes("scripts/doctor.mjs") && !files.includes("scripts/build-adapters.mjs"));
+  const pats = v.invocationPatterns(ROOT);
+  assert.ok(pats.length >= 4, "a pattern per harness per kind with a template");
+  assert.ok(pats.every((p) => /projectstore/.test(p.prefix)), "never a bare `$` or `/` prefix");
+  for (const e of v.exemptions()) assert.ok(e.why && e.why.length > 10, `exemption ${e.phrase} carries its why`);
+  const hits = v.scanLiterals(ROOT, files);
+  assert.deepEqual(hits.map((h) => `${h.file}:${h.line} ${h.text} (${h.harness} ${h.kind} form)`), [], "route these through commandForm/roleForm (scripts/lib.mjs)");
+
+  // Planted: each must fail, naming the file and the line.
+  const planted = {
+    "scripts/planted-a.mjs": 'const a = 1;\nconst msg = "run /projectstore:doctor";\n',
+    "scripts/planted-b.mjs": 'const msg = `run $projectstore-doctor`;\n',
+    "scripts/planted-c.mjs": 'const msg = "spawn projectstore:critic";\n',
+    "scripts/planted-d.mjs": 'const msg = `close <!-- /projectstore:agents --> then /projectstore:agents register`;\n',
+    "scripts/planted-e.mjs": 'const msg = `/projectstore:${name}`;\n',
+  };
+  const found = v.scanLiterals(ROOT, Object.keys(planted), { read: (f) => planted[f] });
+  const at = (f) => found.filter((h) => h.file === f).map((h) => `${h.line}:${h.text}`);
+  assert.deepEqual(at("scripts/planted-a.mjs"), ["2:/projectstore:doctor"]);
+  assert.deepEqual(at("scripts/planted-b.mjs"), ["1:$projectstore-doctor"]);
+  assert.deepEqual(at("scripts/planted-c.mjs"), ["1:projectstore:critic"]);
+  assert.deepEqual(at("scripts/planted-d.mjs"), ["1:/projectstore:agents"], "the marker is exempt, the command beside it is not");
+  assert.deepEqual(at("scripts/planted-e.mjs"), ["1:/projectstore:${"], "an interpolated name is still a literal form");
+});
+
+test("contract 18, layer 2: every name a message uses exists in the source and on every emitting harness", async () => {
+  const v = await import("./fixtures/vocabulary.mjs");
+  const calls = v.helperCalls(ROOT, v.runtimeFiles(ROOT));
+  assert.ok(calls.length >= 40, `the messages go through the helpers (${calls.length} calls)`);
+  assert.deepEqual(v.unresolved(ROOT, calls).map((u) => `${u.file}:${u.line} ${u.name} — ${u.why}`), []);
+
+  // Planted: a name with no source command; a source command whose rendered
+  // skill is missing from an emitting harness's tree; a name the lint cannot read.
+  const planted = { "scripts/planted.mjs": 'const a = commandForm("frobnicate");\nconst b = commandForm("doctor");\nconst c = commandForm(verb);\n' };
+  const pcalls = v.helperCalls(ROOT, Object.keys(planted), { read: (f) => planted[f] });
+  const missingSkill = (p) => !(p.includes("skills/projectstore-doctor/")) && (() => { try { readFileSync(join(ROOT, p)); return true; } catch { return false; } })();
+  const out = v.unresolved(ROOT, pcalls, { exists: missingSkill }).map((u) => `${u.line} ${u.name} ${u.harness}: ${u.why}`);
+  assert.ok(out.some((l) => /^1 frobnicate claude-code: no commands\/frobnicate\.md/.test(l)), out.join("\n"));
+  assert.ok(out.some((l) => /^2 doctor codex: \$projectstore-doctor has no adapters\/codex\/skills\/projectstore-doctor\/SKILL\.md/.test(l)), out.join("\n"));
+  assert.ok(out.some((l) => /^3 null null: the name is not a string literal/.test(l)), out.join("\n"));
+
+  // A direct invocation(harness, "<name>") in a file that imports the helper
+  // is held to the same rule; a file's own function of that name is not.
+  const direct = {
+    "scripts/planted-direct.mjs": 'import { invocation } from "./harness.mjs";\nconst d = invocation(h, "frobnicate", { args: "x" });\nconst e = invocation(h, name);\n',
+    "scripts/planted-own.mjs": 'function invocation(env) { return env; }\nconst f = invocation(env);\n',
+  };
+  const dcalls = v.helperCalls(ROOT, Object.keys(direct), { read: (f) => direct[f] });
+  assert.deepEqual(dcalls.map((c) => `${c.file}:${c.line} ${c.name}`), ["scripts/planted-direct.mjs:2 frobnicate", "scripts/planted-direct.mjs:3 null"]);
+});
+
+test("contract 18, layer 2 for the rendered tree: every skill a rendered surface names exists in that tree", async () => {
+  const { invocationPatterns } = await import("./fixtures/vocabulary.mjs");
+  for (const m of [...manifests()].filter((x) => x.emit && !x.source_layout)) {
+    const base = join(ROOT, m.output_dir);
+    const skills = new Set(readdirSync(join(base, "skills"), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name));
+    const files = [];
+    const walk = (dir) => { for (const e of readdirSync(dir, { withFileTypes: true })) { const p = join(dir, e.name); if (e.isDirectory()) walk(p); else if (/\.(md|json|ya?ml)$/.test(e.name)) files.push(p); } };
+    walk(base);
+    // The target's own command form, any name: `$projectstore-<anything>`.
+    const own = invocationPatterns(ROOT).find((p) => p.harness === m.id && p.kind === "commands");
+    assert.ok(own, `${m.id} has a command form`);
+    const any = new RegExp(own.prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "([a-z0-9][a-z0-9-]*)", "g");
+    const rendered = m.surfaces.commands.rendered_name;
+    const dead = [];
+    for (const file of files) {
+      for (const hit of readFileSync(file, "utf8").matchAll(any)) {
+        const skill = rendered.split("<name>").join(hit[1]);
+        if (!skills.has(skill)) dead.push(`${file.slice(ROOT.length + 1)}: ${hit[0]} names no skills/${skill}/`);
+      }
+    }
+    assert.deepEqual(dead, [], `${m.id}: a rendered surface names a skill its tree does not have`);
+  }
+});
+
+test("contract 18: the manifests' message fields have their shape and their reasons", () => {
+  const src = sourceHarness();
+  assert.ok(Array.isArray(src.ui_vocabulary) && src.ui_vocabulary.every((w) => typeof w === "string" && w) && src.ui_vocabulary_reason, "the source harness's UI words, with a reason");
+  for (const m of manifests()) {
+    if (m.install?.shell) {
+      assert.ok(m.update_hint && typeof m.update_hint.line === "string" && Array.isArray(m.update_hint.welcome) && m.update_hint.reason, `${m.id}: update_hint { line, welcome, reason }`);
+    }
+    for (const key of ["session_rename", "bind_inherit"]) {
+      assert.ok(key in (m.capabilities || {}), `${m.id}: capabilities.${key} is stated, even as null or false`);
+      assert.ok(m.capabilities[`${key}_reason`], `${m.id}: capabilities.${key}_reason`);
+    }
+    if (m.capabilities.session_rename) assert.ok(m.capabilities.session_rename.includes("<name>"), `${m.id}: session_rename fills <name>`);
+    for (const kind of ["commands", "agents"]) {
+      const s = m.surfaces?.[kind] || {};
+      if (s.rendered_as === "skill") {
+        assert.ok(s.rendered_name && s.rendered_name.includes("<name>") && s.rendered_reason, `${m.id}: surfaces.${kind}.rendered_name fills <name>, with a reason`);
+        assert.ok(m.surfaces?.skills?.invocation?.includes("<name>"), `${m.id}: a rendered surface needs the skills' invocation`);
+      }
+    }
+  }
+});
+
+test("contract 18, layer 1: the source harness's UI words appear in runtime code only with their reason", async () => {
+  const v = await import("./fixtures/vocabulary.mjs");
+  for (const e of v.uiExemptions()) assert.ok(e.why && e.why.length > 10, `exemption ${e.phrase} carries its why`);
+  const hits = v.scanUiWords(ROOT, v.runtimeFiles(ROOT));
+  assert.deepEqual(hits.map((h) => `${h.file}:${h.line} ${h.text}`), [], "gate the check on the harness's surface, or mark the finding `about` that harness, and state why in uiExemptions()");
+  // Planted: a UI word fails, naming the line; a path that contains one does not.
+  const words = sourceHarness().ui_vocabulary || [];
+  if (!words.length) return;
+  const planted = { "scripts/planted-ui.mjs": `const a = ".claude-plugin/plugin.json";\nconst msg = "then ${words[0]} it.";\n` };
+  const found = v.scanUiWords(ROOT, Object.keys(planted), { read: (f) => planted[f] });
+  assert.deepEqual(found.map((h) => `${h.line}:${h.text}`), [`2:${words[0]}`]);
+});
+
+test("contract 18, layer 2 for the rendered tree: no role or command in the source harness's form survives rendering", async () => {
+  const v = await import("./fixtures/vocabulary.mjs");
+  const src = sourceHarness();
+  const pats = v.invocationPatterns(ROOT).filter((p) => p.harness === src.id);
+  assert.ok(pats.some((p) => p.kind === "agents"), "the source's role form is a pattern");
+  for (const m of [...manifests()].filter((x) => x.emit && !x.source_layout)) {
+    const base = join(ROOT, m.output_dir);
+    const hits = [];
+    const walk = (dir) => { for (const e of readdirSync(dir, { withFileTypes: true })) { const p = join(dir, e.name); if (e.isDirectory()) walk(p); else if (/\.(md|json|ya?ml)$/.test(e.name)) {
+      readFileSync(p, "utf8").split("\n").forEach((line, k) => { for (const pat of pats) { pat.re.lastIndex = 0; for (const hit of line.matchAll(pat.re)) hits.push(`${p.slice(ROOT.length + 1)}:${k + 1} ${hit[0]}`); } });
+    } } };
+    walk(base);
+    assert.deepEqual(hits, [], `${m.id}: a rendered surface names a command or role the way only ${src.id} calls it`);
+    // Any name at all after the source's role prefix — a role renamed or
+    // retired, a historical name — is still the source's form.
+    const prefix = src.surfaces.agents.invocation.split("<name>")[0];
+    const any = new RegExp(`(?<![\\w/$:-])${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[a-z][a-z0-9-]*`, "g");
+    const loose = [];
+    const walk2 = (dir) => { for (const e of readdirSync(dir, { withFileTypes: true })) { const p = join(dir, e.name); if (e.isDirectory()) walk2(p); else if (/\.(md|json|ya?ml)$/.test(e.name)) { for (const hit of readFileSync(p, "utf8").matchAll(any)) loose.push(`${p.slice(ROOT.length + 1)}: ${hit[0]}`); } } };
+    walk2(base);
+    assert.deepEqual(loose, [], `${m.id}: a source role-form name survives rendering`);
+  }
+});
+
+test("contract 18, layer 2: where bind cannot inherit, the bind the offer names declares every flag the offer passes", async () => {
+  const { inheritForm } = await import("../scripts/lib.mjs");
+  const { hermeticEnv } = await import("./fixtures/vocabulary.mjs");
+  const src = sourceHarness();
+  for (const m of manifests().filter((x) => x.capabilities?.bind_inherit === false)) {
+    const form = inheritForm("/v", { layout: "engineering", language: "en", env: hermeticEnv({ PROJECTSTORE_HARNESS: m.id }) });
+    const flags = form.match(/--[a-z][a-z-]*/g) || [];
+    assert.deepEqual(flags, ["--layout", "--language"], form);
+    const t = m.surfaces?.commands || {};
+    const rel = t.rendered_as === "skill" && t.rendered_name
+      ? join(m.output_dir, "skills", t.rendered_name.split("<name>").join("bind"), "SKILL.md")
+      : join(src.surfaces.commands.dir, src.surfaces.commands.file.replace("<name>", "bind"));
+    const text = readFileSync(join(ROOT, rel), "utf8");
+    const head = text.split("\n").find((l) => l.startsWith("description:") || l.startsWith("argument-hint:")) || "";
+    for (const f of flags) assert.ok(head.includes(f), `${m.id}: ${rel} declares ${f} in its arguments (${head})`);
+  }
+});

@@ -29,7 +29,7 @@
     ],
     "shared_env_reason": "Codex sets Claude Code's plugin-root names too, for compatibility — measured in every one of the 759 captured hook payloads. Without declaring them, a Codex session scores a strong detection hit for claude-code, ties with codex, and loses the tie to manifest filename order. A variable two harnesses both set identifies neither, so these are demoted to weak for every manifest (generation spec, contract 1, amended 2026-09-08).",
     "session_env": [],
-    "session_env_reason": "Unmeasured. CODEX_HOME never appeared in a hook environment — it is a shell-profile signal, not a session marker — and no equivalent of CLAUDECODE was observed."
+    "session_env_reason": "Deliberately empty, though measured. Codex's exec tool sets CODEX_THREAD_ID and CODEX_SESSION_ID in every command (measured 2026-10-05, codex-cli 0.160.0; CODEX_SANDBOX* depend on the sandbox mode), and CODEX_HOME never appeared in a hook environment. Declaring them would identify a session, but session_env also defers the registration and the layout move inside a session (insideHostSession), which would stop the doctor skill's upgrade --json fix from running there. Splitting identity from deferral is the question of *Codex hook contract measured in a live session* (PS-HARNESS); until then a core run from a rendered skill is identified by the shell that bundles it (generation spec, contract 18)."
   },
   "tools": {
     "write_tools": [
@@ -161,7 +161,10 @@
       "kind": "host",
       "scope": "user",
       "scope_reason": "Codex spawns subagents through a tool (collaborationspawn_agent), not by loading a plugin's agents/ directory.",
-      "why_unsupported": "Measured: told to run projectstore:critic, Codex spawned six of its own generic subagents named after our roster and briefed them itself; none of our agents/*.md prose reached them. No route from a plugin's agents/ entry to that mechanism has been found (roadmap B4)."
+      "why_unsupported": "Measured: told to run projectstore:critic, Codex spawned six of its own generic subagents named after our roster and briefed them itself; none of our agents/*.md prose reached them. No route from a plugin's agents/ entry to that mechanism has been found (roadmap B4).",
+      "rendered_as": "skill",
+      "rendered_name": "projectstore-<name>",
+      "rendered_reason": "Each role is rendered as a skill of this name (the generator reads this key), so a role is called through skills.invocation: $projectstore-critic. Messages name roles this way (generation spec, contract 18)."
     },
     "agents_block": {
       "supported": true,
@@ -186,7 +189,10 @@
       "kind": "host",
       "scope": "user",
       "scope_reason": "Codex has no registrable root slash command; the /prompts: mechanism is deprecated.",
-      "why_unsupported": "Shipping commands/ is actively harmful here: Codex rewrites them into skills itself and keeps ${CLAUDE_PLUGIN_ROOT} in the body, producing entry points that exit 1 with Cannot find module '/bin/projectstore.mjs' (reproduced). The generator renders them as skills instead (roadmap B5)."
+      "why_unsupported": "Shipping commands/ is actively harmful here: Codex rewrites them into skills itself and keeps ${CLAUDE_PLUGIN_ROOT} in the body, producing entry points that exit 1 with Cannot find module '/bin/projectstore.mjs' (reproduced). The generator renders them as skills instead (roadmap B5).",
+      "rendered_as": "skill",
+      "rendered_name": "projectstore-<name>",
+      "rendered_reason": "Each command is rendered as a skill of this name (the generator reads this key), so a command is called through skills.invocation: $projectstore-doctor. Messages name commands this way (generation spec, contract 18)."
     },
     "hooks": {
       "supported": true,
@@ -286,7 +292,12 @@
       }
     }
   },
-  "capabilities": {},
+  "capabilities": {
+    "session_rename": null,
+    "session_rename_reason": "No session-rename command is known for Codex, so it gets no session-name offer (generation spec, contract 18).",
+    "bind_inherit": false,
+    "bind_inherit_reason": "The rendered bind skill and the CLI's bind verb have no inherit path; only Claude Code's command does. An unbound worktree is told to bind the parent checkout's vault explicitly. A follow-up story gives the core an inherit path and flips this."
+  },
   "rewrites": [],
   "install": {
     "mechanism": "the package's portable plugin root, registered through its distribution shell and Codex's own marketplace CLI",
@@ -309,6 +320,11 @@
       "Ordinary uninstall removes only project-owned surfaces. `npx projectstore-codex uninstall --global --project \"$PWD\"` also removes the user-global plugin registration after a preview."
     ],
     "docs": "https://github.com/SmartAndPoint/ProjectStore#install--one-message"
+  },
+  "update_hint": {
+    "line": "Update with `{upgrade}`.",
+    "welcome": ["**About future updates**: run `{upgrade}` from a terminal, then restart Codex and approve any hook it asks about.", "", "See https://github.com/SmartAndPoint/ProjectStore#updates for details."],
+    "reason": "What the first-run welcome and its one-line notice say about updates (generation spec, contract 18): `line` ends the notice, `welcome` is the welcome's update block, and `{upgrade}` is filled with this harness's shell command at latest, so what is printed runs as printed. update_instructions is the long-form guidance; this is the part a session prints, kept here so no hook names a harness's update path."
   },
   "update_instructions": "Run `npx projectstore-codex@<version> upgrade --project <dir>`. The installer atomically replaces its stable source and `codex plugin add projectstore@projectstore-npx` materialises the new version; this was measured across two dev builds on codex-cli 0.153.4. Restart Codex afterwards so the new skills and hooks are loaded.",
   "agent_translation": {

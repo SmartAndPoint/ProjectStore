@@ -28,6 +28,9 @@ import {
   isWriteTool as harnessIsWriteTool,
   toolPaths as harnessToolPaths,
   sourceHarness,
+  invocation,
+  speakingHarness,
+  packageCommand,
 } from "./harness.mjs";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
@@ -47,10 +50,63 @@ export function configPath() {
   return harnessConfigPath(projectRoot(), process.env);
 }
 
+// ─── What a message names (generation spec, contract 18) ───────────────
+//
+// Every command, role and update path a message names, in the form the
+// harness it is printed for can use: `/projectstore:doctor` in Claude Code,
+// `$projectstore-doctor` in Codex. A name passed here must be a string literal
+// — tests/portability.test.mjs resolves each one on every harness, so a
+// command renamed on one harness fails where another would name it.
+export function commandForm(name, { args = "", env = process.env } = {}) {
+  return invocation(speakingHarness(env), name, { kind: "commands", args });
+}
+export function roleForm(name, { env = process.env } = {}) {
+  return invocation(speakingHarness(env), name, { kind: "agents" });
+}
+// The form the shared AGENTS.md block uses: the source harness's, until the
+// block is rendered per harness.
+export function sharedRoleForm(name) {
+  return invocation(sourceHarness(), name, { kind: "agents" });
+}
+// What a welcome says about updates, and the product name a message uses.
+export function updateHint({ env = process.env } = {}) {
+  const m = speakingHarness(env) || {};
+  // A harness that declares no hint gets none — never another harness's advice.
+  const hint = m.update_hint || { line: "", welcome: [] };
+  // `{upgrade}` is the harness's own shell command, pinned to latest so it runs as printed.
+  const upgrade = m.install?.shell ? packageCommand(m, "upgrade", { version: "latest", args: '--project "$PWD"' }) : "";
+  const fill = (t) => String(t).split("{upgrade}").join(upgrade);
+  return { line: fill(hint.line || ""), welcome: (hint.welcome || []).map(fill) };
+}
+// How an unbound worktree adopts its parent's binding: `bind --inherit` where
+// the harness's bind can inherit, else bind with the parent's vault named.
+// Whether the listening harness's bind can adopt a parent checkout's binding
+// whole (capabilities.bind_inherit). Where it cannot, a message says what its
+// bind does instead: the same vault, layout and language, not the binding.
+export function bindInherits({ env = process.env } = {}) {
+  return Boolean(speakingHarness(env)?.capabilities?.bind_inherit);
+}
+
+// Where it cannot inherit, the parent's vault, layout and language travel in
+// the form, so the new binding has those three of the parent's; every other
+// key is bind's default. The flags are the core verb's (`--layout`,
+// `--language`): a harness whose bind cannot inherit renders a bind skill that
+// hands them to the verb, and lint layer 2 holds that skill to naming each
+// one. A value that is not a plain name is left out, never pasted raw.
+export function inheritForm(vaultPath, { layout = null, language = null, env = process.env } = {}) {
+  if (speakingHarness(env)?.capabilities?.bind_inherit) return commandForm("bind", { args: "--inherit", env });
+  const plain = (v) => typeof v === "string" && /^[a-z0-9-]+$/.test(v);
+  const args = [JSON.stringify(String(vaultPath)), plain(layout) ? `--layout ${layout}` : "", plain(language) ? `--language ${language}` : ""].filter(Boolean).join(" ");
+  return commandForm("bind", { args, env });
+}
+export function speakingDisplayName({ env = process.env } = {}) {
+  return speakingHarness(env)?.display_name || "another";
+}
+
 // The layout resolver and its constants, re-exported so hooks and scripts
 // import one module (the layout ADR, 2026-09-06). The active harness's id,
 // for the paths keyed by it (state/<id>/…).
-export { layoutPaths, pickExisting, LAYOUT, RUNTIME_GITIGNORE_HEADER, hostSettingsPath, overlayId };
+export { layoutPaths, pickExisting, LAYOUT, RUNTIME_GITIGNORE_HEADER, hostSettingsPath, overlayId, speakingHarness };
 
 // A hook's payload carries the `cwd` of the session that fired it, and on a
 // harness that exports no project-dir variable it is the only answer better
@@ -1997,7 +2053,7 @@ export function renderVaultSkeleton(facts) {
     if (cont.status === "timeout") {
       L.push("## Where this session left off");
       L.push("");
-      L.push("- recent activity not resolved within budget — run `/projectstore:status`");
+      L.push(`- recent activity not resolved within budget — run \`${commandForm("status")}\``);
       L.push("");
     } else if (cont.paths && cont.paths.length > 0) {
       L.push("## Where this session left off");
@@ -2006,7 +2062,7 @@ export function renderVaultSkeleton(facts) {
       L.push("");
       for (const p of cont.paths.slice(0, INFLIGHT_CAP)) L.push(`- ${pathCell(p)}`);
       const more = (cont.total ?? cont.paths.length) - Math.min(cont.paths.length, INFLIGHT_CAP);
-      if (more > 0) L.push(`- …and ${more} more; see \`/projectstore:status\``);
+      if (more > 0) L.push(`- …and ${more} more; see \`${commandForm("status")}\``);
       if (cont.artifact) {
         L.push("");
         L.push(`**In flight**: ${pathCell(cont.artifact)} was the newest structured write before` +
@@ -2692,8 +2748,8 @@ export function entryReminderText(n) {
   return [
     `**projectstore**: this session has written to ${n} source files and no story`,
     "is in progress. If this is feature-sized work, open it in the vault before",
-    'going further — `/projectstore:story <EPIC> "<title>"`, or',
-    "`/projectstore:epic` if it needs a new one. If it is a one-off fix, carry",
+    `going further — \`${commandForm("story", { args: '<EPIC> "<title>"' })}\`, or`,
+    `\`${commandForm("epic")}\` if it needs a new one. If it is a one-off fix, carry`,
     "on — this fires once.",
   ].join("\n");
 }
@@ -3056,11 +3112,16 @@ export function sessionNameOffer(name, { peers = [], current = null, declined = 
   return null;
 }
 
-export function sessionNameOfferText(offer) {
+// The command comes from the speaking harness's manifest (runtime.
+// session_rename); a harness without one is offered nothing.
+export function sessionNameOfferText(offer, { env = process.env } = {}) {
   if (!offer || !offer.name) return null;
+  const rename = speakingHarness(env)?.capabilities?.session_rename;
+  if (!rename) return null;
+  const run = rename.split("<name>").join(offer.name);
   return offer.qualified
-    ? `projectstore: this session looks like "${offer.name}" (a peer holds the unqualified name) — /rename ${offer.name}`
-    : `projectstore: this session looks like "${offer.name}" — /rename ${offer.name}`;
+    ? `projectstore: this session looks like "${offer.name}" (a peer holds the unqualified name) — ${run}`
+    : `projectstore: this session looks like "${offer.name}" — ${run}`;
 }
 
 // ─── Frontmatter parsing (minimal) ─────────────────────────────────────

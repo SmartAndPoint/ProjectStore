@@ -49,6 +49,7 @@ import {
   listOf,
   sectionOf,
   isInsideVault,
+  commandForm,
 } from "./lib.mjs";
 import { walkVaultFiles } from "./doctor.mjs";
 import { buildGraph } from "./graph.mjs";
@@ -202,7 +203,7 @@ export function status(cfg, { project = null } = {}) {
 }
 
 export function renderStatus(r) {
-  if (!r.bound) return `Not bound${r.project ? ` — ${r.project}` : ""}. Run /projectstore:bind <vault> in a session.\n`;
+  if (!r.bound) return `Not bound${r.project ? ` — ${r.project}` : ""}. Run ${commandForm("bind", { args: "<vault>" })} in a session.\n`;
   const lines = [`Vault: ${r.vault_path}${r.vault_exists ? "" : "  (missing)"}`, `Layout: ${r.layout} · language: ${r.language} · auto_inject: ${r.auto_inject} · approval_mode: ${r.approval_mode} · spec_policy: ${r.spec_policy} · lifecycle_gates: ${r.lifecycle_gates}`];
   if (r.stories && r.stories.status !== "ok") lines.push(`Stories: not counted — ${r.stories.error}`);
   else if (r.stories) {

@@ -23,7 +23,8 @@ import {
   buildNodeIndex,
   extractLinks,
   resolveLinkTarget,
-  storyMatchesEntry, isMain
+  storyMatchesEntry, isMain,
+  commandForm,
 } from "./lib.mjs";
 import { walkVaultFiles } from "./doctor.mjs";
 
@@ -204,7 +205,7 @@ export function buildGraph(cfg, layout, { files = null } = {}) {
 
 function main() {
   const cfg = readConfig();
-  if (!cfg) die("No projectstore config. Run /projectstore:bind first.");
+  if (!cfg) die(`No projectstore config. Run ${commandForm("bind")} first.`);
   const layout = loadLayout(cfg.layout);
   const g = buildGraph(cfg, layout);
   process.stdout.write(JSON.stringify({

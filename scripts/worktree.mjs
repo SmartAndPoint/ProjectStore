@@ -13,7 +13,7 @@
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { projectRoot, readConfigAt, truncFront, PATH_CELL } from "./lib.mjs";
+import { projectRoot, readConfigAt, truncFront, PATH_CELL, commandForm, inheritForm, bindInherits } from "./lib.mjs";
 import { gitIn } from "./diff-refs.mjs";
 
 // SessionStart is user-facing and budgets its gather in hundreds of
@@ -28,8 +28,10 @@ const trim = (s) => (typeof s === "string" ? s.trim() : null);
 // Every branch returns every field. A caller reading a field that only exists on
 // the happy path throws, and a hook swallows that into silence — which looks
 // exactly like the mechanism deciding it had nothing to say.
-function record(state, worktree, mainCheckout, vaultPath) {
-  return { state, worktree, mainCheckout, vaultPath };
+// `layout` and `language` are the parent's: what a bind without an inherit
+// path must name to write the parent's binding rather than bind's defaults.
+function record(state, worktree, mainCheckout, vaultPath, parent = null) {
+  return { state, worktree, mainCheckout, vaultPath, layout: parent?.layout || null, language: parent?.language || null };
 }
 
 // The main checkout behind a linked worktree.
@@ -77,7 +79,7 @@ export function resolveBinding(projectDir = projectRoot()) {
   const parent = readConfigAt(main);
   if (!parent || !parent.vault_path) return record("unbound", true, main, null);
 
-  return record("inheritable", true, main, parent.vault_path);
+  return record("inheritable", true, main, parent.vault_path, parent);
 }
 
 // Pure: record in, block out. Both interpolated paths are user-controlled and
@@ -87,14 +89,17 @@ export function bindingOfferText(b) {
   return [
     "# projectstore — this worktree is not bound",
     "",
-    "This checkout has no `.projectstore/projectstore.json`, so `/projectstore:*` commands",
+    `This checkout has no \`.projectstore/projectstore.json\`, so \`${commandForm("*")}\` commands`,
     "cannot run here. The checkout it was forked from is bound:",
     "",
     `- main checkout: \`${truncFront(String(b.mainCheckout), PATH_CELL)}\``,
     `- its vault: \`${truncFront(String(b.vaultPath), PATH_CELL)}\``,
     "",
-    "Run `/projectstore:bind --inherit` to adopt that binding. It copies the binding",
-    "only — the vault is shared and unchanged, and no session state travels with it.",
+    ...(bindInherits()
+      ? [`Run \`${inheritForm(b.vaultPath, { layout: b.layout, language: b.language })}\` to adopt that binding. It copies the binding`,
+        "only — the vault is shared and unchanged, and no session state travels with it."]
+      : [`Run \`${inheritForm(b.vaultPath, { layout: b.layout, language: b.language })}\` to bind this checkout to the same vault,`,
+        "layout and language — the vault is shared and unchanged, and no session state travels with it."]),
     "",
     "",
   ].join("\n");

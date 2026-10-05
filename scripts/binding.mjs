@@ -27,7 +27,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, realpathSync } from "node:fs";
 import { join, resolve, isAbsolute, dirname } from "node:path";
 import { homedir } from "node:os";
-import { writeFileAtomic, pluginRoot, ensureRuntimeDir, layoutPaths } from "./lib.mjs";
+import { writeFileAtomic, pluginRoot, ensureRuntimeDir, layoutPaths, commandForm } from "./lib.mjs";
 import { configPath as harnessConfigPath } from "./harness.mjs";
 
 export const DEFAULT_LAYOUT = "engineering";
@@ -154,12 +154,12 @@ export function renderBindPlan(p, done = null) {
   const lines = [];
   if (!p.ok) { for (const r of p.refusals) lines.push(r.message); return lines.join("\n") + "\n"; }
   if (p.state === "same") {
-    lines.push(`Already bound to ${p.vault}${p.ignored.length ? ` — --${p.ignored.join(" and --")} ignored: a change of ${p.ignored.join("/")} is not a rebind (edit the config, or rebind to another vault)` : ""}. Run /projectstore:scaffold to (re)create the layout, or \`projectstore status\` to inspect it.`);
+    lines.push(`Already bound to ${p.vault}${p.ignored.length ? ` — --${p.ignored.join(" and --")} ignored: a change of ${p.ignored.join("/")} is not a rebind (edit the config, or rebind to another vault)` : ""}. Run ${commandForm("scaffold")} to (re)create the layout, or \`projectstore status\` to inspect it.`);
     return lines.join("\n") + "\n";
   }
   if (done && done.created_vault) lines.push(`Created ${p.vault}`);
   lines.push(`Wrote ${p.configPath}${p.state === "different" ? ` (rebind from ${p.before.vault_path}; kept: ${p.keptKeys.join(", ") || "nothing else"})` : ""}`);
   lines.push(`  vault_path: ${p.vault}`, `  layout:     ${p.layout}`, `  language:   ${p.language}`);
-  if (done) lines.push("", p.vaultExists && !done.created_vault ? "Next: `projectstore status`, or /projectstore:scaffold if the vault has no layout folders yet." : "Next: /projectstore:scaffold in a session creates the layout's folders and READMEs.");
+  if (done) lines.push("", p.vaultExists && !done.created_vault ? `Next: \`projectstore status\`, or ${commandForm("scaffold")} if the vault has no layout folders yet.` : `Next: ${commandForm("scaffold")} in a session creates the layout's folders and READMEs.`);
   return lines.join("\n") + "\n";
 }

@@ -54,7 +54,8 @@ import {
   slugify,
   findSlugCollision,
   displayNumberOf,
-  today, isMain
+  today, isMain,
+  commandForm,
 } from "./lib.mjs";
 
 function die(msg, code = 1) {
@@ -157,7 +158,7 @@ function buildStory(cfg, layout, args) {
   const vault = cfg.vault_path;
   const storiesDir = join(vault, folder.path, epicId, "stories");
   if (!existsSync(join(vault, folder.path, epicId))) {
-    die(`Epic folder not found: ${folder.path}/${epicId}. Create the epic first via /projectstore:epic.`);
+    die(`Epic folder not found: ${folder.path}/${epicId}. Create the epic first via ${commandForm("epic")}.`);
   }
   const storyPrefix = folder.story_prefix || "story-";
   const slug = slugify(title);
@@ -234,7 +235,7 @@ function main() {
   const rest = argv.slice(1);
 
   const cfg = readConfig();
-  if (!cfg) die("No projectstore config. Run /projectstore:bind <vault-path> first.");
+  if (!cfg) die(`No projectstore config. Run ${commandForm("bind", { args: "<vault-path>" })} first.`);
   const layout = loadLayout(cfg.layout);
 
   let result;

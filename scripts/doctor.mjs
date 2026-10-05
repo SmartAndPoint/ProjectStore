@@ -8,7 +8,8 @@
 // the command's --fix flow (install side) and reconcile (vault side).
 //
 // Finding: { group: "install"|"vault", level: "issue"|"warn"|"info",
-//            check: "<id>", message: "...", file?: "<path>" }
+//            check: "<id>", message: "...", file?: "<path>",
+//            about?: "<harness id>" }  (a fact about another harness: aboutHarness)
 // The SessionStart line counts level==="issue" only.
 //
 // CLI: node doctor.mjs [--install] [--vault] [--startup] [--json]
@@ -79,8 +80,13 @@ import {
   cmpPrecedence,
   cmpVersion,
   blockVisibleTo,
+  commandForm,
+  sharedRoleForm,
+  speakingHarness,
+  inheritForm,
+  bindInherits,
 } from "./lib.mjs";
-import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, detectHarnesses, identifiedHarnessId, configPath as harnessConfigPath, packageCommand } from "./harness.mjs";
+import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, detectHarnesses, identifiedHarnessId, configPath as harnessConfigPath, packageCommand, invocation } from "./harness.mjs";
 
 // A remedy used to interpolate the surface's harness variable here. It cannot:
 // measured 2026-09-06, NO harness gives its Bash tool that variable, and a
@@ -142,6 +148,18 @@ function finding(group, level, check, message, file) {
   return f;
 }
 
+// A finding whose subject is ANOTHER harness in the same project — its
+// registration, its surfaces, its legacy layout, its registry's versions — is
+// that harness's: it opens with that harness's name, carries `about`, and says
+// its steps in that harness's forms and words, because they happen there
+// (generation spec, contract 18). Under that harness itself, or with no
+// harness to name, the finding is unchanged.
+export function aboutHarness(f, h, speaker = speakingHarness()) {
+  return speaker && h?.id && h.id !== speaker.id && h.display_name
+    ? { ...f, message: `${h.display_name}: ${f.message}`, about: h.id }
+    : f;
+}
+
 function pluginVersion(root = pluginRoot()) {
   try {
     return JSON.parse(
@@ -176,7 +194,7 @@ export function checkConfig(cfg, proj = projectRoot()) {
     try { b = resolveBinding(proj); } catch {}
     if (b && b.state === "inheritable") {
       return [finding("install", "issue", "worktree-unbound",
-        `This worktree is unbound while the checkout it was forked from (${b.mainCheckout}) is bound to ${b.vaultPath}. Run /projectstore:bind --inherit to adopt that binding.`)];
+        `This worktree is unbound while the checkout it was forked from (${b.mainCheckout}) is bound to ${b.vaultPath}. Run ${inheritForm(b.vaultPath, { layout: b.layout, language: b.language })} ${bindInherits() ? "to adopt that binding" : "to bind it to the same vault, layout and language"}.`)];
     }
     const p = layoutPaths(proj);
     const present = [p.binding, p.legacy.binding].find((f) => existsSync(f));
@@ -185,7 +203,7 @@ export function checkConfig(cfg, proj = projectRoot()) {
         `${relative(proj, present)} exists but is not valid JSON — the project reads as unbound until it is fixed; bind refuses to overwrite it.`, relative(proj, present))];
     }
     return [finding("install", "issue", "config",
-      "No projectstore config (.projectstore/projectstore.json). Run /projectstore:bind <vault-path>.")];
+      `No projectstore config (.projectstore/projectstore.json). Run ${commandForm("bind", { args: "<vault-path>" })}.`)];
   }
   const out = [];
   if (!cfg.vault_path) out.push(finding("install", "issue", "config", "Config has no vault_path."));
@@ -277,8 +295,11 @@ export function statusLineScriptVersion(scriptPath) {
 
 // Read-only probe of the statusline wiring (never calls syncStatusLine, which
 // is a mutating self-heal that SessionStart already ran — ADR-005).
-export function checkStatusline(cfg, proj, home = homedir()) {
+export function checkStatusline(cfg, proj, home = homedir(), harness = speakingHarness()) {
   const out = [];
+  // A harness without a status line hears nothing about one, whatever the
+  // shared binding asks for (generation spec, contract 18).
+  if (harness?.surfaces?.statusline?.supported === false) return out;
   const local = hostSettingsPath(proj);
   let cur = null;
   if (existsSync(local)) {
@@ -297,7 +318,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
   if (st && st.enabled === true) {
     if (!curCmd) {
       out.push(finding("install", "issue", "statusline",
-        "statusline.enabled=true but no statusLine wired in settings.local.json — run /projectstore:statusline on (it installs the entry and the launcher behind a preview); the SessionStart hook only refreshes an entry that already exists."));
+        `statusline.enabled=true but no statusLine wired in settings.local.json — run ${commandForm("statusline", { args: "on" })} (it installs the entry and the launcher behind a preview); the SessionStart hook only refreshes an entry that already exists.`));
     } else if (!isOurs) {
       out.push(finding("install", "issue", "statusline",
         "statusline.enabled=true but a foreign statusLine occupies settings.local.json — the hook will not clobber it. Clear it or disable the flag."));
@@ -308,7 +329,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
       if (m && !existsSync(m[1])) {
         out.push(finding("install", "issue", "statusline",
           isLauncher
-            ? `statusLine points at a generated launcher that no longer exists: ${m[1]} — run /projectstore:statusline on to reinstall it; until then the next session start repoints the entry at the installed script.`
+            ? `statusLine points at a generated launcher that no longer exists: ${m[1]} — run ${commandForm("statusline", { args: "on" })} to reinstall it; until then the next session start repoints the entry at the installed script.`
             : `statusLine points at a missing script (stale plugin path?): ${m[1]}`));
       } else if (m && isPluginCacheRoot(wiredRoot, home)) {
         // Only a versioned cache path can go stale this way. The launcher
@@ -318,7 +339,7 @@ export function checkStatusline(cfg, proj, home = homedir()) {
         const inst = installedPluginRoot(home, dirname(wiredRoot));
         if (wired && inst && inst.version && wired !== inst.version) {
           out.push(finding("install", "warn", "statusline",
-            `statusLine is wired to projectstore ${wired} while ${inst.version} is installed — a version-pinned path lags one session behind each update. Run /projectstore:statusline on to install the version-agnostic launcher; the SessionStart hook only repoints the pinned path at the current install.`));
+            `statusLine is wired to projectstore ${wired} while ${inst.version} is installed — a version-pinned path lags one session behind each update. Run ${commandForm("statusline", { args: "on" })} to install the version-agnostic launcher; the SessionStart hook only repoints the pinned path at the current install.`));
         }
       }
     }
@@ -373,7 +394,8 @@ export function checkStatusline(cfg, proj, home = homedir()) {
 // load the provenance leaf). So the startup line names the step. Only for a
 // cache install: a dev checkout does not produce the launcher at all, and its
 // install would leave the file, not re-stamp it.
-export function checkPendingUpgrade(proj, home = homedir(), root = pluginRoot()) {
+export function checkPendingUpgrade(proj, home = homedir(), root = pluginRoot(), harness = speakingHarness()) {
+  if (harness?.surfaces?.statusline?.supported === false) return [];
   if (!isPluginCacheRoot(root, home)) return [];
   // Only a launcher our entry runs. Under a foreign status line nothing reads
   // it, install leaves that slot alone, and the offer would repeat every
@@ -387,7 +409,7 @@ export function checkPendingUpgrade(proj, home = homedir(), root = pluginRoot())
   try { text = readFileSync(lp, "utf8"); } catch { return []; }
   if (!text.includes(LAUNCHER_HEADER) || text.includes(STAMP_PREFIX)) return [];
   return [finding("install", "info", "upgrade",
-    "The status line launcher predates this plugin's file stamps (plugin updated) — it keeps rendering; run /projectstore:doctor --fix once to re-stamp it.",
+    `The status line launcher predates this plugin's file stamps (plugin updated) — it keeps rendering; run ${commandForm("doctor", { args: "--fix" })} once to re-stamp it.`,
     relative(proj, lp))];
 }
 
@@ -422,7 +444,7 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
     if (f.wrapped) {
       wrappedFiles++;
       out.push(finding("install", "issue", "agents-block",
-        `${name}:${f.line}: the projectstore:agents open marker does not close on its own line — put \`-->\` back on the marker's line, then run /projectstore:agents register (install and uninstall refuse until it does).`, name));
+        `${name}:${f.line}: the projectstore:agents open marker does not close on its own line — put \`-->\` back on the marker's line, then run ${commandForm("agents", { args: "register" })} (install and uninstall refuse until it does).`, name));
       continue;
     }
     if (f.unclosed) {
@@ -430,7 +452,7 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
       // the agents-block plan refuses it, and the layout move with it.
       unclosedFiles++;
       out.push(finding("install", "issue", "agents-block",
-        `${name}: the projectstore:agents block opens and never closes — close it with \`${AGENTS_BLOCK_CLOSE}\` or delete the half block, then run /projectstore:agents register (install and uninstall refuse until then).`, name));
+        `${name}: the projectstore:agents block opens and never closes — close it with \`${AGENTS_BLOCK_CLOSE}\` or delete the half block, then run ${commandForm("agents", { args: "register" })} (install and uninstall refuse until then).`, name));
     }
     for (const m of text.matchAll(AGENT_BLOCK_MARKER)) {
       const v = parseInt(m[1], 10);
@@ -439,7 +461,7 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
   }
   if (blocks === 0) {
     out.push(finding("install", "info", "agents-block",
-      "Agent routing block not registered — optional; ships with /projectstore:agents (v0.13)."));
+      `Agent routing block not registered — optional; ships with ${commandForm("agents")} (v0.13).`));
   }
   if (blocks > 1) {
     // One block in each file is a state install resolves (it keeps the
@@ -454,7 +476,7 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
       // already named above, file by file
     } else {
       out.push(finding("install", "warn", "agents-block",
-        `The projectstore:agents block is in both CLAUDE.md and AGENTS.md — run /projectstore:agents register: install keeps the one in ${(sourceHarness()?.surfaces?.agents_block?.files || ["AGENTS.md"])[0]} and removes the other.`));
+        `The projectstore:agents block is in both CLAUDE.md and AGENTS.md — run ${commandForm("agents", { args: "register" })}: install keeps the one in ${(sourceHarness()?.surfaces?.agents_block?.files || ["AGENTS.md"])[0]} and removes the other.`));
     }
   }
   // A state the agents-block plan refuses — a wrapped marker, a block that
@@ -463,7 +485,7 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
   const refuses = wrappedFiles > 0 || unclosedFiles > 0 || Object.values(perFile).some((n) => n > 1);
   for (const s of staleVersions) {
     const fact = `Agents block in ${s.file} is v${s.v}, expected v${AGENT_BLOCK_VERSION}`;
-    const f = finding("install", "issue", "agents-block", `${fact} — re-run /projectstore:agents register.`, s.file);
+    const f = finding("install", "issue", "agents-block", `${fact} — re-run ${commandForm("agents", { args: "register" })}.`, s.file);
     out.push(refuses ? f : moveRepairs(f, fact));
   }
   // Placement, held to the predicate install plans from (the install spec,
@@ -546,7 +568,7 @@ export async function readSurfaceStates(proj, { home = homedir(), root = pluginR
   return { result: surfaceStates(proj, { home, root, env, ...(manifestDir ? { manifestDir } : {}) }), FOREIGN_TEXT };
 }
 
-export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root = pluginRoot(), manifestDir = undefined, read = null, env = process.env } = {}) {
+export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root = pluginRoot(), manifestDir = undefined, read = null, env = process.env, speaker = speakingHarness() } = {}) {
   const out = [];
   let r, FOREIGN_TEXT;
   try {
@@ -564,16 +586,23 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
   for (const s of r.states) {
     const where = relative(proj, s.path) || s.path;
     if (s.kind === "registration") continue; // checkPluginRegistration's
+    // Another harness's surface is that harness's fact (aboutHarness): its
+    // steps in its forms, and no status-line hint where it has no status line.
+    // A shared surface — the agents block, one file every harness owns — is
+    // every harness's: never marked, its step in the listener's form.
+    const sh = s.kind === "shared" ? speaker : (loadHarness(s.harness) || speaker);
+    const push = (f) => out.push(aboutHarness(f, sh, speaker));
     if (s.kind === "exclusive") {
       if (s.state === "foreign") {
-        out.push(finding("install", "issue", "surface-foreign",
+        push(finding("install", "issue", "surface-foreign",
           `${where} — ${FOREIGN_TEXT}. install, uninstall and upgrade refuse it; nothing repairs it.`, where));
       } else if (s.state === "stale" && s.produced) {
-        out.push(finding("install", "issue", "surface", `${where} — stale: ${s.reason}. Reinstall it: node "${join(root, "bin", "projectstore.mjs")}" install --harness ${s.harness} --surface ${s.surface} --project "${proj}" (for the status line, /projectstore:statusline on).`, where));
+        const status = sh?.surfaces?.statusline?.supported === false ? "" : ` (for the status line, ${invocation(sh, "statusline", { args: "on" })})`;
+        push(finding("install", "issue", "surface", `${where} — stale: ${s.reason}. Reinstall it: node "${join(root, "bin", "projectstore.mjs")}" install --harness ${s.harness} --surface ${s.surface} --project "${proj}"${status}.`, where));
       } else if (s.state === "stale" && !s.produced) {
-        out.push(finding("install", "info", "surface", `${where} — ${s.reason}.`, where));
+        push(finding("install", "info", "surface", `${where} — ${s.reason}.`, where));
       } else if (s.state === "current" && s.writtenBy && !s.sameProject) {
-        out.push(finding("install", "info", "surface", `${where} — current, last written by ${s.writtenBy}.`, where));
+        push(finding("install", "info", "surface", `${where} — current, last written by ${s.writtenBy}.`, where));
       }
     } else if (s.surface === "agents_block") {
       // Version drift and duplicates are checkAgentsBlock's; what only the
@@ -582,9 +611,9 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
       // startup line, and the state names it with the file's own reason, as a
       // wrapped marker already was.
       if (s.state === "unparseable") {
-        out.push(finding("install", "issue", "surface", `${where} — ${s.reason}`, where));
+        push(finding("install", "issue", "surface", `${where} — ${s.reason}`, where));
       } else if (s.state === "ours-stale" && /content differs|migrates/.test(s.reason || "")) {
-        out.push(finding("install", "warn", "surface", `${where} [projectstore:agents] — ${s.reason}. Run /projectstore:agents register.`, where));
+        push(finding("install", "warn", "surface", `${where} [projectstore:agents] — ${s.reason}. Run ${invocation(sh, "agents", { args: "register" })}.`, where));
       }
     }
     // The statusline entry's states are checkStatusline's, under its own id —
@@ -598,7 +627,7 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
 // rejects is an issue naming key and file; a binding still carrying an
 // agents block is a pre-0.28 leftover the migration moves; an overlay that
 // does not parse is an issue.
-export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir() } = {}) {
+export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir(), speaker = speakingHarness() } = {}) {
   const out = [];
   const o = readOverlayAt(proj);
   const where = relative(proj, o.path);
@@ -613,7 +642,9 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
     // installer in no particular channel (the critic of the layout spec's
     // 2026-10-03 amendment, finding 7).
     const remedy = layoutRemedy(proj, { root, home });
-    out.push(finding("install", "warn", "agents-in-binding", `${b} still carries an agents block — since 0.28 the models live in ${where} (the layout ADR); nothing reads it there. ${remedy.command ? `Move it from a terminal outside the session: ${remedy.command}` : remedy.advice}.`, b));
+    // The block and its move are the source harness's — a pre-0.28 binding
+    // and that harness's command — so its fact under any other listener.
+    out.push(aboutHarness(finding("install", "warn", "agents-in-binding", `${b} still carries an agents block — since 0.28 the models live in ${where} (the layout ADR); nothing reads it there. ${remedy.command ? `Move it from a terminal outside the session: ${remedy.command}` : remedy.advice}.`, b), sourceHarness(), speaker));
   }
   // A project can be used from more than one harness, and a model name is
   // harness-specific (ADR-008) — so each one has its own overlay and they do
@@ -636,7 +667,7 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
           `This project is used from ${id} too, and ${relative(proj, o.path)} does not exist — `
           + `its agents run on their frontmatter models (${configured.map((c) => c.id).join(", ")} `
           + `${configured.length > 1 ? "have" : "has"} an overlay; a model name is harness-specific, so nothing carries over). `
-          + `Configure it: /projectstore:agents configure --harness ${id}.`,
+          + `Configure it: ${commandForm("agents", { args: `configure --harness ${id}` })}.`,
           relative(proj, o.path)));
       }
     }
@@ -660,12 +691,15 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
 // itself); a competing copy enabled beside ours → an issue (two enabled copies
 // of one plugin); a competitor alone → an info naming the npm path; foreign →
 // never repairable; the host CLI missing → an info.
-export function checkPluginRegistration(proj, states = [], { home = homedir() } = {}) {
+export function checkPluginRegistration(proj, states = [], { home = homedir(), speaker = speakingHarness() } = {}) {
   const out = [];
   for (const s of states.filter((x) => x.kind === "registration")) {
     // The shell form when the manifest names a shell (contract 12): the
     // command a user can paste, built in one place.
     const h = loadHarness(s.harness) || { id: s.harness };
+    // A registration of ANOTHER harness in the same project is that
+    // harness's fact: named, marked, its steps in its own forms (aboutHarness).
+    const push = (f) => out.push(aboutHarness(f, h, speaker));
     const refresh = packageCommand(h, "upgrade", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` });
     // A copy this registration silenced for the checkout and the checkout
     // still holds off, one per key (the install spec, contract 13 as amended
@@ -682,29 +716,29 @@ export function checkPluginRegistration(proj, states = [], { home = homedir() } 
       for (const key of s.silenced) {
         const row = rows.filter((e) => e.key === key).sort((a, b) => Number(Boolean(b.projectPath)) - Number(Boolean(a.projectPath)))[0];
         if (!row) {
-          out.push(finding("install", "info", "plugin-registration", `${key} is held off in this checkout's local settings, where the npm registration turned it off — and that copy is no longer installed, so the entry is stale.`, s.path));
+          push(finding("install", "info", "plugin-registration", `${key} is held off in this checkout's local settings, where the npm registration turned it off — and that copy is no longer installed, so the entry is stale.`, s.path));
           continue;
         }
         // The release line, not the build: a 0.28 release candidate reads a
         // moved project; 0.27.x reads it as unbound. No version reads as old.
         const old = !row.version || cmpVersion(row.version, "0.28.0") < 0;
-        out.push(finding("install", "info", "plugin-registration",
-          `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and a /plugin update no longer reaches the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it: from a terminal outside the session, ${packageCommand(h, "uninstall", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` })}, restart, then /projectstore:doctor --fix. If moving to npm was meant, ignore this.`, s.path));
+        push(finding("install", "info", "plugin-registration",
+          `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and a /plugin update no longer reaches the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it: from a terminal outside the session, ${packageCommand(h, "uninstall", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` })}, restart, then ${invocation(loadHarness(h.id) || speaker, "doctor", { args: "--fix" })}. If moving to npm was meant, ignore this.`, s.path));
       }
     }
     const others = (s.others || []).map((o) => `${o.key} (${o.version || "?"})`).join(", ");
     if (s.state === "foreign") {
-      out.push(finding("install", "issue", "plugin-registration-foreign", `${s.reason} — install, uninstall and upgrade refuse it; nothing repairs it.`, s.path));
+      push(finding("install", "issue", "plugin-registration-foreign", `${s.reason} — install, uninstall and upgrade refuse it; nothing repairs it.`, s.path));
     } else if (s.state === "unavailable") {
-      out.push(finding("install", "info", "plugin-registration", `No npm registration of projectstore for this project, and ${s.reason}.`));
+      push(finding("install", "info", "plugin-registration", `No npm registration of projectstore for this project, and ${s.reason}.`));
     } else if (s.state === "absent") {
       // A git-marketplace install alone is not a finding: a permanent info
       // advertising the npm path to every marketplace user is noise (2026-09-05).
     } else if (s.state === "stale") {
-      out.push(finding("install", "issue", "plugin-registration", `${s.entry} — stale: ${s.reason}. Refresh it: ${refresh}`, s.path));
+      push(finding("install", "issue", "plugin-registration", `${s.entry} — stale: ${s.reason}. Refresh it: ${refresh}`, s.path));
     } else if (s.state === "current") {
-      if (others) out.push(finding("install", "issue", "plugin-registration", `${s.entry} is current, and ${others} is enabled for this project too — two enabled copies of one plugin load twice. install silences the other for this project: ${packageCommand(h, "install", { args: `--surface ${s.surface} --project "${proj}"` })} (or the host's own disable at the scope the manifest names — never the committed project scope).`, s.path));
-      else out.push(finding("install", "info", "plugin-registration", `${s.entry} ${s.installedVersion} registered from the npm package for this project (loaded from ${s.installPath}); refresh with ${refresh}.`));
+      if (others) push(finding("install", "issue", "plugin-registration", `${s.entry} is current, and ${others} is enabled for this project too — two enabled copies of one plugin load twice. install silences the other for this project: ${packageCommand(h, "install", { args: `--surface ${s.surface} --project "${proj}"` })} (or the host's own disable at the scope the manifest names — never the committed project scope).`, s.path));
+      else push(finding("install", "info", "plugin-registration", `${s.entry} ${s.installedVersion} registered from the npm package for this project (loaded from ${s.installPath}); refresh with ${refresh}.`));
     }
   }
   return out;
@@ -715,28 +749,40 @@ export function checkPluginRegistration(proj, states = [], { home = homedir() } 
 // hosts install from different sources. The versions come from the harness
 // registry (one per marketplace key and scope) and from the pkg= field of a
 // file we stamped in this project; each is named with where it was read.
-export function checkVersionDrift(home = homedir(), states = [], proj = null) {
+export function checkVersionDrift(home = homedir(), states = [], proj = null, { speaker = speakingHarness() } = {}) {
   // Pairs, not a map keyed by source: two registrations under one marketplace
   // key and one scope are the common shape (the registry keeps every install
   // it made), and they must both be seen. Only installs still on disk count —
   // a wiped entry is not a copy anyone runs.
   const seen = [];
+  // The registry read here is the source harness's own.
+  const registryOf = sourceHarness()?.id || null;
   for (const e of installedPluginEntries(home, proj)) {
     // A disabled registration is not a copy anyone runs (contract 17, amended 2026-09-05).
-    if (e.version && e.present && e.enabled !== false) seen.push({ source: `registry ${e.key}${e.scope ? " (" + e.scope + ")" : ""} at ${e.path}`, version: e.version });
+    if (e.version && e.present && e.enabled !== false) seen.push({ source: `registry ${e.key}${e.scope ? " (" + e.scope + ")" : ""} at ${e.path}`, version: e.version, harness: registryOf });
   }
   for (const s of states) {
-    if (s.installedPkg) seen.push({ source: `pkg= of ${s.surface}`, version: s.installedPkg });
+    if (s.installedPkg) seen.push({ source: `pkg= of ${s.surface}`, version: s.installedPkg, harness: s.harness || null });
   }
   const versions = new Set(seen.map((x) => x.version));
   if (versions.size < 2) return [];
   const list = seen.map(({ source, version }) => `${version} (${source})`).join(", ");
-  return [finding("install", "warn", "version-drift",
-    `projectstore is registered or installed at more than one version on this machine: ${list}. Update the older one; the launcher renders whichever is registered.`)];
+  // Every copy one harness's: that harness's fact (aboutHarness). The launcher
+  // is the status line's, so its clause is said only where the subject — or,
+  // for copies of several harnesses, the listener — has one.
+  const owners = [...new Set(seen.map((x) => x.harness))];
+  const subject = owners.length === 1 && owners[0] ? loadHarness(owners[0]) : null;
+  const launcher = (subject || speaker)?.surfaces?.statusline?.supported === false ? "" : "; the launcher renders whichever is registered";
+  return [aboutHarness(finding("install", "warn", "version-drift",
+    `projectstore is registered or installed at more than one version on this machine: ${list}. Update the older one${launcher}.`), subject, speaker)];
 }
 
-export function checkOverrideCopies(proj, home = homedir()) {
+export function checkOverrideCopies(proj, home = homedir(), harness = speakingHarness()) {
   const out = [];
+  // Copies of our agents a host loads from its own agents directory: a fact
+  // only for a harness that loads agents that way (its agents surface); a
+  // harness without one hears nothing about them (generation spec, contract 18).
+  if (harness && harness.surfaces?.agents?.supported === false) return out;
   const ver = pluginVersion();
   const scopes = [
     { dir: join(proj, ".claude", "agents"), label: ".claude/agents", scope: "project" },
@@ -793,13 +839,13 @@ export function checkOverrideCopies(proj, home = homedir()) {
       // copy at it would name a command that will not act — the scope split
       // fca8def introduced for staleness applies here for the same reason.
       const remove = scope === "user"
-        ? `Delete ${where} by hand (or via /projectstore:doctor --fix) — /projectstore:agents configure only cleans up project-scope copies.`
-        : "Delete it via /projectstore:agents configure, which now records the model in .projectstore/harness/<harness>.json (the active harness's overlay) and passes it per invocation.";
+        ? `Delete ${where} by hand (or via ${commandForm("doctor", { args: "--fix" })}) — ${commandForm("agents", { args: "configure" })} only cleans up project-scope copies.`
+        : `Delete it via ${commandForm("agents", { args: "configure" })}, which now records the model in .projectstore/harness/<harness>.json (the active harness's overlay) and passes it per invocation.`;
       const advice = m
         ? remove
-        : "If you wrote it yourself, nothing is broken; if you meant to change the bundled agent's model, that is /projectstore:agents configure, not a copy.";
+        : `If you wrote it yourself, nothing is broken; if you meant to change the bundled agent's model, that is ${commandForm("agents", { args: "configure" })}, not a copy.`;
       out.push(finding("install", m ? "warn" : "info", "override-copies",
-        `${lead} It registers as "${name}" while the bundled agent registers as "projectstore:${name}", so both exist side by side.${everywhere}${stale} ${advice}`,
+        `${lead} It registers as "${name}" while the bundled agent registers as "${sharedRoleForm(name)}", so both exist side by side.${everywhere}${stale} ${advice}`,
         where));
     }
   }
@@ -827,7 +873,7 @@ export function checkEnvModel() {
 // or .projectstore/state/ is one warn naming the upgrade; two bindings is an
 // issue. Cheap — a handful of existsSync — so the startup line carries the
 // warn as an offer (OFFER_CHECKS).
-export function checkLayout(proj, harness = sourceHarness(), { level = "warn", root = pluginRoot(), home = homedir() } = {}) {
+export function checkLayout(proj, harness = sourceHarness(), { level = "warn", root = pluginRoot(), home = homedir(), speaker = speakingHarness() } = {}) {
   const p = layoutPaths(proj, { harnessDir: harness?.runtime?.harness_dir || null });
   const legacyBinding = existsSync(p.legacy.binding), legacyRuntime = existsSync(p.legacy.runtime);
   let resumable = false;
@@ -849,9 +895,11 @@ export function checkLayout(proj, harness = sourceHarness(), { level = "warn", r
   // recognising the root (a checkout, a symlinked or relocated home).
   const remedy = layoutRemedy(proj, { root, home, harness });
   const held = [legacyBinding && relative(proj, p.legacy.binding), legacyRuntime && relative(proj, p.legacy.runtime) + "/", existsSync(p.legacy.welcomed) && relative(proj, p.legacy.welcomed), existsSync(p.legacy.sessionId) && relative(proj, p.legacy.sessionId)].filter(Boolean).join(", ");
-  return [finding("install", level, "layout-legacy",
+  // The files sit in that harness's legacy directory and the move is its
+  // command: its fact under any other listener (aboutHarness).
+  return [aboutHarness(finding("install", level, "layout-legacy",
     `The project layout moved to .projectstore/ (the layout ADR, 0.28); this project still holds ${held}. ${remedy.command ? `Migrate it from a terminal outside the session: ${remedy.command}` : remedy.advice} (readers fall back to the old paths through 0.29).`,
-    relative(proj, [legacyBinding && p.legacy.binding, legacyRuntime && p.legacy.runtime, existsSync(p.legacy.welcomed) && p.legacy.welcomed, p.legacy.sessionId].find(Boolean)))];
+    relative(proj, [legacyBinding && p.legacy.binding, legacyRuntime && p.legacy.runtime, existsSync(p.legacy.welcomed) && p.legacy.welcomed, p.legacy.sessionId].find(Boolean))), harness, speaker)];
 }
 
 // The one command that moves this project's files (the layout spec, contract
@@ -991,8 +1039,12 @@ export function checkVaultGit(cfg) {
 // marketplaces do NOT auto-update by default, so a stale plugin looks like
 // "the feature is broken". Read the real registries and, when the flag is
 // off, tell the user the exact correct values.
-export function checkAutoUpdate(home = homedir()) {
+export function checkAutoUpdate(home = homedir(), harness = speakingHarness()) {
   const out = [];
+  // Auto-update is a toggle of the host's own plugin marketplace. A harness
+  // whose registration is not the host's plugin system (Codex's is a portable
+  // marketplace driven by our shell) has no such toggle to report on.
+  if (harness?.surfaces?.plugin?.format !== "host-plugin-registration") return out;
   // Two corrections over the first version of this check, both found by running
   // doctor straight out of a checkout (2026-08-05):
   //
@@ -1074,12 +1126,12 @@ export function checkAutoUpdate(home = homedir()) {
 // the placeholders per session, so the check is only that the shipped file is
 // there and launches this package's bin. A host surface — nothing to
 // install, nothing to derive — so this is not a surfaces.mjs state.
-export function checkMcpRegistration(root = pluginRoot(), harness = sourceHarness()) {
+export function checkMcpRegistration(root = pluginRoot(), harness = speakingHarness()) {
   // Whether a plugin-root .mcp.json registers anything is the host's fact,
   // read from the manifest: a harness whose mcp surface is not host-loaded
   // has nothing to check here.
   const mcp = harness && harness.surfaces && harness.surfaces.mcp;
-  if (!mcp || mcp.kind !== "host") return [];
+  if (!mcp || mcp.kind !== "host" || mcp.supported === false) return [];
   const p = join(root, mcp.file || ".mcp.json");
   if (!existsSync(p)) return [finding("install", "warn", "mcp", "No .mcp.json at the plugin root — the MCP read tools are not registered; the package ships one, so this install is incomplete or predates the MCP surface (0.28).")];
   let reg;
@@ -1132,7 +1184,7 @@ export function checkKanbanSync(cfg) {
   const vault = cfg.vault_path;
   const onDisk = join(vault, "kanban.md");
   if (!existsSync(onDisk)) {
-    return [finding("vault", "info", "kanban", "No kanban.md yet — run /projectstore:kanban to create the board.")];
+    return [finding("vault", "info", "kanban", `No kanban.md yet — run ${commandForm("kanban")} to create the board.`)];
   }
   const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", "kanban.mjs")], {
     encoding: "utf8",
@@ -1149,7 +1201,7 @@ export function checkKanbanSync(cfg) {
   const norm = (s) => s.split("\n").filter((l) => !l.startsWith("generated_at:")).join("\n").trimEnd();
   if (norm(expected) !== norm(readFileSync(onDisk, "utf8"))) {
     return [finding("vault", "issue", "kanban",
-      "kanban.md is out of sync with story frontmatter — run /projectstore:kanban (or reconcile).", "kanban.md")];
+      `kanban.md is out of sync with story frontmatter — run ${commandForm("kanban")} (or reconcile).`, "kanban.md")];
   }
   return [];
 }
@@ -1550,7 +1602,7 @@ export function checkLifecycleGates(artifacts, vaultCfg) {
     const plan = sectionOf(story.body, "implementation_plan");
     if (plan !== null && (!story.fm.plan_updated_at || story.fm.plan_updated_at === "null")) {
       out.push(finding("vault", "warn", "plan-gate",
-        "Story has an Implementation Plan section but no plan_updated_at — the plan bypassed the /projectstore:story plan gate.", story.rel));
+        `Story has an Implementation Plan section but no plan_updated_at — the plan bypassed the ${commandForm("story", { args: "plan" })} gate.`, story.rel));
     }
     const summary = sectionOf(story.body, "final_summary");
     if (summary === null) {
@@ -1860,7 +1912,7 @@ export function checkWorkWithoutStory(cfg, proj) {
   if (dirty.length) what.push(`${dirty.length} uncommitted source file(s)`);
   if (committedSince) what.push("commits newer than the vault's last activity");
   out.push(finding("vault", "warn", "work-without-story",
-    `${what.join(" and ")} in the project, and no story is in progress. If this is feature-sized work, open it in the vault: /projectstore:story <EPIC> "<title>".${firedNote}`));
+    `${what.join(" and ")} in the project, and no story is in progress. If this is feature-sized work, open it in the vault: ${commandForm("story", { args: '<EPIC> "<title>"' })}.${firedNote}`));
   return out;
 }
 
@@ -1921,7 +1973,7 @@ export function checkCodeMap(cfg) {
   const norm = (s) => s.split("\n").filter((l) => !l.startsWith("generated_at:")).join("\n").trimEnd();
   if (norm(expected) !== norm(readFileSync(p, "utf8"))) {
     return [finding("vault", "issue", "code-map",
-      "code-map.md is stale against frontmatter code_refs — run /projectstore:codemap (or reconcile).", "code-map.md")];
+      `code-map.md is stale against frontmatter code_refs — run ${commandForm("codemap")} (or reconcile).`, "code-map.md")];
   }
   return [];
 }
@@ -1934,7 +1986,7 @@ export function checkCodeMap(cfg) {
 export function checkGraph(cfg) {
   const p = join(cfg.vault_path, "graph.md");
   if (!existsSync(p)) {
-    return [finding("vault", "info", "graph", "No graph.md yet — run /projectstore:graph to create the link graph.")];
+    return [finding("vault", "info", "graph", `No graph.md yet — run ${commandForm("graph")} to create the link graph.`)];
   }
   const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", "graph.mjs")], {
     encoding: "utf8",
@@ -1949,7 +2001,7 @@ export function checkGraph(cfg) {
   const norm = (s) => s.split("\n").filter((l) => !l.startsWith("generated_at:")).join("\n").trimEnd();
   if (norm(expected) !== norm(readFileSync(p, "utf8"))) {
     return [finding("vault", "issue", "graph",
-      "graph.md is out of sync with vault links — run /projectstore:graph (or reconcile).", "graph.md")];
+      `graph.md is out of sync with vault links — run ${commandForm("graph")} (or reconcile).`, "graph.md")];
   }
   return [];
 }
@@ -2087,7 +2139,7 @@ function report(findings, groups) {
   }
   const issues = findings.filter((f) => f.level === "issue").length;
   const warns = findings.filter((f) => f.level === "warn").length;
-  lines.push("", `Summary: ${issues} issue(s), ${warns} warning(s). ${issues ? "Repairs: /projectstore:doctor --fix (install), /projectstore:kanban / reconcile (vault)." : "Vault and wiring look healthy."}`);
+  lines.push("", `Summary: ${issues} issue(s), ${warns} warning(s). ${issues ? `Repairs: ${commandForm("doctor", { args: "--fix" })} (install), ${commandForm("kanban")} / reconcile (vault).` : "Vault and wiring look healthy."}`);
   return lines.join("\n");
 }
 

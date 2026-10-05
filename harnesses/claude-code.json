@@ -1,5 +1,5 @@
 {
-  "_comment": "Harness capability manifest — Claude Code. This is the SOURCE layout (generation spec, contract 2): the plugin's own commands/, agents/, skills/ and hooks/hooks.json are already in Claude Code's shapes, so nothing is emitted for it (emit: false). The manifest still exists in full because the portability lint reads every harness's vocabulary, and a token only Claude Code understands is only detectable as unmapped in another harness's tree if Claude Code's own names are written down somewhere. It carries no `lint` block and an empty `rewrites` because linting runs over emitted trees only. Shape contributed by Maxim Podreshetnikov (PR #13); `verified`, `output_channels`, `scope_reason`, `root_placeholder_literal` and `agent_overrides` are the spec's additions.",
+  "_comment": "Harness capability manifest — Claude Code. This is the SOURCE layout (generation spec, contract 2): the plugin's own commands/, agents/, skills/ and hooks/hooks.json are already in Claude Code's shapes, so nothing is emitted for it (emit: false). The manifest still exists in full because the portability lint reads every harness's vocabulary, and a token only Claude Code understands is only detectable as unmapped in another harness's tree if Claude Code's own names are written down somewhere. It carries no `lint` block and an empty `rewrites` because linting runs over emitted trees only; its `ui_vocabulary` lists the UI affordances that mean nothing elsewhere, read by the generator's leak check and by the runtime vocabulary lint over what the core prints for another harness (generation spec, contracts 2 and 18). Shape contributed by Maxim Podreshetnikov (PR #13); `verified`, `output_channels`, `scope_reason`, `root_placeholder_literal` and `agent_overrides` are the spec's additions.",
   "id": "claude-code",
   "display_name": "Claude Code",
   "emit": false,
@@ -464,9 +464,24 @@
     "interactive_approval_tool": true,
     "permission_decision_hook": "PreToolUse",
     "subagent_tool_allowlist": true,
-    "subagent_model_per_invocation": true
+    "subagent_model_per_invocation": true,
+    "session_rename": "/rename <name>",
+    "session_rename_reason": "Claude Code's own command for naming a session; the session-name offer prints it filled (generation spec, contract 18). A harness without one gets no offer.",
+    "bind_inherit": true,
+    "bind_inherit_reason": "commands/bind.md adopts the binding of the checkout a worktree was forked from (`bind --inherit`), so an unbound worktree is told to run that. A harness whose bind cannot inherit is told the explicit vault instead (generation spec, contract 18)."
   },
   "rewrites": [],
+  "ui_vocabulary": [
+    "/plugin",
+    "/reload-plugins",
+    "AskUserQuestion"
+  ],
+  "ui_vocabulary_reason": "This harness's UI affordances and tool names: words that mean nothing on another harness. The generator refuses them in another harness's rendered tree, and the runtime vocabulary lint refuses them in what the core prints for another harness (generation spec, contracts 6 and 18). A word here must be followed by a non-word character to count, so `/plugins/` in a path is not `/plugin`.",
+  "update_hint": {
+    "line": "See /plugin → Marketplaces to enable auto-update.",
+    "welcome": ["**About future updates**: Claude Code does NOT auto-update third-party marketplaces by default. To get notified of new releases (v0.7+):", "1. Open `/plugin` → **Marketplaces** tab.", "2. Find **SmartAndPoint**.", "3. Toggle **auto-update** on.", "", "Without it, you'd run `/plugin marketplace update SmartAndPoint` manually. See https://github.com/SmartAndPoint/ProjectStore#updates for details."],
+    "reason": "What the first-run welcome and its one-line notice say about updates (generation spec, contract 18): `line` ends the notice, `welcome` is the welcome's update block. update_instructions is the long-form guidance; this is the part a session prints, kept here so no hook names a harness's update path."
+  },
   "update_instructions": [
     "**About future updates**: installed from the git marketplace, Claude Code does NOT auto-update third-party marketplaces by default (an npm registration updates with `npx projectstore-claude upgrade --project <dir>`). To get notified of new releases (v0.7+):",
     "1. Open `/plugin` → **Marketplaces** tab.",

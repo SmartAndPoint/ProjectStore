@@ -34,6 +34,7 @@ import {
   footerDateRe,
   nowIso,
   today,
+  commandForm,
 } from "./lib.mjs";
 
 function die(msg) {
@@ -116,7 +117,7 @@ function main() {
     die("usage: story-section.mjs <plan|close> <story-path> [--check <baseline-file>]");
   }
   const cfg = readConfig();
-  if (!cfg) die("No projectstore config. Run /projectstore:bind first.");
+  if (!cfg) die(`No projectstore config. Run ${commandForm("bind")} first.`);
   const lang = cfg.language || "en";
   const abs = resolve(storyPath);
   if (!existsSync(abs)) die(`story not found: ${abs}`);

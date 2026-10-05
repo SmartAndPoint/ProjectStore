@@ -10,7 +10,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { readConfig, loadLayout, folderByKind, parseFrontmatter, nowIso, isMain } from "./lib.mjs";
+import { readConfig, loadLayout, folderByKind, parseFrontmatter, nowIso, isMain, commandForm } from "./lib.mjs";
 
 function die(msg) {
   process.stderr.write(`projectstore/codemap: ${msg}\n`);
@@ -29,7 +29,7 @@ function parseRefs(raw) {
 
 function main() {
   const cfg = readConfig();
-  if (!cfg) die("No projectstore config. Run /projectstore:bind first.");
+  if (!cfg) die(`No projectstore config. Run ${commandForm("bind")} first.`);
   const layout = loadLayout(cfg.layout);
   const folder = folderByKind(layout, "epic");
   if (!folder) die("Layout has no epic folder — nothing to map.");

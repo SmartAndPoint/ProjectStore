@@ -1,6 +1,6 @@
 ---
 name: projectstore-bind
-description: "Bind this project to an existing ProjectStore vault, or initialize and bind a new vault, using the harness-neutral core. Arguments: [vault-path]."
+description: "Bind this project to an existing ProjectStore vault, or initialize and bind a new vault, using the harness-neutral core. Arguments: [vault-path] [--layout <name>] [--language <code>]."
 ---
 
 ## Runtime path
@@ -25,9 +25,11 @@ literally and never treat it as a shell variable.
 Bind the current project through the core; never write the binding by
 hand.
 
-1. Resolve the requested vault path. If it exists, use `bind`; if the user
-   explicitly asks to create it, use `init`. Ask for layout and language only
-   when the user has not supplied them.
+1. Resolve the requested vault path, and the layout and language when the
+   request passes `--layout <name>` or `--language <code>`. If the vault
+   exists, use `bind`; if the user explicitly asks to create it, use
+   `init`. Ask for layout and language only when the request has not
+   supplied them.
 2. Show the resolved project, vault, verb, layout and language. Ask for explicit
    approval. Naming the vault is the core's non-interactive confirmation.
 3. Run `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" <bind|init>

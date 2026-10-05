@@ -43,7 +43,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import * as term from "./term.mjs";
 import { projectRootDeclared, childEnv, harnessIds, harnessForOverlay, pinPluginRoot } from "./harness.mjs";
-import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster } from "./lib.mjs";
+import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster, commandForm } from "./lib.mjs";
 import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_LIMIT, GRAPH_EDGE_CAP, DIRECTIONS } from "./query.mjs";
 // binding.mjs is a write module imported statically where the install family
 // is lazy: it is a dependency-free leaf with no side effects, so the MCP
@@ -173,7 +173,7 @@ export const VERBS = Object.freeze([
     run: runBind(false),
   }),
   Object.freeze({
-    verb: "init", summary: "init <vault> — create the vault directory and bind to it; the layout's folders come from /projectstore:scaffold.",
+    verb: "init", summary: `init <vault> — create the vault directory and bind to it; the layout's folders come from ${commandForm("scaffold")}.`,
     module: "./binding.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: [opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`), opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`), opt("rebind", false, "an already bound project: create the new vault and point the project at it; every other setting is kept"), JSON_OPT],
     run: runBind(true),
@@ -401,7 +401,7 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
   }
   const project = resolveProject({ project: values.project, env, cwd });
   const cfg = readConfigAt(project);
-  if (row.requiresBinding && !cfg) return fail(verb, project, `${project} is not bound to a vault — run /projectstore:bind <vault> in a session, or \`projectstore bind <vault>\` (\`projectstore init <vault>\` also creates the vault).`, 3);
+  if (row.requiresBinding && !cfg) return fail(verb, project, `${project} is not bound to a vault — run ${commandForm("bind", { args: "<vault>", env })} in a session, or \`projectstore bind <vault>\` (\`projectstore init <vault>\` also creates the vault).`, 3);
   try {
     return await row.run({ row, values, positionals: positionals.slice(1), cfg, project, env, cwd, stdin, stdout, stderr, ask });
   } catch (e) {

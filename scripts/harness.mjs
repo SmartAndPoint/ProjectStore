@@ -217,6 +217,8 @@ function ranked(env, dir) {
 // process.env to impersonate a harness needs the next call to look again.
 export function resetDetection() {
   _detected = null;
+  _speaking = null;
+  _bundling = undefined;
 }
 
 // Which harnesses this PROJECT uses — by directory (install spec, contract
@@ -245,6 +247,93 @@ export function harnessRefusal(projectDir, dir = MANIFEST_DIR) {
 
 export function activeHarness(env = process.env, dir = MANIFEST_DIR) {
   return loadHarness(detectHarnessId(env, dir), dir) || sourceHarness(dir);
+}
+
+// ─── Who a message is for (generation spec, contract 18) ───────────────
+//
+// The core prints for ONE harness at a time, and a command it names must be
+// one that harness can run: `/projectstore:doctor` in Claude Code,
+// `$projectstore-doctor` in Codex, where commands arrive as rendered skills.
+// The form is manifest data; these functions only fill it in.
+
+// How a harness calls one of our commands (kind "commands") or roles (kind
+// "agents"): the surface's own `invocation` template, or — for a surface the
+// generator renders as skills — its `rendered_name` filled into the skills'
+// template. `*` names the family ("/projectstore:*"). Filled by split/join, so
+// a `$` in a template is never read as a replacement pattern.
+export function invocation(manifest, name, { kind = "commands", args = "" } = {}) {
+  // No manifest (a partial tarball): the bare name, never a throw in a hook.
+  const surfaces = manifest?.surfaces || {};
+  const s = surfaces[kind] || {};
+  let template = s.invocation || null;
+  if (!template && s.rendered_as === "skill" && s.rendered_name && surfaces.skills?.invocation) {
+    template = surfaces.skills.invocation.split("<name>").join(s.rendered_name);
+  }
+  const form = template ? template.split("<name>").join(name) : name;
+  return args ? `${form} ${args}` : form;
+}
+
+// The UI words a manifest declares (ui_vocabulary), as patterns. A word glued
+// to a longer name or to a path is not the word: `/plugin-x` is not `/plugin`,
+// and neither is the one in `.claude-plugin/plugin.json`; a full stop after it
+// still ends a sentence. The generator's leak check and the vocabulary lint
+// read these same patterns.
+export function uiWordPatterns(manifest) {
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (manifest?.ui_vocabulary || []).map((word) => ({ word, re: new RegExp(`(?<![\\w.-])${esc(word)}(?![\\w-]|\\.\\w)`, "g") }));
+}
+
+// The harness whose distribution shell bundles this core, by the shell's
+// package name: a shell installs the core at <shell>/node_modules/projectstore,
+// and its package.json names it as a manifest's install.shell. A hook, a
+// rendered skill's command and an npx run inside that tree all belong to that
+// harness by construction — nothing to export, nothing a model can forget.
+// A source checkout or a host's own cache of the core answers null.
+let _bundling;
+export function bundlingShellHarnessId({ core = REPO_ROOT, dir = MANIFEST_DIR } = {}) {
+  const memo = core === REPO_ROOT && dir === MANIFEST_DIR;
+  if (memo && _bundling !== undefined) return _bundling;
+  let id = null;
+  try {
+    const real = realOr(core);
+    const parent = dirname(real);
+    if (parent.split(sep).pop() === "node_modules") {
+      const name = JSON.parse(readFileSync(join(dirname(parent), "package.json"), "utf8")).name;
+      id = [...loadHarnesses(dir).values()].find((m) => m.install?.shell && m.install.shell === name)?.id ?? null;
+    }
+  } catch { id = null; }
+  if (memo) _bundling = id;
+  return id;
+}
+
+// The harness a message is FOR: forced (PROJECTSTORE_HARNESS); else the one
+// that identifies itself — a strong signal or its session marker; else the
+// shell that bundles this core; else the shell the environment names
+// (PROJECTSTORE_SHELL, which only the shells set); else the source harness.
+// `--harness <id>` names an install target and plays no part in this.
+let _speaking = null;
+export function speakingHarnessId(env = process.env, dir = MANIFEST_DIR) {
+  const memo = env === process.env && dir === MANIFEST_DIR;
+  if (memo && _speaking) return _speaking;
+  const id = speaker(env, dir);
+  if (memo) _speaking = id;
+  return id;
+}
+
+function speaker(env, dir) {
+  const identified = identifiedHarnessId(env, dir);
+  if (identified) return identified;
+  const bundled = bundlingShellHarnessId({ dir });
+  if (bundled) return bundled;
+  if (env.PROJECTSTORE_SHELL) {
+    const named = [...loadHarnesses(dir).values()].find((m) => m.install?.shell === env.PROJECTSTORE_SHELL);
+    if (named) return named.id;
+  }
+  return sourceHarness(dir)?.id ?? null;
+}
+
+export function speakingHarness(env = process.env, dir = MANIFEST_DIR) {
+  return loadHarness(speakingHarnessId(env, dir), dir) || sourceHarness(dir);
 }
 
 // ─── Runtime names and paths ───────────────────────────────────────────

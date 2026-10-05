@@ -141,7 +141,9 @@ export async function askLine(question, input, output) {
   return await new Promise((settle) => {
     let done = false;
     const finish = (answer) => { if (done) return; done = true; settle(answer); rl.close(); };
-    rl.on("close", () => finish(null));
+    // End of input echoes no newline: end the question's line, so whatever is
+    // printed next ("Nothing written.") starts on a line of its own.
+    rl.on("close", () => { if (!done) output.write("\n"); finish(null); });
     rl.question(question).then((a) => finish(a), () => finish(null));
   });
 }
