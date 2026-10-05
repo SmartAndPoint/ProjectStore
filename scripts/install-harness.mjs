@@ -69,7 +69,7 @@ import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses,
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
 import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, isOurFile, readText } from "./surfaces.mjs";
 import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
-import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder } from "./lib.mjs";
+import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal } from "./lib.mjs";
 
 import { GENERATOR } from "./surfaces.mjs";
 export { GENERATOR };
@@ -373,6 +373,15 @@ function planPortableRegistration(ctx, key, s) {
   if (!a.market) steps.push(hostStep(a, s, "marketplace_add", fill, "register the stable local marketplace source globally"));
   if (!a.installed || a.installedVersion !== a.desiredVersion || mustWrite) steps.push(hostStep(a, s, "install", fill, `materialise and enable ${a.id} from the staged source`));
   steps.push(hostStep(a, s, "list", fill, "read back host-reported installation and effective enablement"));
+  // Asked first, before anything changes: the command the registration's own
+  // verification needs. A host too old to answer it stops the run with nothing
+  // staged, journaled or registered (issue #28: a codex without `plugin list
+  // --json` failed only at verification, after it had added the marketplace
+  // and the plugin; the install spec's 2026-09-29 amendment, as amended
+  // 2026-10-05).
+  if (steps.some((x) => x.kind === "portable-write" || (x.kind === "host" && x.name !== "list"))) {
+    steps.unshift({ ...hostStep(a, s, "list", fill, "check that the host can report what it installs, before anything changes"), name: "preflight" });
+  }
   return [{ ...base, action: a.state === "absent" ? "create" : "update", steps, verify: { version: a.desiredVersion, digest }, reason: a.reason }];
 }
 
@@ -587,6 +596,16 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   const unknown = named.filter((id) => !harnessIds().includes(id));
   if (unknown.length) {
     out.refusals.push(`unknown harness: ${unknown.join(", ")} — known: ${harnessIds().join(", ")}`);
+    out.ok = false;
+    return out;
+  }
+  // A project that does not exist is refused before contract 8's detection
+  // could stand in for it ("no harness detected"), and before anything is
+  // written, staged, locked or spawned (contract 19).
+  const missing = projectDirRefusal(projectDir);
+  if (missing) {
+    out.harnesses = named;
+    out.refusals.push(missing);
     out.ok = false;
     return out;
   }
@@ -1118,7 +1137,7 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
     const r = spawn(bin || s.cli.bin, argv, { env: childEnv, cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120000 });
     const rows = !r.error && r.status === 0 ? portableListFacts(r.stdout) : null;
     out.steps.push({ kind: "portable-recovery-list", argv: [s.cli.bin, ...argv], status: r.status ?? null, ok: Boolean(rows) });
-    return { rows, stderr: String((r.stderr || "") + (r.error ? r.error.message : "")).trim() };
+    return { rows, stderr: r.error ? startFailure(r.error, { bin: s.cli.bin, resolved: bin, cwd: p.projectDir }) : String(r.stderr || "").trim() };
   };
   const observedPortable = (a) => ({
     dir_exists: existsSync(a.paths.dir),
@@ -1142,7 +1161,7 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
   };
   const verifyPrevious = (previous) => {
     const listed = readHostList();
-    if (!listed.rows) return { ok: false, why: listed.stderr || "Codex plugin list did not return JSON" };
+    if (!listed.rows) return { ok: false, unanswered: true, why: listed.stderr || "Codex plugin list did not return JSON" };
     const row = listed.rows.find((entry) => entry?.pluginId === i.entry) || null;
     if (!previous) {
       const a = analysePortableRegistration(p.projectDir, s, { root: p.root, home, harness, env: childEnv, ignoreJournal: true });
@@ -1171,10 +1190,21 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
     const ok = a.state === "current" && a.installedVersion === previous.version && a.enabled === previous.enabled && sourceOk && cacheOk && hostOk;
     return ok ? { ok: true } : { ok: false, why: `restored source/cache/enablement could not be proven (state=${a.state}, version=${a.installedVersion || "?"}, enabled=${String(a.enabled)})` };
   };
+  // A journal keeps its history (issue #28): the first failure's error and
+  // time stay as written; a later run that re-checks and still cannot prove
+  // the previous state adds its own reason and time beside them. The message
+  // says the error is a previous run's, where the journal is, and what lifts it.
   const requireRecovery = (journal, why) => {
-    writeFileAtomic(journalPath, JSON.stringify({ ...journal, phase: "recovery-required", error: why }, null, 2) + "\n", { sweep: false });
+    const now = new Date().toISOString();
+    const again = journal.phase === "recovery-required";
+    const record = again
+      ? { ...journal, rechecked_at: now, recheck_error: why }
+      : { ...journal, phase: "recovery-required", error: why, failed_at: now };
+    writeFileAtomic(journalPath, JSON.stringify(record, null, 2) + "\n", { sweep: false });
     releaseLock();
-    out.failed = { step: "recovery-required", status: null, stderr: `${why}; ${journalPath} was retained and blocks automatic mutation` };
+    out.failed = { step: "recovery-required", status: null, stderr: again
+      ? `a previous run (${journal.failed_at || "time not recorded"}) could not prove its restore: ${String(journal.error || "no error recorded").split("\n")[0]}. This run re-checked the previous state and could not prove it either: ${why}. ${journalPath} is kept: a later run lifts it once the previous state proves, or inspect the registration and remove the journal to start over`
+      : `${why}; ${journalPath} was retained and blocks automatic mutation until a later run proves the previous state` };
     return out;
   };
   if (portable) {
@@ -1219,22 +1249,43 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
         releaseLock(); out.failed = { step: "recovery", status: null, stderr: `${journalPath} does not describe this owned marketplace; inspect it before retrying` }; return out;
       }
       try {
-        if (journal.phase === "recovery-required") return requireRecovery(journal, journal.error || "a prior registration could not prove restoration");
-        if (journal.phase === "verified") finishPortableMarketplace(journal.target, journal.backup || null);
+        // A recovery the rollback could not prove is re-proved here, under the
+        // lock, with the rollback's own checks: it lifts when they hold, and is
+        // refused with its history kept when they do not (the install spec's
+        // 2026-09-29 amendment, as amended 2026-10-05).
+        let lifted = null;
+        if (journal.phase === "recovery-required") {
+          const proven = verifyPrevious(journal.previous || null);
+          // A host that cannot answer the proof's read-back is the case issue
+          // #28 met with a journal still in place: say what to do about it.
+          if (!proven.ok) return requireRecovery(journal, proven.unanswered
+            ? `${proven.why}\nThe re-check could not ask ${harness.display_name || s.cli.bin} (\`${[s.cli.bin, ...(s.cli.commands.list || [])].join(" ")}\`); if it is too old to answer, upgrade it, then run this again.`
+            : proven.why);
+          lifted = journal;
+        } else if (journal.phase === "verified") finishPortableMarketplace(journal.target, journal.backup || null);
         else if (journal.phase === "swapped" || (journal.phase === "prepare" && journal.backup && existsSync(journal.backup))) rollbackPortableMarketplace(journal.target, journal.backup || null);
         else if (journal.phase === "prepare" && !journal.previous && existsSync(journal.target)) {
           if (!ownedTargetMatches(journal.target, journal.next)) return requireRecovery(journal, `first-install recovery found an unrecognised target at ${journal.target}`);
           rollbackPortableMarketplace(journal.target, null);
         }
-        if (existsSync(journal.stage)) removeTreeUnder(journal.stage, i.home);
-        if (journal.phase !== "verified") {
+        if (existsSync(journal.stage) && resolve(journal.stage) !== resolve(i.path)) removeTreeUnder(journal.stage, i.home);
+        if (journal.phase !== "verified" && !lifted) {
           const restored = verifyPrevious(journal.previous || null);
           if (!restored.ok) return requireRecovery(journal, restored.why);
         }
         unlinkSync(journalPath);
-        out.steps.push({ kind: "portable-recover", phase: journal.phase || "unknown", ok: true });
+        out.steps.push({ kind: "portable-recover", phase: journal.phase || "unknown", ok: true, ...(lifted ? { lifted: lifted.error || null, failed_at: lifted.failed_at || null } : {}) });
+        // Only a lifted recovery prints a line of its own: the other phases'
+        // APPLY reads as it did. After the proof, whose host list has its line.
+        if (lifted && onStep) {
+          const st = { kind: "recover", path: journalPath, lifted: lifted.error || "" };
+          onStep(st, "start");
+          onStep(st, "end", { ok: true });
+        }
       } catch (e) {
-        releaseLock(); out.failed = { step: "recovery", status: null, stderr: e && e.message ? e.message : String(e) }; return out;
+        releaseLock();
+        out.failed = { step: "recovery", status: null, stderr: `${e && e.message ? e.message : String(e)}; ${journalPath} is kept: a later run retries it, or inspect the registration and remove the journal to start over` };
+        return out;
       }
     }
     const current = analysePortableRegistration(p.projectDir, s, { root: p.root, home, harness, env: childEnv, ignoreJournal: true });
@@ -1281,7 +1332,8 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
           const args = template.map((t) => t.replace(/\{(\w+)\}/g, (_, k) => fill[k] ?? `{${k}}`));
           const bin = whichOnPathFromLib(s.cli.bin, env);
           const r = spawn(bin || s.cli.bin, args, { env: childEnv, cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120000 });
-          out.steps.push({ kind: "portable-compensate", name, argv: [s.cli.bin, ...args], status: r.status ?? null, ok: !r.error && r.status === 0 });
+          const ok = !r.error && r.status === 0;
+          out.steps.push({ kind: "portable-compensate", name, argv: [s.cli.bin, ...args], status: r.status ?? null, ok, ...(ok ? {} : { stderr: r.error ? startFailure(r.error, { bin: s.cli.bin, resolved: bin, cwd: p.projectDir }) : String((r.stderr || "") + (r.stdout || "")).trim() }) });
         }
       }
       try {
@@ -1351,10 +1403,27 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
     } else if (st.kind === "host") {
       const bin = whichOnPathFromLib(st.bin, env);
       const r = spawn(bin || st.bin, st.argv, { env: childEnv, cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120000 });
-      const ok = !r.error && r.status === 0;
-      const said = String((r.stderr || "") + (ok ? "" : r.stdout || "") + (r.error ? r.error.message : "")).trim();
-      out.steps.push({ kind: "host", argv: [st.bin, ...st.argv], status: r.status ?? null, ok, ...(ok ? {} : { stderr: said }) });
-      if (!ok) return fail(st.name, r.status ?? null, said, [st.bin, ...st.argv]);
+      const ran = !r.error && r.status === 0;
+      // A preflight that ran must also answer in the shape verification reads:
+      // a host that exits 0 with text would pass on its status alone.
+      const unreadable = ran && portable && st.name === "preflight" && portableListFacts(r.stdout) === null;
+      const ok = ran && !unreadable;
+      // A command that did not start says why (contract 19); one that ran and
+      // failed says what it said. A preflight the host ran and could not
+      // answer adds what that means; one that never started does not, since
+      // upgrading the host would not help.
+      const said = r.error
+        ? startFailure(r.error, { bin: st.bin, resolved: bin, cwd: p.projectDir })
+        : unreadable
+          ? `${[st.bin, ...st.argv].join(" ")} answered, but not with the JSON the registration reads`
+          : String((r.stderr || "") + (ok ? "" : r.stdout || "")).trim();
+      const told = !ok && st.name === "preflight" && !r.error
+        ? `${said}\nThe registration needs \`${[st.bin, ...st.argv].join(" ")}\` to verify what it installs, so it changed nothing. Upgrade ${harness.display_name || st.bin}, then run this again.`
+        : said;
+      out.steps.push({ kind: "host", argv: [st.bin, ...st.argv], status: r.status ?? null, ok, ...(ok ? {} : { stderr: told }) });
+      // An unreadable answer exited 0; STOPPED names it by what it said, as
+      // the final list's own failure does, not by an "exited 0".
+      if (!ok) return fail(st.name, unreadable ? null : r.status ?? null, told, [st.bin, ...st.argv]);
       if (portable && st.name === "list") {
         hostList = portableListFact(r.stdout, i.entry);
         if (!hostList) return fail("list", null, `${st.bin} ${st.argv.join(" ")} did not report ${i.entry} in JSON output`, [st.bin, ...st.argv]);
@@ -1401,6 +1470,19 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
 
 function homeEnvName(harnessId) {
   try { return loadHarness(harnessId).runtime.home_env; } catch { return sourceHarness().runtime.home_env; }
+}
+
+// What Node cannot say: spawnSync reports a working directory that does not
+// exist and a binary not on PATH with the same `spawnSync <bin> ENOENT`
+// (measured 2026-10-05). The filesystem tells them apart, in this order (the
+// install spec, contract 19); any other error passes through as Node wrote it.
+function startFailure(err, { bin, resolved, cwd }) {
+  let dir = false;
+  try { dir = statSync(cwd).isDirectory(); } catch {}
+  if (!dir) return `${bin} could not start: the working directory ${JSON.stringify(String(cwd))} is not an existing directory`;
+  if (!resolved) return `${bin} could not start: it was not found on PATH`;
+  if (["ENOENT", "EACCES", "ENOEXEC"].includes(err?.code)) return `${bin} could not start: ${resolved} exists but could not be run (${err.code})`;
+  return String(err?.message || err);
 }
 
 // rmdirSync refuses a non-empty directory — that refusal IS the guarantee
@@ -1499,6 +1581,7 @@ function stepLabel(p, st) {
   const r = (x) => tilde(rel(p.projectDir, x));
   switch (st.kind) {
     case "portable-write": return `stage ${r(st.path)}`;
+    case "recover": return `lift ${r(st.path)} — the previous state proved${st.lifted ? `; it held: ${String(st.lifted).split("\n")[0]}` : ""}`;
     case "write": return `write ${r(st.path)}`;
     case "unregister": return `edit ${r(st.path)} [${st.pointer}.${st.name}]`;
     case "ensure": return `ensure ${r(st.path)}/`;

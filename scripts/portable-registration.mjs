@@ -179,7 +179,12 @@ export function analysePortableRegistration(projectDir, s, { root, payloadRoot: 
   try { desiredDigest = payloadDigest(payloadRoot); } catch (e) { return { ...out, state: "unavailable", reason: e.message }; }
   out.desiredDigest = desiredDigest;
   if (enabledOther) return { ...out, state: "conflict", refusal: `${enabledOther.id} is already enabled; two ProjectStore plugins would load the same skills and hooks. Disable or remove that registration explicitly, then retry` };
-  if (journal && !ignoreJournal) return { ...out, state: "stale", reason: "an interrupted registration has a recovery journal; the next confirmed run recovers it before applying this plan" };
+  // A journal the rollback could not prove names the run that left it, when,
+  // and its error, so the reader of the plan is not told recovery is assured
+  // (issue #28). Every other phase reads as before.
+  if (journal && !ignoreJournal) return { ...out, state: "stale", reason: journal.phase === "recovery-required"
+    ? `a previous run${journal.failed_at ? ` (${journal.failed_at})` : ""} could not prove its restore: ${String(journal.error || "no error recorded").split("\n")[0]}; this run re-proves the previous state before applying this plan, and refuses if it cannot (${paths.journal})`
+    : "an interrupted registration has a recovery journal; the next confirmed run recovers it before applying this plan" };
   if (existsSync(paths.dir) && !ownership) return { ...out, state: "foreign", refusal: `${paths.dir} exists without ${s.ownership_manifest}; a source this installer does not own holds the stable marketplace path` };
   if (market?.source && !samePath(market.source, paths.dir)) return { ...out, state: "foreign", refusal: `${paths.globalConfig} points marketplace ${s.marketplace_name} at ${market.source}, not ${paths.dir}` };
   if (nothing) return out;

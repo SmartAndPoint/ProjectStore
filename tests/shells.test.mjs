@@ -223,6 +223,14 @@ test("shells contract 11: every shell builds from the core's own pack tarball, b
       const v = spawnSync(process.execPath, [join(b.dir, "bin", `${s.name}.mjs`), "--version"], { encoding: "utf8", timeout: 60000 });
       assert.equal(v.status, 0, v.stderr);
       assert.equal(v.stdout.trim(), core.version, `${s.name} --version`);
+      // Contract 19 through the published bin: a missing project is refused,
+      // quoted, and nothing is created; the homes are pinned to scratch.
+      const gone = join(mkdtempSync(join(TMP, "gone-")), "project,");
+      const homes = { HOME: mkdtempSync(join(TMP, "home-")), CODEX_HOME: mkdtempSync(join(TMP, "codex-home-")), [SRC.runtime.home_env]: mkdtempSync(join(TMP, "claude-home-")) };
+      const g = spawnSync(process.execPath, [join(b.dir, "bin", `${s.name}.mjs`), "upgrade", "--project", gone], { encoding: "utf8", env: { ...noHostEnv(), ...homes }, timeout: 60000 });
+      assert.equal(g.status, 1, `${s.name}: ${g.stdout}${g.stderr}`);
+      assert.ok((g.stdout + g.stderr).includes(`no such project directory: ${JSON.stringify(gone)}`), `${s.name}: ${g.stdout}${g.stderr}`);
+      assert.equal(existsSync(gone), false, `${s.name}: nothing is created`);
     }
     if (s === CLAUDE) {
       assert.ok(b.tgz && existsSync(b.tgz) && b.tgz.endsWith(`${s.name}-${core.version}.tgz`), "the tarball lands under --out with npm's name");

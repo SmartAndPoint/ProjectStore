@@ -12,6 +12,8 @@ The installer prints its plan first — every mutation and every Codex command, 
 
 Upgrade with `npx projectstore-codex@<version> upgrade --project "$PWD"`. Project uninstall leaves the user-global Codex plugin in place; `uninstall --global` is the explicit machine-wide removal.
 
+Before it changes anything, the installer asks Codex for the read-back it verifies with (`codex plugin list --json`); a Codex too old to answer stops the registration before it changes anything. If `npx` answers `could not determine executable to run`, your registry (often a company mirror) serves a stale index that knows only the reserved `0.0.1` placeholder: name the version, and if needed the public registry — `npx --registry https://registry.npmjs.org projectstore-codex@<version> install --project "$PWD"`.
+
 Codex support is **experimental**: see [`docs/harnesses.md`](https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md) for what has been measured and what has not. Hooks start `node` from the Codex process's own `PATH`, so start Codex from a terminal where `node` resolves.
 
 To exercise the same npx path from a checkout, against a built tarball:
