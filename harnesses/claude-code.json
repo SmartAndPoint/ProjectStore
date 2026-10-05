@@ -20,6 +20,9 @@
       "/plugin marketplace add SmartAndPoint/ProjectStore && /plugin install projectstore@SmartAndPoint   (git marketplace, user-wide)",
       "restart Claude Code"
     ],
+    "next": [
+      "restart Claude Code in this project"
+    ],
     "notes": [
       "Git marketplace only: auto-update is OFF by default for third-party plugins: /plugin -> Marketplaces -> SmartAndPoint -> toggle auto-update. The npm registration updates when you run `npx projectstore-claude upgrade --project <dir>`.",
       "Pin a git-marketplace release with: /plugin marketplace add SmartAndPoint/ProjectStore#<tag>; pin the npm registration with npx projectstore-claude@<version>.",

@@ -18,8 +18,9 @@ import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { PassThrough } from "node:stream";
 import { fakeInstall, writeRegistry, noHostEnv } from "./fixtures/install.mjs";
-import { plan, renderPreview, confirm, apply, runVerb } from "../scripts/install-harness.mjs";
+import { plan, renderPreview, confirm, apply, runVerb, isInteractive, renderDone } from "../scripts/install-harness.mjs";
 import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses, loadHarness, identifiedHarnessId } from "../scripts/harness.mjs";
 import { writeBinding, seedCliVault } from "./fixtures/vault.mjs";
 import { stamp, sourceHash, parseProvenance } from "../scripts/provenance.mjs";
@@ -168,12 +169,16 @@ test("install preview: a pathless public harness row keeps its identity without 
     incomplete: false,
   };
 
+  // By default the harness's unsupported rows fold into one line that still
+  // names the harness, the surface, the state and the action (contract 18).
   const preview = renderPreview(p);
-  assert.match(preview, /harness=codex/);
-  assert.match(preview, /surface=commands/);
-  assert.match(preview, /\[no filesystem path\]/);
-  assert.match(preview, /unsupported/);
-  assert.match(preview, /→ skip/);
+  assert.match(preview, /not on Codex: commands — unsupported → skip/);
+  assert.ok(!preview.includes("/tmp/project/"), "no project-relative path is invented");
+  // --verbose lists the row itself, marked as having no filesystem path, with the manifest's reason.
+  const verbose = renderPreview(p, { verbose: true });
+  assert.match(verbose, /commands \[codex, no filesystem path\]/);
+  assert.match(verbose, /unsupported \(Codex has no registrable root slash command\) → skip/);
+  assert.ok(!verbose.includes("/tmp/project/"));
 });
 
 test("install: a dev checkout wires the plugin script directly and plans no launcher", () => {
@@ -473,12 +478,15 @@ test("install contract 9: a bare non-TTY install refuses, a named one proceeds, 
   const proj = project({ claude: "# Mine\n" });
   const env = { ...process.env, HOME: home, [SRC.runtime.plugin_root_env]: root };
   delete env[SRC.runtime.home_env];
+  delete env.FORCE_COLOR; // the test runner forces colour into its children on a terminal
   const run = (args) => spawnSync(process.execPath, [join(ROOT, "scripts", "install-harness.mjs"), ...args, "--project", proj], { encoding: "utf8", env, timeout: 15000 });
 
   const bare = run(["install"]);
   assert.equal(bare.status, 1, bare.stderr);
-  assert.match(bare.stdout, /non-TTY refuses/);
+  assert.match(bare.stdout, /Nothing written: without a terminal, a bare install refuses\. Name the harness to confirm: --harness /);
   assert.ok(bare.stdout.includes("CLAUDE.md"), "the preview is printed before the refusal");
+  assert.ok(bare.stdout.indexOf("PLAN — 3 changes") < bare.stdout.indexOf("Nothing written"), "the plan precedes the refusal");
+  assert.ok(!bare.stdout.includes("\x1b["), "a pipe gets no escapes");
   assert.equal(read(join(proj, "CLAUDE.md")), "# Mine\n");
 
   const named = run(["install", "--harness", SRC.id, "--json"]);
@@ -507,12 +515,152 @@ test("install contract 9: the interactive branch applies on yes and writes nothi
   const no = await confirm(p, { ask: async () => "n" });
   assert.equal(no.confirmed, false);
   assert.ok(!existsSync(statusLineLauncherPath(proj)));
-  const yes = await runVerb("install", proj, { home, root, ask: async (q) => { assert.match(q, /Apply these 3 change/); return "yes"; } });
+  const yes = await runVerb("install", proj, { home, root, ask: async (q) => { assert.equal(q, "Apply 3 changes? [Y/n] "); return "yes"; } });
   assert.equal(yes.gate.confirmed, true);
   assert.equal(yes.applied.length, 3);
   assert.ok(existsSync(statusLineLauncherPath(proj)));
   const refused = plan(project({ settings: "{ nope" }), { home, root });
   assert.deepEqual(await confirm(refused, { ask: async () => "y" }), { confirmed: false, why: "refused" });
+});
+
+// Contracts 9 and 18 as amended 2026-10-04: the plan is on the screen when the
+// question is asked, Enter means yes, anything else — Ctrl+C and end of input
+// included — writes nothing, and the run reads PLAN, APPLY, DONE in that order.
+test("install contract 9/18: the plan precedes the question, Enter is yes, anything else writes nothing", async () => {
+  const { home, root } = fixture();
+  const sink = () => { const chunks = []; return { chunks, out: { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } } }; };
+  const env = { ...process.env };
+  delete env.FORCE_COLOR;
+  const proj = project();
+  const { chunks, out } = sink();
+  let onScreen = null;
+  const r = await runVerb("install", proj, { home, root, env, out, ask: async () => { onScreen = chunks.join(""); return ""; } });
+  assert.equal(r.gate.why, "answered", "an empty answer is the default, yes");
+  assert.match(onScreen, /PLAN — 3 changes/, "the plan is printed before the question");
+  assert.ok(!onScreen.includes("APPLY"), "and nothing is applied before the answer");
+  const text = chunks.join("");
+  const at = (s) => text.indexOf(s);
+  assert.ok(at("PLAN — 3 changes") < at("APPLY") && at("APPLY") < at("DONE — 3 changes in "), text);
+  assert.ok(!text.includes("\x1b["), "no escapes into a stream that is not a terminal");
+  assert.equal(r.applied.length, 3);
+  for (const answer of ["n", "no", "nope", "y please", null]) {
+    const fresh = project();
+    const d = await runVerb("install", fresh, { home, root, env, ask: async () => answer });
+    assert.deepEqual(d.gate, { confirmed: false, why: "declined" }, String(answer));
+    assert.deepEqual(d.applied, []);
+    assert.ok(!existsSync(statusLineLauncherPath(fresh)), `${answer}: nothing written`);
+  }
+  for (const answer of ["y", "Y", "yes", "YES", "  yes  "]) assert.equal((await confirm(plan(project(), { home, root }), { ask: async () => answer })).why, "answered", answer);
+});
+
+// The terminal branch end to end, without `ask`: streams that say they are a
+// terminal, the question on the same stream as the plan, the answer read from
+// stdin. --json in a terminal never asks (it used to, into the envelope).
+test("install contract 9: at a terminal the question follows the plan on the same stream; Enter applies, end of input does not, --json never asks", async () => {
+  const { home, root } = fixture();
+  const env = { ...process.env };
+  delete env.FORCE_COLOR; delete env.CI;
+  for (const m of manifests()) for (const k of m.runtime?.session_env || []) delete env[k];
+  const terminal = () => {
+    const stdin = new PassThrough(); stdin.isTTY = true;
+    const stdout = new PassThrough(); stdout.isTTY = true; stdout.columns = 100;
+    let text = ""; stdout.on("data", (d) => { text += d; });
+    return { stdin, stdout, text: () => text };
+  };
+  const t = terminal();
+  const proj = project();
+  const pending = runVerb("install", proj, { home, root, env, harnesses: [SRC.id], stdin: t.stdin, stdout: t.stdout, out: t.stdout });
+  await new Promise((r) => setImmediate(r));
+  assert.match(t.text().replace(/\x1b\[[0-9;]*m/g, ""), /PLAN — 3 changes[\s\S]*Apply 3 changes\? \[Y\/n\] $/, "the plan, then the question, on one stream");
+  t.stdin.write("\n");
+  const yes = await pending;
+  assert.deepEqual(yes.gate, { confirmed: true, why: "answered" }, "a named harness at a terminal is asked, and Enter is yes");
+  assert.equal(yes.applied.length, 3);
+  const e = terminal();
+  const proj2 = project();
+  const eof = runVerb("install", proj2, { home, root, env, harnesses: [SRC.id], stdin: e.stdin, stdout: e.stdout, out: e.stdout });
+  await new Promise((r) => setImmediate(r));
+  e.stdin.end();
+  assert.deepEqual((await eof).gate, { confirmed: false, why: "declined" }, "end of input is a no");
+  assert.ok(!existsSync(statusLineLauncherPath(proj2)));
+  const j = terminal();
+  const bare = await runVerb("install", project(), { home, root, env, stdin: j.stdin, stdout: j.stdout, json: true });
+  assert.deepEqual(bare.gate, { confirmed: false, why: "non-tty" }, "--json in a terminal is not asked: a bare one refuses");
+  assert.equal(j.text(), "", "and nothing is written to the terminal");
+});
+
+// The reviewer's pass (2026-10-05): a row's reason is never folded — an
+// uninstall that could not be planned says why in the default view — a write
+// never wears the skip glyph, a failure that is not a host command is named
+// as what it was, and an injected `ask` never overrides --json.
+test("install contract 18: every reason is in the default view, writes wear write glyphs, STOPPED names what failed", async () => {
+  const row = (extra) => ({ harness: SRC.id, surface: "plugin", kind: "registration", path: "/tmp/project/x", entry: null, state: "current", action: "skip", ...extra });
+  const p = { mode: "uninstall", harnesses: [SRC.id], projectDir: "/tmp/project", plannedAgainst: {}, root: "/tmp/plugin", reports: [], refusals: [], ok: true, incomplete: true,
+    items: [row({ reason: "`claude` is not on PATH; global registration is left untouched" }), row({ surface: "agents_block", kind: "shared", entry: "projectstore:agents v4", state: "ours-current", reason: "AGENTS.md is read by another harness too" })] };
+  const text = renderPreview(p);
+  assert.match(text, /current \(`claude` is not on PATH; global registration is left untouched\) → skip/, "the reason an uninstall could not be planned is in the default view");
+  assert.match(text, /ours-current \(AGENTS\.md is read by another harness too\) → skip/);
+  const writes = renderPreview({ ...p, mode: "install", incomplete: false, items: ["add", "replace-entry", "disable", "prune"].map((action, k) => row({ surface: `s${k}`, kind: "shared", action, state: "ours-absent" })) });
+  for (const action of ["add", "replace-entry", "disable", "prune"]) {
+    const line = writes.split("\n").find((l, k, all) => all[k + 1] && all[k + 1].includes(`→ ${action}`));
+    assert.ok(line && !line.trimStart().startsWith("·"), `${action} wears a write glyph: ${line}`);
+  }
+  // A failed layout step is not a host command, and nothing was planned against an install path.
+  const layout = { ...p, mode: "install", items: [{ harness: SRC.id, surface: "layout", kind: "layout", path: "/tmp/project/.projectstore", entry: null, state: "legacy", action: "migrate" }] };
+  const stopped = renderDone({ verb: "upgrade", plan: layout, applied: [{ surface: "layout", path: "/tmp/project/.projectstore", action: "migrate", failed: { step: "move-state", status: null, stderr: "EACCES" } }], failed: { step: "move-state", status: null, stderr: "EACCES" }, elapsed: 0 });
+  assert.match(stopped, /STOPPED — 0 changes applied, then move-state failed/);
+  assert.match(stopped, /✗ move-state \(layout \.projectstore\)\n {6}EACCES/);
+  assert.ok(!stopped.includes("host command") && !stopped.includes("install path"), stopped);
+  // An injected ask is a terminal, unless --json says otherwise.
+  const { home, root } = fixture();
+  let asked = false;
+  const j = await confirm(plan(project(), { home, root, harnesses: [SRC.id] }), { ask: async () => { asked = true; return "y"; }, json: true });
+  assert.deepEqual(j, { confirmed: true, why: "named" });
+  assert.equal(asked, false, "--json never asks");
+});
+
+test("install contract 9: a terminal is a TTY on both ends, outside CI, without --json and outside a host session", () => {
+  const tty = { isTTY: true };
+  const base = { stdin: tty, stdout: tty, env: {} };
+  assert.equal(isInteractive(base), true);
+  assert.equal(isInteractive({ ...base, stdin: {} }), false, "a piped stdin");
+  assert.equal(isInteractive({ ...base, stdout: {} }), false, "a piped stdout");
+  assert.equal(isInteractive({ ...base, json: true }), false, "--json");
+  assert.equal(isInteractive({ ...base, env: { CI: "true" } }), false, "CI");
+  assert.equal(isInteractive({ ...base, env: { CI: "0" } }), true, "CI=0 is not CI");
+  assert.equal(isInteractive({ ...base, env: { CI: "false" } }), true, "CI=false is not CI");
+  const markers = manifests().flatMap((m) => m.runtime?.session_env || []);
+  assert.ok(markers.length >= 1, "a harness names its session markers (Codex: unmeasured, so none)");
+  for (const k of markers) assert.equal(isInteractive({ ...base, env: { [k]: "1" } }), false, `inside a host session (${k})`);
+});
+
+test("install contract 18: --verbose restores the prose the default folds, and DONE names the manifest's next steps", async () => {
+  const { home, root } = fixture();
+  const proj = project();
+  const p = plan(proj, { home, root });
+  const quiet = renderPreview(p, { verb: "install" });
+  const loud = renderPreview(p, { verb: "install", verbose: true });
+  assert.match(quiet, /^projectstore · install · Claude Code\n/);
+  assert.ok(loud.length > quiet.length);
+  for (const report of p.reports) for (const line of report.split("\n").filter(Boolean)) {
+    assert.ok(loud.includes(line), `--verbose prints the report line: ${line}`);
+    assert.ok(!quiet.includes(line), `the default folds it: ${line}`);
+  }
+  // Every write the plan makes is named in both.
+  for (const i of p.items.filter((i) => i.action !== "skip" && i.path)) {
+    const shown = relative(proj, i.path);
+    assert.ok(quiet.includes(shown) && loud.includes(shown), shown);
+  }
+  const done = renderDone({ verb: "install", plan: p, applied: [{}, {}, {}], failed: null, elapsed: 1234 });
+  assert.match(done, /DONE — 3 changes in 1\.2s/);
+  for (const s of loadHarness(SRC.id).install.next) assert.ok(done.includes(`next  ${s}`), s);
+  assert.match(done, /tip   every row's reasoning: add --verbose/);
+  assert.ok(!renderDone({ verb: "install", plan: p, applied: [], failed: null, elapsed: 0 }, { verbose: true }).includes("add --verbose"), "no --verbose tip once it was given");
+  const gone = renderDone({ verb: "uninstall", plan: p, applied: [{}], failed: null, elapsed: 0 });
+  assert.match(gone, /next  restart Claude Code/);
+  const failed = renderDone({ verb: "install", plan: p, applied: [{}], failed: { argv: ["claude", "plugin", "install", "x"], status: 1, stderr: "boom" }, elapsed: 0 });
+  assert.match(failed, /STOPPED — 1 change applied, then a host command failed/);
+  assert.match(failed, /\$ claude plugin install x exited 1\n {6}boom/);
 });
 
 // ─── The review's cases ─────────────────────────────────────────────────

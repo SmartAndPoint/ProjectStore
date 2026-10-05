@@ -80,10 +80,11 @@ const COMMAND_OVERRIDES = {
 
 ## register / unregister
 
-Preview the requested change and ask for explicit approval. On approval, run the
-core's \`install\` or \`uninstall\` verb with \`--harness codex --surface
-agents_block --project "$PWD"\`. Print its output verbatim. Never edit the
-managed block by hand.
+Preview the requested change with \`plan --harness codex --surface agents_block
+--project "$PWD"\` and ask for explicit approval. On approval, run the core's
+\`install\` or \`uninstall\` verb with \`--harness codex --surface agents_block
+--project "$PWD" --json\` — \`--json\` never waits on a terminal's question — and
+report the envelope's result. Never edit the managed block by hand.
 
 ## status
 
@@ -134,7 +135,9 @@ arguments and \`--json\`. Summarize every finding without re-deriving it.
 When \`--fix\` is absent, remain read-only. When it is present, separate fixes
 by owner: derived vault views use \`$projectstore-reconcile\`; Codex plugin or
 agents-block drift uses the core's \`upgrade --harness codex\` path. Preview
-each mutation and ask for explicit approval before running it. Unsupported
+each mutation with \`plan --harness codex\` and ask for explicit approval before
+running it; then run \`upgrade --harness codex --json\`, whose envelope is the
+result — \`--json\` never waits on a terminal's question. Unsupported
 surfaces remain unsupported; do not create host configuration by hand. Never
 claim a fix after a non-zero exit.`,
   },

@@ -196,7 +196,9 @@ test("layout contract 6/7: two bindings is the one refusal — install and upgra
     assert.deepEqual(r.applied, []);
     previews.push(r.preview);
   }
-  assert.equal(previews[0], previews[1], "install and upgrade refuse with the same preview");
+  // The header names the verb that ran; everything beneath it is the same refusal.
+  assert.equal(previews[0].split("\n").slice(1).join("\n"), previews[1].split("\n").slice(1).join("\n"), "install and upgrade refuse with the same preview");
+  assert.match(previews[0], /^projectstore · install · /); assert.match(previews[1], /^projectstore · upgrade · /);
   assert.equal(read(lp.legacy.binding), before.legacy); assert.equal(read(lp.binding), before.current); assert.equal(read(lp.legacy.launcher), before.launcher);
   const f = checkLayout(proj);
   assert.equal(f.length, 1); assert.equal(f[0].check, "layout-two-configs"); assert.equal(f[0].level, "issue");
@@ -207,6 +209,26 @@ test("layout contract 6/7: two bindings is the one refusal — install and upgra
   apply(un, { env, home });
   assert.ok(!existsSync(lp.legacy.runtime), "the legacy state directory (ours, by its header) is gone");
   assert.ok(existsSync(lp.legacy.binding), "the legacy binding is bind's, never uninstall's");
+});
+
+// Contract 18: the layout move reports each of its steps beneath its own line,
+// as it runs, and DONE follows. A step that left its target in place is "·".
+test("layout contract 18: the move's APPLY lines name each step beneath the layout line", async () => {
+  const { home, root } = home028();
+  const { proj } = legacyProject(home);
+  const chunks = [];
+  const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+  const r = await runVerb("upgrade", proj, { home, root, env: noHostEnv(), harnesses: [SRC.id], out });
+  assert.equal(r.failed, null, JSON.stringify(r.failed));
+  const text = chunks.join("").replace(/\x1b\[[0-9;]*m/g, ""); // the runner may force colour (FORCE_COLOR)
+  const applyText = text.slice(text.indexOf("\nAPPLY\n"), text.indexOf("\nDONE — "));
+  assert.match(applyText, /\n {2}↻ layout /, applyText);
+  const steps = r.plan.items.find((i) => i.surface === "layout").steps.filter((s) => s.kind !== "note");
+  const lines = applyText.split("\n").filter((l) => /^ {6}[✓✗·] /.test(l));
+  assert.ok(lines.length >= steps.length, `one line per step:\n${applyText}`);
+  assert.ok(lines.every((l) => !l.includes("✗")), applyText);
+  assert.ok(!/✓ .* kept/.test(applyText), "a kept step is never ✓");
+  assert.match(text, /\nDONE — \d+ changes? in /);
 });
 
 test("layout contract 6: the layout item is planned whatever --surface names, and an interrupted binding move resumes instead of refusing", () => {

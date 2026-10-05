@@ -26,10 +26,11 @@ You are managing ProjectStore's Codex agent integration. Require a bound project
 
 ## register / unregister
 
-Preview the requested change and ask for explicit approval. On approval, run the
-core's `install` or `uninstall` verb with `--harness codex --surface
-agents_block --project "$PWD"`. Print its output verbatim. Never edit the
-managed block by hand.
+Preview the requested change with `plan --harness codex --surface agents_block
+--project "$PWD"` and ask for explicit approval. On approval, run the core's
+`install` or `uninstall` verb with `--harness codex --surface agents_block
+--project "$PWD" --json` — `--json` never waits on a terminal's question — and
+report the envelope's result. Never edit the managed block by hand.
 
 ## status
 

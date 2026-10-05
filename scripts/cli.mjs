@@ -41,7 +41,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { createInterface } from "node:readline/promises";
+import * as term from "./term.mjs";
 import { projectRootDeclared, childEnv, harnessIds, harnessForOverlay, pinPluginRoot } from "./harness.mjs";
 import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster } from "./lib.mjs";
 import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_LIMIT, GRAPH_EDGE_CAP, DIRECTIONS } from "./query.mjs";
@@ -83,14 +83,15 @@ export function resolveProject({ project = null, env = process.env, cwd = proces
 const opt = (name, arg, summary, multiple = false) => Object.freeze({ name, arg, summary, multiple });
 const JSON_OPT = opt("json", false, "the envelope");
 const READ_JSON = [JSON_OPT];
-const HARNESS_OPT = opt("harness", "<id>", "the harness — and, non-interactively, the confirmation; there is no --yes", true);
+const HARNESS_OPT = opt("harness", "<id>", "the harness — and, without a terminal, the confirmation (a terminal is asked); there is no --yes", true);
 const SURFACE_OPT = opt("surface", "<key>", "one surface and those beneath it", true);
 // The layout move's remedy names this for any copy but the package's own
 // registration (the layout spec, contract 12 as amended 2026-10-03): it makes
 // "no host command" true by construction instead of by recognising the root.
 const NO_REGISTER_OPT = opt("no-register", false, "leave the plugin registration alone: change only this project's files");
-const INSTALL_OPTS = [HARNESS_OPT, SURFACE_OPT, NO_REGISTER_OPT, JSON_OPT];
-const UNINSTALL_OPTS = [HARNESS_OPT, SURFACE_OPT, opt("global", false, "also remove the harness-global plugin registration"), JSON_OPT];
+const VERBOSE_OPT = opt("verbose", false, "every row's reasoning, each step's why and the host's own notes");
+const INSTALL_OPTS = [HARNESS_OPT, SURFACE_OPT, NO_REGISTER_OPT, VERBOSE_OPT, JSON_OPT];
+const UNINSTALL_OPTS = [HARNESS_OPT, SURFACE_OPT, opt("global", false, "also remove the harness-global plugin registration"), VERBOSE_OPT, JSON_OPT];
 
 export const VERBS = Object.freeze([
   Object.freeze({
@@ -195,15 +196,139 @@ export const VERBS = Object.freeze([
 // story that adds a verb in slices.
 export const PLANNED_VERBS = Object.freeze([]);
 
-export function usage() {
-  const lines = ["usage: projectstore <verb> [options] [--project <dir>] [--json]", "", "verbs:"];
-  for (const v of VERBS) {
-    lines.push(`  ${v.verb.padEnd(11)} ${v.summary}`);
-    for (const o of v.options) lines.push(`    --${o.name}${o.arg ? " " + o.arg : ""}${o.multiple ? " (repeatable)" : ""}  ${o.summary}`);
+// The verbs as a person meets them: setting a project up, reading the vault,
+// keeping it consistent, serving it. A verb not listed lands in "Other", so a
+// new row is never hidden by this table.
+const HELP_GROUPS = [
+  ["Set up", ["install", "upgrade", "uninstall", "plan", "bind", "init", "agents"]],
+  ["Read", ["status", "search", "show", "graph", "codemap", "orientation"]],
+  ["Check and repair", ["doctor", "reconcile"]],
+  ["Serve", ["mcp", "version"]],
+];
+
+// Examples per verb. `{cmd}` is how this run was invoked (a shell's own name
+// when PROJECTSTORE_SHELL says so, else the core — a shell passes the read
+// verbs through, so its name serves them too), `{h}` the harness argument the
+// core needs and a shell fixes.
+const EXAMPLES = {
+  install: ["{cmd} install{h}", "{cmd} plan{h}  # the same plan; nothing is written"],
+  upgrade: ["{cmd}@<version> upgrade{h}  # the version you name is the version that runs", "{cmd} upgrade{h} --verbose"],
+  uninstall: ["{cmd} uninstall{h}", "{cmd} uninstall{h} --surface statusline"],
+  plan: ["{cmd} plan{h}", "{cmd} plan{h} --json  # one envelope, for scripts and agents"],
+  status: ["{cmd} status", "{cmd} status --json"],
+  orientation: ["{cmd} orientation --json"],
+  search: ['{cmd} search "entry rule" --kind spec', "{cmd} search queue --status accepted --limit 5"],
+  show: ["{cmd} show adr/README.md", "{cmd} show epics/PS-CORE/epic.md --section acceptance"],
+  graph: ["{cmd} graph neighbors adr/README.md --direction out", "{cmd} graph lineage epics/PS-CORE/epic.md --depth 2"],
+  codemap: ["{cmd} codemap --for PS-CORE", "{cmd} codemap --for scripts/lib.mjs --reverse"],
+  doctor: ["{cmd} doctor", "{cmd} doctor --install --json"],
+  reconcile: ["{cmd} reconcile  # what would change; nothing is written", "{cmd} reconcile --write"],
+  bind: ["{cmd} bind ~/vaults/my-project", "{cmd} bind ~/vaults/other --rebind"],
+  init: ["{cmd} init ~/vaults/new-project --language ru"],
+  agents: ["{cmd} agents show", "{cmd} agents configure{h} --default opus --agent clerk=sonnet"],
+  mcp: ['{cmd} mcp --project "$PWD"'],
+};
+
+// Positional arguments a summary does not already name.
+const ARGS = { search: "<phrase>", show: "<path>" };
+
+// "bind <vault> — bind this project…" names its own form; "graph neighbors
+// <path> | graph lineage <path> — …" names two.
+function forms(row) {
+  const m = /^(.+?) — (.+)$/.exec(row.summary);
+  if (m && m[1].startsWith(row.verb + " ")) {
+    const list = m[1].split(" | ").map((f) => f.replace(new RegExp(`^${row.verb} `), ""));
+    return { forms: list, about: m[2][0].toUpperCase() + m[2].slice(1) };
   }
-  if (PLANNED_VERBS.length) lines.push("", `  planned: ${PLANNED_VERBS.map((v) => `${v.verb} (${v.lands})`).join(", ")}`);
-  lines.push("", `  harnesses: ${harnessIds().join(", ")}`, "  --version  print the package version", "  exit codes: 0 ok, 1 findings or refusal, 2 usage, 3 not bound");
+  return { forms: [ARGS[row.verb] || ""], about: row.summary };
+}
+
+function invocation(env = process.env) {
+  const shell = env.PROJECTSTORE_SHELL || null;
+  return { shell, cmd: shell ? `npx ${shell}` : "npx projectstore" };
+}
+
+function optionLines(options) {
+  const rows = options.map((o) => [`--${o.name}${o.arg ? " " + o.arg : ""}`, `${o.summary}${o.multiple ? " (repeatable)" : ""}`]);
+  const w = Math.min(28, Math.max(0, ...rows.map(([l]) => l.length)));
+  return rows.map(([l, r]) => (l.length > w ? `  ${l}\n  ${" ".repeat(w)}  ${r}` : `  ${l.padEnd(w)}  ${r}`));
+}
+
+const EXIT_CODES = "Exit codes  0 ok · 1 findings or a refusal · 2 usage · 3 not bound";
+
+export function usage(env = process.env) {
+  const { cmd } = invocation(env);
+  const lines = [
+    "projectstore — project memory for coding agents: decisions, specs, epics and stories as plain markdown.",
+    "",
+    "Usage",
+    `  ${cmd} <verb> [options]`,
+    `  ${cmd} <verb> --help       one verb's options and examples`,
+  ];
+  const seen = new Set();
+  const groups = HELP_GROUPS.map(([title, names]) => [title, names.map((n) => VERBS.find((v) => v.verb === n)).filter(Boolean)]);
+  for (const [, rows] of groups) for (const r of rows) seen.add(r.verb);
+  const other = VERBS.filter((v) => !seen.has(v.verb));
+  if (other.length) groups.push(["Other", other]);
+  for (const [title, rows] of groups) {
+    if (!rows.length) continue;
+    lines.push("", title);
+    for (const v of rows) lines.push(`  ${v.verb.padEnd(12)} ${v.summary}`);
+  }
+  if (PLANNED_VERBS.length) lines.push("", `Planned: ${PLANNED_VERBS.map((v) => `${v.verb} (${v.lands})`).join(", ")}`);
+  lines.push(
+    "",
+    "Every verb",
+    "  --project <dir>  the project (default: the host session's project, else the current directory)",
+    "  --json           one envelope { schema_version, verb, project, ok, result } — for scripts and agents",
+    "  --version        the package version",
+    "",
+    "Tips",
+    "  install, upgrade and uninstall show their plan first; `plan` prints the same plan and writes nothing.",
+    "  At a terminal they ask before writing. Without one, --harness is the confirmation — there is no --yes.",
+    "  Unattended in a terminal (a script, a Makefile): pass --json, set CI=1, or give stdin no terminal (`</dev/null`).",
+    "  --verbose on those verbs adds every row's reasoning and the host's own notes.",
+    "",
+    `Harnesses   ${harnessIds().join(", ")}`,
+    EXIT_CODES,
+  );
   return lines.join("\n");
+}
+
+// One verb: what it does, how to call it, every option, examples.
+export function verbHelp(row, env = process.env) {
+  const { shell, cmd } = invocation(env);
+  const fixed = Boolean(shell) && row.options.some((o) => o.name === "harness");
+  const opts = row.options.filter((o) => !(fixed && o.name === "harness"));
+  const { forms: list, about } = forms(row);
+  const lines = [`${cmd} ${row.verb} — ${about}`, "", "Usage"];
+  for (const f of list) lines.push(`  ${cmd} ${row.verb}${f ? " " + f : ""}${opts.length ? " [options]" : ""}`);
+  if (opts.length) lines.push("", "Options", ...optionLines(opts));
+  if (fixed) lines.push("", `${shell} names the harness itself: without a terminal, the verb is its own confirmation.`);
+  else if (row.options.some((o) => o.name === "harness")) lines.push("", `Harnesses   ${harnessIds().join(", ")}`);
+  const ex = EXAMPLES[row.verb] || [];
+  const h = fixed ? "" : " --harness <id>";
+  const rendered = ex.map((e) => e.split("{cmd}").join(cmd).split("{h}").join(h).split("  # "));
+  const col = Math.max(0, ...rendered.filter((r) => r.length > 1).map(([c]) => c.length));
+  if (ex.length) lines.push("", "Examples", ...rendered.map(([c, note]) => `  ${note ? `${c.padEnd(col)}   # ${note}` : c}`));
+  lines.push("", EXIT_CODES);
+  return lines.join("\n");
+}
+
+// The nearest name within two edits — for a mistyped verb or option.
+export function nearest(word, names) {
+  const d = (a, b) => {
+    const m = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+    for (let j = 1; j <= b.length; j++) m[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return m[a.length][b.length];
+  };
+  let best = null, score = 3;
+  for (const n of names) {
+    const k = n.startsWith(word) && word.length >= 3 ? 0 : d(word, n);
+    if (k < score) { best = n; score = k; }
+  }
+  return best;
 }
 
 // ─── run ───────────────────────────────────────────────────────────────
@@ -217,7 +342,7 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
       strict: true,
       options: {
         project: { type: "string" }, json: { type: "boolean" }, help: { type: "boolean", short: "h" }, version: { type: "boolean", short: "v" },
-        harness: { type: "string", multiple: true }, surface: { type: "string", multiple: true }, global: { type: "boolean" }, "no-register": { type: "boolean" },
+        harness: { type: "string", multiple: true }, surface: { type: "string", multiple: true }, global: { type: "boolean" }, "no-register": { type: "boolean" }, verbose: { type: "boolean" },
         write: { type: "boolean" }, only: { type: "string" }, install: { type: "boolean" }, vault: { type: "boolean" },
         kind: { type: "string", multiple: true }, status: { type: "string" }, limit: { type: "string" }, "include-derived": { type: "boolean" }, "case-sensitive": { type: "boolean" },
         body: { type: "boolean" }, section: { type: "string" }, direction: { type: "string" }, depth: { type: "string" }, for: { type: "string" }, reverse: { type: "boolean" },
@@ -228,7 +353,14 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
   } catch (e) {
     // --json cannot be known before parsing; a raw scan is enough here.
     if (argv.includes("--json")) stdout.write(JSON.stringify(envelope(argv.find((a) => !a.startsWith("-")) || null, null, false, { error: e.message }), null, 2) + "\n");
-    stderr.write(`${e.message}\n${usage()}\n`);
+    // Node's own wording for an unknown option explains "--" positionals; a
+    // person who typed --verbos wants the option they meant.
+    const unknown = e.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION" ? /'(-{1,2}[^']+)'/.exec(e.message)?.[1] : null;
+    const row = VERBS.find((v) => v.verb === argv.find((a) => !a.startsWith("-")));
+    const names = [...(row ? row.options.map((o) => o.name) : VERBS.flatMap((v) => v.options.map((o) => o.name))), "project", "json", "help", "version"];
+    const hint = unknown ? nearest(unknown.replace(/^-+/, ""), [...new Set(names)]) : null;
+    const message = unknown ? `${row ? row.verb + " does not take" : "unknown option"} ${unknown}${hint ? ` — did you mean --${hint}?` : ""}` : e.message;
+    stderr.write(`${message}\nRun ${row ? `\`${row.verb} --help\`` : "--help"} for the options.\n`);
     return 2;
   }
   const { values, positionals } = parsed;
@@ -236,7 +368,7 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
   // a consumer (the MCP server, a script) always has something to parse.
   const fail = (verb, project, message, code, { help = false } = {}) => {
     if (values.json) stdout.write(JSON.stringify(envelope(verb, project, false, { error: message, exit: code }), null, 2) + "\n");
-    stderr.write(message + "\n" + (help ? usage() + "\n" : ""));
+    stderr.write(message + "\n" + (help ? usage(env) + "\n" : ""));
     return code;
   };
   // In-process reads resolve layouts and registries from THIS package, as the
@@ -244,11 +376,17 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
   // session's variable points at.
   pinPluginRoot(PACKAGE_ROOT);
   if (values.version) return runVersion({ values, stdout });
-  if (values.help || !positionals.length) { (values.help ? stdout : stderr).write(usage() + "\n"); return values.help ? 0 : 2; }
+  if (values.help && positionals.length) {
+    const row = VERBS.find((v) => v.verb === positionals[0]);
+    if (row) { stdout.write(verbHelp(row, env) + "\n"); return 0; }
+  }
+  if (values.help || !positionals.length) { (values.help ? stdout : stderr).write(usage(env) + "\n"); return values.help ? 0 : 2; }
   const verb = positionals[0];
   const row = VERBS.find((v) => v.verb === verb);
   if (!row) {
     const planned = PLANNED_VERBS.find((v) => v.verb === verb);
+    const guess = planned ? null : nearest(verb, VERBS.map((v) => v.verb));
+    if (guess) return fail(verb, null, `unknown verb: ${verb} — did you mean ${guess}?\nRun --help for every verb.`, 2);
     return fail(verb, null, (planned ? `${verb} lands with roadmap ${planned.lands}; not in this release.` : `unknown verb: ${verb}`), 2, { help: true });
   }
   // The options map is global (parseArgs), the rows are not: an option a row
@@ -257,7 +395,10 @@ export async function run(argv, { env = process.env, cwd = process.cwd(), stdin 
   const GLOBAL = new Set(["project", "json", "help", "version"]);
   const declared = new Set(row.options.map((o) => o.name));
   const stray = Object.keys(values).filter((k) => !GLOBAL.has(k) && !declared.has(k));
-  if (stray.length) return fail(verb, null, `${verb} does not take --${stray[0]}`, 2, { help: true });
+  if (stray.length) {
+    const guess = nearest(stray[0], row.options.map((o) => o.name));
+    return fail(verb, null, `${verb} does not take --${stray[0]}${guess ? ` — did you mean --${guess}?` : ""}\nRun \`${verb} --help\` for the options.`, 2);
+  }
   const project = resolveProject({ project: values.project, env, cwd });
   const cfg = readConfigAt(project);
   if (row.requiresBinding && !cfg) return fail(verb, project, `${project} is not bound to a vault — run /projectstore:bind <vault> in a session, or \`projectstore bind <vault>\` (\`projectstore init <vault>\` also creates the vault).`, 3);
@@ -285,8 +426,9 @@ function ownEnv(env, project) {
 async function confirmWrite(question, { stdin, stdout, ask }) {
   if (ask) return /^y(es)?$/i.test(String(await ask(question)).trim());
   if (!(stdin && stdin.isTTY && stdout && stdout.isTTY)) return null; // no terminal: refuse
-  const rl = createInterface({ input: stdin, output: stdout });
-  try { return /^y(es)?$/i.test(String(await rl.question(question)).trim()); } finally { rl.close(); }
+  // End of input is a no (term.mjs askLine), never a question left pending.
+  const answer = await term.askLine(question, stdin, stdout);
+  return answer !== null && /^y(es)?$/i.test(answer.trim());
 }
 
 // ─── verbs ─────────────────────────────────────────────────────────────
@@ -573,23 +715,28 @@ async function runReconcile({ values, project, env, stdin, stdout, stderr, ask }
 
 async function runInstallVerb({ row, values, project, env, stdin, stdout, ask }) {
   const ih = await import("./install-harness.mjs");
-  const opts = { harnesses: values.harness || [], surfaces: values.surface && values.surface.length ? values.surface : null, globalRemoval: Boolean(values.global), register: !values["no-register"], root: PACKAGE_ROOT, env: ownEnv(env, project), stdin, stdout, ask };
+  const opts = { harnesses: values.harness || [], surfaces: values.surface && values.surface.length ? values.surface : null, globalRemoval: Boolean(values.global), register: !values["no-register"], root: PACKAGE_ROOT, env: ownEnv(env, project), stdin, stdout, ask, json: Boolean(values.json), verbose: Boolean(values.verbose) };
   if (row.verb === "plan") {
     const p = ih.plan(project, opts);
-    stdout.write(values.json ? JSON.stringify(envelope("plan", project, p.ok && !p.incomplete, { ...p, items: p.items.map(ih.publicItem) }), null, 2) + "\n" : ih.renderPreview(p));
+    if (values.json) stdout.write(JSON.stringify(envelope("plan", project, p.ok && !p.incomplete, { ...p, items: p.items.map(ih.publicItem) }), null, 2) + "\n");
+    else {
+      const c = term.caps(stdout, env);
+      stdout.write(ih.renderPreview(p, { verbose: opts.verbose, verb: "plan", paint: term.painter(c), icon: (n) => term.icon(c, n), width: c.live ? c.width : 0 }));
+    }
     return p.ok && !p.incomplete ? 0 : 1;
   }
-  const r = await ih.runVerb(row.verb, project, opts);
+  // Text mode hands runVerb the stream: the plan is printed before any
+  // question, then each step, then DONE (install spec contracts 9 and 18).
+  const r = await ih.runVerb(row.verb, project, values.json ? opts : { ...opts, out: stdout });
   // A registration the plan could not make (no host CLI) or a host command
   // that failed is exit 1 with the rest applied (install spec contract 4′).
   const ok = r.plan.ok && !r.plan.incomplete && !r.failed && (r.gate.confirmed || r.gate.why === "nothing-to-do");
   if (values.json) {
     stdout.write(JSON.stringify(envelope(row.verb, project, ok, { gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, plannedAgainst: r.plan.plannedAgainst, items: r.plan.items.map(ih.publicItem), refusals: r.plan.refusals, reports: r.plan.reports }), null, 2) + "\n");
-  } else {
-    stdout.write(r.preview);
-    if (r.gate.confirmed) stdout.write(ih.appliedLine(r));
-    else if (r.gate.why === "non-tty") stdout.write(`a bare ${row.verb} in a non-TTY refuses; name a harness to confirm: --harness ${r.plan.detected.map((d) => d.id).join(" | ") || harnessIds().join(" | ")}\n`);
-    else if (r.gate.why === "declined") stdout.write("nothing written.\n");
+  } else if (r.gate.why === "non-tty") {
+    stdout.write(`Nothing written: without a terminal, a bare ${row.verb} refuses. Name the harness to confirm: --harness ${r.plan.detected.map((d) => d.id).join(" | ") || harnessIds().join(" | ")}\n`);
+  } else if (r.gate.why === "declined") {
+    stdout.write("Nothing written.\n");
   }
   return ok ? 0 : 1;
 }

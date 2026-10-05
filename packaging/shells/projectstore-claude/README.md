@@ -6,7 +6,9 @@ The Claude Code installer for [projectstore](https://www.npmjs.com/package/proje
 npx projectstore-claude install --project "$PWD"
 ```
 
-It registers the plugin for that checkout at the host's local scope, previews every write and every host command before it runs, and asks for nothing else — naming the shell is the confirmation. Restart Claude Code afterwards.
+It registers the plugin for that checkout at the host's local scope. It prints its plan first — every write and every host command, verbatim — and at a terminal asks `Apply N changes? [Y/n]` before anything runs; then each step as it runs, and what to do next. Without a terminal (a script, CI, an agent's tool) naming the shell is the confirmation; `--json` never asks. Restart Claude Code afterwards.
+
+- See before you write: `npx projectstore-claude plan --project "$PWD"` prints the same plan and writes nothing; `--verbose` adds every row's reasoning; `npx projectstore-claude <verb> --help` lists a verb's options with examples.
 
 - Upgrade, or pin: `npx projectstore-claude@<version> upgrade --project "$PWD"` — the version you name is the version you run.
 - Uninstall: `npx projectstore-claude uninstall --project "$PWD"` — forgets the registration for that checkout and nothing else; your vault is plain markdown and stays yours.

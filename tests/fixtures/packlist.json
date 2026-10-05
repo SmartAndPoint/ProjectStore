@@ -73,6 +73,7 @@
   "scripts/statusline.mjs",
   "scripts/story-section.mjs",
   "scripts/surfaces.mjs",
+  "scripts/term.mjs",
   "scripts/tokens.mjs",
   "scripts/touch-session.mjs",
   "scripts/version-guard.mjs",

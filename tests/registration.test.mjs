@@ -14,11 +14,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, realpathSync } from "node:fs";
-import { resolve, dirname, join } from "node:path";
+import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { fakeInstall, fakePackageRoot, fakeClaude, noHostEnv, writeRegistry } from "./fixtures/install.mjs";
-import { plan, renderPreview, apply, runVerb, publicItem, appliedLine } from "../scripts/install-harness.mjs";
+import { plan, renderPreview, apply, runVerb, publicItem, renderDone } from "../scripts/install-harness.mjs";
 import { analyseRegistration, registrationPaths, surfaceStates } from "../scripts/surfaces.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
@@ -78,7 +78,10 @@ test("registration contract 4′/9: from an npx root the plan registers first, p
   assert.match(p.reports[0], /They come from the registration/, "the host-managed report says which registration feeds it (contract 14, amended)");
   const preview = renderPreview(p);
   for (const s of reg.steps.filter((s) => s.kind === "host")) assert.ok(preview.includes(`$ ${[s.bin, ...s.argv].join(" ")}`), `preview carries ${s.name}'s argv`);
-  assert.ok(preview.includes("planned against the host's install path"));
+  // …and the files each one touches, project-relative where they are the project's (contract 9's consent content).
+  const shown = (t) => (relative(proj, t).startsWith("..") ? t : relative(proj, t));
+  for (const s of reg.steps.filter((s) => s.kind === "host" && s.touches.length)) assert.ok(preview.includes(`touches ${s.touches.map(shown).join(", ")}`), `preview names what ${s.name} touches`);
+  assert.ok(renderPreview(p, { verbose: true }).includes("planned against the host's install path"), "--verbose names the install path the plan is made against");
   assert.ok(preview.includes(`harness home ${reg.home}, scope local`));
   assert.ok(preview.includes("Each $ line runs the host's own CLI"));
   assert.equal(host.log().length, 0, "plan runs nothing");
@@ -253,7 +256,8 @@ test("registration contract 4′/13: a competing enabled copy is silenced for th
   assert.equal(silence.entry, "projectstore@SmartAndPoint");
   assert.deepEqual(hostArgv(silence), ["plugin disable"]);
   assert.ok(silence.steps[0].argv.includes("local"));
-  assert.match(renderPreview(p), /silenced in this checkout's local settings only, never globally/);
+  assert.ok(renderPreview(p).includes(`$ ${[silence.steps[0].bin, ...silence.steps[0].argv].join(" ")}`), "the disable command is in the default preview");
+  assert.match(renderPreview(p, { verbose: true }), /silenced in this checkout's local settings only, never globally/);
   const done = apply(p, { env, home });
   assert.equal(done.failed, undefined, JSON.stringify(done));
   assert.equal(local().enabledPlugins["projectstore@SmartAndPoint"], false);
@@ -284,7 +288,7 @@ test("registration contract 4′/13: a competing enabled copy is silenced for th
   assert.deepEqual(u.steps.map((s) => s.kind === "host" ? s.name : s.kind), ["uninstall", "unregister", "enable"]);
   assert.deepEqual(hostArgv(u), ["plugin uninstall", "plugin enable"]);
   assert.match(u.reason, /1 other checkout/);
-  assert.match(renderPreview(un), /marketplace remove.*would drop every checkout's rows/);
+  assert.match(renderPreview(un, { verbose: true }), /marketplace remove.*would drop every checkout's rows/);
   const undone = apply(un, { env, home });
   assert.equal(undone.failed, undefined, JSON.stringify(undone));
   assert.equal(local().enabledPlugins["projectstore@SmartAndPoint"], true, "the silenced copy is turned back on");
@@ -376,9 +380,13 @@ test("registration contract 4′: a host command that fails stops the item, is s
   assert.ok(!existsSync(statusLineLauncherPath(proj)), "a launcher pointing at nothing is not written");
   assert.ok(existsSync(paths.dir), "the directory write before it stands");
   assert.ok(local().extraKnownMarketplaces[S.marketplace_name], "and so does the marketplace add");
-  const line = appliedLine({ applied: done, failed: done.failed });
-  assert.match(line, /stopped: \$ claude plugin install/);
+  // What the user reads: STOPPED, the argv with its exit status, the host's
+  // own words, and that the surfaces planned against the install path wait.
+  const line = renderDone({ verb: "install", plan: p, applied: done, failed: done.failed, elapsed: 0 });
+  assert.match(line, /STOPPED — \d+ changes? applied, then a host command failed/);
+  assert.match(line, /✗ \$ claude plugin install .* exited 1/);
   assert.match(line, /failed as instructed/);
+  assert.match(line, /planned against its install path were not written/);
   // Resume: registered, not installed → only the missing steps.
   const again = plan(proj, { home, root, env: host.env() });
   const reg = item(again, "plugin");
