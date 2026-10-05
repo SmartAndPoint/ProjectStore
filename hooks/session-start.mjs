@@ -36,6 +36,11 @@ import {
   PATH_CELL,
   ERROR_CELL,
   TITLE_CELL,
+  commandForm,
+  updateHint,
+  speakingDisplayName,
+  inheritForm,
+  bindInherits,
 } from "../scripts/lib.mjs";
 import { runStartupChecks } from "../scripts/doctor.mjs";
 import { resolveBinding, bindingOfferText } from "../scripts/worktree.mjs";
@@ -60,8 +65,8 @@ function welcomedMarkerWritePath(proj) {
 // the same message.
 function buildWelcome(cfg = null) {
   const start = cfg && cfg.vault_path
-    ? `**Already bound**: this project's vault is \`${truncFront(String(cfg.vault_path), PATH_CELL)}\`. Ask for what you want — the agent picks up commands like \`/projectstore:adr\` and \`/projectstore:epic\` from the conversation, and you approve every write. If the vault has no folders yet, \`/projectstore:scaffold\` lays them out.`
-    : "**To start using it**: run `/projectstore:bind <vault-path>` and point it at an Obsidian vault (or any folder). After that, the agent will pick up commands like `/projectstore:adr` and `/projectstore:epic` from the conversation; you only approve the writes.";
+    ? `**Already bound**: this project's vault is \`${truncFront(String(cfg.vault_path), PATH_CELL)}\`. Ask for what you want — the agent picks up commands like \`${commandForm("adr")}\` and \`${commandForm("epic")}\` from the conversation, and you approve every write. If the vault has no folders yet, \`${commandForm("scaffold")}\` lays them out.`
+    : `**To start using it**: run \`${commandForm("bind", { args: "<vault-path>" })}\` and point it at an Obsidian vault (or any folder). After that, the agent will pick up commands like \`${commandForm("adr")}\` and \`${commandForm("epic")}\` from the conversation; you only approve the writes.`;
   return [
     "# 👋 projectstore is loaded for the first time in this project",
     "",
@@ -69,12 +74,9 @@ function buildWelcome(cfg = null) {
     "",
     start,
     "",
-    "**About future updates**: Claude Code does NOT auto-update third-party marketplaces by default. To get notified of new releases (v0.7+):",
-    "1. Open `/plugin` → **Marketplaces** tab.",
-    "2. Find **SmartAndPoint**.",
-    "3. Toggle **auto-update** on.",
-    "",
-    "Without it, you'd run `/plugin marketplace update SmartAndPoint` manually. See https://github.com/SmartAndPoint/ProjectStore#updates for details.",
+    // The update advice is the harness's own (its manifest's update_hint):
+    // a git marketplace's toggle means nothing to a harness installed from npm.
+    ...updateHint().welcome,
     "",
     "_This message appears once per project._",
     "",
@@ -128,7 +130,7 @@ function buildOthersWarning(others) {
     "",
     `## ⚠️ Multi-session warning — ${others.length} other projectstore session(s) active on this vault`,
     "",
-    "Another Claude Code session is currently working on the same vault.",
+    `Another ${speakingDisplayName()} session is currently working on the same vault.`,
     "Active session(s):",
     "",
   ];
@@ -143,13 +145,13 @@ function buildOthersWarning(others) {
     );
   }
   if (others.length > SIBLING_CAP) {
-    lines.push(`- …and ${others.length - SIBLING_CAP} more — run \`/projectstore:status\``);
+    lines.push(`- …and ${others.length - SIBLING_CAP} more — run \`${commandForm("status")}\``);
   }
   lines.push(
     "",
     "**Before creating new ADRs / epics / stories / research:**",
-    "1. Run `/projectstore:search <topic-keywords>` to check for in-flight artifacts on the same topic.",
-    "2. Run `/projectstore:status` to see what artifacts have been touched recently.",
+    `1. Run \`${commandForm("search", { args: "<topic-keywords>" })}\` to check for in-flight artifacts on the same topic.`,
+    `2. Run \`${commandForm("status")}\` to see what artifacts have been touched recently.`,
     "3. After creation, the plugin re-checks file existence right before write — collisions are detected, but topic / number reservation across sessions is on you and the other agent to coordinate.",
     "",
   );
@@ -179,8 +181,8 @@ async function main() {
   // one: a bound project is told what it is bound to, not to bind again.
   const welcomeSystemMessage = welcome
     ? (cfg && cfg.vault_path
-      ? `👋 projectstore: first-run welcome shown. Bound to ${cfg.vault_path}. See /plugin → Marketplaces to enable auto-update.`
-      : "👋 projectstore: first-run welcome shown. Start with /projectstore:bind <vault-path>. See /plugin → Marketplaces to enable auto-update.")
+      ? `👋 projectstore: first-run welcome shown. Bound to ${cfg.vault_path}. ${updateHint().line}`
+      : `👋 projectstore: first-run welcome shown. Start with ${commandForm("bind", { args: "<vault-path>" })}. ${updateHint().line}`)
     : null;
 
   if (!cfg) {
@@ -191,7 +193,7 @@ async function main() {
     // redundancy is accepted rather than papered over with copy that will rot.
     const offer = binding && binding.state === "inheritable" ? bindingOfferText(binding) : "";
     const offerSystemMessage = offer
-      ? "projectstore: this worktree is unbound — /projectstore:bind --inherit adopts the binding of the checkout it was forked from."
+      ? `projectstore: this worktree is unbound — ${inheritForm(binding.vaultPath, { layout: binding.layout, language: binding.language })} ${bindInherits() ? "adopts the binding of" : "binds it to the vault, layout and language of"} the checkout it was forked from.`
       : null;
     const body = offer + (welcome || "");
     if (body) {
@@ -273,9 +275,9 @@ async function main() {
   try {
     const r = runStartupChecks(cfg, proj);
     if (r.skipped) {
-      doctorMsg = "projectstore doctor: startup checks skipped — run /projectstore:doctor";
+      doctorMsg = `projectstore doctor: startup checks skipped — run ${commandForm("doctor")}`;
     } else if (r.count > 0) {
-      doctorMsg = `projectstore doctor: ${r.count} install issue(s) — run /projectstore:doctor`;
+      doctorMsg = `projectstore doctor: ${r.count} install issue(s) — run ${commandForm("doctor")}`;
     }
     // Offers (doctor's OFFER_CHECKS): one-time steps a user should see once,
     // e.g. the re-stamp after a plugin update — not issues, not silent.
@@ -287,7 +289,7 @@ async function main() {
   if (gatherError) {
     emit(
       welcome +
-        `# projectstore: vault load failed\n\n${truncEnd(String(gatherError.message), ERROR_CELL)}\n\nFix \`.projectstore/projectstore.json\` or run \`/projectstore:bind <path>\` again.`,
+        `# projectstore: vault load failed\n\n${truncEnd(String(gatherError.message), ERROR_CELL)}\n\nFix \`.projectstore/projectstore.json\` or run \`${commandForm("bind", { args: "<path>" })}\` again.`,
       systemMessage,
     );
     return;

@@ -31,6 +31,7 @@ import {
   readActivityAsync,
   resolveInFlightArtifact,
   pathCell,
+  commandForm,
 } from "../scripts/lib.mjs";
 
 // Exits after the flush, never before: process.exit does not drain a pending
@@ -110,7 +111,7 @@ async function main() {
   } else {
     // True on every path: plugin commands are installation-scoped and not
     // gated by auto_inject.
-    parts.push("run /projectstore:status to reorient");
+    parts.push(`run ${commandForm("status")} to reorient`);
   }
 
   emit(`projectstore: compacting — ${parts.join(", ")}`);

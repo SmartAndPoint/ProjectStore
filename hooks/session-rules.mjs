@@ -16,22 +16,34 @@
 // Spec: "Entry-rule detection: the score, the open-story predicate, and the
 // delivery seams", contract 17.
 
-import { readConfig, readStdinJson, adoptHookInput } from "../scripts/lib.mjs";
+import { readConfig, readStdinJson, adoptHookInput, roleForm, sharedRoleForm } from "../scripts/lib.mjs";
 
-// Kept well under the cap; asserted by a test rather than by intention.
-const RULES = `# projectstore — standing rules for this session
+// Kept well under the cap; asserted by a test rather than by intention. The
+// roles are named the way the session's harness calls them (generation spec,
+// contract 18). The shared AGENTS.md block names them in the source harness's
+// form until that block is per-harness, so a session whose form differs is
+// told once that both name one role — otherwise the second rule below would
+// have it report the block as a contradiction every session.
+function rules() {
+  const critic = roleForm("critic"), reviewer = roleForm("reviewer");
+  const shared = sharedRoleForm("critic");
+  const bridge = shared === critic
+    ? ""
+    : `\n\nThe \`AGENTS.md\` block may name roles as \`${shared}\`; that is the same role, called \`${critic}\` here.`;
+  return `# projectstore — standing rules for this session
 
 **Artifact-first order.** A feature-sized request opens a vault artifact before
 it opens an editor: analysis → placement (which epic, which story) → an ADR
-and/or spec when the "how" is non-trivial → \`projectstore:critic\` → only then
-implementation → \`projectstore:reviewer\`. "Feature-sized" is not a judgement
+and/or spec when the "how" is non-trivial → \`${critic}\` → only then
+implementation → \`${reviewer}\`. "Feature-sized" is not a judgement
 call about how the request was phrased — it is about what the work touches. If
 you are about to write across several source files, open the story first.
 
 **Report instruction conflicts; do not arbitrate them.** If a session-level or
 harness-level instruction contradicts these rules or the \`AGENTS.md\`
 registration block, say so and ask which wins. Resolving it silently is how the
-contradiction becomes invisible to the person who could have settled it.`;
+contradiction becomes invisible to the person who could have settled it.${bridge}`;
+}
 
 function emit(additionalContext) {
   process.stdout.write(JSON.stringify({
@@ -55,7 +67,7 @@ function main() {
   // Honour auto_inject: a session that opted out of context injection is
   // exactly the case for which the AGENTS.md block remains the durable copy.
   if (cfg.auto_inject === false) return;
-  emit(RULES);
+  emit(rules());
 }
 
 try { main(); } catch {

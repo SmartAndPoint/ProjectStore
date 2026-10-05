@@ -58,7 +58,7 @@ jobs:
         run: node packaging/shells.mjs --check
 
       - name: Tests, including the packaging contracts
-        run: node --test tests/*.test.mjs
+        run: node --test --import ./tests/fixtures/hermetic.mjs tests/*.test.mjs
 
       # A prerelease must not become `latest`, or a bare `npx <shell>` serves a
       # release candidate to everyone who did not ask for one. npm

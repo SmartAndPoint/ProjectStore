@@ -65,7 +65,7 @@ function spawnBin(argv, { env, cwd, timeoutMs = DOCTOR_TIMEOUT_MS, onChild = nul
     child.on("close", (code) => { clearTimeout(timer); done({ code: code === null ? 2 : code, out, err }); });
   });
 }
-import { readConfigAt, isInsideVault } from "./lib.mjs";
+import { readConfigAt, isInsideVault, commandForm } from "./lib.mjs";
 
 // Two revisions, not four: 2025-03-26 has JSON-RPC batching (removed again in
 // 2025-06-18), which this server answers with -32600 — advertising that
@@ -247,7 +247,7 @@ export function createServer({ project, env = process.env, cwd = project, versio
     // answer the bind instruction inside the envelope.
     const rowRequiresBinding = (VERBS.find((v) => v.verb === t.verb) || {}).requiresBinding !== false;
     if (rowRequiresBinding && !cfgOf()) {
-      return { content: [{ type: "text", text: JSON.stringify(envelope(t.verb, project, false, { error: `${project} is not bound to a vault — run /projectstore:bind <vault> in a session, or projectstore bind <vault> --project ${project}` })) }], isError: true };
+      return { content: [{ type: "text", text: JSON.stringify(envelope(t.verb, project, false, { error: `${project} is not bound to a vault — run ${commandForm("bind", { args: "<vault>", env })} in a session, or projectstore bind <vault> --project ${project}` })) }], isError: true };
     }
     const { opts, positionals } = t.argv(a);
     const argv = [t.verb, ...opts, "--json", "--project", project, ...(positionals.length ? ["--", ...positionals] : [])];

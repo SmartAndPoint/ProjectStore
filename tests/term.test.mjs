@@ -108,6 +108,8 @@ test("term: askLine reads one line in line mode — Enter is an empty answer, en
   };
   assert.deepEqual(await ask((i) => i.write("\n")), { answer: "", written: "Apply 3 changes? [Y/n] " });
   assert.equal((await ask((i) => i.write("n\n"))).answer, "n");
-  assert.equal((await ask((i) => i.end())).answer, null, "end of input (Ctrl+D) is null — a no — and the promise settles");
+  const eof = await ask((i) => i.end());
+  assert.equal(eof.answer, null, "end of input (Ctrl+D) is null — a no — and the promise settles");
+  assert.equal(eof.written, "Apply 3 changes? [Y/n] \n", "and the question's line is ended, so the next message starts on its own");
   assert.equal((await ask((i) => { i.write("ye"); i.end(); })).answer, null, "a half-typed answer cut by end of input is not an answer");
 });

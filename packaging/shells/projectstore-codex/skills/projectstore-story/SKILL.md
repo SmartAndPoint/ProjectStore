@@ -105,7 +105,7 @@ the two cannot collide).
    - Capture doctor's summary line (`node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" doctor
      --vault`, last line) — the clerk needs it as the **pre-state**: it must not
      stop on findings that were already there and are not its own.
-   - Spawn `projectstore:clerk` **as a foreground task** (you need its report to
+   - Spawn `$projectstore-clerk` **as a foreground task** (you need its report to
      continue) with: the scratch path, the target path, the exact re-check
      invocation (`story-section.mjs close "<story-path>" --check
      <baseline-path>`), the derived targets (`kanban`, plus `indexes=<epic

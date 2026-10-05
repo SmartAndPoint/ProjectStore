@@ -2812,7 +2812,7 @@ test("resolveBinding: a worktree of a bound checkout is inheritable", async () =
 
 test("resolveBinding: it refuses to guess, and every branch returns every field", async () => {
   const { resolveBinding } = await import("../scripts/worktree.mjs");
-  const KEYS = ["state", "worktree", "mainCheckout", "vaultPath"];
+  const KEYS = ["state", "worktree", "mainCheckout", "vaultPath", "layout", "language"];
 
   const unboundParent = seedWorktreePair({ bindParent: false });
   const orphan = resolveBinding(unboundParent.child);
@@ -2837,6 +2837,16 @@ test("resolveBinding: it refuses to guess, and every branch returns every field"
     assert.deepEqual(Object.keys(r).sort(), [...KEYS].sort(),
       "a caller reading a happy-path-only field throws, and a hook swallows that into silence");
   }
+});
+
+test("resolveBinding: an inheritable worktree carries the parent's layout and language", async () => {
+  const { resolveBinding } = await import("../scripts/worktree.mjs");
+  const pair = seedWorktreePair();
+  writeFileSync(join(pair.main, ".claude", "projectstore.json"), JSON.stringify({ vault_path: join(pair.root, "vault"), layout: "research", language: "ru" }, null, 2) + "\n", "utf8");
+  const b = resolveBinding(pair.child);
+  assert.equal(b.state, "inheritable");
+  assert.equal(b.layout, "research", "what a bind without an inherit path must name");
+  assert.equal(b.language, "ru");
 });
 
 test("resolveBinding: a parent whose config is corrupt or vault-less is not inheritable", async () => {

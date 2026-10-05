@@ -40,7 +40,8 @@ import {
   slugIdentity,
   displayNumberOf,
   compareArtifactOrder,
-  writeFileAtomic, isMain
+  writeFileAtomic, isMain,
+  commandForm,
 } from "./lib.mjs";
 import { childEnv } from "./harness.mjs";
 
@@ -145,7 +146,7 @@ const SKIP = {
       : null,
   "graph.mjs": (g, onDisk) =>
     onDisk === null
-      ? "graph.md does not exist yet — create it explicitly (--only graph or /projectstore:graph)"
+      ? `graph.md does not exist yet — create it explicitly (--only graph or ${commandForm("graph")})`
       : null,
 };
 
@@ -306,7 +307,7 @@ export function runReconcile({ write = false, only = null, projectDir = null, en
   _projectDir = projectDir;
   _env = env;
   const cfg = projectDir ? readConfigAt(projectDir) : readConfig();
-  if (!cfg) { const e = new Error("No projectstore config. Run /projectstore:bind first."); e.code = "UNBOUND"; throw e; }
+  if (!cfg) { const e = new Error(`No projectstore config. Run ${commandForm("bind")} first.`); e.code = "UNBOUND"; throw e; }
   const layout = loadLayout(cfg.layout);
   const sel = resolveSelection(layout, only);
   if (sel.error) throw new Error(sel.error);

@@ -51,6 +51,7 @@ import {
   layoutPaths,
   RUNTIME_GITIGNORE_HEADER,
   LAUNCHER_HEADER,
+  commandForm,
 } from "./lib.mjs";
 import { analysePortableRegistration, portableRegistrationPaths, portablePayloadRoot } from "./portable-registration.mjs";
 
@@ -109,7 +110,7 @@ export function analyseBlock(projectDir, s, { root = pluginRoot(), manifestDir =
   const a = { files: found, own: files, withBlock, preferred, claude, importLine, PREFERRED, FALLBACK, entryKey: "projectstore:agents", version: null, desired: null, current: null, state: "ours-absent", reason: null, refusal: null };
 
   const unclosed = withBlock.find((e) => e.block.unclosed);
-  if (unclosed && unclosed.block.wrapped) return { ...a, state: "unparseable", refusal: `${unclosed.file}:${unclosed.block.line}: the projectstore:agents open marker does not close on its own line — the parser reads one line. Put \`-->\` back on the marker's line, then run /projectstore:agents register` };
+  if (unclosed && unclosed.block.wrapped) return { ...a, state: "unparseable", refusal: `${unclosed.file}:${unclosed.block.line}: the projectstore:agents open marker does not close on its own line — the parser reads one line. Put \`-->\` back on the marker's line, then run ${commandForm("agents", { args: "register" })}` };
   if (unclosed) return { ...a, state: "unparseable", refusal: `${unclosed.file}: the block opens and never closes — restore the closing marker or remove the block by hand` };
   const twice = withBlock.find((e) => e.block.count > 1);
   if (twice) return { ...a, state: "unparseable", refusal: `${twice.file} carries the block more than once — keep exactly one` };

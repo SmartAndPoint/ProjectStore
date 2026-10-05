@@ -6,11 +6,28 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { emittingHarnesses, sourceHarness } from "./harness.mjs";
+import { emittingHarnesses, sourceHarness, invocation, uiWordPatterns } from "./harness.mjs";
 import { writeFileAtomic } from "./lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCE = sourceHarness();
+// The source harness's UI affordances, from its manifest (ui_vocabulary): the
+// same list the runtime vocabulary lint reads (generation spec, contract 18).
+// The source's command form and the target's skill namespace, from the
+// manifests (generation spec, contract 18): the body rewrite, the passive-skill
+// name rule and the leak check read these, so a renamed form cannot leave
+// directory names and in-body references disagreeing.
+const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const SOURCE_COMMAND_PREFIX = SOURCE.surfaces.commands.invocation.split("<name>")[0];
+const SOURCE_COMMAND = new RegExp(`${escapeRe(SOURCE_COMMAND_PREFIX)}([a-z0-9-]+|\\*)`, "g");
+const SOURCE_UI = uiWordPatterns(SOURCE);
+// The source's role form (`projectstore:<name>`) for each of its roles, by file
+// name: a rendered skill that says "spawn projectstore:critic" names a role the
+// way only the source harness calls it. Never inside another form
+// (`/projectstore:`, `$projectstore-`), never a longer name.
+const ROLE_SUFFIX = SOURCE.surfaces.agents.file.replace("<name>", "");
+const SOURCE_ROLES = readdirSync(join(ROOT, SOURCE.surfaces.agents.dir)).filter((f) => f.endsWith(ROLE_SUFFIX)).map((f) => f.slice(0, -ROLE_SUFFIX.length)).sort();
+const SOURCE_ROLE = new RegExp(`(?<![\\w/$:-])${escapeRe(SOURCE.surfaces.agents.invocation.split("<name>")[0])}(${SOURCE_ROLES.map(escapeRe).join("|")})(?![\\w-])`, "g");
 const TARGETS = emittingHarnesses();
 if (TARGETS.length !== 1) throw new Error(`this renderer currently requires exactly one emitting harness; found ${TARGETS.length}`);
 const TARGET = TARGETS[0];
@@ -61,8 +78,8 @@ function rewriteBody(body) {
     .replaceAll(sourceWord, TARGET.id)
     .replaceAll(SOURCE.surfaces.agents_block.reads_natively, TARGET.surfaces.agents_block.reads_natively)
     .replaceAll(SOURCE.runtime.harness_dir + "/", TARGET.runtime.harness_dir + "/")
-    .replaceAll("/projectstore:*", "$projectstore-*")
-    .replace(/\/projectstore:([a-z0-9-]+)/g, "$projectstore-$1")
+    .replace(SOURCE_COMMAND, (_, name) => invocation(TARGET, name, { kind: "commands" }))
+    .replace(SOURCE_ROLE, (_, name) => invocation(TARGET, name, { kind: "agents" }))
     .replaceAll("AskUserQuestion", "the harness's user-input mechanism")
     .replaceAll("Read tool", "file-reading tool")
     .replaceAll("Write tool", "file-writing tool")
@@ -105,13 +122,15 @@ contract. A configured model is consumed by the role-orchestration skills on
 their next spawn; no restart is needed.`,
   },
   bind: {
-    description: "Bind this project to an existing ProjectStore vault, or initialize and bind a new vault, using the harness-neutral core. Arguments: [vault-path].",
+    description: "Bind this project to an existing ProjectStore vault, or initialize and bind a new vault, using the harness-neutral core. Arguments: [vault-path] [--layout <name>] [--language <code>].",
     body: `Bind the current project through the core; never write the binding by
 hand.
 
-1. Resolve the requested vault path. If it exists, use \`bind\`; if the user
-   explicitly asks to create it, use \`init\`. Ask for layout and language only
-   when the user has not supplied them.
+1. Resolve the requested vault path, and the layout and language when the
+   request passes \`--layout <name>\` or \`--language <code>\`. If the vault
+   exists, use \`bind\`; if the user explicitly asks to create it, use
+   \`init\`. Ask for layout and language only when the request has not
+   supplied them.
 2. Show the resolved project, vault, verb, layout and language. Ask for explicit
    approval. Naming the vault is the core's non-interactive confirmation.
 3. Run \`node "\${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" <bind|init>
@@ -151,10 +170,21 @@ Codex application's own task and terminal UI.`,
   },
 };
 
+// The rendered skills' namespace: the part of rendered_name before the name.
+const NAMESPACE = (TARGET.surfaces?.commands?.rendered_name || "").split("<name>")[0];
+
+// A command or role becomes the skill its manifest names (rendered_name), the
+// same name every message calls it by (generation spec, contract 18).
+const renderedName = (kind, name) => {
+  const tpl = TARGET.surfaces?.[kind]?.rendered_name;
+  if (!tpl) throw new Error(`${TARGET.id}: surfaces.${kind}.rendered_name is required to render ${kind} as skills`);
+  return tpl.split("<name>").join(name);
+};
+
 function renderCommand(file) {
   const { data, body } = frontmatter(read(file), file);
   const verb = file.split("/").pop().replace(/\.md$/, "");
-  const name = `projectstore-${verb}`;
+  const name = renderedName("commands", verb);
   const override = COMMAND_OVERRIDES[verb];
   if (override) return [join("skills", name, "SKILL.md"), skill(name, override.description, override.body)];
   const hint = data["argument-hint"] ? ` Arguments: ${data["argument-hint"]}.` : "";
@@ -165,14 +195,14 @@ function renderPassive(file) {
   const { data, body } = frontmatter(read(file), file);
   const dir = file.split("/").at(-2);
   const name = data.name || dir;
-  if (!name.startsWith("projectstore-")) throw new Error(`${relative(ROOT, file)}: skill name must be projectstore-*`);
+  if (!name.startsWith(NAMESPACE)) throw new Error(`${relative(ROOT, file)}: skill name must be ${NAMESPACE}*`);
   return [join("skills", name, "SKILL.md"), skill(name, data.description || name, body)];
 }
 
 function renderRole(file) {
   const { data, body } = frontmatter(read(file), file);
   const role = file.split("/").pop().replace(/\.md$/, "");
-  const name = `projectstore-${role}`;
+  const name = renderedName("agents", role);
   const orchestration = `## Codex orchestration\n\nThis is a role-orchestration skill, not a native agent registration. Resolve the\nrole model by running:\n\n\`\`\`bash\nnode "\${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model ${role} --json --project "$PWD"\n\`\`\`\n\nSpawn a collaboration agent for the bounded task. If the result names a model,\npass that model and use an empty or bounded context fork; otherwise inherit the\ncurrent model. Do not pass a reasoning-effort override: per-role effort belongs\nto a separate accepted story. Give the spawned agent the role contract below\nand the exact artifact/diff it must inspect. Wait for its final result.\n\n## Role contract\n\n`;
   const description = (data.description || `Run the ProjectStore ${role} role in a fresh collaboration agent.`)
     .replace(/^(?:Opus|Sonnet) \(max-effort\)\s+/, "");
@@ -203,7 +233,7 @@ export function renderCodexAdapter(root = ROOT) {
     ...files(join(root, "commands")).map(renderCommand),
     ...files(join(root, "agents")).map(renderRole),
     ...readdirSync(join(root, "skills"), { withFileTypes: true })
-      .filter((e) => e.isDirectory() && e.name.startsWith("projectstore-"))
+      .filter((e) => e.isDirectory() && e.name.startsWith(NAMESPACE))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((e) => renderPassive(join(root, "skills", e.name, "SKILL.md"))),
     renderHooks(manifest, root),
@@ -217,8 +247,8 @@ export function renderCodexAdapter(root = ROOT) {
   for (const [rel, text] of out) {
     const sourceTokens = [SOURCE.runtime.plugin_root_env, SOURCE.runtime.project_dir_env, SOURCE.display_name, SOURCE.runtime.harness_dir + "/"].filter(Boolean);
     const sourceAgentEnvs = (SOURCE.runtime.agent_overrides || []).map((row) => row.env).filter(Boolean);
-    if (sourceTokens.some((token) => text.includes(token)) || sourceAgentEnvs.some((token) => text.includes(token)) || /\$ARGUMENTS|\/projectstore:|\bAskUserQuestion\b/.test(text)) throw new Error(`${rel}: source-harness vocabulary leaked into ${TARGET.display_name} adapter`);
-    if (/\/reload-plugins\b|\/plugin(?:\s|\b)|harness\/codex-code\.json|\b(?:opus|sonnet|fable)\b/i.test(text)) throw new Error(`${rel}: source-harness model, environment or UI semantics leaked into ${TARGET.display_name} adapter`);
+    if (sourceTokens.some((token) => text.includes(token)) || sourceAgentEnvs.some((token) => text.includes(token)) || text.includes(SOURCE_COMMAND_PREFIX) || new RegExp(SOURCE_ROLE.source).test(text) || /\$ARGUMENTS/.test(text)) throw new Error(`${rel}: source-harness vocabulary leaked into ${TARGET.display_name} adapter`);
+    if (SOURCE_UI.some(({ re }) => new RegExp(re.source).test(text)) || /harness\/codex-code\.json|\b(?:opus|sonnet|fable)\b/i.test(text)) throw new Error(`${rel}: source-harness model, environment or UI semantics leaked into ${TARGET.display_name} adapter`);
   }
   return out;
 }

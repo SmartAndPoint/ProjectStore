@@ -21,7 +21,8 @@ import {
   listEpicStories,
   slugIdentity,
   displayNumberOf,
-  compareArtifactOrder, isMain
+  compareArtifactOrder, isMain,
+  commandForm,
 } from "./lib.mjs";
 
 function die(msg) {
@@ -117,7 +118,7 @@ function renderItem(story) {
 
 function main() {
   const cfg = readConfig();
-  if (!cfg) die("No projectstore config. Run /projectstore:bind first.");
+  if (!cfg) die(`No projectstore config. Run ${commandForm("bind")} first.`);
   const layout = loadLayout(cfg.layout);
   if (!layout.kanban) die(`Layout ${cfg.layout} does not declare a kanban config.`);
 
