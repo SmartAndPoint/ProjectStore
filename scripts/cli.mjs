@@ -43,7 +43,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import * as term from "./term.mjs";
 import { projectRootDeclared, childEnv, harnessIds, harnessForOverlay, pinPluginRoot } from "./harness.mjs";
-import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster, commandForm } from "./lib.mjs";
+import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster, commandForm, projectDirRefusal } from "./lib.mjs";
 import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_LIMIT, GRAPH_EDGE_CAP, DIRECTIONS } from "./query.mjs";
 // binding.mjs is a write module imported statically where the install family
 // is lazy: it is a dependency-free leaf with no side effects, so the MCP
@@ -554,7 +554,10 @@ async function runAgents(ctx) {
     if (inBinding) lines.push("  the binding still carries an agents block — a pre-0.28 leftover; run upgrade");
     return emit("agents show", true, { harness, path: before.path, present: before.present, unparseable: before.unparseable, agents: before.agents, resolved, roster, unknown, rejected: before.rejected, agents_in_binding: inBinding }, lines.join("\n") + "\n");
   }
-  // configure
+  // configure — in a project that exists (the install spec, contract 19;
+  // the layout spec, contract 4): refused before the preview and the gate.
+  const missingProject = projectDirRefusal(project);
+  if (missingProject) return emit("agents configure", false, { error: missingProject }, `${missingProject}\n`);
   if (!harness) return usage("no harness detected and none named: agents configure names --harness <id>");
   if (before.unparseable) return emit("agents configure", false, { error: `${before.path} is not valid JSON; fix or remove it first`, harness, path: before.path }, `${before.path} is not valid JSON; fix or remove it first\n`);
   if (!values.reset && values.default === undefined && !(values.agent || []).length) return usage("agents configure takes --default <model>, --agent <name>=<model> (repeatable) or --reset");

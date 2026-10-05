@@ -764,3 +764,43 @@ test("cli init: creates the vault directory and binds; refuses when already boun
   assert.equal(rel.status, 1, "relative to the project, and missing");
   assert.equal(envOf(rel).result.vault_path, join(p2, "my-vault"));
 });
+
+// Contract 19 from the bin: the install family and agents configure refuse a
+// project that does not exist (a path ending in a comma or a space, or a file),
+// quoted, exit 1, from --project or the neutral variable; nothing appears in
+// the parent or in any harness home; read verbs still run on that path.
+test("cli contract 19: the install family and agents configure refuse a project that does not exist; read verbs still run", () => {
+  const parent = mkdtempSync(join(tmpdir(), "ps-cli-missing-"));
+  const file = join(parent, "a-file");
+  writeFileSync(file, "x");
+  const homes = { HOME: mkdtempSync(join(tmpdir(), "ps-cli-home-")), CODEX_HOME: mkdtempSync(join(tmpdir(), "ps-cli-codex-")), [SRC.runtime.home_env]: mkdtempSync(join(tmpdir(), "ps-cli-claude-")) };
+  const verbs = [["plan"], ["install"], ["upgrade"], ["uninstall"], ["uninstall", "--global"]];
+  for (const missing of [join(parent, "project,"), join(parent, "project "), file]) {
+    const quoted = JSON.stringify(missing);
+    for (const args of verbs) {
+      for (const json of [false, true]) {
+        for (const via of ["flag", "env"]) {
+          const r = via === "flag"
+            ? bin([...args, "--harness", "codex", ...(json ? ["--json"] : []), "--project", missing], { env: homes })
+            : bin([...args, "--harness", "codex", ...(json ? ["--json"] : [])], { env: { ...homes, PROJECTSTORE_PROJECT_DIR: missing } });
+          const what = `${args.join(" ")} ${json ? "--json" : "text"} ${via} ${quoted}`;
+          assert.equal(r.status, 1, `${what}: ${r.stdout}${r.stderr}`);
+          const want = `no such project directory: ${json ? JSON.stringify(quoted).slice(1, -1) : quoted}`;
+          assert.ok((r.stdout + r.stderr).includes(want), `${what}: ${r.stdout}${r.stderr}`);
+        }
+      }
+    }
+    for (const json of [false, true]) {
+      const conf = bin(["agents", "configure", "--harness", "codex", "--default", "gpt-5", ...(json ? ["--json"] : []), "--project", missing], { env: homes });
+      assert.equal(conf.status, 1, conf.stdout + conf.stderr);
+      if (json) assert.ok(envOf(conf).result.error.startsWith(`no such project directory: ${quoted}`), conf.stdout);
+      else assert.ok(conf.stderr.startsWith(`no such project directory: ${quoted}`), conf.stderr);
+    }
+  }
+  assert.deepEqual(readdirSync(parent), ["a-file"], "nothing was created beside the file");
+  for (const dir of Object.values(homes)) assert.deepEqual(readdirSync(dir), [], `${dir} stays empty`);
+  for (const args of [["doctor"], ["agents", "show", "--harness", "codex"]]) {
+    const r = bin([...args, "--project", join(parent, "project,")], { env: homes });
+    assert.ok(!/no such project directory/.test(r.stdout + r.stderr), `${args.join(" ")} still runs: ${r.stdout}${r.stderr}`);
+  }
+});

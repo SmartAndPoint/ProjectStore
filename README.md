@@ -101,12 +101,20 @@ The same tree is published to npm as [`projectstore`](https://www.npmjs.com/pack
 plugin manifest, namespaced workflow and role skills, lifecycle hooks, and
 the exact bundled core. It stages a stable marketplace under `CODEX_HOME`,
 drives `codex plugin marketplace add` and `codex plugin add`, then reads the
-installation back and verifies its version and payload digest. Restart Codex,
+installation back and verifies its version and payload digest. Before it
+changes anything it asks Codex for that read-back (`codex plugin list --json`),
+so a Codex too old to answer stops the registration before it changes anything
+and tells you to upgrade Codex. Restart Codex,
 approve the hooks, and run `$projectstore-bind <vault-path>`. For later
 releases, `npx projectstore-codex@<version> upgrade --project "$PWD"`. Because
 Codex's plugin registry is user-global, ordinary uninstall removes only the
 project's agents block; `uninstall --global` is the explicit machine-wide
-removal. Codex is **experimental** until a live session has exercised every
+removal. If `npx` answers `could not determine executable to run`, your
+registry (often a company mirror) serves a stale index that knows only the
+reserved `0.0.1` placeholder: name the version, and if that is not enough, the
+public registry: `npx --registry https://registry.npmjs.org
+projectstore-codex@<version> install --project "$PWD"` (the same holds for
+`projectstore-claude`). Codex is **experimental** until a live session has exercised every
 surface it installs; [`docs/harnesses.md`](./docs/harnesses.md) says what has
 been measured and what has not. From a checkout, the same npx path runs against
 a built tarball:

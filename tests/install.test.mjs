@@ -13,7 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, copyFileSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, copyFileSync, rmSync, readdirSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -1253,4 +1253,32 @@ test("install: the installer's item shape did not move when the states moved int
   assert.equal(a.installedPkg, "0.28.0");
   const i = item(plan(proj, { home, root }), "statusline_launcher");
   assert.deepEqual([i.state, i.action, i.writtenBy], ["current", "skip", proj]);
+});
+
+// Contract 19: the install family works in a project that exists. A path
+// ending in a comma or a space, as pasted from a chat, or a path to a file, is
+// refused before detection, writing, staging, locking or spawning, and quoted.
+test("install contract 19: a project directory that does not exist is refused, quoted, before anything else", async () => {
+  const parent = mkdtempSync(join(tmpdir(), "ps-missing-"));
+  const file = join(parent, "a-file");
+  writeFileSync(file, "x");
+  const home = mkdtempSync(join(tmpdir(), "ps-missing-home-"));
+  const before = readdirSync(parent).sort();
+  const id = sourceHarness().id;
+  for (const proj of [join(parent, "project,"), join(parent, "project "), file]) {
+    for (const [mode, extra] of [["install", {}], ["uninstall", {}], ["uninstall", { globalRemoval: true }]]) {
+      for (const harnesses of [[id], []]) {
+        const p = plan(proj, { harnesses, mode, home, ...extra });
+        assert.equal(p.ok, false);
+        assert.deepEqual(p.items, []);
+        assert.deepEqual(p.refusals, [`no such project directory: ${JSON.stringify(proj)} — nothing is written`], `${mode} ${harnesses.join() || "bare"}`);
+      }
+    }
+    let spawned = 0;
+    const r = await runVerb("upgrade", proj, { harnesses: [id], home, spawn: () => { spawned++; return { status: 0, stdout: "", stderr: "" }; }, out: { isTTY: false, write: () => true } });
+    assert.equal(r.gate.why, "refused");
+    assert.equal(spawned, 0, "nothing is spawned");
+  }
+  assert.deepEqual(readdirSync(parent).sort(), before, "nothing appeared in the parent");
+  assert.deepEqual(readdirSync(home), [], "nothing appeared in the harness home");
 });

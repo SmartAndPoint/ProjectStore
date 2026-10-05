@@ -13,7 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, realpathSync, rmSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -572,4 +572,17 @@ test("registration: the real host CLI, sandboxed by the pinned home, registers a
     assert.ok(!existsSync(paths.dir));
     assert.equal((registry().plugins[ID] || []).length, 0);
   });
+});
+
+// Contract 19: a host command that cannot start names its cause. Node says
+// `spawnSync claude ENOENT` for a binary not on PATH and for a working
+// directory that does not exist alike; the run says which.
+test("registration contract 19: a host command whose binary is gone says it was not found on PATH, never spawnSync's ENOENT", () => {
+  const { home, proj, root, host } = sandbox();
+  const p = plan(proj, { home, root, env: host.env() });
+  rmSync(host.bin);
+  const done = apply(p, { env: { ...host.env(), PATH: dirname(host.bin) }, home });
+  assert.ok(done.failed, "the run stops");
+  assert.match(done.failed.stderr, /^claude could not start: it was not found on PATH/, done.failed.stderr);
+  assert.ok(!/spawnSync/.test(JSON.stringify(done.failed)), JSON.stringify(done.failed));
 });

@@ -122,7 +122,9 @@ test("Codex portable registration: APPLY reports the staging write and each host
   assert.equal(r.failed, null, JSON.stringify(r.failed));
   const text = chunks.join("");
   const apply_ = text.slice(text.indexOf("\nAPPLY\n"));
-  assert.match(apply_, /\n {2}\+ registration .+\n {6}✓ stage \S+ +\d/, apply_);
+  // The preflight is the registration's first line: the host is asked
+  // before anything is staged (issue #28).
+  assert.match(apply_, /\n {2}\+ registration .+\n {6}✓ \$ codex plugin list --json +\d.*\n {6}✓ stage \S+ +\d/, apply_);
   for (const st of registration(r.plan).steps.filter((s) => s.kind === "host")) {
     assert.match(apply_, new RegExp(`\\n {6}✓ \\$ ${[st.bin, ...st.argv].join(" ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} +\\d`), `${st.name} has its APPLY line`);
   }
@@ -171,35 +173,213 @@ test("Codex portable registration, doctor half: a run with no portable payload h
   assert.match(registration(broken).reason, /is not a portable plugin root/);
 });
 
+// A host that reports the plugin disabled, or a cache that does not match:
+// the run fails at verify, and the first install's rollback is clean. The
+// compensation removed what it added, the proof finds nothing of ours left,
+// and no journal stays; the next run installs. (Until 2026-10-05 both fakes
+// threw inside the rollback's proof on an empty list, which read as
+// recovery-required; that path has its own test below.)
 test("Codex portable registration: verification requires host-reported enablement and the materialised cache digest", () => {
-  const disabled = fixture("0.28.0+codex.dev.disabled");
-  const disabledBase = fakeCodex(disabled);
-  const disabledSpawn = (bin, argv) => {
-    const r = disabledBase(bin, argv);
-    if (argv.join(" ") !== "plugin list --json" || r.status !== 0) return r;
-    const body = JSON.parse(r.stdout); body.installed[0].enabled = false;
-    return { ...r, stdout: JSON.stringify(body) };
+  const tampers = {
+    "0.28.0+codex.dev.disabled": (f, r) => {
+      const body = JSON.parse(r.stdout);
+      if (body.installed[0]) body.installed[0].enabled = false;
+      return { ...r, stdout: JSON.stringify(body) };
+    },
+    "0.28.0+codex.dev.corrupt": (f, r) => {
+      const cached = join(f.home, "plugins", "cache", "projectstore-npx", "projectstore", "0.28.0+codex.dev.corrupt", "skills", "projectstore-status", "SKILL.md");
+      if (existsSync(cached)) writeFileSync(cached, "tampered cache\n");
+      return r;
+    },
   };
-  const disabledResult = apply(plan(disabled.project, opts(disabled)), { env: disabled.env, home: disabled.home, spawn: disabledSpawn });
-  assert.equal(disabledResult.failed.step, "recovery-required");
-  assert.equal(existsSync(join(disabled.home, "projectstore", "projectstore-npx.journal.json")), true);
-  const blocked = apply(plan(disabled.project, opts(disabled)), { env: disabled.env, home: disabled.home, spawn: disabledBase });
-  assert.equal(blocked.failed.step, "recovery-required");
+  for (const [version, tamper] of Object.entries(tampers)) {
+    const f = fixture(version);
+    const base = fakeCodex(f);
+    const spawn = (bin, argv) => { const r = base(bin, argv); return argv.join(" ") === "plugin list --json" && r.status === 0 ? tamper(f, r) : r; };
+    const first = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn });
+    assert.equal(first.failed.step, "verify", version);
+    assert.equal(existsSync(join(f.home, "projectstore", "projectstore-npx.journal.json")), false, `${version}: a proven rollback keeps no journal`);
+    const again = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: base });
+    assert.equal(again.failed, undefined, `${version}: ${JSON.stringify(again.failed)}`);
+    assert.equal(again[0].verified.version, version);
+  }
+});
 
-  const corrupt = fixture("0.28.0+codex.dev.corrupt");
-  const corruptBase = fakeCodex(corrupt);
-  const corruptSpawn = (bin, argv) => {
-    const r = corruptBase(bin, argv);
-    if (argv.join(" ") === "plugin list --json" && r.status === 0) {
-      const cached = join(corrupt.home, "plugins", "cache", "projectstore-npx", "projectstore", "0.28.0+codex.dev.corrupt", "skills", "projectstore-status", "SKILL.md");
-      writeFileSync(cached, "tampered cache\n");
+// An exception inside the rollback's own proof leaves the state unproven: the
+// journal stays recovery-required, with its error and its time. The next
+// confirmed run proves it (for a first install, that nothing of ours remains),
+// lifts it, says so in APPLY and installs (the install spec's 2026-09-29
+// amendment, as amended 2026-10-05).
+test("Codex portable registration: a first install's recovery the next run can prove is lifted, named, and the run installs", async () => {
+  const f = fixture("0.28.0+codex.dev.lift");
+  const base = fakeCodex(f);
+  let removed = false;
+  const throwing = (bin, argv) => {
+    const op = argv.join(" ");
+    if (op === "plugin remove projectstore@projectstore-npx") removed = true;
+    if (op === "plugin list --json" && removed) throw new Error("injected: the host list broke during the rollback's proof");
+    const r = base(bin, argv);
+    if (op === "plugin list --json" && r.status === 0) {
+      const body = JSON.parse(r.stdout);
+      if (body.installed[0]) body.installed[0].enabled = false;
+      return { ...r, stdout: JSON.stringify(body) };
     }
     return r;
   };
-  const corruptResult = apply(plan(corrupt.project, opts(corrupt)), { env: corrupt.env, home: corrupt.home, spawn: corruptSpawn });
-  assert.equal(corruptResult.failed.step, "recovery-required");
-  assert.equal(existsSync(join(corrupt.home, "projectstore", "projectstore-npx.journal.json")), true);
+  const first = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: throwing });
+  assert.equal(first.failed.step, "recovery-required");
+  const journalPath = join(f.home, "projectstore", "projectstore-npx.journal.json");
+  const journal = JSON.parse(readFileSync(journalPath, "utf8"));
+  assert.equal(journal.previous, null);
+  assert.match(journal.error, /injected/);
+  assert.ok(journal.failed_at, "the first failure's time is kept");
+  // The plan names the previous run, when, its error and the journal; its keys are unchanged.
+  const p = plan(f.project, opts(f));
+  const reason = registration(p).reason;
+  assert.ok(reason.startsWith(`a previous run (${journal.failed_at}) could not prove its restore: `), reason);
+  assert.match(reason, /injected.*this run re-proves the previous state before applying this plan, and refuses if it cannot/);
+  assert.ok(reason.includes(journalPath), reason);
+  // The next run, with a host that answers: proven, lifted, installed.
+  const chunks = [];
+  const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+  const r = await runVerb("install", f.project, { ...opts(f), spawn: base, out });
+  assert.equal(r.failed, null, JSON.stringify(r.failed));
+  assert.equal(existsSync(journalPath), false, "the journal is lifted");
+  const rec = r.applied[0].steps.find((s) => s.kind === "portable-recover");
+  assert.equal(rec.phase, "recovery-required");
+  assert.match(rec.lifted, /injected/);
+  assert.match(chunks.join(""), /\n {6}✓ lift \S*projectstore-npx\.journal\.json — the previous state proved; it held: .*injected/);
 });
+
+// The incident's class on a refresh: the rollback restored the previous
+// version, but the host could not confirm it at the time. The next run proves
+// the source digest, the cache digest and the host's own row, lifts the
+// journal, and the refresh applies.
+test("Codex portable registration: a refresh whose rollback could not be confirmed is lifted once the previous state proves, and the refresh applies", () => {
+  const f = fixture();
+  apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) });
+  writeFileSync(join(f.root, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.28.0+codex.dev.two" }) + "\n");
+  const base = fakeCodex(f);
+  let refused = false;
+  const flaky = (bin, argv) => {
+    const op = argv.join(" ");
+    if (op === "plugin add projectstore@projectstore-npx") { refused = true; return { status: 17, stdout: "", stderr: "add refused, nothing changed" }; }
+    if (op === "plugin list --json" && refused) return { status: 1, stdout: "", stderr: "transient: the host list is unavailable" };
+    return base(bin, argv);
+  };
+  const first = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: flaky });
+  assert.equal(first.failed.step, "recovery-required");
+  const journalPath = join(f.home, "projectstore", "projectstore-npx.journal.json");
+  assert.ok(JSON.parse(readFileSync(journalPath, "utf8")).previous, "a refresh records the previous state");
+  const r = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: base });
+  assert.equal(r.failed, undefined, JSON.stringify(r.failed));
+  assert.equal(existsSync(journalPath), false);
+  assert.equal(r[0].verified.version, "0.28.0+codex.dev.two");
+  assert.ok(r[0].steps.some((s) => s.kind === "portable-recover" && s.phase === "recovery-required" && /transient/.test(s.lifted || "")));
+});
+
+// Issue #28, problem 1: a host too old to answer the registration's own
+// verification is caught before anything changes.
+test("Codex portable registration: a host that cannot answer the preflight stops the run with nothing changed (issue #28)", () => {
+  const f = fixture();
+  const calls = [];
+  const old = (bin, argv) => {
+    calls.push(argv.join(" "));
+    if (argv.join(" ") === "plugin list --json") return { status: 2, stdout: "", stderr: "error: unexpected argument '--json' found\n\nUsage: codex plugin list [OPTIONS]" };
+    return fakeCodex(f)(bin, argv);
+  };
+  const p = plan(f.project, opts(f));
+  const first = registration(p).steps[0];
+  assert.equal(first.kind, "host");
+  assert.equal(first.name, "preflight");
+  assert.deepEqual(first.argv, ["plugin", "list", "--json"]);
+  assert.ok(renderPreview(p).includes("$ codex plugin list --json"), "the preview shows it");
+  const result = apply(p, { env: f.env, home: f.home, spawn: old });
+  assert.equal(result.failed.step, "preflight");
+  assert.match(result.failed.stderr, /unexpected argument '--json'/);
+  assert.match(result.failed.stderr, /so it changed nothing\. Upgrade Codex, then run this again\./);
+  assert.deepEqual(calls, ["plugin list --json"], "no marketplace add, no plugin add");
+  assert.equal(existsSync(join(f.home, "projectstore", "projectstore-npx.journal.json")), false, "no journal");
+  assert.equal(existsSync(join(f.home, "projectstore", "marketplace")), false, "nothing staged");
+  assert.equal(existsSync(join(f.home, "config.toml")), false, "the host's config is untouched");
+});
+
+// Issue #28, problem 2: a journal 0.29.0 left after a first install (no time,
+// no previous state) is named in the plan, and lifted once nothing of ours
+// remains.
+test("Codex portable registration: a 0.29.0 first-install journal is named in the plan and lifted once nothing of ours remains (issue #28)", () => {
+  const f = fixture();
+  const dir = join(f.home, "projectstore", "marketplace");
+  const journalPath = join(f.home, "projectstore", "projectstore-npx.journal.json");
+  mkdirSync(join(f.home, "projectstore"), { recursive: true });
+  writeFileSync(journalPath, JSON.stringify({ version: 1, target: dir, stage: `${dir}.none`, backup: null, previous: null, phase: "recovery-required", error: "error: unexpected argument '--json' found\n\nUsage: codex plugin list [OPTIONS]" }, null, 2) + "\n");
+  const p = plan(f.project, opts(f));
+  assert.match(registration(p).reason, /^a previous run could not prove its restore: error: unexpected argument '--json' found; this run re-proves/);
+  // While the host is still too old, the re-check cannot ask it: refused,
+  // the history kept (a 0.29.0 journal has no time), and told to upgrade.
+  const tooOld = (bin, argv) => argv.join(" ") === "plugin list --json"
+    ? { status: 2, stdout: "", stderr: "error: unexpected argument '--json' found" }
+    : fakeCodex(f)(bin, argv);
+  const still = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: tooOld });
+  assert.equal(still.failed.step, "recovery-required");
+  assert.ok(still.failed.stderr.startsWith("a previous run (time not recorded) could not prove its restore: error: unexpected argument '--json' found"), still.failed.stderr);
+  assert.match(still.failed.stderr, /The re-check could not ask Codex \(`codex plugin list --json`\); if it is too old to answer, upgrade it, then run this again\./);
+  const kept = JSON.parse(readFileSync(journalPath, "utf8"));
+  assert.match(kept.error, /^error: unexpected argument '--json' found\n\nUsage/, "the first error is kept");
+  assert.equal(kept.failed_at, undefined, "no time is invented for it");
+  assert.ok(kept.rechecked_at && /could not ask Codex/.test(kept.recheck_error));
+  // Once the host answers, the journal lifts.
+  const r = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) });
+  assert.equal(r.failed, undefined, JSON.stringify(r.failed));
+  assert.equal(existsSync(journalPath), false);
+  assert.ok(r[0].steps.some((s) => s.kind === "portable-recover" && s.phase === "recovery-required"));
+});
+
+// Node reports a working directory that does not exist and a binary not on
+// PATH alike (`spawnSync <bin> ENOENT`); the run names which (contract 19).
+test("Codex portable registration: a host command that cannot start names its cause", () => {
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // A binary gone after the plan: the apply-time recheck finds it missing
+  // before anything is spawned (the Claude-format case, which has no recheck,
+  // is in registration.test.mjs).
+  const gone = fixture();
+  const p1 = plan(gone.project, opts(gone));
+  rmSync(join(gone.base, "bin", "codex"));
+  const r1 = apply(p1, { env: gone.env, home: gone.home });
+  assert.equal(r1.failed.step, "recheck");
+  assert.match(r1.failed.stderr, /`codex` is not on PATH/);
+  // A binary that exists but cannot run: its interpreter is missing.
+  const broken = fixture();
+  const p2 = plan(broken.project, opts(broken));
+  writeFileSync(join(broken.base, "bin", "codex"), "#!/nonexistent/interpreter\n");
+  chmodSync(join(broken.base, "bin", "codex"), 0o755);
+  const r2 = apply(p2, { env: broken.env, home: broken.home });
+  assert.match(r2.failed.stderr, new RegExp(`^codex could not start: ${esc(join(broken.base, "bin", "codex"))} exists but could not be run \\(E[A-Z]+\\)`), r2.failed.stderr);
+  assert.ok(!/Upgrade/.test(r2.failed.stderr), "a host that never started is not told to upgrade");
+  // A project removed after the plan, through the real spawnSync.
+  const moved = fixture();
+  const p3 = plan(moved.project, opts(moved));
+  rmSync(moved.project, { recursive: true, force: true });
+  const r3 = apply(p3, { env: moved.env, home: moved.home });
+  assert.match(r3.failed.stderr, new RegExp(`^codex could not start: the working directory ${esc(JSON.stringify(moved.project))} is not an existing directory`));
+  assert.ok(!/Upgrade/.test(r3.failed.stderr), "a missing directory is not an old host");
+  // Mid-run, with the fake host taught Node's behaviour: the planned step, the
+  // compensation and the proof all name the directory, never `spawnSync`.
+  const mid = fixture();
+  const base = fakeCodex(mid);
+  const nodeLike = (bin, argv, o) => {
+    if (argv.join(" ") === "plugin add projectstore@projectstore-npx") rmSync(mid.project, { recursive: true, force: true });
+    if (!existsSync(o.cwd)) return { status: null, stdout: null, stderr: null, error: Object.assign(new Error(`spawnSync ${bin} ENOENT`), { code: "ENOENT" }) };
+    return base(bin, argv);
+  };
+  const r4 = apply(plan(mid.project, opts(mid)), { env: mid.env, home: mid.home, spawn: nodeLike });
+  const seen = JSON.stringify({ steps: r4[0].steps, failed: r4.failed });
+  assert.ok(!/spawnSync/.test(seen), seen);
+  const comp = r4[0].steps.filter((s) => s.kind === "portable-compensate");
+  assert.ok(comp.length && comp.every((s) => /working directory/.test(s.stderr || "")), JSON.stringify(comp));
+  assert.match(r4.failed.stderr, /working directory/);
+});
+
 
 test("Codex portable registration: a failed refresh restores the prior stable source", () => {
   const f = fixture();
@@ -229,8 +409,20 @@ test("Codex portable registration: a partially mutating failed refresh becomes r
   assert.equal(result.failed.step, "recovery-required");
   const journal = join(f.home, "projectstore", "projectstore-npx.journal.json");
   assert.equal(JSON.parse(readFileSync(journal, "utf8")).phase, "recovery-required");
+  const firstRecord = JSON.parse(readFileSync(journal, "utf8"));
+  assert.ok(firstRecord.failed_at, "the first failure's time");
   const retry = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: base });
   assert.equal(retry.failed.step, "recovery-required");
+  // Refused as before, and the journal keeps its history: the first error and
+  // time unchanged, the re-check's own reason and time beside them (issue #28).
+  const kept = JSON.parse(readFileSync(journal, "utf8"));
+  assert.equal(kept.phase, "recovery-required");
+  assert.equal(kept.error, firstRecord.error);
+  assert.equal(kept.failed_at, firstRecord.failed_at);
+  assert.deepEqual(kept.previous, firstRecord.previous);
+  assert.ok(kept.rechecked_at && kept.recheck_error, JSON.stringify(kept));
+  assert.ok(retry.failed.stderr.startsWith(`a previous run (${firstRecord.failed_at}) could not prove its restore: ${firstRecord.error}. This run re-checked the previous state and could not prove it either: `), retry.failed.stderr);
+  assert.ok(retry.failed.stderr.includes(`${journal} is kept: a later run lifts it once the previous state proves, or inspect the registration and remove the journal to start over`), retry.failed.stderr);
 });
 
 test("Codex portable registration: the home-scoped lock rejects a concurrent mutation", () => {
@@ -365,4 +557,23 @@ test("Codex portable registration: a second enabled ProjectStore marketplace is 
   assert.equal(registration(p).state, "conflict");
   assert.equal(registration(p).action, "refuse");
   assert.match(registration(p).reason, /two ProjectStore plugins/);
+});
+
+// The preflight reads its answer, not only its status: a host that exits 0
+// with text where the registration reads JSON is as unable to verify as one
+// that refuses the flag (the reviewer's probe, 2026-10-05).
+test("Codex portable registration: a preflight answered with text, not JSON, stops the registration before it changes anything", () => {
+  const f = fixture();
+  const calls = [];
+  const texty = (bin, argv) => {
+    calls.push(argv.join(" "));
+    if (argv.join(" ") === "plugin list --json") return { status: 0, stderr: "", stdout: "Marketplace  Plugin  Status\n" };
+    return fakeCodex(f)(bin, argv);
+  };
+  const result = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: texty });
+  assert.equal(result.failed.step, "preflight");
+  assert.equal(result.failed.status, null, "an answer in text is not reported as \"exited 0\"");
+  assert.match(result.failed.stderr, /^codex plugin list --json answered, but not with the JSON the registration reads\nThe registration needs `codex plugin list --json` to verify what it installs, so it changed nothing\. Upgrade Codex/);
+  assert.deepEqual(calls, ["plugin list --json"]);
+  assert.equal(existsSync(join(f.home, "projectstore", "projectstore-npx.journal.json")), false);
 });

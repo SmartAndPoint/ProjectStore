@@ -11,6 +11,7 @@ It registers the plugin for that checkout at the host's local scope. It prints i
 - See before you write: `npx projectstore-claude plan --project "$PWD"` prints the same plan and writes nothing; `--verbose` adds every row's reasoning; `npx projectstore-claude <verb> --help` lists a verb's options with examples.
 
 - Upgrade, or pin: `npx projectstore-claude@<version> upgrade --project "$PWD"` — the version you name is the version you run.
+- Behind a registry mirror: if `npx` answers `could not determine executable to run`, the mirror's index knows only the reserved `0.0.1` placeholder — name the version, and if needed the public registry: `npx --registry https://registry.npmjs.org projectstore-claude@<version> install --project "$PWD"`.
 - Uninstall: `npx projectstore-claude uninstall --project "$PWD"` — forgets the registration for that checkout and nothing else; your vault is plain markdown and stays yours.
 - `doctor`, `status`, `search` and the other read verbs pass through unchanged: `npx projectstore-claude doctor --json`.
 

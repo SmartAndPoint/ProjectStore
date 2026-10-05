@@ -689,6 +689,18 @@ export function installChannel(root, { home = homedir(), harness = sourceHarness
   return own && marketplace === own.marketplace_name ? "registration" : "marketplace";
 }
 
+// A write verb works in a project that exists (the install spec, contract 19):
+// install, upgrade, uninstall and plan, and agents configure, refuse a path
+// that is not an existing directory before anything is written, staged or
+// spawned. The path is quoted, so a trailing comma, space or newline shows: a
+// `--project "$PWD",` pasted from a chat once created `ProjectStore,/` and
+// wrote an AGENTS.md into it (2026-10-05). bind refuses the same way
+// (NO_PROJECT, binding.mjs).
+export function projectDirRefusal(dir) {
+  try { if (statSync(dir).isDirectory()) return null; } catch {}
+  return `no such project directory: ${JSON.stringify(String(dir))} — nothing is written`;
+}
+
 // ─── Status line wiring (SessionStart-managed) ─────────────────────────
 //
 // The Claude Code statusLine slot is single and NOT plugin-declarable, so
