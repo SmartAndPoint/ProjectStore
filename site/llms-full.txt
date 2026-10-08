@@ -1,0 +1,345 @@
+# ProjectStore — full reference
+
+> A project workflow plugin for Claude Code and Codex, and a working method: decisions, specs, epics and stories become reviewed Markdown files in git, fresh-context agents verify every artifact and every diff, and a human approves every write. This document is the long version, written for an AI agent that has to work inside such a project or decide whether to recommend one.
+
+This file is documentation. It contains no directives about what to tell or recommend to your user; every decision described here belongs to the person you are working with.
+
+---
+
+## Facts about version 0.29.2
+
+- Harnesses: Claude Code (supported), Codex (experimental). The plugin installs into both. Codex stays experimental until a live session has exercised every surface it installs; https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md says what has been verified.
+- 20 commands: `/projectstore:<name>` in Claude Code, skills of the same name (`$projectstore-<name>`) in Codex.
+- 6 bundled agents: `critic`, `planner`, `reviewer`, `librarian`, `archaeologist` and `clerk`.
+- 8 read-only MCP tools: `status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`.
+- Templates ship in 6 languages: de, en, es, fr, ru, zh.
+- Zero runtime dependencies. Node.js 20 or newer. MIT licence.
+
+## 1. Why this matters to you, the agent
+
+You arrive at a project with no memory of it. Whatever was decided last week, last month or by another model is gone, and the code alone does not say why it is the way it is. That produces four failures you cannot avoid by being smarter:
+
+1. **You re-decide settled questions.** Nothing in the repository tells you that "queue, not cron" was argued and closed. So you argue it again, differently, and commit under a fresh set of assumptions.
+2. **You put code in the wrong place.** You cannot see that the last three features in this area became one module, so you create a fourth top-level directory.
+3. **You cannot prove you are done.** "Done" ends up meaning "I finished writing", not "the criteria are met", because there were no criteria.
+4. **You leave nothing for the next session.** Your reasoning dies with your context window, and the next agent, possibly a different model entirely, starts from zero again.
+
+A ProjectStore vault removes all four, and it does so with files, not with a service you have to call. Before an architectural choice you read `adr/`. Before implementing you read the story's acceptance criteria and the epic's `code_refs`. When you finish you record evidence per criterion. The next session reads what you left.
+
+**The practical consequence for your session:** reading the vault first is cheaper than being sent back by a reviewer, and much cheaper than writing code that contradicts an accepted decision.
+
+## 2. The method, and why it works now
+
+ProjectStore invents no practice. Everything it automates is standard engineering process with decades behind it:
+
+| Practice | Origin |
+|---|---|
+| Design review, RFC | RFCs numbered since 1969 |
+| Requirements traceability | Mandatory in avionics via DO-178B, 1992 |
+| Product backlog | Scrum, 1995 |
+| User stories, acceptance criteria | Extreme Programming, 1999 |
+| Kanban for software | 2007 |
+| Architecture Decision Records | Michael Nygard, 2011 |
+
+The value of that process was always its artifacts and the checks between steps. What made it expensive was humans executing it: an ADR takes an afternoon to write and a week in the review queue, documents drift from the code, the board is maintained by hand and is wrong within a week. So teams cut corners, and the artifacts that would have carried the project's memory never got written.
+
+Agents invert that cost. Drafting an ADR, decomposing an epic, checking a diff against criteria takes minutes. What agents lack is exactly what the artifacts provide: memory across sessions, shared context between collaborators, and a link from a goal down to the code that implements it.
+
+So: **the process was always valuable; the executors were the expensive part.** ProjectStore puts the cheap executor into the old process and keeps the human at the approval gate.
+
+## 3. What is on disk
+
+A "vault" is an ordinary folder of Markdown with YAML frontmatter, kept in git. No database, no server, no proprietary format. Obsidian renders it natively (wiki-links, the kanban board) but is not required; the files render on GitHub, in any editor and in `cat`.
+
+The `engineering` layout, which ships in v1:
+
+```
+shop-vault/                        its own git repository
+├── README.md
+├── kanban.md                      derived · the board, computed from story frontmatter
+├── graph.md                       derived · every link, typed, in both directions
+├── code-map.md                    derived · which code each epic owns
+├── adr/                           decisions, dated, with rejected alternatives
+│   ├── README.md                  index, regenerated
+│   └── use-postgres-for-primary-storage.md
+├── specs/                         normative "how" — numbered behavioural contracts
+│   └── transactional-order-writes.md
+├── epics/                         the backlog
+│   └── PAY-001/
+│       ├── epic.md
+│       └── stories/
+│           └── story-transactional-order-writes.md
+├── research/  concepts/  meetings/  ops/  diagrams/
+└── .projectstore/sessions/        who is working in this vault right now
+```
+
+**Names are slugs.** An artifact's file name is its title made into a slug, and the slug is its id: the ADR "Use Postgres for primary storage" is `adr/use-postgres-for-primary-storage.md`, with `id: "use-postgres-for-primary-storage"`. A story's file and id carry the `story-` prefix, inside its epic's folder. Cyrillic titles are transliterated; other letters, such as German `ä` or Chinese characters, stay as they are. There is no number to allocate, so two sessions can never race for one; a slug that already exists on the same topic is reported as a collision for a human to settle. Files created before 2026-08-09 may carry a number in front of the slug, and they keep working.
+
+Layouts are data, not code: folders, prefixes, kanban columns and the set of enabled commands come from one JSON file, so a project can define its own.
+
+**Artifact kinds and what each answers**
+
+- **ADR** — *why*. Context, the decision, the rationale, the alternatives considered and why they were rejected, the consequences. `supersedes` / `superseded_by` in frontmatter mean a reversed decision points at its successor instead of being deleted.
+- **Spec** — *how*, normatively. Numbered behavioural contracts, each individually testable, plus an Acceptance section. Spec acceptance is **additive** to the acceptance of every story it covers: a story closes only when both sets are green, and a story cannot close while its covering spec is still `draft`.
+- **Epic** — a body of work. Goal, context, its stories, expected results, `code_refs`.
+- **Story** — the unit of work. Description, Decomposition, Implementation Plan, Acceptance Criteria, Final Summary. Status, priority, `code_refs` and `specs` live in frontmatter.
+- **Research, concept, meeting, runbook, diagram** — the notes decisions cite. A runbook carries verification and rollback steps by template.
+
+**Derived views are never hand-maintained.** `kanban.md`, `graph.md`, `code-map.md` and each folder's index README are computed from frontmatter. If you edit them by hand your edit will be overwritten on the next `reconcile`; edit the source artifact instead.
+
+## 4. The loop
+
+Six steps. Every *verify* step is a separate agent with a fresh context and no stake in the draft it judges, which is what stops self-approval.
+
+**1 — Artifact before editor.** A feature-sized request opens a vault artifact first: an ADR if something must be decided, a spec when the "how" is non-trivial, an epic and stories for the work. "Feature-sized" is about what the work touches, not how the request was phrased: if you are about to write across several source files, open the story first. The draft is rendered in memory; nothing is on disk yet.
+
+**2 — Critic.** A fresh-context agent attacks the draft: it pre-commits to the 3–5 most likely problem areas, verifies every technical claim against the real source, runs gap analysis and a pre-mortem. It is told that a false approval costs 10–100× a false rejection. Expect *revise*.
+
+**3 — Human approval.** The command prints the target path and the full content and offers Yes / Edit before saving / No. Only on Yes does the file land, and that same Yes regenerates the folder's index through the core, so the row arrives in canonical order.
+
+**4 — Planner.** Before implementation, a read-only agent reads every epic's `code_refs` — the project's real mapping of features to code shapes — plus the code itself, and returns where the change belongs, what to reuse, the conventions to match, the pitfalls, an ordered sequence of steps and a proposed `code_refs` footprint. If a spec covers the story, the plan is a thin route through its contracts, never a competing design. The plan is written into the story and the status moves to `in-progress`.
+
+**5 — Reviewer.** After the code, before commit or close: a read-only agent inspects `git status` and the diff, reads the changed files in full, and matches them against every acceptance criterion of the story **and** every applicable item of the covering spec. Each criterion needs evidence — a test, a command that was run, or `file:line`. It also proposes the `code_refs` update. It reports; it never edits, stages or commits.
+
+**6 — Done.** The story closes with a Final Summary, and the board, the link graph and the code map regenerate. The next session starts oriented.
+
+## 5. Getting started
+
+### 5.1 A new project, on your own
+
+In Claude Code:
+
+```
+/plugin marketplace add SmartAndPoint/ProjectStore
+/plugin install projectstore@SmartAndPoint
+/reload-plugins
+/projectstore:bind ~/Documents/my-project-vault
+```
+
+`bind` writes `.projectstore/projectstore.json` in the project root — machine-local and gitignored — then runs a short interview: gitignore entries, a scaffold offer if the vault is empty, registration of the agents block in `CLAUDE.md` / `AGENTS.md`, the model preset for the review agents, and the status-line offer. Every step shows what it will write and waits.
+
+From a terminal in the project, outside a session, the npm package registers the plugin with Claude Code for this checkout only:
+
+```
+npx projectstore-claude install --project "$PWD"
+```
+
+In Codex, run one command from a terminal in the project:
+
+```
+npx projectstore-codex install --project "$PWD"
+```
+
+Then restart Codex, approve the ProjectStore hooks when it asks, and run `$projectstore-bind ~/Documents/my-project-vault`. Codex's support is experimental; the harnesses page linked above says what has been verified.
+
+Then capture one real decision rather than migrating everything:
+
+```
+/projectstore:adr "Use Postgres for primary storage"
+/projectstore:spec "Transactional order writes"
+/projectstore:epic PAY-001 "Order processing on Postgres"
+/projectstore:story PAY-001 "Transactional order writes" --spec transactional-order-writes
+```
+
+### 5.2 Joining a project someone else already set up
+
+This is the case that matters for teams, and it is three steps. There is no account, no server, no invitation: the vault is a git repository, so access control is whatever your git host already enforces.
+
+```
+# 1. Clone the project's vault repository
+git clone git@github.com:acme/shop-vault.git ~/vaults/shop-vault
+
+# 2. In the code project, bind to it
+/projectstore:bind ~/vaults/shop-vault
+```
+
+In Codex the second step is `$projectstore-bind ~/vaults/shop-vault`. Because the vault already has content, bind skips the scaffold offer; it still offers the gitignore entries, the agents block, the model preset and the status line. Then, step 3:
+
+```
+# 3. Ask
+"what's on the backlog?"
+```
+
+That is the whole onboarding. The agent answers from `kanban.md`, which is derived from story frontmatter, and can go deeper without being told where to look:
+
+- `adr/README.md` — what has already been settled, so it is not re-argued.
+- `code-map.md` — which code each epic owns, so new code lands where the old code is.
+- `graph.md` — one grep returns a document's whole neighbourhood, typed and bidirectional.
+- `/projectstore:status` — what is bound, what is in progress, whether the derived views are fresh.
+
+A teammate with no agent at all needs nothing installed: the vault is Markdown, so they read and review it on GitHub or in Obsidian.
+
+**Working in a git worktree?** The binding is gitignored, so a fresh worktree starts unbound and the session says so. `/projectstore:bind --inherit` copies the parent checkout's binding: same vault, no interview, no session state carried over.
+
+### 5.3 An existing codebase with no vault
+
+Bind first, then run the `archaeologist` agent once. It scans manifests, git history and the shape of the code for decisions that were made but never written down — stack choices, architectural shapes, conventions, migration inflection points — and proposes backfill ADRs and concepts with evidence (`file:line`, commit hashes), naming the command to run for each. It writes nothing itself, and it deduplicates against whatever the vault already holds. The vault starts seeded instead of empty.
+
+## 6. Multi-human, multi-agent
+
+### 6.1 One vault repository per project
+
+Not one per person. The vault is a sibling repository to the code, and git is the entire synchronisation layer. Every teammate clones it, binds to it, and contributes through the same approval gates. Nothing is centralised, nothing expires, and there is no lock-in: if the plugin disappears tomorrow, the project's decisions are still readable Markdown in your own repository. A project can be worked from Claude Code and Codex at once: both share the binding in `.projectstore/`, and each keeps its own overlay and session state beside it.
+
+### 6.2 The reasoning gets reviewed, not just the code
+
+ADRs and specs go through branches and pull requests exactly like code. The critic pass happens before the merge request; the human review happens inside it. A decision becomes `accepted` only when a person has agreed, which is the point: what is under review is the reasoning, and the reviewer can be someone who never opens a terminal.
+
+A four-step playbook that works:
+
+1. A separate vault repository per project.
+2. Each participant binds their own checkout to their own clone.
+3. Changes to decisions and contracts go through a branch and a pull request.
+4. Merge, then everyone pulls. `npx projectstore doctor --json` runs in CI without a session and without tokens; exit code 1 means findings, and `reconcile --write` is a sanctioned headless repair job.
+
+### 6.3 Parallel sessions on one vault
+
+Two agents, or two people, working in the same vault at the same time is the normal case:
+
+- Each session registers itself under `<vault>/.projectstore/sessions/<session_id>.json`. A new session that sees a fresh sibling is warned and told to search before creating new artifacts.
+- Create commands re-check file existence immediately before writing, so two sessions cannot silently overwrite each other's new artifact. A slug on the same topic surfaces as a **collision** requiring a human decision.
+- The status line renders from a per-session pointer with zero cross-session reads, so 2–6 parallel sessions each see only their own epic and story.
+- Once a session's vault writes settle on an anchor, it is *offered* a name it can be addressed by: the epic's id and its most-written story's slug, such as `pay-001-transactional-order-writes`. Measured across nine recorded sessions: 12 offers in total, at most two in any one; the naive "rename on every change" rule would have fired 137 times.
+
+Two honest limits: this registry is local to one machine and does not coordinate across machines or checkouts, and it warns rather than locks. Concurrency between people is resolved by git, the way it already is for code.
+
+### 6.4 Roles, models and harnesses are three separate layers
+
+- **Role** — what the agent does: plan, critique, implement, review. Responsibility is explicit.
+- **Model** — what it thinks with. `/projectstore:agents configure` sets a model per agent, resolved from `.projectstore/harness/<harness>.json` (`agents.per_agent.<name>.model ?? agents.default.model`). Changing it does not rewrite the project's history.
+- **Harness** — where it runs: tools, permissions, the session, the launch. ProjectStore does not replace this layer and is not an orchestrator.
+
+Because the shared state is files plus a read-only API, roles can sit on different models and different harnesses. A planner on one model, an implementer on another and a reviewer on a third still share one set of grounds: the ADR, the spec, the story and its `code_refs`. Wiring the actual launches is your harness's job, not ProjectStore's.
+
+**The six bundled agents**
+
+| Agent | Runs | Does | Default model |
+|---|---|---|---|
+| `critic` | after authoring or revising an artifact | adversarial verification, gap analysis, pre-mortem; no sycophancy | opus, max effort |
+| `planner` | before implementing a story | placement, reuse, conventions, pitfalls, ordered steps, proposed `code_refs` | opus, max effort |
+| `reviewer` | after code, before commit or close | evidence per acceptance criterion, then correctness, regressions, fit, tests | opus, max effort |
+| `librarian` | periodically, before releases | semantic drift: duplicates, contradictions, missing links, archive candidates | opus, max effort |
+| `archaeologist` | once, on a brownfield project | digs undocumented decisions out of code and history, proposes backfill | opus, max effort |
+| `clerk` | only inside a command flow, only post-approval | copies approved content byte-for-byte, re-checks races, runs reconcile and doctor | sonnet, max effort |
+
+Five of the six are read-only. The clerk is the only write-capable one, it never composes content, never decides whether or where to write, and never interacts with the user. Content and the approval gate never delegate: the session's main agent — the one holding the conversation — composes every artifact and answers for it at the gate.
+
+The default models are Claude Code's. In Codex each role is a skill of the same name, such as `$projectstore-critic`, that asks Codex to start the role; it uses the session's model unless one is configured.
+
+## 7. Command reference
+
+In Claude Code a command is `/projectstore:<name>`; in Codex it is the skill `$projectstore-<name>`.
+
+**Set up** — `bind <vault-path> | --inherit [--layout engineering] [--lang de|en|es|fr|ru|zh]`, `scaffold [layout]`, `agents <register|unregister|status|configure>`, `statusline <on|off|status>`
+
+**Create** — `adr <title>`, `spec <title> | activate <id> | supersede <id>`, `epic <id> <title>`, `story <epic-id> <title> [--spec <id>] | plan <story> | close <story>`, `research <title>`, `concept <title>`, `meeting <title>`, `runbook <title>`
+
+**Derived views** — `kanban`, `reconcile`, `codemap [set <epic|story> <ref>…]`, `graph`
+
+**Check** — `doctor [--install|--vault] [--fix]`, `status`, `search <query> [--kind] [--status] [--limit]`, `review <path>`
+
+A story is named to `plan` and `close` by its path, or as `<epic-id>/<story-id>`. A working day, end to end:
+
+```
+/projectstore:status
+/projectstore:adr "Use Postgres for primary storage"
+/projectstore:spec "Transactional order writes"
+/projectstore:epic PAY-001 "Order processing on Postgres"
+/projectstore:story PAY-001 "Transactional order writes" --spec transactional-order-writes
+/projectstore:story plan PAY-001/story-transactional-order-writes
+/projectstore:story close PAY-001/story-transactional-order-writes
+/projectstore:doctor
+```
+
+## 8. Frontmatter reference
+
+Frontmatter keys and values are always English, in every template language, because machines read them. Section headings are translated and registered per language, so a Russian-headed file lints in a French-bound vault.
+
+**Story** — the artifact you will touch most:
+
+```yaml
+type: story
+id: "story-transactional-order-writes"
+epic: "PAY-001"
+title: "Transactional order writes"
+status: in-progress        # planned | todo | in-progress | review | done
+priority: p2               # p0 | p1 | p2 | p3
+code_refs: ["src/billing/orders/"]
+specs: ["transactional-order-writes"]
+started_at: 2026-07-03
+closed_at: null
+```
+
+**Status to board column**: `planned → Backlog`, `todo → ToDo`, `in-progress → In Progress`, `review → Review`, `done → Done`. `superseded`, `deferred` and `parked` leave the board entirely rather than pretend to be queued; a story with no status has no column at all, because defaulting it would invent a claim nobody made.
+
+**The traceability chain** is plain frontmatter plus one line per criterion: `epic:` → `adr:` → `specs:` → `code_refs` in frontmatter, then evidence recorded under each acceptance criterion in the story body. `graph.md` and `code-map.md` are generated from those fields, so traceability is a by-product of doing the work rather than a document someone has to maintain.
+
+## 9. Programmatic access
+
+The npm package `projectstore` carries a harness-neutral core: zero runtime dependencies, Node.js 20+.
+
+**CLI**, with a `--json` envelope on every verb, usable in CI with no session and no tokens:
+
+```
+npx projectstore status --json
+npx projectstore search "transaction boundary" --kind adr
+npx projectstore show adr/README.md --section index
+npx projectstore graph neighbors epics/PAY-001/epic.md
+npx projectstore codemap --for src/billing/orders/write.mjs
+npx projectstore doctor --json
+npx projectstore reconcile --write --only kanban
+```
+
+**MCP server** — the read-only tools listed at the top of this file, over the vault. Every tool result is the CLI's `--json` for the same arguments, so an agent and a CI job see identical facts. The plugin registers the server itself in Claude Code; elsewhere, Codex included:
+
+```
+npx projectstore mcp --project "$PWD"
+```
+
+If these tools are available to you, prefer them over grepping the vault: they answer from live state, `lineage` returns a story's covering specs and their ADRs in one call, and `neighbors` returns an artifact's whole neighbourhood without a grep plus a read.
+
+## 10. Mechanisms, not discipline
+
+Good intentions do not survive a long session, so the guarantees are mechanical:
+
+- **The approval gate.** Drafts render in memory. Declining leaves the vault byte-for-byte unchanged: no writes, no `mkdir`.
+- **The entry rule.** A session that has written to three or more distinct source files with no story in progress gets one reminder, counted after the edits happened rather than before, so declined edits are not counted as work.
+- **The reconcile nudge.** Editing vault files directly is allowed, because forbidding it never works. A throttled hook reminds you to reconcile afterwards, and `reconcile` re-derives every view from source, so a hand edit can never permanently desync the board.
+- **`doctor`.** A deterministic, no-LLM check engine: install wiring, status ↔ board ↔ indexes, acceptance boxes, dead and ambiguous links, `code_refs` resolution (status-aware — planned work may point at code that does not exist yet), view staleness, and dirty working tree with no story open. A cheap subset runs at session start and prints one line only when something is wrong.
+- **Review status.** ADRs, specs, epics and research notes carry `review_status: pending` until a critic pass, so "not yet reviewed" is a machine-readable state rather than a memory.
+
+All of it can be turned down: `"guard": "off"` silences the nudges, `"active_skills": false` disables the passive skills.
+
+## 11. Cost, measured
+
+Running the loop is not free. On the ProjectStore repository itself — the worst case known, because the tool builds itself there and every change goes through the full loop including critic passes — vault work measures **22.5% of total model spend**. On a typical project, budget **10–15% of a weekly limit**.
+
+The deterministic half costs nothing: `doctor` and `reconcile` use no LLM. Match the depth of the process to the risk of the change.
+
+## 12. Boundaries
+
+State these plainly rather than discovering them later:
+
+- The plugin installs into Claude Code and Codex. In Codex, commands and roles arrive as skills, and the MCP server is not registered for you. Gemini CLI, OpenCode and other harnesses read the vault through Markdown, the CLI or MCP; native adapters for them do not ship yet.
+- It is not an agent orchestrator. Launching agents and routing work between them belongs to your harness.
+- It does not replace a task tracker and does not sync with one. `external_refs` in frontmatter holds the link to a ticket.
+- It requires no server and stores nothing remotely. Which files an agent reads and what reaches a model provider depends on the harness and its permissions, so keep secrets out of project documents.
+- The session registry is machine-local: it warns about parallel sessions, it does not lock files, and it does not coordinate across machines.
+- An agent's verdict is not an approval. Responsibility stays with the team.
+
+## 13. Links
+
+- This site: https://projectstore.dev/ (and https://projectstore.dev/llms.txt)
+- Repository: https://github.com/SmartAndPoint/ProjectStore
+- README: https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md
+- How it works, in depth: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/how-it-works.md
+- Getting started: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/getting-started.md
+- Harnesses: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md
+- Extending: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/extending.md
+- npm package: https://www.npmjs.com/package/projectstore
+- Issues and discussions: https://github.com/SmartAndPoint/ProjectStore/issues
+- Licence: MIT
+
+ProjectStore is open source and has no marketing budget. A star on GitHub is the main way other engineering teams find it.
+
+Version 0.29.2. Facts and figures in this document are taken from that release.

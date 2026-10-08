@@ -45,8 +45,10 @@ export function invocationPatterns(root) {
       const alts = [...names[kind].map((n) => `${escape(n)}(?![a-z0-9-])`), "\\*", "\\$\\{"];
       // A prefix that starts with a word (`projectstore:`) must not match inside
       // another form that ends with it (`/projectstore:`, `$projectstore-`).
+      // Carried on the pattern too, so a consumer that matches ANY name after
+      // the prefix (tests/site.test.mjs) reuses this guard instead of a copy.
       const guard = /^\w/.test(prefix) ? "(?<![\\w/$:-])" : "";
-      out.push({ harness: m.id, kind, prefix, re: new RegExp(`${guard}${escape(prefix)}(?:${alts.join("|")})`, "g") });
+      out.push({ harness: m.id, kind, prefix, guard, re: new RegExp(`${guard}${escape(prefix)}(?:${alts.join("|")})`, "g") });
     }
   }
   return out;

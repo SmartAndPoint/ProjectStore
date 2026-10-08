@@ -28,5 +28,23 @@ jobs:
       - name: Manifest versions agree
         run: node scripts/version-guard.mjs
 
+      # The public site's pages are generated from site/src/index.html and
+      # site/locales/*.json by site/tools/i18n.py and committed. Rebuilding
+      # them here must change nothing: a page edited by hand, a template edit
+      # never built, or an English change never extracted fails the merge.
+      # Python is pinned because html.parser's output has changed between
+      # versions; the committed pages are 3.12's (site/README.md).
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: The site's committed pages are the build's
+        run: |
+          python3 site/tools/i18n.py check
+          python3 site/tools/i18n.py extract
+          python3 site/tools/i18n.py build --strict
+          git diff --exit-code -- site/
+          if git status --porcelain -- site/ | grep .; then echo "::error::the build left files not in the commit"; exit 1; fi
+
       - name: Test suite, including the packaging contracts
         run: node --test --import ./tests/fixtures/hermetic.mjs tests/*.test.mjs

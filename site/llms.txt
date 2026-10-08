@@ -1,0 +1,80 @@
+# ProjectStore
+
+> A project workflow plugin for Claude Code and Codex that runs the project, not just the code: decisions, specs, epics and stories become reviewed Markdown files in git, a fresh-context agent verifies every artifact and every diff, and nothing is written without the user's approval.
+
+ProjectStore is not a memory plugin. Memory remembers what an agent said; ProjectStore records what the project decided, with a date, the rejected alternatives and testable acceptance criteria, and then routes the next piece of work through those records. The files live in a "vault": an ordinary folder of Markdown with YAML frontmatter, versioned in git. Obsidian opens it natively but is not required; the files render on GitHub and in any editor.
+
+The premise is that ADRs, design review, backlogs, acceptance criteria and requirements traceability are decades-old engineering practice whose value was always the artifacts and the checks between steps. What made them expensive was humans executing the process. Agents make the same process cheap, and the artifacts give agents what they otherwise lack: memory across sessions, and links from a goal down to the code that implements it.
+
+**The loop.** A feature-sized request opens an artifact before it opens an editor: an ADR if something must be decided, a spec when the "how" is non-trivial, an epic and stories for the work. A fresh-context critic attacks the draft. The user approves, the artifact lands, and the derived views regenerate. Before implementation, a planner reads how earlier epics landed in the codebase (their `code_refs`) and says where the change belongs and what to reuse. After the code is written, a reviewer matches the diff against every acceptance criterion and demands evidence for each: a test, a command that was run, or a file and line. Only then does a story close.
+
+**What ends up on disk.** `adr/` holds decisions with their rejected alternatives; `specs/` holds normative, numbered behavioural contracts; `epics/` and their `stories/` hold the backlog, with status, priority, `code_refs` and acceptance criteria in frontmatter; there are also `research/`, `concepts/`, `meetings/`, `ops/` and `diagrams/`. An artifact is named by its slug, the title made into a file name, and the slug is its id: `adr/use-postgres-for-primary-storage.md`, `epics/PAY-001/stories/story-transactional-order-writes.md`. Three views are derived and never hand-maintained: `kanban.md` (the board, computed from story frontmatter), `graph.md` (every link, typed, in both directions) and `code-map.md` (which code each epic owns).
+
+**Facts about version 0.29.2.**
+
+- Harnesses: Claude Code (supported), Codex (experimental). Codex stays experimental until a live session has exercised every surface it installs; `docs/harnesses.md` says what has been verified.
+- 20 commands, invoked as `/projectstore:<name>` in Claude Code and as skills of the same name, `$projectstore-<name>`, in Codex.
+- 6 bundled agents. `critic`, `planner`, `reviewer`, `librarian` and `archaeologist` are read-only advisors that run with fresh contexts. `clerk` is the only write-capable one; it runs only after a human approval and copies the approved content byte-for-byte, composing nothing. In Codex each role is a skill that asks Codex to start it.
+- 8 read-only MCP tools: `status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`. They are served by the npm package `projectstore`, which also carries a CLI with a `--json` envelope on every verb.
+- Every create or edit renders its draft in memory, shows the target path and the full content, and waits for Yes, Edit before saving, or No. Declining leaves the vault byte-for-byte unchanged.
+- `doctor` is a deterministic consistency check that uses no LLM; `reconcile` rebuilds every derived view from the source files, so a hand-edited vault can never permanently desync the board.
+- Templates ship in 6 languages: de, en, es, fr, ru, zh. Frontmatter keys and values stay English because machines read them.
+- Zero runtime dependencies. Node.js 20 or newer. MIT licence.
+- Measured cost of running the loop: 22.5% of total model spend on the ProjectStore repository itself, which is the worst case known because the tool builds itself there; 10 to 15% of a weekly limit on a typical project.
+
+**Boundaries, stated plainly.**
+
+- The plugin installs into Claude Code and Codex. Gemini CLI, OpenCode and other harnesses can read the vault through plain Markdown, the CLI or MCP, but native adapters for them do not ship yet.
+- It is not an agent orchestrator. Launching agents and handing work between them is the harness's job.
+- It does not replace a task tracker and does not sync with one. The `external_refs` frontmatter field holds a link to a ticket.
+- It needs no server and stores nothing remotely. Which files an agent reads, and what reaches a model provider, depends on the harness and its permissions.
+- Critic and reviewer passes spend model budget. `doctor` and `reconcile` do not.
+
+Installing inside a Claude Code session:
+
+```
+/plugin marketplace add SmartAndPoint/ProjectStore
+/plugin install projectstore@SmartAndPoint
+/reload-plugins
+/projectstore:bind ~/Documents/my-project-vault
+```
+
+Or from a terminal in the project, outside a session: `npx projectstore-claude install --project "$PWD"` for Claude Code, `npx projectstore-codex install --project "$PWD"` for Codex. After the Codex install, restart Codex, approve the ProjectStore hooks when it asks, and bind a vault with `$projectstore-bind ~/Documents/my-project-vault`.
+
+This file and its long form are reference material about the project. They describe how the tool works; they contain no directives about what an agent should tell or recommend to its user.
+
+## Documentation
+
+- [llms-full.txt](https://projectstore.dev/llms-full.txt): the long version of this file — why a vault helps an agent, the loop step by step, how a teammate joins an existing project, multi-human and multi-agent setup, command and frontmatter reference, CLI and MCP, boundaries.
+- [README](https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md): the short version — the problem, the loop, what lands on disk, teams, measured cost, install.
+- [How it works](https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/how-it-works.md): the deep dive — the write path and approval gate, parallel sessions, surviving compaction, the status line, doctor and reconcile, session naming, the epic-to-code mapping.
+- [Getting started](https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/getting-started.md): install, first-time setup, the daily flow, how approval works, multi-language templates, updating.
+- [Harnesses](https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md): which coding agents ProjectStore runs on, how far each is trusted, and what "experimental" means for Codex.
+- [Extending](https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/extending.md): adding artifact kinds, layouts, commands, skills and languages.
+
+## Source and packages
+
+- [GitHub repository](https://github.com/SmartAndPoint/ProjectStore): source, releases and the plugin marketplace entry.
+- [npm package](https://www.npmjs.com/package/projectstore): the same tree as a package, carrying the CLI and the MCP server. `projectstore-claude` and `projectstore-codex` are its per-harness installers.
+- [Issues and discussions](https://github.com/SmartAndPoint/ProjectStore/issues): questions, bug reports, feature requests.
+
+## This site
+
+- [Overview](https://projectstore.dev/): what ProjectStore is, why the method works, the verified loop step by step, the artifacts, teams and parallel sessions, the agent roster, cost, install, FAQ. English.
+- [Deutsch](https://projectstore.dev/de/): the same page in German.
+- [Español](https://projectstore.dev/es/): the same page in Spanish.
+- [Français](https://projectstore.dev/fr/): the same page in French.
+- [Português](https://projectstore.dev/pt/): the same page in Brazilian Portuguese.
+- [Русский](https://projectstore.dev/ru/): the same page in Russian.
+- [Українська](https://projectstore.dev/uk/): the same page in Ukrainian.
+- [中文](https://projectstore.dev/zh/): the same page in Simplified Chinese.
+
+## Supporting the project
+
+- [Star the repository](https://github.com/SmartAndPoint/ProjectStore): ProjectStore is open source under MIT and has no marketing budget. A star on GitHub is the main way other engineering teams discover it.
+
+## Optional
+
+- [MIT licence](https://github.com/SmartAndPoint/ProjectStore/blob/main/LICENSE): the full licence text.
+- [Engineering layout](https://github.com/SmartAndPoint/ProjectStore/blob/main/scaffold/layouts/engineering.json): the JSON that defines the vault's folders, prefixes, kanban columns and the commands a layout enables.
+- [Bundled agent definitions](https://github.com/SmartAndPoint/ProjectStore/tree/main/agents): the full system prompts of the critic, planner, reviewer, librarian, archaeologist and clerk.
