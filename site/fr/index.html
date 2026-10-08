@@ -1,0 +1,786 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title data-i18n="meta.title">ProjectStore — le code change, le contexte reste</title>
+<meta name="description" content="ProjectStore est un plugin de workflow pour Claude Code et Codex. Il conserve les décisions, les specs et les stories de votre projet en Markdown dans git, et votre agent suit le processus que les équipes d&#x27;ingénierie appliquent depuis des décennies : décider, relire, construire, vérifier. Cela ne prend plus que quelques minutes." data-i18n-attr="content:meta.description">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23d2f85c'/%3E%3Cg fill='%231c201c' transform='translate(16 15) skewY(-10)'%3E%3Crect width='34' height='8' rx='1'/%3E%3Crect y='13' width='26' height='8' rx='1'/%3E%3Crect y='26' width='18' height='8' rx='1'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="../assets/style.css?v=43a050fc">
+<link rel="alternate" hreflang="en" href="https://projectstore.dev/">
+<link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
+<link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
+<link rel="alternate" hreflang="fr" href="https://projectstore.dev/fr/">
+<link rel="alternate" hreflang="pt-BR" href="https://projectstore.dev/pt/">
+<link rel="alternate" hreflang="ru" href="https://projectstore.dev/ru/">
+<link rel="alternate" hreflang="uk" href="https://projectstore.dev/uk/">
+<link rel="alternate" hreflang="zh-CN" href="https://projectstore.dev/zh/">
+<link rel="alternate" hreflang="x-default" href="https://projectstore.dev/">
+<link rel="canonical" href="https://projectstore.dev/fr/">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 13h6M9 17h6"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.5"/><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5a6 6 0 0 1-6 6H9"/></symbol>
+  <symbol id="i-pr" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.5"/><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7M13 6h3a2 2 0 0 1 2 2v7.5"/></symbol>
+  <symbol id="i-merge" viewBox="0 0 24 24"><circle cx="18" cy="18" r="2.5"/><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M6 8.5v7M6 9a6 6 0 0 0 6 6h3.5"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-5-6-5M12 19h8"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+</svg>
+
+<a class="skip-link" href="#main" data-i18n="page.a.1">Aller au contenu</a>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="wordmark" href="#main" aria-label="ProjectStore, retour en haut" data-i18n-attr="aria-label:nav.aria-label.1"><span class="store-mark" aria-hidden="true"><span></span><span></span><span></span></span><span class="wordmark-dot">.</span><span data-i18n="nav.span.1">projectstore</span></a>
+    <nav class="desktop-nav" aria-label="Navigation principale" data-i18n-attr="aria-label:nav.aria-label.2">
+      <a href="#why" data-i18n="nav.a.1">Pourquoi</a>
+      <a href="#workflow" data-i18n="nav.a.2">Fonctionnement</a>
+      <a href="#artifacts" data-i18n="nav.a.3">Sur disque</a>
+      <a href="#teams" data-i18n="nav.a.4">En équipe</a>
+      <a href="#agents" data-i18n="nav.a.5">Agents</a>
+      <a href="#start" data-i18n="nav.a.6">Installer</a>
+    </nav>
+    <div class="header-right">
+      <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="Langue : Français"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>FR</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../" hreflang="en" lang="en" data-lang="en">English</a></li><li><a href="../de/" hreflang="de" lang="de" data-lang="de">Deutsch</a></li><li><a href="../es/" hreflang="es" lang="es" data-lang="es">Español</a></li><li><a href="../fr/" hreflang="fr" lang="fr" data-lang="fr" aria-current="true">Français</a></li><li><a href="../pt/" hreflang="pt-BR" lang="pt-BR" data-lang="pt">Português</a></li><li><a href="../ru/" hreflang="ru" lang="ru" data-lang="ru">Русский</a></li><li><a href="../uk/" hreflang="uk" lang="uk" data-lang="uk">Українська</a></li><li><a href="../zh/" hreflang="zh-CN" lang="zh-CN" data-lang="zh">中文</a></li></ul></div>
+      <a class="header-link" href="https://github.com/SmartAndPoint/ProjectStore" target="_blank" rel="noopener noreferrer"><span data-i18n="nav.span.2">GitHub</span> <svg class="icon"><use href="#i-up-right"/></svg></a>
+    </div>
+  </div>
+  <nav class="mobile-nav" aria-label="Sections de la page" data-i18n-attr="aria-label:nav.aria-label.3"><a href="#why" data-i18n="nav.a.7">Pourquoi</a><a href="#workflow" data-i18n="nav.a.8">Comment</a><a href="#teams" data-i18n="nav.a.9">Équipes</a><a href="#start" data-i18n="nav.a.10">Installer ↗</a></nav>
+</header>
+
+<main id="main">
+
+<!-- ================= HERO ================= -->
+<section class="hero wrap" aria-labelledby="hero-title">
+  <div class="hero-copy">
+    <div class="eyebrow"><span class="status-dot"></span> <span data-i18n="hero.span.1">Le contexte du projet. Sous contrôle de version.</span></div>
+    <h1 id="hero-title" data-i18n="hero.h1.1">Le code change.<br>Le <span class="headline-accent">contexte</span><br>reste<span class="lime-dot">.</span></h1>
+    <p class="hero-description" data-i18n="hero.p.1">Les décisions, les specs, les epics et les stories vivent en Markdown dans git. ProjectStore mène votre agent, dans Claude Code ou Codex, de la tâche au code vérifié, en suivant le processus que les équipes d'ingénierie appliquent depuis des décennies. <strong>Cela ne prend plus que quelques minutes.</strong></p>
+    <div class="hero-actions"><a class="action primary" href="#start"><span data-i18n="hero.span.2">L'ajouter à votre projet</span> <svg class="icon lg"><use href="#i-up-right"/></svg></a><a class="action text-action" href="#workflow"><span data-i18n="hero.span.3">Comprendre en cinq minutes</span> <svg class="icon"><use href="#i-down"/></svg></a></div>
+    <div class="hero-notes"><span data-i18n="hero.span.4">Open source · MIT</span><i></i><span data-i18n="hero.span.5">Vos fichiers. Votre git.</span><i></i><span data-i18n="hero.span.6">Pas de cloud</span></div>
+    <div class="hero-harnesses"><span class="harness-chip"><span class="harness-name">Claude Code</span><span class="harness-status" data-fact="harness-status:claude-code">supported</span></span><span class="harness-chip"><span class="harness-name">Codex</span><span class="harness-status" data-fact="harness-status:codex">experimental</span></span></div>
+  </div>
+
+  <div class="hero-visual" aria-label="Un exemple de documents de projet liés : une décision, une spec et une story" data-i18n-attr="aria-label:hero.aria-label.1">
+    <div class="visual-topline"><span class="mono" data-i18n="hero.span.7">CONTEXTE DU PROJET / shop-vault</span><span data-i18n="hero.span.8">Projet d'exemple</span></div>
+    <div class="vault-window">
+      <div class="window-header"><div class="window-dots"><i></i><i></i><i></i></div><span class="mono" data-i18n="hero.span.9">shop-vault</span><svg class="icon"><use href="#i-branch"/></svg></div>
+      <div class="vault-files">
+        <div class="file-tree"><svg class="icon"><use href="#i-folder"/></svg><span data-i18n="hero.span.10">adr</span><span class="tree-hint" data-i18n="hero.span.11">pourquoi</span></div>
+        <div class="file-tree child"><svg class="icon"><use href="#i-file"/></svg><span data-i18n="hero.span.12" data-slug="adr:file">utiliser-postgres-comme-stockage-principal.md</span><svg class="icon sm file-check"><use href="#i-check"/></svg></div>
+        <div class="file-tree"><svg class="icon"><use href="#i-folder"/></svg><span data-i18n="hero.span.13">specs</span><span class="tree-hint" data-i18n="hero.span.14">comment</span></div>
+        <div class="file-tree child"><svg class="icon"><use href="#i-file"/></svg><span data-i18n="hero.span.15" data-slug="spec:file">écriture-transactionnelle-des-commandes.md</span><svg class="icon sm file-check"><use href="#i-check"/></svg></div>
+        <div class="file-tree"><svg class="icon"><use href="#i-folder"/></svg><span data-i18n="hero.span.16">epics / PAY-001</span><span class="tree-hint" data-i18n="hero.span.17">quoi</span></div>
+      </div>
+      <div class="story-card">
+        <div class="story-meta"><span class="mono" data-i18n="hero.span.18">STORY / PAY-001</span><span class="work-badge" data-i18n="hero.span.19"><i></i> En cours</span></div>
+        <h2 data-i18n="hero.h2.1">Une seule transaction.<br>Une commande et ses lignes, ensemble.</h2>
+        <div class="story-criterion"><svg class="icon sm"><use href="#i-check"/></svg><span data-i18n="hero.span.20">Commande et lignes écrites de façon atomique · <em>preuve : tests/orders.test.mjs:41</em></span></div>
+        <div class="story-criterion"><svg class="icon sm"><use href="#i-check"/></svg><span data-i18n="hero.span.21">Job de réconciliation nocturne supprimé · <em>preuve : deploy/cron:12</em></span></div>
+        <div class="story-criterion"><svg class="icon sm" style="color:#9aa58d"><use href="#i-circle"/></svg><span data-i18n="hero.span.22">Réessai en cas d'échec de sérialisation · <em style="color:#8a3c0e">pas encore de preuve</em></span></div>
+        <div class="story-code"><span data-i18n="hero.span.23">code_refs</span><code>src/billing/orders/</code><svg class="icon sm"><use href="#i-up-right"/></svg></div>
+      </div>
+      <div class="vault-window-footer"><svg class="icon sm"><use href="#i-pr"/></svg><span data-i18n="hero.span.24">Les décisions sont relues. Comme le code.</span></div>
+    </div>
+    <a class="context-handoff" href="#principle"><div class="handoff-symbol"><svg class="icon lg"><use href="#i-terminal"/></svg></div><div><strong data-i18n="hero.strong.1">Un nouvel agent. Sans repartir de zéro.</strong><span data-i18n="hero.span.25">Il lit les décisions, pas l'historique du chat.</span></div><svg class="icon lg"><use href="#i-right"/></svg></a>
+    <div class="visual-caption"><span class="caption-line"></span> <span data-i18n="hero.span.26">Le contexte survit aux sessions</span></div>
+  </div>
+</section>
+
+<div class="principles-bar"><div class="wrap principles-inner"><span><span class="store-mark small" aria-hidden="true"><span></span><span></span><span></span></span> <span data-i18n="bar.span.1">Pas une mémoire de chat. Une façon de travailler.</span></span><span data-i18n="bar.span.2">Markdown + YAML</span><span data-i18n="bar.span.3">Natif git</span><span data-i18n="bar.span.4">Relu par des humains</span><span data-i18n="bar.span.5">Contexte indépendant du modèle</span><span data-i18n="bar.span.6">0 dépendance d'exécution</span></div></div>
+
+<!-- ================= 01 PRINCIPLE ================= -->
+<section id="principle" class="intro-section wrap" aria-labelledby="principle-title">
+  <div class="section-label"><span data-i18n="principle.span.1">01 / Principe</span><svg class="icon"><use href="#i-down"/></svg></div>
+  <div>
+    <h2 id="principle-title" data-i18n="principle.h2.1">Ne réexpliquez pas tout.<br><span class="muted-heading">Reprenez là où ça s'est arrêté.</span></h2>
+    <p data-i18n="principle.p.1">Un chat se souvient de ce dont vous avez parlé. ProjectStore consigne ce que l'équipe a décidé, pourquoi, et comment vérifier le résultat. Le prochain agent, le prochain modèle ou vous-même dans six mois : chacun lit des décisions datées et les options que vous avez écartées. Pas un historique de chat.</p>
+    <div class="principle-triad">
+      <div><span class="mono" data-i18n="principle.span.2">POURQUOI</span><strong data-i18n="principle.strong.1">Pourquoi ce choix ?</strong><span data-i18n="principle.span.3">La décision et ses alternatives dans un ADR.</span></div>
+      <div><span class="mono" data-i18n="principle.span.4">QUOI</span><strong data-i18n="principle.strong.2">Que faisons-nous ?</strong><span data-i18n="principle.span.5">Une spec, un epic et une story aux critères clairs.</span></div>
+      <div><span class="mono" data-i18n="principle.span.6">PREUVE</span><strong data-i18n="principle.strong.3">Comment l'a-t-on vérifié ?</strong><span data-i18n="principle.span.7">Revue et preuve pour chaque critère.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 02 WHY IT WORKS ================= -->
+<section id="why" class="why-section" aria-labelledby="why-title">
+  <div class="wrap">
+    <div class="section-heading">
+      <div><div class="section-label"><span data-i18n="why.span.1">02 / Pourquoi ça marche</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="why-title" data-i18n="why.h2.1">L'industrie a inventé cela il y a longtemps.<br><span class="muted-heading">Les agents l'ont rendu bon marché.</span></h2></div>
+      <p data-i18n="why.p.1">Des ADR, des revues, un backlog, des critères d'acceptation, des liens de l'objectif jusqu'au code. Les équipes d'ingénierie matures travaillent ainsi depuis vingt ans. <b>ProjectStore n'en invente rien.</b></p>
+    </div>
+
+    <div class="why-lead">
+      <div class="prose">
+        <p data-i18n="why.p.2">Regardez n'importe quelle équipe d'ingénierie mature. Avant de construire quoi que ce soit, quelqu'un écrit la décision et les autres en discutent. Le travail est découpé en stories, rangées dans un backlog. Chaque story a des critères d'acceptation. Chaque exigence peut être reliée au code. Le backlog vient de Scrum, en 1995. Les stories et les tests d'acceptation viennent d'XP, en 1999. Les ADR, de courtes notes qui consignent une décision et ses raisons, viennent de Michael Nygard, en 2011. Les revues de conception et les RFC sont plus anciennes encore.</p>
+        <p data-i18n="why.p.3">Le processus fonctionne. Ses documents sont ce qu'une entreprise conserve de plus précieux après un projet : pourquoi le système est construit ainsi, ce qui comptait comme terminé, où se trouve chaque fonctionnalité dans le code. Mais quand des humains l'appliquent à la main, il est lent. Un ADR demande un après-midi d'écriture et une semaine pour être relu. Les documents prennent du retard sur le code. Le tableau ne correspond plus à la réalité. Alors les équipes prennent des raccourcis, et « agile » devient une excuse pour ne rien écrire.</p>
+        <p class="pull" data-i18n="why.p.4">Le processus a toujours eu de la valeur. Ce qui coûtait cher, c'était <b>que des humains en assurent chaque étape.</b></p>
+      </div>
+      <div class="prose">
+        <p data-i18n="why.p.5">Les agents, c'est l'inverse. Rédiger un ADR, découper un epic en stories ou vérifier un diff au regard des critères demande à un agent quelques minutes, pas des jours. Ce qui manque à un agent, c'est ce que les humains ont naturellement : la mémoire d'une session à l'autre, un contexte partagé avec les collègues, le lien entre un objectif et le code. Chaque nouvelle session part de zéro et tranche à nouveau ce qui était déjà réglé.</p>
+        <p data-i18n="why.p.6">ProjectStore réunit les deux. La vitesse des agents rend le vieux processus bon marché pour la première fois. Ses documents, rangés dans des fichiers à côté du code, donnent aux agents ce qu'ils n'ont jamais eu : le contexte du projet, relié en amont aux objectifs et en aval au code. Chaque étape est vérifiée par un second agent, qui n'a pas écrit le brouillon. La vitesse y gagne une mémoire, et la mémoire une vérification.</p>
+      </div>
+    </div>
+
+    <figure class="compare" aria-labelledby="compare-title">
+      <div class="compare-head"><span id="compare-title" data-i18n="why.span.2">Trois façons de mener un projet · temps →</span><span data-i18n="why.span.3">un schéma, pas une mesure</span></div>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 1160 330" role="img" aria-label="Trois couloirs : les humains avec un processus sont lents mais gardent le contexte ; les agents sans processus sont rapides mais chaque session redécide tout ; les agents avec ProjectStore sont rapides et gardent le contexte." xmlns="http://www.w3.org/2000/svg" data-i18n-attr="aria-label:why.aria-label.1">
+        <defs><marker id="tl-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#7b8b66"/></marker></defs>
+        <text class="tl-lane" x="20" y="52" data-i18n="why.text.1">Humains avec méthode</text>
+        <text class="tl-sub" x="20" y="70" data-i18n="why.text.2">une semaine par itération</text><text class="tl-sub" x="20" y="84" data-i18n="why.text.3">artefacts gardés</text>
+        <line class="tl-axis" x1="250" y1="62" x2="1140" y2="62"/>
+        <rect class="tl-doc" x="262" y="26" width="14" height="18" rx="2"/><rect class="tl-doc" x="280" y="26" width="14" height="18" rx="2"/><text class="tl-sub" x="300" y="39" data-i18n="why.text.4">ADR · spec · story</text>
+        <rect class="tl-box" x="250" y="50" width="400" height="26" rx="3"/><text class="tl-t" x="262" y="67" data-i18n="why.text.5">Itération 1 : décision → revue → backlog → code → acceptation</text>
+        <rect class="tl-doc" x="692" y="26" width="14" height="18" rx="2"/><rect class="tl-doc" x="710" y="26" width="14" height="18" rx="2"/>
+        <rect class="tl-box" x="680" y="50" width="400" height="26" rx="3"/><text class="tl-t" x="692" y="67" data-i18n="why.text.6">Itération 2</text>
+        <path class="tl-line" d="M250,86 H1090"/><text class="tl-note ok" x="1090" y="100" text-anchor="end" data-i18n="why.text.7">contexte gardé →</text>
+
+        <text class="tl-lane" x="20" y="157" data-i18n="why.text.8">Agents sans méthode</text>
+        <text class="tl-sub" x="20" y="175" data-i18n="why.text.9">minutes par itération</text><text class="tl-sub" x="20" y="189" data-i18n="why.text.10">chaque session part de zéro</text>
+        <line class="tl-axis" x1="250" y1="167" x2="1140" y2="167"/>
+        <g>
+          <rect class="tl-box" x="250" y="155" width="112" height="26" rx="3"/><text class="tl-t" x="262" y="172" data-i18n="why.text.11">session 1</text>
+          <rect class="tl-box" x="400" y="155" width="112" height="26" rx="3"/><text class="tl-t" x="412" y="172" data-i18n="why.text.12">session 2</text>
+          <rect class="tl-box" x="550" y="155" width="112" height="26" rx="3"/><text class="tl-t" x="562" y="172" data-i18n="why.text.13">session 3</text>
+          <rect class="tl-box" x="700" y="155" width="112" height="26" rx="3"/><text class="tl-t" x="712" y="172" data-i18n="why.text.14">session 4</text>
+          <rect class="tl-box" x="850" y="155" width="112" height="26" rx="3"/><text class="tl-t" x="862" y="172" data-i18n="why.text.15">session 5</text>
+          <rect class="tl-box" x="1000" y="155" width="112" height="26" rx="3"/><text class="tl-t" x="1012" y="172" data-i18n="why.text.16">session 6</text>
+        </g>
+        <path class="tl-break" d="M368,199 l8,-8 m0,8 l-8,-8 M518,199 l8,-8 m0,8 l-8,-8 M668,199 l8,-8 m0,8 l-8,-8 M818,199 l8,-8 m0,8 l-8,-8 M968,199 l8,-8 m0,8 l-8,-8"/>
+        <path class="tl-line" d="M250,191 H362" style="stroke:#e2c8b6"/><path class="tl-line" d="M400,191 H512" style="stroke:#e2c8b6"/><path class="tl-line" d="M550,191 H662" style="stroke:#e2c8b6"/><path class="tl-line" d="M700,191 H812" style="stroke:#e2c8b6"/><path class="tl-line" d="M850,191 H962" style="stroke:#e2c8b6"/><path class="tl-line" d="M1000,191 H1090" style="stroke:#e2c8b6"/>
+        <text class="tl-note" x="1090" y="146" text-anchor="end" data-i18n="why.text.17">contexte perdu entre sessions</text>
+        <text class="tl-note" x="250" y="216" data-i18n="why.text.18">« file, pas cron »</text><text class="tl-note" x="400" y="216" data-i18n="why.text.19">« cron suffit »</text><text class="tl-note" x="550" y="216" data-i18n="why.text.20">« cron ? une file »</text><text class="tl-note" x="700" y="216" data-i18n="why.text.21">« les 2 tournent ? »</text><text class="tl-note" x="850" y="216" data-i18n="why.text.22">« pourquoi une file ? »</text>
+
+        <text class="tl-lane" x="20" y="262" data-i18n="why.text.23">Agents + ProjectStore</text>
+        <text class="tl-sub" x="20" y="280" data-i18n="why.text.24">minutes par itération</text><text class="tl-sub" x="20" y="294" data-i18n="why.text.25">artefacts gardés</text>
+        <line class="tl-axis" x1="250" y1="272" x2="1140" y2="272"/>
+        <g>
+          <rect class="tl-doc lime" x="262" y="238" width="12" height="16" rx="2"/><rect class="tl-doc lime" x="278" y="238" width="12" height="16" rx="2"/>
+          <rect class="tl-doc lime" x="412" y="238" width="12" height="16" rx="2"/>
+          <rect class="tl-doc lime" x="562" y="238" width="12" height="16" rx="2"/><rect class="tl-doc lime" x="578" y="238" width="12" height="16" rx="2"/>
+          <rect class="tl-doc lime" x="712" y="238" width="12" height="16" rx="2"/>
+          <rect class="tl-doc lime" x="862" y="238" width="12" height="16" rx="2"/>
+          <rect class="tl-doc lime" x="1012" y="238" width="12" height="16" rx="2"/><rect class="tl-doc lime" x="1028" y="238" width="12" height="16" rx="2"/>
+        </g>
+        <g>
+          <rect class="tl-box lime" x="250" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="262" y="277" data-i18n="why.text.26">ADR + story</text>
+          <rect class="tl-box lime" x="400" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="412" y="277" data-i18n="why.text.27">critic</text>
+          <rect class="tl-box lime" x="550" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="562" y="277" data-i18n="why.text.28">plan + code</text>
+          <rect class="tl-box lime" x="700" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="712" y="277" data-i18n="why.text.29">reviewer</text>
+          <rect class="tl-box lime" x="850" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="862" y="277" data-i18n="why.text.30">fini · tableau</text>
+          <rect class="tl-box lime" x="1000" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="1012" y="277" data-i18n="why.text.31">session n+1</text>
+        </g>
+        <path class="tl-line" d="M250,296 H1090" marker-end="url(#tl-arr)"/><text class="tl-note ok" x="1090" y="230" text-anchor="end" data-i18n="why.text.32">contexte gardé →</text>
+        <text class="tl-sub" x="250" y="320" data-i18n="why.text.33">chaque étape vérifiée par un agent indépendant · la session suivante lit les décisions, pas le chat</text>
+      </svg>
+      </div>
+      <div class="compare-legend"><span><i class="box"></i> <span data-i18n="why.span.4">une session ou une itération</span></span><span><i class="box lime"></i> <span data-i18n="why.span.5">une étape vérifiée par un agent</span></span><span data-i18n="why.span.6"><i></i> le contexte se transmet</span><span><i class="break"></i> <span data-i18n="why.span.7">contexte perdu, la question est tranchée à nouveau</span></span></div>
+    </figure>
+
+    <div class="practice" role="table" aria-label="Pratiques de l&#x27;industrie, exécutées par des humains et par ProjectStore" data-i18n-attr="aria-label:why.aria-label.2">
+      <div class="practice-row" role="row"><div role="columnheader" data-i18n="why.div.1">Étape</div><div role="columnheader" data-i18n="why.div.2">La pratique et son âge</div><div role="columnheader" data-i18n="why.div.3">Par des humains</div><div role="columnheader" data-i18n="why.div.4">Dans ProjectStore</div></div>
+      <div class="practice-row" role="row">
+        <div class="stage" role="cell" data-i18n="why.div.5">Décision<small>pourquoi</small></div>
+        <div class="practice-col" role="cell" data-i18n="why.div.6"><b>ADR</b>, Michael Nygard, 2011. Avant cela, comités d'architecture et revues de conception.</div>
+        <div class="human" role="cell" data-i18n="why.div.7">Un après-midi d'écriture, une semaine dans la file de revue. Les alternatives écartées restent dans la tête de quelqu'un.</div>
+        <div class="ps" role="cell" data-i18n="why.div.8">L'agent le rédige en une minute. Un critic indépendant cherche les points faibles. Vous validez. Résultat : un fichier daté, qui garde aussi ce qui a été écarté.</div>
+      </div>
+      <div class="practice-row" role="row">
+        <div class="stage" role="cell" data-i18n="why.div.9">Contrat<small>comment</small></div>
+        <div class="practice-col" role="cell" data-i18n="why.div.10"><b>Spec, document de conception, RFC.</b> Les RFC sont numérotées depuis 1969 ; les documents de conception sont la norme dans les grandes entreprises.</div>
+        <div class="human" role="cell" data-i18n="why.div.11">Une semaine à écrire, et périmée à la release. Personne ne vérifie que le code y correspond encore.</div>
+        <div class="ps" role="cell" data-i18n="why.div.12">Une spec décrit le comportement attendu sous forme de règles numérotées. Ses vérifications s'appliquent à chaque story qu'elle couvre. Une story ne peut pas être close tant que sa spec reste un brouillon.</div>
+      </div>
+      <div class="practice-row" role="row">
+        <div class="stage" role="cell" data-i18n="why.div.13">Backlog<small>quoi</small></div>
+        <div class="practice-col" role="cell" data-i18n="why.div.14"><b>Product backlog</b> de Scrum, 1995. <b>User stories</b> d'XP, 1999. <b>Kanban</b> pour le logiciel, 2007.</div>
+        <div class="human" role="cell" data-i18n="why.div.15">Des réunions d'affinage du backlog. Le tableau s'écarte de la réalité en une semaine, parce qu'il est tenu à la main.</div>
+        <div class="ps" role="cell" data-i18n="why.div.16">Chaque fichier de story porte son propre statut. Le tableau, les index et la carte des liens sont construits à partir de ces fichiers. S'ils divergent, une seule commande les reconstruit.</div>
+      </div>
+      <div class="practice-row" role="row">
+        <div class="stage" role="cell" data-i18n="why.div.17">Plan<small>où</small></div>
+        <div class="practice-col" role="cell" data-i18n="why.div.18"><b>Conception technique, analyse d'impact.</b> Le tech lead regarde où cela s'insère dans le code existant.</div>
+        <div class="human" role="cell" data-i18n="why.div.19">Où les fonctionnalités précédentes ont été implémentées dans le code, seul le tech lead le sait. Et il est en vacances.</div>
+        <div class="ps" role="cell" data-i18n="why.div.20">Le planner regarde où les epics précédents ont été implémentés dans le code. Il dit où le changement a sa place et quoi réutiliser. Le plan est ajouté à la story.</div>
+      </div>
+      <div class="practice-row" role="row">
+        <div class="stage" role="cell" data-i18n="why.div.21">Acceptation<small>preuve</small></div>
+        <div class="practice-col" role="cell" data-i18n="why.div.22"><b>Critères d'acceptation, Definition of Done.</b> XP et Scrum, début des années 2000.</div>
+        <div class="human" role="cell" data-i18n="why.div.23">Un cycle de QA en fin de sprint. « Terminé » sur simple déclaration ; critères vérifiés par sondage.</div>
+        <div class="ps" role="cell" data-i18n="why.div.24">Le reviewer vérifie le diff au regard de chaque critère et demande une preuve : un test, une commande exécutée, une ligne de code. Pas de preuve, pas de clôture.</div>
+      </div>
+      <div class="practice-row" role="row">
+        <div class="stage" role="cell" data-i18n="why.div.25">Traçabilité<small>liens</small></div>
+        <div class="practice-col" role="cell" data-i18n="why.div.26"><b>Traçabilité des exigences.</b> Obligatoire en avionique depuis la DO-178B (1992) et dans le logiciel médical.</div>
+        <div class="human" role="cell" data-i18n="why.div.27">Une matrice Excel « exigence → code → test » que personne ne met à jour après la deuxième release.</div>
+        <div class="ps" role="cell" data-i18n="why.div.28">Chaque story est reliée en amont à son epic, à ses ADR et à ses specs, et en aval à son code. La preuve figure sous chaque critère d'acceptation. La carte des liens et la carte du code sont générées : personne ne les tient à jour à la main.</div>
+      </div>
+    </div>
+
+    <div class="chain">
+      <h3 data-i18n="why.h3.1">Les liens qu'un agent obtient sans effort : de l'objectif à la preuve</h3>
+      <div class="chain-row" aria-label="La chaîne des liens entre artefacts" data-i18n-attr="aria-label:why.aria-label.3">
+        <div class="chain-node goal"><span class="k" data-i18n="why.span.8">objectif</span><strong data-i18n="why.strong.1">Epic</strong><span data-i18n="why.span.9">PAY-001 · pourquoi on le fait</span><span class="rel" data-i18n="why.span.10">epic:</span></div>
+        <div class="chain-node"><span class="k" data-i18n="why.span.11">pourquoi</span><strong data-i18n="why.strong.2">ADR</strong><span data-i18n="why.span.12">la décision et les options écartées</span><span class="rel" data-i18n="why.span.13">adr: [ ]</span></div>
+        <div class="chain-node"><span class="k" data-i18n="why.span.14">comment</span><strong data-i18n="why.strong.3">Spec</strong><span data-i18n="why.span.15">le comportement attendu</span><span class="rel" data-i18n="why.span.16">specs: [ ]</span></div>
+        <div class="chain-node"><span class="k" data-i18n="why.span.17">quoi</span><strong data-i18n="why.strong.4">Story</strong><span data-i18n="why.span.18">plan et critères d'acceptation</span><span class="rel" data-i18n="why.span.19">code_refs:</span></div>
+        <div class="chain-node"><span class="k" data-i18n="why.span.20">où</span><strong data-i18n="why.strong.5">Code</strong><span data-i18n="why.span.21">src/billing/orders/ · là où vivent déjà les epics précédents</span><span class="rel" data-i18n="why.span.22">— preuve :</span></div>
+        <div class="chain-node proof"><span class="k" data-i18n="why.span.23">preuve</span><strong data-i18n="why.strong.6">Preuves</strong><span data-i18n="why.span.24">tests/orders.test.mjs:41 · par critère</span></div>
+      </div>
+      <p class="chain-cap" data-i18n="why.p.7">Les liens figurent dans l'en-tête de chaque fichier, et la preuve est une ligne sous chaque critère d'acceptation. L'agent remplit tout cela au fil du travail. La carte des liens montre à quoi chaque document est relié. La carte du code indique où vit le code de chaque epic. Une nouvelle session, un nouveau modèle ou un nouveau collègue part de cette chaîne, pas de zéro.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 03 WORKFLOW ================= -->
+<section id="workflow" class="workflow-section" aria-labelledby="workflow-title">
+  <div class="wrap">
+    <div class="section-heading">
+      <div><div class="section-label"><span data-i18n="workflow.span.1">03 / La boucle vérifiée</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="workflow-title" data-i18n="workflow.h2.1">D'abord les bases.<br><span class="muted-heading">Ensuite l'implémentation.</span></h2></div>
+      <p data-i18n="workflow.p.1">Pas une longue session « fais tout ». <b>Six étapes, chacune avec un résultat et une vérification.</b> Cliquez sur un nœud du schéma ou sur un onglet.</p>
+    </div>
+
+    <figure class="loop-figure">
+      <div class="fig-head"><span data-i18n="workflow.span.2">La boucle : rassembler le contexte → agir → vérifier · sur le projet, pas seulement sur le code</span><span data-i18n="workflow.span.3">nœuds cliquables</span></div>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 1160 460" role="img" aria-labelledby="loop-title" xmlns="http://www.w3.org/2000/svg">
+        <title id="loop-title" data-i18n="workflow.title.1">La boucle ProjectStore : tâche, document, critic, votre validation, backlog, story, planner, code, reviewer, terminé. Ensuite, le tableau et les cartes se mettent à jour, et la session suivante démarre avec tout le contexte.</title>
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="marker"/></marker>
+          <marker id="arr-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="marker red"/></marker>
+          <marker id="arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="marker ink"/></marker>
+        </defs>
+        <text class="lbl" x="40" y="26" data-i18n="workflow.text.1">décider</text>
+        <text class="lbl" x="40" y="280" data-i18n="workflow.text.2">construire</text>
+        <path class="edge" d="M216,110 H262" marker-end="url(#arr)"/>
+        <path class="edge" d="M440,110 H486" marker-end="url(#arr)"/>
+        <path class="edge" d="M664,110 H710" marker-end="url(#arr)"/>
+        <path class="edge" d="M888,110 H934" marker-end="url(#arr)"/>
+        <path class="edge" d="M1024,142 V296" marker-end="url(#arr)"/>
+        <text class="elbl" x="1014" y="224" text-anchor="end" data-i18n="workflow.text.3">un agent s'en charge</text>
+        <path class="edge" d="M936,330 H890" marker-end="url(#arr)"/>
+        <path class="edge" d="M712,330 H666" marker-end="url(#arr)"/>
+        <path class="edge" d="M488,330 H442" marker-end="url(#arr)"/>
+        <path class="edge" d="M264,330 H218" marker-end="url(#arr)"/>
+        <path class="edge back" d="M576,78 V52 Q576,48 572,48 H356 Q352,48 352,52 V76" marker-end="url(#arr-red)"/>
+        <text class="elbl red" x="464" y="42" text-anchor="middle" data-i18n="workflow.text.4">à revoir</text>
+        <path class="edge back" d="M352,362 V388 Q352,392 356,392 H572 Q576,392 576,388 V364" marker-end="url(#arr-red)"/>
+        <text class="elbl red" x="464" y="408" text-anchor="middle" data-i18n="workflow.text.5">à corriger</text>
+        <path class="edge loop" d="M128,362 V426 Q128,430 124,430 H20 Q16,430 16,426 V114 Q16,110 20,110 H38" marker-end="url(#arr-ink)"/>
+        <text class="elbl" x="148" y="434" data-i18n="workflow.text.6">tableau et cartes reconstruits → la session suivante reprend au même point</text>
+
+        <g class="node" data-step="1"><rect class="node-box" x="40" y="78" width="176" height="64" rx="5"/><text class="t" x="56" y="106" data-i18n="workflow.text.7">Tâche</text><text class="s" x="56" y="126" data-i18n="workflow.text.8">de votre part</text><circle class="numbg" cx="42" cy="80" r="10"/><text class="num" x="42" y="83.5" text-anchor="middle">1</text></g>
+        <g class="node" data-step="1"><rect class="node-box" x="264" y="78" width="176" height="64" rx="5"/><text class="t" x="280" y="106" data-i18n="workflow.text.9">Artefact</text><text class="s" x="280" y="126" data-i18n="workflow.text.10">ADR, spec, epic, story</text></g>
+        <g class="node" data-step="2"><text class="tag" x="488" y="70" data-i18n="workflow.text.11">contrôle indépendant</text><rect class="node-box verify" x="488" y="78" width="176" height="64" rx="5"/><text class="t" x="504" y="106" data-i18n="workflow.text.12">critic</text><text class="s" x="504" y="126" data-i18n="workflow.text.13">trouve les failles</text><circle class="numbg" cx="490" cy="80" r="10"/><text class="num" x="490" y="83.5" text-anchor="middle">2</text></g>
+        <g class="node" data-step="3"><path class="node-box gate" d="M800,54 L888,110 L800,166 L712,110 Z"/><text class="t" x="800" y="105" text-anchor="middle" data-i18n="workflow.text.14">vous validez</text><text class="s" x="800" y="122" text-anchor="middle" data-i18n="workflow.text.15">Oui/Modif/Non</text><circle class="numbg" cx="716" cy="84" r="10"/><text class="num" x="716" y="87.5" text-anchor="middle">3</text></g>
+        <g class="node" data-step="3"><rect class="node-box" x="936" y="78" width="176" height="64" rx="5"/><text class="t" x="952" y="106" data-i18n="workflow.text.16">Backlog</text><text class="s" x="952" y="126" data-i18n="workflow.text.17">tableau à jour</text></g>
+        <g class="node" data-step="4"><rect class="node-box" x="936" y="298" width="176" height="64" rx="5"/><text class="t" x="952" y="326" data-i18n="workflow.text.18">Story</text><text class="s" x="952" y="346" data-i18n="workflow.text.19">status: in-progress</text><circle class="numbg" cx="938" cy="300" r="10"/><text class="num" x="938" y="303.5" text-anchor="middle">4</text></g>
+        <g class="node" data-step="4"><text class="tag" x="712" y="290" data-i18n="workflow.text.20">conseil · lecture seule</text><rect class="node-box advisor" x="712" y="298" width="176" height="64" rx="5"/><text class="t" x="728" y="326" data-i18n="workflow.text.21">planner</text><text class="s" x="728" y="346" data-i18n="workflow.text.22">où dans le code</text></g>
+        <g class="node" data-step="5"><rect class="node-box" x="488" y="298" width="176" height="64" rx="5"/><text class="t" x="504" y="326" data-i18n="workflow.text.23">Implémenter</text><text class="s" x="504" y="346" data-i18n="workflow.text.24">code + tests</text><circle class="numbg" cx="490" cy="300" r="10"/><text class="num" x="490" y="303.5" text-anchor="middle">5</text></g>
+        <g class="node" data-step="5"><text class="tag" x="264" y="290" data-i18n="workflow.text.25">contrôle indépendant</text><rect class="node-box verify" x="264" y="298" width="176" height="64" rx="5"/><text class="t" x="280" y="326" data-i18n="workflow.text.26">reviewer</text><text class="s" x="280" y="346" data-i18n="workflow.text.27">preuve par critère</text></g>
+        <g class="node" data-step="6"><rect class="node-box" x="40" y="298" width="176" height="64" rx="5"/><text class="t" x="56" y="326" data-i18n="workflow.text.28">Terminé ✓</text><text class="s" x="56" y="346" data-i18n="workflow.text.29">chaque critère prouvé</text><circle class="numbg" cx="42" cy="300" r="10"/><text class="num" x="42" y="303.5" text-anchor="middle">6</text></g>
+      </svg>
+      </div>
+      <figcaption data-i18n="workflow.figcaption.1">Les nœuds vert citron sont des vérifications faites par un agent qui n'a pas écrit le brouillon. Le losange, c'est votre Oui : rien n'est enregistré avant.</figcaption>
+    </figure>
+
+    <div class="tabs-root" data-tabs id="workflow-tabs" data-initial="1">
+      <div class="tab-list" role="tablist" aria-label="Étapes de la boucle" data-i18n-attr="aria-label:workflow.aria-label.1">
+        <button class="tab-trigger" role="tab" data-tab="1" id="wf-t1" aria-controls="wf-p1"><span>01</span><span data-i18n="workflow.span.4">Tâche</span><svg class="icon"><use href="#i-right"/></svg></button>
+        <button class="tab-trigger" role="tab" data-tab="2" id="wf-t2" aria-controls="wf-p2"><span>02</span><span data-i18n="workflow.span.5">Critique</span><svg class="icon"><use href="#i-right"/></svg></button>
+        <button class="tab-trigger" role="tab" data-tab="3" id="wf-t3" aria-controls="wf-p3"><span>03</span><span data-i18n="workflow.span.6">Validation</span><svg class="icon"><use href="#i-right"/></svg></button>
+        <button class="tab-trigger" role="tab" data-tab="4" id="wf-t4" aria-controls="wf-p4"><span>04</span><span data-i18n="workflow.span.7">Plan</span><svg class="icon"><use href="#i-right"/></svg></button>
+        <button class="tab-trigger" role="tab" data-tab="5" id="wf-t5" aria-controls="wf-p5"><span>05</span><span data-i18n="workflow.span.8">Revue</span><svg class="icon"><use href="#i-right"/></svg></button>
+        <button class="tab-trigger" role="tab" data-tab="6" id="wf-t6" aria-controls="wf-p6"><span>06</span><span data-i18n="workflow.span.9">Contexte</span><svg class="icon"><use href="#i-right"/></svg></button>
+      </div>
+
+      <div class="tab-panel workflow-panel" role="tabpanel" data-panel="1" id="wf-p1" aria-labelledby="wf-t1">
+        <div class="workflow-explanation"><span class="panel-eyebrow" data-i18n="workflow.span.10">D'abord s'accorder</span><h3 data-i18n="workflow.h3.1">Avant le code, écrivez la tâche.</h3><p data-i18n="workflow.p.2">L'agent trouve la place de la tâche dans le projet. Une décision devient un ADR : une courte note sur ce qui a été choisi, et pourquoi. Le comportement attendu devient une spec, les règles que le code doit suivre. Le travail devient un epic et une story avec des critères d'acceptation. Rien n'est enregistré tant que vous n'avez pas dit Oui.</p><div class="workflow-outcome"><svg class="icon"><use href="#i-check"/></svg><span data-i18n="workflow.span.11">Une tâche vérifiable existe, pas seulement une conversation.</span></div></div>
+        <div class="example"><div class="example-header"><svg class="icon sm"><use href="#i-terminal"/></svg><span data-i18n="workflow.span.12">Claude Code · shop-api · vault : shop-vault</span><span data-i18n="workflow.span.13">exemple</span></div>
+<pre data-i18n="workflow.pre.1"><span class="y">vous ›</span>  partons sur Postgres, pas Mongo. il nous faut des transactions pour les commandes.
+
+<span class="a">agent ›</span> C'est une décision d'architecture, donc d'abord un ADR, pas du code.
+        <span class="c">/projectstore:adr "<span data-title="adr">Utiliser Postgres comme stockage principal</span>"</span>
+        → <span data-slug="adr:path">adr/utiliser-postgres-comme-stockage-principal.md</span>
+        <span class="m">Contexte · Décision · Alternatives : MongoDB — rejetée parce que …</span>
+
+        Enregistrer ce fichier ?  <span class="fakebtn on">Oui</span> <span class="fakebtn">Modifier avant d'enregistrer</span> <span class="fakebtn">Non</span></pre>
+          <div class="approval-gate"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="workflow.span.14">Le périmètre et l'approche sont validés par un humain. Dites Non, et le vault reste exactement tel qu'il était.</span></div></div>
+      </div>
+
+      <div class="tab-panel workflow-panel" role="tabpanel" data-panel="2" id="wf-p2" aria-labelledby="wf-t2">
+        <div class="workflow-explanation"><span class="panel-eyebrow" data-i18n="workflow.span.15">Un regard indépendant</span><h3 data-i18n="workflow.h3.2">Vérifiez la décision tant qu'elle coûte encore peu à changer.</h3><p data-i18n="workflow.p.3">Le critic est un agent qui n'a pas écrit le brouillon. Il cherche les hypothèses fragiles, les options manquantes et ce qui pourrait faire échouer le plan. On lui indique qu'une fausse approbation coûte de 10 à 100 fois plus cher qu'un faux rejet.</p><div class="workflow-outcome"><svg class="icon"><use href="#i-check"/></svg><span data-i18n="workflow.span.16">Les risques font partie de la décision avant l'implémentation.</span></div></div>
+        <div class="example"><div class="example-header"><svg class="icon sm"><use href="#i-shield"/></svg><span data-i18n="workflow.span.17">projectstore:critic · lecture seule</span><span data-i18n="workflow.span.18">exemple</span></div>
+          <div class="verdict"><span class="badge warn" data-i18n="workflow.span.19">à revoir</span><span data-i18n="workflow.span.20">3 constats</span></div>
+<pre data-i18n="workflow.pre.2"><span class="c">1.</span> <span class="a">Alternatives.</span> « MongoDB — pas de transactions » est faux depuis la 4.0. La vraie
+   raison, ce sont les contraintes relationnelles. Écrivez-le, sinon l'ADR
+   induit le prochain lecteur en erreur.
+<span class="c">2.</span> <span class="a">Conséquences.</span> Que devient le job de réconciliation nocturne ? Supprimé ou conservé ?
+<span class="c">3.</span> <span class="a">Décision.</span> « Une seule transaction » pour quoi ? Commande et lignes, pas les paiements.
+   Cette frontière, c'est la décision, et elle n'est écrite nulle part.</pre>
+          <div class="approval-gate"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="workflow.span.21">Le verdict de l'agent ne remplace pas votre validation. L'auteur corrige le brouillon et ne valide jamais son propre travail.</span></div></div>
+      </div>
+
+      <div class="tab-panel workflow-panel" role="tabpanel" data-panel="3" id="wf-p3" aria-labelledby="wf-t3">
+        <div class="workflow-explanation"><span class="panel-eyebrow" data-i18n="workflow.span.22">Validation et backlog</span><h3 data-i18n="workflow.h3.3">Validez. Placez-le dans le backlog.</h3><p data-i18n="workflow.p.4">Après les corrections, vous voyez le chemin du fichier et le texte complet, et vous dites Oui. Ce même Oui met à jour l'index du dossier. L'epic et la story arrivent dans le backlog. Le tableau se construit à partir des fichiers ; personne ne le tient à jour à la main.</p><div class="workflow-outcome"><svg class="icon"><use href="#i-check"/></svg><span data-i18n="workflow.span.23">Rien n'est écrit sans votre Oui.</span></div></div>
+        <div class="example"><div class="example-header"><svg class="icon sm"><use href="#i-file"/></svg><span data-i18n="workflow.span.24">validation · kanban.md</span><span data-i18n="workflow.span.25">exemple</span></div>
+<pre data-i18n="workflow.pre.3"><span class="a">agent ›</span> L'ADR est corrigé : frontière énoncée, job de réconciliation nocturne retiré.
+        Enregistrer ?  <span class="fakebtn on">Oui</span>   <span class="g">✓ enregistré · index des ADR mis à jour</span>
+
+        <span class="c">/projectstore:epic PAY-001 "<span data-title="epic">Traitement des commandes sur Postgres</span>"</span>     <span class="g">✓</span>
+        <span class="c">/projectstore:story PAY-001 "<span data-title="story">Écriture transactionnelle des commandes</span>"</span>  <span class="g">✓</span>
+
+<span class="m">kanban.md · construit à partir des fichiers de story</span>
+## Backlog
+- [ ] [[<span data-slug="story:link">epics/PAY-001/stories/story-écriture-transactionnelle-des-commandes</span>|PAY-001: <span data-title="story">Écriture transactionnelle des commandes</span>]] #p1</pre>
+          <div class="approval-gate"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="workflow.span.26">Le tableau, les index, la carte des liens et la carte du code sont construits à partir des fichiers. Une modification à la main ne peut pas les casser durablement.</span></div></div>
+      </div>
+
+      <div class="tab-panel workflow-panel" role="tabpanel" data-panel="4" id="wf-p4" aria-labelledby="wf-t4">
+        <div class="workflow-explanation"><span class="panel-eyebrow" data-i18n="workflow.span.27">Du backlog au code</span><h3 data-i18n="workflow.h3.4">Trouvez où, exactement, le code change.</h3><p data-i18n="workflow.p.5">Avant de coder, le planner regarde où les epics précédents ont été implémentés dans le code : quels modules gèrent déjà cette zone, et quoi réutiliser. Le plan est ajouté à la story, et la story passe en <code>in-progress</code>.</p><div class="workflow-outcome"><svg class="icon"><use href="#i-check"/></svg><span data-i18n="workflow.span.28">Le plan repose sur la façon dont le projet est construit, pas sur une supposition.</span></div></div>
+        <div class="example"><div class="example-header"><svg class="icon sm"><use href="#i-code"/></svg><span data-i18n="workflow.span.29">/projectstore:story plan <span data-slug="story:ref">PAY-001/story-écriture-transactionnelle-des-commandes</span> · planner</span><span data-i18n="workflow.span.30">exemple</span></div>
+<pre data-i18n="workflow.pre.4"><span class="m">epics précédents :</span>  BILL-001 → src/billing/   EXP-002 → adapters/csv/
+
+<span class="a">Où.</span>  src/billing/orders/, à côté de BILL-001. Pas de nouveau module.
+<span class="a">Réutiliser.</span>  withTransaction() de src/db/tx.mjs réessaie déjà.
+<span class="a">Attention.</span>  src/jobs/reconcile.mjs tourne encore chaque nuit. L'ADR le retire.
+<span class="a">Étapes.</span>  migration → écriture → tests de rollback → suppression du job.
+<span class="g">→ enregistré dans le plan de la story · status: in-progress</span></pre>
+          <div class="approval-gate"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="workflow.span.31">La story est liée à son epic, à sa spec et au code existant. Si une spec couvre la story, le plan suit la spec.</span></div></div>
+      </div>
+
+      <div class="tab-panel workflow-panel" role="tabpanel" data-panel="5" id="wf-p5" aria-labelledby="wf-t5">
+        <div class="workflow-explanation"><span class="panel-eyebrow" data-i18n="workflow.span.32">Un reviewer indépendant</span><h3 data-i18n="workflow.h3.5">Vérifiez le code au regard du résultat promis.</h3><p data-i18n="workflow.p.6">Le reviewer vérifie le diff réel au regard de chaque critère d'acceptation, y compris ceux de la spec. « Terminé » exige une preuve : un test, une commande exécutée ou un morceau de code précis.</p><div class="workflow-outcome"><svg class="icon"><use href="#i-check"/></svg><span data-i18n="workflow.span.33">« Terminé » signifie critères remplis, pas bonnes intentions.</span></div></div>
+        <div class="example"><div class="example-header"><svg class="icon sm"><use href="#i-shield"/></svg><span data-i18n="workflow.span.34">/projectstore:story close <span data-slug="story:ref">PAY-001/story-écriture-transactionnelle-des-commandes</span> · reviewer</span><span data-i18n="workflow.span.35">exemple</span></div>
+          <div class="verdict"><span class="badge warn" data-i18n="workflow.span.36">non close</span><span data-i18n="workflow.span.37">1 critère sur 3 sans preuve</span></div>
+<pre data-i18n="workflow.pre.5">- [x] Commande et lignes écrites de façon atomique
+      <span class="g">preuve : tests/orders.test.mjs:41 — rollback quand l'insertion d'une ligne échoue</span>
+- [x] Job de réconciliation nocturne supprimé
+      <span class="g">preuve : src/jobs/reconcile.mjs supprimé · deploy/cron:12</span>
+- [ ] Réessai en cas d'échec de sérialisation
+      <span class="w">pas de preuve : le nombre de réessais est fixé à 0 (write.mjs:58)</span>
+<span class="m">verdict : à corriger avant clôture</span></pre>
+          <div class="approval-gate"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="workflow.span.38">La revue a lieu avant le commit et avant la clôture de la story. Le reviewer rend compte ; il ne modifie et ne commite jamais rien.</span></div></div>
+      </div>
+
+      <div class="tab-panel workflow-panel" role="tabpanel" data-panel="6" id="wf-p6" aria-labelledby="wf-t6">
+        <div class="workflow-explanation"><span class="panel-eyebrow" data-i18n="workflow.span.39">L'itération suivante</span><h3 data-i18n="workflow.h3.6">Laissez un point d'entrée au prochain agent.</h3><p data-i18n="workflow.p.7">Quand la story est close, le tableau, la carte des liens et la carte du code se reconstruisent d'eux-mêmes. La session suivante part de la liste des décisions, pas de zéro. Les questions tranchées le restent.</p><div class="workflow-outcome"><svg class="icon"><use href="#i-check"/></svg><span data-i18n="workflow.span.40">La session change. L'historique du projet reste.</span></div></div>
+        <div class="example"><div class="example-header"><svg class="icon sm"><use href="#i-layers"/></svg><span data-i18n="workflow.span.41">story clôturée · une nouvelle session</span><span data-i18n="workflow.span.42">exemple</span></div>
+<pre data-i18n="workflow.pre.6"><span class="g">✓</span> <span data-slug="story:file">story-écriture-transactionnelle-des-commandes.md</span>
+            status: done · closed_at: 2026-07-04
+<span class="g">✓</span> kanban.md   déplacée dans Terminé
+<span class="g">✓</span> code-map.md PAY-001 → src/billing/orders/ · deploy/cron
+<span class="g">✓</span> graph.md    la story → sa spec → l'ADR, dans les deux sens
+
+<span class="m">── trois semaines plus tard · une nouvelle session ──</span>
+<span class="m">l'agent démarre avec un court résumé du vault</span>
+<span class="y">vous ›</span>  et si on passait les commandes sur Mongo ? ça simplifierait la synchro du catalogue
+<span class="a">agent ›</span> <span data-slug="adr:path">adr/utiliser-postgres-comme-stockage-principal.md</span> (accepted, 2026-07-03)
+        a déjà tranché la question. S'il faut revenir dessus, on écrit
+        un nouvel ADR qui remplace celui-ci.</pre>
+          <div class="approval-gate"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="workflow.span.43">Le clerk enregistre exactement ce que vous avez validé. Il ne prend aucune décision lui-même.</span></div></div>
+      </div>
+    </div>
+
+    <div class="mechanisms" aria-label="Ce qui garde la boucle sur les rails" data-i18n-attr="aria-label:workflow.aria-label.2">
+      <article><span class="tag" data-i18n="workflow.span.44">rappel</span><h4 data-i18n="workflow.h4.1">Coder sans story déclenche un rappel</h4><p data-i18n="workflow.p.8">Modifiez trois fichiers source ou plus sans story en cours, et l'agent reçoit un seul rappel : ouvrir d'abord une story. Seules les modifications réellement faites comptent.</p></article>
+      <article><span class="tag" data-i18n="workflow.span.45">revue d'abord</span><h4 data-i18n="workflow.h4.2">Rien n'est définitif avant la revue</h4><p data-i18n="workflow.p.9">Les nouveaux ADR, specs, epics et notes de recherche restent marqués « non relus » jusqu'au passage du critic. Un court bloc dans les instructions de votre agent les envoie au critic avant que quiconque ne les considère comme définitifs.</p></article>
+      <article><span class="tag" data-i18n="workflow.span.46">doctor · sans IA</span><h4 data-i18n="workflow.h4.3">Vérifications de routine, sans IA</h4><p data-i18n="workflow.p.10">Le tableau correspond-il aux stories ? Des liens sont-ils cassés, ou pointent-ils vers du code absent ? Du travail avance-t-il sans story ouverte ? La vérification se lance quand une session démarre, et ne se manifeste que si quelque chose ne va pas.</p></article>
+    </div>
+    <p class="section-footnote" data-i18n="workflow.p.11"><span class="footnote-mark">↳</span> Les décisions et les écritures passent par une validation. Un agent indépendant aide à vérifier ; la responsabilité reste à l'équipe.</p>
+  </div>
+</section>
+
+<!-- ================= 04 ARTIFACTS ================= -->
+<section id="artifacts" class="artifacts-section" aria-labelledby="artifacts-title">
+  <div class="wrap">
+    <div class="section-label"><span data-i18n="artifacts.span.1">04 / Ce qui reste sur disque</span><svg class="icon"><use href="#i-down"/></svg></div>
+    <div class="section-heading artifact-heading"><h2 id="artifacts-title" data-i18n="artifacts.h2.1">Des fichiers ordinaires.<br><span class="muted-heading">Des liens d'une utilité peu ordinaire.</span></h2><p data-i18n="artifacts.p.1">Lisez-les dans un éditeur, discutez-les dans une pull request, ouvrez-les dans Obsidian. <b>Le contexte n'est lié à aucun outil.</b></p></div>
+
+    <div data-tabs data-initial="adr">
+      <div class="artifact-tabs" role="tablist" aria-label="Exemples d&#x27;artefacts du projet" data-i18n-attr="aria-label:artifacts.aria-label.1">
+        <button class="artifact-trigger" role="tab" data-tab="adr" id="ar-t1" aria-controls="ar-p1"><svg class="icon"><use href="#i-file"/></svg><strong data-i18n="artifacts.strong.1">ADR</strong><span data-i18n="artifacts.span.2">Pourquoi ainsi ?</span></button>
+        <button class="artifact-trigger" role="tab" data-tab="spec" id="ar-t2" aria-controls="ar-p2"><svg class="icon"><use href="#i-file"/></svg><strong data-i18n="artifacts.strong.2">Spec</strong><span data-i18n="artifacts.span.3">Quel comportement ?</span></button>
+        <button class="artifact-trigger" role="tab" data-tab="story" id="ar-t3" aria-controls="ar-p3"><svg class="icon"><use href="#i-file"/></svg><strong data-i18n="artifacts.strong.3">Story</strong><span data-i18n="artifacts.span.4">Que faire et que vérifier ?</span></button>
+        <button class="artifact-trigger" role="tab" data-tab="board" id="ar-t4" aria-controls="ar-p4"><svg class="icon"><use href="#i-layers"/></svg><strong data-i18n="artifacts.strong.4">Tableau</strong><span data-i18n="artifacts.span.5">D'où vient-il ?</span></button>
+      </div>
+
+      <div class="tab-panel artifact-panel" role="tabpanel" data-panel="adr" id="ar-p1" aria-labelledby="ar-t1">
+        <div class="artifact-description"><span class="artifact-index" data-i18n="artifacts.span.6">ADR / markdown + yaml</span><h3 data-i18n="artifacts.h3.1">Gardez non seulement le choix, mais aussi ses raisons.</h3><p data-i18n="artifacts.p.2">Un ADR consigne une décision d'architecture : le contexte, les options, le choix et ses conséquences. Quand on revient sur une décision, son ADR n'est pas supprimé ; il pointe vers celui qui l'a remplacé. Six mois plus tard, personne ne refait le même débat.</p><div class="artifact-connection"><span class="connection-node"></span><span data-i18n="artifacts.span.7">Décision → spec → stories</span><svg class="icon"><use href="#i-up-right"/></svg></div><a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/how-it-works.md" target="_blank" rel="noopener noreferrer"><span data-i18n="artifacts.span.8">Comment fonctionnent les artefacts</span> <svg class="icon"><use href="#i-up-right"/></svg></a></div>
+        <div class="artifact-file"><div class="example-header"><svg class="icon"><use href="#i-file"/></svg><span data-i18n="artifacts.span.9" data-slug="adr:path">adr/utiliser-postgres-comme-stockage-principal.md</span></div>
+<pre class="code-lines" data-template="adr" data-i18n="artifacts.pre.1"><code><span class="code-line"><span class="line-number">01</span><span>---</span></span>
+<span class="code-line code-key"><span class="line-number">02</span><span>id: "<span data-slug="adr:slug">utiliser-postgres-comme-stockage-principal</span>"</span></span>
+<span class="code-line code-key"><span class="line-number">03</span><span>title: "<span data-title="adr">Utiliser Postgres comme stockage principal</span>"</span></span>
+<span class="code-line code-key"><span class="line-number">04</span><span>status: accepted</span></span>
+<span class="code-line code-key"><span class="line-number">05</span><span>date: 2026-07-03</span></span>
+<span class="code-line code-key"><span class="line-number">06</span><span>supersedes: null</span></span>
+<span class="code-line code-key"><span class="line-number">07</span><span>review_status: reviewed</span></span>
+<span class="code-line"><span class="line-number">08</span><span>---</span></span>
+<span class="code-line"><span class="line-number">09</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">10</span><span>## Contexte</span></span>
+<span class="code-line"><span class="line-number">11</span><span>Une commande et ses lignes doivent être écrites de façon atomique.</span></span>
+<span class="code-line"><span class="line-number">12</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">13</span><span>## Décision</span></span>
+<span class="code-line"><span class="line-number">14</span><span>Postgres 16. Commande et lignes dans une seule transaction.</span></span>
+<span class="code-line"><span class="line-number">15</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">16</span><span>## Alternatives envisagées</span></span>
+<span class="code-line"><span class="line-number">17</span><span>MongoDB : a des transactions, mais pas de contraintes relationnelles.</span></span>
+<span class="code-line"><span class="line-number">18</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">19</span><span>## Conséquences</span></span>
+<span class="code-line"><span class="line-number">20</span><span>Les migrations deviennent une étape de la release. Réconciliation nocturne retirée.</span></span></code></pre>
+          <div class="artifact-disclaimer" data-i18n="artifacts.div.1">Un exemple simplifié. La structure du fichier, les champs d'en-tête et les titres de section sont réels.</div></div>
+      </div>
+
+      <div class="tab-panel artifact-panel" role="tabpanel" data-panel="spec" id="ar-p2" aria-labelledby="ar-t2">
+        <div class="artifact-description"><span class="artifact-index" data-i18n="artifacts.span.10">Spec / markdown + yaml</span><h3 data-i18n="artifacts.h3.2">Faites du comportement un contrat explicite.</h3><p data-i18n="artifacts.p.3">Une spec dit comment le système doit se comporter, sous forme de règles numérotées et testables. Plusieurs stories peuvent implémenter une même spec. Ses vérifications s'ajoutent à celles de chaque story, et une story ne peut pas être close tant que sa spec est encore un brouillon.</p><div class="artifact-connection"><span class="connection-node"></span><span data-i18n="artifacts.span.11">Spec → stories → acceptation</span><svg class="icon"><use href="#i-up-right"/></svg></div></div>
+        <div class="artifact-file"><div class="example-header"><svg class="icon"><use href="#i-file"/></svg><span data-i18n="artifacts.span.12" data-slug="spec:path">specs/écriture-transactionnelle-des-commandes.md</span></div>
+<pre class="code-lines" data-template="spec" data-i18n="artifacts.pre.2"><code><span class="code-line"><span class="line-number">01</span><span>---</span></span>
+<span class="code-line code-key"><span class="line-number">02</span><span>id: "<span data-slug="spec:slug">écriture-transactionnelle-des-commandes</span>"</span></span>
+<span class="code-line code-key"><span class="line-number">03</span><span>title: "<span data-title="spec">Écriture transactionnelle des commandes</span>"</span></span>
+<span class="code-line code-key"><span class="line-number">04</span><span>status: active</span></span>
+<span class="code-line code-key"><span class="line-number">05</span><span>adr: [<span data-slug="adr:slug">utiliser-postgres-comme-stockage-principal</span>]</span></span>
+<span class="code-line code-key"><span class="line-number">06</span><span>stories: [<span data-slug="story:id">story-écriture-transactionnelle-des-commandes</span>]</span></span>
+<span class="code-line"><span class="line-number">07</span><span>---</span></span>
+<span class="code-line"><span class="line-number">08</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">09</span><span>## Contrats de comportement</span></span>
+<span class="code-line"><span class="line-number">10</span><span>1. Commande et lignes forment une seule transaction.</span></span>
+<span class="code-line"><span class="line-number">11</span><span>2. En cas d'échec de sérialisation, jusqu'à 3 réessais.</span></span>
+<span class="code-line"><span class="line-number">12</span><span>3. Une requête répétée ne crée pas de seconde commande.</span></span>
+<span class="code-line"><span class="line-number">13</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">14</span><span>## Acceptation</span></span>
+<span class="code-line"><span class="line-number">15</span><span>- [ ] Rollback si une ligne échoue — stories: <span data-slug="story:id">story-écriture-transactionnelle-des-commandes</span></span></span>
+<span class="code-line"><span class="line-number">16</span><span>- [ ] Requête répétée couverte par un test</span></span></code></pre>
+          <div class="artifact-disclaimer" data-i18n="artifacts.div.2">Une vérification qui ne nomme aucune story s'applique à toutes les stories couvertes par la spec.</div></div>
+      </div>
+
+      <div class="tab-panel artifact-panel" role="tabpanel" data-panel="story" id="ar-p3" aria-labelledby="ar-t3">
+        <div class="artifact-description"><span class="artifact-index" data-i18n="artifacts.span.13">Story / markdown + yaml</span><h3 data-i18n="artifacts.h3.3">Reliez la tâche à un résultat vérifiable.</h3><p data-i18n="artifacts.p.4">Une story vit à l'intérieur d'un epic. Elle contient le périmètre, le plan, les critères d'acceptation et les preuves. Les <code>code_refs</code> la relient à de vrais fichiers. Une story passe deux points de contrôle : un plan avant le début du travail, et une clôture avec une preuve pour chaque critère.</p><div class="artifact-connection"><span class="connection-node"></span><span data-i18n="artifacts.span.14">Story → diff → preuve</span><svg class="icon"><use href="#i-up-right"/></svg></div></div>
+        <div class="artifact-file"><div class="example-header"><svg class="icon"><use href="#i-file"/></svg><span data-i18n="artifacts.span.15" data-slug="story:path">epics/PAY-001/stories/story-écriture-transactionnelle-des-commandes.md</span></div>
+<pre class="code-lines" data-template="story" data-i18n="artifacts.pre.3"><code><span class="code-line"><span class="line-number">01</span><span>---</span></span>
+<span class="code-line code-key"><span class="line-number">02</span><span>id: "<span data-slug="story:id">story-écriture-transactionnelle-des-commandes</span>"</span></span>
+<span class="code-line code-key"><span class="line-number">03</span><span>title: "<span data-title="story">Écriture transactionnelle des commandes</span>"</span></span>
+<span class="code-line code-key"><span class="line-number">04</span><span>status: in-progress</span></span>
+<span class="code-line code-key"><span class="line-number">05</span><span>epic: "PAY-001"</span></span>
+<span class="code-line code-key"><span class="line-number">06</span><span>specs: [<span data-slug="spec:slug">écriture-transactionnelle-des-commandes</span>]</span></span>
+<span class="code-line code-key"><span class="line-number">07</span><span>code_refs: [src/billing/orders/]</span></span>
+<span class="code-line"><span class="line-number">08</span><span>---</span></span>
+<span class="code-line"><span class="line-number">09</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">10</span><span>## Critères d'acceptation</span></span>
+<span class="code-line"><span class="line-number">11</span><span>- [x] Commande et lignes écrites de façon atomique</span></span>
+<span class="code-line code-hi"><span class="line-number">12</span><span>      — preuve : tests/orders.test.mjs:41</span></span>
+<span class="code-line"><span class="line-number">13</span><span>- [ ] Réessai en cas d'échec de sérialisation</span></span>
+<span class="code-line"><span class="line-number">14</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">15</span><span>## Plan d'implémentation</span></span>
+<span class="code-line"><span class="line-number">16</span><span>Étendre withTransaction() de src/db/tx.mjs.</span></span></code></pre>
+          <div class="artifact-disclaimer" data-i18n="artifacts.div.3">La preuve est ajoutée à la clôture de la story : un test, une commande ou une ligne de code.</div></div>
+      </div>
+
+      <div class="tab-panel demo-panel" role="tabpanel" data-panel="board" id="ar-p4" aria-labelledby="ar-t4">
+        <div class="artifact-description"><span class="artifact-index" data-i18n="artifacts.span.16">kanban.md / dérivé</span><h3 data-i18n="artifacts.h3.4">Le tableau est construit à partir des fichiers de story.</h3><p data-i18n="artifacts.p.5">Changez le statut ou la priorité de la story, et regardez le tableau bouger. La ligne ci-dessous est exactement ce qui est écrit dans <code>kanban.md</code>. Modifiez le tableau à la main, et un rappel vous invite à le reconstruire. Un tableau périmé est à réparer ; ce n'est pas un état normal.</p>
+<div class="fm-edit"><span class="path" data-i18n="artifacts.demo.path" data-slug="story:path">epics/PAY-001/stories/story-écriture-transactionnelle-des-commandes.md</span><span class="k">status:</span> <label class="visually-hidden" for="demo-status">status</label><select id="demo-status"><option value="planned">planned</option><option value="todo">todo</option><option value="in-progress" selected>in-progress</option><option value="review">review</option><option value="done">done</option></select>
+<span class="k">priority:</span> <label class="visually-hidden" for="demo-priority">priority</label><select id="demo-priority"><option value="p0">p0</option><option value="p1" selected>p1</option><option value="p2">p2</option><option value="p3">p3</option></select>
+<span class="k">epic:</span> <span class="v">"PAY-001"</span>
+<span class="k">code_refs:</span> <span class="v">["src/billing/orders/"]</span></div>
+          <p class="demo-note" data-i18n="artifacts.p.6">Les stories marquées <code>superseded</code>, <code>deferred</code> ou <code>parked</code> quittent le tableau au lieu de faire semblant d'attendre leur tour.</p>
+        </div>
+        <div>
+          <div class="board" aria-label="Rendu de kanban.md" data-i18n-attr="aria-label:artifacts.aria-label.2">
+            <div class="col" data-col="Backlog"><h5><span data-i18n="artifacts.demo.col.1">Backlog</span> <i>0</i></h5><div class="kcard"><b>PAY-001</b><span class="kt" data-i18n="artifacts.demo.card.1">Migration du schéma Postgres</span><span class="tags">#p1</span></div></div>
+            <div class="col" data-col="ToDo"><h5><span data-i18n="artifacts.demo.col.2">À faire</span> <i>0</i></h5><div class="kcard"><b>PAY-001</b><span class="kt" data-i18n="artifacts.demo.card.2">Supprimer le job de réconciliation nocturne</span><span class="tags">#p2</span></div></div>
+            <div class="col" data-col="In Progress"><h5><span data-i18n="artifacts.demo.col.3">En cours</span> <i>0</i></h5><div class="kcard you" id="demo-card"><b>PAY-001</b><span class="kt" data-i18n="artifacts.demo.card.3" data-title="story">Écriture transactionnelle des commandes</span><span class="tags">#p1</span></div></div>
+            <div class="col" data-col="Review"><h5><span data-i18n="artifacts.demo.col.4">Revue</span> <i>0</i></h5></div>
+            <div class="col" data-col="Done"><h5><span data-i18n="artifacts.demo.col.5">Terminé</span> <i>0</i></h5><div class="kcard done"><b>BILL-001</b><span class="kt" data-i18n="artifacts.demo.card.4">Numérotation des factures</span><span class="tags">#p2 #done</span></div></div>
+          </div>
+          <div class="board-src" id="demo-src" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 05 TEAMS ================= -->
+<section id="teams" class="teams-section" aria-labelledby="teams-title">
+  <div class="wrap">
+    <div class="section-heading">
+      <div><div class="section-label on-dark"><span data-i18n="teams.span.1">05 / Travailler ensemble</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="teams-title" data-i18n="teams.h2.1">Un seul projet.<br><span>Pas un seul participant.</span></h2></div>
+      <p data-i18n="teams.p.1">Le contexte appartient à l'équipe, pas au chat d'un seul développeur. Les ADR et les specs passent par des pull requests, comme le code. <b>Ce qu'on relit, c'est le raisonnement.</b></p>
+    </div>
+
+    <div data-tabs data-initial="team">
+      <div class="team-tabs" role="tablist" aria-label="Scénarios de collaboration" data-i18n-attr="aria-label:teams.aria-label.1">
+        <button class="team-trigger" role="tab" data-tab="team" id="tm-t1" aria-controls="tm-p1" data-i18n="teams.button.1">Une équipe</button>
+        <button class="team-trigger" role="tab" data-tab="teams" id="tm-t2" aria-controls="tm-p2" data-i18n="teams.button.2">Plusieurs équipes</button>
+        <button class="team-trigger" role="tab" data-tab="agents" id="tm-t3" aria-controls="tm-p3" data-i18n="teams.button.3">Plusieurs agents</button>
+      </div>
+
+      <div class="tab-panel team-panel" role="tabpanel" data-panel="team" id="tm-p1" aria-labelledby="tm-t1">
+        <div class="team-explanation"><h3 data-i18n="teams.h3.1">Chacun voit plus que sa propre partie.</h3><p data-i18n="teams.p.2">Le développeur, le tech lead et la QA travaillent à partir des mêmes décisions et des mêmes critères. Une personne sans agent n'a besoin que de GitHub ou d'un éditeur Markdown : ce ne sont que des fichiers.</p><div class="team-note"><svg class="icon"><use href="#i-users"/></svg><p data-i18n="teams.p.3">Le contexte est accessible à toute l'équipe, pas seulement au propriétaire du chat.</p></div></div>
+        <div class="team-diagram"><div class="team-people"><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-code"/></svg></span><strong data-i18n="teams.strong.1">Développeur</strong><span data-i18n="teams.span.2">Code + story</span></div><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-pr"/></svg></span><strong data-i18n="teams.strong.2">Tech lead</strong><span data-i18n="teams.span.3">Décisions + revue</span></div><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-shield"/></svg></span><strong data-i18n="teams.strong.3">QA</strong><span data-i18n="teams.span.4">Critères + vérification</span></div></div><div class="network-lines" aria-hidden="true"><i></i><i></i><i></i></div><div class="network-operation"><svg class="icon sm"><use href="#i-merge"/></svg> <span data-i18n="teams.span.5">branches → revue → merge</span></div><div class="shared-vault"><svg class="icon lg"><use href="#i-layers"/></svg><div><strong data-i18n="teams.strong.4">shop-vault</strong><span data-i18n="teams.span.6">Décisions · specs · epics · stories partagés</span></div><span class="git-label" data-i18n="teams.span.7">GIT</span></div><span class="diagram-caption" data-i18n="teams.span.8">Un exemple d'organisation du travail, pas une orchestration en direct</span></div>
+      </div>
+
+      <div class="tab-panel team-panel" role="tabpanel" data-panel="teams" id="tm-p2" aria-labelledby="tm-t2">
+        <div class="team-explanation"><h3 data-i18n="teams.h3.2">Des contrats partagés. Des périmètres de travail distincts.</h3><p data-i18n="teams.p.4">Dans un même projet, les équipes API, Web et Plateforme mènent leurs propres epics en s'appuyant sur des ADR et des specs partagés. Un changement de contrat partagé se discute en revue avec les équipes qui l'utilisent. ProjectStore montre quelles stories en dépendent.</p><div class="team-note"><svg class="icon"><use href="#i-users"/></svg><p data-i18n="teams.p.5">Qui possède quels artefacts et qui valide les contrats, c'est à l'équipe d'en décider.</p></div></div>
+        <div class="team-diagram"><div class="team-people"><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-code"/></svg></span><strong data-i18n="teams.strong.5">Équipe API</strong><span data-i18n="teams.span.9">Contrats de service</span></div><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-pr"/></svg></span><strong data-i18n="teams.strong.6">Équipe Web</strong><span data-i18n="teams.span.10">Parcours utilisateur</span></div><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-shield"/></svg></span><strong data-i18n="teams.strong.7">Plateforme</strong><span data-i18n="teams.span.11">Infrastructure</span></div></div><div class="network-lines" aria-hidden="true"><i></i><i></i><i></i></div><div class="network-operation"><svg class="icon sm"><use href="#i-merge"/></svg> <span data-i18n="teams.span.12">ADR et specs partagés → revue → merge</span></div><div class="shared-vault"><svg class="icon lg"><use href="#i-layers"/></svg><div><strong data-i18n="teams.strong.8">shop-vault</strong><span data-i18n="teams.span.13">ADR et specs partagés · epics par équipe</span></div><span class="git-label" data-i18n="teams.span.14">GIT</span></div><span class="diagram-caption" data-i18n="teams.span.15">Un exemple d'organisation du travail, pas une orchestration en direct</span></div>
+      </div>
+
+      <div class="tab-panel team-panel" role="tabpanel" data-panel="agents" id="tm-p3" aria-labelledby="tm-t3">
+        <div class="team-explanation"><h3 data-i18n="teams.h3.3">Des exécutants différents. Des bases communes.</h3><p data-i18n="teams.p.6">Le planner lit les décisions et la carte du code. L'implémenteur lit la story et la spec. Le reviewer lit le diff et les critères. Chacun reçoit le contexte dont il a besoin, pas tout l'historique de la session de quelqu'un d'autre. Les sessions sur un même vault se préviennent mutuellement.</p><div class="team-note"><svg class="icon"><use href="#i-users"/></svg><p data-i18n="teams.p.7">Lancer les agents et faire passer le travail de l'un à l'autre, c'est le rôle de votre harness ou de votre orchestrateur.</p></div></div>
+        <div class="team-diagram"><div class="team-people"><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-pr"/></svg></span><strong data-i18n="teams.strong.9">Planner</strong><span data-i18n="teams.span.16">Où et comment modifier</span></div><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-code"/></svg></span><strong data-i18n="teams.strong.10">Implémenteur</strong><span data-i18n="teams.span.17">Code par story</span></div><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-shield"/></svg></span><strong data-i18n="teams.strong.11">Reviewer</strong><span data-i18n="teams.span.18">Diff ↔ critères</span></div></div><div class="network-lines" aria-hidden="true"><i></i><i></i><i></i></div><div class="network-operation"><svg class="icon sm"><use href="#i-merge"/></svg> <span data-i18n="teams.span.19">accès en lecture seule via MCP ou CLI</span></div><div class="shared-vault"><svg class="icon lg"><use href="#i-layers"/></svg><div><strong data-i18n="teams.strong.12">shop-vault</strong><span data-i18n="teams.span.20">Un même contexte pour tous les agents · n'importe quel modèle</span></div><span class="git-label" data-i18n="teams.span.21">GIT</span></div><span class="diagram-caption" data-i18n="teams.span.22">Un exemple d'organisation du travail, pas une orchestration en direct</span></div>
+      </div>
+    </div>
+
+    <figure class="team-figure">
+      <div class="fig-head"><span data-i18n="teams.span.23">À quoi cela ressemble dans git</span><span data-i18n="teams.span.24">le vault dans son propre dépôt</span></div>
+      <div class="fig-scroll">
+      <svg class="on-dark-svg" viewBox="0 0 1160 440" role="img" aria-labelledby="team-title-svg" xmlns="http://www.w3.org/2000/svg">
+        <title id="team-title-svg" data-i18n="teams.title.1">Des développeurs, chacun avec son agent, relient leur projet à un même vault, hébergé dans son propre dépôt git. Les ADR et les specs sont relus en pull requests. Un coéquipier sans agent relit sur GitHub ou dans Obsidian.</title>
+        <defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="marker"/></marker></defs>
+        <g><rect class="person" x="40" y="52" width="250" height="72" rx="5"/><circle class="head" cx="68" cy="80" r="9" stroke-width="1.2"/><path class="head" d="M52,110 Q68,92 84,110" stroke-width="1.2"/><text class="t" x="100" y="82" data-i18n="teams.text.1">Dév A</text><text class="s" x="100" y="102" data-i18n="teams.text.2">Claude Code + projectstore</text><text class="tag" x="218" y="72" data-i18n="teams.text.3">agent</text></g>
+        <g><rect class="person" x="40" y="156" width="250" height="72" rx="5"/><circle class="head" cx="68" cy="184" r="9" stroke-width="1.2"/><path class="head" d="M52,214 Q68,196 84,214" stroke-width="1.2"/><text class="t" x="100" y="186" data-i18n="teams.text.4">Dév B</text><text class="s" x="100" y="206" data-i18n="teams.text.5">Codex + projectstore</text><text class="tag" x="218" y="176" data-i18n="teams.text.6">agent</text></g>
+        <g><rect class="person" x="40" y="260" width="250" height="72" rx="5"/><circle class="head" cx="68" cy="288" r="9" stroke-width="1.2"/><path class="head" d="M52,318 Q68,300 84,318" stroke-width="1.2"/><text class="t" x="100" y="286" data-i18n="teams.text.7">Dév C</text><text class="s" x="100" y="304" data-i18n="teams.text.8">sans agent</text><text class="s" x="100" y="320" data-i18n="teams.text.9">relit sur GitHub/Obsidian</text></g>
+        <rect class="vault lime" x="430" y="36" width="320" height="356" rx="6"/>
+        <text class="t ink" x="454" y="70" data-i18n="teams.text.10">shop-vault</text><text class="s ink" x="454" y="90" data-i18n="teams.text.11">dépôt git dédié · markdown simple</text>
+        <line class="rule ink" x1="454" y1="104" x2="726" y2="104"/>
+        <text class="file ink" x="454" y="132" data-i18n="teams.text.12"><tspan class="d">adr/</tspan> décisions, datées</text>
+        <text class="file ink" x="454" y="156" data-i18n="teams.text.13"><tspan class="d">specs/</tspan> les règles à suivre</text>
+        <text class="file ink" x="454" y="180" data-i18n="teams.text.14"><tspan class="d">epics/ · stories/</tspan> le backlog</text>
+        <text class="file ink" x="454" y="204" data-i18n="teams.text.15"><tspan class="d">kanban.md</tspan> le tableau</text>
+        <text class="file ink" x="454" y="228" data-i18n="teams.text.16"><tspan class="d">graph.md</tspan> tous les liens</text>
+        <text class="file ink" x="454" y="252" data-i18n="teams.text.17"><tspan class="d">code-map.md</tspan> epic ↔ code</text>
+        <line class="rule ink" x1="454" y1="272" x2="726" y2="272"/>
+        <text class="s ink" x="454" y="298" data-i18n="teams.text.18">chaque écriture montrée puis validée</text><text class="s ink" x="454" y="316" data-i18n="teams.text.19">pour chacun, humain ou agent :</text><text class="s ink" x="454" y="334" data-i18n="teams.text.20">la même règle</text><text class="s ink" x="454" y="370" data-i18n="teams.text.21">sans serveur · rien à exporter</text>
+        <rect class="vault" x="880" y="120" width="240" height="180" rx="6"/>
+        <text class="t" x="904" y="154" data-i18n="teams.text.22">git remote</text><text class="s" x="904" y="174" data-i18n="teams.text.23">GitHub · GitLab · ou autre</text>
+        <line class="rule" x1="904" y1="188" x2="1096" y2="188"/>
+        <text class="file" x="904" y="214" data-i18n="teams.text.24">ADR et specs relus</text><text class="file" x="904" y="232" data-i18n="teams.text.25">en pull requests :</text><text class="file" x="904" y="258" data-i18n="teams.text.26"><tspan class="d">le pourquoi est relu,</tspan></text><text class="file" x="904" y="276" data-i18n="teams.text.27"><tspan class="d">pas seulement le code</tspan></text>
+        <path class="edge" d="M290,88 H360 Q380,88 380,108 V150 Q380,160 390,160 H428" marker-end="url(#arr2)"/>
+        <path class="edge" d="M290,192 H360 Q380,192 380,180 V172 Q380,160 390,160 H428"/>
+        <text class="elbl" x="300" y="150" data-i18n="teams.text.28">bind</text>
+        <path class="edge" d="M750,210 H878" marker-end="url(#arr2)" marker-start="url(#arr2)"/>
+        <text class="elbl" x="782" y="200" data-i18n="teams.text.29">push / pull</text>
+        <path class="edge" d="M290,296 H340 Q360,296 360,316 V410 Q360,414 364,414 H996 Q1000,414 1000,410 V302" marker-end="url(#arr2)"/>
+        <text class="elbl" x="600" y="432" data-i18n="teams.text.30">revue et pull</text>
+      </svg>
+      </div>
+      <figcaption data-i18n="teams.figcaption.1">Placez le vault dans son propre dépôt. Chacun installe ProjectStore, relie son projet au même vault et n'enregistre de changements qu'après validation. Un coéquipier sans agent relit sur GitHub ou dans Obsidian.</figcaption>
+    </figure>
+
+    <div class="git-playbook"><h3 data-i18n="teams.h3.4">Une mise en place d'équipe, étape par étape</h3>
+      <div class="git-steps">
+        <article><span>01</span><h4 data-i18n="teams.h4.1">Un dépôt dédié au vault</h4><p data-i18n="teams.p.8">Un dépôt de documentation par projet, pas par personne. Il se trouve à côté du dépôt de code.</p></article>
+        <article><span>02</span><h4 data-i18n="teams.h4.2">Chacun son checkout et son bind</h4><p data-i18n="teams.p.9">Chacun lance <code>/projectstore:bind</code> dans sa propre copie du code. Le réglage reste sur cette machine et n'est pas commité.</p></article>
+        <article><span>03</span><h4 data-i18n="teams.h4.3">Une branche et une pull request</h4><p data-i18n="teams.p.10">Un humain relit chaque décision avant qu'elle soit acceptée. Le critic la vérifie avant la pull request ; votre équipe la relit ensuite, dans la pull request.</p></article>
+        <article><span>04</span><h4 data-i18n="teams.h4.4">Doctor en CI</h4><p data-i18n="teams.p.11"><code>npx projectstore doctor --json</code> tourne en CI, sans agent et sans tokens. Il fait échouer l'étape s'il trouve des problèmes. <code>reconcile --write</code> peut aussi y reconstruire le tableau.</p></article>
+      </div>
+    </div>
+
+    <div class="sessions">
+      <div>
+        <h3 data-i18n="teams.h3.5">Plusieurs sessions, un seul vault</h3>
+        <p data-i18n="teams.p.12">Deux agents ou deux personnes dans le même vault au même moment : c'est normal. Chaque session sait que les autres existent, et quelques règles simples les empêchent de se marcher dessus.</p>
+        <ul>
+          <li data-i18n="teams.li.1"><strong>Pas d'écrasement silencieux.</strong> Avant d'enregistrer un nouveau fichier, ProjectStore vérifie qu'il n'existe pas encore. Deux sessions sur le même sujet tombent sur un conflit, pas sur deux copies.</li>
+          <li data-i18n="teams.li.2"><strong>Chaque ligne de statut affiche son propre travail.</strong> <span data-source="docs/how-it-works.md#sessions-how-parallel-claude-instances-coexist">2–6 sessions</span> côte à côte voient chacune exactement leur epic et leur story.</li>
+          <li data-i18n="teams.li.3"><strong>Les noms de session sont proposés, pas imposés.</strong> Quand une session se concentre sur un travail précis, elle propose un nom. Rarement : <span data-source="docs/how-it-works.md#naming-a-session-after-the-work-it-settled-on">deux fois par session au plus, 12 propositions sur neuf sessions enregistrées</span>.</li>
+        </ul>
+        <p class="sources"><span data-i18n="teams.span.27">Mesuré dans</span> <a class="cite" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/how-it-works.md#sessions-how-parallel-claude-instances-coexist" target="_blank" rel="noopener noreferrer">Sessions: how parallel Claude instances coexist ↗</a> <a class="cite" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/how-it-works.md#naming-a-session-after-the-work-it-settled-on" target="_blank" rel="noopener noreferrer">Naming a session after the work it settled on ↗</a></p>
+      </div>
+      <div>
+        <div class="terminal"><div class="ph"><span data-i18n="teams.span.25">deuxième session sur shop-vault</span><span data-i18n="teams.span.26">sessions</span></div>
+<pre data-i18n="teams.pre.1"><span class="m">le développeur A travaille sur PAY-001 depuis 13:35. vous ouvrez une deuxième session :</span>
+
+<span class="w">⚠ Multi-session warning</span> — 1 other projectstore session active.
+  Run <span class="c">/projectstore:search &lt;topic&gt;</span> before creating new artifacts.
+
+<span class="m">plus tard, quand votre travail se concentre sur un seul epic :</span>
+projectstore: this session looks like <span class="a">"<span data-slug="story:session">pay-001-écriture-transactionnelle-des-commandes</span>"</span>
+  → <span class="c">/rename <span data-slug="story:session">pay-001-écriture-transactionnelle-des-commandes</span></span></pre></div>
+        <div class="hud"><img src="../assets/statusline-hud.png" width="2010" height="112" alt="La ligne de statut projectstore au-dessus d&#x27;un HUD existant : DEMO-001 › 001-epic-story-hud-line (in-progress)" loading="lazy" data-i18n-attr="alt:teams.alt.1"><p data-i18n="teams.p.13">Une vraie capture d'écran : la ligne 📚 epic › story de cette session, au-dessus de la barre d'état que vous utilisez déjà.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 06 AGENTS ================= -->
+<section id="agents" class="agents-section" aria-labelledby="agents-title">
+  <div class="wrap">
+    <div class="section-heading">
+      <!-- Counts are data-fact digits from the repository; only the nouns beside them are translated.
+       A noun's form depends on the number in ru and uk (1 команда, 6 команд, 20 команд), and on
+       one-or-many in the other languages: when a count changes, re-check start.span.4-7,
+       start.span.15 and agents.h2.1 in every dictionary. -->
+      <div><div class="section-label"><span data-i18n="agents.span.1">06 / Agents</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">agents.</span><br><span class="muted-heading" data-i18n="agents.h2.2">Tous sauf un ne peuvent que lire.</span></h2></div>
+      <p data-i18n="agents.p.1">Les conseillers vérifient, planifient et rangent, sans rien modifier. <b>Un seul clerk enregistre, après votre Oui, ce que vous avez validé et rien d'autre.</b></p>
+    </div>
+
+    <div class="roster-wrap">
+      <div class="roster-head"><span><span data-i18n="agents.span.2">Rôles livrés avec le plugin</span> · <span data-fact="version">v0.29.2</span></span><span data-i18n="agents.span.3">le modèle se règle par agent</span></div>
+      <table class="roster">
+        <thead><tr><th data-i18n="agents.th.1">Agent</th><th data-i18n="agents.th.2">Quand il intervient</th><th data-i18n="agents.th.3">Ce qu'il fait</th><th data-i18n="agents.th.4">Modèle par défaut</th></tr></thead>
+        <tbody>
+          <tr><td><code>critic</code><br><span class="tag" data-i18n="agents.span.4">lecture seule · indépendant</span></td><td data-i18n="agents.td.1">Après l'écriture ou la modification d'un ADR, d'une spec, d'un epic, d'une story ou d'un document de conception</td><td data-i18n="agents.td.2">Cherche les points faibles, confronte chaque affirmation à la source et se demande comment le plan pourrait échouer. Sans complaisance.</td><td class="model" data-i18n="agents.td.3">opus · max</td></tr>
+          <tr><td><code>planner</code><br><span class="tag" data-i18n="agents.span.5">lecture seule · indépendant</span></td><td data-i18n="agents.td.4">Avant le début du travail sur une story (<code>story plan</code>)</td><td data-i18n="agents.td.5">Regarde où vivent les epics précédents dans le code. Indique où le changement a sa place, quoi réutiliser, à quoi faire attention et dans quel ordre travailler.</td><td class="model" data-i18n="agents.td.6">opus · max</td></tr>
+          <tr><td><code>reviewer</code><br><span class="tag" data-i18n="agents.span.6">lecture seule · indépendant</span></td><td data-i18n="agents.td.7">Après le code, avant le commit ou <code>story close</code></td><td data-i18n="agents.td.8">Demande une preuve pour chaque critère d'acceptation, y compris ceux de la spec. Vérifie ensuite l'exactitude, les régressions et les tests.</td><td class="model" data-i18n="agents.td.9">opus · max</td></tr>
+          <tr><td><code>librarian</code><br><span class="tag" data-i18n="agents.span.7">lecture seule · suggère</span></td><td data-i18n="agents.td.10">De temps en temps, avant les releases, quand le vault grossit vite</td><td data-i18n="agents.td.11">Trouve ce qu'aucune règle ne détecte : des notes de recherche qui contredisent un ADR accepté, des doublons, des liens manquants, des fichiers prêts à être archivés.</td><td class="model" data-i18n="agents.td.12">opus · max</td></tr>
+          <tr><td><code>archaeologist</code><br><span class="tag" data-i18n="agents.span.8">lecture seule · suggère</span></td><td data-i18n="agents.td.13">Une fois, après la liaison d'une base de code existante</td><td data-i18n="agents.td.14">Retrouve les décisions que personne n'a écrites, dans le code, les fichiers de configuration et l'historique git. Propose des ADR pour les consigner, preuves à l'appui.</td><td class="model" data-i18n="agents.td.15">opus · max</td></tr>
+          <tr class="sep"><td><code>clerk</code><br><span class="tag w" data-i18n="agents.span.9">écrit · après votre Oui</span></td><td data-i18n="agents.td.16">Uniquement dans le flux d'une commande, uniquement après votre Oui</td><td data-i18n="agents.td.17">Enregistre exactement ce que vous avez validé, rien de plus. Puis reconstruit le tableau et lance les vérifications. N'écrit rien de son propre chef et ne demande rien.</td><td class="model" data-i18n="agents.td.18">sonnet · max</td></tr>
+        </tbody>
+      </table>
+      <p class="roster-note" data-i18n="agents.p.10">Les modèles par défaut sont ceux de Claude Code. Dans Codex, chaque rôle est un skill du même nom, par exemple <code>$projectstore-critic</code>, qui demande à Codex de lancer le rôle ; il utilise le modèle de la session, sauf si vous en définissez un.</p>
+    </div>
+
+    <div class="agents-grid">
+      <div class="agent-layers">
+        <article><span class="layer-number">01</span><div><h3 data-i18n="agents.h3.1">Rôle <span>ce qu'il fait</span></h3><p data-i18n="agents.p.2">Planifie, critique, écrit le code ou vérifie le résultat. Chaque rôle est clair : les conseillers ne font que lire, le clerk n'enregistre que ce qui a été validé.</p></div></article>
+        <article><span class="layer-number">02</span><div><h3 data-i18n="agents.h3.2">Modèle <span>avec quoi il pense</span></h3><p data-i18n="agents.p.3">Choisi selon la tâche et le budget. <code>/projectstore:agents configure</code> en définit un par agent. En changer ne touche pas à l'historique du projet.</p></div></article>
+        <article><span class="layer-number">03</span><div><h3 data-i18n="agents.h3.3">Harness <span>où il tourne</span></h3><p data-i18n="agents.p.4">Donne à l'agent ses outils, ses permissions et sa session. Le plugin s'installe dans Claude Code et dans Codex. La CLI et le serveur MCP ne sont liés à aucun harness.</p></div></article>
+      </div>
+      <div class="agent-architecture">
+        <div class="architecture-title"><svg class="icon"><use href="#i-terminal"/></svg><span data-i18n="agents.span.10">Une architecture possible</span></div>
+        <table class="agent-table"><thead><tr><th scope="col" data-i18n="agents.th.5">Rôle</th><th scope="col" data-i18n="agents.th.6">Modèle*</th><th scope="col" data-i18n="agents.th.7">Harness*</th></tr></thead><tbody><tr><td data-i18n="agents.td.19">Planner</td><td data-i18n="agents.td.20">Claude</td><td data-i18n="agents.td.21">Claude Code</td></tr><tr><td data-i18n="agents.td.22">Implémenteur</td><td data-i18n="agents.td.23">GPT</td><td data-i18n="agents.td.24">Codex</td></tr><tr><td data-i18n="agents.td.25">Reviewer</td><td data-i18n="agents.td.26">Gemini</td><td data-i18n="agents.td.27">Gemini CLI</td></tr></tbody></table>
+        <div class="architecture-context"><svg class="icon"><use href="#i-down"/></svg><span data-i18n="agents.span.11">ADR + SPEC + STORY + CODE_REFS</span></div>
+        <p class="architecture-note" data-i18n="agents.p.5">* Une illustration, pas une intégration prête à l'emploi. Vous configurez chaque harness vous-même. Tout agent doté d'un shell ou de MCP peut lire les mêmes faits grâce aux outils MCP en lecture seule ci-dessous.</p>
+        <ul class="tools" style="padding:0 20px 18px" aria-label="Outils MCP" data-i18n-attr="aria-label:agents.aria-label.1"><li data-fact="mcp-tool">status</li><li data-fact="mcp-tool">orientation</li><li data-fact="mcp-tool">search</li><li data-fact="mcp-tool">get_artifact</li><li data-fact="mcp-tool">neighbors</li><li data-fact="mcp-tool">lineage</li><li data-fact="mcp-tool">code_refs</li><li data-fact="mcp-tool">doctor</li></ul>
+      </div>
+    </div>
+
+    <div class="support-heading"><span data-i18n="agents.span.12">Disponible aujourd'hui</span><span class="version-badge" data-fact="version">v0.29.2</span></div>
+    <div class="support-grid">
+      <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.14">Plugin natif</span> · <span data-fact="harness-status:claude-code">supported</span></span><h3 data-i18n="agents.h3.4">Claude Code</h3><p data-i18n="agents.p.6">Toutes les commandes et tous les agents, des rappels automatiques, la ligne de statut et la configuration du vault. Le point d'entrée tout prêt dans la boucle.</p></article>
+      <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.17">Plugin natif</span> · <span data-fact="harness-status:codex">experimental</span></span><h3>Codex</h3><p data-i18n="agents.p.11">Les commandes et les rôles sous forme de skills, par exemple <code>$projectstore-doctor</code> et <code>$projectstore-critic</code>, avec des hooks de cycle de vie et le bloc des agents. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> indique ce qui a été vérifié jusqu'ici.</p></article>
+      <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.15">Accès programmatique</span></span><h3 data-i18n="agents.h3.5">CLI + MCP</h3><p data-i18n="agents.p.7">La CLI lit le vault et n'effectue que les écritures que vous demandez, avec une sortie JSON. Le serveur MCP donne à tout agent les outils en lecture seule.</p><div class="cmd"><pre id="cmd-mcp">npx projectstore mcp --project "$PWD"</pre><button class="copy" type="button" data-copy-from="cmd-mcp" data-done="ok" data-i18n="agents.button.1" data-i18n-attr="data-done:agents.data-done.1">copier</button></div></article>
+      <article><span class="support-state neutral"><svg class="icon sm"><use href="#i-up-right"/></svg> <span data-i18n="agents.span.16">Portabilité</span></span><h3 data-i18n="agents.h3.6">Autres harness</h3><p data-i18n="agents.p.8">Gemini CLI, OpenCode et les autres : les fichiers Markdown fonctionnent partout ; la CLI et MCP lisent le même vault. Aucun adaptateur natif n'est encore livré pour eux.</p></article>
+    </div>
+    <p class="section-footnote" data-i18n="agents.p.9"><span class="footnote-mark">↳</span> ProjectStore, c'est un contexte de projet partagé et une façon de travailler. Ce n'est pas un orchestrateur d'agents. Le vault vous suit : changez de modèle demain, et le projet continue.</p>
+  </div>
+</section>
+
+<!-- ================= 07 COST ================= -->
+<section id="cost" class="cost-section" aria-labelledby="cost-title">
+  <div class="wrap">
+    <div class="section-heading">
+      <div><div class="section-label"><span data-i18n="cost.span.1">07 / Coût</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="cost-title" data-i18n="cost.h2.1">Mesuré, <span class="muted-heading">pas promis.</span></h2></div>
+      <p data-i18n="cost.p.1">Faire tourner la boucle n'est pas gratuit, <b>et cette page ne prétendra pas le contraire.</b></p>
+    </div>
+    <div class="cost-grid">
+      <div class="cost-card"><div class="lab" data-i18n="cost.div.1">le pire cas que nous connaissons</div><div class="big" data-i18n="cost.big.1"><span data-source="README.md#what-it-costs--measured-not-promised">22,5</span><small> % des dépenses totales</small></div><p data-i18n="cost.p.2">Mesuré sur le propre dépôt de ProjectStore. Ici, l'outil se construit lui-même, et chaque changement passe par toute la boucle, critic compris.</p></div>
+      <div class="cost-card"><div class="lab" data-i18n="cost.div.2">projet typique</div><div class="big" data-i18n="cost.big.2"><span data-source="README.md#what-it-costs--measured-not-promised">10–15</span><small> % de votre limite hebdomadaire</small></div><p data-i18n="cost.p.3">Ce que vous obtenez : un chef de projet et un analyste système qui n'oublient jamais de tout noter, incarnés par l'agent que vous payez déjà. Ces fichiers sont votre vrai backlog, votre historique de revues et votre journal des décisions, pas des notes personnelles.</p></div>
+    </div>
+    <p class="sources"><span data-i18n="cost.span.2">Les deux chiffres viennent du README :</span> <a class="cite" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md#what-it-costs--measured-not-promised" target="_blank" rel="noopener noreferrer">What it costs — measured, not promised ↗</a></p>
+  </div>
+</section>
+
+<!-- ================= 08 START ================= -->
+<section id="start" class="start-section" aria-labelledby="start-title">
+  <div class="wrap start-grid">
+    <div class="start-copy">
+      <div class="section-label"><span data-i18n="start.span.1">08 / Première itération</span><svg class="icon"><use href="#i-down"/></svg></div>
+      <h2 id="start-title" data-i18n="start.h2.1">Commencez par une<br>décision qui compte.</h2>
+      <p data-i18n="start.p.1">Installez-le dans Claude Code ou Codex, choisissez un dossier pour le vault et demandez à l'agent d'écrire le premier ADR. Inutile de reprendre tout l'historique du projet en une soirée. L'agent archaeologist pourra vous y aider plus tard.</p>
+      <div class="say-it"><span class="who" data-i18n="start.span.2">ou dites simplement à Claude Code</span><p data-i18n="start.p.2">Installez le plugin projectstore depuis https://github.com/SmartAndPoint/ProjectStore et configurez-le pour ce projet.</p></div>
+      <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#install--one-message" target="_blank" rel="noopener noreferrer" style="margin-top:22px"><span data-i18n="start.span.3">Le guide d'installation complet</span> <svg class="icon"><use href="#i-up-right"/></svg></a>
+      <!-- Counts are data-fact digits from the repository; only the nouns beside them are translated.
+       A noun's form depends on the number in ru and uk (1 команда, 6 команд, 20 команд), and on
+       one-or-many in the other languages: when a count changes, re-check start.span.4-7,
+       start.span.15 and agents.h2.1 in every dictionary. -->
+      <div class="start-specs"><span><strong data-fact="commands">20</strong> <span data-i18n="start.span.4">commandes</span></span><span><strong data-fact="agents">6</strong> <span data-i18n="start.span.5">agents</span></span><span><strong data-fact="languages">6</strong> <span data-i18n="start.span.6">langues de modèles</span></span><span><strong data-fact="mcp-tools">8</strong> <span data-i18n="start.span.15">outils MCP</span></span><span><strong>0</strong> <span data-i18n="start.span.7">dépendance</span></span></div>
+    </div>
+
+    <div class="install-terminal">
+      <div data-tabs data-initial="claude" class="install-root">
+        <div class="terminal-tabs-header"><div class="install-tabs" role="tablist" aria-label="Méthode d&#x27;installation" data-i18n-attr="aria-label:start.aria-label.1"><button class="install-trigger" role="tab" data-tab="claude" id="in-t1" aria-controls="in-p1" data-i18n="start.button.1">Dans Claude Code</button><button class="install-trigger" role="tab" data-tab="npm" id="in-t2" aria-controls="in-p2" data-i18n="start.button.2">Claude Code via npm</button><button class="install-trigger" role="tab" data-tab="codex" id="in-t4" aria-controls="in-p4" data-i18n="start.button.4">Codex</button><button class="install-trigger" role="tab" data-tab="day" id="in-t3" aria-controls="in-p3" data-i18n="start.button.3">Une journée type</button></div><svg class="icon"><use href="#i-terminal"/></svg></div>
+        <div class="tab-panel install-panel block" role="tabpanel" data-panel="claude" id="in-p1" aria-labelledby="in-t1">
+          <span class="terminal-context" data-i18n="start.span.8">Tapez les commandes dans Claude Code</span>
+<pre id="install-claude" data-fact="install"><code>/plugin marketplace add SmartAndPoint/ProjectStore
+/plugin install projectstore@SmartAndPoint
+/reload-plugins
+/projectstore:bind ~/Documents/my-project-vault<span data-i18n="start.bind-lang"> --lang fr</span></code></pre>
+          <button class="copy-button" type="button" data-copy-from="install-claude" data-done="Copié" data-i18n-attr="data-done:start.data-done.1"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.9">Copier</span></button>
+          <p class="install-note" data-i18n="start.p.3">Le chemin du vault est un exemple. Bind pose ensuite quelques questions de configuration et montre ce que chaque étape va écrire. Activez la mise à jour automatique : <code>/plugin</code> → Marketplaces → SmartAndPoint.</p>
+        </div>
+        <div class="tab-panel install-panel block" role="tabpanel" data-panel="npm" id="in-p2" aria-labelledby="in-t2">
+          <span class="terminal-context" data-i18n="start.span.10">Terminal · Node.js 20+ · hors session</span>
+<pre id="install-npm" data-fact="install"><code>npx projectstore-claude install --project "$PWD"</code></pre>
+          <button class="copy-button" type="button" data-copy-from="install-npm" data-done="Copié" data-i18n-attr="data-done:start.data-done.2"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.11">Copier</span></button>
+          <p class="install-note" data-i18n="start.p.4">Lancez-la depuis le dossier de votre projet. Elle ajoute le plugin à Claude Code pour ce checkout uniquement, et affiche chaque commande avant de l'exécuter. Ensuite, redémarrez Claude Code et liez un vault.</p>
+        </div>
+        <div class="tab-panel install-panel block" role="tabpanel" data-panel="codex" id="in-p4" aria-labelledby="in-t4">
+          <span class="terminal-context"><span data-i18n="start.span.16">Terminal · Node.js 20+ · dans le dossier du projet</span> · <span data-fact="harness-status:codex">experimental</span></span>
+<pre id="install-codex" data-fact="install"><code>npx projectstore-codex install --project "$PWD"</code></pre>
+          <button class="copy-button" type="button" data-copy-from="install-codex" data-done="Copié" data-i18n-attr="data-done:start.data-done.4"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.17">Copier</span></button>
+          <p class="install-note" data-i18n="start.p.5">Redémarrez ensuite Codex, approuvez les hooks de ProjectStore quand il le demande, puis lancez <code>$projectstore-bind ~/Documents/my-project-vault</code>. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> indique ce qui a été vérifié jusqu'ici.</p>
+        </div>
+        <div class="tab-panel install-panel block" role="tabpanel" data-panel="day" id="in-p3" aria-labelledby="in-t3">
+          <span class="terminal-context" data-i18n="start.span.12">Une journée de travail</span>
+<pre id="install-day" data-copy="/projectstore:status
+/projectstore:adr &quot;Utiliser Postgres comme stockage principal&quot;
+/projectstore:spec &quot;Écriture transactionnelle des commandes&quot;
+/projectstore:epic PAY-001 &quot;Traitement des commandes sur Postgres&quot;
+/projectstore:story PAY-001 &quot;Écriture transactionnelle des commandes&quot; --spec écriture-transactionnelle-des-commandes
+/projectstore:story plan PAY-001/story-écriture-transactionnelle-des-commandes
+/projectstore:story close PAY-001/story-écriture-transactionnelle-des-commandes
+/projectstore:doctor" data-i18n="start.pre.3" data-i18n-attr="data-copy:start.data-copy.3"><code>/projectstore:status   <span class="m"># ce qui est en cours en ce moment</span>
+/projectstore:adr "<span data-title="adr">Utiliser Postgres comme stockage principal</span>"
+/projectstore:spec "<span data-title="spec">Écriture transactionnelle des commandes</span>"
+/projectstore:epic PAY-001 "<span data-title="epic">Traitement des commandes sur Postgres</span>"
+/projectstore:story PAY-001 "<span data-title="story">Écriture transactionnelle des commandes</span>" --spec <span data-slug="spec:slug">écriture-transactionnelle-des-commandes</span>
+/projectstore:story plan <span data-slug="story:ref">PAY-001/story-écriture-transactionnelle-des-commandes</span>   <span class="m"># le planner</span>
+/projectstore:story close <span data-slug="story:ref">PAY-001/story-écriture-transactionnelle-des-commandes</span>  <span class="m"># le reviewer demande des preuves</span>
+/projectstore:doctor   <span class="m"># vérifications, sans IA</span></code></pre>
+          <button class="copy-button" type="button" data-copy-from="install-day" data-done="Copié" data-i18n-attr="data-done:start.data-done.3"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.13">Copier</span></button>
+        </div>
+      </div>
+      <div class="terminal-footer"><svg class="icon sm"><use href="#i-shield"/></svg><span data-i18n="start.span.14">Chaque écriture est montrée avant d'être enregistrée. Rien n'est écrit sans votre Oui.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FAQ ================= -->
+<section id="questions" class="questions-section wrap" aria-labelledby="questions-title">
+  <div>
+    <div class="section-label"><span data-i18n="questions.span.1">Sans petits caractères</span><svg class="icon"><use href="#i-down"/></svg></div>
+    <h2 id="questions-title" data-i18n="questions.h2.1">Bonnes questions.</h2>
+    <p data-i18n="questions.p.1">Sur les limites, les données<br>et le travail réel.</p>
+    <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/issues" target="_blank" rel="noopener noreferrer"><span data-i18n="questions.span.2">En discuter sur GitHub</span> <svg class="icon"><use href="#i-up-right"/></svg></a>
+  </div>
+  <div class="faq-list">
+    <details class="faq-item"><summary data-i18n="questions.summary.1">Est-ce un plugin de mémoire ?</summary><div class="faq-content"><p data-i18n="questions.p.2">Non. Un plugin de mémoire retient ce que l'agent a dit. ProjectStore consigne ce que le projet a décidé, sous forme de documents relus, avec un statut et une date. Le nouveau travail passe ensuite par ces documents. La différence se voit quand vous changez de modèle : la mémoire appartient à un modèle, un vault appartient au projet.</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.2">Remplace-t-il Jira, Linear ou un gestionnaire de tâches ?</summary><div class="faq-content"><p data-i18n="questions.p.3">Pas nécessairement. ProjectStore relie décisions, specs, stories et code. Vous pouvez garder votre tracker pour la planification, et conserver le contexte technique dans le vault. Il n'y a pas de synchronisation automatique avec d'autres trackers, mais une story peut contenir le lien vers son ticket.</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.3">Obsidian est-il nécessaire ?</summary><div class="faq-content"><p data-i18n="questions.p.4">Non. Le vault est un dossier ordinaire de fichiers Markdown. Ouvrez-le dans un éditeur, parcourez-le sur GitHub, ou utilisez Obsidian si vous aimez son graphe et son tableau. Sans le plugin, les fichiers restent tout aussi lisibles.</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.4">Lui arrive-t-il d'écrire sans demander ?</summary><div class="faq-content"><p data-i18n="questions.p.5">Non. Chaque nouveau fichier et chaque modification vous sont d'abord montrés, avec leur chemin et leur texte complet. Puis ProjectStore attend Oui, Modifier avant d'enregistrer, ou Non. Les assistants qui observent la conversation ne font que suggérer une commande. Le seul agent capable d'écrire, le clerk, intervient après votre Oui et enregistre exactement ce que vous avez validé.</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.5">Que se passe-t-il si deux agents modifient le même fichier ?</summary><div class="faq-content"><p data-i18n="questions.p.6">Travaillez dans des branches séparées, puis passez par la revue et résolvez les conflits git comme d'habitude. Dans un même vault local, les sessions se préviennent mutuellement et aucun nouveau fichier n'est écrasé en silence. Mais ce n'est pas un verrou, et cela ne se synchronise pas entre machines.</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.6">Et si quelqu'un modifie un fichier du vault à la main ?</summary><div class="faq-content"><p data-i18n="questions.p.7">C'est permis, parce que l'interdire ne marche jamais. Un rappel vous invite à lancer <code>reconcile</code>. <code>doctor</code> repère un tableau ou un index qui ne correspond plus aux fichiers, et <code>reconcile</code> les reconstruit à partir des fichiers sources.</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.7">Où va le contexte du projet ?</summary><div class="faq-content"><p data-i18n="questions.p.8">ProjectStore n'a besoin d'aucun serveur : le vault vit là où vous le mettez. Les fichiers que lit l'agent et ce qui parvient au fournisseur du modèle dépendent de votre harness et de ses permissions. Gardez les secrets hors des documents du projet et vérifiez les règles d'accès de votre équipe.</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.8">Les vérifications sont-elles gratuites ?</summary><div class="faq-content"><p data-i18n="questions.p.9">Non. Les passages du critic et du reviewer consomment le budget de votre modèle : <span data-source="README.md#what-it-costs--measured-not-promised">22,5 %</span> des dépenses sur le dépôt ProjectStore lui-même, en général <span data-source="README.md#what-it-costs--measured-not-promised">10–15 %</span> d'une limite hebdomadaire. Les vérifications de routine, <code>doctor</code> et <code>reconcile</code>, n'utilisent pas d'IA. Adaptez la profondeur du processus au risque du changement.</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.9">Et si nous passions de Claude Code à un autre agent ?</summary><div class="faq-content"><p data-i18n="questions.p.10">Rien n'est perdu : le vault est du simple Markdown dans git. La partie automatique, à savoir les commandes, les rôles et les rappels, s'installe dans Claude Code et dans Codex, et les deux peuvent travailler côte à côte sur un même projet. Tout autre agent lit les mêmes faits via la CLI ou le serveur MCP.</p></div></details>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-top"><a class="footer-wordmark" href="#main"><svg class="icon lg"><use href="#i-layers"/></svg> <span data-i18n="footer.span.1">projectstore.</span></a><span data-i18n="footer.span.2">Le bon code laisse du contexte derrière lui.</span><a href="https://github.com/SmartAndPoint/ProjectStore" target="_blank" rel="noopener noreferrer"><span data-i18n="footer.span.3">GitHub</span> <svg class="icon"><use href="#i-up-right"/></svg></a></div>
+  <div class="wrap footer-bottom"><span data-i18n="footer.span.4">Open source · MIT · Evgenii Konev, SmartAndPoint</span><span><span data-fact="version">v0.29.2</span> · <span data-i18n="footer.span.5">chaque chiffre mesuré cite le passage du README ou de la documentation dont il provient ; les exemples sont donnés à titre d'illustration</span></span><a href="../llms.txt" data-i18n="footer.a.1">llms.txt</a><a href="../llms-full.txt" data-i18n="footer.a.2">llms-full.txt</a><a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" target="_blank" rel="noopener noreferrer"><svg class="icon sm"><use href="#i-book"/></svg> <span data-i18n="footer.span.6">Documentation</span></a></div>
+</footer>
+
+<script src="../assets/site.js?v=e6e5f6dc"></script>
+</body>
+</html>

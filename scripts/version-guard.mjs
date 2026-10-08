@@ -180,6 +180,7 @@ export const NOT_SHIPPED = new Set([
   "tests", // 240 kB of fixtures nobody installing the plugin needs
   "packaging", // reserved-name stubs; see packaging/README.md
   "adapters", // generated harness inputs copied into their distribution shells at build time
+  "site", // the public site: Pages serves it, npm never does
   "package-lock.json",
 ]);
 

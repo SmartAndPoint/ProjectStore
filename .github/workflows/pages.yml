@@ -1,0 +1,91 @@
+name: pages
+
+# Deploys the public site — site/, static files committed as tools/i18n.py
+# renders them — to GitHub Pages at https://projectstore.dev (the site ADR,
+# "The public site is static files in the repo, served by GitHub Pages at
+# projectstore.dev").
+
+# Triggers: a push to main that changes site/ or this file, and a manual
+# dispatch, for the first deploy and for a redeploy after a Pages settings
+# change. A push to main that touches neither deploys nothing.
+
+# A site change is not a release: it merges with no version bump and no tag,
+# and nothing here publishes to npm. A release's merge does change site/ — its
+# bump edits the version in site/src/index.html, rebuilds the pages and
+# updates the llms files — so it redeploys the site with the new version
+# before the tag publishes.
+
+# The custom domain lives in the repository's Pages settings, not in a CNAME
+# file: GitHub ignores a CNAME file when Pages deploys from a workflow. Set it
+# there, or with `gh api -X PUT repos/SmartAndPoint/ProjectStore/pages -f
+# cname=projectstore.dev`.
+
+# The site is checked before it is uploaded, twice: a rebuild on Python 3.12
+# must change nothing (the pages are the build's), and the test `npm test`
+# runs must pass (the pages agree with the repository). A page that fails
+# either is never deployed.
+on:
+  push:
+    branches: ["main"]
+    paths: ["site/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+# Least privilege: read by default; each job names exactly what it uses, and
+# only the deploy job can write to Pages.
+permissions:
+  contents: read
+
+# One deploy at a time. A deploy in flight is never cancelled half-way; the
+# next one waits behind it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout
+      pages: read # configure-pages reads the Pages settings
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: The committed pages are the build's
+        run: |
+          python3 site/tools/i18n.py check
+          python3 site/tools/i18n.py extract
+          python3 site/tools/i18n.py build --strict
+          git diff --exit-code -- site/
+          if git status --porcelain -- site/ | grep .; then echo "::error::the build left files not in the commit"; exit 1; fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: The site agrees with the repository
+        run: node --test --import ./tests/fixtures/hermetic.mjs tests/site.test.mjs
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write # deploy-pages publishes the artifact
+      id-token: write # and proves, with an OIDC token, where it came from
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

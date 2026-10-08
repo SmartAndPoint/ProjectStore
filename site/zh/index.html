@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title data-i18n="meta.title">ProjectStore — 代码会变，上下文常在</title>
+<meta name="description" content="ProjectStore 是面向 Claude Code 和 Codex 的项目工作流插件，把项目的决策、spec 和 story 以 Markdown 形式存放在 git 中。你的智能体按照工程团队用了几十年的流程工作：决策、评审、构建、验证。现在只需几分钟。" data-i18n-attr="content:meta.description">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23d2f85c'/%3E%3Cg fill='%231c201c' transform='translate(16 15) skewY(-10)'%3E%3Crect width='34' height='8' rx='1'/%3E%3Crect y='13' width='26' height='8' rx='1'/%3E%3Crect y='26' width='18' height='8' rx='1'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="../assets/style.css?v=43a050fc">
+<link rel="alternate" hreflang="en" href="https://projectstore.dev/">
+<link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
+<link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
+<link rel="alternate" hreflang="fr" href="https://projectstore.dev/fr/">
+<link rel="alternate" hreflang="pt-BR" href="https://projectstore.dev/pt/">
+<link rel="alternate" hreflang="ru" href="https://projectstore.dev/ru/">
+<link rel="alternate" hreflang="uk" href="https://projectstore.dev/uk/">
+<link rel="alternate" hreflang="zh-CN" href="https://projectstore.dev/zh/">
+<link rel="alternate" hreflang="x-default" href="https://projectstore.dev/">
+<link rel="canonical" href="https://projectstore.dev/zh/">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 13h6M9 17h6"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.5"/><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5a6 6 0 0 1-6 6H9"/></symbol>
+  <symbol id="i-pr" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.5"/><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7M13 6h3a2 2 0 0 1 2 2v7.5"/></symbol>
+  <symbol id="i-merge" viewBox="0 0 24 24"><circle cx="18" cy="18" r="2.5"/><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M6 8.5v7M6 9a6 6 0 0 0 6 6h3.5"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-5-6-5M12 19h8"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+</svg>
+
+<a class="skip-link" href="#main" data-i18n="page.a.1">跳到正文</a>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="wordmark" href="#main" aria-label="ProjectStore，返回顶部" data-i18n-attr="aria-label:nav.aria-label.1"><span class="store-mark" aria-hidden="true"><span></span><span></span><span></span></span><span class="wordmark-dot">.</span><span data-i18n="nav.span.1">projectstore</span></a>
+    <nav class="desktop-nav" aria-label="主导航" data-i18n-attr="aria-label:nav.aria-label.2">
+      <a href="#why" data-i18n="nav.a.1">为何有效</a>
+      <a href="#workflow" data-i18n="nav.a.2">工作方式</a>
+      <a href="#artifacts" data-i18n="nav.a.3">磁盘文件</a>
+      <a href="#teams" data-i18n="nav.a.4">团队协作</a>
+      <a href="#agents" data-i18n="nav.a.5">智能体</a>
+      <a href="#start" data-i18n="nav.a.6">安装</a>
+    </nav>
+    <div class="header-right">
+      <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="语言：中文"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>ZH</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../" hreflang="en" lang="en" data-lang="en">English</a></li><li><a href="../de/" hreflang="de" lang="de" data-lang="de">Deutsch</a></li><li><a href="../es/" hreflang="es" lang="es" data-lang="es">Español</a></li><li><a href="../fr/" hreflang="fr" lang="fr" data-lang="fr">Français</a></li><li><a href="../pt/" hreflang="pt-BR" lang="pt-BR" data-lang="pt">Português</a></li><li><a href="../ru/" hreflang="ru" lang="ru" data-lang="ru">Русский</a></li><li><a href="../uk/" hreflang="uk" lang="uk" data-lang="uk">Українська</a></li><li><a href="../zh/" hreflang="zh-CN" lang="zh-CN" data-lang="zh" aria-current="true">中文</a></li></ul></div>
+      <a class="header-link" href="https://github.com/SmartAndPoint/ProjectStore" target="_blank" rel="noopener noreferrer"><span data-i18n="nav.span.2">GitHub</span> <svg class="icon"><use href="#i-up-right"/></svg></a>
+    </div>
+  </div>
+  <nav class="mobile-nav" aria-label="页面章节" data-i18n-attr="aria-label:nav.aria-label.3"><a href="#why" data-i18n="nav.a.7">为何有效</a><a href="#workflow" data-i18n="nav.a.8">工作方式</a><a href="#teams" data-i18n="nav.a.9">团队</a><a href="#start" data-i18n="nav.a.10">安装 ↗</a></nav>
+</header>
+
+<main id="main">
+
+<!-- ================= HERO ================= -->
+<section class="hero wrap" aria-labelledby="hero-title">
+  <div class="hero-copy">
+    <div class="eyebrow"><span class="status-dot"></span> <span data-i18n="hero.span.1">项目上下文，纳入版本控制。</span></div>
+    <h1 id="hero-title" data-i18n="hero.h1.1">代码会变。<br><span class="headline-accent">上下文</span><br>常在<span class="lime-dot">。</span></h1>
+    <p class="hero-description" data-i18n="hero.p.1">决策、spec、epic 和 story 以 Markdown 形式存放在 git 中。在 Claude Code 或 Codex 里，ProjectStore 带着你的智能体走一遍工程团队用了几十年的流程：从任务出发，直到代码通过检查。<strong>现在只需几分钟。</strong></p>
+    <div class="hero-actions"><a class="action primary" href="#start"><span data-i18n="hero.span.2">添加到你的项目</span> <svg class="icon lg"><use href="#i-up-right"/></svg></a><a class="action text-action" href="#workflow"><span data-i18n="hero.span.3">五分钟看懂</span> <svg class="icon"><use href="#i-down"/></svg></a></div>
+    <div class="hero-notes"><span data-i18n="hero.span.4">开源 · MIT</span><i></i><span data-i18n="hero.span.5">你的文件，你的 git。</span><i></i><span data-i18n="hero.span.6">无需云端</span></div>
+    <div class="hero-harnesses"><span class="harness-chip"><span class="harness-name">Claude Code</span><span class="harness-status" data-fact="harness-status:claude-code">supported</span></span><span class="harness-chip"><span class="harness-name">Codex</span><span class="harness-status" data-fact="harness-status:codex">experimental</span></span></div>
+  </div>
+
+  <div class="hero-visual" aria-label="相互关联的项目文档示例：一项决策、一份 spec 和一个 story" data-i18n-attr="aria-label:hero.aria-label.1">
+    <div class="visual-topline"><span class="mono" data-i18n="hero.span.7">项目上下文 / shop-vault</span><span data-i18n="hero.span.8">示例项目</span></div>
+    <div class="vault-window">
+      <div class="window-header"><div class="window-dots"><i></i><i></i><i></i></div><span class="mono" data-i18n="hero.span.9">shop-vault</span><svg class="icon"><use href="#i-branch"/></svg></div>
+      <div class="vault-files">
+        <div class="file-tree"><svg class="icon"><use href="#i-folder"/></svg><span data-i18n="hero.span.10">adr</span><span class="tree-hint" data-i18n="hero.span.11">为什么</span></div>
+        <div class="file-tree child"><svg class="icon"><use href="#i-file"/></svg><span data-i18n="hero.span.12" data-slug="adr:file">使用-postgres-作为主存储.md</span><svg class="icon sm file-check"><use href="#i-check"/></svg></div>
+        <div class="file-tree"><svg class="icon"><use href="#i-folder"/></svg><span data-i18n="hero.span.13">specs</span><span class="tree-hint" data-i18n="hero.span.14">怎么做</span></div>
+        <div class="file-tree child"><svg class="icon"><use href="#i-file"/></svg><span data-i18n="hero.span.15" data-slug="spec:file">订单事务写入.md</span><svg class="icon sm file-check"><use href="#i-check"/></svg></div>
+        <div class="file-tree"><svg class="icon"><use href="#i-folder"/></svg><span data-i18n="hero.span.16">epics / PAY-001</span><span class="tree-hint" data-i18n="hero.span.17">做什么</span></div>
+      </div>
+      <div class="story-card">
+        <div class="story-meta"><span class="mono" data-i18n="hero.span.18">STORY / PAY-001</span><span class="work-badge" data-i18n="hero.span.19"><i></i> 进行中</span></div>
+        <h2 data-i18n="hero.h2.1">一个事务。<br>订单与明细行一起写入。</h2>
+        <div class="story-criterion"><svg class="icon sm"><use href="#i-check"/></svg><span data-i18n="hero.span.20">订单与明细行原子写入 · <em>证据：tests/orders.test.mjs:41</em></span></div>
+        <div class="story-criterion"><svg class="icon sm"><use href="#i-check"/></svg><span data-i18n="hero.span.21">夜间对账任务已移除 · <em>证据：deploy/cron:12</em></span></div>
+        <div class="story-criterion"><svg class="icon sm" style="color:#9aa58d"><use href="#i-circle"/></svg><span data-i18n="hero.span.22">序列化失败时会重试 · <em style="color:#8a3c0e">尚无证据</em></span></div>
+        <div class="story-code"><span data-i18n="hero.span.23">code_refs</span><code>src/billing/orders/</code><svg class="icon sm"><use href="#i-up-right"/></svg></div>
+      </div>
+      <div class="vault-window-footer"><svg class="icon sm"><use href="#i-pr"/></svg><span data-i18n="hero.span.24">决策也要评审，和代码一样。</span></div>
+    </div>
+    <a class="context-handoff" href="#principle"><div class="handoff-symbol"><svg class="icon lg"><use href="#i-terminal"/></svg></div><div><strong data-i18n="hero.strong.1">新的智能体，不必从零开始。</strong><span data-i18n="hero.span.25">读的是决策，而不是聊天记录。</span></div><svg class="icon lg"><use href="#i-right"/></svg></a>
+    <div class="visual-caption"><span class="caption-line"></span> <span data-i18n="hero.span.26">上下文不随单次会话结束而消失</span></div>
+  </div>
+</section>
+
+<div class="principles-bar"><div class="wrap principles-inner"><span><span class="store-mark small" aria-hidden="true"><span></span><span></span><span></span></span> <span data-i18n="bar.span.1">不是聊天记忆，而是一种工作方式。</span></span><span data-i18n="bar.span.2">Markdown + YAML</span><span data-i18n="bar.span.3">Git 原生</span><span data-i18n="bar.span.4">人工评审</span><span data-i18n="bar.span.5">上下文不依赖模型</span><span data-i18n="bar.span.6">0 个运行时依赖</span></div></div>
+
+<!-- ================= 01 PRINCIPLE ================= -->
+<section id="principle" class="intro-section wrap" aria-labelledby="principle-title">
+  <div class="section-label"><span data-i18n="principle.span.1">01 / 原则</span><svg class="icon"><use href="#i-down"/></svg></div>
+  <div>
+    <h2 id="principle-title" data-i18n="principle.h2.1">不必再解释一遍。<br><span class="muted-heading">从上次停下的地方继续。</span></h2>
+    <p data-i18n="principle.p.1">聊天记得的是你们聊过什么。ProjectStore 记录的是团队决定了什么、为什么这样决定、怎样检查结果。下一个智能体、下一个模型，或者六个月后的你，读到的是带日期的决策和被否决的方案，而不是聊天记录。</p>
+    <div class="principle-triad">
+      <div><span class="mono" data-i18n="principle.span.2">为什么</span><strong data-i18n="principle.strong.1">为什么这样选？</strong><span data-i18n="principle.span.3">决策及其备选方案，记录在 ADR 中。</span></div>
+      <div><span class="mono" data-i18n="principle.span.4">做什么</span><strong data-i18n="principle.strong.2">我们在做什么？</strong><span data-i18n="principle.span.5">一份 spec、一个 epic，以及标准明确的 story。</span></div>
+      <div><span class="mono" data-i18n="principle.span.6">证明</span><strong data-i18n="principle.strong.3">是如何验证的？</strong><span data-i18n="principle.span.7">评审，以及每条标准对应的证据。</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 02 WHY IT WORKS ================= -->
+<section id="why" class="why-section" aria-labelledby="why-title">
+  <div class="wrap">
+    <div class="section-heading">
+      <div><div class="section-label"><span data-i18n="why.span.1">02 / 为何有效</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="why-title" data-i18n="why.h2.1">这一套，行业早就发明了。<br><span class="muted-heading">智能体让它不再昂贵。</span></h2></div>
+      <p data-i18n="why.p.1">ADR、评审、待办池、验收标准、从目标到代码的关联。成熟的工程团队这样工作已有二十年。<b>这些都不是 ProjectStore 发明的。</b></p>
+    </div>
+
+    <div class="why-lead">
+      <div class="prose">
+        <p data-i18n="why.p.2">看看任何一个成熟的工程团队。动手之前，先有人把决策写下来，其他人一起讨论。工作被拆成 story，放进待办池。每个 story 都有验收标准。每条需求都能追溯到代码。待办池来自 1995 年的 Scrum。story 和验收测试来自 1999 年的 XP。ADR 是记录一项决策及其理由的简短文档，由 Michael Nygard 在 2011 年提出。设计评审和 RFC 还要更早。</p>
+        <p data-i18n="why.p.3">这套流程是有效的。项目结束后，它留下的文档是公司最有价值的资产：系统为什么这样构建，什么才算完成，每个功能在代码的什么位置。但靠人手工推进时，它很慢。写一份 ADR 要一个下午，等评审要一周。文档跟不上代码。看板和实际情况对不上。于是团队在流程上能省就省，“敏捷”成了什么都不写的借口。</p>
+        <p class="pull" data-i18n="why.p.4">流程一直都有价值。昂贵的是<b>每一步都要由人来执行。</b></p>
+      </div>
+      <div class="prose">
+        <p data-i18n="why.p.5">智能体正好相反。写一份 ADR、把 epic 拆成 story、对照标准检查 diff，智能体只需几分钟，而不是几天。智能体缺的，恰恰是人天然就有的东西：会话之间的记忆、与同事共享的上下文、从目标到代码的关联。每个新会话都从空白开始，把早已定下的事再决定一遍。</p>
+        <p data-i18n="why.p.6">ProjectStore 把两者结合起来。智能体的速度第一次让这套老流程的成本降了下来。流程留下的文档以文件形式放在代码旁边，给了智能体从未有过的东西：项目的上下文，向上连到目标，向下连到代码。每一步都由另一个没有参与写草稿的智能体检查。速度有了记忆，记忆有了检查。</p>
+      </div>
+    </div>
+
+    <figure class="compare" aria-labelledby="compare-title">
+      <div class="compare-head"><span id="compare-title" data-i18n="why.span.2">推进项目的三种方式 · 时间 →</span><span data-i18n="why.span.3">示意图，并非实测</span></div>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 1160 330" role="img" aria-label="三条泳道：有流程的人工方式很慢，但保留上下文；没有流程的智能体很快，但每个会话都要重新决定；使用 ProjectStore 的智能体既快又保留上下文。" xmlns="http://www.w3.org/2000/svg" data-i18n-attr="aria-label:why.aria-label.1">
+        <defs><marker id="tl-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#7b8b66"/></marker></defs>
+        <text class="tl-lane" x="20" y="52" data-i18n="why.text.1">人工 + 流程</text>
+        <text class="tl-sub" x="20" y="70" data-i18n="why.text.2">每次迭代一周</text><text class="tl-sub" x="20" y="84" data-i18n="why.text.3">工件留存</text>
+        <line class="tl-axis" x1="250" y1="62" x2="1140" y2="62"/>
+        <rect class="tl-doc" x="262" y="26" width="14" height="18" rx="2"/><rect class="tl-doc" x="280" y="26" width="14" height="18" rx="2"/><text class="tl-sub" x="300" y="39" data-i18n="why.text.4">ADR · spec · story</text>
+        <rect class="tl-box" x="250" y="50" width="400" height="26" rx="3"/><text class="tl-t" x="262" y="67" data-i18n="why.text.5">迭代 1：决策 → 评审 → 待办池 → 代码 → 验收</text>
+        <rect class="tl-doc" x="692" y="26" width="14" height="18" rx="2"/><rect class="tl-doc" x="710" y="26" width="14" height="18" rx="2"/>
+        <rect class="tl-box" x="680" y="50" width="400" height="26" rx="3"/><text class="tl-t" x="692" y="67" data-i18n="why.text.6">迭代 2</text>
+        <path class="tl-line" d="M250,86 H1090"/><text class="tl-note ok" x="1090" y="100" text-anchor="end" data-i18n="why.text.7">上下文保留 →</text>
+
+        <text class="tl-lane" x="20" y="157" data-i18n="why.text.8">智能体，无流程</text>
+        <text class="tl-sub" x="20" y="175" data-i18n="why.text.9">每次迭代几分钟</text><text class="tl-sub" x="20" y="189" data-i18n="why.text.10">每个会话从零开始</text>
+        <line class="tl-axis" x1="250" y1="167" x2="1140" y2="167"/>
+        <g>
+          <rect class="tl-box" x="250" y="155" width="112" height="26" rx="3"/><text class="tl-t" x="262" y="172" data-i18n="why.text.11">会话 1</text>
+          <rect class="tl-box" x="400" y="155" width="112" height="26" rx="3"/><text class="tl-t" x="412" y="172" data-i18n="why.text.12">会话 2</text>
+          <rect class="tl-box" x="550" y="155" width="112" height="26" rx="3"/><text class="tl-t" x="562" y="172" data-i18n="why.text.13">会话 3</text>
+          <rect class="tl-box" x="700" y="155" width="112" height="26" rx="3"/><text class="tl-t" x="712" y="172" data-i18n="why.text.14">会话 4</text>
+          <rect class="tl-box" x="850" y="155" width="112" height="26" rx="3"/><text class="tl-t" x="862" y="172" data-i18n="why.text.15">会话 5</text>
+          <rect class="tl-box" x="1000" y="155" width="112" height="26" rx="3"/><text class="tl-t" x="1012" y="172" data-i18n="why.text.16">会话 6</text>
+        </g>
+        <path class="tl-break" d="M368,199 l8,-8 m0,8 l-8,-8 M518,199 l8,-8 m0,8 l-8,-8 M668,199 l8,-8 m0,8 l-8,-8 M818,199 l8,-8 m0,8 l-8,-8 M968,199 l8,-8 m0,8 l-8,-8"/>
+        <path class="tl-line" d="M250,191 H362" style="stroke:#e2c8b6"/><path class="tl-line" d="M400,191 H512" style="stroke:#e2c8b6"/><path class="tl-line" d="M550,191 H662" style="stroke:#e2c8b6"/><path class="tl-line" d="M700,191 H812" style="stroke:#e2c8b6"/><path class="tl-line" d="M850,191 H962" style="stroke:#e2c8b6"/><path class="tl-line" d="M1000,191 H1090" style="stroke:#e2c8b6"/>
+        <text class="tl-note" x="1090" y="146" text-anchor="end" data-i18n="why.text.17">上下文在会话之间丢失</text>
+        <text class="tl-note" x="250" y="216" data-i18n="why.text.18">“用队列，不用 cron”</text><text class="tl-note" x="400" y="216" data-i18n="why.text.19">“cron 更简单”</text><text class="tl-note" x="550" y="216" data-i18n="why.text.20">“为何用 cron？用队列”</text><text class="tl-note" x="700" y="216" data-i18n="why.text.21">“两边都跑？”</text><text class="tl-note" x="850" y="216" data-i18n="why.text.22">“为何用队列？”</text>
+
+        <text class="tl-lane" x="20" y="262" data-i18n="why.text.23">智能体 + ProjectStore</text>
+        <text class="tl-sub" x="20" y="280" data-i18n="why.text.24">每次迭代几分钟</text><text class="tl-sub" x="20" y="294" data-i18n="why.text.25">工件留存</text>
+        <line class="tl-axis" x1="250" y1="272" x2="1140" y2="272"/>
+        <g>
+          <rect class="tl-doc lime" x="262" y="238" width="12" height="16" rx="2"/><rect class="tl-doc lime" x="278" y="238" width="12" height="16" rx="2"/>
+          <rect class="tl-doc lime" x="412" y="238" width="12" height="16" rx="2"/>
+          <rect class="tl-doc lime" x="562" y="238" width="12" height="16" rx="2"/><rect class="tl-doc lime" x="578" y="238" width="12" height="16" rx="2"/>
+          <rect class="tl-doc lime" x="712" y="238" width="12" height="16" rx="2"/>
+          <rect class="tl-doc lime" x="862" y="238" width="12" height="16" rx="2"/>
+          <rect class="tl-doc lime" x="1012" y="238" width="12" height="16" rx="2"/><rect class="tl-doc lime" x="1028" y="238" width="12" height="16" rx="2"/>
+        </g>
+        <g>
+          <rect class="tl-box lime" x="250" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="262" y="277" data-i18n="why.text.26">ADR + story</text>
+          <rect class="tl-box lime" x="400" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="412" y="277" data-i18n="why.text.27">critic</text>
+          <rect class="tl-box lime" x="550" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="562" y="277" data-i18n="why.text.28">计划 + 代码</text>
+          <rect class="tl-box lime" x="700" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="712" y="277" data-i18n="why.text.29">reviewer</text>
+          <rect class="tl-box lime" x="850" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="862" y="277" data-i18n="why.text.30">完成 · 看板</text>
+          <rect class="tl-box lime" x="1000" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="1012" y="277" data-i18n="why.text.31">下一个会话</text>
+        </g>
+        <path class="tl-line" d="M250,296 H1090" marker-end="url(#tl-arr)"/><text class="tl-note ok" x="1090" y="230" text-anchor="end" data-i18n="why.text.32">上下文保留 →</text>
+        <text class="tl-sub" x="250" y="320" data-i18n="why.text.33">每一步都由独立的智能体检查 · 下一个会话读的是决策，而不是聊天记录</text>
+      </svg>
+      </div>
+      <div class="compare-legend"><span><i class="box"></i> <span data-i18n="why.span.4">一次会话或一次迭代</span></span><span><i class="box lime"></i> <span data-i18n="why.span.5">由智能体检查的一步</span></span><span data-i18n="why.span.6"><i></i> 上下文得以延续</span><span><i class="break"></i> <span data-i18n="why.span.7">上下文丢失，同一个问题又要重新定一遍</span></span></div>
+    </figure>
+
+    <div class="practice" role="table" aria-label="行业实践：由人执行与由 ProjectStore 执行" data-i18n-attr="aria-label:why.aria-label.2">
+      <div class="practice-row" role="row"><div role="columnheader" data-i18n="why.div.1">阶段</div><div role="columnheader" data-i18n="why.div.2">实践及其年代</div><div role="columnheader" data-i18n="why.div.3">由人执行</div><div role="columnheader" data-i18n="why.div.4">在 ProjectStore 中</div></div>
+      <div class="practice-row" role="row">
+        <div class="stage" role="cell" data-i18n="why.div.5">决策<small>为什么</small></div>
+        <div class="practice-col" role="cell" data-i18n="why.div.6"><b>ADR</b>（架构决策记录），Michael Nygard，2011 年。在此之前是架构委员会和设计评审。</div>
+        <div class="human" role="cell" data-i18n="why.div.7">写要一个下午，在评审队列里排一周。被否决的备选方案只留在某个人的脑子里。</div>
+        <div class="ps" role="cell" data-i18n="why.div.8">智能体一分钟写出草稿，独立的 critic 找出其中的弱点，再由你批准。结果是一个带日期的文件，被否决的方案也记在里面。</div>
+      </div>
+      <div class="practice-row" role="row">
+        <div class="stage" role="cell" data-i18n="why.div.9">契约<small>怎么做</small></div>
+        <div class="practice-col" role="cell" data-i18n="why.div.10"><b>Spec、设计文档、RFC。</b>RFC 自 1969 年起就有编号；设计文档在大公司是标配。</div>
+        <div class="human" role="cell" data-i18n="why.div.11">写要一周，到发布时已经过时。没人检查代码是否仍与之相符。</div>
+        <div class="ps" role="cell" data-i18n="why.div.12">spec 用带编号的规则写明预期行为。它的检查项适用于它覆盖的每个 story。spec 还是草稿时，story 无法关闭。</div>
+      </div>
+      <div class="practice-row" role="row">
+        <div class="stage" role="cell" data-i18n="why.div.13">待办池<small>做什么</small></div>
+        <div class="practice-col" role="cell" data-i18n="why.div.14"><b>产品待办列表</b>，Scrum，1995 年。<b>用户故事</b>，XP，1999 年。用于软件开发的<b>看板</b>，2007 年。</div>
+        <div class="human" role="cell" data-i18n="why.div.15">待办池梳理会。看板靠手工维护，不出一周就与现实脱节。</div>
+        <div class="ps" role="cell" data-i18n="why.div.16">每个 story 文件自己记录状态。看板、索引和关系图都由这些文件生成。一旦对不上，一条命令就能重建。</div>
+      </div>
+      <div class="practice-row" role="row">
+        <div class="stage" role="cell" data-i18n="why.div.17">计划<small>改哪里</small></div>
+        <div class="practice-col" role="cell" data-i18n="why.div.18"><b>技术设计、影响分析。</b>技术负责人判断改动会落在现有代码的哪个位置。</div>
+        <div class="human" role="cell" data-i18n="why.div.19">早先的功能是怎样落到代码里的，这些知识只存在于技术负责人的脑子里。而他正在休假。</div>
+        <div class="ps" role="cell" data-i18n="why.div.20">planner 查看早先的 epic 落在代码的哪些位置，指出改动应该放在哪里、复用什么。计划写进 story。</div>
+      </div>
+      <div class="practice-row" role="row">
+        <div class="stage" role="cell" data-i18n="why.div.21">验收<small>证明</small></div>
+        <div class="practice-col" role="cell" data-i18n="why.div.22"><b>验收标准、完成的定义（Definition of Done）。</b>XP 和 Scrum，2000 年代初。</div>
+        <div class="human" role="cell" data-i18n="why.div.23">冲刺末尾的一轮 QA。“完成”靠宣布；标准只做抽查。</div>
+        <div class="ps" role="cell" data-i18n="why.div.24">reviewer 拿 diff 对照每一条标准，并要求证据：一个测试、一条运行过的命令、一行代码。没有证据，就不能关闭。</div>
+      </div>
+      <div class="practice-row" role="row">
+        <div class="stage" role="cell" data-i18n="why.div.25">可追溯性<small>关联</small></div>
+        <div class="practice-col" role="cell" data-i18n="why.div.26"><b>需求可追溯性。</b>自 DO-178B（1992 年）起在航空电子领域是强制要求，在医疗软件中也是。</div>
+        <div class="human" role="cell" data-i18n="why.div.27">一张“需求 → 代码 → 测试”的 Excel 矩阵，第二个版本发布后就再没人更新。</div>
+        <div class="ps" role="cell" data-i18n="why.div.28">每个 story 向上关联到它的 epic、ADR 和 spec，向下关联到它的代码。证据写在每条验收标准下方。关系图和代码地图是自动生成的，没人需要手工维护。</div>
+      </div>
+    </div>
+
+    <div class="chain">
+      <h3 data-i18n="why.h3.1">智能体顺带获得的关联：从目标到证明</h3>
+      <div class="chain-row" aria-label="工件关联链" data-i18n-attr="aria-label:why.aria-label.3">
+        <div class="chain-node goal"><span class="k" data-i18n="why.span.8">目标</span><strong data-i18n="why.strong.1">Epic</strong><span data-i18n="why.span.9">PAY-001 · 为什么要做这件事</span><span class="rel" data-i18n="why.span.10">epic:</span></div>
+        <div class="chain-node"><span class="k" data-i18n="why.span.11">为什么</span><strong data-i18n="why.strong.2">ADR</strong><span data-i18n="why.span.12">决策及被否决的方案</span><span class="rel" data-i18n="why.span.13">adr: [ ]</span></div>
+        <div class="chain-node"><span class="k" data-i18n="why.span.14">怎么做</span><strong data-i18n="why.strong.3">Spec</strong><span data-i18n="why.span.15">预期行为</span><span class="rel" data-i18n="why.span.16">specs: [ ]</span></div>
+        <div class="chain-node"><span class="k" data-i18n="why.span.17">做什么</span><strong data-i18n="why.strong.4">Story</strong><span data-i18n="why.span.18">计划与验收标准</span><span class="rel" data-i18n="why.span.19">code_refs:</span></div>
+        <div class="chain-node"><span class="k" data-i18n="why.span.20">在哪里</span><strong data-i18n="why.strong.5">代码</strong><span data-i18n="why.span.21">src/billing/orders/ · 早先的 epic 已经在这里</span><span class="rel" data-i18n="why.span.22">— 证据：</span></div>
+        <div class="chain-node proof"><span class="k" data-i18n="why.span.23">证明</span><strong data-i18n="why.strong.6">证据</strong><span data-i18n="why.span.24">tests/orders.test.mjs:41 · 每条标准一份</span></div>
+      </div>
+      <p class="chain-cap" data-i18n="why.p.7">关联写在每个文件的文件头里，证据则是每条验收标准下方的一行。这些都由智能体边工作边填写。关系图展示每份文档与哪些内容相连。代码地图说明每个 epic 的代码在哪里。新的会话、新的模型或新的同事，都从这条链开始，而不是从零开始。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 03 WORKFLOW ================= -->
+<section id="workflow" class="workflow-section" aria-labelledby="workflow-title">
+  <div class="wrap">
+    <div class="section-heading">
+      <div><div class="section-label"><span data-i18n="workflow.span.1">03 / 带验证的循环</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="workflow-title" data-i18n="workflow.h2.1">先定依据。<br><span class="muted-heading">再做实现。</span></h2></div>
+      <p data-i18n="workflow.p.1">不是一个“什么都做”的漫长会话。<b>六个步骤，每一步都有结果、有检查。</b>点击图中的节点或标签页。</p>
+    </div>
+
+    <figure class="loop-figure">
+      <div class="fig-head"><span data-i18n="workflow.span.2">循环：收集上下文 → 行动 → 验证 · 作用于整个项目，而不只是代码</span><span data-i18n="workflow.span.3">节点可点击</span></div>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 1160 460" role="img" aria-labelledby="loop-title" xmlns="http://www.w3.org/2000/svg">
+        <title id="loop-title" data-i18n="workflow.title.1">ProjectStore 循环：任务、文档、critic、你的批准、待办池、story、planner、代码、reviewer、完成。随后看板、关系图和代码地图自动更新，下一个会话一开始就有完整的上下文。</title>
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="marker"/></marker>
+          <marker id="arr-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="marker red"/></marker>
+          <marker id="arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="marker ink"/></marker>
+        </defs>
+        <text class="lbl" x="40" y="26" data-i18n="workflow.text.1">决策</text>
+        <text class="lbl" x="40" y="280" data-i18n="workflow.text.2">构建</text>
+        <path class="edge" d="M216,110 H262" marker-end="url(#arr)"/>
+        <path class="edge" d="M440,110 H486" marker-end="url(#arr)"/>
+        <path class="edge" d="M664,110 H710" marker-end="url(#arr)"/>
+        <path class="edge" d="M888,110 H934" marker-end="url(#arr)"/>
+        <path class="edge" d="M1024,142 V296" marker-end="url(#arr)"/>
+        <text class="elbl" x="1014" y="224" text-anchor="end" data-i18n="workflow.text.3">智能体接手</text>
+        <path class="edge" d="M936,330 H890" marker-end="url(#arr)"/>
+        <path class="edge" d="M712,330 H666" marker-end="url(#arr)"/>
+        <path class="edge" d="M488,330 H442" marker-end="url(#arr)"/>
+        <path class="edge" d="M264,330 H218" marker-end="url(#arr)"/>
+        <path class="edge back" d="M576,78 V52 Q576,48 572,48 H356 Q352,48 352,52 V76" marker-end="url(#arr-red)"/>
+        <text class="elbl red" x="464" y="42" text-anchor="middle" data-i18n="workflow.text.4">修订</text>
+        <path class="edge back" d="M352,362 V388 Q352,392 356,392 H572 Q576,392 576,388 V364" marker-end="url(#arr-red)"/>
+        <text class="elbl red" x="464" y="408" text-anchor="middle" data-i18n="workflow.text.5">修复</text>
+        <path class="edge loop" d="M128,362 V426 Q128,430 124,430 H20 Q16,430 16,426 V114 Q16,110 20,110 H38" marker-end="url(#arr-ink)"/>
+        <text class="elbl" x="148" y="434" data-i18n="workflow.text.6">看板、关系图和代码地图重建 → 下一个会话接着上次继续</text>
+
+        <g class="node" data-step="1"><rect class="node-box" x="40" y="78" width="176" height="64" rx="5"/><text class="t" x="56" y="106" data-i18n="workflow.text.7">任务</text><text class="s" x="56" y="126" data-i18n="workflow.text.8">来自你</text><circle class="numbg" cx="42" cy="80" r="10"/><text class="num" x="42" y="83.5" text-anchor="middle">1</text></g>
+        <g class="node" data-step="1"><rect class="node-box" x="264" y="78" width="176" height="64" rx="5"/><text class="t" x="280" y="106" data-i18n="workflow.text.9">工件</text><text class="s" x="280" y="126" data-i18n="workflow.text.10">ADR、spec、epic、story</text></g>
+        <g class="node" data-step="2"><text class="tag" x="488" y="70" data-i18n="workflow.text.11">独立检查</text><rect class="node-box verify" x="488" y="78" width="176" height="64" rx="5"/><text class="t" x="504" y="106" data-i18n="workflow.text.12">critic</text><text class="s" x="504" y="126" data-i18n="workflow.text.13">找出弱点</text><circle class="numbg" cx="490" cy="80" r="10"/><text class="num" x="490" y="83.5" text-anchor="middle">2</text></g>
+        <g class="node" data-step="3"><path class="node-box gate" d="M800,54 L888,110 L800,166 L712,110 Z"/><text class="t" x="800" y="105" text-anchor="middle" data-i18n="workflow.text.14">你来批准</text><text class="s" x="800" y="122" text-anchor="middle" data-i18n="workflow.text.15">是 · 编辑 · 否</text><circle class="numbg" cx="716" cy="84" r="10"/><text class="num" x="716" y="87.5" text-anchor="middle">3</text></g>
+        <g class="node" data-step="3"><rect class="node-box" x="936" y="78" width="176" height="64" rx="5"/><text class="t" x="952" y="106" data-i18n="workflow.text.16">待办池</text><text class="s" x="952" y="126" data-i18n="workflow.text.17">看板随之更新</text></g>
+        <g class="node" data-step="4"><rect class="node-box" x="936" y="298" width="176" height="64" rx="5"/><text class="t" x="952" y="326" data-i18n="workflow.text.18">Story</text><text class="s" x="952" y="346" data-i18n="workflow.text.19">status: in-progress</text><circle class="numbg" cx="938" cy="300" r="10"/><text class="num" x="938" y="303.5" text-anchor="middle">4</text></g>
+        <g class="node" data-step="4"><text class="tag" x="712" y="290" data-i18n="workflow.text.20">只读顾问</text><rect class="node-box advisor" x="712" y="298" width="176" height="64" rx="5"/><text class="t" x="728" y="326" data-i18n="workflow.text.21">planner</text><text class="s" x="728" y="346" data-i18n="workflow.text.22">代码中的落点</text></g>
+        <g class="node" data-step="5"><rect class="node-box" x="488" y="298" width="176" height="64" rx="5"/><text class="t" x="504" y="326" data-i18n="workflow.text.23">实现</text><text class="s" x="504" y="346" data-i18n="workflow.text.24">代码 + 测试</text><circle class="numbg" cx="490" cy="300" r="10"/><text class="num" x="490" y="303.5" text-anchor="middle">5</text></g>
+        <g class="node" data-step="5"><text class="tag" x="264" y="290" data-i18n="workflow.text.25">独立检查</text><rect class="node-box verify" x="264" y="298" width="176" height="64" rx="5"/><text class="t" x="280" y="326" data-i18n="workflow.text.26">reviewer</text><text class="s" x="280" y="346" data-i18n="workflow.text.27">每条标准都有证据</text></g>
+        <g class="node" data-step="6"><rect class="node-box" x="40" y="298" width="176" height="64" rx="5"/><text class="t" x="56" y="326" data-i18n="workflow.text.28">完成 ✓</text><text class="s" x="56" y="346" data-i18n="workflow.text.29">标准达成，有据可查</text><circle class="numbg" cx="42" cy="300" r="10"/><text class="num" x="42" y="303.5" text-anchor="middle">6</text></g>
+      </svg>
+      </div>
+      <figcaption data-i18n="workflow.figcaption.1">青柠色节点代表检查，由没有参与撰写草稿的智能体执行。菱形代表你的“是”：在此之前，什么都不会保存。</figcaption>
+    </figure>
+
+    <div class="tabs-root" data-tabs id="workflow-tabs" data-initial="1">
+      <div class="tab-list" role="tablist" aria-label="循环的步骤" data-i18n-attr="aria-label:workflow.aria-label.1">
+        <button class="tab-trigger" role="tab" data-tab="1" id="wf-t1" aria-controls="wf-p1"><span>01</span><span data-i18n="workflow.span.4">任务</span><svg class="icon"><use href="#i-right"/></svg></button>
+        <button class="tab-trigger" role="tab" data-tab="2" id="wf-t2" aria-controls="wf-p2"><span>02</span><span data-i18n="workflow.span.5">审视</span><svg class="icon"><use href="#i-right"/></svg></button>
+        <button class="tab-trigger" role="tab" data-tab="3" id="wf-t3" aria-controls="wf-p3"><span>03</span><span data-i18n="workflow.span.6">批准</span><svg class="icon"><use href="#i-right"/></svg></button>
+        <button class="tab-trigger" role="tab" data-tab="4" id="wf-t4" aria-controls="wf-p4"><span>04</span><span data-i18n="workflow.span.7">计划</span><svg class="icon"><use href="#i-right"/></svg></button>
+        <button class="tab-trigger" role="tab" data-tab="5" id="wf-t5" aria-controls="wf-p5"><span>05</span><span data-i18n="workflow.span.8">评审</span><svg class="icon"><use href="#i-right"/></svg></button>
+        <button class="tab-trigger" role="tab" data-tab="6" id="wf-t6" aria-controls="wf-p6"><span>06</span><span data-i18n="workflow.span.9">上下文</span><svg class="icon"><use href="#i-right"/></svg></button>
+      </div>
+
+      <div class="tab-panel workflow-panel" role="tabpanel" data-panel="1" id="wf-p1" aria-labelledby="wf-t1">
+        <div class="workflow-explanation"><span class="panel-eyebrow" data-i18n="workflow.span.10">先达成共识</span><h3 data-i18n="workflow.h3.1">写代码之前，先把任务写下来。</h3><p data-i18n="workflow.p.2">智能体先找出任务在项目中的位置。决策写成 ADR：一份简短的记录，说明选了什么、为什么。预期行为写成 spec，即代码必须遵守的规则。工作拆成 epic 和带验收标准的 story。在你说“是”之前，什么都不会保存。</p><div class="workflow-outcome"><svg class="icon"><use href="#i-check"/></svg><span data-i18n="workflow.span.11">有了一个可验证的任务，而不只是一段对话。</span></div></div>
+        <div class="example"><div class="example-header"><svg class="icon sm"><use href="#i-terminal"/></svg><span data-i18n="workflow.span.12">Claude Code · shop-api · vault: shop-vault</span><span data-i18n="workflow.span.13">示例</span></div>
+<pre data-i18n="workflow.pre.1"><span class="y">你 ›</span>  就用 Postgres，不用 Mongo。订单需要事务。
+
+<span class="a">智能体 ›</span> 这是一个架构决策，所以先写 ADR，而不是先写代码。
+        <span class="c">/projectstore:adr "<span data-title="adr">使用 Postgres 作为主存储</span>"</span>
+        → <span data-slug="adr:path">adr/使用-postgres-作为主存储.md</span>
+        <span class="m">背景 · 决策 · 备选方案：MongoDB — 被否决，因为……</span>
+
+        保存这个文件？  <span class="fakebtn on">是</span> <span class="fakebtn">保存前编辑</span> <span class="fakebtn">否</span></pre>
+          <div class="approval-gate"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="workflow.span.14">范围和做法由人来拍板。说“否”，vault（项目文档库）就原封不动。</span></div></div>
+      </div>
+
+      <div class="tab-panel workflow-panel" role="tabpanel" data-panel="2" id="wf-p2" aria-labelledby="wf-t2">
+        <div class="workflow-explanation"><span class="panel-eyebrow" data-i18n="workflow.span.15">独立视角</span><h3 data-i18n="workflow.h3.2">趁改动成本还低，先检查决策。</h3><p data-i18n="workflow.p.3">critic 是一个没有参与撰写草稿的智能体。它专门找站不住脚的假设、遗漏的方案，以及计划可能失败的地方。它被明确告知：错误放行的代价是错误驳回的 10–100 倍。</p><div class="workflow-outcome"><svg class="icon"><use href="#i-check"/></svg><span data-i18n="workflow.span.16">风险在实现之前就成为决策的一部分。</span></div></div>
+        <div class="example"><div class="example-header"><svg class="icon sm"><use href="#i-shield"/></svg><span data-i18n="workflow.span.17">projectstore:critic · 只读</span><span data-i18n="workflow.span.18">示例</span></div>
+          <div class="verdict"><span class="badge warn" data-i18n="workflow.span.19">需修订</span><span data-i18n="workflow.span.20">3 条意见</span></div>
+<pre data-i18n="workflow.pre.2"><span class="c">1.</span> <span class="a">备选方案：</span>“MongoDB — 没有事务”从 4.0 起就不成立了。真正的原因
+   是关系约束。要把这一点写明，否则这份 ADR 会误导下一位读者。
+<span class="c">2.</span> <span class="a">影响：</span>夜间对账任务怎么处理？移除还是保留？
+<span class="c">3.</span> <span class="a">决策：</span>“一个事务”包含什么？订单和明细行，不含支付。
+   这条边界就是决策本身，却没有写下来。</pre>
+          <div class="approval-gate"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="workflow.span.21">智能体的结论不能代替你的批准。作者负责修改草稿，但从不批准自己的工作。</span></div></div>
+      </div>
+
+      <div class="tab-panel workflow-panel" role="tabpanel" data-panel="3" id="wf-p3" aria-labelledby="wf-t3">
+        <div class="workflow-explanation"><span class="panel-eyebrow" data-i18n="workflow.span.22">批准与待办池</span><h3 data-i18n="workflow.h3.3">批准。放进待办池。</h3><p data-i18n="workflow.p.4">修改完成后，你会看到文件路径和完整内容，然后说“是”。同一个“是”也会更新该文件夹的索引。epic 和 story 进入待办池。看板根据文件自动生成，没人需要手工维护。</p><div class="workflow-outcome"><svg class="icon"><use href="#i-check"/></svg><span data-i18n="workflow.span.23">没有你的“是”，什么都不会写入。</span></div></div>
+        <div class="example"><div class="example-header"><svg class="icon sm"><use href="#i-file"/></svg><span data-i18n="workflow.span.24">批准 · kanban.md</span><span data-i18n="workflow.span.25">示例</span></div>
+<pre data-i18n="workflow.pre.3"><span class="a">智能体 ›</span> ADR 已修订：边界已写明，夜间对账任务已下线。
+        保存？  <span class="fakebtn on">是</span>   <span class="g">✓ 已保存 · ADR 索引已更新</span>
+
+        <span class="c">/projectstore:epic PAY-001 "<span data-title="epic">基于 Postgres 的订单处理</span>"</span>     <span class="g">✓</span>
+        <span class="c">/projectstore:story PAY-001 "<span data-title="story">订单事务写入</span>"</span>                <span class="g">✓</span>
+
+<span class="m">kanban.md · 根据 story 文件生成</span>
+## 待办池
+- [ ] [[<span data-slug="story:link">epics/PAY-001/stories/story-订单事务写入</span>|PAY-001: <span data-title="story">订单事务写入</span>]] #p1</pre>
+          <div class="approval-gate"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="workflow.span.26">看板、索引、关系图和代码地图都根据文件生成。手工编辑无法把它们永久改坏。</span></div></div>
+      </div>
+
+      <div class="tab-panel workflow-panel" role="tabpanel" data-panel="4" id="wf-p4" aria-labelledby="wf-t4">
+        <div class="workflow-explanation"><span class="panel-eyebrow" data-i18n="workflow.span.27">从待办池进入代码库</span><h3 data-i18n="workflow.h3.4">弄清代码究竟要改在哪里。</h3><p data-i18n="workflow.p.5">写代码之前，planner 先查看早先的 epic 落在代码的哪些位置：哪些模块已经负责这一块，可以复用什么。计划写进 story，story 的状态变为 <code>in-progress</code>。</p><div class="workflow-outcome"><svg class="icon"><use href="#i-check"/></svg><span data-i18n="workflow.span.28">计划依据的是项目的实际结构，而不是猜测。</span></div></div>
+        <div class="example"><div class="example-header"><svg class="icon sm"><use href="#i-code"/></svg><span data-i18n="workflow.span.29">/projectstore:story plan <span data-slug="story:ref">PAY-001/story-订单事务写入</span> · planner</span><span data-i18n="workflow.span.30">示例</span></div>
+<pre data-i18n="workflow.pre.4"><span class="m">早先的 epic：</span>BILL-001 → src/billing/   EXP-002 → adapters/csv/
+
+<span class="a">位置：</span>src/billing/orders/，紧挨 BILL-001。不新建模块。
+<span class="a">复用：</span>src/db/tx.mjs 中的 withTransaction() 已经支持重试。
+<span class="a">注意：</span>src/jobs/reconcile.mjs 仍在每晚运行。这份 ADR 让它下线。
+<span class="a">步骤：</span>迁移 → 写入器 → 回滚测试 → 移除该任务。
+<span class="g">→ 已保存到 story 的计划 · status: in-progress</span></pre>
+          <div class="approval-gate"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="workflow.span.31">story 关联到它的 epic、spec 和现有代码。如果有 spec 覆盖这个 story，计划就按 spec 来。</span></div></div>
+      </div>
+
+      <div class="tab-panel workflow-panel" role="tabpanel" data-panel="5" id="wf-p5" aria-labelledby="wf-t5">
+        <div class="workflow-explanation"><span class="panel-eyebrow" data-i18n="workflow.span.32">独立的评审者</span><h3 data-i18n="workflow.h3.5">对照承诺的结果检查代码。</h3><p data-i18n="workflow.p.6">reviewer 拿真实的 diff 对照每一条验收标准，包括来自 spec 的标准。“完成”需要证据：一个测试、一条实际运行过的命令，或一段具体的代码。</p><div class="workflow-outcome"><svg class="icon"><use href="#i-check"/></svg><span data-i18n="workflow.span.33">“完成”看的是标准是否达成，而不是意图。</span></div></div>
+        <div class="example"><div class="example-header"><svg class="icon sm"><use href="#i-shield"/></svg><span data-i18n="workflow.span.34">/projectstore:story close <span data-slug="story:ref">PAY-001/story-订单事务写入</span> · reviewer</span><span data-i18n="workflow.span.35">示例</span></div>
+          <div class="verdict"><span class="badge warn" data-i18n="workflow.span.36">未关闭</span><span data-i18n="workflow.span.37">3 条标准中有 1 条缺少证据</span></div>
+<pre data-i18n="workflow.pre.5">- [x] 订单与明细行原子写入
+      <span class="g">证据：tests/orders.test.mjs:41 — 明细行插入失败时回滚</span>
+- [x] 夜间对账任务已移除
+      <span class="g">证据：src/jobs/reconcile.mjs 已删除 · deploy/cron:12</span>
+- [ ] 序列化失败时会重试
+      <span class="w">无证据：重试次数被设为 0（write.mjs:58）</span>
+<span class="m">结论：关闭前需修复</span></pre>
+          <div class="approval-gate"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="workflow.span.38">评审发生在提交之前，也在 story 关闭之前。reviewer 只出报告，从不编辑，也从不提交。</span></div></div>
+      </div>
+
+      <div class="tab-panel workflow-panel" role="tabpanel" data-panel="6" id="wf-p6" aria-labelledby="wf-t6">
+        <div class="workflow-explanation"><span class="panel-eyebrow" data-i18n="workflow.span.39">下一次迭代</span><h3 data-i18n="workflow.h3.6">给下一个智能体留个入口。</h3><p data-i18n="workflow.p.7">story 关闭后，看板、关系图和代码地图会自动重建。下一个会话从决策列表开始，而不是从零开始。已有定论的问题，就不再重议。</p><div class="workflow-outcome"><svg class="icon"><use href="#i-check"/></svg><span data-i18n="workflow.span.40">会话会更替，项目的历史会留下。</span></div></div>
+        <div class="example"><div class="example-header"><svg class="icon sm"><use href="#i-layers"/></svg><span data-i18n="workflow.span.41">story 已关闭 · 新会话</span><span data-i18n="workflow.span.42">示例</span></div>
+<pre data-i18n="workflow.pre.6"><span class="g">✓</span> <span data-slug="story:file">story-订单事务写入.md</span>
+            status: done · closed_at: 2026-07-04
+<span class="g">✓</span> kanban.md   已移到“已完成”
+<span class="g">✓</span> code-map.md PAY-001 → src/billing/orders/ · deploy/cron
+<span class="g">✓</span> graph.md    story → 它的 spec → ADR，双向链接
+
+<span class="m">── 三周后 · 新会话 ──</span>
+<span class="m">智能体一开始就拿到 vault 的简短概况</span>
+<span class="y">你 ›</span>  订单要不要放到 Mongo？能简化商品目录同步
+<span class="a">智能体 ›</span> 这件事已经由 <span data-slug="adr:path">adr/使用-postgres-作为主存储.md</span>（accepted，2026-07-03）
+        定下了。如果要改，就写一份新的 ADR 来取代它。</pre>
+          <div class="approval-gate"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="workflow.span.43">clerk 只保存你批准的内容，一字不差。它不会自己做任何决定。</span></div></div>
+      </div>
+    </div>
+
+    <div class="mechanisms" aria-label="让循环不跑偏的机制" data-i18n-attr="aria-label:workflow.aria-label.2">
+      <article><span class="tag" data-i18n="workflow.span.44">提醒</span><h4 data-i18n="workflow.h4.1">没有 story 就写代码，会收到提醒</h4><p data-i18n="workflow.p.8">没有进行中的 story，却改了三个或更多源文件，智能体就会收到一次提醒：先开一个 story。只统计实际发生的编辑。</p></article>
+      <article><span class="tag" data-i18n="workflow.span.45">先评审</span><h4 data-i18n="workflow.h4.2">未经评审，什么都不算定稿</h4><p data-i18n="workflow.p.9">每份新的 ADR、spec、epic 和研究笔记都会一直标着“未评审”，直到 critic 审视过为止。你的智能体指令里有一小段内容，确保新文档先经过 critic，之后才会被当作定稿。</p></article>
+      <article><span class="tag" data-i18n="workflow.span.46">doctor · 不用 AI</span><h4 data-i18n="workflow.h4.3">常规检查，不用 AI</h4><p data-i18n="workflow.p.10">看板和 story 是否一致？有没有失效的链接，或指向不存在代码的链接？有没有未开 story 就在进行的工作？它在会话开始时运行，只有出问题时才会出声。</p></article>
+    </div>
+    <p class="section-footnote" data-i18n="workflow.p.11"><span class="footnote-mark">↳</span> 决策与写入都要经过批准。独立的智能体协助检查；责任仍在团队。</p>
+  </div>
+</section>
+
+<!-- ================= 04 ARTIFACTS ================= -->
+<section id="artifacts" class="artifacts-section" aria-labelledby="artifacts-title">
+  <div class="wrap">
+    <div class="section-label"><span data-i18n="artifacts.span.1">04 / 留在磁盘上的内容</span><svg class="icon"><use href="#i-down"/></svg></div>
+    <div class="section-heading artifact-heading"><h2 id="artifacts-title" data-i18n="artifacts.h2.1">普通的文件。<br><span class="muted-heading">格外有用的关联。</span></h2><p data-i18n="artifacts.p.1">在编辑器里阅读，在合并请求里讨论，在 Obsidian 里打开。<b>上下文不绑定任何一个工具。</b></p></div>
+
+    <div data-tabs data-initial="adr">
+      <div class="artifact-tabs" role="tablist" aria-label="示例项目工件" data-i18n-attr="aria-label:artifacts.aria-label.1">
+        <button class="artifact-trigger" role="tab" data-tab="adr" id="ar-t1" aria-controls="ar-p1"><svg class="icon"><use href="#i-file"/></svg><strong data-i18n="artifacts.strong.1">ADR</strong><span data-i18n="artifacts.span.2">为什么这样做？</span></button>
+        <button class="artifact-trigger" role="tab" data-tab="spec" id="ar-t2" aria-controls="ar-p2"><svg class="icon"><use href="#i-file"/></svg><strong data-i18n="artifacts.strong.2">Spec</strong><span data-i18n="artifacts.span.3">行为应当如何？</span></button>
+        <button class="artifact-trigger" role="tab" data-tab="story" id="ar-t3" aria-controls="ar-p3"><svg class="icon"><use href="#i-file"/></svg><strong data-i18n="artifacts.strong.3">Story</strong><span data-i18n="artifacts.span.4">做什么、验证什么？</span></button>
+        <button class="artifact-trigger" role="tab" data-tab="board" id="ar-t4" aria-controls="ar-p4"><svg class="icon"><use href="#i-layers"/></svg><strong data-i18n="artifacts.strong.4">看板</strong><span data-i18n="artifacts.span.5">它从哪里来？</span></button>
+      </div>
+
+      <div class="tab-panel artifact-panel" role="tabpanel" data-panel="adr" id="ar-p1" aria-labelledby="ar-t1">
+        <div class="artifact-description"><span class="artifact-index" data-i18n="artifacts.span.6">ADR / markdown + yaml</span><h3 data-i18n="artifacts.h3.1">不只保留选择，也保留理由。</h3><p data-i18n="artifacts.p.2">ADR 记录一项架构决策：背景、备选方案、最终选择及其影响。决策推翻后，原来的 ADR 不会删除，而是指向取代它的那一份。六个月后，没人会把同样的争论再来一遍。</p><div class="artifact-connection"><span class="connection-node"></span><span data-i18n="artifacts.span.7">决策 → spec → story</span><svg class="icon"><use href="#i-up-right"/></svg></div><a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/how-it-works.md" target="_blank" rel="noopener noreferrer"><span data-i18n="artifacts.span.8">工件如何运作</span> <svg class="icon"><use href="#i-up-right"/></svg></a></div>
+        <div class="artifact-file"><div class="example-header"><svg class="icon"><use href="#i-file"/></svg><span data-i18n="artifacts.span.9" data-slug="adr:path">adr/使用-postgres-作为主存储.md</span></div>
+<pre class="code-lines" data-template="adr" data-i18n="artifacts.pre.1"><code><span class="code-line"><span class="line-number">01</span><span>---</span></span>
+<span class="code-line code-key"><span class="line-number">02</span><span>id: "<span data-slug="adr:slug">使用-postgres-作为主存储</span>"</span></span>
+<span class="code-line code-key"><span class="line-number">03</span><span>title: "<span data-title="adr">使用 Postgres 作为主存储</span>"</span></span>
+<span class="code-line code-key"><span class="line-number">04</span><span>status: accepted</span></span>
+<span class="code-line code-key"><span class="line-number">05</span><span>date: 2026-07-03</span></span>
+<span class="code-line code-key"><span class="line-number">06</span><span>supersedes: null</span></span>
+<span class="code-line code-key"><span class="line-number">07</span><span>review_status: reviewed</span></span>
+<span class="code-line"><span class="line-number">08</span><span>---</span></span>
+<span class="code-line"><span class="line-number">09</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">10</span><span>## 背景</span></span>
+<span class="code-line"><span class="line-number">11</span><span>订单及其明细行必须原子写入。</span></span>
+<span class="code-line"><span class="line-number">12</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">13</span><span>## 决策</span></span>
+<span class="code-line"><span class="line-number">14</span><span>Postgres 16。订单与明细行在同一个事务中写入。</span></span>
+<span class="code-line"><span class="line-number">15</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">16</span><span>## 备选方案</span></span>
+<span class="code-line"><span class="line-number">17</span><span>MongoDB：有事务，但没有关系约束。</span></span>
+<span class="code-line"><span class="line-number">18</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">19</span><span>## 影响</span></span>
+<span class="code-line"><span class="line-number">20</span><span>迁移成为发布步骤之一。夜间对账任务下线。</span></span></code></pre>
+          <div class="artifact-disclaimer" data-i18n="artifacts.div.1">简化示例。文件结构、文件头字段和章节标题都是真实的（<code>--lang zh</code> 模板）。</div></div>
+      </div>
+
+      <div class="tab-panel artifact-panel" role="tabpanel" data-panel="spec" id="ar-p2" aria-labelledby="ar-t2">
+        <div class="artifact-description"><span class="artifact-index" data-i18n="artifacts.span.10">Spec / markdown + yaml</span><h3 data-i18n="artifacts.h3.2">把行为写成明确的契约。</h3><p data-i18n="artifacts.p.3">spec 规定系统必须有怎样的行为，写成一条条带编号、可测试的规则。多个 story 可以实现同一份 spec。spec 的检查项会加到每个 story 自己的检查项里；spec 还是草稿时，story 无法关闭。</p><div class="artifact-connection"><span class="connection-node"></span><span data-i18n="artifacts.span.11">spec → story → 验收</span><svg class="icon"><use href="#i-up-right"/></svg></div></div>
+        <div class="artifact-file"><div class="example-header"><svg class="icon"><use href="#i-file"/></svg><span data-i18n="artifacts.span.12" data-slug="spec:path">specs/订单事务写入.md</span></div>
+<pre class="code-lines" data-template="spec" data-i18n="artifacts.pre.2"><code><span class="code-line"><span class="line-number">01</span><span>---</span></span>
+<span class="code-line code-key"><span class="line-number">02</span><span>id: "<span data-slug="spec:slug">订单事务写入</span>"</span></span>
+<span class="code-line code-key"><span class="line-number">03</span><span>title: "<span data-title="spec">订单事务写入</span>"</span></span>
+<span class="code-line code-key"><span class="line-number">04</span><span>status: active</span></span>
+<span class="code-line code-key"><span class="line-number">05</span><span>adr: [<span data-slug="adr:slug">使用-postgres-作为主存储</span>]</span></span>
+<span class="code-line code-key"><span class="line-number">06</span><span>stories: [<span data-slug="story:id">story-订单事务写入</span>]</span></span>
+<span class="code-line"><span class="line-number">07</span><span>---</span></span>
+<span class="code-line"><span class="line-number">08</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">09</span><span>## 行为契约</span></span>
+<span class="code-line"><span class="line-number">10</span><span>1. 订单与明细行属于同一个事务。</span></span>
+<span class="code-line"><span class="line-number">11</span><span>2. 序列化失败最多重试 3 次。</span></span>
+<span class="code-line"><span class="line-number">12</span><span>3. 重复请求不会创建第二个订单。</span></span>
+<span class="code-line"><span class="line-number">13</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">14</span><span>## 验收</span></span>
+<span class="code-line"><span class="line-number">15</span><span>- [ ] 某个明细行失败时回滚 — stories: <span data-slug="story:id">story-订单事务写入</span></span></span>
+<span class="code-line"><span class="line-number">16</span><span>- [ ] 重复请求有测试覆盖</span></span></code></pre>
+          <div class="artifact-disclaimer" data-i18n="artifacts.div.2">没有指明 story 的检查项，适用于该 spec 覆盖的所有 story。</div></div>
+      </div>
+
+      <div class="tab-panel artifact-panel" role="tabpanel" data-panel="story" id="ar-p3" aria-labelledby="ar-t3">
+        <div class="artifact-description"><span class="artifact-index" data-i18n="artifacts.span.13">Story / markdown + yaml</span><h3 data-i18n="artifacts.h3.3">把任务与可验证的结果绑在一起。</h3><p data-i18n="artifacts.p.4">story 位于 epic 之内，包含范围、计划、验收标准和证据。<code>code_refs</code> 把它与真实文件关联起来。story 有两个检查点：开工前先做计划；关闭时每条标准都要附上证据。</p><div class="artifact-connection"><span class="connection-node"></span><span data-i18n="artifacts.span.14">story → diff → 证据</span><svg class="icon"><use href="#i-up-right"/></svg></div></div>
+        <div class="artifact-file"><div class="example-header"><svg class="icon"><use href="#i-file"/></svg><span data-i18n="artifacts.span.15" data-slug="story:path">epics/PAY-001/stories/story-订单事务写入.md</span></div>
+<pre class="code-lines" data-template="story" data-i18n="artifacts.pre.3"><code><span class="code-line"><span class="line-number">01</span><span>---</span></span>
+<span class="code-line code-key"><span class="line-number">02</span><span>id: "<span data-slug="story:id">story-订单事务写入</span>"</span></span>
+<span class="code-line code-key"><span class="line-number">03</span><span>title: "<span data-title="story">订单事务写入</span>"</span></span>
+<span class="code-line code-key"><span class="line-number">04</span><span>status: in-progress</span></span>
+<span class="code-line code-key"><span class="line-number">05</span><span>epic: "PAY-001"</span></span>
+<span class="code-line code-key"><span class="line-number">06</span><span>specs: [<span data-slug="spec:slug">订单事务写入</span>]</span></span>
+<span class="code-line code-key"><span class="line-number">07</span><span>code_refs: [src/billing/orders/]</span></span>
+<span class="code-line"><span class="line-number">08</span><span>---</span></span>
+<span class="code-line"><span class="line-number">09</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">10</span><span>## 验收标准</span></span>
+<span class="code-line"><span class="line-number">11</span><span>- [x] 订单与明细行原子写入</span></span>
+<span class="code-line code-hi"><span class="line-number">12</span><span>      — 证据：tests/orders.test.mjs:41</span></span>
+<span class="code-line"><span class="line-number">13</span><span>- [ ] 序列化失败时会重试</span></span>
+<span class="code-line"><span class="line-number">14</span><span> </span></span>
+<span class="code-line code-heading"><span class="line-number">15</span><span>## 实施计划</span></span>
+<span class="code-line"><span class="line-number">16</span><span>扩展 src/db/tx.mjs 中的 withTransaction()。</span></span></code></pre>
+          <div class="artifact-disclaimer" data-i18n="artifacts.div.3">证据在 story 关闭时添加：一个测试、一条命令或一行代码。</div></div>
+      </div>
+
+      <div class="tab-panel demo-panel" role="tabpanel" data-panel="board" id="ar-p4" aria-labelledby="ar-t4">
+        <div class="artifact-description"><span class="artifact-index" data-i18n="artifacts.span.16">kanban.md / 派生</span><h3 data-i18n="artifacts.h3.4">看板由 story 文件生成。</h3><p data-i18n="artifacts.p.5">改一下 story 的状态或优先级，看板就会跟着变。下面这一行正是会写进 <code>kanban.md</code> 的内容。如果手工编辑看板，你会收到提醒，让你重建它。看板过时是要修复的问题，而不是正常状态。</p>
+<div class="fm-edit"><span class="path" data-i18n="artifacts.demo.path" data-slug="story:path">epics/PAY-001/stories/story-订单事务写入.md</span><span class="k">status:</span> <label class="visually-hidden" for="demo-status">status</label><select id="demo-status"><option value="planned">planned</option><option value="todo">todo</option><option value="in-progress" selected>in-progress</option><option value="review">review</option><option value="done">done</option></select>
+<span class="k">priority:</span> <label class="visually-hidden" for="demo-priority">priority</label><select id="demo-priority"><option value="p0">p0</option><option value="p1" selected>p1</option><option value="p2">p2</option><option value="p3">p3</option></select>
+<span class="k">epic:</span> <span class="v">"PAY-001"</span>
+<span class="k">code_refs:</span> <span class="v">["src/billing/orders/"]</span></div>
+          <p class="demo-note" data-i18n="artifacts.p.6">标为 <code>superseded</code>、<code>deferred</code> 或 <code>parked</code> 的 story 会从看板上移除，而不是假装还在排队。</p>
+        </div>
+        <div>
+          <div class="board" aria-label="渲染后的 kanban.md" data-i18n-attr="aria-label:artifacts.aria-label.2">
+            <div class="col" data-col="Backlog"><h5><span data-i18n="artifacts.demo.col.1">待办池</span> <i>0</i></h5><div class="kcard"><b>PAY-001</b><span class="kt" data-i18n="artifacts.demo.card.1">Postgres 表结构迁移</span><span class="tags">#p1</span></div></div>
+            <div class="col" data-col="ToDo"><h5><span data-i18n="artifacts.demo.col.2">待开始</span> <i>0</i></h5><div class="kcard"><b>PAY-001</b><span class="kt" data-i18n="artifacts.demo.card.2">移除夜间对账任务</span><span class="tags">#p2</span></div></div>
+            <div class="col" data-col="In Progress"><h5><span data-i18n="artifacts.demo.col.3">进行中</span> <i>0</i></h5><div class="kcard you" id="demo-card"><b>PAY-001</b><span class="kt" data-i18n="artifacts.demo.card.3" data-title="story">订单事务写入</span><span class="tags">#p1</span></div></div>
+            <div class="col" data-col="Review"><h5><span data-i18n="artifacts.demo.col.4">评审</span> <i>0</i></h5></div>
+            <div class="col" data-col="Done"><h5><span data-i18n="artifacts.demo.col.5">已完成</span> <i>0</i></h5><div class="kcard done"><b>BILL-001</b><span class="kt" data-i18n="artifacts.demo.card.4">发票编号</span><span class="tags">#p2 #done</span></div></div>
+          </div>
+          <div class="board-src" id="demo-src" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 05 TEAMS ================= -->
+<section id="teams" class="teams-section" aria-labelledby="teams-title">
+  <div class="wrap">
+    <div class="section-heading">
+      <div><div class="section-label on-dark"><span data-i18n="teams.span.1">05 / 协同工作</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="teams-title" data-i18n="teams.h2.1">一个项目。<br><span>不止一个参与者。</span></h2></div>
+      <p data-i18n="teams.p.1">上下文属于团队，而不属于某个开发者的聊天。ADR 和 spec 像代码一样走合并请求。<b>被评审的是推理过程。</b></p>
+    </div>
+
+    <div data-tabs data-initial="team">
+      <div class="team-tabs" role="tablist" aria-label="协作场景" data-i18n-attr="aria-label:teams.aria-label.1">
+        <button class="team-trigger" role="tab" data-tab="team" id="tm-t1" aria-controls="tm-p1" data-i18n="teams.button.1">一个团队</button>
+        <button class="team-trigger" role="tab" data-tab="teams" id="tm-t2" aria-controls="tm-p2" data-i18n="teams.button.2">多个团队</button>
+        <button class="team-trigger" role="tab" data-tab="agents" id="tm-t3" aria-controls="tm-p3" data-i18n="teams.button.3">多个智能体</button>
+      </div>
+
+      <div class="tab-panel team-panel" role="tabpanel" data-panel="team" id="tm-p1" aria-labelledby="tm-t1">
+        <div class="team-explanation"><h3 data-i18n="teams.h3.1">每个人看到的都不只是自己那一部分。</h3><p data-i18n="teams.p.2">开发者、技术负责人和 QA 基于同一套决策和标准工作。没有智能体的人只需要 GitHub 或一个 Markdown 编辑器，因为这些都只是普通文件。</p><div class="team-note"><svg class="icon"><use href="#i-users"/></svg><p data-i18n="teams.p.3">整个团队都能用到这份上下文，而不只是发起聊天的那个人。</p></div></div>
+        <div class="team-diagram"><div class="team-people"><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-code"/></svg></span><strong data-i18n="teams.strong.1">开发者</strong><span data-i18n="teams.span.2">代码 + story</span></div><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-pr"/></svg></span><strong data-i18n="teams.strong.2">技术负责人</strong><span data-i18n="teams.span.3">决策 + 评审</span></div><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-shield"/></svg></span><strong data-i18n="teams.strong.3">QA</strong><span data-i18n="teams.span.4">标准 + 验证</span></div></div><div class="network-lines" aria-hidden="true"><i></i><i></i><i></i></div><div class="network-operation"><svg class="icon sm"><use href="#i-merge"/></svg> <span data-i18n="teams.span.5">分支 → 评审 → 合并</span></div><div class="shared-vault"><svg class="icon lg"><use href="#i-layers"/></svg><div><strong data-i18n="teams.strong.4">shop-vault</strong><span data-i18n="teams.span.6">共享的决策 · spec · epic · story</span></div><span class="git-label" data-i18n="teams.span.7">GIT</span></div><span class="diagram-caption" data-i18n="teams.span.8">组织工作的一个示例，并非实时编排</span></div>
+      </div>
+
+      <div class="tab-panel team-panel" role="tabpanel" data-panel="teams" id="tm-p2" aria-labelledby="tm-t2">
+        <div class="team-explanation"><h3 data-i18n="teams.h3.2">契约共享，工作分区。</h3><p data-i18n="teams.p.4">在同一个项目里，API、Web 和平台团队基于共享的 ADR 和 spec，各自推进自己的 epic。共享契约的变更，会在评审中与使用它的团队一起讨论。ProjectStore 会显示哪些 story 依赖它。</p><div class="team-note"><svg class="icon"><use href="#i-users"/></svg><p data-i18n="teams.p.5">谁负责哪些工件、谁来审批契约，由团队自己决定。</p></div></div>
+        <div class="team-diagram"><div class="team-people"><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-code"/></svg></span><strong data-i18n="teams.strong.5">API 团队</strong><span data-i18n="teams.span.9">服务契约</span></div><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-pr"/></svg></span><strong data-i18n="teams.strong.6">Web 团队</strong><span data-i18n="teams.span.10">用户流程</span></div><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-shield"/></svg></span><strong data-i18n="teams.strong.7">平台</strong><span data-i18n="teams.span.11">基础设施</span></div></div><div class="network-lines" aria-hidden="true"><i></i><i></i><i></i></div><div class="network-operation"><svg class="icon sm"><use href="#i-merge"/></svg> <span data-i18n="teams.span.12">共享的 ADR 和 spec → 评审 → 合并</span></div><div class="shared-vault"><svg class="icon lg"><use href="#i-layers"/></svg><div><strong data-i18n="teams.strong.8">shop-vault</strong><span data-i18n="teams.span.13">共享的 ADR 和 spec · 每个团队各自的 epic</span></div><span class="git-label" data-i18n="teams.span.14">GIT</span></div><span class="diagram-caption" data-i18n="teams.span.15">组织工作的一个示例，并非实时编排</span></div>
+      </div>
+
+      <div class="tab-panel team-panel" role="tabpanel" data-panel="agents" id="tm-p3" aria-labelledby="tm-t3">
+        <div class="team-explanation"><h3 data-i18n="teams.h3.3">执行者不同，依据相同。</h3><p data-i18n="teams.p.6">规划者读决策和代码地图。实现者读 story 和 spec。评审者读 diff 和标准。每一方拿到的是自己需要的上下文，而不是别人会话的全部历史。在同一个 vault 上工作的会话会互相提醒。</p><div class="team-note"><svg class="icon"><use href="#i-users"/></svg><p data-i18n="teams.p.7">启动智能体并在它们之间交接工作，是你的 harness（智能体运行框架）或编排器的职责。</p></div></div>
+        <div class="team-diagram"><div class="team-people"><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-pr"/></svg></span><strong data-i18n="teams.strong.9">规划者</strong><span data-i18n="teams.span.16">改哪里、怎么改</span></div><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-code"/></svg></span><strong data-i18n="teams.strong.10">实现者</strong><span data-i18n="teams.span.17">按 story 写代码</span></div><div class="team-person"><span class="person-icon"><svg class="icon lg"><use href="#i-shield"/></svg></span><strong data-i18n="teams.strong.11">评审者</strong><span data-i18n="teams.span.18">Diff ↔ 标准</span></div></div><div class="network-lines" aria-hidden="true"><i></i><i></i><i></i></div><div class="network-operation"><svg class="icon sm"><use href="#i-merge"/></svg> <span data-i18n="teams.span.19">通过 MCP 或 CLI 只读访问</span></div><div class="shared-vault"><svg class="icon lg"><use href="#i-layers"/></svg><div><strong data-i18n="teams.strong.12">shop-vault</strong><span data-i18n="teams.span.20">所有智能体共用一份上下文 · 任意模型</span></div><span class="git-label" data-i18n="teams.span.21">GIT</span></div><span class="diagram-caption" data-i18n="teams.span.22">组织工作的一个示例，并非实时编排</span></div>
+      </div>
+    </div>
+
+    <figure class="team-figure">
+      <div class="fig-head"><span data-i18n="teams.span.23">在 git 中是什么样子</span><span data-i18n="teams.span.24">vault 放在独立的仓库中</span></div>
+      <div class="fig-scroll">
+      <svg class="on-dark-svg" viewBox="0 0 1160 440" role="img" aria-labelledby="team-title-svg" xmlns="http://www.w3.org/2000/svg">
+        <title id="team-title-svg" data-i18n="teams.title.1">各自带着智能体的开发者绑定到同一个 vault，它位于独立的 git 仓库中。ADR 和 spec 以合并请求的形式评审。没有智能体的队友在 GitHub 或 Obsidian 中评审。</title>
+        <defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="marker"/></marker></defs>
+        <g><rect class="person" x="40" y="52" width="250" height="72" rx="5"/><circle class="head" cx="68" cy="80" r="9" stroke-width="1.2"/><path class="head" d="M52,110 Q68,92 84,110" stroke-width="1.2"/><text class="t" x="100" y="82" data-i18n="teams.text.1">开发者 A</text><text class="s" x="100" y="102" data-i18n="teams.text.2">Claude Code + projectstore</text><text class="tag" x="218" y="72" data-i18n="teams.text.3">智能体</text></g>
+        <g><rect class="person" x="40" y="156" width="250" height="72" rx="5"/><circle class="head" cx="68" cy="184" r="9" stroke-width="1.2"/><path class="head" d="M52,214 Q68,196 84,214" stroke-width="1.2"/><text class="t" x="100" y="186" data-i18n="teams.text.4">开发者 B</text><text class="s" x="100" y="206" data-i18n="teams.text.5">Codex + projectstore</text><text class="tag" x="218" y="176" data-i18n="teams.text.6">智能体</text></g>
+        <g><rect class="person" x="40" y="260" width="250" height="72" rx="5"/><circle class="head" cx="68" cy="288" r="9" stroke-width="1.2"/><path class="head" d="M52,318 Q68,300 84,318" stroke-width="1.2"/><text class="t" x="100" y="286" data-i18n="teams.text.7">开发者 C</text><text class="s" x="100" y="304" data-i18n="teams.text.8">无智能体</text><text class="s" x="100" y="320" data-i18n="teams.text.9">在 GitHub/Obsidian 上评审</text></g>
+        <rect class="vault lime" x="430" y="36" width="320" height="356" rx="6"/>
+        <text class="t ink" x="454" y="70" data-i18n="teams.text.10">shop-vault</text><text class="s ink" x="454" y="90" data-i18n="teams.text.11">独立 git 仓库 · 纯 markdown</text>
+        <line class="rule ink" x1="454" y1="104" x2="726" y2="104"/>
+        <text class="file ink" x="454" y="132" data-i18n="teams.text.12"><tspan class="d">adr/</tspan> 决策，带日期</text>
+        <text class="file ink" x="454" y="156" data-i18n="teams.text.13"><tspan class="d">specs/</tspan> 应当如何运作</text>
+        <text class="file ink" x="454" y="180" data-i18n="teams.text.14"><tspan class="d">epics/ · stories/</tspan> 待办池</text>
+        <text class="file ink" x="454" y="204" data-i18n="teams.text.15"><tspan class="d">kanban.md</tspan> 看板</text>
+        <text class="file ink" x="454" y="228" data-i18n="teams.text.16"><tspan class="d">graph.md</tspan> 所有关联</text>
+        <text class="file ink" x="454" y="252" data-i18n="teams.text.17"><tspan class="d">code-map.md</tspan> epic ↔ 代码</text>
+        <line class="rule ink" x1="454" y1="272" x2="726" y2="272"/>
+        <text class="s ink" x="454" y="298" data-i18n="teams.text.18">每次写入先展示、再批准</text><text class="s ink" x="454" y="316" data-i18n="teams.text.19">无论是人还是智能体：</text><text class="s ink" x="454" y="334" data-i18n="teams.text.20">规则都一样</text><text class="s ink" x="454" y="370" data-i18n="teams.text.21">无服务器 · 无需导出</text>
+        <rect class="vault" x="880" y="120" width="240" height="180" rx="6"/>
+        <text class="t" x="904" y="154" data-i18n="teams.text.22">git remote</text><text class="s" x="904" y="174" data-i18n="teams.text.23">GitHub · GitLab · 其他均可</text>
+        <line class="rule" x1="904" y1="188" x2="1096" y2="188"/>
+        <text class="file" x="904" y="214" data-i18n="teams.text.24">ADR 与 spec 的评审</text><text class="file" x="904" y="232" data-i18n="teams.text.25">通过合并请求进行：</text><text class="file" x="904" y="258" data-i18n="teams.text.26"><tspan class="d">评审的是“为什么”，</tspan></text><text class="file" x="904" y="276" data-i18n="teams.text.27"><tspan class="d">不只是代码</tspan></text>
+        <path class="edge" d="M290,88 H360 Q380,88 380,108 V150 Q380,160 390,160 H428" marker-end="url(#arr2)"/>
+        <path class="edge" d="M290,192 H360 Q380,192 380,180 V172 Q380,160 390,160 H428"/>
+        <text class="elbl" x="300" y="150" data-i18n="teams.text.28">绑定</text>
+        <path class="edge" d="M750,210 H878" marker-end="url(#arr2)" marker-start="url(#arr2)"/>
+        <text class="elbl" x="782" y="200" data-i18n="teams.text.29">push / pull</text>
+        <path class="edge" d="M290,296 H340 Q360,296 360,316 V410 Q360,414 364,414 H996 Q1000,414 1000,410 V302" marker-end="url(#arr2)"/>
+        <text class="elbl" x="600" y="432" data-i18n="teams.text.30">评审 &amp; pull</text>
+      </svg>
+      </div>
+      <figcaption data-i18n="teams.figcaption.1">把 vault 放进独立的仓库。每个人都安装 ProjectStore，绑定同一个 vault，改动都要经过批准才会保存。没有智能体的队友在 GitHub 或 Obsidian 中评审。</figcaption>
+    </figure>
+
+    <div class="git-playbook"><h3 data-i18n="teams.h3.4">团队配置，分步说明</h3>
+      <div class="git-steps">
+        <article><span>01</span><h4 data-i18n="teams.h4.1">独立的 vault 仓库</h4><p data-i18n="teams.p.8">每个项目一个项目文档仓库，而不是每人一个。它与代码仓库并列存放。</p></article>
+        <article><span>02</span><h4 data-i18n="teams.h4.2">各自检出并绑定</h4><p data-i18n="teams.p.9">每个人在自己的代码副本里运行 <code>/projectstore:bind</code>。这项设置只保存在本机，不会被提交。</p></article>
+        <article><span>03</span><h4 data-i18n="teams.h4.3">分支加合并请求</h4><p data-i18n="teams.p.10">每项决策在被接受之前，都要经过人工评审。critic 在合并请求之前审视它，你的团队在合并请求中评审它。</p></article>
+        <article><span>04</span><h4 data-i18n="teams.h4.4">在 CI 中运行 doctor</h4><p data-i18n="teams.p.11"><code>npx projectstore doctor --json</code> 在 CI 中运行，不需要智能体，也不消耗 token。发现问题时，它会让这一步失败。<code>reconcile --write</code> 也可以在 CI 中重建看板。</p></article>
+      </div>
+    </div>
+
+    <div class="sessions">
+      <div>
+        <h3 data-i18n="teams.h3.5">多个会话，同一个 vault</h3>
+        <p data-i18n="teams.p.12">两个智能体或两个人同时在同一个 vault 中工作，是常态。每个会话都知道其他会话的存在，几条简单的规则让它们互不干扰。</p>
+        <ul>
+          <li data-i18n="teams.li.1"><strong>不会悄悄覆盖。</strong>保存新文件之前，ProjectStore 会检查它是否已经存在。两个会话写同一主题时，会得到一次冲突提示，而不是两份副本。</li>
+          <li data-i18n="teams.li.2"><strong>每个状态栏只显示自己的工作。</strong><span data-source="docs/how-it-works.md#sessions-how-parallel-claude-instances-coexist">2–6 个会话</span>并排运行，各自只看到属于自己的 epic 和 story。</li>
+          <li data-i18n="teams.li.3"><strong>会话名称只是建议，不是强加。</strong>一旦会话的工作集中到某一项上，它就会建议一个名称。频率很低：<span data-source="docs/how-it-works.md#naming-a-session-after-the-work-it-settled-on">每个会话最多两次，有记录的九个会话中共建议 12 次</span>。</li>
+        </ul>
+        <p class="sources"><span data-i18n="teams.span.27">实测出处：</span> <a class="cite" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/how-it-works.md#sessions-how-parallel-claude-instances-coexist" target="_blank" rel="noopener noreferrer">Sessions: how parallel Claude instances coexist ↗</a> <a class="cite" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/how-it-works.md#naming-a-session-after-the-work-it-settled-on" target="_blank" rel="noopener noreferrer">Naming a session after the work it settled on ↗</a></p>
+      </div>
+      <div>
+        <div class="terminal"><div class="ph"><span data-i18n="teams.span.25">shop-vault 上的第二个会话</span><span data-i18n="teams.span.26">会话</span></div>
+<pre data-i18n="teams.pre.1"><span class="m">开发者 A 从 13:35 起一直在做 PAY-001。你打开了第二个会话：</span>
+
+<span class="w">⚠ Multi-session warning</span> — 1 other projectstore session active.
+  Run <span class="c">/projectstore:search &lt;topic&gt;</span> before creating new artifacts.
+
+<span class="m">稍后，当你的工作集中到某一个 epic 上时：</span>
+projectstore: this session looks like <span class="a">"<span data-slug="story:session">pay-001-订单事务写入</span>"</span>
+  → <span class="c">/rename <span data-slug="story:session">pay-001-订单事务写入</span></span></pre></div>
+        <div class="hud"><img src="../assets/statusline-hud.png" width="2010" height="112" alt="projectstore 状态栏显示在现有 HUD 之上：DEMO-001 › 001-epic-story-hud-line (in-progress)" loading="lazy" data-i18n-attr="alt:teams.alt.1"><p data-i18n="teams.p.13">真实截图：本会话的 📚 epic › story 状态行，位于你原有的状态栏上方。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 06 AGENTS ================= -->
+<section id="agents" class="agents-section" aria-labelledby="agents-title">
+  <div class="wrap">
+    <div class="section-heading">
+      <!-- Counts are data-fact digits from the repository; only the nouns beside them are translated.
+       A noun's form depends on the number in ru and uk (1 команда, 6 команд, 20 команд), and on
+       one-or-many in the other languages: when a count changes, re-check start.span.4-7,
+       start.span.15 and agents.h2.1 in every dictionary. -->
+      <div><div class="section-label"><span data-i18n="agents.span.1">06 / 智能体</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">个智能体。</span><br><span class="muted-heading" data-i18n="agents.h2.2">除一个外，其余都只能读。</span></h2></div>
+      <p data-i18n="agents.p.1">顾问们负责检查、规划和整理，不改动任何东西。<b>唯一的 clerk 在你说“是”之后，只保存你批准的内容。</b></p>
+    </div>
+
+    <div class="roster-wrap">
+      <div class="roster-head"><span><span data-i18n="agents.span.2">插件自带的角色</span> · <span data-fact="version">v0.29.2</span></span><span data-i18n="agents.span.3">模型按智能体单独设置</span></div>
+      <table class="roster">
+        <thead><tr><th data-i18n="agents.th.1">智能体</th><th data-i18n="agents.th.2">何时运行</th><th data-i18n="agents.th.3">做什么</th><th data-i18n="agents.th.4">默认模型</th></tr></thead>
+        <tbody>
+          <tr><td><code>critic</code><br><span class="tag" data-i18n="agents.span.4">只读 · 独立</span></td><td data-i18n="agents.td.1">在 ADR、spec、epic、story 或设计方案写好或修改之后</td><td data-i18n="agents.td.2">找出弱点，对照出处核实每一条论断，并追问计划可能怎样失败。不说客套话。</td><td class="model" data-i18n="agents.td.3">opus · max</td></tr>
+          <tr><td><code>planner</code><br><span class="tag" data-i18n="agents.span.5">只读 · 独立</span></td><td data-i18n="agents.td.4">在 story 开工之前（<code>story plan</code>）</td><td data-i18n="agents.td.5">查看早先的 epic 在代码中的位置。指出改动应放在哪里、复用什么、需要注意什么，以及按什么顺序来做。</td><td class="model" data-i18n="agents.td.6">opus · max</td></tr>
+          <tr><td><code>reviewer</code><br><span class="tag" data-i18n="agents.span.6">只读 · 独立</span></td><td data-i18n="agents.td.7">写完代码后，在提交或 <code>story close</code> 之前</td><td data-i18n="agents.td.8">要求每条验收标准都有证据，包括 spec 中的标准。然后检查正确性、回归和测试。</td><td class="model" data-i18n="agents.td.9">opus · max</td></tr>
+          <tr><td><code>librarian</code><br><span class="tag" data-i18n="agents.span.7">只读 · 只提建议</span></td><td data-i18n="agents.td.10">每隔一段时间、发布之前、vault 快速增长之后</td><td data-i18n="agents.td.11">找出任何规则都抓不住的问题：与已接受的 ADR 相矛盾的研究笔记、重复内容、缺失的链接、可以归档的文件。</td><td class="model" data-i18n="agents.td.12">opus · max</td></tr>
+          <tr><td><code>archaeologist</code><br><span class="tag" data-i18n="agents.span.8">只读 · 只提建议</span></td><td data-i18n="agents.td.13">绑定已有代码库之后运行一次</td><td data-i18n="agents.td.14">从代码、配置文件和 git 历史中找出没人写下来的决策，并附上证据，建议为它们补写 ADR。</td><td class="model" data-i18n="agents.td.15">opus · max</td></tr>
+          <tr class="sep"><td><code>clerk</code><br><span class="tag w" data-i18n="agents.span.9">写入 · 在你说“是”之后</span></td><td data-i18n="agents.td.16">只在命令流程内，只在你说“是”之后</td><td data-i18n="agents.td.17">原样保存你批准的内容，不多一字。然后重建看板并运行检查。不自行撰写任何内容，也不提任何问题。</td><td class="model" data-i18n="agents.td.18">sonnet · max</td></tr>
+        </tbody>
+      </table>
+      <p class="roster-note" data-i18n="agents.p.10">默认模型针对的是 Claude Code。在 Codex 中，每个角色都是一个同名 skill，例如 <code>$projectstore-critic</code>，它会请求 Codex 启动该角色；除非你另行设置，它使用会话的模型。</p>
+    </div>
+
+    <div class="agents-grid">
+      <div class="agent-layers">
+        <article><span class="layer-number">01</span><div><h3 data-i18n="agents.h3.1">角色 <span>做什么</span></h3><p data-i18n="agents.p.2">规划、审视、写代码或检查结果。每个角色的分工都很清楚：顾问只读，clerk 只保存已批准的内容。</p></div></article>
+        <article><span class="layer-number">02</span><div><h3 data-i18n="agents.h3.2">模型 <span>用什么思考</span></h3><p data-i18n="agents.p.3">按任务和预算来选。<code>/projectstore:agents configure</code> 为每个智能体单独设置模型。更换模型不会影响项目的历史。</p></div></article>
+        <article><span class="layer-number">03</span><div><h3 data-i18n="agents.h3.3">Harness <span>在哪里运行</span></h3><p data-i18n="agents.p.4">为智能体提供工具、权限和会话。插件可以安装到 Claude Code 和 Codex 中。CLI 和 MCP 服务器不绑定任何一个 harness。</p></div></article>
+      </div>
+      <div class="agent-architecture">
+        <div class="architecture-title"><svg class="icon"><use href="#i-terminal"/></svg><span data-i18n="agents.span.10">一种可能的架构</span></div>
+        <table class="agent-table"><thead><tr><th scope="col" data-i18n="agents.th.5">角色</th><th scope="col" data-i18n="agents.th.6">模型*</th><th scope="col" data-i18n="agents.th.7">Harness*</th></tr></thead><tbody><tr><td data-i18n="agents.td.19">规划者</td><td data-i18n="agents.td.20">Claude</td><td data-i18n="agents.td.21">Claude Code</td></tr><tr><td data-i18n="agents.td.22">实现者</td><td data-i18n="agents.td.23">GPT</td><td data-i18n="agents.td.24">Codex</td></tr><tr><td data-i18n="agents.td.25">评审者</td><td data-i18n="agents.td.26">Gemini</td><td data-i18n="agents.td.27">Gemini CLI</td></tr></tbody></table>
+        <div class="architecture-context"><svg class="icon"><use href="#i-down"/></svg><span data-i18n="agents.span.11">ADR + SPEC + STORY + CODE_REFS</span></div>
+        <p class="architecture-note" data-i18n="agents.p.5">* 仅为示意，并非现成的集成。每个 harness 都需要你自己配置。任何能使用 shell 或 MCP 的智能体，都能通过下面列出的只读 MCP 工具读到同样的事实。</p>
+        <ul class="tools" style="padding:0 20px 18px" aria-label="MCP 工具" data-i18n-attr="aria-label:agents.aria-label.1"><li data-fact="mcp-tool">status</li><li data-fact="mcp-tool">orientation</li><li data-fact="mcp-tool">search</li><li data-fact="mcp-tool">get_artifact</li><li data-fact="mcp-tool">neighbors</li><li data-fact="mcp-tool">lineage</li><li data-fact="mcp-tool">code_refs</li><li data-fact="mcp-tool">doctor</li></ul>
+      </div>
+    </div>
+
+    <div class="support-heading"><span data-i18n="agents.span.12">现已可用</span><span class="version-badge" data-fact="version">v0.29.2</span></div>
+    <div class="support-grid">
+      <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.14">原生插件</span> · <span data-fact="harness-status:claude-code">supported</span></span><h3 data-i18n="agents.h3.4">Claude Code</h3><p data-i18n="agents.p.6">全部命令和智能体、自动提醒、状态栏和 vault 配置。进入循环的现成入口。</p></article>
+      <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.17">原生插件</span> · <span data-fact="harness-status:codex">experimental</span></span><h3>Codex</h3><p data-i18n="agents.p.11">以 skill 形式提供命令和角色，例如 <code>$projectstore-doctor</code> 和 <code>$projectstore-critic</code>，另有生命周期钩子和智能体指令块。<a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> 说明了目前已验证的内容。</p></article>
+      <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.15">编程访问</span></span><h3 data-i18n="agents.h3.5">CLI + MCP</h3><p data-i18n="agents.p.7">CLI 读取 vault，只执行你要求的写入，并输出 JSON。MCP 服务器为任何智能体提供这些只读工具。</p><div class="cmd"><pre id="cmd-mcp">npx projectstore mcp --project "$PWD"</pre><button class="copy" type="button" data-copy-from="cmd-mcp" data-done="已复制" data-i18n="agents.button.1" data-i18n-attr="data-done:agents.data-done.1">复制</button></div></article>
+      <article><span class="support-state neutral"><svg class="icon sm"><use href="#i-up-right"/></svg> <span data-i18n="agents.span.16">可移植性</span></span><h3 data-i18n="agents.h3.6">其他 harness</h3><p data-i18n="agents.p.8">Gemini CLI、OpenCode 等其他工具：Markdown 文件在哪里都能用，CLI 和 MCP 读取的是同一个 vault。目前还没有为它们提供原生适配器。</p></article>
+    </div>
+    <p class="section-footnote" data-i18n="agents.p.9"><span class="footnote-mark">↳</span> ProjectStore 是共享的项目上下文和一种工作方式。它不是智能体编排器。vault 跟着你走：明天换一个模型，项目照样继续。</p>
+  </div>
+</section>
+
+<!-- ================= 07 COST ================= -->
+<section id="cost" class="cost-section" aria-labelledby="cost-title">
+  <div class="wrap">
+    <div class="section-heading">
+      <div><div class="section-label"><span data-i18n="cost.span.1">07 / 成本</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="cost-title" data-i18n="cost.h2.1">实测，<span class="muted-heading">而非承诺。</span></h2></div>
+      <p data-i18n="cost.p.1">运行这个循环并不免费，<b>本页也不会假装它免费。</b></p>
+    </div>
+    <div class="cost-grid">
+      <div class="cost-card"><div class="lab" data-i18n="cost.div.1">已知最坏情况</div><div class="big" data-i18n="cost.big.1"><span data-source="README.md#what-it-costs--measured-not-promised">22.5</span>%<small>总开销占比</small></div><p data-i18n="cost.p.2">在 ProjectStore 自己的仓库上测得。这个工具在这里用自己开发自己，每一处改动都走完整个循环，包括 critic。</p></div>
+      <div class="cost-card"><div class="lab" data-i18n="cost.div.2">典型项目</div><div class="big" data-i18n="cost.big.2"><span data-source="README.md#what-it-costs--measured-not-promised">10–15</span>%<small>每周额度占比</small></div><p data-i18n="cost.p.3">换来的是一位项目经理加一位系统分析师：从不忘记做记录，由你本来就在付费使用的智能体兼任。这些文件就是你真正在用的待办池、评审记录和决策日志，而不是私人笔记。</p></div>
+    </div>
+    <p class="sources"><span data-i18n="cost.span.2">两个数字均来自 README：</span> <a class="cite" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md#what-it-costs--measured-not-promised" target="_blank" rel="noopener noreferrer">What it costs — measured, not promised ↗</a></p>
+  </div>
+</section>
+
+<!-- ================= 08 START ================= -->
+<section id="start" class="start-section" aria-labelledby="start-title">
+  <div class="wrap start-grid">
+    <div class="start-copy">
+      <div class="section-label"><span data-i18n="start.span.1">08 / 第一次迭代</span><svg class="icon"><use href="#i-down"/></svg></div>
+      <h2 id="start-title" data-i18n="start.h2.1">从一个<br>重要的决策开始。</h2>
+      <p data-i18n="start.p.1">在 Claude Code 或 Codex 中安装它，为 vault 选一个文件夹，然后让智能体写第一份 ADR。不必在一个晚上迁移整个项目的历史。之后可以让 archaeologist 智能体帮忙。</p>
+      <div class="say-it"><span class="who" data-i18n="start.span.2">或者直接告诉 Claude Code</span><p data-i18n="start.p.2">从 https://github.com/SmartAndPoint/ProjectStore 安装 projectstore 插件，并为这个项目完成配置。</p></div>
+      <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#install--one-message" target="_blank" rel="noopener noreferrer" style="margin-top:22px"><span data-i18n="start.span.3">完整安装指南</span> <svg class="icon"><use href="#i-up-right"/></svg></a>
+      <!-- Counts are data-fact digits from the repository; only the nouns beside them are translated.
+       A noun's form depends on the number in ru and uk (1 команда, 6 команд, 20 команд), and on
+       one-or-many in the other languages: when a count changes, re-check start.span.4-7,
+       start.span.15 and agents.h2.1 in every dictionary. -->
+      <div class="start-specs"><span><strong data-fact="commands">20</strong> <span data-i18n="start.span.4">个命令</span></span><span><strong data-fact="agents">6</strong> <span data-i18n="start.span.5">个智能体</span></span><span><strong data-fact="languages">6</strong> <span data-i18n="start.span.6">种模板语言</span></span><span><strong data-fact="mcp-tools">8</strong> <span data-i18n="start.span.15">个 MCP 工具</span></span><span><strong>0</strong> <span data-i18n="start.span.7">个依赖</span></span></div>
+    </div>
+
+    <div class="install-terminal">
+      <div data-tabs data-initial="claude" class="install-root">
+        <div class="terminal-tabs-header"><div class="install-tabs" role="tablist" aria-label="安装方式" data-i18n-attr="aria-label:start.aria-label.1"><button class="install-trigger" role="tab" data-tab="claude" id="in-t1" aria-controls="in-p1" data-i18n="start.button.1">在 Claude Code 中</button><button class="install-trigger" role="tab" data-tab="npm" id="in-t2" aria-controls="in-p2" data-i18n="start.button.2">Claude Code（npm）</button><button class="install-trigger" role="tab" data-tab="codex" id="in-t4" aria-controls="in-p4" data-i18n="start.button.4">Codex</button><button class="install-trigger" role="tab" data-tab="day" id="in-t3" aria-controls="in-p3" data-i18n="start.button.3">一个工作日</button></div><svg class="icon"><use href="#i-terminal"/></svg></div>
+        <div class="tab-panel install-panel block" role="tabpanel" data-panel="claude" id="in-p1" aria-labelledby="in-t1">
+          <span class="terminal-context" data-i18n="start.span.8">在 Claude Code 中输入以下命令</span>
+<pre id="install-claude" data-fact="install"><code>/plugin marketplace add SmartAndPoint/ProjectStore
+/plugin install projectstore@SmartAndPoint
+/reload-plugins
+/projectstore:bind ~/Documents/my-project-vault<span data-i18n="start.bind-lang"> --lang zh</span></code></pre>
+          <button class="copy-button" type="button" data-copy-from="install-claude" data-done="已复制" data-i18n-attr="data-done:start.data-done.1"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.9">复制</span></button>
+          <p class="install-note" data-i18n="start.p.3">vault 路径只是示例。随后 bind 会问几个配置问题，并显示每一步将写入什么。开启自动更新：<code>/plugin</code> → Marketplaces → SmartAndPoint。</p>
+        </div>
+        <div class="tab-panel install-panel block" role="tabpanel" data-panel="npm" id="in-p2" aria-labelledby="in-t2">
+          <span class="terminal-context" data-i18n="start.span.10">终端 · Node.js 20+ · 在会话之外</span>
+<pre id="install-npm" data-fact="install"><code>npx projectstore-claude install --project "$PWD"</code></pre>
+          <button class="copy-button" type="button" data-copy-from="install-npm" data-done="已复制" data-i18n-attr="data-done:start.data-done.2"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.11">复制</span></button>
+          <p class="install-note" data-i18n="start.p.4">在项目文件夹中运行。它只为当前检出目录把插件添加到 Claude Code，并在执行每条命令前先把它打印出来。然后重启 Claude Code，绑定一个 vault。</p>
+        </div>
+        <div class="tab-panel install-panel block" role="tabpanel" data-panel="codex" id="in-p4" aria-labelledby="in-t4">
+          <span class="terminal-context"><span data-i18n="start.span.16">终端 · Node.js 20+ · 在项目文件夹中</span> · <span data-fact="harness-status:codex">experimental</span></span>
+<pre id="install-codex" data-fact="install"><code>npx projectstore-codex install --project "$PWD"</code></pre>
+          <button class="copy-button" type="button" data-copy-from="install-codex" data-done="已复制" data-i18n-attr="data-done:start.data-done.4"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.17">复制</span></button>
+          <p class="install-note" data-i18n="start.p.5">然后重启 Codex，在它询问时批准 ProjectStore 的钩子，再运行 <code>$projectstore-bind ~/Documents/my-project-vault</code>。<a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> 说明了目前已验证的内容。</p>
+        </div>
+        <div class="tab-panel install-panel block" role="tabpanel" data-panel="day" id="in-p3" aria-labelledby="in-t3">
+          <span class="terminal-context" data-i18n="start.span.12">一个工作日</span>
+<pre id="install-day" data-copy="/projectstore:status
+/projectstore:adr &quot;使用 Postgres 作为主存储&quot;
+/projectstore:spec &quot;订单事务写入&quot;
+/projectstore:epic PAY-001 &quot;基于 Postgres 的订单处理&quot;
+/projectstore:story PAY-001 &quot;订单事务写入&quot; --spec 订单事务写入
+/projectstore:story plan PAY-001/story-订单事务写入
+/projectstore:story close PAY-001/story-订单事务写入
+/projectstore:doctor" data-i18n="start.pre.3" data-i18n-attr="data-copy:start.data-copy.3"><code>/projectstore:status   <span class="m"># 当前有哪些工作在进行</span>
+/projectstore:adr "<span data-title="adr">使用 Postgres 作为主存储</span>"
+/projectstore:spec "<span data-title="spec">订单事务写入</span>"
+/projectstore:epic PAY-001 "<span data-title="epic">基于 Postgres 的订单处理</span>"
+/projectstore:story PAY-001 "<span data-title="story">订单事务写入</span>" --spec <span data-slug="spec:slug">订单事务写入</span>
+/projectstore:story plan <span data-slug="story:ref">PAY-001/story-订单事务写入</span>   <span class="m"># planner</span>
+/projectstore:story close <span data-slug="story:ref">PAY-001/story-订单事务写入</span>  <span class="m"># reviewer 要求提供证据</span>
+/projectstore:doctor   <span class="m"># 只做检查，不用 AI</span></code></pre>
+          <button class="copy-button" type="button" data-copy-from="install-day" data-done="已复制" data-i18n-attr="data-done:start.data-done.3"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.13">复制</span></button>
+        </div>
+      </div>
+      <div class="terminal-footer"><svg class="icon sm"><use href="#i-shield"/></svg><span data-i18n="start.span.14">每次写入在保存前都会展示出来。没有你的“是”，什么都不会写入。</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FAQ ================= -->
+<section id="questions" class="questions-section wrap" aria-labelledby="questions-title">
+  <div>
+    <div class="section-label"><span data-i18n="questions.span.1">没有隐藏条款</span><svg class="icon"><use href="#i-down"/></svg></div>
+    <h2 id="questions-title" data-i18n="questions.h2.1">好问题。</h2>
+    <p data-i18n="questions.p.1">关于局限、数据<br>和实际工作。</p>
+    <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/issues" target="_blank" rel="noopener noreferrer"><span data-i18n="questions.span.2">在 GitHub 上讨论</span> <svg class="icon"><use href="#i-up-right"/></svg></a>
+  </div>
+  <div class="faq-list">
+    <details class="faq-item"><summary data-i18n="questions.summary.1">这是一个记忆插件吗？</summary><div class="faq-content"><p data-i18n="questions.p.2">不是。记忆插件记住的是智能体说过什么。ProjectStore 记录的是项目决定了什么，形式是经过评审、带状态和日期的文档。之后的新工作都以这些文档为依据。换模型时差别就显现出来了：记忆属于模型，vault 属于项目。</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.2">它会取代 Jira、Linear 或其他任务跟踪工具吗？</summary><div class="faq-content"><p data-i18n="questions.p.3">不一定。ProjectStore 把决策、spec、story 和代码关联起来。你可以继续用原来的跟踪工具做计划，把技术上下文放在 vault 里。它不与其他跟踪工具自动同步，但 story 里可以保存指向对应工单的链接。</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.3">需要 Obsidian 吗？</summary><div class="faq-content"><p data-i18n="questions.p.4">不需要。vault 就是一个装着 Markdown 文件的普通文件夹。可以在编辑器里打开、在 GitHub 上浏览；如果喜欢 Obsidian 的关系图谱和看板，也可以用它。没有插件，这些文件照样可读。</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.4">它会不经询问就写入吗？</summary><div class="faq-content"><p data-i18n="questions.p.5">不会。每个新文件或每次编辑都会先展示给你，附上路径和完整内容，然后等待“是”“保存前编辑”或“否”。在一旁观察对话的辅助程序只会建议命令。唯一能写入的智能体 clerk 在你说“是”之后运行，一字不差地保存你批准的内容。</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.5">如果两个智能体修改同一个文件会怎样？</summary><div class="faq-content"><p data-i18n="questions.p.6">各自在单独的分支上工作，然后照常评审、解决 git 冲突。在同一个本地 vault 中，会话之间会互相提醒，新文件也绝不会被悄悄覆盖。但这不是锁，也不会在机器之间同步。</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.6">如果有人手工编辑 vault 文件呢？</summary><div class="faq-content"><p data-i18n="questions.p.7">允许，因为禁止从来都行不通。你会收到提醒，让你运行 <code>reconcile</code>。<code>doctor</code> 能发现与文件不再一致的看板或索引，<code>reconcile</code> 会根据源文件把它们重建。</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.7">项目上下文会流向哪里？</summary><div class="faq-content"><p data-i18n="questions.p.8">ProjectStore 不需要服务器：vault 放在哪里，就在哪里。智能体读取哪些文件、哪些内容会发送给模型提供商，取决于你的 harness 及其权限。不要把机密信息放进项目文档，并核对团队的访问规则。</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.8">检查是免费的吗？</summary><div class="faq-content"><p data-i18n="questions.p.9">不是。critic 和 reviewer 的运行会消耗你所用模型的预算：在 ProjectStore 自己的仓库上占总开销的 <span data-source="README.md#what-it-costs--measured-not-promised">22.5%</span>，一般占每周额度的 <span data-source="README.md#what-it-costs--measured-not-promised">10–15%</span>。常规检查 <code>doctor</code> 和 <code>reconcile</code> 不用 AI。按改动的风险决定流程的深度。</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.9">如果我们从 Claude Code 换到别的智能体呢？</summary><div class="faq-content"><p data-i18n="questions.p.10">什么都不会丢：vault 就是 git 里的纯 Markdown。自动化部分（命令、角色和提醒）可以安装到 Claude Code 和 Codex 中，两者还能在同一个项目上并行工作。其他任何智能体都能通过 CLI 或 MCP 服务器读到同样的事实。</p></div></details>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-top"><a class="footer-wordmark" href="#main"><svg class="icon lg"><use href="#i-layers"/></svg> <span data-i18n="footer.span.1">projectstore.</span></a><span data-i18n="footer.span.2">好的代码会留下上下文。</span><a href="https://github.com/SmartAndPoint/ProjectStore" target="_blank" rel="noopener noreferrer"><span data-i18n="footer.span.3">GitHub</span> <svg class="icon"><use href="#i-up-right"/></svg></a></div>
+  <div class="wrap footer-bottom"><span data-i18n="footer.span.4">开源 · MIT · Evgenii Konev, SmartAndPoint</span><span><span data-fact="version">v0.29.2</span> · <span data-i18n="footer.span.5">每个实测数据都注明了它在 README 或 docs 中的出处；示例仅作示意</span></span><a href="../llms.txt" data-i18n="footer.a.1">llms.txt</a><a href="../llms-full.txt" data-i18n="footer.a.2">llms-full.txt</a><a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" target="_blank" rel="noopener noreferrer"><svg class="icon sm"><use href="#i-book"/></svg> <span data-i18n="footer.span.6">文档</span></a></div>
+</footer>
+
+<script src="../assets/site.js?v=e6e5f6dc"></script>
+</body>
+</html>
