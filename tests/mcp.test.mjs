@@ -342,3 +342,26 @@ test("mcp createServer: handle() is pure of I/O and usable in-process", async ()
   assert.equal((await s.handle({ jsonrpc: "2.0", id: 2 })).error.code, -32600, "no method");
   assert.ok(existsSync(join(ROOT, ".mcp.json")), "the registration ships");
 });
+
+// The per-verb parse (PS-CORE): an array value is passed as `--kind <value>`,
+// and the MCP server refuses no dash-led kind. Once the verb is found the bin's
+// scan reads such a value as the option's, never as -h or -v, so the tool is
+// an error naming the option's form — not the help, not a version envelope.
+test("mcp per-verb parse: a dash-led kind is the option's value, refused as one — never help or version", async () => {
+  const { proj } = vaultProject();
+  const s = createServer({ project: proj, env: cleanEnv() });
+  await s.handle({ jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: "2025-06-18" } });
+  await s.handle({ jsonrpc: "2.0", method: "notifications/initialized" });
+  let id = 1;
+  for (const [name, args, verb, form] of [
+    ["search", { query: "x", kind: ["-v"] }, "search", "`--kind <type>`"],
+    ["search", { query: "x", kind: ["-h"] }, "search", "`--kind <type>`"],
+    ["neighbors", { path: "adr/new-way.md", kind: ["--help"] }, "graph", "`--kind <edge-kind>`"],
+  ]) {
+    const r = await s.handle({ jsonrpc: "2.0", id: id++, method: "tools/call", params: { name, arguments: args } });
+    assert.equal(r.result.isError, true, `${name} ${JSON.stringify(args)}`);
+    const env = JSON.parse(r.result.content[0].text);
+    assert.equal(env.verb, verb);
+    assert.ok(env.result.error.includes(`needs a value: ${form}`), env.result.error);
+  }
+});

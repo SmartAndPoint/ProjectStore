@@ -14,6 +14,16 @@
 // command files and the tests depend on it). Exit codes: 0 ok, 1 findings or
 // a refusal, 2 usage or an internal failure, 3 not bound.
 //
+// The parse is per verb. A scan finds the verb first, knowing only the
+// globals (--project <dir>, --json, --help/-h, --version/-v — the only options
+// that may come before it); then one strict parseArgs runs on that verb's row
+// plus the globals, so one name can be a flag on one verb and take a value on
+// another (`doctor --vault` beside the front-door ADR's `setup --vault
+// <path>`). A row's `usage` forms are both its help's Usage lines and the
+// bound on its arguments: an argument past the form is a usage error that
+// names it, never dropped. Every error raised before a verb runs names the
+// verb the scan found, in the envelope and on stderr.
+//
 // The gate (distribution ADR decision 6) binds every write verb this bin
 // exposes: the install family through install-harness.mjs's own preview and
 // confirmation, and `reconcile --write` through the same rule — naming what
@@ -79,9 +89,22 @@ export function resolveProject({ project = null, env = process.env, cwd = proces
 // wraps: "script" (spawned), "module" (imported), "new" (code that exists
 // only for the CLI). output: "envelope" (--json wraps), "text". mcp: the MCP
 // tools that mirror the verb (MCP ADR decision 2), empty when none.
+// options: the row's parser — opt()'s arg is the type (false a flag, a
+// placeholder a value), multiple the repetition. usage: the forms the help
+// prints after the verb, verbatim, which also bound its arguments: a literal
+// sub-word (`neighbors`), a <placeholder> (`<phrase…>` takes the rest), or a
+// --name the form requires (its placeholder is the option's value, not an
+// argument). NO_FORMS: the verb takes no argument.
 
-const opt = (name, arg, summary, multiple = false) => Object.freeze({ name, arg, summary, multiple });
+export const opt = (name, arg, summary, multiple = false) => Object.freeze({ name, arg, summary, multiple });
 const JSON_OPT = opt("json", false, "the envelope");
+// The options every verb takes, and the only ones that may come before the
+// verb: the scan knows their arity before it knows the verb (--project takes
+// a value, the rest do not). Last in every parser map, so a row cannot
+// retype one. SHORT is their one-letter forms (`-hv`: version wins).
+const GLOBAL_OPTS = Object.freeze([opt("project", "<dir>", "the project"), JSON_OPT, opt("help", false, "the help"), opt("version", false, "the package version")]);
+const SHORT = Object.freeze({ help: "h", version: "v" });
+const NO_FORMS = Object.freeze([]);
 const READ_JSON = [JSON_OPT];
 const HARNESS_OPT = opt("harness", "<id>", "the harness — and, without a terminal, the confirmation (a terminal is asked); there is no --yes", true);
 const SURFACE_OPT = opt("surface", "<key>", "one surface and those beneath it", true);
@@ -95,96 +118,96 @@ const UNINSTALL_OPTS = [HARNESS_OPT, SURFACE_OPT, opt("global", false, "also rem
 
 export const VERBS = Object.freeze([
   Object.freeze({
-    verb: "doctor", summary: "Check the install wiring and the vault's consistency.",
+    verb: "doctor", summary: "Check the install wiring and the vault's consistency.", usage: NO_FORMS,
     module: "./doctor.mjs", wraps: "script", how: "spawn", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze(["doctor"]),
     options: [opt("install", false, "only the install section"), opt("vault", false, "only the vault section"), JSON_OPT],
     run: runDoctor,
   }),
   Object.freeze({
-    verb: "reconcile", summary: "Regenerate the derived views (kanban, code map, graph, indexes).",
+    verb: "reconcile", summary: "Regenerate the derived views (kanban, code map, graph, indexes).", usage: NO_FORMS,
     module: "./reconcile.mjs", wraps: "module", how: "import", output: "envelope", writes: true, requiresBinding: true, mcp: Object.freeze([]),
     options: [opt("write", false, "apply the regeneration (asks on a terminal; --only names what is written and confirms headless)"), opt("only", "<target>", "one derived view"), JSON_OPT],
     run: runReconcile,
   }),
   Object.freeze({
-    verb: "plan", summary: "Show what install would write for a harness, without writing.",
+    verb: "plan", summary: "Show what install would write for a harness, without writing.", usage: NO_FORMS,
     module: "./install-harness.mjs", wraps: "module", how: "import", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze([]),
     options: INSTALL_OPTS, run: runInstallVerb,
   }),
   Object.freeze({
-    verb: "install", summary: "Install projectstore's surfaces for a harness, behind a preview.",
+    verb: "install", summary: "Install projectstore's surfaces for a harness, behind a preview.", usage: NO_FORMS,
     module: "./install-harness.mjs", wraps: "module", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: INSTALL_OPTS, run: runInstallVerb,
   }),
   Object.freeze({
-    verb: "uninstall", summary: "Remove what install wrote, and only that.",
+    verb: "uninstall", summary: "Remove what install wrote, and only that.", usage: NO_FORMS,
     module: "./install-harness.mjs", wraps: "module", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: UNINSTALL_OPTS, run: runInstallVerb,
   }),
   Object.freeze({
-    verb: "upgrade", summary: "Re-run install after a plugin update; re-stamps what this installation wrote and leaves the rest.",
+    verb: "upgrade", summary: "Re-run install after a plugin update; re-stamps what this installation wrote and leaves the rest.", usage: NO_FORMS,
     module: "./install-harness.mjs", wraps: "module", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: INSTALL_OPTS, run: runInstallVerb,
   }),
   Object.freeze({
-    verb: "status", summary: "The binding, what is in progress, and whether the derived views are fresh.",
+    verb: "status", summary: "The binding, what is in progress, and whether the derived views are fresh.", usage: NO_FORMS,
     module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze(["status"]),
     options: READ_JSON, run: runRead("status"),
   }),
   Object.freeze({
-    verb: "orientation", summary: "The SessionStart skeleton and the facts behind it.",
+    verb: "orientation", summary: "The SessionStart skeleton and the facts behind it.", usage: NO_FORMS,
     module: "./query.mjs", wraps: "module", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["orientation"]),
     options: READ_JSON, run: runRead("orientation"),
   }),
   Object.freeze({
-    verb: "search", summary: "Find a phrase in the vault's artifacts — deterministic, bounded, no shell.",
+    verb: "search", summary: "Find a phrase in the vault's artifacts — deterministic, bounded, no shell.", usage: Object.freeze(["<phrase…>"]),
     module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["search"]),
     options: [opt("kind", "<type>", "only artifacts of this kind", true), opt("status", "<status>", "only artifacts in this status"), opt("limit", "<n>", `at most n matches (default ${SEARCH_DEFAULT_LIMIT}, hard cap 100)`), opt("include-derived", false, "search the derived views too"), opt("case-sensitive", false, "match case"), JSON_OPT],
     run: runRead("search"),
   }),
   Object.freeze({
-    verb: "show", summary: "One artifact: its frontmatter, and its body or one section on request.",
+    verb: "show", summary: "One artifact: its frontmatter, and its body or one section on request.", usage: Object.freeze(["<path>"]),
     module: "./query.mjs", wraps: "module", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["get_artifact"]),
     options: [opt("body", false, "include the body"), opt("section", "<id>", "one section by its registry id (description, acceptance, …)"), JSON_OPT],
     run: runRead("show"),
   }),
   Object.freeze({
-    verb: "graph", summary: "graph neighbors <path> | graph lineage <path> — the live link graph by vault path.",
+    verb: "graph", summary: "The live link graph by vault path.", usage: Object.freeze(["neighbors <path>", "lineage <path>"]),
     module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["neighbors", "lineage"]),
     options: [opt("kind", "<edge-kind>", "only edges of this kind (lineage: one of its four)", true), opt("direction", DIRECTIONS.join("|"), "neighbors: which edges"), opt("depth", "<n>", `lineage: how far (default ${LINEAGE_DEFAULT_DEPTH})`), opt("limit", "<n>", `neighbors: cap per direction (≤ ${GRAPH_EDGE_CAP})`), JSON_OPT],
     run: runGraph,
   }),
   Object.freeze({
-    verb: "codemap", summary: "codemap --for <selector> — which code an epic or artifact maps to, or which artifacts map to a path.",
+    verb: "codemap", summary: "Which code an epic or artifact maps to, or which artifacts map to a path.", usage: Object.freeze(["--for <selector>"]),
     module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["code_refs"]),
     options: [opt("for", "<selector>", "an epic id, an artifact, or a repo path"), opt("reverse", false, "read the selector as a path even if it names an artifact"), JSON_OPT],
     run: runCodemap,
   }),
   Object.freeze({
-    verb: "agents", summary: "agents model <name> | agents show | agents configure — the harness overlay's agents block (ADR-008, read per invocation).",
+    verb: "agents", summary: "The harness overlay's agents block (ADR-008, read per invocation).", usage: Object.freeze(["model <name>", "show", "configure"]),
     module: "./lib.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: [opt("harness", "<id>", "configure: the overlay to write — and, non-interactively, the confirmation; there is no --yes", true), opt("default", "<model>", "configure: agents.default.model (pins the clerk to sonnet unless --agent clerk=… says otherwise; an empty model clears it)"), opt("agent", "<name>=<model>", "configure: agents.per_agent.<name>.model (an empty model removes the key)", true), opt("reset", false, "configure: empty the agents block first; --default and --agent given with it apply on top"), JSON_OPT],
     run: runAgents,
   }),
   Object.freeze({
-    verb: "bind", summary: "bind <vault> — bind this project to an existing vault (naming the vault is the confirmation).",
+    verb: "bind", summary: "Bind this project to an existing vault (naming the vault is the confirmation).", usage: Object.freeze(["<vault>"]),
     module: "./binding.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: [opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`), opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`), opt("rebind", false, "point an already bound project at another vault; every other setting is kept"), JSON_OPT],
     run: runBind(false),
   }),
   Object.freeze({
-    verb: "init", summary: `init <vault> — create the vault directory and bind to it; the layout's folders come from ${commandForm("scaffold")}.`,
+    verb: "init", summary: `Create the vault directory and bind to it; the layout's folders come from ${commandForm("scaffold")}.`, usage: Object.freeze(["<vault>"]),
     module: "./binding.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: [opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`), opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`), opt("rebind", false, "an already bound project: create the new vault and point the project at it; every other setting is kept"), JSON_OPT],
     run: runBind(true),
   }),
   Object.freeze({
-    verb: "mcp", summary: "Serve the read tools over MCP (stdio) for the project named by --project or PROJECTSTORE_PROJECT_DIR; never the ambient cwd.",
+    verb: "mcp", summary: "Serve the read tools over MCP (stdio) for the project named by --project or PROJECTSTORE_PROJECT_DIR; never the ambient cwd.", usage: NO_FORMS,
     module: "./mcp.mjs", wraps: "new", how: "import", output: "text", writes: false, requiresBinding: false, mcp: Object.freeze([]),
     options: [], run: runMcp,
   }),
   Object.freeze({
-    verb: "version", summary: "Print the package version (also --version).",
+    verb: "version", summary: "Print the package version (also --version).", usage: NO_FORMS,
     module: null, wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze([]),
     options: [JSON_OPT], run: runVersion,
   }),
@@ -229,20 +252,6 @@ const EXAMPLES = {
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
 
-// Positional arguments a summary does not already name.
-const ARGS = { search: "<phrase>", show: "<path>" };
-
-// "bind <vault> — bind this project…" names its own form; "graph neighbors
-// <path> | graph lineage <path> — …" names two.
-function forms(row) {
-  const m = /^(.+?) — (.+)$/.exec(row.summary);
-  if (m && m[1].startsWith(row.verb + " ")) {
-    const list = m[1].split(" | ").map((f) => f.replace(new RegExp(`^${row.verb} `), ""));
-    return { forms: list, about: m[2][0].toUpperCase() + m[2].slice(1) };
-  }
-  return { forms: [ARGS[row.verb] || ""], about: row.summary };
-}
-
 function invocation(env = process.env) {
   const shell = env.PROJECTSTORE_SHELL || null;
   return { shell, cmd: shell ? `npx ${shell}` : "npx projectstore" };
@@ -256,7 +265,8 @@ function optionLines(options) {
 
 const EXIT_CODES = "Exit codes  0 ok · 1 findings or a refusal · 2 usage · 3 not bound";
 
-export function usage(env = process.env) {
+// `verbs` is the table this run answers for — VERBS, or a test's own.
+export function usage(env = process.env, verbs = VERBS) {
   const { cmd } = invocation(env);
   const lines = [
     "projectstore — project memory for coding agents: decisions, specs, epics and stories as plain markdown.",
@@ -266,9 +276,9 @@ export function usage(env = process.env) {
     `  ${cmd} <verb> --help       one verb's options and examples`,
   ];
   const seen = new Set();
-  const groups = HELP_GROUPS.map(([title, names]) => [title, names.map((n) => VERBS.find((v) => v.verb === n)).filter(Boolean)]);
+  const groups = HELP_GROUPS.map(([title, names]) => [title, names.map((n) => verbs.find((v) => v.verb === n)).filter(Boolean)]);
   for (const [, rows] of groups) for (const r of rows) seen.add(r.verb);
-  const other = VERBS.filter((v) => !seen.has(v.verb));
+  const other = verbs.filter((v) => !seen.has(v.verb));
   if (other.length) groups.push(["Other", other]);
   for (const [title, rows] of groups) {
     if (!rows.length) continue;
@@ -295,14 +305,16 @@ export function usage(env = process.env) {
   return lines.join("\n");
 }
 
-// One verb: what it does, how to call it, every option, examples.
+// One verb: what it does, how to call it, every option, examples. The Usage
+// lines are the row's own forms, the same declaration that bounds its
+// arguments — never parsed out of the summary, so help and the parser cannot
+// disagree about what a verb takes.
 export function verbHelp(row, env = process.env) {
   const { shell, cmd } = invocation(env);
   const fixed = Boolean(shell) && row.options.some((o) => o.name === "harness");
   const opts = row.options.filter((o) => !(fixed && o.name === "harness"));
-  const { forms: list, about } = forms(row);
-  const lines = [`${cmd} ${row.verb} — ${about}`, "", "Usage"];
-  for (const f of list) lines.push(`  ${cmd} ${row.verb}${f ? " " + f : ""}${opts.length ? " [options]" : ""}`);
+  const lines = [`${cmd} ${row.verb} — ${row.summary}`, "", "Usage"];
+  for (const f of row.usage.length ? row.usage : [""]) lines.push(`  ${cmd} ${row.verb}${f ? " " + f : ""}${opts.length ? " [options]" : ""}`);
   if (opts.length) lines.push("", "Options", ...optionLines(opts));
   if (fixed) lines.push("", `${shell} names the harness itself: without a terminal, the verb is its own confirmation.`);
   else if (row.options.some((o) => o.name === "harness")) lines.push("", `Harnesses   ${harnessIds().join(", ")}`);
@@ -333,75 +345,213 @@ export function nearest(word, names) {
 
 // ─── run ───────────────────────────────────────────────────────────────
 
-export async function run(argv, { env = process.env, cwd = process.cwd(), stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, ask = null } = {}) {
-  let parsed;
-  try {
-    parsed = parseArgs({
-      args: argv,
-      allowPositionals: true,
-      strict: true,
-      options: {
-        project: { type: "string" }, json: { type: "boolean" }, help: { type: "boolean", short: "h" }, version: { type: "boolean", short: "v" },
-        harness: { type: "string", multiple: true }, surface: { type: "string", multiple: true }, global: { type: "boolean" }, "no-register": { type: "boolean" }, verbose: { type: "boolean" },
-        write: { type: "boolean" }, only: { type: "string" }, install: { type: "boolean" }, vault: { type: "boolean" },
-        kind: { type: "string", multiple: true }, status: { type: "string" }, limit: { type: "string" }, "include-derived": { type: "boolean" }, "case-sensitive": { type: "boolean" },
-        body: { type: "boolean" }, section: { type: "string" }, direction: { type: "string" }, depth: { type: "string" }, for: { type: "string" }, reverse: { type: "boolean" },
-        layout: { type: "string" }, language: { type: "string" }, rebind: { type: "boolean" },
-        default: { type: "string" }, agent: { type: "string", multiple: true }, reset: { type: "boolean" },
-      },
-    });
-  } catch (e) {
-    // --json cannot be known before parsing; a raw scan is enough here.
-    if (argv.includes("--json")) stdout.write(JSON.stringify(envelope(argv.find((a) => !a.startsWith("-")) || null, null, false, { error: e.message }), null, 2) + "\n");
-    // Node's own wording for an unknown option explains "--" positionals; a
-    // person who typed --verbos wants the option they meant.
-    const unknown = e.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION" ? /'(-{1,2}[^']+)'/.exec(e.message)?.[1] : null;
-    const row = VERBS.find((v) => v.verb === argv.find((a) => !a.startsWith("-")));
-    const names = [...(row ? row.options.map((o) => o.name) : VERBS.flatMap((v) => v.options.map((o) => o.name))), "project", "json", "help", "version"];
-    const hint = unknown ? nearest(unknown.replace(/^-+/, ""), [...new Set(names)]) : null;
-    const message = unknown ? `${row ? row.verb + " does not take" : "unknown option"} ${unknown}${hint ? ` — did you mean --${hint}?` : ""}` : e.message;
-    stderr.write(`${message}\nRun ${row ? `\`${row.verb} --help\`` : "--help"} for the options.\n`);
-    return 2;
+// Rule 1 of the per-verb parse: the verb is found before anything is parsed.
+// Before it only the globals' arity is known; after it, its row's too. Left
+// to right, to the first "--": a "--" before the verb makes the next token
+// the verb (`projectstore -- doctor`), and one after it leaves the rest to
+// the verb, so the MCP server's `-- <query>` is never read as a global. Only
+// the exact tokens set a flag: `--json=v` is a global with a bad value, which
+// the parse words (rule 6), not a verb's option. A bare --project takes the
+// next token whatever it is, as parseArgs does, and so does a bare option of
+// the verb's that takes a value: `reconcile --only --help` and the MCP
+// server's `--kind -h` hand the parse a value it refuses, never the help.
+// Any other option before the verb is misplaced (rule 3). A bare word right
+// after one is presumed to be its value when it is not a verb and some verb
+// gives that option a value — for the message only (`--harness codex plan`
+// reads back as `plan --harness codex`); nothing is parsed on that guess.
+function scanArgv(argv, verbs) {
+  const scan = { verb: null, at: -1, json: false, help: false, version: false, misplaced: [] };
+  const takesValue = (row, name) => row.options.some((o) => o.name === name && o.arg);
+  let row = null;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--") {
+      if (scan.at === -1 && i + 1 < argv.length) { scan.verb = argv[i + 1]; scan.at = i + 1; }
+      break;
+    }
+    if (a.length > 1 && a.startsWith("-")) {
+      if (/^-[hv]+$/.test(a)) {
+        if (a.includes("h")) scan.help = true;
+        if (a.includes("v")) scan.version = true;
+        continue;
+      }
+      if (a === "--json") scan.json = true;
+      if (a === "--help") scan.help = true;
+      if (a === "--version") scan.version = true;
+      const name = a.startsWith("--") ? a.slice(2).split("=")[0] : null;
+      const inline = a.includes("=");
+      if (!inline && (name === "project" || (row && takesValue(row, name)))) i++;
+      else if (scan.at === -1 && !GLOBAL_OPTS.some((o) => o.name === name)) scan.misplaced.push({ name, raw: a, at: i, inline, value: undefined });
+      continue;
+    }
+    if (scan.at !== -1) continue;
+    const prev = scan.misplaced[scan.misplaced.length - 1];
+    if (!verbs.some((v) => v.verb === a) && prev && prev.at === i - 1 && !prev.inline && verbs.some((v) => takesValue(v, prev.name))) { prev.value = a; continue; }
+    scan.verb = a;
+    scan.at = i;
+    row = verbs.find((v) => v.verb === a) || null;
   }
-  const { values, positionals } = parsed;
+  return scan;
+}
+
+// A row's options and the globals, in parser order: the later declaration
+// wins, so a row cannot retype a global. No row (no verb) is the globals alone.
+const optionsOf = (row) => [...(row ? row.options : []), ...GLOBAL_OPTS];
+
+// Rule 2: the row is the parser — arg is the type, multiple the repetition.
+function parserOptions(row) {
+  const options = {};
+  for (const o of optionsOf(row)) options[o.name] = { type: o.arg ? "string" : "boolean", ...(o.multiple ? { multiple: true } : {}), ...(SHORT[o.name] ? { short: SHORT[o.name] } : {}) };
+  return options;
+}
+
+// "install does not take --verbos — did you mean --verbose?" With a row the
+// candidates are its options and the globals; without one (no verb, or a
+// word that is none), every option the table declares, as 0.29.2 offered.
+function unknownOption(row, raw, verbs) {
+  const names = (row ? optionsOf(row) : [...verbs.flatMap((v) => v.options), ...GLOBAL_OPTS]).map((o) => o.name);
+  const hint = nearest(raw.replace(/^-+/, ""), [...new Set(names)]);
+  return `${row ? `${row.verb} does not take` : "unknown option"} ${raw}${hint ? ` — did you mean --${hint}?` : ""}`;
+}
+
+// Rule 6: Node's own wording explains "--" positionals; a person who typed
+// --verbos wants the option they meant, and one who left --only bare wants
+// its form. A bad value comes in three shapes — an inline value on a flag
+// (`--json=v`), none at all (`--only` last), one that looks like an option
+// (`--only --json`) — and each quotes the long name, with ` <value>` or a
+// `-h, ` short form around it: the declaration words the answer. Node's text
+// is the fallback when no name can be read.
+function parseFailure(e, row, verbs) {
+  const raw = e.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION" ? /'(-{1,2}[^']+)'/.exec(e.message)?.[1] : null;
+  if (raw) return unknownOption(row, raw, verbs);
+  const name = e.code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE" ? /'(?:-[^-], )?(--[^' ]+)(?: <value>)?'/.exec(e.message)?.[1] : null;
+  const o = name ? optionsOf(row).findLast((x) => `--${x.name}` === name) : null;
+  if (!o) return e.message;
+  return o.arg ? `\`--${o.name}\` needs a value: \`--${o.name} ${o.arg}\`` : `\`--${o.name}\` takes no value`;
+}
+
+// Rule 4: a usage form, word by word — a --name the form requires (the word
+// after it is the option's value when it takes one, not an argument), a
+// <placeholder> (`<phrase…>` takes the rest), or a literal sub-word. The
+// bound is how many arguments the form holds.
+function formOf(row, form) {
+  const f = { form, literals: [], required: [], placeholders: 0, variadic: false };
+  const words = form.split(" ");
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (w.startsWith("--")) {
+      f.required.push(w.slice(2));
+      if (row.options.find((o) => o.name === w.slice(2))?.arg) i++;
+    } else if (w.startsWith("<")) {
+      f.placeholders++;
+      if (w.endsWith("…>")) f.variadic = true;
+    } else f.literals.push(w);
+  }
+  f.bound = f.variadic ? Infinity : f.literals.length + f.placeholders;
+  return f;
+}
+
+// The form the arguments take: the first whose literal words lead them and
+// whose required options were given. null when none does, and the verb's own
+// message then says what it takes ("agents takes model <name>, show, or
+// configure") — which is how `codemap PS-CORE` keeps its --for hint while
+// `codemap --for X extra` names `extra`. A row with no forms binds nothing.
+function matchForm(row, args, values) {
+  if (!row.usage.length) return { form: "", bound: 0 };
+  for (const form of row.usage) {
+    const f = formOf(row, form);
+    if (f.literals.every((w, i) => args[i] === w) && f.required.every((n) => values[n] !== undefined)) return f;
+  }
+  return null;
+}
+
+// `verbs` is the table this run answers for: VERBS, or a test's own — the
+// scan, the help, the verb lookup and every hint read it, never VERBS behind it.
+export async function run(argv, { verbs = VERBS, env = process.env, cwd = process.cwd(), stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, ask = null } = {}) {
+  const scan = scanArgv(argv, verbs);
+  const row = verbs.find((v) => v.verb === scan.verb) || null;
   // A failure before a verb runs still answers in the envelope under --json:
-  // a consumer (the MCP server, a script) always has something to parse.
-  const fail = (verb, project, message, code, { help = false } = {}) => {
-    if (values.json) stdout.write(JSON.stringify(envelope(verb, project, false, { error: message, exit: code }), null, 2) + "\n");
-    stderr.write(message + "\n" + (help ? usage(env) + "\n" : ""));
+  // a consumer (the MCP server, a script) always has something to parse. The
+  // verb is the scan's, whichever step failed (rule 7) — never the first
+  // bare word, which may be --project's value.
+  const fail = (message, code, { project = null, help = false } = {}) => {
+    if (scan.json) stdout.write(JSON.stringify(envelope(scan.verb, project, false, { error: message, exit: code }), null, 2) + "\n");
+    stderr.write(message + "\n" + (help ? usage(env, verbs) + "\n" : ""));
     return code;
   };
+  // A usage error says where the options are: the verb's help, else the top
+  // (a word that is not a verb has no help to point at).
+  const refuse = (message) => fail(`${message}\nRun ${row ? `\`${row.verb} --help\`` : "--help"} for the options.`, 2);
   // In-process reads resolve layouts and registries from THIS package, as the
   // children already do through ownEnv — not from whichever copy the host
   // session's variable points at.
   pinPluginRoot(PACKAGE_ROOT);
-  if (values.version) return runVersion({ values, stdout });
-  if (values.help && positionals.length) {
-    const row = VERBS.find((v) => v.verb === positionals[0]);
-    if (row) { stdout.write(verbHelp(row, env) + "\n"); return 0; }
+  // Rule 8: help and version answer first, whatever else the line holds, so
+  // `doctor extra --help` and `--harness codex plan --help` print the help.
+  if (scan.version) return runVersion({ values: { json: scan.json }, stdout });
+  if (scan.help) { stdout.write((row ? verbHelp(row, env) : usage(env, verbs)) + "\n"); return 0; }
+  // With no verb to scope it, an option no verb declares is unknown before
+  // anything else is said, as in 0.29.2: `--bogus frobnicate` names --bogus,
+  // and `--verbos instal` offers --verbose.
+  const stray = row ? null : scan.misplaced.find((m) => !verbs.some((v) => v.options.some((o) => o.name === m.name)));
+  if (stray) return refuse(unknownOption(null, stray.raw.split("=")[0], verbs));
+  if (scan.verb === null) {
+    // No verb. A verb's option (`--harness codex`, `--verbose`) is the usage,
+    // as before — not "unknown verb: codex"; otherwise the globals alone are
+    // parsed, so a bad value of one (`--project` last) is named.
+    if (!scan.misplaced.length) {
+      try { parseArgs({ args: argv, options: parserOptions(null), strict: true, allowPositionals: true }); } catch (e) { return refuse(parseFailure(e, null, verbs)); }
+    }
+    stderr.write(usage(env, verbs) + "\n");
+    return 2;
   }
-  if (values.help || !positionals.length) { (values.help ? stdout : stderr).write(usage(env) + "\n"); return values.help ? 0 : 2; }
-  const verb = positionals[0];
-  const row = VERBS.find((v) => v.verb === verb);
+  const verb = scan.verb;
   if (!row) {
     const planned = PLANNED_VERBS.find((v) => v.verb === verb);
-    const guess = planned ? null : nearest(verb, VERBS.map((v) => v.verb));
-    if (guess) return fail(verb, null, `unknown verb: ${verb} — did you mean ${guess}?\nRun --help for every verb.`, 2);
-    return fail(verb, null, (planned ? `${verb} lands with roadmap ${planned.lands}; not in this release.` : `unknown verb: ${verb}`), 2, { help: true });
+    const guess = planned ? null : nearest(verb, verbs.map((v) => v.verb));
+    if (guess) return fail(`unknown verb: ${verb} — did you mean ${guess}?\nRun --help for every verb.`, 2);
+    return fail((planned ? `${verb} lands with roadmap ${planned.lands}; not in this release.` : `unknown verb: ${verb}`), 2, { help: true });
   }
-  // The options map is global (parseArgs), the rows are not: an option a row
-  // does not declare is a usage error, so help cannot lie about what a verb
-  // takes.
-  const GLOBAL = new Set(["project", "json", "help", "version"]);
-  const declared = new Set(row.options.map((o) => o.name));
-  const stray = Object.keys(values).filter((k) => !GLOBAL.has(k) && !declared.has(k));
-  if (stray.length) {
-    const guess = nearest(stray[0], row.options.map((o) => o.name));
-    return fail(verb, null, `${verb} does not take --${stray[0]}${guess ? ` — did you mean --${guess}?` : ""}\nRun \`${verb} --help\` for the options.`, 2);
+  // Rule 3: only the globals come before the verb (git's model). A verb's
+  // own option there is shown in its place; one the verb does not declare is
+  // unknown, scoped to the verb. Accepting it would need its arity before the
+  // verb is known, which is what per-verb types make ambiguous.
+  if (scan.misplaced.length) {
+    const m = scan.misplaced[0];
+    const o = m.name === null ? null : row.options.find((x) => x.name === m.name);
+    if (!o) return refuse(unknownOption(row, m.raw.split("=")[0], verbs));
+    // Through a shell the harness is fixed (verbHelp's test: the row declares
+    // it): the order shown drops it, since the shell inserts it after the verb.
+    // The rest of the line follows, so the command shown is the one to run.
+    const { shell, cmd } = invocation(env);
+    const moved = shell && o.name === "harness" ? [] : [m.raw, ...(o.arg && m.value !== undefined ? [m.value] : [])];
+    return refuse(`\`--${o.name}\` belongs after the verb: \`${[cmd, verb, ...moved, ...argv.slice(scan.at + 1)].join(" ")}\``);
+  }
+  // Rule 2: one strict parse with this row's options plus the globals, on the
+  // full argv so a token's index is the user's (rule 4's hints read them).
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, options: parserOptions(row), strict: true, allowPositionals: true, tokens: true });
+  } catch (e) {
+    return refuse(parseFailure(e, row, verbs));
+  }
+  const { values, positionals, tokens } = parsed;
+  // Rule 4: an argument past the matched form is named, never dropped. The
+  // hint says how it became one: the flag before it takes no value, or a
+  // "--" made everything after it an argument.
+  const args = tokens.filter((t) => t.kind === "positional" && t.index !== scan.at);
+  const form = matchForm(row, args.map((t) => t.value), values);
+  if (form && args.length > form.bound) {
+    const extra = args[form.bound];
+    const prev = tokens.find((t) => t.index === extra.index - 1);
+    const end = tokens.find((t) => t.kind === "option-terminator");
+    const why = prev && prev.kind === "option" && prev.value === undefined ? ` — \`--${prev.name}\` takes no value`
+      : end && extra.index > end.index ? " — everything after `--` is an argument" : "";
+    return refuse(`${form.bound ? `\`${verb} ${form.form}\` takes no further argument` : `${verb} takes no argument`} \`${extra.value}\`${why}`);
   }
   const project = resolveProject({ project: values.project, env, cwd });
   const cfg = readConfigAt(project);
-  if (row.requiresBinding && !cfg) return fail(verb, project, `${project} is not bound to a vault — run ${commandForm("bind", { args: "<vault>", env })} in a session, or \`projectstore bind <vault>\` (\`projectstore init <vault>\` also creates the vault).`, 3);
+  if (row.requiresBinding && !cfg) return fail(`${project} is not bound to a vault — run ${commandForm("bind", { args: "<vault>", env })} in a session, or \`projectstore bind <vault>\` (\`projectstore init <vault>\` also creates the vault).`, 3, { project });
   try {
     return await row.run({ row, values, positionals: positionals.slice(1), cfg, project, env, cwd, stdin, stdout, stderr, ask });
   } catch (e) {
