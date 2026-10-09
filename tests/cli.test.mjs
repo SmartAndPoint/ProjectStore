@@ -16,7 +16,7 @@ import { resolve, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject } from "../scripts/cli.mjs";
+import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject, run, opt } from "../scripts/cli.mjs";
 import { loadHarness, sourceHarness, harnessIds } from "../scripts/harness.mjs";
 import { layoutPaths } from "../scripts/lib.mjs";
 import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
@@ -803,4 +803,293 @@ test("cli contract 19: the install family and agents configure refuse a project 
     const r = bin([...args, "--project", join(parent, "project,")], { env: homes });
     assert.ok(!/no such project directory/.test(r.stdout + r.stderr), `${args.join(" ")} still runs: ${r.stdout}${r.stderr}`);
   }
+});
+
+// ─── Per-verb parse: a verb's own table types its flags ──────────────────
+//
+// The story "The CLI parses options per verb: a verb's own table types its
+// flags, and a verb refuses an argument it does not take" (PS-CORE). The scan
+// finds the verb knowing only the globals; one strict parse then runs on that
+// row plus the globals; the row's usage forms are both its help's Usage lines
+// and the bound on its arguments. One test per acceptance group.
+
+// The MCP server's sink, for the in-process seam.
+class Sink {
+  constructor() { this.text = ""; }
+  write(s) { this.text += String(s); return true; }
+  get isTTY() { return false; }
+}
+
+test("cli per-verb parse: one name, two types — boolean --x on a, --x <value> on b, through run(argv, { verbs })", async () => {
+  const seen = [];
+  const row = (verb, x) => ({ verb, summary: `The ${verb} verb.`, usage: [], options: [x], requiresBinding: false, run: async ({ values, positionals }) => { seen.push({ verb, values, positionals }); return 0; } });
+  const verbs = [row("a", opt("x", false, "a flag")), row("b", opt("x", "<value>", "a value"))];
+  const cwd = mkdtempSync(join(tmpdir(), "ps-cli-seam-"));
+  const call = async (argv) => {
+    const stdout = new Sink(), stderr = new Sink();
+    const code = await run(argv, { verbs, env: {}, cwd, stdout, stderr });
+    return { code, out: stdout.text, err: stderr.text };
+  };
+  const a = await call(["a", "--x"]);
+  assert.equal(a.code, 0, a.err);
+  assert.equal(seen.at(-1).verb, "a");
+  assert.equal(seen.at(-1).values.x, true, "a flag on a");
+  const b = await call(["b", "--x", "v"]);
+  assert.equal(b.code, 0, b.err);
+  assert.equal(seen.at(-1).verb, "b");
+  assert.equal(seen.at(-1).values.x, "v", "a value on b");
+  assert.deepEqual(seen.at(-1).positionals, [], "the value is the option's, not an argument");
+  const ran = seen.length;
+  const inline = await call(["a", "--x=v"]);
+  assert.equal(inline.code, 2);
+  assert.match(inline.err, /^`--x` takes no value\nRun `a --help` for the options\.\n$/);
+  for (const argv of [["b", "--x"], ["b", "--x", "--json"]]) {
+    const r = await call(argv);
+    assert.equal(r.code, 2, argv.join(" "));
+    assert.match(r.err, /^`--x` needs a value: `--x <value>`\n/, argv.join(" "));
+  }
+  // The flag's value is an argument a does not take, and the hint says why.
+  const stray = await call(["a", "--x", "v"]);
+  assert.equal(stray.code, 2);
+  assert.match(stray.err, /^a takes no argument `v` — `--x` takes no value\n/);
+  // The unknown-option hint reads the scanned row, never VERBS.
+  assert.match((await call(["a", "--y"])).err, /^a does not take --y — did you mean --x\?/);
+  assert.equal(seen.length, ran, "no refused line reached a verb");
+  // The table is the whole world: a real verb is unknown here, and the help lists the test's rows.
+  const real = await call(["doctor"]);
+  assert.equal(real.code, 2);
+  assert.match(real.err, /^unknown verb: doctor\n/);
+  assert.ok(!real.err.includes("did you mean"), real.err);
+  assert.match(real.err, /\nOther\n {2}a {12}The a verb\.\n {2}b {12}The b verb\.\n/);
+  assert.ok(!/\n {2}doctor /.test(real.err), "VERBS does not leak into the usage");
+  const help = await call(["b", "--help"]);
+  assert.equal(help.code, 0);
+  assert.ok(help.out.startsWith("npx projectstore b — The b verb.\n\nUsage\n  npx projectstore b [options]\n"), help.out);
+});
+
+test("cli per-verb parse: doctor --vault /tmp/x and status extra exit 2 naming the argument; the --json envelope's verb is doctor", () => {
+  const proj = project({ bound: false });
+  const text = bin(["doctor", "--vault", "/tmp/x"], { cwd: proj });
+  assert.equal(text.status, 2);
+  assert.equal(text.stdout, "", "doctor never ran");
+  assert.equal(text.stderr, "doctor takes no argument `/tmp/x` — `--vault` takes no value\nRun `doctor --help` for the options.\n");
+  const json = bin(["doctor", "--vault", "/tmp/x", "--json"], { cwd: proj });
+  assert.equal(json.status, 2);
+  const e = envOf(json);
+  assert.equal(e.verb, "doctor");
+  assert.equal(e.project, null);
+  assert.equal(e.ok, false);
+  assert.equal(e.result.exit, 2);
+  assert.match(e.result.error, /^doctor takes no argument `\/tmp\/x`/);
+  const status = bin(["status", "extra", "--json"], { cwd: proj });
+  assert.equal(status.status, 2);
+  assert.equal(envOf(status).verb, "status");
+  assert.match(status.stderr, /^status takes no argument `extra`\nRun `status --help` for the options\.\n$/);
+});
+
+test("cli per-verb parse: globals before or after the verb give one envelope, -- ends them, help and version answer first", () => {
+  const proj = project({ bound: false });
+  const lines = [["--project", proj, "status", "--json"], ["status", "--project", proj, "--json"], ["--json", "status", "--project", proj], ["--json", "--project", proj, "--", "status"]];
+  const outs = lines.map((argv) => bin(argv));
+  outs.forEach((r, i) => assert.equal(r.status, 0, `${lines[i].join(" ")}: ${r.stderr}`));
+  const first = envOf(outs[0]);
+  assert.equal(first.verb, "status");
+  assert.equal(first.project, proj);
+  outs.slice(1).forEach((r, i) => assert.equal(r.stdout, outs[0].stdout, lines[i + 1].join(" ")));
+  // After "--" every token is an argument: the --project there is one status does not take.
+  const ended = bin(["--", "status", "--project", proj], { cwd: proj });
+  assert.equal(ended.status, 2);
+  assert.match(ended.stderr, /^status takes no argument `--project` — everything after `--` is an argument\n/);
+  for (const argv of [["--help"], ["-h"]]) {
+    const r = bin(argv);
+    assert.equal(r.status, 0, argv.join(" "));
+    assert.ok(r.stdout.startsWith("projectstore — "), argv.join(" "));
+  }
+  for (const [argv, verb] of [[["status", "--help"], "status"], [["status", "-h"], "status"], [["--help", "status"], "status"], [["-h", "status"], "status"], [["status", "extra", "--help"], "status"], [["--harness", "codex", "plan", "--help"], "plan"], [["doctor", "--bogus", "-h"], "doctor"]]) {
+    const r = bin(argv);
+    assert.equal(r.status, 0, argv.join(" "));
+    assert.ok(r.stdout.startsWith(`npx projectstore ${verb} — `), `${argv.join(" ")}: ${r.stdout.split("\n")[0]}`);
+  }
+  for (const argv of [["--version"], ["-v"], ["-hv"], ["-vh"], ["status", "--version"], ["status", "-hv"], ["--version", "status"], ["-hv", "status", "extra"]]) {
+    const r = bin(argv);
+    assert.equal(r.status, 0, argv.join(" "));
+    assert.equal(r.stdout, PKG.version + "\n", argv.join(" "));
+  }
+  assert.deepEqual(envOf(bin(["status", "-hv", "--json"])).result, { version: PKG.version }, "version wins over help, in the envelope too");
+});
+
+test("cli per-verb parse: a verb's option before the verb shows the corrected order; an undeclared one gets the verb's hint", () => {
+  const proj = project({ bound: false });
+  const plan = bin(["--harness", "codex", "plan"], { cwd: proj });
+  assert.equal(plan.status, 2);
+  assert.equal(plan.stderr, "`--harness` belongs after the verb: `npx projectstore plan --harness codex`\nRun `plan --help` for the options.\n");
+  assert.match(bin(["--harness=codex", "plan"], { cwd: proj }).stderr, /^`--harness` belongs after the verb: `npx projectstore plan --harness=codex`\n/);
+  assert.match(bin(["--verbose", "upgrade"], { cwd: proj }).stderr, /^`--verbose` belongs after the verb: `npx projectstore upgrade --verbose`\n/);
+  const json = bin(["--harness", "codex", "plan", "--json"], { cwd: proj });
+  assert.equal(json.status, 2);
+  assert.equal(envOf(json).verb, "plan");
+  assert.match(envOf(json).result.error, /plan --harness codex/);
+  const verbos = bin(["--verbos", "install"], { cwd: proj });
+  assert.equal(verbos.status, 2);
+  assert.match(verbos.stderr, /^install does not take --verbos — did you mean --verbose\?\nRun `install --help` for the options\.\n$/);
+  // With no verb to scope it, an option no verb declares keeps 0.29.2's hint over the whole table.
+  const instal = bin(["--verbos", "instal"], { cwd: proj });
+  assert.equal(instal.status, 2);
+  assert.match(instal.stderr, /^unknown option --verbos — did you mean --verbose\?\nRun --help for the options\.\n$/);
+  // Through a shell the harness is the shell's: the order shown is the bare verb.
+  const shell = bin(["--harness", "codex", "install"], { cwd: proj, env: { PROJECTSTORE_SHELL: "projectstore-codex" } });
+  assert.equal(shell.status, 2);
+  assert.match(shell.stderr, /^`--harness` belongs after the verb: `npx projectstore-codex install`\n/);
+  // The rest of the line follows the moved option, so the command shown is the one to run.
+  const tail = ["--harness", "codex", "agents", "configure", "--default", "opus"];
+  assert.match(bin(tail, { cwd: proj }).stderr, /^`--harness` belongs after the verb: `npx projectstore agents --harness codex configure --default opus`\n/);
+  assert.match(bin(tail, { cwd: proj, env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stderr, /^`--harness` belongs after the verb: `npx projectstore-codex agents configure --default opus`\n/);
+  // A bare word after a verb's option, and no verb: the usage, as before — not "unknown verb: codex".
+  const none = bin(["--harness", "codex"], { cwd: proj });
+  assert.equal(none.status, 2);
+  assert.ok(!none.stderr.includes("unknown verb"), none.stderr);
+  assert.match(none.stderr, /\nUsage\n/);
+});
+
+test("cli per-verb parse: an error before the verb names the scanned verb, in the envelope and on stderr", () => {
+  const proj = project({ bound: false });
+  const r = bin(["--project", "/tmp", "--bogus", "doctor", "--json"], { cwd: proj });
+  assert.equal(r.status, 2);
+  const e = envOf(r);
+  assert.equal(e.verb, "doctor", "the verb, not --project's value");
+  assert.equal(e.project, null);
+  assert.deepEqual(e.result, { error: "doctor does not take --bogus\nRun `doctor --help` for the options.", exit: 2 });
+  assert.equal(r.stderr, "doctor does not take --bogus\nRun `doctor --help` for the options.\n");
+  // During the parse (a bad value) and after it (an argument past the form), and with no verb at all.
+  for (const [argv, verb, error] of [
+    [["--json", "--project", "/tmp", "reconcile", "--only"], "reconcile", /^`--only` needs a value: `--only <target>`\nRun `reconcile --help`/],
+    [["--project", "/tmp", "show", "a.md", "b.md", "--json"], "show", /^`show <path>` takes no further argument `b\.md`\nRun `show --help`/],
+    [["--project", "/tmp", "frobnicate", "--json"], "frobnicate", /^unknown verb: frobnicate/],
+    [["--project", "/tmp", "--bogus", "--json"], null, /^unknown option --bogus\nRun --help for the options\.$/],
+    // A word after an option no verb declares is not its value: the option is named, as in 0.29.2.
+    [["--bogus", "frobnicate", "--json"], "frobnicate", /^unknown option --bogus\nRun --help for the options\.$/],
+  ]) {
+    const x = bin(argv, { cwd: proj });
+    assert.equal(x.status, 2, argv.join(" "));
+    assert.equal(envOf(x).verb, verb, argv.join(" "));
+    assert.match(envOf(x).result.error, error, argv.join(" "));
+    assert.ok(x.stderr.startsWith(envOf(x).result.error), `${argv.join(" ")}: stderr carries the same message`);
+  }
+});
+
+test("cli per-verb parse: show, graph, agents, bind and init refuse an argument past their form; unknown first words keep today's message; -- still delivers dash-led input", () => {
+  const { proj } = cliVault();
+  const vault = join(mkdtempSync(join(tmpdir(), "ps-cli-bound-")), "v");
+  for (const [argv, message] of [
+    [["show", "adr/new-way.md", "extra"], "`show <path>` takes no further argument `extra`"],
+    [["graph", "neighbors", "adr/new-way.md", "extra"], "`graph neighbors <path>` takes no further argument `extra`"],
+    [["graph", "lineage", "adr/new-way.md", "extra"], "`graph lineage <path>` takes no further argument `extra`"],
+    [["agents", "show", "extra"], "`agents show` takes no further argument `extra`"],
+    [["agents", "model", "critic", "extra"], "`agents model <name>` takes no further argument `extra`"],
+    [["agents", "configure", "extra"], "`agents configure` takes no further argument `extra`"],
+    [["bind", vault, "extra"], "`bind <vault>` takes no further argument `extra`"],
+    [["init", vault, "extra"], "`init <vault>` takes no further argument `extra`"],
+  ]) {
+    const r = bin([...argv, "--project", proj]);
+    assert.equal(r.status, 2, argv.join(" "));
+    assert.ok(r.stderr.startsWith(`${message}\nRun \`${argv[0]} --help\` for the options.\n`), `${argv.join(" ")}: ${r.stderr}`);
+  }
+  assert.ok(!existsSync(vault), "init refused before it created anything");
+  // The bound reads past "--" too, and says so.
+  assert.match(bin(["show", "--project", proj, "--", "adr/new-way.md", "-x"]).stderr, /^`show <path>` takes no further argument `-x` — everything after `--` is an argument\n/);
+  // A first word no form names: the verb's own message, as in 0.29.2.
+  const graph = bin(["graph", "frob", "x", "--project", proj]);
+  assert.equal(graph.status, 2);
+  assert.equal(graph.stderr, "graph: graph takes neighbors <path> or lineage <path>\n");
+  const agents = bin(["agents", "frob", "--project", proj]);
+  assert.equal(agents.status, 2);
+  assert.equal(agents.stderr, "agents: agents takes model <name>, show, or configure\n");
+  assert.equal(bin(["agents", "--project", proj]).stderr, "agents: agents takes model <name>, show, or configure\n");
+  // search's phrase is variadic; a dash-led phrase or path after "--" reaches the verb.
+  const phrase = bin(["search", "zebra", "crossing", "--json", "--project", proj]);
+  assert.equal(phrase.status, 0, phrase.stderr);
+  assert.equal(envOf(phrase).result.query, "zebra crossing");
+  const dashed = bin(["search", "--json", "--project", proj, "--", "--help", "-v"]);
+  assert.equal(dashed.status, 0, dashed.stderr);
+  assert.equal(envOf(dashed).verb, "search");
+  assert.equal(envOf(dashed).result.query, "--help -v");
+  const dashPath = bin(["show", "--json", "--project", proj, "--", "-not-there.md"]);
+  assert.equal(dashPath.status, 2);
+  assert.equal(envOf(dashPath).verb, "show");
+  assert.ok(!/takes no|does not take/.test(envOf(dashPath).result.error), `the verb answered: ${envOf(dashPath).result.error}`);
+});
+
+test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, search's <phrase…>, no summary opens with its verb", () => {
+  // 0.29.2's Usage lines, verb by verb; search's placeholder gains its variadic mark.
+  const GOLDEN = {
+    doctor: ["doctor [options]"], reconcile: ["reconcile [options]"], plan: ["plan [options]"], install: ["install [options]"], uninstall: ["uninstall [options]"], upgrade: ["upgrade [options]"],
+    status: ["status [options]"], orientation: ["orientation [options]"], version: ["version [options]"], mcp: ["mcp"],
+    search: ["search <phrase…> [options]"], show: ["show <path> [options]"],
+    graph: ["graph neighbors <path> [options]", "graph lineage <path> [options]"],
+    codemap: ["codemap --for <selector> [options]"],
+    agents: ["agents model <name> [options]", "agents show [options]", "agents configure [options]"],
+    bind: ["bind <vault> [options]"], init: ["init <vault> [options]"],
+  };
+  assert.deepEqual(VERBS.map((v) => v.verb).sort(), Object.keys(GOLDEN).sort(), "every verb has its 0.29.2 forms here");
+  for (const v of VERBS) {
+    const h = bin([v.verb, "--help"]).stdout;
+    // The header is the summary as written: nothing is parsed out of it.
+    assert.ok(h.startsWith(`npx projectstore ${v.verb} — ${v.summary}\n\nUsage\n`), h.split("\n")[0]);
+    const block = h.split("\n\n").find((b) => b.startsWith("Usage\n")).split("\n").slice(1);
+    assert.deepEqual(block, GOLDEN[v.verb].map((l) => `  npx projectstore ${l}`), v.verb);
+    assert.ok(!v.summary.startsWith(v.verb), `${v.verb}'s summary is prose, not a form`);
+    assert.ok(Array.isArray(v.usage) && Object.isFrozen(v.usage), `${v.verb}.usage is a frozen list`);
+    // A form's --option is one the row declares, and the word after it is that option's own placeholder.
+    for (const form of v.usage) {
+      const words = form.split(" ");
+      words.forEach((w, i) => {
+        if (!w.startsWith("--")) return;
+        const o = v.options.find((x) => x.name === w.slice(2));
+        assert.ok(o, `${v.verb}: "${form}" requires ${w}, which the row declares`);
+        if (o.arg) assert.equal(words[i + 1], o.arg, `${v.verb}: "${form}" spells ${w}'s value as the row does`);
+      });
+    }
+  }
+  // No row retypes a global: --project takes a value, the rest are flags, on every verb.
+  const GLOBALS = { project: true, json: false, help: false, version: false };
+  const retyped = VERBS.flatMap((v) => v.options.filter((o) => o.name in GLOBALS && Boolean(o.arg) !== GLOBALS[o.name]).map((o) => `${v.verb} --${o.name}`));
+  assert.deepEqual(retyped, []);
+  assert.deepEqual(Object.keys(PKG.dependencies || {}), [], "zero dependencies");
+  assert.equal(PKG.engines.node, ">=20.0.0");
+});
+
+test("cli per-verb parse: a verb's option that takes a value takes the next token, dash-led or not — never read as help, version or --json", () => {
+  const proj = project({ bound: false });
+  for (const [argv, name, arg] of [
+    [["search", "--kind", "-h", "x"], "--kind", "<type>"],
+    [["show", "--section", "-v", "adr/a.md"], "--section", "<id>"],
+    [["reconcile", "--only", "--help"], "--only", "<target>"],
+    [["reconcile", "--only", "--version"], "--only", "<target>"],
+    [["reconcile", "--only", "--"], "--only", "<target>"],
+    [["codemap", "--for", "--help"], "--for", "<selector>"],
+  ]) {
+    const r = bin(argv, { cwd: proj });
+    assert.equal(r.status, 2, argv.join(" "));
+    assert.equal(r.stdout, "", `${argv.join(" ")}: neither help nor version`);
+    assert.ok(r.stderr.startsWith("`" + name + "` needs a value: `" + name + " " + arg + "`\n"), `${argv.join(" ")}: ${r.stderr}`);
+  }
+  // There --json is the value, not the global: the refusal is on stderr only.
+  const json = bin(["reconcile", "--only", "--json"], { cwd: proj });
+  assert.equal(json.status, 2);
+  assert.equal(json.stdout, "");
+  assert.match(json.stderr, /^`--only` needs a value: `--only <target>`\n/);
+});
+
+test("cli per-verb parse: codemap without --for keeps its hint; codemap --for X extra names extra", () => {
+  const { proj } = cliVault();
+  const bare = bin(["codemap", "PS-CORE", "--project", proj]);
+  assert.equal(bare.status, 2);
+  assert.equal(bare.stderr, "codemap: codemap takes --for <selector>; regeneration is reconcile --only codemap\n");
+  const extra = bin(["codemap", "--for", "PS-X", "extra", "--project", proj]);
+  assert.equal(extra.status, 2);
+  assert.equal(extra.stderr, "codemap takes no argument `extra`\nRun `codemap --help` for the options.\n");
+  const json = bin(["codemap", "--for", "PS-X", "extra", "--json", "--project", proj]);
+  assert.equal(envOf(json).verb, "codemap");
+  assert.equal(envOf(json).result.exit, 2);
+  assert.equal(bin(["codemap", "--for", "PS-X", "--json", "--project", proj]).status, 0, "the form itself still runs");
 });
