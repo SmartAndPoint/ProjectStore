@@ -13,6 +13,7 @@
 //   caps(stream, env)            → { color, live, width, columns, ascii }
 //   painter(caps)                → paint(style or role, text)
 //   icon(caps, name)             → a glyph or separator from GLYPHS
+//   glyphText(caps, text)        → the bin's own prose, its glyphs in caps' column
 //   duration(ms)                 → "0.4s", "12s", "1m 03s"
 //   wrap(text, width, indent)    → prose broken at spaces, hanging indent
 //   badge(caps, head, parts)     → a screen's first line
@@ -143,6 +144,17 @@ export function icon(c, name) {
   return c && c.ascii ? pair[1] : pair[0];
 }
 
+// Prose the bin keeps in its own words — help's summaries and options, a
+// usage form's `<phrase…>` — with each of the table's glyphs in it drawn from
+// the column caps() picks: under ASCII glyphs — reads -, … reads ..., ·
+// reads . and → reads ->. Text from the vault, a manifest or a finding never
+// goes through it; that prints as it is (presentation spec, Testing).
+const TO_ASCII = new Map(Object.values(GLYPHS).map(([u, a]) => [u, a]));
+export function glyphText(c, text) {
+  const s = String(text);
+  return c && c.ascii ? [...s].map((ch) => TO_ASCII.get(ch) ?? ch).join("") : s;
+}
+
 export function duration(ms) {
   if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
@@ -235,13 +247,17 @@ export function heading(c, title, counts = []) {
 // a name in GLYPHS or an alias, `role` the colour of the glyph and the action
 // word; the note is in the explanation role. rowLines() gives each row's
 // lines on their own, for a caller that prints more beneath each row.
+// A row with `prose: true` has words for a target, not a path (status's story
+// titles): on a live terminal one wider than the row wraps at its spaces,
+// with the target column as its hanging indent, and a moved note goes beneath
+// it at that column. Any other target is never wrapped.
 export function rows(c, list, opts = {}) {
   return rowLines(c, list, opts).flat();
 }
 
 export function rowLines(c, list, { indent = 2 } = {}) {
   const paint = painter(c);
-  const cells = list.map((r) => ({ glyph: r.glyph ? icon(c, r.glyph) : "", role: r.role || null, action: String(r.action ?? ""), target: String(r.target ?? ""), note: String(r.note ?? "") }));
+  const cells = list.map((r) => ({ glyph: r.glyph ? icon(c, r.glyph) : "", role: r.role || null, action: String(r.action ?? ""), target: String(r.target ?? ""), note: String(r.note ?? ""), prose: Boolean(r.prose) }));
   const widest = (xs) => Math.max(0, ...xs.map((s) => plain(s).length));
   const gw = widest(cells.map((r) => r.glyph));
   const aw = widest(cells.map((r) => r.action));
@@ -253,12 +269,13 @@ export function rowLines(c, list, { indent = 2 } = {}) {
     let lead = " ".repeat(indent);
     if (gw) lead += cell(r.glyph, gw, r.role) + " ";
     if (aw) lead += cell(r.action, aw, r.role) + "  ";
-    if (!r.note) { out.push([(lead + r.target).trimEnd()]); continue; }
-    const line = `${lead}${cell(r.target, tw, null)}  ${paint("explanation", r.note)}`;
-    if (!width || plain(line).length <= width) { out.push([line]); continue; }
     const col = plain(lead).length;
     const pad = " ".repeat(col);
-    out.push([(lead + r.target).trimEnd(), ...wrap(r.note, width, pad).split("\n").map((l, k) => pad + paint("explanation", k ? l.slice(col) : l))]);
+    const alone = (r.prose && width ? lead + wrap(r.target, width, pad) : lead + r.target).split("\n").map((l) => l.trimEnd());
+    if (!r.note) { out.push(alone); continue; }
+    const line = `${lead}${cell(r.target, tw, null)}  ${paint("explanation", r.note)}`;
+    if (!width || plain(line).length <= width) { out.push([line]); continue; }
+    out.push([...alone, ...wrap(r.note, width, pad).split("\n").map((l, k) => pad + paint("explanation", k ? l.slice(col) : l))]);
   }
   return out;
 }

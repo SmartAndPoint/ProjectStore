@@ -55,7 +55,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import * as term from "./term.mjs";
-import { projectRootDeclared, childEnv, harnessIds, harnessForOverlay, pinPluginRoot } from "./harness.mjs";
+import { projectRootDeclared, childEnv, harnessIds, harnessForOverlay, pinPluginRoot, invokedAs } from "./harness.mjs";
 import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster, commandForm, projectDirRefusal, doctorFallbackText } from "./lib.mjs";
 import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_LIMIT, GRAPH_EDGE_CAP, DIRECTIONS } from "./query.mjs";
 // binding.mjs and scaffold.mjs beneath it are write modules imported
@@ -153,12 +153,12 @@ export const VERBS = Object.freeze([
     options: UNINSTALL_OPTS, run: runInstallVerb,
   }),
   Object.freeze({
-    verb: "upgrade", summary: "Re-run install after a plugin update; re-stamps what this installation wrote and leaves the rest.", usage: NO_FORMS,
+    verb: "upgrade", summary: "After an update, refresh what install wrote and leave the rest.", usage: NO_FORMS,
     module: "./install-harness.mjs", wraps: "module", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: INSTALL_OPTS, run: runInstallVerb,
   }),
   Object.freeze({
-    verb: "status", summary: "The binding, what is in progress, and whether the derived views are fresh.", usage: NO_FORMS,
+    verb: "status", summary: "What is bound, what is in progress, and whether views are fresh.", usage: NO_FORMS,
     module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze(["status"]),
     options: READ_JSON, run: runRead("status"),
   }),
@@ -168,13 +168,13 @@ export const VERBS = Object.freeze([
     options: READ_JSON, run: runRead("orientation"),
   }),
   Object.freeze({
-    verb: "search", summary: "Find a phrase in the vault's artifacts — deterministic, bounded, no shell.", usage: Object.freeze(["<phrase…>"]),
+    verb: "search", summary: "Find a phrase in the vault's artifacts, literal and bounded.", usage: Object.freeze(["<phrase…>"]),
     module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["search"]),
     options: [opt("kind", "<type>", "only artifacts of this kind", true), opt("status", "<status>", "only artifacts in this status"), opt("limit", "<n>", `at most n matches (default ${SEARCH_DEFAULT_LIMIT}, hard cap 100)`), opt("include-derived", false, "search the derived views too"), opt("case-sensitive", false, "match case"), JSON_OPT],
     run: runRead("search"),
   }),
   Object.freeze({
-    verb: "show", summary: "One artifact: its frontmatter, and its body or one section on request.", usage: Object.freeze(["<path>"]),
+    verb: "show", summary: "One artifact's frontmatter; its body or a section on request.", usage: Object.freeze(["<path>"]),
     module: "./query.mjs", wraps: "module", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["get_artifact"]),
     options: [opt("body", false, "include the body"), opt("section", "<id>", "one section by its registry id (description, acceptance, …)"), JSON_OPT],
     run: runRead("show"),
@@ -182,41 +182,41 @@ export const VERBS = Object.freeze([
   Object.freeze({
     verb: "graph", summary: "The live link graph by vault path.", usage: Object.freeze(["neighbors <path>", "lineage <path>"]),
     module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["neighbors", "lineage"]),
-    options: [opt("kind", "<edge-kind>", "only edges of this kind (lineage: one of its four)", true), opt("direction", DIRECTIONS.join("|"), "neighbors: which edges"), opt("depth", "<n>", `lineage: how far (default ${LINEAGE_DEFAULT_DEPTH})`), opt("limit", "<n>", `neighbors: cap per direction (≤ ${GRAPH_EDGE_CAP})`), JSON_OPT],
+    options: [opt("kind", "<edge-kind>", "only edges of this kind (lineage: one of its four)", true), opt("direction", DIRECTIONS.join("|"), "neighbors: which edges"), opt("depth", "<n>", `lineage: how far (default ${LINEAGE_DEFAULT_DEPTH})`), opt("limit", "<n>", `neighbors: cap per direction (at most ${GRAPH_EDGE_CAP})`), JSON_OPT],
     run: runGraph,
   }),
   Object.freeze({
-    verb: "codemap", summary: "Which code an epic or artifact maps to, or which artifacts map to a path.", usage: Object.freeze(["--for <selector>"]),
+    verb: "codemap", summary: "The code an epic or artifact maps to, or a path's artifacts.", usage: Object.freeze(["--for <selector>"]),
     module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["code_refs"]),
     options: [opt("for", "<selector>", "an epic id, an artifact, or a repo path"), opt("reverse", false, "read the selector as a path even if it names an artifact"), JSON_OPT],
     run: runCodemap,
   }),
   Object.freeze({
-    verb: "agents", summary: "The harness overlay's agents block (ADR-008, read per invocation).", usage: Object.freeze(["model <name>", "show", "configure"]),
+    verb: "agents", summary: "The harness overlay's agents block: the model each agent runs.", usage: Object.freeze(["model <name>", "show", "configure"]),
     module: "./lib.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: [opt("harness", "<id>", "configure: the overlay to write — and, non-interactively, the confirmation; there is no --yes", true), opt("default", "<model>", "configure: agents.default.model (pins the clerk to sonnet unless --agent clerk=… says otherwise; an empty model clears it)"), opt("agent", "<name>=<model>", "configure: agents.per_agent.<name>.model (an empty model removes the key)", true), opt("reset", false, "configure: empty the agents block first; --default and --agent given with it apply on top"), JSON_OPT],
     run: runAgents,
   }),
   Object.freeze({
-    verb: "bind", summary: "Bind this project to an existing vault (naming the vault is the confirmation).", usage: Object.freeze(["<vault>"]),
+    verb: "bind", summary: "Bind this project to an existing vault; naming it confirms.", usage: Object.freeze(["<vault>"]),
     module: "./binding.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: [opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`), opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`), opt("rebind", false, "point an already bound project at another vault; every other setting is kept"), JSON_OPT],
     run: runBind(false),
   }),
   Object.freeze({
-    verb: "init", summary: "Create a whole vault — the directory, its git repository, the layout's folders and READMEs — and bind to it.", usage: Object.freeze(["<vault>"]),
+    verb: "init", summary: "Create a vault (folder, git repository, READMEs) and bind to it.", usage: Object.freeze(["<vault>"]),
     module: "./binding.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: [opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`), opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`), opt("rebind", false, "an already bound project: create the new vault and point the project at it; every other setting is kept"), JSON_OPT],
     run: runBind(true),
   }),
   Object.freeze({
-    verb: "scaffold", summary: "Create the bound vault's missing layout folders and READMEs; an existing file is never rewritten.", usage: NO_FORMS,
+    verb: "scaffold", summary: "Create the vault's missing folders and READMEs; rewrite nothing.", usage: NO_FORMS,
     module: "./scaffold.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: true, mcp: Object.freeze([]),
     options: [opt("write", false, "create them (asks at a terminal; without one, --write is the confirmation)"), JSON_OPT],
     run: runScaffold,
   }),
   Object.freeze({
-    verb: "mcp", summary: "Serve the read tools over MCP (stdio) for the project named by --project or PROJECTSTORE_PROJECT_DIR; never the ambient cwd.", usage: NO_FORMS,
+    verb: "mcp", summary: "Serve the read tools over MCP (stdio) for the project you name.", usage: NO_FORMS,
     module: "./mcp.mjs", wraps: "new", how: "import", output: "text", writes: false, requiresBinding: false, mcp: Object.freeze([]),
     options: [], run: runMcp,
   }),
@@ -233,15 +233,24 @@ export const VERBS = Object.freeze([
 // story that adds a verb in slices.
 export const PLANNED_VERBS = Object.freeze([]);
 
-// The verbs as a person meets them: setting a project up, reading the vault,
-// keeping it consistent, serving it. A verb not listed lands in "Other", so a
-// new row is never hidden by this table.
+// The verbs as a person meets them (presentation spec contract 10): starting,
+// reading the vault, keeping it consistent. Every verb not listed here is
+// ADVANCED, one line of names in table order — so a new row is never hidden
+// by this table, and init and scaffold, which the contract names in no group,
+// are there too. A group lists only the verbs this run's table has. Once
+// setup exists, START becomes setup and uninstall, and install and bind move
+// to ADVANCED.
 const HELP_GROUPS = [
-  ["Set up", ["install", "upgrade", "uninstall", "plan", "bind", "init", "scaffold", "agents"]],
-  ["Read", ["status", "search", "show", "graph", "codemap", "orientation"]],
-  ["Check and repair", ["doctor", "reconcile"]],
-  ["Serve", ["mcp", "version"]],
+  ["START", ["install", "bind", "uninstall"]],
+  ["VAULT", ["status", "search", "show", "graph", "codemap"]],
+  ["CHECK AND REPAIR", ["doctor", "reconcile", "upgrade"]],
 ];
+// The column a group's summaries start at: two spaces, the verb in twelve,
+// one space. A summary fits 80 columns from there, so each is at most 65
+// characters, in ASCII (tests/presentation.test.mjs, criterion 5, holds every
+// row to it).
+const VERB_COLUMN = 12;
+export const SUMMARY_MAX = 80 - (2 + VERB_COLUMN + 1);
 
 // Examples per verb. `{cmd}` is how this run was invoked (a shell's own name
 // when PROJECTSTORE_SHELL says so, else the core — a shell passes the read
@@ -269,78 +278,130 @@ const EXAMPLES = {
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
 
-function invocation(env = process.env) {
-  const shell = env.PROJECTSTORE_SHELL || null;
-  return { shell, cmd: shell ? `npx ${shell}` : "npx projectstore" };
-}
+// The one spelling of how this run was invoked (harness.mjs), which status's
+// and bind's next commands print too.
+const invocation = invokedAs;
 
-function optionLines(options) {
-  const rows = options.map((o) => [`--${o.name}${o.arg ? " " + o.arg : ""}`, `${o.summary}${o.multiple ? " (repeatable)" : ""}`]);
+// An aligned options block: each option's form in a column at most 28 wide,
+// its description beside it — or, past that column, on the next line under
+// it. On a live terminal a description wraps with its column as the hanging
+// indent; anywhere else it stays one line, whole, for a reader that greps.
+function optionLines(options, c = term.PLAIN) {
+  const rows = options.map((o) => [term.glyphText(c, `--${o.name}${o.arg ? " " + o.arg : ""}`), term.glyphText(c, `${o.summary}${o.multiple ? " (repeatable)" : ""}`)]);
   const w = Math.min(28, Math.max(0, ...rows.map(([l]) => l.length)));
-  return rows.map(([l, r]) => (l.length > w ? `  ${l}\n  ${" ".repeat(w)}  ${r}` : `  ${l.padEnd(w)}  ${r}`));
+  const pad = " ".repeat(2 + w + 2);
+  const text = (r) => term.wrap(r, c.live ? c.width : 0, pad);
+  return rows.map(([l, r]) => (l.length > w ? `  ${l}\n${pad}${text(r)}` : `  ${l.padEnd(w)}  ${text(r)}`));
 }
 
-const EXIT_CODES = "Exit codes  0 ok · 1 findings or a refusal · 2 usage · 3 not bound";
+const EXIT_CODES = "0 ok, 1 findings or a refusal, 2 usage, 3 not bound, 130 cancelled";
+// The facts that close a help screen (`Harnesses`, `Exit codes`): the key in
+// the explanation role, its value at one column for both.
+const FACT_KEY = "Exit codes".length;
+const fact = (c, key, value) => `${term.painter(c)("explanation", key)}${" ".repeat(FACT_KEY - key.length + 2)}${value}`;
 
-// `verbs` is the table this run answers for — VERBS, or a test's own.
-export function usage(env = process.env, verbs = VERBS) {
-  const { cmd } = invocation(env);
+// What the bin is, in the help's badge: one line with the name and version,
+// short enough that a prerelease version (0.30.0-rc.12) still fits 80 columns.
+const PURPOSE = "project memory for coding agents, in markdown";
+
+// What a verb's help says beneath its Usage when the summary has no room for
+// it: here, how mcp is told its project.
+const NOTES = {
+  mcp: "It serves the project --project names, else PROJECTSTORE_PROJECT_DIR or the host session's project; never the directory it was started in.",
+};
+
+// The global options, as every verb takes them.
+const EVERY_VERB = Object.freeze([
+  opt("project", "<dir>", "the project (default: the session's, else this directory)"),
+  opt("json", false, "the result as one JSON envelope, for scripts and agents"),
+  opt("version", false, "the package version"),
+]);
+
+// Top-level help (presentation spec contract 10): the badge — name, version,
+// purpose; Usage; the named groups, each verb in the action role and its
+// summary on one line; ADVANCED, one line of the remaining verbs; the options
+// every verb takes; examples, each command alone on its line (contract 6);
+// the tips, whose plan command stands alone too; the harnesses and the exit
+// codes. `verbs` is the table this run answers for — VERBS, or a test's own.
+// `caps` is the writing stream's (term.mjs): painted at a terminal, plain on a
+// pipe, and every line of it fits 80 columns either way.
+export function usage(env = process.env, verbs = VERBS, { caps: c = term.PLAIN, version = packageVersion() } = {}) {
+  const { shell, cmd } = invocation(env);
+  const paint = term.painter(c);
+  const width = c.live ? c.width : 0;
+  const prose = (text) => "  " + term.wrap(term.glyphText(c, text), width, "    ");
   const lines = [
-    "projectstore — project memory for coding agents: decisions, specs, epics and stories as plain markdown.",
+    term.badge(c, "projectstore", [version, PURPOSE]),
     "",
-    "Usage",
-    `  ${cmd} <verb> [options]`,
-    `  ${cmd} <verb> --help       one verb's options and examples`,
+    term.heading(c, "Usage"),
+    ...term.rows(c, [{ target: `${cmd} <verb> [options]`, note: "run it inside your code project" }, { target: `${cmd} <verb> --help`, note: "one verb's options and examples" }]),
   ];
-  const seen = new Set();
-  const groups = HELP_GROUPS.map(([title, names]) => [title, names.map((n) => verbs.find((v) => v.verb === n)).filter(Boolean)]);
-  for (const [, rows] of groups) for (const r of rows) seen.add(r.verb);
-  const other = verbs.filter((v) => !seen.has(v.verb));
-  if (other.length) groups.push(["Other", other]);
-  for (const [title, rows] of groups) {
+  const listed = new Set(HELP_GROUPS.flatMap(([, names]) => names));
+  for (const [title, names] of HELP_GROUPS) {
+    const rows = names.map((n) => verbs.find((v) => v.verb === n)).filter(Boolean);
     if (!rows.length) continue;
-    lines.push("", title);
-    for (const v of rows) lines.push(`  ${v.verb.padEnd(12)} ${v.summary}`);
+    lines.push("", term.heading(c, title));
+    for (const v of rows) {
+      const lead = `  ${paint("action", v.verb)}${" ".repeat(Math.max(0, VERB_COLUMN - v.verb.length))} `;
+      lines.push(lead + term.wrap(term.glyphText(c, v.summary), width, " ".repeat(term.plain(lead).length)));
+    }
   }
+  const advanced = verbs.filter((v) => !listed.has(v.verb));
+  if (advanced.length) lines.push("", term.heading(c, "ADVANCED"), "  " + term.wrap(advanced.map((v) => paint("action", v.verb)).join(` ${term.icon(c, "dot")} `), width, "  "));
   if (PLANNED_VERBS.length) lines.push("", `Planned: ${PLANNED_VERBS.map((v) => `${v.verb} (${v.lands})`).join(", ")}`);
+  // A command is offered only for a verb this table has.
+  const h = shell ? "" : " --harness <id>";
+  const has = (verb) => verbs.some((v) => v.verb === verb);
+  const examples = [["install", `${cmd} install${h}`], ["status", `${cmd} status`], ["doctor", `${cmd} doctor`]].filter(([v]) => has(v)).map(([, x]) => x);
+  lines.push("", term.heading(c, "Options"), ...optionLines(EVERY_VERB, c));
+  if (examples.length) lines.push("", term.heading(c, "Examples"), ...term.commandBlock(c, examples));
   lines.push(
     "",
-    "Every verb",
-    "  --project <dir>  the project (default: the host session's project, else the current directory)",
-    "  --json           one envelope { schema_version, verb, project, ok, result } — for scripts and agents",
-    "  --version        the package version",
-    "",
-    "Tips",
-    "  install, upgrade and uninstall show their plan first; `plan` prints the same plan and writes nothing.",
-    "  At a terminal they ask before writing. Without one, --harness is the confirmation — there is no --yes.",
-    "  Unattended in a terminal (a script, a Makefile): pass --json, set CI=1, or give stdin no terminal (`</dev/null`).",
-    "  --verbose on those verbs adds every row's reasoning and the host's own notes.",
-    "",
-    `Harnesses   ${harnessIds().join(", ")}`,
-    EXIT_CODES,
+    term.heading(c, "Tips"),
+    prose("install, upgrade and uninstall show their plan, then ask at a terminal."),
+    prose(`Without a terminal, ${shell ? "the verb is its own" : "--harness is the"} confirmation ${term.icon(c, "dash")} there is no --yes.`),
+    prose("Unattended in a terminal: pass --json, set CI=1, or give stdin </dev/null."),
+    prose("--verbose on those verbs adds every row's reasoning and the host's notes."),
   );
+  if (has("plan")) lines.push(prose("plan prints the same plan and writes nothing:"), ...term.commandBlock(c, [`${cmd} plan${h}`]));
+  lines.push("", fact(c, "Harnesses", harnessIds().join(", ")), fact(c, "Exit codes", EXIT_CODES));
   return lines.join("\n");
 }
 
 // One verb: what it does, how to call it, every option, examples. The Usage
 // lines are the row's own forms, the same declaration that bounds its
 // arguments — never parsed out of the summary, so help and the parser cannot
-// disagree about what a verb takes.
-export function verbHelp(row, env = process.env) {
+// disagree about what a verb takes. Its first line is the summary the
+// top-level help lists, after the command; `caps` as usage()'s.
+export function verbHelp(row, env = process.env, { caps: c = term.PLAIN } = {}) {
   const { shell, cmd } = invocation(env);
+  const paint = term.painter(c);
   const fixed = Boolean(shell) && row.options.some((o) => o.name === "harness");
   const opts = row.options.filter((o) => !(fixed && o.name === "harness"));
-  const lines = [`${cmd} ${row.verb} — ${row.summary}`, "", "Usage"];
-  for (const f of row.usage.length ? row.usage : [""]) lines.push(`  ${cmd} ${row.verb}${f ? " " + f : ""}${opts.length ? " [options]" : ""}`);
-  if (opts.length) lines.push("", "Options", ...optionLines(opts));
-  if (fixed) lines.push("", `${shell} names the harness itself: without a terminal, the verb is its own confirmation.`);
-  else if (row.options.some((o) => o.name === "harness")) lines.push("", `Harnesses   ${harnessIds().join(", ")}`);
+  const prose = (text) => "  " + term.wrap(term.glyphText(c, text), c.live ? c.width : 0, "    ");
+  const head = `${paint("emphasis", `${cmd} ${row.verb}`)} ${term.icon(c, "dash")} ${term.glyphText(c, row.summary)}`;
+  const lines = [term.wrap(head, c.live ? c.width : 0, "  "), "", term.heading(c, "Usage")];
+  for (const f of row.usage.length ? row.usage : [""]) lines.push(`  ${cmd} ${row.verb}${f ? " " + term.glyphText(c, f) : ""}${opts.length ? " [options]" : ""}`);
+  if (NOTES[row.verb]) lines.push("", prose(NOTES[row.verb]));
+  if (opts.length) lines.push("", term.heading(c, "Options"), ...optionLines(opts, c));
+  if (fixed) lines.push("", term.wrap(`${shell} names the harness itself: without a terminal, the verb is its own confirmation.`, c.live ? c.width : 0, "  "));
+  else if (row.options.some((o) => o.name === "harness")) lines.push("", fact(c, "Harnesses", harnessIds().join(", ")));
   const ex = (EXAMPLES[row.verb] || []).filter((e) => !(fixed && e.startsWith("{core}"))).map((e) => e.replace(/^\{core\}/, ""));
   const h = fixed ? "" : " --harness <id>";
-  const rendered = ex.map((e) => e.split("{cmd}").join(cmd).split("{h}").join(h).split("  # "));
-  const col = Math.max(0, ...rendered.filter((r) => r.length > 1).map(([c]) => c.length));
-  if (ex.length) lines.push("", "Examples", ...rendered.map(([c, note]) => `  ${note ? `${c.padEnd(col)}   # ${note}` : c}`));
-  lines.push("", EXIT_CODES);
+  // Each example command stands alone on its line, after a blank one
+  // (contract 6): nothing after it, so a paste takes exactly the command — a
+  // trailing `# note` broke a paste into a shell that reads no comments. A
+  // note says, on the line just above, what its command does; commands with
+  // no note share one block.
+  const blocks = [];
+  for (const [x, note] of ex.map((e) => e.split("{cmd}").join(cmd).split("{h}").join(h).split("  # "))) {
+    const last = blocks.at(-1);
+    if (!note && last && !last.note) last.cmds.push(x);
+    else blocks.push({ note: note ? `${note[0].toUpperCase()}${note.slice(1)}:` : null, cmds: [x] });
+  }
+  if (blocks.length) lines.push("", term.heading(c, "Examples"));
+  for (const b of blocks) lines.push("", ...(b.note ? [prose(paint("explanation", b.note))] : []), ...b.cmds.map((x) => `  ${paint("action", x)}`));
+  lines.push("", fact(c, "Exit codes", EXIT_CODES));
   return lines.join("\n");
 }
 
@@ -493,7 +554,7 @@ export async function run(argv, { verbs = VERBS, env = process.env, cwd = proces
   // bare word, which may be --project's value.
   const fail = (message, code, { project = null, help = false } = {}) => {
     if (scan.json) stdout.write(JSON.stringify(envelope(scan.verb, project, false, { error: message, exit: code }), null, 2) + "\n");
-    stderr.write(message + "\n" + (help ? usage(env, verbs) + "\n" : ""));
+    stderr.write(message + "\n" + (help ? usage(env, verbs, { caps: term.caps(stderr, env) }) + "\n" : ""));
     return code;
   };
   // A usage error says where the options are: the verb's help, else the top
@@ -506,7 +567,12 @@ export async function run(argv, { verbs = VERBS, env = process.env, cwd = proces
   // Rule 8: help and version answer first, whatever else the line holds, so
   // `doctor extra --help` and `--harness codex plan --help` print the help.
   if (scan.version) return runVersion({ values: { json: scan.json }, stdout });
-  if (scan.help) { stdout.write((row ? verbHelp(row, env) : usage(env, verbs)) + "\n"); return 0; }
+  // Help is painted at a terminal and plain on a pipe: the caps are stdout's.
+  if (scan.help) {
+    const caps = term.caps(stdout, env);
+    stdout.write((row ? verbHelp(row, env, { caps }) : usage(env, verbs, { caps })) + "\n");
+    return 0;
+  }
   // With no verb to scope it, an option no verb declares is unknown before
   // anything else is said, as in 0.29.2: `--bogus frobnicate` names --bogus,
   // and `--verbos instal` offers --verbose.
@@ -519,7 +585,7 @@ export async function run(argv, { verbs = VERBS, env = process.env, cwd = proces
     if (!scan.misplaced.length) {
       try { parseArgs({ args: argv, options: parserOptions(null), strict: true, allowPositionals: true }); } catch (e) { return refuse(parseFailure(e, null, verbs)); }
     }
-    stderr.write(usage(env, verbs) + "\n");
+    stderr.write(usage(env, verbs, { caps: term.caps(stderr, env) }) + "\n");
     return 2;
   }
   const verb = scan.verb;
@@ -602,10 +668,12 @@ async function confirmWrite(question, { stdin, stdout, ask }) {
 
 // The read verbs: one call into query.mjs, the result in the envelope or
 // rendered. A usage error from the operation (a bad path, a missing query)
-// is exit 2 with the message, never a stack trace.
-function emitRead({ verb, values, project, stdout }, op, result, ok = true) {
+// is exit 2 with the message, never a stack trace. A renderer gets the
+// stream's caps — painted at a terminal, plain on a pipe — and the env its
+// command forms are named for; one that takes neither ignores them.
+function emitRead({ verb, values, project, stdout, env }, op, result, ok = true) {
   if (values.json) stdout.write(JSON.stringify(envelope(verb, project, ok, result), null, 2) + "\n");
-  else stdout.write(op.render(result));
+  else stdout.write(op.render(result, { caps: term.caps(stdout, env), env }));
   return ok ? 0 : 1;
 }
 

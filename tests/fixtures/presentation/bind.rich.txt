@@ -7,4 +7,4 @@ Next: create the layout's missing folders and READMEs, in a session or from a
   terminal:
 
   [36m/projectstore:scaffold[39m
-  [36mprojectstore scaffold --write[39m
+  [36mnpx projectstore scaffold --write[39m

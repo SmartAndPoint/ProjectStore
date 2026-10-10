@@ -40,7 +40,7 @@ import { spawnSync } from "node:child_process";
 import { join, resolve, isAbsolute, dirname } from "node:path";
 import { homedir } from "node:os";
 import { writeFileAtomic, pluginRoot, ensureRuntimeDir, layoutPaths, commandForm } from "./lib.mjs";
-import { configPath as harnessConfigPath } from "./harness.mjs";
+import { configPath as harnessConfigPath, invokedAs } from "./harness.mjs";
 import { planScaffold, applyScaffold } from "./scaffold.mjs";
 import { icon, kv, commandBlock, wrap, PLAIN } from "./term.mjs";
 
@@ -253,18 +253,21 @@ const prose = (c, text, lead = "") => lead + wrap(text, c.live ? c.width : 0, le
 // The bind Next lines, one decision: the scaffold plan has a `create` row.
 // Both forms — the session's and the bin's — because the bind interview
 // relays this to a person who runs slash commands, and a git-marketplace
-// install has no bin on PATH. `--write`: at a terminal that form shows the
-// plan and asks anyway. Each command stands on its own line, after a blank
-// one (presentation spec contract 6), so a copy takes exactly the command.
+// install has no bin on PATH: the terminal's form is the package this run was
+// invoked as, through npx (harness.mjs invokedAs — a shell's own name when it
+// came through one). `--write`: at a terminal that form shows the plan and
+// asks anyway. Each command stands on its own line, after a blank one
+// (presentation spec contract 6), so a copy takes exactly the command.
 function nextLines(p, env, c) {
+  const { cmd } = invokedAs(env);
   return p.scaffold && p.scaffold.ok && p.scaffold.creates > 0
-    ? ["", prose(c, "Next: create the layout's missing folders and READMEs, in a session or from a terminal:"), ...commandBlock(c, [commandForm("scaffold", { env }), "projectstore scaffold --write"])]
-    : ["", prose(c, "Next: see where the project stands:"), ...commandBlock(c, ["projectstore status"])];
+    ? ["", prose(c, "Next: create the layout's missing folders and READMEs, in a session or from a terminal:"), ...commandBlock(c, [commandForm("scaffold", { env }), `${cmd} scaffold --write`])]
+    : ["", prose(c, "Next: see where the project stands:"), ...commandBlock(c, [`${cmd} status`])];
 }
 
 // One line per step that ran. The whole-vault path's own Next lines: the
 // derived views are reconcile's, offered rather than run.
-function vaultSteps(p, done, c) {
+function vaultSteps(p, done, c, env) {
   const lines = [];
   const g = done.git;
   if (g && g.done) lines.push(prose(c, `Initialised a git repository in ${p.vault} (no commit).`));
@@ -274,7 +277,7 @@ function vaultSteps(p, done, c) {
   const s = done.scaffold;
   if (s && s.failed) lines.push(prose(c, `Scaffold failed: ${s.failed}`), prose(c, s.remedy, "  "));
   else if (s) lines.push(prose(c, `Scaffolded the ${p.layout} layout (${p.language}): ${s.created.length} folders and READMEs created${s.exists.length ? `, ${s.exists.length} already there` : ""}.`));
-  if (!bindFailed(done)) lines.push("", prose(c, `Next, optional: generate the derived views ${icon(c, "dash")} kanban.md, graph.md and code-map.md:`), ...commandBlock(c, ["projectstore reconcile --write"]));
+  if (!bindFailed(done)) lines.push("", prose(c, `Next, optional: generate the derived views ${icon(c, "dash")} kanban.md, graph.md and code-map.md:`), ...commandBlock(c, [`${invokedAs(env).cmd} reconcile --write`]));
   return lines;
 }
 
@@ -296,7 +299,7 @@ export function renderBindPlan(p, done = null, { env = process.env, caps: c = PL
     lines.push(prose(c, `Wrote ${p.configPath}${p.state === "different" ? ` (rebind from ${p.before.vault_path}; kept: ${p.keptKeys.join(", ") || "nothing else"})` : ""}`));
     lines.push(...kv(c, [["vault_path", p.vault], ["layout", p.layout], ["language", p.language]]));
   }
-  if (done && p.buildsVault) lines.push(...vaultSteps(p, done, c));
+  if (done && p.buildsVault) lines.push(...vaultSteps(p, done, c, env));
   else if (done) lines.push(...nextLines(p, env, c));
   return lines.join("\n") + "\n";
 }

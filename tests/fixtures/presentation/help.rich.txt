@@ -1,0 +1,48 @@
+[1mprojectstore[22m · 0.30.0 · project memory for coding agents, in markdown
+
+[1mUsage[22m
+  npx projectstore <verb> [options]  [90mrun it inside your code project[39m
+  npx projectstore <verb> --help     [90mone verb's options and examples[39m
+
+[1mSTART[22m
+  [36minstall[39m      Install projectstore's surfaces for a harness, behind a preview.
+  [36mbind[39m         Bind this project to an existing vault; naming it confirms.
+  [36muninstall[39m    Remove what install wrote, and only that.
+
+[1mVAULT[22m
+  [36mstatus[39m       What is bound, what is in progress, and whether views are fresh.
+  [36msearch[39m       Find a phrase in the vault's artifacts, literal and bounded.
+  [36mshow[39m         One artifact's frontmatter; its body or a section on request.
+  [36mgraph[39m        The live link graph by vault path.
+  [36mcodemap[39m      The code an epic or artifact maps to, or a path's artifacts.
+
+[1mCHECK AND REPAIR[22m
+  [36mdoctor[39m       Check the install wiring and the vault's consistency.
+  [36mreconcile[39m    Regenerate the derived views (kanban, code map, graph, indexes).
+  [36mupgrade[39m      After an update, refresh what install wrote and leave the rest.
+
+[1mADVANCED[22m
+  [36mplan[39m · [36morientation[39m · [36magents[39m · [36minit[39m · [36mscaffold[39m · [36mmcp[39m · [36mversion[39m
+
+[1mOptions[22m
+  --project <dir>  the project (default: the session's, else this directory)
+  --json           the result as one JSON envelope, for scripts and agents
+  --version        the package version
+
+[1mExamples[22m
+
+  [36mnpx projectstore install --harness <id>[39m
+  [36mnpx projectstore status[39m
+  [36mnpx projectstore doctor[39m
+
+[1mTips[22m
+  install, upgrade and uninstall show their plan, then ask at a terminal.
+  Without a terminal, --harness is the confirmation — there is no --yes.
+  Unattended in a terminal: pass --json, set CI=1, or give stdin </dev/null.
+  --verbose on those verbs adds every row's reasoning and the host's notes.
+  plan prints the same plan and writes nothing:
+
+  [36mnpx projectstore plan --harness <id>[39m
+
+[90mHarnesses[39m   claude-code, codex
+[90mExit codes[39m  0 ok, 1 findings or a refusal, 2 usage, 3 not bound, 130 cancelled

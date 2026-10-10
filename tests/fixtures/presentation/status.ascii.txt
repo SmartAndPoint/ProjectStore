@@ -1,0 +1,30 @@
+Binding
+  vault_path       /home/ada/vaults/shop
+  layout           engineering
+  language         en
+  auto_inject      true
+  approval_mode    always
+  spec_policy      optional
+  lifecycle_gates  on
+
+Stories - 23 on the board . 12 done . 7 in-progress . 3 planned . 1 review .
+  1 off the board (not_actionable 1)
+
+In progress - 7
+  SHOP-PAY
+    . 2026-10-09  Refunds reach the ledger
+                  epics/SHOP-PAY/stories/story-refunds-reach-the-ledger.md
+    . 2026-10-07  A declined card says why, in the shopper's words
+                  epics/SHOP-PAY/stories/story-a-declined-card-says-why.md
+    .             Receipts by email
+                  epics/SHOP-PAY/stories/story-receipts-by-email.md
+  SHOP-CART
+    . 2026-10-08  A cart survives a sign-in on another device, with its saved
+                  items, its coupons and the address the shopper chose
+                  epics/SHOP-CART/stories/story-a-cart-survives-a-sign-in.md
+    . 2026-10-02  Saved for later
+                  epics/SHOP-CART/stories/story-saved-for-later.md
+  +2 more - see kanban.md
+
+Views - kanban.md stale . code-map.md missing . graph.md fresh
+Sessions - 2 active

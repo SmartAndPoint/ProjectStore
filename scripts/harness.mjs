@@ -618,6 +618,17 @@ export function packageCommand(harness, verb, { version = null, args = "" } = {}
   return `npx ${pkg} ${verb}${fixed}${args ? ` ${args}` : ""}`;
 }
 
+// The package this run was invoked as, for a command it prints to be typed
+// next: the shell it came through (the shell's bin sets PROJECTSTORE_SHELL,
+// and fixes the harness, so a verb that takes --harness needs none), else the
+// core. packageCommand() above is the install family's, per harness; this one
+// is for the verbs that name no harness (bind, status, scaffold, reconcile),
+// which every shell passes through. `npx` runs it with no bin on PATH.
+export function invokedAs(env = process.env) {
+  const shell = env.PROJECTSTORE_SHELL || null;
+  return { shell, cmd: shell ? `npx ${shell}` : "npx projectstore" };
+}
+
 // The overlay a harness reads: <project>/.projectstore/harness/<overlay>.json —
 // the manifest's runtime.overlay, the harness id by convention (the layout ADR,
 // decision 3). Null only when no manifest at all can be found.

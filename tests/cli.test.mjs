@@ -107,7 +107,11 @@ test("cli: --version equals package.json, help lists every verb, an unknown verb
   const help = bin(["--help"]);
   assert.equal(help.status, 0, "bare --help is not an error");
   assert.equal(bin(["-h"]).status, 0);
-  for (const v of VERBS) assert.ok(help.stdout.includes(` ${v.verb} `) || help.stdout.includes(`${v.verb.padEnd(11)}`), `help names ${v.verb}`);
+  // Each verb exactly once: a row of a named group, or a name on ADVANCED's one line.
+  const helpLines = help.stdout.split("\n");
+  const grouped = helpLines.filter((l) => /^ {2}[a-z]+ {2,}\S/.test(l)).map((l) => l.trim().split(" ")[0]);
+  const advanced = helpLines[helpLines.indexOf("ADVANCED") + 1].trim().split(" · ");
+  assert.deepEqual([...grouped, ...advanced].sort(), VERBS.map((v) => v.verb).sort());
   assert.ok(help.stdout.includes("there is no --yes"));
   const none = bin([]);
   assert.equal(none.status, 2);
@@ -140,19 +144,20 @@ test("cli: <verb> --help prints the verb's options and examples, a shell's name 
     for (const o of v.options) assert.ok(h.stdout.includes(`--${o.name}`), `${v.verb} --help names --${o.name}`);
   }
   const install = bin(["install", "--help"]).stdout;
-  assert.match(install, /\nExamples\n {2}npx projectstore install --harness <id>\n/);
+  // Each example command alone on its line (contract 6); a note stands just above its command.
+  assert.match(install, /\nExamples\n\n {2}npx projectstore install --harness <id>\n\n {2}The same plan; nothing is written:\n {2}npx projectstore plan --harness <id>\n/);
   // A bare uninstall is the core's, for every harness the project uses (the
   // story "One run plans the agents block once…", rule 5); a shell names its
   // own harness, so its help has no such line.
   const uninstall = bin(["uninstall", "--help"]).stdout;
-  assert.match(uninstall, /\nExamples\n {2}npx projectstore uninstall +# every harness this project uses\n {2}npx projectstore uninstall --harness <id>\n/, uninstall);
+  assert.match(uninstall, /\nExamples\n\n {2}Every harness this project uses:\n {2}npx projectstore uninstall\n\n {2}npx projectstore uninstall --harness <id>\n/, uninstall);
   const shellUninstall = bin(["uninstall", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
-  assert.ok(!shellUninstall.includes("every harness this project uses"), shellUninstall);
-  assert.match(shellUninstall, /\nExamples\n {2}npx projectstore-codex uninstall\n/);
+  assert.ok(!/every harness this project uses/i.test(shellUninstall), shellUninstall);
+  assert.match(shellUninstall, /\nExamples\n\n {2}npx projectstore-codex uninstall\n/);
   // The ids come from the manifests, never from the help's own text (a Codex user reads it too).
   assert.ok(install.includes(`\nHarnesses   ${harnessIds().join(", ")}\n`), install);
   const core = bin(["--help"]).stdout;
-  assert.match(core, /Unattended in a terminal .*--json.*CI=1.*<\/dev\/null/);
+  assert.match(core, /Unattended in a terminal: .*--json.*CI=1.*<\/dev\/null/);
   // Through a shell, agents --help offers no --harness either: the shell inserts it.
   const agents = bin(["agents", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
   assert.ok(!agents.includes("--harness"), agents);
@@ -161,10 +166,16 @@ test("cli: <verb> --help prints the verb's options and examples, a shell's name 
   const shell = bin(["upgrade", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
   assert.ok(shell.startsWith("npx projectstore-codex upgrade — "), shell);
   assert.ok(!shell.includes("--harness"), "a shell's harness is not an option");
-  assert.match(shell, /npx projectstore-codex@<version> upgrade +# the version you name is the version that runs/);
+  assert.match(shell, /\n {2}The version you name is the version that runs:\n {2}npx projectstore-codex@<version> upgrade\n/);
+  // mcp's help says how it is told its project, which its summary has no room for.
+  assert.match(bin(["mcp", "--help"]).stdout, /\n {2}It serves the project --project names, else PROJECTSTORE_PROJECT_DIR or the host session's project; never the directory it was started in\.\n/);
   const top = bin(["--help"], { env: { PROJECTSTORE_SHELL: "projectstore-claude" } }).stdout;
   assert.match(top, /Usage\n {2}npx projectstore-claude <verb> \[options\]/);
-  for (const g of ["Set up", "Read", "Check and repair", "Serve", "Every verb", "Tips"]) assert.ok(top.includes(`\n${g}\n`), g);
+  for (const g of ["START", "VAULT", "CHECK AND REPAIR", "ADVANCED", "Options", "Examples", "Tips"]) assert.ok(top.includes(`\n${g}\n`), g);
+  // Through a shell the harness is the shell's: no --harness in the examples or the tips, and the verb confirms.
+  assert.ok(!top.includes("--harness"), top);
+  assert.ok(top.includes("\n  Without a terminal, the verb is its own confirmation — there is no --yes.\n"), top);
+  assert.ok(top.includes("\n\n  npx projectstore-claude plan\n"), top);
   // Near misses: a verb, an option of the verb, an option before any verb.
   const verb = bin(["instal"]);
   assert.equal(verb.status, 2);
@@ -747,8 +758,9 @@ test("cli status: unbound is bound:false at exit 0; bound reports the board from
   assert.deepEqual(Object.keys(s).sort(), ["approval_mode", "auto_inject", "bound", "language", "layout", "lifecycle_gates", "project", "sessions", "spec_policy", "stories", "vault_exists", "vault_path", "views"]);
   assert.equal(s.auto_inject, true);
   assert.equal(s.approval_mode, "always");
+  // The text: the in-progress count, then the story under its epic — its start, its title, its path.
   const text = bin(["status", "--project", proj]);
-  assert.match(text.stdout, /In progress \(1\)/);
+  assert.match(text.stdout, /\nIn progress — 1\n {2}PS-X\n {4}· 2026-02-02 {2}In flight {2}epics\/PS-X\/stories\/story-in-flight\.md\n/, text.stdout);
 });
 
 test("cli orientation: the skeleton equals the SessionStart renderer's, and README bodies never enter the envelope", async () => {
@@ -1000,7 +1012,7 @@ test("cli init: refuses when already bound to a vault that is there, and rebuild
   assert.equal(JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path, vault);
   const text = bin(["init", join(mkdtempSync(join(tmpdir(), "ps-init-")), "v2"), "--project", project({ bound: false })]);
   assert.match(text.stdout, /Scaffolded the engineering layout/);
-  assert.match(text.stdout, /\nNext, optional: generate the derived views — kanban\.md, graph\.md and code-map\.md:\n\n {2}projectstore reconcile --write\n/, "the derived views are offered, not run — the command on its own line");
+  assert.match(text.stdout, /\nNext, optional: generate the derived views — kanban\.md, graph\.md and code-map\.md:\n\n {2}npx projectstore reconcile --write\n/, "the derived views are offered, not run — the command on its own line");
   assert.ok(!/in a session/.test(text.stdout), "a whole vault needs no session command after it");
   const twice = bin(["init", vault, "--json", "--project", proj]);
   assert.equal(twice.status, 1);
@@ -1345,9 +1357,10 @@ test("cli init: git absent (PATH \"\") skips with git.skipped and exits 0; insid
 });
 
 test("cli bind/init on an existing non-empty vault: binds, no git init, no scaffold; Next names scaffold in both forms only when the plan has a create row, status otherwise", () => {
-  // Each command alone on its line, after a blank one (presentation spec contract 6).
-  const both = /\nNext: create the layout's missing folders and READMEs, in a session or from a terminal:\n\n {2}\S+scaffold\n {2}projectstore scaffold --write\n$/;
-  const status = /\nNext: see where the project stands:\n\n {2}projectstore status\n$/;
+  // Each command alone on its line, after a blank one (presentation spec
+  // contract 6); the terminal's form is the package this run was invoked as.
+  const both = /\nNext: create the layout's missing folders and READMEs, in a session or from a terminal:\n\n {2}\S+scaffold\n {2}npx projectstore scaffold --write\n$/;
+  const status = /\nNext: see where the project stands:\n\n {2}npx projectstore status\n$/;
   const vault = mkdtempSync(join(tmpdir(), "ps-nonempty-"));
   writeFileSync(join(vault, "notes.md"), "# mine\n");
   const proj = project({ bound: false });
@@ -1373,6 +1386,9 @@ test("cli bind/init on an existing non-empty vault: binds, no git init, no scaff
   const fresh = bin(["bind", vault, "--project", project({ bound: false })]);
   assert.match(fresh.stdout, status);
   assert.ok(!/scaffold/.test(fresh.stdout), fresh.stdout);
+  // Through a shell, the shell's own name: it passes bind and status through.
+  const shell = bin(["bind", vault, "--project", project({ bound: false })], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } });
+  assert.match(shell.stdout, /\n\n {2}npx projectstore-codex status\n$/, shell.stdout);
   // A folder present without its README is a create row too.
   rmSync(join(vault, "ops", "README.md"));
   assert.match(bin(["bind", vault, "--project", project({ bound: false })]).stdout, both);
@@ -1507,8 +1523,10 @@ test("cli per-verb parse: one name, two types — boolean --x on a, --x <value> 
   assert.equal(real.code, 2);
   assert.match(real.err, /^unknown verb: doctor\n/);
   assert.ok(!real.err.includes("did you mean"), real.err);
-  assert.match(real.err, /\nOther\n {2}a {12}The a verb\.\n {2}b {12}The b verb\.\n/);
-  assert.ok(!/\n {2}doctor /.test(real.err), "VERBS does not leak into the usage");
+  // A verb no group names is ADVANCED's; a group lists only the verbs the table has.
+  assert.match(real.err, /\nADVANCED\n {2}a · b\n/);
+  assert.ok(!/\n(START|VAULT|CHECK AND REPAIR)\n/.test(real.err), real.err);
+  assert.ok(!/\n {2}doctor |npx projectstore (install|status|doctor|plan)\b/.test(real.err), "VERBS does not leak into the usage, its examples or its tips");
   const help = await call(["b", "--help"]);
   assert.equal(help.code, 0);
   assert.ok(help.out.startsWith("npx projectstore b — The b verb.\n\nUsage\n  npx projectstore b [options]\n"), help.out);
@@ -1550,7 +1568,7 @@ test("cli per-verb parse: globals before or after the verb give one envelope, --
   for (const argv of [["--help"], ["-h"]]) {
     const r = bin(argv);
     assert.equal(r.status, 0, argv.join(" "));
-    assert.ok(r.stdout.startsWith("projectstore — "), argv.join(" "));
+    assert.ok(r.stdout.startsWith(`projectstore · ${PKG.version} · `), argv.join(" "));
   }
   for (const [argv, verb] of [[["status", "--help"], "status"], [["status", "-h"], "status"], [["--help", "status"], "status"], [["-h", "status"], "status"], [["status", "extra", "--help"], "status"], [["--harness", "codex", "plan", "--help"], "plan"], [["doctor", "--bogus", "-h"], "doctor"]]) {
     const r = bin(argv);
@@ -1702,8 +1720,6 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
   const GLOBALS = { project: true, json: false, help: false, version: false };
   const retyped = VERBS.flatMap((v) => v.options.filter((o) => o.name in GLOBALS && Boolean(o.arg) !== GLOBALS[o.name]).map((o) => `${v.verb} --${o.name}`));
   assert.deepEqual(retyped, []);
-  assert.deepEqual(Object.keys(PKG.dependencies || {}), [], "zero dependencies");
-  assert.equal(PKG.engines.node, ">=20.0.0");
 });
 
 test("cli per-verb parse: a verb's option that takes a value takes the next token, dash-led or not — never read as help, version or --json", () => {

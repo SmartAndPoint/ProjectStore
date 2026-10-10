@@ -6,4 +6,4 @@ Wrote /home/ada/src/shop/.projectstore/projectstore.json
 Next: create the layout's missing folders and READMEs, in a session or from a terminal:
 
   /projectstore:scaffold
-  projectstore scaffold --write
+  npx projectstore scaffold --write
