@@ -36,8 +36,10 @@ function bin(args, { cwd = ROOT, env = {} } = {}) {
   delete e[SRC.runtime.project_dir_env];
   delete e.PROJECTSTORE_PROJECT_DIR;
   // The test runner forces colour into its children when it reports to a
-  // terminal; text assertions read the plain layout unless a test asks.
+  // terminal; text assertions read the plain layout unless a test asks. A
+  // developer's TERM=dumb would turn every glyph to ASCII the same way.
   delete e.FORCE_COLOR;
+  delete e.TERM;
   delete e.PROJECTSTORE_SHELL;
   Object.assign(e, env);
   for (const k of Object.keys(e)) if (e[k] === undefined) delete e[k];
@@ -425,7 +427,7 @@ test("cli shell fetch: a refused fetch exits 1 before the plan, in text and unde
   assert.ok(doc.result.refusals[0].startsWith(`${shell}@${PKG.version} is not on `), doc.result.refusals[0]);
   const t = bin(["upgrade", "--harness", f.codex.id, "--project", projectForHarness(f.codex)], { env });
   assert.equal(t.status, 1);
-  assert.match(t.stdout.split("\n")[1], new RegExp(`^ {2}✗ fetch failed ${shell}@\\S+ +ETARGET {2}\\d+\\.\\ds$`));
+  assert.match(t.stdout.split("\n")[1], new RegExp(`^ {2}✕ fetch failed ${shell}@\\S+ +ETARGET {2}\\d+\\.\\ds$`));
   assert.match(t.stdout, /PLAN — refused/);
   assert.deepEqual(f.host.log(), [], "nothing spawned after npm");
   assert.deepEqual(readdirSync(f.fetchDir), []);
@@ -1012,7 +1014,7 @@ test("cli scaffold: without a terminal --write creates them; a second run plans 
   assert.ok(existsSync(join(vaultOf(p2), "README.md")));
 });
 
-test("cli scaffold: at a terminal (injected ask, run() in process) the plan prints before \"Apply N changes? [Y/n]\"; Enter applies, n prints Nothing written. and exits 1, end of input is a no", async () => {
+test("cli scaffold: at a terminal (injected ask, run() in process) the plan prints before \"◆ Apply N changes? [Y/n]\"; Enter applies, n prints Nothing written. and exits 1, end of input is a no", async () => {
   const call = async (proj, answer) => {
     const stdout = new Sink(), stderr = new Sink();
     const asked = [];
@@ -1021,7 +1023,7 @@ test("cli scaffold: at a terminal (injected ask, run() in process) the plan prin
     const code = await run(["scaffold", "--write", "--project", proj], { env: {}, cwd: proj, stdout, stderr, ask });
     return { code, out: stdout.text, err: stderr.text, asked };
   };
-  const question = `Apply ${SKELETON.length} changes? [Y/n] `;
+  const question = `◆ Apply ${SKELETON.length} changes? [Y/n] `;
   const yes = project();
   const y = await call(yes, "");
   assert.equal(y.code, 0, y.err);

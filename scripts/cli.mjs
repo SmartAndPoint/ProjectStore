@@ -714,8 +714,7 @@ async function runScaffold(ctx) {
   const interactive = !values.json && (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
   if (interactive) {
     stdout.write(renderScaffoldPlan(plan, null, { env, asking: true }));
-    const c = term.caps(stdout, env);
-    if (!(await term.askApply(plan.creates, { stdin, stdout, ask, paint: term.painter(c) }))) {
+    if (!(await term.askApply(plan.creates, { stdin, stdout, ask, caps: term.caps(stdout, env) }))) {
       stdout.write("Nothing written.\n");
       return 1;
     }
