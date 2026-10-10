@@ -7,7 +7,7 @@
 <title data-i18n="meta.title">ProjectStore — 代码会变，上下文常在</title>
 <meta name="description" content="ProjectStore 是面向 Claude Code 和 Codex 的项目工作流插件，把项目的决策、spec 和 story 以 Markdown 形式存放在 git 中。你的智能体按照工程团队用了几十年的流程工作：决策、评审、构建、验证。现在只需几分钟。" data-i18n-attr="content:meta.description">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23d2f85c'/%3E%3Cg fill='%231c201c' transform='translate(16 15) skewY(-10)'%3E%3Crect width='34' height='8' rx='1'/%3E%3Crect y='13' width='26' height='8' rx='1'/%3E%3Crect y='26' width='18' height='8' rx='1'/%3E%3C/g%3E%3C/svg%3E">
-<link rel="stylesheet" href="../assets/style.css?v=43a050fc">
+<link rel="stylesheet" href="../assets/style.css?v=978f6a7a">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
@@ -49,6 +49,7 @@
   <div class="wrap header-inner">
     <a class="wordmark" href="#main" aria-label="ProjectStore，返回顶部" data-i18n-attr="aria-label:nav.aria-label.1"><span class="store-mark" aria-hidden="true"><span></span><span></span><span></span></span><span class="wordmark-dot">.</span><span data-i18n="nav.span.1">projectstore</span></a>
     <nav class="desktop-nav" aria-label="主导航" data-i18n-attr="aria-label:nav.aria-label.2">
+      <a href="#fits" data-i18n="nav.a.11">它的定位</a>
       <a href="#why" data-i18n="nav.a.1">为何有效</a>
       <a href="#workflow" data-i18n="nav.a.2">工作方式</a>
       <a href="#artifacts" data-i18n="nav.a.3">磁盘文件</a>
@@ -103,7 +104,7 @@
   </div>
 </section>
 
-<div class="principles-bar"><div class="wrap principles-inner"><span><span class="store-mark small" aria-hidden="true"><span></span><span></span><span></span></span> <span data-i18n="bar.span.1">不是聊天记忆，而是一种工作方式。</span></span><span data-i18n="bar.span.2">Markdown + YAML</span><span data-i18n="bar.span.3">Git 原生</span><span data-i18n="bar.span.4">人工评审</span><span data-i18n="bar.span.5">上下文不依赖模型</span><span data-i18n="bar.span.6">0 个运行时依赖</span></div></div>
+<div class="principles-bar"><div class="wrap principles-inner"><span><span class="store-mark small" aria-hidden="true"><span></span><span></span><span></span></span> <a class="bar-link" href="#fits"><span data-i18n="bar.span.1">不是聊天记忆，而是一种工作方式。</span></a></span><span data-i18n="bar.span.2">Markdown + YAML</span><span data-i18n="bar.span.3">Git 原生</span><span data-i18n="bar.span.4">人工评审</span><span data-i18n="bar.span.5">上下文不依赖模型</span><span data-i18n="bar.span.6">0 个运行时依赖</span></div></div>
 
 <!-- ================= 01 PRINCIPLE ================= -->
 <section id="principle" class="intro-section wrap" aria-labelledby="principle-title">
@@ -119,11 +120,29 @@
   </div>
 </section>
 
-<!-- ================= 02 WHY IT WORKS ================= -->
+<!-- ================= 02 WHERE IT FITS ================= -->
+<section id="fits" class="fits-section" aria-labelledby="fits-title">
+  <div class="wrap">
+    <div class="section-heading">
+      <div><div class="section-label"><span data-i18n="fits.span.1">02 / 它的定位</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="fits-title" data-i18n="fits.h2.1">不是智能体记忆，也不是 spec 流水线。<br><span class="muted-heading">而是项目的记录。</span></h2></div>
+      <p data-i18n="fits.p.1">编程智能体身边有三类工具。<b>每一类回答的是不同的问题。</b></p>
+    </div>
+    <div class="fits-grid">
+      <article class="fit-card"><span class="lab" data-i18n="fits.span.2">智能体记忆</span><h3 data-i18n="fits.h3.1">这个智能体记得什么？</h3><p data-i18n="fits.p.2">模型从各次会话中保留的笔记，归属于一个智能体、一个用户或一台机器。</p><p class="examples" data-i18n="fits.p.3">Mem0、Zep，以及 Codex 和 Claude Code 的记忆功能</p></article>
+      <article class="fit-card"><span class="lab" data-i18n="fits.span.3">指令文件</span><h3 data-i18n="fits.h3.2">智能体在这里应当如何行事？</h3><p data-i18n="fits.p.4">写给智能体的长期规则，保存在仓库中。</p><p class="examples" data-i18n="fits.p.5"><code>CLAUDE.md</code>、<code>AGENTS.md</code>、规则、steering 文件</p></article>
+      <article class="fit-card"><span class="lab" data-i18n="fits.span.4">Spec 驱动的工具</span><h3 data-i18n="fits.h3.3">这项改动怎么实现？</h3><p data-i18n="fits.p.6">为单个功能准备的 spec、计划和任务。</p><p class="examples" data-i18n="fits.p.7">Spec Kit、Kiro、OpenSpec、BMAD</p></article>
+      <article class="fit-card ours"><span class="lab">ProjectStore</span><h3 data-i18n="fits.h3.4">项目决定了什么，哪些工作正在进行，又是否经过检查？</h3><p data-i18n="fits.p.8">决策、spec 和工作项，带有状态、日期和链接，存放在 git 中。每一项都要先经人批准，ProjectStore 才会写入；按规则，每一项还会由一个没有参与撰写草稿的 critic 评审。</p></article>
+    </div>
+    <div class="fits-lines"><p data-i18n="fits.p.9">把智能体的记忆留给你自己和你的机器，把项目放进 vault。</p><p data-i18n="fits.p.10">决策日志、校验器、会话开始时的概况、独立评审，这些在别的工具里各自都有。<b>ProjectStore 增加的，是让它们全部建立在同一份相互关联的记录之上。</b></p></div>
+    <a class="underlined-link fits-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/alongside.md" target="_blank" rel="noopener noreferrer"><span data-i18n="fits.span.5">逐个工具对比，附出处</span> <svg class="icon"><use href="#i-up-right"/></svg></a>
+  </div>
+</section>
+
+<!-- ================= 03 WHY IT WORKS ================= -->
 <section id="why" class="why-section" aria-labelledby="why-title">
   <div class="wrap">
     <div class="section-heading">
-      <div><div class="section-label"><span data-i18n="why.span.1">02 / 为何有效</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="why-title" data-i18n="why.h2.1">这一套，行业早就发明了。<br><span class="muted-heading">智能体让它不再昂贵。</span></h2></div>
+      <div><div class="section-label"><span data-i18n="why.span.1">03 / 为何有效</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="why-title" data-i18n="why.h2.1">这一套，行业早就发明了。<br><span class="muted-heading">智能体让它不再昂贵。</span></h2></div>
       <p data-i18n="why.p.1">ADR、评审、待办池、验收标准、从目标到代码的关联。成熟的工程团队这样工作已有二十年。<b>这些都不是 ProjectStore 发明的。</b></p>
     </div>
 
@@ -135,7 +154,7 @@
       </div>
       <div class="prose">
         <p data-i18n="why.p.5">智能体正好相反。写一份 ADR、把 epic 拆成 story、对照标准检查 diff，智能体只需几分钟，而不是几天。智能体缺的，恰恰是人天然就有的东西：会话之间的记忆、与同事共享的上下文、从目标到代码的关联。每个新会话都从空白开始，把早已定下的事再决定一遍。</p>
-        <p data-i18n="why.p.6">ProjectStore 把两者结合起来。智能体的速度第一次让这套老流程的成本降了下来。流程留下的文档以文件形式放在代码旁边，给了智能体从未有过的东西：项目的上下文，向上连到目标，向下连到代码。每一步都由另一个没有参与写草稿的智能体检查。速度有了记忆，记忆有了检查。</p>
+        <p data-i18n="why.p.6">ProjectStore 把两者结合起来。智能体的速度第一次让这套老流程的成本降了下来。流程留下的文档以文件形式放在代码旁边，给了智能体从未有过的东西：项目的上下文，向上连到目标，向下连到代码。每一步都按规则由另一个没有参与写草稿的智能体评审。速度有了记忆，记忆有了检查。</p>
       </div>
     </div>
 
@@ -189,7 +208,7 @@
           <rect class="tl-box lime" x="1000" y="260" width="112" height="26" rx="3"/><text class="tl-t" x="1012" y="277" data-i18n="why.text.31">下一个会话</text>
         </g>
         <path class="tl-line" d="M250,296 H1090" marker-end="url(#tl-arr)"/><text class="tl-note ok" x="1090" y="230" text-anchor="end" data-i18n="why.text.32">上下文保留 →</text>
-        <text class="tl-sub" x="250" y="320" data-i18n="why.text.33">每一步都由独立的智能体检查 · 下一个会话读的是决策，而不是聊天记录</text>
+        <text class="tl-sub" x="250" y="320" data-i18n="why.text.33">每一步都由独立的智能体评审 · 下一个会话读的是决策，而不是聊天记录</text>
       </svg>
       </div>
       <div class="compare-legend"><span><i class="box"></i> <span data-i18n="why.span.4">一次会话或一次迭代</span></span><span><i class="box lime"></i> <span data-i18n="why.span.5">由智能体检查的一步</span></span><span data-i18n="why.span.6"><i></i> 上下文得以延续</span><span><i class="break"></i> <span data-i18n="why.span.7">上下文丢失，同一个问题又要重新定一遍</span></span></div>
@@ -250,11 +269,11 @@
   </div>
 </section>
 
-<!-- ================= 03 WORKFLOW ================= -->
+<!-- ================= 04 WORKFLOW ================= -->
 <section id="workflow" class="workflow-section" aria-labelledby="workflow-title">
   <div class="wrap">
     <div class="section-heading">
-      <div><div class="section-label"><span data-i18n="workflow.span.1">03 / 带验证的循环</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="workflow-title" data-i18n="workflow.h2.1">先定依据。<br><span class="muted-heading">再做实现。</span></h2></div>
+      <div><div class="section-label"><span data-i18n="workflow.span.1">04 / 带验证的循环</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="workflow-title" data-i18n="workflow.h2.1">先定依据。<br><span class="muted-heading">再做实现。</span></h2></div>
       <p data-i18n="workflow.p.1">不是一个“什么都做”的漫长会话。<b>六个步骤，每一步都有结果、有检查。</b>点击图中的节点或标签页。</p>
     </div>
 
@@ -400,17 +419,17 @@
 
     <div class="mechanisms" aria-label="让循环不跑偏的机制" data-i18n-attr="aria-label:workflow.aria-label.2">
       <article><span class="tag" data-i18n="workflow.span.44">提醒</span><h4 data-i18n="workflow.h4.1">没有 story 就写代码，会收到提醒</h4><p data-i18n="workflow.p.8">没有进行中的 story，却改了三个或更多源文件，智能体就会收到一次提醒：先开一个 story。只统计实际发生的编辑。</p></article>
-      <article><span class="tag" data-i18n="workflow.span.45">先评审</span><h4 data-i18n="workflow.h4.2">未经评审，什么都不算定稿</h4><p data-i18n="workflow.p.9">每份新的 ADR、spec、epic 和研究笔记都会一直标着“未评审”，直到 critic 审视过为止。你的智能体指令里有一小段内容，确保新文档先经过 critic，之后才会被当作定稿。</p></article>
+      <article><span class="tag" data-i18n="workflow.span.45">先评审</span><h4 data-i18n="workflow.h4.2">未经评审，就一直标着“未评审”</h4><p data-i18n="workflow.p.9">每份新的 ADR、spec、epic 和研究笔记都会一直标着“未评审”，直到 critic 审视过为止。你的智能体指令里有一小段内容，确保新文档先经过 critic，之后才会被当作定稿。</p></article>
       <article><span class="tag" data-i18n="workflow.span.46">doctor · 不用 AI</span><h4 data-i18n="workflow.h4.3">常规检查，不用 AI</h4><p data-i18n="workflow.p.10">看板和 story 是否一致？有没有失效的链接，或指向不存在代码的链接？有没有未开 story 就在进行的工作？它在会话开始时运行，只有出问题时才会出声。</p></article>
     </div>
     <p class="section-footnote" data-i18n="workflow.p.11"><span class="footnote-mark">↳</span> 决策与写入都要经过批准。独立的智能体协助检查；责任仍在团队。</p>
   </div>
 </section>
 
-<!-- ================= 04 ARTIFACTS ================= -->
+<!-- ================= 05 ARTIFACTS ================= -->
 <section id="artifacts" class="artifacts-section" aria-labelledby="artifacts-title">
   <div class="wrap">
-    <div class="section-label"><span data-i18n="artifacts.span.1">04 / 留在磁盘上的内容</span><svg class="icon"><use href="#i-down"/></svg></div>
+    <div class="section-label"><span data-i18n="artifacts.span.1">05 / 留在磁盘上的内容</span><svg class="icon"><use href="#i-down"/></svg></div>
     <div class="section-heading artifact-heading"><h2 id="artifacts-title" data-i18n="artifacts.h2.1">普通的文件。<br><span class="muted-heading">格外有用的关联。</span></h2><p data-i18n="artifacts.p.1">在编辑器里阅读，在合并请求里讨论，在 Obsidian 里打开。<b>上下文不绑定任何一个工具。</b></p></div>
 
     <div data-tabs data-initial="adr">
@@ -514,11 +533,11 @@
   </div>
 </section>
 
-<!-- ================= 05 TEAMS ================= -->
+<!-- ================= 06 TEAMS ================= -->
 <section id="teams" class="teams-section" aria-labelledby="teams-title">
   <div class="wrap">
     <div class="section-heading">
-      <div><div class="section-label on-dark"><span data-i18n="teams.span.1">05 / 协同工作</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="teams-title" data-i18n="teams.h2.1">一个项目。<br><span>不止一个参与者。</span></h2></div>
+      <div><div class="section-label on-dark"><span data-i18n="teams.span.1">06 / 协同工作</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="teams-title" data-i18n="teams.h2.1">一个项目。<br><span>不止一个参与者。</span></h2></div>
       <p data-i18n="teams.p.1">上下文属于团队，而不属于某个开发者的聊天。ADR 和 spec 像代码一样走合并请求。<b>被评审的是推理过程。</b></p>
     </div>
 
@@ -617,7 +636,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
   </div>
 </section>
 
-<!-- ================= 06 AGENTS ================= -->
+<!-- ================= 07 AGENTS ================= -->
 <section id="agents" class="agents-section" aria-labelledby="agents-title">
   <div class="wrap">
     <div class="section-heading">
@@ -625,7 +644,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
        A noun's form depends on the number in ru and uk (1 команда, 6 команд, 20 команд), and on
        one-or-many in the other languages: when a count changes, re-check start.span.4-7,
        start.span.15 and agents.h2.1 in every dictionary. -->
-      <div><div class="section-label"><span data-i18n="agents.span.1">06 / 智能体</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">个智能体。</span><br><span class="muted-heading" data-i18n="agents.h2.2">除一个外，其余都只能读。</span></h2></div>
+      <div><div class="section-label"><span data-i18n="agents.span.1">07 / 智能体</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">个智能体。</span><br><span class="muted-heading" data-i18n="agents.h2.2">除一个外，其余都只能读。</span></h2></div>
       <p data-i18n="agents.p.1">顾问们负责检查、规划和整理，不改动任何东西。<b>唯一的 clerk 在你说“是”之后，只保存你批准的内容。</b></p>
     </div>
 
@@ -671,11 +690,11 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
   </div>
 </section>
 
-<!-- ================= 07 COST ================= -->
+<!-- ================= 08 COST ================= -->
 <section id="cost" class="cost-section" aria-labelledby="cost-title">
   <div class="wrap">
     <div class="section-heading">
-      <div><div class="section-label"><span data-i18n="cost.span.1">07 / 成本</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="cost-title" data-i18n="cost.h2.1">实测，<span class="muted-heading">而非承诺。</span></h2></div>
+      <div><div class="section-label"><span data-i18n="cost.span.1">08 / 成本</span><svg class="icon"><use href="#i-down"/></svg></div><h2 id="cost-title" data-i18n="cost.h2.1">实测，<span class="muted-heading">而非承诺。</span></h2></div>
       <p data-i18n="cost.p.1">运行这个循环并不免费，<b>本页也不会假装它免费。</b></p>
     </div>
     <div class="cost-grid">
@@ -686,11 +705,11 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
   </div>
 </section>
 
-<!-- ================= 08 START ================= -->
+<!-- ================= 09 START ================= -->
 <section id="start" class="start-section" aria-labelledby="start-title">
   <div class="wrap start-grid">
     <div class="start-copy">
-      <div class="section-label"><span data-i18n="start.span.1">08 / 第一次迭代</span><svg class="icon"><use href="#i-down"/></svg></div>
+      <div class="section-label"><span data-i18n="start.span.1">09 / 第一次迭代</span><svg class="icon"><use href="#i-down"/></svg></div>
       <h2 id="start-title" data-i18n="start.h2.1">从一个<br>重要的决策开始。</h2>
       <p data-i18n="start.p.1">在 Claude Code 或 Codex 中安装它，为 vault 选一个文件夹，然后让智能体写第一份 ADR。不必在一个晚上迁移整个项目的历史。之后可以让 archaeologist 智能体帮忙。</p>
       <div class="say-it"><span class="who" data-i18n="start.span.2">或者直接告诉 Claude Code</span><p data-i18n="start.p.2">从 https://github.com/SmartAndPoint/ProjectStore 安装 projectstore 插件，并为这个项目完成配置。</p></div>
@@ -760,7 +779,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
     <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/issues" target="_blank" rel="noopener noreferrer"><span data-i18n="questions.span.2">在 GitHub 上讨论</span> <svg class="icon"><use href="#i-up-right"/></svg></a>
   </div>
   <div class="faq-list">
-    <details class="faq-item"><summary data-i18n="questions.summary.1">这是一个记忆插件吗？</summary><div class="faq-content"><p data-i18n="questions.p.2">不是。记忆插件记住的是智能体说过什么。ProjectStore 记录的是项目决定了什么，形式是经过评审、带状态和日期的文档。之后的新工作都以这些文档为依据。换模型时差别就显现出来了：记忆属于模型，vault 属于项目。</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.1">这是一个记忆插件吗？</summary><div class="faq-content"><p data-i18n="questions.p.2">不是。记忆插件记住的是智能体说过什么。ProjectStore 记录的是项目决定了什么，形式是经过评审、带状态和日期的文档。之后的新工作都以这些文档为依据。换智能体、换机器或换队友时，差别就显现出来了：记忆属于某个智能体、某个用户或某台机器，即使是存放在 git 里的记忆，也仍然是智能体自己的笔记；vault 则是项目的记录——经过批准、经过评审、带有状态——并通过 git 流转。</p></div></details>
     <details class="faq-item"><summary data-i18n="questions.summary.2">它会取代 Jira、Linear 或其他任务跟踪工具吗？</summary><div class="faq-content"><p data-i18n="questions.p.3">不一定。ProjectStore 把决策、spec、story 和代码关联起来。你可以继续用原来的跟踪工具做计划，把技术上下文放在 vault 里。它不与其他跟踪工具自动同步，但 story 里可以保存指向对应工单的链接。</p></div></details>
     <details class="faq-item"><summary data-i18n="questions.summary.3">需要 Obsidian 吗？</summary><div class="faq-content"><p data-i18n="questions.p.4">不需要。vault 就是一个装着 Markdown 文件的普通文件夹。可以在编辑器里打开、在 GitHub 上浏览；如果喜欢 Obsidian 的关系图谱和看板，也可以用它。没有插件，这些文件照样可读。</p></div></details>
     <details class="faq-item"><summary data-i18n="questions.summary.4">它会不经询问就写入吗？</summary><div class="faq-content"><p data-i18n="questions.p.5">不会。每个新文件或每次编辑都会先展示给你，附上路径和完整内容，然后等待“是”“保存前编辑”或“否”。在一旁观察对话的辅助程序只会建议命令。唯一能写入的智能体 clerk 在你说“是”之后运行，一字不差地保存你批准的内容。</p></div></details>

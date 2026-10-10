@@ -675,6 +675,24 @@ function checkParity(en, page, repo) {
   return out;
 }
 
+// AC 4: the sections are numbered in their labels ("01 / Principle", …). A
+// changed English label leaves its translations stale with no tool to notice —
+// i18n.py check compares the template with en.json only — so the numbers are
+// held here: on every page the numbered labels run 01, 02, … in page order,
+// as many as on the English page. An unnumbered label (the FAQ's) is not one.
+const sectionNumbers = (page) => page.els
+  .filter((el) => hasClass(el, "section-label") && /^\s*\d/.test(el.text))
+  .map((el) => (el.text.trim().match(/^(\d{2}) \//) || [])[1] ?? el.text.trim());
+function checkSectionNumbers(page, en) {
+  const nums = sectionNumbers(page);
+  const out = [];
+  const bad = nums.findIndex((n, i) => n !== String(i + 1).padStart(2, "0"));
+  if (bad >= 0) out.push(finding(page.file, "section-number", `numbered section #${bad + 1} is labelled ${JSON.stringify(nums[bad])}; the labels run 01, 02, … in page order`));
+  const want = sectionNumbers(en).length;
+  if (nums.length !== want) out.push(finding(page.file, "section-number", `${nums.length} numbered sections here, ${want} on ${en.file}`));
+  return out;
+}
+
 // AC 4: every page carries every fact a check reads, so removing a marker
 // cannot switch a check off — the example artifacts' data-template among them;
 // and a value fact is a leaf, its text the fact.
@@ -1119,6 +1137,11 @@ test("site AC 4: every language page has the English page's ids, markers, facts,
   assert.deepEqual(found, [], show(found));
 });
 
+test("site AC 4: on every page the numbered section labels run 01, 02, … in page order, as many as on the English page", () => {
+  const found = eachPage((p) => checkSectionNumbers(p, EN.page));
+  assert.deepEqual(found, [], show(found));
+});
+
 test("site AC 4: every page carries every fact a check reads, each value fact a leaf", () => {
   const found = eachPage((p) => checkRequired(p, REPO));
   assert.deepEqual(found, [], show(found));
@@ -1393,6 +1416,10 @@ const PLANTED = [
     edits: ukStory },
   { ac: "5", what: "an example path with no data-slug", ...onPage("en", (p) => checkSlugs(p, REPO)), fact: "slug", message: /example path "adr\/use-postgres-for-primary-storage\.md" is not marked/,
     edits: [['<span data-i18n="artifacts.span.9" data-slug="adr:path">', '<span data-i18n="artifacts.span.9">']] },
+
+  // AC 4: a translation keeps a section's old number after the English one moved.
+  { ac: "4", what: "a translated section label keeps its old number", ...onPage("de", (p) => checkSectionNumbers(p, EN.page)), fact: "section-number", message: /#6 is labelled "05"/,
+    edits: [['>06 / Zusammenarbeit<', '>05 / Zusammenarbeit<']] },
 
   // AC 6: a citation that resolves to nothing, or to the wrong kind of file.
   { ac: "6", what: "a figure cites a docs/ heading that does not exist", ...onPage("pt", (p) => checkSources(p, REPO)), fact: "data-source", message: /has no heading #sessions$/,

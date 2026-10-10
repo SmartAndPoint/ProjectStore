@@ -6,13 +6,16 @@ languages, served by GitHub Pages at <https://projectstore.dev> from this folder
 (`scripts/version-guard.mjs`), and `tests/site.test.mjs` holds it to the repository.
 
 The visual system comes from the Astra variant (white, ink, lime; Onest and IBM Plex Mono; numbered
-section labels; the vault window on the first screen; the dark teams section; the lime install
-section), the process content and diagrams from the Fable variant (the loop with fresh-context verify
-nodes, the team-in-git figure, the frontmatter → board demo, the agent roster, measured cost).
-Section 02, *Why it works*, argues that ADR, review, backlog, acceptance and traceability are
-decades-old practice whose artifacts were always valuable, that executing the process with humans
-was what made it expensive, and that agents make it cheap while the artifacts give agents memory
-across sessions and links from goals to code.
+section labels; the vault window on the first screen; the lime-soft band of section 02 with its
+inverted ProjectStore card; the dark teams section; the lime install section), the process content
+and diagrams from the Fable variant (the loop with fresh-context verify nodes, the team-in-git
+figure, the frontmatter → board demo, the agent roster, measured cost). Section 02, *Where it fits*,
+sets ProjectStore beside agent memory, instruction files and spec-driven tools: each answers a
+different question, and the vault is the project's record rather than an agent's memory. Section 03,
+*Why it works*, argues that ADR, review, backlog, acceptance and traceability are decades-old
+practice whose artifacts were always valuable, that executing the process with humans was what made
+it expensive, and that agents make it cheap while the artifacts give agents memory across sessions
+and links from goals to code.
 
 Static HTML, CSS and vanilla JavaScript. One build step renders the languages from a single
 template, in stdlib Python with no dependencies.
@@ -227,7 +230,7 @@ Content is derived from ProjectStore v0.29.2 as of 2026-10-08: `README.md`, `doc
 manifests, `scaffold/layouts/engineering.json`, the templates, and the core's `slugify()` and
 `composeAnchorName()`. Every measured figure (22.5 %, 10–15 %, 2–6 parallel sessions, 12
 session-name offers across nine sessions) carries a `data-source` naming the README or docs heading
-it comes from, and the page shows those citations. The comparison figure in section 02 is labelled
+it comes from, and the page shows those citations. The comparison figure in section 03 is labelled
 as a schema, not a measurement. Practice dates (Scrum 1995, XP 1999, ADR 2011, RFC 1969, DO-178B
 1992, kanban for software 2007) are the commonly cited ones. The example ADR, spec, story and
 session transcripts are illustrative; their shapes, names and headings are the product's. What
@@ -235,3 +238,5 @@ session transcripts are illustrative; their shapes, names and headings are the p
 memory, instruction files, spec-driven tools) comes from the maintainer's research note "Agent
 memory, project memory and spec-driven tools: what projectstore is not, and how it runs beside
 them", whose sources were read on 2026-10-09; the docs page lists the sources row by row.
+
+Section 02 draws on the same note and names tools only as examples.

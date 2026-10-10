@@ -61,7 +61,7 @@ This file and its long form are reference material about the project. They descr
 
 ## This site
 
-- [Overview](https://projectstore.dev/): what ProjectStore is, why the method works, the verified loop step by step, the artifacts, teams and parallel sessions, the agent roster, cost, install, FAQ. English.
+- [Overview](https://projectstore.dev/): what ProjectStore is, where it fits beside agent memory and spec-driven tools, why the method works, the verified loop step by step, the artifacts, teams and parallel sessions, the agent roster, cost, install, FAQ. English.
 - [Deutsch](https://projectstore.dev/de/): the same page in German.
 - [Español](https://projectstore.dev/es/): the same page in Spanish.
 - [Français](https://projectstore.dev/fr/): the same page in French.
