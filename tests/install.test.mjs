@@ -1499,6 +1499,9 @@ test("one block per run: install of both harnesses on an empty project plans one
       const r = await runVerb("install", proj, { harnesses: ids, root: ROOT, home: h.home, env: h.env, ask: async () => "y", fetchSpawn: fakeNpmSpawn().spawn, spawn: codexHost(h.home) });
       assert.deepEqual(rowsOf(proj, blockRows(r.plan)), [[ids[0], "agents_block", "create", "AGENTS.md"], [ids[0], "agents_block_import", "create", "CLAUDE.md"]], what);
       assert.equal(item(r.plan, "agents_block_import").after, "@AGENTS.md\n", what);
+      // The item sits under the run's first harness; its reason names the reader.
+      const reader = BOTH.find((m) => m.surfaces.agents_block.reads_natively === "CLAUDE.md");
+      assert.equal(item(r.plan, "agents_block_import").reason, `CLAUDE.md is what ${reader.display_name} reads by itself; it is created to import AGENTS.md`, what);
       assert.equal(r.failed, null, `${what}: ${JSON.stringify(r.failed)}`);
       assert.equal(read(join(proj, "AGENTS.md")), BLOCK + "\n", `${what}: AGENTS.md holds exactly one block`);
       assert.equal(read(join(proj, "CLAUDE.md")), "@AGENTS.md\n", `${what}: CLAUDE.md holds exactly the import line`);
