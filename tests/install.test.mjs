@@ -1426,3 +1426,391 @@ test("install rule 5: a project uninstall removes the welcome marker and an empt
   apply(ps, { env });
   assert.ok(existsSync(s.lp.welcomed(CODEX.id)), "--surface leaves state/codex/ as it is");
 });
+
+// ─── One block item per run (the story "One run plans the agents block once,
+// and a bare uninstall selects every harness the project uses") ──────────
+
+import { SNAPSHOT, blockPlanTable } from "./fixtures/block-plans.mjs";
+
+// The differences a single-harness plan may show against the branch-point
+// snapshot, and no others (rule 4):
+//   (a) a block removal that leaves a file which held only the block has
+//       deleteIfEmpty true where it was false, so that file is deleted; an
+//       import pointing at the deleted file then dangles and is removed;
+//   (b) an uninstall that keeps the block for a harness outside the run keeps
+//       that harness's bridge — the file it reads natively, holding only the
+//       import — where it removed it.
+// Both sides come back with the allowed differences undone, and which applied.
+const fileOf = (p) => p.slice(p.lastIndexOf("/") + 1);
+function tolerated(want, got) {
+  const allowed = new Set();
+  const twin = (x, side) => side.find((y) => y.surface === x.surface && y.action === x.action && y.path === x.path);
+  const vanished = new Set();
+  const undone = got.map((g) => {
+    const w = twin(g, want);
+    if (w && g.surface === "agents_block" && g.action === "remove" && w.deleteIfEmpty === false && g.deleteIfEmpty === true && typeof g.after === "string" && !g.after.trim()) {
+      vanished.add(fileOf(g.path));
+      allowed.add("a");
+      return { ...g, deleteIfEmpty: false };
+    }
+    return g;
+  }).filter((g) => !(!twin(g, want) && g.surface === "agents_block_import" && g.action === "remove" && vanished.has(String(g.entry).slice(1)) && /points at a file this uninstall removes/.test(g.reason)));
+  const kept = new Set(got.filter((g) => g.surface === "agents_block" && g.action === "skip" && /read by another harness too/.test(g.reason)).map((g) => fileOf(g.path)));
+  const bridge = (w) => w.surface === "agents_block_import" && w.action === "remove" && !twin(w, got) && kept.has(String(w.entry).slice(1))
+    && /holds only the import registration added/.test(w.reason)
+    && manifests().some((m) => m.id !== w.harness && m.surfaces.agents_block.reads_natively === fileOf(w.path));
+  const expected = want.filter((w) => { if (!bridge(w)) return true; allowed.add("b"); return false; });
+  return { want: expected, got: undone, allowed: [...allowed].sort() };
+}
+
+test("one block per run, one harness: single-harness block plans equal the branch-point snapshot but for rule 4's two differences", () => {
+  const want = JSON.parse(read(SNAPSHOT));
+  const got = blockPlanTable();
+  assert.deepEqual(Object.keys(got), Object.keys(want), "the same table: every manifest × mode × --surface × file state");
+  const differs = {};
+  for (const [k, items] of Object.entries(want)) {
+    const t = tolerated(items, got[k]);
+    assert.deepEqual(t.got, t.want, k);
+    if (t.allowed.length) differs[k] = t.allowed;
+  }
+  // Where each applies, and nowhere else.
+  assert.deepEqual(differs, {
+    [`${SRC.id} | uninstall | agents_block | block in AGENTS.md + import`]: ["a"],
+    [`${SRC.id} | uninstall | agents_block | stale block`]: ["a"],
+    [`${SRC.id} | uninstall | agents_block | block in AGENTS.md + CLAUDE.md holding only the import`]: ["a"],
+    [`${CODEX.id} | uninstall | - | block in AGENTS.md + CLAUDE.md holding only the import`]: ["b"],
+  });
+});
+
+const BOTH = [SRC, CODEX];
+const writesOf = (p) => p.items.filter((i) => !["skip", "refuse"].includes(i.action));
+const blockRows = (p) => p.items.filter((i) => i.surface === "agents_block" || i.surface === "agents_block_import");
+const rowsOf = (proj, items) => items.map((i) => [i.harness, i.surface, i.action, relative(proj, i.path)]);
+const tmp = (name) => mkdtempSync(join(tmpdir(), `ps-inst-once-${name}-`));
+
+test("one block per run: install of both harnesses on an empty project plans one block and one import, in either order, with .claude/ and with both directories; the second plan is zero-change", async () => {
+  for (const order of [BOTH, [...BOTH].reverse()]) {
+    for (const dirs of [[], [SRC], BOTH]) {
+      const ids = order.map((m) => m.id);
+      const what = `${ids.join(" then ")}, ${dirs.map((m) => m.runtime.harness_dir).join(" and ") || "no directory"}`;
+      const proj = tmp("empty");
+      for (const m of dirs) mkdirSync(join(proj, m.runtime.harness_dir), { recursive: true });
+      const h = hostSandbox();
+      const r = await runVerb("install", proj, { harnesses: ids, root: ROOT, home: h.home, env: h.env, ask: async () => "y", fetchSpawn: fakeNpmSpawn().spawn, spawn: codexHost(h.home) });
+      assert.deepEqual(rowsOf(proj, blockRows(r.plan)), [[ids[0], "agents_block", "create", "AGENTS.md"], [ids[0], "agents_block_import", "create", "CLAUDE.md"]], what);
+      assert.equal(item(r.plan, "agents_block_import").after, "@AGENTS.md\n", what);
+      assert.equal(r.failed, null, `${what}: ${JSON.stringify(r.failed)}`);
+      assert.equal(read(join(proj, "AGENTS.md")), BLOCK + "\n", `${what}: AGENTS.md holds exactly one block`);
+      assert.equal(read(join(proj, "CLAUDE.md")), "@AGENTS.md\n", `${what}: CLAUDE.md holds exactly the import line`);
+      const again = plan(proj, { harnesses: ids, root: ROOT, home: h.home, env: h.env });
+      assert.deepEqual(writesOf(again).map((i) => [i.harness, i.surface, i.action]), [], `${what}: the second plan is zero-change`);
+    }
+  }
+});
+
+test("one block per run, existing files: a user's CLAUDE.md, a block in CLAUDE.md (the exact reason, either order), AGENTS.md only; each second run is zero-change", () => {
+  const home = tmp("home");
+  const env = noHostEnv();
+  for (const order of [BOTH, [...BOTH].reverse()]) {
+    const ids = order.map((m) => m.id);
+    const run = (proj) => plan(proj, { harnesses: ids, home, root: ROOT, env });
+    const settle = (proj, what) => {
+      apply(run(proj), { env, home });
+      assert.deepEqual(writesOf(run(proj)).map((i) => [i.harness, i.surface, i.action]), [], `${ids.join(" then ")}, ${what}: the second run is zero-change`);
+    };
+
+    // A user's CLAUDE.md with prose: the block goes to AGENTS.md, and CLAUDE.md keeps its prose and gains the import.
+    const prose = project({ bound: false, claude: "# Mine\n" });
+    assert.deepEqual(rowsOf(prose, blockRows(run(prose))), [[ids[0], "agents_block", "create", "AGENTS.md"], [ids[0], "agents_block_import", "add", "CLAUDE.md"]]);
+    settle(prose, "prose in CLAUDE.md");
+    assert.equal(read(join(prose, "AGENTS.md")), BLOCK + "\n");
+    assert.equal(read(join(prose, "CLAUDE.md")), "@AGENTS.md\n\n# Mine\n");
+
+    // A Claude-only project with the block in CLAUDE.md: planned once, it
+    // moves to AGENTS.md, and CLAUDE.md keeps its prose and imports it.
+    const moved = project({ bound: false, claude: "# Mine\n\n" + BLOCK + "\n" });
+    const m = run(moved);
+    assert.deepEqual(rowsOf(moved, blockRows(m)), [[ids[0], "agents_block", "remove", "CLAUDE.md"], [ids[0], "agents_block", "create", "AGENTS.md"]]);
+    assert.equal(m.items.find((i) => i.surface === "agents_block" && i.action === "create").reason, "in CLAUDE.md, which Codex does not read; install moves it to AGENTS.md");
+    assert.equal(m.items.find((i) => i.surface === "agents_block" && i.action === "remove").after, "@AGENTS.md\n\n# Mine\n");
+    settle(moved, "block in CLAUDE.md");
+    assert.equal(read(join(moved, "AGENTS.md")), BLOCK + "\n");
+    assert.equal(read(join(moved, "CLAUDE.md")), "@AGENTS.md\n\n# Mine\n");
+
+    // An AGENTS.md-only project: the block stays, and CLAUDE.md is created holding the import.
+    const agentsOnly = project({ bound: false, agents: BLOCK + "\n" });
+    assert.deepEqual(rowsOf(agentsOnly, blockRows(run(agentsOnly))), [[ids[0], "agents_block", "skip", "AGENTS.md"], [ids[0], "agents_block_import", "create", "CLAUDE.md"]]);
+    settle(agentsOnly, "AGENTS.md only");
+    assert.equal(read(join(agentsOnly, "AGENTS.md")), BLOCK + "\n");
+    assert.equal(read(join(agentsOnly, "CLAUDE.md")), "@AGENTS.md\n");
+  }
+});
+
+// The first criterion's result, through plan() and apply(): the block in
+// AGENTS.md and CLAUDE.md holding the import, and nothing else of ours.
+function bothInstalled() {
+  const proj = tmp("both"), home = tmp("home");
+  const env = noHostEnv();
+  apply(plan(proj, { harnesses: BOTH.map((m) => m.id), home, root: ROOT, env, surfaces: ["agents_block"] }), { env, home });
+  assert.equal(read(join(proj, "AGENTS.md")), BLOCK + "\n");
+  assert.equal(read(join(proj, "CLAUDE.md")), "@AGENTS.md\n");
+  return { proj, home, env };
+}
+
+test("one block per run, upgrade: a stale block on the two-harness result is one replace-entry on AGENTS.md and no import item", async () => {
+  const { proj } = bothInstalled();
+  writeFileSync(join(proj, "AGENTS.md"), read(join(proj, "AGENTS.md")).replace(`projectstore:agents v${VERSION} `, `projectstore:agents v${VERSION - 1} `));
+  const h = hostSandbox();
+  const r = await runVerb("upgrade", proj, { harnesses: BOTH.map((m) => m.id), root: ROOT, home: h.home, env: h.env, ask: async () => "n", fetchSpawn: fakeNpmSpawn().spawn });
+  assert.deepEqual(rowsOf(proj, blockRows(r.plan)), [[SRC.id, "agents_block", "replace-entry", "AGENTS.md"]]);
+  assert.equal(item(r.plan, "agents_block").reason, `v${VERSION - 1} → v${VERSION}`);
+});
+
+test("one block per run, --surface agents_block: install plans the same two items and nothing else, uninstall removes the block and the import once each; --surface statusline plans no block", () => {
+  const proj = tmp("narrow"), home = tmp("home");
+  const env = noHostEnv();
+  const ids = BOTH.map((m) => m.id);
+  const p = plan(proj, { harnesses: ids, home, root: ROOT, env, surfaces: ["agents_block"] });
+  assert.deepEqual(rowsOf(proj, p.items), [[SRC.id, "agents_block", "create", "AGENTS.md"], [SRC.id, "agents_block_import", "create", "CLAUDE.md"]]);
+  apply(p, { env, home });
+  const u = plan(proj, { harnesses: ids, mode: "uninstall", home, root: ROOT, env, surfaces: ["agents_block"] });
+  assert.deepEqual(rowsOf(proj, u.items), [[SRC.id, "agents_block", "remove", "AGENTS.md"], [SRC.id, "agents_block_import", "remove", "CLAUDE.md"]]);
+  apply(u, { env, home });
+  assert.ok(!existsSync(join(proj, "AGENTS.md")) && !existsSync(join(proj, "CLAUDE.md")), "both files held only ours, and both are gone");
+  const other = plan(proj, { harnesses: ids, home, root: ROOT, env, surfaces: ["statusline"] });
+  assert.deepEqual(other.items.filter((i) => i.surface.startsWith("agents_block")), [], "no agents_block in --surface: no block item");
+});
+
+test("one block per run, the preview: the other harness's rows name the block as the same one, above; plan --json keeps its top-level keys and has one agents_block item", () => {
+  const home = tmp("home");
+  const env = noHostEnv();
+  for (const order of [BOTH, [...BOTH].reverse()]) {
+    const [first, second] = order;
+    const proj = project({ bound: false });
+    const p = plan(proj, { harnesses: order.map((m) => m.id), home, root: ROOT, env });
+    const line = `· AGENTS.md — the same block as ${first.display_name}, above`;
+    const text = renderPreview(p);
+    assert.equal(text.split("\n").filter((l) => l.includes(line)).length, 1, text);
+    // In the second harness's rows: every item after it is that harness's,
+    // and the block's own item, the first harness's, is above it.
+    assert.deepEqual(p.sharedBlock.others.map((o) => [o.harness, o.display]), [[second.id, second.display_name]]);
+    const at = p.sharedBlock.others[0].at;
+    assert.ok(p.items.slice(at).every((i) => i.harness === second.id), JSON.stringify(p.items.map((i) => [i.harness, i.surface])));
+    assert.ok(p.items.slice(0, at).some((i) => i.surface === "agents_block" && i.harness === first.id));
+  }
+  // Contract 7's line, as the story's acceptance writes it.
+  const manifestOrder = renderPreview(plan(project({ bound: false }), { harnesses: BOTH.map((m) => m.id), home, root: ROOT, env }));
+  assert.ok(manifestOrder.includes("  · AGENTS.md — the same block as Claude Code, above\n"), manifestOrder);
+  // plan --json through the bin: the key set it had, and one block item.
+  const proj = project({ bound: false });
+  const r = spawnSync(process.execPath, [join(ROOT, "bin", "projectstore.mjs"), "plan", "--harness", SRC.id, "--harness", CODEX.id, "--json", "--project", proj], { encoding: "utf8", env: noHostEnv({ HOME: home }), timeout: 60000 });
+  const result = JSON.parse(r.stdout).result;
+  assert.deepEqual(Object.keys(result), ["projectDir", "mode", "named", "detected", "harnesses", "reports", "items", "refusals", "ok", "incomplete", "root", "plannedAgainst"]);
+  assert.equal(result.items.filter((i) => i.surface === "agents_block").length, 1);
+  assert.equal(result.items.filter((i) => i.surface === "agents_block_import").length, 1);
+});
+
+test("one block per run, the keep seam: the block's items are contiguous and precede every item of a later harness", () => {
+  const home = tmp("home");
+  const env = noHostEnv();
+  for (const order of [BOTH, [...BOTH].reverse()]) {
+    const p = plan(project({ bound: false }), { harnesses: order.map((m) => m.id), home, root: ROOT, env });
+    const at = p.items.map((i, k) => (i.surface.startsWith("agents_block") ? k : -1)).filter((k) => k >= 0);
+    assert.ok(at.length > 0);
+    assert.deepEqual(at, at.map((_, k) => at[0] + k), "contiguous");
+    const later = p.items.map((i, k) => (i.harness !== order[0].id ? k : -1)).filter((k) => k >= 0);
+    assert.ok(later.length && later.every((k) => k > at.at(-1)), JSON.stringify(p.items.map((i) => [i.harness, i.surface])));
+  }
+});
+
+test("one block per run, the roster: plan(…, { layout }) renders that layout's roster, and a bound install with no layout renders the binding's", () => {
+  const { home, root } = fixture();
+  const engineering = JSON.parse(read(join(root, "scaffold", "layouts", "engineering.json")));
+  const roster = engineering.agents.slice(0, 1);
+  assert.notDeepEqual(roster, engineering.agents, "the test layout's agents differ from engineering's");
+  writeFileSync(join(root, "scaffold", "layouts", "roster-test.json"), JSON.stringify({ ...engineering, agents: roster }));
+  const proj = project();
+  const named = item(plan(proj, { harnesses: [SRC.id], home, root, surfaces: ["agents_block"], layout: "roster-test" }), "agents_block");
+  assert.equal(named.after, renderAgentsBlock(TEMPLATE, roster) + "\n", "the layout the run names");
+  const bound = item(plan(proj, { harnesses: [SRC.id], home, root, surfaces: ["agents_block"] }), "agents_block");
+  assert.equal(bound.after, renderAgentsBlock(TEMPLATE, engineering.agents) + "\n", "no layout: the binding's");
+  assert.notEqual(named.after, bound.after);
+});
+
+test("one block per run, uninstall of both: one block removal and one import removal, the emptied files deleted, DONE counts two; one harness alone keeps the block, and Codex's alone keeps Claude Code's bridge; prose in AGENTS.md stays", async () => {
+  const ids = BOTH.map((m) => m.id);
+  const removed = [[SRC.id, "agents_block", "remove", "AGENTS.md"], [SRC.id, "agents_block_import", "remove", "CLAUDE.md"]];
+  // Only the block and the import: DONE counts exactly those two.
+  const a = bothInstalled();
+  const chunks = [];
+  const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+  const r = await runVerb("uninstall", a.proj, { harnesses: ids, root: ROOT, home: a.home, env: a.env, out, ask: async () => "y" });
+  assert.deepEqual(rowsOf(a.proj, blockRows(r.plan)), removed);
+  assert.ok(!existsSync(join(a.proj, "AGENTS.md")), "AGENTS.md, left empty, is deleted");
+  assert.ok(!existsSync(join(a.proj, "CLAUDE.md")), "CLAUDE.md held only the import");
+  assert.match(chunks.join(""), /\nDONE — 2 changes in /);
+
+  // One harness of the two: the block stays, with today's reason. The import
+  // stays too when it is the bridge of the harness left out — the file that
+  // harness reads by itself (rule 4: "leaves the block and the import in
+  // place"); the source harness's own uninstall still takes its own file's.
+  for (const [m, claude] of [[CODEX, "@AGENTS.md\n"], [SRC, null]]) {
+    const b = bothInstalled();
+    const narrowed = plan(b.proj, { harnesses: [m.id], mode: "uninstall", home: b.home, root: ROOT, env: b.env });
+    assert.equal(item(narrowed, "agents_block").action, "skip", m.id);
+    assert.equal(item(narrowed, "agents_block").reason, "AGENTS.md is read by another harness too — a per-harness uninstall leaves the project's block alone. Remove it with --surface agents_block");
+    assert.equal(narrowed.items.filter((i) => i.surface === "agents_block_import").length, claude === null ? 1 : 0, `${m.id}: ${JSON.stringify(blockRows(narrowed).map((i) => [i.surface, i.action, i.reason]))}`);
+    apply(narrowed, { env: b.env, home: b.home });
+    assert.equal(read(join(b.proj, "AGENTS.md")), BLOCK + "\n", `${m.id}: the block stays`);
+    if (claude === null) assert.ok(!existsSync(join(b.proj, "CLAUDE.md")), `${m.id}: its own CLAUDE.md, holding only the import, goes`);
+    else assert.equal(read(join(b.proj, "CLAUDE.md")), claude, `${m.id}: the other harness's bridge to the kept block stays`);
+  }
+
+  // The user's prose in AGENTS.md: the file stays, holding it.
+  const c = bothInstalled();
+  writeFileSync(join(c.proj, "AGENTS.md"), "# Agents\n\n" + read(join(c.proj, "AGENTS.md")));
+  const u = plan(c.proj, { harnesses: ids, mode: "uninstall", home: c.home, root: ROOT, env: c.env });
+  assert.deepEqual(rowsOf(c.proj, blockRows(u)), removed);
+  apply(u, { env: c.env, home: c.home });
+  assert.equal(read(join(c.proj, "AGENTS.md")), "# Agents\n");
+  assert.ok(!existsSync(join(c.proj, "CLAUDE.md")), "CLAUDE.md held only the import");
+});
+
+test("one block per run, the preview: no 'same block' line where there is no block — under 'no block to remove', or beside an unclosed-block refusal", () => {
+  const home = tmp("home");
+  const env = noHostEnv();
+  const ids = BOTH.map((m) => m.id);
+  const none = plan(project({ bound: false }), { harnesses: ids, mode: "uninstall", home, root: ROOT, env });
+  assert.equal(item(none, "agents_block").reason, "no block to remove");
+  assert.equal(none.sharedBlock, null);
+  assert.ok(!renderPreview(none).includes("the same block as"), renderPreview(none));
+  for (const mode of ["install", "uninstall"]) {
+    const unclosed = plan(project({ bound: false, claude: "<!-- projectstore:agents v3 -->\n## half\n" }), { harnesses: ids, mode, home, root: ROOT, env });
+    assert.equal(item(unclosed, "agents_block").action, "refuse", mode);
+    assert.equal(unclosed.sharedBlock, null, mode);
+    assert.ok(!renderPreview(unclosed).includes("the same block as"), `${mode}: ${renderPreview(unclosed)}`);
+  }
+  // A block that is there and removed is still named.
+  const b = bothInstalled();
+  assert.ok(renderPreview(plan(b.proj, { harnesses: ids, mode: "uninstall", home: b.home, root: ROOT, env })).includes(`  · AGENTS.md — the same block as ${SRC.display_name}, above\n`));
+});
+
+test("one block per run, release safety: the block in both CLAUDE.md and AGENTS.md, as 0.29.2's two-harness install left it — a bare upgrade removes the duplicate in one run, and a second plan is zero-change", async () => {
+  const proj = tmp("0292");
+  for (const m of BOTH) mkdirSync(join(proj, m.runtime.harness_dir), { recursive: true });
+  writeFileSync(join(proj, "CLAUDE.md"), BLOCK + "\n");
+  writeFileSync(join(proj, "AGENTS.md"), BLOCK + "\n");
+  const h = hostSandbox();
+  const r = await runVerb("upgrade", proj, { root: ROOT, home: h.home, env: h.env, ask: async () => "y", fetchSpawn: fakeNpmSpawn().spawn, spawn: codexHost(h.home) });
+  assert.deepEqual(r.plan.harnesses, [SRC.id, CODEX.id]);
+  assert.deepEqual(rowsOf(proj, blockRows(r.plan)), [[SRC.id, "agents_block", "remove", "CLAUDE.md"], [SRC.id, "agents_block", "skip", "AGENTS.md"]]);
+  assert.equal(item(r.plan, "agents_block").reason, "duplicate of the block in AGENTS.md; @AGENTS.md import added");
+  assert.equal(r.failed, null, JSON.stringify(r.failed));
+  assert.equal(read(join(proj, "AGENTS.md")), BLOCK + "\n", "one block, in AGENTS.md");
+  assert.equal(read(join(proj, "CLAUDE.md")), "@AGENTS.md\n", "CLAUDE.md imports it");
+  const again = plan(proj, { root: ROOT, home: h.home, env: h.env, state: true });
+  assert.deepEqual(again.harnesses, [SRC.id, CODEX.id]);
+  assert.deepEqual(writesOf(again).map((i) => [i.harness, i.surface, i.action]), [], "the second plan is zero-change");
+});
+
+test("one block per run, rule 5: without a terminal, a bare uninstall's refusal names a harness selected only by its state directory", () => {
+  const { proj, lp } = stateProject();
+  const r = spawnSync(process.execPath, [join(ROOT, "bin", "projectstore.mjs"), "uninstall", "--project", proj], { encoding: "utf8", cwd: tmp("cwd"), env: noHostEnv({ HOME: tmp("home") }), timeout: 60000 });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stdout, /^projectstore · uninstall · /);
+  assert.ok(r.stdout.includes(`Nothing written: without a terminal, a bare uninstall refuses. Name the harness to confirm: --harness ${SRC.id} | ${CODEX.id}\n`), r.stdout);
+  assert.ok(existsSync(lp.welcomed(CODEX.id)), "nothing was written");
+});
+
+test("one block per run, no 0-byte file: after a two-harness install, uninstall of either harness with --surface agents_block deletes the emptied AGENTS.md", () => {
+  for (const m of BOTH) {
+    const { proj, home, env } = bothInstalled();
+    const u = plan(proj, { harnesses: [m.id], mode: "uninstall", home, root: ROOT, env, surfaces: ["agents_block"] });
+    assert.equal(item(u, "agents_block").deleteIfEmpty, true, m.id);
+    apply(u, { env, home });
+    assert.ok(!existsSync(join(proj, "AGENTS.md")), `${m.id}: no 0-byte AGENTS.md is left`);
+  }
+});
+
+test("one block per run, rule 5: a bare uninstall selects by directory or state directory and asks once; bare plan, bare install and uninstall --global keep contract 8; with neither, the refusal names both signals", async () => {
+  const home = tmp("home");
+  const env = noHostEnv();
+  const bare = async (proj, extra = {}) => {
+    let asked = 0;
+    const r = await runVerb("uninstall", proj, { root: ROOT, home, env, ask: async () => { asked++; return "n"; }, ...extra });
+    return { r, asked };
+  };
+  // .claude/ and .projectstore/state/codex/
+  const { proj } = stateProject();
+  const both = await bare(proj);
+  assert.deepEqual(both.r.plan.harnesses, [SRC.id, CODEX.id]);
+  assert.deepEqual(both.r.plan.detected.map((d) => [d.id, d.why]), [[SRC.id, "directory"], [CODEX.id, "state"]]);
+  assert.equal(both.asked, 1, "asked once");
+  assert.deepEqual(plan(proj, { root: ROOT, home, env }).harnesses, [SRC.id], "a bare plan keeps contract 8");
+  const npm = fakeNpmSpawn();
+  assert.deepEqual((await runVerb("install", proj, { root: ROOT, home, env, ask: async () => "n", fetchSpawn: npm.spawn })).plan.harnesses, [SRC.id], "a bare install keeps contract 8");
+  assert.deepEqual((await bare(proj, { globalRemoval: true })).r.plan.harnesses, [SRC.id], "uninstall --global keeps contract 8: a state directory is a project fact");
+  // .claude/ alone; state/codex/ alone.
+  assert.deepEqual((await bare(project({ bound: false }))).r.plan.harnesses, [SRC.id]);
+  const stateOnly = tmp("state");
+  mkdirSync(layoutPaths(stateOnly).harnessState(CODEX.id), { recursive: true });
+  assert.deepEqual((await bare(stateOnly)).r.plan.harnesses, [CODEX.id]);
+  // Neither: the refusal, naming both signals as upgrade's does.
+  const none = tmp("none");
+  const refused = (await bare(none)).r;
+  assert.equal(refused.gate.why, "refused");
+  assert.deepEqual(refused.plan.refusals, [harnessRefusal(none, { state: true })]);
+  assert.ok(refused.plan.refusals[0].includes(`or by its state directory: ${relative(none, layoutPaths(none).harnessState(CODEX.id))}`), refused.plan.refusals[0]);
+});
+
+test("one block per run, the critic's case: a bare uninstall of a Claude-only project a Codex session ran in removes the block, the import and Codex's welcome; prose stays; without state/codex/ the block stays", async () => {
+  const env = noHostEnv();
+  const cases = [
+    ["prose in CLAUDE.md", BLOCK + "\n", "@AGENTS.md\n\n# Mine\n", { "AGENTS.md": null, "CLAUDE.md": "# Mine\n" }],
+    ["prose in AGENTS.md", "# Agents\n\n" + BLOCK + "\n", "@AGENTS.md\n", { "AGENTS.md": "# Agents\n", "CLAUDE.md": null }],
+  ];
+  for (const [what, agents, claude, after] of cases) {
+    const { proj, lp } = stateProject();
+    writeFileSync(join(proj, "AGENTS.md"), agents);
+    writeFileSync(join(proj, "CLAUDE.md"), claude);
+    const r = await runVerb("uninstall", proj, { root: ROOT, home: tmp("home"), env, ask: async () => "y" });
+    assert.deepEqual(r.plan.harnesses, [SRC.id, CODEX.id], what);
+    assert.deepEqual(rowsOf(proj, blockRows(r.plan)), [[SRC.id, "agents_block", "remove", "AGENTS.md"], [SRC.id, "agents_block_import", "remove", "CLAUDE.md"]], what);
+    assert.equal(r.failed, null, what);
+    for (const [f, text] of Object.entries(after)) {
+      if (text === null) assert.ok(!existsSync(join(proj, f)), `${what}: ${f} held only ours and is gone`);
+      else assert.equal(read(join(proj, f)), text, `${what}: ${f} keeps the user's prose`);
+    }
+    assert.equal(existsSync(lp.harnessState(CODEX.id)), false, `${what}: the welcome marker and the empty state/codex/ are gone`);
+  }
+  // The same project without state/codex/: Claude Code alone, and the block stays, as today.
+  const today = project({ bound: false, agents: BLOCK + "\n", claude: "@AGENTS.md\n\n# Mine\n" });
+  const t = await runVerb("uninstall", today, { root: ROOT, home: tmp("home"), env, ask: async () => "y" });
+  assert.deepEqual(t.plan.harnesses, [SRC.id]);
+  assert.equal(item(t.plan, "agents_block").action, "skip");
+  assert.match(item(t.plan, "agents_block").reason, /read by another harness too/);
+  assert.equal(read(join(today, "AGENTS.md")), BLOCK + "\n");
+});
+
+test("one block per run, rule 5: a state directory makes Codex used — doctor --install warns about a block in CLAUDE.md, and the bare upgrade's plan migrates it", async () => {
+  const { proj } = seedCliVault();
+  mkdirSync(join(proj, SRC.runtime.harness_dir), { recursive: true });
+  for (const f of ["AGENTS.md", "CLAUDE.md"]) rmSync(join(proj, f), { force: true });
+  writeFileSync(join(proj, "CLAUDE.md"), BLOCK + "\n");
+  const doctor = () => {
+    const r = spawnSync(process.execPath, [join(ROOT, "bin", "projectstore.mjs"), "doctor", "--install", "--json", "--project", proj], { encoding: "utf8", cwd: tmp("cwd"), env: noHostEnv({ HOME: tmp("home") }), timeout: 60000 });
+    return JSON.parse(r.stdout).result.filter((f) => /does not see/.test(f.message));
+  };
+  assert.deepEqual(doctor(), [], "by directory alone, Codex is not used here");
+  mkdirSync(layoutPaths(proj).harnessState(CODEX.id), { recursive: true });
+  const unseen = doctor();
+  assert.equal(unseen.length, 1, JSON.stringify(unseen));
+  assert.equal(unseen[0].level, "warn", "used by its state directory, not identified");
+  assert.match(unseen[0].message, /in CLAUDE\.md, which Codex does not see: it reads AGENTS\.md only/);
+  // The bare upgrade's plan moves exactly that block.
+  const h = hostSandbox();
+  const up = await runVerb("upgrade", proj, { root: ROOT, home: h.home, env: h.env, ask: async () => "n", fetchSpawn: fakeNpmSpawn().spawn });
+  assert.deepEqual(up.plan.harnesses, [SRC.id, CODEX.id]);
+  assert.deepEqual(rowsOf(proj, blockRows(up.plan)), [[SRC.id, "agents_block", "remove", "CLAUDE.md"], [SRC.id, "agents_block", "create", "AGENTS.md"]]);
+  assert.equal(up.plan.items.find((i) => i.surface === "agents_block" && i.action === "create").reason, "in CLAUDE.md, which Codex does not read; install moves it to AGENTS.md");
+});

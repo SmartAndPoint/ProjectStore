@@ -137,6 +137,14 @@ test("cli: <verb> --help prints the verb's options and examples, a shell's name 
   }
   const install = bin(["install", "--help"]).stdout;
   assert.match(install, /\nExamples\n {2}npx projectstore install --harness <id>\n/);
+  // A bare uninstall is the core's, for every harness the project uses (the
+  // story "One run plans the agents block once…", rule 5); a shell names its
+  // own harness, so its help has no such line.
+  const uninstall = bin(["uninstall", "--help"]).stdout;
+  assert.match(uninstall, /\nExamples\n {2}npx projectstore uninstall +# every harness this project uses\n {2}npx projectstore uninstall --harness <id>\n/, uninstall);
+  const shellUninstall = bin(["uninstall", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
+  assert.ok(!shellUninstall.includes("every harness this project uses"), shellUninstall);
+  assert.match(shellUninstall, /\nExamples\n {2}npx projectstore-codex uninstall\n/);
   // The ids come from the manifests, never from the help's own text (a Codex user reads it too).
   assert.ok(install.includes(`\nHarnesses   ${harnessIds().join(", ")}\n`), install);
   const core = bin(["--help"]).stdout;

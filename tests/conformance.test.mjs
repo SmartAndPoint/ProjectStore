@@ -29,7 +29,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { plan, apply } from "../scripts/install-harness.mjs";
 import { detectHarnesses } from "../scripts/harness.mjs";
-import { readOverlayAt, readConfigAt, layoutPaths, resolveAgentModel } from "../scripts/lib.mjs";
+import { readOverlayAt, readConfigAt, layoutPaths, resolveAgentModel, findAgentsBlock, importsLine } from "../scripts/lib.mjs";
 import { run } from "../scripts/cli.mjs";
 import { ROWS, row, rowCoverage, manifests, treeOf, boundProject, unboundProject, sharedProject, stand } from "./fixtures/conformance.mjs";
 
@@ -82,6 +82,11 @@ test("conformance: an install writes exactly the row's files, and never into ano
     // Also derived: the agents block may only land in a file this manifest's
     // own list names. This is the defect, stated as a rule rather than as two
     // file names — a harness that cannot read a file must not be given one.
+    // It holds per harness, for a run that names one. A run that names several
+    // plans the block once, in a file EVERY run harness names, and "no block
+    // was written at all" is then the run's fact, not each harness's — the
+    // two-harness case below (the story "One run plans the agents block once,
+    // and a bare uninstall selects every harness the project uses", rule 1).
     const blockFiles = h.surfaces.agents_block.files;
     const otherBlockFiles = manifests().flatMap((o) => o.surfaces?.agents_block?.files || []).filter((f) => !blockFiles.includes(f));
     for (const f of otherBlockFiles) {
@@ -89,6 +94,33 @@ test("conformance: an install writes exactly the row's files, and never into ano
     }
     assert.ok(written.some((f) => blockFiles.includes(f)), `${h.id}: no agents block was written at all`);
   }
+});
+
+// One run of every harness, into the project they share: one block, in a file
+// every run harness names, and each harness's own file holding it or
+// importing it. Derived from the manifests; no file name is listed here.
+test("conformance: a run of every harness writes one block, in a file every run harness names, and each native file holds it or imports it", () => {
+  const all = manifests();
+  const { home, root, env } = stand();
+  const proj = sharedProject();
+  const ids = all.map((h) => h.id);
+  const p = plan(proj, { harnesses: ids, home, root, env });
+  assert.equal(p.ok, true, p.refusals.join("; "));
+  assert.equal(p.items.filter((i) => i.surface === "agents_block").length, 1, "one block item for the run, not one per harness");
+  apply(p, { env, home });
+
+  const common = all.map((h) => h.surfaces.agents_block.files).reduce((acc, l) => acc.filter((f) => l.includes(f)));
+  const union = [...new Set(all.flatMap((h) => h.surfaces.agents_block.files))];
+  const holding = union.filter((f) => existsSync(join(proj, f)) && findAgentsBlock(read(join(proj, f))));
+  assert.equal(holding.length, 1, `one block in the project, found in ${holding.join(", ") || "no file"}`);
+  assert.equal(findAgentsBlock(read(join(proj, holding[0]))).count, 1);
+  assert.ok(common.includes(holding[0]), `${holding[0]} is not a file every run harness names`);
+  for (const h of all) {
+    const native = h.surfaces.agents_block.reads_natively;
+    assert.ok(existsSync(join(proj, native)), `${h.id}: ${native} must exist after a run that names it`);
+    assert.ok(native === holding[0] || importsLine(read(join(proj, native)), `@${holding[0]}`), `${h.id}: ${native} neither holds the block nor imports it`);
+  }
+  assert.deepEqual(plan(proj, { harnesses: ids, home, root, env }).items.filter((i) => i.surface.startsWith("agents_block") && !["skip", "refuse"].includes(i.action)), [], "a second run plans no block change");
 });
 
 test("conformance: an unsupported surface says so in the plan — a state, not an absence — and the host report names only surfaces the harness has", () => {

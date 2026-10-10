@@ -232,3 +232,23 @@ test("overlay: doctor names the harness whose overlay is missing, but only next 
   for (const m of others) writeOverlayAt(proj, m.runtime.overlay, { default: null, per_agent: {} });
   assert.deepEqual(checkOverlays(readConfigAt(proj), proj).filter((x) => x.check === "overlay-absent"), []);
 });
+
+// A harness is used here when its state directory exists too, as a bare
+// upgrade and a bare uninstall select it (the story "One run plans the agents
+// block once, and a bare uninstall selects every harness the project uses",
+// rule 5): a Codex session leaves state/codex/ and no .codex/.
+test("overlay: a harness used only by its state directory is named too, next to a configured overlay", () => {
+  const proj = project();
+  const others = manifests().filter((m) => m.id !== SRC.id);
+  assert.ok(others.length, "this case needs a second manifest; it is vacuous with one");
+  writeOverlayAt(proj, SRC.id, { default: "opus", per_agent: {} });
+  const absent = (m) => checkOverlays(readConfigAt(proj), proj)
+    .filter((x) => x.check === "overlay-absent" && x.file === join(".projectstore", "harness", `${m.runtime.overlay}.json`));
+  for (const m of others) assert.deepEqual(absent(m), [], `${m.id}: neither its directory nor its state directory — not used`);
+  for (const m of others) mkdirSync(layoutPaths(proj).harnessState(m.id), { recursive: true });
+  for (const m of others) {
+    const f = absent(m);
+    assert.equal(f.length, 1, `${m.id}: used by its state directory, its missing overlay is named`);
+    assert.match(f[0].message, new RegExp(`agents configure --harness ${m.id}`));
+  }
+});
