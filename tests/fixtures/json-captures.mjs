@@ -41,13 +41,14 @@
 // Regenerating it is a decision, not a refresh: it re-baselines what "the
 // `--json` output is unchanged" compares against.
 
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { sourceHarness, loadHarness } from "../../scripts/harness.mjs";
 import { plan, apply } from "../../scripts/install-harness.mjs";
+import { walkVaultFiles } from "../../scripts/doctor.mjs";
 import { fakeInstall } from "./install.mjs";
 import { seedCliVault, writeBinding } from "./vault.mjs";
 
@@ -161,10 +162,17 @@ const tempHome = () => mkdtempSync(join(tmpdir(), "ps-home-"));
 
 // cli.test.mjs's cliVault(): seedCliVault with the graph view written through
 // the bin, so status reports one view that exists, its stamp and its freshness.
+// Freshness compares mtimes, and a seed written within one millisecond made
+// kanban.md stale on one machine and fresh on CI. Every file gets one fixed
+// mtime and kanban.md a minute less, so both answers are captured, always.
+const SEED_MTIME = new Date("2026-01-01T00:00:00Z");
 function cliVault(home) {
-  const { proj } = seedCliVault();
+  const { proj, vault } = seedCliVault();
   const r = spawnBin(["reconcile", "--write", "--only", "graph", "--project", proj], { home });
   if (r.status !== 0) throw new Error(`reconcile --write --only graph: exit ${r.status}\n${r.stderr}`);
+  for (const f of walkVaultFiles(vault)) utimesSync(join(vault, f.rel), SEED_MTIME, SEED_MTIME);
+  const older = new Date(SEED_MTIME.getTime() - 60_000);
+  utimesSync(join(vault, "kanban.md"), older, older);
   return proj;
 }
 
