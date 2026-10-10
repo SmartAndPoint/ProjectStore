@@ -14,6 +14,8 @@
 //
 // CLI: node doctor.mjs [--install] [--vault] [--startup] [--json]
 //      default = --install --vault. Exit code is always 0 (reporting tool).
+//      Without --json the findings are drawn by doctor-report.mjs, the
+//      renderer the bin uses, in its plain layout.
 
 import {
   existsSync,
@@ -85,6 +87,7 @@ import {
   speakingHarness,
   inheritForm,
   bindInherits,
+  doctorFallbackText,
 } from "./lib.mjs";
 import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, detectHarnesses, identifiedHarnessId, configPath as harnessConfigPath, packageCommand, invocation } from "./harness.mjs";
 
@@ -2147,27 +2150,6 @@ export function runStartupChecks(cfg, proj, budgetMs = 150) {
 
 // ─── CLI ───────────────────────────────────────────────────────────────
 
-function icon(level) {
-  return level === "issue" ? "✖" : level === "warn" ? "⚠" : "ℹ";
-}
-
-function report(findings, groups) {
-  const ver = pluginVersion();
-  const lines = [`projectstore doctor — plugin v${ver || "?"}, ${new Date().toISOString().slice(0, 10)}`];
-  for (const g of groups) {
-    const fs = findings.filter((f) => f.group === g);
-    lines.push("", `## ${g} (${fs.filter((f) => f.level === "issue").length} issue(s), ${fs.filter((f) => f.level === "warn").length} warning(s))`);
-    if (!fs.length) lines.push("  ✓ clean");
-    for (const f of fs) {
-      lines.push(`  ${icon(f.level)} [${f.check}] ${f.message}${f.file ? `  — ${f.file}` : ""}`);
-    }
-  }
-  const issues = findings.filter((f) => f.level === "issue").length;
-  const warns = findings.filter((f) => f.level === "warn").length;
-  lines.push("", `Summary: ${issues} issue(s), ${warns} warning(s). ${issues ? `Repairs: ${commandForm("doctor", { args: "--fix" })} (install), ${commandForm("kanban")} / reconcile (vault).` : "Vault and wiring look healthy."}`);
-  return lines.join("\n");
-}
-
 async function main() {
   const args = process.argv.slice(2);
   const wantJson = args.includes("--json");
@@ -2196,7 +2178,24 @@ async function main() {
     findings.push(finding("vault", "info", "vault", "Vault checks skipped — no usable vault (see install issues)."));
   }
 
-  process.stdout.write((wantJson ? JSON.stringify(findings, null, 2) : report(findings, groups)) + "\n");
+  if (wantJson) { process.stdout.write(JSON.stringify(findings, null, 2) + "\n"); return; }
+  process.stdout.write(await textReport(findings, groups, { version: pluginVersion(), project: proj }));
+}
+
+// The text is the bin's renderer's, in its plain layout (the presentation
+// spec, contract 11) — one report, whoever prints it. Imported at run time,
+// and nowhere else in this file: the SessionStart hook imports this module
+// statically, and the renderer's term.mjs is not on its path. A renderer
+// that cannot load, or throws, costs the reader nothing: the findings one
+// per line and the Summary line, still last (lib.mjs). `load` is a test's.
+export async function textReport(findings, groups, { version = null, project = null, env = process.env, stderr = process.stderr } = {}, { load = () => import("./doctor-report.mjs") } = {}) {
+  try {
+    const { report } = await load();
+    return report(findings, groups, { version, project, env });
+  } catch (e) {
+    if (stderr) stderr.write(`doctor: the report could not be drawn (${e && e.message ? e.message : e}); its findings follow, one per line.\n`);
+    return doctorFallbackText(findings, { env });
+  }
 }
 
 if (isMain(import.meta.url)) {

@@ -1,0 +1,45 @@
+projectstore doctor . 0.30.0 . shop
+
+INSTALL - 1 issue . 0 warnings . 2 notes
+-------------------------------------------------------------------------------
+  x [statusline] statusline.enabled=true but no statusLine wired in
+    settings.local.json — run /projectstore:statusline on (it installs the entry
+    and the launcher behind a preview); the SessionStart hook only refreshes an
+    entry that already exists.
+  . [auto-update] No marketplace install of projectstore found (--plugin-dir,
+    or a checkout with none registered) — marketplace auto-update not
+    applicable.
+  1 note hidden . --verbose shows them
+
+VAULT - 8 issues . 3 warnings . 0 notes
+-------------------------------------------------------------------------------
+  x [kanban] kanban.md is out of sync with story frontmatter — run
+    /projectstore:kanban (or reconcile). - kanban.md
+  x [code-refs] code_refs path does not resolve inside the project (6)
+      . skills/decision-detector/SKILL.md
+        - epics/PS-X/stories/story-layout-move.md
+      . skills/peer-reviewer/SKILL.md
+        - epics/PS-X/stories/story-layout-move.md
+      . skills/story-completion/SKILL.md
+        - epics/PS-X/stories/story-layout-move.md
+      . skills/vault-communication/SKILL.md
+        - epics/PS-X/stories/story-layout-move.md
+      . skills/story-completion/SKILL.md
+        - epics/PS-Y/stories/story-003-timestamps.md
+      . skills/story-completion/SKILL.md
+        - epics/PS-Y/stories/story-009-refs-from-diff.md
+    fix: make each code_refs path exist in the project, and keep a story's
+      paths inside its epic's.
+  x [graph] graph.md is out of sync with vault links — run /projectstore:graph
+    (or reconcile). - graph.md
+  ! [acceptance] Story is "done" with 1 unchecked acceptance criteria.
+    - epics/PS-X/stories/story-first-release.md
+    fix: tick the criteria the work met, or move the story out of done.
+  ! [code-refs] Story code_ref "scripts/cli.mjs" falls outside the parent
+    epic's code_refs. - epics/PS-Z/stories/story-agent-effort.md
+  ! [code-refs] Story code_ref "harnesses/" falls outside the parent epic's
+    code_refs. - epics/PS-Z/stories/story-agent-effort.md
+    fix: make each code_refs path exist in the project, and keep a story's
+      paths inside its epic's.
+
+Summary: 9 issue(s), 3 warning(s). Repairs: /projectstore:doctor --fix (install), /projectstore:kanban / reconcile (vault).

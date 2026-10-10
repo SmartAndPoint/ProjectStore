@@ -56,7 +56,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import * as term from "./term.mjs";
 import { projectRootDeclared, childEnv, harnessIds, harnessForOverlay, pinPluginRoot } from "./harness.mjs";
-import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster, commandForm, projectDirRefusal } from "./lib.mjs";
+import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster, commandForm, projectDirRefusal, doctorFallbackText } from "./lib.mjs";
 import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_LIMIT, GRAPH_EDGE_CAP, DIRECTIONS } from "./query.mjs";
 // binding.mjs and scaffold.mjs beneath it are write modules imported
 // statically where the install family is lazy: dependency-free, with no side
@@ -118,6 +118,9 @@ const SURFACE_OPT = opt("surface", "<key>", "one surface and those beneath it", 
 // "no host command" true by construction instead of by recognising the root.
 const NO_REGISTER_OPT = opt("no-register", false, "leave the plugin registration alone: change only this project's files");
 const VERBOSE_OPT = opt("verbose", false, "every row's reasoning, each step's why and the host's own notes");
+// doctor's --verbose is the same flag in its own words: on a terminal, the
+// report the pipe gets — every note, every instance, each message whole.
+const DOCTOR_VERBOSE_OPT = opt(VERBOSE_OPT.name, VERBOSE_OPT.arg, "on a terminal too: every note, every instance, whole messages");
 const INSTALL_OPTS = [HARNESS_OPT, SURFACE_OPT, NO_REGISTER_OPT, VERBOSE_OPT, JSON_OPT];
 const UNINSTALL_OPTS = [HARNESS_OPT, SURFACE_OPT, opt("global", false, "also remove the harness-global plugin registration"), VERBOSE_OPT, JSON_OPT];
 
@@ -125,7 +128,7 @@ export const VERBS = Object.freeze([
   Object.freeze({
     verb: "doctor", summary: "Check the install wiring and the vault's consistency.", usage: NO_FORMS,
     module: "./doctor.mjs", wraps: "script", how: "spawn", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze(["doctor"]),
-    options: [opt("install", false, "only the install section"), opt("vault", false, "only the vault section"), JSON_OPT],
+    options: [opt("install", false, "only the install section"), opt("vault", false, "only the vault section"), DOCTOR_VERBOSE_OPT, JSON_OPT],
     run: runDoctor,
   }),
   Object.freeze({
@@ -876,12 +879,14 @@ function spawnDoctor(project, env, flags) {
   return spawnSync(process.execPath, [script("doctor.mjs"), ...flags], { encoding: "utf8", cwd: existsSync(project) ? project : undefined, env: ownEnv(env, project), timeout: 60000, maxBuffer: 1 << 24 });
 }
 
-// Spawned, never imported (MCP ADR decision 2): doctor's report and main are
-// not exported, and importing them would be a second doctor. doctor.mjs sets
-// no exit code of its own and prints either JSON or text, so text mode is
-// two spawns — one for the findings that decide the exit code, one for the
-// report the user reads. Deliberate; do not "optimise" the second away
-// without giving doctor an exit code first.
+// Spawned, never imported (MCP ADR decision 2): doctor's main writes to
+// stdout and is not exported, and importing its checks would be a second
+// doctor. One spawn, always --json: its findings decide the exit code
+// (doctor.mjs sets none of its own), and the text a person reads is drawn
+// from those same findings here, in this process, by doctor-report.mjs — a
+// renderer that imports no check (the presentation spec, contract 11). So a
+// terminal gets colour, which a piped child could not tell it had, and the
+// report and the exit code can never come from two different runs.
 async function runDoctor({ values, project, env, stdout, stderr }) {
   const sections = [values.install && "--install", values.vault && "--vault"].filter(Boolean);
   const r = spawnDoctor(project, env, ["--json", ...sections]);
@@ -897,10 +902,27 @@ async function runDoctor({ values, project, env, stdout, stderr }) {
   const ok = !findings.some((f) => f.level === "issue");
   if (values.json) stdout.write(JSON.stringify(envelope("doctor", project, ok, findings), null, 2) + "\n");
   else {
-    const t = spawnDoctor(project, env, sections);
-    stdout.write(typeof t.stdout === "string" && t.stdout ? t.stdout : `${(t.stderr || "").trim() || "doctor printed nothing"}\n`);
+    // The sections as doctor.mjs derives them: no flag is both.
+    const groups = sections.length ? [values.install && "install", values.vault && "vault"].filter(Boolean) : ["install", "vault"];
+    stdout.write(await doctorText(findings, groups, { caps: term.caps(stdout, env), verbose: Boolean(values.verbose), project, env: ownEnv(env, project), stderr }));
   }
   return ok ? 0 : 1;
+}
+
+// doctor's text from its findings. `env` is the child's environment
+// (ownEnv), so every command form the report names is the one doctor itself
+// would name. A renderer that cannot load, or throws, must not cost the
+// reader the findings: they are printed one per line, `level check message
+// — file`, and the Summary line still ends them (lib.mjs). `load` stands in
+// for the import in a test.
+export async function doctorText(findings, groups, { caps, verbose = false, project = null, env = process.env, stderr = null } = {}, { load = () => import("./doctor-report.mjs") } = {}) {
+  try {
+    const { report } = await load();
+    return report(findings, groups, { caps, verbose, version: packageVersion(), project, env });
+  } catch (e) {
+    if (stderr) stderr.write(`doctor: the report could not be drawn (${e && e.message ? e.message : e}); its findings follow, one per line.\n`);
+    return doctorFallbackText(findings, { env });
+  }
 }
 
 async function runReconcile({ values, project, env, stdin, stdout, stderr, ask }) {

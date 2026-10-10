@@ -1,0 +1,97 @@
+[
+  {
+    "group": "install",
+    "level": "issue",
+    "check": "statusline",
+    "message": "statusline.enabled=true but no statusLine wired in settings.local.json — run /projectstore:statusline on (it installs the entry and the launcher behind a preview); the SessionStart hook only refreshes an entry that already exists."
+  },
+  {
+    "group": "install",
+    "level": "info",
+    "check": "auto-update",
+    "message": "No marketplace install of projectstore found (--plugin-dir, or a checkout with none registered) — marketplace auto-update not applicable."
+  },
+  {
+    "group": "install",
+    "level": "info",
+    "check": "mcp",
+    "message": "MCP read tools registered by the plugin's .mcp.json (one server per project, bound through the host's project directory)."
+  },
+  {
+    "group": "vault",
+    "level": "issue",
+    "check": "kanban",
+    "message": "kanban.md is out of sync with story frontmatter — run /projectstore:kanban (or reconcile).",
+    "file": "kanban.md"
+  },
+  {
+    "group": "vault",
+    "level": "warn",
+    "check": "acceptance",
+    "message": "Story is \"done\" with 1 unchecked acceptance criteria.",
+    "file": "epics/PS-X/stories/story-first-release.md"
+  },
+  {
+    "group": "vault",
+    "level": "warn",
+    "check": "code-refs",
+    "message": "Story code_ref \"scripts/cli.mjs\" falls outside the parent epic's code_refs.",
+    "file": "epics/PS-Z/stories/story-agent-effort.md"
+  },
+  {
+    "group": "vault",
+    "level": "warn",
+    "check": "code-refs",
+    "message": "Story code_ref \"harnesses/\" falls outside the parent epic's code_refs.",
+    "file": "epics/PS-Z/stories/story-agent-effort.md"
+  },
+  {
+    "group": "vault",
+    "level": "issue",
+    "check": "code-refs",
+    "message": "code_refs path \"skills/decision-detector/SKILL.md\" does not resolve inside the project (status: in_progress).",
+    "file": "epics/PS-X/stories/story-layout-move.md"
+  },
+  {
+    "group": "vault",
+    "level": "issue",
+    "check": "code-refs",
+    "message": "code_refs path \"skills/peer-reviewer/SKILL.md\" does not resolve inside the project (status: in_progress).",
+    "file": "epics/PS-X/stories/story-layout-move.md"
+  },
+  {
+    "group": "vault",
+    "level": "issue",
+    "check": "code-refs",
+    "message": "code_refs path \"skills/story-completion/SKILL.md\" does not resolve inside the project (status: in_progress).",
+    "file": "epics/PS-X/stories/story-layout-move.md"
+  },
+  {
+    "group": "vault",
+    "level": "issue",
+    "check": "code-refs",
+    "message": "code_refs path \"skills/vault-communication/SKILL.md\" does not resolve inside the project (status: in_progress).",
+    "file": "epics/PS-X/stories/story-layout-move.md"
+  },
+  {
+    "group": "vault",
+    "level": "issue",
+    "check": "code-refs",
+    "message": "code_refs path \"skills/story-completion/SKILL.md\" does not resolve inside the project (status: done).",
+    "file": "epics/PS-Y/stories/story-003-timestamps.md"
+  },
+  {
+    "group": "vault",
+    "level": "issue",
+    "check": "code-refs",
+    "message": "code_refs path \"skills/story-completion/SKILL.md\" does not resolve inside the project (status: done).",
+    "file": "epics/PS-Y/stories/story-009-refs-from-diff.md"
+  },
+  {
+    "group": "vault",
+    "level": "issue",
+    "check": "graph",
+    "message": "graph.md is out of sync with vault links — run /projectstore:graph (or reconcile).",
+    "file": "graph.md"
+  }
+]

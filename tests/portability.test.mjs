@@ -338,6 +338,24 @@ test("install spec modules: doctor never imports the installer, and the installe
   assert.ok(!doctor.includes("provenance.mjs"), "doctor.mjs imports provenance.mjs");
   assert.ok(!/from "\.\/surfaces\.mjs"/.test(doctor), "doctor.mjs imports surfaces.mjs statically");
   assert.ok(/await import\("\.\/surfaces\.mjs"\)/.test(doctor), "doctor.mjs reaches surfaces.mjs dynamically");
+  // The same for its text renderer (the presentation spec, contract 11): the
+  // renderer imports term.mjs, which loads readline — never on the hook's path.
+  assert.ok(!/from "\.\/(doctor-report|term)\.mjs"/.test(doctor), "doctor.mjs imports its renderer or term.mjs statically");
+  assert.ok(/(?<![\w.])import\("\.\/doctor-report\.mjs"\)/.test(doctor), "doctor.mjs reaches its renderer dynamically");
+  const renderer = readFileSync(join(ROOT, "scripts", "doctor-report.mjs"), "utf8");
+  assert.deepEqual([...renderer.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]).sort(), ["./lib.mjs", "./term.mjs"], "the renderer imports term.mjs and lib.mjs only");
+  assert.ok(!/\bimport\s*\(/.test(renderer), "and nothing at run time");
+  // Walked, not grepped: no module the SessionStart hook loads statically is the renderer or term.mjs.
+  const graph = new Set();
+  const walk = (file) => {
+    if (graph.has(file)) return;
+    graph.add(file);
+    const src = readFileSync(file, "utf8");
+    for (const m of src.matchAll(/^(?:import|export)\s[^;]*?\sfrom\s+"(\.{1,2}\/[^"]+)";/gms)) walk(resolve(dirname(file), m[1]));
+  };
+  walk(join(ROOT, "hooks", "session-start.mjs"));
+  assert.ok(graph.has(join(ROOT, "scripts", "doctor.mjs")), "the walk reaches doctor.mjs");
+  for (const n of ["doctor-report.mjs", "term.mjs"]) assert.ok(!graph.has(join(ROOT, "scripts", n)), `the SessionStart graph loads ${n}`);
   for (const n of readdirSync(join(ROOT, "hooks")).filter((f) => f.endsWith(".mjs"))) {
     const hook = readFileSync(join(ROOT, "hooks", n), "utf8");
     assert.ok(!hook.includes("surfaces.mjs"), `hooks/${n} pulls surfaces.mjs into the SessionStart graph`);

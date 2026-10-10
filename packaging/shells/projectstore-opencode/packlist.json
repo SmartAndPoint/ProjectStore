@@ -59,6 +59,7 @@
   "node_modules/projectstore/scripts/cli.mjs",
   "node_modules/projectstore/scripts/codemap.mjs",
   "node_modules/projectstore/scripts/diff-refs.mjs",
+  "node_modules/projectstore/scripts/doctor-report.mjs",
   "node_modules/projectstore/scripts/doctor.mjs",
   "node_modules/projectstore/scripts/draft.mjs",
   "node_modules/projectstore/scripts/fetch-shell.mjs",
