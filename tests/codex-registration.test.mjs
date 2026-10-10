@@ -51,6 +51,27 @@ test("Codex portable registration: install is verified and the next plan is idem
   assert.match(registration(conflict).reason, /same.*different payload|different payload digest/i);
 });
 
+// The in-place wording is the host plugin registration's (Claude Code loads a
+// directory marketplace in place); Codex loads the copy in its cache, so both
+// of its texts keep naming the install path (the story "The SessionStart hook
+// and install agree on the status line of an npm registration loaded from its
+// marketplace directory").
+test("Codex portable registration: doctor's info and the host-managed report name the install path the host loads — never 'in place'", () => {
+  const f = fixture();
+  assert.equal(apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) }).failed, undefined);
+  mkdirSync(join(f.project, loadHarness("codex").runtime.harness_dir), { recursive: true }); // detected, so doctor reports it
+  const full = plan(f.project, { harnesses: ["codex"], root: f.root, home: f.home, env: f.env });
+  const reg = registration(full);
+  assert.equal(reg.state, "current");
+  const report = full.reports.join("\n");
+  assert.ok(report.includes(`the host loads them from ${reg.root}.`), report);
+  assert.doesNotMatch(report, /in place/);
+  const states = surfaceStates(f.project, { home: f.home, root: f.root, env: f.env }).states;
+  const info = checkPluginRegistration(f.project, states, { home: f.home }).find((x) => x.check === "plugin-registration" && x.level === "info");
+  assert.ok(info && info.message.includes(`(loaded from ${reg.root})`), JSON.stringify(info));
+  assert.doesNotMatch(info.message, /in place/);
+});
+
 // S8 of the 2026-10-03 review: the consent preview listed the cache it touches
 // but never config.toml, the file `marketplace add`, `plugin add` and the
 // global removals actually rewrite. The file is the manifest's

@@ -75,11 +75,11 @@ import { spawnSync } from "node:child_process";
 import { caps as termCaps, painter, icon as termIcon, duration, stepReporter, liveLine, wrap, askApply } from "./term.mjs";
 import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand, insideHostSession, bundlingShellHarnessId, cachePaths, commonBlockFiles, agentsBlockRow } from "./harness.mjs";
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
-import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, analyseHarnessState, isOurFile, readText } from "./surfaces.mjs";
+import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, analyseHarnessState, isOurFile, readText, registrationRenderRoot, registrationPaths } from "./surfaces.mjs";
 import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
 import { rootVersion, rootName, fetchDecision, fetchArgv, npmRegistry, REGISTRY_BUDGET_MS, fetchShell, fetchRefusal, fetchRunId, sweepFetchRuns } from "./fetch-shell.mjs";
 import { HOST_BUDGET_MS, startFailure } from "./run-host.mjs";
-import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal } from "./lib.mjs";
+import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal, registrationProvenance } from "./lib.mjs";
 
 import { GENERATOR } from "./surfaces.mjs";
 export { GENERATOR };
@@ -794,7 +794,8 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
         if (s.kind === "registration" && !isPluginCacheRoot(root, home)) {
           const analyser = s.format === "portable-plugin-registration" ? analysePortableRegistration : analyseRegistration;
           const a = analyser(projectDir, s, { root, home, harness, env, version, fetched: ctx.fetched });
-          if (a.installed && (a.installed.present ?? true) && a.enabled) ctx.renderRoot = a.installPath;
+          const installed = registrationRenderRoot(a);
+          if (installed) ctx.renderRoot = installed;
         }
         continue;
       }
@@ -822,7 +823,11 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
         // Phase two (contract 4′): the rest is planned against the root the
         // registration produces — when it produces one on this run or has.
         const own = items.find((i) => i.surface === key);
-        registration = own || null;
+        // The host-managed report names where a host plugin registration is
+        // loaded in place: the plugin's root in our directory, from the same
+        // registrationPaths the analysis used. Kept off the item, so plan
+        // --json keeps the shape it had.
+        registration = own ? { ...own, payload: s.format === "host-plugin-registration" ? registrationPaths(s, { home, projectDir, harness }).payload : null } : null;
         if (own && mode !== "uninstall" && ["create", "update", "skip"].includes(own.action) && own.root && !own.deferred) ctx.renderRoot = own.root;
       }
     }
@@ -1074,7 +1079,14 @@ function hostManagedReport(m, rows, registration = null) {
   const lines = [`${m.display_name}: ${rows.join(", ")} are installed by ${inst.mechanism || "the host"} — nothing to write.`];
   if (registration && registration.entry) {
     const how = registration.action === "skip" && registration.state === "current" ? "registered here" : registration.action === "refuse" ? "refused, see below" : registration.action === "skip" ? "not registered on this run, see below" : `registered by this run (${registration.action})`;
-    lines.push(`  They come from the registration ${registration.entry}, ${how}${registration.root ? ` — the host loads them from ${registration.root}` : ""}.`);
+    // A host plugin registration is a marketplace added from a local path, and
+    // the host loads its plugin in place, from the plugin's root inside that
+    // directory (`payload`, set by plan()); the install path is the registry's
+    // copy, which the launcher renders (the story "The SessionStart hook and
+    // install agree on the status line…", measured on host 2.1.293 and
+    // 2.1.296). A portable registration's host loads the copy.
+    const where = !registration.root ? "" : registration.payload ? ` — install path ${registration.root}; the host loads them in place from ${registration.payload}` : ` — the host loads them from ${registration.root}`;
+    lines.push(`  They come from the registration ${registration.entry}, ${how}${where}.`);
   }
   if (inst.why_not_scripted) lines.push(`  ${inst.why_not_scripted}`);
   for (const s of inst.steps || []) lines.push(`    ${s}`);
@@ -1616,7 +1628,8 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
       // Re-check at apply time what plan() proved: the directory is absent or ours.
       if (existsSync(st.path)) {
         let ours = false;
-        try { ours = Boolean(JSON.parse(readFileSync(manifestPath, "utf8"))[s.provenance_key]); } catch {}
+        // The one reader of the provenance field (contract 2, amended 2026-10-10).
+        try { ours = Boolean(registrationProvenance(JSON.parse(readFileSync(manifestPath, "utf8")), s)); } catch {}
         if (!ours) { out.steps.push({ kind: "write", ok: false }); return fail("write", null, `${st.path} changed under the plan: its manifest is no longer ours; nothing is written`); }
       }
       if (st.manifestOnly) writeFileAtomic(manifestPath, JSON.stringify(st.manifest, null, 2) + "\n", { sweep: false });

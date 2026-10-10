@@ -1108,6 +1108,159 @@ test("syncStatusLine keeps the direct path for a dev checkout (no version to go 
   assert.ok(!existsSync(statusLineLauncherPath(proj)), "no launcher for a dev checkout");
 });
 
+// ─── The hook never demotes a launcher (PS-HARNESS: "The SessionStart hook
+// and install agree on the status line of an npm registration loaded from its
+// marketplace directory") ────────────────────────────────────────────────
+//
+// The host loads the npm registration's plugin in place from its marketplace
+// directory (measured on 2.1.293 and 2.1.296), so SessionStart runs from a
+// root that is neither the cache install the launcher is rendered for nor a
+// checkout — and the refresh re-pointed install's launcher entry at that
+// root's own script on every session start. Install alone decides the shape.
+
+import fs, { realpathSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { statusLineIsOurWiring, legacyStatusLineLauncherPath } from "../scripts/lib.mjs";
+import { sourceHarness as sourceHarnessForReg } from "../scripts/harness.mjs";
+import { fakeMarketplace } from "./fixtures/install.mjs";
+
+const REG = sourceHarnessForReg().surfaces.plugin;
+// Real paths, as registration.test.mjs takes them: the read spy filters by
+// prefix, and a read under /private/var must not slip past a /var prefix.
+const realTmp = (prefix) => realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+const NEW_LAUNCHER = (proj) => statusLineLauncherPath(proj);
+const LEGACY_LAUNCHER = (proj) => legacyStatusLineLauncherPath(proj);
+const settingsOf = (proj) => join(proj, ".claude", "settings.local.json");
+const entryOf = (proj) => JSON.parse(readFileSync(settingsOf(proj), "utf8"));
+
+// A project whose entry names entry(proj), with a launcher rendered from the
+// template — so it carries the header the disable path recognises — at each
+// of launchers(proj); the entry has a sibling key, and the file another key.
+function wiredProject(entry, launchers = []) {
+  const proj = realTmp("ps-proj-");
+  mkdirSync(join(proj, ".claude"), { recursive: true });
+  for (const at of launchers.map((f) => f(proj))) {
+    mkdirSync(dirname(at), { recursive: true });
+    writeFileSync(at, renderStatusLineLauncher(readFileSync(LAUNCHER_TEMPLATE, "utf8"), "/fallback/root", proj));
+  }
+  writeFileSync(settingsOf(proj), JSON.stringify({ permissions: { allow: ["Bash(npm:*)"] }, statusLine: { type: "command", command: `node "${entry(proj)}"`, refreshInterval: 5000 } }, null, 2) + "\n");
+  return proj;
+}
+
+// The three roots a session runs from: the npm registration's marketplace
+// payload (in place), a cache install, a checkout.
+function sessionRoots(version = "0.29.2") {
+  const home = realTmp("ps-home-");
+  const mp = fakeMarketplace(home, version);
+  return { home, mp, roots: { "the marketplace payload": mp.payload, "a cache install": fakeInstall(home, version, { marketplace: REG.marketplace_name }), "a checkout": realTmp("ps-dev-") } };
+}
+
+// Every readFileSync the module graph makes inside fn, as paths — lib.mjs
+// imports the named binding, which syncBuiltinESMExports re-points at the spy.
+function readsDuring(t, fn) {
+  const spy = t.mock.method(fs, "readFileSync");
+  syncBuiltinESMExports();
+  try {
+    fn();
+    return spy.mock.calls.map((c) => String(c.arguments[0]));
+  } finally {
+    spy.mock.restore();
+    syncBuiltinESMExports();
+  }
+}
+
+test("syncStatusLine never demotes a launcher: an entry naming one on disk stays byte-identical whether the root is the npm registration's marketplace payload, a cache install or a checkout", () => {
+  const { home, mp, roots } = sessionRoots();
+  // The payload is a root the host runs in place: the manifest one level up
+  // carries our provenance field, and it is no cache install.
+  assert.equal(mp.manifest, join(mp.payload, "..", REG.manifest));
+  assert.equal(typeof JSON.parse(readFileSync(mp.manifest, "utf8"))[REG.provenance_key].pkg, "string");
+  assert.ok(!isPluginCacheRoot(mp.payload, home));
+  for (const [where, root] of Object.entries(roots)) {
+    for (const [which, at] of [["the launcher", NEW_LAUNCHER], ["the legacy launcher", LEGACY_LAUNCHER]]) {
+      const proj = wiredProject(at, [at]);
+      const before = readFileSync(settingsOf(proj), "utf8");
+      assert.equal(withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, proj, home)), "unchanged", `${which}, from ${where}`);
+      assert.equal(readFileSync(settingsOf(proj), "utf8"), before, `${which}, from ${where}`);
+    }
+  }
+});
+
+test("syncStatusLine with the named launcher missing points the entry at the running root's script when no launcher of ours is on disk, at the one that is otherwise; disabled, it removes the entry and our launcher", () => {
+  const { home, roots } = sessionRoots();
+  for (const [where, root] of Object.entries(roots)) {
+    // No launcher on disk: the running root's own script, as before.
+    const bare = wiredProject(NEW_LAUNCHER);
+    assert.equal(withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, bare, home)), "enabled", where);
+    assert.equal(entryOf(bare).statusLine.command, `node "${join(root, "scripts", "statusline.mjs")}"`, where);
+    assert.equal(entryOf(bare).statusLine.refreshInterval, 5000, "we own the command, not the entry");
+    // The named launcher missing, the legacy one on disk: still a launcher, from
+    // any root (the layout spec's contract 6 self-heal, amended 2026-10-10).
+    const legacy = wiredProject(NEW_LAUNCHER, [LEGACY_LAUNCHER]);
+    assert.equal(withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, legacy, home)), "enabled", where);
+    assert.equal(entryOf(legacy).statusLine.command, `node "${LEGACY_LAUNCHER(legacy)}"`, where);
+    // Disabled: our entry and the launcher we wrote go; every other key stays.
+    const off = wiredProject(NEW_LAUNCHER, [NEW_LAUNCHER]);
+    assert.equal(withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: false } }, off, home)), "disabled", where);
+    assert.equal(entryOf(off).statusLine, undefined, where);
+    assert.deepEqual(entryOf(off).permissions, { allow: ["Bash(npm:*)"] });
+    assert.ok(!existsSync(NEW_LAUNCHER(off)), `the launcher is removed, from ${where}`);
+  }
+});
+
+test("syncStatusLine from a checkout run directly keeps a direct entry on its own script — never promoted to a launcher on disk — and re-points a pinned cache path at the checkout's script", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const dev = mkdtempSync(join(tmpdir(), "ps-dev-"));
+  const old = fakeInstall(home, "0.28.0");
+  assert.ok(!isPluginCacheRoot(dev, home));
+  const own = wiredProject(() => join(dev, "scripts", "statusline.mjs"), [NEW_LAUNCHER]);
+  const before = readFileSync(settingsOf(own), "utf8");
+  assert.equal(withPluginRoot(dev, () => syncStatusLine({ statusline: { enabled: true } }, own, home)), "unchanged");
+  assert.equal(readFileSync(settingsOf(own), "utf8"), before, "wired to its own script, byte for byte");
+  const pinned = wiredProject(() => join(old, "scripts", "statusline.mjs"), [NEW_LAUNCHER]);
+  assert.equal(withPluginRoot(dev, () => syncStatusLine({ statusline: { enabled: true } }, pinned, home)), "enabled");
+  assert.equal(entryOf(pinned).statusLine.command, `node "${join(dev, "scripts", "statusline.mjs")}"`);
+});
+
+test("syncStatusLine reads no new file: from the marketplace payload, a cache install and a checkout, the settings file is the only file of the sandbox it reads — never the launcher, never the marketplace manifest", (t) => {
+  const { home, mp, roots } = sessionRoots();
+  const cases = Object.entries(roots).map(([where, root]) => [where, root, wiredProject(NEW_LAUNCHER, [NEW_LAUNCHER])]);
+  // The payload's own script, from the payload: matched before the manifest rung.
+  cases.push(["the marketplace payload, its own script", mp.payload, wiredProject(() => join(mp.payload, "scripts", "statusline.mjs"), [NEW_LAUNCHER])]);
+  for (const [where, root, proj] of cases) {
+    let res = null;
+    const reads = readsDuring(t, () => { res = withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, proj, home)); });
+    assert.equal(res, "unchanged", where);
+    const sandboxed = reads.filter((p) => p.startsWith(home) || p.startsWith(proj));
+    assert.deepEqual(sandboxed, [settingsOf(proj)], `from ${where}: ${JSON.stringify(sandboxed)}`);
+  }
+});
+
+test("statusLineIsOurWiring recognises the npm registration's payload script by its directory's provenance field — a string test first, the manifest last, no path built from the home", (t) => {
+  const home = realTmp("ps-home-");
+  const proj = realTmp("ps-proj-");
+  const checkout = realTmp("ps-dev-"); // the root asking: neither the payload nor a cache install
+  const mp = fakeMarketplace(home, "0.29.2");
+  const payloadScript = `node "${join(mp.payload, "scripts", "statusline.mjs")}"`;
+  assert.ok(statusLineIsOurWiring(payloadScript, proj, home, checkout), "the payload's script is ours from any root");
+  // A user's own HUD at the user-level scripts path lacks the payload's shape: false, and nothing is read.
+  const theirs = `node "${join(home, ".claude", "scripts", "statusline.mjs")}"`;
+  let mine = null;
+  const reads = readsDuring(t, () => { mine = statusLineIsOurWiring(theirs, proj, home, checkout); });
+  assert.equal(mine, false);
+  assert.deepEqual(reads.filter((p) => p.startsWith(home) || p.startsWith(proj)), [], "no read for a path without the payload's shape");
+  // A directory at that shape whose manifest carries no provenance field of ours is someone else's.
+  const m = JSON.parse(readFileSync(mp.manifest, "utf8"));
+  delete m[REG.provenance_key];
+  writeFileSync(mp.manifest, JSON.stringify(m));
+  assert.equal(statusLineIsOurWiring(payloadScript, proj, home, checkout), false);
+  // A registration directory outside this home (a relocated harness home) is
+  // found from the entry's own path.
+  const elsewhere = fakeMarketplace(home, "0.29.2", { dir: join(realTmp("ps-cfg-"), ...REG.dir) });
+  assert.ok(!elsewhere.dir.startsWith(home));
+  assert.ok(statusLineIsOurWiring(`node "${join(elsewhere.payload, "scripts", "statusline.mjs")}"`, proj, home, checkout));
+});
+
 test("launcher renders the INSTALLED version, not the one it was generated from", () => {
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   const old = fakeInstall(home, "0.14.0");

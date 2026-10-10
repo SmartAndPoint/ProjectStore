@@ -52,6 +52,7 @@ import {
   RUNTIME_GITIGNORE_HEADER,
   LAUNCHER_HEADER,
   commandForm,
+  registrationProvenance,
 } from "./lib.mjs";
 import { analysePortableRegistration, portableRegistrationPaths, portablePayloadRoot } from "./portable-registration.mjs";
 
@@ -259,8 +260,8 @@ export function analyseRegistration(projectDir, s, { root = pluginRoot(), home =
   // Machine-global facts: our directory, the host's marketplace registry, every row of ours.
   if (a.dir.present) {
     a.dir.manifest = readJson(paths.manifest);
-    const prov = a.dir.manifest && a.dir.manifest[s.provenance_key];
-    if (prov && typeof prov === "object" && typeof prov.pkg === "string") {
+    const prov = registrationProvenance(a.dir.manifest, s);
+    if (prov) {
       a.dir.prov = prov; a.dir.pkg = prov.pkg;
       a.dir.disabled = Array.isArray(prov.disabled) ? prov.disabled.filter((x) => typeof x === "string") : [];
       if (typeof prov.project === "string" && !samePath(prov.project, projectDir)) a.writtenBy = prov.project;
@@ -325,6 +326,15 @@ export function analyseRegistration(projectDir, s, { root = pluginRoot(), home =
   if (a.installedVersion !== a.dir.pkg) return { ...a, state: "stale", reason: STALE_TEXT[STALE.PLUGIN] + ` (installed ${a.installedVersion}, directory ${a.dir.pkg})` };
   if (!a.enabled) return { ...a, state: "stale", reason: "disabled for this checkout" };
   return { ...a, state: "current", reason: a.newer ? `the directory is at ${a.dir.pkg}, newer than this package (${pkg})${a.writtenBy ? `, written from ${a.writtenBy}` : ""} — not downgraded` : null };
+}
+
+// The root a registration renders the project's dependent surfaces against,
+// read-only (contract 4′, two phases): the host's install path of this
+// checkout's row, when that copy is on disk and enabled; else null. One rule
+// for plan() (a run that leaves the registration out) and surfaceStates
+// (doctor), so the two cannot disagree about which root a launcher is for.
+export function registrationRenderRoot(a) {
+  return a && a.installed && (a.installed.present ?? true) && a.enabled ? a.installPath : null;
 }
 
 // ─── the project-level layout: legacy / new / both (the layout ADR) ─────
@@ -416,9 +426,21 @@ export function surfaceStates(projectDir, { home = homedir(), root = pluginRoot(
     // that merely contained the harness's directory.
     const rows = Object.entries(m.surfaces || {}).filter(([k, s]) => !k.startsWith("_") && s.kind !== "host" && s.supported !== false && ANALYSERS[s.format]
       && !(s.condition === "distribution_root" && !portablePayloadRoot(s, { root, env })));
+    // The render root, as plan() takes it (contract 0 as amended 2026-10-10):
+    // an enabled, produced registration's install path. The launcher and the
+    // status-line entry are analysed against it — from the marketplace
+    // directory the host loads an npm registration from, or from a package
+    // root, the running root alone read the launcher as "not produced here".
+    // Read once, before the rows (the registration sorts last in the
+    // manifest); its own row reuses the result, since the analysis digests
+    // the payload.
+    const reg = rows.find(([, s]) => s.kind === "registration");
+    const regA = reg ? ANALYSERS[reg[1].format](projectDir, reg[1], { root, home, harness: m, env }) : null;
+    const renderRoot = (regA && regA.produced !== false && registrationRenderRoot(regA)) || root;
     const states = [];
     for (const [key, s] of rows) {
-      const a = ANALYSERS[s.format](projectDir, s, { root, home, harness: m, env });
+      const dependent = renderRoot !== root && ["json-entry", "mjs"].includes(s.format);
+      const a = reg && s === reg[1] ? regA : ANALYSERS[s.format](projectDir, s, { root, home, harness: m, env, ...(dependent ? { renderRoot } : {}) });
       const entry = s.kind === "shared" ? (a.entryKey || s.marker?.pointer || null) : null;
       const path = a.legacyPath || a.path || (a.current ? a.current.path : (a.preferred ? a.preferred.path : join(projectDir, s.file || "")));
       const row = { harness: m.id, surface: key, kind: s.kind, path, entry, state: a.state, reason: a.reason || a.refusal || null, writtenBy: a.writtenBy || null, sameProject: Boolean(a.sameProject), produced: a.produced !== false, legacy: Boolean(a.legacy), installedPkg: a.installedPkg || null, present: a.file ? a.file.present : (a.current ? true : (a.curEntry ? true : false)) };
@@ -430,6 +452,9 @@ export function surfaceStates(projectDir, { home = homedir(), root = pluginRoot(
         dirPkg: a.dir?.pkg || a.ownership?.version || null,
         installedVersion: a.installedVersion,
         installPath: a.installPath,
+        // The plugin's root inside our directory (registrationPaths' payload):
+        // what a host that loads the registration in place runs from.
+        payload: a.paths?.payload || null,
         enabled: a.enabled,
         others: a.others || [],
         otherProjects: a.otherProjects || 0,

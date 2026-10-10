@@ -721,7 +721,8 @@ export function projectDirRefusal(dir) {
 // PREVIOUS session start, one restart behind every update. The launcher path
 // never changes, and it resolves the installed plugin at render time, so
 // `/plugin update` + `/reload-plugins` show up immediately. Dev checkouts and
-// --plugin-dir roots carry no version, so those stay wired directly.
+// --plugin-dir roots carry no version, so install wires those directly; a
+// session run from one keeps whatever launcher entry install wrote.
 //
 // Idempotent (writes only when the value changes); never clobbers a foreign
 // statusLine; bails on an unparseable settings file. Returns a status string,
@@ -758,21 +759,65 @@ export function statusLineScriptPath(cmd) {
   return m ? m[1].replace(/\\/g, "/") : null;
 }
 
+// Is `p` a launcher path of ours in this project: any harness's launcher in
+// its state directory, or the legacy one? A path test — nothing is read. The
+// ownership check below and the SessionStart refresh both ask it.
+function ourLauncherPath(p, projectDir) {
+  if (!p) return false;
+  const norm = (s) => String(s).replace(/\\/g, "/");
+  const q = norm(p);
+  const lp = layoutPaths(projectDir);
+  return (q.startsWith(norm(lp.state) + "/") && isLauncherPath(q)) || q === norm(lp.legacy.launcher);
+}
+
+// The provenance field of a registration directory's manifest, or null — the
+// install spec's contract 2 for a JSON directory: emitted by one function
+// (registrationManifest, the installer) and read by this one. The registration
+// analysis (surfaces.mjs) and statusLineIsOurWiring both call it; the key is
+// the surface's provenance_key.
+export function registrationProvenance(manifest, s) {
+  const prov = manifest && s && s.provenance_key ? manifest[s.provenance_key] : null;
+  return prov && typeof prov === "object" && typeof prov.pkg === "string" ? prov : null;
+}
+
+// Is `p` the npm registration's own payload script —
+// <registration dir>/<plugin_subdir>/scripts/statusline.mjs, whose directory's
+// manifest carries our provenance field? The host loads that registration in
+// place from its marketplace directory, so a session refreshed the entry to
+// that script and a package root then read it as someone else's (the story
+// "The SessionStart hook and install agree on the status line of an npm
+// registration loaded from its marketplace directory"). A string test first;
+// the manifest is read only when the path has the payload's shape. Every name
+// comes from the source manifest's registration surface, and the directory
+// from `p` itself — never a path built from the home.
+function isRegistrationPayloadScript(p, harness = sourceHarness()) {
+  const s = Object.values(harness?.surfaces || {}).find((x) => x && x.kind === "registration" && x.format === "host-plugin-registration" && x.plugin_subdir && x.manifest);
+  if (!s) return false;
+  const tail = `/${s.plugin_subdir}/scripts/statusline.mjs`;
+  if (!p.endsWith(tail)) return false;
+  try {
+    return Boolean(registrationProvenance(JSON.parse(readFileSync(join(p.slice(0, -tail.length), s.manifest), "utf8")), s));
+  } catch {
+    return false;
+  }
+}
+
 // Strict test — "did WE write this?". Required wherever we would overwrite or
 // delete the entry: the loose shape above also matches a user's own
 // ~/.claude/scripts/statusline.mjs, and clobbering that would take their HUD.
 // Ours means one of: this project's launcher, the running plugin's own script
-// (dev checkouts included), or any versioned install under the plugin cache.
+// (dev checkouts included), any versioned install under the plugin cache, or
+// the npm registration's payload script — the one rung that reads a file, so
+// it runs last, after every cheaper test has failed.
 export function statusLineIsOurWiring(cmd, projectDir, home = homedir(), root = pluginRoot()) {
   const p = statusLineScriptPath(cmd);
   if (!p) return false;
   const norm = (s) => String(s).replace(/\\/g, "/");
   // Ours if it is any harness's launcher in this project's state, or the legacy launcher.
-  const lp = layoutPaths(projectDir);
-  if (p.startsWith(norm(lp.state) + "/") && isLauncherPath(p)) return true;
-  if (p === norm(lp.legacy.launcher)) return true;
+  if (ourLauncherPath(p, projectDir)) return true;
   if (p === norm(join(root, "scripts", "statusline.mjs"))) return true;
-  return isPluginCacheRoot(dirname(dirname(p)), home);
+  if (isPluginCacheRoot(dirname(dirname(p)), home)) return true;
+  return isRegistrationPayloadScript(p);
 }
 
 // The launcher template runs standalone, before it knows which plugin root to
@@ -874,14 +919,26 @@ export function syncStatusLine(cfg, projectDir, home = homedir()) {
     // nothing into the project, since we are not wiring anything here.
     if (cur && !isOurs) return "foreign-present";
     if (!cur) return "needs-install";
-    // Refresh: the launcher when it is on disk, else the plugin's own script,
-    // so an entry always names a renderer that exists. A missing launcher is
-    // install's to create (stamped), never this path's.
+    // Install alone decides the entry's shape; this hook never demotes a
+    // launcher. An entry naming a launcher of ours that is on disk is left
+    // byte-identical, whatever root runs the hook: the host loads an npm
+    // registration in place from its marketplace directory, which is not the
+    // cache path the launcher was planned against, and re-pointing the entry
+    // at that root's script undid every install (the install spec, contract 0
+    // as amended 2026-10-10). Recognised by path and existsSync only — the
+    // launcher is not read here.
+    const named = statusLineScriptPath(curCmd);
+    const namesLauncher = ourLauncherPath(named, projectDir);
+    if (namesLauncher && existsSync(named)) return "unchanged";
+    // Refresh: a launcher of ours on disk when this root is a cache install or
+    // the entry named a launcher, else the plugin's own script, so an entry
+    // always names a renderer that exists. A missing launcher is install's to
+    // create (stamped), never this path's.
     const { launcher } = desiredStatusLineCommand(projectDir, root, home);
     // A launcher on disk at either path — the new one, or the legacy one an
     // earlier release wrote (the layout ADR) — is kept; moving it is install's.
     const onDisk = [statusLineLauncherPath(projectDir), legacyStatusLineLauncherPath(projectDir)].find((f) => existsSync(f));
-    const desired = launcher && onDisk
+    const desired = (launcher || namesLauncher) && onDisk
       ? `node "${onDisk}"`
       : `node "${join(root, "scripts", "statusline.mjs")}"`;
     if (curCmd !== desired) {

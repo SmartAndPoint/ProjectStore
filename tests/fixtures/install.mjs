@@ -16,6 +16,8 @@ import { resolve, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sourceHarness, loadHarnesses } from "../../scripts/harness.mjs";
 import { copyPackageTree, layoutPaths, renderAgentsBlock } from "../../scripts/lib.mjs";
+import { registrationPaths } from "../../scripts/surfaces.mjs";
+import { registrationManifest } from "../../scripts/install-harness.mjs";
 import { seedCliVault } from "./vault.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -48,6 +50,28 @@ export function fakeInstall(home, version, { full = false, marketplace = "SmartA
   copyFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), join(root, "templates", "claude-md-block.md.tmpl"));
   copyFileSync(join(REPO, "scaffold", "layouts", "engineering.json"), join(root, "scaffold", "layouts", "engineering.json"));
   return root;
+}
+
+// fakeMarketplace(home, version, { proj, dir }) — the npm registration's
+// directory as install writes it: the payload under its plugin_subdir in the
+// four-file form above (a renderer that names itself), and the marketplace
+// manifest from the installer's own registrationManifest, provenance field
+// included. The payload is the root the host loads that registration from, in
+// place (the story "The SessionStart hook and install agree on the status line
+// of an npm registration loaded from its marketplace directory"). `dir` places
+// the directory elsewhere than under `home` — a relocated harness home.
+// Returns registrationPaths' dir, manifest and payload.
+export function fakeMarketplace(home, version, { proj = null, dir = null } = {}) {
+  const S = SRC.surfaces.plugin;
+  const base = registrationPaths(S, { home, projectDir: proj, harness: SRC });
+  const paths = dir ? { dir, manifest: join(dir, S.manifest), payload: join(dir, S.plugin_subdir) } : { dir: base.dir, manifest: base.manifest, payload: base.payload };
+  for (const d of ["scripts", ".claude-plugin"]) mkdirSync(join(paths.payload, d), { recursive: true });
+  copyFileSync(join(REPO, "scripts", "statusline-launcher.mjs"), join(paths.payload, "scripts", "statusline-launcher.mjs"));
+  writeFileSync(join(paths.payload, "scripts", "statusline.mjs"), `process.stdout.write("rendered-by-${version}\\n");\n`);
+  writeFileSync(join(paths.payload, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version }));
+  mkdirSync(dirname(paths.manifest), { recursive: true });
+  writeFileSync(paths.manifest, JSON.stringify(registrationManifest(S, { pkg: version, projectDir: proj }), null, 2) + "\n");
+  return paths;
 }
 
 // An rc.2-shaped copy, in the two facts the layout remedy reads: it has the
