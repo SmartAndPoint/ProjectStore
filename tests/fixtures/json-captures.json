@@ -1,0 +1,766 @@
+{
+  "plan": {
+    "argv": [
+      "plan",
+      "--harness",
+      "claude-code",
+      "--json",
+      "--project",
+      "<project>"
+    ],
+    "exit": 1,
+    "stdout": {
+      "schema_version": 1,
+      "verb": "plan",
+      "project": "<project>",
+      "ok": false,
+      "result": {
+        "projectDir": "<project>",
+        "mode": "install",
+        "named": true,
+        "detected": [
+          {
+            "id": "claude-code",
+            "why": "directory",
+            "evidence": ".claude"
+          }
+        ],
+        "harnesses": [
+          "claude-code"
+        ],
+        "reports": [
+          "Claude Code: commands, agents, skills, hooks, mcp are installed by the package's own registration through its distribution shell, or the built-in plugin marketplace — nothing to write.\n  They come from the registration projectstore@projectstore-npm, not registered on this run, see below — install path <home>/.claude/plugins/cache/projectstore-npm/projectstore/<version>; the host loads them in place from <home>/.claude/projectstore/marketplace/projectstore.\n  Two channels. `npx projectstore-claude install --project <dir>` registers the plugin for that project from the npm package itself — the shell bundles the core and fixes the harness; the core's low-level form is `npx projectstore install --harness claude-code --project <dir>` — through a local marketplace under the Claude home, driven by Claude Code's own `claude plugin` CLI. `/plugin install projectstore@SmartAndPoint` installs it from the git marketplace. `/plugin` lists and toggles either. Upgrading the npm registration is `npx projectstore-claude@<version> upgrade --project <dir>` — that is also the pin.\n    npx projectstore-claude install --project \"$PWD\"   (npm; registers the plugin for this project — the shell runs the core's install with the harness fixed)\n    /plugin marketplace add SmartAndPoint/ProjectStore && /plugin install projectstore@SmartAndPoint   (git marketplace, user-wide)\n    restart Claude Code\n  Git marketplace only: auto-update is OFF by default for third-party plugins: /plugin -> Marketplaces -> SmartAndPoint -> toggle auto-update. The npm registration updates when you run `npx projectstore-claude upgrade --project <dir>`.\n  Pin a git-marketplace release with: /plugin marketplace add SmartAndPoint/ProjectStore#<tag>; pin the npm registration with npx projectstore-claude@<version>.\n  Two enabled copies of the plugin (git marketplace and npm) in one checkout would load twice; the npm registration silences the other one for that checkout only (settings.local.json), and says so in its preview.\n  From a checkout instead: claude --plugin-dir ./ProjectStore\n  The npm registration is per checkout (local scope) and per machine; a fresh clone or a new worktree runs the install command again. It must run from a terminal outside a Claude Code session: the host CLI and a live session both rewrite settings files.\n  https://github.com/SmartAndPoint/ProjectStore#install--one-message"
+        ],
+        "items": [
+          {
+            "harness": "claude-code",
+            "surface": "plugin",
+            "kind": "registration",
+            "path": "<home>/.claude/projectstore/marketplace",
+            "entry": "projectstore@projectstore-npm",
+            "state": "unavailable",
+            "reason": "`claude` is not on PATH — the registration needs the host's CLI; the other surfaces still install",
+            "root": "<home>/.claude/plugins/cache/projectstore-npm/projectstore/<version>",
+            "home": "<home>/.claude",
+            "scope": "local",
+            "writtenBy": null,
+            "action": "skip",
+            "deferred": true
+          },
+          {
+            "harness": "claude-code",
+            "surface": "agents_block",
+            "kind": "shared",
+            "path": "<project>/CLAUDE.md",
+            "entry": "projectstore:agents v4",
+            "state": "ours-current",
+            "action": "skip",
+            "reason": null
+          },
+          {
+            "harness": "claude-code",
+            "surface": "statusline",
+            "kind": "shared",
+            "path": "<project>/.claude/settings.local.json",
+            "entry": "statusLine",
+            "state": "ours-stale",
+            "action": "replace-entry",
+            "reason": "the command no longer matches this installation"
+          },
+          {
+            "harness": "claude-code",
+            "surface": "mcp_project_entry",
+            "kind": "shared",
+            "path": "<project>/.mcp.json",
+            "entry": "mcpServers.projectstore",
+            "state": "unsupported",
+            "action": "skip",
+            "reason": "the plugin-bundled registration already binds per project in Claude Code; this row is for hosts without plugin MCP and lands with their adapters (roadmap B3/C3)"
+          },
+          {
+            "harness": "claude-code",
+            "surface": "statusline_launcher",
+            "kind": "exclusive",
+            "path": "<project>/.projectstore/state/claude-code/statusline.mjs",
+            "entry": null,
+            "state": "stale",
+            "action": "skip",
+            "reason": "not produced for this installation (a dev checkout is wired directly) — left in place; a prune of a launcher this root did not write needs the root that wrote it, or uninstall"
+          }
+        ],
+        "refusals": [],
+        "ok": true,
+        "incomplete": true,
+        "root": "<root>",
+        "plannedAgainst": {}
+      }
+    }
+  },
+  "install": {
+    "argv": [
+      "install",
+      "--harness",
+      "claude-code",
+      "--json",
+      "--project",
+      "<project>"
+    ],
+    "exit": 1,
+    "stdout": {
+      "schema_version": 1,
+      "verb": "install",
+      "project": "<project>",
+      "ok": false,
+      "result": {
+        "gate": {
+          "confirmed": true,
+          "why": "named"
+        },
+        "applied": [
+          {
+            "path": "<project>/.claude/settings.local.json",
+            "action": "replace-entry",
+            "surface": "statusline"
+          }
+        ],
+        "failed": null,
+        "incomplete": true,
+        "plannedAgainst": {},
+        "items": [
+          {
+            "harness": "claude-code",
+            "surface": "plugin",
+            "kind": "registration",
+            "path": "<home>/.claude/projectstore/marketplace",
+            "entry": "projectstore@projectstore-npm",
+            "state": "unavailable",
+            "reason": "`claude` is not on PATH — the registration needs the host's CLI; the other surfaces still install",
+            "root": "<home>/.claude/plugins/cache/projectstore-npm/projectstore/<version>",
+            "home": "<home>/.claude",
+            "scope": "local",
+            "writtenBy": null,
+            "action": "skip",
+            "deferred": true
+          },
+          {
+            "harness": "claude-code",
+            "surface": "agents_block",
+            "kind": "shared",
+            "path": "<project>/CLAUDE.md",
+            "entry": "projectstore:agents v4",
+            "state": "ours-current",
+            "action": "skip",
+            "reason": null
+          },
+          {
+            "harness": "claude-code",
+            "surface": "statusline",
+            "kind": "shared",
+            "path": "<project>/.claude/settings.local.json",
+            "entry": "statusLine",
+            "state": "ours-stale",
+            "action": "replace-entry",
+            "reason": "the command no longer matches this installation"
+          },
+          {
+            "harness": "claude-code",
+            "surface": "mcp_project_entry",
+            "kind": "shared",
+            "path": "<project>/.mcp.json",
+            "entry": "mcpServers.projectstore",
+            "state": "unsupported",
+            "action": "skip",
+            "reason": "the plugin-bundled registration already binds per project in Claude Code; this row is for hosts without plugin MCP and lands with their adapters (roadmap B3/C3)"
+          },
+          {
+            "harness": "claude-code",
+            "surface": "statusline_launcher",
+            "kind": "exclusive",
+            "path": "<project>/.projectstore/state/claude-code/statusline.mjs",
+            "entry": null,
+            "state": "stale",
+            "action": "skip",
+            "reason": "not produced for this installation (a dev checkout is wired directly) — left in place; a prune of a launcher this root did not write needs the root that wrote it, or uninstall"
+          }
+        ],
+        "refusals": [],
+        "reports": [
+          "Claude Code: commands, agents, skills, hooks, mcp are installed by the package's own registration through its distribution shell, or the built-in plugin marketplace — nothing to write.\n  They come from the registration projectstore@projectstore-npm, not registered on this run, see below — install path <home>/.claude/plugins/cache/projectstore-npm/projectstore/<version>; the host loads them in place from <home>/.claude/projectstore/marketplace/projectstore.\n  Two channels. `npx projectstore-claude install --project <dir>` registers the plugin for that project from the npm package itself — the shell bundles the core and fixes the harness; the core's low-level form is `npx projectstore install --harness claude-code --project <dir>` — through a local marketplace under the Claude home, driven by Claude Code's own `claude plugin` CLI. `/plugin install projectstore@SmartAndPoint` installs it from the git marketplace. `/plugin` lists and toggles either. Upgrading the npm registration is `npx projectstore-claude@<version> upgrade --project <dir>` — that is also the pin.\n    npx projectstore-claude install --project \"$PWD\"   (npm; registers the plugin for this project — the shell runs the core's install with the harness fixed)\n    /plugin marketplace add SmartAndPoint/ProjectStore && /plugin install projectstore@SmartAndPoint   (git marketplace, user-wide)\n    restart Claude Code\n  Git marketplace only: auto-update is OFF by default for third-party plugins: /plugin -> Marketplaces -> SmartAndPoint -> toggle auto-update. The npm registration updates when you run `npx projectstore-claude upgrade --project <dir>`.\n  Pin a git-marketplace release with: /plugin marketplace add SmartAndPoint/ProjectStore#<tag>; pin the npm registration with npx projectstore-claude@<version>.\n  Two enabled copies of the plugin (git marketplace and npm) in one checkout would load twice; the npm registration silences the other one for that checkout only (settings.local.json), and says so in its preview.\n  From a checkout instead: claude --plugin-dir ./ProjectStore\n  The npm registration is per checkout (local scope) and per machine; a fresh clone or a new worktree runs the install command again. It must run from a terminal outside a Claude Code session: the host CLI and a live session both rewrite settings files.\n  https://github.com/SmartAndPoint/ProjectStore#install--one-message"
+        ],
+        "fetched": []
+      }
+    }
+  },
+  "upgrade": {
+    "argv": [
+      "upgrade",
+      "--harness",
+      "claude-code",
+      "--json",
+      "--project",
+      "<project>"
+    ],
+    "exit": 1,
+    "stdout": {
+      "schema_version": 1,
+      "verb": "upgrade",
+      "project": "<project>",
+      "ok": false,
+      "result": {
+        "gate": {
+          "confirmed": true,
+          "why": "named"
+        },
+        "applied": [
+          {
+            "path": "<project>/.claude/settings.local.json",
+            "action": "replace-entry",
+            "surface": "statusline"
+          }
+        ],
+        "failed": null,
+        "incomplete": true,
+        "plannedAgainst": {},
+        "items": [
+          {
+            "harness": "claude-code",
+            "surface": "plugin",
+            "kind": "registration",
+            "path": "<home>/.claude/projectstore/marketplace",
+            "entry": "projectstore@projectstore-npm",
+            "state": "unavailable",
+            "reason": "`claude` is not on PATH — the registration needs the host's CLI; the other surfaces still install",
+            "root": "<home>/.claude/plugins/cache/projectstore-npm/projectstore/<version>",
+            "home": "<home>/.claude",
+            "scope": "local",
+            "writtenBy": null,
+            "action": "skip",
+            "deferred": true
+          },
+          {
+            "harness": "claude-code",
+            "surface": "agents_block",
+            "kind": "shared",
+            "path": "<project>/CLAUDE.md",
+            "entry": "projectstore:agents v4",
+            "state": "ours-current",
+            "action": "skip",
+            "reason": null
+          },
+          {
+            "harness": "claude-code",
+            "surface": "statusline",
+            "kind": "shared",
+            "path": "<project>/.claude/settings.local.json",
+            "entry": "statusLine",
+            "state": "ours-stale",
+            "action": "replace-entry",
+            "reason": "the command no longer matches this installation"
+          },
+          {
+            "harness": "claude-code",
+            "surface": "mcp_project_entry",
+            "kind": "shared",
+            "path": "<project>/.mcp.json",
+            "entry": "mcpServers.projectstore",
+            "state": "unsupported",
+            "action": "skip",
+            "reason": "the plugin-bundled registration already binds per project in Claude Code; this row is for hosts without plugin MCP and lands with their adapters (roadmap B3/C3)"
+          },
+          {
+            "harness": "claude-code",
+            "surface": "statusline_launcher",
+            "kind": "exclusive",
+            "path": "<project>/.projectstore/state/claude-code/statusline.mjs",
+            "entry": null,
+            "state": "stale",
+            "action": "skip",
+            "reason": "not produced for this installation (a dev checkout is wired directly) — left in place; a prune of a launcher this root did not write needs the root that wrote it, or uninstall"
+          }
+        ],
+        "refusals": [],
+        "reports": [
+          "Claude Code: commands, agents, skills, hooks, mcp are installed by the package's own registration through its distribution shell, or the built-in plugin marketplace — nothing to write.\n  They come from the registration projectstore@projectstore-npm, not registered on this run, see below — install path <home>/.claude/plugins/cache/projectstore-npm/projectstore/<version>; the host loads them in place from <home>/.claude/projectstore/marketplace/projectstore.\n  Two channels. `npx projectstore-claude install --project <dir>` registers the plugin for that project from the npm package itself — the shell bundles the core and fixes the harness; the core's low-level form is `npx projectstore install --harness claude-code --project <dir>` — through a local marketplace under the Claude home, driven by Claude Code's own `claude plugin` CLI. `/plugin install projectstore@SmartAndPoint` installs it from the git marketplace. `/plugin` lists and toggles either. Upgrading the npm registration is `npx projectstore-claude@<version> upgrade --project <dir>` — that is also the pin.\n    npx projectstore-claude install --project \"$PWD\"   (npm; registers the plugin for this project — the shell runs the core's install with the harness fixed)\n    /plugin marketplace add SmartAndPoint/ProjectStore && /plugin install projectstore@SmartAndPoint   (git marketplace, user-wide)\n    restart Claude Code\n  Git marketplace only: auto-update is OFF by default for third-party plugins: /plugin -> Marketplaces -> SmartAndPoint -> toggle auto-update. The npm registration updates when you run `npx projectstore-claude upgrade --project <dir>`.\n  Pin a git-marketplace release with: /plugin marketplace add SmartAndPoint/ProjectStore#<tag>; pin the npm registration with npx projectstore-claude@<version>.\n  Two enabled copies of the plugin (git marketplace and npm) in one checkout would load twice; the npm registration silences the other one for that checkout only (settings.local.json), and says so in its preview.\n  From a checkout instead: claude --plugin-dir ./ProjectStore\n  The npm registration is per checkout (local scope) and per machine; a fresh clone or a new worktree runs the install command again. It must run from a terminal outside a Claude Code session: the host CLI and a live session both rewrite settings files.\n  https://github.com/SmartAndPoint/ProjectStore#install--one-message"
+        ],
+        "fetched": []
+      }
+    }
+  },
+  "uninstall": {
+    "argv": [
+      "uninstall",
+      "--harness",
+      "claude-code",
+      "--json",
+      "--project",
+      "<project>"
+    ],
+    "exit": 0,
+    "stdout": {
+      "schema_version": 1,
+      "verb": "uninstall",
+      "project": "<project>",
+      "ok": true,
+      "result": {
+        "gate": {
+          "confirmed": true,
+          "why": "named"
+        },
+        "applied": [
+          {
+            "path": "<project>/CLAUDE.md",
+            "action": "remove",
+            "surface": "agents_block"
+          },
+          {
+            "path": "<project>/.claude/settings.local.json",
+            "action": "remove",
+            "surface": "statusline"
+          },
+          {
+            "path": "<project>/.projectstore/state/claude-code/statusline.mjs",
+            "action": "remove",
+            "surface": "statusline_launcher"
+          }
+        ],
+        "failed": null,
+        "incomplete": false,
+        "plannedAgainst": {},
+        "items": [
+          {
+            "harness": "claude-code",
+            "surface": "plugin",
+            "kind": "registration",
+            "path": "<home>/.claude/projectstore/marketplace",
+            "entry": "projectstore@projectstore-npm",
+            "state": "unavailable",
+            "reason": "`claude` is not on PATH — the registration needs the host's CLI; the other surfaces still install",
+            "root": "<home>/.claude/plugins/cache/projectstore-npm/projectstore/<version>",
+            "home": "<home>/.claude",
+            "scope": "local",
+            "writtenBy": null,
+            "action": "skip"
+          },
+          {
+            "harness": "claude-code",
+            "surface": "agents_block",
+            "kind": "shared",
+            "path": "<project>/CLAUDE.md",
+            "entry": "projectstore:agents v4",
+            "state": "ours-current",
+            "action": "remove",
+            "reason": null,
+            "deleteIfEmpty": true
+          },
+          {
+            "harness": "claude-code",
+            "surface": "statusline",
+            "kind": "shared",
+            "path": "<project>/.claude/settings.local.json",
+            "entry": "statusLine",
+            "state": "ours-current",
+            "action": "remove",
+            "reason": null
+          },
+          {
+            "harness": "claude-code",
+            "surface": "mcp_project_entry",
+            "kind": "shared",
+            "path": "<project>/.mcp.json",
+            "entry": "mcpServers.projectstore",
+            "state": "unsupported",
+            "action": "skip",
+            "reason": "the plugin-bundled registration already binds per project in Claude Code; this row is for hosts without plugin MCP and lands with their adapters (roadmap B3/C3)"
+          },
+          {
+            "harness": "claude-code",
+            "surface": "statusline_launcher",
+            "kind": "exclusive",
+            "path": "<project>/.projectstore/state/claude-code/statusline.mjs",
+            "entry": null,
+            "state": "stale",
+            "action": "remove",
+            "reason": "not produced for this installation (a dev checkout is wired directly) — left in place; a prune of a launcher this root did not write needs the root that wrote it, or uninstall"
+          }
+        ],
+        "refusals": [],
+        "reports": [
+          "Claude Code: commands, agents, skills, hooks, mcp are installed by the package's own registration through its distribution shell, or the built-in plugin marketplace — nothing to write.\n  They come from the registration projectstore@projectstore-npm, not registered on this run, see below — install path <home>/.claude/plugins/cache/projectstore-npm/projectstore/<version>; the host loads them in place from <home>/.claude/projectstore/marketplace/projectstore.\n  Two channels. `npx projectstore-claude install --project <dir>` registers the plugin for that project from the npm package itself — the shell bundles the core and fixes the harness; the core's low-level form is `npx projectstore install --harness claude-code --project <dir>` — through a local marketplace under the Claude home, driven by Claude Code's own `claude plugin` CLI. `/plugin install projectstore@SmartAndPoint` installs it from the git marketplace. `/plugin` lists and toggles either. Upgrading the npm registration is `npx projectstore-claude@<version> upgrade --project <dir>` — that is also the pin.\n    npx projectstore-claude install --project \"$PWD\"   (npm; registers the plugin for this project — the shell runs the core's install with the harness fixed)\n    /plugin marketplace add SmartAndPoint/ProjectStore && /plugin install projectstore@SmartAndPoint   (git marketplace, user-wide)\n    restart Claude Code\n  Git marketplace only: auto-update is OFF by default for third-party plugins: /plugin -> Marketplaces -> SmartAndPoint -> toggle auto-update. The npm registration updates when you run `npx projectstore-claude upgrade --project <dir>`.\n  Pin a git-marketplace release with: /plugin marketplace add SmartAndPoint/ProjectStore#<tag>; pin the npm registration with npx projectstore-claude@<version>.\n  Two enabled copies of the plugin (git marketplace and npm) in one checkout would load twice; the npm registration silences the other one for that checkout only (settings.local.json), and says so in its preview.\n  From a checkout instead: claude --plugin-dir ./ProjectStore\n  The npm registration is per checkout (local scope) and per machine; a fresh clone or a new worktree runs the install command again. It must run from a terminal outside a Claude Code session: the host CLI and a live session both rewrite settings files.\n  https://github.com/SmartAndPoint/ProjectStore#install--one-message"
+        ],
+        "fetched": []
+      }
+    }
+  },
+  "plan codex, no codex CLI": {
+    "argv": [
+      "plan",
+      "--harness",
+      "codex",
+      "--json",
+      "--project",
+      "<project>"
+    ],
+    "exit": 1,
+    "stdout": {
+      "schema_version": 1,
+      "verb": "plan",
+      "project": "<project>",
+      "ok": false,
+      "result": {
+        "projectDir": "<project>",
+        "mode": "install",
+        "named": true,
+        "detected": [
+          {
+            "id": "codex",
+            "why": "directory",
+            "evidence": ".codex"
+          }
+        ],
+        "harnesses": [
+          "codex"
+        ],
+        "reports": [
+          "Codex: hooks, skills are installed by the package's portable plugin root, registered through its distribution shell and Codex's own marketplace CLI — nothing to write.\n  They come from the registration projectstore@projectstore-npx, not registered on this run, see below.\n  The shell does not edit Codex's registry or cache. It atomically stages the plugin source, previews the host commands, then runs `codex plugin marketplace add` and `codex plugin add`; a read-back verifies the installed version and payload digest. The global plugin survives ordinary project uninstall; `uninstall --global` is the explicit destructive form.\n    npx projectstore-codex install --project \"$PWD\"\n    restart Codex and approve the ProjectStore hooks when prompted\n    run `$projectstore-bind <vault-path>` in Codex\n  The installation is user-global because Codex's marketplace, plugin row and cache live in CODEX_HOME; the AGENTS.md block is project-local.\n  Upgrade with `npx projectstore-codex@<version> upgrade --project \"$PWD\"`; the named package version is also the plugin version.\n  A second enabled ProjectStore plugin from another marketplace is a refusal, not silently disabled globally. Remove or disable that older registration explicitly, then retry.\n  Ordinary uninstall removes only project-owned surfaces. `npx projectstore-codex uninstall --global --project \"$PWD\"` also removes the user-global plugin registration after a preview.\n  https://github.com/SmartAndPoint/ProjectStore#install--one-message"
+        ],
+        "items": [
+          {
+            "harness": "codex",
+            "surface": "plugin",
+            "kind": "registration",
+            "path": "<home>/.codex/projectstore/marketplace",
+            "entry": "projectstore@projectstore-npx",
+            "state": "unavailable",
+            "reason": "`codex` is not on PATH — the registration needs the host CLI",
+            "root": null,
+            "home": "<home>/.codex",
+            "scope": "user",
+            "ownership": "global",
+            "action": "skip",
+            "deferred": true
+          },
+          {
+            "harness": "codex",
+            "surface": "agents_block",
+            "kind": "shared",
+            "path": "<project>/AGENTS.md",
+            "entry": "projectstore:agents v4",
+            "state": "ours-absent",
+            "action": "create",
+            "reason": null
+          },
+          {
+            "harness": "codex",
+            "surface": "agents",
+            "kind": "host",
+            "path": null,
+            "entry": null,
+            "state": "unsupported",
+            "action": "skip",
+            "reason": "Measured: told to run projectstore:critic, Codex spawned six of its own generic subagents named after our roster and briefed them itself; none of our agents/*.md prose reached them. No route from a plugin's agents/ entry to that mechanism has been found (roadmap B4)."
+          },
+          {
+            "harness": "codex",
+            "surface": "commands",
+            "kind": "host",
+            "path": null,
+            "entry": null,
+            "state": "unsupported",
+            "action": "skip",
+            "reason": "Shipping commands/ is actively harmful here: Codex rewrites them into skills itself and keeps ${CLAUDE_PLUGIN_ROOT} in the body, producing entry points that exit 1 with Cannot find module '/bin/projectstore.mjs' (reproduced). The generator renders them as skills instead (roadmap B5)."
+          },
+          {
+            "harness": "codex",
+            "surface": "mcp",
+            "kind": "host",
+            "path": null,
+            "entry": null,
+            "state": "unsupported",
+            "action": "skip",
+            "reason": "Our .mcp.json is in Claude Code's dialect: its argv carries ${CLAUDE_PLUGIN_ROOT} and ${CLAUDE_PROJECT_DIR}, which nothing substitutes there, so the server failed its handshake and printed a red error in every session. Ships only once the Codex dialect is rendered and the spike's criterion (h) says what cwd and environment the server receives."
+          },
+          {
+            "harness": "codex",
+            "surface": "statusline",
+            "kind": "host",
+            "path": null,
+            "entry": null,
+            "state": "unsupported",
+            "action": "skip",
+            "reason": "No status-line mechanism was found in the harness — no settings slot, no plugin field, no handler contract. Recorded as a row rather than an absence so the generator's coverage invariant sees a stated omission (contract 9) instead of a surface that quietly does not exist here."
+          }
+        ],
+        "refusals": [],
+        "ok": true,
+        "incomplete": true,
+        "root": "<root>",
+        "plannedAgainst": {}
+      }
+    }
+  },
+  "doctor --install": {
+    "argv": [
+      "doctor",
+      "--install",
+      "--json",
+      "--project",
+      "<project>"
+    ],
+    "exit": 1,
+    "stdout": {
+      "schema_version": 1,
+      "verb": "doctor",
+      "project": "<project>",
+      "ok": false,
+      "result": [
+        {
+          "group": "install",
+          "level": "issue",
+          "check": "vault-path",
+          "message": "Vault path does not exist: /tmp/nowhere"
+        }
+      ]
+    }
+  },
+  "doctor --install, vault present": {
+    "argv": [
+      "doctor",
+      "--install",
+      "--json",
+      "--project",
+      "<project>"
+    ],
+    "exit": 0,
+    "stdout": {
+      "schema_version": 1,
+      "verb": "doctor",
+      "project": "<project>",
+      "ok": true,
+      "result": [
+        {
+          "group": "install",
+          "level": "warn",
+          "check": "hooks",
+          "message": "No session registry in the vault — SessionStart hook may not be firing (or no session started yet)."
+        },
+        {
+          "group": "install",
+          "level": "warn",
+          "check": "vault-git",
+          "message": "Vault is not a git repository — the knowledge has no history/blame/review. Consider `git init` (doctor --fix offers it)."
+        },
+        {
+          "group": "install",
+          "level": "info",
+          "check": "auto-update",
+          "message": "No marketplace install of projectstore found (--plugin-dir, or a checkout with none registered) — marketplace auto-update not applicable."
+        },
+        {
+          "group": "install",
+          "level": "info",
+          "check": "mcp",
+          "message": "MCP read tools registered by the plugin's .mcp.json (one server per project, bound through the host's project directory)."
+        },
+        {
+          "group": "install",
+          "level": "info",
+          "check": "surface",
+          "message": ".projectstore/state/claude-code/statusline.mjs — not produced for this installation (a dev checkout is wired directly) — left in place; a prune of a launcher this root did not write needs the root that wrote it, or uninstall.",
+          "file": ".projectstore/state/claude-code/statusline.mjs"
+        },
+        {
+          "group": "install",
+          "level": "info",
+          "check": "plugin-registration",
+          "message": "No npm registration of projectstore for this project, and `claude` is not on PATH — the registration needs the host's CLI; the other surfaces still install."
+        }
+      ]
+    }
+  },
+  "doctor --vault": {
+    "argv": [
+      "doctor",
+      "--vault",
+      "--json",
+      "--project",
+      "<project>"
+    ],
+    "exit": 1,
+    "stdout": {
+      "schema_version": 1,
+      "verb": "doctor",
+      "project": "<project>",
+      "ok": false,
+      "result": [
+        {
+          "group": "vault",
+          "level": "issue",
+          "check": "kanban",
+          "message": "kanban.md is out of sync with story frontmatter — run /projectstore:kanban (or reconcile).",
+          "file": "kanban.md"
+        },
+        {
+          "group": "vault",
+          "level": "warn",
+          "check": "index",
+          "message": "adr/dup.md is not listed in adr/README.md's index.",
+          "file": "adr/dup.md"
+        },
+        {
+          "group": "vault",
+          "level": "warn",
+          "check": "index",
+          "message": "adr/new-way.md is not listed in adr/README.md's index.",
+          "file": "adr/new-way.md"
+        },
+        {
+          "group": "vault",
+          "level": "warn",
+          "check": "index",
+          "message": "adr/old-way.md is not listed in adr/README.md's index.",
+          "file": "adr/old-way.md"
+        },
+        {
+          "group": "vault",
+          "level": "issue",
+          "check": "spec-links",
+          "message": "Spec \"one-sided\" stories entry \"PS-X/story-loose\" does not resolve: no story in epics/PS-X matches \"story-loose\" (by exact id:, exact filename stem, or legacy story-NNN prefix).",
+          "file": "specs/one-sided.md"
+        },
+        {
+          "group": "vault",
+          "level": "info",
+          "check": "spec-policy",
+          "message": "Vault contains specs but declares no spec_policy — consider enabling spec-first: add { \"spec_policy\": \"required\" } to <vault>/.projectstore.json (doctor gates activate; ADR-007)."
+        },
+        {
+          "group": "vault",
+          "level": "issue",
+          "check": "wikilink",
+          "message": "Dead wiki-link [[missing-target]].",
+          "file": "adr/new-way.md"
+        },
+        {
+          "group": "vault",
+          "level": "warn",
+          "check": "wikilink",
+          "message": "Ambiguous wiki-link [[dup]] — matches adr/dup.md, specs/dup.md; qualify with a path.",
+          "file": "adr/new-way.md"
+        },
+        {
+          "group": "vault",
+          "level": "info",
+          "check": "artifact-name",
+          "message": "Basename \"dup.md\" appears in 2 folders (adr, specs) — short wiki-links [[dup]] are ambiguous.",
+          "file": "adr/dup.md"
+        },
+        {
+          "group": "vault",
+          "level": "issue",
+          "check": "code-refs",
+          "message": "code_refs path \"scripts/\" does not resolve inside the project (status: in-progress).",
+          "file": "epics/PS-X/epic.md"
+        },
+        {
+          "group": "vault",
+          "level": "issue",
+          "check": "code-refs",
+          "message": "code_refs path \"scripts/cli.mjs\" does not resolve inside the project (status: in-progress).",
+          "file": "epics/PS-X/stories/story-in-flight.md"
+        },
+        {
+          "group": "vault",
+          "level": "issue",
+          "check": "code-refs",
+          "message": "code_refs path \"tests/cli.test.mjs\" does not resolve inside the project (status: in-progress).",
+          "file": "epics/PS-X/stories/story-in-flight.md"
+        },
+        {
+          "group": "vault",
+          "level": "warn",
+          "check": "code-refs",
+          "message": "Story code_ref \"tests/cli.test.mjs\" falls outside the parent epic's code_refs.",
+          "file": "epics/PS-X/stories/story-in-flight.md"
+        },
+        {
+          "group": "vault",
+          "level": "info",
+          "check": "graph",
+          "message": "No graph.md yet — run /projectstore:graph to create the link graph."
+        }
+      ]
+    }
+  },
+  "status": {
+    "argv": [
+      "status",
+      "--json",
+      "--project",
+      "<project>"
+    ],
+    "exit": 0,
+    "stdout": {
+      "schema_version": 1,
+      "verb": "status",
+      "project": "<project>",
+      "ok": true,
+      "result": {
+        "bound": true,
+        "project": "<project>",
+        "vault_path": "<project>/vault",
+        "vault_exists": true,
+        "layout": "engineering",
+        "language": "en",
+        "auto_inject": true,
+        "approval_mode": "always",
+        "spec_policy": "optional",
+        "lifecycle_gates": "on",
+        "stories": {
+          "status": "ok",
+          "total": 4,
+          "by_status": {
+            "in-progress": 1,
+            "planned": 3
+          },
+          "in_progress": [
+            {
+              "path": "epics/PS-X/stories/story-in-flight.md",
+              "epic": "PS-X",
+              "title": "In flight",
+              "started_at": "2026-02-02"
+            }
+          ],
+          "in_progress_total": 1,
+          "off_board": {
+            "not_actionable": 1
+          },
+          "off_board_total": 1
+        },
+        "views": {
+          "kanban": {
+            "path": "kanban.md",
+            "exists": true,
+            "generated_at": null,
+            "stale": true
+          },
+          "code_map": {
+            "path": "code-map.md",
+            "exists": false,
+            "generated_at": null,
+            "stale": null
+          },
+          "graph": {
+            "path": "graph.md",
+            "exists": true,
+            "generated_at": "<time>",
+            "stale": false
+          }
+        },
+        "sessions": {
+          "active": 0,
+          "entries": []
+        }
+      }
+    }
+  }
+}
