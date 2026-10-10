@@ -24,8 +24,13 @@ import {
   storiesAttributionRe,
   loadHeadingsRegistry,
   parseFrontmatter,
+  folderPurpose,
+  PURPOSE_CELL,
 } from "../scripts/lib.mjs";
 import { checkLayoutTemplates } from "../scripts/doctor.mjs";
+import { planScaffold, applyScaffold } from "../scripts/scaffold.mjs";
+import { orientation } from "../scripts/query.mjs";
+import { invocationPatterns } from "./fixtures/vocabulary.mjs";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const ENV = { ...process.env, CLAUDE_PLUGIN_ROOT: REPO };
@@ -39,17 +44,25 @@ const LOCALES = readdirSync(join(REPO, "templates"))
   .filter((d) => statSync(join(REPO, "templates", d)).isDirectory())
   .sort();
 
-// Kinds the engineering layout declares a command for, plus folder-readme.
+// Kinds the engineering layout declares a command for, plus folder-readme and
+// the vault's top-level README (scaffold renders both).
 const KINDS = ["adr", "concept", "epic", "folder-readme", "kanban", "meeting",
-  "research", "runbook", "spec", "story"];
+  "research", "runbook", "spec", "story", "vault-readme"];
+// The ones with no frontmatter of their own: contract 9's artifact kinds are the rest.
+const NO_FRONTMATTER = new Set(["folder-readme", "kanban", "vault-readme"]);
 
 const VARS = {
   id: "ADR-001", title: "T", date: "2026-01-01", author: "A", tags: "[]",
   slug: "s", epic_id: "EPIC-1", alternative_a_name: "Alt",
   generated_at: "2026-01-01T00:00:00Z", folder_name: "adr", folder_description: "d",
   backlog_items: "", todo_items: "", in_progress_items: "", review_items: "",
-  done_items: "",
+  done_items: "", vault_name: "v", folder_rows: "| [A](adr/README.md) | d |",
 };
+
+// Every kind the engineering layout's folders declare — diagram included,
+// though no command creates one: scaffold needs a name and a description for each.
+const LAYOUT_KINDS = JSON.parse(readFileSync(join(REPO, "scaffold", "layouts", "engineering.json"), "utf8"))
+  .folders.map((f) => f.kind);
 
 const STATUSLINE_KEYS = ["statusline_no_work", "statusline_state_error",
   "statusline_example_epic", "statusline_example_story"];
@@ -115,7 +128,7 @@ for (const lang of LOCALES) {
     for (const kind of KINDS) {
       const out = renderTemplate(loadTemplate(lang, kind), VARS);
       assert.ok(!/\{\{/.test(out), `${kind}: unsubstituted {{...}} left`);
-      if (kind === "folder-readme" || kind === "kanban") continue;
+      if (NO_FRONTMATTER.has(kind)) continue;
       const { data } = parseFrontmatter(out);
       assert.ok(data && data.type, `${kind}: frontmatter lost its type:`);
       // Enum values are machine-read and stay English in every locale.
@@ -168,6 +181,34 @@ for (const lang of LOCALES) {
     const s = JSON.parse(readFileSync(p, "utf8"));
     for (const k of STATUSLINE_KEYS) assert.ok(s[k], `strings.json missing ${k}`);
   });
+
+  test(`locale ${lang}: a name and a description for every folder kind the layout declares; the vault README is a table in the language`, () => {
+    const s = JSON.parse(readFileSync(join(REPO, "templates", lang, "strings.json"), "utf8"));
+    for (const kind of LAYOUT_KINDS) {
+      const f = s.folders && s.folders[kind];
+      assert.ok(f && f.name && f.name.trim() && f.description && f.description.trim(), `folders.${kind} has no ${lang} name and description`);
+      // The skeleton's Purpose cell, which takes this prose back out of the README.
+      assert.ok(f.description.length <= PURPOSE_CELL, `folders.${kind}.description is ${f.description.length} characters (cell: ${PURPOSE_CELL})`);
+      assert.ok(!f.description.includes("|") && !f.name.includes("|"), `folders.${kind}: a | breaks the README's table`);
+      assert.ok(!/\n/.test(f.description), `folders.${kind}.description is one line`);
+    }
+    // The machine token stays literal (contract 2).
+    assert.ok(s.folders.epic.description.includes("`stories/`"), "the epic description keeps `stories/`");
+    const raw = loadTemplate(lang, "vault-readme");
+    assert.match(raw, /^# \{\{vault_name\}\}\n/, "titled by the vault's directory name");
+    assert.match(raw, /\n\{\{folder_rows\}\}\n/);
+    const lines = raw.split("\n");
+    const header = lines.findIndex((l) => /^\|[^|]+\|[^|]+\|$/.test(l));
+    assert.notEqual(header, -1, "a two-column table header");
+    assert.match(lines[header + 1], /^\|[-\s|]+\|$/);
+    assert.equal(lines[header + 2], "{{folder_rows}}");
+    // Its heading is no registered section (contract 3 is the artifact kinds'), and no
+    // harness's command form: the README is the same bytes whoever made the vault.
+    for (const id of Object.keys(registry.headings)) assert.ok(!headingLineRe(id).test(raw), `the vault README's heading reads as "${id}"`);
+    for (const p of invocationPatterns(REPO)) { p.re.lastIndex = 0; assert.ok(!p.re.test(raw), `the vault README names ${p.harness}'s ${p.kind} form`); }
+    const last = lines.filter((l) => l.trim()).at(-1);
+    for (const t of ["`kanban.md`", "`graph.md`", "`code-map.md`", "`reconcile`"]) assert.ok(last.includes(t), `the last line says reconcile regenerates the derived views: ${t}`);
+  });
 }
 
 // ─── End to end ────────────────────────────────────────────────────────
@@ -188,13 +229,17 @@ function runScript(proj, script, args) {
   }
 }
 
+// Scaffolded through scripts/scaffold.mjs — the real strings and the real vault
+// README in the language — so the end-to-end runs below cover what a vault
+// `init` makes, not a hand-rolled imitation of it.
 function makeLocaleVault(lang) {
   const proj = mkdtempSync(join(tmpdir(), `ps-${lang}-`));
   const vault = join(proj, "vault");
-  for (const d of ["adr", "specs", "research", "concepts", "meetings", "ops",
-    "diagrams", join("epics", "PS-X", "stories")]) {
-    mkdirSync(join(vault, d), { recursive: true });
-  }
+  mkdirSync(vault, { recursive: true });
+  const plan = planScaffold(vault, { layout: "engineering", language: lang, root: REPO });
+  assert.equal(plan.ok, true, JSON.stringify(plan.refusals));
+  applyScaffold(plan);
+  mkdirSync(join(vault, "epics", "PS-X", "stories"), { recursive: true });
   mkdirSync(join(proj, ".claude"), { recursive: true });
   writeFileSync(join(proj, ".claude", "projectstore.json"), JSON.stringify({
     vault_path: vault, layout: "engineering", language: lang, default_author: "Test",
@@ -202,12 +247,6 @@ function makeLocaleVault(lang) {
   writeFileSync(join(vault, ".projectstore.json"), JSON.stringify({
     spec_policy: "optional", lifecycle_gates: "on",
   }));
-  const readme = loadTemplate(lang, "folder-readme");
-  for (const f of ["adr", "specs", "epics", "research", "concepts", "meetings",
-    "ops", "diagrams"]) {
-    writeFileSync(join(vault, f, "README.md"),
-      renderTemplate(readme, { folder_name: f, folder_description: "d" }));
-  }
   return { proj, vault };
 }
 
@@ -274,6 +313,40 @@ for (const lang of LOCALES) {
         .test(`${f.check} ${f.message}`));
     assert.deepEqual(localization, [],
       localization.map((f) => `[${f.check}] ${f.message}`).join("; "));
+  });
+}
+
+for (const lang of LOCALES) {
+  test(`locale ${lang}: a scaffolded vault carries the language's names, descriptions and index header; reconcile rebuilds every folder; the skeleton's Purpose column shows the descriptions`, async () => {
+    const { proj, vault } = makeLocaleVault(lang);
+    const strings = JSON.parse(readFileSync(join(REPO, "templates", lang, "strings.json"), "utf8"));
+    const layout = JSON.parse(readFileSync(join(REPO, "scaffold", "layouts", "engineering.json"), "utf8"));
+    const header = loadTemplate(lang, "folder-readme").split("\n").find((l) => indexHeaderRe().test(l));
+    const top = readFileSync(join(vault, "README.md"), "utf8");
+    assert.match(top, /^# vault\n/);
+    for (const f of layout.folders) {
+      const { name, description } = strings.folders[f.kind];
+      const readme = readFileSync(join(vault, f.path, "README.md"), "utf8");
+      assert.ok(readme.startsWith(`# ${name}\n\n${description}\n`), `${f.path}/README.md opens with the ${lang} name and description`);
+      assert.ok(readme.split("\n").includes(header), `${f.path}/README.md carries the ${lang} index header`);
+      assert.equal(folderPurpose(readme, f.kind), description, `${f.path}: the purpose read back is the description`);
+      assert.ok(top.includes(`| [${name}](${f.path}/README.md) | ${description} |`), `the vault README's row for ${f.path}`);
+    }
+    for (const p of invocationPatterns(REPO)) { p.re.lastIndex = 0; assert.ok(!p.re.test(top), `the vault README names ${p.harness}'s ${p.kind} form`); }
+
+    const rec = runScript(proj, "reconcile.mjs", ["--write"]);
+    assert.equal(rec.summary.failed, 0, JSON.stringify(rec.summary));
+    const rebuilt = new Set((rec.indexes || []).map((i) => i.folder));
+    for (const f of layout.folders) assert.ok(rebuilt.has(f.path), `reconcile skipped ${f.path}/README.md in a ${lang} vault`);
+
+    // A generous budget: this asserts what the skeleton says, not how fast.
+    const o = await orientation({ vault_path: vault, layout: "engineering", language: lang }, { budgetMs: 10000 });
+    for (const f of layout.folders) {
+      const { description } = strings.folders[f.kind];
+      const row = o.skeleton.split("\n").find((l) => l.startsWith(`| \`${f.path}/\` |`));
+      assert.ok(row, `the skeleton has a row for ${f.path}/`);
+      assert.ok(row.endsWith(`| ${description} |`), `${f.path}/'s Purpose is the description, not the kind: ${row}`);
+    }
   });
 }
 

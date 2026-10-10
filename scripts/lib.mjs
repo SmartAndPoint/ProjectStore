@@ -1065,12 +1065,31 @@ export function folderByKind(layout, kind) {
 
 // ─── Templates ─────────────────────────────────────────────────────────
 
-export function loadTemplate(lang, name) {
-  const p = join(pluginRoot(), "templates", lang, `${name}.md.tmpl`);
+// `root` is the plugin root to read from — the bin passes its own package's,
+// as it does for layouts, so a scaffold plans against the copy that runs.
+export function loadTemplate(lang, name, root = pluginRoot()) {
+  const p = join(root, "templates", lang, `${name}.md.tmpl`);
   if (!existsSync(p)) {
     throw new Error(`Template not found: templates/${lang}/${name}.md.tmpl`);
   }
   return readFileSync(p, "utf8");
+}
+
+// templates/<lang>/strings.json, parsed — or null when the language has none
+// or it does not parse. No English fallback, unlike the status line's own
+// reader: the folder names and descriptions are written into a vault's
+// READMEs, and an English description in a Russian vault would read as the
+// vault's own prose forever after (the skeleton's Purpose column takes it
+// from there). A missing string is the caller's refusal to name.
+export function loadStrings(lang, root = pluginRoot()) {
+  const p = join(root, "templates", String(lang), "strings.json");
+  if (!existsSync(p)) return null;
+  try {
+    const s = JSON.parse(readFileSync(p, "utf8"));
+    return s && typeof s === "object" && !Array.isArray(s) ? s : null;
+  } catch {
+    return null;
+  }
 }
 
 // {{x}} substitutes raw; {{x_json}} substitutes JSON.stringify(String(x)) — a
@@ -1100,7 +1119,9 @@ export function renderTemplate(template, vars) {
 // language is the canonical form used when WRITING. Matching always accepts
 // every registered form of every language — a ru-headed file in an en-bound
 // vault must still lint. This is deliberately separate from
-// templates/<lang>/strings.json, which is a render-only map for the statusline.
+// templates/<lang>/strings.json, a render-only map: the status line's strings
+// and the folder names and descriptions scaffold writes into READMEs, which
+// nothing ever matches against.
 
 let _headingsCache = null;
 
@@ -2462,16 +2483,21 @@ export const SOURCE_IGNORE = [
 
 // The entry-rule counter ignores strictly more than the base set, and the
 // difference is deliberate rather than an oversight of one or the other.
-// /projectstore:bind writes these three itself, in a session that by
+// /projectstore:bind writes these itself, in a session that by
 // construction has no story open — counting them makes the plugin nag about its
 // own setup. They must NOT join SOURCE_IGNORE: an edit to AGENTS.md is a real
 // code reference (the PS-AGENTS epic already lists it), and folding these into
 // the shared set would silently drop it from every proposed code_refs.
 // Root-anchored, unlike the patterns above: a monorepo's nested AGENTS.md is
-// ordinary source and must still count.
+// ordinary source and must still count. The fourth is the binding's own
+// ignore file, which `bind` and `init` write through ensureRuntimeDir: the
+// layout move added it and this list missed it, so a fresh `init` on a clean
+// project read as one uncommitted source file (measured 2026-10-08 on 0.29.2).
+// Built from LAYOUT.root, which the resolver alone spells (layout contract 0).
 export const ENTRY_IGNORE = [
   ...SOURCE_IGNORE,
   /^AGENTS\.md$/, /^CLAUDE\.md$/, /^\.gitignore$/,
+  new RegExp(`^${LAYOUT.root.replace(".", "\\.")}\\/\\.gitignore$`),
 ];
 
 export function isSourcePath(absPath, projectDir, vaultPath) {

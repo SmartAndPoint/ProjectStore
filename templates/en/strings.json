@@ -2,5 +2,39 @@
   "statusline_no_work": "No epic or story in this session yet",
   "statusline_state_error": "⚠ session state unreadable",
   "statusline_example_epic": "Super Feature in a Super Product",
-  "statusline_example_story": "Toilet-Paper Handle"
+  "statusline_example_story": "Toilet-Paper Handle",
+  "folders": {
+    "adr": {
+      "name": "ADRs",
+      "description": "Architecture Decision Records — significant technical decisions with context, considered options, and consequences."
+    },
+    "spec": {
+      "name": "Specs",
+      "description": "Normative \"how\" per subsystem — ADR references, numbered behavioral contracts, acceptance additive to the covered stories."
+    },
+    "epic": {
+      "name": "Epics",
+      "description": "Large bodies of work broken into stories. Each epic gets its own subfolder with a `stories/` directory."
+    },
+    "research": {
+      "name": "Research",
+      "description": "Research notes — investigations, spikes, comparisons, and findings."
+    },
+    "concept": {
+      "name": "Concepts",
+      "description": "Concept notes — definitions, mental models, and glossary entries."
+    },
+    "meeting": {
+      "name": "Meetings",
+      "description": "Meeting notes — date-prefixed records of discussions, decisions, and action items."
+    },
+    "runbook": {
+      "name": "Ops",
+      "description": "Operational runbooks — step-by-step how-tos with verification and rollback."
+    },
+    "diagram": {
+      "name": "Diagrams",
+      "description": "Architecture and flow diagrams — system context, sequence, and data-flow visuals."
+    }
+  }
 }

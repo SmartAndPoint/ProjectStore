@@ -2,5 +2,39 @@
   "statusline_no_work": "本次会话还没有进行中的 epic 或 story",
   "statusline_state_error": "⚠ 会话状态无法读取",
   "statusline_example_epic": "超级产品里的超级功能",
-  "statusline_example_story": "卫生纸卷手柄"
+  "statusline_example_story": "卫生纸卷手柄",
+  "folders": {
+    "adr": {
+      "name": "ADR",
+      "description": "架构决策记录 — 重要的技术决策，包括背景、考虑过的方案及其后果。"
+    },
+    "spec": {
+      "name": "规格",
+      "description": "各子系统规范性的“如何做” — ADR 引用、编号的行为契约，以及在所覆盖 story 的验收之外追加的验收。"
+    },
+    "epic": {
+      "name": "Epic",
+      "description": "拆分为 story 的大块工作。每个 epic 都有自己的子文件夹，其中包含 `stories/` 目录。"
+    },
+    "research": {
+      "name": "研究",
+      "description": "研究笔记 — 调查、技术探索（spike）、对比与结论。"
+    },
+    "concept": {
+      "name": "概念",
+      "description": "概念笔记 — 定义、思维模型与术语表条目。"
+    },
+    "meeting": {
+      "name": "会议",
+      "description": "会议记录 — 以日期为文件名前缀，记录讨论、决策与待办事项。"
+    },
+    "runbook": {
+      "name": "运维",
+      "description": "运维手册 — 带验证与回滚步骤的分步操作指南。"
+    },
+    "diagram": {
+      "name": "图表",
+      "description": "架构图与流程图 — 系统上下文、时序与数据流图示。"
+    }
+  }
 }

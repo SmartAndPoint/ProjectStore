@@ -128,17 +128,24 @@ hand.
 
 1. Resolve the requested vault path, and the layout and language when the
    request passes \`--layout <name>\` or \`--language <code>\`. If the vault
-   exists, use \`bind\`; if the user explicitly asks to create it, use
-   \`init\`. Ask for layout and language only when the request has not
+   exists and holds files, use \`bind\`. If it exists and is empty, use
+   \`init\`. If it is missing, use \`init\` when the user asks to create it.
+   \`init\` creates the whole vault: the directory (unless it is there and
+   empty), its git repository with no commit, and the layout's folders and
+   READMEs. Ask for layout and language only when the request has not
    supplied them.
 2. Show the resolved project, vault, verb, layout and language. Ask for explicit
    approval. Naming the vault is the core's non-interactive confirmation.
 3. Run \`node "\${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" <bind|init>
    "<vault-path>" --layout <layout> --language <language> --project "$PWD"
    --json\` and report the result. Use \`--rebind\` only when the user explicitly
-   approved replacing an existing binding.
-4. Run \`status --json\` to verify the stored path and policies. Offer
-   \`$projectstore-scaffold\` only for a newly initialized empty vault.
+   approved replacing an existing binding. If the result carries
+   \`git.failed\` or \`scaffold.failed\`, the binding is written; relay the
+   remedy and continue.
+4. Run \`status --json\` to verify the stored path and policies. After
+   \`bind\` (an \`init\` vault is already scaffolded), run \`scaffold --json
+   --project "$PWD"\` and offer \`$projectstore-scaffold\` only when a row
+   reads \`create\`.
 
 Codex plugin updates are performed with the \`projectstore-codex upgrade\`
 installer command; this skill never sends the user to another harness's plugin

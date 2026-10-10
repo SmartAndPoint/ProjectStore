@@ -20,7 +20,7 @@ Steps:
    - If absent otherwise: proceed to step 1 (fresh bind).
    - If present **and** `--inherit` was passed: print "Already bound to `<path>`." and stop. Do not fall through to the rebind comparison below — with `--inherit` there is no new path to compare, and the comparison would render an empty "proposed" side and offer to replace the binding. A no-op command must not reach a destructive option.
    - If present, let the verb compare — run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" bind "<vault-path>" [--layout <name>] [--language <code>] --json` **without** `--rebind` (pass the user's flags, so the proposed side of the diff is what a rebind would write) (the vault is normalised on both sides: `~`, relative, trailing slash, symlinks):
-     - `result.state` is `"same"` (exit 0, nothing written): print "Already bound to `<path>`. Re-run `/projectstore:scaffold` if you need to (re)create the layout, or `/projectstore:status` to inspect it." and stop. If `result.ignored` names `layout` or `language`, say the flag was ignored — a change of layout or language is not a rebind.
+     - `result.state` is `"same"` (exit 0, nothing written): print "Already bound to `<path>`." Then run step 7's `scaffold --json` check: when a row reads `create`, add "`/projectstore:scaffold` creates the layout's missing folders and READMEs"; otherwise suggest `/projectstore:status`. Stop. If `result.ignored` names `layout` or `language`, say the flag was ignored — a change of layout or language is not a rebind.
      - a refusal with code `UNREADABLE` (the config exists but is not valid JSON): relay it and stop — nothing is overwritten; the user fixes or removes the file first.
      - `result.state` is `"different"` (exit 1, a `REBIND` refusal, nothing written — **the refusal is the diff**, and `result.kept_keys` lists what a rebind keeps): show the user a one-block diff built from the existing config and the refusal:
        ```
@@ -53,7 +53,7 @@ Steps:
    - Copy the **binding only** (`projectstore.json`). Never copy `.projectstore/state/` — per-session state belonging to the other checkout — and never `harness/`: the overlays are committed and arrive from git.
    - Do not add a provenance key to the config. The parent is resolvable from git at any time; a key would be a second source of truth for the same fact.
 
-1. **Validate the vault path** read-only first: `ls -d "<path>"` (the verb has no dry run — running it on a fresh project would write the config before step 4's approval). If it does not exist, ask the user (via AskUserQuestion) whether to create it; on Yes, step 5 runs `init` instead of `bind` (it creates the directory and binds; the layout's folders remain `/projectstore:scaffold`'s). Never `mkdir` it yourself.
+1. **Validate the vault path** read-only first: `ls -A "<path>"` (the verb has no dry run — running it on a fresh project would write the config before step 4's approval). If it does not exist, or exists and is empty, ask the user (via AskUserQuestion) whether to create the vault there; on Yes, step 5 runs `init` instead of `bind`. `init` creates the whole vault and binds: the directory (unless it is there and empty), its git repository with no commit, and the layout's folders and READMEs. Never `mkdir` it yourself. A directory that already holds files is bound with `bind`; `init` would bind it too, but never scaffolds or `git init`s inside it.
 2. **Detect existing layout**: list immediate subdirectories. If you see `adr/`, `epics/`, `concepts/`, `research/` — the vault already uses an engineering-like layout; suggest `engineering`. Otherwise use the user's choice or `engineering` default.
 3. **Build the config** as JSON:
 
@@ -80,15 +80,21 @@ Steps:
    node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" bind "<vault-path>" [--layout <name>] [--language <code>] [--rebind]
    ```
 
-   `init "<vault-path>" …` instead when step 1 chose to create the vault; `--rebind` only when step 0 ended on **Replace bind**. Naming the vault is the verb's confirmation (there is no `--yes`); the interview's AskUserQuestion in step 4 is the in-session gate. Print the verb's output. A non-zero exit is a refusal or a usage error — relay it and stop. Steps 11 and 12 below `Edit` the file this step wrote; keep them after it.
+   `init "<vault-path>" …` instead when step 1 chose to create the vault — it creates the whole vault, so step 7 has nothing to offer after it; `--rebind` only when step 0 ended on **Replace bind**. Naming the vault is the verb's confirmation (there is no `--yes`); the interview's AskUserQuestion in step 4 is the in-session gate. Print the verb's output. A non-zero exit is a refusal or a usage error — relay it and stop — except an `init` whose output reports `git init failed` or `Scaffold failed`: the binding is written, so relay the remedy line it prints and continue. Steps 11 and 12 below `Edit` the file this step wrote; keep them after it.
 
 6. **Check `.gitignore`**: read `<project>/.gitignore` if it exists. Our own files are self-ignored inside `.projectstore/` — the verb writes that `.gitignore` itself, carrying `projectstore.json` and `state/`, with `harness/` committed on purpose (the layout ADR); on the inherit path of step 0a, which bypasses the verb, you wrote both by hand. Unless `.claude/` is ignored wholesale, the one machine-specific entry left is the host's `.claude/settings.local.json`. If it is missing, offer (AskUserQuestion) to append it. If the user declines, skip silently.
 
-7. **Offer scaffold**: if the vault is empty or missing layout folders, ask: "Vault is empty/incomplete. Run `/projectstore:scaffold` to create the layout? [Yes / No]". If yes, invoke `/projectstore:scaffold` immediately (just describe; do not assume execution).
+7. **Offer scaffold** — after `bind` only; a vault `init` made is already scaffolded. Ask the core, which writes nothing here:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" scaffold --json --project "${CLAUDE_PROJECT_DIR}"
+   ```
+
+   Offer only when some `result.rows[]` entry has `action: "create"` — a layout folder or a README is missing. Ask via AskUserQuestion: "The vault is missing N of the layout's folders and READMEs (listed). Create them? Existing files are never rewritten." — **Yes** / **No**. On **Yes**, run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" scaffold --write --json --project "${CLAUDE_PROJECT_DIR}"` and report `result.created`. No `create` row: say nothing and continue.
 
 7.5. **Vault policy** (v0.14, ADR-007 — vault-side, survives clones): check `<vault>/.projectstore.json`.
    - If it already exists with a `spec_policy` key — respect it, print the current policy, do not re-ask.
-   - **New bind into an empty/fresh vault**: ask via AskUserQuestion — "Enable spec-first policy for this vault (every story must be covered by a spec; doctor enforces it)?" with options **Yes, `spec_policy: required` (Recommended)** / **Not yet, `optional`**. Second question: "Enable lifecycle gates (plan/close sections + evidence checks on stories)?" — **Yes, `lifecycle_gates: on` (Recommended)** / **Off for now**.
+   - **New bind into a vault with no artifacts** (a vault `init` just made counts: its folders and README indexes are not artifacts): ask via AskUserQuestion — "Enable spec-first policy for this vault (every story must be covered by a spec; doctor enforces it)?" with options **Yes, `spec_policy: required` (Recommended)** / **Not yet, `optional`**. Second question: "Enable lifecycle gates (plan/close sections + evidence checks on stories)?" — **Yes, `lifecycle_gates: on` (Recommended)** / **Off for now**.
    - **Bind to an existing vault with artifacts**: default to `spec_policy: optional`, `lifecycle_gates: off` and say doctor will suggest enabling once specs appear. Do not impose the gate on an existing backlog.
    - On any choice, write `<vault>/.projectstore.json` (vault ROOT — deliberately not inside `<vault>/.projectstore/`, whose .gitignore would keep the policy out of git):
 

@@ -2,5 +2,39 @@
   "statusline_no_work": "Noch kein Epic und keine Story in dieser Sitzung",
   "statusline_state_error": "⚠ Sitzungsstatus nicht lesbar",
   "statusline_example_epic": "Super-Feature in einem Super-Produkt",
-  "statusline_example_story": "Griff für Toilettenpapier"
+  "statusline_example_story": "Griff für Toilettenpapier",
+  "folders": {
+    "adr": {
+      "name": "ADRs",
+      "description": "Architecture Decision Records — wichtige technische Entscheidungen mit Kontext, geprüften Optionen und Konsequenzen."
+    },
+    "spec": {
+      "name": "Specs",
+      "description": "Normatives „Wie“ je Subsystem — ADR-Verweise, nummerierte Verhaltensverträge, Abnahme zusätzlich zu den abgedeckten Stories."
+    },
+    "epic": {
+      "name": "Epics",
+      "description": "Große Arbeitspakete, in Stories zerlegt. Jedes Epic hat einen eigenen Unterordner mit einem Verzeichnis `stories/`."
+    },
+    "research": {
+      "name": "Recherche",
+      "description": "Recherchenotizen — Untersuchungen, Spikes, Vergleiche und Erkenntnisse."
+    },
+    "concept": {
+      "name": "Konzepte",
+      "description": "Konzeptnotizen — Definitionen, mentale Modelle und Glossareinträge."
+    },
+    "meeting": {
+      "name": "Meetings",
+      "description": "Meeting-Notizen — mit dem Datum beginnende Protokolle von Diskussionen, Entscheidungen und Aufgaben."
+    },
+    "runbook": {
+      "name": "Betrieb",
+      "description": "Betriebs-Runbooks — Schritt-für-Schritt-Anleitungen mit Überprüfung und Rollback."
+    },
+    "diagram": {
+      "name": "Diagramme",
+      "description": "Architektur- und Ablaufdiagramme — Systemkontext, Sequenzen und Datenflüsse."
+    }
+  }
 }

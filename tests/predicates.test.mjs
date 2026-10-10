@@ -1535,6 +1535,10 @@ test("isSourcePath: bind's own writes are ignored for the counter, root-anchored
   assert.equal(isSourcePath(p("AGENTS.md"), proj, vault), false);
   assert.equal(isSourcePath(p("CLAUDE.md"), proj, vault), false);
   assert.equal(isSourcePath(p(".gitignore"), proj, vault), false);
+  // And the binding's own ignore file, which bind and init write (rule 7 of
+  // the story "Scaffold is a core verb, and init creates a whole vault…").
+  assert.equal(isSourcePath(p(".projectstore/.gitignore"), proj, vault), false);
+  assert.equal(isSourcePath(p("sub/.projectstore/.gitignore"), proj, vault), true, "root-anchored: a nested one is someone's source");
 
   // Root-anchored: a monorepo's nested AGENTS.md is ordinary source.
   assert.equal(isSourcePath(p("packages/web/AGENTS.md"), proj, vault), true);
@@ -1548,7 +1552,8 @@ test("the two ignore sets differ on purpose — AGENTS.md stays a code ref (cont
   const src = SOURCE_IGNORE.map(String);
   const entry = ENTRY_IGNORE.map(String);
   for (const re of src) assert.ok(entry.includes(re), `ENTRY_IGNORE must contain ${re}`);
-  assert.equal(entry.length, src.length + 3);
+  // AGENTS.md, CLAUDE.md, .gitignore, and the binding's own .projectstore/.gitignore.
+  assert.equal(entry.length, src.length + 4);
   assert.ok(!src.some((re) => /AGENTS/.test(re)), "AGENTS.md must remain a code ref");
 });
 

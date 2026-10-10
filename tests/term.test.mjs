@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
-import { caps, painter, icon, duration, plain, stepReporter, wrap, askLine } from "../scripts/term.mjs";
+import { caps, painter, icon, duration, plain, stepReporter, wrap, askLine, askApply } from "../scripts/term.mjs";
 
 const tty = (columns = 80) => ({ isTTY: true, columns });
 const sink = (base = {}) => {
@@ -112,4 +112,25 @@ test("term: askLine reads one line in line mode — Enter is an empty answer, en
   assert.equal(eof.answer, null, "end of input (Ctrl+D) is null — a no — and the promise settles");
   assert.equal(eof.written, "Apply 3 changes? [Y/n] \n", "and the question's line is ended, so the next message starts on its own");
   assert.equal((await ask((i) => { i.write("ye"); i.end(); })).answer, null, "a half-typed answer cut by end of input is not an answer");
+});
+
+test("term: askApply is contract 9's one question — its bytes, singular and plural, Enter/y/yes apply, anything else and end of input do not", async () => {
+  const asked = [];
+  const via = (answer, n = 3, paint) => askApply(n, { ask: async (q) => { asked.push(q); return answer; }, ...(paint ? { paint } : {}) });
+  for (const yes of ["", "y", "Y", "yes", "YES", "  yes  "]) assert.equal(await via(yes), true, JSON.stringify(yes));
+  for (const no of ["n", "no", "nope", "yess", "x"]) assert.equal(await via(no), false, JSON.stringify(no));
+  for (const eof of [null, undefined]) assert.equal(await via(eof), false, `${eof} is end of input`);
+  assert.equal(asked[0], "Apply 3 changes? [Y/n] ");
+  await via("", 1);
+  assert.equal(asked.at(-1), "Apply 1 change? [Y/n] ");
+  await via("", 2, painter({ color: true }));
+  assert.equal(asked.at(-1), "\x1b[1mApply 2 changes?\x1b[22m \x1b[90m[Y/n]\x1b[39m ", "bold question, grey keys");
+  // Through a stream, as at a terminal: the question is all that is written, and end of input is a no.
+  const input = new PassThrough(), output = new PassThrough();
+  let written = "";
+  output.on("data", (d) => { written += d; });
+  const pending = askApply(4, { stdin: input, stdout: output });
+  input.end();
+  assert.equal(await pending, false);
+  assert.equal(written, "Apply 4 changes? [Y/n] \n");
 });
