@@ -28,7 +28,10 @@
 // exposes: the install family through install-harness.mjs's own preview and
 // confirmation, and `reconcile --write` through the same rule — naming what
 // is written (`--only <target>`) is the non-interactive confirmation, a bare
-// `--write` asks on a terminal and refuses without one. There is no --yes.
+// `--write` asks on a terminal and refuses without one. `scaffold --write`
+// differs on purpose: its write set is closed — create-only, what the layout
+// declares, in the vault the binding names — so it asks at a terminal and,
+// without one, `--write` is the confirmation. There is no --yes.
 //
 // The project is resolved once, here — --project, then the neutral
 // PROJECTSTORE_PROJECT_DIR, then a project-dir variable a harness declared,
@@ -55,10 +58,12 @@ import * as term from "./term.mjs";
 import { projectRootDeclared, childEnv, harnessIds, harnessForOverlay, pinPluginRoot } from "./harness.mjs";
 import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster, commandForm, projectDirRefusal } from "./lib.mjs";
 import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_LIMIT, GRAPH_EDGE_CAP, DIRECTIONS } from "./query.mjs";
-// binding.mjs is a write module imported statically where the install family
-// is lazy: it is a dependency-free leaf with no side effects, so the MCP
-// server's module graph gains nothing it could trip on.
-import { planBind, applyBind, renderBindPlan, bindResult, DEFAULT_LAYOUT, DEFAULT_LANGUAGE } from "./binding.mjs";
+// binding.mjs and scaffold.mjs beneath it are write modules imported
+// statically where the install family is lazy: dependency-free, with no side
+// effects at import, so the MCP server's module graph gains nothing it could
+// trip on.
+import { planBind, applyBind, renderBindPlan, bindResult, bindFailed, normaliseVaultPath, shellQuote, DEFAULT_LAYOUT, DEFAULT_LANGUAGE } from "./binding.mjs";
+import { planScaffold, applyScaffold, scaffoldResult, renderScaffoldPlan } from "./scaffold.mjs";
 
 export const SCHEMA_VERSION = 1;
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -196,10 +201,16 @@ export const VERBS = Object.freeze([
     run: runBind(false),
   }),
   Object.freeze({
-    verb: "init", summary: `Create the vault directory and bind to it; the layout's folders come from ${commandForm("scaffold")}.`, usage: Object.freeze(["<vault>"]),
+    verb: "init", summary: "Create a whole vault — the directory, its git repository, the layout's folders and READMEs — and bind to it.", usage: Object.freeze(["<vault>"]),
     module: "./binding.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: [opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`), opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`), opt("rebind", false, "an already bound project: create the new vault and point the project at it; every other setting is kept"), JSON_OPT],
     run: runBind(true),
+  }),
+  Object.freeze({
+    verb: "scaffold", summary: "Create the bound vault's missing layout folders and READMEs; an existing file is never rewritten.", usage: NO_FORMS,
+    module: "./scaffold.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: true, mcp: Object.freeze([]),
+    options: [opt("write", false, "create them (asks at a terminal; without one, --write is the confirmation)"), JSON_OPT],
+    run: runScaffold,
   }),
   Object.freeze({
     verb: "mcp", summary: "Serve the read tools over MCP (stdio) for the project named by --project or PROJECTSTORE_PROJECT_DIR; never the ambient cwd.", usage: NO_FORMS,
@@ -223,7 +234,7 @@ export const PLANNED_VERBS = Object.freeze([]);
 // keeping it consistent, serving it. A verb not listed lands in "Other", so a
 // new row is never hidden by this table.
 const HELP_GROUPS = [
-  ["Set up", ["install", "upgrade", "uninstall", "plan", "bind", "init", "agents"]],
+  ["Set up", ["install", "upgrade", "uninstall", "plan", "bind", "init", "scaffold", "agents"]],
   ["Read", ["status", "search", "show", "graph", "codemap", "orientation"]],
   ["Check and repair", ["doctor", "reconcile"]],
   ["Serve", ["mcp", "version"]],
@@ -248,6 +259,7 @@ const EXAMPLES = {
   reconcile: ["{cmd} reconcile  # what would change; nothing is written", "{cmd} reconcile --write"],
   bind: ["{cmd} bind ~/vaults/my-project", "{cmd} bind ~/vaults/other --rebind"],
   init: ["{cmd} init ~/vaults/new-project --language ru"],
+  scaffold: ["{cmd} scaffold  # what would be created; nothing is written", "{cmd} scaffold --write"],
   agents: ["{cmd} agents show", "{cmd} agents configure{h} --default opus --agent clerk=sonnet"],
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
@@ -640,24 +652,74 @@ function gitAuthor(project, env) {
 
 // bind / init: the vault named on the command line is the confirmation (the
 // distribution ADR's decision 6 read for a binding — there is no --yes and
-// nothing to ask); a change of vault needs --rebind. Exit 1 on a refusal with
-// the reason, 2 on usage, 0 when already bound to the same vault.
+// nothing to ask, at a terminal either: init's command line names what it
+// writes); a change of vault needs --rebind. Exit 1 on a refusal with the
+// reason, or when init's git or scaffold step failed after the binding was
+// written; 2 on usage; 0 when already bound to the same vault.
 function runBind(init) {
   return async (ctx) => {
     const { row, values, positionals, project, env, stdout, stderr } = ctx;
     const vault = positionals[0];
     if (!vault) return usageFail(Object.assign(new Error(`${row.verb} takes the vault path`), { code: "USAGE" }), { verb: row.verb, ...ctx });
     // The author is the caller's to find: the plan reads nothing ambient.
-    const plan = planBind(project, { vault, layout: values.layout ?? null, language: values.language ?? null, rebind: Boolean(values.rebind), init, author: gitAuthor(project, env), env });
+    const plan = planBind(project, { vault, layout: values.layout ?? null, language: values.language ?? null, rebind: Boolean(values.rebind), init, author: gitAuthor(project, env), env, root: PACKAGE_ROOT });
     const usage = plan.refusals.find((r) => r.code === "USAGE");
     if (usage) return usageFail(Object.assign(new Error(usage.message), { code: "USAGE" }), { verb: row.verb, ...ctx });
     let done = null;
-    if (plan.ok && plan.writes) done = applyBind(plan);
+    if (plan.ok && (plan.writes || plan.buildsVault)) done = applyBind(plan, { env });
+    const ok = plan.ok && !bindFailed(done);
     const result = bindResult(plan, done);
-    if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, plan.ok, result), null, 2) + "\n");
-    else (plan.ok ? stdout : stderr).write(renderBindPlan(plan, done));
-    return plan.ok ? 0 : 1;
+    if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, ok, result), null, 2) + "\n");
+    else (plan.ok ? stdout : stderr).write(renderBindPlan(plan, done, { env }));
+    return ok ? 0 : 1;
   };
+}
+
+// scaffold: the bound vault's skeleton, from the binding's layout and
+// language (`bind --rebind` changes them; the verb takes no layout). Bare, the
+// plan, and nothing is written. --write creates the `create` rows: at an
+// interactive terminal (install spec contract 9's definition) after the plan
+// and `Apply N changes? [Y/n]`; without one, --write is the confirmation —
+// the write set is closed, so `scaffold --write --json` writes at a terminal
+// too, which is how the session command and the Codex skill confirm. A plan
+// with nothing to create asks nothing and exits 0. A vault directory that
+// is gone is refused: recreating it here would hide that it vanished, and
+// `init` is the verb that makes a vault.
+async function runScaffold(ctx) {
+  const { row, values, cfg, project, env, stdin, stdout, stderr, ask } = ctx;
+  const emit = (ok, result, text, code) => {
+    if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, ok, result), null, 2) + "\n");
+    else (ok ? stdout : stderr).write(text);
+    return code;
+  };
+  // readConfigAt hands back the stored path raw: `~`, relative, a trailing slash.
+  const norm = normaliseVaultPath(cfg.vault_path, project);
+  const vault = typeof norm === "string" ? norm : null;
+  if (!vault) {
+    const why = `the binding names no usable vault path${norm && norm.error ? ` (${norm.error})` : ""} — rebind with \`projectstore bind <vault> --rebind\``;
+    return emit(false, { error: why }, why + "\n", 1);
+  }
+  if (!existsSync(vault)) {
+    const why = `${vault} does not exist — the binding names a vault directory that is not there. \`projectstore init ${shellQuote(vault)}\` creates it under this binding: the directory, its git repository and the layout's folders.`;
+    return emit(false, { error: why, vault_path: vault }, why + "\n", 1);
+  }
+  const plan = planScaffold(vault, { layout: cfg.layout || DEFAULT_LAYOUT, language: cfg.language || DEFAULT_LANGUAGE, root: PACKAGE_ROOT });
+  if (!plan.ok) return emit(false, scaffoldResult(plan), renderScaffoldPlan(plan, null, { env }), 1);
+  if (!values.write || plan.creates === 0) return emit(true, scaffoldResult(plan), renderScaffoldPlan(plan, null, { env }), 0);
+  // An injected `ask` is a terminal, as for install. Otherwise the installer's
+  // definition of one (TTYs, CI, a host session's markers) is the one
+  // contract 9 names — imported lazily, as runInstallVerb imports it.
+  const interactive = !values.json && (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+  if (interactive) {
+    stdout.write(renderScaffoldPlan(plan, null, { env, asking: true }));
+    const c = term.caps(stdout, env);
+    if (!(await term.askApply(plan.creates, { stdin, stdout, ask, paint: term.painter(c) }))) {
+      stdout.write("Nothing written.\n");
+      return 1;
+    }
+  }
+  const done = applyScaffold(plan);
+  return emit(true, scaffoldResult(plan, done), renderScaffoldPlan(plan, done, { env }), 0);
 }
 
 // agents model <name> — the model a plugin surface passes for that agent, from

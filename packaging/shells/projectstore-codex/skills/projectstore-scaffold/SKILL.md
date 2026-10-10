@@ -1,6 +1,6 @@
 ---
 name: projectstore-scaffold
-description: "Scaffold the bound vault with the layout's folder structure and README index files. Arguments: [layout-name]."
+description: "Scaffold the bound vault with the layout's folder structure and README index files."
 ---
 
 ## Runtime path
@@ -22,21 +22,29 @@ shown command, replace that token with the actual arguments from the user's
 request and shell-quote values safely. Never pass the angle-bracket token
 literally and never treat it as a shell variable.
 
-You are creating the folder structure of the projectstore layout inside the bound vault.
+You are creating the bound vault's layout folders and their README indexes through the core's `scaffold` verb. The layout and the language are the binding's; the folder names, the descriptions and every README come from the plugin's templates in that language, so a vault scaffolded here is byte-identical to one `init` made. Never create a folder or write a README yourself, and take no layout argument: `bind --rebind` changes the layout.
 
 Steps:
 
-1. **Read config**: `cat .projectstore/projectstore.json`. If missing, tell user to run `$projectstore-bind <path>` and stop.
-2. **Determine layout**: use `<user-arguments>` if provided, else `config.layout`.
-3. **Load layout spec**: `cat "${PROJECTSTORE_CORE_ROOT}/scaffold/layouts/<layout>.json"`. Parse it.
-4. **Show plan**: list every folder that will be created and which folders already exist. Mark new ones with `(create)`, existing with `(exists)`.
-5. **Ask approval** via the harness's user-input mechanism: "Create the missing folders and READMEs? [Yes / Skip READMEs / No]".
-6. **Execute**:
-   - For each folder in `layout.folders`:
-     - Create directory via `mkdir -p <vault>/<folder.path>`.
-     - If `folder.readme === true` and `<vault>/<folder.path>/README.md` does not exist:
-       - Read template: `cat "${PROJECTSTORE_CORE_ROOT}/templates/<lang>/folder-readme.md.tmpl"`.
-       - Substitute `{{folder_name}}` and `{{folder_description}}` based on the folder kind.
-       - Write the README via file-writing tool.
-   - Also create a top-level `<vault>/README.md` if missing — a simple index pointing to each folder.
-7. **Print result**: tree of newly created files and a one-line "next step" suggestion.
+1. **Plan** — nothing is written:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" scaffold --project "$PWD"
+   ```
+
+   It prints one row per folder, per folder README and for the vault's own `README.md`, each `create` or `exists`.
+   - Exit 3: the project is not bound — tell the user to run `$projectstore-bind <vault-path>` and stop.
+   - Exit 1: a refusal — the bound vault directory is missing, the binding's language lacks a template or a folder string, or a folder's path is a file. Relay the message and stop.
+   - No `create` row: say the vault already has every folder and README the layout declares, and stop.
+
+2. **Ask** via the harness's user-input mechanism, showing the plan's `create` rows: "Create these folders and READMEs in the vault? Existing files are never rewritten." — **Yes** / **No**. On **No**, stop: nothing is written.
+
+3. **Write**, on **Yes**:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" scaffold --write --json --project "$PWD"
+   ```
+
+   The question above is the confirmation; `--json` never asks again. Report `result.created`, and how many rows `result.exists` left as they were. A non-zero exit is an error: relay it.
+
+4. **Next**: the folder indexes fill as artifacts are created; `$projectstore-reconcile` regenerates the board and the other derived views when you want them.

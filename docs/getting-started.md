@@ -37,11 +37,7 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
 
 ## First-time setup
 
-1. **Pick a vault directory** — any folder where you want your project artifacts to live. Obsidian opens it natively. Git tracks it cleanly.
-
-   ```bash
-   mkdir -p ~/Documents/projects/my-project-vault
-   ```
+1. **Pick a vault directory** — any folder where you want your project artifacts to live. Obsidian opens it natively. Git tracks it cleanly. There is nothing to create by hand: step 2 creates the vault when the folder does not exist yet or is empty.
 
 2. **Bind your current project to that vault**:
 
@@ -49,7 +45,15 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
    /projectstore:bind ~/Documents/projects/my-project-vault
    ```
 
-   This creates `.projectstore/projectstore.json` in your project root (machine-local, gitignored) — and then walks you through a short interview: gitignore entries → scaffold offer → agent registration in `CLAUDE.md` (recommended: Yes) → model preset for the review agents (the default `opus` is fine) → status line offer (you'll see a preview of the exact line). Every step shows what it wants to write and waits for your approval.
+   This creates `.projectstore/projectstore.json` in your project root (machine-local, gitignored) — and then walks you through a short interview: gitignore entries → scaffold offer → vault policy → agent registration in `CLAUDE.md` (recommended: Yes) → model preset for the review agents (the default `opus` is fine) → status line offer (you'll see a preview of the exact line). Every step shows what it wants to write and waits for your approval. When the folder is missing or empty, the interview offers to create the whole vault there through `init` — the directory, its own git repository, the layout's folders and their README indexes — and then has no scaffold to offer.
+
+   **From a terminal instead**, outside a session, one command creates the same vault and binds this project to it:
+
+   ```bash
+   npx projectstore init ~/Documents/projects/my-project-vault
+   ```
+
+   It skips the rest of the interview: no agents block, no status line, no vault policy, no model preset. A later `/projectstore:bind` on that project only reports "Already bound" — it does not run those steps either. Choose this path when you want the vault and the binding alone.
 
    **Working in a git worktree?** That config is gitignored, so a worktree of a bound checkout starts unbound and `/projectstore:*` will not run there. Session start says so and names the fix:
 
@@ -59,13 +63,17 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
 
    It copies the binding of the checkout the worktree was forked from — same vault, shared and unchanged, no session state carried over — and skips the interview, since the parent already answered it.
 
-3. **Scaffold the layout** if the vault is empty (bind offers this automatically):
+3. **Scaffold the layout** of a vault that was bound without its folders (bind offers this automatically; a vault `init` made already has them):
 
    ```
-   /projectstore:scaffold engineering
+   /projectstore:scaffold
    ```
 
-   Creates `adr/`, `specs/`, `epics/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/` and a top-level `README.md`.
+   Creates whichever of `adr/`, `specs/`, `epics/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`, their `README.md` indexes and the top-level `README.md` are missing, in the vault's language, and never rewrites a file that is there. The layout is the binding's. From a terminal:
+
+   ```bash
+   npx projectstore scaffold --write
+   ```
 
 ## Daily flow
 

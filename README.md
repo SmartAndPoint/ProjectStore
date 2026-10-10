@@ -148,11 +148,12 @@ The same eight reads are an MCP server. The plugin registers it through its own 
 npx projectstore mcp --project "$PWD"
 ```
 
-Binding, too — naming the vault is the confirmation, and changing it needs `--rebind`:
+Binding, too — naming the vault is the confirmation, and changing it needs `--rebind`. `init` creates a whole vault in one step, with no `mkdir` first: the directory, its git repository, the layout's folders and their README indexes; `scaffold --write` adds the folders to a vault that was bound without them:
 
 ```
 npx projectstore bind ~/vaults/my-project
 npx projectstore init ~/vaults/new-project --language ru
+npx projectstore scaffold --write
 ```
 
 `projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are this package's per-harness shells — the core pinned and bundled, the harness fixed. The Claude Code and Codex shells are published at the core's version; Codex stays labelled experimental until a live run has exercised every surface it installs ([`docs/harnesses.md`](./docs/harnesses.md)). The opencode shell publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs.

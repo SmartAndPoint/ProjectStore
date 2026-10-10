@@ -11,7 +11,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -668,7 +668,10 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   assert.equal(e.result.state, "unbound");
   assert.equal(e.result.wrote, true);
   assert.equal(e.result.config, undefined, "no file body in the envelope");
-  assert.deepEqual(Object.keys(e.result).sort(), ["config_path", "created_vault", "ignored", "kept_keys", "language", "layout", "refusals", "state", "vault_exists", "vault_path", "wrote"]);
+  // 0.29.2's eleven keys, kept, plus init's two steps (null on a bind).
+  assert.deepEqual(Object.keys(e.result).sort(), ["config_path", "created_vault", "git", "ignored", "kept_keys", "language", "layout", "refusals", "scaffold", "state", "vault_exists", "vault_path", "wrote"]);
+  assert.equal(e.result.git, null, "bind never runs git");
+  assert.equal(e.result.scaffold, null, "nor the scaffold");
   const cfg = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8"));
   // The fresh config's keys are commands/bind.md step 3's — the interview and the verb write the same file.
   const bindMd = readFileSync(join(ROOT, "commands", "bind.md"), "utf8");
@@ -733,20 +736,35 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   assert.match(envOf(missing).result.refusals[0].message, /projectstore init/);
 });
 
-test("cli init: creates the vault directory and binds; refuses when already bound; points at scaffold, never scaffolds", () => {
+test("cli init: refuses when already bound to a vault that is there, and rebuilds one that went missing; a project bound elsewhere needs --rebind; nothing is created on a refusal", () => {
   const proj = project({ bound: false });
   const vault = join(mkdtempSync(join(tmpdir(), "ps-init-")), "vault");
   const r = bin(["init", vault, "--layout", "engineering", "--json", "--project", proj]);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(envOf(r).result.created_vault, true);
   assert.ok(existsSync(vault));
-  assert.deepEqual(readdirSync(vault), [], "init makes the directory only — the layout is scaffold's");
   assert.equal(JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path, vault);
   const text = bin(["init", join(mkdtempSync(join(tmpdir(), "ps-init-")), "v2"), "--project", project({ bound: false })]);
-  assert.match(text.stdout, /scaffold/);
+  assert.match(text.stdout, /Scaffolded the engineering layout/);
+  assert.match(text.stdout, /Next: `projectstore reconcile --write` \(optional\)/, "the derived views are offered, not run");
+  assert.ok(!/in a session/.test(text.stdout), "a whole vault needs no session command after it");
   const twice = bin(["init", vault, "--json", "--project", proj]);
   assert.equal(twice.status, 1);
   assert.match(envOf(twice).result.refusals[0].message, /already bound/);
+  // The vault directory deleted under its binding: init makes the whole vault
+  // again — no BOUND refusal, and no config write (the binding is the same).
+  const bindingBefore = readFileSync(layoutPaths(proj).binding, "utf8");
+  rmSync(vault, { recursive: true, force: true });
+  const rebuilt = bin(["init", vault, "--json", "--project", proj]);
+  assert.equal(rebuilt.status, 0, rebuilt.stderr + rebuilt.stdout);
+  const rb = envOf(rebuilt).result;
+  assert.equal(rb.state, "same");
+  assert.equal(rb.wrote, false, "the binding is not rewritten");
+  assert.equal(rb.created_vault, true);
+  assert.ok(rb.git && (rb.git.done || rb.git.skipped), JSON.stringify(rb.git));
+  assert.ok(rb.scaffold.created.includes("README.md"));
+  assert.ok(existsSync(join(vault, "adr", "README.md")));
+  assert.equal(readFileSync(layoutPaths(proj).binding, "utf8"), bindingBefore);
   // init into a project bound elsewhere: refused without --rebind, and the message names a flag init takes.
   const elsewhere = join(mkdtempSync(join(tmpdir(), "ps-init-")), "v3");
   const moved = bin(["init", elsewhere, "--json", "--project", proj]);
@@ -763,6 +781,380 @@ test("cli init: creates the vault directory and binds; refuses when already boun
   const rel = bin(["bind", "./my-vault", "--json", "--project", p2]);
   assert.equal(rel.status, 1, "relative to the project, and missing");
   assert.equal(envOf(rel).result.vault_path, join(p2, "my-vault"));
+});
+
+// ─── Scaffold is a core verb, and init creates a whole vault ─────────────
+//
+// The story "Scaffold is a core verb, and init creates a whole vault: the
+// directory, its git repository, the layout's folders and indexes"
+// (PS-CORE). One test per acceptance criterion.
+
+const LAYOUT_FOLDERS = JSON.parse(readFileSync(join(ROOT, "scaffold", "layouts", "engineering.json"), "utf8")).folders;
+// Every folder, its README, and the vault README — the engineering layout's whole skeleton.
+const SKELETON = [...LAYOUT_FOLDERS.flatMap((f) => [`${f.path}/`, ...(f.readme ? [`${f.path}/README.md`] : [])]), "README.md"];
+const vaultOf = (proj) => JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path;
+// A whole tree as {path: bytes}, .git left out.
+function treeOf(dir, at = "") {
+  const out = {};
+  for (const n of readdirSync(join(dir, at)).sort()) {
+    if (!at && n === ".git") continue;
+    const rel = at ? `${at}/${n}` : n;
+    if (statSync(join(dir, rel)).isDirectory()) { out[`${rel}/`] = null; Object.assign(out, treeOf(dir, rel)); }
+    else out[rel] = readFileSync(join(dir, rel), "utf8");
+  }
+  return out;
+}
+// git with an identity and no signing, whatever the developer's config says.
+const git = (cwd, args) => spawnSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
+// A project that is a git repository with one commit and nothing else uncommitted.
+function gitProject() {
+  const proj = project({ bound: false });
+  git(proj, ["init", "-q"]);
+  writeFileSync(join(proj, "README.md"), "# p\n");
+  git(proj, ["add", "-A"]);
+  assert.equal(git(proj, ["commit", "-q", "-m", "one"]).status, 0, "the fixture commit");
+  return proj;
+}
+const notInfo = (r) => envOf(r).result.filter((f) => f.level !== "info").map((f) => `[${f.check}] ${f.message}`);
+
+test("cli scaffold: on a bound vault with no layout folders the bare verb lists every folder, folder README and the vault README as create, writes nothing, exit 0", () => {
+  const proj = project();
+  const vault = vaultOf(proj);
+  const r = bin(["scaffold", "--project", proj]);
+  assert.equal(r.status, 0, r.stderr);
+  for (const p of SKELETON) assert.ok(r.stdout.includes(`\n  create  ${p}\n`), `${p} is planned as create:\n${r.stdout}`);
+  assert.match(r.stdout, new RegExp(`${SKELETON.length} to create\\.\\n`));
+  // The bare plan's text ends with the command that writes it, in both forms.
+  assert.match(r.stdout, /\nTo write them: \S+scaffold in a session, or `projectstore scaffold --write`\.\n$/);
+  assert.deepEqual(readdirSync(vault), [], "nothing written");
+  const j = bin(["scaffold", "--json", "--project", proj]);
+  assert.equal(j.status, 0, j.stderr);
+  const e = envOf(j);
+  assert.equal(e.verb, "scaffold");
+  assert.equal(e.ok, true);
+  assert.deepEqual(e.result.rows.map((x) => (x.type === "folder" ? `${x.path}/` : x.path)), SKELETON);
+  assert.ok(e.result.rows.every((x) => x.action === "create"));
+  assert.equal(e.result.creates, SKELETON.length);
+  assert.equal(e.result.wrote, false);
+  assert.ok(!j.stdout.includes("{{") && !j.stdout.includes("## Index"), "no file body in the envelope");
+  assert.deepEqual(readdirSync(vault), [], "nothing written under --json either");
+});
+
+test("cli scaffold: without a terminal --write creates them; a second run plans zero changes; a hand-edited README stays byte-for-byte and reads exists", () => {
+  const proj = project();
+  const vault = vaultOf(proj);
+  mkdirSync(join(vault, "adr"));
+  writeFileSync(join(vault, "adr", "README.md"), "# My decisions\n\nHand-written.\n");
+  const w = bin(["scaffold", "--write", "--json", "--project", proj]);
+  assert.equal(w.status, 0, w.stderr);
+  const e = envOf(w).result;
+  assert.equal(e.rows.find((x) => x.path === "adr").action, "exists");
+  assert.equal(e.rows.find((x) => x.path === "adr/README.md").action, "exists");
+  assert.equal(e.wrote, true);
+  assert.equal(e.created.length, SKELETON.length - 2);
+  assert.deepEqual(e.exists, ["adr", "adr/README.md"]);
+  assert.equal(readFileSync(join(vault, "adr", "README.md"), "utf8"), "# My decisions\n\nHand-written.\n", "never rewritten");
+  for (const f of LAYOUT_FOLDERS) assert.ok(existsSync(join(vault, f.path, "README.md")), f.path);
+  assert.ok(existsSync(join(vault, "README.md")));
+  const before = treeOf(vault);
+  const again = bin(["scaffold", "--write", "--json", "--project", proj]);
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(envOf(again).result.creates, 0, "zero changes planned");
+  assert.deepEqual(envOf(again).result.created, []);
+  assert.deepEqual(treeOf(vault), before, "and nothing written");
+  assert.match(bin(["scaffold", "--write", "--project", proj]).stdout, /Nothing to create: every folder and README the layout declares is there\.\n$/);
+  // Text mode, spawned: stdin is no terminal, so --write is the confirmation.
+  const p2 = project();
+  const t = bin(["scaffold", "--write", "--project", p2]);
+  assert.equal(t.status, 0, t.stderr);
+  assert.match(t.stdout, new RegExp(`\\nCreated ${SKELETON.length}\\.\\n$`));
+  assert.ok(!t.stdout.includes("Apply "), "no question without a terminal");
+  assert.ok(existsSync(join(vaultOf(p2), "README.md")));
+});
+
+test("cli scaffold: at a terminal (injected ask, run() in process) the plan prints before \"Apply N changes? [Y/n]\"; Enter applies, n prints Nothing written. and exits 1, end of input is a no", async () => {
+  const call = async (proj, answer) => {
+    const stdout = new Sink(), stderr = new Sink();
+    const asked = [];
+    // The terminal writes the question where the plan went; `ask` stands in for it.
+    const ask = async (q) => { asked.push(q); stdout.write(q); return answer; };
+    const code = await run(["scaffold", "--write", "--project", proj], { env: {}, cwd: proj, stdout, stderr, ask });
+    return { code, out: stdout.text, err: stderr.text, asked };
+  };
+  const question = `Apply ${SKELETON.length} changes? [Y/n] `;
+  const yes = project();
+  const y = await call(yes, "");
+  assert.equal(y.code, 0, y.err);
+  assert.deepEqual(y.asked, [question]);
+  const q = y.out.indexOf(question);
+  assert.ok(q > 0 && y.out.indexOf("  create  adr/\n") < q && y.out.indexOf("  create  README.md\n") < q, `the plan, then the question:\n${y.out}`);
+  assert.ok(!y.out.slice(0, q).includes("To write them"), "the plan asked about does not also say how to write it");
+  assert.match(y.out.slice(q), new RegExp(`Created ${SKELETON.length}\\.\\n$`));
+  assert.ok(existsSync(join(vaultOf(yes), "adr", "README.md")));
+  // A plan with nothing to create asks nothing.
+  const none = await call(yes, "n");
+  assert.equal(none.code, 0);
+  assert.deepEqual(none.asked, []);
+  for (const [answer, why] of [["n", "n"], [null, "end of input"], ["nope", "anything else"]]) {
+    const proj = project();
+    const r = await call(proj, answer);
+    assert.equal(r.code, 1, why);
+    assert.deepEqual(r.asked, [question], why);
+    assert.ok(r.out.endsWith(`${question}Nothing written.\n`), `${why}: ${r.out}`);
+    assert.deepEqual(readdirSync(vaultOf(proj)), [], `${why}: nothing written`);
+  }
+  for (const answer of ["y", "YES"]) {
+    const proj = project();
+    assert.equal((await call(proj, answer)).code, 0, answer);
+    assert.ok(existsSync(join(vaultOf(proj), "README.md")), answer);
+  }
+  // --json never asks, at a terminal too: it is how a session confirms.
+  const j = project();
+  const stdout = new Sink();
+  const code = await run(["scaffold", "--write", "--json", "--project", j], { env: {}, cwd: j, stdout, stderr: new Sink(), ask: async () => assert.fail("--json asked") });
+  assert.equal(code, 0);
+  assert.equal(JSON.parse(stdout.text).result.created.length, SKELETON.length);
+});
+
+test("scaffold plan: a kind with no string in the language, or a missing vault-readme template, refuses before any write, naming the kind or template and the language", async () => {
+  const { planScaffold, applyScaffold } = await import("../scripts/scaffold.mjs");
+  const { planBind, applyBind } = await import("../scripts/binding.mjs");
+  // A plugin root of its own: the engineering layout plus a folder of a kind no language names.
+  const root = mkdtempSync(join(tmpdir(), "ps-scaffold-root-"));
+  mkdirSync(join(root, "scaffold", "layouts"), { recursive: true });
+  const eng = JSON.parse(readFileSync(join(ROOT, "scaffold", "layouts", "engineering.json"), "utf8"));
+  writeFileSync(join(root, "scaffold", "layouts", "engineering.json"), JSON.stringify(eng));
+  writeFileSync(join(root, "scaffold", "layouts", "widgets.json"), JSON.stringify({ ...eng, name: "widgets", folders: [...eng.folders, { path: "widgets", kind: "widget", readme: true }] }));
+  for (const lang of ["en", "ru"]) {
+    mkdirSync(join(root, "templates", lang), { recursive: true });
+    for (const f of ["folder-readme.md.tmpl", "vault-readme.md.tmpl", "strings.json"]) writeFileSync(join(root, "templates", lang, f), readFileSync(join(ROOT, "templates", lang, f)));
+  }
+  const vault = mkdtempSync(join(tmpdir(), "ps-scaffold-v-"));
+  assert.equal(planScaffold(vault, { layout: "engineering", language: "ru", root }).ok, true, "the copy is complete");
+  const kind = planScaffold(vault, { layout: "widgets", language: "ru", root });
+  assert.equal(kind.ok, false);
+  assert.deepEqual(kind.refusals.map((r) => r.code), ["STRINGS"]);
+  assert.match(kind.refusals[0].message, /"widget"/);
+  assert.match(kind.refusals[0].message, /"ru"/);
+  assert.throws(() => applyScaffold(kind), /widget/);
+  rmSync(join(root, "templates", "en", "vault-readme.md.tmpl"));
+  const tmpl = planScaffold(vault, { layout: "engineering", language: "en", root });
+  assert.equal(tmpl.ok, false);
+  assert.deepEqual(tmpl.refusals.map((r) => r.code), ["TEMPLATE"]);
+  assert.match(tmpl.refusals[0].message, /vault-readme/);
+  assert.match(tmpl.refusals[0].message, /"en"/);
+  // doctor warns on the same list, through the same check (the folder README stays its issue).
+  const { checkLayoutTemplates } = await import("../scripts/doctor.mjs");
+  const { pinPluginRoot } = await import("../scripts/harness.mjs");
+  pinPluginRoot(root);
+  let warns;
+  try {
+    warns = [...checkLayoutTemplates({ layout: "widgets", language: "ru" }), ...checkLayoutTemplates({ layout: "engineering", language: "en" })]
+      .filter((f) => f.level === "warn").map((f) => `${f.check}: ${f.message}`);
+  } finally { pinPluginRoot(ROOT); }
+  assert.equal(warns.length, 2, warns.join("\n"));
+  assert.match(warns[0], /^templates: language "ru" has no name and description for the folder kind "widget"/);
+  assert.match(warns[1], /^templates: language "en" has no vault-readme template/);
+  assert.deepEqual(readdirSync(vault), [], "nothing written by a refused plan");
+  // A vault path that is a file, and a folder path that is a file.
+  const file = join(vault, "a-file");
+  writeFileSync(file, "x");
+  assert.deepEqual(planScaffold(file, { layout: "engineering", language: "ru", root }).refusals.map((r) => r.code), ["NOT_A_DIRECTORY"]);
+  writeFileSync(join(vault, "adr"), "x");
+  const folder = planScaffold(vault, { layout: "engineering", language: "ru", root });
+  assert.deepEqual(folder.refusals.map((r) => r.code), ["FOLDER_IS_FILE"]);
+  assert.match(folder.refusals[0].message, /^adr exists in .* as a file/);
+  // init's whole-vault path is one plan: the scaffold's refusal stops the mkdir too.
+  const proj = project({ bound: false });
+  const missing = join(mkdtempSync(join(tmpdir(), "ps-scaffold-init-")), "vault");
+  const p = planBind(proj, { vault: missing, layout: "widgets", language: "ru", init: true, root, env: {} });
+  assert.equal(p.ok, false);
+  assert.equal(p.buildsVault, false);
+  assert.equal(p.createsVault, false);
+  assert.ok(p.refusals.some((r) => r.code === "STRINGS" && /"widget"/.test(r.message)), JSON.stringify(p.refusals));
+  assert.throws(() => applyBind(p));
+  assert.ok(!existsSync(missing), "nothing created");
+  assert.ok(!existsSync(layoutPaths(proj).binding), "no binding written");
+  // A bind does not take the scaffold's refusals: it binds, and its Next line names status.
+  const b = planBind(proj, { vault, layout: "widgets", language: "ru", root, env: {} });
+  assert.equal(b.ok, true, JSON.stringify(b.refusals));
+  // Through the bin: an unloadable layout and a vault that is gone are exit 1, unbound is 3, a layout argument is 2.
+  const bad = project({ bound: false });
+  writeBinding(bad, JSON.stringify({ vault_path: mkdtempSync(join(tmpdir(), "ps-vault-")), layout: "nope" }));
+  const nope = bin(["scaffold", "--project", bad]);
+  assert.equal(nope.status, 1);
+  assert.match(nope.stderr, /the layout "nope" does not load/);
+  const gone = project({ bound: false });
+  const goneVault = join(tmpdir(), `ps-gone-${process.pid}-${Date.now()}`);
+  writeBinding(gone, JSON.stringify({ vault_path: goneVault, layout: "engineering" }));
+  const g = bin(["scaffold", "--write", "--project", gone]);
+  assert.equal(g.status, 1);
+  assert.match(g.stderr, /does not exist .*`projectstore init /);
+  assert.ok(!existsSync(goneVault), "scaffold never creates the vault itself");
+  assert.equal(envOf(bin(["scaffold", "--json", "--project", gone])).ok, false);
+  assert.equal(bin(["scaffold", "--project", project({ bound: false })]).status, 3);
+  const layoutArg = bin(["scaffold", "engineering", "--project", project()]);
+  assert.equal(layoutArg.status, 2);
+  assert.match(layoutArg.stderr, /^scaffold takes no argument `engineering`/);
+});
+
+test("cli init: a missing directory becomes a whole vault — binding, a git repository with no commit, folders and READMEs; doctor --install has no vault-git and doctor --vault --json has no issue or warn; an existing empty directory does the same without the mkdir", () => {
+  for (const shape of ["missing", "empty"]) {
+    const proj = gitProject();
+    const vault = shape === "missing" ? join(mkdtempSync(join(tmpdir(), "ps-init-whole-")), "vault") : mkdtempSync(join(tmpdir(), "ps-init-empty-"));
+    const r = bin(["init", vault, "--json", "--project", proj]);
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    const e = envOf(r);
+    assert.equal(e.ok, true);
+    assert.equal(e.result.created_vault, shape === "missing", `${shape}: created_vault is the mkdir alone`);
+    assert.equal(e.result.wrote, true);
+    assert.deepEqual(e.result.git, { done: true }, shape);
+    assert.deepEqual(e.result.scaffold, { created: SKELETON.map((p) => p.replace(/\/$/, "")), exists: [] }, shape);
+    assert.equal(vaultOf(proj), vault);
+    assert.ok(existsSync(join(vault, ".git")), `${shape}: a git repository`);
+    assert.notEqual(git(vault, ["rev-parse", "--verify", "-q", "HEAD"]).status, 0, `${shape}: with no commit`);
+    for (const p of SKELETON) assert.ok(existsSync(join(vault, p)), `${shape}: ${p}`);
+    const install = envOf(bin(["doctor", "--install", "--json", "--project", proj])).result;
+    assert.ok(!install.some((f) => f.check === "vault-git"), `${shape}: no vault-git finding`);
+    assert.deepEqual(notInfo(bin(["doctor", "--vault", "--json", "--project", proj])), [], `${shape}: doctor --vault`);
+    assert.match(bin(["doctor", "--vault", "--project", proj]).stdout, /Summary: 0 issue\(s\), 0 warning\(s\)\./);
+  }
+});
+
+test("cli init/bind: work-without-story ignores .projectstore/.gitignore and still counts any other uncommitted source file", () => {
+  for (const verb of ["init", "bind"]) {
+    const proj = gitProject();
+    const vault = verb === "init" ? join(mkdtempSync(join(tmpdir(), "ps-wws-")), "vault") : mkdtempSync(join(tmpdir(), "ps-wws-"));
+    assert.equal(bin([verb, vault, "--project", proj]).status, 0);
+    const untracked = git(proj, ["ls-files", "--others", "--exclude-standard"]).stdout.split("\n").filter(Boolean);
+    assert.deepEqual(untracked, [".projectstore/.gitignore"], `${verb}: the binding's ignore file is the one untracked file`);
+    const wws = (r) => envOf(r).result.filter((f) => f.check === "work-without-story");
+    assert.deepEqual(wws(bin(["doctor", "--vault", "--json", "--project", proj])), [], `${verb}: the plugin's own setup is not work`);
+    writeFileSync(join(proj, "app.mjs"), "export {};\n");
+    const after = wws(bin(["doctor", "--vault", "--json", "--project", proj]));
+    assert.equal(after.length, 1, `${verb}: another uncommitted file still counts`);
+    assert.match(after[0].message, /^1 uncommitted source file\(s\)/);
+  }
+});
+
+test("cli init: git absent (PATH \"\") skips with git.skipped and exits 0; inside a work tree it prints the embedded-repository line; a failing git init is git.failed with the remedy, scaffold still runs, ok:false, exit 1", () => {
+  // Absent: the one skip the ADR allows; every other step completes.
+  const absent = join(mkdtempSync(join(tmpdir(), "ps-nogit-")), "vault");
+  const a = bin(["init", absent, "--json", "--project", project({ bound: false })], { env: { PATH: "" } });
+  assert.equal(a.status, 0, a.stderr + a.stdout);
+  assert.equal(envOf(a).ok, true);
+  assert.deepEqual(envOf(a).result.git, { skipped: "git is not on PATH" });
+  assert.equal(envOf(a).result.scaffold.created.length, SKELETON.length);
+  assert.ok(!existsSync(join(absent, ".git")));
+  const at = bin(["init", join(mkdtempSync(join(tmpdir(), "ps-nogit-")), "vault"), "--project", project({ bound: false })], { env: { PATH: "" } });
+  assert.equal(at.status, 0);
+  assert.match(at.stdout, /\nSkipped git init: git is not on PATH\. .*vault-git/);
+  // Inside another work tree: git init still runs, and one line says so.
+  const outer = gitProject();
+  const inner = join(outer, "notes", "vault");
+  const t = bin(["init", inner, "--project", project({ bound: false })]);
+  assert.equal(t.status, 0, t.stderr);
+  assert.ok(existsSync(join(inner, ".git")), "the vault gets its own repository");
+  const top = realpathSync(outer);
+  assert.ok(t.stdout.includes(`\`${inner}\` is inside the git work tree at \`${top}\`; the vault gets its own repository, which that repository will see as an embedded one.`), t.stdout);
+  const inner2 = join(outer, "notes", "vault2");
+  assert.deepEqual(envOf(bin(["init", inner2, "--json", "--project", project({ bound: false })])).result.git, { done: true, inside: top });
+  // Failing: a git whose init fails (a read-only parent, simulated), on PATH ahead of nothing else.
+  const fake = mkdtempSync(join(tmpdir(), "ps-fakegit-"));
+  writeFileSync(join(fake, "git"), "#!/bin/sh\nif [ \"$1\" = init ]; then echo \"fatal: cannot mkdir .git: Read-only file system\" >&2; exit 128; fi\necho \"fatal: not a git repository\" >&2\nexit 128\n", { mode: 0o755 });
+  const failing = join(mkdtempSync(join(tmpdir(), "ps-failgit-")), "vault");
+  const fp = project({ bound: false });
+  const f = bin(["init", failing, "--json", "--project", fp], { env: { PATH: fake } });
+  assert.equal(f.status, 1, f.stderr + f.stdout);
+  const fe = envOf(f);
+  assert.equal(fe.ok, false);
+  assert.equal(fe.result.git.failed, "fatal: cannot mkdir .git: Read-only file system");
+  assert.match(fe.result.git.remedy, /^Run `git init` in \S+, or \S+doctor --fix, which offers it\.$/, "the --json result carries the remedy the text prints");
+  assert.equal(fe.result.wrote, true, "the binding is written");
+  assert.equal(fe.result.scaffold.created.length, SKELETON.length, "scaffold still runs");
+  assert.ok(existsSync(join(failing, "README.md")));
+  const ft = bin(["init", join(mkdtempSync(join(tmpdir(), "ps-failgit-")), "vault"), "--project", project({ bound: false })], { env: { PATH: fake } });
+  assert.equal(ft.status, 1);
+  assert.match(ft.stdout, /\ngit init failed: fatal: cannot mkdir \.git: Read-only file system\n {2}Run `git init` in \S+, or \S+doctor --fix, which offers it\.\n/);
+  assert.match(ft.stdout, /\nScaffolded the engineering layout/);
+  assert.ok(!/Next:/.test(ft.stdout), "the remedy is the next step");
+  // Inherited repository-locating variables (a hook, a script) point nowhere
+  // near the vault: git init still makes the vault's own .git, and the decoy
+  // they name is left alone.
+  const decoy = mkdtempSync(join(tmpdir(), "ps-decoy-"));
+  const located = join(mkdtempSync(join(tmpdir(), "ps-located-")), "vault");
+  const d = bin(["init", located, "--json", "--project", project({ bound: false })], { env: { GIT_DIR: join(decoy, "elsewhere.git"), GIT_OBJECT_DIRECTORY: join(decoy, "objects"), GIT_WORK_TREE: decoy } });
+  assert.equal(d.status, 0, d.stderr + d.stdout);
+  assert.deepEqual(envOf(d).result.git, { done: true });
+  assert.ok(existsSync(join(located, ".git", "HEAD")), "the vault gets its own repository");
+  assert.deepEqual(readdirSync(decoy), [], "nothing was created where GIT_DIR pointed");
+});
+
+test("cli bind/init on an existing non-empty vault: binds, no git init, no scaffold; Next names scaffold in both forms only when the plan has a create row, status otherwise", () => {
+  const both = /\nNext: \S+scaffold in a session, or `projectstore scaffold --write`, creates the layout's missing folders and READMEs\.\n$/;
+  const status = /\nNext: `projectstore status`\.\n$/;
+  const vault = mkdtempSync(join(tmpdir(), "ps-nonempty-"));
+  writeFileSync(join(vault, "notes.md"), "# mine\n");
+  const proj = project({ bound: false });
+  const i = bin(["init", vault, "--project", proj]);
+  assert.equal(i.status, 0, i.stderr);
+  assert.deepEqual(readdirSync(vault), ["notes.md"], "no git init and no scaffold inside someone's files");
+  assert.match(i.stdout, both);
+  // init again on that binding: BOUND, and its hint gives both forms too.
+  const bound = bin(["init", vault, "--project", proj]);
+  assert.equal(bound.status, 1);
+  assert.match(bound.stderr, /already bound to .* — \S+scaffold in a session, or `projectstore scaffold --write`, creates the layout's missing folders and READMEs\n$/);
+  const ij = envOf(bin(["init", vault, "--json", "--project", project({ bound: false })])).result;
+  assert.equal(ij.git, null);
+  assert.equal(ij.scaffold, null);
+  // Already bound: the same decision.
+  const same = bin(["bind", vault, "--project", proj]);
+  assert.equal(same.status, 0);
+  assert.match(same.stdout, /^Already bound to /);
+  assert.match(same.stdout, both);
+  // The layout's folders there: status, fresh and already bound alike.
+  assert.equal(bin(["scaffold", "--write", "--project", proj]).status, 0);
+  assert.match(bin(["bind", vault, "--project", proj]).stdout, status);
+  const fresh = bin(["bind", vault, "--project", project({ bound: false })]);
+  assert.match(fresh.stdout, status);
+  assert.ok(!/scaffold/.test(fresh.stdout), fresh.stdout);
+  // A folder present without its README is a create row too.
+  rmSync(join(vault, "ops", "README.md"));
+  assert.match(bin(["bind", vault, "--project", project({ bound: false })]).stdout, both);
+  // A fresh bind to an empty vault names scaffold.
+  assert.match(bin(["bind", mkdtempSync(join(tmpdir(), "ps-empty-")), "--project", project({ bound: false })]).stdout, both);
+});
+
+test("cli scaffold: bind + scaffold --write and init give byte-identical trees outside .git", () => {
+  for (const language of ["en", "ru"]) {
+    const a = join(mkdtempSync(join(tmpdir(), "ps-ident-a-")), "team-vault");
+    const b = join(mkdtempSync(join(tmpdir(), "ps-ident-b-")), "team-vault");
+    mkdirSync(a);
+    const pa = project({ bound: false });
+    assert.equal(bin(["bind", a, "--language", language, "--project", pa]).status, 0);
+    assert.equal(bin(["scaffold", "--write", "--project", pa]).status, 0);
+    assert.equal(bin(["init", b, "--language", language, "--project", project({ bound: false })]).status, 0);
+    const ta = treeOf(a), tb = treeOf(b);
+    assert.ok(Object.keys(ta).length === SKELETON.length, language);
+    assert.deepEqual(ta, tb, `${language}: the two vaults differ`);
+    assert.match(ta["README.md"], /^# team-vault\n/, "titled by the directory's name alone");
+  }
+});
+
+test("cli: commands/scaffold.md and the rendered $projectstore-scaffold skill run the bin and compose no README", async () => {
+  const codex = loadHarness("codex");
+  const skill = join(codex.output_dir, "skills", codex.surfaces.commands.rendered_name.split("<name>").join("scaffold"), "SKILL.md");
+  for (const rel of [join("commands", "scaffold.md"), skill]) {
+    const src = readFileSync(join(ROOT, rel), "utf8");
+    assert.match(src, /bin\/projectstore\.mjs" scaffold --project "[^"]+"/, `${rel}: the plan is the bin's`);
+    assert.match(src, /bin\/projectstore\.mjs" scaffold --write --json --project "[^"]+"/, `${rel}: so is the confirmed write, under --json`);
+    for (const gone of ["folder-readme.md.tmpl", "mkdir", "Skip READMEs", "{{folder_name}}", "{{folder_description}}", "layout-name", "scaffold/layouts/", "file-writing tool", "Write tool"]) {
+      assert.ok(!src.includes(gone), `${rel} still composes the vault itself: ${gone}`);
+    }
+  }
+  assert.match(readFileSync(join(ROOT, "commands", "scaffold.md"), "utf8"), /^---\n[\s\S]*?\nargument-hint: ""\n[\s\S]*?---\n/, "no layout argument");
+  const { checkCodexAdapter } = await import("../scripts/build-adapters.mjs");
+  assert.equal(checkCodexAdapter().ok, true, "the Codex render is current");
 });
 
 // Contract 19 from the bin: the install family and agents configure refuse a
@@ -1029,6 +1421,7 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
     codemap: ["codemap --for <selector> [options]"],
     agents: ["agents model <name> [options]", "agents show [options]", "agents configure [options]"],
     bind: ["bind <vault> [options]"], init: ["init <vault> [options]"],
+    scaffold: ["scaffold [options]"],
   };
   assert.deepEqual(VERBS.map((v) => v.verb).sort(), Object.keys(GOLDEN).sort(), "every verb has its 0.29.2 forms here");
   for (const v of VERBS) {

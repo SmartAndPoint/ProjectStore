@@ -2,5 +2,39 @@
   "statusline_no_work": "Ni epic ni story dans cette session pour l'instant",
   "statusline_state_error": "⚠ état de session illisible",
   "statusline_example_epic": "Super fonctionnalité dans un super produit",
-  "statusline_example_story": "Poignée pour papier toilette"
+  "statusline_example_story": "Poignée pour papier toilette",
+  "folders": {
+    "adr": {
+      "name": "ADR",
+      "description": "Architecture Decision Records — décisions techniques importantes, avec leur contexte, les options envisagées et leurs conséquences."
+    },
+    "spec": {
+      "name": "Spécifications",
+      "description": "Le « comment » normatif de chaque sous-système — références aux ADR, contrats de comportement numérotés, acceptation en plus de celle des stories couvertes."
+    },
+    "epic": {
+      "name": "Epics",
+      "description": "Grands ensembles de travail découpés en stories. Chaque epic a son propre sous-dossier avec un répertoire `stories/`."
+    },
+    "research": {
+      "name": "Recherche",
+      "description": "Notes de recherche — investigations, spikes, comparaisons et conclusions."
+    },
+    "concept": {
+      "name": "Concepts",
+      "description": "Notes de concepts — définitions, modèles mentaux et entrées de glossaire."
+    },
+    "meeting": {
+      "name": "Réunions",
+      "description": "Comptes rendus de réunion — notes préfixées par la date : discussions, décisions et actions à mener."
+    },
+    "runbook": {
+      "name": "Exploitation",
+      "description": "Runbooks d'exploitation — procédures pas à pas avec vérification et retour arrière."
+    },
+    "diagram": {
+      "name": "Diagrammes",
+      "description": "Diagrammes d'architecture et de flux — contexte du système, séquences et flux de données."
+    }
+  }
 }

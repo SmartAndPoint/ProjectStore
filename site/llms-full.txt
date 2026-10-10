@@ -116,7 +116,7 @@ In Claude Code:
 /projectstore:bind ~/Documents/my-project-vault
 ```
 
-`bind` writes `.projectstore/projectstore.json` in the project root — machine-local and gitignored — then runs a short interview: gitignore entries, a scaffold offer if the vault is empty, registration of the agents block in `CLAUDE.md` / `AGENTS.md`, the model preset for the review agents, and the status-line offer. Every step shows what it will write and waits.
+`bind` writes `.projectstore/projectstore.json` in the project root — machine-local and gitignored — then runs a short interview: gitignore entries, a scaffold offer when the vault lacks the layout's folders (a directory that is missing or empty is created whole instead — its own git repository, the folders and their README indexes), registration of the agents block in `CLAUDE.md` / `AGENTS.md`, the model preset for the review agents, and the status-line offer. Every step shows what it will write and waits.
 
 From a terminal in the project, outside a session, the npm package registers the plugin with Claude Code for this checkout only:
 
@@ -230,7 +230,7 @@ The default models are Claude Code's. In Codex each role is a skill of the same 
 
 In Claude Code a command is `/projectstore:<name>`; in Codex it is the skill `$projectstore-<name>`.
 
-**Set up** — `bind <vault-path> | --inherit [--layout engineering] [--lang de|en|es|fr|ru|zh]`, `scaffold [layout]`, `agents <register|unregister|status|configure>`, `statusline <on|off|status>`
+**Set up** — `bind <vault-path> | --inherit [--layout engineering] [--lang de|en|es|fr|ru|zh]`, `scaffold`, `agents <register|unregister|status|configure>`, `statusline <on|off|status>`
 
 **Create** — `adr <title>`, `spec <title> | activate <id> | supersede <id>`, `epic <id> <title>`, `story <epic-id> <title> [--spec <id>] | plan <story> | close <story>`, `research <title>`, `concept <title>`, `meeting <title>`, `runbook <title>`
 

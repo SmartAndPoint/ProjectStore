@@ -64,7 +64,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { caps as termCaps, painter, icon as termIcon, duration, stepReporter, wrap, askLine } from "./term.mjs";
+import { caps as termCaps, painter, icon as termIcon, duration, stepReporter, wrap, askApply } from "./term.mjs";
 import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand } from "./harness.mjs";
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
 import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, isOurFile, readText } from "./surfaces.mjs";
@@ -1042,10 +1042,9 @@ export async function confirm(p, { stdin = null, stdout = null, ask = null, env 
   if (!writes.length) return { confirmed: false, why: "nothing-to-do" };
   const interactive = !json && (ask ? true : isInteractive({ stdin, stdout, env, json }));
   if (!interactive) return p.named ? { confirmed: true, why: "named" } : { confirmed: false, why: "non-tty" };
-  const question = `${paint("bold", `Apply ${writes.length === 1 ? "1 change" : `${writes.length} changes`}?`)} ${paint("gray", "[Y/n]")} `;
-  const answer = ask ? await ask(question) : await askLine(question, stdin, stdout);
-  if (answer === null || answer === undefined) return { confirmed: false, why: "declined" };
-  return /^(y(es)?)?$/i.test(String(answer).trim()) ? { confirmed: true, why: "answered" } : { confirmed: false, why: "declined" };
+  // The question's bytes and its answer rule are term.mjs's, shared with
+  // `scaffold --write`; the refused / nothing / named branches above stay here.
+  return (await askApply(writes.length, { stdin, stdout, ask, paint })) ? { confirmed: true, why: "answered" } : { confirmed: false, why: "declined" };
 }
 
 // ─── apply ─────────────────────────────────────────────────────────────

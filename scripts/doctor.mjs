@@ -101,6 +101,7 @@ import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, 
 // brand, and --harness still carries the target.
 import { uncommittedProjectFiles, lastCommitMs } from "./diff-refs.mjs";
 import { resolveBinding } from "./worktree.mjs";
+import { missingScaffoldRequirements } from "./scaffold.mjs";
 
 const AGENT_BLOCK_MARKER = new RegExp(AGENTS_BLOCK_OPEN_SRC, "g");
 // The provenance grammar's prefix, duplicated here on purpose: the startup
@@ -256,6 +257,15 @@ export function checkLayoutTemplates(cfg) {
     if (!existsSync(p)) {
       out.push(finding("install", "issue", "templates", `Missing template for language "${lang}": ${k}.md.tmpl`));
     }
+  }
+  // What `scaffold` (and `init`) refuse on, through the same check the plan
+  // makes: the vault README's template, and a name and a description for every
+  // folder kind the layout declares — `diagram` included. A warn, not an issue:
+  // a vault already scaffolded is not broken by a hand-added kind; only its
+  // next scaffold is refused. The folder README is the issue above.
+  for (const m of missingScaffoldRequirements(layout, lang, pluginRoot())) {
+    if (m.what === "template" && m.name === "folder-readme") continue;
+    out.push(finding("install", "warn", "templates", `${m.message} — scaffold and init refuse until it is there.`));
   }
   if (!existsSync(join(pluginRoot(), "scaffold", "headings.json"))) {
     out.push(finding("install", "issue", "templates",

@@ -13,6 +13,7 @@
 //   wrap(text, width, indent)    → prose broken at spaces, hanging indent
 //   stepReporter(stream, caps)   → { start(label), end(ok, note), abort() }
 //   askLine(question, in, out)   → the answer, or null on end of input
+//   askApply(n, opts)            → contract 9's question; true applies
 
 import { createInterface } from "node:readline/promises";
 
@@ -146,4 +147,19 @@ export async function askLine(question, input, output) {
     rl.on("close", () => { if (!done) output.write("\n"); finish(null); });
     rl.question(question).then((a) => finish(a), () => finish(null));
   });
+}
+
+// The install spec's contract 9 question, for every verb that asks it — the
+// install family and `scaffold --write` at a terminal. Its bytes and its
+// answer rule live here once, so two verbs cannot drift into two questions:
+// `Apply N changes? [Y/n] `; Enter, y or yes (any case) applies; anything
+// else is a no, and so is end of input. Whether to ask at all is the
+// caller's (install-harness.mjs's isInteractive). `ask` stands in for the
+// terminal in tests and means "this is one"; it gets the question and
+// returns the answer.
+export async function askApply(n, { stdin = null, stdout = null, ask = null, paint = (_style, text) => String(text) } = {}) {
+  const question = `${paint("bold", `Apply ${n === 1 ? "1 change" : `${n} changes`}?`)} ${paint("gray", "[Y/n]")} `;
+  const answer = ask ? await ask(question) : await askLine(question, stdin, stdout);
+  if (answer === null || answer === undefined) return false;
+  return /^(y(es)?)?$/i.test(String(answer).trim());
 }

@@ -4,8 +4,8 @@
 
 Since v0.14 the kind machinery is layout-driven: `draft.mjs` builds ANY kind
 declared in the layout, and doctor's template check follows the layout instead
-of a hardcoded list. A new kind needs **five touch points** — note that **all
-five live inside the plugin installation**, not in your vault (there is no
+of a hardcoded list. A new kind needs **six touch points** — note that **all
+six live inside the plugin installation**, not in your vault (there is no
 vault-side layout or template override):
 
 1. **Layout folder entry** — `scaffold/layouts/<name>.json` → `folders`:
@@ -55,6 +55,16 @@ vault-side layout or template override):
    for a plain kind, `commands/adr.md` for one that renders the draft's
    `collision`/`warnings` fields and updates an index, `commands/spec.md`
    for one with status transitions.
+
+6. **Folder strings** — `templates/<lang>/strings.json` → `folders.<kind>`,
+   a `name` and a one-line `description`, in **every** bundled language's
+   file. `scaffold` (and `init`) render the folder's README and its row in
+   the vault's top-level README from them, and refuse a layout whose folder
+   kind has no string in the bound language, naming the kind and the
+   language; doctor warns about the same gap. Every folder kind needs one,
+   with or without a command (`diagram` too). Keep the description to 160
+   characters with no `|`: the SessionStart skeleton shows it as the
+   folder's Purpose cell. Machine tokens such as `stories/` stay as they are.
 
 If the kind introduces **new section headings or inline keywords** that
 deterministic checks must recognize (doctor, reconcile, story-section),
@@ -108,7 +118,11 @@ Frontmatter keys **and their values** stay English (`status: planned` is
 machine-read; only prose and table labels get translated). Then register the
 language's heading/keyword/index-column forms in `scaffold/headings.json`, and
 add the locale to `LOCALES` in `tests/locales.test.mjs` so the suite actually
-runs over it. `templates/<lang>/strings.json` localizes the statusline only.
+runs over it. `templates/<lang>/strings.json` localizes the statusline and the
+folder names and descriptions `scaffold` writes into the READMEs
+(`folders.<kind>`, one per kind the layout declares — touch point 6 above),
+and `vault-readme.md.tmpl` is the vault's top-level README. There is no English
+fallback for either: a language that lacks one is refused by `scaffold`.
 
 Skipping the registry does not produce one clean error — it degrades *unevenly*,
 which is why the spec exists: an unregistered index header raises a doctor

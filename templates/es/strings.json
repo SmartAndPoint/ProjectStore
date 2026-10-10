@@ -2,5 +2,39 @@
   "statusline_no_work": "Aún no hay épica ni historia en esta sesión",
   "statusline_state_error": "⚠ estado de sesión ilegible",
   "statusline_example_epic": "Súper función en un súper producto",
-  "statusline_example_story": "Asa para el papel higiénico"
+  "statusline_example_story": "Asa para el papel higiénico",
+  "folders": {
+    "adr": {
+      "name": "ADR",
+      "description": "Registros de decisiones de arquitectura — decisiones técnicas relevantes con su contexto, las opciones consideradas y sus consecuencias."
+    },
+    "spec": {
+      "name": "Especificaciones",
+      "description": "El «cómo» normativo de cada subsistema — referencias a ADR, contratos de comportamiento numerados, aceptación adicional a la de las historias cubiertas."
+    },
+    "epic": {
+      "name": "Épicas",
+      "description": "Grandes bloques de trabajo divididos en historias. Cada épica tiene su propia subcarpeta con un directorio `stories/`."
+    },
+    "research": {
+      "name": "Investigación",
+      "description": "Notas de investigación — indagaciones, spikes, comparativas y conclusiones."
+    },
+    "concept": {
+      "name": "Conceptos",
+      "description": "Notas de conceptos — definiciones, modelos mentales y entradas de glosario."
+    },
+    "meeting": {
+      "name": "Reuniones",
+      "description": "Notas de reuniones — registros de debates, decisiones y tareas pendientes, con la fecha como prefijo."
+    },
+    "runbook": {
+      "name": "Operaciones",
+      "description": "Runbooks operativos — guías paso a paso con verificación y reversión."
+    },
+    "diagram": {
+      "name": "Diagramas",
+      "description": "Diagramas de arquitectura y de flujo — contexto del sistema, secuencias y flujos de datos."
+    }
+  }
 }
