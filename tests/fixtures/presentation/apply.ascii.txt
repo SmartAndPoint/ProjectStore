@@ -1,0 +1,17 @@
+  + registering projectstore@projectstore-npm
+      ... writing ~/.claude/projectstore/marketplace                           [2K      ok wrote ~/.claude/projectstore/marketplace                          0.1s
+      ... $ claude plugin validate /home/ada/.claude/projectstore/marketplace  [2K      ok $ claude plugin validate /home/ada/.claude/projectstore/marketplace 0.4s
+      ... $ claude plugin marketplace add /home/ada/.claude/projectstore/ma... [2K      ok $ claude plugin marketplace add /home/ada/.claude/projectstore/marketplace --scope local 0.4s
+      ... $ claude plugin install projectstore@projectstore-npm --scope loc... [2K      ok $ claude plugin install projectstore@projectstore-npm --scope local -y 0.4s
+  ok registered projectstore@projectstore-npm                              1.4s
+  ... adding AGENTS.md                                                         [2K  ok added AGENTS.md                                                       0.0s
+  ... adding CLAUDE.md                                                         [2K  ok added CLAUDE.md                                                       0.0s
+  ... adding .claude/settings.local.json                                       [2K  ok added .claude/settings.local.json                                     0.0s
+  ... adding .projectstore/state/claude-code/statusline.mjs                    [2K  ok added .projectstore/state/claude-code/statusline.mjs                  0.0s
+  + registering projectstore@projectstore-npx
+      ... $ codex plugin list --json                                           [2K      ok $ codex plugin list --json                                        0.4s
+      ... staging ~/.codex/projectstore/marketplace                            [2K      ok staged ~/.codex/projectstore/marketplace                          0.1s
+      ... $ codex plugin marketplace add /home/ada/.codex/projectstore/mark... [2K      ok $ codex plugin marketplace add /home/ada/.codex/projectstore/marketplace 0.4s
+      ... $ codex plugin add projectstore@projectstore-npx                     [2K      ok $ codex plugin add projectstore@projectstore-npx                  0.4s
+      ... $ codex plugin list --json                                           [2K      ok $ codex plugin list --json                                        0.4s
+  ok registered projectstore@projectstore-npx                              1.8s

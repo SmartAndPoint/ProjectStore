@@ -322,8 +322,9 @@ test("cli: Codex plan/install preserve pathless rows and semantics in text and J
   assert.deepEqual(installItems, planItems, "output selection and verb preserve the fresh-state plan");
   const pathless = planItems.filter((item) => item.path === null);
   assert.ok(pathless.length > 0, "the public Codex plan exercises pathless host rows");
-  // The default folds them into one line naming the harness, each surface,
-  // the state and the action; --verbose lists each, marked as pathless.
+  // The default folds them into one skipped row naming the harness and each
+  // surface, with no state word (presentation spec contract 7); --verbose
+  // lists each, marked as pathless, with its state and action.
   const verbose = bin(["plan", "--project", planText.proj, "--harness", codex.id, "--verbose"], { env: codexEnv() });
   assert.equal(verbose.status, 1, verbose.stderr);
   for (const item of pathless) {
@@ -331,16 +332,19 @@ test("cli: Codex plan/install preserve pathless rows and semantics in text and J
       const folded = text.split("\n").find((l) => l.includes(`not on ${codex.display_name}:`));
       assert.ok(folded, `text names ${codex.display_name}'s unsupported rows`);
       assert.ok(folded.includes(item.surface), `text names ${item.surface}`);
-      assert.match(folded, /unsupported → skip/);
+      assert.match(folded, /^ {2}· skipped +not on .* {2}--verbose says why$/);
+      assert.ok(!folded.includes("unsupported"), "no state word in the default view");
     }
     assert.ok(verbose.stdout.includes(`${item.surface} [${item.harness}, no filesystem path]`), `--verbose marks ${item.surface} as having no filesystem path`);
+    assert.match(verbose.stdout, /unsupported \(.*\) → skip/);
   }
 
   assert.equal(installJson.output.result.gate.why, "named");
   assert.equal(installJson.output.result.applied.length, 1);
-  assert.match(installText.result.stdout, /\nAPPLY\n {2}✓ shared +AGENTS\.md \[projectstore:agents v\d+\] +\d/);
-  assert.match(installText.result.stdout, /\nDONE — 1 change in \d/);
-  for (const s of codex.install.next) assert.ok(installText.result.stdout.includes(`next  ${s}`), `DONE names the manifest's next step: ${s}`);
+  assert.match(installText.result.stdout, /\n {2}✓ added AGENTS\.md +\d/);
+  assert.match(installText.result.stdout, /\nDone — 1 change in \d/);
+  // Next: one line for the harness, its display name in a column and its steps beside it.
+  assert.ok(installText.result.stdout.includes(`\nNext\n  ${codex.display_name}  ${codex.install.next.join("; ")}\n`), `DONE names the manifest's next steps:\n${installText.result.stdout}`);
   assert.equal(
     readFileSync(join(installText.proj, "AGENTS.md"), "utf8"),
     readFileSync(join(installJson.proj, "AGENTS.md"), "utf8"),
@@ -396,13 +400,13 @@ test("cli shell fetch: text puts the badge first, the fetch line under it, then 
   const r = bin(["install", "--harness", f.codex.id, "--project", proj], { env: f.env });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   const lines = r.stdout.split("\n");
-  assert.equal(lines[0], `projectstore · install · ${f.codex.display_name}`);
+  assert.equal(lines[0], `projectstore install · ${f.codex.display_name}`);
   assert.match(lines[1], new RegExp(`^ {2}✓ fetched ${shell}@${PKG.version.replace(/\./g, "\\.")} for ${f.codex.display_name} +\\d+\\.\\ds$`), lines[1]);
   assert.equal(lines[2], `  ${proj}`);
   assert.equal(lines[3], "");
-  assert.match(lines[4], /^PLAN — \d+ changes?$/);
-  assert.equal(r.stdout.split("projectstore · install").length, 2, "the preview does not print the badge again");
-  assert.match(r.stdout, /\nDONE — /);
+  assert.match(lines[4], /^Plan — \d+ to (add|register)/);
+  assert.equal(r.stdout.split("projectstore install").length, 2, "the preview does not print the badge again");
+  assert.match(r.stdout, /\nDone — /);
   assert.ok(f.host.log().some((c) => c.argv.join(" ") === "plugin add projectstore@projectstore-npx"), "registered through the host");
   const g = fetchBins();
   const j = bin(["upgrade", "--harness", g.codex.id, "--json", "--project", projectForHarness(g.codex)], { env: g.env });
@@ -428,7 +432,7 @@ test("cli shell fetch: a refused fetch exits 1 before the plan, in text and unde
   const t = bin(["upgrade", "--harness", f.codex.id, "--project", projectForHarness(f.codex)], { env });
   assert.equal(t.status, 1);
   assert.match(t.stdout.split("\n")[1], new RegExp(`^ {2}✕ fetch failed ${shell}@\\S+ +ETARGET {2}\\d+\\.\\ds$`));
-  assert.match(t.stdout, /PLAN — refused/);
+  assert.match(t.stdout, /\nPlan — refused\n/);
   assert.deepEqual(f.host.log(), [], "nothing spawned after npm");
   assert.deepEqual(readdirSync(f.fetchDir), []);
 });
@@ -443,7 +447,7 @@ test("cli shell fetch: a headless bare upgrade on .claude/ plus state/codex/ exi
   const r = bin(["upgrade", "--project", proj], { env: f.env });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.ok(r.stdout.includes(`Nothing written: without a terminal, a bare upgrade refuses. Name the harness to confirm: --harness ${SRC.id} | ${f.codex.id}\n`), r.stdout);
-  assert.ok(r.stdout.startsWith(`projectstore · upgrade · ${SRC.display_name}, ${f.codex.display_name}\n`), "both are planned");
+  assert.ok(r.stdout.startsWith(`projectstore upgrade · ${SRC.display_name}, ${f.codex.display_name}\n`), "both are planned");
   assert.deepEqual(f.npm.log(), [], "nothing fetched for a run that cannot be asked");
 });
 
@@ -888,7 +892,7 @@ test("cli init: refuses when already bound to a vault that is there, and rebuild
   assert.equal(JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path, vault);
   const text = bin(["init", join(mkdtempSync(join(tmpdir(), "ps-init-")), "v2"), "--project", project({ bound: false })]);
   assert.match(text.stdout, /Scaffolded the engineering layout/);
-  assert.match(text.stdout, /Next: `projectstore reconcile --write` \(optional\)/, "the derived views are offered, not run");
+  assert.match(text.stdout, /\nNext, optional: generate the derived views — kanban\.md, graph\.md and code-map\.md:\n\n {2}projectstore reconcile --write\n/, "the derived views are offered, not run — the command on its own line");
   assert.ok(!/in a session/.test(text.stdout), "a whole vault needs no session command after it");
   const twice = bin(["init", vault, "--json", "--project", proj]);
   assert.equal(twice.status, 1);
@@ -1233,8 +1237,9 @@ test("cli init: git absent (PATH \"\") skips with git.skipped and exits 0; insid
 });
 
 test("cli bind/init on an existing non-empty vault: binds, no git init, no scaffold; Next names scaffold in both forms only when the plan has a create row, status otherwise", () => {
-  const both = /\nNext: \S+scaffold in a session, or `projectstore scaffold --write`, creates the layout's missing folders and READMEs\.\n$/;
-  const status = /\nNext: `projectstore status`\.\n$/;
+  // Each command alone on its line, after a blank one (presentation spec contract 6).
+  const both = /\nNext: create the layout's missing folders and READMEs, in a session or from a terminal:\n\n {2}\S+scaffold\n {2}projectstore scaffold --write\n$/;
+  const status = /\nNext: see where the project stands:\n\n {2}projectstore status\n$/;
   const vault = mkdtempSync(join(tmpdir(), "ps-nonempty-"));
   writeFileSync(join(vault, "notes.md"), "# mine\n");
   const proj = project({ bound: false });

@@ -24,7 +24,7 @@ import { codexHost, fakeNpmSpawn } from "./fixtures/fetch.mjs";
 import { plan, renderPreview, confirm, apply, runVerb, isInteractive, renderDone } from "../scripts/install-harness.mjs";
 import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses, loadHarness, identifiedHarnessId, packageCommand } from "../scripts/harness.mjs";
 import { writeBinding, seedCliVault } from "./fixtures/vault.mjs";
-import { painter } from "../scripts/term.mjs";
+import { PLAIN } from "../scripts/term.mjs";
 import { stamp, sourceHash, parseProvenance } from "../scripts/provenance.mjs";
 import {
   AGENTS_BLOCK_OPEN_SRC,
@@ -118,9 +118,14 @@ test("install: a fresh cache-installed project plans three creates and writes no
   assert.ok(!existsSync(join(proj, CFG_DIR, "settings.local.json")));
 
   const preview = renderPreview(p);
-  for (const i of p.items) assert.ok(preview.includes(i.action), `preview names ${i.action}`);
+  // Each row in a person's words (presentation spec contract 7): every write
+  // reads "add" on its path's row; the unsupported row folds into "skipped",
+  // named in words.
+  const shown = preview.split("\n");
+  for (const i of p.items.filter((x) => x.action !== "skip")) assert.ok(shown.some((l) => /^ {2}\+ add +/.test(l) && l.includes(relative(proj, i.path))), `${i.surface} reads add:\n${preview}`);
+  assert.ok(shown.some((l) => /^ {2}· skipped +not on Claude Code: mcp project entry {2}/.test(l)), preview);
   assert.ok(preview.includes("CLAUDE.md") && preview.includes("settings.local.json") && preview.includes("statusline.mjs"));
-  assert.ok(preview.includes("Nothing outside a marked entry"));
+  assert.ok(preview.includes("Only the entries listed above are written — nothing else in those files is read, rewritten or removed."));
 
   const done = apply(p);
   assert.equal(done.length, 3);
@@ -172,10 +177,12 @@ test("install preview: a pathless public harness row keeps its identity without 
     incomplete: false,
   };
 
-  // By default the harness's unsupported rows fold into one line that still
-  // names the harness, the surface, the state and the action (contract 18).
+  // By default the harness's unsupported rows fold into one skipped row that
+  // still names the harness and the surface (contract 18), with no state word
+  // (presentation spec contract 7).
   const preview = renderPreview(p);
-  assert.match(preview, /not on Codex: commands — unsupported → skip/);
+  assert.match(preview, /^ {2}· skipped {2}not on Codex: commands {2}--verbose says why$/m);
+  assert.ok(!preview.includes("unsupported"), preview);
   assert.ok(!preview.includes("/tmp/project/"), "no project-relative path is invented");
   // --verbose lists the row itself, marked as having no filesystem path, with the manifest's reason.
   const verbose = renderPreview(p, { verbose: true });
@@ -488,7 +495,8 @@ test("install contract 9: a bare non-TTY install refuses, a named one proceeds, 
   assert.equal(bare.status, 1, bare.stderr);
   assert.match(bare.stdout, /Nothing written: without a terminal, a bare install refuses\. Name the harness to confirm: --harness /);
   assert.ok(bare.stdout.includes("CLAUDE.md"), "the preview is printed before the refusal");
-  assert.ok(bare.stdout.indexOf("PLAN — 3 changes") < bare.stdout.indexOf("Nothing written"), "the plan precedes the refusal");
+  const planned = bare.stdout.indexOf("\nPlan — 3 to add\n");
+  assert.ok(planned >= 0 && planned < bare.stdout.indexOf("Nothing written"), `the plan precedes the refusal:\n${bare.stdout}`);
   assert.ok(!bare.stdout.includes("\x1b["), "a pipe gets no escapes");
   assert.equal(read(join(proj, "CLAUDE.md")), "# Mine\n");
 
@@ -539,11 +547,12 @@ test("install contract 9/18: the plan precedes the question, Enter is yes, anyth
   let onScreen = null;
   const r = await runVerb("install", proj, { home, root, env, out, ask: async () => { onScreen = chunks.join(""); return ""; } });
   assert.equal(r.gate.why, "answered", "an empty answer is the default, yes");
-  assert.match(onScreen, /PLAN — 3 changes/, "the plan is printed before the question");
-  assert.ok(!onScreen.includes("APPLY"), "and nothing is applied before the answer");
+  assert.match(onScreen, /\nPlan — 3 to add\n/, "the plan is printed before the question");
+  assert.ok(!onScreen.includes("✓ added"), "and nothing is applied before the answer");
   const text = chunks.join("");
   const at = (s) => text.indexOf(s);
-  assert.ok(at("PLAN — 3 changes") < at("APPLY") && at("APPLY") < at("DONE — 3 changes in "), text);
+  // APPLY has no heading: its first finished line follows the plan.
+  assert.ok(at("Plan — 3 to add") >= 0 && at("Plan — 3 to add") < at("✓ added") && at("✓ added") < at("Done — 3 changes in "), text);
   assert.ok(!text.includes("\x1b["), "no escapes into a stream that is not a terminal");
   assert.equal(r.applied.length, 3);
   for (const answer of ["n", "no", "nope", "y please", null]) {
@@ -574,7 +583,7 @@ test("install contract 9: at a terminal the question follows the plan on the sam
   const proj = project();
   const pending = runVerb("install", proj, { home, root, env, harnesses: [SRC.id], stdin: t.stdin, stdout: t.stdout, out: t.stdout });
   await new Promise((r) => setImmediate(r));
-  assert.match(t.text().replace(/\x1b\[[0-9;]*m/g, ""), /PLAN — 3 changes[\s\S]*◆ Apply 3 changes\? \[Y\/n\] $/, "the plan, then the question, on one stream");
+  assert.match(t.text().replace(/\x1b\[[0-9;]*m/g, ""), /\nPlan — 3 to add\n[\s\S]*◆ Apply 3 changes\? \[Y\/n\] $/, "the plan, then the question, on one stream");
   t.stdin.write("\n");
   const yes = await pending;
   assert.deepEqual(yes.gate, { confirmed: true, why: "answered" }, "a named harness at a terminal is asked, and Enter is yes");
@@ -610,7 +619,7 @@ test("install contract 18: a refusal's ▲ is painted in the attention role, nev
   const p = { mode: "install", harnesses: [SRC.id], projectDir: "/tmp/project", plannedAgainst: {}, root: "/tmp/plugin", reports: [], ok: false, incomplete: false,
     refusals: ["two config files — merge them by hand"],
     items: [{ harness: SRC.id, surface: "statusline_launcher", kind: "exclusive", path: "/tmp/project/.projectstore/state/x.mjs", entry: null, state: "foreign", action: "refuse", reason: "not ours" }] };
-  const text = renderPreview(p, { paint: painter({ color: true }) });
+  const text = renderPreview(p, { caps: { ...PLAIN, color: true } });
   const marked = text.split("\n").filter((l) => l.includes("▲"));
   assert.equal(marked.length, 2, text);
   for (const l of marked) assert.ok(l.startsWith("  \x1b[33m▲\x1b[39m "), JSON.stringify(l));
@@ -622,17 +631,30 @@ test("install contract 18: every reason is in the default view, writes wear writ
   const p = { mode: "uninstall", harnesses: [SRC.id], projectDir: "/tmp/project", plannedAgainst: {}, root: "/tmp/plugin", reports: [], refusals: [], ok: true, incomplete: true,
     items: [row({ reason: "`claude` is not on PATH; global registration is left untouched" }), row({ surface: "agents_block", kind: "shared", entry: "projectstore:agents v4", state: "ours-current", reason: "AGENTS.md is read by another harness too" })] };
   const text = renderPreview(p);
-  assert.match(text, /current \(`claude` is not on PATH; global registration is left untouched\) → skip/, "the reason an uninstall could not be planned is in the default view");
-  assert.match(text, /ours-current \(AGENTS\.md is read by another harness too\) → skip/);
+  // Beneath its row (presentation spec contract 7), without the state words;
+  // --verbose adds the state and the plan's own action.
+  assert.match(text, /\n {6}`claude` is not on PATH; global registration is left untouched\n/, "the reason an uninstall could not be planned is in the default view");
+  assert.match(text, /\n {6}AGENTS\.md is read by another harness too\n/);
+  assert.ok(!text.includes("ours-current") && !text.includes("→ skip"), text);
+  // Both rows are current and left in place for a reason: each reads
+  // "skipped", never "unchanged", and the summary counts them so (contract 7).
+  assert.equal(text.split("\n").filter((l) => /^ {2}· skipped {2}x {2}(plugin|agents block)$/.test(l)).length, 2, text);
+  assert.match(text, /\nPlan — 2 skipped\n/);
+  assert.ok(!text.includes("unchanged"), text);
+  const loud = renderPreview(p, { verbose: true });
+  assert.match(loud, /current \(`claude` is not on PATH; global registration is left untouched\) → skip/);
+  assert.match(loud, /ours-current \(AGENTS\.md is read by another harness too\) → skip/);
   const writes = renderPreview({ ...p, mode: "install", incomplete: false, items: ["add", "replace-entry", "disable", "prune"].map((action, k) => row({ surface: `s${k}`, kind: "shared", action, state: "ours-absent" })) });
-  for (const action of ["add", "replace-entry", "disable", "prune"]) {
-    const line = writes.split("\n").find((l, k, all) => all[k + 1] && all[k + 1].includes(`→ ${action}`));
+  // Each write wears a write glyph and reads in contract 7's words.
+  for (const [k, [action, word]] of [["add", "add"], ["replace-entry", "update"], ["disable", "update"], ["prune", "remove"]].entries()) {
+    const line = writes.split("\n").find((l) => l.endsWith(`  s${k}`));
     assert.ok(line && !line.trimStart().startsWith("·"), `${action} wears a write glyph: ${line}`);
+    assert.match(line, new RegExp(`^ {2}\\S ${word} +x {2}s${k}$`), `${action} reads ${word}`);
   }
   // A failed layout step is not a host command, and nothing was planned against an install path.
   const layout = { ...p, mode: "install", items: [{ harness: SRC.id, surface: "layout", kind: "layout", path: "/tmp/project/.projectstore", entry: null, state: "legacy", action: "migrate" }] };
   const stopped = renderDone({ verb: "upgrade", plan: layout, applied: [{ surface: "layout", path: "/tmp/project/.projectstore", action: "migrate", failed: { step: "move-state", status: null, stderr: "EACCES" } }], failed: { step: "move-state", status: null, stderr: "EACCES" }, elapsed: 0 });
-  assert.match(stopped, /STOPPED — 0 changes applied, then move-state failed/);
+  assert.match(stopped, /Stopped — 0 changes applied, then move-state failed/);
   assert.match(stopped, /✕ move-state \(layout \.projectstore\)\n {6}EACCES/);
   assert.ok(!stopped.includes("host command") && !stopped.includes("install path"), stopped);
   // An injected ask is a terminal, unless --json says otherwise.
@@ -664,7 +686,7 @@ test("install contract 18: --verbose restores the prose the default folds, and D
   const p = plan(proj, { home, root });
   const quiet = renderPreview(p, { verb: "install" });
   const loud = renderPreview(p, { verb: "install", verbose: true });
-  assert.match(quiet, /^projectstore · install · Claude Code\n/);
+  assert.match(quiet, /^projectstore install · Claude Code\n/);
   assert.ok(loud.length > quiet.length);
   for (const report of p.reports) for (const line of report.split("\n").filter(Boolean)) {
     assert.ok(loud.includes(line), `--verbose prints the report line: ${line}`);
@@ -676,14 +698,16 @@ test("install contract 18: --verbose restores the prose the default folds, and D
     assert.ok(quiet.includes(shown) && loud.includes(shown), shown);
   }
   const done = renderDone({ verb: "install", plan: p, applied: [{}, {}, {}], failed: null, elapsed: 1234 });
-  assert.match(done, /DONE — 3 changes in 1\.2s/);
-  for (const s of loadHarness(SRC.id).install.next) assert.ok(done.includes(`next  ${s}`), s);
-  assert.match(done, /tip   every row's reasoning: add --verbose/);
-  assert.ok(!renderDone({ verb: "install", plan: p, applied: [], failed: null, elapsed: 0 }, { verbose: true }).includes("add --verbose"), "no --verbose tip once it was given");
+  assert.match(done, /\nDone — 3 changes in 1\.2s\n/);
+  // Next: one line for the harness — its display name, then its manifest's steps (presentation spec contract 8).
+  assert.ok(done.includes(`\nNext\n  Claude Code  ${loadHarness(SRC.id).install.next.join("; ")}\n`), done);
+  // The --verbose tip is the preview tip: the plan command carries the flag, last on its line.
+  assert.match(done, /\n {2}To preview without writing, with every row's reasoning:\n\n {2}npx \S+ plan --project "[^"]+" --verbose\n$/);
+  assert.ok(!renderDone({ verb: "install", plan: p, applied: [], failed: null, elapsed: 0 }, { verbose: true }).includes("--verbose"), "no --verbose tip once it was given");
   const gone = renderDone({ verb: "uninstall", plan: p, applied: [{}], failed: null, elapsed: 0 });
-  assert.match(gone, /next  restart Claude Code/);
+  assert.match(gone, /\nNext\n {2}Claude Code {2}restart Claude Code\n/);
   const failed = renderDone({ verb: "install", plan: p, applied: [{}], failed: { argv: ["claude", "plugin", "install", "x"], status: 1, stderr: "boom" }, elapsed: 0 });
-  assert.match(failed, /STOPPED — 1 change applied, then a host command failed/);
+  assert.match(failed, /Stopped — 1 change applied, then a host command failed/);
   assert.match(failed, /\$ claude plugin install x exited 1\n {6}boom/);
 });
 
@@ -931,7 +955,11 @@ test("install contract 12: the preview says who last wrote a shared-path file", 
   const other = project();
   mkdirSync(dirname(statusLineLauncherPath(other)), { recursive: true });
   copyFileSync(statusLineLauncherPath(proj), statusLineLauncherPath(other));
-  assert.ok(renderPreview(plan(other, { home, root })).includes(`current, last written by ${proj}`));
+  // The row's note names the writer, and the row is never collapsed into the
+  // unchanged line (presentation spec contract 7); --verbose keeps the state.
+  const p = plan(other, { home, root });
+  assert.ok(renderPreview(p).split("\n").some((l) => /^ {2}\S \S+ +\S+statusline\.mjs +last written by /.test(l) && l.endsWith(`last written by ${proj}`)), renderPreview(p));
+  assert.ok(renderPreview(p, { verbose: true }).includes(`current, last written by ${proj}`));
 });
 
 test("install: upgrade runs as install, a missing flag value is a usage error, and the JSON envelope carries no file bodies", () => {
@@ -1371,9 +1399,11 @@ test("install rule 5: a bare upgrade at a terminal selects Codex by its state di
   assert.equal(npm.installs().length, 1, "Codex's shell is fetched");
   assert.equal(r.failed, null, JSON.stringify(r.failed));
   const text = chunks.join("");
-  assert.match(text, /\nDONE — /);
-  // The tip names every harness the upgrade planned, Codex included.
-  for (const m of [SRC, CODEX]) assert.ok(text.includes(`tip   preview without writing: ${packageCommand(m, "plan", { args: `--project "${resolve(proj)}"` })}`), `${m.id}: ${text.slice(text.indexOf("DONE"))}`);
+  assert.match(text, /\nDone — /);
+  // The tip names every harness the upgrade planned, Codex included — each
+  // command alone on its line, --verbose last (presentation spec contract 6).
+  assert.ok(text.includes("\n  To preview without writing, with every row's reasoning:\n\n"), text.slice(text.indexOf("Done")));
+  for (const m of [SRC, CODEX]) assert.ok(text.includes(`\n  ${packageCommand(m, "plan", { args: `--project "${resolve(proj)}" --verbose` })}\n`), `${m.id}: ${text.slice(text.indexOf("Done"))}`);
   // A registration of ours for the whole machine, and no state directory: not a signal.
   const machine = project({ statusline: false });
   writeFileSync(join(h.home, "config.toml"), '[marketplaces.projectstore-npx]\nsource = "x"\n\n[plugins."projectstore@projectstore-npx"]\nenabled = true\n');
@@ -1673,7 +1703,7 @@ test("one block per run, uninstall of both: one block removal and one import rem
   assert.deepEqual(rowsOf(a.proj, blockRows(r.plan)), removed);
   assert.ok(!existsSync(join(a.proj, "AGENTS.md")), "AGENTS.md, left empty, is deleted");
   assert.ok(!existsSync(join(a.proj, "CLAUDE.md")), "CLAUDE.md held only the import");
-  assert.match(chunks.join(""), /\nDONE — 2 changes in /);
+  assert.match(chunks.join(""), /\nDone — 2 changes in /);
 
   // One harness of the two: the block stays, with today's reason. The import
   // stays too when it is the bridge of the harness left out — the file that
@@ -1742,7 +1772,7 @@ test("one block per run, rule 5: without a terminal, a bare uninstall's refusal 
   const { proj, lp } = stateProject();
   const r = spawnSync(process.execPath, [join(ROOT, "bin", "projectstore.mjs"), "uninstall", "--project", proj], { encoding: "utf8", cwd: tmp("cwd"), env: noHostEnv({ HOME: tmp("home") }), timeout: 60000 });
   assert.equal(r.status, 1, r.stderr);
-  assert.match(r.stdout, /^projectstore · uninstall · /);
+  assert.match(r.stdout, /^projectstore uninstall · /);
   assert.ok(r.stdout.includes(`Nothing written: without a terminal, a bare uninstall refuses. Name the harness to confirm: --harness ${SRC.id} | ${CODEX.id}\n`), r.stdout);
   assert.ok(existsSync(lp.welcomed(CODEX.id)), "nothing was written");
 });

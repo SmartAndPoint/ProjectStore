@@ -1,0 +1,15 @@
+
+Done — 6 changes in 3.4s
+
+Next
+  Claude Code  restart Claude Code in this project
+  Codex        restart Codex from a terminal and approve the ProjectStore hooks
+               when it asks; in an unbound project, run `$projectstore-bind
+               <vault-path>` in Codex
+
+  version  0.30.0
+
+  To preview without writing, with every row's reasoning:
+
+  npx projectstore-claude plan --project "$PWD" --verbose
+  npx projectstore-codex plan --project "$PWD" --verbose

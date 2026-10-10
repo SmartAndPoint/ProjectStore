@@ -1,0 +1,17 @@
+  [32m+[39m registering projectstore@projectstore-npm
+      [90m…[39m writing ~/.claude/projectstore/marketplace                             [2K      [32m✓[39m wrote ~/.claude/projectstore/marketplace                           [90m0.1s[39m
+      [90m…[39m $ claude plugin validate /home/ada/.claude/projectstore/marketplace    [2K      [32m✓[39m $ claude plugin validate /home/ada/.claude/projectstore/marketplace [90m0.4s[39m
+      [90m…[39m $ claude plugin marketplace add /home/ada/.claude/projectstore/market… [2K      [32m✓[39m $ claude plugin marketplace add /home/ada/.claude/projectstore/marketplace --scope local [90m0.4s[39m
+      [90m…[39m $ claude plugin install projectstore@projectstore-npm --scope local -y [2K      [32m✓[39m $ claude plugin install projectstore@projectstore-npm --scope local -y [90m0.4s[39m
+  [32m✓[39m registered projectstore@projectstore-npm                               [90m1.4s[39m
+  [90m…[39m adding AGENTS.md                                                           [2K  [32m✓[39m added AGENTS.md                                                        [90m0.0s[39m
+  [90m…[39m adding CLAUDE.md                                                           [2K  [32m✓[39m added CLAUDE.md                                                        [90m0.0s[39m
+  [90m…[39m adding .claude/settings.local.json                                         [2K  [32m✓[39m added .claude/settings.local.json                                      [90m0.0s[39m
+  [90m…[39m adding .projectstore/state/claude-code/statusline.mjs                      [2K  [32m✓[39m added .projectstore/state/claude-code/statusline.mjs                   [90m0.0s[39m
+  [32m+[39m registering projectstore@projectstore-npx
+      [90m…[39m $ codex plugin list --json                                             [2K      [32m✓[39m $ codex plugin list --json                                         [90m0.4s[39m
+      [90m…[39m staging ~/.codex/projectstore/marketplace                              [2K      [32m✓[39m staged ~/.codex/projectstore/marketplace                           [90m0.1s[39m
+      [90m…[39m $ codex plugin marketplace add /home/ada/.codex/projectstore/marketpl… [2K      [32m✓[39m $ codex plugin marketplace add /home/ada/.codex/projectstore/marketplace [90m0.4s[39m
+      [90m…[39m $ codex plugin add projectstore@projectstore-npx                       [2K      [32m✓[39m $ codex plugin add projectstore@projectstore-npx                   [90m0.4s[39m
+      [90m…[39m $ codex plugin list --json                                             [2K      [32m✓[39m $ codex plugin list --json                                         [90m0.4s[39m
+  [32m✓[39m registered projectstore@projectstore-npx                               [90m1.8s[39m

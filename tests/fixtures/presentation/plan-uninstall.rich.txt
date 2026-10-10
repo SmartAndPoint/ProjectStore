@@ -1,0 +1,22 @@
+[1mprojectstore uninstall[22m · Codex
+  [90m~/src/shop[39m
+
+[1mPlan[22m — [33m2 to remove[39m · [90m1 skipped[39m
+
+[1mCodex[22m
+  [90m·[39m [90mskipped[39m  projectstore@projectstore-npx                    [90mplugin[39m
+      [90muser-global; an ordinary uninstall keeps it, and uninstall --global[39m
+      [90mremoves it[39m
+      [90m(harness home /home/ada/.codex, scope user)[39m
+  [33m−[39m [33mremove[39m   AGENTS.md                                        [90magents block[39m
+      [90m(the file would hold nothing else and is removed)[39m
+  [33m−[39m [33mremove[39m   .projectstore/state/codex                        [90mharness state[39m
+      [90mdelete .projectstore/state/codex/welcomed[39m
+      [90mremove .projectstore/state/codex/ once empty — notes.txt stays and keeps it[39m
+  [90m·[39m [90mskipped[39m  [90mnot on Codex: agents, commands, mcp, statusline[39m
+             [90m--verbose says why[39m
+  [90m·[39m [90mCodex installs hooks, skills itself, from the registration[39m
+    [90mprojectstore@projectstore-npx[39m
+
+  [90mOnly the entries listed above are written — nothing else in those files is[39m
+  [90mread, rewritten or removed.[39m

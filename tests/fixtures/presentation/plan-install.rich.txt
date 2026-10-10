@@ -1,0 +1,49 @@
+[1mprojectstore install[22m · Claude Code, Codex
+  [90m~/src/shop[39m
+
+[1mPlan[22m — [32m4 to add[39m · [32m2 to register[39m
+
+[1mClaude Code[22m
+  [32m+[39m [32mregister[39m  projectstore@projectstore-npm                   [90mplugin[39m
+      [90mwrite /home/ada/.claude/projectstore/marketplace (159 files + the manifest)[39m
+      [90m$ claude plugin validate /home/ada/.claude/projectstore/marketplace[39m
+      [90m$ claude plugin marketplace add /home/ada/.claude/projectstore/marketplace --scope local[39m
+          [90mtouches /home/ada/.claude/plugins/known_marketplaces.json, .claude/settings.local.json[39m
+      [90m$ claude plugin install projectstore@projectstore-npm --scope local -y[39m
+          [90mtouches /home/ada/.claude/plugins/installed_plugins.json, .claude/settings.local.json, /home/ada/.claude/plugins/cache[39m
+      [90m(harness home /home/ada/.claude, scope local)[39m
+  [32m+[39m [32madd[39m       AGENTS.md                                       [90magents block[39m
+  [32m+[39m [32madd[39m       CLAUDE.md
+              [90magents block import[39m
+      [90mCLAUDE.md is what Claude Code reads by itself; the import of AGENTS.md is[39m
+      [90madded at its top[39m
+  [32m+[39m [32madd[39m       .claude/settings.local.json                     [90mstatusline[39m
+  [32m+[39m [32madd[39m       .projectstore/state/claude-code/statusline.mjs
+              [90mstatusline launcher[39m
+  [90m·[39m [90mskipped[39m   [90mnot on Claude Code: mcp project entry[39m
+              [90m--verbose says why[39m
+  [90m·[39m [90mClaude Code installs commands, agents, skills, hooks, mcp itself, from the[39m
+    [90mregistration projectstore@projectstore-npm[39m
+
+[1mCodex[22m
+  [32m+[39m [32mregister[39m  projectstore@projectstore-npx                    [90mplugin[39m
+      [90muser-wide: the plugin is registered for every project Codex opens, not[39m
+      [90monly this one[39m
+      [90m$ codex plugin list --json[39m
+      [90mstage /home/ada/.codex/projectstore/marketplace (48 payload files + catalogue + ownership)[39m
+      [90m$ codex plugin marketplace add /home/ada/.codex/projectstore/marketplace[39m
+          [90mtouches /home/ada/.codex/config.toml[39m
+      [90m$ codex plugin add projectstore@projectstore-npx[39m
+          [90mtouches /home/ada/.codex/config.toml, /home/ada/.codex/plugins/cache[39m
+      [90m$ codex plugin list --json[39m
+      [90m(harness home /home/ada/.codex, scope user)[39m
+  [90m·[39m AGENTS.md — the same block as Claude Code, above
+  [90m·[39m [90mskipped[39m   [90mnot on Codex: agents, commands, mcp, statusline[39m
+              [90m--verbose says why[39m
+  [90m·[39m [90mCodex installs hooks, skills itself, from the registration[39m
+    [90mprojectstore@projectstore-npx[39m
+
+  [90mOnly the entries listed above are written — nothing else in those files is[39m
+  [90mread, rewritten or removed.[39m
+  [90mEach $ line runs the host's own CLI, which writes the host-owned files named[39m
+  [90mafter it.[39m

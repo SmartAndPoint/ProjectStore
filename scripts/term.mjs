@@ -18,10 +18,12 @@
 //   badge(caps, head, parts)     → a screen's first line
 //   heading(caps, title, counts) → "Plan — 3 to add · 5 unchanged"
 //   rows(caps, list, opts)       → aligned glyph · action · target · note lines
+//   rowLines(caps, list, opts)   → the same, one array of lines per row
+//   PLAIN                        → the caps of a reader that is not a terminal
 //   rule(caps, length)           → a horizontal rule
 //   kv(caps, pairs, opts)        → aligned key–value lines
 //   commandBlock(caps, cmds)     → commands on their own lines (contract 6)
-//   stepReporter(stream, caps)   → { start(label), end(ok, note, opts), abort() }
+//   stepReporter(stream, caps)   → { start(label), end(ok, note, opts), finish(label, t0, opts), abort() }
 //   liveLine(stream, caps, label) → { end(ok, doneLabel, note), abort() }
 //   askLine(question, in, out)   → the answer, or null on end of input
 //   askApply(n, opts)            → contract 9's question; true applies
@@ -228,8 +230,13 @@ export function heading(c, title, counts = []) {
 // a long note wraps; anywhere else each row stays one line, whole, for a
 // reader that greps. A row is { glyph, role, action, target, note }: `glyph`
 // a name in GLYPHS or an alias, `role` the colour of the glyph and the action
-// word; the note is in the explanation role.
-export function rows(c, list, { indent = 2 } = {}) {
+// word; the note is in the explanation role. rowLines() gives each row's
+// lines on their own, for a caller that prints more beneath each row.
+export function rows(c, list, opts = {}) {
+  return rowLines(c, list, opts).flat();
+}
+
+export function rowLines(c, list, { indent = 2 } = {}) {
   const paint = painter(c);
   const cells = list.map((r) => ({ glyph: r.glyph ? icon(c, r.glyph) : "", role: r.role || null, action: String(r.action ?? ""), target: String(r.target ?? ""), note: String(r.note ?? "") }));
   const widest = (xs) => Math.max(0, ...xs.map((s) => plain(s).length));
@@ -243,16 +250,19 @@ export function rows(c, list, { indent = 2 } = {}) {
     let lead = " ".repeat(indent);
     if (gw) lead += cell(r.glyph, gw, r.role) + " ";
     if (aw) lead += cell(r.action, aw, r.role) + "  ";
-    if (!r.note) { out.push((lead + r.target).trimEnd()); continue; }
+    if (!r.note) { out.push([(lead + r.target).trimEnd()]); continue; }
     const line = `${lead}${cell(r.target, tw, null)}  ${paint("explanation", r.note)}`;
-    if (!width || plain(line).length <= width) { out.push(line); continue; }
+    if (!width || plain(line).length <= width) { out.push([line]); continue; }
     const col = plain(lead).length;
     const pad = " ".repeat(col);
-    out.push((lead + r.target).trimEnd());
-    out.push(...wrap(r.note, width, pad).split("\n").map((l, k) => pad + paint("explanation", k ? l.slice(col) : l)));
+    out.push([(lead + r.target).trimEnd(), ...wrap(r.note, width, pad).split("\n").map((l, k) => pad + paint("explanation", k ? l.slice(col) : l))]);
   }
   return out;
 }
+
+// The capabilities of a reader that is not a terminal and asked for nothing:
+// the renderers' default, so a caller that passes no caps gets plain text.
+export const PLAIN = Object.freeze({ color: false, live: false, width: 100, columns: 100, ascii: false });
 
 // A horizontal rule in the explanation role, as wide as a row may be.
 export function rule(c, length = rowWidth(c)) {
@@ -288,11 +298,19 @@ export function commandBlock(c, commands, { indent = 2 } = {}) {
 // (spawnSync), so nothing animates in between — the "…" is the honest state.
 // `end` may name the finished line in other words than the running one
 // (`label`: "adding …" while it runs, "added …" once it has); `now` is the
-// test's clock.
+// test's clock. `finish` is the finished line of work whose own steps printed
+// beneath its first line (a registration, a layout move): nothing of it is in
+// flight, so its line is written on a line of its own, timed from `t0`.
 export function stepReporter(stream = process.stdout, c = caps(stream), { indent = 2, now = Date.now } = {}) {
   const paint = painter(c);
   let open = null;
   const line = rowFor(c, indent);
+  const finished = (ok, note, kept, label, ms, over) => {
+    // A step that ran and left its target in place is neither ✓ nor ✕.
+    const mark = !ok ? paint("error", icon(c, "fail")) : kept ? paint("explanation", icon(c, "skip")) : paint("done", icon(c, "ok"));
+    const right = paint("explanation", [note, duration(ms)].filter(Boolean).join("  "));
+    stream.write((over && c.live ? "\r\x1b[2K" : "") + line(mark, label, right) + "\n");
+  };
   const self = {
     start(label) {
       // A step started while another is still open (a host command run by a
@@ -303,14 +321,10 @@ export function stepReporter(stream = process.stdout, c = caps(stream), { indent
     },
     end(ok = true, note = "", { kept = false, label = null } = {}) {
       if (!open) return;
-      const ms = now() - open.t0;
-      // A step that ran and left its target in place is neither ✓ nor ✕.
-      const mark = !ok ? paint("error", icon(c, "fail")) : kept ? paint("explanation", icon(c, "skip")) : paint("done", icon(c, "ok"));
-      const right = paint("explanation", [note, duration(ms)].filter(Boolean).join("  "));
-      const text = line(mark, label ?? open.label, right);
-      stream.write((c.live ? "\r\x1b[2K" : "") + text + "\n");
+      finished(ok, note, kept, label ?? open.label, now() - open.t0, true);
       open = null;
     },
+    finish(label, t0, { ok = true, note = "" } = {}) { finished(ok, note, false, label, now() - t0, false); },
     // An exception left a step open: end its line as failed, so whatever is
     // printed next starts on a line of its own.
     abort() { if (open) self.end(false); },

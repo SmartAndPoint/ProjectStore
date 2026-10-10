@@ -1,0 +1,10 @@
+Wrote /home/ada/src/shop/.projectstore/projectstore.json
+  [90mvault_path[39m  /home/ada/vaults/shop
+  [90mlayout[39m      engineering
+  [90mlanguage[39m    en
+
+Next: create the layout's missing folders and READMEs, in a session or from a
+  terminal:
+
+  [36m/projectstore:scaffold[39m
+  [36mprojectstore scaffold --write[39m

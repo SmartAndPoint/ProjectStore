@@ -72,7 +72,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { caps as termCaps, painter, icon as termIcon, duration, stepReporter, liveLine, wrap, askApply } from "./term.mjs";
+import { caps as termCaps, painter, icon as termIcon, duration, stepReporter, liveLine, wrap, askApply, plain, badge as badgeText, heading, rowLines, kv, commandBlock, PLAIN } from "./term.mjs";
 import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand, insideHostSession, bundlingShellHarnessId, cachePaths, commonBlockFiles, agentsBlockRow } from "./harness.mjs";
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
 import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, analyseHarnessState, isOurFile, readText, registrationRenderRoot, registrationPaths } from "./surfaces.mjs";
@@ -1099,148 +1099,231 @@ const isWrite = (i) => !["skip", "refuse"].includes(i.action);
 
 // ─── preview ───────────────────────────────────────────────────────────
 //
-// Contract 18: a header, then PLAN — one line per item (what, where, the state
-// transition) with its steps beneath. Every path written and every host argv
-// with the files it touches stays in the default view: that is contract 9's
-// consent content, and a reader that is an agent needs it as much as a person.
-// The explanations — the host-managed report, per-row reasons, each step's why,
-// the planned-against note — are folded behind `--verbose`. Colour comes from
-// the caller (term.mjs decides); the default is plain text. Every glyph comes
-// from term.mjs's one table (presentation spec contract 4): a caller passes
-// its stream's glyphs, and the default is the table's Unicode column.
+// PLAN (presentation spec contract 7, which revises the layout clauses of
+// install spec contract 18): the badge, the project path, a summary line of
+// counts, then the rows grouped under each run harness's display name, in run
+// order. A row is one aligned line — glyph, action word, target, note — and
+// beneath it what the reader consents to (install spec contract 9: every path
+// written and every host argv, with the files it touches), the reason when
+// there is one, and a consequence the reader must know. Internal words —
+// kinds, provenance states, entry markers, roadmap ids — and each step's why
+// are behind `--verbose`. Groups and counts are computed here, never added to
+// the plan: plan --json keeps its keys. Colour and glyphs are the caller's
+// stream's (`caps`, term.mjs); the default is plain text in Unicode.
 const unicodeGlyph = (name) => termIcon({ ascii: false }, name);
 
-// Every action a plan item can carry. A write never wears the skip glyph:
-// `add` and `replace-entry` are changes as much as `create` and `update`. A
-// refusal's ▲ is in the attention role, as the spec's colour roles say
-// (presentation spec contract 3); red is for what failed.
+// Every action a plan item can carry, as its glyph. A write never wears the
+// skip glyph: `add` and `replace-entry` are changes as much as `create` and
+// `update`.
 const ACTION_ICON = { create: "create", add: "create", update: "update", "replace-entry": "update", migrate: "migrate", disable: "update", cleanup: "cleanup", remove: "remove", prune: "remove", skip: "skip", refuse: "refuse" };
-const ACTION_COLOR = { create: "green", add: "green", update: "cyan", "replace-entry": "cyan", migrate: "cyan", disable: "cyan", cleanup: "yellow", remove: "yellow", prune: "yellow", skip: "gray", refuse: "attention" };
+// …and as a person's word (contract 7's table). A registration's write takes
+// `register`; a skip reads `unchanged` when the item is current and carries
+// no reason, and `skipped` otherwise — deferred, opted out, unsupported, or
+// left in place: a current row with a reason is one the run did not act on
+// for that reason (uninstall keeping a user-global registration, a host CLI
+// not on PATH), and the reason beneath it is what the reader acts on.
+const ACTION_WORD = { create: "add", add: "add", update: "update", "replace-entry": "update", migrate: "update", disable: "update", cleanup: "remove", remove: "remove", prune: "remove", refuse: "refused" };
+// Each word's colour role (contract 3): a refusal's ▲ and a removal are
+// attention; red is for what failed.
+const WORD_ROLE = { add: "done", register: "done", update: "action", remove: "attention", refused: "attention", unchanged: "explanation", skipped: "explanation" };
+// APPLY says a word while its step runs and once it has (contract 8).
+const WORD_TENSES = { add: ["adding", "added"], register: ["registering", "registered"], update: ["updating", "updated"], remove: ["removing", "removed"] };
+
+const CURRENT_STATES = new Set(["current", "ours-current", "ours"]);
+const isUnchanged = (i) => i.action === "skip" && !i.deferred && !i.reason && CURRENT_STATES.has(i.state);
+// A surface this harness does not have: folded into one line per harness.
+const isUnsupported = (i) => i.action === "skip" && i.state === "unsupported";
+// A row of something another project wrote last (install spec contract 12):
+// never collapsed, and its note says whose it is.
+const writtenElsewhere = (i) => i.state === "current" && Boolean(i.writtenBy) && !i.sameProject;
+// A row that writes nothing and asks nothing of the reader collapses into
+// one line per group naming it (contract 7).
+const isQuiet = (i) => isUnchanged(i) && !writtenElsewhere(i) && !(i.steps || []).length;
+
+function actionWord(i) {
+  if (i.action === "skip") return isUnchanged(i) ? "unchanged" : "skipped";
+  if (i.kind === "registration" && ["create", "add", "update"].includes(i.action)) return "register";
+  return ACTION_WORD[i.action] || "update";
+}
+const glyphName = (i) => ACTION_ICON[i.action] || (isWrite(i) ? "update" : "skip");
+// The surface key in words: `agents_block` reads "agents block".
+const surfaceWords = (key) => String(key).replace(/_/g, " ");
+// What a row names: a registration by its plugin id — its paths are the
+// consent lines beneath it — anything else by its path, project-relative.
+function rowTarget(p, i) {
+  if (i.kind === "registration" && i.entry) return i.entry;
+  if (i.path === null) return `${i.surface} [${i.harness}, no filesystem path]`;
+  return rel(p.projectDir, i.path);
+}
+function rowNote(i, { verbose, glyph }) {
+  const words = writtenElsewhere(i) ? `last written by ${i.writtenBy}` : surfaceWords(i.surface);
+  if (!verbose) return words;
+  return `${words} ${glyph("dot")} ${i.kind}${i.entry && i.kind !== "registration" ? ` [${i.entry}]` : ""}`;
+}
+// --verbose's line beneath a row: the provenance state, the reason and the
+// plan's own action, as install spec contract 18 wrote them.
+function transitionText(i, glyph) {
+  let state = writtenElsewhere(i) ? `current, last written by ${i.writtenBy}` : i.state;
+  if (i.reason && i.action !== "refuse") state += ` (${i.reason})`;
+  // A dry run's unchanged registration: right by every host fact, its
+  // payload digest still to compare. Said only where the reasoning is.
+  if (i.digestDeferred) state += " (the payload digest is compared when install or upgrade fetches the shell)";
+  return `${state} ${glyph("transition")} ${i.action}${i.action === "refuse" && i.reason ? ": " + i.reason : ""}`;
+}
 
 // One step of an item as the lines it shows: always the action and its target,
 // then — under --verbose — why it runs.
 function stepLines(p, st, { verbose, paint, width = 0, glyph = unicodeGlyph }) {
   const r = (x) => rel(p.projectDir, x);
+  const to = ` ${glyph("transition")} `;
   const lead = "      ";
   const sub = "          ";
-  const why = verbose && st.why ? wrap(st.why, width, sub).split("\n").map((l, k) => (k ? "" : sub) + paint("gray", l)) : [];
+  const why = verbose && st.why ? wrap(st.why, width, sub).split("\n").map((l, k) => (k ? "" : sub) + paint("explanation", l)) : [];
+  // A consent line (install spec contract 9): the step's verb and what it
+  // touches, in the explanation role (presentation spec contracts 3 and 7).
+  const said = (text) => `${lead}${paint("explanation", text)}`;
   switch (st.kind) {
     case "host": {
-      const out = [`${lead}${paint("cyan", "$")} ${[st.bin, ...st.argv].join(" ")}`];
-      if (st.touches.length) out.push(`${sub}${paint("gray", `touches ${st.touches.map(r).join(", ")}`)}`);
+      const out = [said(`$ ${[st.bin, ...st.argv].join(" ")}`)];
+      if (st.touches.length) out.push(`${sub}${paint("explanation", `touches ${st.touches.map(r).join(", ")}`)}`);
       return [...out, ...why];
     }
     // The fetch a dry run would run first (the shell-fetch story's rule 6),
     // with the fetch glyph (presentation spec contract 4).
-    case "fetch": return [`${lead}${paint("cyan", glyph("fetch"))} ${[st.bin, ...st.argv].join(" ")}`, ...why];
-    case "note": return wrap(`note: ${st.why}`, width, sub).split("\n").map((l, k) => (k ? l : lead + paint("yellow", "note:") + l.slice(5)));
-    case "write": return [`${lead}write ${st.path}${st.manifestOnly ? " (manifest only)" : ` (${st.files} files + the manifest)`}`, ...why];
+    case "fetch": return [`${lead}${paint("action", glyph("fetch"))} ${paint("explanation", [st.bin, ...st.argv].join(" "))}`, ...why];
+    case "note": return wrap(`note: ${st.why}`, width, sub).split("\n").map((l, k) => (k ? l : lead + paint("attention", "note:") + l.slice(5)));
+    case "write": return [said(`write ${st.path}${st.manifestOnly ? " (manifest only)" : ` (${st.files} files + the manifest)`}`), ...why];
     // A dry run names no file count: the payload is counted after the fetch.
-    case "portable-write": return [`${lead}stage ${st.path} (${Array.isArray(st.files) ? `${st.files.length} payload files` : "the fetched payload"} + catalogue + ownership)`, ...why];
-    case "rmdir-state": return [`${lead}remove ${r(st.path)}/ once empty${st.left?.length ? ` — ${st.left.join(", ")} stay${st.left.length === 1 ? "s" : ""} and keep${st.left.length === 1 ? "s" : ""} it` : ""}`, ...why];
+    case "portable-write": return [said(`stage ${st.path} (${Array.isArray(st.files) ? `${st.files.length} payload files` : "the fetched payload"} + catalogue + ownership)`), ...why];
+    case "rmdir-state": return [said(`remove ${r(st.path)}/ once empty${st.left?.length ? ` ${glyph("dash")} ${st.left.join(", ")} stay${st.left.length === 1 ? "s" : ""} and keep${st.left.length === 1 ? "s" : ""} it` : ""}`), ...why];
     case "portable-remove":
-    case "remove": return [`${lead}remove ${st.path}`, ...why];
-    case "unregister": return [`${lead}edit ${r(st.path)}  [${st.pointer}.${st.name}] → removed`, ...why];
-    case "ensure": return [`${lead}ensure ${r(st.path)}/`, ...why];
-    case "move-state": return [`${lead}move ${r(st.from)}/ → ${r(st.to)}/ (${st.files} entries)`, ...why];
-    case "merge-log": return [`${lead}merge ${r(st.from)} → ${r(st.to)}`, ...why];
-    case "delete": return [`${lead}delete ${r(st.path)}`, ...why];
-    case "move-marker": return [`${lead}move ${r(st.from)} → ${r(st.to)}`, ...why];
-    case "move-binding": return [`${lead}move ${r(st.from)} → ${r(st.to)}  (agents → ${r(st.overlay)})`, ...why];
+    case "remove": return [said(`remove ${st.path}`), ...why];
+    case "unregister": return [said(`edit ${r(st.path)}  [${st.pointer}.${st.name}]${to}removed`), ...why];
+    case "ensure": return [said(`ensure ${r(st.path)}/`), ...why];
+    case "move-state": return [said(`move ${r(st.from)}/${to}${r(st.to)}/ (${st.files} entries)`), ...why];
+    case "merge-log": return [said(`merge ${r(st.from)}${to}${r(st.to)}`), ...why];
+    case "delete": return [said(`delete ${r(st.path)}`), ...why];
+    case "move-marker": return [said(`move ${r(st.from)}${to}${r(st.to)}`), ...why];
+    case "move-binding": return [said(`move ${r(st.from)}${to}${r(st.to)}  (agents${to}${r(st.overlay)})`), ...why];
     case "remove-legacy-launcher":
     case "rmdir-legacy":
-    case "remove-legacy-runtime": return [`${lead}remove ${r(st.path)}`, ...why];
+    case "remove-legacy-runtime": return [said(`remove ${r(st.path)}`), ...why];
     default: return [];
   }
 }
 
-// The harnesses a plan names, by their display names — for the header.
+const displayName = (id) => loadHarness(id)?.display_name || id;
+// The harnesses a plan names, by their display names — for the badge.
 function displayNames(p) {
-  return p.harnesses.map((id) => loadHarness(id)?.display_name || id).join(", ") || "(no harness)";
+  return p.harnesses.map(displayName).join(", ") || "(no harness)";
 }
 
-const tilde = (path) => {
-  const h = homedir();
-  return path === h || path.startsWith(h + "/") ? "~" + path.slice(h.length) : path;
-};
+const tilde = (path, home = homedir()) => (path === home || path.startsWith(home + "/") ? "~" + path.slice(home.length) : path);
 
-// The badge (presentation spec contract 7): the first line of a verb's
-// output. A run that fetches prints it before the fetch line, and its preview
-// then leaves it out (`badge: false`), so it is printed once.
-export function badgeLine(p, { verb = null, paint = (_style, text) => String(text) } = {}) {
-  return `${paint("bold", "projectstore")} · ${verb || p.mode} · ${displayNames(p)}`;
+// The badge (presentation spec contract 7): `projectstore <verb> · <display
+// names>`, the first line of a verb's output. A run that fetches prints it
+// before the fetch line, and its preview then leaves it out (`badge: false`),
+// so it is printed once.
+export function badgeLine(p, { verb = null, caps: c = PLAIN } = {}) {
+  return badgeText(c, `projectstore ${verb || p.mode}`, [displayNames(p)]);
 }
 
-export function renderPreview(p, { verbose = false, verb = null, paint = (_style, text) => String(text), icon = null, width = 0, badge = true } = {}) {
-  const glyph = icon || unicodeGlyph;
+// The summary line: the counts by kind of change, each in its word's role.
+// Unsupported rows are not counted: they are the harness's, not the run's.
+const COUNTED = [["add", (n) => `${n} to add`], ["register", (n) => `${n} to register`], ["update", (n) => `${n} to update`], ["remove", (n) => `${n} to remove`], ["unchanged", (n) => `${n} unchanged`], ["skipped", (n) => `${n} skipped`]];
+function planSummary(p, c) {
+  if (!p.ok) return heading(c, "Plan", [["refused", "attention"]]);
+  const n = {};
+  for (const i of p.items) if (!isUnsupported(i)) n[actionWord(i)] = (n[actionWord(i)] || 0) + 1;
+  const counts = COUNTED.filter(([w]) => n[w]).map(([w, say]) => [say(n[w]), WORD_ROLE[w]]);
+  return heading(c, "Plan", counts.length ? counts : [["nothing to change", "explanation"]]);
+}
+
+// `home` shortens the project path to ~ (the caller's home; a test's fixed
+// one); everything else the screen needs is in `p`.
+export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN, badge = true, home = homedir() } = {}) {
+  const paint = painter(c);
+  const glyph = (name) => termIcon(c, name);
+  const width = c.live ? c.width : 0;
   const writes = p.items.filter(isWrite);
-  const lines = [
-    ...(badge ? [badgeLine(p, { verb, paint })] : []),
-    `  ${paint("gray", tilde(p.projectDir))}`,
-    "",
-  ];
   // Prose, wrapped to the terminal with every line indented; a path or a
   // command inside it is one word and never broken (term.mjs wrap).
-  const prose = (indent, text, style = "gray") => wrap(text, width, indent).split("\n").map((l, k) => (k ? "" : indent) + paint(style, l));
+  const prose = (indent, text, role = "explanation") => wrap(text, width, indent).split("\n").map((l, k) => indent + paint(role, k ? l.slice(indent.length) : l));
+  const lines = [
+    ...(badge ? [badgeLine(p, { verb, caps: c })] : []),
+    `  ${paint("explanation", tilde(p.projectDir, home))}`,
+    "",
+  ];
   if (verbose) {
     for (const [h, r] of Object.entries(p.plannedAgainst || {})) lines.push(...prose("  ", `${h}: the surfaces below are planned against the host's install path ${r}, not this package at ${p.root}.`), "");
     for (const r of p.reports) lines.push(...r.split("\n").flatMap((l) => (l.trim() ? prose("  ", l) : [""])), "");
   }
-  const count = writes.length === 1 ? "1 change" : `${writes.length} changes`;
-  lines.push(`${paint("bold", "PLAN")} — ${p.ok ? count : "refused"}`);
-  // The run's one agents block, named again where each other harness's row
-  // would have been (presentation spec contract 7; the story "One run plans
-  // the agents block once…", rule 1). Not a step and not an item: nothing is
-  // planned there.
-  const shared = p.sharedBlock;
-  const sameBlock = (at) => {
-    for (const o of shared?.others || []) if (o.at === at) lines.push(`  ${paint("gray", glyph("skip"))} ${shared.file} — the same block as ${shared.display}, above`);
+  lines.push(planSummary(p, c));
+  // An emptied state directory is pruned with the launcher removed from it;
+  // said once, beneath the first such row.
+  let pruneSaid = false;
+  const beneath = (i) => {
+    const out = [];
+    // A user-scope registration reaches past this project: contract 7's
+    // consequence line, on the line beneath its row, before anything else.
+    if (isWrite(i) && i.kind === "registration" && i.scope === "user") out.push(...prose("      ", `user-wide: the plugin is ${i.action === "remove" ? "removed" : "registered"} for every project ${displayName(i.harness)} opens, not only this one`));
+    if (verbose) out.push(...prose("      ", transitionText(i, glyph)));
+    else if (i.reason && !isUnsupported(i)) out.push(...prose("      ", i.reason, i.action === "refuse" ? "attention" : "explanation"));
+    for (const st of i.steps || []) out.push(...stepLines(p, st, { verbose, paint, width, glyph }));
+    if (i.kind === "registration" && i.home && i.surface && !i.surface.endsWith("_others")) out.push(`      ${paint("explanation", `(harness home ${i.home}${i.scope ? `, scope ${i.scope}` : ""})`)}`);
+    if (i.deleteIfEmpty && typeof i.after === "string" && !i.after.trim()) out.push(`      ${paint("explanation", "(the file would hold nothing else and is removed)")}`);
+    if (!pruneSaid && i.action === "remove" && i.kind === "exclusive") { pruneSaid = true; out.push(`      ${paint("explanation", `(an emptied ${rel(p.projectDir, dirname(i.path))}/ is pruned)`)}`); }
+    return out;
   };
-  // Unsupported host rows (no path, nothing this harness has) fold into one
-  // line per harness by default; --verbose lists each with the manifest's reason.
-  const folded = new Map();
-  for (const [at, i] of p.items.entries()) {
-    sameBlock(at);
-    if (!verbose && i.path === null && i.state === "unsupported" && i.action === "skip") {
-      const k = loadHarness(i.harness)?.display_name || i.harness;
-      if (!folded.has(k)) folded.set(k, []);
-      folded.get(k).push(i.surface);
-      continue;
-    }
-    const target = i.path === null ? `${i.surface} [${i.harness}, no filesystem path]` : rel(p.projectDir, i.path);
-    const where = target + (i.entry ? `  [${i.entry}]` : "");
-    let state = i.state;
-    if (i.state === "current" && i.writtenBy && !i.sameProject) state = `current, last written by ${i.writtenBy}`;
-    // A row's reason is shown whenever it has one: a row of something
-    // already right carries none, and every other reason — a change, a skip
-    // that needs a terminal or a PATH, a block kept for another harness —
-    // is something the reader acts on (the reviewer's pass, 2026-10-05).
-    if (i.reason && i.action !== "refuse") state += ` (${i.reason})`;
-    // A dry run's unchanged registration: right by every host fact, its
-    // payload digest still to compare. Said only where the reasoning is.
-    if (verbose && i.digestDeferred) state += " (the payload digest is compared when install or upgrade fetches the shell)";
-    const color = ACTION_COLOR[i.action] || (isWrite(i) ? "cyan" : "gray");
-    const mark = paint(color, glyph(ACTION_ICON[i.action] || (isWrite(i) ? "update" : "skip")));
-    const transition = `${state} → ${i.action}${i.action === "refuse" && i.reason ? ": " + i.reason : ""}`;
-    lines.push(`  ${mark} ${paint("bold", i.kind.padEnd(12))} ${where}`);
-    lines.push(...prose("      ", transition));
-    for (const st of i.steps || []) lines.push(...stepLines(p, st, { verbose, paint, width, glyph }));
-    if (i.kind === "registration" && i.home && i.surface && !i.surface.endsWith("_others")) lines.push(`      ${paint("gray", `(harness home ${i.home}${i.scope ? `, scope ${i.scope}` : ""})`)}`);
-    if (i.deleteIfEmpty && typeof i.after === "string" && !i.after.trim()) lines.push(`      ${paint("gray", "(the file would hold nothing else and is removed)")}`);
-  }
-  sameBlock(p.items.length);
-  const hostLine = (text) => { const [first, ...rest] = wrap(text, width, " ".repeat(17)).split("\n"); return [`  ${paint("gray", glyph("skip"))} ${paint("bold", "host".padEnd(12))} ${first}`, ...rest]; };
-  for (const h of p.hostManaged || []) {
+  // The run's one agents block, named again where each other harness's row
+  // would have been (contract 7; the story "One run plans the agents block
+  // once…", rule 1): in that harness's group, before its first item at or
+  // after the recorded index, else at the group's end. Not a step and not an
+  // item: nothing is planned there.
+  const sameBlock = () => `  ${paint("explanation", glyph("skip"))} ${p.sharedBlock.file} ${glyph("dash")} the same block as ${p.sharedBlock.display}, above`;
+  const hostLines = (h) => {
     const from = h.entry ? `from the registration ${h.entry}` : "from the host's own plugin system";
-    lines.push(...hostLine(`${h.display} installs ${h.rows.join(", ")} itself, ${from}`));
+    return wrap(`${h.display} installs ${h.rows.join(", ")} itself, ${from}`, width, "    ").split("\n").map((l, k) => (k ? `    ${paint("explanation", l.slice(4))}` : `  ${paint("explanation", glyph("skip"))} ${paint("explanation", l)}`));
+  };
+  const ids = [...p.harnesses, ...new Set(p.items.map((i) => i.harness).filter((h) => !p.harnesses.includes(h)))];
+  for (const id of ids) {
+    const entries = p.items.map((i, at) => ({ i, at })).filter((e) => e.i.harness === id);
+    const others = (p.sharedBlock?.others || []).filter((o) => o.harness === id).sort((a, b) => a.at - b.at);
+    const host = (p.hostManaged || []).filter((h) => h.harness === id);
+    if (!entries.length && !others.length && !host.length) continue;
+    const folded = verbose ? [] : entries.filter((e) => isUnsupported(e.i));
+    const quiet = verbose ? [] : entries.filter((e) => isQuiet(e.i));
+    const shown = entries.filter((e) => !folded.includes(e) && !quiet.includes(e));
+    const specs = shown.map(({ i }) => ({ glyph: glyphName(i), role: WORD_ROLE[actionWord(i)], action: actionWord(i), target: rowTarget(p, i), note: rowNote(i, { verbose, glyph }) }));
+    if (quiet.length) specs.push({ glyph: "unchanged", role: "explanation", action: "unchanged", target: paint("explanation", quiet.map((e) => surfaceWords(e.i.surface)).join(", ")) });
+    // Unsupported rows keep one line per harness (contract 18), named in
+    // words as the unchanged line names its rows; --verbose lists each with
+    // the manifest's reason.
+    if (folded.length) specs.push({ glyph: "unchanged", role: "explanation", action: "skipped", target: paint("explanation", `not on ${displayName(id)}: ${folded.map((e) => surfaceWords(e.i.surface)).join(", ")}`), note: "--verbose says why" });
+    const drawn = rowLines(c, specs);
+    lines.push("", paint("emphasis", displayName(id)));
+    const pending = [...others];
+    shown.forEach(({ i, at }, k) => {
+      while (pending.length && pending[0].at <= at) { pending.shift(); lines.push(sameBlock()); }
+      lines.push(...drawn[k], ...beneath(i));
+    });
+    for (const _ of pending) lines.push(sameBlock());
+    for (const extra of drawn.slice(shown.length)) lines.push(...extra);
+    for (const h of host) lines.push(...hostLines(h));
   }
-  for (const [display, rows] of folded) lines.push(...hostLine(`not on ${display}: ${rows.join(", ")} — unsupported → skip ${paint("gray", "(--verbose says why)")}`));
-  const exclusiveRemoval = p.items.find((i) => i.action === "remove" && i.kind === "exclusive");
-  if (exclusiveRemoval) lines.push(`      ${paint("gray", `(an emptied ${rel(p.projectDir, dirname(exclusiveRemoval.path))}/ is pruned)`)}`);
-  for (const r of p.refusals) { const [first, ...rest] = wrap(r, width, " ".repeat(17)).split("\n"); lines.push(`  ${paint("attention", glyph("refuse"))} ${paint("bold", "refused".padEnd(12))} ${first}`, ...rest); }
-  lines.push("", `  ${paint("gray", "Nothing outside a marked entry is read, rewritten or removed.")}`);
-  if (p.items.some((i) => (i.steps || []).some((s) => s.kind === "host"))) lines.push(`  ${paint("gray", "Each $ line runs the host's own CLI, which writes the host-owned files named after it.")}`);
-  if (!p.ok) lines.push("", `  ${paint("red", "Nothing will be written: resolve the refusals above first.")}`);
+  if (p.refusals.length) lines.push("");
+  for (const r of p.refusals) {
+    const lead = `  ${paint("attention", glyph("refuse"))} ${paint("attention", "refused")}  `;
+    const [first, ...rest] = wrap(r, width, " ".repeat(plain(lead).length)).split("\n");
+    lines.push(lead + first, ...rest);
+  }
+  // The closing lines, in a person's words: only what is listed is written,
+  // and a $ line is the host's own CLI at work.
+  const closing = [];
+  if (p.ok && writes.length) closing.push(...prose("  ", `Only the entries listed above are written ${glyph("dash")} nothing else in those files is read, rewritten or removed.`));
+  if (p.items.some((i) => (i.steps || []).some((s) => s.kind === "host"))) closing.push(...prose("  ", "Each $ line runs the host's own CLI, which writes the host-owned files named after it."));
+  if (closing.length) lines.push("", ...closing);
+  if (!p.ok) lines.push("", `  ${paint("attention", "Nothing will be written: resolve the refusals above first.")}`);
   else if (!writes.length) lines.push("", "  Nothing to change." + (p.incomplete ? " One surface could not be planned (see above)." : ""));
   else if (p.incomplete) lines.push("", "  One surface could not be planned (see above); the rest proceeds.");
   return lines.join("\n") + "\n";
@@ -1569,7 +1652,7 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
       return out;
     }
   }
-  const fail = (step, status, stderr, argv = null) => {
+  const fail = (step, status, stderr, argv = null, ended = null) => {
     if (staged) {
       // A first install can fail after Codex has accepted the marketplace but
       // before verification. Best-effort compensation happens while the staged
@@ -1602,6 +1685,13 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
       staged = null;
     }
     out.failed = { step, status, stderr, ...(argv ? { argv } : {}) };
+    // How a host command ended, for STOPPED (presentation spec contract 8):
+    // whether it could start at all, and the signal that stopped one that
+    // did. Not enumerable, so the --json envelope keeps the record's shape.
+    if (ended) {
+      Object.defineProperty(out.failed, "couldNotStart", { value: Boolean(ended.couldNotStart), enumerable: false });
+      Object.defineProperty(out.failed, "signal", { value: ended.signal || null, enumerable: false });
+    }
     releaseLock();
     return out;
   };
@@ -1674,8 +1764,12 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
         : said;
       out.steps.push({ kind: "host", argv: [st.bin, ...st.argv], status: r.status ?? null, ok, ...(ok ? {} : { stderr: told }) });
       // An unreadable answer exited 0; STOPPED names it by what it said, as
-      // the final list's own failure does, not by an "exited 0".
-      if (!ok) return fail(st.name, unreadable ? null : r.status ?? null, told, [st.bin, ...st.argv]);
+      // the final list's own failure does, not by an "exited 0". A command
+      // that could not start has an error and neither a status nor a signal
+      // (ENOENT, EACCES); a timeout's error comes with the signal that
+      // stopped it, so that command ran.
+      const couldNotStart = Boolean(r.error) && !r.signal && (r.status === null || r.status === undefined);
+      if (!ok) return fail(st.name, unreadable ? null : r.status ?? null, told, [st.bin, ...st.argv], { couldNotStart, signal: r.signal || null });
       if (portable && st.name === "list") {
         hostList = portableListFact(r.stdout, i.entry);
         if (!hostList) return fail("list", null, `${st.bin} ${st.argv.join(" ")} did not report ${i.entry} in JSON output`, [st.bin, ...st.argv]);
@@ -1838,17 +1932,16 @@ async function prepareRun(verb, projectDir, opts = {}) {
 export async function runVerb(verb, projectDir, opts = {}) {
   const mode = verb === "uninstall" ? "uninstall" : "install"; // upgrade is install re-run (contract 14)
   const env = opts.env || process.env;
+  const home = opts.home || homedir();
   // `out` is the text-mode caller's stdout. With it, this prints: the plan
   // first, then the question, then each step as it runs, then DONE. A run
   // that fetches prints its badge first, then the fetch line beneath it, then
   // the preview without the badge (presentation spec contract 7's slot).
   const out = opts.out || null;
   const c = out ? termCaps(out, env) : null;
-  const paint = c ? painter(c) : (_style, text) => String(text);
-  const glyph = c ? (name) => termIcon(c, name) : null;
   let badged = false;
   const onFetch = out ? (label, ids) => {
-    if (!badged) { out.write(badgeLine({ harnesses: ids, mode }, { verb, paint }) + "\n"); badged = true; }
+    if (!badged) { out.write(badgeLine({ harnesses: ids, mode }, { verb, caps: c }) + "\n"); badged = true; }
     return liveLine(out, c, label, { env });
   } : null;
   const prep = await prepareRun(verb, projectDir, { ...opts, env, onFetch });
@@ -1860,7 +1953,7 @@ export async function runVerb(verb, projectDir, opts = {}) {
     // project fact. install and plan keep contract 8, so a bare plan and a
     // bare install still agree.
     const p = prep.refused || plan(projectDir, { ...opts, mode, state: verb === "upgrade" || (verb === "uninstall" && !opts.globalRemoval), version: prep.version, payloadRoots: prep.payloadRoots });
-    const view = { verbose: Boolean(opts.verbose), verb, paint, icon: glyph, width: c && c.live ? c.width : 0 };
+    const view = { verbose: Boolean(opts.verbose), verb, caps: c || PLAIN, home };
     const preview = renderPreview(p, view);
     if (out) out.write((badged ? renderPreview(p, { ...view, badge: false }) : preview) + "\n");
     const gate = await confirm(p, { ...opts, env, ...(c ? { caps: c } : {}) });
@@ -1868,12 +1961,12 @@ export async function runVerb(verb, projectDir, opts = {}) {
     if (gate.confirmed) {
       // DONE's time leaves the fetch out: it wrote nothing of the project's.
       const t0 = Date.now();
-      const reporter = out ? applyReporter(out, c, p) : null;
+      const reporter = out ? applyReporter(out, c, p, { home }) : null;
       const spawn = opts.spawn || spawnSync;
-      result.applied = apply(p, { env, spawn: reporter ? reporter.spawn(spawn) : spawn, home: opts.home || homedir(), onItem: reporter ? reporter.onItem : null, onStep: reporter ? reporter.onStep : null });
+      result.applied = apply(p, { env, spawn: reporter ? reporter.spawn(spawn) : spawn, home, onItem: reporter ? reporter.onItem : null, onStep: reporter ? reporter.onStep : null });
       result.failed = result.applied.failed || null;
       result.elapsed = Date.now() - t0;
-      if (out) out.write(renderDone(result, { paint, glyph: glyph || undefined, verbose: Boolean(opts.verbose) }));
+      if (out) out.write(renderDone(result, { caps: c, verbose: Boolean(opts.verbose), cwd: opts.cwd || process.cwd() }));
     }
     return result;
   } finally {
@@ -1881,44 +1974,61 @@ export async function runVerb(verb, projectDir, opts = {}) {
   }
 }
 
-// APPLY, one line per step (contract 18). An item with steps — a
-// registration, the layout move — prints its name, then one line per step
-// beneath it: each host command, staging write, write and move. Any other
-// item is one line.
-function applyReporter(out, c, p) {
+// APPLY, one line per step as it finishes (presentation spec contract 8):
+// the glyph, what was done in the past tense — "added CLAUDE.md", having read
+// "adding CLAUDE.md" while it ran on a terminal — and the duration. An item
+// with steps — a registration, the layout move — prints its own line as it
+// starts ("registering …"), one line per step beneath it — each host
+// command, staging write, write and move — and, once all of them have run,
+// its finished line in the past tense ("registered …") with the item's whole
+// time, so a transcript never ends on a line that reads as still running.
+// No heading: the plan's last line and the question are above it. `now` is
+// the test's clock; `home` shortens paths to ~.
+export function applyReporter(out, c, p, { now = Date.now, home = homedir() } = {}) {
   const paint = painter(c);
-  const item = stepReporter(out, c, { indent: 2 });
-  const step = stepReporter(out, c, { indent: 6 });
-  let opened = false;
-  const open = () => { if (!opened) { out.write(`${paint("bold", "APPLY")}\n`); opened = true; } };
-  const label = (i) => {
-    const target = i.path === null ? i.surface : rel(p.projectDir, i.path);
-    return `${i.kind} ${target}${i.entry ? ` [${i.entry}]` : ""}`;
+  const glyph = (name) => termIcon(c, name);
+  const item = stepReporter(out, c, { indent: 2, now });
+  const step = stepReporter(out, c, { indent: 6, now });
+  const said = (i) => {
+    const word = actionWord(i);
+    const [running, done] = WORD_TENSES[word] || [word, word];
+    const target = rowTarget(p, i);
+    return { word, running: `${running} ${target}`, done: `${done} ${target}` };
   };
   const stepped = (i) => i.kind === "registration" || i.kind === "layout";
+  const began = new Map();
   return {
     onItem(i, phase, r) {
-      open();
+      const s = said(i);
       if (stepped(i)) {
-        if (phase === "start") out.write(`  ${paint(ACTION_COLOR[i.action] || "cyan", termIcon(c, ACTION_ICON[i.action] || "update"))} ${label(i)}\n`);
-        else if (phase === "abort") step.abort();
-        else if (r && (r.action === "skipped" || r.action === "skip")) out.write(`      ${paint("gray", termIcon(c, "skip"))} ${paint("gray", `${r.action === "skip" ? "nothing to do" : "skipped"}: ${r.reason || "an earlier item failed"}`)}\n`);
-        else if (r && r.failed) out.write(`      ${paint("red", termIcon(c, "fail"))} ${paint("red", "stopped")}\n`);
+        if (phase === "start") { began.set(i, now()); out.write(`  ${paint(WORD_ROLE[s.word], glyph(glyphName(i)))} ${s.running}\n`); return; }
+        const t0 = began.get(i) ?? now();
+        began.delete(i);
+        if (phase === "abort") step.abort();
+        else if (r && (r.action === "skipped" || r.action === "skip")) out.write(`      ${paint("explanation", glyph("skip"))} ${paint("explanation", `${r.action === "skip" ? "nothing to do" : "skipped"}: ${r.reason || "an earlier item failed"}`)}\n`);
+        else if (r && r.failed) out.write(`      ${paint("error", glyph("fail"))} ${paint("error", "stopped")}\n`);
+        else item.finish(s.done, t0);
         return;
       }
-      if (phase === "start") item.start(label(i));
+      if (phase === "start") item.start(s.running);
       else if (phase === "abort") item.abort();
-      else item.end(!(r && (r.failed || r.action === "skipped")), r && r.action === "skipped" ? "skipped" : "");
+      else {
+        // An item that failed or was skipped keeps the words it ran under.
+        const failed = Boolean(r && (r.failed || r.action === "skipped"));
+        item.end(!failed, r && r.action === "skipped" ? "skipped" : "", failed ? {} : { label: s.done });
+      }
     },
     onStep(st, phase, r) {
-      const text = stepLabel(p, st);
-      if (!text) return;
-      if (phase === "start") step.start(text);
-      else step.end(r ? r.ok : true, r && r.kept ? "kept" : "", { kept: Boolean(r && r.kept) });
+      const l = stepLabel(p, st, { home, glyph });
+      if (!l) return;
+      if (phase === "start") { step.start(l.running); return; }
+      const ok = r ? r.ok : true;
+      const kept = Boolean(r && r.kept);
+      // A step that left its target in place did not do its verb.
+      step.end(ok, kept ? "kept" : "", ok ? { kept, label: kept ? l.base : l.done } : {});
     },
     spawn(inner) {
       return (bin, argv, o) => {
-        open();
         step.start(`$ ${basename(String(bin))} ${argv.join(" ")}`);
         let r;
         try { r = inner(bin, argv, o); }
@@ -1930,34 +2040,50 @@ function applyReporter(out, c, p) {
   };
 }
 
-// A step as its APPLY line names it: the verb and the target, short. The
-// full form — file counts, entry pointers — was in PLAN.
-function stepLabel(p, st) {
-  const r = (x) => tilde(rel(p.projectDir, x));
+// A step as its APPLY line names it: the verb and the target, short — the
+// full form, file counts and entry pointers, was in PLAN. `base` is the plain
+// verb, for a step that left its target in place.
+const STEP_TENSES = { stage: ["staging", "staged"], lift: ["lifting", "lifted"], write: ["writing", "wrote"], edit: ["editing", "edited"], ensure: ["ensuring", "ensured"], move: ["moving", "moved"], merge: ["merging", "merged"], remove: ["removing", "removed"] };
+function stepLabel(p, st, { home = homedir(), glyph = unicodeGlyph } = {}) {
+  const r = (x) => tilde(rel(p.projectDir, x), home);
+  const to = ` ${glyph("transition")} `;
+  const said = (verb, rest) => ({ base: `${verb} ${rest}`, running: `${STEP_TENSES[verb][0]} ${rest}`, done: `${STEP_TENSES[verb][1]} ${rest}` });
   switch (st.kind) {
-    case "portable-write": return `stage ${r(st.path)}`;
-    case "recover": return `lift ${r(st.path)} — the previous state proved${st.lifted ? `; it held: ${String(st.lifted).split("\n")[0]}` : ""}`;
-    case "write": return `write ${r(st.path)}`;
-    case "unregister": return `edit ${r(st.path)} [${st.pointer}.${st.name}]`;
-    case "ensure": return `ensure ${r(st.path)}/`;
-    case "move-state": return `move ${r(st.from)}/ → ${r(st.to)}/`;
-    case "merge-log": return `merge ${r(st.from)} → ${r(st.to)}`;
+    case "portable-write": return said("stage", r(st.path));
+    case "recover": return said("lift", `${r(st.path)} ${glyph("dash")} the previous state proved${st.lifted ? `; it held: ${String(st.lifted).split("\n")[0]}` : ""}`);
+    case "write": return said("write", r(st.path));
+    case "unregister": return said("edit", `${r(st.path)} [${st.pointer}.${st.name}]`);
+    case "ensure": return said("ensure", `${r(st.path)}/`);
+    case "move-state": return said("move", `${r(st.from)}/${to}${r(st.to)}/`);
+    case "merge-log": return said("merge", `${r(st.from)}${to}${r(st.to)}`);
     case "move-marker":
-    case "move-binding": return `move ${r(st.from)} → ${r(st.to)}`;
+    case "move-binding": return said("move", `${r(st.from)}${to}${r(st.to)}`);
     case "delete":
     case "portable-remove":
     case "remove":
     case "remove-legacy-launcher":
     case "rmdir-legacy":
-    case "remove-legacy-runtime": return `remove ${r(st.path)}`;
-    case "rmdir-state": return `remove ${r(st.path)}/`;
+    case "remove-legacy-runtime": return said("remove", r(st.path));
+    case "rmdir-state": return said("remove", `${r(st.path)}/`);
     default: return null;
   }
 }
 
-// DONE: what happened, how long it took, what to do next — from the manifests,
-// never from a harness-id branch — and at most two tips.
-export function renderDone(r, { paint = (_style, text) => String(text), glyph = unicodeGlyph, verbose = false } = {}) {
+// DONE and STOPPED (presentation spec contract 8). DONE: the count and the
+// time; Next, one line per harness — its display name in a column, its
+// manifest's next steps beside it, deduplicated; the facts the run settled
+// (the version, for now); then the tip — the shells' `plan` commands with
+// --verbose unless it was given, each on its own line (contract 6). Never
+// from a harness-id branch: every word comes from the manifests. STOPPED:
+// what applied, the step that failed by its argv and exit status or signal —
+// or, for a command that could not start, its cause in their place, once —
+// or by its item, the output beneath, and what to do. `cwd` decides whether
+// the tip's --project is "$PWD".
+export function renderDone(r, { caps: c = PLAIN, verbose = false, cwd = process.cwd() } = {}) {
+  const paint = painter(c);
+  const glyph = (name) => termIcon(c, name);
+  const width = c.live ? c.width : 0;
+  const dash = glyph("dash");
   const p = r.plan;
   // What applied: a record that neither failed nor was skipped — a recheck
   // that found the work already done is not a change.
@@ -1969,31 +2095,63 @@ export function renderDone(r, { paint = (_style, text) => String(text), glyph = 
     const record = r.applied.find((a) => a.failed);
     const item = record ? p.items.find((i) => i.surface === record.surface && i.path === record.path) : null;
     const what = f.argv ? "a host command failed" : `${f.step} failed`;
-    lines.push(`${paint("bold", "STOPPED")} — ${changes} applied, then ${what}`);
-    if (f.argv) lines.push(`  ${paint("red", glyph("fail"))} $ ${f.argv.join(" ")}${f.status === null || f.status === undefined ? "" : ` exited ${f.status}`}`);
-    else lines.push(`  ${paint("red", glyph("fail"))} ${f.step}${item ? ` (${item.kind} ${item.path === null ? item.surface : rel(p.projectDir, item.path)})` : ""}`);
-    if (f.stderr) for (const l of String(f.stderr).split("\n")) lines.push(`      ${l}`);
-    if (item && item.kind === "registration") lines.push("  The surfaces planned against its install path were not written; run the verb again once it succeeds.");
-    else lines.push("  Run the verb again once the cause is fixed: its plan starts from what is on disk now.");
+    lines.push(`${paint("emphasis", "Stopped")} ${dash} ${changes} applied, then ${what}`);
+    const said = f.stderr ? String(f.stderr).split("\n") : [];
+    const mark = `  ${paint("error", glyph("fail"))} `;
+    if (f.argv) {
+      // How the command ended: its exit status, the signal that stopped it,
+      // or — only for one that could not start — its cause in their place,
+      // said once (install spec contract 19). A command that ran and failed
+      // otherwise (an answer in text where JSON is read) keeps its whole
+      // message beneath.
+      const ended = f.status !== null && f.status !== undefined ? ` exited ${f.status}`
+        : f.signal ? ` killed by ${f.signal}`
+        : f.couldNotStart && said.length ? ` ${dash} ${said.shift()}`
+        : "";
+      lines.push(`${mark}$ ${f.argv.join(" ")}${ended}`);
+    } else lines.push(`${mark}${f.step}${item ? ` (${surfaceWords(item.surface)} ${rowTarget(p, item)})` : ""}`);
+    for (const l of said) lines.push(`      ${paint("explanation", l)}`);
+    const closing = item && item.kind === "registration"
+      ? "The surfaces planned against its install path were not written; run the verb again once it succeeds."
+      : "Run the verb again once the cause is fixed: its plan starts from what is on disk now.";
+    lines.push(...wrap(closing, width, "  ").split("\n").map((l, k) => (k ? l : `  ${l}`)));
     return lines.join("\n") + "\n";
   }
-  lines.push(`${paint("bold", "DONE")} — ${changes} in ${duration(r.elapsed || 0)}`);
-  const next = [], tips = [];
-  const here = (() => { try { return realpathSync(p.projectDir) === realpathSync(process.cwd()); } catch { return p.projectDir === process.cwd(); } })();
+  lines.push(`${paint("emphasis", "Done")} ${dash} ${changes} in ${duration(r.elapsed || 0)}`);
+  const next = [], seen = new Set();
   for (const id of p.harnesses) {
     const m = loadHarness(id);
     if (!m) continue;
-    const steps = r.verb === "uninstall" ? [`restart ${m.display_name}`] : (m.install?.next || []);
-    for (const s of steps) if (!next.includes(s)) next.push(s);
-    // `plan` previews an install: after an uninstall it would preview the
-    // opposite of what just ran.
-    if (r.verb === "uninstall") continue;
-    const preview = packageCommand(m, "plan", { args: `--project ${here ? '"$PWD"' : `"${p.projectDir}"`}` });
-    if (!tips.some((t) => t.includes(preview))) tips.push(`preview without writing: ${preview}`);
+    const steps = (r.verb === "uninstall" ? [`restart ${m.display_name}`] : (m.install?.next || [])).filter((s) => !seen.has(s));
+    for (const s of steps) seen.add(s);
+    if (steps.length) next.push([m.display_name, steps.join("; ")]);
   }
-  if (!verbose) tips.push("every row's reasoning: add --verbose");
-  for (const s of next) lines.push(`  ${paint("cyan", "next")}  ${s}`);
-  for (const t of tips.slice(0, 2)) lines.push(`  ${paint("gray", "tip")}   ${paint("gray", t)}`);
+  if (next.length) {
+    const kw = Math.max(...next.map(([name]) => name.length));
+    const col = " ".repeat(2 + kw + 2);
+    lines.push("", paint("emphasis", "Next"));
+    for (const [name, text] of next) {
+      const [first, ...rest] = wrap(text, width, col).split("\n");
+      lines.push(`  ${paint("explanation", name)}${" ".repeat(kw - name.length + 2)}${first}`, ...rest);
+    }
+  }
+  if (p.version) lines.push("", ...kv(c, [["version", p.version]]));
+  // The tip: each shell's `plan` command, carrying --verbose unless it was
+  // given, so the --verbose tip is this one and DONE has one tip, never
+  // more than contract 18's two. Each command stands alone on its line, the
+  // flag last (contract 6). `plan` previews an install: after an uninstall
+  // it would preview the opposite of what just ran, so there is no tip.
+  const here = (() => { try { return realpathSync(p.projectDir) === realpathSync(cwd); } catch { return p.projectDir === cwd; } })();
+  const previews = [];
+  if (r.verb !== "uninstall") {
+    for (const id of p.harnesses) {
+      const m = loadHarness(id);
+      const cmd = m ? packageCommand(m, "plan", { args: `--project ${here ? '"$PWD"' : `"${p.projectDir}"`}${verbose ? "" : " --verbose"}` }) : null;
+      if (cmd && !previews.includes(cmd)) previews.push(cmd);
+    }
+  }
+  const lead = verbose ? "To preview without writing:" : "To preview without writing, with every row's reasoning:";
+  if (previews.length) lines.push("", `  ${paint("explanation", lead)}`, ...commandBlock(c, previews));
   return lines.join("\n") + "\n";
 }
 
@@ -2054,7 +2212,7 @@ async function main() {
   if (verb === "plan") {
     const p = plan(projectDir, planOptions(opts));
     const c = termCaps(process.stdout, process.env);
-    process.stdout.write(json ? JSON.stringify({ ...p, items: p.items.map(publicItem) }, null, 2) + "\n" : renderPreview(p, { verbose, verb, paint: painter(c), icon: (n) => termIcon(c, n), width: c.live ? c.width : 0 }));
+    process.stdout.write(json ? JSON.stringify({ ...p, items: p.items.map(publicItem) }, null, 2) + "\n" : renderPreview(p, { verbose, verb, caps: c }));
     process.exit(p.ok && !p.incomplete ? 0 : 1);
   }
   const r = await runVerb(verb, projectDir, json ? opts : { ...opts, out: process.stdout });
