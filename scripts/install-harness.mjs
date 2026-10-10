@@ -49,6 +49,14 @@
 // surface is then planned against the install path it produces — from npx,
 // the package's own root is a directory the package manager collects.
 //
+// A SHELL-ROOTED harness (its registration conditioned on a distribution root:
+// Codex) has its plugin root only in its distribution shell. install and
+// upgrade fetch that shell at this root's own version before plan(), once per
+// run (fetch-shell.mjs), and hand plan() the fetched root per harness id; plan
+// and uninstall never fetch, and decide that registration from the host's
+// facts and the version alone. plan() stays synchronous and pure either way;
+// runVerb removes the run's scratch after apply() in a `finally`.
+//
 // Direction: installer → surfaces ← doctor; installer → provenance ← doctor.
 // Doctor never imports this file.
 //
@@ -64,11 +72,13 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { caps as termCaps, painter, icon as termIcon, duration, stepReporter, wrap, askApply } from "./term.mjs";
-import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand } from "./harness.mjs";
+import { caps as termCaps, painter, icon as termIcon, duration, stepReporter, liveLine, wrap, askApply } from "./term.mjs";
+import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand, insideHostSession, bundlingShellHarnessId, cachePaths } from "./harness.mjs";
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
-import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, isOurFile, readText } from "./surfaces.mjs";
+import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, analyseHarnessState, isOurFile, readText } from "./surfaces.mjs";
 import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
+import { rootVersion, rootName, fetchDecision, fetchArgv, npmRegistry, REGISTRY_BUDGET_MS, fetchShell, fetchRefusal, fetchRunId, sweepFetchRuns } from "./fetch-shell.mjs";
+import { HOST_BUDGET_MS, startFailure } from "./run-host.mjs";
 import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal } from "./lib.mjs";
 
 import { GENERATOR } from "./surfaces.mjs";
@@ -310,9 +320,27 @@ function portableListFact(stdout, id) {
   };
 }
 
+// A shell-rooted registration, in the order its rows are decided (the story
+// "Install and upgrade fetch a shell-rooted harness at the bin's own version,
+// once per run; plan and uninstall never fetch", rules 6–8):
+//   1. a project uninstall never touches the global registration;
+//   2. no payload and no version (a direct plan() caller), or a shell whose
+//      named root is not a plugin root: today's deferred rows, unchanged;
+//   3. a run from the harness's own shell's core: deferred, it does not fetch;
+//   4. foreign or conflicting: refused;
+//   5. unavailable (the host CLI missing, nothing of ours): deferred;
+//   6. global removal, from the host's facts — it stages nothing, so it needs
+//      no payload;
+//   7. install and upgrade: from the fetched or named payload, or, with only
+//      the version, the dry run — every host fact decided, the payload's
+//      digest compared once a fetch brings it, and a write row's steps led by
+//      the fetch it would run.
+// The analysis inputs are recorded privately on the row: apply()'s recheck
+// and its read-back re-analyse with exactly those, never with the root's
+// version or the variable as it stands by then.
 function planPortableRegistration(ctx, key, s) {
-  const { projectDir, mode, root, home, env, harness, globalRemoval } = ctx;
-  const a = analysePortableRegistration(projectDir, s, { root, home, harness, env });
+  const { projectDir, mode, root, home, env, harness, globalRemoval, version = null, fetched = null } = ctx;
+  const a = analysePortableRegistration(projectDir, s, { root, home, harness, env, version, fetched });
   const fill = { dir: a.paths.dir, marketplace: s.marketplace_name, id: a.id };
   const base = {
     surface: key,
@@ -336,18 +364,30 @@ function planPortableRegistration(ctx, key, s) {
       installed_digest: a.installed?.digest || null,
       enabled: a.enabled,
     },
+    analysed: { payloadRoot: a.payloadRoot || null, version: a.versionOnly ? version : null },
   };
-  // The same fact the analyser computed: no portable payload in this run. A
-  // shell that named a root which is not a plugin root is broken, and says so
-  // through `incomplete`; the core run alone simply defers.
-  if (!a.payloadRoot) {
-    if (env.PROJECTSTORE_DISTRIBUTION_ROOT) ctx.incomplete = true;
-    return [{ ...base, action: "skip", deferred: true, reason: env.PROJECTSTORE_DISTRIBUTION_ROOT
-      ? `${env.PROJECTSTORE_DISTRIBUTION_ROOT} is not a portable plugin root; ${harness.display_name}'s registration runs only from its built distribution shell`
-      : `the core package is not ${harness.display_name}'s plugin root; registration runs only from its built distribution shell` }];
-  }
   if (mode === "uninstall" && !globalRemoval) {
     return [{ ...base, action: "skip", reason: "the plugin package and cache are global; project uninstall removes only project-owned surfaces. Use uninstall --global with an explicit harness to preview global removal" }];
+  }
+  // No payload and no version: a direct plan() caller, which keeps today's
+  // deferral. A shell that named a root which is not a plugin root is broken,
+  // and says so through `incomplete`, as before — except for a removal,
+  // which needs no payload at all.
+  const namedRoot = env.PROJECTSTORE_DISTRIBUTION_ROOT || null;
+  if (!a.payloadRoot && (!a.versionOnly || (namedRoot && mode !== "uninstall"))) {
+    if (namedRoot) ctx.incomplete = true;
+    return [{ ...base, action: "skip", deferred: true, reason: namedRoot
+      ? `${namedRoot} is not a portable plugin root; ${harness.display_name}'s registration runs only from its built distribution shell`
+      : `the core package is not ${harness.display_name}'s plugin root; registration runs only from its built distribution shell` }];
+  }
+  // Rule 8: the core a shell bundles — the doctor skill's copy in the host's
+  // plugin cache, an npx copy or a global install of the shell, recognised by
+  // the shell's package name and never by a path — keeps today's deferral. A
+  // fetch there would change the host's home from inside a session nothing
+  // marks (the front-door ADR's first open question), and needs the network
+  // inside its sandbox. Only this harness's own shell counts.
+  if (!a.payloadRoot && bundlingShellHarnessId({ core: root }) === harness.id) {
+    return [{ ...base, action: "skip", deferred: true, reason: "this run is from the plugin's own copy, which does not fetch" }];
   }
   if (["foreign", "conflict"].includes(a.state)) return [{ ...base, action: "refuse", reason: a.refusal }];
   if (a.state === "unavailable") { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true }]; }
@@ -360,15 +400,22 @@ function planPortableRegistration(ctx, key, s) {
     if (a.ownership) steps.push({ kind: "portable-remove", path: a.paths.dir, homeBase: a.paths.home, why: "the stable marketplace source is owned by this installer" });
     return [{ ...base, action: "remove", steps, reason: "explicit global removal; project overrides are preserved" }];
   }
-  if (a.state === "current") return [{ ...base, action: "skip", reason: a.reason }];
+  // An unchanged row carries no note by default (presentation spec contract
+  // 7); that its payload digest waits for a fetch is said under --verbose.
+  if (a.state === "current") return [{ ...base, action: "skip", reason: a.reason, ...(a.versionOnly ? { digestDeferred: true } : {}) }];
   if (!a.bin) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `\`${s.cli.bin}\` is not on PATH; no registration mutation was attempted` }]; }
+  // Decision 2 of the front-door ADR: the registration defers in the planned
+  // harness's own session, as the host-plugin registration does. Dormant while
+  // the manifest declares no session marker (Codex's is empty by design).
+  if (insideHostSession(env, harness)) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `${a.reason ? a.reason + "; " : ""}${inSessionReason(harness)}` }]; }
   const steps = [];
   const digest = a.desiredDigest;
   const mustWrite = !a.ownership || a.ownership.version !== a.desiredVersion || a.contentDiffers || a.state === "stale";
   if (mustWrite) {
-    const files = payloadFiles(a.payloadRoot);
+    // Version-only, the payload is counted after the fetch: no listing, no root.
+    const files = a.versionOnly ? null : payloadFiles(a.payloadRoot);
     const ownership = { [s.provenance_key]: { grammar: GRAMMAR_VERSION, version: a.desiredVersion, generator: GENERATOR, digest } };
-    steps.push({ kind: "portable-write", path: a.paths.dir, from: a.payloadRoot, files, subdir: s.plugin_subdir, catalogRel: s.manifest, catalog: renderPortableCatalog(s), ownershipRel: s.ownership_manifest, ownership, why: a.ownership ? `stage ${a.desiredVersion} over ${a.ownership.version}` : `stage ${a.desiredVersion}` });
+    steps.push({ kind: "portable-write", path: a.paths.dir, from: a.payloadRoot || null, files, subdir: s.plugin_subdir, catalogRel: s.manifest, catalog: renderPortableCatalog(s), ownershipRel: s.ownership_manifest, ownership, why: a.ownership ? `stage ${a.desiredVersion} over ${a.ownership.version}` : `stage ${a.desiredVersion}` });
   }
   if (!a.market) steps.push(hostStep(a, s, "marketplace_add", fill, "register the stable local marketplace source globally"));
   if (!a.installed || a.installedVersion !== a.desiredVersion || mustWrite) steps.push(hostStep(a, s, "install", fill, `materialise and enable ${a.id} from the staged source`));
@@ -381,6 +428,14 @@ function planPortableRegistration(ctx, key, s) {
   // 2026-10-05).
   if (steps.some((x) => x.kind === "portable-write" || (x.kind === "host" && x.name !== "list"))) {
     steps.unshift({ ...hostStep(a, s, "list", fill, "check that the host can report what it installs, before anything changes"), name: "preflight" });
+  }
+  // The dry run's first step is the fetch install or upgrade would run (rule
+  // 6), spelled by the run's own argv builder. plan spawns nothing, so the
+  // run id and the registry are literal placeholders, and the cache path is
+  // resolved but never made.
+  if (a.versionOnly && harness.install?.shell) {
+    const prefix = cachePaths({ env, home }).fetchRun("<run-id>") || "<cache>/fetch/<run-id>";
+    steps.unshift({ kind: "fetch", bin: "npm", argv: fetchArgv({ prefix, registry: "<registry>", shell: harness.install.shell, version }), why: `install and upgrade fetch ${harness.install.shell} at this version first; its payload is counted and its digest compared after the fetch` });
   }
   return [{ ...base, action: a.state === "absent" ? "create" : "update", steps, verify: { version: a.desiredVersion, digest }, reason: a.reason }];
 }
@@ -400,15 +455,8 @@ export function registrationManifest(s, { pkg, projectDir, disabled = [], digest
 
 // Inside a live session of the host, its CLI and the session both rewrite the
 // same settings files on their own schedules; the registration is planned
-// only from a terminal outside one. The host marks its sessions in the
-// environment (manifest runtime.detect_env).
-function insideHostSession(env, harness) {
-  // runtime.session_env, not detect_env: a Bash tool inside a session carries
-  // the session marker, not the plugin-root variables a hook receives
-  // (measured 2026-09-05; the critic's third pass caught the first draft
-  // keying on detect_env, which never fired in a session).
-  return (harness?.runtime?.session_env || []).some((k) => env && env[k]);
-}
+// only from a terminal outside one (insideHostSession, harness.mjs).
+const inSessionReason = (harness) => `this runs inside a ${harness.display_name} session, whose exit rewrites the same settings files the host's CLI writes — run it from a terminal outside the session`;
 
 function planRegistration(ctx, key, s) {
   const { projectDir, mode, root, home, env, harness } = ctx;
@@ -420,7 +468,7 @@ function planRegistration(ctx, key, s) {
   const fill = { dir: a.paths.dir, marketplace: s.marketplace_name, id, other: id };
   const notOnPath = `\`${binName}\` is not on PATH — the registration is left as it is; put the host's CLI on PATH and run install again`;
   const named = (ctx.surfaces || []).includes(key);
-  const inSession = `this runs inside a ${harness.display_name} session, whose exit rewrites the same settings files the host's CLI writes — run it from a terminal outside the session`;
+  const inSession = inSessionReason(harness);
   const other = (o) => ({ surface: `${key}_others`, kind: "registration", path: a.paths.projectSettings, entry: o.key, state: "enabled", home: base.home, scope: base.scope });
 
   if (mode === "uninstall") {
@@ -587,12 +635,27 @@ function planStampedFile(ctx, key, s) {
 
 // ─── plan ──────────────────────────────────────────────────────────────
 
-export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true } = {}) {
+// The surface rows a run leaves out: a --surface that does not name the key
+// (by prefix, so `statusline` covers the launcher), or --no-register's
+// registration. One predicate for plan() and the shell fetch's decision.
+function surfaceExcluded(key, s, { surfaces = null, register = true } = {}) {
+  return Boolean(surfaces && !surfaces.some((x) => key === x || key.startsWith(x + "_"))) || (register === false && s.kind === "registration");
+}
+
+// `state` selects by the state directory too (upgrade's set, the shell-fetch
+// story's rule 5); `version` is the running root's, for a shell-rooted
+// registration planned without its payload; `payloadRoots` holds a fetched
+// root per harness id — never PROJECTSTORE_DISTRIBUTION_ROOT, which names one
+// root for every harness and is inherited by every child the run spawns.
+export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null } = {}) {
   projectDir = resolve(projectDir);
-  const detected = detectHarnesses(projectDir);
+  const detected = detectHarnesses(projectDir, { state });
   const named = harnesses.filter(Boolean);
   const ids = named.length ? named : detected.map((d) => d.id);
   const out = { projectDir, mode, named: named.length > 0, detected, harnesses: [], reports: [], items: [], refusals: [], ok: true, incomplete: false, root, plannedAgainst: {} };
+  // Not enumerable, like hostManaged: plan --json keeps the shape it had.
+  Object.defineProperty(out, "version", { value: version, enumerable: false });
+  Object.defineProperty(out, "payloadRoots", { value: { ...(payloadRoots || {}) }, enumerable: false });
   const unknown = named.filter((id) => !harnessIds().includes(id));
   if (unknown.length) {
     out.refusals.push(`unknown harness: ${unknown.join(", ")} — known: ${harnessIds().join(", ")}`);
@@ -610,7 +673,7 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
     return out;
   }
   if (!ids.length) {
-    out.refusals.push(harnessRefusal(projectDir));
+    out.refusals.push(harnessRefusal(projectDir, { state }));
     out.ok = false;
     return out;
   }
@@ -628,7 +691,7 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   for (const id of ids) {
     const harness = loadHarness(id);
     out.harnesses.push(id);
-    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [], globalRemoval };
+    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [], globalRemoval, version, fetched: payloadRoots?.[id] || null };
     const hostRows = [];
     const unsupportedHost = [];
     let registration = null;
@@ -638,7 +701,7 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
       // --no-register: this run changes the project's files and nothing of the
       // host's (the layout move run from an installed copy; the layout spec,
       // contract 12 as amended 2026-10-03).
-      const excluded = (surfaces && !surfaces.some((x) => key === x || key.startsWith(x + "_"))) || (register === false && s.kind === "registration");
+      const excluded = surfaceExcluded(key, s, { surfaces, register });
       if (excluded) {
         // A registration this run leaves out still decides the render root,
         // read-only — HERE, before the surfaces that render against it (the
@@ -649,7 +712,7 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
         // fixes, S1).
         if (s.kind === "registration" && !isPluginCacheRoot(root, home)) {
           const analyser = s.format === "portable-plugin-registration" ? analysePortableRegistration : analyseRegistration;
-          const a = analyser(projectDir, s, { root, home, harness, env });
+          const a = analyser(projectDir, s, { root, home, harness, env, version, fetched: ctx.fetched });
           if (a.installed && (a.installed.present ?? true) && a.enabled) ctx.renderRoot = a.installPath;
         }
         continue;
@@ -696,6 +759,13 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
     for (const [key, s] of unsupportedHost) {
       out.items.push({ harness: id, surface: key, kind: "host", path: null, entry: null, state: "unsupported", action: "skip", reason: s.why_unsupported || "not supported for this harness yet" });
     }
+    // Last for this harness: its state directory, which a project uninstall
+    // empties of the welcome marker and removes once empty. A narrowed
+    // uninstall plans no such step, as it plans no layout cleanup.
+    if (mode === "uninstall" && !surfaces) {
+      const item = planHarnessState(projectDir, harness, out.items.filter((i) => i.harness === id));
+      if (item) out.items.push({ harness: id, ...item });
+    }
   }
   for (const item of layout.last) out.items.push({ harness: layoutHarness.id, ...item });
   if (out.items.some((i) => i.action === "refuse")) out.ok = false;
@@ -732,7 +802,7 @@ function planLayout(ctx) {
     if (!a.legacy.runtime || !a.legacy.runtimeOurs) return none;
     return { first: [], last: [{ ...base, surface: "layout_cleanup", path: P.legacy.runtime, state: "legacy", action: "remove", reason: "the legacy runtime directory is ours (its .gitignore header) and goes with the state", steps: [
       { kind: "remove-legacy-runtime", path: P.legacy.runtime, why: "the pre-0.28 state directory, removed whole" },
-      { kind: "note", why: ".projectstore/state/ (sessions, the entry log, the welcome marker) and the binding stay: the hooks' records and bind's file, not install's — delete .projectstore/ by hand to disown fully" },
+      { kind: "note", why: ".projectstore/state/ (sessions, the entry log) and the binding stay: the hooks' records and bind's file, not install's — delete .projectstore/ by hand to disown fully" },
     ] }] };
   }
   if (a.twoConfigs && !a.resumable) return { first: [{ ...base, action: "refuse", reason: `two bindings: ${P.legacy.binding} (legacy) and ${P.binding} — keep one and delete the other (usually the legacy one), then run install again; nothing is written while both exist` }], last: [] };
@@ -756,6 +826,29 @@ function planLayout(ctx) {
     last.push({ ...base, surface: "layout_cleanup", path: P.legacy.runtime, state: "legacy", action: "cleanup", reason: null, steps: cleanup });
   }
   return { first, last };
+}
+
+// A project uninstall's last item per harness (the shell-fetch story's rule
+// 5; install spec contract 13 as amended): .projectstore/state/<id>/ is
+// emptied of the welcome marker — recognised by analyseHarnessState — and
+// removed once empty, so the next bare upgrade stops selecting the harness
+// it disowned. Planned for a directory holding the marker, or nothing; a
+// directory holding only what is not ours is left without a row. It never
+// touches a launcher: that is its surface item's to remove, when it is ours.
+// What stays — a launcher this plan does not remove, a file of the user's —
+// is named in the preview, and keeps the directory. Not a guarantee: a
+// harness whose plugin stays installed for the machine fires its hooks here
+// again, its welcome comes back, and so does the signal — accurately.
+function planHarnessState(projectDir, harness, planned) {
+  const a = analyseHarnessState(projectDir, harness.id);
+  if (!a.present || (!a.marker && a.names.length)) return null;
+  const removing = new Set(planned.filter((i) => i.kind === "exclusive" && i.action === "remove" && dirname(i.path) === a.dir).map((i) => basename(i.path)));
+  const left = a.others.filter((n) => !removing.has(n));
+  const steps = [];
+  if (a.marker) steps.push({ kind: "delete", path: a.marker, why: "the welcome marker the SessionStart hook wrote; a bare upgrade selects the harness by it" });
+  steps.push({ kind: "rmdir-state", path: a.dir, left, why: left.length ? `${left.join(", ")} ${left.length === 1 ? "is" : "are"} not this step's to remove, and keep${left.length === 1 ? "s" : ""} the directory` : "removed once empty" });
+  return { surface: "harness_state", kind: "layout", path: a.dir, entry: null, state: a.marker ? "ours" : "empty", action: "remove",
+    reason: a.marker ? `${harness.display_name}'s welcome marker — the state directory selects ${harness.display_name} for a bare upgrade` : `an empty state directory of ${harness.display_name}`, steps };
 }
 
 function applyLayout(p, i, { failed, home = homedir(), onStep = null }) {
@@ -818,6 +911,15 @@ function applyLayout(p, i, { failed, home = homedir(), onStep = null }) {
         out.steps.push({ kind: st.kind, ok: true, removed: true });
       }
       else if (st.kind === "remove-legacy-runtime") { removeInside(st.path, within, { recursive: true }); out.steps.push({ kind: st.kind, ok: true, removed: true }); }
+      else if (st.kind === "rmdir-state") {
+        // rmdirSync on an empty directory only: whatever is left — read now,
+        // after the items before it ran — keeps it, and is named.
+        let left = [];
+        try { left = readdirSync(st.path).sort(); } catch { out.steps.push({ kind: st.kind, ok: true, removed: false }); continue; }
+        if (left.length) { out.steps.push({ kind: st.kind, ok: true, removed: false, reason: `${left.join(", ")} remain` }); continue; }
+        rmdirSync(st.path);
+        out.steps.push({ kind: st.kind, ok: true, removed: true });
+      }
     } catch (e) { return fail(st.kind, e && e.message ? e.message : String(e)); }
     finally { if (onStep) onStep(st, "end", stepResult(out, seen)); }
   }
@@ -911,7 +1013,7 @@ const ACTION_COLOR = { create: "green", add: "green", update: "cyan", "replace-e
 
 // One step of an item as the lines it shows: always the action and its target,
 // then — under --verbose — why it runs.
-function stepLines(p, st, { verbose, paint, width = 0 }) {
+function stepLines(p, st, { verbose, paint, width = 0, glyph = (name) => (name === "fetch" ? "↓" : "·") }) {
   const r = (x) => rel(p.projectDir, x);
   const lead = "      ";
   const sub = "          ";
@@ -922,9 +1024,14 @@ function stepLines(p, st, { verbose, paint, width = 0 }) {
       if (st.touches.length) out.push(`${sub}${paint("gray", `touches ${st.touches.map(r).join(", ")}`)}`);
       return [...out, ...why];
     }
+    // The fetch a dry run would run first (the shell-fetch story's rule 6),
+    // with the fetch glyph (presentation spec contract 4).
+    case "fetch": return [`${lead}${paint("cyan", glyph("fetch"))} ${[st.bin, ...st.argv].join(" ")}`, ...why];
     case "note": return wrap(`note: ${st.why}`, width, sub).split("\n").map((l, k) => (k ? l : lead + paint("yellow", "note:") + l.slice(5)));
     case "write": return [`${lead}write ${st.path}${st.manifestOnly ? " (manifest only)" : ` (${st.files} files + the manifest)`}`, ...why];
-    case "portable-write": return [`${lead}stage ${st.path} (${st.files.length} payload files + catalogue + ownership)`, ...why];
+    // A dry run names no file count: the payload is counted after the fetch.
+    case "portable-write": return [`${lead}stage ${st.path} (${Array.isArray(st.files) ? `${st.files.length} payload files` : "the fetched payload"} + catalogue + ownership)`, ...why];
+    case "rmdir-state": return [`${lead}remove ${r(st.path)}/ once empty${st.left?.length ? ` — ${st.left.join(", ")} stay${st.left.length === 1 ? "s" : ""} and keep${st.left.length === 1 ? "s" : ""} it` : ""}`, ...why];
     case "portable-remove":
     case "remove": return [`${lead}remove ${st.path}`, ...why];
     case "unregister": return [`${lead}edit ${r(st.path)}  [${st.pointer}.${st.name}] → removed`, ...why];
@@ -951,11 +1058,18 @@ const tilde = (path) => {
   return path === h || path.startsWith(h + "/") ? "~" + path.slice(h.length) : path;
 };
 
-export function renderPreview(p, { verbose = false, verb = null, paint = (_style, text) => String(text), icon = null, width = 0 } = {}) {
-  const glyph = icon || ((name) => ({ create: "+", update: "↻", migrate: "↻", cleanup: "✕", remove: "✕", skip: "·", refuse: "!" }[name] || "·"));
+// The badge (presentation spec contract 7): the first line of a verb's
+// output. A run that fetches prints it before the fetch line, and its preview
+// then leaves it out (`badge: false`), so it is printed once.
+export function badgeLine(p, { verb = null, paint = (_style, text) => String(text) } = {}) {
+  return `${paint("bold", "projectstore")} · ${verb || p.mode} · ${displayNames(p)}`;
+}
+
+export function renderPreview(p, { verbose = false, verb = null, paint = (_style, text) => String(text), icon = null, width = 0, badge = true } = {}) {
+  const glyph = icon || ((name) => ({ create: "+", update: "↻", migrate: "↻", cleanup: "✕", remove: "✕", skip: "·", refuse: "!", fetch: "↓" }[name] || "·"));
   const writes = p.items.filter(isWrite);
   const lines = [
-    `${paint("bold", "projectstore")} · ${verb || p.mode} · ${displayNames(p)}`,
+    ...(badge ? [badgeLine(p, { verb, paint })] : []),
     `  ${paint("gray", tilde(p.projectDir))}`,
     "",
   ];
@@ -987,12 +1101,15 @@ export function renderPreview(p, { verbose = false, verb = null, paint = (_style
     // that needs a terminal or a PATH, a block kept for another harness —
     // is something the reader acts on (the reviewer's pass, 2026-10-05).
     if (i.reason && i.action !== "refuse") state += ` (${i.reason})`;
+    // A dry run's unchanged registration: right by every host fact, its
+    // payload digest still to compare. Said only where the reasoning is.
+    if (verbose && i.digestDeferred) state += " (the payload digest is compared when install or upgrade fetches the shell)";
     const color = ACTION_COLOR[i.action] || (isWrite(i) ? "cyan" : "gray");
     const mark = paint(color, glyph(ACTION_ICON[i.action] || (isWrite(i) ? "update" : "skip")));
     const transition = `${state} → ${i.action}${i.action === "refuse" && i.reason ? ": " + i.reason : ""}`;
     lines.push(`  ${mark} ${paint("bold", i.kind.padEnd(12))} ${where}`);
     lines.push(...prose("      ", transition));
-    for (const st of i.steps || []) lines.push(...stepLines(p, st, { verbose, paint, width }));
+    for (const st of i.steps || []) lines.push(...stepLines(p, st, { verbose, paint, width, glyph }));
     if (i.kind === "registration" && i.home && i.surface && !i.surface.endsWith("_others")) lines.push(`      ${paint("gray", `(harness home ${i.home}${i.scope ? `, scope ${i.scope}` : ""})`)}`);
     if (i.deleteIfEmpty && typeof i.after === "string" && !i.after.trim()) lines.push(`      ${paint("gray", "(the file would hold nothing else and is removed)")}`);
   }
@@ -1033,6 +1150,13 @@ export function isInteractive({ stdin = null, stdout = null, env = process.env, 
   return true;
 }
 
+// Will this run ask? The gate's own test, shared with the shell fetch's
+// decision so a run is fetched for exactly when it can be asked: passing
+// `ask` means "this is a terminal" (the tests' TTY double).
+export function asksAtTerminal({ stdin = null, stdout = null, ask = null, env = process.env, json = false } = {}) {
+  return !json && (ask ? true : isInteractive({ stdin, stdout, env, json }));
+}
+
 // Streams and `ask` are parameters so the terminal branch is testable without
 // a pseudo-terminal; passing `ask` means "this is a terminal". Without streams
 // the library never asks — the bin and main() pass theirs.
@@ -1040,7 +1164,7 @@ export async function confirm(p, { stdin = null, stdout = null, ask = null, env 
   if (!p.ok) return { confirmed: false, why: "refused" };
   const writes = p.items.filter(isWrite);
   if (!writes.length) return { confirmed: false, why: "nothing-to-do" };
-  const interactive = !json && (ask ? true : isInteractive({ stdin, stdout, env, json }));
+  const interactive = asksAtTerminal({ stdin, stdout, ask, env, json });
   if (!interactive) return p.named ? { confirmed: true, why: "named" } : { confirmed: false, why: "non-tty" };
   // The question's bytes and its answer rule are term.mjs's, shared with
   // `scaffold --write`; the refused / nothing / named branches above stay here.
@@ -1130,10 +1254,14 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
     if (lock !== null) { try { closeSync(lock); } catch {} lock = null; }
     if (lockPath) { try { unlinkSync(lockPath); } catch {} lockPath = null; }
   };
+  // What the plan analysed with (planPortableRegistration's private record):
+  // the recheck and the read-back below re-analyse with exactly these — the
+  // fetched payload's root, or the version a version-only row was read at.
+  const analysed = { root: p.root, payloadRoot: i.analysed?.payloadRoot || null, version: i.analysed?.version || null, home, harness, env: childEnv, ignoreJournal: true };
   const readHostList = () => {
     const argv = s.cli.commands.list || [];
     const bin = whichOnPathFromLib(s.cli.bin, env);
-    const r = spawn(bin || s.cli.bin, argv, { env: childEnv, cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120000 });
+    const r = spawn(bin || s.cli.bin, argv, { env: childEnv, cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: HOST_BUDGET_MS });
     const rows = !r.error && r.status === 0 ? portableListFacts(r.stdout) : null;
     out.steps.push({ kind: "portable-recovery-list", argv: [s.cli.bin, ...argv], status: r.status ?? null, ok: Boolean(rows) });
     return { rows, stderr: r.error ? startFailure(r.error, { bin: s.cli.bin, resolved: bin, cwd: p.projectDir }) : String(r.stderr || "").trim() };
@@ -1206,6 +1334,12 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
       : `${why}; ${journalPath} was retained and blocks automatic mutation until a later run proves the previous state` };
     return out;
   };
+  // A staging step with no payload is a dry run's row (a fetch the run never
+  // made); it is refused before the lock, with nothing staged or spawned.
+  if (portable && (i.steps || []).some((st) => st.kind === "portable-write" && !st.from)) {
+    out.failed = { step: "portable-write", status: null, stderr: `${i.entry}: this row was planned without ${harness.display_name}'s payload — its shell was not fetched — so there is nothing to stage; nothing is written. Run install or upgrade from a terminal, where the shell is fetched` };
+    return out;
+  }
   if (portable) {
     const lockDir = join(i.home, "projectstore");
     mkdirSync(lockDir, { recursive: true });
@@ -1287,7 +1421,7 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
         return out;
       }
     }
-    const current = analysePortableRegistration(p.projectDir, s, { root: p.root, home, harness, env: childEnv, ignoreJournal: true });
+    const current = analysePortableRegistration(p.projectDir, s, analysed);
     const desiredCurrent = current.state === "current"
       && current.desiredVersion === i.verify?.version
       && current.desiredDigest?.sha256 === i.verify?.digest?.sha256
@@ -1330,7 +1464,7 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
           if (!Array.isArray(template)) continue;
           const args = template.map((t) => t.replace(/\{(\w+)\}/g, (_, k) => fill[k] ?? `{${k}}`));
           const bin = whichOnPathFromLib(s.cli.bin, env);
-          const r = spawn(bin || s.cli.bin, args, { env: childEnv, cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120000 });
+          const r = spawn(bin || s.cli.bin, args, { env: childEnv, cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: HOST_BUDGET_MS });
           const ok = !r.error && r.status === 0;
           out.steps.push({ kind: "portable-compensate", name, argv: [s.cli.bin, ...args], status: r.status ?? null, ok, ...(ok ? {} : { stderr: r.error ? startFailure(r.error, { bin: s.cli.bin, resolved: bin, cwd: p.projectDir }) : String((r.stderr || "") + (r.stdout || "")).trim() }) });
         }
@@ -1401,7 +1535,7 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
       out.steps.push({ kind: "remove", path: st.path, ok: true });
     } else if (st.kind === "host") {
       const bin = whichOnPathFromLib(st.bin, env);
-      const r = spawn(bin || st.bin, st.argv, { env: childEnv, cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120000 });
+      const r = spawn(bin || st.bin, st.argv, { env: childEnv, cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: HOST_BUDGET_MS });
       const ran = !r.error && r.status === 0;
       // A preflight that ran must also answer in the shape verification reads:
       // a host that exits 0 with text would pass on its status alone.
@@ -1439,7 +1573,7 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
   // was rendered against must be the one the host recorded for this checkout.
   if (i.verify) {
     const a = portable
-      ? analysePortableRegistration(p.projectDir, s, { root: p.root, home, harness, env: childEnv, ignoreJournal: true })
+      ? analysePortableRegistration(p.projectDir, s, analysed)
       : analyseRegistration(p.projectDir, s, { root: p.root, home, harness, env });
     if (portable) {
       const sourceDigestOk = a.sourceDigest?.sha256 === i.verify.digest?.sha256 && a.sourceDigest?.count === i.verify.digest?.count;
@@ -1471,18 +1605,8 @@ function homeEnvName(harnessId) {
   try { return loadHarness(harnessId).runtime.home_env; } catch { return sourceHarness().runtime.home_env; }
 }
 
-// What Node cannot say: spawnSync reports a working directory that does not
-// exist and a binary not on PATH with the same `spawnSync <bin> ENOENT`
-// (measured 2026-10-05). The filesystem tells them apart, in this order (the
-// install spec, contract 19); any other error passes through as Node wrote it.
-function startFailure(err, { bin, resolved, cwd }) {
-  let dir = false;
-  try { dir = statSync(cwd).isDirectory(); } catch {}
-  if (!dir) return `${bin} could not start: the working directory ${JSON.stringify(String(cwd))} is not an existing directory`;
-  if (!resolved) return `${bin} could not start: it was not found on PATH`;
-  if (["ENOENT", "EACCES", "ENOEXEC"].includes(err?.code)) return `${bin} could not start: ${resolved} exists but could not be run (${err.code})`;
-  return String(err?.message || err);
-}
+// startFailure — what Node cannot say about a child that did not start —
+// lives in run-host.mjs, shared with the shell fetch (contract 19).
 
 // rmdirSync refuses a non-empty directory — that refusal IS the guarantee
 // (contract 13): we prune only a directory we emptied. The runtime dir's own
@@ -1499,30 +1623,139 @@ function pruneEmptyDir(dir, projectDir) {
 
 // ─── verbs ─────────────────────────────────────────────────────────────
 
+// What `plan` is given by both entry points (main() and the bin's
+// runInstallVerb), so the two cannot drift: the root, and its version for a
+// shell-rooted registration planned without its payload — the dry run.
+export function planOptions(opts = {}) {
+  const root = opts.root || pluginRoot();
+  return { ...opts, root, version: opts.version ?? rootVersion(root) };
+}
+
+// Before plan(): the shell fetch (the shell-fetch story's rules 1–4 and 9).
+// For each harness in the run's set whose registration is shell-rooted, rule
+// 1 decides from the manifest, the environment, the run's root and a
+// version-only analysis; a harness that passes is fetched once, verified and
+// handed to plan() as payloadRoots[id]. The selection refusals (an unknown
+// harness, a missing project, no harness) are plan()'s and come first: none
+// of them fetches. A failed fetch is a refusal before the plan: a stub with
+// plan()'s early-return keys, so every caller reads it as it reads a refused
+// plan. `cleanup` removes the run's scratch — the caller calls it in a
+// `finally`, after apply(), since staging copies from it; best effort, the
+// next fetching run's sweep converges on whatever it leaves. Ctrl+C here is
+// the terminal's SIGINT and leaves the scratch to that sweep: no listener is
+// held before the plan.
+//   opts.onFetch(label, ids) → a live line ({ end, abort }) or null
+//   opts.fetchSpawn, opts.fetchBudget → the tests' npm and clock
+async function prepareRun(verb, projectDir, opts = {}) {
+  const env = opts.env || process.env;
+  const home = opts.home || homedir();
+  const root = opts.root || pluginRoot();
+  const version = rootVersion(root);
+  const none = { version, payloadRoots: {}, fetched: [], refused: null, cleanup: () => {} };
+  if (!["install", "upgrade"].includes(verb)) return none;
+  projectDir = resolve(projectDir);
+  const state = verb === "upgrade";
+  const named = (opts.harnesses || []).filter(Boolean);
+  if (named.some((id) => !harnessIds().includes(id)) || projectDirRefusal(projectDir)) return none;
+  const detected = detectHarnesses(projectDir, { state });
+  const ids = named.length ? named : detected.map((d) => d.id);
+  if (!ids.length) return none;
+  const interactive = asksAtTerminal({ ...opts, env });
+  const ownShell = bundlingShellHarnessId({ core: root });
+  const jobs = [];
+  for (const id of ids) {
+    const harness = loadHarness(id);
+    for (const [key, s] of Object.entries(harness.surfaces || {})) {
+      if (key.startsWith("_") || s.format !== "portable-plugin-registration") continue;
+      const excluded = surfaceExcluded(key, s, { surfaces: opts.surfaces || null, register: opts.register });
+      const analysis = excluded ? null : analysePortableRegistration(projectDir, s, { root, home, harness, env, version });
+      const decision = fetchDecision({ verb, harness, s, excluded, named: named.length > 0, interactive, analysis, ownShell: ownShell === id, env });
+      if (decision.fetch) jobs.push({ harness, s });
+    }
+  }
+  if (!jobs.length) return none;
+  const refuse = (message, cleanup = () => {}) => ({ ...none, cleanup, refused: { projectDir, mode: "install", named: named.length > 0, detected, harnesses: ids, reports: [], items: [], refusals: [message], ok: false, incomplete: false, root, plannedAgainst: {} } });
+  const cache = cachePaths({ env, home });
+  if (!cache.root) return refuse(fetchRefusal("ENOCACHE", { variable: cache.variable }));
+  sweepFetchRuns(cache.fetch);
+  const runDir = cache.fetchRun(fetchRunId());
+  try { mkdirSync(runDir, { recursive: true }); }
+  // The root is named, not the run's own directory: that is where the user acts.
+  catch (e) { return refuse(fetchRefusal("ECACHE", { path: cache.root, errno: e?.code, from: cache.from, variable: cache.variable })); }
+  const cleanup = () => { try { removeTreeUnder(runDir, cache.root, { maxRetries: 3 }); } catch {} };
+  const coreName = rootName(root);
+  const budget = opts.fetchBudget || HOST_BUDGET_MS;
+  let line = null;
+  try {
+    const registry = await npmRegistry(projectDir, { env, spawn: opts.fetchSpawn, budget: Math.min(budget, REGISTRY_BUDGET_MS) });
+    const payloadRoots = {}, fetched = [];
+    for (const job of jobs) {
+      const { harness } = job;
+      const pkg = `${harness.install.shell}@${version}`;
+      // One prefix per shell: npm prunes what a prefix holds that its own
+      // install did not ask for, so a second shell would take the first away.
+      const dir = jobs.length === 1 ? runDir : join(runDir, harness.id);
+      if (dir !== runDir) mkdirSync(dir, { recursive: true });
+      line = opts.onFetch ? opts.onFetch(`fetching ${pkg} for ${harness.display_name}`, ids) : null;
+      const r = await fetchShell({ ...job, version, coreName }, { dir, registry, env, spawn: opts.fetchSpawn, budget });
+      if (!r.ok) {
+        if (line) line.end(false, `fetch failed ${pkg}`, r.code);
+        return refuse(r.refusal, cleanup);
+      }
+      if (line) line.end(true, `fetched ${pkg} for ${harness.display_name}`);
+      line = null;
+      payloadRoots[harness.id] = r.root;
+      fetched.push({ harness: harness.id, package: harness.install.shell, version, ms: r.ms });
+    }
+    return { version, payloadRoots, fetched, refused: null, cleanup };
+  } catch (e) {
+    // The caller's `finally` is not reached from here: the scratch goes now.
+    if (line) line.abort();
+    cleanup();
+    throw e;
+  }
+}
+
 export async function runVerb(verb, projectDir, opts = {}) {
   const mode = verb === "uninstall" ? "uninstall" : "install"; // upgrade is install re-run (contract 14)
-  const p = plan(projectDir, { ...opts, mode });
   const env = opts.env || process.env;
   // `out` is the text-mode caller's stdout. With it, this prints: the plan
-  // first, then the question, then each step as it runs, then DONE.
+  // first, then the question, then each step as it runs, then DONE. A run
+  // that fetches prints its badge first, then the fetch line beneath it, then
+  // the preview without the badge (presentation spec contract 7's slot).
   const out = opts.out || null;
   const c = out ? termCaps(out, env) : null;
   const paint = c ? painter(c) : (_style, text) => String(text);
   const glyph = c ? (name) => termIcon(c, name) : null;
-  const preview = renderPreview(p, { verbose: Boolean(opts.verbose), verb, paint, icon: glyph, width: c && c.live ? c.width : 0 });
-  if (out) out.write(preview + "\n");
-  const gate = await confirm(p, { ...opts, env, paint });
-  const result = { verb, plan: p, preview, gate, applied: [], failed: null, elapsed: 0 };
-  if (gate.confirmed) {
-    const t0 = Date.now();
-    const reporter = out ? applyReporter(out, c, p) : null;
-    const spawn = opts.spawn || spawnSync;
-    result.applied = apply(p, { env, spawn: reporter ? reporter.spawn(spawn) : spawn, home: opts.home || homedir(), onItem: reporter ? reporter.onItem : null, onStep: reporter ? reporter.onStep : null });
-    result.failed = result.applied.failed || null;
-    result.elapsed = Date.now() - t0;
-    if (out) out.write(renderDone(result, { paint, glyph: glyph || undefined, verbose: Boolean(opts.verbose) }));
+  let badged = false;
+  const onFetch = out ? (label, ids) => {
+    if (!badged) { out.write(badgeLine({ harnesses: ids, mode }, { verb, paint }) + "\n"); badged = true; }
+    return liveLine(out, c, label, { env });
+  } : null;
+  const prep = await prepareRun(verb, projectDir, { ...opts, env, onFetch });
+  try {
+    // upgrade selects by the state directory too (rule 5); install and plan
+    // keep contract 8, so a bare plan and a bare install still agree.
+    const p = prep.refused || plan(projectDir, { ...opts, mode, state: verb === "upgrade", version: prep.version, payloadRoots: prep.payloadRoots });
+    const view = { verbose: Boolean(opts.verbose), verb, paint, icon: glyph, width: c && c.live ? c.width : 0 };
+    const preview = renderPreview(p, view);
+    if (out) out.write((badged ? renderPreview(p, { ...view, badge: false }) : preview) + "\n");
+    const gate = await confirm(p, { ...opts, env, paint });
+    const result = { verb, plan: p, preview, gate, applied: [], failed: null, elapsed: 0, fetched: prep.fetched };
+    if (gate.confirmed) {
+      // DONE's time leaves the fetch out: it wrote nothing of the project's.
+      const t0 = Date.now();
+      const reporter = out ? applyReporter(out, c, p) : null;
+      const spawn = opts.spawn || spawnSync;
+      result.applied = apply(p, { env, spawn: reporter ? reporter.spawn(spawn) : spawn, home: opts.home || homedir(), onItem: reporter ? reporter.onItem : null, onStep: reporter ? reporter.onStep : null });
+      result.failed = result.applied.failed || null;
+      result.elapsed = Date.now() - t0;
+      if (out) out.write(renderDone(result, { paint, glyph: glyph || undefined, verbose: Boolean(opts.verbose) }));
+    }
+    return result;
+  } finally {
+    prep.cleanup();
   }
-  return result;
 }
 
 // APPLY, one line per step (contract 18). An item with steps — a
@@ -1594,6 +1827,7 @@ function stepLabel(p, st) {
     case "remove-legacy-launcher":
     case "rmdir-legacy":
     case "remove-legacy-runtime": return `remove ${r(st.path)}`;
+    case "rmdir-state": return `remove ${r(st.path)}/`;
     default: return null;
   }
 }
@@ -1667,7 +1901,9 @@ function publicStep({ manifest, ...s }) {
   if (s.kind === "portable-write" && Array.isArray(s.files)) s.files = s.files.length;
   return s;
 }
-export const publicItem = ({ before, after, steps, observed, ...rest }) => steps
+// `analysed` (the recheck's inputs) and `digestDeferred` (a --verbose note)
+// are the plan's own, never the envelope's.
+export const publicItem = ({ before, after, steps, observed, analysed, digestDeferred, ...rest }) => steps
   ? { ...rest, steps: steps.map(publicStep) }
   : rest;
 
@@ -1693,14 +1929,14 @@ async function main() {
   projectDir = resolve(projectDir || (src && process.env[src.runtime?.project_dir_env]) || process.cwd());
   const opts = { harnesses, surfaces: surfaces.length ? surfaces : null, globalRemoval, register, json, verbose, stdin: process.stdin, stdout: process.stdout };
   if (verb === "plan") {
-    const p = plan(projectDir, opts);
+    const p = plan(projectDir, planOptions(opts));
     const c = termCaps(process.stdout, process.env);
     process.stdout.write(json ? JSON.stringify({ ...p, items: p.items.map(publicItem) }, null, 2) + "\n" : renderPreview(p, { verbose, verb, paint: painter(c), icon: (n) => termIcon(c, n), width: c.live ? c.width : 0 }));
     process.exit(p.ok && !p.incomplete ? 0 : 1);
   }
   const r = await runVerb(verb, projectDir, json ? opts : { ...opts, out: process.stdout });
   if (json) {
-    process.stdout.write(JSON.stringify({ verb, ok: r.plan.ok && !r.plan.incomplete && !r.failed, gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, items: r.plan.items.map(publicItem), refusals: r.plan.refusals, reports: r.plan.reports }, null, 2) + "\n");
+    process.stdout.write(JSON.stringify({ verb, ok: r.plan.ok && !r.plan.incomplete && !r.failed, gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, items: r.plan.items.map(publicItem), refusals: r.plan.refusals, reports: r.plan.reports, fetched: r.fetched }, null, 2) + "\n");
   } else if (r.gate.why === "non-tty") {
     process.stdout.write(`Nothing written: without a terminal, a bare ${verb} refuses. Name the harness to confirm: --harness ${r.plan.detected.map((d) => d.id).join(" | ") || harnessIds().join(" | ")}\n`);
   } else if (r.gate.why === "declined") {

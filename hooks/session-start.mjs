@@ -27,7 +27,7 @@ import {
   layoutPaths,
   pickExisting,
   activeHarnessId,
-  ensureRuntimeDir,
+  ensureStateRoot,
   syncStatusLine,
   cleanupStaleSessionState,
   armReminder,
@@ -90,7 +90,11 @@ function showWelcomeOnce(proj, cfg = null) {
   const text = buildWelcome(cfg);
   try {
     const marker = welcomedMarkerWritePath(proj);
-    ensureRuntimeDir(proj); // .projectstore/.gitignore ignores state/; the marker is not a session file
+    // The state directory's own .gitignore, header included, even in an
+    // unbound project — and no sessions/ there: it is how a project uninstall
+    // recognises this marker as ours (install spec contract 13, as amended by
+    // the shell-fetch story).
+    ensureStateRoot(proj);
     mkdirSync(dirname(marker), { recursive: true });
     writeFileSync(marker, new Date().toISOString() + "\n", "utf8");
   } catch {}

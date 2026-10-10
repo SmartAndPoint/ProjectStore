@@ -931,8 +931,10 @@ async function runReconcile({ values, project, env, stdin, stdout, stderr, ask }
 async function runInstallVerb({ row, values, project, env, stdin, stdout, ask }) {
   const ih = await import("./install-harness.mjs");
   const opts = { harnesses: values.harness || [], surfaces: values.surface && values.surface.length ? values.surface : null, globalRemoval: Boolean(values.global), register: !values["no-register"], root: PACKAGE_ROOT, env: ownEnv(env, project), stdin, stdout, ask, json: Boolean(values.json), verbose: Boolean(values.verbose) };
+  // plan goes through the installer's own planOptions, as its main() does, so
+  // the two entry points read the same root version for a dry-run row.
   if (row.verb === "plan") {
-    const p = ih.plan(project, opts);
+    const p = ih.plan(project, ih.planOptions(opts));
     if (values.json) stdout.write(JSON.stringify(envelope("plan", project, p.ok && !p.incomplete, { ...p, items: p.items.map(ih.publicItem) }), null, 2) + "\n");
     else {
       const c = term.caps(stdout, env);
@@ -947,7 +949,9 @@ async function runInstallVerb({ row, values, project, env, stdin, stdout, ask })
   // that failed is exit 1 with the rest applied (install spec contract 4′).
   const ok = r.plan.ok && !r.plan.incomplete && !r.failed && (r.gate.confirmed || r.gate.why === "nothing-to-do");
   if (values.json) {
-    stdout.write(JSON.stringify(envelope(row.verb, project, ok, { gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, plannedAgainst: r.plan.plannedAgainst, items: r.plan.items.map(ih.publicItem), refusals: r.plan.refusals, reports: r.plan.reports }), null, 2) + "\n");
+    // `fetched` is additive: the shells a run fetched before its plan, [] for
+    // a run that fetched none (uninstall always).
+    stdout.write(JSON.stringify(envelope(row.verb, project, ok, { gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, plannedAgainst: r.plan.plannedAgainst, items: r.plan.items.map(ih.publicItem), refusals: r.plan.refusals, reports: r.plan.reports, fetched: r.fetched || [] }), null, 2) + "\n");
   } else if (r.gate.why === "non-tty") {
     stdout.write(`Nothing written: without a terminal, a bare ${row.verb} refuses. Name the harness to confirm: --harness ${r.plan.detected.map((d) => d.id).join(" | ") || harnessIds().join(" | ")}\n`);
   } else if (r.gate.why === "declined") {

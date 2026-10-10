@@ -20,13 +20,14 @@ import { fakeInstall, cacheRoot, writeRegistry, installEnv, noHostEnv, legacyPro
 import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
 import { plan, apply, renderPreview, runVerb, publicItem } from "../scripts/install-harness.mjs";
 import { analyseLayout } from "../scripts/surfaces.mjs";
-import { sourceHarness, loadHarness, LAYOUT, layoutPaths, pickExisting, RUNTIME_GITIGNORE_HEADER } from "../scripts/harness.mjs";
+import { sourceHarness, loadHarness, loadHarnesses, detectHarnesses, LAYOUT, layoutPaths, cachePaths, pickExisting, RUNTIME_GITIGNORE_HEADER } from "../scripts/harness.mjs";
 import { checkLayout, checkGitignore, runStartupChecks, runInstallChecks, layoutRemedy, takesNoRegister } from "../scripts/doctor.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
 import {
   readConfigAt, readSessionState, readEntryLog, appendEntryLog, statusLineIsOurWiring, statusLineIsOurs, statusLineLauncherPath,
   legacyStatusLineLauncherPath, renderStatusLineLauncher, ensureRuntimeDir, ensureStateDir, ensureSessionsDir, cmpVersion, stateDir, sessionStatePath, entryLogPath,
   installChannel,
+  cachePaths as libCachePaths,
 } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -63,6 +64,15 @@ test("layout contract 0: the project-side paths are spelled once — in the reso
     assert.equal(m.runtime.project_config_dir, undefined, `${n}: project_config_dir was renamed harness_dir`);
     assert.equal(typeof m.runtime.harness_dir, "string", `${n}: harness_dir (detection, the harness's own settings)`);
   }
+  // The user-level class (contract 0 as amended by the shell-fetch story):
+  // the cache's variable and its home-relative fallback are spelled in the
+  // resolver alone. A trailing comment counts: only whole-line comments strip.
+  const userLevel = [];
+  for (const rel of files) {
+    const src = stripComments(read(join(ROOT, rel)));
+    for (const lit of ["XDG_CACHE_HOME", '".cache"']) if (src.includes(lit) && rel !== "scripts/harness.mjs") userLevel.push(`${rel}: ${lit}`);
+  }
+  assert.deepEqual(userLevel, [], "every user-level cache path goes through cachePaths()");
   const p = layoutPaths("/p");
   assert.equal(p.binding, "/p/.projectstore/projectstore.json");
   assert.equal(p.overlay("codex"), "/p/.projectstore/harness/codex.json");
@@ -70,6 +80,35 @@ test("layout contract 0: the project-side paths are spelled once — in the reso
   assert.equal(p.legacy.binding, `/p/${SRC.runtime.harness_dir}/projectstore.json`);
   assert.equal(p.legacy.launcher, `/p/${SRC.runtime.harness_dir}/.projectstore/statusline.mjs`);
   assert.deepEqual([...LAYOUT.gitignore], ["projectstore.json", "state/"]);
+});
+
+test("layout contract 0, the user-level class: cachePaths names <abs>/projectstore for an absolute XDG_CACHE_HOME and <home>/.cache/projectstore otherwise; lib re-exports it", () => {
+  const at = (env, home = "/h") => cachePaths({ env, home });
+  const xdg = at({ XDG_CACHE_HOME: "/x/cache" });
+  assert.deepEqual([xdg.root, xdg.fetch, xdg.fetchRun("12-34"), xdg.registry, xdg.from], ["/x/cache/projectstore", "/x/cache/projectstore/fetch", "/x/cache/projectstore/fetch/12-34", "/x/cache/projectstore/registry.json", "XDG_CACHE_HOME"]);
+  for (const [what, env] of [["unset", {}], ["empty", { XDG_CACHE_HOME: "" }], ["relative", { XDG_CACHE_HOME: "cache" }]]) {
+    const c = at(env);
+    assert.equal(c.root, "/h/.cache/projectstore", what);
+    assert.equal(c.from, "the home directory", what);
+    assert.equal(c.variable, "XDG_CACHE_HOME", `${what}: the variable a refusal tells the user to set`);
+  }
+  const none = at({ XDG_CACHE_HOME: "relative" }, "");
+  assert.deepEqual([none.root, none.fetch, none.fetchRun("1-2"), none.registry], [null, null, null, null], "no absolute base: the fetch refuses");
+  assert.equal(libCachePaths, cachePaths, "lib.mjs re-exports the resolver, as it does layoutPaths");
+});
+
+test("layout contract 5: a harness's state directory selects it only when asked — upgrade's set — and never a directory already detected twice", () => {
+  const proj = mkdtempSync(join(TMP, "ps-layout-state-"));
+  mkdirSync(join(proj, SRC.runtime.harness_dir));
+  const lp = layoutPaths(proj);
+  const others = [...loadHarnesses().values()].filter((m) => m.id !== SRC.id);
+  for (const m of [SRC, ...others]) mkdirSync(lp.harnessState(m.id), { recursive: true });
+  assert.deepEqual(detectHarnesses(proj).map((d) => d.id), [SRC.id], "contract 8 alone by default");
+  const withState = detectHarnesses(proj, { state: true });
+  assert.deepEqual(withState.map((d) => [d.id, d.why]), [[SRC.id, "directory"], ...others.map((m) => [m.id, "state"])], "one entry per harness; the directory wins");
+  assert.equal(withState[1].evidence, relative(proj, lp.harnessState(others[0].id)));
+  writeFileSync(join(lp.state, "not-a-dir"), "");
+  assert.ok(!detectHarnesses(proj, { state: true }).some((d) => d.id === "not-a-dir"));
 });
 
 test("layout contract 1: a pre-0.28 project reads bound, its state and log are found, and both launcher shapes are ours — before any migration", () => {

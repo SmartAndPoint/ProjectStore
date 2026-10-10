@@ -6,4 +6,19 @@
 // `PROJECTSTORE_HARNESS=codex npm test` failed some eighty tests on v0.29.0
 // and hung the MCP suite — every message, state key and overlay followed the
 // exported harness instead of the fixture's (generation spec, contract 18).
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
 for (const k of ["PROJECTSTORE_HARNESS", "PROJECTSTORE_IDENTIFIED", "PROJECTSTORE_SHELL"]) delete process.env[k];
+// A shell's named root would stand in for every fetch, and the animation
+// switch would change every live line a test reads (the shell-fetch story).
+for (const k of ["PROJECTSTORE_DISTRIBUTION_ROOT", "PROJECTSTORE_NO_ANIMATION"]) delete process.env[k];
+// The user-level cache and npm's own: per test process, never the
+// developer's. Offline with an empty cache, a fetch a test forgot to fake
+// fails the same way every time (ENOTCACHED) instead of reaching a registry.
+const scratch = mkdtempSync(join(tmpdir(), "ps-hermetic-"));
+process.env.XDG_CACHE_HOME = join(scratch, "cache");
+process.env.npm_config_cache = join(scratch, "npm-cache");
+process.env.npm_config_offline = "true";
+process.on("exit", () => { try { rmSync(scratch, { recursive: true, force: true, maxRetries: 2 }); } catch {} });
