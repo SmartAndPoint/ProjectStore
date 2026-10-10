@@ -32,6 +32,7 @@
   "commands/status.md",
   "commands/statusline.md",
   "commands/story.md",
+  "docs/alongside.md",
   "docs/extending.md",
   "docs/getting-started.md",
   "docs/harnesses.md",

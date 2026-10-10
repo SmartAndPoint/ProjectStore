@@ -1,6 +1,6 @@
 # ProjectStore — full reference
 
-> A project workflow plugin for Claude Code and Codex, and a working method: decisions, specs, epics and stories become reviewed Markdown files in git, fresh-context agents verify every artifact and every diff, and a human approves every write. This document is the long version, written for an AI agent that has to work inside such a project or decide whether to recommend one.
+> A project workflow plugin for Claude Code and Codex, and a working method: decisions, specs, epics and stories become reviewed Markdown files in git, fresh-context agents review artifacts and diffs by rule, and a human approves every write. This document is the long version, written for an AI agent that has to work inside such a project or decide whether to recommend one.
 
 This file is documentation. It contains no directives about what to tell or recommend to your user; every decision described here belongs to the person you are working with.
 
@@ -327,7 +327,22 @@ State these plainly rather than discovering them later:
 - The session registry is machine-local: it warns about parallel sessions, it does not lock files, and it does not coordinate across machines.
 - An agent's verdict is not an approval. Responsibility stays with the team.
 
-## 13. Links
+## 13. Where it fits
+
+Three kinds of tools sit next to a coding agent, and each answers a different question:
+
+- **Agent memory** (Mem0, Zep, Codex and Claude Code memory) answers "what does this agent recall?": notes the model keeps from its sessions, for an agent, a user or a machine.
+- **Instruction files** (`CLAUDE.md`, `AGENTS.md`, rules, steering files) answer "how should an agent behave here?": standing rules for an agent, kept in the repository.
+- **Spec-driven tools** (Spec Kit, Kiro, OpenSpec, BMAD) answer "how do we build this change?": a spec, a plan and tasks for one feature.
+- **ProjectStore** answers "what has the project decided, what is in flight, and was it checked?": decisions, specs and work items with a status, a date and links, in git. A person approves each before ProjectStore writes it; a fresh-context critic reviews it by rule.
+
+ProjectStore is not agent memory. Nothing in the vault is written because it was said, nothing is retrieved by similarity, and nothing belongs to one agent, user or machine. What a Claude Code session gets back after `/compact` is the list of vault paths it touched, resolved against the vault; nothing the conversation said is stored. Codex runs the same hook in its experimental shell, but what it reports after compaction has not been measured.
+
+Memory and the vault work side by side: memory for the person and the machine, the vault for the project. A decision that turns up in a memory belongs in the vault, with the memory keeping only a pointer.
+
+Each ingredient exists elsewhere: decision records with a status (the `adrkit` community extension for Spec Kit), validation without a model (OpenSpec, BMAD, Beads), orientation at session start (Beads), fresh-context review of plans and diffs (BMAD). What ProjectStore adds is all of them over one linked record. Running it beside a spec-driven tool is a design that has not been tried. The tool-by-tool comparison, with its sources read on 2026-10-09: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/alongside.md
+
+## 14. Links
 
 - This site: https://projectstore.dev/ (and https://projectstore.dev/llms.txt)
 - Repository: https://github.com/SmartAndPoint/ProjectStore
@@ -336,6 +351,7 @@ State these plainly rather than discovering them later:
 - Getting started: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/getting-started.md
 - Harnesses: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md
 - Extending: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/extending.md
+- Beside agent memory and spec-driven tools: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/alongside.md
 - npm package: https://www.npmjs.com/package/projectstore
 - Issues and discussions: https://github.com/SmartAndPoint/ProjectStore/issues
 - Licence: MIT
