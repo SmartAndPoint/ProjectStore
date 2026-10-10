@@ -681,8 +681,10 @@ test("diff-refs: no args => fallback true; --since returns file lists", () => {
 // empty.
 test("diff-refs: a bare date opens the window at midnight, so same-day commits are not silently dropped", () => {
   // HEAD's own commit date, read through git rather than from a clock, so the
-  // case cannot go stale or depend on the hour it runs.
-  const day = spawnSync("git", ["log", "-1", "--format=%cd", "--date=format:%Y-%m-%d"], { cwd: REPO, encoding: "utf8" }).stdout.trim();
+  // case cannot go stale or depend on the hour it runs. In the LOCAL zone, as
+  // git reads `--since=<day> 00:00:00`: in the commit's own zone, a commit made
+  // after midnight at +03:00 named a day that had not begun in UTC on CI.
+  const day = spawnSync("git", ["log", "-1", "--format=%cd", "--date=format-local:%Y-%m-%d"], { cwd: REPO, encoding: "utf8" }).stdout.trim();
   assert.match(day, /^\d{4}-\d{2}-\d{2}$/);
   const r = run("diff-refs.mjs", ["--since", day]);
   assert.equal(r.since, day, "the echoed `since` is what the caller passed");
