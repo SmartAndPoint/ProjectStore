@@ -225,9 +225,13 @@ Name, and under the OFL a subset made by a third party is a Modified Version tha
 Content is derived from ProjectStore v0.29.2 as of 2026-10-08: `README.md`, `docs/how-it-works.md`,
 `docs/getting-started.md`, `docs/harnesses.md`, the command and agent definitions, the harness
 manifests, `scaffold/layouts/engineering.json`, the templates, and the core's `slugify()` and
-`composeAnchorName()`. Every measured figure (22.5 %, 10–15 %, 2–6 parallel sessions, 12 session-name
-offers across nine sessions) carries a `data-source` naming the README or docs heading it comes from,
-and the page shows those citations. The comparison figure in section 02 is labelled as a schema, not
-a measurement. Practice dates (Scrum 1995, XP 1999, ADR 2011, RFC 1969, DO-178B 1992, kanban for
-software 2007) are the commonly cited ones. The example ADR, spec, story and session transcripts are
-illustrative; their shapes, names and headings are the product's.
+`composeAnchorName()`. Every measured figure (22.5 %, 10–15 %, 2–6 parallel sessions, 12
+session-name offers across nine sessions) carries a `data-source` naming the README or docs heading
+it comes from, and the page shows those citations. The comparison figure in section 02 is labelled
+as a schema, not a measurement. Practice dates (Scrum 1995, XP 1999, ADR 2011, RFC 1969, DO-178B
+1992, kanban for software 2007) are the commonly cited ones. The example ADR, spec, story and
+session transcripts are illustrative; their shapes, names and headings are the product's. What
+`docs/alongside.md` and the "Where it fits" section of `llms-full.txt` say about other tools (agent
+memory, instruction files, spec-driven tools) comes from the maintainer's research note "Agent
+memory, project memory and spec-driven tools: what projectstore is not, and how it runs beside
+them", whose sources were read on 2026-10-09; the docs page lists the sources row by row.

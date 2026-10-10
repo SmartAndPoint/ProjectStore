@@ -34,6 +34,7 @@
   "node_modules/projectstore/commands/status.md",
   "node_modules/projectstore/commands/statusline.md",
   "node_modules/projectstore/commands/story.md",
+  "node_modules/projectstore/docs/alongside.md",
   "node_modules/projectstore/docs/extending.md",
   "node_modules/projectstore/docs/getting-started.md",
   "node_modules/projectstore/docs/harnesses.md",

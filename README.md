@@ -1,6 +1,6 @@
 # ProjectStore
 
-> Not a memory plugin. ProjectStore is how your AI agent runs the *project* — decisions, specs, epics, stories and a kanban board as plain markdown in git — so the next agent, the next model, or you in six months know exactly **why** everything is the way it is.
+> Not agent memory, not a per-feature spec pipeline. Memory helps one agent recall; a feature spec plans one change. ProjectStore keeps the project's record — what was decided, what is in flight, what was checked — as reviewed markdown in git, readable by any agent and anyone with the repo.
 
 [![release](https://img.shields.io/github/v/release/SmartAndPoint/ProjectStore?label=release)](https://github.com/SmartAndPoint/ProjectStore/releases) [![license](https://img.shields.io/github/license/SmartAndPoint/ProjectStore?label=license)](./LICENSE) [![Star on GitHub](https://img.shields.io/badge/%E2%AD%90-star_us-yellow?logo=github)](https://github.com/SmartAndPoint/ProjectStore/stargazers)
 
@@ -13,6 +13,21 @@ A project workflow plugin for [Claude Code](https://claude.com/claude-code) and 
 Agents write code fast. They re-decide settled questions even faster: every fresh session arrives empty, makes its own architectural call, and commits under its own assumptions. Two months later you have noodle code — every strand reviews fine on its own, and each was written under a different theory of the project. Ask *"why is this a queue and not a cron job?"* and nobody can answer. The agent that decided is long gone.
 
 The fix is not a smarter agent. It is a loop with verification in it.
+
+## Where it fits
+
+**Not agent memory. Not a spec pipeline. The project's record.** Three kinds of tools sit next to a coding agent. Each answers a different question.
+
+| Kind of tool | The question it answers | What it keeps | Examples |
+|---|---|---|---|
+| **Agent memory** | What does this agent recall? | Notes the model keeps from its sessions, for an agent, a user or a machine. | Mem0, Zep, Codex and Claude Code memory |
+| **Instruction files** | How should an agent behave here? | Standing rules for an agent, kept in the repository. | `CLAUDE.md`, `AGENTS.md`, rules, steering files |
+| **Spec-driven tools** | How do we build this change? | A spec, a plan and tasks for one feature. | Spec Kit, Kiro, OpenSpec, BMAD |
+| **ProjectStore** | What has the project decided, what is in flight, and was it checked? | Decisions, specs and work items with a status, a date and links, in git. A person approves each before ProjectStore writes it; a fresh-context critic reviews it by rule. | — |
+
+Keep your agent's memory for you and your machine, and the project in the vault.
+
+Decision logs, validators, session-start orientation and independent review each exist elsewhere. What ProjectStore adds is all of them over one linked record. Tool by tool, with sources: [`docs/alongside.md`](./docs/alongside.md).
 
 ## The loop
 
@@ -27,10 +42,10 @@ The thing that makes agentic coding work — the loop Claude Code's own creator 
 2. **A fresh-context critic attacks the artifact.** Expect *revise* — on this repo it has yet to pass anything on the first try, and that is the point.
 3. The fixed artifact lands in the **backlog**; the kanban regenerates itself.
 4. An agent picks up a story. A **planner** reads how earlier epics actually landed in the code and says where this change belongs.
-5. A **reviewer** matches the diff against the story's acceptance criteria — per criterion, with evidence — before anything gets called done.
+5. By rule, a **reviewer** matches the diff against the story's acceptance criteria — per criterion, with evidence — before anything gets called done.
 6. **Done.** Board, link graph and code map regenerate. The next session starts oriented instead of guessing.
 
-Mechanisms hold this together, not discipline: an agent that starts coding with no story open gets nudged, artifacts are not final before review, and a deterministic `doctor` checks the mechanical consistency with zero AI involved. Every *verify* step is a separate fresh-context agent with no stake in the draft it is judging.
+Mechanisms hold this together, not discipline: an agent that starts coding with no story open gets nudged; an artifact that needs review carries `review_status: pending` until a critic pass is applied, so "not yet reviewed" is a state the tools can read rather than something someone must remember; and a deterministic `doctor` checks the mechanical consistency with zero AI involved. Every *verify* step is a separate fresh-context agent with no stake in the draft it is judging.
 
 We build ProjectStore with ProjectStore. The feature that names your session went through exactly this loop — including a critic pass that killed the design's central claim, and a reviewer pass that caught a bug which would have shipped the feature silently dead for every real user.
 
