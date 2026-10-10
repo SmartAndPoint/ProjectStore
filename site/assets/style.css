@@ -420,6 +420,7 @@ svg .node.active .node-box:not(.verify) { fill: var(--lime-soft); }
 .artifact-file { background: #fff; border: 1px solid #cdd6c0; border-radius: 4px; min-width: 0; box-shadow: 0 6px 0 -3px #e7ecdf; align-self: start; }
 .artifact-file .example-header { background: #eef1e8; }
 .code-lines { margin: 0; padding: 16px 0; font-size: 0.8rem; font-family: var(--font-mono); line-height: 1.85; color: #4c5743; white-space: pre-wrap; overflow-wrap: anywhere; }
+.code-lines > code { display: flex; flex-direction: column; }
 .code-line { display: flex; padding-right: 20px; }
 .code-line > span:last-child { min-width: 0; }
 .line-number { width: 50px; flex-shrink: 0; text-align: center; color: #7b8572; user-select: none; }
