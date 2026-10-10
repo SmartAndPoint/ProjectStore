@@ -20,6 +20,7 @@ import {
   overlayId,
   hostSettingsPath,
   layoutPaths,
+  cachePaths,
   pickExisting,
   LAYOUT,
   RUNTIME_GITIGNORE_HEADER,
@@ -105,8 +106,9 @@ export function speakingDisplayName({ env = process.env } = {}) {
 
 // The layout resolver and its constants, re-exported so hooks and scripts
 // import one module (the layout ADR, 2026-09-06). The active harness's id,
-// for the paths keyed by it (state/<id>/…).
-export { layoutPaths, pickExisting, LAYOUT, RUNTIME_GITIGNORE_HEADER, hostSettingsPath, overlayId, speakingHarness };
+// for the paths keyed by it (state/<id>/…). cachePaths is the user-level
+// class beside it (layout spec contract 0): the shell fetch's scratch.
+export { layoutPaths, cachePaths, pickExisting, LAYOUT, RUNTIME_GITIGNORE_HEADER, hostSettingsPath, overlayId, speakingHarness };
 
 // A hook's payload carries the `cwd` of the session that fired it, and on a
 // harness that exports no project-dir variable it is the only answer better
@@ -354,14 +356,16 @@ function sweepOrphanTemps(dir) {
     if (!m) continue;
     const pid = parseInt(m[1], 10);
     if (!pid || pid === process.pid) continue;
-    try {
-      process.kill(pid, 0); // returns ⇒ alive; EPERM ⇒ alive, not ours
-    } catch (e) {
-      if (e.code === "ESRCH") {
-        try { unlinkSync(join(dir, n)); } catch {}
-      }
-    }
+    if (!pidAlive(pid)) { try { unlinkSync(join(dir, n)); } catch {} }
   }
+}
+
+// The sweeps' one liveness rule: signal 0 returns ⇒ alive; EPERM ⇒ alive but
+// not ours; only ESRCH is dead. Shared by the temp sweep above and the shell
+// fetch's scratch sweep (fetch-shell.mjs), so the two cannot drift.
+export function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return e?.code !== "ESRCH"; }
 }
 
 // ─── Installed-plugin resolution ───────────────────────────────────────
@@ -615,10 +619,13 @@ export function rollbackPortableMarketplace(dir, backup = null) {
   return dir;
 }
 
-export function removeTreeUnder(dir, homeBase) {
+// `maxRetries` is rmSync's own: a tree another process may still be writing
+// into (an npm the fetch budget stopped) can fail with ENOTEMPTY or EBUSY
+// once and succeed on the next pass. The path guard holds whatever it is.
+export function removeTreeUnder(dir, homeBase, { maxRetries = 0 } = {}) {
   const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
   if (!norm(dir).startsWith(norm(homeBase) + "/")) throw new Error(`removeTreeUnder: ${dir} is not under ${homeBase}`);
-  rmSync(dir, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true, maxRetries });
 }
 
 export function installedPluginRoot(home = homedir(), preferFamily = null) {
@@ -2394,11 +2401,23 @@ export function ensureRuntimeDir(projectDir) {
 // harness inside; its own ignore file so nothing in here can reach git,
 // whichever writer gets there first.
 export function ensureStateDir(projectDir) {
-  ensureRuntimeDir(projectDir);
+  ensureStateRoot(projectDir);
   const p = layoutPaths(projectDir);
   mkdirSync(p.sessions, { recursive: true });
-  if (!existsSync(p.stateGitignore)) writeFileSync(p.stateGitignore, `# ${RUNTIME_GITIGNORE_HEADER}, do not commit\n*\n`, "utf8");
   return p.sessions;
+}
+
+// state/ and its .gitignore, header included, without sessions/: what the
+// welcome marker's writer needs in a project that is not bound, where no
+// session state may appear. The header is how a project uninstall
+// recognises the marker as ours (install spec contract 13, as amended by the
+// shell-fetch story).
+export function ensureStateRoot(projectDir) {
+  ensureRuntimeDir(projectDir);
+  const p = layoutPaths(projectDir);
+  mkdirSync(p.state, { recursive: true });
+  if (!existsSync(p.stateGitignore)) writeFileSync(p.stateGitignore, `# ${RUNTIME_GITIGNORE_HEADER}, do not commit\n*\n`, "utf8");
+  return p.state;
 }
 
 export function readSessionState(projectDir, sessionId) {

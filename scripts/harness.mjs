@@ -24,8 +24,8 @@
 //
 // Pure node, no external deps — same constraint as lib.mjs. Read-only.
 
-import { readFileSync, existsSync, readdirSync, realpathSync } from "node:fs";
-import { join, dirname, resolve, sep } from "node:path";
+import { readFileSync, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { join, dirname, resolve, sep, relative, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -226,23 +226,54 @@ export function resetDetection() {
 // process" from branded environment variables, and using it here would
 // conjure .claude/ for a Codex user. Not memoised: it is per directory, and a
 // test builds a project per case.
-export function detectHarnesses(projectDir, { dir = MANIFEST_DIR } = {}) {
+//
+// `state` adds the second signal `upgrade` reads: a harness whose state
+// directory of ours exists (layoutPaths(p).harnessState(id), layout spec
+// contract 5). A Codex session wrote its welcome marker there, so Codex is
+// used here even with no .codex/ (measured in this repository, 2026-10-08).
+// Never a machine-global registration: one exists for every project on the
+// machine and would select its harness everywhere. One entry per manifest,
+// the directory first, in manifest order as before.
+export function detectHarnesses(projectDir, { dir = MANIFEST_DIR, state = false } = {}) {
   const out = [];
+  const p = state ? layoutPaths(projectDir, { dir }) : null;
   for (const m of loadHarnesses(dir).values()) {
     const d = m.runtime?.harness_dir;
-    if (d && existsSync(join(projectDir, d))) out.push({ id: m.id, why: "directory", evidence: d });
+    if (d && existsSync(join(projectDir, d))) { out.push({ id: m.id, why: "directory", evidence: d }); continue; }
+    if (!p) continue;
+    const at = p.harnessState(m.id);
+    let isDir = false;
+    try { isDir = statSync(at).isDirectory(); } catch {}
+    if (isDir) out.push({ id: m.id, why: "state", evidence: relative(projectDir, at) });
   }
   return out;
 }
 
 // The refusal when nothing is detected and nothing is named — built from the
-// manifests, so a new harness appears in it without an edit here.
-export function harnessRefusal(projectDir, dir = MANIFEST_DIR) {
+// manifests, so a new harness appears in it without an edit here. With
+// `state` (upgrade's set) it names both signals the selection read.
+export function harnessRefusal(projectDir, { dir = MANIFEST_DIR, state = false } = {}) {
   const lines = [`No harness detected in ${projectDir}, and none named. Name one:`];
+  const p = state ? layoutPaths(projectDir, { dir }) : null;
   for (const m of loadHarnesses(dir).values()) {
-    lines.push(`  --harness ${m.id}    (${m.display_name}; detected by its project directory: ${m.runtime?.harness_dir || "?"})`);
+    const by = `detected by its project directory: ${m.runtime?.harness_dir || "?"}`;
+    lines.push(`  --harness ${m.id}    (${m.display_name}; ${p ? `${by}, or by its state directory: ${relative(projectDir, p.harnessState(m.id))}` : by})`);
   }
   return lines.join("\n");
+}
+
+// Inside a live session of the host, its CLI and the session both rewrite the
+// same settings files on their own schedules; the registration is planned
+// only from a terminal outside one. The host marks its sessions in the
+// environment (manifest runtime.session_env). It lives here, beside
+// detection, so the installer and the shell fetch read one predicate without
+// an import cycle.
+export function insideHostSession(env, harness) {
+  // runtime.session_env, not detect_env: a Bash tool inside a session carries
+  // the session marker, not the plugin-root variables a hook receives
+  // (measured 2026-09-05; the critic's third pass caught the first draft
+  // keying on detect_env, which never fired in a session).
+  return (harness?.runtime?.session_env || []).some((k) => env && env[k]);
 }
 
 export function activeHarness(env = process.env, dir = MANIFEST_DIR) {
@@ -513,6 +544,34 @@ export function layoutPaths(projectDir, { harnessDir = null, dir = MANIFEST_DIR 
       welcomed: join(projectDir, legacyDir, ".projectstore-welcomed"),
       sessionId: join(projectDir, legacyDir, ".projectstore-session-id"),
     },
+  };
+}
+
+// ─── The user-level cache (layout spec contract 0, the user-level class) ─
+//
+// What is ours on the machine but belongs to no project and no harness home:
+// the shell fetch's scratch (<root>/fetch/<pid>-<ms>/, removed when its run
+// ends) and the registry answer the update notice caches for a day
+// (<root>/registry.json, named now and read by no one yet). The XDG Base
+// Directory spec puts a cache at $XDG_CACHE_HOME when that is an absolute
+// path and ignores a relative one; an empty one is ignored too. Otherwise it
+// is <home>/.cache. With neither, `root` is null and the fetch refuses. This
+// is the one place either name is spelled (contract 0's grep): `from` and
+// `variable` carry them into a refusal's text. env and home are always
+// parameters.
+export function cachePaths({ env = process.env, home = homedir() } = {}) {
+  const variable = "XDG_CACHE_HOME";
+  const xdg = env ? env[variable] : null;
+  const fromEnv = typeof xdg === "string" && xdg !== "" && isAbsolute(xdg);
+  const base = fromEnv ? xdg : (home ? join(home, ".cache") : null);
+  const root = base ? join(base, "projectstore") : null;
+  return {
+    root,
+    fetch: root ? join(root, "fetch") : null,
+    fetchRun: (id) => (root ? join(root, "fetch", id) : null),
+    registry: root ? join(root, "registry.json") : null,
+    from: fromEnv ? variable : "the home directory",
+    variable,
   };
 }
 

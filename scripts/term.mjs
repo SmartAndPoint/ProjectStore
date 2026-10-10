@@ -12,6 +12,7 @@
 //   duration(ms)                 → "0.4s", "12s", "1m 03s"
 //   wrap(text, width, indent)    → prose broken at spaces, hanging indent
 //   stepReporter(stream, caps)   → { start(label), end(ok, note), abort() }
+//   liveLine(stream, caps, label) → { end(ok, doneLabel, note), abort() }
 //   askLine(question, in, out)   → the answer, or null on end of input
 //   askApply(n, opts)            → contract 9's question; true applies
 
@@ -52,7 +53,16 @@ const ICONS = {
   create: ["+", "+"], update: ["↻", "~"], migrate: ["↻", "~"], refresh: ["↻", "~"],
   remove: ["✕", "x"], cleanup: ["✕", "x"], skip: ["·", "."], refuse: ["!", "!"],
   ok: ["✓", "ok"], fail: ["✗", "FAIL"], running: ["…", "..."], note: ["!", "!"],
+  fetch: ["↓", "v"],
 };
+
+// The spinner (presentation spec contract 4): braille frames, one every 80 ms.
+// ASCII glyphs get none — a live line there shows "..." and the elapsed time.
+export const SPINNER = Object.freeze(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
+const SPIN_MS = 80;
+// Nothing is drawn before this: a fetch from a warm npm cache ends in about
+// half a second, and a spinner that flashes for one frame is noise.
+const QUIET_MS = 300;
 export function icon(c, name) {
   const pair = ICONS[name] || ICONS.update;
   return c.ascii ? pair[1] : pair[0];
@@ -89,6 +99,20 @@ export function wrap(text, width, indent = "") {
 // cursor is on, so a label that wrapped would leave its first half behind.
 const fit = (text, room) => (text.length <= room ? text : text.slice(0, Math.max(1, room - 1)) + "…");
 
+// One row of a step line: the mark, the label cut to the row on a live
+// terminal, and the right-hand note aligned to the row's end. One column
+// short of the terminal: a line that fills the last column leaves some
+// terminals waiting to wrap.
+function rowFor(c, indent) {
+  const width = Math.min(c.width, c.columns || c.width, 100) - 1;
+  return (mark, label, right) => {
+    const room = width - indent - plain(mark).length - 1 - plain(right).length - 1;
+    const left = `${" ".repeat(indent)}${mark} ${c.live ? fit(label, room) : label}`;
+    const gap = Math.max(1, width - plain(left).length - plain(right).length);
+    return left + " ".repeat(gap) + right;
+  };
+}
+
 // One line per step. On a live terminal the line appears when the step starts
 // (ending in "…") and is rewritten in place with the result and duration when
 // it ends; anything else gets the finished line only. Steps run synchronously
@@ -96,15 +120,7 @@ const fit = (text, room) => (text.length <= room ? text : text.slice(0, Math.max
 export function stepReporter(stream = process.stdout, c = caps(stream), { indent = 2 } = {}) {
   const paint = painter(c);
   let open = null;
-  // One column short of the terminal: a line that fills the last column
-  // leaves some terminals waiting to wrap.
-  const width = Math.min(c.width, c.columns || c.width, 100) - 1;
-  const line = (mark, label, right) => {
-    const room = width - indent - 2 - plain(right).length - 1;
-    const left = `${" ".repeat(indent)}${mark} ${c.live ? fit(label, room) : label}`;
-    const gap = Math.max(1, width - plain(left).length - plain(right).length);
-    return left + " ".repeat(gap) + right;
-  };
+  const line = rowFor(c, indent);
   const self = {
     start(label) {
       // A step started while another is still open (a host command run by a
@@ -128,6 +144,64 @@ export function stepReporter(stream = process.stdout, c = caps(stream), { indent
     abort() { if (open) self.end(false); },
   };
   return self;
+}
+
+// A line for work that runs asynchronously, so it can animate (presentation
+// spec contract 8, its asynchronous part; built for the shell fetch of
+// install and upgrade, reused by an asynchronous APPLY). It starts on
+// creation. On a live terminal nothing shows for the first 300 ms; then the
+// spinner in the action role, the label and the elapsed time, redrawn in
+// place every 80 ms and cut to one row. Under ASCII glyphs the frames are
+// "..." with the elapsed time. PROJECTSTORE_NO_ANIMATION, set non-empty, draws
+// the "…" line at once, as stepReporter does, and then only the finished one.
+// On a pipe there is one finished line and no escape. `end` replaces the line
+// with ✓ or the fail glyph, the past-tense label and the duration. No byte
+// bar: npm gives a child no byte counts, and a bar is shown only when the size
+// is known. The timers are unref'd and cleared by both `end` and `abort`, so
+// a forgotten line never holds the process; the cursor is never hidden, so no
+// exit path has anything to restore. `now` and `timers` are the test's clock.
+export function liveLine(stream = process.stdout, c = caps(stream), label = "", { env = process.env, now = Date.now, timers = globalThis, indent = 2 } = {}) {
+  const paint = painter(c);
+  const line = rowFor(c, indent);
+  const t0 = now();
+  const still = Boolean(env.PROJECTSTORE_NO_ANIMATION);
+  let drawn = false, frame = 0, wait = null, tick = null, settled = false;
+  const unref = (h) => { try { h?.unref?.(); } catch {} return h; };
+  const stop = () => {
+    if (wait !== null) { timers.clearTimeout(wait); wait = null; }
+    if (tick !== null) { timers.clearInterval(tick); tick = null; }
+  };
+  const draw = () => {
+    const mark = c.ascii ? "..." : paint("cyan", SPINNER[frame++ % SPINNER.length]);
+    stream.write("\r\x1b[2K" + line(mark, label, paint("gray", duration(now() - t0))));
+    drawn = true;
+  };
+  if (c.live && still) { stream.write(line(paint("gray", icon(c, "running")), label, "")); drawn = true; }
+  else if (c.live) {
+    wait = unref(timers.setTimeout(() => {
+      wait = null;
+      draw();
+      tick = unref(timers.setInterval(draw, SPIN_MS));
+    }, QUIET_MS));
+  }
+  return {
+    end(ok = true, doneLabel = label, note = "") {
+      if (settled) return;
+      settled = true;
+      stop();
+      const mark = ok ? paint("green", icon(c, "ok")) : paint("red", icon(c, "fail"));
+      const right = paint("gray", [note, duration(now() - t0)].filter(Boolean).join("  "));
+      stream.write((c.live && drawn ? "\r\x1b[2K" : "") + line(mark, doneLabel, right) + "\n");
+    },
+    // An exception mid-work: the timers go and the drawn row is cleared, so
+    // whatever is printed next starts clean.
+    abort() {
+      if (settled) return;
+      settled = true;
+      stop();
+      if (c.live && drawn) stream.write("\r\x1b[2K");
+    },
+  };
 }
 
 // One line of input, read the way a shell's own prompt is: in the terminal's

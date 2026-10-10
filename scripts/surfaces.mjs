@@ -357,6 +357,35 @@ export function analyseLayout(projectDir, { harness = null } = {}) {
   };
 }
 
+// ─── a harness's state directory: the welcome marker (contract 13) ──────
+//
+// What a project uninstall may take from .projectstore/state/<id>/: the
+// welcome marker, and the directory once it is empty. Without that the
+// directory outlives the uninstall and the next bare upgrade selects the
+// removed harness again (layout spec contract 5). The marker carries no
+// provenance line, so it is recognised three ways at once — the third
+// recogniser contract 13 accepts beside the provenance line and rung 1″: its
+// path, layoutPaths(p).welcomed(id); the state directory's .gitignore carrying
+// RUNTIME_GITIGNORE_HEADER; and its content, one ISO timestamp line, exactly
+// as the SessionStart hook writes it. Anything else in the directory — a
+// launcher, a file of the user's — is named in `others` and never ours to
+// take here: a launcher is its surface item's. Read-only, like everything in
+// this module.
+const WELCOME_STAMP = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z\n?$/;
+export function analyseHarnessState(projectDir, id) {
+  const p = layoutPaths(projectDir);
+  const dir = p.harnessState(id);
+  let names;
+  try { names = readdirSync(dir).sort(); } catch { return { dir, present: false, names: [], headed: false, marker: null, others: [] }; }
+  let headed = false;
+  try { headed = readFileSync(p.stateGitignore, "utf8").includes(RUNTIME_GITIGNORE_HEADER); } catch {}
+  const markerPath = p.welcomed(id);
+  const markerName = markerPath.slice(dir.length + 1);
+  const t = names.includes(markerName) ? readText(markerPath) : { present: false, text: null };
+  const marker = headed && t.present && typeof t.text === "string" && WELCOME_STAMP.test(t.text) ? markerPath : null;
+  return { dir, present: true, names, headed, marker, others: names.filter((n) => !(marker && n === markerName)) };
+}
+
 // ─── every surface, for doctor ─────────────────────────────────────────
 
 export { analysePortableRegistration, portableRegistrationPaths };

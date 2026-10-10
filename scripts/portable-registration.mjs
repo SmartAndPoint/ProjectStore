@@ -114,13 +114,35 @@ function pluginIds(sections) {
   return ids;
 }
 
+// The manifests a portable plugin root may carry, in the order they are read:
+// an Agent Plugins plugin.json at the root, then the legacy one Codex
+// validates — from 0.28.2 the shell's one manifest, since Codex picks a root
+// one first and loads no hooks from it (openai/codex#37027). The one place
+// either is spelled; the shell fetch's verification names them by kind.
+const PAYLOAD_MANIFESTS = { root: ["plugin.json"], legacy: [".codex-plugin", "plugin.json"] };
+export function payloadManifestPaths(root) {
+  return Object.values(PAYLOAD_MANIFESTS).map((parts) => join(root, ...parts));
+}
+export function payloadManifestPath(root, kind) {
+  return join(root, ...PAYLOAD_MANIFESTS[kind]);
+}
+// Is `root` a portable plugin root: does it carry either manifest?
+export function isPortablePluginRoot(root) {
+  return Boolean(root) && payloadManifestPaths(root).some((p) => existsSync(p));
+}
+// The first manifest that parses, or null — or, with `kind`, that one only.
+export function payloadManifest(root, { kind = null } = {}) {
+  for (const p of kind ? [payloadManifestPath(root, kind)] : payloadManifestPaths(root)) { const m = readJson(p); if (m) return m; }
+  return null;
+}
+
 function cacheEntries(paths, s) {
   const base = join(paths.cacheDir, s.marketplace_name, s.plugin_name);
   let names;
   try { names = readdirSync(base); } catch { return []; }
   return names.map((name) => {
     const path = join(base, name);
-    const manifest = readJson(join(path, "plugin.json")) || readJson(join(path, ".codex-plugin", "plugin.json"));
+    const manifest = payloadManifest(path);
     let at = 0; try { at = statSync(path).mtimeMs; } catch {}
     if (!manifest || typeof manifest.version !== "string") return null;
     let digest = null;
@@ -139,18 +161,33 @@ function cacheEntries(paths, s) {
 // the harness's directory (S2 of the 2026-10-03 review in "The Codex shell's
 // plugin root: .codex-plugin, the rendered surfaces, and the first Codex
 // install").
-export function portablePayloadRoot(s, { root, env = process.env } = {}) {
+//
+// `fetched` is the root a core run fetched for this harness (the shell fetch
+// of install and upgrade). The variable wins: a set one is used as is, a root
+// or not, and the fetched root is consulted only when it is unset — a shell
+// that names its own root is never second-guessed by a fetch.
+export function portablePayloadRoot(s, { root, env = process.env, fetched = null } = {}) {
   const named = env.PROJECTSTORE_DISTRIBUTION_ROOT || null;
   if (s.condition !== "distribution_root") return named || root;
-  if (!named) return null;
-  return existsSync(join(named, "plugin.json")) || existsSync(join(named, ".codex-plugin", "plugin.json")) ? named : null;
+  const candidate = named || fetched || null;
+  return candidate && isPortablePluginRoot(candidate) ? candidate : null;
 }
 
-export function analysePortableRegistration(projectDir, s, { root, payloadRoot: explicitPayloadRoot = null, home = homedir(), harness, env = process.env, ignoreJournal = false } = {}) {
+// Two modes. With a payload, every rung is decided, the published digest
+// against the recorded one included. With a `version` and no payload — plan's
+// dry run, both uninstalls, a run whose fetch was skipped, and the recheck of
+// an item planned that way — every rung that reads host facts is decided, and
+// the one comparison that needs the payload's bytes is not: its digest, so
+// `contentDiffers` and the same-version, different-content conflict. That is
+// the one rung a local-tarball install at an unchanged version trips, and it
+// is decided after a real fetch. `unavailable` for want of a payload fires
+// only when there is neither. Doctor passes neither and reads as before.
+export function analysePortableRegistration(projectDir, s, { root, payloadRoot: explicitPayloadRoot = null, version = null, fetched = null, home = homedir(), harness, env = process.env, ignoreJournal = false } = {}) {
   const paths = portableRegistrationPaths(s, { home, projectDir, harness, env });
-  const payloadRoot = explicitPayloadRoot || portablePayloadRoot(s, { root, env });
-  const desiredManifest = payloadRoot ? (readJson(join(payloadRoot, "plugin.json")) || readJson(join(payloadRoot, ".codex-plugin", "plugin.json"))) : null;
-  const desiredVersion = desiredManifest?.version || null;
+  const payloadRoot = explicitPayloadRoot || portablePayloadRoot(s, { root, env, fetched });
+  const desiredManifest = payloadRoot ? payloadManifest(payloadRoot) : null;
+  const versionOnly = !payloadRoot && typeof version === "string" && version !== "";
+  const desiredVersion = desiredManifest?.version || (versionOnly ? version : null);
   const id = `${s.plugin_name}@${s.marketplace_name}`;
   const bin = whichOnPath(s.cli.bin, env);
   const ownership = readJson(paths.ownership)?.[s.provenance_key] || null;
@@ -170,13 +207,13 @@ export function analysePortableRegistration(projectDir, s, { root, payloadRoot: 
     });
   const caches = cacheEntries(paths, s);
   const installed = caches.find((e) => e.version === desiredVersion) || caches[0] || null;
-  const out = { id, paths, path: paths.dir, payloadRoot, desiredVersion, bin, ownership, journal, catalog, market, globalPlugin, projectPlugin, enabled, others, caches, installed, installPath: installed?.path || null, installedVersion: installed?.version || null, state: "absent", reason: null, produced: Boolean(desiredManifest), contentDiffers: null };
+  const out = { id, paths, path: paths.dir, payloadRoot, desiredVersion, versionOnly, bin, ownership, journal, catalog, market, globalPlugin, projectPlugin, enabled, others, caches, installed, installPath: installed?.path || null, installedVersion: installed?.version || null, state: "absent", reason: null, produced: Boolean(desiredManifest), contentDiffers: null };
   const enabledOther = others.find((other) => other.enabled);
   const nothing = !existsSync(paths.dir) && !market && !globalPlugin && !installed && !enabledOther;
-  if (!desiredManifest) return { ...out, state: "unavailable", reason: payloadRoot ? `${payloadRoot} is not a portable plugin root` : `nothing to register from this run: ${harness?.display_name || "this harness"}'s plugin is registered from its distribution shell, not from the core` };
+  if (!desiredManifest && !versionOnly) return { ...out, state: "unavailable", reason: payloadRoot ? `${payloadRoot} is not a portable plugin root` : `nothing to register from this run: ${harness?.display_name || "this harness"}'s plugin is registered from its distribution shell, not from the core` };
   if (!bin && nothing) return { ...out, state: "unavailable", reason: `\`${s.cli.bin}\` is not on PATH — the registration needs the host CLI` };
   let desiredDigest = null;
-  try { desiredDigest = payloadDigest(payloadRoot); } catch (e) { return { ...out, state: "unavailable", reason: e.message }; }
+  if (!versionOnly) { try { desiredDigest = payloadDigest(payloadRoot); } catch (e) { return { ...out, state: "unavailable", reason: e.message }; } }
   out.desiredDigest = desiredDigest;
   if (enabledOther) return { ...out, state: "conflict", refusal: `${enabledOther.id} is already enabled; two ProjectStore plugins would load the same skills and hooks. Disable or remove that registration explicitly, then retry` };
   // A journal the rollback could not prove names the run that left it, when,
@@ -191,9 +228,9 @@ export function analysePortableRegistration(projectDir, s, { root, payloadRoot: 
   let sourceDigest = null;
   try { if (existsSync(paths.payload)) sourceDigest = payloadDigest(paths.payload); } catch {}
   out.sourceDigest = sourceDigest;
-  out.contentDiffers = Boolean(ownership?.digest) && (ownership.digest.sha256 !== desiredDigest.sha256 || ownership.digest.count !== desiredDigest.count);
+  out.contentDiffers = versionOnly ? null : Boolean(ownership?.digest) && (ownership.digest.sha256 !== desiredDigest.sha256 || ownership.digest.count !== desiredDigest.count);
   if (!ownership || !catalog) return { ...out, state: "stale", reason: "the owned marketplace source is incomplete" };
-  if (ownership.version === desiredVersion && out.contentDiffers) return { ...out, state: "conflict", refusal: `release ${desiredVersion} already owns this marketplace with a different payload digest` };
+  if (!versionOnly && ownership.version === desiredVersion && out.contentDiffers) return { ...out, state: "conflict", refusal: `release ${desiredVersion} already owns this marketplace with a different payload digest` };
   if (!sourceDigest || sourceDigest.sha256 !== ownership.digest?.sha256 || sourceDigest.count !== ownership.digest?.count) return { ...out, state: "stale", reason: "the stable source does not match its recorded digest" };
   if (!market) return { ...out, state: "stale", reason: "the host does not know the marketplace" };
   if (!installed || installed.version !== ownership.version) return { ...out, state: "stale", reason: "the host cache does not contain the registered payload version" };

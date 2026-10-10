@@ -12,7 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
-import { resolve, dirname, join } from "node:path";
+import { resolve, dirname, join, delimiter } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -20,6 +20,7 @@ import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject, run, op
 import { loadHarness, sourceHarness, harnessIds } from "../scripts/harness.mjs";
 import { layoutPaths } from "../scripts/lib.mjs";
 import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
+import { fakeNpm, fakeCodexBin } from "./fixtures/fetch.mjs";
 import { neighbors as neighborsOp, LINEAGE_KINDS } from "../scripts/query.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -61,12 +62,12 @@ function projectForHarness(harness) {
   return proj;
 }
 
-function semanticInstallItems(items, projectDir) {
+function semanticInstallItems(items, projectDir, home = null) {
   return items.map((item) => ({
     harness: item.harness,
     surface: item.surface,
     kind: item.kind,
-    path: item.path === null ? null : item.path.replace(projectDir, "<project>"),
+    path: item.path === null ? null : (home ? item.path.replace(home, "<home>") : item.path).replace(projectDir, "<project>"),
     entry: item.entry ?? null,
     state: item.state,
     action: item.action,
@@ -266,18 +267,21 @@ test("cli: Codex plan/install preserve pathless rows and semantics in text and J
   const codex = loadHarness("codex");
   assert.ok(codex, "the Codex identity manifest is present");
 
+  // The detected names are dropped FIRST: the home variable is one of them,
+  // and dropping it after setting it sent the child to the developer's real
+  // Codex home (found 2026-10-10, when the shell fetch began reading it).
+  const codexEnv = () => ({
+    ...Object.fromEntries((codex.runtime.detect_env || []).map((key) => [key, undefined])),
+    [codex.runtime.home_env]: mkdtempSync(join(tmpdir(), "ps-codex-home-")),
+    PATH: "",
+  });
   const run = (verb, json) => {
     const proj = projectForHarness(codex);
-    const home = mkdtempSync(join(tmpdir(), "ps-codex-home-"));
-    const env = {
-      [codex.runtime.home_env]: home,
-      PATH: "",
-      ...Object.fromEntries((codex.runtime.detect_env || []).map((key) => [key, undefined])),
-    };
+    const env = codexEnv();
     const args = [verb, "--project", proj, "--harness", codex.id];
     if (json) args.push("--json");
     const result = bin(args, { env });
-    return { proj, result, output: json ? JSON.parse(result.stdout) : null };
+    return { proj, home: env[codex.runtime.home_env], result, output: json ? JSON.parse(result.stdout) : null };
   };
 
   const planText = run("plan", false);
@@ -285,21 +289,33 @@ test("cli: Codex plan/install preserve pathless rows and semantics in text and J
   const installText = run("install", false);
   const installJson = run("install", true);
 
+  // No `codex` on PATH and nothing of ours: the registration is unavailable
+  // from the host's own facts — decided version-only, with nothing fetched —
+  // so plan and install are incomplete, exit 1, and still agree (until
+  // 0.29.2 the core deferred the row without reading them, and exited 0).
   for (const sample of [planText, planJson, installText, installJson]) {
-    assert.equal(sample.result.status, 0, sample.result.stderr || sample.result.stdout);
+    assert.equal(sample.result.status, 1, sample.result.stderr || sample.result.stdout);
   }
+  for (const sample of [planJson, installJson]) {
+    const row = sample.output.result.items.find((i) => i.surface === "plugin");
+    assert.equal(row.state, "unavailable");
+    assert.equal(row.action, "skip");
+    assert.match(row.reason, /^`codex` is not on PATH/);
+    assert.equal(sample.output.result.incomplete, true);
+  }
+  assert.deepEqual(installJson.output.result.fetched, [], "nothing was fetched");
   assert.ok(!existsSync(join(planText.proj, "AGENTS.md")), "text plan writes nothing");
   assert.ok(!existsSync(join(planJson.proj, "AGENTS.md")), "JSON plan writes nothing");
 
-  const planItems = semanticInstallItems(planJson.output.result.items, planJson.proj);
-  const installItems = semanticInstallItems(installJson.output.result.items, installJson.proj);
+  const planItems = semanticInstallItems(planJson.output.result.items, planJson.proj, planJson.home);
+  const installItems = semanticInstallItems(installJson.output.result.items, installJson.proj, installJson.home);
   assert.deepEqual(installItems, planItems, "output selection and verb preserve the fresh-state plan");
   const pathless = planItems.filter((item) => item.path === null);
   assert.ok(pathless.length > 0, "the public Codex plan exercises pathless host rows");
   // The default folds them into one line naming the harness, each surface,
   // the state and the action; --verbose lists each, marked as pathless.
-  const verbose = bin(["plan", "--project", planText.proj, "--harness", codex.id, "--verbose"], { env: { [codex.runtime.home_env]: mkdtempSync(join(tmpdir(), "ps-codex-home-")), PATH: "", ...Object.fromEntries((codex.runtime.detect_env || []).map((key) => [key, undefined])) } });
-  assert.equal(verbose.status, 0, verbose.stderr);
+  const verbose = bin(["plan", "--project", planText.proj, "--harness", codex.id, "--verbose"], { env: codexEnv() });
+  assert.equal(verbose.status, 1, verbose.stderr);
   for (const item of pathless) {
     for (const text of [planText.result.stdout, installText.result.stdout]) {
       const folded = text.split("\n").find((l) => l.includes(`not on ${codex.display_name}:`));
@@ -320,6 +336,122 @@ test("cli: Codex plan/install preserve pathless rows and semantics in text and J
     readFileSync(join(installJson.proj, "AGENTS.md"), "utf8"),
     "text and JSON installs produce the same managed file",
   );
+});
+
+// ─── The shell fetch through the bin (the shell-fetch story) ─────────────
+//
+// PATH holds a fake npm (its `config get registry` is the real npm's), a fake
+// codex running the measured host shapes, and node. HOME, the Codex home and
+// the cache are temporary; an inherited npm_config_registry is dropped.
+function fetchBins() {
+  const codex = loadHarness("codex");
+  const base = mkdtempSync(join(tmpdir(), "ps-cli-fetch-"));
+  const npm = fakeNpm(join(base, "npm-bin"));
+  const host = fakeCodexBin(join(base, "codex-bin"));
+  const home = join(base, "home"), codexHome = join(base, "codex-home"), cache = join(base, "cache");
+  for (const d of [home, codexHome]) mkdirSync(d, { recursive: true });
+  const env = {
+    ...Object.fromEntries((codex.runtime.detect_env || []).map((key) => [key, undefined])),
+    HOME: home,
+    [codex.runtime.home_env]: codexHome,
+    XDG_CACHE_HOME: cache,
+    PATH: [npm.dir, host.dir, dirname(process.execPath)].join(delimiter),
+    npm_config_registry: undefined,
+  };
+  return { codex, base, npm, host, home, codexHome, cache, env, fetchDir: join(cache, "projectstore", "fetch") };
+}
+
+test("cli shell fetch: a project .npmrc's registry reaches the fetch's --registry, with and without npx's npm_config_registry", () => {
+  for (const viaNpx of [false, true]) {
+    const f = fetchBins();
+    const proj = projectForHarness(f.codex);
+    writeFileSync(join(proj, ".npmrc"), "registry=https://npmrc.example.test/\n");
+    // npm exec hands its child the registry it resolved in the project.
+    const env = viaNpx ? { ...f.env, npm_config_registry: "https://npmrc.example.test/" } : f.env;
+    const r = bin(["upgrade", "--harness", f.codex.id, "--json", "--project", proj], { env });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const reads = f.npm.log().filter((c) => c.argv[0] === "config");
+    assert.equal(reads.length, 1, "the registry is read once");
+    assert.equal(reads[0].cwd, realpathSync(proj), "in the project");
+    const [install] = f.npm.installs();
+    assert.equal(install.argv[install.argv.indexOf("--registry") + 1], "https://npmrc.example.test/", viaNpx ? "through npx" : "without npx");
+    assert.deepEqual(readdirSync(f.fetchDir), []);
+  }
+});
+
+test("cli shell fetch: text puts the badge first, the fetch line under it, then the project and PLAN; --json is one JSON document carrying fetched", () => {
+  const f = fetchBins();
+  const shell = f.codex.install.shell;
+  const proj = projectForHarness(f.codex);
+  const r = bin(["install", "--harness", f.codex.id, "--project", proj], { env: f.env });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const lines = r.stdout.split("\n");
+  assert.equal(lines[0], `projectstore · install · ${f.codex.display_name}`);
+  assert.match(lines[1], new RegExp(`^ {2}✓ fetched ${shell}@${PKG.version.replace(/\./g, "\\.")} for ${f.codex.display_name} +\\d+\\.\\ds$`), lines[1]);
+  assert.equal(lines[2], `  ${proj}`);
+  assert.equal(lines[3], "");
+  assert.match(lines[4], /^PLAN — \d+ changes?$/);
+  assert.equal(r.stdout.split("projectstore · install").length, 2, "the preview does not print the badge again");
+  assert.match(r.stdout, /\nDONE — /);
+  assert.ok(f.host.log().some((c) => c.argv.join(" ") === "plugin add projectstore@projectstore-npx"), "registered through the host");
+  const g = fetchBins();
+  const j = bin(["upgrade", "--harness", g.codex.id, "--json", "--project", projectForHarness(g.codex)], { env: g.env });
+  assert.equal(j.status, 0, j.stdout + j.stderr);
+  const doc = JSON.parse(j.stdout);
+  assert.equal(doc.ok, true);
+  assert.deepEqual(doc.result.fetched.map(({ ms, ...x }) => x), [{ harness: g.codex.id, package: shell, version: PKG.version }]);
+  assert.ok(!j.stdout.includes("✓ fetched"), "nothing but the envelope");
+  assert.deepEqual(readdirSync(g.fetchDir), []);
+});
+
+test("cli shell fetch: a refused fetch exits 1 before the plan, in text and under --json, and leaves no fetch directory", () => {
+  const f = fetchBins();
+  const shell = f.codex.install.shell;
+  const env = { ...f.env, FAKE_NPM_MODE: "ETARGET" };
+  const j = bin(["upgrade", "--harness", f.codex.id, "--json", "--project", projectForHarness(f.codex)], { env });
+  assert.equal(j.status, 1, j.stdout + j.stderr);
+  const doc = JSON.parse(j.stdout);
+  assert.equal(doc.ok, false);
+  assert.deepEqual(doc.result.items, []);
+  assert.deepEqual(doc.result.fetched, []);
+  assert.ok(doc.result.refusals[0].startsWith(`${shell}@${PKG.version} is not on `), doc.result.refusals[0]);
+  const t = bin(["upgrade", "--harness", f.codex.id, "--project", projectForHarness(f.codex)], { env });
+  assert.equal(t.status, 1);
+  assert.match(t.stdout.split("\n")[1], new RegExp(`^ {2}✗ fetch failed ${shell}@\\S+ +ETARGET {2}\\d+\\.\\ds$`));
+  assert.match(t.stdout, /PLAN — refused/);
+  assert.deepEqual(f.host.log(), [], "nothing spawned after npm");
+  assert.deepEqual(readdirSync(f.fetchDir), []);
+});
+
+// The release's behaviour change (b): a state directory alone selects Codex
+// for a bare upgrade, so without a terminal it refuses where 0.29.2 printed
+// "Nothing to change." and exited 0 — and it fetches nothing.
+test("cli shell fetch: a headless bare upgrade on .claude/ plus state/codex/ exits 1 at the non-TTY refusal, naming both harnesses", () => {
+  const f = fetchBins();
+  const proj = project({ bound: false });
+  mkdirSync(layoutPaths(proj).harnessState(f.codex.id), { recursive: true });
+  const r = bin(["upgrade", "--project", proj], { env: f.env });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.ok(r.stdout.includes(`Nothing written: without a terminal, a bare upgrade refuses. Name the harness to confirm: --harness ${SRC.id} | ${f.codex.id}\n`), r.stdout);
+  assert.ok(r.stdout.startsWith(`projectstore · upgrade · ${SRC.display_name}, ${f.codex.display_name}\n`), "both are planned");
+  assert.deepEqual(f.npm.log(), [], "nothing fetched for a run that cannot be asked");
+});
+
+test("cli shell fetch: plan --harness codex calls no npm and makes no cache; its row leads with the fetch it would run, and plan --json keeps its key set", () => {
+  const f = fetchBins();
+  const proj = projectForHarness(f.codex);
+  const r = bin(["plan", "--harness", f.codex.id, "--project", proj], { env: f.env });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.ok(r.stdout.includes(`↓ npm install --prefix ${join(f.fetchDir, "<run-id>")} --no-save`), r.stdout);
+  assert.ok(r.stdout.includes("--registry <registry>"));
+  const j = bin(["plan", "--harness", f.codex.id, "--json", "--project", proj], { env: f.env });
+  const doc = JSON.parse(j.stdout);
+  assert.deepEqual(Object.keys(doc.result).sort(), ["detected", "harnesses", "incomplete", "items", "mode", "named", "ok", "plannedAgainst", "projectDir", "refusals", "reports", "root"]);
+  const row = doc.result.items.find((i) => i.surface === "plugin");
+  assert.deepEqual([row.state, row.action, row.steps[0].kind], ["absent", "create", "fetch"]);
+  assert.ok(!("analysed" in row), "the recheck's inputs stay private");
+  assert.deepEqual(f.npm.log(), [], "plan never calls npm");
+  assert.equal(existsSync(f.cache), false, "and creates nothing under the cache");
 });
 
 // Roadmap A8: the prompt surface (commands, agents, skills) invokes ONE path,

@@ -317,7 +317,16 @@ test("install spec modules: doctor never imports the installer, and the installe
     assert.ok(!hook.includes("surfaces.mjs"), `hooks/${n} pulls surfaces.mjs into the SessionStart graph`);
     assert.ok(!hook.includes("cli.mjs"), `hooks/${n} pulls the CLI (and through it the installer) into the SessionStart graph`);
     assert.ok(!hook.includes("mcp.mjs"), `hooks/${n} pulls the MCP server into the SessionStart graph`);
+    // The shell fetch and its async runner spawn npm: never on a hook's path.
+    for (const m of ["fetch-shell.mjs", "run-host.mjs"]) assert.ok(!hook.includes(m), `hooks/${n} pulls ${m} into the SessionStart graph`);
   }
+  // …nor through what the hooks import: only the installer reaches them.
+  for (const n of ["lib.mjs", "harness.mjs", "doctor.mjs", "surfaces.mjs", "provenance.mjs", "portable-registration.mjs", "touch-session.mjs", "statusline.mjs"]) {
+    const src = readFileSync(join(ROOT, "scripts", n), "utf8");
+    for (const m of ["fetch-shell.mjs", "run-host.mjs"]) assert.ok(!src.includes(`"./${m}"`), `scripts/${n} imports ${m}`);
+  }
+  const importers = readdirSync(join(ROOT, "scripts")).filter((n) => n.endsWith(".mjs") && /from "\.\/(fetch-shell|run-host)\.mjs"/.test(readFileSync(join(ROOT, "scripts", n), "utf8")));
+  assert.deepEqual(importers.sort(), ["fetch-shell.mjs", "install-harness.mjs"], "the installer imports both; the fetch imports the runner");
   const surfaces = readFileSync(join(ROOT, "scripts", "surfaces.mjs"), "utf8");
   // The banner names the installer as its generator — a string, not an import.
   assert.ok(!/from "\.\/install-harness\.mjs"/.test(surfaces), "surfaces.mjs imports the installer");

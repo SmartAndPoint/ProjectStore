@@ -20,8 +20,9 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { PassThrough } from "node:stream";
 import { fakeInstall, writeRegistry, noHostEnv } from "./fixtures/install.mjs";
+import { codexHost, fakeNpmSpawn } from "./fixtures/fetch.mjs";
 import { plan, renderPreview, confirm, apply, runVerb, isInteractive, renderDone } from "../scripts/install-harness.mjs";
-import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses, loadHarness, identifiedHarnessId } from "../scripts/harness.mjs";
+import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses, loadHarness, identifiedHarnessId, packageCommand } from "../scripts/harness.mjs";
 import { writeBinding, seedCliVault } from "./fixtures/vault.mjs";
 import { stamp, sourceHash, parseProvenance } from "../scripts/provenance.mjs";
 import {
@@ -36,6 +37,7 @@ import {
   stateDir,
   sessionStatePath,
   layoutPaths,
+  RUNTIME_GITIGNORE_HEADER,
 } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -1281,4 +1283,146 @@ test("install contract 19: a project directory that does not exist is refused, q
   }
   assert.deepEqual(readdirSync(parent).sort(), before, "nothing appeared in the parent");
   assert.deepEqual(readdirSync(home), [], "nothing appeared in the harness home");
+});
+
+// ─── upgrade's set and the state directory (the shell-fetch story, rule 5) ─
+
+const CODEX = loadHarness("codex");
+
+// The SessionStart hook's first run in `proj` as harness `id`: it writes the
+// welcome marker, and the state directory's header beside it. A temporary
+// HOME, no host CLI, the harness forced by our own override.
+function welcomeBy(proj, id) {
+  const home = mkdtempSync(join(tmpdir(), "ps-inst-welcome-home-"));
+  const r = spawnSync(process.execPath, [join(ROOT, "hooks", "session-start.mjs")], {
+    input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "s-welcome", source: "startup", cwd: proj }),
+    env: noHostEnv({ HOME: home, PROJECTSTORE_HARNESS: id }), cwd: proj, encoding: "utf8", timeout: 30000,
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(existsSync(layoutPaths(proj).welcomed(id)), `the hook welcomed ${id}`);
+}
+
+// An unbound Claude Code project a Codex session has run in: .claude/, no
+// .codex/, and .projectstore/state/codex/welcomed as the hook wrote it. The
+// variants break one recogniser each, after the hook.
+function stateProject({ marker = undefined, headed = true } = {}) {
+  const proj = project({ bound: false });
+  const lp = layoutPaths(proj);
+  welcomeBy(proj, CODEX.id);
+  if (!headed) writeFileSync(lp.stateGitignore, "*\n");
+  if (marker === null) rmSync(lp.welcomed(CODEX.id));
+  else if (marker !== undefined) writeFileSync(lp.welcomed(CODEX.id), marker);
+  return { proj, lp };
+}
+
+test("install rule 5: the hook's welcome in an unbound project is recognised — a project uninstall plans the marker's removal and the empty directory's", () => {
+  const proj = project({ bound: false });
+  welcomeBy(proj, CODEX.id);
+  const lp = layoutPaths(proj);
+  assert.ok(read(lp.stateGitignore).includes(RUNTIME_GITIGNORE_HEADER), "the header comes with the marker");
+  assert.equal(existsSync(lp.sessions), false, "and no session state in a project that is not bound");
+  const p = plan(proj, { harnesses: [CODEX.id], mode: "uninstall", root: ROOT, env: noHostEnv() });
+  const row = p.items.find((i) => i.surface === "harness_state");
+  assert.deepEqual(row.steps.map((s) => [s.kind, s.path, s.left]), [["delete", lp.welcomed(CODEX.id), undefined], ["rmdir-state", lp.harnessState(CODEX.id), []]]);
+  apply(p, { env: noHostEnv() });
+  assert.equal(existsSync(lp.harnessState(CODEX.id)), false);
+});
+
+function hostSandbox() {
+  const base = mkdtempSync(join(tmpdir(), "ps-inst-hosts-"));
+  const home = join(base, "home"), bin = join(base, "bin");
+  mkdirSync(home, { recursive: true }); mkdirSync(bin, { recursive: true });
+  const codex = join(bin, CODEX.surfaces.plugin.cli.bin);
+  writeFileSync(codex, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  return { base, home, env: noHostEnv({ PATH: bin, [CODEX.runtime.home_env]: home, XDG_CACHE_HOME: join(base, "cache") }) };
+}
+
+test("install rule 5: a bare upgrade at a terminal selects Codex by its state directory, fetches it and DONE's tip names it; a machine registration alone does not; bare install and plan keep contract 8", async () => {
+  const { proj } = stateProject();
+  const h = hostSandbox();
+  const chunks = [];
+  const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+  const npm = fakeNpmSpawn();
+  const r = await runVerb("upgrade", proj, { root: ROOT, home: h.home, env: h.env, out, ask: async () => "y", fetchSpawn: npm.spawn, spawn: codexHost(h.home) });
+  assert.deepEqual(r.plan.harnesses, [SRC.id, CODEX.id]);
+  assert.deepEqual(r.plan.detected.map((d) => [d.id, d.why, d.evidence]), [[SRC.id, "directory", CFG_DIR], [CODEX.id, "state", relative(proj, layoutPaths(proj).harnessState(CODEX.id))]]);
+  assert.equal(npm.installs().length, 1, "Codex's shell is fetched");
+  assert.equal(r.failed, null, JSON.stringify(r.failed));
+  const text = chunks.join("");
+  assert.match(text, /\nDONE — /);
+  // The tip names every harness the upgrade planned, Codex included.
+  for (const m of [SRC, CODEX]) assert.ok(text.includes(`tip   preview without writing: ${packageCommand(m, "plan", { args: `--project "${resolve(proj)}"` })}`), `${m.id}: ${text.slice(text.indexOf("DONE"))}`);
+  // A registration of ours for the whole machine, and no state directory: not a signal.
+  const machine = project({ statusline: false });
+  writeFileSync(join(h.home, "config.toml"), '[marketplaces.projectstore-npx]\nsource = "x"\n\n[plugins."projectstore@projectstore-npx"]\nenabled = true\n');
+  const npm2 = fakeNpmSpawn();
+  const m = await runVerb("upgrade", machine, { root: ROOT, home: h.home, env: h.env, ask: async () => "n", fetchSpawn: npm2.spawn });
+  assert.deepEqual(m.plan.harnesses, [SRC.id], "a machine registration selects nothing");
+  // Bare install and bare plan read contract 8 alone, on both projects.
+  for (const p of [proj, machine]) {
+    assert.deepEqual(plan(p, { root: ROOT, home: h.home, env: h.env }).harnesses, [SRC.id]);
+    const i = await runVerb("install", p, { root: ROOT, home: h.home, env: h.env, ask: async () => "n", fetchSpawn: npm2.spawn });
+    assert.deepEqual(i.plan.harnesses, [SRC.id]);
+  }
+  assert.deepEqual(npm2.calls, [], "none of them fetched");
+  // upgrade's no-harness refusal names both signals.
+  const empty = mkdtempSync(join(tmpdir(), "ps-empty-"));
+  const refused = plan(empty, { root: ROOT, env: h.env, state: true }).refusals[0];
+  assert.ok(refused.includes(`detected by its project directory: ${CODEX.runtime.harness_dir}, or by its state directory: ${relative(empty, layoutPaths(empty).harnessState(CODEX.id))}`), refused);
+  assert.ok(!plan(empty, { root: ROOT, env: h.env }).refusals[0].includes("state directory"), "install's names one");
+});
+
+test("install rule 5: a project uninstall removes the welcome marker and an empty state/<id>/; foreign content, a state/ without the header, other files and a foreign launcher stay and are named; --surface plans none", () => {
+  const env = noHostEnv();
+  const stateItem = (p) => p.items.find((i) => i.surface === "harness_state");
+  const uninstall = (proj, extra = {}) => plan(proj, { harnesses: [CODEX.id], mode: "uninstall", root: ROOT, env, ...extra });
+  // The marker, then the emptied directory; the next bare upgrade plans Claude Code alone.
+  const a = stateProject();
+  const p = uninstall(a.proj);
+  const row = stateItem(p);
+  assert.equal(p.items.filter((i) => i.harness === CODEX.id).at(-1), row, "planned last for its harness");
+  assert.deepEqual(row.steps.map((s) => [s.kind, s.path]), [["delete", a.lp.welcomed(CODEX.id)], ["rmdir-state", a.lp.harnessState(CODEX.id)]]);
+  assert.match(renderPreview(p), /delete \S+welcomed\n\s+remove \S+codex\/ once empty\n/);
+  apply(p, { env });
+  assert.equal(existsSync(a.lp.harnessState(CODEX.id)), false, "the marker and the empty directory are gone");
+  assert.ok(read(a.lp.stateGitignore).includes(RUNTIME_GITIGNORE_HEADER), "the rest of state/ stays");
+  assert.deepEqual(plan(a.proj, { root: ROOT, env, state: true }).harnesses, [SRC.id], "the next bare upgrade plans Claude Code alone");
+  // An empty state directory: the rmdir alone.
+  const e = stateProject({ marker: null });
+  assert.deepEqual(stateItem(uninstall(e.proj)).steps.map((s) => s.kind), ["rmdir-state"]);
+  apply(uninstall(e.proj), { env });
+  assert.equal(existsSync(e.lp.harnessState(CODEX.id)), false);
+  // A marker that is not one ISO line, and one under a state/ without the header: left in place.
+  for (const [what, fx] of [["foreign content", stateProject({ marker: "written by hand\n" })], ["no header", stateProject({ headed: false })]]) {
+    const q = uninstall(fx.proj);
+    assert.equal(stateItem(q), undefined, what);
+    apply(q, { env });
+    assert.ok(existsSync(fx.lp.welcomed(CODEX.id)), `${what}: left in place`);
+  }
+  // Another file keeps the directory, and is named.
+  const o = stateProject();
+  writeFileSync(join(o.lp.harnessState(CODEX.id), "notes.txt"), "mine\n");
+  const po = uninstall(o.proj);
+  assert.deepEqual(stateItem(po).steps.find((s) => s.kind === "rmdir-state").left, ["notes.txt"]);
+  assert.match(renderPreview(po), /once empty — notes\.txt stays and keeps it/);
+  const done = apply(po, { env });
+  assert.ok(!existsSync(o.lp.welcomed(CODEX.id)) && existsSync(join(o.lp.harnessState(CODEX.id), "notes.txt")));
+  assert.deepEqual(done.find((d) => d.surface === "harness_state").steps.at(-1), { kind: "rmdir-state", ok: true, removed: false, reason: "notes.txt remain" });
+  // Claude Code: a launcher that is not ours is its surface item's, never this step's.
+  const c = project({ bound: false });
+  const lc = layoutPaths(c);
+  welcomeBy(c, SRC.id);
+  writeFileSync(lc.launcher(SRC.id), "console.log('mine');\n");
+  const pc = plan(c, { harnesses: [SRC.id], mode: "uninstall", root: ROOT, env });
+  assert.equal(item(pc, "statusline_launcher").action, "skip", "not ours: left by its own item");
+  assert.deepEqual(stateItem(pc).steps.find((s) => s.kind === "rmdir-state").left, ["statusline.mjs"]);
+  assert.match(renderPreview(pc), /statusline\.mjs stays and keeps it/);
+  apply(pc, { env });
+  assert.ok(existsSync(lc.launcher(SRC.id)) && !existsSync(lc.welcomed(SRC.id)));
+  // A narrowed uninstall plans no such step.
+  const s = stateProject();
+  const ps = uninstall(s.proj, { surfaces: ["agents_block"] });
+  assert.equal(stateItem(ps), undefined);
+  apply(ps, { env });
+  assert.ok(existsSync(s.lp.welcomed(CODEX.id)), "--surface leaves state/codex/ as it is");
 });
