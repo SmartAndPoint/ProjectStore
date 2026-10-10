@@ -1,0 +1,17 @@
+projectstore install · Claude Code
+  ~/src/shop
+
+Plan — refused
+
+Claude Code
+  + add      CLAUDE.md                                       agents block
+  ▲ refused  .projectstore/state/claude-code/statusline.mjs
+             statusline launcher
+      the file is not ours (no provenance stamp); move it aside or delete it,
+      then run install again
+
+  ▲ refused  two bindings: .claude/projectstore.json and
+             .projectstore/projectstore.json both exist; keep one, then run
+             install again
+
+  Nothing will be written: resolve the refusals above first.

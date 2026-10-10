@@ -1,0 +1,19 @@
+[1mprojectstore upgrade[22m · Claude Code
+  [90m~/src/shop[39m
+
+[1mPlan[22m — [36m1 to update[39m · [90m3 unchanged[39m
+
+[1mClaude Code[22m
+  [36m↻[39m [36mupdate[39m     .claude/settings.local.json                     [90mstatusline[39m
+      [90mthe command no longer matches this installation[39m
+  [90m·[39m [90munchanged[39m  .projectstore/state/claude-code/statusline.mjs
+               [90mlast written by[39m
+               [90m/home/ada/src/shop-worktrees/checkout-with-a-long-name[39m
+  [90m·[39m [90munchanged[39m  [90mplugin, agents block[39m
+  [90m·[39m [90mskipped[39m    [90mnot on Claude Code: mcp project entry[39m
+               [90m--verbose says why[39m
+  [90m·[39m [90mClaude Code installs commands, agents, skills, hooks, mcp itself, from the[39m
+    [90mregistration projectstore@projectstore-npm[39m
+
+  [90mOnly the entries listed above are written — nothing else in those files is[39m
+  [90mread, rewritten or removed.[39m

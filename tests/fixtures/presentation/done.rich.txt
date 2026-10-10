@@ -1,0 +1,15 @@
+
+[1mDone[22m — 6 changes in 3.4s
+
+[1mNext[22m
+  [90mClaude Code[39m  restart Claude Code in this project
+  [90mCodex[39m        restart Codex from a terminal and approve the ProjectStore hooks
+               when it asks; in an unbound project, run `$projectstore-bind
+               <vault-path>` in Codex
+
+  [90mversion[39m  0.30.0
+
+  [90mTo preview without writing, with every row's reasoning:[39m
+
+  [36mnpx projectstore-claude plan --project "$PWD" --verbose[39m
+  [36mnpx projectstore-codex plan --project "$PWD" --verbose[39m

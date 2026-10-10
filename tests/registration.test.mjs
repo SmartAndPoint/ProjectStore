@@ -388,7 +388,7 @@ test("registration contract 4′: a host command that fails stops the item, is s
   // What the user reads: STOPPED, the argv with its exit status, the host's
   // own words, and that the surfaces planned against the install path wait.
   const line = renderDone({ verb: "install", plan: p, applied: done, failed: done.failed, elapsed: 0 });
-  assert.match(line, /STOPPED — \d+ changes? applied, then a host command failed/);
+  assert.match(line, /Stopped — \d+ changes? applied, then a host command failed/);
   assert.match(line, /✕ \$ claude plugin install .* exited 1/);
   assert.match(line, /failed as instructed/);
   assert.match(line, /planned against its install path were not written/);

@@ -1,0 +1,39 @@
+projectstore install · Claude Code, Codex
+  ~/src/shop
+
+Plan — 4 to add · 2 to register
+
+Claude Code
+  + register  projectstore@projectstore-npm                   plugin
+      write /home/ada/.claude/projectstore/marketplace (159 files + the manifest)
+      $ claude plugin validate /home/ada/.claude/projectstore/marketplace
+      $ claude plugin marketplace add /home/ada/.claude/projectstore/marketplace --scope local
+          touches /home/ada/.claude/plugins/known_marketplaces.json, .claude/settings.local.json
+      $ claude plugin install projectstore@projectstore-npm --scope local -y
+          touches /home/ada/.claude/plugins/installed_plugins.json, .claude/settings.local.json, /home/ada/.claude/plugins/cache
+      (harness home /home/ada/.claude, scope local)
+  + add       AGENTS.md                                       agents block
+  + add       CLAUDE.md                                       agents block import
+      CLAUDE.md is what Claude Code reads by itself; the import of AGENTS.md is added at its top
+  + add       .claude/settings.local.json                     statusline
+  + add       .projectstore/state/claude-code/statusline.mjs  statusline launcher
+  · skipped   not on Claude Code: mcp project entry           --verbose says why
+  · Claude Code installs commands, agents, skills, hooks, mcp itself, from the registration projectstore@projectstore-npm
+
+Codex
+  + register  projectstore@projectstore-npx                    plugin
+      user-wide: the plugin is registered for every project Codex opens, not only this one
+      $ codex plugin list --json
+      stage /home/ada/.codex/projectstore/marketplace (48 payload files + catalogue + ownership)
+      $ codex plugin marketplace add /home/ada/.codex/projectstore/marketplace
+          touches /home/ada/.codex/config.toml
+      $ codex plugin add projectstore@projectstore-npx
+          touches /home/ada/.codex/config.toml, /home/ada/.codex/plugins/cache
+      $ codex plugin list --json
+      (harness home /home/ada/.codex, scope user)
+  · AGENTS.md — the same block as Claude Code, above
+  · skipped   not on Codex: agents, commands, mcp, statusline  --verbose says why
+  · Codex installs hooks, skills itself, from the registration projectstore@projectstore-npx
+
+  Only the entries listed above are written — nothing else in those files is read, rewritten or removed.
+  Each $ line runs the host's own CLI, which writes the host-owned files named after it.

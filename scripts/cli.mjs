@@ -672,7 +672,10 @@ function runBind(init) {
     const ok = plan.ok && !bindFailed(done);
     const result = bindResult(plan, done);
     if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, ok, result), null, 2) + "\n");
-    else (plan.ok ? stdout : stderr).write(renderBindPlan(plan, done, { env }));
+    else {
+      const stream = plan.ok ? stdout : stderr;
+      stream.write(renderBindPlan(plan, done, { env, caps: term.caps(stream, env) }));
+    }
     return ok ? 0 : 1;
   };
 }
@@ -929,9 +932,9 @@ async function runReconcile({ values, project, env, stdin, stdout, stderr, ask }
   return failed ? 1 : 0;
 }
 
-async function runInstallVerb({ row, values, project, env, stdin, stdout, ask }) {
+async function runInstallVerb({ row, values, project, env, cwd, stdin, stdout, ask }) {
   const ih = await import("./install-harness.mjs");
-  const opts = { harnesses: values.harness || [], surfaces: values.surface && values.surface.length ? values.surface : null, globalRemoval: Boolean(values.global), register: !values["no-register"], root: PACKAGE_ROOT, env: ownEnv(env, project), stdin, stdout, ask, json: Boolean(values.json), verbose: Boolean(values.verbose) };
+  const opts = { harnesses: values.harness || [], surfaces: values.surface && values.surface.length ? values.surface : null, globalRemoval: Boolean(values.global), register: !values["no-register"], root: PACKAGE_ROOT, env: ownEnv(env, project), cwd, stdin, stdout, ask, json: Boolean(values.json), verbose: Boolean(values.verbose) };
   // plan goes through the installer's own planOptions, as its main() does, so
   // the two entry points read the same root version for a dry-run row.
   if (row.verb === "plan") {
@@ -939,7 +942,7 @@ async function runInstallVerb({ row, values, project, env, stdin, stdout, ask })
     if (values.json) stdout.write(JSON.stringify(envelope("plan", project, p.ok && !p.incomplete, { ...p, items: p.items.map(ih.publicItem) }), null, 2) + "\n");
     else {
       const c = term.caps(stdout, env);
-      stdout.write(ih.renderPreview(p, { verbose: opts.verbose, verb: "plan", paint: term.painter(c), icon: (n) => term.icon(c, n), width: c.live ? c.width : 0 }));
+      stdout.write(ih.renderPreview(p, { verbose: opts.verbose, verb: "plan", caps: c }));
     }
     return p.ok && !p.incomplete ? 0 : 1;
   }

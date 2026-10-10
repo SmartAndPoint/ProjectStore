@@ -1,0 +1,19 @@
+projectstore upgrade . Claude Code
+  ~/src/shop
+
+Plan - 1 to update . 3 unchanged
+
+Claude Code
+  ~ update     .claude/settings.local.json                     statusline
+      the command no longer matches this installation
+  . unchanged  .projectstore/state/claude-code/statusline.mjs
+               last written by
+               /home/ada/src/shop-worktrees/checkout-with-a-long-name
+  . unchanged  plugin, agents block
+  . skipped    not on Claude Code: mcp project entry
+               --verbose says why
+  . Claude Code installs commands, agents, skills, hooks, mcp itself, from the
+    registration projectstore@projectstore-npm
+
+  Only the entries listed above are written - nothing else in those files is
+  read, rewritten or removed.

@@ -132,6 +132,8 @@ test("shells contract 10: the bin execs the bundled core with --harness fixed af
     [["upgrade", "--surface", "plugin", "--project", "/p"], ["upgrade", ...H, "--surface", "plugin", "--project", "/p"]],
     [["uninstall", "--project", "/p"], ["uninstall", ...H, "--project", "/p"]],
     [["plan", "--json"], ["plan", ...H, "--json"]],
+    // DONE's tip, as it prints it (presentation spec contract 8).
+    [["plan", "--project", "$PWD", "--verbose"], ["plan", ...H, "--project", "$PWD", "--verbose"]],
     [["agents", "configure", "--default", "opus"], ["agents", ...H, "configure", "--default", "opus"]],
     [["doctor", "--json"], ["doctor", "--json"]],
     [["status", "--json", "--project", "/p"], ["status", "--json", "--project", "/p"]],

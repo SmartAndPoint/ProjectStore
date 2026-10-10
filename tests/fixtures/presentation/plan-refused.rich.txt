@@ -1,0 +1,17 @@
+[1mprojectstore install[22m · Claude Code
+  [90m~/src/shop[39m
+
+[1mPlan[22m — [33mrefused[39m
+
+[1mClaude Code[22m
+  [32m+[39m [32madd[39m      CLAUDE.md                                       [90magents block[39m
+  [33m▲[39m [33mrefused[39m  .projectstore/state/claude-code/statusline.mjs
+             [90mstatusline launcher[39m
+      [33mthe file is not ours (no provenance stamp); move it aside or delete it,[39m
+      [33mthen run install again[39m
+
+  [33m▲[39m [33mrefused[39m  two bindings: .claude/projectstore.json and
+             .projectstore/projectstore.json both exist; keep one, then run
+             install again
+
+  [33mNothing will be written: resolve the refusals above first.[39m

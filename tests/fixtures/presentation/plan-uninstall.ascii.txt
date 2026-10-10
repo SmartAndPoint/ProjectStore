@@ -1,0 +1,22 @@
+projectstore uninstall . Codex
+  ~/src/shop
+
+Plan - 2 to remove . 1 skipped
+
+Codex
+  . skipped  projectstore@projectstore-npx                    plugin
+      user-global; an ordinary uninstall keeps it, and uninstall --global
+      removes it
+      (harness home /home/ada/.codex, scope user)
+  - remove   AGENTS.md                                        agents block
+      (the file would hold nothing else and is removed)
+  - remove   .projectstore/state/codex                        harness state
+      delete .projectstore/state/codex/welcomed
+      remove .projectstore/state/codex/ once empty - notes.txt stays and keeps it
+  . skipped  not on Codex: agents, commands, mcp, statusline
+             --verbose says why
+  . Codex installs hooks, skills itself, from the registration
+    projectstore@projectstore-npx
+
+  Only the entries listed above are written - nothing else in those files is
+  read, rewritten or removed.

@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, cpSync, chmodSync, existsSync, rmSync } from "node:fs";
 import { join, basename, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { plan, apply, publicItem, renderPreview, runVerb, planOptions } from "../scripts/install-harness.mjs";
+import { plan, apply, publicItem, renderPreview, renderDone, runVerb, planOptions } from "../scripts/install-harness.mjs";
 import { surfaceStates } from "../scripts/surfaces.mjs";
 import { checkHarnessSurfaces, checkPluginRegistration } from "../scripts/doctor.mjs";
 import { loadHarness, cachePaths } from "../scripts/harness.mjs";
 import { fetchDecision, fetchRefusal, sweepFetchRuns, rootVersion, REGISTRY_BUDGET_MS } from "../scripts/fetch-shell.mjs";
 import { codexHost, fakeNpmSpawn, FAKE_REGISTRY } from "./fixtures/fetch.mjs";
-import { icon } from "../scripts/term.mjs";
+import { PLAIN } from "../scripts/term.mjs";
 import { fileURLToPath } from "node:url";
 
 const CORE = fileURLToPath(new URL("..", import.meta.url));
@@ -111,14 +111,16 @@ test("Codex portable registration: APPLY reports the staging write and each host
   assert.equal(r.gate.why, "named");
   assert.equal(r.failed, null, JSON.stringify(r.failed));
   const text = chunks.join("");
-  const apply_ = text.slice(text.indexOf("\nAPPLY\n"));
+  // APPLY has no heading (presentation spec contract 8): it starts at the
+  // registration's own line, after the plan.
+  const apply_ = text.slice(text.indexOf("\n  + registering "));
   // The preflight is the registration's first line: the host is asked
   // before anything is staged (issue #28).
-  assert.match(apply_, /\n {2}\+ registration .+\n {6}✓ \$ codex plugin list --json +\d.*\n {6}✓ stage \S+ +\d/, apply_);
+  assert.match(apply_, /\n {2}\+ registering .+\n {6}✓ \$ codex plugin list --json +\d.*\n {6}✓ staged \S+ +\d/, apply_);
   for (const st of registration(r.plan).steps.filter((s) => s.kind === "host")) {
     assert.match(apply_, new RegExp(`\\n {6}✓ \\$ ${[st.bin, ...st.argv].join(" ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} +\\d`), `${st.name} has its APPLY line`);
   }
-  assert.match(text, /\nDONE — 1 change in \d/);
+  assert.match(text, /\nDone — 1 change in \d/);
 });
 
 test("Codex portable registration: the public envelope drops the staged payload's bodies, root and listing, and keeps its count", () => {
@@ -238,7 +240,7 @@ test("Codex portable registration: a first install's recovery the next run can p
   const rec = r.applied[0].steps.find((s) => s.kind === "portable-recover");
   assert.equal(rec.phase, "recovery-required");
   assert.match(rec.lifted, /injected/);
-  assert.match(chunks.join(""), /\n {6}✓ lift \S*projectstore-npx\.journal\.json — the previous state proved; it held: .*injected/);
+  assert.match(chunks.join(""), /\n {6}✓ lifted \S*projectstore-npx\.journal\.json — the previous state proved; it held: .*injected/);
 });
 
 // The incident's class on a refresh: the rollback restored the previous
@@ -568,6 +570,43 @@ test("Codex portable registration: a preflight answered with text, not JSON, sto
   assert.equal(existsSync(join(f.home, "projectstore", "projectstore-npx.journal.json")), false);
 });
 
+// STOPPED puts a cause in place of the exit status only for a command that
+// could not start (presentation spec contract 8; install spec contract 19).
+// apply() records how a host command ended — not enumerable, so the --json
+// envelope keeps the record's shape — and renderDone reads it.
+test("Codex portable registration: STOPPED names a failed host command by how it ended — the cause of one that could not start, the signal that stopped one, a preflight's own message", () => {
+  const stopped = (answer) => {
+    const f = fixture();
+    const result = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: (bin, argv) => (argv.join(" ") === "plugin list --json" ? answer : fakeCodex(f)(bin, argv)) });
+    assert.equal(result.failed.step, "preflight");
+    const text = renderDone({ verb: "install", plan: plan(f.project, opts(f)), applied: result, failed: result.failed, elapsed: 0 }, { caps: PLAIN });
+    return { failed: result.failed, lines: text.split("\n"), text };
+  };
+  const argvLine = (lines) => lines.find((l) => l.startsWith("  ✕ $ codex plugin list --json"));
+  // Could not start: flagged, and its cause takes the status's place, once.
+  const unstarted = stopped({ error: Object.assign(new Error("spawnSync codex EACCES"), { code: "EACCES" }), status: null, signal: null, stdout: "", stderr: "" });
+  assert.equal(unstarted.failed.couldNotStart, true);
+  assert.ok(!Object.keys(unstarted.failed).includes("couldNotStart") && !JSON.stringify(unstarted.failed).includes("couldNotStart"), "not in the --json record");
+  assert.match(argvLine(unstarted.lines), /^ {2}✕ \$ codex plugin list --json — codex could not start: \S+ exists but could not be run \(EACCES\)$/);
+  assert.equal(unstarted.text.split("could not start").length, 2, "said once");
+  // Killed by a signal: it ran, so its signal is shown, and what it printed stays beneath.
+  const killed = stopped({ status: null, signal: "SIGKILL", stdout: "Reading the marketplace list…\n", stderr: "" });
+  assert.equal(killed.failed.couldNotStart, false);
+  assert.equal(killed.failed.signal, "SIGKILL");
+  assert.equal(argvLine(killed.lines), "  ✕ $ codex plugin list --json killed by SIGKILL");
+  assert.ok(killed.lines.includes("      Reading the marketplace list…"), killed.text);
+  // A preflight answered in text: no status, no signal, and its own message whole beneath.
+  const texty = stopped({ status: 0, stdout: "Marketplace  Plugin  Status\n", stderr: "" });
+  assert.equal(texty.failed.couldNotStart, false);
+  assert.equal(argvLine(texty.lines), "  ✕ $ codex plugin list --json");
+  const at = texty.lines.indexOf("  ✕ $ codex plugin list --json");
+  assert.equal(texty.lines[at + 1], "      codex plugin list --json answered, but not with the JSON the registration reads");
+  assert.match(texty.lines[at + 2], /^ {6}The registration needs `codex plugin list --json` to verify what it installs/);
+  // A command that ran and exited non-zero keeps its status.
+  const refused = stopped({ status: 2, stdout: "", stderr: "error: unexpected argument '--json'" });
+  assert.equal(argvLine(refused.lines), "  ✕ $ codex plugin list --json exited 2");
+});
+
 // ─── The shell fetch (the story "Install and upgrade fetch a shell-rooted
 // harness at the bin's own version, once per run; plan and uninstall never
 // fetch") ─────────────────────────────────────────────────────────────────
@@ -642,7 +681,7 @@ test("shell fetch: the fetch directory is gone after STOPPED, after n at the que
   assert.deepEqual(leftovers(refused), [], "a refusal");
   // An exception after the fetch: the stream the preview is written to breaks.
   const thrown = coreFixture();
-  const out = { isTTY: false, write: (s) => { if (String(s).includes("PLAN")) throw new Error("injected: the terminal went away"); return true; } };
+  const out = { isTTY: false, write: (s) => { if (String(s).includes("Plan —")) throw new Error("injected: the terminal went away"); return true; } };
   await assert.rejects(runVerb("install", thrown.project, { ...coreOpts(thrown), out, fetchSpawn: fakeNpmSpawn().spawn }), /injected/);
   assert.deepEqual(leftovers(thrown), [], "an exception");
 });
@@ -914,7 +953,7 @@ test("shell fetch, plan: a dry run calls no npm and makes no cache; create leads
   // both columns: the default is its Unicode, a caller's ASCII stream gets v.
   const text = renderPreview(create);
   assert.ok(text.includes(`↓ npm ${rule2Argv(join(f.fetchDir, "<run-id>"), "<registry>").join(" ")}`), text);
-  const ascii = renderPreview(create, { icon: (n) => icon({ ascii: true }, n) });
+  const ascii = renderPreview(create, { caps: { ...PLAIN, ascii: true } });
   assert.ok(ascii.includes(`v npm ${rule2Argv(join(f.fetchDir, "<run-id>"), "<registry>").join(" ")}`), ascii);
   assert.ok(text.includes("(the fetched payload + catalogue + ownership)"), text);
   assert.equal(existsSync(f.cache), false, "plan makes nothing under the cache");

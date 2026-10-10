@@ -237,7 +237,7 @@ test("layout contract 6/7: two bindings is the one refusal — install and upgra
   }
   // The header names the verb that ran; everything beneath it is the same refusal.
   assert.equal(previews[0].split("\n").slice(1).join("\n"), previews[1].split("\n").slice(1).join("\n"), "install and upgrade refuse with the same preview");
-  assert.match(previews[0], /^projectstore · install · /); assert.match(previews[1], /^projectstore · upgrade · /);
+  assert.match(previews[0], /^projectstore install · /); assert.match(previews[1], /^projectstore upgrade · /);
   assert.equal(read(lp.legacy.binding), before.legacy); assert.equal(read(lp.binding), before.current); assert.equal(read(lp.legacy.launcher), before.launcher);
   const f = checkLayout(proj);
   assert.equal(f.length, 1); assert.equal(f[0].check, "layout-two-configs"); assert.equal(f[0].level, "issue");
@@ -262,14 +262,19 @@ test("layout contract 18: the move's APPLY lines name each step beneath the layo
   const r = await runVerb("upgrade", proj, { home, root, env, harnesses: [SRC.id], out });
   assert.equal(r.failed, null, JSON.stringify(r.failed));
   const text = chunks.join("").replace(/\x1b\[[0-9;]*m/g, ""); // the runner may force colour (FORCE_COLOR)
-  const applyText = text.slice(text.indexOf("\nAPPLY\n"), text.indexOf("\nDONE — "));
-  assert.match(applyText, /\n {2}↻ layout /, applyText);
-  const steps = r.plan.items.find((i) => i.surface === "layout").steps.filter((s) => s.kind !== "note");
+  // APPLY has no heading (presentation spec contract 8): it starts at the
+  // layout item's own line, which says what runs, in a person's words.
+  const layout = r.plan.items.find((i) => i.surface === "layout");
+  const head = `\n  ↻ updating ${relative(proj, layout.path)}\n`;
+  assert.ok(text.includes(head), text);
+  const applyText = text.slice(text.indexOf(head), text.indexOf("\nDone — "));
+  const steps = layout.steps.filter((s) => s.kind !== "note");
   const lines = applyText.split("\n").filter((l) => /^ {6}[✓✕·] /.test(l));
   assert.ok(lines.length >= steps.length, `one line per step:\n${applyText}`);
   assert.ok(lines.every((l) => !l.includes("✕")), applyText);
+  assert.ok(lines.filter((l) => l.includes("✓")).every((l) => /^ {6}✓ (moved|merged|removed|wrote|ensured|edited) /.test(l)), `finished steps read in the past tense:\n${applyText}`);
   assert.ok(!/✓ .* kept/.test(applyText), "a kept step is never ✓");
-  assert.match(text, /\nDONE — \d+ changes? in /);
+  assert.match(text, /\nDone — \d+ changes? in /);
 });
 
 test("layout contract 6: the layout item is planned whatever --surface names, and an interrupted binding move resumes instead of refusing", () => {

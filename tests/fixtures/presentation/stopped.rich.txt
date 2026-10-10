@@ -1,0 +1,7 @@
+
+[1mStopped[22m — 0 changes applied, then a host command failed
+  [31m✕[39m $ claude plugin install projectstore@projectstore-npm --scope local -y exited 1
+      [90mPlugin "projectstore" not found in marketplace "projectstore-npm"[39m
+      [90mRun: claude plugin marketplace update projectstore-npm[39m
+  The surfaces planned against its install path were not written; run the verb
+  again once it succeeds.

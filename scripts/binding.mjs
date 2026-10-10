@@ -42,6 +42,7 @@ import { homedir } from "node:os";
 import { writeFileAtomic, pluginRoot, ensureRuntimeDir, layoutPaths, commandForm } from "./lib.mjs";
 import { configPath as harnessConfigPath } from "./harness.mjs";
 import { planScaffold, applyScaffold } from "./scaffold.mjs";
+import { icon, kv, commandBlock, wrap, PLAIN } from "./term.mjs";
 
 export const DEFAULT_LAYOUT = "engineering";
 export const DEFAULT_LANGUAGE = "en";
@@ -244,48 +245,58 @@ export function bindFailed(done) {
   return Boolean(done && ((done.git && done.git.failed) || (done.scaffold && done.scaffold.failed)));
 }
 
-// The bind Next line, one decision: the scaffold plan has a `create` row.
+// A line of prose, wrapped on a live terminal with a hanging indent of two
+// (presentation spec contract 5); `lead` is what the first line starts
+// with. A path or a command inside it is one word and never broken.
+const prose = (c, text, lead = "") => lead + wrap(text, c.live ? c.width : 0, lead + "  ");
+
+// The bind Next lines, one decision: the scaffold plan has a `create` row.
 // Both forms — the session's and the bin's — because the bind interview
 // relays this to a person who runs slash commands, and a git-marketplace
 // install has no bin on PATH. `--write`: at a terminal that form shows the
-// plan and asks anyway.
-function nextLine(p, env) {
+// plan and asks anyway. Each command stands on its own line, after a blank
+// one (presentation spec contract 6), so a copy takes exactly the command.
+function nextLines(p, env, c) {
   return p.scaffold && p.scaffold.ok && p.scaffold.creates > 0
-    ? `Next: ${commandForm("scaffold", { env })} in a session, or \`projectstore scaffold --write\`, creates the layout's missing folders and READMEs.`
-    : "Next: `projectstore status`.";
+    ? ["", prose(c, "Next: create the layout's missing folders and READMEs, in a session or from a terminal:"), ...commandBlock(c, [commandForm("scaffold", { env }), "projectstore scaffold --write"])]
+    : ["", prose(c, "Next: see where the project stands:"), ...commandBlock(c, ["projectstore status"])];
 }
 
-// One line per step that ran. The whole-vault path's own Next line: the
+// One line per step that ran. The whole-vault path's own Next lines: the
 // derived views are reconcile's, offered rather than run.
-function vaultSteps(p, done) {
+function vaultSteps(p, done, c) {
   const lines = [];
   const g = done.git;
-  if (g && g.done) lines.push(`Initialised a git repository in ${p.vault} (no commit).`);
-  if (g && g.inside) lines.push(`\`${p.vault}\` is inside the git work tree at \`${g.inside}\`; the vault gets its own repository, which that repository will see as an embedded one.`);
-  if (g && g.skipped) lines.push(`Skipped git init: ${g.skipped}. The vault works without one; doctor's vault-git finding stays until it is a repository.`);
-  if (g && g.failed) lines.push(`git init failed: ${g.failed}`, `  ${g.remedy}`);
+  if (g && g.done) lines.push(prose(c, `Initialised a git repository in ${p.vault} (no commit).`));
+  if (g && g.inside) lines.push(prose(c, `\`${p.vault}\` is inside the git work tree at \`${g.inside}\`; the vault gets its own repository, which that repository will see as an embedded one.`));
+  if (g && g.skipped) lines.push(prose(c, `Skipped git init: ${g.skipped}. The vault works without one; doctor's vault-git finding stays until it is a repository.`));
+  if (g && g.failed) lines.push(prose(c, `git init failed: ${g.failed}`), prose(c, g.remedy, "  "));
   const s = done.scaffold;
-  if (s && s.failed) lines.push(`Scaffold failed: ${s.failed}`, `  ${s.remedy}`);
-  else if (s) lines.push(`Scaffolded the ${p.layout} layout (${p.language}): ${s.created.length} folders and READMEs created${s.exists.length ? `, ${s.exists.length} already there` : ""}.`);
-  if (!bindFailed(done)) lines.push("", "Next: `projectstore reconcile --write` (optional) generates the derived views — kanban.md, graph.md and code-map.md.");
+  if (s && s.failed) lines.push(prose(c, `Scaffold failed: ${s.failed}`), prose(c, s.remedy, "  "));
+  else if (s) lines.push(prose(c, `Scaffolded the ${p.layout} layout (${p.language}): ${s.created.length} folders and READMEs created${s.exists.length ? `, ${s.exists.length} already there` : ""}.`));
+  if (!bindFailed(done)) lines.push("", prose(c, `Next, optional: generate the derived views ${icon(c, "dash")} kanban.md, graph.md and code-map.md:`), ...commandBlock(c, ["projectstore reconcile --write"]));
   return lines;
 }
 
-export function renderBindPlan(p, done = null, { env = process.env } = {}) {
+// bind's and init's screen: what was written, the binding as key–value lines,
+// then what to run next (presentation spec contracts 5 and 6). Its prose
+// wraps on a live terminal. A refusal prints its message as it is. `caps` is
+// the stream's (term.mjs); the default is plain text.
+export function renderBindPlan(p, done = null, { env = process.env, caps: c = PLAIN } = {}) {
   const lines = [];
   if (!p.ok) { for (const r of p.refusals) lines.push(r.message); return lines.join("\n") + "\n"; }
-  const ignoredNote = p.ignored.length ? ` — --${p.ignored.join(" and --")} ignored: a change of ${p.ignored.join("/")} is not a rebind (edit the config, or rebind to another vault)` : "";
+  const ignoredNote = p.ignored.length ? ` ${icon(c, "dash")} --${p.ignored.join(" and --")} ignored: a change of ${p.ignored.join("/")} is not a rebind (edit the config, or rebind to another vault)` : "";
   if (p.state === "same" && !(done && p.buildsVault)) {
-    lines.push(`Already bound to ${p.vault}${ignoredNote}.`, nextLine(p, env));
+    lines.push(prose(c, `Already bound to ${p.vault}${ignoredNote}.`), ...nextLines(p, env, c));
     return lines.join("\n") + "\n";
   }
-  if (done && done.created_vault) lines.push(`Created ${p.vault}`);
-  if (p.state === "same") lines.push(`Already bound to ${p.vault}${ignoredNote}; its directory was missing, so init made the vault again.`);
+  if (done && done.created_vault) lines.push(prose(c, `Created ${p.vault}`));
+  if (p.state === "same") lines.push(prose(c, `Already bound to ${p.vault}${ignoredNote}; its directory was missing, so init made the vault again.`));
   else {
-    lines.push(`Wrote ${p.configPath}${p.state === "different" ? ` (rebind from ${p.before.vault_path}; kept: ${p.keptKeys.join(", ") || "nothing else"})` : ""}`);
-    lines.push(`  vault_path: ${p.vault}`, `  layout:     ${p.layout}`, `  language:   ${p.language}`);
+    lines.push(prose(c, `Wrote ${p.configPath}${p.state === "different" ? ` (rebind from ${p.before.vault_path}; kept: ${p.keptKeys.join(", ") || "nothing else"})` : ""}`));
+    lines.push(...kv(c, [["vault_path", p.vault], ["layout", p.layout], ["language", p.language]]));
   }
-  if (done && p.buildsVault) lines.push(...vaultSteps(p, done));
-  else if (done) lines.push("", nextLine(p, env));
+  if (done && p.buildsVault) lines.push(...vaultSteps(p, done, c));
+  else if (done) lines.push(...nextLines(p, env, c));
   return lines.join("\n") + "\n";
 }
