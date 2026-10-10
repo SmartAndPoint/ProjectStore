@@ -385,7 +385,8 @@
             "-y accepts a marketplace-declared command; this marketplace declares none",
             "the project of a --scope local command is the process cwd; there is no --project flag",
             "a live session marks its Bash environment with CLAUDECODE=1 (not the plugin-root or project-dir variables, which reach hooks only); the registration defers on that marker",
-            "`plugin update` at an unchanged version answers \"already at the latest version\" and copies nothing, even after `marketplace update`: a same-version content refresh is uninstall + install"
+            "`plugin update` at an unchanged version answers \"already at the latest version\" and copies nothing, even after `marketplace update`: a same-version content refresh is uninstall + install",
+            "2.1.296, 2026-10-10: the plugin of this directory marketplace loads in place from <dir>/<plugin_subdir> — the MCP server's argv, the slash commands' plugin root and the SessionStart hook all name it — while the registry row's installPath stays the cache copy the launcher renders; the SessionStart refresh therefore never demotes a launcher entry (install spec, contract 0 as amended 2026-10-10)"
           ]
         },
         "commands": {

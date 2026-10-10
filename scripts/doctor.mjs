@@ -629,9 +629,12 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
         push(finding("install", "warn", "surface", `${where} [projectstore:agents] — ${s.reason}. Run ${invocation(sh, "agents", { args: "register" })}.`, where));
       }
     }
-    // The statusline entry's states are checkStatusline's, under its own id —
-    // its ours-stale (a command this installation would not write) is
-    // self-healing: syncStatusLine rewrites it on the next SessionStart.
+    // The statusline entry's states are checkStatusline's, under its own id.
+    // Its ours-stale (a command this installation would not write) is not
+    // always self-healing: syncStatusLine re-points a direct entry at the
+    // running root's script and never touches an entry naming a launcher on
+    // disk, so install is what re-points an entry at the launcher
+    // (contract 0 as amended 2026-10-10).
   }
   return out;
 }
@@ -751,8 +754,16 @@ export function checkPluginRegistration(proj, states = [], { home = homedir(), s
     } else if (s.state === "stale") {
       push(finding("install", "issue", "plugin-registration", `${s.entry} — stale: ${s.reason}. Refresh it: ${refresh}`, s.path));
     } else if (s.state === "current") {
+      // The host loads a host plugin registration in place, from the
+      // plugin's root inside our marketplace directory (the payload — what
+      // its plugin-root variable names); the install path is the registry's
+      // copy, the one the launcher renders (measured on host 2.1.293 and
+      // 2.1.296). A portable registration's host loads the copy.
+      const loaded = h.surfaces?.[s.surface]?.format === "host-plugin-registration" && s.payload
+        ? `install path ${s.installPath}; loaded in place from ${s.payload}`
+        : `loaded from ${s.installPath}`;
       if (others) push(finding("install", "issue", "plugin-registration", `${s.entry} is current, and ${others} is enabled for this project too — two enabled copies of one plugin load twice. install silences the other for this project: ${packageCommand(h, "install", { args: `--surface ${s.surface} --project "${proj}"` })} (or the host's own disable at the scope the manifest names — never the committed project scope).`, s.path));
-      else push(finding("install", "info", "plugin-registration", `${s.entry} ${s.installedVersion} registered from the npm package for this project (loaded from ${s.installPath}); refresh with ${refresh}.`));
+      else push(finding("install", "info", "plugin-registration", `${s.entry} ${s.installedVersion} registered from the npm package for this project (${loaded}); refresh with ${refresh}.`));
     }
   }
   return out;

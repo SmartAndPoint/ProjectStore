@@ -17,7 +17,8 @@ import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, realpa
 import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { fakeInstall, fakePackageRoot, fakeClaude, noHostEnv, writeRegistry } from "./fixtures/install.mjs";
+import { spawnSync } from "node:child_process";
+import { fakeInstall, fakePackageRoot, fakeClaude, noHostEnv, writeRegistry, installEnv } from "./fixtures/install.mjs";
 import { plan, renderPreview, apply, runVerb, publicItem, renderDone } from "../scripts/install-harness.mjs";
 import { analyseRegistration, registrationPaths, surfaceStates } from "../scripts/surfaces.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
@@ -36,13 +37,17 @@ const tmp = (p) => realpathSync(mkdtempSync(join(tmpdir(), p)));
 
 delete process.env[SRC.runtime.home_env];
 
-function sandbox({ version = "0.28.0", statusline = true } = {}) {
+// `npx`: the package root in npx's own shape, <cache>/_npx/<hash>/node_modules/<name>.
+// `vault`: a temporary vault instead of a path that does not exist, for a case
+// that spawns the hook or doctor — both read the vault, and the hook writes
+// its session record there.
+function sandbox({ version = "0.28.0", statusline = true, npx = false, vault = false } = {}) {
   const home = tmp("ps-reg-home-");
   const proj = tmp("ps-reg-proj-");
   mkdirSync(join(proj, CFG_DIR), { recursive: true });
-  writeBinding(proj, JSON.stringify({ vault_path: "/tmp/nowhere", layout: "engineering", ...(statusline ? { statusline: { enabled: true } } : {}) }));
+  writeBinding(proj, JSON.stringify({ vault_path: vault ? tmp("ps-reg-vault-") : "/tmp/nowhere", layout: "engineering", ...(statusline ? { statusline: { enabled: true } } : {}) }));
   writeFileSync(join(proj, "CLAUDE.md"), "# Mine\n");
-  const root = fakePackageRoot(join(tmp("ps-reg-npx-"), "node_modules", "projectstore"), version);
+  const root = fakePackageRoot(join(tmp("ps-reg-npx-"), ...(npx ? ["_npx", "4f1c2a9e7b3d5c60"] : []), "node_modules", "projectstore"), version);
   const host = fakeClaude(tmp("ps-reg-bin-"));
   const paths = registrationPaths(S, { home, projectDir: proj, harness: SRC });
   const readJson = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
@@ -585,4 +590,82 @@ test("registration contract 19: a host command whose binary is gone says it was 
   assert.ok(done.failed, "the run stops");
   assert.match(done.failed.stderr, /^claude could not start: it was not found on PATH/, done.failed.stderr);
   assert.ok(!/spawnSync/.test(JSON.stringify(done.failed)), JSON.stringify(done.failed));
+});
+
+// The story "The SessionStart hook and install agree on the status line of an
+// npm registration loaded from its marketplace directory": the host loads this
+// registration's plugin in place from the marketplace payload (measured on
+// 2.1.293 and 2.1.296), so its hooks and its doctor run from paths.payload —
+// neither the cache install the launcher is rendered for nor the package.
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+test("registration: recovery from a demoted entry — from an _npx root the plan reads the payload script's entry ours-stale and the launcher current, and after apply a SessionStart run from the marketplace payload keeps the launcher entry", () => {
+  const sb = sandbox({ npx: true, vault: true });
+  const { home, proj, root, env, item, paths, local } = sb;
+  assert.match(root, /[\\/]_npx[\\/][^\\/]+[\\/]node_modules[\\/]/, "an npx-shaped package root");
+  const first = apply(plan(proj, { home, root, env }), { env, home });
+  assert.equal(first.failed, undefined, JSON.stringify(first));
+  const launcher = statusLineLauncherPath(proj);
+  const launcherBytes = readFileSync(launcher, "utf8");
+  // This machine on 2026-10-07: a session run from the marketplace payload
+  // re-pointed install's entry at the payload's own script; the launcher stayed.
+  const settingsPath = join(proj, CFG_DIR, "settings.local.json");
+  writeFileSync(settingsPath, JSON.stringify({ ...local(), statusLine: { type: "command", command: `node "${join(paths.payload, "scripts", "statusline.mjs")}"` } }, null, 2) + "\n");
+
+  const p = plan(proj, { harnesses: [SRC.id], home, root, env });
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  assert.deepEqual([item(p, "plugin").state, item(p, "plugin").action], ["current", "skip"]);
+  assert.deepEqual([item(p, "statusline").state, item(p, "statusline").action], ["ours-stale", "replace-entry"], "the payload's script is ours, recognised by its directory's provenance field — no longer `theirs`");
+  assert.deepEqual([item(p, "statusline_launcher").state, item(p, "statusline_launcher").action], ["current", "skip"]);
+  assert.equal(item(p, "statusline").after.statusLine.command, `node "${launcher}"`);
+  assert.match(p.reports[0], new RegExp(`install path ${escapeRe(item(p, "plugin").root)}; the host loads them in place from ${escapeRe(paths.payload)}\\.`), "the host-managed report names the install path and the plugin root it loads in place");
+  assert.ok(!("payload" in item(p, "plugin")), "the plan item keeps its shape");
+
+  const done = apply(p, { env, home });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  assert.equal(local().statusLine.command, `node "${launcher}"`);
+  const settled = readFileSync(settingsPath, "utf8");
+  // A SessionStart as the host runs it: the payload's own hook, its plugin root the payload.
+  const hook = spawnSync(process.execPath, [join(paths.payload, "hooks", "session-start.mjs")], { encoding: "utf8", input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "recovery-1", source: "startup", cwd: proj }), env: installEnv(home, paths.payload, proj), cwd: proj, timeout: 30000 });
+  assert.equal(hook.status, 0, hook.stderr);
+  assert.equal(readFileSync(settingsPath, "utf8"), settled, "the entry still names the launcher, byte for byte");
+  assert.equal(readFileSync(launcher, "utf8"), launcherBytes, "and the launcher is as install wrote it");
+});
+
+test("registration: doctor --install run from the marketplace payload the host loads in place, and from a package root, reads the launcher against the registration's install path — never 'not produced for this installation'", () => {
+  const sb = sandbox({ npx: true, vault: true });
+  const { home, proj, root, env, paths, registry, host } = sb;
+  const done = apply(plan(proj, { home, root, env }), { env, home });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  const installPath = registry().plugins[ID][0].installPath;
+  for (const [where, from] of [["the marketplace payload", paths.payload], ["the package root", root]]) {
+    // The states doctor derives, in-process against this sandbox's home.
+    const launcher = surfaceStates(proj, { home, root: from, env }).states.find((x) => x.surface === "statusline_launcher");
+    assert.deepEqual([launcher.produced, launcher.state], [true, "current"], where);
+    // The verb itself, from that root's own bin, as a terminal runs it.
+    const r = spawnSync(process.execPath, [join(from, "bin", "projectstore.mjs"), "doctor", "--install", "--json", "--project", proj], { encoding: "utf8", cwd: proj, env: host.env({ HOME: home }), timeout: 60000, maxBuffer: 1 << 24 });
+    const findings = JSON.parse(r.stdout).result;
+    assert.ok(!findings.some((f) => /not produced for this installation/.test(f.message)), `${where}: ${JSON.stringify(findings, null, 2)}`);
+    const info = findings.find((f) => f.check === "plugin-registration" && f.level === "info");
+    assert.ok(info && info.message.includes(`(install path ${installPath}; loaded in place from ${paths.payload})`), `${where}: ${JSON.stringify(findings, null, 2)}`);
+  }
+});
+
+// Contract 2, amended 2026-10-10: one reader of the provenance field. The
+// apply-time re-check reads it through that reader too, so a field that is not
+// ours in shape (no pkg) is foreign there exactly as it is to the plan.
+test("registration contract 2/5: a directory that appears at our path between plan and apply, its manifest's provenance field not ours in shape, is refused at apply and left byte-identical", () => {
+  const sb = sandbox();
+  const { home, proj, root, env, paths, host } = sb;
+  const p = plan(proj, { home, root, env });
+  assert.equal(sb.item(p, "plugin").action, "create");
+  mkdirSync(dirname(paths.manifest), { recursive: true });
+  const theirs = JSON.stringify({ name: "theirs", plugins: [], [S.provenance_key]: true }) + "\n";
+  writeFileSync(paths.manifest, theirs);
+  const done = apply(p, { env, home });
+  assert.ok(done.failed, "the run stops");
+  assert.match(JSON.stringify(done.failed), /changed under the plan: its manifest is no longer ours/);
+  assert.equal(readFileSync(paths.manifest, "utf8"), theirs, "nothing is written over it");
+  assert.ok(!existsSync(paths.payload), "no payload copied in");
+  assert.equal(host.log().length, 0, "no host command ran");
 });
