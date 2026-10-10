@@ -14,6 +14,10 @@ for (const k of ["PROJECTSTORE_HARNESS", "PROJECTSTORE_IDENTIFIED", "PROJECTSTOR
 // A shell's named root would stand in for every fetch, and the animation
 // switch would change every live line a test reads (the shell-fetch story).
 for (const k of ["PROJECTSTORE_DISTRIBUTION_ROOT", "PROJECTSTORE_NO_ANIMATION"]) delete process.env[k];
+// The glyph switch would turn every glyph a test reads into its ASCII form
+// (the presentation spec's glyph table; the story "The CLI's output is
+// designed…").
+delete process.env.PROJECTSTORE_ASCII;
 // The user-level cache and npm's own: per test process, never the
 // developer's. Offline with an empty cache, a fetch a test forgot to fake
 // fails the same way every time (ENOTCACHED) instead of reaching a registry.
