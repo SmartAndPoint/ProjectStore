@@ -104,6 +104,28 @@ export function speakingDisplayName({ env = process.env } = {}) {
   return speakingHarness(env)?.display_name || "another";
 }
 
+// ─── doctor's last line (presentation spec, contract 11) ───────────────
+//
+// The Summary line ends every text report of doctor's, verbatim from its
+// 0.29.2 report: the write ceremony captures it as the pre-state and compares
+// it after (commands/story.md step 5a, agents/clerk.md), so its bytes are a
+// contract. It lives here, beside commandForm, because every printer of the
+// report needs it — doctor-report.mjs, and the fallback of each caller when
+// that renderer cannot be loaded or throws — and this is the one module all
+// of them already import. `env` decides the command forms.
+export function doctorSummaryLine(findings, { env = process.env } = {}) {
+  const issues = findings.filter((f) => f.level === "issue").length;
+  const warns = findings.filter((f) => f.level === "warn").length;
+  return `Summary: ${issues} issue(s), ${warns} warning(s). ${issues ? `Repairs: ${commandForm("doctor", { args: "--fix", env })} (install), ${commandForm("kanban", { env })} / reconcile (vault).` : "Vault and wiring look healthy."}`;
+}
+
+// What a reader gets when the renderer cannot draw the findings: each one
+// per line, `level check message — file`, then the Summary line, still last.
+export function doctorFallbackText(findings, { env = process.env } = {}) {
+  const lines = findings.map((f) => `${f.level} ${f.check} ${f.message}${f.file ? ` — ${f.file}` : ""}`);
+  return [...lines, ...(lines.length ? [""] : []), doctorSummaryLine(findings, { env })].join("\n") + "\n";
+}
+
 // The layout resolver and its constants, re-exported so hooks and scripts
 // import one module (the layout ADR, 2026-09-06). The active harness's id,
 // for the paths keyed by it (state/<id>/…). cachePaths is the user-level

@@ -1,8 +1,8 @@
-// projectstore — test fixture: the golden screens of the install family and
-// bind (PS-HARNESS: "The CLI's output is designed: grouped plans, a question
-// rail, one glyph set, doctor grouped by cause"; the covering spec *Terminal
-// presentation of the projectstore CLI: layout, glyphs, colour roles,
-// questions and live lines*, Testing → Golden output and Equivalence).
+// projectstore — test fixture: the golden screens of the install family, bind
+// and doctor (PS-HARNESS: "The CLI's output is designed: grouped plans, a
+// question rail, one glyph set, doctor grouped by cause"; the covering spec
+// *Terminal presentation of the projectstore CLI: layout, glyphs, colour
+// roles, questions and live lines*, Testing → Golden output and Equivalence).
 //
 // Every screen is rendered from fixed data — plans modelled on a real
 // two-harness install, uninstall and upgrade, with a fixed home, project,
@@ -12,18 +12,30 @@
 // whole screen must be: any other character would be one a renderer
 // composed. Text from the manifests (display names, next steps) is ASCII too.
 //
+// doctor's screen is drawn from tests/fixtures/doctor-findings.json: the
+// findings of a real `doctor --json` run on this repository (2026-10-11, its
+// six code_refs to renamed skills still live), trimmed to one of each shape
+// the screen shows and with every vault artifact path replaced by a fixture
+// path. Its messages are doctor's own and carry its em dashes, which a
+// finding prints as it is; the glyph scan draws the same screen from those
+// findings with every other character replaced (SCREENS' `scan`). A
+// terminal compacts that report and plain output does not (contract 11:
+// the cap, the folds, the short instance lines), so plain is held equal to
+// the terminal's --verbose rendering (SCREENS' `full`).
+//
 // The committed goldens, tests/fixtures/presentation/<screen>.<mode>.txt, are
 // written with
 //   node tests/fixtures/presentation.mjs --write
 // Regenerating them is a decision, not a refresh: it re-baselines what each
 // screen is.
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderPreview, renderDone, applyReporter } from "../../scripts/install-harness.mjs";
 import { renderBindPlan } from "../../scripts/binding.mjs";
 import { askApply } from "../../scripts/term.mjs";
+import { report } from "../../scripts/doctor-report.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const DIR = join(HERE, "presentation");
@@ -191,7 +203,19 @@ export async function confirmText(c) {
 
 const preview = (plan, verb) => (c) => renderPreview(plan(), { verb, caps: c, home: HOME });
 
-// The screens, in order: name → (caps) → text (or a promise of it).
+// doctor: both sections, as a bare run draws them. `env` is empty, so every
+// command form is the source harness's, whatever the test's environment.
+export const DOCTOR_FINDINGS = Object.freeze(JSON.parse(readFileSync(join(HERE, "doctor-findings.json"), "utf8")));
+export const DOCTOR_GROUPS = Object.freeze(["install", "vault"]);
+export const doctorText = (c, { findings = DOCTOR_FINDINGS, verbose = false } = {}) => report(findings, DOCTOR_GROUPS, { caps: c, verbose, version: VERSION, project: PROJECT, env: {} });
+// The findings with every character a finding's own text carries past 0x7E
+// replaced: what is left that is not ASCII, the renderer composed.
+export const asciiOnly = (s) => String(s).replace(/[^\x00-\x7e]/g, "?");
+export const DOCTOR_ASCII_FINDINGS = Object.freeze(DOCTOR_FINDINGS.map((f) => ({ ...f, message: asciiOnly(f.message), ...(f.file ? { file: asciiOnly(f.file) } : {}) })));
+
+// The screens, in order: name → (caps) → text (or a promise of it), and for
+// a screen a terminal compacts, `full` — the terminal's rendering plain
+// output equals — and `scan` — the screen drawn from ASCII data.
 export const SCREENS = Object.freeze([
   ["plan-install", preview(installPlan, "install")],
   ["plan-upgrade", preview(upgradePlan, "upgrade")],
@@ -202,6 +226,7 @@ export const SCREENS = Object.freeze([
   ["done", doneText],
   ["stopped", stoppedText],
   ["bind", bindText],
+  ["doctor", doctorText, { full: (c) => doctorText(c, { verbose: true }), scan: (c) => doctorText(c, { findings: DOCTOR_ASCII_FINDINGS }) }],
 ]);
 
 export const goldenPath = (screen, mode) => join(DIR, `${screen}.${mode}.txt`);

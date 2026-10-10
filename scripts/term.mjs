@@ -124,6 +124,9 @@ export const GLYPH_ALIASES = Object.freeze({
   issue: "fail", refuse: "warning", refusal: "warning", note: "warning",
   skip: "unchanged", skipped: "unchanged", create: "add", migrate: "update", refresh: "update",
   cleanup: "remove", prune: "remove",
+  // doctor's info finding: not a warning, so not ▲ — the two would differ by
+  // colour alone (decided 2026-10-11 with doctor's report).
+  info: "dot",
 });
 
 // The spinner (presentation spec contract 4): braille frames, one every 80 ms.

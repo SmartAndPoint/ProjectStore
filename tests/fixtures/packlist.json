@@ -57,6 +57,7 @@
   "scripts/cli.mjs",
   "scripts/codemap.mjs",
   "scripts/diff-refs.mjs",
+  "scripts/doctor-report.mjs",
   "scripts/doctor.mjs",
   "scripts/draft.mjs",
   "scripts/fetch-shell.mjs",

@@ -12,13 +12,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
-import { resolve, dirname, join, delimiter } from "node:path";
+import { resolve, dirname, join, delimiter, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject, run, opt } from "../scripts/cli.mjs";
+import { createRequire, syncBuiltinESMExports } from "node:module";
+import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject, run, opt, doctorText } from "../scripts/cli.mjs";
 import { loadHarness, sourceHarness, harnessIds } from "../scripts/harness.mjs";
-import { layoutPaths } from "../scripts/lib.mjs";
+import { layoutPaths, commandForm, doctorSummaryLine, doctorFallbackText } from "../scripts/lib.mjs";
+import { textReport } from "../scripts/doctor.mjs";
 import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
 import { fakeNpm, fakeCodexBin } from "./fixtures/fetch.mjs";
 import { neighbors as neighborsOp, LINEAGE_KINDS } from "../scripts/query.mjs";
@@ -191,6 +193,112 @@ test("cli: doctor through the bin equals the bare script's findings, inside the 
   const text = bin(["doctor", "--project", proj]);
   assert.equal(text.status, 1);
   assert.match(text.stdout, /projectstore doctor/);
+});
+
+// ─── doctor's text, drawn by the bin (presentation spec, contract 11) ──
+//
+// The story "The CLI's output is designed: grouped plans, a question rail,
+// one glyph set, doctor grouped by cause" (PS-HARNESS), criterion 6: doctor
+// through the bin is spawned once, for its --json findings, and its text is
+// rendered in the bin's process — so a terminal gets colour.
+
+// A terminal's stdout, in process: a stream with isTTY and columns.
+class TtySink {
+  constructor() { this.text = ""; }
+  write(s) { this.text += String(s); return true; }
+  get isTTY() { return true; }
+  get columns() { return 80; }
+}
+const stripSgr = (s) => String(s).replace(/\x1b\[[0-9;]*m/g, "");
+
+test("cli doctor: run() at a terminal spawns doctor once, with --json, and prints the report in colour, the Summary line last", async () => {
+  const proj = project();
+  const home = mkdtempSync(join(tmpdir(), "ps-cli-home-"));
+  const out = new TtySink(), err = new Sink();
+  const cp = createRequire(import.meta.url)("node:child_process");
+  const original = cp.spawnSync;
+  const calls = [];
+  cp.spawnSync = function (...args) { const r = original.apply(this, args); calls.push({ args, r }); return r; };
+  syncBuiltinESMExports();
+  let code;
+  try {
+    code = await run(["doctor", "--project", proj], { env: { HOME: home }, cwd: proj, stdout: out, stderr: err });
+  } finally {
+    cp.spawnSync = original;
+    syncBuiltinESMExports();
+  }
+  const doctors = calls.filter((c) => String(c.args[1]?.[0] || "").endsWith(join("scripts", "doctor.mjs")));
+  assert.equal(doctors.length, 1, `doctor is spawned once: ${calls.map((c) => c.args[1]?.join(" ")).join(" | ")}`);
+  assert.equal(doctors[0].args[1][1], "--json", "for its findings");
+  const findings = JSON.parse(doctors[0].r.stdout);
+  assert.equal(code, findings.some((f) => f.level === "issue") ? 1 : 0, "the findings decide the exit code");
+  assert.equal(err.text, "");
+  assert.match(out.text, /\x1b\[[0-9;]*m/, "coloured at a terminal");
+  const lines = out.text.split("\n");
+  assert.equal(stripSgr(lines[0]), `projectstore doctor · ${PKG.version} · ${basename(proj)}`);
+  assert.ok(lines.some((l) => stripSgr(l).startsWith("INSTALL — ")) && lines.some((l) => stripSgr(l).startsWith("VAULT — ")), out.text);
+  assert.match(lines.at(-2), /^Summary: \d+ issue\(s\), \d+ warning\(s\)\. /, "the Summary line is last, and unpainted");
+  assert.equal(lines.at(-1), "");
+  // NO_COLOR at the same terminal: the same report, no escape.
+  const bare = new TtySink();
+  await run(["doctor", "--project", proj], { env: { HOME: home, NO_COLOR: "1" }, cwd: proj, stdout: bare, stderr: new Sink() });
+  assert.ok(!bare.text.includes("\x1b"), bare.text);
+  assert.equal(bare.text, stripSgr(out.text));
+});
+
+test("cli doctor: the bin's text on a pipe is doctor.mjs's own text mode — one renderer — and --verbose is doctor's option", () => {
+  const { proj } = seedCliVault();
+  const home = mkdtempSync(join(tmpdir(), "ps-cli-home-"));
+  const viaBin = bin(["doctor", "--vault", "--project", proj], { env: { HOME: home } });
+  const env = { ...process.env, HOME: home, [SRC.runtime.project_dir_env]: proj };
+  delete env.FORCE_COLOR;
+  delete env.TERM;
+  const own = spawnSync(process.execPath, [join(ROOT, "scripts", "doctor.mjs"), "--vault"], { encoding: "utf8", cwd: proj, env, timeout: 60000 });
+  assert.equal(viaBin.status, 1, viaBin.stderr);
+  assert.equal(viaBin.stdout, own.stdout);
+  assert.ok(!/\x1b/.test(own.stdout), "doctor.mjs draws plain text");
+  assert.ok(/\n {2}✕ \[kanban\] /.test(own.stdout) && /\n\nSummary: \d+ issue\(s\), /.test(own.stdout), own.stdout);
+  // On a pipe --verbose changes nothing: plain output already holds every note.
+  assert.equal(bin(["doctor", "--vault", "--verbose", "--project", proj], { env: { HOME: home } }).stdout, viaBin.stdout);
+  const help = bin(["doctor", "--help"]);
+  const line = help.stdout.split("\n").find((l) => l.startsWith("  --verbose"));
+  assert.match(line, /^ {2}--verbose +on a terminal too: every note, every instance, whole messages$/, help.stdout);
+  assert.ok(line.length <= 80, `${line.length} columns`);
+});
+
+// The failures a reader must not pay for: a renderer that throws, and one
+// that cannot be loaded — through the bin, and in doctor.mjs run directly.
+// Either way the findings print one per line and the Summary line, which the
+// write ceremony reads as the pre-state, is still the last.
+const FALLBACK_FINDINGS = [
+  { group: "vault", level: "issue", check: "kanban", message: "kanban.md is out of sync.", file: "kanban.md" },
+  { group: "vault", level: "info", check: "graph", message: "No graph.md yet." },
+];
+const FALLBACK_TEXT = () => `issue kanban kanban.md is out of sync. — kanban.md\ninfo graph No graph.md yet.\n\n${doctorSummaryLine(FALLBACK_FINDINGS, { env: {} })}\n`;
+
+test("cli doctor: a renderer that throws or cannot load costs the reader nothing — the findings one per line, the Summary line last", async () => {
+  const real = await import("../scripts/doctor-report.mjs");
+  assert.equal(doctorSummaryLine(FALLBACK_FINDINGS, { env: {} }), `Summary: 1 issue(s), 0 warning(s). Repairs: ${commandForm("doctor", { args: "--fix", env: {} })} (install), ${commandForm("kanban", { env: {} })} / reconcile (vault).`);
+  for (const [why, load] of [["boom", async () => ({ ...real, report: () => { throw new Error("boom"); } })], ["gone", async () => { throw new Error("gone"); }]]) {
+    const err = new Sink();
+    assert.equal(await doctorText(FALLBACK_FINDINGS, ["vault"], { env: {}, stderr: err }, { load }), FALLBACK_TEXT(), why);
+    assert.equal(err.text, `doctor: the report could not be drawn (${why}); its findings follow, one per line.\n`);
+  }
+  assert.equal(doctorFallbackText([], { env: {} }), "Summary: 0 issue(s), 0 warning(s). Vault and wiring look healthy.\n");
+  // And without a failure, the report.
+  const drawn = await doctorText(FALLBACK_FINDINGS, ["vault"], { env: {}, project: "/x/shop" });
+  assert.ok(drawn.startsWith(`projectstore doctor · ${PKG.version} · shop\n\nVAULT — 1 issue · 0 warnings · 1 note\n`), drawn);
+  assert.ok(drawn.endsWith(`\n\n${doctorSummaryLine(FALLBACK_FINDINGS, { env: {} })}\n`));
+});
+
+test("cli doctor: doctor.mjs run directly falls back the same way when its renderer cannot load or throws", async () => {
+  const real = await import("../scripts/doctor-report.mjs");
+  for (const [why, load] of [["gone", async () => { throw new Error("gone"); }], ["boom", async () => ({ ...real, report: () => { throw new Error("boom"); } })]]) {
+    const err = new Sink();
+    assert.equal(await textReport(FALLBACK_FINDINGS, ["vault"], { env: {}, stderr: err }, { load }), FALLBACK_TEXT(), why);
+    assert.equal(err.text, `doctor: the report could not be drawn (${why}); its findings follow, one per line.\n`);
+  }
+  assert.equal(await textReport(FALLBACK_FINDINGS, ["vault"], { version: "1.2.3", project: "/x/shop", env: {} }), real.report(FALLBACK_FINDINGS, ["vault"], { version: "1.2.3", project: "/x/shop", env: {} }), "the renderer, in its plain layout");
 });
 
 test("cli: --project wins over cwd, and PROJECTSTORE_PROJECT_DIR wins over cwd", () => {

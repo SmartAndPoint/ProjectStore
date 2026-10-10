@@ -20,14 +20,17 @@ import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync } from
 import { join, relative, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { SCREENS, MODES, DIR, goldenPath, renderAll, installPlan, uninstallPlan, bindPlan, HOME, PROJECT } from "./fixtures/presentation.mjs";
+import { SCREENS, MODES, DIR, goldenPath, renderAll, installPlan, uninstallPlan, bindPlan, HOME, PROJECT, VERSION, DOCTOR_FINDINGS, DOCTOR_GROUPS, doctorText, asciiOnly } from "./fixtures/presentation.mjs";
 import { installedTree } from "./fixtures/json-captures.mjs";
 import { fakePackageRoot, fakeClaude, noHostEnv } from "./fixtures/install.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
 import { plan, renderPreview, renderDone, applyReporter } from "../scripts/install-harness.mjs";
 import { renderBindPlan } from "../scripts/binding.mjs";
-import { caps, plain, PLAIN, askApply } from "../scripts/term.mjs";
-import { loadHarness, sourceHarness } from "../scripts/harness.mjs";
+import { caps, plain, PLAIN, askApply, icon, GLYPH_ALIASES } from "../scripts/term.mjs";
+import { loadHarness, sourceHarness, invocation } from "../scripts/harness.mjs";
+import { report, CHECKS } from "../scripts/doctor-report.mjs";
+import { OFFER_CHECKS } from "../scripts/doctor.mjs";
+import { commandForm, doctorSummaryLine } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
@@ -71,7 +74,9 @@ function continues(prev, line) {
   if (row && / {2,}/.test(row[3])) return false;
   const gap = prev.trimStart().match(/^\S.*? {2,}(?=\S)/);
   const at = [indentOf(prev), indentOf(prev) + 2, gap ? indentOf(prev) + gap[0].length : -1];
-  return at.includes(indentOf(line)) && prev.length + 1 + body.split(" ")[0].length > COLUMNS - 2;
+  // doctor glues a path to the dash before it, so the two wrap as one word.
+  const first = (/^— \S+/.exec(body) || [body.split(" ")[0]])[0];
+  return at.includes(indentOf(line)) && prev.length + 1 + first.length > COLUMNS - 2;
 }
 function transform(text) {
   const raw = text.replace(/[^\n]*\r\x1b\[2K/g, "").split("\n").filter((l) => !l.includes("[Y/n]"));
@@ -87,12 +92,19 @@ function transform(text) {
 }
 
 test("presentation equivalence: SGR-stripped rich equals rich-no-colour, and plain equals rich-no-colour under the transform, for every screen", async () => {
-  for (const [screen, render] of SCREENS) {
+  for (const [screen, render, { full = null } = {}] of SCREENS) {
     const rich = await render(MODES.rich), bare = await render(MODES["rich-no-colour"]), piped = await render(MODES.plain);
     assert.equal(plain(rich), bare, `${screen}: colour is the only difference`);
-    assert.equal(transform(piped), transform(bare), `${screen}: plain is rich-no-colour less its live frames, questions and wrapping`);
+    // A screen a terminal compacts (doctor, contract 11) is held to the
+    // terminal's uncompacted rendering — the one --verbose asks for.
+    const tty = full ? await full(MODES["rich-no-colour"]) : bare;
+    if (full) assert.equal(plain(await full(MODES.rich)), tty, `${screen} --verbose: colour is the only difference`);
+    assert.equal(transform(piped), transform(tty), `${screen}: plain is rich-no-colour less its live frames, questions and wrapping`);
     if (screen !== "confirm") assert.ok(transform(piped).length > 0, `${screen} is not empty`);
   }
+  // Not vacuous for doctor: the terminal's compact report differs from plain.
+  const doctor = SCREENS.find(([s]) => s === "doctor");
+  assert.notEqual(transform(await doctor[1](MODES["rich-no-colour"])), transform(await doctor[1](MODES.plain)), "the compact report is not plain's");
   // Not vacuous: rich paints, rich-no-colour wraps and moves notes, and the live screens have frames.
   const [rich, bare, piped] = await Promise.all(["rich", "rich-no-colour", "plain"].map((m) => SCREENS.find(([s]) => s === "plan-install")[1](MODES[m])));
   assert.ok(SGR.test(rich) && bare !== piped, "the modes differ before the transform");
@@ -111,12 +123,19 @@ test("presentation equivalence: SGR-stripped rich equals rich-no-colour, and pla
 
 const nonAscii = (text) => [...text].filter((ch) => ch.codePointAt(0) > 0x7e);
 
+// A screen whose data is not ASCII (doctor's findings carry their own em
+// dashes, printed as they are) is scanned as drawn from ASCII data: what is
+// left that is not ASCII, the renderer composed.
+const scanned = (screen) => { const [, render, { scan = null } = {}] = SCREENS.find(([s]) => s === screen); return scan || render; };
+
 test("presentation ASCII: the ascii goldens hold no code point above 0x7E; no golden but rich holds SGR", async () => {
   for (const [screen, mode, text] of await renderAll()) {
-    if (mode === "ascii") assert.deepEqual(nonAscii(text), [], `${screen}.ascii: ${JSON.stringify(nonAscii(text))}`);
+    if (mode === "ascii") { const t = await scanned(screen)(MODES.ascii); assert.deepEqual(nonAscii(t), [], `${screen}.ascii: ${JSON.stringify(nonAscii(t))}`); }
     if (mode === "rich") assert.ok(SGR.test(text), `${screen}.rich is painted`);
     else assert.ok(!SGR.test(text), `${screen}.${mode} carries no SGR`);
   }
+  // The doctor scan is the golden's own screen, its data aside.
+  assert.equal(await scanned("doctor")(MODES.ascii), asciiOnly(readFileSync(goldenPath("doctor", "ascii"), "utf8")));
 });
 
 test("presentation ASCII: under TERM=dumb or PROJECTSTORE_ASCII, on a TTY and on a pipe, every glyph and separator is ASCII; NO_COLOR leaves no SGR", async () => {
@@ -127,8 +146,8 @@ test("presentation ASCII: under TERM=dumb or PROJECTSTORE_ASCII, on a TTY and on
     "PROJECTSTORE_ASCII, pipe": caps({}, { PROJECTSTORE_ASCII: "1" }),
   };
   for (const [name, c] of Object.entries(modes)) {
-    for (const [screen, render] of SCREENS) {
-      const text = await render(c);
+    for (const [screen] of SCREENS) {
+      const text = await scanned(screen)(c);
       assert.deepEqual(nonAscii(text), [], `${name}, ${screen}: ${JSON.stringify(nonAscii(text))}`);
     }
   }
@@ -370,4 +389,239 @@ test("presentation confirm: ◆ in the action role on a terminal, * with ASCII g
   const asked = [];
   for (const c of [MODES.rich, MODES.ascii]) await askApply(2, { ask: async (q) => { asked.push(q); return "n"; }, caps: c });
   assert.deepEqual(asked, ["\x1b[36m◆\x1b[39m \x1b[1mApply 2 changes?\x1b[22m \x1b[90m[Y/n]\x1b[39m ", "* Apply 2 changes? [Y/n] "]);
+});
+
+// ─── Criterion 6: doctor grouped by cause ─────────────────────────────
+//
+// report() over tests/fixtures/doctor-findings.json (this repository's
+// findings, trimmed and anonymised) and over the committed --json capture of
+// doctor --vault on the fixture vault (index, wikilink, spec-links, notes):
+// both real doctor output.
+
+const CAPTURED_VAULT = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "json-captures.json"), "utf8"))["doctor --vault"].stdout.result;
+const NO_ENV = {};
+const draw = (findings, c, { groups = DOCTOR_GROUPS, verbose = false } = {}) => report(findings, groups, { caps: c, verbose, version: VERSION, project: PROJECT, env: NO_ENV });
+// An entry starts two spaces in with a level glyph and the [check] id.
+const ENTRY = /^ {2}(✕|▲|·) \[([a-z0-9-]+)\] /;
+const entryLines = (text) => text.split("\n").map((l, k) => [k, l.match(ENTRY)]).filter(([, m]) => m).map(([k, m]) => ({ at: k, glyph: m[1], check: m[2] }));
+// The lines of the entry at `at`, up to the next entry, the next heading, or
+// the blank line before it.
+function entryBody(lines, at) {
+  let end = at + 1;
+  while (end < lines.length && !ENTRY.test(lines[end]) && !/^\S/.test(lines[end]) && !(lines[end] === "" && /^\S/.test(lines[end + 1] || ""))) end++;
+  return lines.slice(at + 1, end);
+}
+const fixLines = (body) => body.filter((l) => /^ {4}fix: /.test(l));
+const PREFIX = commandForm("doctor", { env: NO_ENV }).slice(0, -"doctor".length);
+
+test("presentation doctor criterion 6: the badge, then each section's counts — issues, warnings, notes, each in its role — before any finding", () => {
+  for (const mode of ["rich-no-colour", "plain", "ascii"]) {
+    const text = doctorText(MODES[mode]);
+    const lines = text.split("\n");
+    const dot = mode === "ascii" ? "." : "·", dash = mode === "ascii" ? "-" : "—";
+    assert.equal(lines[0], `projectstore doctor ${dot} ${VERSION} ${dot} shop`, mode);
+    for (const g of DOCTOR_GROUPS) {
+      const fs = DOCTOR_FINDINGS.filter((f) => f.group === g);
+      const n = (l) => fs.filter((f) => f.level === l).length;
+      const s = (k, w) => `${k} ${w}${k === 1 ? "" : "s"}`;
+      const head = lines.indexOf(`${g.toUpperCase()} ${dash} ${s(n("issue"), "issue")} ${dot} ${s(n("warn"), "warning")} ${dot} ${s(n("info"), "note")}`);
+      assert.ok(head > 0, `${mode} ${g}:\n${text}`);
+      assert.equal(lines[head - 1], "", "a blank line before each section");
+      assert.match(lines[head + 1], mode === "ascii" ? /^-{79}$/ : /^─{79}$/, "a rule beneath the counts");
+      assert.match(lines[head + 2], /^ {2}\S/, "the section's first finding follows the rule");
+    }
+  }
+  const plainLines = doctorText(MODES.plain).split("\n");
+  assert.ok(plainLines.indexOf("INSTALL — 1 issue · 0 warnings · 2 notes") < plainLines.indexOf("VAULT — 8 issues · 3 warnings · 0 notes"));
+  // Each count in its role: issues red, a zero count green, warnings yellow, notes dim.
+  const rich = doctorText(MODES.rich);
+  assert.ok(rich.includes("\x1b[1mINSTALL\x1b[22m — \x1b[31m1 issue\x1b[39m · \x1b[32m0 warnings\x1b[39m · \x1b[90m2 notes\x1b[39m\n"), rich);
+  assert.ok(rich.includes("\x1b[1mVAULT\x1b[22m — \x1b[31m8 issues\x1b[39m · \x1b[33m3 warnings\x1b[39m · \x1b[90m0 notes\x1b[39m\n"), rich);
+  // Issues before warnings, notes last, in every section.
+  for (const mode of ["plain", "rich-no-colour"]) {
+    for (const s of doctorText(MODES[mode]).split(/\n(?=[A-Z]+ — )/).slice(1)) {
+      const order = entryLines(s).map((e) => "✕▲·".indexOf(e.glyph));
+      assert.ok(order.length > 0);
+      assert.deepEqual(order, [...order].sort((a, b) => a - b), `${mode}: ${order}`);
+    }
+  }
+});
+
+test("presentation doctor criterion 6: the six unresolved code_refs are one entry with one fix line — every instance listed, whole in plain, capture and path on a terminal", () => {
+  const issues = DOCTOR_FINDINGS.filter((f) => f.check === "code-refs" && f.level === "issue");
+  assert.equal(issues.length, 6, "the fixture keeps the six renamed-skill code_refs");
+  const head = "  ✕ [code-refs] code_refs path does not resolve inside the project (6)";
+  const capture = (f) => f.message.match(/"([^"]+)"/)[1];
+  for (const mode of ["plain", "rich-no-colour"]) {
+    const text = doctorText(MODES[mode]);
+    const lines = text.split("\n");
+    assert.equal(lines.filter((l) => l.startsWith("  ✕ [code-refs]")).length, 1, `${mode}: one entry\n${text}`);
+    const at = lines.indexOf(head);
+    assert.ok(at > 0, `${mode}:\n${text}`);
+    const body = entryBody(lines, at);
+    assert.equal(fixLines(body).length, 1, `${mode}: one fix line\n${body.join("\n")}`);
+    const listed = body.slice(0, body.findIndex((l) => /^ {4}fix: /.test(l)));
+    if (mode === "plain") {
+      assert.deepEqual(listed, issues.map((f) => `      ${f.message} — ${f.file}`), "each finding whole, with its path, one line each");
+      assert.equal(fixLines(body)[0], "    fix: make each code_refs path exist in the project, and keep a story's paths inside its epic's.");
+    } else {
+      // On a terminal each instance is a row of its own glyph and its
+      // capture; the path moved beneath when the row would pass 80 columns
+      // (contract 5) reads `— <path>`, so it never passes for a capture.
+      assert.deepEqual(listed, issues.flatMap((f) => [`      · ${capture(f)}`, `        — ${f.file}`]));
+    }
+  }
+  // ASCII glyphs: the row's glyph and the moved path's dash from the table's ASCII column.
+  const ascii = doctorText(MODES.ascii).split("\n");
+  const asciiAt = ascii.indexOf("  x [code-refs] code_refs path does not resolve inside the project (6)");
+  assert.deepEqual(ascii.slice(asciiAt + 1, asciiAt + 3), [`      . ${capture(issues[0])}`, `        - ${issues[0].file}`]);
+  // At 120 columns the capture and the path share one aligned line.
+  const wide = draw(DOCTOR_FINDINGS, { ...MODES["rich-no-colour"], width: 120, columns: 120 }).split("\n");
+  const rows = wide.slice(wide.indexOf(head) + 1, wide.indexOf(head) + 7);
+  assert.deepEqual(rows.map((l) => l.trim().split(/ {2,}/)), issues.map((f) => [`· ${capture(f)}`, f.file]));
+  assert.equal(new Set(rows.map((l) => l.indexOf("epics/"))).size, 1, "the paths align");
+  // A finding of the same check that the pattern does not match prints on its own, its message whole.
+  const plainText = doctorText(MODES.plain);
+  for (const f of DOCTOR_FINDINGS.filter((x) => x.check === "code-refs" && x.level === "warn")) assert.ok(plainText.includes(`\n  ▲ [code-refs] ${f.message} — ${f.file}\n`), f.message);
+  // One match is no group: the message stays whole, and the fix still follows.
+  const one = draw([issues[0]], MODES.plain, { groups: ["vault"] });
+  assert.ok(one.includes(`\n  ✕ [code-refs] ${issues[0].message} — ${issues[0].file}\n    fix: `), one);
+});
+
+test("presentation doctor criterion 6: a fix line only for a check whose message carries no command, once per check and level; a command fix stands alone on its line", () => {
+  // The table: the spec's nine fixing checks, no other.
+  assert.deepEqual(Object.entries(CHECKS).filter(([, r]) => r.fix).map(([id]) => id).sort(), ["acceptance", "code-refs", "epic-status", "index", "index-header", "rel-link", "review-status", "spec-links", "wikilink"]);
+  for (const [name, findings] of [["this repository", DOCTOR_FINDINGS], ["the fixture vault", CAPTURED_VAULT]]) {
+    // No finding of a fixing check names a command; the command-carrying ones get none.
+    for (const f of findings) if (CHECKS[f.check]?.fix) assert.ok(!f.message.includes(PREFIX), `${name}: ${f.check} carries a command: ${f.message}`);
+    assert.ok(findings.some((f) => f.message.includes(PREFIX)), `${name}: a command-carrying finding is exercised`);
+    for (const mode of ["plain", "rich-no-colour"]) {
+      const text = draw(findings, MODES[mode]);
+      const lines = text.split("\n");
+      const entries = entryLines(text);
+      const seen = new Map();
+      entries.forEach((e, k) => {
+        const fixes = fixLines(entryBody(lines, e.at)).length;
+        if (!CHECKS[e.check]?.fix) { assert.equal(fixes, 0, `${name} ${mode}: [${e.check}] gets no second fix`); return; }
+        // The fix follows the last entry of its check and level.
+        const last = !entries.slice(k + 1).some((x) => x.check === e.check && x.glyph === e.glyph);
+        assert.equal(fixes, last ? 1 : 0, `${name} ${mode}: [${e.check}] ${e.glyph}`);
+        seen.set(`${e.check} ${e.glyph}`, (seen.get(`${e.check} ${e.glyph}`) || 0) + fixes);
+      });
+      assert.ok(seen.size > 0, `${name}: a fixing check is exercised`);
+      for (const [key, n] of seen) assert.equal(n, 1, `${name} ${mode}: one fix for ${key}`);
+    }
+  }
+  // The index fix is a command, composed for the listening harness: alone on
+  // its line after a blank one, nothing after it (contract 6).
+  const text = draw(CAPTURED_VAULT, MODES.plain, { groups: ["vault"] });
+  assert.ok(text.includes("\n  ▲ [index] Artifact is not listed in its folder's README index (3)\n      adr/dup.md is not listed in adr/README.md's index. — adr/dup.md\n"), text);
+  assert.ok(text.includes(`\n    fix: rebuild the folder indexes from frontmatter:\n\n      ${commandForm("reconcile", { env: NO_ENV })}\n\n`), text);
+  const other = loadHarness("codex");
+  const codexText = report(CAPTURED_VAULT, ["vault"], { caps: PLAIN, env: { PROJECTSTORE_HARNESS: other.id } });
+  assert.ok(codexText.includes(`\n      ${invocation(other, "reconcile")}\n`), "the command is the listening harness's form");
+  assert.ok(codexText.endsWith(`Repairs: ${invocation(other, "doctor", { args: "--fix" })} (install), ${invocation(other, "kanban")} / reconcile (vault).\n`), codexText);
+});
+
+test("presentation doctor criterion 6: on a terminal the folding rows' notes fold into one line while their section has an issue or a warning, and the instance list stops at eight; plain and --verbose print every note and instance", () => {
+  const lines = (c, findings = DOCTOR_FINDINGS, opts) => draw(findings, c, opts).split("\n");
+  const tty = lines(MODES["rich-no-colour"]);
+  assert.ok(tty.includes("  1 note hidden · --verbose shows them"), tty.join("\n"));
+  assert.ok(!tty.some((l) => l.includes("[mcp]")), "the MCP note folds");
+  assert.ok(tty.some((l) => l.startsWith("  · [auto-update] ")), "a note of a row that does not fold stays");
+  assert.ok(lines(MODES.ascii).includes("  1 note hidden . --verbose shows them"));
+  for (const [name, text] of [["plain", lines(MODES.plain)], ["--verbose", lines(MODES["rich-no-colour"], DOCTOR_FINDINGS, { verbose: true })]]) {
+    assert.ok(!text.some((l) => l.includes("hidden")), name);
+    assert.ok(text.some((l) => l.startsWith("  · [mcp] MCP read tools registered")), name);
+  }
+  // A section of notes alone folds nothing.
+  assert.ok(lines(MODES["rich-no-colour"], DOCTOR_FINDINGS.filter((f) => f.level === "info"), { groups: ["install"] }).some((l) => l.includes("[mcp]")));
+  // The rows that fold: the spec's list, each for the notes it names.
+  const folding = (check, message) => { const r = CHECKS[check]; return Boolean(r?.folds) && (r.folds === true || r.folds.test(message)); };
+  assert.ok(folding("surface", ".projectstore/state/x/statusline.mjs — current, last written by /p/other."));
+  assert.ok(!folding("surface", ".projectstore/state/x/statusline.mjs — not produced for this installation."), "a stale surface note does not fold");
+  assert.ok(folding("statusline", "Base HUD present in your user settings.json — projectstore composes above it."));
+  assert.ok(!folding("statusline", "statusLine wired manually (no statusline flag in projectstore.json) — the hook will leave it alone."));
+  assert.ok(folding("plugin-registration", "projectstore@projectstore-npm 0.30.0 registered from the npm package for this project (loaded from /x); refresh with y."));
+  assert.ok(!folding("plugin-registration", "No npm registration of projectstore for this project, and the host CLI is not on PATH."));
+  for (const id of ["mcp", "harness", "spec-policy", "identity", "artifact-name"]) assert.ok(folding(id, "any"), id);
+  assert.deepEqual(Object.entries(CHECKS).filter(([, r]) => r.folds).map(([id]) => id).sort(), ["artifact-name", "harness", "identity", "mcp", "plugin-registration", "spec-policy", "statusline", "surface"]);
+  for (const id of OFFER_CHECKS) assert.ok(!CHECKS[id]?.folds, `the offer ${id} never folds`);
+  // The fixture vault's two folding notes fold behind its issues.
+  const vault = lines(MODES["rich-no-colour"], CAPTURED_VAULT, { groups: ["vault"] });
+  assert.ok(vault.includes("  2 notes hidden · --verbose shows them") && vault.some((l) => l.includes("[graph]")), vault.join("\n"));
+  // Eleven instances: eight, then +3 more, on a terminal; all of them elsewhere.
+  const base = DOCTOR_FINDINGS.find((f) => f.check === "code-refs" && f.level === "issue");
+  const many = Array.from({ length: 11 }, (_, k) => ({ ...base, message: base.message.replace(/"[^"]+"/, `"src/gone-${k}.mjs"`), file: `epics/PS-X/s${k}.md` }));
+  const capped = lines(MODES["rich-no-colour"], many, { groups: ["vault"] });
+  const shown = capped.filter((l) => /^ {6}· src\/gone-\d+\.mjs/.test(l));
+  assert.deepEqual(shown.map((l) => l.trim().split(/ {2,}/)), Array.from({ length: 8 }, (_, k) => [`· src/gone-${k}.mjs`, `epics/PS-X/s${k}.md`]), "short enough to share a line");
+  assert.equal(capped[capped.lastIndexOf(shown.at(-1)) + 1], "      +3 more", capped.join("\n"));
+  for (const [name, text] of [["plain", lines(MODES.plain, many, { groups: ["vault"] })], ["--verbose", lines(MODES["rich-no-colour"], many, { groups: ["vault"], verbose: true })]]) {
+    assert.ok(!text.some((l) => l.includes("more")), name);
+    const joined = text.join("\n").replace(/\n {8}/g, " ");
+    for (const f of many) assert.ok(joined.includes(`${f.message} — ${f.file}`), `${name}: ${f.message}`);
+  }
+});
+
+test("presentation doctor criterion 6: plain prints every finding — its message whole on one line with its path — and a finding about another harness is never grouped", () => {
+  for (const [name, findings] of [["this repository", DOCTOR_FINDINGS], ["the fixture vault", CAPTURED_VAULT]]) {
+    const lines = draw(findings, MODES.plain).split("\n");
+    for (const f of findings) assert.ok(lines.some((l) => l.includes(f.message) && (!f.file || l.includes(f.file))), `${name}: ${f.check} ${f.message}`);
+    // Every finding keeps its [check] id, on its own line or its group's.
+    for (const check of new Set(findings.map((f) => f.check))) assert.ok(lines.some((l) => ENTRY.test(l) && l.includes(`[${check}] `)), `${name}: [${check}]`);
+  }
+  // Two findings about another harness that the code_refs pattern matches:
+  // each prints whole on its own, on a terminal too, so a filter that cuts a
+  // finding out by its exact message finds it.
+  const base = DOCTOR_FINDINGS.find((f) => f.check === "code-refs" && f.level === "issue");
+  const about = [0, 1].map((k) => ({ ...base, about: "codex", message: base.message.replace(/"[^"]+"/, `"src/about-${k}.mjs"`) }));
+  for (const c of [MODES.plain, { ...MODES["rich-no-colour"], width: 400, columns: 400 }]) {
+    const text = draw(about, c, { groups: ["vault"] });
+    assert.ok(!text.includes("(2)"), text);
+    for (const f of about) assert.ok(text.includes(`\n  ✕ [code-refs] ${f.message} — ${f.file}\n`), text);
+  }
+});
+
+test("presentation doctor criterion 6: the last line is the Summary line, verbatim, counted over every section; a clean section says so", () => {
+  const want = `Summary: 9 issue(s), 3 warning(s). Repairs: ${commandForm("doctor", { args: "--fix", env: NO_ENV })} (install), ${commandForm("kanban", { env: NO_ENV })} / reconcile (vault).`;
+  assert.equal(doctorSummaryLine(DOCTOR_FINDINGS, { env: NO_ENV }), want);
+  for (const [mode, c] of Object.entries(MODES)) {
+    for (const verbose of [false, true]) assert.ok(doctorText(c, { verbose }).endsWith(`\n\n${want}\n`), `${mode}${verbose ? " --verbose" : ""}: the Summary line is last, uncoloured`);
+  }
+  // One section asked for: its findings drawn, the Summary still over all it was given.
+  const vaultOnly = draw(DOCTOR_FINDINGS, MODES.plain, { groups: ["vault"] });
+  assert.ok(!vaultOnly.includes("INSTALL") && vaultOnly.endsWith(`${want}\n`));
+  assert.equal(draw([], MODES.plain), `projectstore doctor · ${VERSION} · shop\n\nINSTALL — 0 issues · 0 warnings · 0 notes\n${"─".repeat(79)}\n  ✓ clean\n\nVAULT — 0 issues · 0 warnings · 0 notes\n${"─".repeat(79)}\n  ✓ clean\n\nSummary: 0 issue(s), 0 warning(s). Vault and wiring look healthy.\n`);
+  // Without a version or a project the badge says what it knows.
+  assert.ok(report([], ["vault"], { env: NO_ENV }).startsWith("projectstore doctor\n\nVAULT"));
+});
+
+test("presentation doctor: wrapped on a terminal at any width, a finding's path keeps its dash on its line; a note draws the info glyph", () => {
+  const withFile = [...DOCTOR_FINDINGS, ...CAPTURED_VAULT].filter((f) => f.file);
+  let moved = 0;
+  for (const width of [40, 48, 56, 64, 72, 80, 96, 120]) {
+    for (const [ascii, dash] of [[false, "—"], [true, "-"]]) {
+      for (const verbose of [false, true]) {
+        const c = { ...MODES["rich-no-colour"], width, columns: width, ascii };
+        const lines = draw([...DOCTOR_FINDINGS, ...CAPTURED_VAULT], c, { verbose }).split("\n");
+        // A line never ends in the path's dash with the path alone below it.
+        lines.forEach((l, k) => { if (l.endsWith(` ${dash}`) && k + 1 < lines.length) assert.ok(!withFile.some((f) => lines[k + 1].trim() === f.file), `${width} ${verbose}: "${l}" / "${lines[k + 1]}"`); });
+        // Every finding's path is on a line with its dash before it, unless a
+        // compact instance row carries it (its note column, or its target when
+        // the pattern captures nothing) or its note folded.
+        const dot = ascii ? "." : "·";
+        for (const f of withFile) {
+          if (!verbose && f.level === "info" && CHECKS[f.check]?.folds) continue;
+          assert.ok(lines.some((l) => l.includes(`${dash} ${f.file}`)) || (!verbose && lines.some((l) => l.startsWith(`      ${dot} `) && l.trimEnd().endsWith(` ${f.file}`))), `${width} ${ascii} ${verbose}: ${f.file}`);
+        }
+        moved += lines.filter((l) => new RegExp(`^ +\\${dash} \\S`).test(l)).length;
+      }
+    }
+  }
+  assert.ok(moved > 0, "some width moves a path to a line of its own, dash first");
+  // The note glyph is the table's, by its own name.
+  assert.equal(GLYPH_ALIASES.info, "dot");
+  assert.ok(doctorText(MODES.plain).includes(`\n  ${icon(PLAIN, "info")} [auto-update] `));
+  assert.ok(doctorText(MODES.ascii).includes(`\n  ${icon(MODES.ascii, "info")} [auto-update] `) && icon(MODES.ascii, "info") === ".");
 });
