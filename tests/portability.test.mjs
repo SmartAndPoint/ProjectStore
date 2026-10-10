@@ -42,6 +42,8 @@ import {
   toolPaths,
   lintPatterns,
   harnessForOverlay,
+  commonBlockFiles,
+  blockTargetProblem,
 } from "../scripts/harness.mjs";
 import { WRITE_TOOLS, isWriteTool, layoutPaths } from "../scripts/lib.mjs";
 import { checkCodexAdapter, renderCodexAdapter } from "../scripts/build-adapters.mjs";
@@ -172,6 +174,30 @@ test("generation contract 1: every manifest parses strictly and declares what th
       if (s.kind !== "host") assert.equal(typeof s.format, "string", `${n}: surfaces.${kind}.format keys the installer's handler`);
     }
     assert.ok(Array.isArray(m.rewrites), `${n}: rewrites`);
+  }
+});
+
+// One run writes the agents block once, to the first file every harness of
+// the run names (the story "One run plans the agents block once, and a bare
+// uninstall selects every harness the project uses", rule 2). Lists that
+// share no file leave a run of every harness with nowhere to write it.
+test("one block per run, rule 2: every manifest's agents_block.files share a file; disjoint lists fail, naming them", () => {
+  assert.equal(blockTargetProblem(manifests()), null, "the shipped manifests share a block file");
+  assert.ok(commonBlockFiles(manifests()).length > 0);
+  const dir = mkdtempSync(join(tmpdir(), "ps-manifests-"));
+  for (const m of manifests()) {
+    const own = `${m.id.toUpperCase()}.md`;
+    writeFileSync(join(dir, `${m.id}.json`), JSON.stringify({ ...m, surfaces: { ...m.surfaces, agents_block: { ...m.surfaces.agents_block, files: [own], reads_natively: own } } }), "utf8");
+  }
+  try {
+    resetManifests();
+    const disjoint = [...loadHarnesses(dir).values()];
+    assert.equal(disjoint.length, manifests().length);
+    const problem = blockTargetProblem(disjoint);
+    assert.ok(problem, "disjoint lists are a problem");
+    for (const m of disjoint) assert.ok(problem.includes(`${m.id} ${JSON.stringify(m.surfaces.agents_block.files)}`), problem);
+  } finally {
+    resetManifests();
   }
 });
 

@@ -243,11 +243,13 @@ const HELP_GROUPS = [
 // Examples per verb. `{cmd}` is how this run was invoked (a shell's own name
 // when PROJECTSTORE_SHELL says so, else the core — a shell passes the read
 // verbs through, so its name serves them too), `{h}` the harness argument the
-// core needs and a shell fixes.
+// core needs and a shell fixes. A `{core}` example is the core's alone: under
+// a shell `{h}` is empty, so it would repeat the line above it and say what
+// the shell's own run does not.
 const EXAMPLES = {
   install: ["{cmd} install{h}", "{cmd} plan{h}  # the same plan; nothing is written"],
   upgrade: ["{cmd}@<version> upgrade{h}  # the version you name is the version that runs", "{cmd} upgrade{h} --verbose"],
-  uninstall: ["{cmd} uninstall{h}", "{cmd} uninstall{h} --surface statusline"],
+  uninstall: ["{core}{cmd} uninstall  # every harness this project uses", "{cmd} uninstall{h}", "{cmd} uninstall{h} --surface statusline"],
   plan: ["{cmd} plan{h}", "{cmd} plan{h} --json  # one envelope, for scripts and agents"],
   status: ["{cmd} status", "{cmd} status --json"],
   orientation: ["{cmd} orientation --json"],
@@ -330,7 +332,7 @@ export function verbHelp(row, env = process.env) {
   if (opts.length) lines.push("", "Options", ...optionLines(opts));
   if (fixed) lines.push("", `${shell} names the harness itself: without a terminal, the verb is its own confirmation.`);
   else if (row.options.some((o) => o.name === "harness")) lines.push("", `Harnesses   ${harnessIds().join(", ")}`);
-  const ex = EXAMPLES[row.verb] || [];
+  const ex = (EXAMPLES[row.verb] || []).filter((e) => !(fixed && e.startsWith("{core}"))).map((e) => e.replace(/^\{core\}/, ""));
   const h = fixed ? "" : " --harness <id>";
   const rendered = ex.map((e) => e.split("{cmd}").join(cmd).split("{h}").join(h).split("  # "));
   const col = Math.max(0, ...rendered.filter((r) => r.length > 1).map(([c]) => c.length));

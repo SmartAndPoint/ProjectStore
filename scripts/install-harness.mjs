@@ -73,7 +73,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { caps as termCaps, painter, icon as termIcon, duration, stepReporter, liveLine, wrap, askApply } from "./term.mjs";
-import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand, insideHostSession, bundlingShellHarnessId, cachePaths } from "./harness.mjs";
+import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand, insideHostSession, bundlingShellHarnessId, cachePaths, commonBlockFiles, agentsBlockRow } from "./harness.mjs";
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
 import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, analyseHarnessState, isOurFile, readText } from "./surfaces.mjs";
 import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
@@ -117,9 +117,16 @@ const HANDLERS = {
 // line slot) decides whether the exclusive launcher is written at all.
 const KIND_ORDER = { registration: 0, shared: 1, exclusive: 2 };
 
+// Planned once per RUN by plan(), never once per harness (the story "One run
+// plans the agents block once, and a bare uninstall selects every harness the
+// project uses", rule 1). `s` carries the run's common file list as `files`;
+// `ctx.run` is every harness of the run that has a block, `ctx.harness` the
+// first of them, `ctx.readers` set when the run names more than one, and
+// `ctx.layout` the roster's layout name (rule 3).
 function planAgentsBlock(ctx, key, s) {
   const { projectDir, mode, root } = ctx;
-  const a = analyseBlock(projectDir, s, { root });
+  const run = ctx.run || [ctx.harness];
+  const a = analyseBlock(projectDir, s, { root, layout: ctx.layout || null, readers: ctx.readers || null });
   const { withBlock, preferred, claude, importLine, PREFERRED, FALLBACK } = a;
   const items = [];
   if (a.refusal) return [{ surface: key, kind: "shared", path: a.files[0].path, entry: "projectstore:agents", state: "refused", action: "refuse", reason: a.refusal }];
@@ -128,8 +135,15 @@ function planAgentsBlock(ctx, key, s) {
   // A CLAUDE.md that is nothing but the import registration added is ours to
   // delete when the block goes (ADR-002 decision 4); anything else stays.
   const onlyImport = (text) => String(text ?? "").split("\n").every((l) => !l.trim() || l.trim() === importLine);
-  const removal = (e, extra = {}) => ({ surface: key, kind: "shared", path: e.path, entry: `projectstore:agents v${e.block.v}`, state: "ours-current", action: "remove", reason: null,
-    before: e.text, after: removeAgentsBlock(e.text), deleteIfEmpty: e.file === FALLBACK, ...extra });
+  // A file the removal leaves empty is deleted when it held only the block
+  // (rule 4) — and the fallback file, as before. Keyed on the fallback alone,
+  // a run's common list (whose last entry is AGENTS.md) and Claude Code alone
+  // both left a 0-byte AGENTS.md (measured 2026-10-08).
+  const removal = (e, extra = {}) => {
+    const after = removeAgentsBlock(e.text);
+    return { surface: key, kind: "shared", path: e.path, entry: `projectstore:agents v${e.block.v}`, state: "ours-current", action: "remove", reason: null,
+      before: e.text, after, deleteIfEmpty: e.file === FALLBACK || !after.trim(), ...extra };
+  };
 
   if (mode === "uninstall") {
     if (!withBlock.length) return [{ surface: key, kind: "shared", path: preferred.path, entry: "projectstore:agents", state: "ours-absent", action: "skip", reason: "no block to remove" }];
@@ -149,9 +163,14 @@ function planAgentsBlock(ctx, key, s) {
     // self-describing region a user can delete, where a deleted file another
     // harness reads is silent breakage. `--surface agents_block` still removes
     // it, which is the confirmation the gate asks for everywhere else.
-    const alsoRead = (file) => [...loadHarnesses().values()]
-      .filter((m) => m.id !== ctx.harness?.id)
-      .some((m) => (m.surfaces?.agents_block?.files || []).includes(file));
+    //
+    // "Another" means a manifest OUTSIDE this run (rule 4): a run that names
+    // every harness reading the file is the last one, and removes the block
+    // once. Excluding only the planning harness kept the block for a harness
+    // that was in the same run.
+    const inRun = new Set(run.map((m) => m?.id));
+    const outside = [...loadHarnesses().values()].filter((m) => !inRun.has(m.id));
+    const alsoRead = (file) => outside.some((m) => (agentsBlockRow(m)?.[1].files || []).includes(file));
     for (const e of withBlock) {
       // Naming the surface removes it regardless: `--surface agents_block`
       // is the confirmation without a terminal, and a terminal is asked
@@ -190,7 +209,16 @@ function planAgentsBlock(ctx, key, s) {
     // the import need not be one this harness can read. Codex's list is a
     // single entry, which also made the old condition — block in PREFERRED and
     // not in FALLBACK — impossible to satisfy, so nothing was ever cleaned up.
+    //
+    // Except a BRIDGE (rule 4: a narrowed uninstall "leaves the block and the
+    // import in place"): the import in the file a harness outside this run
+    // reads by itself, pointing at a block this run keeps for that harness.
+    // It is the only way that harness sees the block; taking it out because it
+    // is ours kept the block and blinded its reader. The source harness's
+    // own uninstall still removes its own file's import, as before.
     const blockGone = new Set(items.filter((i) => i.action === "remove" && i.surface === key).map((i) => rel(projectDir, i.path)));
+    const blockKept = new Set(items.filter((i) => i.action === "skip" && i.surface === key).map((i) => rel(projectDir, i.path)));
+    const outsideNatives = new Set(outside.map((m) => agentsBlockRow(m)?.[1].reads_natively).filter(Boolean));
     const union = [...new Set([...loadHarnesses().values()].flatMap((m) => m.surfaces?.agents_block?.files || []))];
     for (const file of union) {
       if (blockGone.has(file)) continue;
@@ -198,7 +226,8 @@ function planAgentsBlock(ctx, key, s) {
       if (!e.present || e.text === null || !hasImport(e.text)) continue;
       const ours = onlyImport(e.text);
       const dangles = vanishing.has(importLine.slice(1));
-      if (!ours && !dangles) continue;
+      const bridge = blockKept.has(importLine.slice(1)) && outsideNatives.has(file);
+      if ((!ours && !dangles) || bridge) continue;
       const after = e.text.split("\n").filter((l) => l.trim() !== importLine).join("\n").replace(/^\n+/, "");
       items.push({ surface: `${key}_import`, kind: "shared", path: join(projectDir, file), entry: importLine, state: "ours-current", action: "remove",
         reason: ours ? `${file} holds only the import registration added` : `${importLine} points at a file this uninstall removes`,
@@ -227,8 +256,10 @@ function planAgentsBlock(ctx, key, s) {
     // The distinction is what keeps a Claude-Code-only project from acquiring
     // an AGENTS.md it never asked for, while still moving the substance the
     // moment a harness that can only read AGENTS.md is installed.
+    // A run of several harnesses says which of them cannot read the file the
+    // block leaves (rule 1); one harness keeps its text, byte for byte.
     items.push(removal(current, { state: "ours-stale", reason: `migrating to ${preferred.file}` }));
-    items.push({ surface: key, kind: "shared", path: preferred.path, entry, state: "ours-absent", action: preferred.present ? "add" : "create", reason: `migrated from ${current.file}`,
+    items.push({ surface: key, kind: "shared", path: preferred.path, entry, state: "ours-absent", action: preferred.present ? "add" : "create", reason: ctx.readers && !current.own ? a.reason : `migrated from ${current.file}`,
       before: preferred.present ? preferred.text : null, after: replaceAgentsBlock(preferred.present ? preferred.text : "", a.desired) });
   } else if (current.block.v === a.version && current.block.block === a.desired) {
     items.push({ surface: key, kind: "shared", path: current.path, entry, state: "ours-current", action: "skip", reason: null });
@@ -259,11 +290,12 @@ function planAgentsBlock(ctx, key, s) {
   // had an AGENTS.md took the block into it and created no bridge — so Claude
   // Code, the harness that ran the install, could not see what it had just
   // installed. `reads_natively` is the manifest's, so this is a file list, not
-  // a harness name.
-  const native = s.reads_natively;
-  const nativeEntry = native ? a.files.find((e) => e.file === native) : null;
+  // a harness name — and it is every RUN harness's (rule 1): one run for two
+  // harnesses leaves both native files present, each holding the block or the
+  // import.
+  const natives = new Set(run.map((m) => agentsBlockRow(m)?.[1].reads_natively).filter(Boolean));
   for (const e of a.files) {
-    const mustExist = nativeEntry && e.file === native;
+    const mustExist = natives.has(e.file);
     if (!blockFile || e.file === blockFile || (!e.present && !mustExist)) continue;
     const line = `@${blockFile}`;
     const rewrite = items.find((i) => i.action === "remove" && i.path === e.path);
@@ -647,7 +679,10 @@ function surfaceExcluded(key, s, { surfaces = null, register = true } = {}) {
 // registration planned without its payload; `payloadRoots` holds a fetched
 // root per harness id — never PROJECTSTORE_DISTRIBUTION_ROOT, which names one
 // root for every harness and is inherited by every child the run spawns.
-export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null } = {}) {
+// `layout` is a layout NAME: the agents block's roster is rendered from it,
+// the layout the run leaves; null keeps the binding's (the story "One run
+// plans the agents block once…", rule 3).
+export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null, layout = null } = {}) {
   projectDir = resolve(projectDir);
   const detected = detectHarnesses(projectDir, { state });
   const named = harnesses.filter(Boolean);
@@ -685,9 +720,51 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   // planned against the new paths; its cleanup is planned last (below).
   const layoutHarness = loadHarness(ids.find((id) => { const p = layoutPaths(projectDir, { harnessDir: loadHarness(id).runtime?.harness_dir || null }); return existsSync(p.legacy.binding) || existsSync(p.legacy.runtime); }) || ids[0]);
   const layoutCtx = { projectDir, mode, env, home, root, harness: layoutHarness, incomplete: false, surfaces };
-  const layout = planLayout(layoutCtx);
-  for (const item of layout.first) out.items.push({ harness: layoutHarness.id, ...item });
+  const moved = planLayout(layoutCtx);
+  for (const item of moved.first) out.items.push({ harness: layoutHarness.id, ...item });
   if (layoutCtx.incomplete) out.incomplete = true;
+  // The agents block is the PROJECT's, not a harness's (the story "One run
+  // plans the agents block once, and a bare uninstall selects every harness
+  // the project uses", rule 1): planned once for the run, before the loop and
+  // from the files as they stand before it, by the first run harness that has
+  // one, over the files every run harness names, with an import in every run
+  // harness's native file. Planned per harness, each read the same snapshot,
+  // so two harnesses wrote two blocks and an uninstall of both kept it for
+  // "another harness" in the same run. Rendered from `root`, never from a
+  // registration's install path or a fetched shell: every copy renders the
+  // same block. --surface narrows it as it narrowed each harness's row.
+  const blockRun = ids.map((id) => loadHarness(id)).filter((m) => agentsBlockRow(m));
+  const owner = blockRun[0] || null;
+  let blockItems = [];
+  let blockKey = null;
+  if (owner) {
+    const [key, s] = agentsBlockRow(owner);
+    if (!surfaceExcluded(key, s, { surfaces, register })) {
+      const readers = blockRun.length > 1 ? blockRun.map((m) => ({ display: m.display_name, files: agentsBlockRow(m)[1].files || [] })) : null;
+      blockItems = planAgentsBlock({ projectDir, mode, root, harness: owner, run: blockRun, readers, layout, surfaces: surfaces || [] }, key, { ...s, files: commonBlockFiles(blockRun) });
+      blockKey = key;
+    }
+  }
+  // Placed once, at the owner's own row, so one harness's plan keeps its order;
+  // after the loop if that row never came. The seam for the convergence
+  // story's keep step: it calls placeBlock() before it pushes itself, so the
+  // block precedes the keep and covers the whole run, Claude Code included.
+  let placed = false;
+  const placeBlock = () => {
+    if (placed) return;
+    placed = true;
+    for (const item of blockItems) out.items.push({ harness: owner.id, ...item });
+  };
+  // The other run harnesses plan no block item; the preview names the owner's
+  // at their position (presentation spec contract 7) — when there IS a block,
+  // on disk or planned: the one written or kept, else the one removed. Never
+  // under "no block to remove" or a refusal, where "the same block" names
+  // nothing. Not enumerable, like hostManaged: plan --json keeps the shape it
+  // had.
+  const blockOf = (i) => i.surface === blockKey;
+  const shown = blockItems.find((i) => blockOf(i) && (["add", "create", "replace-entry"].includes(i.action) || (i.action === "skip" && i.state !== "ours-absent")))
+    || blockItems.find((i) => blockOf(i) && i.action === "remove");
+  Object.defineProperty(out, "sharedBlock", { value: shown ? { harness: owner.id, display: owner.display_name, file: rel(projectDir, shown.path), others: [] } : null, enumerable: false });
   for (const id of ids) {
     const harness = loadHarness(id);
     out.harnesses.push(id);
@@ -725,6 +802,13 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
       // waiting for it somewhere. An unsupported surface is named below by its
       // own row, with the reason the manifest gives.
       if (s.kind === "host") { if (s.supported !== false) hostRows.push(key); else unsupportedHost.push([key, s]); continue; }
+      // The run's block, planned above: the owner places it here, every other
+      // harness only records where the preview names it.
+      if (s.format === "markdown-block") {
+        if (id === owner?.id) placeBlock();
+        else if (out.sharedBlock) out.sharedBlock.others.push({ harness: id, display: harness.display_name, at: out.items.length });
+        continue;
+      }
       const handler = HANDLERS[s.format];
       if (!handler) { out.refusals.push(`${id}: surface ${key} has format ${s.format}, which this installer cannot handle`); continue; }
       const items = handler(ctx, key, s);
@@ -767,7 +851,8 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
       if (item) out.items.push({ harness: id, ...item });
     }
   }
-  for (const item of layout.last) out.items.push({ harness: layoutHarness.id, ...item });
+  placeBlock();
+  for (const item of moved.last) out.items.push({ harness: layoutHarness.id, ...item });
   if (out.items.some((i) => i.action === "refuse")) out.ok = false;
   if (out.refusals.length) out.ok = false;
   return out;
@@ -1082,10 +1167,19 @@ export function renderPreview(p, { verbose = false, verb = null, paint = (_style
   }
   const count = writes.length === 1 ? "1 change" : `${writes.length} changes`;
   lines.push(`${paint("bold", "PLAN")} — ${p.ok ? count : "refused"}`);
+  // The run's one agents block, named again where each other harness's row
+  // would have been (presentation spec contract 7; the story "One run plans
+  // the agents block once…", rule 1). Not a step and not an item: nothing is
+  // planned there.
+  const shared = p.sharedBlock;
+  const sameBlock = (at) => {
+    for (const o of shared?.others || []) if (o.at === at) lines.push(`  ${paint("gray", glyph("skip"))} ${shared.file} — the same block as ${shared.display}, above`);
+  };
   // Unsupported host rows (no path, nothing this harness has) fold into one
   // line per harness by default; --verbose lists each with the manifest's reason.
   const folded = new Map();
-  for (const i of p.items) {
+  for (const [at, i] of p.items.entries()) {
+    sameBlock(at);
     if (!verbose && i.path === null && i.state === "unsupported" && i.action === "skip") {
       const k = loadHarness(i.harness)?.display_name || i.harness;
       if (!folded.has(k)) folded.set(k, []);
@@ -1113,6 +1207,7 @@ export function renderPreview(p, { verbose = false, verb = null, paint = (_style
     if (i.kind === "registration" && i.home && i.surface && !i.surface.endsWith("_others")) lines.push(`      ${paint("gray", `(harness home ${i.home}${i.scope ? `, scope ${i.scope}` : ""})`)}`);
     if (i.deleteIfEmpty && typeof i.after === "string" && !i.after.trim()) lines.push(`      ${paint("gray", "(the file would hold nothing else and is removed)")}`);
   }
+  sameBlock(p.items.length);
   const hostLine = (text) => { const [first, ...rest] = wrap(text, width, " ".repeat(17)).split("\n"); return [`  ${paint("gray", glyph("skip"))} ${paint("bold", "host".padEnd(12))} ${first}`, ...rest]; };
   for (const h of p.hostManaged || []) {
     const from = h.entry ? `from the registration ${h.entry}` : "from the host's own plugin system";
@@ -1734,9 +1829,13 @@ export async function runVerb(verb, projectDir, opts = {}) {
   } : null;
   const prep = await prepareRun(verb, projectDir, { ...opts, env, onFetch });
   try {
-    // upgrade selects by the state directory too (rule 5); install and plan
-    // keep contract 8, so a bare plan and a bare install still agree.
-    const p = prep.refused || plan(projectDir, { ...opts, mode, state: verb === "upgrade", version: prep.version, payloadRoots: prep.payloadRoots });
+    // upgrade selects by the state directory too (rule 5), and so does a
+    // project uninstall, setup's mirror: it leaves the project for every
+    // harness that used it (the story "One run plans the agents block once…",
+    // rule 5). `uninstall --global` keeps contract 8 — a state directory is a
+    // project fact. install and plan keep contract 8, so a bare plan and a
+    // bare install still agree.
+    const p = prep.refused || plan(projectDir, { ...opts, mode, state: verb === "upgrade" || (verb === "uninstall" && !opts.globalRemoval), version: prep.version, payloadRoots: prep.payloadRoots });
     const view = { verbose: Boolean(opts.verbose), verb, paint, icon: glyph, width: c && c.live ? c.width : 0 };
     const preview = renderPreview(p, view);
     if (out) out.write((badged ? renderPreview(p, { ...view, badge: false }) : preview) + "\n");

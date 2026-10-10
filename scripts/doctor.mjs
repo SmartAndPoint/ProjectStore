@@ -502,14 +502,17 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
   // contract 6 as amended after the rc.3 tag): one well-formed block, seen by
   // every harness the project uses. rc.1 and rc.2 left a block in an
   // AGENTS.md-only project with no CLAUDE.md, so Claude Code saw nothing, and
-  // nothing said so. Used means detected by directory, or identified from the
-  // environment — never the source harness a terminal run falls back to, so a
-  // Codex-only project hears nothing about CLAUDE.md (contract 16). An issue
+  // nothing said so. Used means detected by directory or by its state
+  // directory, or identified from the environment — never the source harness
+  // a terminal run falls back to, so a Codex-only project hears nothing about
+  // CLAUDE.md (contract 16). The state directory is what a bare upgrade and a
+  // bare uninstall select by, so doctor warns about exactly the block they
+  // move (the story "One run plans the agents block once…", rule 5). An issue
   // for the harness that identified itself, a warning for one only detected.
   const blockFile = blocks === 1 && !refuses ? Object.keys(perFile)[0] : null;
   if (blockFile) {
     const identified = identifiedHarnessId(env);
-    const used = new Set([...detectHarnesses(proj).map((d) => d.id), ...(identified ? [identified] : [])]);
+    const used = new Set([...detectHarnesses(proj, { state: true }).map((d) => d.id), ...(identified ? [identified] : [])]);
     for (const id of used) {
       const m = loadHarness(id);
       if (!m || blockVisibleTo(m, blockFile, texts)) continue;
@@ -665,8 +668,9 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
   // Only when another harness in this project HAS an overlay. A project with
   // none at all is the ordinary fresh state and needs no advice; the asymmetry
   // is what is actionable, because it is almost always the second harness that
-  // was forgotten rather than the first that was deliberate.
-  const used = detectHarnesses(proj).map((d) => d.id);
+  // was forgotten rather than the first that was deliberate. Used as a bare
+  // upgrade or uninstall selects: by directory or by state directory.
+  const used = detectHarnesses(proj, { state: true }).map((d) => d.id);
   if (used.length > 1) {
     const overlays = used.map((id) => ({ id, o: readOverlayAt(proj, loadHarness(id)?.runtime?.overlay || id) }));
     const configured = overlays.filter(({ o }) => o.present);

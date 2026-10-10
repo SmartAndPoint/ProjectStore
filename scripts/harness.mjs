@@ -249,6 +249,34 @@ export function detectHarnesses(projectDir, { dir = MANIFEST_DIR, state = false 
   return out;
 }
 
+// The agents block of a RUN (the story "One run plans the agents block once,
+// and a bare uninstall selects every harness the project uses", rules 1–2):
+// the files every manifest of the run names for it, in the FIRST manifest's
+// order. The block is written to the first of them, so it lands where every
+// harness of the run can read it, natively or through the import the run
+// creates. One manifest gives its own list unchanged, which is what keeps a
+// single-harness plan as it was.
+export function commonBlockFiles(manifests) {
+  const lists = manifests.map((m) => agentsBlockRow(m)?.[1].files || []);
+  if (!lists.length) return [];
+  return lists[0].filter((f) => lists.every((l) => l.includes(f)));
+}
+
+// A manifest's agents-block row as [key, surface], or null: found by its
+// format, as the installer's handlers are keyed, never by the key's name.
+export function agentsBlockRow(manifest) {
+  return Object.entries(manifest?.surfaces || {}).find(([k, s]) => !k.startsWith("_") && s?.format === "markdown-block") || null;
+}
+
+// Rule 2, for the schema test: the manifests' lists share a file, or a run of
+// all of them has nowhere to write the block. Null when they do; otherwise
+// the problem, naming each manifest's list.
+export function blockTargetProblem(manifests) {
+  const withBlock = manifests.filter((m) => agentsBlockRow(m));
+  if (commonBlockFiles(withBlock).length) return null;
+  return `the agents-block files lists share no file, so a run of every harness has no file to write the block to: ${withBlock.map((m) => `${m.id} ${JSON.stringify(agentsBlockRow(m)[1].files || [])}`).join(", ")}`;
+}
+
 // The refusal when nothing is detected and nothing is named — built from the
 // manifests, so a new harness appears in it without an edit here. With
 // `state` (upgrade's set) it names both signals the selection read.

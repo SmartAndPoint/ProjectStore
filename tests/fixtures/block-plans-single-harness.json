@@ -1,0 +1,1199 @@
+{
+  "claude-code | install | - | empty": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "create",
+      "reason": null,
+      "before": null,
+      "after": "<block>\n"
+    }
+  ],
+  "claude-code | install | - | prose in CLAUDE.md": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "add",
+      "reason": null,
+      "before": "# Mine\n",
+      "after": "# Mine\n\n<block>\n"
+    }
+  ],
+  "claude-code | install | - | prose in AGENTS.md": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "add",
+      "reason": null,
+      "before": "# Agents\n",
+      "after": "# Agents\n\n<block>\n"
+    },
+    {
+      "harness": "claude-code",
+      "surface": "agents_block_import",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "@AGENTS.md",
+      "state": "ours-absent",
+      "action": "create",
+      "reason": "CLAUDE.md is what this harness reads by itself; it is created to import AGENTS.md",
+      "before": null,
+      "after": "@AGENTS.md\n"
+    }
+  ],
+  "claude-code | install | - | block in CLAUDE.md": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "claude-code | install | - | block in AGENTS.md + import": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "claude-code | install | - | block in AGENTS.md + CLAUDE.md holding only the import": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "claude-code | install | - | block in both": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-stale",
+      "action": "remove",
+      "reason": "duplicate of the block in AGENTS.md; @AGENTS.md import added",
+      "before": "# Mine\n\n<block>\n",
+      "after": "@AGENTS.md\n\n# Mine\n",
+      "deleteIfEmpty": false
+    },
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "claude-code | install | - | stale block": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-stale",
+      "action": "replace-entry",
+      "reason": "v3 → v4",
+      "before": "<stale-block>\n",
+      "after": "<block>\n"
+    },
+    {
+      "harness": "claude-code",
+      "surface": "agents_block_import",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "@AGENTS.md",
+      "state": "ours-absent",
+      "action": "create",
+      "reason": "CLAUDE.md is what this harness reads by itself; it is created to import AGENTS.md",
+      "before": null,
+      "after": "@AGENTS.md\n"
+    }
+  ],
+  "claude-code | install | - | unclosed block": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "refused",
+      "action": "refuse",
+      "reason": "CLAUDE.md: the block opens and never closes — restore the closing marker or remove the block by hand"
+    }
+  ],
+  "claude-code | install | agents_block | empty": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "create",
+      "reason": null,
+      "before": null,
+      "after": "<block>\n"
+    }
+  ],
+  "claude-code | install | agents_block | prose in CLAUDE.md": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "add",
+      "reason": null,
+      "before": "# Mine\n",
+      "after": "# Mine\n\n<block>\n"
+    }
+  ],
+  "claude-code | install | agents_block | prose in AGENTS.md": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "add",
+      "reason": null,
+      "before": "# Agents\n",
+      "after": "# Agents\n\n<block>\n"
+    },
+    {
+      "harness": "claude-code",
+      "surface": "agents_block_import",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "@AGENTS.md",
+      "state": "ours-absent",
+      "action": "create",
+      "reason": "CLAUDE.md is what this harness reads by itself; it is created to import AGENTS.md",
+      "before": null,
+      "after": "@AGENTS.md\n"
+    }
+  ],
+  "claude-code | install | agents_block | block in CLAUDE.md": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "claude-code | install | agents_block | block in AGENTS.md + import": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "claude-code | install | agents_block | block in AGENTS.md + CLAUDE.md holding only the import": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "claude-code | install | agents_block | block in both": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-stale",
+      "action": "remove",
+      "reason": "duplicate of the block in AGENTS.md; @AGENTS.md import added",
+      "before": "# Mine\n\n<block>\n",
+      "after": "@AGENTS.md\n\n# Mine\n",
+      "deleteIfEmpty": false
+    },
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "claude-code | install | agents_block | stale block": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-stale",
+      "action": "replace-entry",
+      "reason": "v3 → v4",
+      "before": "<stale-block>\n",
+      "after": "<block>\n"
+    },
+    {
+      "harness": "claude-code",
+      "surface": "agents_block_import",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "@AGENTS.md",
+      "state": "ours-absent",
+      "action": "create",
+      "reason": "CLAUDE.md is what this harness reads by itself; it is created to import AGENTS.md",
+      "before": null,
+      "after": "@AGENTS.md\n"
+    }
+  ],
+  "claude-code | install | agents_block | unclosed block": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "refused",
+      "action": "refuse",
+      "reason": "CLAUDE.md: the block opens and never closes — restore the closing marker or remove the block by hand"
+    }
+  ],
+  "claude-code | uninstall | - | empty": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents",
+      "state": "ours-absent",
+      "action": "skip",
+      "reason": "no block to remove"
+    }
+  ],
+  "claude-code | uninstall | - | prose in CLAUDE.md": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents",
+      "state": "ours-absent",
+      "action": "skip",
+      "reason": "no block to remove"
+    }
+  ],
+  "claude-code | uninstall | - | prose in AGENTS.md": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "ours-absent",
+      "action": "skip",
+      "reason": "no block to remove"
+    }
+  ],
+  "claude-code | uninstall | - | block in CLAUDE.md": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "# Mine\n\n<block>\n",
+      "after": "# Mine\n",
+      "deleteIfEmpty": true
+    }
+  ],
+  "claude-code | uninstall | - | block in AGENTS.md + import": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": "AGENTS.md is read by another harness too — a per-harness uninstall leaves the project's block alone. Remove it with --surface agents_block"
+    }
+  ],
+  "claude-code | uninstall | - | block in AGENTS.md + CLAUDE.md holding only the import": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": "AGENTS.md is read by another harness too — a per-harness uninstall leaves the project's block alone. Remove it with --surface agents_block"
+    },
+    {
+      "harness": "claude-code",
+      "surface": "agents_block_import",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "@AGENTS.md",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": "CLAUDE.md holds only the import registration added",
+      "before": "@AGENTS.md\n",
+      "after": "",
+      "deleteIfEmpty": true
+    }
+  ],
+  "claude-code | uninstall | - | block in both": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": "AGENTS.md is read by another harness too — a per-harness uninstall leaves the project's block alone. Remove it with --surface agents_block"
+    },
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "# Mine\n\n<block>\n",
+      "after": "# Mine\n",
+      "deleteIfEmpty": true
+    }
+  ],
+  "claude-code | uninstall | - | stale block": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v3",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": "AGENTS.md is read by another harness too — a per-harness uninstall leaves the project's block alone. Remove it with --surface agents_block"
+    }
+  ],
+  "claude-code | uninstall | - | unclosed block": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "refused",
+      "action": "refuse",
+      "reason": "CLAUDE.md: the block opens and never closes — restore the closing marker or remove the block by hand"
+    }
+  ],
+  "claude-code | uninstall | agents_block | empty": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents",
+      "state": "ours-absent",
+      "action": "skip",
+      "reason": "no block to remove"
+    }
+  ],
+  "claude-code | uninstall | agents_block | prose in CLAUDE.md": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents",
+      "state": "ours-absent",
+      "action": "skip",
+      "reason": "no block to remove"
+    }
+  ],
+  "claude-code | uninstall | agents_block | prose in AGENTS.md": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "ours-absent",
+      "action": "skip",
+      "reason": "no block to remove"
+    }
+  ],
+  "claude-code | uninstall | agents_block | block in CLAUDE.md": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "# Mine\n\n<block>\n",
+      "after": "# Mine\n",
+      "deleteIfEmpty": true
+    }
+  ],
+  "claude-code | uninstall | agents_block | block in AGENTS.md + import": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "<block>\n",
+      "after": "",
+      "deleteIfEmpty": false
+    }
+  ],
+  "claude-code | uninstall | agents_block | block in AGENTS.md + CLAUDE.md holding only the import": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "<block>\n",
+      "after": "",
+      "deleteIfEmpty": false
+    },
+    {
+      "harness": "claude-code",
+      "surface": "agents_block_import",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "@AGENTS.md",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": "CLAUDE.md holds only the import registration added",
+      "before": "@AGENTS.md\n",
+      "after": "",
+      "deleteIfEmpty": true
+    }
+  ],
+  "claude-code | uninstall | agents_block | block in both": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "# Agents\n\n<block>\n",
+      "after": "# Agents\n",
+      "deleteIfEmpty": false
+    },
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "# Mine\n\n<block>\n",
+      "after": "# Mine\n",
+      "deleteIfEmpty": true
+    }
+  ],
+  "claude-code | uninstall | agents_block | stale block": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v3",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "<stale-block>\n",
+      "after": "",
+      "deleteIfEmpty": false
+    }
+  ],
+  "claude-code | uninstall | agents_block | unclosed block": [
+    {
+      "harness": "claude-code",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "refused",
+      "action": "refuse",
+      "reason": "CLAUDE.md: the block opens and never closes — restore the closing marker or remove the block by hand"
+    }
+  ],
+  "codex | install | - | empty": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "create",
+      "reason": null,
+      "before": null,
+      "after": "<block>\n"
+    }
+  ],
+  "codex | install | - | prose in CLAUDE.md": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "create",
+      "reason": null,
+      "before": null,
+      "after": "<block>\n"
+    },
+    {
+      "harness": "codex",
+      "surface": "agents_block_import",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "@AGENTS.md",
+      "state": "ours-absent",
+      "action": "add",
+      "reason": "AGENTS.md carries the block; CLAUDE.md must import it",
+      "before": "# Mine\n",
+      "after": "@AGENTS.md\n\n# Mine\n"
+    }
+  ],
+  "codex | install | - | prose in AGENTS.md": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "add",
+      "reason": null,
+      "before": "# Agents\n",
+      "after": "# Agents\n\n<block>\n"
+    }
+  ],
+  "codex | install | - | block in CLAUDE.md": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-stale",
+      "action": "remove",
+      "reason": "migrating to AGENTS.md; @AGENTS.md import added",
+      "before": "# Mine\n\n<block>\n",
+      "after": "@AGENTS.md\n\n# Mine\n",
+      "deleteIfEmpty": false
+    },
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "create",
+      "reason": "migrated from CLAUDE.md",
+      "before": null,
+      "after": "<block>\n"
+    }
+  ],
+  "codex | install | - | block in AGENTS.md + import": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "codex | install | - | block in AGENTS.md + CLAUDE.md holding only the import": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "codex | install | - | block in both": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-stale",
+      "action": "remove",
+      "reason": "duplicate of the block in AGENTS.md; @AGENTS.md import added",
+      "before": "# Mine\n\n<block>\n",
+      "after": "@AGENTS.md\n\n# Mine\n",
+      "deleteIfEmpty": false
+    },
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "codex | install | - | stale block": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-stale",
+      "action": "replace-entry",
+      "reason": "v3 → v4",
+      "before": "<stale-block>\n",
+      "after": "<block>\n"
+    }
+  ],
+  "codex | install | - | unclosed block": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "refused",
+      "action": "refuse",
+      "reason": "CLAUDE.md: the block opens and never closes — restore the closing marker or remove the block by hand"
+    }
+  ],
+  "codex | install | agents_block | empty": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "create",
+      "reason": null,
+      "before": null,
+      "after": "<block>\n"
+    }
+  ],
+  "codex | install | agents_block | prose in CLAUDE.md": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "create",
+      "reason": null,
+      "before": null,
+      "after": "<block>\n"
+    },
+    {
+      "harness": "codex",
+      "surface": "agents_block_import",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "@AGENTS.md",
+      "state": "ours-absent",
+      "action": "add",
+      "reason": "AGENTS.md carries the block; CLAUDE.md must import it",
+      "before": "# Mine\n",
+      "after": "@AGENTS.md\n\n# Mine\n"
+    }
+  ],
+  "codex | install | agents_block | prose in AGENTS.md": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "add",
+      "reason": null,
+      "before": "# Agents\n",
+      "after": "# Agents\n\n<block>\n"
+    }
+  ],
+  "codex | install | agents_block | block in CLAUDE.md": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-stale",
+      "action": "remove",
+      "reason": "migrating to AGENTS.md; @AGENTS.md import added",
+      "before": "# Mine\n\n<block>\n",
+      "after": "@AGENTS.md\n\n# Mine\n",
+      "deleteIfEmpty": false
+    },
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-absent",
+      "action": "create",
+      "reason": "migrated from CLAUDE.md",
+      "before": null,
+      "after": "<block>\n"
+    }
+  ],
+  "codex | install | agents_block | block in AGENTS.md + import": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "codex | install | agents_block | block in AGENTS.md + CLAUDE.md holding only the import": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "codex | install | agents_block | block in both": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-stale",
+      "action": "remove",
+      "reason": "duplicate of the block in AGENTS.md; @AGENTS.md import added",
+      "before": "# Mine\n\n<block>\n",
+      "after": "@AGENTS.md\n\n# Mine\n",
+      "deleteIfEmpty": false
+    },
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": null
+    }
+  ],
+  "codex | install | agents_block | stale block": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-stale",
+      "action": "replace-entry",
+      "reason": "v3 → v4",
+      "before": "<stale-block>\n",
+      "after": "<block>\n"
+    }
+  ],
+  "codex | install | agents_block | unclosed block": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "refused",
+      "action": "refuse",
+      "reason": "CLAUDE.md: the block opens and never closes — restore the closing marker or remove the block by hand"
+    }
+  ],
+  "codex | uninstall | - | empty": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "ours-absent",
+      "action": "skip",
+      "reason": "no block to remove"
+    }
+  ],
+  "codex | uninstall | - | prose in CLAUDE.md": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "ours-absent",
+      "action": "skip",
+      "reason": "no block to remove"
+    }
+  ],
+  "codex | uninstall | - | prose in AGENTS.md": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "ours-absent",
+      "action": "skip",
+      "reason": "no block to remove"
+    }
+  ],
+  "codex | uninstall | - | block in CLAUDE.md": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": "CLAUDE.md is read by another harness too — a per-harness uninstall leaves the project's block alone. Remove it with --surface agents_block"
+    }
+  ],
+  "codex | uninstall | - | block in AGENTS.md + import": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": "AGENTS.md is read by another harness too — a per-harness uninstall leaves the project's block alone. Remove it with --surface agents_block"
+    }
+  ],
+  "codex | uninstall | - | block in AGENTS.md + CLAUDE.md holding only the import": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": "AGENTS.md is read by another harness too — a per-harness uninstall leaves the project's block alone. Remove it with --surface agents_block"
+    },
+    {
+      "harness": "codex",
+      "surface": "agents_block_import",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "@AGENTS.md",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": "CLAUDE.md holds only the import registration added",
+      "before": "@AGENTS.md\n",
+      "after": "",
+      "deleteIfEmpty": true
+    }
+  ],
+  "codex | uninstall | - | block in both": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": "AGENTS.md is read by another harness too — a per-harness uninstall leaves the project's block alone. Remove it with --surface agents_block"
+    },
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": "CLAUDE.md is read by another harness too — a per-harness uninstall leaves the project's block alone. Remove it with --surface agents_block"
+    }
+  ],
+  "codex | uninstall | - | stale block": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v3",
+      "state": "ours-current",
+      "action": "skip",
+      "reason": "AGENTS.md is read by another harness too — a per-harness uninstall leaves the project's block alone. Remove it with --surface agents_block"
+    }
+  ],
+  "codex | uninstall | - | unclosed block": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "refused",
+      "action": "refuse",
+      "reason": "CLAUDE.md: the block opens and never closes — restore the closing marker or remove the block by hand"
+    }
+  ],
+  "codex | uninstall | agents_block | empty": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "ours-absent",
+      "action": "skip",
+      "reason": "no block to remove"
+    }
+  ],
+  "codex | uninstall | agents_block | prose in CLAUDE.md": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "ours-absent",
+      "action": "skip",
+      "reason": "no block to remove"
+    }
+  ],
+  "codex | uninstall | agents_block | prose in AGENTS.md": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "ours-absent",
+      "action": "skip",
+      "reason": "no block to remove"
+    }
+  ],
+  "codex | uninstall | agents_block | block in CLAUDE.md": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "# Mine\n\n<block>\n",
+      "after": "# Mine\n",
+      "deleteIfEmpty": false
+    }
+  ],
+  "codex | uninstall | agents_block | block in AGENTS.md + import": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "<block>\n",
+      "after": "",
+      "deleteIfEmpty": true
+    },
+    {
+      "harness": "codex",
+      "surface": "agents_block_import",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "@AGENTS.md",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": "@AGENTS.md points at a file this uninstall removes",
+      "before": "@AGENTS.md\n\n# Mine\n",
+      "after": "# Mine\n",
+      "deleteIfEmpty": false
+    }
+  ],
+  "codex | uninstall | agents_block | block in AGENTS.md + CLAUDE.md holding only the import": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "<block>\n",
+      "after": "",
+      "deleteIfEmpty": true
+    },
+    {
+      "harness": "codex",
+      "surface": "agents_block_import",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "@AGENTS.md",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": "CLAUDE.md holds only the import registration added",
+      "before": "@AGENTS.md\n",
+      "after": "",
+      "deleteIfEmpty": true
+    }
+  ],
+  "codex | uninstall | agents_block | block in both": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "# Agents\n\n<block>\n",
+      "after": "# Agents\n",
+      "deleteIfEmpty": true
+    },
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/CLAUDE.md",
+      "entry": "projectstore:agents v4",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "# Mine\n\n<block>\n",
+      "after": "# Mine\n",
+      "deleteIfEmpty": false
+    }
+  ],
+  "codex | uninstall | agents_block | stale block": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents v3",
+      "state": "ours-current",
+      "action": "remove",
+      "reason": null,
+      "before": "<stale-block>\n",
+      "after": "",
+      "deleteIfEmpty": true
+    }
+  ],
+  "codex | uninstall | agents_block | unclosed block": [
+    {
+      "harness": "codex",
+      "surface": "agents_block",
+      "kind": "shared",
+      "path": "<project>/AGENTS.md",
+      "entry": "projectstore:agents",
+      "state": "refused",
+      "action": "refuse",
+      "reason": "CLAUDE.md: the block opens and never closes — restore the closing marker or remove the block by hand"
+    }
+  ]
+}

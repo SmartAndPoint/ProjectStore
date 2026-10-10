@@ -89,7 +89,12 @@ export function isOurFile(text) {
 
 // ─── markdown-block: the ADR-002 block ─────────────────────────────────
 
-export function analyseBlock(projectDir, s, { root = pluginRoot(), manifestDir = MANIFEST_DIR } = {}) {
+// `layout` names the roster the run leaves (a layout name; the binding's when
+// null). `readers` is a run's harnesses as [{ display, files }], passed when a
+// run names more than one: the migration reason then names the one whose
+// files lack the block's file, rather than the harness whose surface `s` is
+// (the story "One run plans the agents block once…", rules 1 and 3).
+export function analyseBlock(projectDir, s, { root = pluginRoot(), manifestDir = MANIFEST_DIR, layout = null, readers = null } = {}) {
   const files = s.files || ["AGENTS.md", "CLAUDE.md"];
   const PREFERRED = files[0], FALLBACK = files[files.length - 1];
   // LOOK across every file any manifest names; WRITE to one this harness can
@@ -120,8 +125,9 @@ export function analyseBlock(projectDir, s, { root = pluginRoot(), manifestDir =
   a.version = agentsBlockVersion(tmpl.text);
   const cfg = readConfigAt(projectDir);
   let roster = null;
-  if (cfg && typeof cfg.layout === "string") {
-    try { roster = loadLayout(cfg.layout, root).agents || null; } catch { roster = null; }
+  const name = layout ?? cfg?.layout;
+  if (typeof name === "string") {
+    try { roster = loadLayout(name, root).agents || null; } catch { roster = null; }
   }
   a.desired = renderAgentsBlock(tmpl.text, roster);
   a.current = withBlock.find((e) => e.file === preferred.file) || withBlock[0] || null;
@@ -134,7 +140,10 @@ export function analyseBlock(projectDir, s, { root = pluginRoot(), manifestDir =
   // never acquires an AGENTS.md it did not ask for, while installing Codex into
   // that same project moves the substance to the file Codex can read and leaves
   // CLAUDE.md importing it.
-  if (!a.current.own) return { ...a, state: "ours-stale", reason: `in ${a.current.file}, which ${s.harness_display || "this harness"} does not read; install moves it to ${preferred.file}` };
+  if (!a.current.own) {
+    const reader = readers?.find((r) => !(r.files || []).includes(a.current.file))?.display;
+    return { ...a, state: "ours-stale", reason: `in ${a.current.file}, which ${reader || s.harness_display || "this harness"} does not read; install moves it to ${preferred.file}` };
+  }
   if (a.current.file !== preferred.file && preferred.present) return { ...a, state: "ours-stale", reason: `in ${a.current.file}; install migrates it to ${preferred.file}` };
   if (a.duplicates.length) return { ...a, state: "ours-stale", reason: `also in ${a.duplicates.map((e) => e.file).join(", ")}; install keeps the one in ${a.current.file}` };
   if (a.current.block.v === a.version && a.current.block.block === a.desired) return { ...a, state: "ours-current" };
