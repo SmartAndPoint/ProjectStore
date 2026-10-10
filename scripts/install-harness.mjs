@@ -294,6 +294,10 @@ function planAgentsBlock(ctx, key, s) {
   // harnesses leaves both native files present, each holding the block or the
   // import.
   const natives = new Set(run.map((m) => agentsBlockRow(m)?.[1].reads_natively).filter(Boolean));
+  // The import item sits under the run's first harness, which need not be the
+  // one that reads the file: in a run of several, the reason names the reader.
+  // One harness is its own reader and keeps its text, byte for byte.
+  const reader = (file) => (ctx.readers && run.find((m) => agentsBlockRow(m)?.[1].reads_natively === file)?.display_name) || "this harness";
   for (const e of a.files) {
     const mustExist = natives.has(e.file);
     if (!blockFile || e.file === blockFile || (!e.present && !mustExist)) continue;
@@ -305,7 +309,7 @@ function planAgentsBlock(ctx, key, s) {
     const after = line + "\n" + (text.startsWith("\n") || !text.trim() ? "" : "\n") + text;
     if (rewrite) { rewrite.after = after; rewrite.deleteIfEmpty = false; rewrite.reason += `; ${line} import added`; }
     else items.push({ surface: `${key}_import`, kind: "shared", path: e.path, entry: line, state: "ours-absent", action: e.present ? "add" : "create",
-      reason: e.present ? `${blockFile} carries the block; ${e.file} must import it` : `${e.file} is what this harness reads by itself; it is created to import ${blockFile}`,
+      reason: e.present ? `${blockFile} carries the block; ${e.file} must import it` : `${e.file} is what ${reader(e.file)} reads by itself; it is created to import ${blockFile}`,
       before: e.present ? text : null, after });
   }
   return items;
