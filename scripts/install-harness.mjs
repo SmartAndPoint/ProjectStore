@@ -1312,10 +1312,13 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
     for (const h of host) lines.push(...hostLines(h));
   }
   if (p.refusals.length) lines.push("");
+  // A plan-level refusal: its message in the attention role, as an item's
+  // refusal reason is (presentation spec contract 3 as amended 2026-10-11).
   for (const r of p.refusals) {
     const lead = `  ${paint("attention", glyph("refuse"))} ${paint("attention", "refused")}  `;
-    const [first, ...rest] = wrap(r, width, " ".repeat(plain(lead).length)).split("\n");
-    lines.push(lead + first, ...rest);
+    const pad = " ".repeat(plain(lead).length);
+    const [first, ...rest] = wrap(r, width, pad).split("\n");
+    lines.push(lead + paint("attention", first), ...rest.map((l) => pad + paint("attention", l.slice(pad.length))));
   }
   // The closing lines, in a person's words: only what is listed is written,
   // and a $ line is the host's own CLI at work.

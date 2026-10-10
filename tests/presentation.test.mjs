@@ -1,16 +1,16 @@
-// projectstore — the install family's and bind's screens (PS-HARNESS: "The
-// CLI's output is designed: grouped plans, a question rail, one glyph set,
-// doctor grouped by cause"; the covering spec *Terminal presentation of the
-// projectstore CLI: layout, glyphs, colour roles, questions and live lines*,
-// contracts 2–8 and Testing).
+// projectstore — the bin's screens (PS-HARNESS: "The CLI's output is
+// designed: grouped plans, a question rail, one glyph set, doctor grouped by
+// cause"; the covering spec *Terminal presentation of the projectstore CLI:
+// layout, glyphs, colour roles, questions and live lines*, contracts 2–12 and
+// Testing).
 //
 // Golden screens — PLAN (two harness groups, an upgrade, an uninstall, a
-// refusal), the confirm, APPLY, DONE, STOPPED and bind's plan — in four modes
-// at 80 columns, rendered from tests/fixtures/presentation.mjs with injected
-// caps and clocks; the equivalence between modes; the ASCII scan; and one
-// test per acceptance criterion this part of the story closes (1, 2, 3, 7,
-// part of 8, 9), on real plans where the criterion is about what plan()
-// produces.
+// refusal), the confirm, APPLY, DONE, STOPPED, bind's plan, doctor, --help
+// (the top level and install's) and status — in four modes at 80 columns,
+// rendered from tests/fixtures/presentation.mjs with injected caps and
+// clocks; the equivalence between modes; the ASCII scan; and one test per
+// acceptance criterion this part of the story closes (1, 2, 3, 5, 6, 7, part
+// of 8, 9), on real plans where the criterion is about what plan() produces.
 //
 //   node --test --import ./tests/fixtures/hermetic.mjs tests/presentation.test.mjs
 
@@ -20,15 +20,17 @@ import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync } from
 import { join, relative, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { SCREENS, MODES, DIR, goldenPath, renderAll, installPlan, uninstallPlan, bindPlan, HOME, PROJECT, VERSION, DOCTOR_FINDINGS, DOCTOR_GROUPS, doctorText, asciiOnly } from "./fixtures/presentation.mjs";
+import { SCREENS, MODES, DIR, goldenPath, renderAll, installPlan, uninstallPlan, bindPlan, statusResult, HOME, PROJECT, VERSION, DOCTOR_FINDINGS, DOCTOR_GROUPS, doctorText, asciiOnly } from "./fixtures/presentation.mjs";
 import { installedTree } from "./fixtures/json-captures.mjs";
 import { fakePackageRoot, fakeClaude, noHostEnv } from "./fixtures/install.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
 import { plan, renderPreview, renderDone, applyReporter } from "../scripts/install-harness.mjs";
 import { renderBindPlan } from "../scripts/binding.mjs";
 import { caps, plain, PLAIN, askApply, icon, GLYPH_ALIASES } from "../scripts/term.mjs";
-import { loadHarness, sourceHarness, invocation } from "../scripts/harness.mjs";
+import { loadHarness, sourceHarness, invocation, harnessIds } from "../scripts/harness.mjs";
 import { report, CHECKS } from "../scripts/doctor-report.mjs";
+import { run, usage, verbHelp, VERBS, SUMMARY_MAX } from "../scripts/cli.mjs";
+import { renderStatus, startDate } from "../scripts/query.mjs";
 import { OFFER_CHECKS } from "../scripts/doctor.mjs";
 import { commandForm, doctorSummaryLine } from "../scripts/lib.mjs";
 
@@ -74,8 +76,11 @@ function continues(prev, line) {
   if (row && / {2,}/.test(row[3])) return false;
   const gap = prev.trimStart().match(/^\S.*? {2,}(?=\S)/);
   const at = [indentOf(prev), indentOf(prev) + 2, gap ? indentOf(prev) + gap[0].length : -1];
-  // doctor glues a path to the dash before it, so the two wrap as one word.
-  const first = (/^— \S+/.exec(body) || [body.split(" ")[0]])[0];
+  // doctor glues a path to the dash before it, so the two wrap as one word;
+  // status glues each count of a heading to its words and the dot after it,
+  // so a line broken after a dot carries on with one whole count.
+  const count = / ·$/.test(prev) ? /^(.*? ·)(?= |$)|^.*$/.exec(body) : null;
+  const first = count ? count[1] || count[0] : (/^— \S+/.exec(body) || [body.split(" ")[0]])[0];
   return at.includes(indentOf(line)) && prev.length + 1 + first.length > COLUMNS - 2;
 }
 function transform(text) {
@@ -268,6 +273,108 @@ test("presentation criterion 3: every path a real plan writes and every host arg
   }
 });
 
+// ─── Criterion 5: --help in named groups ──────────────────────────────
+
+const HELP_GROUPS = { START: ["install", "bind", "uninstall"], VAULT: ["status", "search", "show", "graph", "codemap"], "CHECK AND REPAIR": ["doctor", "reconcile", "upgrade"] };
+
+// A stream for run(): a terminal (isTTY, 80 columns) or a pipe.
+class Sink {
+  constructor(tty) { this.text = ""; this.tty = tty; }
+  write(s) { this.text += String(s); return true; }
+  get isTTY() { return this.tty; }
+  get columns() { return 80; }
+}
+
+test("presentation criterion 5: top-level --help lists the verbs in named groups, install first, each summary on one line within 80 columns; ADVANCED is one line; options, examples, tips, the harnesses and exit code 130 follow; painted at a terminal, plain on a pipe", async () => {
+  // Every summary fits its column, in ASCII: it heads <verb> --help too.
+  for (const v of VERBS) assert.ok(v.summary.length <= SUMMARY_MAX && !/[^\x20-\x7e]/.test(v.summary), `${v.verb}: ${v.summary.length} columns`);
+  assert.equal(SUMMARY_MAX, 65);
+  const shells = harnessIds().map((id) => loadHarness(id).install?.shell).filter(Boolean);
+  assert.ok(shells.length >= 2, "both published shells");
+  for (const env of [{}, ...shells.map((s) => ({ PROJECTSTORE_SHELL: s }))]) {
+    for (const [mode, c] of Object.entries(MODES)) {
+      // A prerelease version is the longest the badge carries: it fits too.
+      const rc = plain(usage(env, VERBS, { caps: c, version: "0.30.0-rc.12" })).split("\n")[0];
+      assert.ok(rc.length <= 80 && rc.includes(" 0.30.0-rc.12 "), `${rc.length} columns: ${rc}`);
+      const text = usage(env, VERBS, { caps: c, version: VERSION });
+      const lines = plain(text).split("\n");
+      const name = `${env.PROJECTSTORE_SHELL || "core"} ${mode}`;
+      for (const l of lines) assert.ok(l.length <= 80, `${name}: ${l.length} columns: ${l}`);
+      // The sections, in the spec's order, each heading on a line of its own.
+      const heads = ["Usage", ...Object.keys(HELP_GROUPS), "ADVANCED", "Options", "Examples", "Tips"];
+      assert.deepEqual(heads.map((h) => lines.indexOf(h)), heads.map((h) => lines.indexOf(h)).sort((a, b) => a - b), name);
+      assert.ok(heads.every((h) => lines.includes(h)), name);
+      assert.match(lines[0], new RegExp(`^projectstore ${mode === "ascii" ? "\\." : "·"} ${VERSION.replace(/\./g, "\\.")} ${mode === "ascii" ? "\\." : "·"} \\S`), name);
+      assert.match(lines[lines.indexOf("Usage") + 1], /run it inside your code project$/, name);
+      // Each group's verbs, one line each — no description wrapped, at 80 live columns either.
+      for (const [g, verbs] of Object.entries(HELP_GROUPS)) {
+        const at = lines.indexOf(g);
+        const block = lines.slice(at + 1, lines.indexOf("", at));
+        assert.deepEqual(block.map((l) => l.trim().split(" ")[0]), verbs, `${name} ${g}`);
+        block.forEach((l, k) => assert.equal(l, `  ${verbs[k].padEnd(12)} ${VERBS.find((v) => v.verb === verbs[k]).summary}`, `${name} ${g}`));
+      }
+      assert.equal(lines[lines.indexOf("START") + 1].trim().split(" ")[0], "install", "install first");
+      // ADVANCED: the remaining verbs, in table order, on one line.
+      const rest = VERBS.map((v) => v.verb).filter((v) => !Object.values(HELP_GROUPS).flat().includes(v));
+      assert.deepEqual(lines.slice(lines.indexOf("ADVANCED") + 1, lines.indexOf("", lines.indexOf("ADVANCED"))), [`  ${rest.join(mode === "ascii" ? " . " : " · ")}`], name);
+      assert.ok(rest.includes("init") && rest.includes("scaffold"), "init and scaffold are ADVANCED's");
+      // Examples and the tips' plan command: each alone on its line, after a blank one.
+      const ex = lines.indexOf("Examples");
+      assert.equal(lines[ex + 1], "", name);
+      for (const l of lines.slice(ex + 2, lines.indexOf("", ex + 2))) assert.match(l, /^ {2}npx projectstore\S* (install|status|doctor)( --harness <id>)?$/, name);
+      // The tips: the confirmation rule and the unattended path; then the harnesses and the exit codes, 130 among them.
+      assert.ok(lines.some((l) => /^ {2}Without a terminal, .* there is no --yes\.$/.test(l)), name);
+      assert.ok(lines.some((l) => /^ {2}Unattended in a terminal: .*--json.*CI=1.*<\/dev\/null\.$/.test(l)), name);
+      assert.equal(lines.at(-2), `Harnesses   ${harnessIds().join(", ")}`, name);
+      assert.equal(lines.at(-1), "Exit codes  0 ok, 1 findings or a refusal, 2 usage, 3 not bound, 130 cancelled", name);
+    }
+  }
+  // A group lists only the verbs this run's table has.
+  const fewer = usage({}, VERBS.filter((v) => !["graph", "doctor", "reconcile", "upgrade"].includes(v.verb)), { caps: PLAIN, version: VERSION }).split("\n");
+  assert.ok(!fewer.includes("CHECK AND REPAIR") && !fewer.some((l) => l.startsWith("  graph ")), fewer.join("\n"));
+  assert.ok(!fewer.includes("  npx projectstore doctor"), "no example names a verb the table lacks");
+  // Through the bin: painted at a terminal, plain on a pipe — the same lines.
+  const at = async (tty, argv) => { const out = new Sink(tty); assert.equal(await run(argv, { env: {}, stdout: out, stderr: new Sink(false) }), 0); return out.text; };
+  for (const argv of [["--help"], ["install", "--help"]]) {
+    const [painted, piped] = [await at(true, argv), await at(false, argv)];
+    assert.ok(SGR.test(painted) && !SGR.test(piped), argv.join(" "));
+  }
+  // At 80 columns nothing of the top level wraps: the terminal's text is the pipe's, painted.
+  assert.equal(plain(await at(true, ["--help"])), await at(false, ["--help"]));
+  assert.equal(await at(false, ["--help"]), usage({}, VERBS, { caps: PLAIN }) + "\n");
+  // Under NO_COLOR at a terminal: no escape.
+  const out = new Sink(true);
+  await run(["--help"], { env: { NO_COLOR: "1" }, stdout: out, stderr: new Sink(false) });
+  assert.ok(!SGR.test(out.text), out.text);
+});
+
+test("presentation help ASCII: every verb's help, for the core and each shell, holds no code point above 0x7E under ASCII glyphs; each example command stands alone on its line", () => {
+  const shells = harnessIds().map((id) => loadHarness(id).install?.shell).filter(Boolean);
+  for (const env of [{}, ...shells.map((s) => ({ PROJECTSTORE_SHELL: s }))]) {
+    for (const c of [MODES.ascii, { ...MODES.ascii, live: false }]) {
+      for (const v of VERBS) {
+        const text = verbHelp(v, env, { caps: c });
+        assert.deepEqual(nonAscii(text), [], `${env.PROJECTSTORE_SHELL || "core"} ${v.verb}: ${JSON.stringify(nonAscii(text))}`);
+      }
+    }
+    // Contract 6 in every verb's examples: a command line holds the command and nothing after it.
+    for (const v of VERBS) {
+      const lines = verbHelp(v, env, { caps: PLAIN }).split("\n");
+      const from = lines.indexOf("Examples");
+      if (from === -1) continue;
+      const block = lines.slice(from + 1, lines.findIndex((l, k) => k > from && /^Exit codes/.test(l)));
+      const commands = block.filter((l) => /^ {2}npx /.test(l));
+      assert.ok(commands.length > 0, v.verb);
+      for (const l of commands) assert.ok(!l.includes("#"), `${v.verb}: "${l}"`);
+      // Each command block starts after a blank line or after its note, which follows a blank one.
+      block.forEach((l, k) => { if (/^ {2}npx /.test(l) && !/^ {2}npx /.test(block[k - 1])) assert.ok(block[k - 1] === "" || (/:$/.test(block[k - 1]) && block[k - 2] === ""), `${v.verb}: "${block[k - 1]}" / "${l}"`); });
+    }
+  }
+  // The note that shared the command's line now stands just above it.
+  const install = verbHelp(VERBS.find((v) => v.verb === "install"), {}, { caps: PLAIN });
+  assert.ok(install.includes("\n\n  The same plan; nothing is written:\n  npx projectstore plan --harness <id>\n"), install);
+});
+
 // ─── Criterion 7: synchronous APPLY ───────────────────────────────────
 
 test("presentation criterion 7: a synchronous APPLY step shows … while it runs and nothing animates; a pipe gets one finished line per step and no escape; a registration ends on its finished line, in the past tense", () => {
@@ -352,7 +459,18 @@ test("presentation STOPPED: a host command that ran keeps its exit status, and w
   assert.ok(quiet.includes("\n  ✕ $ codex plugin list --json\n      first\n      second\n"), quiet);
 });
 
-test("presentation F1: a current row the run leaves in place for a reason reads skipped, its reason beneath, and counts so; a current row with no reason reads unchanged and folds", () => {
+test("presentation refusals: a plan-level refusal's message is in the attention role on every line it wraps to, as an item's refusal reason is", () => {
+  const lines = SCREENS.find(([s]) => s === "plan-refused")[1](MODES.rich).split("\n");
+  const at = lines.findIndex((l) => plain(l).includes("refused  two bindings:"));
+  assert.ok(at > 0, lines.join("\n"));
+  const block = lines.slice(at, lines.indexOf("", at));
+  assert.ok(block.length > 1, "the message wraps at 80 live columns");
+  for (const l of block) assert.match(l, /\x1b\[33m[^\x1b]+\x1b\[39m$/, JSON.stringify(l));
+  // The item's refusal reason, above it, already reads so.
+  assert.ok(lines.some((l) => l.includes("\x1b[33mthe file is not ours")));
+});
+
+test("presentation skipped vs unchanged: a current row the run leaves in place for a reason reads skipped, its reason beneath, and counts so; a current row with no reason reads unchanged and folds", () => {
   const kept = uninstallPlan();
   const text = renderPreview(kept, { verb: "uninstall", caps: PLAIN, home: HOME });
   assert.match(text, /\nPlan — 2 to remove · 1 skipped\n/);
@@ -370,9 +488,12 @@ test("presentation bind: the binding as key–value lines, then each command alo
   const p = { ok: true, refusals: [], state: "new", vault: "/v", configPath: "/p/.projectstore/projectstore.json", layout: "engineering", language: "en", ignored: [], keptKeys: [], before: null, buildsVault: false, scaffold: { ok: true, creates: 3 } };
   const text = renderBindPlan(p, {}, { env: {}, caps: PLAIN });
   assert.ok(text.includes("\n  vault_path  /v\n  layout      engineering\n  language    en\n"), text);
-  assert.match(text, /\n\n {2}\/\S+scaffold\n {2}projectstore scaffold --write\n$/);
+  assert.match(text, /\n\n {2}\/\S+scaffold\n {2}npx projectstore scaffold --write\n$/);
   const same = renderBindPlan({ ...p, state: "same", scaffold: { ok: true, creates: 0 } }, null, { env: {}, caps: PLAIN });
-  assert.equal(same, "Already bound to /v.\n\nNext: see where the project stands:\n\n  projectstore status\n");
+  assert.equal(same, "Already bound to /v.\n\nNext: see where the project stands:\n\n  npx projectstore status\n");
+  // The terminal's form is the package the run was invoked as: a shell's own name through it.
+  const shells = harnessIds().map((id) => loadHarness(id).install?.shell).filter(Boolean);
+  for (const s of shells) assert.ok(renderBindPlan(p, {}, { env: { PROJECTSTORE_SHELL: s }, caps: PLAIN }).endsWith(`\n  npx ${s} scaffold --write\n`), s);
   // On a live terminal the prose wraps with a hanging indent of two; on a
   // pipe it stays one line; the commands stand alone in both.
   const live = renderBindPlan(bindPlan(), {}, { env: {}, caps: MODES["rich-no-colour"] });
@@ -624,4 +745,66 @@ test("presentation doctor: wrapped on a terminal at any width, a finding's path 
   assert.equal(GLYPH_ALIASES.info, "dot");
   assert.ok(doctorText(MODES.plain).includes(`\n  ${icon(PLAIN, "info")} [auto-update] `));
   assert.ok(doctorText(MODES.ascii).includes(`\n  ${icon(MODES.ascii, "info")} [auto-update] `) && icon(MODES.ascii, "info") === ".");
+});
+
+// ─── status (contract 12) ─────────────────────────────────────────────
+
+test("presentation status: +N more is the stories counted less those listed, and points at the kanban view; a start is a date in the reader's zone; unbound names the bind command, alone on its line", () => {
+  const r = statusResult();
+  const text = renderStatus(r, { caps: PLAIN, env: {} });
+  assert.ok(text.includes(`\n  +2 more — see ${r.views.kanban.path}\n`), text);
+  // Every story listed sits under its epic, in the order status() gave, its path on its row.
+  for (const s of r.stories.in_progress) assert.ok(text.split(`\n  ${s.epic}\n`)[1].split(/\n {2}\S/)[0].includes(` ${s.title}  `) && text.includes(` ${s.path}\n`), s.path);
+  assert.deepEqual(text.split("\n").filter((l) => /^ {2}[A-Z]/.test(l)), ["  SHOP-PAY", "  SHOP-CART"], "one heading per epic, in first-listed order");
+  // All listed: no more line. A kanban view with another path is named by it.
+  const all = { ...r, stories: { ...r.stories, in_progress_total: r.stories.in_progress.length } };
+  assert.ok(!renderStatus(all, { caps: PLAIN, env: {} }).includes("more"));
+  const moved = { ...r, views: { ...r.views, kanban: { ...r.views.kanban, path: "boards/kanban.md" } } };
+  assert.ok(renderStatus(moved, { caps: PLAIN, env: {} }).includes("\n  +2 more — see boards/kanban.md\n"));
+  // A timestamp reads as its date where the reader is; a date stays as written.
+  const at = new Date(2026, 9, 10, 23, 30);
+  const local = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+  assert.equal(startDate(at.toISOString()), local);
+  assert.equal(startDate("2026-02-02"), "2026-02-02");
+  assert.equal(startDate("soon"), "soon");
+  // Unbound: the project, then each form of the bind command alone on its line after a blank one.
+  const unbound = renderStatus({ bound: false, project: PROJECT }, { caps: PLAIN, env: {} });
+  assert.equal(unbound, `Not bound — ${PROJECT}\n\nNext: bind it to a vault, in a session or from a terminal:\n\n  ${commandForm("bind", { args: "<vault>", env: {} })}\n  npx projectstore bind <vault>\n`);
+  // The terminal's form is the package the run was invoked as: a shell's own name through it.
+  for (const s of harnessIds().map((id) => loadHarness(id).install?.shell).filter(Boolean)) assert.ok(renderStatus({ bound: false, project: PROJECT }, { caps: PLAIN, env: { PROJECTSTORE_SHELL: s } }).endsWith(`\n  npx ${s} bind <vault>\n`), s);
+  // A view stale or missing wants a reconcile: both in the attention role; fresh is done's.
+  const rich = renderStatus(r, { caps: MODES.rich, env: {} });
+  assert.ok(rich.includes("kanban.md \x1b[33mstale\x1b[39m") && rich.includes("code-map.md \x1b[33mmissing\x1b[39m") && rich.includes("graph.md \x1b[32mfresh\x1b[39m"), rich);
+  // A vault whose directory is gone says so on its line, with the attention glyph.
+  const gone = renderStatus({ ...r, vault_exists: false, spec_policy: null, lifecycle_gates: null, stories: null, views: null, sessions: null }, { caps: PLAIN, env: {} });
+  assert.ok(gone.includes(`\n  vault_path     ${r.vault_path}  ▲ missing\n`) && !gone.includes("spec_policy"), gone);
+});
+
+test("presentation status on a terminal: a long title wraps at its spaces under itself, its path beneath at the same column; a counts line breaks only between counts, never between a number and its word", () => {
+  const r = statusResult();
+  const long = r.stories.in_progress.find((s) => s.title.length > 100);
+  assert.ok(long, "the fixture carries a title longer than the terminal");
+  for (const width of [48, 60, 80, 100]) {
+    const c = { ...MODES["rich-no-colour"], width, columns: width };
+    const lines = renderStatus(r, { caps: c, env: {} }).split("\n");
+    // The title: its first line after the date, the rest at the title column, each within the row; the path beneath, at that column.
+    const at = lines.findIndex((l) => l.includes(long.title.split(" ").slice(0, 3).join(" ")));
+    const col = lines[at].indexOf("A cart");
+    const end = lines.findIndex((l, k) => k > at && l.trim() === long.path);
+    assert.ok(end > at, `${width}: the path beneath its title\n${lines.join("\n")}`);
+    assert.equal(lines[end].indexOf(long.path), col, `${width}: the path at the title column`);
+    const title = lines.slice(at, end);
+    assert.equal(title.map((l, k) => (k ? l : l.slice(col)).trim()).join(" "), long.title, `${width}: the title whole, broken only at spaces`);
+    title.forEach((l, k) => { assert.ok(l.length <= width - 1, `${width}: "${l}"`); if (k) assert.equal(l.length - l.trimStart().length, col, `${width}: "${l}"`); });
+    // The counts: no line of the Stories or Views heading ends in a bare number or starts with a word parted from its number.
+    for (const name of ["Stories", "Views"]) {
+      const h = lines.findIndex((l) => l.startsWith(`${name} — `));
+      const next = lines.findIndex((l, k) => k > h && !/^ {2}\S/.test(l));
+      const block = lines.slice(h, next);
+      for (const l of block) assert.ok(!/(^|\s)\d+$/.test(l) && (l === block[0] || /^ {2}(\d|\S+\.md )/.test(l)), `${width} ${name}: "${l}"`);
+      if (name === "Stories" && width === 80) assert.deepEqual(block, ["Stories — 23 on the board · 12 done · 7 in-progress · 3 planned · 1 review ·", "  1 off the board (not_actionable 1)"]);
+    }
+  }
+  // On a pipe the title is one row, whole, with its path.
+  assert.ok(renderStatus(r, { caps: PLAIN, env: {} }).includes(`  ${long.title}  ${long.path}\n`));
 });

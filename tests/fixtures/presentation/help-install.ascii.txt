@@ -1,0 +1,26 @@
+npx projectstore install - Install projectstore's surfaces for a harness,
+  behind a preview.
+
+Usage
+  npx projectstore install [options]
+
+Options
+  --harness <id>   the harness - and, without a terminal, the confirmation (a
+                   terminal is asked); there is no --yes (repeatable)
+  --surface <key>  one surface and those beneath it (repeatable)
+  --no-register    leave the plugin registration alone: change only this
+                   project's files
+  --verbose        every row's reasoning, each step's why and the host's own
+                   notes
+  --json           the envelope
+
+Harnesses   claude-code, codex
+
+Examples
+
+  npx projectstore install --harness <id>
+
+  The same plan; nothing is written:
+  npx projectstore plan --harness <id>
+
+Exit codes  0 ok, 1 findings or a refusal, 2 usage, 3 not bound, 130 cancelled

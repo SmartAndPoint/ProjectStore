@@ -137,6 +137,16 @@ test("packaging contract 2: no package.json — the core's or a shell's — decl
   }
 });
 
+// The story "The CLI's output is designed: grouped plans, a question rail, one
+// glyph set, doctor grouped by cause" (PS-HARNESS), its last criterion: the
+// presentation is raw SGR and hand-built layout, so the package still runs on
+// every Node it promises and installs nothing beside itself.
+test("packaging: package.json declares no dependency, and engines stays >=20.0.0", () => {
+  const pkg = readRootJson("package.json");
+  assert.deepEqual(Object.keys(pkg.dependencies || {}), [], "zero dependencies");
+  assert.equal(pkg.engines.node, ">=20.0.0");
+});
+
 test("packaging contract 3: the version guard agrees with itself and fails on a mismatch", () => {
   const agreed = checkVersions({ root: ROOT });
   assert.equal(agreed.ok, true, `manifests disagree: ${JSON.stringify(agreed)}`);

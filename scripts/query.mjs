@@ -54,6 +54,11 @@ import {
 import { walkVaultFiles } from "./doctor.mjs";
 import { buildGraph } from "./graph.mjs";
 import { findStories, statusToColumn } from "./kanban.mjs";
+// status's text screen is drawn with the presentation primitives; term.mjs
+// has no side effect at import, so the MCP server's graph gains nothing it
+// could trip on (cli.mjs imports it already).
+import { PLAIN, painter, icon, heading, kv, rows, wrap, commandBlock } from "./term.mjs";
+import { invokedAs } from "./harness.mjs";
 
 export const SEARCH_DEFAULT_LIMIT = 20;
 export const SEARCH_HARD_CAP = 100;
@@ -202,19 +207,85 @@ export function status(cfg, { project = null } = {}) {
   return out;
 }
 
-export function renderStatus(r) {
-  if (!r.bound) return `Not bound${r.project ? ` — ${r.project}` : ""}. Run ${commandForm("bind", { args: "<vault>" })} in a session.\n`;
-  const lines = [`Vault: ${r.vault_path}${r.vault_exists ? "" : "  (missing)"}`, `Layout: ${r.layout} · language: ${r.language} · auto_inject: ${r.auto_inject} · approval_mode: ${r.approval_mode} · spec_policy: ${r.spec_policy} · lifecycle_gates: ${r.lifecycle_gates}`];
-  if (r.stories && r.stories.status !== "ok") lines.push(`Stories: not counted — ${r.stories.error}`);
-  else if (r.stories) {
-    lines.push(`Stories: ${r.stories.total} on the board — ${Object.entries(r.stories.by_status).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}${r.stories.off_board_total ? `; ${r.stories.off_board_total} off it (${Object.entries(r.stories.off_board).map(([k, v]) => `${k} ${v}`).join(", ")})` : ""}`);
-    if (r.stories.in_progress_total) {
-      lines.push(`In progress (${r.stories.in_progress_total}):`);
-      for (const s of r.stories.in_progress) lines.push(`  ${s.epic}: ${s.title}  — ${s.path}${s.started_at ? `  (since ${s.started_at})` : ""}`);
-    } else lines.push("In progress: nothing");
+// Stands in for a space wrap() must not break at; given back after it.
+const GLUE = "";
+
+// A story's start as a date: a date stays as written; a timestamp is read in
+// the reader's own zone. Anything else prints as it is.
+export function startDate(at) {
+  const s = String(at);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = /^\d{4}-\d{2}-\d{2}T/.test(s) ? new Date(s) : null;
+  if (!d || Number.isNaN(d.getTime())) return s;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// status's screen (presentation spec contract 12), from status()'s result as
+// it is — the envelope is untouched. The binding as key–value lines; the
+// board's counts on one line; the stories in progress grouped by epic, each a
+// row of its start, its title and its path, the list ending with `+N more —
+// see <the kanban view's path>` when status() listed fewer than it counted;
+// then the views' freshness and the sessions. No badge: that is the install
+// family's and doctor's. `caps` is the stream's (term.mjs; plain by default):
+// prose wraps, a long title wraps under itself and a row's note moves on a
+// live terminal only, so a pipe gets one line per row. `env` names the
+// commands when nothing is bound: the session's form for the listening
+// harness, and the terminal's as this run was invoked (a shell's own name).
+export function renderStatus(r, { caps: c = PLAIN, env = process.env } = {}) {
+  const paint = painter(c);
+  const dash = icon(c, "dash"), dot = icon(c, "dot");
+  const prose = (text, indent = "") => indent + wrap(text, c.live ? c.width : 0, indent + "  ");
+  // A heading whose counts wrap only between them, after the dot: a count is
+  // never parted from its word. Each part's spaces are glued for wrap() and
+  // given back after it.
+  const counted = (title, parts) => {
+    const glued = parts.map((x) => (Array.isArray(x) ? [x[0].split(" ").join(GLUE), x[1]] : String(x).split(" ").join(GLUE)));
+    return prose(heading(c, title, glued).split(` ${dot} `).join(`${GLUE}${dot} `)).split(GLUE).join(" ");
+  };
+  if (!r.bound) {
+    return [
+      prose(`Not bound${r.project ? ` ${dash} ${r.project}` : ""}`),
+      "",
+      prose("Next: bind it to a vault, in a session or from a terminal:"),
+      ...commandBlock(c, [commandForm("bind", { args: "<vault>", env }), `${invokedAs(env).cmd} bind <vault>`]),
+    ].join("\n") + "\n";
   }
-  if (r.views) lines.push(`Views: ${Object.entries(r.views).map(([k, v]) => `${k} ${!v.exists ? "missing" : v.stale === null ? "unknown" : v.stale ? "stale" : "fresh"}`).join(" · ")}`);
-  if (r.sessions) lines.push(`Sessions active: ${r.sessions.active}`);
+  const missing = r.vault_exists ? "" : `  ${paint("attention", `${icon(c, "warning")} missing`)}`;
+  const binding = [["vault_path", `${r.vault_path}${missing}`], ["layout", r.layout], ["language", r.language], ["auto_inject", r.auto_inject], ["approval_mode", r.approval_mode], ["spec_policy", r.spec_policy], ["lifecycle_gates", r.lifecycle_gates]];
+  const lines = [heading(c, "Binding"), ...kv(c, binding.filter(([, v]) => v !== null && v !== undefined))];
+  const s = r.stories;
+  if (s && s.status !== "ok") lines.push("", prose(heading(c, "Stories", [[`not counted ${dash} ${s.error}`, "attention"]])));
+  else if (s) {
+    const counts = [`${s.total} on the board`, ...Object.entries(s.by_status).map(([k, n]) => `${n} ${k}`)];
+    if (s.off_board_total) counts.push([`${s.off_board_total} off the board (${Object.entries(s.off_board).map(([k, n]) => `${k} ${n}`).join(", ")})`, "explanation"]);
+    lines.push("", counted("Stories", counts));
+    const listed = s.in_progress || [];
+    lines.push("", heading(c, "In progress", [s.in_progress_total ? String(s.in_progress_total) : ["nothing", "explanation"]]));
+    const byEpic = new Map();
+    for (const x of listed) {
+      const epic = x.epic || "";
+      if (!byEpic.has(epic)) byEpic.set(epic, []);
+      byEpic.get(epic).push(x);
+    }
+    for (const [epic, xs] of byEpic) {
+      if (epic) lines.push(`  ${paint("emphasis", epic)}`);
+      // A row per story (contract 5): the dot, the day it started, its title
+      // and its path. On a live terminal a title wider than the row wraps at
+      // its spaces, under itself, and a path that does not fit moves beneath
+      // it, at the same column. A story with no title is its path, never
+      // wrapped.
+      lines.push(...rows(c, xs.map((x) => ({ glyph: "dot", role: "explanation", action: x.started_at ? startDate(x.started_at) : "", target: x.title || x.path, prose: Boolean(x.title), note: x.title ? x.path : "" })), { indent: 4 }));
+    }
+    const more = (s.in_progress_total || 0) - listed.length;
+    const kanban = r.views && r.views.kanban ? r.views.kanban.path : null;
+    if (more > 0) lines.push(`  ${paint("explanation", `+${more} more${kanban ? ` ${dash} see ${kanban}` : ""}`)}`);
+  }
+  if (r.views) {
+    // A view that is stale or missing wants a reconcile: both in the attention role.
+    const state = (v) => (!v.exists ? ["missing", "attention"] : v.stale === null ? ["unknown", "explanation"] : v.stale ? ["stale", "attention"] : ["fresh", "done"]);
+    lines.push("", counted("Views", Object.values(r.views).map((v) => { const [word, role] = state(v); return `${v.path} ${paint(role, word)}`; })));
+  }
+  if (r.sessions) lines.push(heading(c, "Sessions", [`${r.sessions.active} active`]));
   return lines.join("\n") + "\n";
 }
 

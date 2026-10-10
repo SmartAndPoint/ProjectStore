@@ -1,0 +1,48 @@
+projectstore · 0.30.0 · project memory for coding agents, in markdown
+
+Usage
+  npx projectstore <verb> [options]  run it inside your code project
+  npx projectstore <verb> --help     one verb's options and examples
+
+START
+  install      Install projectstore's surfaces for a harness, behind a preview.
+  bind         Bind this project to an existing vault; naming it confirms.
+  uninstall    Remove what install wrote, and only that.
+
+VAULT
+  status       What is bound, what is in progress, and whether views are fresh.
+  search       Find a phrase in the vault's artifacts, literal and bounded.
+  show         One artifact's frontmatter; its body or a section on request.
+  graph        The live link graph by vault path.
+  codemap      The code an epic or artifact maps to, or a path's artifacts.
+
+CHECK AND REPAIR
+  doctor       Check the install wiring and the vault's consistency.
+  reconcile    Regenerate the derived views (kanban, code map, graph, indexes).
+  upgrade      After an update, refresh what install wrote and leave the rest.
+
+ADVANCED
+  plan · orientation · agents · init · scaffold · mcp · version
+
+Options
+  --project <dir>  the project (default: the session's, else this directory)
+  --json           the result as one JSON envelope, for scripts and agents
+  --version        the package version
+
+Examples
+
+  npx projectstore install --harness <id>
+  npx projectstore status
+  npx projectstore doctor
+
+Tips
+  install, upgrade and uninstall show their plan, then ask at a terminal.
+  Without a terminal, --harness is the confirmation — there is no --yes.
+  Unattended in a terminal: pass --json, set CI=1, or give stdin </dev/null.
+  --verbose on those verbs adds every row's reasoning and the host's notes.
+  plan prints the same plan and writes nothing:
+
+  npx projectstore plan --harness <id>
+
+Harnesses   claude-code, codex
+Exit codes  0 ok, 1 findings or a refusal, 2 usage, 3 not bound, 130 cancelled

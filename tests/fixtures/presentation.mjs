@@ -1,8 +1,9 @@
-// projectstore — test fixture: the golden screens of the install family, bind
-// and doctor (PS-HARNESS: "The CLI's output is designed: grouped plans, a
-// question rail, one glyph set, doctor grouped by cause"; the covering spec
-// *Terminal presentation of the projectstore CLI: layout, glyphs, colour
-// roles, questions and live lines*, Testing → Golden output and Equivalence).
+// projectstore — test fixture: the golden screens of the install family, bind,
+// doctor, --help and status (PS-HARNESS: "The CLI's output is designed:
+// grouped plans, a question rail, one glyph set, doctor grouped by cause"; the
+// covering spec *Terminal presentation of the projectstore CLI: layout,
+// glyphs, colour roles, questions and live lines*, Testing → Golden output
+// and Equivalence).
 //
 // Every screen is rendered from fixed data — plans modelled on a real
 // two-harness install, uninstall and upgrade, with a fixed home, project,
@@ -23,6 +24,10 @@
 // the cap, the folds, the short instance lines), so plain is held equal to
 // the terminal's --verbose rendering (SCREENS' `full`).
 //
+// --help is the bin's own words: its summaries are ASCII, and the glyphs in
+// its options and forms are drawn through the table (term.mjs glyphText), so
+// the ascii screens hold none. status is drawn from a fixed status() result.
+//
 // The committed goldens, tests/fixtures/presentation/<screen>.<mode>.txt, are
 // written with
 //   node tests/fixtures/presentation.mjs --write
@@ -36,6 +41,8 @@ import { renderPreview, renderDone, applyReporter } from "../../scripts/install-
 import { renderBindPlan } from "../../scripts/binding.mjs";
 import { askApply } from "../../scripts/term.mjs";
 import { report } from "../../scripts/doctor-report.mjs";
+import { usage, verbHelp, VERBS } from "../../scripts/cli.mjs";
+import { renderStatus } from "../../scripts/query.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const DIR = join(HERE, "presentation");
@@ -213,6 +220,44 @@ export const doctorText = (c, { findings = DOCTOR_FINDINGS, verbose = false } = 
 export const asciiOnly = (s) => String(s).replace(/[^\x00-\x7e]/g, "?");
 export const DOCTOR_ASCII_FINDINGS = Object.freeze(DOCTOR_FINDINGS.map((f) => ({ ...f, message: asciiOnly(f.message), ...(f.file ? { file: asciiOnly(f.file) } : {}) })));
 
+// --help, at the top level and for install, as the core answers it: `env` is
+// empty, so no shell's name stands in for the core's. The harness ids are the
+// manifests'.
+export const helpText = (c) => usage({}, VERBS, { caps: c, version: VERSION });
+export const installHelpText = (c) => verbHelp(VERBS.find((v) => v.verb === "install"), {}, { caps: c });
+
+// status on a bound vault with seven stories in progress across two epics, of
+// which status() lists five (its cap): two epics' rows, a title longer than
+// the terminal (it wraps under itself), the "+2 more" line that points at the
+// kanban view, one story with no start, a parked story off the board, a
+// counts line that wraps between its counts, and each freshness a view can
+// have. Every start is a date, so the screen reads the same in every time
+// zone.
+export function statusResult() {
+  const story = (epic, slug, title, started_at) => ({ path: `epics/${epic}/stories/${slug}.md`, epic, title, started_at });
+  return {
+    bound: true, project: PROJECT, vault_path: H("vaults/shop"), vault_exists: true, layout: "engineering", language: "en", auto_inject: true, approval_mode: "always", spec_policy: "optional", lifecycle_gates: "on",
+    stories: {
+      status: "ok", total: 23, by_status: { done: 12, "in-progress": 7, planned: 3, review: 1 },
+      in_progress: [
+        story("SHOP-PAY", "story-refunds-reach-the-ledger", "Refunds reach the ledger", "2026-10-09"),
+        story("SHOP-CART", "story-a-cart-survives-a-sign-in", "A cart survives a sign-in on another device, with its saved items, its coupons and the address the shopper chose", "2026-10-08"),
+        story("SHOP-PAY", "story-a-declined-card-says-why", "A declined card says why, in the shopper's words", "2026-10-07"),
+        story("SHOP-CART", "story-saved-for-later", "Saved for later", "2026-10-02"),
+        story("SHOP-PAY", "story-receipts-by-email", "Receipts by email", null),
+      ],
+      in_progress_total: 7, off_board: { not_actionable: 1 }, off_board_total: 1,
+    },
+    views: {
+      kanban: { path: "kanban.md", exists: true, generated_at: "2026-10-09T12:00:00.000Z", stale: true },
+      code_map: { path: "code-map.md", exists: false, generated_at: null, stale: null },
+      graph: { path: "graph.md", exists: true, generated_at: "2026-10-09T12:00:00.000Z", stale: false },
+    },
+    sessions: { active: 2, entries: [] },
+  };
+}
+export const statusText = (c) => renderStatus(statusResult(), { caps: c, env: {} });
+
 // The screens, in order: name → (caps) → text (or a promise of it), and for
 // a screen a terminal compacts, `full` — the terminal's rendering plain
 // output equals — and `scan` — the screen drawn from ASCII data.
@@ -227,6 +272,9 @@ export const SCREENS = Object.freeze([
   ["stopped", stoppedText],
   ["bind", bindText],
   ["doctor", doctorText, { full: (c) => doctorText(c, { verbose: true }), scan: (c) => doctorText(c, { findings: DOCTOR_ASCII_FINDINGS }) }],
+  ["help", helpText],
+  ["help-install", installHelpText],
+  ["status", statusText],
 ]);
 
 export const goldenPath = (screen, mode) => join(DIR, `${screen}.${mode}.txt`);

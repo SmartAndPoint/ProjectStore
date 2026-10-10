@@ -1,0 +1,30 @@
+[1mBinding[22m
+  [90mvault_path[39m       /home/ada/vaults/shop
+  [90mlayout[39m           engineering
+  [90mlanguage[39m         en
+  [90mauto_inject[39m      true
+  [90mapproval_mode[39m    always
+  [90mspec_policy[39m      optional
+  [90mlifecycle_gates[39m  on
+
+[1mStories[22m — 23 on the board · 12 done · 7 in-progress · 3 planned · 1 review ·
+  [90m1 off the board (not_actionable 1)[39m
+
+[1mIn progress[22m — 7
+  [1mSHOP-PAY[22m
+    [90m·[39m [90m2026-10-09[39m  Refunds reach the ledger
+                  [90mepics/SHOP-PAY/stories/story-refunds-reach-the-ledger.md[39m
+    [90m·[39m [90m2026-10-07[39m  A declined card says why, in the shopper's words
+                  [90mepics/SHOP-PAY/stories/story-a-declined-card-says-why.md[39m
+    [90m·[39m             Receipts by email
+                  [90mepics/SHOP-PAY/stories/story-receipts-by-email.md[39m
+  [1mSHOP-CART[22m
+    [90m·[39m [90m2026-10-08[39m  A cart survives a sign-in on another device, with its saved
+                  items, its coupons and the address the shopper chose
+                  [90mepics/SHOP-CART/stories/story-a-cart-survives-a-sign-in.md[39m
+    [90m·[39m [90m2026-10-02[39m  Saved for later
+                  [90mepics/SHOP-CART/stories/story-saved-for-later.md[39m
+  [90m+2 more — see kanban.md[39m
+
+[1mViews[22m — kanban.md [33mstale[39m · code-map.md [33mmissing[39m · graph.md [32mfresh[39m
+[1mSessions[22m — 2 active

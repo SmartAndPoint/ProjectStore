@@ -10,8 +10,8 @@
       [33mthe file is not ours (no provenance stamp); move it aside or delete it,[39m
       [33mthen run install again[39m
 
-  [33m▲[39m [33mrefused[39m  two bindings: .claude/projectstore.json and
-             .projectstore/projectstore.json both exist; keep one, then run
-             install again
+  [33m▲[39m [33mrefused[39m  [33mtwo bindings: .claude/projectstore.json and[39m
+             [33m.projectstore/projectstore.json both exist; keep one, then run[39m
+             [33minstall again[39m
 
   [33mNothing will be written: resolve the refusals above first.[39m
