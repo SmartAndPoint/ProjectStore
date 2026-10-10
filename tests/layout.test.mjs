@@ -257,15 +257,17 @@ test("layout contract 18: the move's APPLY lines name each step beneath the layo
   const { proj } = legacyProject(home);
   const chunks = [];
   const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
-  const r = await runVerb("upgrade", proj, { home, root, env: noHostEnv(), harnesses: [SRC.id], out });
+  const env = noHostEnv();
+  delete env.TERM; // TERM=dumb would turn the step marks to ASCII
+  const r = await runVerb("upgrade", proj, { home, root, env, harnesses: [SRC.id], out });
   assert.equal(r.failed, null, JSON.stringify(r.failed));
   const text = chunks.join("").replace(/\x1b\[[0-9;]*m/g, ""); // the runner may force colour (FORCE_COLOR)
   const applyText = text.slice(text.indexOf("\nAPPLY\n"), text.indexOf("\nDONE — "));
   assert.match(applyText, /\n {2}↻ layout /, applyText);
   const steps = r.plan.items.find((i) => i.surface === "layout").steps.filter((s) => s.kind !== "note");
-  const lines = applyText.split("\n").filter((l) => /^ {6}[✓✗·] /.test(l));
+  const lines = applyText.split("\n").filter((l) => /^ {6}[✓✕·] /.test(l));
   assert.ok(lines.length >= steps.length, `one line per step:\n${applyText}`);
-  assert.ok(lines.every((l) => !l.includes("✗")), applyText);
+  assert.ok(lines.every((l) => !l.includes("✕")), applyText);
   assert.ok(!/✓ .* kept/.test(applyText), "a kept step is never ✓");
   assert.match(text, /\nDONE — \d+ changes? in /);
 });

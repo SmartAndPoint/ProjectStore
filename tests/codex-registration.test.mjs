@@ -9,6 +9,7 @@ import { checkHarnessSurfaces, checkPluginRegistration } from "../scripts/doctor
 import { loadHarness, cachePaths } from "../scripts/harness.mjs";
 import { fetchDecision, fetchRefusal, sweepFetchRuns, rootVersion, REGISTRY_BUDGET_MS } from "../scripts/fetch-shell.mjs";
 import { codexHost, fakeNpmSpawn, FAKE_REGISTRY } from "./fixtures/fetch.mjs";
+import { icon } from "../scripts/term.mjs";
 import { fileURLToPath } from "node:url";
 
 const CORE = fileURLToPath(new URL("..", import.meta.url));
@@ -909,8 +910,12 @@ test("shell fetch, plan: a dry run calls no npm and makes no cache; create leads
   assert.equal(row.steps[1].name, "preflight");
   const stage = row.steps.find((s) => s.kind === "portable-write");
   assert.equal(stage.files, null, "no file count before the fetch");
-  const text = renderPreview(create, { icon: (n) => ({ fetch: "↓" }[n] || "·") });
+  // The fetch glyph is the one table's (presentation spec contract 4), in
+  // both columns: the default is its Unicode, a caller's ASCII stream gets v.
+  const text = renderPreview(create);
   assert.ok(text.includes(`↓ npm ${rule2Argv(join(f.fetchDir, "<run-id>"), "<registry>").join(" ")}`), text);
+  const ascii = renderPreview(create, { icon: (n) => icon({ ascii: true }, n) });
+  assert.ok(ascii.includes(`v npm ${rule2Argv(join(f.fetchDir, "<run-id>"), "<registry>").join(" ")}`), ascii);
   assert.ok(text.includes("(the fetched payload + catalogue + ownership)"), text);
   assert.equal(existsSync(f.cache), false, "plan makes nothing under the cache");
   // A dry-run row handed to apply() stages nothing: there is no payload to copy.

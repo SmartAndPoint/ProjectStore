@@ -1105,16 +1105,21 @@ const isWrite = (i) => !["skip", "refuse"].includes(i.action);
 // consent content, and a reader that is an agent needs it as much as a person.
 // The explanations — the host-managed report, per-row reasons, each step's why,
 // the planned-against note — are folded behind `--verbose`. Colour comes from
-// the caller (term.mjs decides); the default is plain text.
+// the caller (term.mjs decides); the default is plain text. Every glyph comes
+// from term.mjs's one table (presentation spec contract 4): a caller passes
+// its stream's glyphs, and the default is the table's Unicode column.
+const unicodeGlyph = (name) => termIcon({ ascii: false }, name);
 
 // Every action a plan item can carry. A write never wears the skip glyph:
-// `add` and `replace-entry` are changes as much as `create` and `update`.
+// `add` and `replace-entry` are changes as much as `create` and `update`. A
+// refusal's ▲ is in the attention role, as the spec's colour roles say
+// (presentation spec contract 3); red is for what failed.
 const ACTION_ICON = { create: "create", add: "create", update: "update", "replace-entry": "update", migrate: "migrate", disable: "update", cleanup: "cleanup", remove: "remove", prune: "remove", skip: "skip", refuse: "refuse" };
-const ACTION_COLOR = { create: "green", add: "green", update: "cyan", "replace-entry": "cyan", migrate: "cyan", disable: "cyan", cleanup: "yellow", remove: "yellow", prune: "yellow", skip: "gray", refuse: "red" };
+const ACTION_COLOR = { create: "green", add: "green", update: "cyan", "replace-entry": "cyan", migrate: "cyan", disable: "cyan", cleanup: "yellow", remove: "yellow", prune: "yellow", skip: "gray", refuse: "attention" };
 
 // One step of an item as the lines it shows: always the action and its target,
 // then — under --verbose — why it runs.
-function stepLines(p, st, { verbose, paint, width = 0, glyph = (name) => (name === "fetch" ? "↓" : "·") }) {
+function stepLines(p, st, { verbose, paint, width = 0, glyph = unicodeGlyph }) {
   const r = (x) => rel(p.projectDir, x);
   const lead = "      ";
   const sub = "          ";
@@ -1167,7 +1172,7 @@ export function badgeLine(p, { verb = null, paint = (_style, text) => String(tex
 }
 
 export function renderPreview(p, { verbose = false, verb = null, paint = (_style, text) => String(text), icon = null, width = 0, badge = true } = {}) {
-  const glyph = icon || ((name) => ({ create: "+", update: "↻", migrate: "↻", cleanup: "✕", remove: "✕", skip: "·", refuse: "!", fetch: "↓" }[name] || "·"));
+  const glyph = icon || unicodeGlyph;
   const writes = p.items.filter(isWrite);
   const lines = [
     ...(badge ? [badgeLine(p, { verb, paint })] : []),
@@ -1232,7 +1237,7 @@ export function renderPreview(p, { verbose = false, verb = null, paint = (_style
   for (const [display, rows] of folded) lines.push(...hostLine(`not on ${display}: ${rows.join(", ")} — unsupported → skip ${paint("gray", "(--verbose says why)")}`));
   const exclusiveRemoval = p.items.find((i) => i.action === "remove" && i.kind === "exclusive");
   if (exclusiveRemoval) lines.push(`      ${paint("gray", `(an emptied ${rel(p.projectDir, dirname(exclusiveRemoval.path))}/ is pruned)`)}`);
-  for (const r of p.refusals) { const [first, ...rest] = wrap(r, width, " ".repeat(17)).split("\n"); lines.push(`  ${paint("red", glyph("refuse"))} ${paint("bold", "refused".padEnd(12))} ${first}`, ...rest); }
+  for (const r of p.refusals) { const [first, ...rest] = wrap(r, width, " ".repeat(17)).split("\n"); lines.push(`  ${paint("attention", glyph("refuse"))} ${paint("bold", "refused".padEnd(12))} ${first}`, ...rest); }
   lines.push("", `  ${paint("gray", "Nothing outside a marked entry is read, rewritten or removed.")}`);
   if (p.items.some((i) => (i.steps || []).some((s) => s.kind === "host"))) lines.push(`  ${paint("gray", "Each $ line runs the host's own CLI, which writes the host-owned files named after it.")}`);
   if (!p.ok) lines.push("", `  ${paint("red", "Nothing will be written: resolve the refusals above first.")}`);
@@ -1270,8 +1275,10 @@ export function asksAtTerminal({ stdin = null, stdout = null, ask = null, env = 
 
 // Streams and `ask` are parameters so the terminal branch is testable without
 // a pseudo-terminal; passing `ask` means "this is a terminal". Without streams
-// the library never asks — the bin and main() pass theirs.
-export async function confirm(p, { stdin = null, stdout = null, ask = null, env = process.env, json = false, paint = (_style, text) => String(text) } = {}) {
+// the library never asks — the bin and main() pass theirs. `caps` is the
+// asking stream's (colour and glyphs), read from `stdout` when not given;
+// with neither, the question is unpainted, in Unicode.
+export async function confirm(p, { stdin = null, stdout = null, ask = null, env = process.env, json = false, caps = stdout ? termCaps(stdout, env) : null } = {}) {
   if (!p.ok) return { confirmed: false, why: "refused" };
   const writes = p.items.filter(isWrite);
   if (!writes.length) return { confirmed: false, why: "nothing-to-do" };
@@ -1279,7 +1286,7 @@ export async function confirm(p, { stdin = null, stdout = null, ask = null, env 
   if (!interactive) return p.named ? { confirmed: true, why: "named" } : { confirmed: false, why: "non-tty" };
   // The question's bytes and its answer rule are term.mjs's, shared with
   // `scaffold --write`; the refused / nothing / named branches above stay here.
-  return (await askApply(writes.length, { stdin, stdout, ask, paint })) ? { confirmed: true, why: "answered" } : { confirmed: false, why: "declined" };
+  return (await askApply(writes.length, { stdin, stdout, ask, ...(caps ? { caps } : {}) })) ? { confirmed: true, why: "answered" } : { confirmed: false, why: "declined" };
 }
 
 // ─── apply ─────────────────────────────────────────────────────────────
@@ -1856,7 +1863,7 @@ export async function runVerb(verb, projectDir, opts = {}) {
     const view = { verbose: Boolean(opts.verbose), verb, paint, icon: glyph, width: c && c.live ? c.width : 0 };
     const preview = renderPreview(p, view);
     if (out) out.write((badged ? renderPreview(p, { ...view, badge: false }) : preview) + "\n");
-    const gate = await confirm(p, { ...opts, env, paint });
+    const gate = await confirm(p, { ...opts, env, ...(c ? { caps: c } : {}) });
     const result = { verb, plan: p, preview, gate, applied: [], failed: null, elapsed: 0, fetched: prep.fetched };
     if (gate.confirmed) {
       // DONE's time leaves the fetch out: it wrote nothing of the project's.
@@ -1950,7 +1957,7 @@ function stepLabel(p, st) {
 
 // DONE: what happened, how long it took, what to do next — from the manifests,
 // never from a harness-id branch — and at most two tips.
-export function renderDone(r, { paint = (_style, text) => String(text), glyph = (n) => termIcon({ ascii: false }, n), verbose = false } = {}) {
+export function renderDone(r, { paint = (_style, text) => String(text), glyph = unicodeGlyph, verbose = false } = {}) {
   const p = r.plan;
   // What applied: a record that neither failed nor was skipped — a recheck
   // that found the work already done is not a change.

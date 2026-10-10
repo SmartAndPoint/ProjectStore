@@ -24,6 +24,7 @@ import { codexHost, fakeNpmSpawn } from "./fixtures/fetch.mjs";
 import { plan, renderPreview, confirm, apply, runVerb, isInteractive, renderDone } from "../scripts/install-harness.mjs";
 import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses, loadHarness, identifiedHarnessId, packageCommand } from "../scripts/harness.mjs";
 import { writeBinding, seedCliVault } from "./fixtures/vault.mjs";
+import { painter } from "../scripts/term.mjs";
 import { stamp, sourceHash, parseProvenance } from "../scripts/provenance.mjs";
 import {
   AGENTS_BLOCK_OPEN_SRC,
@@ -517,7 +518,7 @@ test("install contract 9: the interactive branch applies on yes and writes nothi
   const no = await confirm(p, { ask: async () => "n" });
   assert.equal(no.confirmed, false);
   assert.ok(!existsSync(statusLineLauncherPath(proj)));
-  const yes = await runVerb("install", proj, { home, root, ask: async (q) => { assert.equal(q, "Apply 3 changes? [Y/n] "); return "yes"; } });
+  const yes = await runVerb("install", proj, { home, root, ask: async (q) => { assert.equal(q, "◆ Apply 3 changes? [Y/n] "); return "yes"; } });
   assert.equal(yes.gate.confirmed, true);
   assert.equal(yes.applied.length, 3);
   assert.ok(existsSync(statusLineLauncherPath(proj)));
@@ -532,7 +533,7 @@ test("install contract 9/18: the plan precedes the question, Enter is yes, anyth
   const { home, root } = fixture();
   const sink = () => { const chunks = []; return { chunks, out: { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } } }; };
   const env = { ...process.env };
-  delete env.FORCE_COLOR;
+  delete env.FORCE_COLOR; delete env.TERM; // TERM=dumb would turn the glyphs to ASCII
   const proj = project();
   const { chunks, out } = sink();
   let onScreen = null;
@@ -561,7 +562,7 @@ test("install contract 9/18: the plan precedes the question, Enter is yes, anyth
 test("install contract 9: at a terminal the question follows the plan on the same stream; Enter applies, end of input does not, --json never asks", async () => {
   const { home, root } = fixture();
   const env = { ...process.env };
-  delete env.FORCE_COLOR; delete env.CI;
+  delete env.FORCE_COLOR; delete env.CI; delete env.TERM; // TERM=dumb: no live terminal, ASCII glyphs
   for (const m of manifests()) for (const k of m.runtime?.session_env || []) delete env[k];
   const terminal = () => {
     const stdin = new PassThrough(); stdin.isTTY = true;
@@ -573,7 +574,7 @@ test("install contract 9: at a terminal the question follows the plan on the sam
   const proj = project();
   const pending = runVerb("install", proj, { home, root, env, harnesses: [SRC.id], stdin: t.stdin, stdout: t.stdout, out: t.stdout });
   await new Promise((r) => setImmediate(r));
-  assert.match(t.text().replace(/\x1b\[[0-9;]*m/g, ""), /PLAN — 3 changes[\s\S]*Apply 3 changes\? \[Y\/n\] $/, "the plan, then the question, on one stream");
+  assert.match(t.text().replace(/\x1b\[[0-9;]*m/g, ""), /PLAN — 3 changes[\s\S]*◆ Apply 3 changes\? \[Y\/n\] $/, "the plan, then the question, on one stream");
   t.stdin.write("\n");
   const yes = await pending;
   assert.deepEqual(yes.gate, { confirmed: true, why: "answered" }, "a named harness at a terminal is asked, and Enter is yes");
@@ -589,12 +590,33 @@ test("install contract 9: at a terminal the question follows the plan on the sam
   const bare = await runVerb("install", project(), { home, root, env, stdin: j.stdin, stdout: j.stdout, json: true });
   assert.deepEqual(bare.gate, { confirmed: false, why: "non-tty" }, "--json in a terminal is not asked: a bare one refuses");
   assert.equal(j.text(), "", "and nothing is written to the terminal");
+  // A caller with terminal streams and no `out`: the question still takes its
+  // stream's glyphs and colour — confirm() reads them, nothing passes a null over them.
+  const a = terminal();
+  const asciiRun = runVerb("install", project(), { home, root, env: { ...env, PROJECTSTORE_ASCII: "1", NO_COLOR: "1" }, harnesses: [SRC.id], stdin: a.stdin, stdout: a.stdout });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(a.text(), "* Apply 3 changes? [Y/n] ", "ASCII glyphs from the asking stream's caps");
+  a.stdin.write("n\n");
+  assert.deepEqual((await asciiRun).gate, { confirmed: false, why: "declined" });
 });
 
 // The reviewer's pass (2026-10-05): a row's reason is never folded — an
 // uninstall that could not be planned says why in the default view — a write
 // never wears the skip glyph, a failure that is not a host command is named
 // as what it was, and an injected `ask` never overrides --json.
+// Presentation spec contract 3: a refusal is attention (yellow) — its ▲ on a
+// refused row and on each of the plan's refusals; red is for what failed.
+test("install contract 18: a refusal's ▲ is painted in the attention role, never red", () => {
+  const p = { mode: "install", harnesses: [SRC.id], projectDir: "/tmp/project", plannedAgainst: {}, root: "/tmp/plugin", reports: [], ok: false, incomplete: false,
+    refusals: ["two config files — merge them by hand"],
+    items: [{ harness: SRC.id, surface: "statusline_launcher", kind: "exclusive", path: "/tmp/project/.projectstore/state/x.mjs", entry: null, state: "foreign", action: "refuse", reason: "not ours" }] };
+  const text = renderPreview(p, { paint: painter({ color: true }) });
+  const marked = text.split("\n").filter((l) => l.includes("▲"));
+  assert.equal(marked.length, 2, text);
+  for (const l of marked) assert.ok(l.startsWith("  \x1b[33m▲\x1b[39m "), JSON.stringify(l));
+  assert.ok(!text.includes("\x1b[31m▲"), "never red");
+});
+
 test("install contract 18: every reason is in the default view, writes wear write glyphs, STOPPED names what failed", async () => {
   const row = (extra) => ({ harness: SRC.id, surface: "plugin", kind: "registration", path: "/tmp/project/x", entry: null, state: "current", action: "skip", ...extra });
   const p = { mode: "uninstall", harnesses: [SRC.id], projectDir: "/tmp/project", plannedAgainst: {}, root: "/tmp/plugin", reports: [], refusals: [], ok: true, incomplete: true,
@@ -611,7 +633,7 @@ test("install contract 18: every reason is in the default view, writes wear writ
   const layout = { ...p, mode: "install", items: [{ harness: SRC.id, surface: "layout", kind: "layout", path: "/tmp/project/.projectstore", entry: null, state: "legacy", action: "migrate" }] };
   const stopped = renderDone({ verb: "upgrade", plan: layout, applied: [{ surface: "layout", path: "/tmp/project/.projectstore", action: "migrate", failed: { step: "move-state", status: null, stderr: "EACCES" } }], failed: { step: "move-state", status: null, stderr: "EACCES" }, elapsed: 0 });
   assert.match(stopped, /STOPPED — 0 changes applied, then move-state failed/);
-  assert.match(stopped, /✗ move-state \(layout \.projectstore\)\n {6}EACCES/);
+  assert.match(stopped, /✕ move-state \(layout \.projectstore\)\n {6}EACCES/);
   assert.ok(!stopped.includes("host command") && !stopped.includes("install path"), stopped);
   // An injected ask is a terminal, unless --json says otherwise.
   const { home, root } = fixture();
