@@ -212,9 +212,51 @@ Nothing was written to either tree without a gate.
 
 ## 5. Collisions — the thing worth proving
 
-- Did the 0.27.1 user-wide copy and the 0.28.0 npm copy ever both load? ______
-- Any command that resolved to the wrong version: ______
-- This repository's own install untouched? (`~/Projects/SmartAndPoint/ProjectStore/.claude/settings.local.json`) ______
+- **Never both.** The session ran 0.28.0 throughout, proven by where it wrote:
+  new-layout state paths a 0.27.1 copy does not know. The checkout's
+  `settings.local.json` carries `projectstore@projectstore-npm: true` beside
+  `projectstore@SmartAndPoint: false` — the silencing held for the whole run.
+- **No command resolved to the wrong version.** The one version question was
+  the plugin root, and it was a missing path rather than a wrong copy: the
+  model searched, found the 0.28.0 bin and used it. Recorded as finding 0.
+- **This repository untouched.** Its own `settings.local.json` still holds
+  only its status-line entry — no `enabledPlugins` key was ever written there
+  — and the user-wide `settings.json` still enables
+  `projectstore@SmartAndPoint`, so every other project on the machine kept
+  0.27.1 while this one ran 0.28.0.
+
+## The task it was given, finished
+
+The session ran the loop to the end and built the site. Verified from outside,
+2026-09-07, without asking it anything:
+
+| Check | Result |
+|---|---|
+| `npm test` in the generated project | **57 pass, 0 fail** |
+| Source | 7 files, 707 lines, `dependencies` and `devDependencies` both empty |
+| Vault | epic `done`, all three stories `done`, the ADR `accepted` |
+| `doctor` on the project | **0 issues**, 2 warnings (the host settings line, and uncommitted work with no story open) |
+
+And the property the task actually asked for, exercised against a running
+server on a spare port:
+
+| Request | Answer |
+|---|---|
+| `GET /` | 200 |
+| `GET /me` anonymous | 303 to the sign-in page |
+| `POST /register` | 303 to `/login?registered=1` — registration does not sign you in, exactly as the story's criterion says |
+| `POST /login` | 303 to `/me`, session cookie set |
+| `GET /me` with A's cookie | A's address |
+| `GET /me` with B's cookie | B's address |
+| `GET /me` with A's cookie after `POST /logout` | 303 — the session is gone, not merely hidden |
+
+Two things it reported about its own work, worth keeping because they are the
+kind a run like this exists to surface: it corrected three artifact claims that
+implementation disproved (a `Connection: close` header on a 413 costing
+delivery; a second start on one database file not refusing as the ADR claimed;
+`code_refs` read through `JSON.parse`, so a block YAML list would have loaded
+empty), and it recorded its own process error — it marked the epic complete
+before closing the last story, and doctor caught the inconsistency.
 
 ## Teardown
 
