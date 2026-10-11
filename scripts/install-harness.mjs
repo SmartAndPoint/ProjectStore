@@ -196,6 +196,7 @@ import {
   DEFAULT_REGISTRY,
   NOTICE_BUDGET_MS,
   READ_TIMEOUT_MS,
+  MIN_READ_MS,
 } from "./convergence.mjs";
 import { applyBind, bindPlanSteps, recheckBind, bindResult } from "./binding.mjs";
 import {
@@ -4888,7 +4889,7 @@ async function prepareRun(verb, projectDir, opts = {}) {
     return userRegistryOf(budget)
       .then((registry) => {
         const timeoutMs = shared ? budget - (Date.now() - t0) : READ_TIMEOUT_MS;
-        if (timeoutMs < 1) return { latest: null, from: null, error: `no answer within ${budget / 1000} s` };
+        if (timeoutMs < MIN_READ_MS) return { latest: null, from: null, error: `no answer within ${budget / 1000} s` };
         return readLatest({
           registry: registry || DEFAULT_REGISTRY,
           cachePath: cachePaths({ env, home }).registry,
