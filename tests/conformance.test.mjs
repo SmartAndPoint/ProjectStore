@@ -277,6 +277,7 @@ test("conformance: neither half of the pair branches on a harness — the vocabu
     h.id, h.display_name, h.runtime.harness_dir, h.runtime.overlay, h.runtime.home_default,
     h.runtime.project_dir_env, h.runtime.plugin_root_env, h.runtime.home_env,
     ...(h.runtime.detect_env || []), ...(h.runtime.shared_env || []),
+    ...(h.runtime.registration_defer_env || []),
   ].filter(Boolean));
   assert.ok(vocabulary.length > 0);
 

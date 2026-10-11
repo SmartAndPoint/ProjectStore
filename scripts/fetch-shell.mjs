@@ -29,7 +29,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { insideHostSession } from "./harness.mjs";
+import { registrationDeferred } from "./harness.mjs";
 import { removeTreeUnder, pidAlive, whichOnPath } from "./lib.mjs";
 import { isPortablePluginRoot, payloadManifest, payloadManifestPath, payloadManifestPaths } from "./portable-registration.mjs";
 import { runHost, startFailure, HOST_BUDGET_MS } from "./run-host.mjs";
@@ -63,7 +63,8 @@ const STAGING_VERBS = ["install", "upgrade", "setup"];
 //   interactive  — a person at a terminal will be asked (isInteractive, or `ask`)
 //   analysis     — a version-only analysis of the registration
 //   ownShell     — the run is this harness's own shell's core (rule 8)
-//   env          — the run's: a named distribution root, a session marker
+//   env          — the run's: a named distribution root, a session marker or a
+//                  registration_defer_env variable
 export function fetchDecision({ verb, harness, s, excluded = false, named = false, interactive = false, analysis = null, ownShell = false, env = process.env } = {}) {
   if (!STAGING_VERBS.includes(verb)) return { fetch: false, why: "verb" };
   if (s?.condition !== "distribution_root" || !harness?.install?.shell) return { fetch: false, why: "not-shell-rooted" };
@@ -72,9 +73,10 @@ export function fetchDecision({ verb, harness, s, excluded = false, named = fals
   if (env && env.PROJECTSTORE_DISTRIBUTION_ROOT) return { fetch: false, why: "root-named" };
   // A bare run that cannot be asked refuses at the gate; its preview is the dry run.
   if (!named && !interactive) return { fetch: false, why: "not-interactive" };
-  // The registration defers in the harness's own session (decision 2), and
-  // the fetch is skipped for a registration that will defer.
-  if (insideHostSession(env, harness)) return { fetch: false, why: "in-session" };
+  // The registration defers in the harness's own session (decision 2) — by
+  // its session marker or its registration_defer_env (the setup story, rule
+  // 15) — and the fetch is skipped for a registration that will defer.
+  if (registrationDeferred(env, harness)) return { fetch: false, why: "in-session" };
   // The host's facts alone decide these rows; a payload would change none.
   if (["unavailable", "foreign", "conflict"].includes(analysis?.state)) return { fetch: false, why: analysis.state };
   // A registration newer than the running version is never staged over (the

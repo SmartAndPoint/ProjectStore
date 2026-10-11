@@ -348,6 +348,53 @@ test("registration contract 4′: without the host CLI the registration is unava
   assert.equal(sb.host.log().length, 0);
 });
 
+// The story "projectstore setup asks, shows one plan and installs every
+// harness it finds, with the vault", rule 15: this registration defers through
+// registrationDeferred — its session marker (above), or a variable its own
+// runtime.registration_defer_env names, which is empty for this harness
+// (session_env already defers it). Deferral keys on the planned harness's own
+// manifest: inside a Codex session, this registration proceeds.
+test("setup rule 15: the host plugin registration proceeds under another host's deferral marker, and defers on a variable its own registration_defer_env names, install and removal alike, with the reason", () => {
+  for (const marker of CODEX.runtime.registration_defer_env) {
+    const sb = sandbox();
+    const p = plan(sb.proj, { home: sb.home, root: sb.root, env: sb.host.env({ [marker]: "1" }) });
+    assert.equal(sb.item(p, "plugin").action, "create", `${marker} is another host's: no deferral`);
+    assert.equal(sb.item(p, "plugin").deferred, undefined);
+  }
+  assert.deepEqual(SRC.runtime.registration_defer_env, [], "empty: session_env already defers it");
+  // The list is read for this harness too. The manifest is changed in the
+  // loader's cache for this case only, and restored in `finally`.
+  const live = loadHarness(SRC.id);
+  const declared = live.runtime.registration_defer_env;
+  const variable = "PS_TEST_REGISTRATION_DEFER";
+  const text = `this runs inside a ${SRC.display_name} session (${variable} is set), and the host's CLI would change the configuration that session runs on — run it from a terminal outside the session`;
+  const sb = sandbox();
+  try {
+    live.runtime.registration_defer_env = [variable];
+    const p = plan(sb.proj, { home: sb.home, root: sb.root, env: sb.host.env({ [variable]: "1" }) });
+    const row = sb.item(p, "plugin");
+    assert.equal(row.action, "skip");
+    assert.equal(row.deferred, true);
+    assert.equal(p.incomplete, true);
+    assert.ok(row.reason.endsWith(text), row.reason);
+    assert.equal(sb.host.log().length, 0, "no host command ran");
+    assert.equal(sb.item(plan(sb.proj, { home: sb.home, root: sb.root, env: sb.env }), "plugin").action, "create", "unset, the same plan registers");
+    // Registered from a terminal, its removal defers the same way.
+    live.runtime.registration_defer_env = declared;
+    apply(plan(sb.proj, { home: sb.home, root: sb.root, env: sb.env }), { env: sb.env, home: sb.home });
+    live.runtime.registration_defer_env = [variable];
+    const calls = sb.host.log().length;
+    const u = plan(sb.proj, { home: sb.home, root: sb.root, env: sb.host.env({ [variable]: "1" }), mode: "uninstall" });
+    assert.equal(sb.item(u, "plugin").action, "skip");
+    assert.equal(sb.item(u, "plugin").reason, text);
+    assert.equal(u.incomplete, true);
+    assert.equal(sb.item(plan(sb.proj, { home: sb.home, root: sb.root, env: sb.env, mode: "uninstall" }), "plugin").action, "remove", "unset, the removal is planned");
+    assert.equal(sb.host.log().length, calls, "planning calls no host");
+  } finally {
+    live.runtime.registration_defer_env = declared;
+  }
+});
+
 test("registration contract 5: a directory at our path without the provenance field is foreign to install, upgrade and uninstall, byte-identical; a stray registry entry at another path too", () => {
   const sb = sandbox();
   const { home, proj, root, env, item, paths } = sb;

@@ -17,6 +17,11 @@ for (const k of ["PROJECTSTORE_HARNESS", "PROJECTSTORE_IDENTIFIED", "PROJECTSTOR
 // host reads, and every child it spawns, at the developer's own home. A test
 // that needs a home passes it.
 for (const m of loadHarnesses().values()) if (m.runtime?.home_env) delete process.env[m.runtime.home_env];
+// Every harness's registration deferral marker (runtime.registration_defer_env):
+// a host session that runs the suite carries its own, and every registration
+// of that harness a test plans would defer. A test of the deferral sets it on
+// the environment it passes.
+for (const m of loadHarnesses().values()) for (const k of m.runtime?.registration_defer_env || []) delete process.env[k];
 // A shell's named root would stand in for every fetch, and the animation
 // switch would change every live line a test reads (the shell-fetch story).
 for (const k of ["PROJECTSTORE_DISTRIBUTION_ROOT", "PROJECTSTORE_NO_ANIMATION"]) delete process.env[k];

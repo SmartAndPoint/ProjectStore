@@ -227,14 +227,14 @@ export function foreignPatterns(root, speakerId) {
 }
 
 // An environment no harness has touched: every variable a manifest declares
-// (detection, session markers, shared names, project and plugin roots, homes)
-// and the three PROJECTSTORE_* identity names are dropped, so a test run from
-// inside a live session cannot answer for the fixture.
+// (detection, session and deferral markers, shared names, project and plugin
+// roots, homes) and the three PROJECTSTORE_* identity names are dropped, so a
+// test run from inside a live session cannot answer for the fixture.
 export function hermeticEnv(extra = {}, base = process.env) {
   const drop = new Set(["PROJECTSTORE_HARNESS", "PROJECTSTORE_IDENTIFIED", "PROJECTSTORE_SHELL", "FORCE_COLOR", "NO_COLOR", "CI"]);
   for (const m of loadHarnesses().values()) {
     const r = m.runtime || {};
-    for (const k of [...(r.detect_env || []), ...(r.session_env || []), ...(r.shared_env || []), r.project_dir_env, r.plugin_root_env, r.home_env]) if (k) drop.add(k);
+    for (const k of [...(r.detect_env || []), ...(r.session_env || []), ...(r.registration_defer_env || []), ...(r.shared_env || []), r.project_dir_env, r.plugin_root_env, r.home_env]) if (k) drop.add(k);
   }
   const env = {};
   for (const [k, v] of Object.entries(base)) if (!drop.has(k)) env[k] = v;
