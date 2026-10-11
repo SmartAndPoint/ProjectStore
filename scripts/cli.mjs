@@ -391,8 +391,9 @@ export function verbHelp(row, env = process.env, { caps: c = term.PLAIN } = {}) 
   // Each example command stands alone on its line, after a blank one
   // (contract 6): nothing after it, so a paste takes exactly the command — a
   // trailing `# note` broke a paste into a shell that reads no comments. A
-  // note says, on the line just above, what its command does; commands with
-  // no note share one block.
+  // note leads its command, a blank line between them, as every other
+  // introduced command does (DONE's tip, doctor's fix, bind's Next);
+  // commands with no note share one block.
   const blocks = [];
   for (const [x, note] of ex.map((e) => e.split("{cmd}").join(cmd).split("{h}").join(h).split("  # "))) {
     const last = blocks.at(-1);
@@ -400,7 +401,7 @@ export function verbHelp(row, env = process.env, { caps: c = term.PLAIN } = {}) 
     else blocks.push({ note: note ? `${note[0].toUpperCase()}${note.slice(1)}:` : null, cmds: [x] });
   }
   if (blocks.length) lines.push("", term.heading(c, "Examples"));
-  for (const b of blocks) lines.push("", ...(b.note ? [prose(paint("explanation", b.note))] : []), ...b.cmds.map((x) => `  ${paint("action", x)}`));
+  for (const b of blocks) lines.push("", ...(b.note ? [prose(paint("explanation", b.note)), ""] : []), ...b.cmds.map((x) => `  ${paint("action", x)}`));
   lines.push("", fact(c, "Exit codes", EXIT_CODES));
   return lines.join("\n");
 }

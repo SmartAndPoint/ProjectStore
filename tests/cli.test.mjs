@@ -144,13 +144,13 @@ test("cli: <verb> --help prints the verb's options and examples, a shell's name 
     for (const o of v.options) assert.ok(h.stdout.includes(`--${o.name}`), `${v.verb} --help names --${o.name}`);
   }
   const install = bin(["install", "--help"]).stdout;
-  // Each example command alone on its line (contract 6); a note stands just above its command.
-  assert.match(install, /\nExamples\n\n {2}npx projectstore install --harness <id>\n\n {2}The same plan; nothing is written:\n {2}npx projectstore plan --harness <id>\n/);
+  // Each example command alone on its line (contract 6); a note leads its command, a blank line between.
+  assert.match(install, /\nExamples\n\n {2}npx projectstore install --harness <id>\n\n {2}The same plan; nothing is written:\n\n {2}npx projectstore plan --harness <id>\n/);
   // A bare uninstall is the core's, for every harness the project uses (the
   // story "One run plans the agents block once…", rule 5); a shell names its
   // own harness, so its help has no such line.
   const uninstall = bin(["uninstall", "--help"]).stdout;
-  assert.match(uninstall, /\nExamples\n\n {2}Every harness this project uses:\n {2}npx projectstore uninstall\n\n {2}npx projectstore uninstall --harness <id>\n/, uninstall);
+  assert.match(uninstall, /\nExamples\n\n {2}Every harness this project uses:\n\n {2}npx projectstore uninstall\n\n {2}npx projectstore uninstall --harness <id>\n/, uninstall);
   const shellUninstall = bin(["uninstall", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
   assert.ok(!/every harness this project uses/i.test(shellUninstall), shellUninstall);
   assert.match(shellUninstall, /\nExamples\n\n {2}npx projectstore-codex uninstall\n/);
@@ -166,7 +166,7 @@ test("cli: <verb> --help prints the verb's options and examples, a shell's name 
   const shell = bin(["upgrade", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
   assert.ok(shell.startsWith("npx projectstore-codex upgrade — "), shell);
   assert.ok(!shell.includes("--harness"), "a shell's harness is not an option");
-  assert.match(shell, /\n {2}The version you name is the version that runs:\n {2}npx projectstore-codex@<version> upgrade\n/);
+  assert.match(shell, /\n {2}The version you name is the version that runs:\n\n {2}npx projectstore-codex@<version> upgrade\n/);
   // mcp's help says how it is told its project, which its summary has no room for.
   assert.match(bin(["mcp", "--help"]).stdout, /\n {2}It serves the project --project names, else PROJECTSTORE_PROJECT_DIR or the host session's project; never the directory it was started in\.\n/);
   const top = bin(["--help"], { env: { PROJECTSTORE_SHELL: "projectstore-claude" } }).stdout;

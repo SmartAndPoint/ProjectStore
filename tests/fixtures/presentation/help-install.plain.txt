@@ -17,6 +17,7 @@ Examples
   npx projectstore install --harness <id>
 
   The same plan; nothing is written:
+
   npx projectstore plan --harness <id>
 
 Exit codes  0 ok, 1 findings or a refusal, 2 usage, 3 not bound, 130 cancelled

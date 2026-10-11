@@ -366,13 +366,17 @@ test("presentation help ASCII: every verb's help, for the core and each shell, h
       const commands = block.filter((l) => /^ {2}npx /.test(l));
       assert.ok(commands.length > 0, v.verb);
       for (const l of commands) assert.ok(!l.includes("#"), `${v.verb}: "${l}"`);
-      // Each command block starts after a blank line or after its note, which follows a blank one.
-      block.forEach((l, k) => { if (/^ {2}npx /.test(l) && !/^ {2}npx /.test(block[k - 1])) assert.ok(block[k - 1] === "" || (/:$/.test(block[k - 1]) && block[k - 2] === ""), `${v.verb}: "${block[k - 1]}" / "${l}"`); });
+      // Each command block starts after a blank line; a note leads it, with a blank line between (contract 6).
+      block.forEach((l, k) => {
+        if (!/^ {2}npx /.test(l) || /^ {2}npx /.test(block[k - 1])) return;
+        const lead = block[k - 2];
+        assert.ok(block[k - 1] === "" && (lead === undefined || /^ {2}npx /.test(lead) || /:$/.test(lead)), `${v.verb}: "${lead}" / "${block[k - 1]}" / "${l}"`);
+      });
     }
   }
-  // The note that shared the command's line now stands just above it.
+  // The note that shared the command's line now leads it, a blank line between.
   const install = verbHelp(VERBS.find((v) => v.verb === "install"), {}, { caps: PLAIN });
-  assert.ok(install.includes("\n\n  The same plan; nothing is written:\n  npx projectstore plan --harness <id>\n"), install);
+  assert.ok(install.includes("\n\n  The same plan; nothing is written:\n\n  npx projectstore plan --harness <id>\n"), install);
 });
 
 // ─── Criterion 7: synchronous APPLY ───────────────────────────────────
