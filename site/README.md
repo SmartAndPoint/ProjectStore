@@ -32,7 +32,7 @@ en/index.html              generated: a redirect from the old /en/ address to th
 llms.txt                   the project for agents, in the llmstxt.org format
 llms-full.txt              the long form: a technical reference written for agents
 assets/style.css           tokens, components, responsive rules, the @font-face rules, Chinese font stacks
-assets/site.js             tabs, diagram ↔ tabs, board demo, copy buttons, language switcher
+assets/site.js             tabs, diagram ↔ tabs, the loop's cartoon, board demo, copy buttons, language switcher
 assets/statusline-hud.png  the status-line screenshot, byte for byte docs/images/statusline-hud.png
 assets/fonts/              the self-hosted fonts and their licences (see Fonts)
 ```

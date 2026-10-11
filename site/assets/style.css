@@ -350,6 +350,14 @@ svg .node { cursor: pointer; }
 svg .node:hover .node-box { stroke: var(--ink); }
 svg .node.active .node-box { stroke: var(--ink); stroke-width: 2.2; }
 svg .node.active .node-box:not(.verify) { fill: var(--lime-soft); }
+/* the loop's cartoon: site.js presses a block (.pressed), a short squeeze in place */
+svg .node .node-box { transform-box: fill-box; transform-origin: center; }
+svg .node.pressed .node-box { animation: node-press 600ms ease-out; }
+@keyframes node-press {
+  0% { transform: scale(1); }
+  35% { transform: scale(0.94); stroke-width: 3; }
+  100% { transform: scale(1); }
+}
 
 .tabs-root { border: 1px solid var(--border-2); border-radius: 5px; overflow: hidden; }
 .tab-list { display: flex; width: 100%; background: #fff; overflow-x: auto; }
@@ -367,6 +375,8 @@ svg .node.active .node-box:not(.verify) { fill: var(--lime-soft); }
 .tab-panel.block.active { display: block; }
 
 .workflow-panel { grid-template-columns: 1fr 1fr; gap: 60px; padding: 40px; background: #f7f9f3; min-height: 335px; }
+/* without JavaScript no panel is marked active: step 1's shows */
+#workflow-tabs:not(:has(.workflow-panel.active)) > .workflow-panel[data-panel="1"] { display: grid; }
 .panel-eyebrow { font-family: var(--font-mono); font-size: 0.75rem; color: #59752e; text-transform: uppercase; letter-spacing: 0.05em; }
 .workflow-explanation h3 { font-size: 1.6rem; font-weight: 500; line-height: 1.3; letter-spacing: -0.035em; max-width: 420px; margin: 15px 0; }
 .workflow-explanation > p { font-size: 1rem; line-height: 1.7; color: #5f6b55; }
@@ -683,6 +693,16 @@ html:lang(zh-CN) h1 { line-height: 1.12; }
 html:lang(zh-CN) :is(.eyebrow, .hero-notes, .section-label, .compare-head, .practice-row:first-child, .panel-eyebrow, .fit-card .lab) { letter-spacing: 0.02em; }
 
 /* ---------- responsive ---------- */
+
+/* one height for the six workflow panels where the cartoon runs (site.js gates on the same 950px):
+   one grid cell, the inactive panels hidden but sized, short ones kept at the top.
+   The :has() rule stays apart, so a browser without :has() keeps the .active one. */
+@media (min-width: 950px) {
+  #workflow-tabs { display: grid; grid-template-columns: minmax(0, 1fr); }
+  #workflow-tabs > .workflow-panel { display: grid; grid-row: 2; grid-column: 1; align-content: start; visibility: hidden; }
+  #workflow-tabs > .workflow-panel.active { visibility: visible; }
+  #workflow-tabs:not(:has(.workflow-panel.active)) > .workflow-panel[data-panel="1"] { visibility: visible; }
+}
 
 @media (min-width: 1550px) { .hero { gap: 9%; padding-top: 90px; padding-bottom: 96px; } .hero-description { font-size: 1.125rem; } }
 

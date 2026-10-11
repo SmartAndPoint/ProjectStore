@@ -1,4 +1,4 @@
-/* ProjectStore site (Fable × Astra) — tabs, diagram ↔ tabs, board demo, copy buttons.
+/* ProjectStore site (Fable × Astra) — tabs, diagram ↔ tabs, the loop's cartoon, board demo, copy buttons.
    Vanilla, no dependencies, no build. */
 (function () {
   "use strict";
@@ -55,6 +55,81 @@
     g.addEventListener("click", go);
     g.addEventListener("keydown", function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); go(); } });
   });
+
+  /* ---------- the loop diagram plays its steps until the reader takes over ---------- */
+  /* Keep this block below initTabs' first select: registered earlier, that initial
+     tabchange would count as the reader's and stop the cartoon before it starts. */
+  (function () {
+    var figure = document.querySelector(".loop-figure");
+    var scroller = figure && figure.querySelector(".fig-scroll");
+    if (!figure || !scroller || !workflow || !nodes.length || !window.matchMedia || !("IntersectionObserver" in window)) return;
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+    var wide = window.matchMedia("(min-width: 950px)"); /* style.css gives the six panels one height from here */
+    var PRESS_MS = 2000;
+    var HOVER = "svg .node[data-step], #workflow-tabs [role=tab], #workflow-tabs .workflow-panel";
+    var index = -1, timer = null, stopped = false, inView = false, hovering = false, pressing = false, lastX = null, lastY = null;
+
+    function fits() { return scroller.scrollWidth <= scroller.clientWidth; }
+    function focusInside() { var a = document.activeElement; return !!a && (figure.contains(a) || workflow.contains(a)); }
+    function canPress() { return !stopped && inView && !hovering && !document.hidden && !focusInside() && !reduce.matches && wide.matches && fits(); }
+    function pause() { if (timer) { clearTimeout(timer); timer = null; } }
+    /* a fresh 2 s once nothing holds it back; a pause drops the pending press */
+    function settle() { if (!canPress()) pause(); else if (!timer) timer = setTimeout(press, PRESS_MS); }
+    function press() {
+      timer = null;
+      if (!canPress()) return;
+      index = (index + 1) % nodes.length;
+      var g = nodes[index];
+      g.classList.remove("pressed");
+      void g.getBoundingClientRect(); /* restarts the pulse */
+      g.classList.add("pressed");
+      pressing = true;
+      try { workflow.__select(g.getAttribute("data-step")); } finally { pressing = false; }
+      settle();
+    }
+
+    var header = document.querySelector(".site-header");
+    var io = new IntersectionObserver(function (entries) {
+      var e = entries[entries.length - 1];
+      inView = e.isIntersecting && e.intersectionRatio >= 0.5;
+      settle();
+    }, { threshold: 0.5, rootMargin: "-" + (header ? header.offsetHeight : 0) + "px 0px 0px 0px" });
+    io.observe(figure);
+    function stop() { if (stopped) return; stopped = true; pause(); io.disconnect(); }
+
+    nodes.forEach(function (g) {
+      g.addEventListener("animationend", function (ev) { if (ev.animationName === "node-press") g.classList.remove("pressed"); });
+    });
+
+    /* the reader takes over: a step selected by anything but a press, or a click anywhere in the figure or the tabs */
+    workflow.addEventListener("tabchange", function () { if (!pressing) stop(); });
+    figure.addEventListener("click", stop);
+    workflow.addEventListener("click", stop);
+
+    /* pauses: a pointer that really moves onto a block, a tab or a panel; focus inside; out of view; a hidden page */
+    document.addEventListener("mousemove", function (ev) {
+      if (stopped) return;
+      var moved = lastX === null ? !!(ev.movementX || ev.movementY) : ev.clientX !== lastX || ev.clientY !== lastY;
+      lastX = ev.clientX; lastY = ev.clientY;
+      if (!moved) return;
+      var over = !!(ev.target && ev.target.closest && ev.target.closest(HOVER));
+      if (over !== hovering) { hovering = over; settle(); }
+    }, { passive: true });
+    document.addEventListener("mouseout", function (ev) { if (!ev.relatedTarget && hovering) { hovering = false; settle(); } });
+    /* the page scrolling a block, a tab or a panel out from under a resting pointer ends that pause; a scroll never starts one */
+    window.addEventListener("scroll", function () {
+      if (!hovering || lastX === null) return;
+      var el = document.elementFromPoint(lastX, lastY);
+      if (!(el && el.closest && el.closest(HOVER))) { hovering = false; settle(); }
+    }, { passive: true });
+    [figure, workflow].forEach(function (el) {
+      el.addEventListener("focusin", settle);
+      el.addEventListener("focusout", function () { setTimeout(settle, 0); }); /* activeElement is settled only after focusout */
+    });
+    document.addEventListener("visibilitychange", settle);
+    window.addEventListener("resize", settle);
+    if (reduce.addEventListener) { reduce.addEventListener("change", settle); wide.addEventListener("change", settle); }
+  })();
 
   /* ---------- frontmatter → board demo ---------- */
   var statusSel = document.getElementById("demo-status");
