@@ -25,11 +25,13 @@ import { readConfig, readStdinJson, adoptHookInput, roleForm, sharedRoleForm } f
 // told once that both name one role — otherwise the second rule below would
 // have it report the block as a contradiction every session.
 function rules() {
-  const critic = roleForm("critic"), reviewer = roleForm("reviewer");
+  const critic = roleForm("critic"),
+    reviewer = roleForm("reviewer");
   const shared = sharedRoleForm("critic");
-  const bridge = shared === critic
-    ? ""
-    : `\n\nThe \`AGENTS.md\` block may name roles as \`${shared}\`; that is the same role, called \`${critic}\` here.`;
+  const bridge =
+    shared === critic
+      ? ""
+      : `\n\nThe \`AGENTS.md\` block may name roles as \`${shared}\`; that is the same role, called \`${critic}\` here.`;
   return `# projectstore — standing rules for this session
 
 **Artifact-first order.** A feature-sized request opens a vault artifact before
@@ -46,9 +48,11 @@ contradiction becomes invisible to the person who could have settled it.${bridge
 }
 
 function emit(additionalContext) {
-  process.stdout.write(JSON.stringify({
-    hookSpecificOutput: { hookEventName: "SessionStart", additionalContext },
-  }) + "\n");
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: { hookEventName: "SessionStart", additionalContext },
+    }) + "\n",
+  );
 }
 
 function main() {
@@ -70,6 +74,8 @@ function main() {
   emit(rules());
 }
 
-try { main(); } catch {
+try {
+  main();
+} catch {
   // A hook must never break session startup.
 }

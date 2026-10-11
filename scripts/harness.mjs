@@ -51,9 +51,11 @@ let _cache = null;
 export function loadHarnesses(dir = MANIFEST_DIR) {
   if (_cache && _cache.dir === dir) return _cache.map;
   const map = new Map();
-  let names = [];
+  let names;
   try {
-    names = readdirSync(dir).filter((n) => n.endsWith(".json")).sort();
+    names = readdirSync(dir)
+      .filter((n) => n.endsWith(".json"))
+      .sort();
   } catch {
     names = [];
   }
@@ -153,7 +155,8 @@ export function identifiedHarnessId(env = process.env, dir = MANIFEST_DIR) {
   if (forced && loadHarnesses(dir).has(forced)) return forced;
   // A parent of ours decided before it named the project in the harness's own
   // vocabulary (childEnv), so its answer stands — an empty one included.
-  if (env[IDENTIFIED_ENV] !== undefined) return loadHarnesses(dir).has(env[IDENTIFIED_ENV]) ? env[IDENTIFIED_ENV] : null;
+  if (env[IDENTIFIED_ENV] !== undefined)
+    return loadHarnesses(dir).has(env[IDENTIFIED_ENV]) ? env[IDENTIFIED_ENV] : null;
   const best = ranked(env, dir);
   if (best && best.strong) return best.id;
   for (const m of loadHarnesses(dir).values()) {
@@ -239,11 +242,16 @@ export function detectHarnesses(projectDir, { dir = MANIFEST_DIR, state = false 
   const p = state ? layoutPaths(projectDir, { dir }) : null;
   for (const m of loadHarnesses(dir).values()) {
     const d = m.runtime?.harness_dir;
-    if (d && existsSync(join(projectDir, d))) { out.push({ id: m.id, why: "directory", evidence: d }); continue; }
+    if (d && existsSync(join(projectDir, d))) {
+      out.push({ id: m.id, why: "directory", evidence: d });
+      continue;
+    }
     if (!p) continue;
     const at = p.harnessState(m.id);
     let isDir = false;
-    try { isDir = statSync(at).isDirectory(); } catch {}
+    try {
+      isDir = statSync(at).isDirectory();
+    } catch {}
     if (isDir) out.push({ id: m.id, why: "state", evidence: relative(projectDir, at) });
   }
   return out;
@@ -256,10 +264,15 @@ export function detectHarnesses(projectDir, { dir = MANIFEST_DIR, state = false 
 export function whichOnPath(name, env = process.env) {
   const sep = process.platform === "win32" ? ";" : ":";
   const exts = process.platform === "win32" ? ["", ".cmd", ".exe", ".bat"] : [""];
-  for (const dir of String(env.PATH || "").split(sep).filter(Boolean)) {
+  for (const dir of String(env.PATH || "")
+    .split(sep)
+    .filter(Boolean)) {
     for (const ext of exts) {
       const p = join(dir, name + ext);
-      try { const st = statSync(p); if (st.isFile() && (process.platform === "win32" || (st.mode & 0o111))) return p; } catch {}
+      try {
+        const st = statSync(p);
+        if (st.isFile() && (process.platform === "win32" || st.mode & 0o111)) return p;
+      } catch {}
     }
   }
   return null;
@@ -279,13 +292,25 @@ export function whichOnPath(name, env = process.env) {
 //     what was looked for (null when the manifest names none), so a reason can
 //     name them when either is missing.
 export function hostPresence(manifest, { env = process.env, home = homedir() } = {}) {
-  const s = Object.entries(manifest?.surfaces || {}).find(([k, x]) => !k.startsWith("_") && x?.kind === "registration" && x.supported !== false && typeof x.cli?.bin === "string" && x.cli.bin)?.[1] || null;
+  const s =
+    Object.entries(manifest?.surfaces || {}).find(
+      ([k, x]) =>
+        !k.startsWith("_") &&
+        x?.kind === "registration" &&
+        x.supported !== false &&
+        typeof x.cli?.bin === "string" &&
+        x.cli.bin,
+    )?.[1] || null;
   const bin = s ? s.cli.bin : null;
   const r = manifest?.runtime || {};
   const fromEnv = r.home_env && env ? env[r.home_env] : null;
   const homeDir = fromEnv || (home && r.home_default ? join(home, r.home_default) : null);
   let present = false;
-  if (homeDir) { try { present = statSync(homeDir).isDirectory(); } catch {} }
+  if (homeDir) {
+    try {
+      present = statSync(homeDir).isDirectory();
+    } catch {}
+  }
   return { cli: bin ? whichOnPath(bin, env || {}) : null, home: present ? homeDir : null, bin, homeDir };
 }
 
@@ -305,7 +330,10 @@ export function commonBlockFiles(manifests) {
 // A manifest's agents-block row as [key, surface], or null: found by its
 // format, as the installer's handlers are keyed, never by the key's name.
 export function agentsBlockRow(manifest) {
-  return Object.entries(manifest?.surfaces || {}).find(([k, s]) => !k.startsWith("_") && s?.format === "markdown-block") || null;
+  return (
+    Object.entries(manifest?.surfaces || {}).find(([k, s]) => !k.startsWith("_") && s?.format === "markdown-block") ||
+    null
+  );
 }
 
 // Rule 2, for the schema test: the manifests' lists share a file, or a run of
@@ -324,7 +352,11 @@ export function harnessRefusal(projectDir, { dir = MANIFEST_DIR, state = false }
   const p = state ? layoutPaths(projectDir, { dir }) : null;
   const rows = [...loadHarnesses(dir).values()].map((m) => {
     const by = `detected by its project directory: ${m.runtime?.harness_dir || "?"}`;
-    return { id: m.id, display: m.display_name, why: p ? `${by}, or by its state directory: ${relative(projectDir, p.harnessState(m.id))}` : by };
+    return {
+      id: m.id,
+      display: m.display_name,
+      why: p ? `${by}, or by its state directory: ${relative(projectDir, p.harnessState(m.id))}` : by,
+    };
   });
   return [`No harness detected in ${projectDir}, and none named. Name one:`, ...harnessNameLines(rows)].join("\n");
 }
@@ -403,7 +435,10 @@ export function invocation(manifest, name, { kind = "commands", args = "" } = {}
 // read these same patterns.
 export function uiWordPatterns(manifest) {
   const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return (manifest?.ui_vocabulary || []).map((word) => ({ word, re: new RegExp(`(?<![\\w.-])${esc(word)}(?![\\w-]|\\.\\w)`, "g") }));
+  return (manifest?.ui_vocabulary || []).map((word) => ({
+    word,
+    re: new RegExp(`(?<![\\w.-])${esc(word)}(?![\\w-]|\\.\\w)`, "g"),
+  }));
 }
 
 // The harness whose distribution shell bundles this core, by the shell's
@@ -424,7 +459,9 @@ export function bundlingShellHarnessId({ core = REPO_ROOT, dir = MANIFEST_DIR } 
       const name = JSON.parse(readFileSync(join(dirname(parent), "package.json"), "utf8")).name;
       id = [...loadHarnesses(dir).values()].find((m) => m.install?.shell && m.install.shell === name)?.id ?? null;
     }
-  } catch { id = null; }
+  } catch {
+    id = null;
+  }
   if (memo) _bundling = id;
   return id;
 }
@@ -557,7 +594,13 @@ function hostPluginRoot(env) {
 // bin's child), is honoured as named. Real paths on both sides: the module's
 // own is already real, so a root under a symlink (macOS's /var and /tmp)
 // would never compare.
-const realOr = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
+const realOr = (p) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+};
 let _realCore = null;
 function containsThisCore(root) {
   const core = (_realCore ??= realOr(REPO_ROOT));
@@ -655,7 +698,7 @@ export function cachePaths({ env = process.env, home = homedir() } = {}) {
   const variable = "XDG_CACHE_HOME";
   const xdg = env ? env[variable] : null;
   const fromEnv = typeof xdg === "string" && xdg !== "" && isAbsolute(xdg);
-  const base = fromEnv ? xdg : (home ? join(home, ".cache") : null);
+  const base = fromEnv ? xdg : home ? join(home, ".cache") : null;
   const root = base ? join(base, "projectstore") : null;
   return {
     root,
@@ -859,7 +902,11 @@ export function lintPatterns(harness, dir = MANIFEST_DIR) {
   // shared_env to the derivation below would forbid Claude Code's own variable
   // inside Claude Code's own tree.
   const o = harness.runtime || {};
-  const own = new Set([o.project_dir_env, o.plugin_root_env, o.home_env, ...(o.detect_env || []), ...(o.shared_env || [])].filter(Boolean));
+  const own = new Set(
+    [o.project_dir_env, o.plugin_root_env, o.home_env, ...(o.detect_env || []), ...(o.shared_env || [])].filter(
+      Boolean,
+    ),
+  );
   for (const m of loadHarnesses(dir).values()) {
     if (m.id === harness.id) continue;
     for (const t of m.tools?.write_tools || []) out.push({ pattern: `\\b${t}\\b`, class: "token", derived: true });
@@ -867,7 +914,13 @@ export function lintPatterns(harness, dir = MANIFEST_DIR) {
     // shared_env included: a name is no less branded for being set by two
     // harnesses, and it exists in no other field of the manifest that declares
     // it — CLAUDE_PLUGIN_DATA appears nowhere but codex.json's shared_env.
-    for (const k of [r.project_dir_env, r.plugin_root_env, r.home_env, ...(r.detect_env || []), ...(r.shared_env || [])]) {
+    for (const k of [
+      r.project_dir_env,
+      r.plugin_root_env,
+      r.home_env,
+      ...(r.detect_env || []),
+      ...(r.shared_env || []),
+    ]) {
       if (k && !own.has(k)) out.push({ pattern: `\\b${k}\\b`, class: "token", derived: true });
     }
   }

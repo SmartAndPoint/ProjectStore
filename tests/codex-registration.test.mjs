@@ -1,13 +1,39 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, cpSync, chmodSync, existsSync, rmSync, utimesSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  chmodSync,
+  existsSync,
+  rmSync,
+  utimesSync,
+} from "node:fs";
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite runs on Node 20 in CI
+import { cpSync } from "node:fs";
 import { join, basename, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { plan, apply, publicItem, renderPreview, renderDone, runVerb, planOptions } from "../scripts/install-harness.mjs";
+import {
+  plan,
+  apply,
+  publicItem,
+  renderPreview,
+  renderDone,
+  runVerb,
+  planOptions,
+} from "../scripts/install-harness.mjs";
 import { surfaceStates } from "../scripts/surfaces.mjs";
 import { checkHarnessSurfaces, checkPluginRegistration } from "../scripts/doctor.mjs";
 import { loadHarness, cachePaths } from "../scripts/harness.mjs";
-import { fetchDecision, fetchRefusal, sweepFetchRuns, rootVersion, REGISTRY_BUDGET_MS } from "../scripts/fetch-shell.mjs";
+import {
+  fetchDecision,
+  fetchRefusal,
+  sweepFetchRuns,
+  rootVersion,
+  REGISTRY_BUDGET_MS,
+} from "../scripts/fetch-shell.mjs";
 import { codexHost, fakeNpmSpawn, FAKE_REGISTRY, registryFetch } from "./fixtures/fetch.mjs";
 import { fakePackageRoot, stubCopy, stubCalls, writeRegistry } from "./fixtures/install.mjs";
 import { PLAIN } from "../scripts/term.mjs";
@@ -17,13 +43,28 @@ const CORE = fileURLToPath(new URL("..", import.meta.url));
 
 function fixture(version = "0.28.0+codex.dev.one") {
   const base = mkdtempSync(join(tmpdir(), "ps-codex-registration-"));
-  const home = join(base, "home"), project = join(base, "project"), root = join(base, "shell"), bin = join(base, "bin");
-  for (const dir of [home, project, root, bin, join(root, ".codex-plugin"), join(root, "skills", "projectstore-status")]) mkdirSync(dir, { recursive: true });
+  const home = join(base, "home"),
+    project = join(base, "project"),
+    root = join(base, "shell"),
+    bin = join(base, "bin");
+  for (const dir of [
+    home,
+    project,
+    root,
+    bin,
+    join(root, ".codex-plugin"),
+    join(root, "skills", "projectstore-status"),
+  ])
+    mkdirSync(dir, { recursive: true });
   // The shipped shape from 0.28.2: one legacy manifest, no root plugin.json.
   writeFileSync(join(root, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version }) + "\n");
-  writeFileSync(join(root, "skills", "projectstore-status", "SKILL.md"), `---\nname: projectstore-status\n---\n${version}\n`);
+  writeFileSync(
+    join(root, "skills", "projectstore-status", "SKILL.md"),
+    `---\nname: projectstore-status\n---\n${version}\n`,
+  );
   const codex = join(bin, "codex");
-  writeFileSync(codex, "#!/bin/sh\nexit 0\n"); chmodSync(codex, 0o755);
+  writeFileSync(codex, "#!/bin/sh\nexit 0\n");
+  chmodSync(codex, 0o755);
   const env = { PATH: bin, CODEX_HOME: home, PROJECTSTORE_DISTRIBUTION_ROOT: root };
   return { base, home, project, root, env };
 }
@@ -35,7 +76,14 @@ function fakeCodex(f, { fail = null } = {}) {
 }
 
 const registration = (p) => p.items.find((i) => i.surface === "plugin");
-const opts = (f, extra = {}) => ({ harnesses: ["codex"], surfaces: ["plugin"], root: f.root, home: f.home, env: f.env, ...extra });
+const opts = (f, extra = {}) => ({
+  harnesses: ["codex"],
+  surfaces: ["plugin"],
+  root: f.root,
+  home: f.home,
+  env: f.env,
+  ...extra,
+});
 
 test("Codex portable registration: install is verified and the next plan is idempotent", () => {
   const f = fixture();
@@ -69,7 +117,9 @@ test("Codex portable registration: doctor's info and the host-managed report nam
   assert.ok(report.includes(`the host loads them from ${reg.root}.`), report);
   assert.doesNotMatch(report, /in place/);
   const states = surfaceStates(f.project, { home: f.home, root: f.root, env: f.env }).states;
-  const info = checkPluginRegistration(f.project, states, { home: f.home }).find((x) => x.check === "plugin-registration" && x.level === "info");
+  const info = checkPluginRegistration(f.project, states, { home: f.home }).find(
+    (x) => x.check === "plugin-registration" && x.level === "info",
+  );
   assert.ok(info && info.message.includes(`(loaded from ${reg.root})`), JSON.stringify(info));
   assert.doesNotMatch(info.message, /in place/);
 });
@@ -93,7 +143,13 @@ test("Codex portable registration: every host step that rewrites the global conf
     const st = registration(create).steps.find((s) => s.kind === "host" && s.name === name);
     const at = text.indexOf(`$ ${[st.bin, ...st.argv].join(" ")}`);
     assert.ok(at >= 0, `${name}: its argv is shown`);
-    assert.ok(text.slice(at).split("\n")[1].includes(`touches ${st.touches.join(", ")}`), `${name}: what it touches is the next line`);
+    assert.ok(
+      text
+        .slice(at)
+        .split("\n")[1]
+        .includes(`touches ${st.touches.join(", ")}`),
+      `${name}: what it touches is the next line`,
+    );
   }
   apply(create, { env: f.env, home: f.home, spawn: fakeCodex(f) });
   const global = plan(f.project, opts(f, { mode: "uninstall", globalRemoval: true }));
@@ -107,7 +163,13 @@ test("Codex portable registration: every host step that rewrites the global conf
 test("Codex portable registration: APPLY reports the staging write and each host command, then DONE", async () => {
   const f = fixture();
   const chunks = [];
-  const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+  const out = {
+    isTTY: false,
+    write: (s) => {
+      chunks.push(String(s));
+      return true;
+    },
+  };
   const r = await runVerb("install", f.project, { ...opts(f), spawn: fakeCodex(f), out });
   assert.equal(r.gate.why, "named");
   assert.equal(r.failed, null, JSON.stringify(r.failed));
@@ -117,9 +179,17 @@ test("Codex portable registration: APPLY reports the staging write and each host
   const apply_ = text.slice(text.indexOf("\n  + registering "));
   // The preflight is the registration's first line: the host is asked
   // before anything is staged (issue #28).
-  assert.match(apply_, /\n {2}\+ registering .+\n {6}✓ \$ codex plugin list --json +\d.*\n {6}✓ staged \S+ +\d/, apply_);
+  assert.match(
+    apply_,
+    /\n {2}\+ registering .+\n {6}✓ \$ codex plugin list --json +\d.*\n {6}✓ staged \S+ +\d/,
+    apply_,
+  );
   for (const st of registration(r.plan).steps.filter((s) => s.kind === "host")) {
-    assert.match(apply_, new RegExp(`\\n {6}✓ \\$ ${[st.bin, ...st.argv].join(" ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} +\\d`), `${st.name} has its APPLY line`);
+    assert.match(
+      apply_,
+      new RegExp(`\\n {6}✓ \\$ ${[st.bin, ...st.argv].join(" ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} +\\d`),
+      `${st.name} has its APPLY line`,
+    );
   }
   assert.match(text, /\nDone — 1 change in \d/);
 });
@@ -127,7 +197,10 @@ test("Codex portable registration: APPLY reports the staging write and each host
 test("Codex portable registration: the public envelope drops the staged payload's bodies, root and listing, and keeps its count", () => {
   const f = fixture();
   const step = registration(plan(f.project, opts(f))).steps.find((s) => s.kind === "portable-write");
-  assert.ok(step && Array.isArray(step.files) && step.from && step.catalog && step.ownership, "the private plan carries them");
+  assert.ok(
+    step && Array.isArray(step.files) && step.from && step.catalog && step.ownership,
+    "the private plan carries them",
+  );
   const pub = publicItem(registration(plan(f.project, opts(f)))).steps.find((s) => s.kind === "portable-write");
   for (const k of ["catalog", "ownership", "from", "manifest"]) assert.ok(!(k in pub), `${k} is not public`);
   assert.equal(pub.files, step.files.length, "the listing becomes its count, as a registration write reports it");
@@ -142,12 +215,19 @@ test("Codex portable registration, doctor half: a run with no portable payload h
   const f = fixture();
   mkdirSync(join(f.project, ".codex"), { recursive: true });
   mkdirSync(join(f.project, ".claude"), { recursive: true });
-  const rows = (env) => surfaceStates(f.project, { home: f.home, root: CORE, env }).states.filter((x) => x.harness === "codex" && x.kind === "registration");
+  const rows = (env) =>
+    surfaceStates(f.project, { home: f.home, root: CORE, env }).states.filter(
+      (x) => x.harness === "codex" && x.kind === "registration",
+    );
   const { PROJECTSTORE_DISTRIBUTION_ROOT: _named, ...bare } = f.env;
   assert.deepEqual(rows(bare), [], "the core alone: no row");
   const otherShell = mkdtempSync(join(tmpdir(), "ps-other-shell-"));
   writeFileSync(join(otherShell, "package.json"), "{}\n");
-  assert.deepEqual(rows({ ...bare, PROJECTSTORE_DISTRIBUTION_ROOT: otherShell }), [], "a shell whose root is not a plugin root names no payload either");
+  assert.deepEqual(
+    rows({ ...bare, PROJECTSTORE_DISTRIBUTION_ROOT: otherShell }),
+    [],
+    "a shell whose root is not a plugin root names no payload either",
+  );
   const read = rows(f.env);
   assert.equal(read.length, 1, "the portable root: the row is read");
   assert.equal(read[0].state, "absent", "and analysed against that root, not the core");
@@ -155,14 +235,20 @@ test("Codex portable registration, doctor half: a run with no portable payload h
   // checkHarnessSurfaces skips registration rows, so asserting on it alone
   // could not fail.
   const states = surfaceStates(f.project, { home: f.home, root: CORE, env: bare }).states;
-  const lines = [...checkPluginRegistration(f.project, states), ...await checkHarnessSurfaces(null, f.project, { home: f.home, root: CORE, env: bare })];
+  const lines = [
+    ...checkPluginRegistration(f.project, states),
+    ...(await checkHarnessSurfaces(null, f.project, { home: f.home, root: CORE, env: bare })),
+  ];
   assert.ok(!lines.some((x) => /portable plugin root/.test(x.message)), JSON.stringify(lines.map((x) => x.message)));
   // The installer's half: the core run defers without failing; a shell that
   // names a root which is not a plugin root is broken, and says so.
   const p = plan(f.project, opts(f, { env: bare }));
-  assert.equal(registration(p).action, "skip"); assert.equal(registration(p).deferred, true); assert.ok(!p.incomplete);
+  assert.equal(registration(p).action, "skip");
+  assert.equal(registration(p).deferred, true);
+  assert.ok(!p.incomplete);
   const broken = plan(f.project, opts(f, { env: { ...bare, PROJECTSTORE_DISTRIBUTION_ROOT: otherShell } }));
-  assert.equal(registration(broken).action, "skip"); assert.equal(broken.incomplete, true);
+  assert.equal(registration(broken).action, "skip");
+  assert.equal(broken.incomplete, true);
   assert.match(registration(broken).reason, /is not a portable plugin root/);
 });
 
@@ -180,7 +266,17 @@ test("Codex portable registration: verification requires host-reported enablemen
       return { ...r, stdout: JSON.stringify(body) };
     },
     "0.28.0+codex.dev.corrupt": (f, r) => {
-      const cached = join(f.home, "plugins", "cache", "projectstore-npx", "projectstore", "0.28.0+codex.dev.corrupt", "skills", "projectstore-status", "SKILL.md");
+      const cached = join(
+        f.home,
+        "plugins",
+        "cache",
+        "projectstore-npx",
+        "projectstore",
+        "0.28.0+codex.dev.corrupt",
+        "skills",
+        "projectstore-status",
+        "SKILL.md",
+      );
       if (existsSync(cached)) writeFileSync(cached, "tampered cache\n");
       return r;
     },
@@ -188,10 +284,17 @@ test("Codex portable registration: verification requires host-reported enablemen
   for (const [version, tamper] of Object.entries(tampers)) {
     const f = fixture(version);
     const base = fakeCodex(f);
-    const spawn = (bin, argv) => { const r = base(bin, argv); return argv.join(" ") === "plugin list --json" && r.status === 0 ? tamper(f, r) : r; };
+    const spawn = (bin, argv) => {
+      const r = base(bin, argv);
+      return argv.join(" ") === "plugin list --json" && r.status === 0 ? tamper(f, r) : r;
+    };
     const first = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn });
     assert.equal(first.failed.step, "verify", version);
-    assert.equal(existsSync(join(f.home, "projectstore", "projectstore-npx.journal.json")), false, `${version}: a proven rollback keeps no journal`);
+    assert.equal(
+      existsSync(join(f.home, "projectstore", "projectstore-npx.journal.json")),
+      false,
+      `${version}: a proven rollback keeps no journal`,
+    );
     const again = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: base });
     assert.equal(again.failed, undefined, `${version}: ${JSON.stringify(again.failed)}`);
     assert.equal(again[0].verified.version, version);
@@ -210,7 +313,8 @@ test("Codex portable registration: a first install's recovery the next run can p
   const throwing = (bin, argv) => {
     const op = argv.join(" ");
     if (op === "plugin remove projectstore@projectstore-npx") removed = true;
-    if (op === "plugin list --json" && removed) throw new Error("injected: the host list broke during the rollback's proof");
+    if (op === "plugin list --json" && removed)
+      throw new Error("injected: the host list broke during the rollback's proof");
     const r = base(bin, argv);
     if (op === "plugin list --json" && r.status === 0) {
       const body = JSON.parse(r.stdout);
@@ -230,18 +334,30 @@ test("Codex portable registration: a first install's recovery the next run can p
   const p = plan(f.project, opts(f));
   const reason = registration(p).reason;
   assert.ok(reason.startsWith(`a previous run (${journal.failed_at}) could not prove its restore: `), reason);
-  assert.match(reason, /injected.*this run re-proves the previous state before applying this plan, and refuses if it cannot/);
+  assert.match(
+    reason,
+    /injected.*this run re-proves the previous state before applying this plan, and refuses if it cannot/,
+  );
   assert.ok(reason.includes(journalPath), reason);
   // The next run, with a host that answers: proven, lifted, installed.
   const chunks = [];
-  const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+  const out = {
+    isTTY: false,
+    write: (s) => {
+      chunks.push(String(s));
+      return true;
+    },
+  };
   const r = await runVerb("install", f.project, { ...opts(f), spawn: base, out });
   assert.equal(r.failed, null, JSON.stringify(r.failed));
   assert.equal(existsSync(journalPath), false, "the journal is lifted");
   const rec = r.applied[0].steps.find((s) => s.kind === "portable-recover");
   assert.equal(rec.phase, "recovery-required");
   assert.match(rec.lifted, /injected/);
-  assert.match(chunks.join(""), /\n {6}✓ lifted \S*projectstore-npx\.journal\.json — the previous state proved; it held: .*injected/);
+  assert.match(
+    chunks.join(""),
+    /\n {6}✓ lifted \S*projectstore-npx\.journal\.json — the previous state proved; it held: .*injected/,
+  );
 });
 
 // The incident's class on a refresh: the rollback restored the previous
@@ -251,13 +367,20 @@ test("Codex portable registration: a first install's recovery the next run can p
 test("Codex portable registration: a refresh whose rollback could not be confirmed is lifted once the previous state proves, and the refresh applies", () => {
   const f = fixture();
   apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) });
-  writeFileSync(join(f.root, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.28.0+codex.dev.two" }) + "\n");
+  writeFileSync(
+    join(f.root, ".codex-plugin", "plugin.json"),
+    JSON.stringify({ name: "projectstore", version: "0.28.0+codex.dev.two" }) + "\n",
+  );
   const base = fakeCodex(f);
   let refused = false;
   const flaky = (bin, argv) => {
     const op = argv.join(" ");
-    if (op === "plugin add projectstore@projectstore-npx") { refused = true; return { status: 17, stdout: "", stderr: "add refused, nothing changed" }; }
-    if (op === "plugin list --json" && refused) return { status: 1, stdout: "", stderr: "transient: the host list is unavailable" };
+    if (op === "plugin add projectstore@projectstore-npx") {
+      refused = true;
+      return { status: 17, stdout: "", stderr: "add refused, nothing changed" };
+    }
+    if (op === "plugin list --json" && refused)
+      return { status: 1, stdout: "", stderr: "transient: the host list is unavailable" };
     return base(bin, argv);
   };
   const first = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: flaky });
@@ -268,7 +391,11 @@ test("Codex portable registration: a refresh whose rollback could not be confirm
   assert.equal(r.failed, undefined, JSON.stringify(r.failed));
   assert.equal(existsSync(journalPath), false);
   assert.equal(r[0].verified.version, "0.28.0+codex.dev.two");
-  assert.ok(r[0].steps.some((s) => s.kind === "portable-recover" && s.phase === "recovery-required" && /transient/.test(s.lifted || "")));
+  assert.ok(
+    r[0].steps.some(
+      (s) => s.kind === "portable-recover" && s.phase === "recovery-required" && /transient/.test(s.lifted || ""),
+    ),
+  );
 });
 
 // Issue #28, problem 1: a host too old to answer the registration's own
@@ -278,7 +405,12 @@ test("Codex portable registration: a host that cannot answer the preflight stops
   const calls = [];
   const old = (bin, argv) => {
     calls.push(argv.join(" "));
-    if (argv.join(" ") === "plugin list --json") return { status: 2, stdout: "", stderr: "error: unexpected argument '--json' found\n\nUsage: codex plugin list [OPTIONS]" };
+    if (argv.join(" ") === "plugin list --json")
+      return {
+        status: 2,
+        stdout: "",
+        stderr: "error: unexpected argument '--json' found\n\nUsage: codex plugin list [OPTIONS]",
+      };
     return fakeCodex(f)(bin, argv);
   };
   const p = plan(f.project, opts(f));
@@ -305,18 +437,45 @@ test("Codex portable registration: a 0.29.0 first-install journal is named in th
   const dir = join(f.home, "projectstore", "marketplace");
   const journalPath = join(f.home, "projectstore", "projectstore-npx.journal.json");
   mkdirSync(join(f.home, "projectstore"), { recursive: true });
-  writeFileSync(journalPath, JSON.stringify({ version: 1, target: dir, stage: `${dir}.none`, backup: null, previous: null, phase: "recovery-required", error: "error: unexpected argument '--json' found\n\nUsage: codex plugin list [OPTIONS]" }, null, 2) + "\n");
+  writeFileSync(
+    journalPath,
+    JSON.stringify(
+      {
+        version: 1,
+        target: dir,
+        stage: `${dir}.none`,
+        backup: null,
+        previous: null,
+        phase: "recovery-required",
+        error: "error: unexpected argument '--json' found\n\nUsage: codex plugin list [OPTIONS]",
+      },
+      null,
+      2,
+    ) + "\n",
+  );
   const p = plan(f.project, opts(f));
-  assert.match(registration(p).reason, /^a previous run could not prove its restore: error: unexpected argument '--json' found; this run re-proves/);
+  assert.match(
+    registration(p).reason,
+    /^a previous run could not prove its restore: error: unexpected argument '--json' found; this run re-proves/,
+  );
   // While the host is still too old, the re-check cannot ask it: refused,
   // the history kept (a 0.29.0 journal has no time), and told to upgrade.
-  const tooOld = (bin, argv) => argv.join(" ") === "plugin list --json"
-    ? { status: 2, stdout: "", stderr: "error: unexpected argument '--json' found" }
-    : fakeCodex(f)(bin, argv);
+  const tooOld = (bin, argv) =>
+    argv.join(" ") === "plugin list --json"
+      ? { status: 2, stdout: "", stderr: "error: unexpected argument '--json' found" }
+      : fakeCodex(f)(bin, argv);
   const still = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: tooOld });
   assert.equal(still.failed.step, "recovery-required");
-  assert.ok(still.failed.stderr.startsWith("a previous run (time not recorded) could not prove its restore: error: unexpected argument '--json' found"), still.failed.stderr);
-  assert.match(still.failed.stderr, /The re-check could not ask Codex \(`codex plugin list --json`\); if it is too old to answer, upgrade it, then run this again\./);
+  assert.ok(
+    still.failed.stderr.startsWith(
+      "a previous run (time not recorded) could not prove its restore: error: unexpected argument '--json' found",
+    ),
+    still.failed.stderr,
+  );
+  assert.match(
+    still.failed.stderr,
+    /The re-check could not ask Codex \(`codex plugin list --json`\); if it is too old to answer, upgrade it, then run this again\./,
+  );
   const kept = JSON.parse(readFileSync(journalPath, "utf8"));
   assert.match(kept.error, /^error: unexpected argument '--json' found\n\nUsage/, "the first error is kept");
   assert.equal(kept.failed_at, undefined, "no time is invented for it");
@@ -347,22 +506,40 @@ test("Codex portable registration: a host command that cannot start names its ca
   writeFileSync(join(broken.base, "bin", "codex"), "#!/nonexistent/interpreter\n");
   chmodSync(join(broken.base, "bin", "codex"), 0o755);
   const r2 = apply(p2, { env: broken.env, home: broken.home });
-  assert.match(r2.failed.stderr, new RegExp(`^codex could not start: ${esc(join(broken.base, "bin", "codex"))} exists but could not be run \\(E[A-Z]+\\)`), r2.failed.stderr);
+  assert.match(
+    r2.failed.stderr,
+    new RegExp(
+      `^codex could not start: ${esc(join(broken.base, "bin", "codex"))} exists but could not be run \\(E[A-Z]+\\)`,
+    ),
+    r2.failed.stderr,
+  );
   assert.ok(!/Upgrade/.test(r2.failed.stderr), "a host that never started is not told to upgrade");
   // A project removed after the plan, through the real spawnSync.
   const moved = fixture();
   const p3 = plan(moved.project, opts(moved));
   rmSync(moved.project, { recursive: true, force: true });
   const r3 = apply(p3, { env: moved.env, home: moved.home });
-  assert.match(r3.failed.stderr, new RegExp(`^codex could not start: the working directory ${esc(JSON.stringify(moved.project))} is not an existing directory`));
+  assert.match(
+    r3.failed.stderr,
+    new RegExp(
+      `^codex could not start: the working directory ${esc(JSON.stringify(moved.project))} is not an existing directory`,
+    ),
+  );
   assert.ok(!/Upgrade/.test(r3.failed.stderr), "a missing directory is not an old host");
   // Mid-run, with the fake host taught Node's behaviour: the planned step, the
   // compensation and the proof all name the directory, never `spawnSync`.
   const mid = fixture();
   const base = fakeCodex(mid);
   const nodeLike = (bin, argv, o) => {
-    if (argv.join(" ") === "plugin add projectstore@projectstore-npx") rmSync(mid.project, { recursive: true, force: true });
-    if (!existsSync(o.cwd)) return { status: null, stdout: null, stderr: null, error: Object.assign(new Error(`spawnSync ${bin} ENOENT`), { code: "ENOENT" }) };
+    if (argv.join(" ") === "plugin add projectstore@projectstore-npx")
+      rmSync(mid.project, { recursive: true, force: true });
+    if (!existsSync(o.cwd))
+      return {
+        status: null,
+        stdout: null,
+        stderr: null,
+        error: Object.assign(new Error(`spawnSync ${bin} ENOENT`), { code: "ENOENT" }),
+      };
     return base(bin, argv);
   };
   const r4 = apply(plan(mid.project, opts(mid)), { env: mid.env, home: mid.home, spawn: nodeLike });
@@ -373,13 +550,15 @@ test("Codex portable registration: a host command that cannot start names its ca
   assert.match(r4.failed.stderr, /working directory/);
 });
 
-
 test("Codex portable registration: a failed refresh restores the prior stable source", () => {
   const f = fixture();
   apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) });
   const ownership = join(f.home, "projectstore", "marketplace", ".projectstore-registration.json");
   const before = readFileSync(ownership, "utf8");
-  writeFileSync(join(f.root, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.28.0+codex.dev.two" }) + "\n");
+  writeFileSync(
+    join(f.root, ".codex-plugin", "plugin.json"),
+    JSON.stringify({ name: "projectstore", version: "0.28.0+codex.dev.two" }) + "\n",
+  );
   const p = plan(f.project, opts(f));
   assert.equal(registration(p).action, "update");
   const result = apply(p, { env: f.env, home: f.home, spawn: fakeCodex(f, { fail: "plugin add" }) });
@@ -392,11 +571,16 @@ test("Codex portable registration: a failed refresh restores the prior stable so
 test("Codex portable registration: a partially mutating failed refresh becomes recovery-required", () => {
   const f = fixture();
   apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) });
-  writeFileSync(join(f.root, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.28.0+codex.dev.two" }) + "\n");
+  writeFileSync(
+    join(f.root, ".codex-plugin", "plugin.json"),
+    JSON.stringify({ name: "projectstore", version: "0.28.0+codex.dev.two" }) + "\n",
+  );
   const base = fakeCodex(f);
   const partial = (bin, argv) => {
     const r = base(bin, argv);
-    return argv.join(" ") === "plugin add projectstore@projectstore-npx" ? { ...r, status: 17, stderr: "failed after mutation" } : r;
+    return argv.join(" ") === "plugin add projectstore@projectstore-npx"
+      ? { ...r, status: 17, stderr: "failed after mutation" }
+      : r;
   };
   const result = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: partial });
   assert.equal(result.failed.step, "recovery-required");
@@ -414,14 +598,26 @@ test("Codex portable registration: a partially mutating failed refresh becomes r
   assert.equal(kept.failed_at, firstRecord.failed_at);
   assert.deepEqual(kept.previous, firstRecord.previous);
   assert.ok(kept.rechecked_at && kept.recheck_error, JSON.stringify(kept));
-  assert.ok(retry.failed.stderr.startsWith(`a previous run (${firstRecord.failed_at}) could not prove its restore: ${firstRecord.error}. This run re-checked the previous state and could not prove it either: `), retry.failed.stderr);
-  assert.ok(retry.failed.stderr.includes(`${journal} is kept: a later run lifts it once the previous state proves, or inspect the registration and remove the journal to start over`), retry.failed.stderr);
+  assert.ok(
+    retry.failed.stderr.startsWith(
+      `a previous run (${firstRecord.failed_at}) could not prove its restore: ${firstRecord.error}. This run re-checked the previous state and could not prove it either: `,
+    ),
+    retry.failed.stderr,
+  );
+  assert.ok(
+    retry.failed.stderr.includes(
+      `${journal} is kept: a later run lifts it once the previous state proves, or inspect the registration and remove the journal to start over`,
+    ),
+    retry.failed.stderr,
+  );
 });
 
 test("Codex portable registration: the home-scoped lock rejects a concurrent mutation", () => {
   const f = fixture();
-  const lockDir = join(f.home, "projectstore"); mkdirSync(lockDir, { recursive: true });
-  const lock = join(lockDir, "projectstore-npx.lock"); writeFileSync(lock, JSON.stringify({ pid: process.pid }) + "\n");
+  const lockDir = join(f.home, "projectstore");
+  mkdirSync(lockDir, { recursive: true });
+  const lock = join(lockDir, "projectstore-npx.lock");
+  writeFileSync(lock, JSON.stringify({ pid: process.pid }) + "\n");
   const result = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) });
   assert.equal(result.failed.step, "lock");
   assert.equal(existsSync(join(f.home, "projectstore", "marketplace")), false);
@@ -434,7 +630,10 @@ test("Codex portable registration: a plan waiting on the lock rechecks and becom
   const waiting = plan(f.project, opts(f));
   let calls = 0;
   const base = fakeCodex(f);
-  const spawn = (bin, argv) => { calls++; return base(bin, argv); };
+  const spawn = (bin, argv) => {
+    calls++;
+    return base(bin, argv);
+  };
   apply(first, { env: f.env, home: f.home, spawn });
   const before = calls;
   const result = apply(waiting, { env: f.env, home: f.home, spawn });
@@ -449,7 +648,8 @@ test("Codex portable registration: a foreign target appearing after preview is n
   const p = plan(f.project, opts(f));
   const target = join(f.home, "projectstore", "marketplace");
   mkdirSync(target, { recursive: true });
-  const foreign = join(target, "foreign.txt"); writeFileSync(foreign, "keep me\n");
+  const foreign = join(target, "foreign.txt");
+  writeFileSync(foreign, "keep me\n");
   const result = apply(p, { env: f.env, home: f.home, spawn: fakeCodex(f) });
   assert.equal(result.failed.step, "recheck");
   assert.equal(readFileSync(foreign, "utf8"), "keep me\n");
@@ -460,10 +660,22 @@ test("Codex portable registration: an interrupted stage is recovered from its du
   apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) });
   const target = join(f.home, "projectstore", "marketplace");
   const stage = `${target}.staging-interrupted`;
-  mkdirSync(stage, { recursive: true }); writeFileSync(join(stage, "partial"), "partial");
+  mkdirSync(stage, { recursive: true });
+  writeFileSync(join(stage, "partial"), "partial");
   const journal = join(f.home, "projectstore", "projectstore-npx.journal.json");
   const owned = JSON.parse(readFileSync(join(target, ".projectstore-registration.json"), "utf8")).projectstore;
-  writeFileSync(journal, JSON.stringify({ version: 1, phase: "prepare", target, stage, backup: `${target}.previous-interrupted`, previous: { version: owned.version, digest: owned.digest, enabled: true }, next: { version: owned.version, digest: owned.digest } }));
+  writeFileSync(
+    journal,
+    JSON.stringify({
+      version: 1,
+      phase: "prepare",
+      target,
+      stage,
+      backup: `${target}.previous-interrupted`,
+      previous: { version: owned.version, digest: owned.digest, enabled: true },
+      next: { version: owned.version, digest: owned.digest },
+    }),
+  );
   const lock = join(f.home, "projectstore", "projectstore-npx.lock");
   writeFileSync(lock, JSON.stringify({ pid: 99_999_999, started_at: "2026-09-30T00:00:00.000Z" }) + "\n");
   const p = plan(f.project, opts(f));
@@ -471,7 +683,10 @@ test("Codex portable registration: an interrupted stage is recovered from its du
   assert.match(registration(p).reason, /recovery journal/);
   const result = apply(p, { env: f.env, home: f.home, spawn: fakeCodex(f) });
   assert.equal(result.failed, undefined);
-  assert.deepEqual(result[0].steps.slice(0, 3).map((s) => s.kind), ["portable-stale-lock", "portable-recovery-list", "portable-recover"]);
+  assert.deepEqual(
+    result[0].steps.slice(0, 3).map((s) => s.kind),
+    ["portable-stale-lock", "portable-recovery-list", "portable-recover"],
+  );
   assert.equal(existsSync(stage), false);
   assert.equal(existsSync(journal), false);
   assert.equal(existsSync(lock), false);
@@ -489,15 +704,18 @@ test("Codex portable registration: first-install crash after swap restores absen
   writeFileSync(join(target, write.catalogRel), JSON.stringify(write.catalog) + "\n");
   writeFileSync(join(target, write.ownershipRel), JSON.stringify(write.ownership) + "\n");
   const journal = join(f.home, "projectstore", "projectstore-npx.journal.json");
-  writeFileSync(journal, JSON.stringify({
-    version: 1,
-    phase: "prepare",
-    target,
-    stage: `${target}.staging-crashed-after-rename`,
-    backup: null,
-    previous: null,
-    next: item.verify,
-  }));
+  writeFileSync(
+    journal,
+    JSON.stringify({
+      version: 1,
+      phase: "prepare",
+      target,
+      stage: `${target}.staging-crashed-after-rename`,
+      backup: null,
+      previous: null,
+      next: item.verify,
+    }),
+  );
   const result = apply(p, { env: f.env, home: f.home, spawn: fakeCodex(f) });
   assert.equal(result.failed, undefined);
   assert.ok(result[0].steps.some((step) => step.kind === "portable-recover" && step.phase === "prepare"));
@@ -514,7 +732,8 @@ test("Codex portable registration: a partially mutating marketplace add retains 
       base(bin, argv);
       return { status: 17, stdout: "", stderr: "failed after marketplace mutation" };
     }
-    if (op === "plugin marketplace remove projectstore-npx") return { status: 17, stdout: "", stderr: "cleanup also failed" };
+    if (op === "plugin marketplace remove projectstore-npx")
+      return { status: 17, stdout: "", stderr: "cleanup also failed" };
     return base(bin, argv);
   };
   const result = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: partial });
@@ -534,7 +753,14 @@ test("Codex portable registration: uninstall is project-safe unless --global is 
   assert.ok(registration(global).steps.some((s) => s.kind === "portable-remove"));
   const called = [];
   const base = fakeCodex(f);
-  const result = apply(global, { env: f.env, home: f.home, spawn: (bin, argv) => { called.push(argv.join(" ")); return base(bin, argv); } });
+  const result = apply(global, {
+    env: f.env,
+    home: f.home,
+    spawn: (bin, argv) => {
+      called.push(argv.join(" "));
+      return base(bin, argv);
+    },
+  });
   assert.equal(result.failed, undefined);
   assert.ok(called.includes("plugin remove projectstore@projectstore-npx"));
   assert.ok(called.includes("plugin marketplace remove projectstore-npx"));
@@ -560,13 +786,17 @@ test("Codex portable registration: a preflight answered with text, not JSON, sto
   const calls = [];
   const texty = (bin, argv) => {
     calls.push(argv.join(" "));
-    if (argv.join(" ") === "plugin list --json") return { status: 0, stderr: "", stdout: "Marketplace  Plugin  Status\n" };
+    if (argv.join(" ") === "plugin list --json")
+      return { status: 0, stderr: "", stdout: "Marketplace  Plugin  Status\n" };
     return fakeCodex(f)(bin, argv);
   };
   const result = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: texty });
   assert.equal(result.failed.step, "preflight");
-  assert.equal(result.failed.status, null, "an answer in text is not reported as \"exited 0\"");
-  assert.match(result.failed.stderr, /^codex plugin list --json answered, but not with the JSON the registration reads\nThe registration needs `codex plugin list --json` to verify what it installs, so it changed nothing\. Upgrade Codex/);
+  assert.equal(result.failed.status, null, 'an answer in text is not reported as "exited 0"');
+  assert.match(
+    result.failed.stderr,
+    /^codex plugin list --json answered, but not with the JSON the registration reads\nThe registration needs `codex plugin list --json` to verify what it installs, so it changed nothing\. Upgrade Codex/,
+  );
   assert.deepEqual(calls, ["plugin list --json"]);
   assert.equal(existsSync(join(f.home, "projectstore", "projectstore-npx.journal.json")), false);
 });
@@ -578,17 +808,37 @@ test("Codex portable registration: a preflight answered with text, not JSON, sto
 test("Codex portable registration: STOPPED names a failed host command by how it ended — the cause of one that could not start, the signal that stopped one, a preflight's own message", () => {
   const stopped = (answer) => {
     const f = fixture();
-    const result = apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: (bin, argv) => (argv.join(" ") === "plugin list --json" ? answer : fakeCodex(f)(bin, argv)) });
+    const result = apply(plan(f.project, opts(f)), {
+      env: f.env,
+      home: f.home,
+      spawn: (bin, argv) => (argv.join(" ") === "plugin list --json" ? answer : fakeCodex(f)(bin, argv)),
+    });
     assert.equal(result.failed.step, "preflight");
-    const text = renderDone({ verb: "install", plan: plan(f.project, opts(f)), applied: result, failed: result.failed, elapsed: 0 }, { caps: PLAIN });
+    const text = renderDone(
+      { verb: "install", plan: plan(f.project, opts(f)), applied: result, failed: result.failed, elapsed: 0 },
+      { caps: PLAIN },
+    );
     return { failed: result.failed, lines: text.split("\n"), text };
   };
   const argvLine = (lines) => lines.find((l) => l.startsWith("  ✕ $ codex plugin list --json"));
   // Could not start: flagged, and its cause takes the status's place, once.
-  const unstarted = stopped({ error: Object.assign(new Error("spawnSync codex EACCES"), { code: "EACCES" }), status: null, signal: null, stdout: "", stderr: "" });
+  const unstarted = stopped({
+    error: Object.assign(new Error("spawnSync codex EACCES"), { code: "EACCES" }),
+    status: null,
+    signal: null,
+    stdout: "",
+    stderr: "",
+  });
   assert.equal(unstarted.failed.couldNotStart, true);
-  assert.ok(!Object.keys(unstarted.failed).includes("couldNotStart") && !JSON.stringify(unstarted.failed).includes("couldNotStart"), "not in the --json record");
-  assert.match(argvLine(unstarted.lines), /^ {2}✕ \$ codex plugin list --json — codex could not start: \S+ exists but could not be run \(EACCES\)$/);
+  assert.ok(
+    !Object.keys(unstarted.failed).includes("couldNotStart") &&
+      !JSON.stringify(unstarted.failed).includes("couldNotStart"),
+    "not in the --json record",
+  );
+  assert.match(
+    argvLine(unstarted.lines),
+    /^ {2}✕ \$ codex plugin list --json — codex could not start: \S+ exists but could not be run \(EACCES\)$/,
+  );
   assert.equal(unstarted.text.split("could not start").length, 2, "said once");
   // Killed by a signal: it ran, so its signal is shown, and what it printed stays beneath.
   const killed = stopped({ status: null, signal: "SIGKILL", stdout: "Reading the marketplace list…\n", stderr: "" });
@@ -601,8 +851,14 @@ test("Codex portable registration: STOPPED names a failed host command by how it
   assert.equal(texty.failed.couldNotStart, false);
   assert.equal(argvLine(texty.lines), "  ✕ $ codex plugin list --json");
   const at = texty.lines.indexOf("  ✕ $ codex plugin list --json");
-  assert.equal(texty.lines[at + 1], "      codex plugin list --json answered, but not with the JSON the registration reads");
-  assert.match(texty.lines[at + 2], /^ {6}The registration needs `codex plugin list --json` to verify what it installs/);
+  assert.equal(
+    texty.lines[at + 1],
+    "      codex plugin list --json answered, but not with the JSON the registration reads",
+  );
+  assert.match(
+    texty.lines[at + 2],
+    /^ {6}The registration needs `codex plugin list --json` to verify what it installs/,
+  );
   // A command that ran and exited non-zero keeps its status.
   const refused = stopped({ status: 2, stdout: "", stderr: "error: unexpected argument '--json'" });
   assert.equal(argvLine(refused.lines), "  ✕ $ codex plugin list --json exited 2");
@@ -621,17 +877,45 @@ const V = rootVersion(CORE);
 
 function coreFixture() {
   const base = mkdtempSync(join(tmpdir(), "ps-codex-fetch-"));
-  const home = join(base, "home"), project = join(base, "project"), bin = join(base, "bin"), cache = join(base, "cache");
+  const home = join(base, "home"),
+    project = join(base, "project"),
+    bin = join(base, "bin"),
+    cache = join(base, "cache");
   for (const dir of [home, project, bin]) mkdirSync(dir, { recursive: true });
   const codex = join(bin, CODEX.surfaces.plugin.cli.bin);
-  writeFileSync(codex, "#!/bin/sh\nexit 0\n"); chmodSync(codex, 0o755);
+  writeFileSync(codex, "#!/bin/sh\nexit 0\n");
+  chmodSync(codex, 0o755);
   const env = { PATH: bin, [CODEX.runtime.home_env]: home, XDG_CACHE_HOME: cache };
   const fetchDir = cachePaths({ env, home }).fetch;
   return { base, home, project, bin, cache, env, fetchDir };
 }
-const coreOpts = (f, extra = {}) => ({ harnesses: ["codex"], root: CORE, home: f.home, env: f.env, spawn: fakeCodex(f), ...extra });
+const coreOpts = (f, extra = {}) => ({
+  harnesses: ["codex"],
+  root: CORE,
+  home: f.home,
+  env: f.env,
+  spawn: fakeCodex(f),
+  ...extra,
+});
 const leftovers = (f) => (existsSync(f.fetchDir) ? readdirSync(f.fetchDir) : []);
-const rule2Argv = (prefix, registry = FAKE_REGISTRY) => ["install", "--prefix", prefix, "--no-save", "--ignore-scripts", "--no-audit", "--no-fund", "--no-update-notifier", "--json", "--registry", registry, "--fetch-timeout=30000", "--fetch-retries=2", "--fetch-retry-mintimeout=1000", "--fetch-retry-maxtimeout=5000", `${SHELL}@${V}`];
+const rule2Argv = (prefix, registry = FAKE_REGISTRY) => [
+  "install",
+  "--prefix",
+  prefix,
+  "--no-save",
+  "--ignore-scripts",
+  "--no-audit",
+  "--no-fund",
+  "--no-update-notifier",
+  "--json",
+  "--registry",
+  registry,
+  "--fetch-timeout=30000",
+  "--fetch-retries=2",
+  "--fetch-retry-mintimeout=1000",
+  "--fetch-retry-maxtimeout=5000",
+  `${SHELL}@${V}`,
+];
 
 test("shell fetch: upgrade --harness codex --json from the core reads the project's registry once and the user's once, fetches once at the core's version, plans from the fetched root, rechecks, applies and reports it", async () => {
   const f = coreFixture();
@@ -643,8 +927,18 @@ test("shell fetch: upgrade --harness codex --json from the core reads the projec
   // user's, which PLAN names beside it when they differ (the converge story's
   // 2026-10-09 amendment).
   const registry = npm.calls.filter((c) => c.argv[0] === "config");
-  assert.deepEqual(registry.map((c) => c.argv), [["config", "get", "registry", "--no-update-notifier"], ["config", "get", "registry", "--no-update-notifier"]]);
-  assert.deepEqual(registry.filter((c) => c.cwd === f.project).length, 1, "the project's registry, read in the project, so its .npmrc counts");
+  assert.deepEqual(
+    registry.map((c) => c.argv),
+    [
+      ["config", "get", "registry", "--no-update-notifier"],
+      ["config", "get", "registry", "--no-update-notifier"],
+    ],
+  );
+  assert.deepEqual(
+    registry.filter((c) => c.cwd === f.project).length,
+    1,
+    "the project's registry, read in the project, so its .npmrc counts",
+  );
   assert.deepEqual(registry.filter((c) => c.cwd === f.home).length, 1, "the user's, read from the home directory");
   const installs = npm.installs();
   assert.equal(installs.length, 1, "one fetch");
@@ -670,23 +964,48 @@ test("shell fetch: upgrade --harness codex --json from the core reads the projec
 
 test("shell fetch: the fetch directory is gone after STOPPED, after n at the question, after a refusal, and after an exception", async () => {
   const stopped = coreFixture();
-  const r1 = await runVerb("install", stopped.project, { ...coreOpts(stopped, { spawn: fakeCodex(stopped, { fail: "plugin add" }) }), json: true, fetchSpawn: fakeNpmSpawn().spawn });
+  const r1 = await runVerb("install", stopped.project, {
+    ...coreOpts(stopped, { spawn: fakeCodex(stopped, { fail: "plugin add" }) }),
+    json: true,
+    fetchSpawn: fakeNpmSpawn().spawn,
+  });
   assert.equal(r1.failed.step, "install", JSON.stringify(r1.failed));
   assert.deepEqual(leftovers(stopped), [], "STOPPED");
   const declined = coreFixture();
   const npm = fakeNpmSpawn();
   let asked = false;
-  const r2 = await runVerb("install", declined.project, { ...coreOpts(declined), fetchSpawn: npm.spawn, ask: async () => { asked = true; assert.equal(leftovers(declined).length, 1, "the scratch exists while the question waits"); return "n"; } });
+  const r2 = await runVerb("install", declined.project, {
+    ...coreOpts(declined),
+    fetchSpawn: npm.spawn,
+    ask: async () => {
+      asked = true;
+      assert.equal(leftovers(declined).length, 1, "the scratch exists while the question waits");
+      return "n";
+    },
+  });
   assert.ok(asked && r2.gate.why === "declined" && npm.installs().length === 1);
   assert.deepEqual(leftovers(declined), [], "n at the question");
   const refused = coreFixture();
-  const r3 = await runVerb("install", refused.project, { ...coreOpts(refused), json: true, fetchSpawn: fakeNpmSpawn({ mode: "ETARGET" }).spawn });
+  const r3 = await runVerb("install", refused.project, {
+    ...coreOpts(refused),
+    json: true,
+    fetchSpawn: fakeNpmSpawn({ mode: "ETARGET" }).spawn,
+  });
   assert.equal(r3.gate.why, "refused");
   assert.deepEqual(leftovers(refused), [], "a refusal");
   // An exception after the fetch: the stream the preview is written to breaks.
   const thrown = coreFixture();
-  const out = { isTTY: false, write: (s) => { if (String(s).includes("Plan —")) throw new Error("injected: the terminal went away"); return true; } };
-  await assert.rejects(runVerb("install", thrown.project, { ...coreOpts(thrown), out, fetchSpawn: fakeNpmSpawn().spawn }), /injected/);
+  const out = {
+    isTTY: false,
+    write: (s) => {
+      if (String(s).includes("Plan —")) throw new Error("injected: the terminal went away");
+      return true;
+    },
+  };
+  await assert.rejects(
+    runVerb("install", thrown.project, { ...coreOpts(thrown), out, fetchSpawn: fakeNpmSpawn().spawn }),
+    /injected/,
+  );
   assert.deepEqual(leftovers(thrown), [], "an exception");
 });
 
@@ -695,11 +1014,19 @@ test("shell fetch: a payload changed between plan and apply fails the recheck be
   const host = [];
   const base = fakeCodex(f);
   const r = await runVerb("install", f.project, {
-    ...coreOpts(f, { spawn: (bin, argv, o) => { host.push(argv.join(" ")); return base(bin, argv, o); } }),
+    ...coreOpts(f, {
+      spawn: (bin, argv, o) => {
+        host.push(argv.join(" "));
+        return base(bin, argv, o);
+      },
+    }),
     fetchSpawn: fakeNpmSpawn().spawn,
     ask: async () => {
       const [run] = readdirSync(f.fetchDir);
-      writeFileSync(join(f.fetchDir, run, "node_modules", SHELL, "skills", "projectstore-status", "SKILL.md"), "changed under the plan\n");
+      writeFileSync(
+        join(f.fetchDir, run, "node_modules", SHELL, "skills", "projectstore-status", "SKILL.md"),
+        "changed under the plan\n",
+      );
       return "y";
     },
   });
@@ -715,7 +1042,16 @@ test("shell fetch: a version the registry lacks (ETARGET, E404) is a refusal bef
     const f = coreFixture();
     const npm = fakeNpmSpawn({ mode });
     const host = [];
-    const r = await runVerb("upgrade", f.project, { ...coreOpts(f, { spawn: (...a) => { host.push(a[1].join(" ")); return { status: 0, stdout: "", stderr: "" }; } }), json: true, fetchSpawn: npm.spawn });
+    const r = await runVerb("upgrade", f.project, {
+      ...coreOpts(f, {
+        spawn: (...a) => {
+          host.push(a[1].join(" "));
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      }),
+      json: true,
+      fetchSpawn: npm.spawn,
+    });
     assert.equal(r.plan.ok, false, mode);
     assert.deepEqual(r.plan.items, [], `${mode}: refused before the plan`);
     assert.equal(r.gate.why, "refused");
@@ -723,7 +1059,12 @@ test("shell fetch: a version the registry lacks (ETARGET, E404) is a refusal bef
     assert.ok(refusal.startsWith(`${SHELL}@${V} is not on ${FAKE_REGISTRY} (npm ${mode})`), refusal);
     assert.deepEqual([...new Set(refusal.match(/\d+\.\d+\.\d+[\w.+-]*/g))], [V], `${mode}: names no other version`);
     assert.match(refusal, /Just released\? The shell is published after the core, so retry/);
-    assert.ok(refusal.includes("PROJECTSTORE_DISTRIBUTION_ROOT") && refusal.includes("npm run shells:build -- --dev") && refusal.includes(`dist/build/${SHELL}`), refusal);
+    assert.ok(
+      refusal.includes("PROJECTSTORE_DISTRIBUTION_ROOT") &&
+        refusal.includes("npm run shells:build -- --dev") &&
+        refusal.includes(`dist/build/${SHELL}`),
+      refusal,
+    );
     assert.ok(refusal.includes(`name --harness without ${CODEX.display_name}`), refusal);
     assert.equal(npm.installs().length, 1);
     assert.deepEqual(host, [], `${mode}: nothing spawned after npm`);
@@ -736,20 +1077,43 @@ test("shell fetch: a version the registry lacks (ETARGET, E404) is a refusal bef
 test("shell fetch: a hang past the budget is stopped with SIGTERM and names the bound; npm's request timeout names its URL", async () => {
   const f = coreFixture();
   const npm = fakeNpmSpawn({ mode: "hang" });
-  const r = await runVerb("install", f.project, { ...coreOpts(f), json: true, fetchSpawn: npm.spawn, fetchBudget: 200 });
+  const r = await runVerb("install", f.project, {
+    ...coreOpts(f),
+    json: true,
+    fetchSpawn: npm.spawn,
+    fetchBudget: 200,
+  });
   assert.equal(npm.installs()[0].killed, "SIGTERM");
-  assert.equal(r.plan.refusals[0], `fetching ${SHELL}@${V} from ${FAKE_REGISTRY} took longer than 0.2 s and was stopped. Retry, or name --harness without ${CODEX.display_name}.`);
+  assert.equal(
+    r.plan.refusals[0],
+    `fetching ${SHELL}@${V} from ${FAKE_REGISTRY} took longer than 0.2 s and was stopped. Retry, or name --harness without ${CODEX.display_name}.`,
+  );
   assert.deepEqual(leftovers(f), []);
   // The text is built from the budget, which is 120 s unless a test injects one.
-  assert.match(fetchRefusal("EBUDGET", { pkg: `${SHELL}@${V}`, registry: FAKE_REGISTRY, display: CODEX.display_name }), /took longer than 120 s and was stopped/);
+  assert.match(
+    fetchRefusal("EBUDGET", { pkg: `${SHELL}@${V}`, registry: FAKE_REGISTRY, display: CODEX.display_name }),
+    /took longer than 120 s and was stopped/,
+  );
   const t = coreFixture();
-  const timeout = await runVerb("install", t.project, { ...coreOpts(t), json: true, fetchSpawn: fakeNpmSpawn({ mode: "FETCH_ERROR" }).spawn });
-  assert.equal(timeout.plan.refusals[0], `npm gave up on ${FAKE_REGISTRY}${SHELL} (network timeout) while fetching ${SHELL}@${V}. Retry, or name --harness without ${CODEX.display_name}.`);
+  const timeout = await runVerb("install", t.project, {
+    ...coreOpts(t),
+    json: true,
+    fetchSpawn: fakeNpmSpawn({ mode: "FETCH_ERROR" }).spawn,
+  });
+  assert.equal(
+    timeout.plan.refusals[0],
+    `npm gave up on ${FAKE_REGISTRY}${SHELL} (network timeout) while fetching ${SHELL}@${V}. Retry, or name --harness without ${CODEX.display_name}.`,
+  );
   // The registry read has a short budget of its own; past it, the fetch runs with no --registry.
   assert.equal(REGISTRY_BUDGET_MS, 10000);
   const h = coreFixture();
   const slow = fakeNpmSpawn({ registryMode: "hang" });
-  const read = await runVerb("install", h.project, { ...coreOpts(h), json: true, fetchSpawn: slow.spawn, fetchBudget: 300 });
+  const read = await runVerb("install", h.project, {
+    ...coreOpts(h),
+    json: true,
+    fetchSpawn: slow.spawn,
+    fetchBudget: 300,
+  });
   assert.equal(read.failed, null, JSON.stringify(read.failed));
   assert.equal(slow.calls.find((c) => c.argv[0] === "config").killed, "SIGTERM");
   assert.ok(!slow.installs()[0].argv.includes("--registry"), "a timed-out read omits --registry");
@@ -758,20 +1122,43 @@ test("shell fetch: a hang past the budget is stopped with SIGTERM and names the 
 test("shell fetch: refused credentials, a refused connection, npm missing and an unwritable cache each refuse with their own cause, and no stack trace", async () => {
   for (const mode of ["E401", "E403"]) {
     const f = coreFixture();
-    const r = await runVerb("install", f.project, { ...coreOpts(f), json: true, fetchSpawn: fakeNpmSpawn({ mode }).spawn });
+    const r = await runVerb("install", f.project, {
+      ...coreOpts(f),
+      json: true,
+      fetchSpawn: fakeNpmSpawn({ mode }).spawn,
+    });
     const [refusal] = r.plan.refusals;
     assert.ok(refusal.startsWith(`${FAKE_REGISTRY} refused the credentials for ${SHELL}@${V} (npm ${mode})`), refusal);
-    assert.ok(refusal.includes("~/.npmrc") && refusal.includes("NPM_CONFIG_") && refusal.includes("PROJECTSTORE_DISTRIBUTION_ROOT"), refusal);
+    assert.ok(
+      refusal.includes("~/.npmrc") &&
+        refusal.includes("NPM_CONFIG_") &&
+        refusal.includes("PROJECTSTORE_DISTRIBUTION_ROOT"),
+      refusal,
+    );
   }
   const c = coreFixture();
   const t0 = Date.now();
-  const refused = await runVerb("install", c.project, { ...coreOpts(c), json: true, fetchSpawn: fakeNpmSpawn({ mode: "ECONNREFUSED" }).spawn });
+  const refused = await runVerb("install", c.project, {
+    ...coreOpts(c),
+    json: true,
+    fetchSpawn: fakeNpmSpawn({ mode: "ECONNREFUSED" }).spawn,
+  });
   assert.ok(Date.now() - t0 < 10_000, "within 10 s");
-  assert.match(refused.plan.refusals[0], new RegExp(`^npm could not fetch ${SHELL}@${V} from ${FAKE_REGISTRY.replace(/[.]/g, "\\.")}: ECONNREFUSED — .*needs the network`));
+  assert.match(
+    refused.plan.refusals[0],
+    new RegExp(
+      `^npm could not fetch ${SHELL}@${V} from ${FAKE_REGISTRY.replace(/[.]/g, "\\.")}: ECONNREFUSED — .*needs the network`,
+    ),
+  );
   // npm missing from PATH: the real spawn, contract 19's cause.
   const m = coreFixture();
   const missing = await runVerb("install", m.project, { ...coreOpts(m), json: true });
-  assert.ok(missing.plan.refusals[0].startsWith("npm could not start: it was not found on PATH; Codex is registered from its shell"), missing.plan.refusals[0]);
+  assert.ok(
+    missing.plan.refusals[0].startsWith(
+      "npm could not start: it was not found on PATH; Codex is registered from its shell",
+    ),
+    missing.plan.refusals[0],
+  );
   assert.ok(!/spawn npm ENOENT/.test(missing.plan.refusals[0]));
   // A read-only cache root: the path and the variable it came from.
   if (typeof process.getuid === "function" && process.getuid() === 0) return; // root writes anywhere
@@ -782,21 +1169,31 @@ test("shell fetch: refused credentials, a refused connection, npm missing and an
     const npm = fakeNpmSpawn();
     const r = await runVerb("install", ro.project, { ...coreOpts(ro), json: true, fetchSpawn: npm.spawn });
     const [refusal] = r.plan.refusals;
-    assert.ok(refusal.startsWith(`the cache directory ${join(ro.cache, "projectstore")} cannot be written (EACCES); it comes from XDG_CACHE_HOME. Set XDG_CACHE_HOME to a writable directory`), refusal);
+    assert.ok(
+      refusal.startsWith(
+        `the cache directory ${join(ro.cache, "projectstore")} cannot be written (EACCES); it comes from XDG_CACHE_HOME. Set XDG_CACHE_HOME to a writable directory`,
+      ),
+      refusal,
+    );
     assert.ok(!/\n\s+at /.test(refusal), "no stack trace");
     assert.deepEqual(npm.calls, [], "nothing spawned");
-  } finally { chmodSync(ro.cache, 0o755); }
+  } finally {
+    chmodSync(ro.cache, 0o755);
+  }
 });
 
 test("shell fetch: a fetched tree with the wrong name, version, plugin manifest or bundled core is refused before the plan, naming the file and both values", async () => {
   const cases = {
     "wrong-name": (dir) => `${join(dir, "package.json")} has name "${SHELL}-other", expected "${SHELL}"`,
     "wrong-version": (dir) => `${join(dir, "package.json")} has version "${V}-other", expected "${V}"`,
-    "no-plugin-manifest": (dir) => `is not a plugin root: neither ${join(dir, "plugin.json")} nor ${join(dir, ".codex-plugin", "plugin.json")} exists`,
+    "no-plugin-manifest": (dir) =>
+      `is not a plugin root: neither ${join(dir, "plugin.json")} nor ${join(dir, ".codex-plugin", "plugin.json")} exists`,
     // A root manifest is a plugin root to the analyser, but not the shell's one manifest.
-    "root-manifest": (dir) => `carries ${join(dir, "plugin.json")}, which the host reads before ${join(dir, ".codex-plugin", "plugin.json")} and loads no hooks from`,
+    "root-manifest": (dir) =>
+      `carries ${join(dir, "plugin.json")}, which the host reads before ${join(dir, ".codex-plugin", "plugin.json")} and loads no hooks from`,
     "plugin-version": (dir) => `${join(dir, ".codex-plugin", "plugin.json")} has version "${V}-other", expected "${V}"`,
-    "core-version": (dir) => `${join(dir, "node_modules", "projectstore", "package.json")} has version "${V}-other", expected "${V}"`,
+    "core-version": (dir) =>
+      `${join(dir, "node_modules", "projectstore", "package.json")} has version "${V}-other", expected "${V}"`,
   };
   for (const [mode, want] of Object.entries(cases)) {
     const f = coreFixture();
@@ -813,7 +1210,13 @@ test("shell fetch: a fetched tree with the wrong name, version, plugin manifest 
 test("shell fetch: a named distribution root is used as is and npm is never called; one that is not a plugin root keeps the incomplete row", async () => {
   const f = fixture(V);
   const npm = fakeNpmSpawn();
-  const r = await runVerb("install", f.project, { ...opts(f), root: CORE, json: true, fetchSpawn: npm.spawn, spawn: fakeCodex(f) });
+  const r = await runVerb("install", f.project, {
+    ...opts(f),
+    root: CORE,
+    json: true,
+    fetchSpawn: npm.spawn,
+    spawn: fakeCodex(f),
+  });
   assert.deepEqual(npm.calls, [], "nothing fetched");
   assert.deepEqual(r.fetched, []);
   assert.equal(registration(r.plan).steps.find((s) => s.kind === "portable-write").from, f.root);
@@ -824,7 +1227,12 @@ test("shell fetch: a named distribution root is used as is and npm is never call
   const norm = (p) => JSON.stringify(p.items.map(publicItem)).split(g.base).join("<base>");
   assert.equal(norm(after), norm(before), "a version changes nothing when a payload is named");
   const other = mkdtempSync(join(tmpdir(), "ps-other-shell-"));
-  const broken = await runVerb("install", g.project, { ...opts(g, { env: { ...g.env, PROJECTSTORE_DISTRIBUTION_ROOT: other } }), root: CORE, json: true, fetchSpawn: npm.spawn });
+  const broken = await runVerb("install", g.project, {
+    ...opts(g, { env: { ...g.env, PROJECTSTORE_DISTRIBUTION_ROOT: other } }),
+    root: CORE,
+    json: true,
+    fetchSpawn: npm.spawn,
+  });
   assert.deepEqual(npm.calls, []);
   assert.equal(broken.plan.incomplete, true);
   assert.match(registration(broken.plan).reason, /is not a portable plugin root/);
@@ -848,7 +1256,11 @@ test("shell fetch: npm is never called by uninstall, a Claude Code-only run, --n
   await check("--no-register", "upgrade", coreFixture(), { register: false, json: true });
   await check("--surface agents_block", "upgrade", coreFixture(), { surfaces: ["agents_block"], json: true });
   // A bare upgrade selects Codex by its directory, and cannot be asked.
-  const bare = () => { const f = coreFixture(); mkdirSync(join(f.project, CODEX.runtime.harness_dir)); return f; };
+  const bare = () => {
+    const f = coreFixture();
+    mkdirSync(join(f.project, CODEX.runtime.harness_dir));
+    return f;
+  };
   const tty = { isTTY: true };
   for (const [what, extra] of [
     ["no terminal", {}],
@@ -861,7 +1273,10 @@ test("shell fetch: npm is never called by uninstall, a Claude Code-only run, --n
     if (what === "a session marker") f.env[loadHarness("claude-code").runtime.session_env[0]] = "1";
     const r = await check(`a bare upgrade, ${what}`, "upgrade", f, { harnesses: [], ...extra });
     assert.deepEqual(r.plan.harnesses, [CODEX.id]);
-    assert.ok(registration(r.plan).steps.some((s) => s.kind === "fetch"), `${what}: the preview is the dry run`);
+    assert.ok(
+      registration(r.plan).steps.some((s) => s.kind === "fetch"),
+      `${what}: the preview is the dry run`,
+    );
   }
   // The core the Codex shell bundles: <dir>/node_modules/projectstore under its package.json.
   const shellDir = mkdtempSync(join(tmpdir(), "ps-own-shell-"));
@@ -869,7 +1284,11 @@ test("shell fetch: npm is never called by uninstall, a Claude Code-only run, --n
   const own = join(shellDir, "node_modules", "projectstore");
   mkdirSync(own, { recursive: true });
   writeFileSync(join(own, "package.json"), JSON.stringify({ name: "projectstore", version: V }) + "\n");
-  const ownRun = await check("the own shell's core", "upgrade", coreFixture(), { root: own, surfaces: ["plugin"], json: true });
+  const ownRun = await check("the own shell's core", "upgrade", coreFixture(), {
+    root: own,
+    surfaces: ["plugin"],
+    json: true,
+  });
   assert.equal(registration(ownRun.plan).deferred, true);
   assert.equal(registration(ownRun.plan).reason, "this run is from the plugin's own copy, which does not fetch");
   assert.equal(ownRun.plan.incomplete, false, "deferred, as before, not incomplete");
@@ -890,7 +1309,13 @@ test("shell fetch: npm is never called by uninstall, a Claude Code-only run, --n
 
 test("shell fetch, rule 1: the decision skips a harness whose session marker is set, and fetches the same harness without it", () => {
   const marked = { ...CODEX, runtime: { ...CODEX.runtime, session_env: ["PS_TEST_CODEX_SESSION"] } };
-  const go = { verb: "install", harness: marked, s: marked.surfaces.plugin, named: true, analysis: { state: "absent", bin: "/usr/local/bin/codex" } };
+  const go = {
+    verb: "install",
+    harness: marked,
+    s: marked.surfaces.plugin,
+    named: true,
+    analysis: { state: "absent", bin: "/usr/local/bin/codex" },
+  };
   assert.deepEqual(fetchDecision({ ...go, env: { PS_TEST_CODEX_SESSION: "1" } }), { fetch: false, why: "in-session" });
   assert.deepEqual(fetchDecision({ ...go, env: {} }), { fetch: true, why: null });
   // Every other condition, once each.
@@ -900,13 +1325,29 @@ test("shell fetch, rule 1: the decision skips a harness whose session marker is 
   assert.equal(fetchDecision({ ...go, env: { PROJECTSTORE_DISTRIBUTION_ROOT: "/x" } }).why, "root-named");
   assert.equal(fetchDecision({ ...go, env: {}, named: false }).why, "not-interactive");
   assert.equal(fetchDecision({ ...go, env: {}, named: false, interactive: true }).fetch, true);
-  for (const state of ["unavailable", "foreign", "conflict"]) assert.equal(fetchDecision({ ...go, env: {}, analysis: { state } }).why, state);
+  for (const state of ["unavailable", "foreign", "conflict"])
+    assert.equal(fetchDecision({ ...go, env: {}, analysis: { state } }).why, state);
   // No host CLI, though something of ours exists: the row defers, so nothing is fetched.
-  assert.deepEqual(fetchDecision({ ...go, env: {}, analysis: { state: "stale", bin: null } }), { fetch: false, why: "no-host-cli" });
+  assert.deepEqual(fetchDecision({ ...go, env: {}, analysis: { state: "stale", bin: null } }), {
+    fetch: false,
+    why: "no-host-cli",
+  });
   assert.equal(fetchDecision({ ...go, env: {}, ownShell: true }).why, "own-shell");
-  assert.equal(fetchDecision({ ...go, env: {}, harness: loadHarness("claude-code"), s: loadHarness("claude-code").surfaces.plugin }).why, "not-shell-rooted");
+  assert.equal(
+    fetchDecision({
+      ...go,
+      env: {},
+      harness: loadHarness("claude-code"),
+      s: loadHarness("claude-code").surfaces.plugin,
+    }).why,
+    "not-shell-rooted",
+  );
   // The converge story's rule 6: a registration newer than the running version, sound or damaged.
-  for (const state of ["current", "stale"]) assert.deepEqual(fetchDecision({ ...go, env: {}, analysis: { state, bin: "/usr/local/bin/codex", newer: true } }), { fetch: false, why: "newer" });
+  for (const state of ["current", "stale"])
+    assert.deepEqual(fetchDecision({ ...go, env: {}, analysis: { state, bin: "/usr/local/bin/codex", newer: true } }), {
+      fetch: false,
+      why: "newer",
+    });
 });
 
 // ─── Inside a Codex session (the story "projectstore setup asks, shows one
@@ -918,16 +1359,28 @@ test("shell fetch, rule 1: the decision skips a harness whose session marker is 
 // the manifest's, never spelled here.
 
 const DEFER = CODEX.runtime.registration_defer_env;
-const deferralText = (marker) => `this runs inside a ${CODEX.display_name} session (${marker} is set), and the host's CLI would change the configuration that session runs on — run it from a terminal outside the session`;
-const recording = (f, calls) => (bin, argv, o) => { calls.push(argv.join(" ")); return fakeCodex(f)(bin, argv, o); };
+const deferralText = (marker) =>
+  `this runs inside a ${CODEX.display_name} session (${marker} is set), and the host's CLI would change the configuration that session runs on — run it from a terminal outside the session`;
+const recording = (f, calls) => (bin, argv, o) => {
+  calls.push(argv.join(" "));
+  return fakeCodex(f)(bin, argv, o);
+};
 
 test("setup rule 15: the shell fetch is skipped under Codex's own deferral marker, and not under another host's session marker", () => {
   assert.ok(DEFER.length >= 1, "Codex declares the variable its exec tool sets");
-  const go = { verb: "install", harness: CODEX, s: CODEX.surfaces.plugin, named: true, analysis: { state: "absent", bin: "/usr/local/bin/codex" } };
-  for (const marker of DEFER) assert.deepEqual(fetchDecision({ ...go, env: { [marker]: "1" } }), { fetch: false, why: "in-session" }, marker);
+  const go = {
+    verb: "install",
+    harness: CODEX,
+    s: CODEX.surfaces.plugin,
+    named: true,
+    analysis: { state: "absent", bin: "/usr/local/bin/codex" },
+  };
+  for (const marker of DEFER)
+    assert.deepEqual(fetchDecision({ ...go, env: { [marker]: "1" } }), { fetch: false, why: "in-session" }, marker);
   assert.deepEqual(fetchDecision({ ...go, env: {} }), { fetch: true, why: null });
   // Deferral keys on the planned harness's own session: a Claude Code session fetches Codex's shell.
-  for (const marker of loadHarness("claude-code").runtime.session_env) assert.deepEqual(fetchDecision({ ...go, env: { [marker]: "1" } }), { fetch: true, why: null }, marker);
+  for (const marker of loadHarness("claude-code").runtime.session_env)
+    assert.deepEqual(fetchDecision({ ...go, env: { [marker]: "1" } }), { fetch: true, why: null }, marker);
 });
 
 test("setup rule 15: inside a Codex session the registration defers with the reason, the plan is incomplete and the host is never called; outside it the same plan registers", async () => {
@@ -957,7 +1410,11 @@ test("setup rule 15: from the core inside a Codex session, install fetches nothi
     const f = coreFixture();
     const npm = fakeNpmSpawn();
     const calls = [];
-    const r = await runVerb("install", f.project, { ...coreOpts(f, { env: { ...f.env, [marker]: "thread-1" }, spawn: recording(f, calls) }), json: true, fetchSpawn: npm.spawn });
+    const r = await runVerb("install", f.project, {
+      ...coreOpts(f, { env: { ...f.env, [marker]: "thread-1" }, spawn: recording(f, calls) }),
+      json: true,
+      fetchSpawn: npm.spawn,
+    });
     assert.deepEqual(npm.calls, [], "npm was called");
     assert.deepEqual(r.fetched, []);
     const row = registration(r.plan);
@@ -990,12 +1447,20 @@ test("setup rule 15: the doctor skill's upgrade from the shell's bundled core, i
     mkdirSync(join(f.project, CODEX.runtime.harness_dir));
     const npm = fakeNpmSpawn();
     const calls = [];
-    const r = await runVerb("upgrade", f.project, { ...coreOpts(f, { env: { ...f.env, [marker]: "thread-1" }, spawn: recording(f, calls) }), root: own, json: true, fetchSpawn: npm.spawn });
+    const r = await runVerb("upgrade", f.project, {
+      ...coreOpts(f, { env: { ...f.env, [marker]: "thread-1" }, spawn: recording(f, calls) }),
+      root: own,
+      json: true,
+      fetchSpawn: npm.spawn,
+    });
     assert.deepEqual(npm.calls, []);
     const row = registration(r.plan);
     assert.equal(row.reason, "this run is from the plugin's own copy, which does not fetch");
     assert.equal(r.plan.incomplete, false, "as before: deferred, not incomplete");
-    assert.ok(!r.plan.items.some((i) => i.deferred && /session/.test(i.reason || "")), "nothing else defers on the marker");
+    assert.ok(
+      !r.plan.items.some((i) => i.deferred && /session/.test(i.reason || "")),
+      "nothing else defers on the marker",
+    );
     assert.deepEqual(calls, []);
   }
 });
@@ -1012,7 +1477,12 @@ test("setup rule 15: uninstall --global defers its removal inside a Codex sessio
     assert.equal(row.reason, deferralText(marker));
     assert.equal(p.incomplete, true);
     const calls = [];
-    const r = await runVerb("uninstall", f.project, { ...opts(f, { env }), globalRemoval: true, spawn: recording(f, calls), json: true });
+    const r = await runVerb("uninstall", f.project, {
+      ...opts(f, { env }),
+      globalRemoval: true,
+      spawn: recording(f, calls),
+      json: true,
+    });
     assert.equal(r.plan.incomplete, true);
     assert.deepEqual(calls, [], "no host command ran");
     assert.ok(existsSync(row.path), "the staged marketplace source stays");
@@ -1035,21 +1505,42 @@ function newerFixture() {
   assert.equal(apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) }).failed, undefined);
   // A 0.30.0 cache beside the registered 0.31.0 one, newer by mtime: the
   // lookup by the desired version would read it.
-  const base = join(f.home, "plugins", "cache", CODEX.surfaces.plugin.marketplace_name, CODEX.surfaces.plugin.plugin_name);
+  const base = join(
+    f.home,
+    "plugins",
+    "cache",
+    CODEX.surfaces.plugin.marketplace_name,
+    CODEX.surfaces.plugin.plugin_name,
+  );
   cpSync(join(base, "0.31.0"), join(base, "0.30.0"), { recursive: true });
-  writeFileSync(join(base, "0.30.0", ".codex-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.30.0" }) + "\n");
+  writeFileSync(
+    join(base, "0.30.0", ".codex-plugin", "plugin.json"),
+    JSON.stringify({ name: "projectstore", version: "0.30.0" }) + "\n",
+  );
   utimesSync(join(base, "0.31.0"), new Date(2026, 9, 1, 10, 0, 0), new Date(2026, 9, 1, 10, 0, 0));
   utimesSync(join(base, "0.30.0"), new Date(2026, 9, 5, 10, 0, 0), new Date(2026, 9, 5, 10, 0, 0));
   // The older shell's own root, for the payload mode.
   const older = join(f.base, "shell-0.30.0");
-  for (const dir of [join(older, ".codex-plugin"), join(older, "skills", "projectstore-status")]) mkdirSync(dir, { recursive: true });
-  writeFileSync(join(older, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.30.0" }) + "\n");
-  writeFileSync(join(older, "skills", "projectstore-status", "SKILL.md"), "---\nname: projectstore-status\n---\n0.30.0\n");
+  for (const dir of [join(older, ".codex-plugin"), join(older, "skills", "projectstore-status")])
+    mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(older, ".codex-plugin", "plugin.json"),
+    JSON.stringify({ name: "projectstore", version: "0.30.0" }) + "\n",
+  );
+  writeFileSync(
+    join(older, "skills", "projectstore-status", "SKILL.md"),
+    "---\nname: projectstore-status\n---\n0.30.0\n",
+  );
   const { PROJECTSTORE_DISTRIBUTION_ROOT: _drop, ...bare } = f.env;
   return {
-    f, older, base,
+    f,
+    older,
+    base,
     // From the older payload, and from the version alone (plan's dry run, a skipped fetch).
-    fromPayload: () => registration(plan(f.project, { ...opts(f), root: older, env: { ...f.env, PROJECTSTORE_DISTRIBUTION_ROOT: older } })),
+    fromPayload: () =>
+      registration(
+        plan(f.project, { ...opts(f), root: older, env: { ...f.env, PROJECTSTORE_DISTRIBUTION_ROOT: older } }),
+      ),
     fromVersion: () => registration(plan(f.project, { ...opts(f), root: CORE, version: "0.30.0", env: bare })),
     bare,
   };
@@ -1057,10 +1548,17 @@ function newerFixture() {
 
 test("converge criterion 'The stop (Codex)': a sound registration at 0.31.0 read from a 0.30.0 payload or version is current, not downgraded, with no staging and no host step — read from its own 0.31.0 cache though a 0.30.0 one is newer by mtime", () => {
   const n = newerFixture();
-  for (const [mode, row] of [["payload", n.fromPayload()], ["version", n.fromVersion()]]) {
+  for (const [mode, row] of [
+    ["payload", n.fromPayload()],
+    ["version", n.fromVersion()],
+  ]) {
     assert.equal(row.state, "current", `${mode}: ${row.reason}`);
     assert.equal(row.action, "skip", mode);
-    assert.match(row.reason, /^the registration is at 0\.31\.0, newer than this package \(0\.30\.0\) — not downgraded; install and upgrade read the registry first, and stop when 0\.31\.0 is published$/, mode);
+    assert.match(
+      row.reason,
+      /^the registration is at 0\.31\.0, newer than this package \(0\.30\.0\) — not downgraded; install and upgrade read the registry first, and stop when 0\.31\.0 is published$/,
+      mode,
+    );
     assert.equal(row.steps, undefined, `${mode}: no portable-write and no host step`);
     assert.equal(row.observed.installed_version, "0.31.0", `${mode}: the cache at the registered version`);
   }
@@ -1070,50 +1568,105 @@ test("converge criterion 'The stop (Codex)': a newer registration that is damage
   const n = newerFixture();
   const source = join(n.f.home, "projectstore", "marketplace", CODEX.surfaces.plugin.plugin_subdir);
   writeFileSync(join(source, "skills", "projectstore-status", "SKILL.md"), "edited by hand\n");
-  for (const [mode, row] of [["payload", n.fromPayload()], ["version", n.fromVersion()]]) {
+  for (const [mode, row] of [
+    ["payload", n.fromPayload()],
+    ["version", n.fromVersion()],
+  ]) {
     assert.equal(row.state, "stale", mode);
     assert.equal(row.action, "skip", mode);
     assert.equal(row.deferred, true, mode);
-    assert.ok(row.reason.startsWith("the stable source does not match its recorded digest; "), `${mode}: ${row.reason}`);
-    assert.ok(row.reason.endsWith(`\nnot downgraded — repair it from its own version:\nnpx projectstore@0.31.0 upgrade --harness ${CODEX.id}`), `${mode}: the command alone on the last line`);
+    assert.ok(
+      row.reason.startsWith("the stable source does not match its recorded digest; "),
+      `${mode}: ${row.reason}`,
+    );
+    assert.ok(
+      row.reason.endsWith(
+        `\nnot downgraded — repair it from its own version:\nnpx projectstore@0.31.0 upgrade --harness ${CODEX.id}`,
+      ),
+      `${mode}: the command alone on the last line`,
+    );
     assert.ok(!(row.steps || []).some((s) => s.kind === "portable-write"), mode);
   }
-  assert.equal(plan(n.f.project, { ...opts(n.f), root: CORE, version: "0.30.0", env: n.bare }).incomplete, true, "the run did not converge");
+  assert.equal(
+    plan(n.f.project, { ...opts(n.f), root: CORE, version: "0.30.0", env: n.bare }).incomplete,
+    true,
+    "the run did not converge",
+  );
   // A sound source with a recovery journal left by a run: skipped too, never overwritten.
   const m = newerFixture();
-  writeFileSync(join(m.f.home, "projectstore", `${CODEX.surfaces.plugin.marketplace_name}.journal.json`), JSON.stringify({ version: 1, phase: "staged" }) + "\n");
+  writeFileSync(
+    join(m.f.home, "projectstore", `${CODEX.surfaces.plugin.marketplace_name}.journal.json`),
+    JSON.stringify({ version: 1, phase: "staged" }) + "\n",
+  );
   const journaled = m.fromVersion();
   assert.equal(journaled.action, "skip");
-  assert.match(journaled.reason, /recovery journal[^\n]*\nnot downgraded — repair it from its own version:\nnpx projectstore@0\.31\.0 upgrade --harness \S+$/);
+  assert.match(
+    journaled.reason,
+    /recovery journal[^\n]*\nnot downgraded — repair it from its own version:\nnpx projectstore@0\.31\.0 upgrade --harness \S+$/,
+  );
 });
 
 test("converge criterion 'The stop (Codex)': a bare upgrade at a terminal on either fixture calls no npm install; latest 0.31.0 stops it, latest 0.30.0 lets it proceed", async () => {
-  const pkg = fakePackageRoot(join(mkdtempSync(join(tmpdir(), "ps-codex-pkg-")), "node_modules", "projectstore"), "0.30.0");
+  const pkg = fakePackageRoot(
+    join(mkdtempSync(join(tmpdir(), "ps-codex-pkg-")), "node_modules", "projectstore"),
+    "0.30.0",
+  );
   const run = async (n, latest) => {
     mkdirSync(join(n.f.project, CODEX.runtime.harness_dir), { recursive: true });
     const npm = fakeNpmSpawn();
     const reg = registryFetch({ latest });
     let asked = false;
-    const r = await runVerb("upgrade", n.f.project, { root: pkg, home: n.f.home, env: { ...n.bare, XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "ps-codex-xdg-")) }, ask: async () => { asked = true; return "n"; }, fetchSpawn: npm.spawn, fetch: reg.fetch, spawn: fakeCodex(n.f) });
+    const r = await runVerb("upgrade", n.f.project, {
+      root: pkg,
+      home: n.f.home,
+      env: { ...n.bare, XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "ps-codex-xdg-")) },
+      ask: async () => {
+        asked = true;
+        return "n";
+      },
+      fetchSpawn: npm.spawn,
+      fetch: reg.fetch,
+      spawn: fakeCodex(n.f),
+    });
     return { r, npm, reg, asked };
   };
   const sound = newerFixture();
   const stop = await run(sound, "0.31.0");
   assert.equal(stop.r.plan.ok, false);
-  assert.match(stop.r.plan.refusals[0], /^this project runs projectstore 0\.31\.0 \(projectstore@projectstore-npx\), newer than this package \(0\.30\.0\), and 0\.31\.0 is published\. .*:\nnpx projectstore@latest upgrade\nor install it for the whole machine:\nnpm install -g projectstore@latest$/);
+  assert.match(
+    stop.r.plan.refusals[0],
+    /^this project runs projectstore 0\.31\.0 \(projectstore@projectstore-npx\), newer than this package \(0\.30\.0\), and 0\.31\.0 is published\. .*:\nnpx projectstore@latest upgrade\nor install it for the whole machine:\nnpm install -g projectstore@latest$/,
+  );
   assert.equal(stop.asked, false);
   assert.deepEqual(stop.npm.installs(), []);
   const go = await run(sound, "0.30.0");
   assert.equal(go.r.plan.ok, true);
-  assert.match(registration(go.r.plan).reason, /not downgraded; the registry's latest \(0\.30\.0\) does not reach 0\.31\.0$/);
+  assert.match(
+    registration(go.r.plan).reason,
+    /not downgraded; the registry's latest \(0\.30\.0\) does not reach 0\.31\.0$/,
+  );
   assert.deepEqual(go.npm.installs(), [], "a newer registration is never fetched for");
   assert.equal(go.reg.calls.length, 1, "one read");
   const damaged = newerFixture();
-  writeFileSync(join(damaged.f.home, "projectstore", "marketplace", CODEX.surfaces.plugin.plugin_subdir, "skills", "projectstore-status", "SKILL.md"), "edited by hand\n");
+  writeFileSync(
+    join(
+      damaged.f.home,
+      "projectstore",
+      "marketplace",
+      CODEX.surfaces.plugin.plugin_subdir,
+      "skills",
+      "projectstore-status",
+      "SKILL.md",
+    ),
+    "edited by hand\n",
+  );
   assert.equal((await run(damaged, "0.31.0")).r.plan.ok, false, "a damaged one stops the same way");
   const repair = await run(damaged, "0.30.0");
   assert.deepEqual(repair.npm.installs(), []);
-  assert.match(registration(repair.r.plan).reason, /the registry's latest \(0\.30\.0\) does not reach 0\.31\.0\nnot downgraded — repair it from its own version:\nnpx projectstore@0\.31\.0 upgrade --harness \S+$/);
+  assert.match(
+    registration(repair.r.plan).reason,
+    /the registry's latest \(0\.30\.0\) does not reach 0\.31\.0\nnot downgraded — repair it from its own version:\nnpx projectstore@0\.31\.0 upgrade --harness \S+$/,
+  );
   assert.equal(repair.r.plan.incomplete, true);
 });
 
@@ -1122,27 +1675,51 @@ test("converge criterion 'The stop (Codex)': a bare upgrade at a terminal on eit
 // package, a published latest stops the run before the kept copy's own plan
 // is read; below it, the run proceeds and reads it.
 test("converge criterion 'The stop (Codex)' under the keep: channel git with Claude Code and a newer Codex registration — latest 0.31.0 stops the run and the kept copy is never run; latest 0.30.0 proceeds and reads its plan", async () => {
-  const pkg = fakePackageRoot(join(mkdtempSync(join(tmpdir(), "ps-codex-pkg-")), "node_modules", "projectstore"), "0.30.0");
+  const pkg = fakePackageRoot(
+    join(mkdtempSync(join(tmpdir(), "ps-codex-pkg-")), "node_modules", "projectstore"),
+    "0.30.0",
+  );
   const n = newerFixture();
   const claude = loadHarness("claude-code");
-  const copy = stubCopy(n.f.home, "0.29.0", { writes: [{ surface: "statusline", action: "create", file: "stub-settings.json", body: "{}\n" }] });
-  writeRegistry(n.f.home, [{ scope: "user", installPath: copy, version: "0.29.0", lastUpdated: "2026-10-01T00:00:00Z" }]);
+  const copy = stubCopy(n.f.home, "0.29.0", {
+    writes: [{ surface: "statusline", action: "create", file: "stub-settings.json", body: "{}\n" }],
+  });
+  writeRegistry(n.f.home, [
+    { scope: "user", installPath: copy, version: "0.29.0", lastUpdated: "2026-10-01T00:00:00Z" },
+  ]);
   const run = async (latest) => {
     const npm = fakeNpmSpawn();
     const reg = registryFetch({ latest });
-    const r = await runVerb("upgrade", n.f.project, { harnesses: [claude.id, CODEX.id], channel: "git", root: pkg, home: n.f.home, env: { ...n.bare, HOME: n.f.home, XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "ps-codex-xdg-")) }, ask: async () => "n", fetchSpawn: npm.spawn, fetch: reg.fetch, spawn: fakeCodex(n.f) });
+    const r = await runVerb("upgrade", n.f.project, {
+      harnesses: [claude.id, CODEX.id],
+      channel: "git",
+      root: pkg,
+      home: n.f.home,
+      env: { ...n.bare, HOME: n.f.home, XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "ps-codex-xdg-")) },
+      ask: async () => "n",
+      fetchSpawn: npm.spawn,
+      fetch: reg.fetch,
+      spawn: fakeCodex(n.f),
+    });
     return { r, npm, reg };
   };
   const stop = await run("0.31.0");
   assert.equal(stop.r.plan.ok, false);
-  assert.match(stop.r.plan.refusals[0], /^this project runs projectstore 0\.31\.0 \(projectstore@projectstore-npx\), newer than this package \(0\.30\.0\), and 0\.31\.0 is published\./);
+  assert.match(
+    stop.r.plan.refusals[0],
+    /^this project runs projectstore 0\.31\.0 \(projectstore@projectstore-npx\), newer than this package \(0\.30\.0\), and 0\.31\.0 is published\./,
+  );
   assert.deepEqual(stop.r.plan.items, []);
   assert.deepEqual(stubCalls(copy), [], "the stop comes first: the kept copy's plan is never read");
   assert.deepEqual(stop.npm.installs(), []);
   const go = await run("0.30.0");
   assert.equal(go.r.plan.ok, true, JSON.stringify(go.r.plan.refusals));
   assert.equal(go.r.plan.items.find((i) => i.kind === "channel")?.action, "update");
-  assert.deepEqual(stubCalls(copy).map((c) => c.argv[0]), ["plan"], "below the copy, the run proceeds and reads it");
+  assert.deepEqual(
+    stubCalls(copy).map((c) => c.argv[0]),
+    ["plan"],
+    "below the copy, the run proceeds and reads it",
+  );
 });
 
 // F2 and F8 of the PR1 review: the core a shell bundles under Codex's plugin
@@ -1155,13 +1732,28 @@ test("converge criterion 'The stop (Codex)': from the core bundled under Codex's
   const bundled = fakePackageRoot(join(n.base, "0.30.0", "node_modules", "projectstore"), "0.30.0");
   const npm = fakeNpmSpawn();
   const reg = registryFetch({ latest: "0.31.0" });
-  const r = await runVerb("upgrade", n.f.project, { root: bundled, home: n.f.home, env: { ...n.bare, XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "ps-codex-xdg-")) }, ask: async () => "n", fetchSpawn: npm.spawn, fetch: reg.fetch, spawn: fakeCodex(n.f) });
+  const r = await runVerb("upgrade", n.f.project, {
+    root: bundled,
+    home: n.f.home,
+    env: { ...n.bare, XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "ps-codex-xdg-")) },
+    ask: async () => "n",
+    fetchSpawn: npm.spawn,
+    fetch: reg.fetch,
+    spawn: fakeCodex(n.f),
+  });
   assert.equal(r.plan.ok, true, JSON.stringify(r.plan.refusals));
   assert.deepEqual(reg.calls, [], "no request");
   assert.deepEqual(npm.calls, [], "no registry resolved, nothing fetched");
-  assert.equal(registration(r.plan).reason, "the registration is at 0.31.0, newer than this package (0.30.0) — not downgraded");
+  assert.equal(
+    registration(r.plan).reason,
+    "the registration is at 0.31.0, newer than this package (0.30.0) — not downgraded",
+  );
   const dry = registration(plan(n.f.project, { ...opts(n.f), root: bundled, version: "0.30.0", env: n.bare }));
-  assert.equal(dry.reason, "the registration is at 0.31.0, newer than this package (0.30.0) — not downgraded", "a root that never checks says nothing of a read");
+  assert.equal(
+    dry.reason,
+    "the registration is at 0.31.0, newer than this package (0.30.0) — not downgraded",
+    "a root that never checks says nothing of a read",
+  );
 });
 
 // The 2026-10-09 amendment: a run that fetches a shell resolves both
@@ -1171,19 +1763,36 @@ test("converge rule 8, amended: a fetching run resolves the project's registry a
   const run = async (registryAt) => {
     const f = coreFixture();
     const chunks = [];
-    const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+    const out = {
+      isTTY: false,
+      write: (s) => {
+        chunks.push(String(s));
+        return true;
+      },
+    };
     const npm = fakeNpmSpawn({ registry: "https://npmrc.example.test/", registryAt: registryAt(f) });
     const r = await runVerb("upgrade", f.project, { ...coreOpts(f), out, ask: async () => "n", fetchSpawn: npm.spawn });
     return { f, r, npm, text: chunks.join("") };
   };
   const differ = await run((f) => ({ [f.home]: "https://registry.npmjs.org/" }));
   const [install] = differ.npm.installs();
-  assert.equal(install.argv[install.argv.indexOf("--registry") + 1], "https://npmrc.example.test/", "the fetch uses the project's");
+  assert.equal(
+    install.argv[install.argv.indexOf("--registry") + 1],
+    "https://npmrc.example.test/",
+    "the fetch uses the project's",
+  );
   const lines = differ.text.split("\n");
   const at = lines.indexOf("      fetched from https://npmrc.example.test/");
   assert.ok(at > 0, differ.text);
   assert.equal(lines[at + 1], "      your npm's own registry is https://registry.npmjs.org/");
-  assert.ok(lines.slice(0, at).reverse().find((l) => /^ {2}\S /.test(l)).includes("projectstore@projectstore-npx"), "beneath the registration's row");
+  assert.ok(
+    lines
+      .slice(0, at)
+      .reverse()
+      .find((l) => /^ {2}\S /.test(l))
+      .includes("projectstore@projectstore-npx"),
+    "beneath the registration's row",
+  );
   assert.ok(!Object.keys(differ.r.plan).includes("fetchedFrom"), "PLAN's, never the envelope's");
   const same = await run(() => ({}));
   assert.ok(!same.text.includes("fetched from "), same.text);
@@ -1198,24 +1807,38 @@ test("converge rule 8, amended: a fetching run resolves the project's registry a
   // An unchanged registration keeps its row while the lines apply, so they
   // show on every run, not only on the run that changed something.
   const p = differ.r.plan;
-  const items = p.items.map((i) => (i.kind === "registration" && !String(i.surface).endsWith("_others") ? { ...i, action: "skip", state: "current", reason: null, deferred: false, steps: [] } : i));
+  const items = p.items.map((i) =>
+    i.kind === "registration" && !String(i.surface).endsWith("_others")
+      ? { ...i, action: "skip", state: "current", reason: null, deferred: false, steps: [] }
+      : i,
+  );
   const quietPlan = { ...p, items };
-  for (const k of ["fetchedFrom", "sharedBlock", "hostManaged", "convergence", "stop"]) if (Object.hasOwn(p, k) || p[k] !== undefined) Object.defineProperty(quietPlan, k, { value: p[k], enumerable: false });
+  for (const k of ["fetchedFrom", "sharedBlock", "hostManaged", "convergence", "stop"])
+    if (Object.hasOwn(p, k) || p[k] !== undefined)
+      Object.defineProperty(quietPlan, k, { value: p[k], enumerable: false });
   const text = renderPreview(quietPlan, { home: differ.f.home });
   assert.ok(text.includes("\n      fetched from https://npmrc.example.test/\n"), text);
-  assert.match(text, /^ {2}\S \S+ +projectstore@projectstore-npx\b/m, "the registration keeps its own row, not folded into the unchanged line");
+  assert.match(
+    text,
+    /^ {2}\S \S+ +projectstore@projectstore-npx\b/m,
+    "the registration keeps its own row, not folded into the unchanged line",
+  );
 });
 
 test("shell fetch: plan() given payloadRoots plans Codex from its root and Claude Code from the core; an entry under another id leaves Codex deferred", () => {
   const f = fixture(V);
-  for (const d of [loadHarness("claude-code").runtime.harness_dir, CODEX.runtime.harness_dir]) mkdirSync(join(f.project, d));
+  for (const d of [loadHarness("claude-code").runtime.harness_dir, CODEX.runtime.harness_dir])
+    mkdirSync(join(f.project, d));
   const { PROJECTSTORE_DISTRIBUTION_ROOT: _named, ...env } = f.env;
   const p = plan(f.project, { root: CORE, home: f.home, env, payloadRoots: { [CODEX.id]: f.root } });
   assert.deepEqual(p.harnesses, ["claude-code", CODEX.id]);
   const codexRow = p.items.find((i) => i.harness === CODEX.id && i.surface === "plugin");
   assert.equal(codexRow.steps.find((s) => s.kind === "portable-write").from, f.root);
   const claude = p.items.find((i) => i.harness === "claude-code" && i.surface === "plugin");
-  assert.ok(claude && !JSON.stringify(claude).includes(f.root), "Claude Code's registration is planned from the core, not the fetched root");
+  assert.ok(
+    claude && !JSON.stringify(claude).includes(f.root),
+    "Claude Code's registration is planned from the core, not the fetched root",
+  );
   assert.equal(p.root, CORE);
   const elsewhere = plan(f.project, { root: CORE, home: f.home, env, payloadRoots: { "claude-code": f.root } });
   const row = elsewhere.items.find((i) => i.harness === CODEX.id && i.surface === "plugin");
@@ -1227,17 +1850,42 @@ test("shell fetch: uninstall --global from the core plans the host's removal, th
   const f = fixture();
   apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) });
   const { PROJECTSTORE_DISTRIBUTION_ROOT: _named, ...env } = f.env;
-  const local = await runVerb("uninstall", f.project, { harnesses: ["codex"], root: CORE, home: f.home, env, json: true, spawn: fakeCodex(f) });
+  const local = await runVerb("uninstall", f.project, {
+    harnesses: ["codex"],
+    root: CORE,
+    home: f.home,
+    env,
+    json: true,
+    spawn: fakeCodex(f),
+  });
   assert.match(registration(local.plan).reason, /^the plugin package and cache are global/);
   assert.ok(!/the core package is not/.test(JSON.stringify(local.plan.items)));
   const called = [];
   const base = fakeCodex(f);
-  const r = await runVerb("uninstall", f.project, { harnesses: ["codex"], surfaces: ["plugin"], root: CORE, home: f.home, env, json: true, globalRemoval: true, spawn: (bin, argv) => { called.push(argv.join(" ")); return base(bin, argv); } });
+  const r = await runVerb("uninstall", f.project, {
+    harnesses: ["codex"],
+    surfaces: ["plugin"],
+    root: CORE,
+    home: f.home,
+    env,
+    json: true,
+    globalRemoval: true,
+    spawn: (bin, argv) => {
+      called.push(argv.join(" "));
+      return base(bin, argv);
+    },
+  });
   const item = registration(r.plan);
   assert.equal(item.action, "remove", JSON.stringify(item));
-  assert.deepEqual(item.steps.map((s) => s.name || s.kind), ["uninstall", "marketplace_remove", "portable-remove"]);
+  assert.deepEqual(
+    item.steps.map((s) => s.name || s.kind),
+    ["uninstall", "marketplace_remove", "portable-remove"],
+  );
   assert.equal(r.failed, null, JSON.stringify(r.failed));
-  assert.deepEqual(called, ["plugin remove projectstore@projectstore-npx", "plugin marketplace remove projectstore-npx"]);
+  assert.deepEqual(called, [
+    "plugin remove projectstore@projectstore-npx",
+    "plugin marketplace remove projectstore-npx",
+  ]);
   assert.equal(existsSync(join(f.home, "projectstore", "marketplace")), false);
   assert.equal(registration(plan(f.project, opts(f))).state, "absent");
 });
@@ -1262,19 +1910,49 @@ test("shell fetch, plan: a dry run calls no npm and makes no cache; create leads
   assert.equal(existsSync(f.cache), false, "plan makes nothing under the cache");
   // A dry-run row handed to apply() stages nothing: there is no payload to copy.
   const host = [];
-  const dry = apply(create, { env: f.env, home: f.home, spawn: (_b, argv) => { host.push(argv.join(" ")); return { status: 0, stdout: "", stderr: "" }; } });
+  const dry = apply(create, {
+    env: f.env,
+    home: f.home,
+    spawn: (_b, argv) => {
+      host.push(argv.join(" "));
+      return { status: 0, stdout: "", stderr: "" };
+    },
+  });
   assert.equal(dry.failed.step, "portable-write");
-  assert.match(dry.failed.stderr, /planned without Codex's payload — its shell was not fetched — so there is nothing to stage; nothing is written/);
+  assert.match(
+    dry.failed.stderr,
+    /planned without Codex's payload — its shell was not fetched — so there is nothing to stage; nothing is written/,
+  );
   assert.deepEqual(host, [], "nothing spawned");
   assert.equal(existsSync(join(f.home, "projectstore")), false, "nothing staged or locked");
-  assert.deepEqual(Object.keys(create).sort(), ["detected", "harnesses", "incomplete", "items", "mode", "named", "ok", "plannedAgainst", "projectDir", "refusals", "reports", "root"], "the 12-key plan object");
+  assert.deepEqual(
+    Object.keys(create).sort(),
+    [
+      "detected",
+      "harnesses",
+      "incomplete",
+      "items",
+      "mode",
+      "named",
+      "ok",
+      "plannedAgainst",
+      "projectDir",
+      "refusals",
+      "reports",
+      "root",
+    ],
+    "the 12-key plan object",
+  );
   // A registration at another version: update.
   const other = fixture("0.28.0+codex.dev.one");
   apply(plan(other.project, opts(other)), { env: other.env, home: other.home, spawn: fakeCodex(other) });
   const { PROJECTSTORE_DISTRIBUTION_ROOT: _a, ...otherEnv } = other.env;
   const update = registration(plan(other.project, planOptions({ ...opts(other), env: otherEnv, root: CORE })));
   assert.equal(update.action, "update");
-  assert.match(update.reason, new RegExp(`installed 0\\.28\\.0\\+codex\\.dev\\.one; package offers ${V.replace(/\./g, "\\.")}`));
+  assert.match(
+    update.reason,
+    new RegExp(`installed 0\\.28\\.0\\+codex\\.dev\\.one; package offers ${V.replace(/\./g, "\\.")}`),
+  );
   // At the package's version, source and cache matching their digest: unchanged.
   const same = fixture(V);
   apply(plan(same.project, opts(same)), { env: same.env, home: same.home, spawn: fakeCodex(same) });
@@ -1286,17 +1964,30 @@ test("shell fetch, plan: a dry run calls no npm and makes no cache; create leads
   assert.ok(!("digestDeferred" in publicItem(registration(current))), "a private flag");
   const quiet = renderPreview(current);
   assert.ok(!/payload digest is compared/.test(quiet), quiet);
-  assert.match(renderPreview(current, { verbose: true }), /current \(the payload digest is compared when install or upgrade fetches the shell\) → skip/);
+  assert.match(
+    renderPreview(current, { verbose: true }),
+    /current \(the payload digest is compared when install or upgrade fetches the shell\) → skip/,
+  );
 });
 
 test("shell fetch, rule 9: the sweep removes a dead run's directory and keeps a live one's and any other name", async () => {
   const f = coreFixture();
   mkdirSync(f.fetchDir, { recursive: true });
-  const dead = "99999999-1700000000000", live = `${process.ppid}-1700000000000`, other = "keep-me", near = "123-abc";
-  for (const n of [dead, live, other, near]) { mkdirSync(join(f.fetchDir, n)); writeFileSync(join(f.fetchDir, n, "x"), "x"); }
+  const dead = "99999999-1700000000000",
+    live = `${process.ppid}-1700000000000`,
+    other = "keep-me",
+    near = "123-abc";
+  for (const n of [dead, live, other, near]) {
+    mkdirSync(join(f.fetchDir, n));
+    writeFileSync(join(f.fetchDir, n, "x"), "x");
+  }
   const r = await runVerb("install", f.project, { ...coreOpts(f), json: true, fetchSpawn: fakeNpmSpawn().spawn });
   assert.equal(r.failed, null);
-  assert.deepEqual(readdirSync(f.fetchDir).sort(), [live, near, other].sort(), "the fetching run swept the dead one, and removed its own");
+  assert.deepEqual(
+    readdirSync(f.fetchDir).sort(),
+    [live, near, other].sort(),
+    "the fetching run swept the dead one, and removed its own",
+  );
   assert.deepEqual(sweepFetchRuns(f.fetchDir), [], "nothing else is dead");
   assert.deepEqual(sweepFetchRuns(join(f.base, "nowhere")), [], "no directory, nothing to do");
 });

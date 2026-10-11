@@ -17,7 +17,31 @@ import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, realpa
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { readLatest, decide, proceedCase, updateNotice, runningCopies, isSemver, newerCopyDeferral, channelChoices, advised, repairAdvice, checksRoot, noticeRoot, hostCopyRoot, coreCommand, switchReason, switchConsequence, pinFor, readKeepPlan, DEFAULT_REGISTRY, ACCEPT, FRESH_MS, READ_TIMEOUT_MS, NO_CHECK_ENV } from "../scripts/convergence.mjs";
+import {
+  readLatest,
+  decide,
+  proceedCase,
+  updateNotice,
+  runningCopies,
+  isSemver,
+  newerCopyDeferral,
+  channelChoices,
+  advised,
+  repairAdvice,
+  checksRoot,
+  noticeRoot,
+  hostCopyRoot,
+  coreCommand,
+  switchReason,
+  switchConsequence,
+  pinFor,
+  readKeepPlan,
+  DEFAULT_REGISTRY,
+  ACCEPT,
+  FRESH_MS,
+  READ_TIMEOUT_MS,
+  NO_CHECK_ENV,
+} from "../scripts/convergence.mjs";
 import { registrationPaths, analyseRegistration } from "../scripts/surfaces.mjs";
 import { portableRegistrationPaths } from "../scripts/portable-registration.mjs";
 import { runVerb, plan } from "../scripts/install-harness.mjs";
@@ -25,6 +49,7 @@ import { npmUserRegistry } from "../scripts/fetch-shell.mjs";
 import { sourceHarness, loadHarness, cachePaths } from "../scripts/harness.mjs";
 import { fakeInstall, fakePackageRoot, noHostEnv, writeRegistry } from "./fixtures/install.mjs";
 import { fakeNpmSpawn, FAKE_REGISTRY, registryFetch, instantTimers } from "./fixtures/fetch.mjs";
+import { importSpecifiers } from "./fixtures/imports.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
@@ -46,14 +71,24 @@ test("converge rule 8: one GET <registry>/projectstore with the abbreviated Acce
   const r = await readLatest({ registry: "https://registry.example.test/", cachePath, fetch: reg.fetch, now: () => t });
   assert.deepEqual(r, { latest: "0.30.1", from: "network", error: null });
   assert.equal(reg.calls.length, 1);
-  assert.equal(reg.calls[0].url, "https://registry.example.test/projectstore", "one slash between the registry and the name");
+  assert.equal(
+    reg.calls[0].url,
+    "https://registry.example.test/projectstore",
+    "one slash between the registry and the name",
+  );
   assert.equal(reg.calls[0].accept, ACCEPT);
   assert.equal(ACCEPT, "application/vnd.npm.install-v1+json");
   const at = new Date(T0).toISOString();
-  assert.deepEqual(readJson(cachePath), { "https://registry.example.test/": { latest: "0.30.1", at }, user_latest: { latest: "0.30.1", at, published_at: null } });
+  assert.deepEqual(readJson(cachePath), {
+    "https://registry.example.test/": { latest: "0.30.1", at },
+    user_latest: { latest: "0.30.1", at, published_at: null },
+  });
   // Within 24 h: no request.
   t = T0 + DAY - 1;
-  assert.deepEqual(await readLatest({ registry: "https://registry.example.test/", cachePath, fetch: reg.fetch, now: () => t }), { latest: "0.30.1", from: "cache", error: null });
+  assert.deepEqual(
+    await readLatest({ registry: "https://registry.example.test/", cachePath, fetch: reg.fetch, now: () => t }),
+    { latest: "0.30.1", from: "cache", error: null },
+  );
   assert.equal(reg.calls.length, 1, "a second run within a day makes no request");
   // After 24 h: one.
   t = T0 + DAY + 1;
@@ -68,15 +103,31 @@ test("converge rule 8: one GET <registry>/projectstore with the abbreviated Acce
   assert.equal(c.user_latest.latest, "1.0.0", "each write sets user_latest");
   // An `at` in the future is stale.
   const future = join(tmp("ps-conv-future-"), "registry.json");
-  writeFileSync(future, JSON.stringify({ [DEFAULT_REGISTRY]: { latest: "0.30.1", at: new Date(T0 + 3600e3).toISOString() } }));
+  writeFileSync(
+    future,
+    JSON.stringify({ [DEFAULT_REGISTRY]: { latest: "0.30.1", at: new Date(T0 + 3600e3).toISOString() } }),
+  );
   const f = registryFetch({ latest: "0.30.2" });
-  assert.equal((await readLatest({ registry: DEFAULT_REGISTRY, cachePath: future, fetch: f.fetch, now: () => T0 })).latest, "0.30.2");
+  assert.equal(
+    (await readLatest({ registry: DEFAULT_REGISTRY, cachePath: future, fetch: f.fetch, now: () => T0 })).latest,
+    "0.30.2",
+  );
   assert.equal(f.calls.length, 1, "an entry dated in the future is read again");
   // A publish time this read never learns is kept for the same latest, and dropped for another.
-  writeFileSync(future, JSON.stringify({ user_latest: { latest: "0.30.2", at: new Date(T0).toISOString(), published_at: "2026-10-10T00:00:00.000Z" } }));
+  writeFileSync(
+    future,
+    JSON.stringify({
+      user_latest: { latest: "0.30.2", at: new Date(T0).toISOString(), published_at: "2026-10-10T00:00:00.000Z" },
+    }),
+  );
   await readLatest({ registry: DEFAULT_REGISTRY, cachePath: future, fetch: f.fetch, now: () => T0 });
   assert.equal(readJson(future).user_latest.published_at, "2026-10-10T00:00:00.000Z");
-  await readLatest({ registry: DEFAULT_REGISTRY, cachePath: future, fetch: registryFetch({ latest: "0.30.3" }).fetch, now: () => T0 + DAY + 1 });
+  await readLatest({
+    registry: DEFAULT_REGISTRY,
+    cachePath: future,
+    fetch: registryFetch({ latest: "0.30.3" }).fetch,
+    now: () => T0 + DAY + 1,
+  });
   assert.equal(readJson(future).user_latest.published_at, null);
 });
 
@@ -85,32 +136,73 @@ test("converge rule 8: a corrupt cache is overwritten, an unwritable one changes
   const cachePath = join(dir, "registry.json");
   writeFileSync(cachePath, "{ not json");
   const reg = registryFetch({ latest: "0.30.1" });
-  assert.equal((await readLatest({ registry: DEFAULT_REGISTRY, cachePath, fetch: reg.fetch, now: () => T0 })).latest, "0.30.1");
-  assert.equal(readJson(cachePath)[DEFAULT_REGISTRY].latest, "0.30.1", "the next answer overwrites a file that is not JSON");
+  assert.equal(
+    (await readLatest({ registry: DEFAULT_REGISTRY, cachePath, fetch: reg.fetch, now: () => T0 })).latest,
+    "0.30.1",
+  );
+  assert.equal(
+    readJson(cachePath)[DEFAULT_REGISTRY].latest,
+    "0.30.1",
+    "the next answer overwrites a file that is not JSON",
+  );
   writeFileSync(cachePath, "[1, 2]");
   await readLatest({ registry: DEFAULT_REGISTRY, cachePath, fetch: reg.fetch, now: () => T0 });
   assert.equal(readJson(cachePath)[DEFAULT_REGISTRY].latest, "0.30.1", "and so does one that is not an object");
   // A cache path under a regular file: nothing can be written, the answer stands.
   const blocker = join(dir, "a-file");
   writeFileSync(blocker, "x");
-  const r = await readLatest({ registry: DEFAULT_REGISTRY, cachePath: join(blocker, "projectstore", "registry.json"), fetch: reg.fetch, now: () => T0 });
+  const r = await readLatest({
+    registry: DEFAULT_REGISTRY,
+    cachePath: join(blocker, "projectstore", "registry.json"),
+    fetch: reg.fetch,
+    now: () => T0,
+  });
   assert.deepEqual(r, { latest: "0.30.1", from: "network", error: null });
   // A fresh entry below the lowest newer copy is read again: a release may have come out since.
   const again = registryFetch({ latest: "0.31.0" });
-  assert.equal((await readLatest({ registry: DEFAULT_REGISTRY, cachePath, fetch: again.fetch, now: () => T0 + 1, atLeast: "0.31.0" })).latest, "0.31.0");
+  assert.equal(
+    (
+      await readLatest({
+        registry: DEFAULT_REGISTRY,
+        cachePath,
+        fetch: again.fetch,
+        now: () => T0 + 1,
+        atLeast: "0.31.0",
+      })
+    ).latest,
+    "0.31.0",
+  );
   assert.equal(again.calls.length, 1);
-  assert.equal((await readLatest({ registry: DEFAULT_REGISTRY, cachePath, fetch: again.fetch, now: () => T0 + 2, atLeast: "0.31.0" })).from, "cache", "an entry that reaches it answers");
+  assert.equal(
+    (
+      await readLatest({
+        registry: DEFAULT_REGISTRY,
+        cachePath,
+        fetch: again.fetch,
+        now: () => T0 + 2,
+        atLeast: "0.31.0",
+      })
+    ).from,
+    "cache",
+    "an entry that reaches it answers",
+  );
 });
 
 test("converge rule 8: a rejected fetch, a 500, a body that is not JSON, a latest that is not strict semver and a fetch that never settles each answer nothing, and nothing is cached", async () => {
-  for (const [mode, why] of [["reject", /ECONNREFUSED/], [500, /HTTP 500/], ["not-json", /not JSON/], ["no-tag", /no dist-tags\.latest/]]) {
+  for (const [mode, why] of [
+    ["reject", /ECONNREFUSED/],
+    [500, /HTTP 500/],
+    ["not-json", /not JSON/],
+    ["no-tag", /no dist-tags\.latest/],
+  ]) {
     const cachePath = join(tmp("ps-conv-fail-"), "registry.json");
     const reg = registryFetch(mode);
     const r = await readLatest({ registry: DEFAULT_REGISTRY, cachePath, fetch: reg.fetch, now: () => T0 });
     assert.equal(r.latest, null, String(mode));
     assert.match(r.error, why, String(mode));
     assert.equal(existsSync(cachePath), false, `${mode}: a failed read is not cached`);
-    if (mode === 500) assert.equal(reg.calls[0].cancelled, true, "an error status's body is cancelled, so its connection is released");
+    if (mode === 500)
+      assert.equal(reg.calls[0].cancelled, true, "an error status's body is cancelled, so its connection is released");
   }
   const timers = instantTimers();
   const hang = registryFetch("hang");
@@ -120,7 +212,20 @@ test("converge rule 8: a rejected fetch, a 500, a body that is not JSON, a lates
   assert.deepEqual(timers.asked, [2000], "a 2 s bound");
   assert.deepEqual(r, { latest: null, from: "network", error: "no answer within 2 s" });
   assert.equal(hang.calls[0].signal.aborted, true, "the request is aborted at the bound");
-  for (const [v, ok] of [["0.30.0", true], ["0.30.0-rc.1", true], ["1.0.0+build.5", true], ["10.20.30-alpha.beta-1", true], ["v1.0.0", false], ["1.0", false], ["01.0.0", false], ["1.0.0-01", false], ["latest", false], ["", false], [null, false]]) assert.equal(isSemver(v), ok, String(v));
+  for (const [v, ok] of [
+    ["0.30.0", true],
+    ["0.30.0-rc.1", true],
+    ["1.0.0+build.5", true],
+    ["10.20.30-alpha.beta-1", true],
+    ["v1.0.0", false],
+    ["1.0", false],
+    ["01.0.0", false],
+    ["1.0.0-01", false],
+    ["latest", false],
+    ["", false],
+    [null, false],
+  ])
+    assert.equal(isSemver(v), ok, String(v));
 });
 
 // ─── Stop or proceed ────────────────────────────────────────────────────
@@ -130,16 +235,46 @@ test("converge rule 6: the stop names the newest published copy, both versions a
   const args = { harnesses: [SRC.id], surfaces: null, register: true };
   const stop = decide({ copies: [npmRow], version: "0.30.0", read: { latest: "0.31.0" }, verb: "upgrade", args });
   assert.ok(stop.stop);
-  assert.equal(stop.stop.lead, "this project runs projectstore 0.31.0 (projectstore@projectstore-npm), newer than this package (0.30.0), and 0.31.0 is published. Nothing is written. Run the newer one from a terminal in this project:");
-  assert.deepEqual(stop.stop.commands, [`npx projectstore@latest upgrade --harness ${SRC.id}`, "npm install -g projectstore@latest"]);
+  assert.equal(
+    stop.stop.lead,
+    "this project runs projectstore 0.31.0 (projectstore@projectstore-npm), newer than this package (0.30.0), and 0.31.0 is published. Nothing is written. Run the newer one from a terminal in this project:",
+  );
+  assert.deepEqual(stop.stop.commands, [
+    `npx projectstore@latest upgrade --harness ${SRC.id}`,
+    "npm install -g projectstore@latest",
+  ]);
   assert.equal(stop.stop.between, "or install it for the whole machine:");
-  assert.equal(stop.stop.text, [stop.stop.lead, ...stop.stop.commands.flatMap((c, k) => (k ? [stop.stop.between, c] : [c]))].join("\n"), "the refusal's text: each command on its own line, nothing after it");
-  const narrowed = decide({ copies: [npmRow], version: "0.30.0", read: { latest: "0.31.0" }, verb: "install", args: { harnesses: [SRC.id, CODEX.id], surfaces: ["agents_block"], register: false } });
-  assert.equal(narrowed.stop.commands[0], `npx projectstore@latest install --harness ${SRC.id} --harness ${CODEX.id} --surface agents_block --no-register`);
+  assert.equal(
+    stop.stop.text,
+    [stop.stop.lead, ...stop.stop.commands.flatMap((c, k) => (k ? [stop.stop.between, c] : [c]))].join("\n"),
+    "the refusal's text: each command on its own line, nothing after it",
+  );
+  const narrowed = decide({
+    copies: [npmRow],
+    version: "0.30.0",
+    read: { latest: "0.31.0" },
+    verb: "install",
+    args: { harnesses: [SRC.id, CODEX.id], surfaces: ["agents_block"], register: false },
+  });
+  assert.equal(
+    narrowed.stop.commands[0],
+    `npx projectstore@latest install --harness ${SRC.id} --harness ${CODEX.id} --surface agents_block --no-register`,
+  );
   assert.ok(!narrowed.stop.text.includes("--project"));
-  assert.equal(decide({ copies: [npmRow], version: "0.30.0", read: { latest: "0.31.0" }, verb: "upgrade" }).stop.commands[0], "npx projectstore@latest upgrade", "a bare run names no harness");
+  assert.equal(
+    decide({ copies: [npmRow], version: "0.30.0", read: { latest: "0.31.0" }, verb: "upgrade" }).stop.commands[0],
+    "npx projectstore@latest upgrade",
+    "a bare run names no harness",
+  );
   // Of two newer copies, the newest the registry reaches is named.
-  const two = decide({ copies: [{ ...npmRow, version: "0.30.5" }, { harness: CODEX.id, key: "projectstore@projectstore-npx", version: "0.31.0" }], version: "0.30.0", read: { latest: "0.30.5" } });
+  const two = decide({
+    copies: [
+      { ...npmRow, version: "0.30.5" },
+      { harness: CODEX.id, key: "projectstore@projectstore-npx", version: "0.31.0" },
+    ],
+    version: "0.30.0",
+    read: { latest: "0.30.5" },
+  });
   assert.match(two.stop.lead, /runs projectstore 0\.30\.5 \(projectstore@projectstore-npm\)/);
   // Proceed: below the copy, a candidate only `next` carries, no answer, the switch off.
   for (const [read, skipped, words] of [
@@ -151,12 +286,27 @@ test("converge rule 6: the stop names the newest published copy, both versions a
     assert.equal(d.stop, null, words);
     assert.equal(proceedCase(d, "0.31.0"), words);
   }
-  assert.equal(decide({ copies: [{ ...npmRow, version: "0.31.0-rc.1" }], version: "0.30.0", read: { latest: "0.30.0" } }).stop, null, "a candidate on next is not published for the stop");
-  assert.equal(decide({ copies: [{ ...npmRow, version: "0.29.0" }], version: "0.30.0", read: { latest: "0.31.0" } }).stop, null, "an older copy never stops");
-  assert.equal(proceedCase(null, "0.31.0"), "install and upgrade read the registry first, and stop when 0.31.0 is published", "plan's dry run reads nothing and says so");
+  assert.equal(
+    decide({ copies: [{ ...npmRow, version: "0.31.0-rc.1" }], version: "0.30.0", read: { latest: "0.30.0" } }).stop,
+    null,
+    "a candidate on next is not published for the stop",
+  );
+  assert.equal(
+    decide({ copies: [{ ...npmRow, version: "0.29.0" }], version: "0.30.0", read: { latest: "0.31.0" } }).stop,
+    null,
+    "an older copy never stops",
+  );
+  assert.equal(
+    proceedCase(null, "0.31.0"),
+    "install and upgrade read the registry first, and stop when 0.31.0 is published",
+    "plan's dry run reads nothing and says so",
+  );
   assert.equal(proceedCase({ checks: false }, "0.31.0"), null, "a host cache copy never checks");
   assert.equal(NO_CHECK_ENV, "PROJECTSTORE_NO_UPDATE_CHECK");
-  assert.deepEqual(repairAdvice(CODEX, "0.31.0"), { lead: "not downgraded — repair it from its own version:", command: `npx projectstore@0.31.0 upgrade --harness ${CODEX.id}` });
+  assert.deepEqual(repairAdvice(CODEX, "0.31.0"), {
+    lead: "not downgraded — repair it from its own version:",
+    command: `npx projectstore@0.31.0 upgrade --harness ${CODEX.id}`,
+  });
   assert.equal(coreCommand("upgrade", { version: "latest" }), "npx projectstore@latest upgrade");
 });
 
@@ -164,28 +314,79 @@ test("converge rule 6, the deferral (as the setup story's rule 17 words it): one
   const copy = { key: "projectstore@SmartAndPoint", version: "0.31.0", path: tmp("ps-conv-copy-") };
   const blocks = channelChoices({ harness: SRC, copy, running: "0.30.0" });
   assert.deepEqual(blocks, [
-    { lead: "Choose at a terminal in this project; setup asks whether to keep that copy or switch:", command: `npx projectstore setup --harness ${SRC.id}` },
-    { lead: "Without a terminal, keep projectstore@SmartAndPoint, which then writes this project's surfaces itself:", command: `npx projectstore setup --harness ${SRC.id} --channel git` },
-    { lead: "Or move this project to this package's npm install, the older 0.30.0:", command: `npx projectstore setup --harness ${SRC.id} --channel npm` },
+    {
+      lead: "Choose at a terminal in this project; setup asks whether to keep that copy or switch:",
+      command: `npx projectstore setup --harness ${SRC.id}`,
+    },
+    {
+      lead: "Without a terminal, keep projectstore@SmartAndPoint, which then writes this project's surfaces itself:",
+      command: `npx projectstore setup --harness ${SRC.id} --channel git`,
+    },
+    {
+      lead: "Or move this project to this package's npm install, the older 0.30.0:",
+      command: `npx projectstore setup --harness ${SRC.id} --channel npm`,
+    },
   ]);
-  const d = newerCopyDeferral({ copy, running: "0.30.0", decision: decide({ copies: [], version: "0.30.0", read: { latest: "0.30.0" } }), harness: SRC });
-  assert.equal(d.advice.text, "this project runs a newer copy (projectstore@SmartAndPoint 0.31.0) than this package (0.30.0), so it is not switched off — the registry's latest (0.30.0) does not reach 0.31.0.");
+  const d = newerCopyDeferral({
+    copy,
+    running: "0.30.0",
+    decision: decide({ copies: [], version: "0.30.0", read: { latest: "0.30.0" } }),
+    harness: SRC,
+  });
+  assert.equal(
+    d.advice.text,
+    "this project runs a newer copy (projectstore@SmartAndPoint 0.31.0) than this package (0.30.0), so it is not switched off — the registry's latest (0.30.0) does not reach 0.31.0.",
+  );
   assert.deepEqual(d.advice.blocks, blocks);
-  assert.equal(d.reason, [d.advice.text, ...blocks.flatMap((b) => [b.lead, b.command])].join("\n"), "the envelope's reason: every part on its own line");
+  assert.equal(
+    d.reason,
+    [d.advice.text, ...blocks.flatMap((b) => [b.lead, b.command])].join("\n"),
+    "the envelope's reason: every part on its own line",
+  );
   for (const line of d.reason.split("\n")) assert.ok(!/`/.test(line), line);
   // Pinned on a package root, and only there.
-  const pinned = newerCopyDeferral({ copy, running: "0.30.0", decision: null, harness: SRC, pin: pinFor(join(tmp("ps-conv-npx-"), "node_modules", "projectstore"), "0.30.0") });
-  assert.deepEqual(pinned.advice.blocks.map((b) => b.command), blocks.map((b) => b.command.replace("npx projectstore ", "npx projectstore@0.30.0 ")));
+  const pinned = newerCopyDeferral({
+    copy,
+    running: "0.30.0",
+    decision: null,
+    harness: SRC,
+    pin: pinFor(join(tmp("ps-conv-npx-"), "node_modules", "projectstore"), "0.30.0"),
+  });
+  assert.deepEqual(
+    pinned.advice.blocks.map((b) => b.command),
+    blocks.map((b) => b.command.replace("npx projectstore ", "npx projectstore@0.30.0 ")),
+  );
   assert.equal(pinFor(ROOT, "0.30.0"), null, "a checkout names no version");
   assert.equal(pinFor(join(tmp("ps-conv-npx-"), "node_modules", "projectstore"), null), null);
   // The gate: the run's own --harness in each command, the terminal run first, a lead-less block last.
   const gate = channelChoices({ gate: { args: { harnesses: [SRC.id] }, keys: [copy.key], version: "0.30.0" } });
-  assert.deepEqual(gate.map((b) => b.command), ["", " --channel npm", " --channel git"].map((x) => `npx projectstore@0.30.0 setup --harness ${SRC.id}${x}`));
-  assert.deepEqual(gate.map((b) => b.lead), [`Nothing written: this project loads projectstore from the git marketplace (${copy.key}), and moving it to the npm install is a choice made at a terminal in this project:`, "Without a terminal, name the channel:", null]);
-  assert.deepEqual(channelChoices({ gate: { keys: [] } }).map((b) => b.command), ["npx projectstore setup", "npx projectstore setup --channel npm", "npx projectstore setup --channel git"], "a bare run's gate: the story's three commands");
-  assert.equal(switchConsequence(), "this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by npx projectstore setup");
+  assert.deepEqual(
+    gate.map((b) => b.command),
+    ["", " --channel npm", " --channel git"].map((x) => `npx projectstore@0.30.0 setup --harness ${SRC.id}${x}`),
+  );
+  assert.deepEqual(
+    gate.map((b) => b.lead),
+    [
+      `Nothing written: this project loads projectstore from the git marketplace (${copy.key}), and moving it to the npm install is a choice made at a terminal in this project:`,
+      "Without a terminal, name the channel:",
+      null,
+    ],
+  );
+  assert.deepEqual(
+    channelChoices({ gate: { keys: [] } }).map((b) => b.command),
+    ["npx projectstore setup", "npx projectstore setup --channel npm", "npx projectstore setup --channel git"],
+    "a bare run's gate: the story's three commands",
+  );
+  assert.equal(
+    switchConsequence(),
+    "this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by npx projectstore setup",
+  );
   assert.deepEqual(advised("prose", []), { reason: "prose", advice: { text: "prose", blocks: [] } });
-  assert.equal(advised("prose", [{ lead: null, command: "x" }]).reason, "prose\nx", "a lead-less block adds its command alone");
+  assert.equal(
+    advised("prose", [{ lead: null, command: "x" }]).reason,
+    "prose\nx",
+    "a lead-less block adds its command alone",
+  );
 });
 
 test("converge rule 6: the copies a project runs are contract 12's rows of any marketplace — never another checkout's, never one disabled for it — and none for Claude Code under the git channel", () => {
@@ -196,17 +397,63 @@ test("converge rule 6: the copies a project runs are contract 12's rows of any m
   const npm = fakeInstall(home, "0.30.5", { marketplace: SRC.surfaces.plugin.marketplace_name });
   const elsewhere = fakeInstall(home, "0.40.0", { marketplace: "Fork" });
   const dir = join(home, SRC.runtime.home_default, "plugins");
-  writeFileSync(join(dir, "installed_plugins.json"), JSON.stringify({ version: 2, plugins: {
-    "projectstore@SmartAndPoint": [{ scope: "user", installPath: git, version: "0.31.0", lastUpdated: "2026-10-01T00:00:00Z" }],
-    [`projectstore@${SRC.surfaces.plugin.marketplace_name}`]: [{ scope: "local", projectPath: proj, installPath: npm, version: "0.30.5", lastUpdated: "2026-10-02T00:00:00Z" }],
-    "projectstore@Fork": [{ scope: "local", projectPath: "/another/checkout", installPath: elsewhere, version: "0.40.0", lastUpdated: "2026-10-03T00:00:00Z" }],
-  } }));
+  writeFileSync(
+    join(dir, "installed_plugins.json"),
+    JSON.stringify({
+      version: 2,
+      plugins: {
+        "projectstore@SmartAndPoint": [
+          { scope: "user", installPath: git, version: "0.31.0", lastUpdated: "2026-10-01T00:00:00Z" },
+        ],
+        [`projectstore@${SRC.surfaces.plugin.marketplace_name}`]: [
+          {
+            scope: "local",
+            projectPath: proj,
+            installPath: npm,
+            version: "0.30.5",
+            lastUpdated: "2026-10-02T00:00:00Z",
+          },
+        ],
+        "projectstore@Fork": [
+          {
+            scope: "local",
+            projectPath: "/another/checkout",
+            installPath: elsewhere,
+            version: "0.40.0",
+            lastUpdated: "2026-10-03T00:00:00Z",
+          },
+        ],
+      },
+    }),
+  );
   const copies = runningCopies(proj, { harnesses: [SRC.id], root: ROOT, home, env: noHostEnv() });
-  assert.deepEqual(copies.map((c) => [c.key, c.version, c.own]), [[`projectstore@${SRC.surfaces.plugin.marketplace_name}`, "0.30.5", true], ["projectstore@SmartAndPoint", "0.31.0", false]], "this checkout's row first, then user scope; another checkout's row never");
-  writeFileSync(join(proj, SRC.runtime.harness_dir, "settings.local.json"), JSON.stringify({ enabledPlugins: { "projectstore@SmartAndPoint": false } }));
-  assert.deepEqual(runningCopies(proj, { harnesses: [SRC.id], root: ROOT, home, env: noHostEnv() }).map((c) => c.key), [`projectstore@${SRC.surfaces.plugin.marketplace_name}`], "a copy off for this checkout is not one it runs");
-  assert.deepEqual(runningCopies(proj, { harnesses: [SRC.id], root: ROOT, home, env: noHostEnv(), channel: "git" }), [], "under keep, our run renders nothing for Claude Code");
-  assert.deepEqual(runningCopies(proj, { harnesses: [SRC.id], root: ROOT, home, env: noHostEnv(), channel: "npm" }).length, 1, "a switch counts them as null does");
+  assert.deepEqual(
+    copies.map((c) => [c.key, c.version, c.own]),
+    [
+      [`projectstore@${SRC.surfaces.plugin.marketplace_name}`, "0.30.5", true],
+      ["projectstore@SmartAndPoint", "0.31.0", false],
+    ],
+    "this checkout's row first, then user scope; another checkout's row never",
+  );
+  writeFileSync(
+    join(proj, SRC.runtime.harness_dir, "settings.local.json"),
+    JSON.stringify({ enabledPlugins: { "projectstore@SmartAndPoint": false } }),
+  );
+  assert.deepEqual(
+    runningCopies(proj, { harnesses: [SRC.id], root: ROOT, home, env: noHostEnv() }).map((c) => c.key),
+    [`projectstore@${SRC.surfaces.plugin.marketplace_name}`],
+    "a copy off for this checkout is not one it runs",
+  );
+  assert.deepEqual(
+    runningCopies(proj, { harnesses: [SRC.id], root: ROOT, home, env: noHostEnv(), channel: "git" }),
+    [],
+    "under keep, our run renders nothing for Claude Code",
+  );
+  assert.deepEqual(
+    runningCopies(proj, { harnesses: [SRC.id], root: ROOT, home, env: noHostEnv(), channel: "npm" }).length,
+    1,
+    "a switch counts them as null does",
+  );
   // Who checks: a package root and a checkout; a host cache copy never. Who shows the notice: a package root.
   assert.equal(checksRoot(join(tmp("ps-conv-npx-"), "_npx", "1", "node_modules", "projectstore"), { home }), true);
   assert.equal(checksRoot(ROOT, { home }), true);
@@ -220,13 +467,27 @@ test("converge rule 6: the copies a project runs are contract 12's rows of any m
   // the core a harness's shell bundles under that harness's plugin cache.
   const env = noHostEnv();
   const payload = registrationPaths(SRC.surfaces.plugin, { home, harness: SRC }).payload;
-  const bundled = join(portableRegistrationPaths(CODEX.surfaces.plugin, { home, projectDir: home, harness: CODEX, env }).cacheDir, CODEX.surfaces.plugin.marketplace_name, CODEX.surfaces.plugin.plugin_name, "0.30.0", "node_modules", "projectstore");
-  for (const [root, label] of [[payload, "the marketplace directory's plugin"], [bundled, "the core under Codex's plugin cache"]]) {
+  const bundled = join(
+    portableRegistrationPaths(CODEX.surfaces.plugin, { home, projectDir: home, harness: CODEX, env }).cacheDir,
+    CODEX.surfaces.plugin.marketplace_name,
+    CODEX.surfaces.plugin.plugin_name,
+    "0.30.0",
+    "node_modules",
+    "projectstore",
+  );
+  for (const [root, label] of [
+    [payload, "the marketplace directory's plugin"],
+    [bundled, "the core under Codex's plugin cache"],
+  ]) {
     assert.equal(hostCopyRoot(root, { home, env }), true, label);
     assert.equal(checksRoot(root, { home, env }), false, `${label}: never stops`);
     assert.equal(noticeRoot(root, { home, env }), false, `${label}: never told to update`);
   }
-  assert.equal(hostCopyRoot(join(tmp("ps-conv-npx-"), "_npx", "1", "node_modules", "projectstore"), { home, env }), false, "an npx root is the package");
+  assert.equal(
+    hostCopyRoot(join(tmp("ps-conv-npx-"), "_npx", "1", "node_modules", "projectstore"), { home, env }),
+    false,
+    "an npx root is the package",
+  );
 });
 
 // F9 of the PR1 review: one selection decides "a copy enabled for this
@@ -243,34 +504,78 @@ test("converge rule 6: two rows of one key — a user-scope row listed first and
     { scope: "local", projectPath: proj, installPath: own, version: "0.31.0", lastUpdated: "2026-10-01T00:00:00Z" },
   ]);
   const copies = runningCopies(proj, { harnesses: [SRC.id], root: ROOT, home, env: noHostEnv() });
-  assert.deepEqual(copies.map((c) => [c.key, c.version]), [["projectstore@SmartAndPoint", "0.31.0"]]);
-  const others = analyseRegistration(proj, SRC.surfaces.plugin, { root: NPX_ROOT, home, harness: SRC, env: noHostEnv() }).others;
-  assert.deepEqual(others.map((o) => [o.key, o.version]), [["projectstore@SmartAndPoint", "0.31.0"]]);
+  assert.deepEqual(
+    copies.map((c) => [c.key, c.version]),
+    [["projectstore@SmartAndPoint", "0.31.0"]],
+  );
+  const others = analyseRegistration(proj, SRC.surfaces.plugin, {
+    root: NPX_ROOT,
+    home,
+    harness: SRC,
+    env: noHostEnv(),
+  }).others;
+  assert.deepEqual(
+    others.map((o) => [o.key, o.version]),
+    [["projectstore@SmartAndPoint", "0.31.0"]],
+  );
 });
 
 test("converge rule 8: the notice's text, and its command per root — npx under _npx, the global install anywhere else; none at or below the running version", () => {
   const npx = join("/x", "_npx", "4f1c", "node_modules", "projectstore");
-  assert.deepEqual(updateNotice({ latest: "0.30.1", version: "0.30.0", root: npx, verb: "upgrade" }), { latest: "0.30.1", text: "newer published: 0.30.1 (this is 0.30.0). To update:", command: "npx projectstore@latest upgrade" });
-  assert.equal(updateNotice({ latest: "0.30.1", version: "0.30.0", root: npx, verb: "install" }).command, "npx projectstore@latest install");
-  assert.equal(updateNotice({ latest: "0.30.1", version: "0.30.0", root: "/usr/local/lib/node_modules/projectstore", verb: "upgrade" }).command, "npm install -g projectstore@latest");
-  for (const latest of ["0.30.0", "0.29.9", "0.30.0-rc.9", "v0.31.0", null]) assert.equal(updateNotice({ latest, version: "0.30.0", root: npx }), null, String(latest));
+  assert.deepEqual(updateNotice({ latest: "0.30.1", version: "0.30.0", root: npx, verb: "upgrade" }), {
+    latest: "0.30.1",
+    text: "newer published: 0.30.1 (this is 0.30.0). To update:",
+    command: "npx projectstore@latest upgrade",
+  });
+  assert.equal(
+    updateNotice({ latest: "0.30.1", version: "0.30.0", root: npx, verb: "install" }).command,
+    "npx projectstore@latest install",
+  );
+  assert.equal(
+    updateNotice({
+      latest: "0.30.1",
+      version: "0.30.0",
+      root: "/usr/local/lib/node_modules/projectstore",
+      verb: "upgrade",
+    }).command,
+    "npm install -g projectstore@latest",
+  );
+  for (const latest of ["0.30.0", "0.29.9", "0.30.0-rc.9", "v0.31.0", null])
+    assert.equal(updateNotice({ latest, version: "0.30.0", root: npx }), null, String(latest));
 });
 
 test("converge rule 8, amended 2026-10-09: the user's registry is npm config get registry run from the home directory, with every lowercase npm_config_* removed", async () => {
   const home = tmp("ps-conv-userreg-");
   const npm = fakeNpmSpawn();
-  const env = { PATH: "/nowhere", npm_config_registry: "https://outer-npx.example.test/", npm_config_cache: "/c", NPM_CONFIG_REGISTRY: "https://upper.example.test/", HOME: home };
+  const env = {
+    PATH: "/nowhere",
+    npm_config_registry: "https://outer-npx.example.test/",
+    npm_config_cache: "/c",
+    NPM_CONFIG_REGISTRY: "https://upper.example.test/",
+    HOME: home,
+  };
   assert.equal(await npmUserRegistry({ home, env, spawn: npm.spawn }), FAKE_REGISTRY);
   const [call] = npm.calls;
   assert.deepEqual(call.argv, ["config", "get", "registry", "--no-update-notifier"]);
   assert.equal(call.cwd, home);
-  assert.deepEqual(Object.keys(call.env).filter((k) => /^npm_config_/i.test(k)), ["NPM_CONFIG_REGISTRY"], "only the uppercase form survives");
-  assert.equal(await npmUserRegistry({ home, env, spawn: fakeNpmSpawn({ registryMode: "hang" }).spawn, budget: 50 }), null, "a read that runs past its budget is no answer");
+  assert.deepEqual(
+    Object.keys(call.env).filter((k) => /^npm_config_/i.test(k)),
+    ["NPM_CONFIG_REGISTRY"],
+    "only the uppercase form survives",
+  );
+  assert.equal(
+    await npmUserRegistry({ home, env, spawn: fakeNpmSpawn({ registryMode: "hang" }).spawn, budget: 50 }),
+    null,
+    "a read that runs past its budget is no answer",
+  );
 });
 
 // ─── Through runVerb, in text ───────────────────────────────────────────
 
-const NPX_ROOT = fakePackageRoot(join(tmp("ps-conv-pkg-"), "_npx", "4f1c2a9e7b3d5c60", "node_modules", "projectstore"), "0.30.0");
+const NPX_ROOT = fakePackageRoot(
+  join(tmp("ps-conv-pkg-"), "_npx", "4f1c2a9e7b3d5c60", "node_modules", "projectstore"),
+  "0.30.0",
+);
 const GLOBAL_ROOT = fakePackageRoot(join(tmp("ps-conv-global-"), "lib", "node_modules", "projectstore"), "0.30.0");
 
 function project() {
@@ -282,25 +587,63 @@ function project() {
 
 // No host CLI, no colour, no session marker, the check on, CI off, a cache of the test's own.
 function checkEnv(extra = {}) {
-  const env = noHostEnv({ PATH: "", PROJECTSTORE_NO_UPDATE_CHECK: "", CI: "", XDG_CACHE_HOME: join(tmp("ps-conv-xdg-"), "cache"), ...extra });
+  const env = noHostEnv({
+    PATH: "",
+    PROJECTSTORE_NO_UPDATE_CHECK: "",
+    CI: "",
+    XDG_CACHE_HOME: join(tmp("ps-conv-xdg-"), "cache"),
+    ...extra,
+  });
   for (const k of ["FORCE_COLOR", "TERM", "NO_COLOR", "PROJECTSTORE_ASCII"]) delete env[k];
   return env;
 }
 
 // One upgrade in text, declined at the terminal double: nothing is written,
 // so the same project is planned again by the next run.
-async function textRun({ root = NPX_ROOT, proj = project(), home = tmp("ps-conv-h-"), env = checkEnv(), fetch, timers, now, verb = "upgrade", json = false, fetchSpawn = null } = {}) {
+async function textRun({
+  root = NPX_ROOT,
+  proj = project(),
+  home = tmp("ps-conv-h-"),
+  env = checkEnv(),
+  fetch,
+  timers,
+  now,
+  verb = "upgrade",
+  json = false,
+  fetchSpawn = null,
+} = {}) {
   const chunks = [];
-  const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+  const out = {
+    isTTY: false,
+    write: (s) => {
+      chunks.push(String(s));
+      return true;
+    },
+  };
   const npm = fakeNpmSpawn();
-  const r = await runVerb(verb, proj, { harnesses: [SRC.id], root, home, env, fetch, timers, now, fetchSpawn: fetchSpawn || npm.spawn, ...(json ? { json: true } : { out, ask: async () => "n" }) });
+  const r = await runVerb(verb, proj, {
+    harnesses: [SRC.id],
+    root,
+    home,
+    env,
+    fetch,
+    timers,
+    now,
+    fetchSpawn: fetchSpawn || npm.spawn,
+    ...(json ? { json: true } : { out, ask: async () => "n" }),
+  });
   return { r, text: chunks.join(""), npm, proj, home, env };
 }
 
-const withoutNotice = (text) => text.split("\n").filter((_, k) => k < 1 || k > 4).join("\n");
+const withoutNotice = (text) =>
+  text
+    .split("\n")
+    .filter((_, k) => k < 1 || k > 4)
+    .join("\n");
 
 test("converge criterion 'The notice': under _npx the header carries the notice and the npx command alone on its line; under another node_modules the global install; the rest of the output is the run without it", async () => {
-  const proj = project(), home = tmp("ps-conv-h-");
+  const proj = project(),
+    home = tmp("ps-conv-h-");
   const reg = registryFetch({ latest: "0.30.1" });
   const a = await textRun({ proj, home, fetch: reg.fetch });
   const lines = a.text.split("\n");
@@ -325,8 +668,18 @@ test("converge criterion 'The notice': under _npx the header carries the notice 
   assert.equal(g.text.split("\n")[3], "    npm install -g projectstore@latest");
   // No npm to say which registry the user has: the public one is read.
   const npmless = registryFetch({ latest: "0.30.1" });
-  const fallback = await textRun({ proj, home, fetch: npmless.fetch, fetchSpawn: () => { throw Object.assign(new Error("spawn npm ENOENT"), { code: "ENOENT" }); } });
-  assert.deepEqual(npmless.calls.map((c) => c.url), [`${DEFAULT_REGISTRY}projectstore`]);
+  const fallback = await textRun({
+    proj,
+    home,
+    fetch: npmless.fetch,
+    fetchSpawn: () => {
+      throw Object.assign(new Error("spawn npm ENOENT"), { code: "ENOENT" });
+    },
+  });
+  assert.deepEqual(
+    npmless.calls.map((c) => c.url),
+    [`${DEFAULT_REGISTRY}projectstore`],
+  );
   assert.equal(DEFAULT_REGISTRY, "https://registry.npmjs.org/");
   assert.equal(fallback.text, a.text);
   // At or below the running version: nothing printed.
@@ -339,21 +692,43 @@ test("converge criterion 'The notice': a checkout and a host cache copy make no 
     const reg = registryFetch({ latest: "0.30.1" });
     const r = await textRun({ ...opts, fetch: reg.fetch });
     assert.equal(reg.calls.length, 0, `${label}: no request`);
-    assert.deepEqual(r.npm.calls.filter((c) => c.argv[0] === "config"), [], `${label}: no registry resolved`);
+    assert.deepEqual(
+      r.npm.calls.filter((c) => c.argv[0] === "config"),
+      [],
+      `${label}: no registry resolved`,
+    );
     assert.ok(!r.text.includes("newer published"), label);
     return r;
   };
   await quiet({ root: ROOT }, "a checkout");
   const home = tmp("ps-conv-cache-home-");
   await quiet({ root: fakeInstall(home, "0.28.0"), home }, "a git-marketplace cache copy");
-  await quiet({ root: fakeInstall(home, "0.28.0", { marketplace: SRC.surfaces.plugin.marketplace_name }), home }, "the npm registration's cache copy");
+  await quiet(
+    { root: fakeInstall(home, "0.28.0", { marketplace: SRC.surfaces.plugin.marketplace_name }), home },
+    "the npm registration's cache copy",
+  );
   // The npm registration's marketplace directory, which its sessions run in
   // place, and the core a shell bundles under a harness's plugin cache: each a
   // full package tree at 0.30.0, so only the root decides.
   const payloadRoot = fakePackageRoot(registrationPaths(SRC.surfaces.plugin, { home, harness: SRC }).payload, "0.30.0");
   await quiet({ root: payloadRoot, home }, "the npm registration's marketplace directory");
-  const codexCache = portableRegistrationPaths(CODEX.surfaces.plugin, { home, projectDir: home, harness: CODEX, env: checkEnv() }).cacheDir;
-  const bundled = fakePackageRoot(join(codexCache, CODEX.surfaces.plugin.marketplace_name, CODEX.surfaces.plugin.plugin_name, "0.30.0", "node_modules", "projectstore"), "0.30.0");
+  const codexCache = portableRegistrationPaths(CODEX.surfaces.plugin, {
+    home,
+    projectDir: home,
+    harness: CODEX,
+    env: checkEnv(),
+  }).cacheDir;
+  const bundled = fakePackageRoot(
+    join(
+      codexCache,
+      CODEX.surfaces.plugin.marketplace_name,
+      CODEX.surfaces.plugin.plugin_name,
+      "0.30.0",
+      "node_modules",
+      "projectstore",
+    ),
+    "0.30.0",
+  );
   await quiet({ root: bundled, home }, "the core a shell bundles under Codex's plugin cache");
   await quiet({ json: true }, "--json");
   await quiet({ env: checkEnv({ CI: "1" }) }, "CI=1");
@@ -370,7 +745,8 @@ test("converge criterion 'The notice': a checkout and a host cache copy make no 
 });
 
 test("converge criterion 'The notice': the cache — a second run within a day makes no request, a run after a day makes one, and an unwritable cache changes nothing in the output", async () => {
-  const proj = project(), home = tmp("ps-conv-h-");
+  const proj = project(),
+    home = tmp("ps-conv-h-");
   const env = checkEnv();
   const reg = registryFetch({ latest: "0.30.1" });
   let t = T0;
@@ -387,13 +763,20 @@ test("converge criterion 'The notice': the cache — a second run within a day m
   // XDG_CACHE_HOME under a regular file: nothing can be written there.
   const blocker = join(tmp("ps-conv-blocked-"), "file");
   writeFileSync(blocker, "x");
-  const blocked = await textRun({ proj, home, env: checkEnv({ XDG_CACHE_HOME: blocker }), fetch: registryFetch({ latest: "0.30.1" }).fetch, now: () => T0 });
+  const blocked = await textRun({
+    proj,
+    home,
+    env: checkEnv({ XDG_CACHE_HOME: blocker }),
+    fetch: registryFetch({ latest: "0.30.1" }).fetch,
+    now: () => T0,
+  });
   assert.equal(blocked.text, first.text);
   assert.deepEqual(blocked.r.gate, first.r.gate);
 });
 
 test("converge criterion 'The notice': a rejected fetch, a 500, a body that is not JSON and a fetch that never settles leave the output and the gate as without the check; the last returns at the injected 2 s bound", async () => {
-  const proj = project(), home = tmp("ps-conv-h-");
+  const proj = project(),
+    home = tmp("ps-conv-h-");
   const off = await textRun({ proj, home, env: checkEnv({ PROJECTSTORE_NO_UPDATE_CHECK: "1" }) });
   for (const mode of ["reject", 500, "not-json", "no-tag"]) {
     const r = await textRun({ proj, home, fetch: registryFetch(mode).fetch });
@@ -405,12 +788,16 @@ test("converge criterion 'The notice': a rejected fetch, a 500, a body that is n
   const hung = await textRun({ proj, home, fetch: registryFetch("hang").fetch, timers });
   assert.ok(Date.now() - t0 < 2000, "the run returns at the injected bound");
   assert.equal(timers.asked.length, 1);
-  assert.ok(timers.asked[0] > 1000 && timers.asked[0] <= 2000, `the request gets what the resolver left of the 2 s: ${timers.asked[0]}`);
+  assert.ok(
+    timers.asked[0] > 1000 && timers.asked[0] <= 2000,
+    `the request gets what the resolver left of the 2 s: ${timers.asked[0]}`,
+  );
   assert.equal(hung.text, off.text);
 });
 
 test("converge rule 8: on the notice-only path the user's registry resolver and the request share one 2 s bound — a resolver that takes it all leaves no request", async () => {
-  const proj = project(), home = tmp("ps-conv-h-");
+  const proj = project(),
+    home = tmp("ps-conv-h-");
   const off = await textRun({ proj, home, env: checkEnv({ PROJECTSTORE_NO_UPDATE_CHECK: "1" }) });
   const reg = registryFetch({ latest: "0.30.1" });
   const t0 = Date.now();
@@ -427,7 +814,11 @@ test("converge rule 5: readKeepPlan reads the kept copy's plan through its bin w
   const harness = sourceHarness();
   const copy = { path: "/copies/git/0.29.0" };
   const calls = [];
-  const runner = (answer) => async (bin, argv, o) => { calls.push({ bin, argv, o }); if (answer instanceof Error) throw answer; return answer; };
+  const runner = (answer) => async (bin, argv, o) => {
+    calls.push({ bin, argv, o });
+    if (answer instanceof Error) throw answer;
+    return answer;
+  };
   const envelope = (result, ok) => JSON.stringify({ schema_version: 1, verb: "plan", project: "/p", ok, result });
   const items = [
     { surface: "statusline", action: "create", path: "/p/a" },
@@ -435,31 +826,112 @@ test("converge rule 5: readKeepPlan reads the kept copy's plan through its bin w
     { surface: "layout", action: "refuse", reason: "two bindings", path: "/p/c" },
   ];
   // ok and incomplete: the top-level ok is false (plan's ok && !incomplete) and is not read.
-  const a = await readKeepPlan(copy, { harness, projectDir: "/p", env: { X: "1" }, run: runner({ status: 1, stdout: envelope({ ok: true, incomplete: true, refusals: [], items: items.slice(0, 2) }, false), stderr: "" }), budget: 5 });
-  assert.deepEqual(a, { argv: [process.execPath, join(copy.path, "bin", "projectstore.mjs"), "plan", "--harness", harness.id, "--no-register", "--json", "--project", "/p"], envelope: true, ok: true, incomplete: true, refusals: [], writes: [{ surface: "statusline", action: "create", path: "/p/a" }], deferred: [], status: 1 });
+  const a = await readKeepPlan(copy, {
+    harness,
+    projectDir: "/p",
+    env: { X: "1" },
+    run: runner({
+      status: 1,
+      stdout: envelope({ ok: true, incomplete: true, refusals: [], items: items.slice(0, 2) }, false),
+      stderr: "",
+    }),
+    budget: 5,
+  });
+  assert.deepEqual(a, {
+    argv: [
+      process.execPath,
+      join(copy.path, "bin", "projectstore.mjs"),
+      "plan",
+      "--harness",
+      harness.id,
+      "--no-register",
+      "--json",
+      "--project",
+      "/p",
+    ],
+    envelope: true,
+    ok: true,
+    incomplete: true,
+    refusals: [],
+    writes: [{ surface: "statusline", action: "create", path: "/p/a" }],
+    deferred: [],
+    status: 1,
+  });
   // A row it left for later is read with its reason.
-  const d = await readKeepPlan(copy, { harness, projectDir: "/p", run: runner({ status: 1, stdout: envelope({ ok: true, incomplete: true, refusals: [], items: [{ surface: "layout", action: "skip", deferred: true, reason: "run it outside the session" }] }, false) }) });
+  const d = await readKeepPlan(copy, {
+    harness,
+    projectDir: "/p",
+    run: runner({
+      status: 1,
+      stdout: envelope(
+        {
+          ok: true,
+          incomplete: true,
+          refusals: [],
+          items: [{ surface: "layout", action: "skip", deferred: true, reason: "run it outside the session" }],
+        },
+        false,
+      ),
+    }),
+  });
   assert.deepEqual([d.writes, d.deferred], [[], [{ surface: "layout", reason: "run it outside the session" }]]);
-  assert.deepEqual([calls[0].bin, calls[0].argv, calls[0].o], [process.execPath, a.argv.slice(1), { env: { X: "1" }, cwd: "/p", budget: 5 }]);
+  assert.deepEqual(
+    [calls[0].bin, calls[0].argv, calls[0].o],
+    [process.execPath, a.argv.slice(1), { env: { X: "1" }, cwd: "/p", budget: 5 }],
+  );
   // A refusal: the plan's own, then each refused row's reason.
-  const b = await readKeepPlan(copy, { harness, projectDir: "/p", run: runner({ status: 1, stdout: envelope({ ok: false, incomplete: false, refusals: ["unknown harness"], items }, false) }) });
+  const b = await readKeepPlan(copy, {
+    harness,
+    projectDir: "/p",
+    run: runner({
+      status: 1,
+      stdout: envelope({ ok: false, incomplete: false, refusals: ["unknown harness"], items }, false),
+    }),
+  });
   assert.deepEqual([b.ok, b.refusals], [false, ["unknown harness", "two bindings"]]);
   // No envelope: what ran says why; a runner that throws never throws here.
-  assert.deepEqual(await readKeepPlan(copy, { harness, projectDir: "/p", run: runner({ status: 2, stdout: "usage: …\n", stderr: "bad flag\n" }) }), { argv: a.argv, envelope: false, status: 2, stderr: "bad flag", error: null });
+  assert.deepEqual(
+    await readKeepPlan(copy, {
+      harness,
+      projectDir: "/p",
+      run: runner({ status: 2, stdout: "usage: …\n", stderr: "bad flag\n" }),
+    }),
+    { argv: a.argv, envelope: false, status: 2, stderr: "bad flag", error: null },
+  );
   const c = await readKeepPlan(copy, { harness, projectDir: "/p", run: runner(new Error("spawn failed")) });
   assert.deepEqual([c.envelope, c.status, c.error], [false, null, "spawn failed"]);
 });
 
 test("converge: convergence.mjs imports lib, harness, portable-registration and surfaces only; doctor, lib, the hooks and the SessionStart graph never load it; the installer and setup's front-end are its only importers", () => {
   const src = readFileSync(join(ROOT, "scripts", "convergence.mjs"), "utf8");
-  const local = [...src.matchAll(/^import .* from "(\.\/[^"]+)";$/gm)].map((m) => m[1]);
-  for (const s of local) assert.ok(["./lib.mjs", "./harness.mjs", "./portable-registration.mjs", "./surfaces.mjs"].includes(s), `convergence.mjs imports ${s}`);
+  const local = importSpecifiers(src).filter((s) => s.startsWith("./"));
+  for (const s of local)
+    assert.ok(
+      ["./lib.mjs", "./harness.mjs", "./portable-registration.mjs", "./surfaces.mjs"].includes(s),
+      `convergence.mjs imports ${s}`,
+    );
   assert.ok(!/\bimport\s*\(/.test(src), "no dynamic import");
-  for (const n of ["doctor.mjs", "lib.mjs", "harness.mjs", "surfaces.mjs", "portable-registration.mjs", "fetch-shell.mjs", "run-host.mjs", "statusline.mjs", "touch-session.mjs"]) {
-    assert.ok(!readFileSync(join(ROOT, "scripts", n), "utf8").includes("convergence.mjs"), `scripts/${n} imports convergence.mjs`);
+  for (const n of [
+    "doctor.mjs",
+    "lib.mjs",
+    "harness.mjs",
+    "surfaces.mjs",
+    "portable-registration.mjs",
+    "fetch-shell.mjs",
+    "run-host.mjs",
+    "statusline.mjs",
+    "touch-session.mjs",
+  ]) {
+    assert.ok(
+      !readFileSync(join(ROOT, "scripts", n), "utf8").includes("convergence.mjs"),
+      `scripts/${n} imports convergence.mjs`,
+    );
   }
-  for (const n of readdirSync(join(ROOT, "hooks")).filter((f) => f.endsWith(".mjs"))) assert.ok(!readFileSync(join(ROOT, "hooks", n), "utf8").includes("convergence.mjs"), `hooks/${n}`);
-  const importers = readdirSync(join(ROOT, "scripts")).filter((n) => n.endsWith(".mjs") && readFileSync(join(ROOT, "scripts", n), "utf8").includes('"./convergence.mjs"'));
+  for (const n of readdirSync(join(ROOT, "hooks")).filter((f) => f.endsWith(".mjs")))
+    assert.ok(!readFileSync(join(ROOT, "hooks", n), "utf8").includes("convergence.mjs"), `hooks/${n}`);
+  const importers = readdirSync(join(ROOT, "scripts")).filter(
+    (n) => n.endsWith(".mjs") && readFileSync(join(ROOT, "scripts", n), "utf8").includes('"./convergence.mjs"'),
+  );
   // setup.mjs reads the running copies before its questions (the setup
   // story, rule 3); it is loaded lazily by the bin, never by a hook.
   assert.deepEqual(importers, ["install-harness.mjs", "setup.mjs"]);
@@ -475,5 +947,8 @@ test("converge rule 6, the switch row: a downgrade is named only against what th
   assert.match(down, /0\.30\.2 is newer than this package \(0\.30\.0\).*runs this project on the older 0\.30\.0/);
   // The shared directory is at 0.30.5: turning 0.30.2 off is no downgrade.
   assert.equal(switchReason({ copy, running: "0.30.0", runs: "0.30.5", decision: null }), null);
-  assert.equal(switchReason({ copy, running: "0.30.0", runs: "0.30.5", decision: null, unbound: true }), "the project is not bound yet: the switch is recorded in its binding once it is");
+  assert.equal(
+    switchReason({ copy, running: "0.30.0", runs: "0.30.5", decision: null, unbound: true }),
+    "the project is not bound yet: the switch is recorded in its binding once it is",
+  );
 });

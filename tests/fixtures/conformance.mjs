@@ -42,20 +42,22 @@ export const ROWS = Object.freeze({
       ".projectstore/state/claude-code/statusline.mjs",
       "CLAUDE.md",
     ]),
-    why: "The source harness with every surface it has: the agents block, the "
-      + "status line (its entry in the harness's own settings file, its launcher "
-      + "under the project's state directory) and the layout's two ignore files. "
-      + "CLAUDE.md rather than AGENTS.md because its block list has two entries "
-      + "and neither file existed — the known tie-break, asserted so a change to "
-      + "it is a decision rather than a surprise.",
+    why:
+      "The source harness with every surface it has: the agents block, the " +
+      "status line (its entry in the harness's own settings file, its launcher " +
+      "under the project's state directory) and the layout's two ignore files. " +
+      "CLAUDE.md rather than AGENTS.md because its block list has two entries " +
+      "and neither file existed — the known tie-break, asserted so a change to " +
+      "it is a decision rather than a surprise.",
   }),
   codex: Object.freeze({
     writes: Object.freeze(["AGENTS.md"]),
-    why: "One file, and that is the whole point of the row. Codex has no status "
-      + "line, no registrable command, no plugin-loadable agents and no MCP "
-      + "dialect of ours, so an install writes the agents block and stops. "
-      + "AGENTS.md rather than CLAUDE.md is the defect measured on the smoke "
-      + "stand 2026-09-07, where the rules had to be pasted in by hand.",
+    why:
+      "One file, and that is the whole point of the row. Codex has no status " +
+      "line, no registrable command, no plugin-loadable agents and no MCP " +
+      "dialect of ours, so an install writes the agents block and stops. " +
+      "AGENTS.md rather than CLAUDE.md is the defect measured on the smoke " +
+      "stand 2026-09-07, where the rules had to be pasted in by hand.",
   }),
 });
 
@@ -66,9 +68,9 @@ export function row(id) {
   const r = ROWS[id];
   if (!r) {
     throw new Error(
-      `no conformance row for the harness "${id}". Install it into an empty tree, `
-      + `look at what appeared, and add a row to tests/fixtures/conformance.mjs — `
-      + `the test itself needs no change.`,
+      `no conformance row for the harness "${id}". Install it into an empty tree, ` +
+        `look at what appeared, and add a row to tests/fixtures/conformance.mjs — ` +
+        `the test itself needs no change.`,
     );
   }
   return r;

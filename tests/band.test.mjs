@@ -5,9 +5,8 @@
 
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
-import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { run } from "../scripts/cli.mjs";
 import { sourceHarness, loadHarness, hasBand, hostSessionId, layoutPaths } from "../scripts/harness.mjs";
@@ -18,7 +17,9 @@ import { makeVaultProject } from "./fixtures/vault.mjs";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
 const TEMP = [];
-after(() => { for (const d of TEMP) rmSync(d, { recursive: true, force: true }); });
+after(() => {
+  for (const d of TEMP) rmSync(d, { recursive: true, force: true });
+});
 
 function project() {
   const { proj, vault } = makeVaultProject();
@@ -28,19 +29,42 @@ function project() {
 }
 
 const SID = "band-test-session";
-const envFor = (extra = {}) => ({ PATH: process.env.PATH, HOME: process.env.HOME, [SRC.runtime.session_id_env]: SID, ...extra });
+const envFor = (extra = {}) => ({
+  PATH: process.env.PATH,
+  HOME: process.env.HOME,
+  [SRC.runtime.session_id_env]: SID,
+  ...extra,
+});
 
 function sink() {
   let text = "";
-  return { write: (s) => { text += s; return true; }, isTTY: false, get text() { return text; } };
+  return {
+    write: (s) => {
+      text += s;
+      return true;
+    },
+    isTTY: false,
+    get text() {
+      return text;
+    },
+  };
 }
 
 async function band(proj, args, { env = envFor(), ask = null } = {}) {
   const stdout = sink();
   const stderr = sink();
-  const code = await run(["band", ...args, "--project", proj], { env, cwd: proj, stdout, stderr, stdin: { isTTY: false }, ask });
+  const code = await run(["band", ...args, "--project", proj], {
+    env,
+    cwd: proj,
+    stdout,
+    stderr,
+    stdin: { isTTY: false },
+    ask,
+  });
   let json = null;
-  try { json = JSON.parse(stdout.text); } catch {}
+  try {
+    json = JSON.parse(stdout.text);
+  } catch {}
   return { code, out: stdout.text, err: stderr.text, json };
 }
 
@@ -71,7 +95,7 @@ test("contract 13: on, off, epic <ID> and bare epic each write the binding once,
   assert.equal(r.code, 0, r.err);
   assert.equal("epic" in bindingOf(proj).band, false);
 
-  r = await band(proj, ["on", "--json"]);
+  await band(proj, ["on", "--json"]);
   assert.deepEqual(bindingOf(proj).band, { enabled: true, hint_seen: true });
 });
 
@@ -87,14 +111,23 @@ test("contract 13: an unknown epic is refused and names the ones that exist; not
 test("contract 13: without --json a terminal is asked; without a terminal the write is refused", async () => {
   const { proj } = project();
   const asked = [];
-  let r = await band(proj, ["off"], { ask: async (q) => { asked.push(q); return "n"; } });
+  await band(proj, ["off"], {
+    ask: async (q) => {
+      asked.push(q);
+      return "n";
+    },
+  });
   assert.equal(asked.length, 1);
   assert.match(asked[0], /switch the band off/);
   assert.equal(bindingOf(proj).band, undefined, "a no writes nothing");
-  r = await band(proj, ["off"]);
+  let r = await band(proj, ["off"]);
   assert.equal(r.code, 2);
   assert.match(r.err, /passes --json/);
-  r = await band(proj, ["off", "--json"], { ask: async () => { throw new Error("--json never asks"); } });
+  r = await band(proj, ["off", "--json"], {
+    ask: async () => {
+      throw new Error("--json never asks");
+    },
+  });
   assert.equal(r.code, 0);
 });
 
@@ -181,17 +214,30 @@ test("contract 1: the generator keeps the module out of a harness without a band
   assert.ok(codex.hooks.SessionStart, "the classic hooks are still rendered");
   const committed = JSON.parse(readFileSync(join(ROOT, "adapters", "codex", "hooks", "hooks.json"), "utf8"));
   assert.equal("modules" in committed, false, "the committed Codex tree carries no module");
-  const withBand = { ...loadHarness("codex"), surfaces: { ...loadHarness("codex").surfaces, band: { supported: true } } };
+  const withBand = {
+    ...loadHarness("codex"),
+    surfaces: { ...loadHarness("codex").surfaces, band: { supported: true } },
+  };
   assert.deepEqual(JSON.parse(renderHooks(withBand)[1]).modules, ["./band.tsx"], "a harness with a band keeps it");
 });
 
 test("contract 1: the module ships; the host-laid declarations and tsconfig do not", () => {
   const packlist = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "packlist.json"), "utf8"));
   const files = Array.isArray(packlist) ? packlist : packlist.files || packlist.paths || [];
-  for (const f of ["hooks/band.tsx", "hooks/band-state.d.ts", "scripts/band-shared.mjs", "scripts/stages.mjs", "scripts/band.mjs", "commands/bar.md"]) {
+  for (const f of [
+    "hooks/band.tsx",
+    "hooks/band-state.d.ts",
+    "scripts/band-shared.mjs",
+    "scripts/stages.mjs",
+    "scripts/band.mjs",
+    "commands/bar.md",
+  ]) {
     assert.ok(files.includes(f), `${f} ships`);
   }
-  assert.equal(files.some((f) => f.startsWith(".claude-plugin/types/") || f === "tsconfig.json"), false);
+  assert.equal(
+    files.some((f) => f.startsWith(".claude-plugin/types/") || f === "tsconfig.json"),
+    false,
+  );
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
   assert.ok(pkg.files.includes("!.claude-plugin/types/"));
   const ignore = readFileSync(join(ROOT, ".gitignore"), "utf8").split("\n");

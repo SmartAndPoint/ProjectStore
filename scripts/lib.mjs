@@ -2,7 +2,23 @@
 // Pure node, no external deps. Keep this single-file & dependency-free
 // so plugin install does not require npm install.
 
-import { readFileSync, writeFileSync, writeSync, appendFileSync, existsSync, readdirSync, statSync, lstatSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync, realpathSync, cpSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  writeSync,
+  appendFileSync,
+  existsSync,
+  readdirSync,
+  statSync,
+  lstatSync,
+  mkdirSync,
+  utimesSync,
+  unlinkSync,
+  renameSync,
+  rmSync,
+  realpathSync,
+  copyFileSync,
+} from "node:fs";
 import { readFile as readFileAsync } from "node:fs/promises";
 import { join, dirname, basename, resolve, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,7 +115,13 @@ export function bindInherits({ env = process.env } = {}) {
 export function inheritForm(vaultPath, { layout = null, language = null, env = process.env } = {}) {
   if (speakingHarness(env)?.capabilities?.bind_inherit) return commandForm("bind", { args: "--inherit", env });
   const plain = (v) => typeof v === "string" && /^[a-z0-9-]+$/.test(v);
-  const args = [JSON.stringify(String(vaultPath)), plain(layout) ? `--layout ${layout}` : "", plain(language) ? `--language ${language}` : ""].filter(Boolean).join(" ");
+  const args = [
+    JSON.stringify(String(vaultPath)),
+    plain(layout) ? `--layout ${layout}` : "",
+    plain(language) ? `--language ${language}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return commandForm("bind", { args, env });
 }
 export function speakingDisplayName({ env = process.env } = {}) {
@@ -126,7 +148,10 @@ export function doctorSummaryLine(findings, { env = process.env } = {}) {
 export function doctorFallbackText(findings, { env = process.env } = {}) {
   // A message's further lines are commands (doctor's silenced-copy info): the
   // file stays with its words, and each command keeps a line of its own.
-  const lines = findings.map((f) => { const [said, ...commands] = String(f.message).split("\n"); return [`${f.level} ${f.check} ${said}${f.file ? ` — ${f.file}` : ""}`, ...commands].join("\n"); });
+  const lines = findings.map((f) => {
+    const [said, ...commands] = String(f.message).split("\n");
+    return [`${f.level} ${f.check} ${said}${f.file ? ` — ${f.file}` : ""}`, ...commands].join("\n");
+  });
   return [...lines, ...(lines.length ? [""] : []), doctorSummaryLine(findings, { env })].join("\n") + "\n";
 }
 
@@ -136,7 +161,17 @@ export function doctorFallbackText(findings, { env = process.env } = {}) {
 // class beside it (layout spec contract 0): the shell fetch's scratch.
 // whichOnPath, the PATH walk for a host binary, moved to harness.mjs beside
 // hostPresence (the setup story, rule 5); its importers keep this name.
-export { layoutPaths, cachePaths, pickExisting, LAYOUT, RUNTIME_GITIGNORE_HEADER, hostSettingsPath, overlayId, speakingHarness, whichOnPath };
+export {
+  layoutPaths,
+  cachePaths,
+  pickExisting,
+  LAYOUT,
+  RUNTIME_GITIGNORE_HEADER,
+  hostSettingsPath,
+  overlayId,
+  speakingHarness,
+  whichOnPath,
+};
 
 // A hook's payload carries the `cwd` of the session that fired it, and on a
 // harness that exports no project-dir variable it is the only answer better
@@ -156,16 +191,35 @@ export function readOverlayAt(projectDir, id = overlayId()) {
   // No id (no manifest at all): nothing is read, and the writer below refuses
   // the same id rather than inventing a file name for it.
   const path = id ? layoutPaths(projectDir).overlay(id) : null;
-  const out = { id: id || null, path, present: Boolean(path) && existsSync(path), unparseable: false, agents: { default: null, per_agent: {} }, rejected: [], raw: null };
+  const out = {
+    id: id || null,
+    path,
+    present: Boolean(path) && existsSync(path),
+    unparseable: false,
+    agents: { default: null, per_agent: {} },
+    rejected: [],
+    raw: null,
+  };
   if (!out.present) return out;
   let raw;
-  try { raw = JSON.parse(readFileSync(path, "utf8")); } catch { out.unparseable = true; return out; }
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) { out.unparseable = true; return out; }
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    out.unparseable = true;
+    return out;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    out.unparseable = true;
+    return out;
+  }
   out.raw = raw;
   for (const k of Object.keys(raw)) if (k !== "agents") out.rejected.push(k);
   const a = raw.agents;
   if (a === undefined) return out;
-  if (!a || typeof a !== "object" || Array.isArray(a)) { out.rejected.push("agents"); return out; }
+  if (!a || typeof a !== "object" || Array.isArray(a)) {
+    out.rejected.push("agents");
+    return out;
+  }
   for (const k of Object.keys(a)) if (k !== "default" && k !== "per_agent") out.rejected.push(`agents.${k}`);
   if (a.default !== undefined) {
     if (a.default && typeof a.default === "object") {
@@ -176,7 +230,10 @@ export function readOverlayAt(projectDir, id = overlayId()) {
   if (a.per_agent !== undefined) {
     if (a.per_agent && typeof a.per_agent === "object" && !Array.isArray(a.per_agent)) {
       for (const [name, v] of Object.entries(a.per_agent)) {
-        if (!v || typeof v !== "object") { out.rejected.push(`agents.per_agent.${name}`); continue; }
+        if (!v || typeof v !== "object") {
+          out.rejected.push(`agents.per_agent.${name}`);
+          continue;
+        }
         for (const k of Object.keys(v)) if (k !== "model") out.rejected.push(`agents.per_agent.${name}.${k}`);
         if (typeof v.model === "string" && v.model) out.agents.per_agent[name] = v.model;
       }
@@ -201,14 +258,17 @@ export function writeOverlayAt(projectDir, id, agents) {
   if (!id) throw new Error("writeOverlayAt: the overlay's harness id is required");
   const path = layoutPaths(projectDir).overlay(id);
   let raw = {};
-  try { raw = JSON.parse(readFileSync(path, "utf8")); } catch {}
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch {}
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) raw = {};
   const block = {};
   if (agents.default) block.default = { model: agents.default };
   const names = Object.keys(agents.per_agent || {}).sort();
   if (names.length) block.per_agent = Object.fromEntries(names.map((n) => [n, { model: agents.per_agent[n] }]));
   const next = { ...raw };
-  if (Object.keys(block).length) next.agents = block; else delete next.agents;
+  if (Object.keys(block).length) next.agents = block;
+  else delete next.agents;
   ensureRuntimeDir(projectDir);
   mkdirSync(dirname(path), { recursive: true });
   writeFileAtomic(path, JSON.stringify(next, null, 2) + "\n", { sweep: false });
@@ -224,11 +284,13 @@ export function activeHarnessId() {
 export function ensureGitignoreLines(file, lines, header = null) {
   mkdirSync(dirname(file), { recursive: true });
   let cur = "";
-  try { cur = readFileSync(file, "utf8"); } catch {}
+  try {
+    cur = readFileSync(file, "utf8");
+  } catch {}
   const have = new Set(cur.split(/\r?\n/).map((l) => l.trim()));
   const add = lines.filter((l) => !have.has(l));
   if (!add.length) return false;
-  const prefix = cur ? (cur.endsWith("\n") ? cur : cur + "\n") : (header ? `# ${header}\n` : "");
+  const prefix = cur ? (cur.endsWith("\n") ? cur : cur + "\n") : header ? `# ${header}\n` : "";
   writeFileSync(file, prefix + add.join("\n") + "\n", "utf8");
   return true;
 }
@@ -247,14 +309,37 @@ export function moveStateDir(from, to, within) {
   mkdirSync(to, { recursive: true });
   for (const name of readdirSync(from)) {
     if (name === ".gitignore") continue;
-    const src = join(from, name), dst = join(to, name);
-    let st; try { st = lstatSync(src); } catch { continue; }
-    if (st.isSymbolicLink()) { out.dropped.push(name); continue; }
-    if (!existsSync(dst)) { movePath(src, dst, within); out.moved.push(name); continue; }
-    if (st.isDirectory() || name.startsWith(".")) { rmSync(src, { recursive: true, force: true }); out.kept.push(name); continue; }
+    const src = join(from, name),
+      dst = join(to, name);
+    let st;
+    try {
+      st = lstatSync(src);
+    } catch {
+      continue;
+    }
+    if (st.isSymbolicLink()) {
+      out.dropped.push(name);
+      continue;
+    }
+    if (!existsSync(dst)) {
+      movePath(src, dst, within);
+      out.moved.push(name);
+      continue;
+    }
+    if (st.isDirectory() || name.startsWith(".")) {
+      rmSync(src, { recursive: true, force: true });
+      out.kept.push(name);
+      continue;
+    }
     const newer = st.mtimeMs > statSync(dst).mtimeMs;
-    if (newer) { rmSync(dst, { force: true }); movePath(src, dst, within); out.replaced.push(name); }
-    else { rmSync(src, { force: true }); out.kept.push(name); }
+    if (newer) {
+      rmSync(dst, { force: true });
+      movePath(src, dst, within);
+      out.replaced.push(name);
+    } else {
+      rmSync(src, { force: true });
+      out.kept.push(name);
+    }
   }
   return out;
 }
@@ -263,10 +348,16 @@ export function moveStateDir(from, to, within) {
 // the legacy file is removed; an absent side is fine.
 export function mergeEntryLog(from, to, within) {
   if (!existsSync(from)) return "absent";
-  const inside = (p) => { const r = relative(resolve(within), resolve(p)); return r !== "" && !r.startsWith("..") && !isAbsolute(r); };
+  const inside = (p) => {
+    const r = relative(resolve(within), resolve(p));
+    return r !== "" && !r.startsWith("..") && !isAbsolute(r);
+  };
   if (!inside(from) || !inside(to)) throw new Error(`mergeEntryLog: ${from} → ${to} leaves ${within}`);
   const old = readFileSync(from, "utf8");
-  let cur = ""; try { cur = readFileSync(to, "utf8"); } catch {}
+  let cur = "";
+  try {
+    cur = readFileSync(to, "utf8");
+  } catch {}
   mkdirSync(dirname(to), { recursive: true });
   const glue = old && !old.endsWith("\n") ? "\n" : "";
   writeFileAtomic(to, old + glue + cur, { sweep: false });
@@ -286,7 +377,10 @@ export function removeInside(path, within, { recursive = false } = {}) {
 }
 
 export function movePath(from, to, within) {
-  const inside = (p) => { const r = relative(resolve(within), resolve(p)); return r !== "" && !r.startsWith("..") && !isAbsolute(r); };
+  const inside = (p) => {
+    const r = relative(resolve(within), resolve(p));
+    return r !== "" && !r.startsWith("..") && !isAbsolute(r);
+  };
   if (!inside(from) || !inside(to)) throw new Error(`movePath: ${from} → ${to} leaves ${within}`);
   if (!existsSync(from)) return "absent";
   if (existsSync(to)) return "target-exists";
@@ -306,7 +400,7 @@ export function readConfigAt(projectDir) {
   if (!existsSync(p)) return null;
   try {
     return JSON.parse(readFileSync(p, "utf8"));
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -328,7 +422,11 @@ export function isMain(metaUrl) {
   if (!argv1) return false;
   const here = fileURLToPath(metaUrl);
   if (resolve(argv1) === here) return true;
-  try { return realpathSync(argv1) === here; } catch { return false; }
+  try {
+    return realpathSync(argv1) === here;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Atomic file writes (spec: atomic-regeneration-of-derived-views) ──
@@ -353,7 +451,9 @@ export function writeFileAtomic(p, content, { sweep = true } = {}) {
     writeFileSync(tmp, content, "utf8");
     renameSync(tmp, p);
   } catch (e) {
-    try { unlinkSync(tmp); } catch {}
+    try {
+      unlinkSync(tmp);
+    } catch {}
     throw e;
   }
 }
@@ -378,13 +478,21 @@ export function writeExclusiveMetadata(fd, value) {
 // numeric pid, `.tmp`) can never match `.gitignore` and friends.
 function sweepOrphanTemps(dir) {
   let names;
-  try { names = readdirSync(dir); } catch { return; }
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
   for (const n of names) {
     const m = n.match(/^\..+\.(\d+)\.tmp$/);
     if (!m) continue;
     const pid = parseInt(m[1], 10);
     if (!pid || pid === process.pid) continue;
-    if (!pidAlive(pid)) { try { unlinkSync(join(dir, n)); } catch {} }
+    if (!pidAlive(pid)) {
+      try {
+        unlinkSync(join(dir, n));
+      } catch {}
+    }
   }
 }
 
@@ -392,8 +500,12 @@ function sweepOrphanTemps(dir) {
 // not ours; only ESRCH is dead. Shared by the temp sweep above and the shell
 // fetch's scratch sweep (fetch-shell.mjs), so the two cannot drift.
 export function pidAlive(pid) {
-  try { process.kill(pid, 0); return true; }
-  catch (e) { return e?.code !== "ESRCH"; }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e?.code !== "ESRCH";
+  }
 }
 
 // ─── Installed-plugin resolution ───────────────────────────────────────
@@ -410,8 +522,12 @@ export function claudeHome(home = homedir()) {
 // "which release line" (the layout window's sunset); wrong for "which build is
 // newer" — that is cmpPrecedence.
 export function cmpVersion(a, b) {
-  const A = String(a || "0").split(".").map((n) => parseInt(n, 10) || 0);
-  const B = String(b || "0").split(".").map((n) => parseInt(n, 10) || 0);
+  const A = String(a || "0")
+    .split(".")
+    .map((n) => parseInt(n, 10) || 0);
+  const B = String(b || "0")
+    .split(".")
+    .map((n) => parseInt(n, 10) || 0);
   for (let i = 0; i < 3; i++) if ((A[i] || 0) !== (B[i] || 0)) return (A[i] || 0) - (B[i] || 0);
   return 0;
 }
@@ -424,18 +540,27 @@ export function cmpPrecedence(a, b) {
   const parse = (v) => {
     const s = String(v || "0").split("+")[0];
     const dash = s.indexOf("-");
-    return { core: (dash < 0 ? s : s.slice(0, dash)).split(".").map((n) => parseInt(n, 10) || 0), pre: dash < 0 ? [] : s.slice(dash + 1).split(".") };
+    return {
+      core: (dash < 0 ? s : s.slice(0, dash)).split(".").map((n) => parseInt(n, 10) || 0),
+      pre: dash < 0 ? [] : s.slice(dash + 1).split("."),
+    };
   };
-  const A = parse(a), B = parse(b);
+  const A = parse(a),
+    B = parse(b);
   for (let i = 0; i < 3; i++) if ((A.core[i] || 0) !== (B.core[i] || 0)) return (A.core[i] || 0) - (B.core[i] || 0);
   // A release outranks every candidate for it.
   if (!A.pre.length || !B.pre.length) return B.pre.length - A.pre.length;
   for (let i = 0; i < Math.max(A.pre.length, B.pre.length); i++) {
     if (i >= A.pre.length) return -1;
     if (i >= B.pre.length) return 1;
-    const x = A.pre[i], y = B.pre[i];
-    const nx = /^\d+$/.test(x), ny = /^\d+$/.test(y);
-    if (nx && ny) { if (Number(x) !== Number(y)) return Number(x) - Number(y); continue; }
+    const x = A.pre[i],
+      y = B.pre[i];
+    const nx = /^\d+$/.test(x),
+      ny = /^\d+$/.test(y);
+    if (nx && ny) {
+      if (Number(x) !== Number(y)) return Number(x) - Number(y);
+      continue;
+    }
     // A numeric identifier ranks below an alphanumeric one.
     if (nx !== ny) return nx ? -1 : 1;
     if (x !== y) return x < y ? -1 : 1;
@@ -460,16 +585,24 @@ export function cmpPrecedence(a, b) {
 // The host's enablement of a plugin, user settings first and the project's
 // settings over it (a project may silence a user-scope plugin). Absent → true.
 export function pluginEnabled(key, home = homedir(), projectDir = null) {
-  const read = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
+  const read = (p) => {
+    try {
+      return JSON.parse(readFileSync(p, "utf8"));
+    } catch {
+      return null;
+    }
+  };
   let enabled = true;
   const user = read(join(claudeHome(home), "settings.json"));
-  if (user && user.enabledPlugins && Object.hasOwn(user.enabledPlugins, key)) enabled = user.enabledPlugins[key] !== false;
+  if (user && user.enabledPlugins && Object.hasOwn(user.enabledPlugins, key))
+    enabled = user.enabledPlugins[key] !== false;
   if (projectDir) {
     // The committed project file, then the checkout's local one over it — the
     // host's own precedence (measured 2026-09-05, --scope local).
     for (const f of ["settings.json", "settings.local.json"]) {
       const proj = read(join(projectDir, harnessProjectConfigDir(), f));
-      if (proj && proj.enabledPlugins && Object.hasOwn(proj.enabledPlugins, key)) enabled = proj.enabledPlugins[key] !== false;
+      if (proj && proj.enabledPlugins && Object.hasOwn(proj.enabledPlugins, key))
+        enabled = proj.enabledPlugins[key] !== false;
     }
   }
   return enabled;
@@ -516,13 +649,19 @@ export function installedPluginEntries(home = homedir(), projectDir = null) {
 // converge story's rule 6), so the two cannot disagree about what a project
 // runs. `own` marks this checkout's row.
 export function projectCopies(home = homedir(), projectDir) {
-  const real = (x) => { try { return realpathSync.native(x); } catch { return resolve(x); } };
+  const real = (x) => {
+    try {
+      return realpathSync.native(x);
+    } catch {
+      return resolve(x);
+    }
+  };
   const here = real(projectDir);
   const mine = (e) => Boolean(e.projectPath) && real(e.projectPath) === here;
   return installedPluginEntries(home, projectDir)
     .filter((e) => e.present && e.enabled && (!e.projectPath || mine(e)))
     .map((e) => ({ ...e, own: mine(e) }))
-    .sort((a, b) => (Number(b.own) - Number(a.own)) || (b.at - a.at));
+    .sort((a, b) => Number(b.own) - Number(a.own) || b.at - a.at);
 }
 
 // The same selection, one row per plugin key: the row the host loads for this
@@ -548,14 +687,22 @@ export function projectCopiesByKey(home = homedir(), projectDir) {
 // converge story's rule 5), which re-exports it: doctor's layout remedy and
 // the installer's keep read one function.
 export function takesNoRegister(copy) {
-  try { return readFileSync(join(copy, "scripts", "cli.mjs"), "utf8").includes('"no-register"'); } catch { return false; }
+  try {
+    return readFileSync(join(copy, "scripts", "cli.mjs"), "utf8").includes('"no-register"');
+  } catch {
+    return false;
+  }
 }
 // …and whether its CLI takes --verbose, the same way: the flag arrived in
 // 0.29.0, after --no-register, and a copy between them (rc.3 to 0.28.x)
 // parses strictly, so a command naming it would exit 2. Read before DONE names
 // a kept copy's own `plan --verbose`.
 export function takesVerbose(copy) {
-  try { return /\bverbose\b/.test(readFileSync(join(copy, "scripts", "cli.mjs"), "utf8")); } catch { return false; }
+  try {
+    return /\bverbose\b/.test(readFileSync(join(copy, "scripts", "cli.mjs"), "utf8"));
+  } catch {
+    return false;
+  }
 }
 
 // Contract 12's selection with its capability read (the layout spec, contract
@@ -595,7 +742,9 @@ export function copyUpdateAdvice(copy, { cannot, then }) {
 export const CHANNEL_SWITCH_KEY = "channel_switch";
 const stampAt = (cfg, key) => {
   const m = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg[key] : null;
-  return m && typeof m === "object" && !Array.isArray(m) && typeof m.by === "string" && typeof m.at === "string" ? m : null;
+  return m && typeof m === "object" && !Array.isArray(m) && typeof m.by === "string" && typeof m.at === "string"
+    ? m
+    : null;
 };
 export function channelMark(cfg) {
   return stampAt(cfg, CHANNEL_SWITCH_KEY);
@@ -627,15 +776,26 @@ export function envFlag(env, name) {
 // path outside the tree). Returns the relative paths copied, sorted.
 export function packageFiles(root) {
   let pkg;
-  try { pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")); } catch { return []; }
+  try {
+    pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  } catch {
+    return [];
+  }
   const out = new Set(["package.json"]);
   for (const n of readdirSync(root)) if (/^(README|LICEN[CS]E)(\.|$)/i.test(n)) out.add(n);
   const walk = (rel) => {
     const abs = join(root, rel);
-    let st; try { st = lstatSync(abs); } catch { return; }
+    let st;
+    try {
+      st = lstatSync(abs);
+    } catch {
+      return;
+    }
     if (st.isSymbolicLink()) return;
-    if (st.isDirectory()) { for (const n of readdirSync(abs)) if (n !== "node_modules" && !n.startsWith(".DS_Store")) walk(rel ? `${rel}/${n}` : n); }
-    else out.add(rel);
+    if (st.isDirectory()) {
+      for (const n of readdirSync(abs))
+        if (n !== "node_modules" && !n.startsWith(".DS_Store")) walk(rel ? `${rel}/${n}` : n);
+    } else out.add(rel);
   };
   for (const f of pkg.files || []) walk(f.replace(/\/+$/, ""));
   return [...out].sort();
@@ -645,8 +805,12 @@ export function packageFiles(root) {
 // ours (install spec contract 13, amended 2026-09-05). The caller has already
 // proven the manifest is ours; this refuses anything outside the harness home.
 export function removeOwnTree(dir, home = homedir()) {
-  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!norm(dir).startsWith(norm(claudeHome(home)) + "/")) throw new Error(`removeOwnTree: ${dir} is not under the harness home`);
+  const norm = (s) =>
+    String(s || "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "");
+  if (!norm(dir).startsWith(norm(claudeHome(home)) + "/"))
+    throw new Error(`removeOwnTree: ${dir} is not under the harness home`);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -655,7 +819,7 @@ export function copyPackageTree(from, to) {
   for (const rel of files) {
     const dst = join(to, rel);
     mkdirSync(dirname(dst), { recursive: true });
-    cpSync(join(from, rel), dst);
+    copyFileSync(join(from, rel), dst);
   }
   return files;
 }
@@ -665,10 +829,17 @@ export function treeFiles(dir) {
   const out = [];
   const walk = (rel) => {
     const abs = rel ? join(dir, rel) : dir;
-    let st; try { st = lstatSync(abs); } catch { return; }
+    let st;
+    try {
+      st = lstatSync(abs);
+    } catch {
+      return;
+    }
     if (st.isSymbolicLink()) return;
-    if (st.isDirectory()) { for (const n of readdirSync(abs)) if (n !== "node_modules" && !n.startsWith(".DS_Store")) walk(rel ? `${rel}/${n}` : n); }
-    else out.push(rel);
+    if (st.isDirectory()) {
+      for (const n of readdirSync(abs))
+        if (n !== "node_modules" && !n.startsWith(".DS_Store")) walk(rel ? `${rel}/${n}` : n);
+    } else out.push(rel);
   };
   walk("");
   return out.sort();
@@ -682,7 +853,11 @@ export function filesDigest(root, files) {
   const h = createHash("sha256");
   for (const rel of files) {
     h.update(rel + "\n");
-    h.update(createHash("sha256").update(readFileSync(join(root, rel))).digest("hex") + "\n");
+    h.update(
+      createHash("sha256")
+        .update(readFileSync(join(root, rel)))
+        .digest("hex") + "\n",
+    );
   }
   return { count: files.length, sha256: h.digest("hex") };
 }
@@ -695,8 +870,12 @@ export const treeDigest = (dir) => filesDigest(dir, treeFiles(dir));
 // contract 4′). An existing directory is removed only after the stage is
 // complete — and only by the caller's proof that it is ours.
 export function writeOwnTree(dir, { from, subdir, manifestRel, manifest, home = homedir() }) {
-  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!norm(dir).startsWith(norm(claudeHome(home)) + "/")) throw new Error(`writeOwnTree: ${dir} is not under the harness home`);
+  const norm = (s) =>
+    String(s || "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "");
+  if (!norm(dir).startsWith(norm(claudeHome(home)) + "/"))
+    throw new Error(`writeOwnTree: ${dir} is not under the harness home`);
   const stage = dir + ".staging";
   rmSync(stage, { recursive: true, force: true });
   mkdirSync(join(stage, subdir), { recursive: true });
@@ -713,27 +892,49 @@ export function writeOwnTree(dir, { from, subdir, manifestRel, manifest, home = 
 // entry is re-checked as a regular file at apply time, so a symlink swap cannot
 // escape the source root. The previous directory is retained until the caller
 // verifies the host cache and returns the backup path for commit/rollback.
-export function stagePortableMarketplace(dir, { from, files, subdir, catalogRel, catalog, ownershipRel, ownership, homeBase, token = `${process.pid}-${randomUUID()}` }) {
-  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!norm(dir).startsWith(norm(homeBase) + "/")) throw new Error(`stagePortableMarketplace: ${dir} is not under ${homeBase}`);
+export function stagePortableMarketplace(
+  dir,
+  {
+    from,
+    files,
+    subdir,
+    catalogRel,
+    catalog,
+    ownershipRel,
+    ownership,
+    homeBase,
+    token = `${process.pid}-${randomUUID()}`,
+  },
+) {
+  const norm = (s) =>
+    String(s || "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "");
+  if (!norm(dir).startsWith(norm(homeBase) + "/"))
+    throw new Error(`stagePortableMarketplace: ${dir} is not under ${homeBase}`);
   const stage = `${dir}.staging-${token}`;
   const backup = existsSync(dir) ? `${dir}.previous-${token}` : null;
   rmSync(stage, { recursive: true, force: true });
   for (const rel of files) {
     const src = join(from, rel);
     const st = lstatSync(src);
-    if (!st.isFile() || st.isSymbolicLink()) throw new Error(`portable payload changed under the plan: ${rel} is not a regular file`);
+    if (!st.isFile() || st.isSymbolicLink())
+      throw new Error(`portable payload changed under the plan: ${rel} is not a regular file`);
     const dst = join(stage, subdir, rel);
     mkdirSync(dirname(dst), { recursive: true });
-    cpSync(src, dst);
+    copyFileSync(src, dst);
   }
   mkdirSync(dirname(join(stage, catalogRel)), { recursive: true });
   mkdirSync(dirname(join(stage, ownershipRel)), { recursive: true });
   writeFileAtomic(join(stage, catalogRel), JSON.stringify(catalog, null, 2) + "\n", { sweep: false });
   writeFileAtomic(join(stage, ownershipRel), JSON.stringify(ownership, null, 2) + "\n", { sweep: false });
   if (backup) renameSync(dir, backup);
-  try { renameSync(stage, dir); }
-  catch (e) { if (backup && !existsSync(dir)) renameSync(backup, dir); throw e; }
+  try {
+    renameSync(stage, dir);
+  } catch (e) {
+    if (backup && !existsSync(dir)) renameSync(backup, dir);
+    throw e;
+  }
   return { stage, backup };
 }
 
@@ -752,7 +953,10 @@ export function rollbackPortableMarketplace(dir, backup = null) {
 // into (an npm the fetch budget stopped) can fail with ENOTEMPTY or EBUSY
 // once and succeed on the next pass. The path guard holds whatever it is.
 export function removeTreeUnder(dir, homeBase, { maxRetries = 0 } = {}) {
-  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  const norm = (s) =>
+    String(s || "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "");
   if (!norm(dir).startsWith(norm(homeBase) + "/")) throw new Error(`removeTreeUnder: ${dir} is not under ${homeBase}`);
   rmSync(dir, { recursive: true, force: true, maxRetries });
 }
@@ -761,7 +965,12 @@ export function installedPluginRoot(home = homedir(), preferFamily = null) {
   try {
     const found = installedPluginEntries(home)
       .filter((e) => e.present && e.enabled !== false)
-      .map((e) => ({ path: e.path, version: e.version, same: preferFamily && dirname(e.path) === preferFamily ? 1 : 0, at: e.at }));
+      .map((e) => ({
+        path: e.path,
+        version: e.version,
+        same: preferFamily && dirname(e.path) === preferFamily ? 1 : 0,
+        at: e.at,
+      }));
     // Family is a filter, not a tiebreak: when the caller came from a known
     // marketplace, an install from a DIFFERENT one is not a newer copy of the
     // same plugin — it is someone else's fork, and we do not execute it.
@@ -782,13 +991,27 @@ export function installedPluginRoot(home = homedir(), preferFamily = null) {
 // took its own copy for a checkout and planned the package's registration
 // (measured 2026-10-03, the critic of the layout spec's contract 12 amendment).
 function underPluginCache(root, home = homedir()) {
-  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  const norm = (s) =>
+    String(s || "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "");
   const cache = join(claudeHome(home), "plugins", "cache");
-  const below = (r, c) => { const a = norm(r), b = norm(c); return a.startsWith(b + "/") ? a.slice(b.length + 1) : null; };
+  const below = (r, c) => {
+    const a = norm(r),
+      b = norm(c);
+    return a.startsWith(b + "/") ? a.slice(b.length + 1) : null;
+  };
   const direct = below(root, cache);
   if (direct !== null || !root) return direct;
-  const real = (x) => { try { return realpathSync(x); } catch { return null; } };
-  const rr = real(root), rc = real(cache);
+  const real = (x) => {
+    try {
+      return realpathSync(x);
+    } catch {
+      return null;
+    }
+  };
+  const rr = real(root),
+    rc = real(cache);
   return rr && rc ? below(rr, rc) : null;
 }
 
@@ -833,7 +1056,9 @@ export function installChannel(root, { home = homedir(), harness = sourceHarness
 // wrote an AGENTS.md into it (2026-10-05). bind refuses the same way
 // (NO_PROJECT, binding.mjs).
 export function projectDirRefusal(dir) {
-  try { if (statSync(dir).isDirectory()) return null; } catch {}
+  try {
+    if (statSync(dir).isDirectory()) return null;
+  } catch {}
   return `no such project directory: ${JSON.stringify(String(dir))} — nothing is written`;
 }
 
@@ -868,7 +1093,9 @@ export function legacyStatusLineLauncherPath(projectDir) {
 }
 // Both launcher shapes — the new state/<harness>/ one and the legacy one —
 // in one place; the recognisers below and doctor read it.
-export const LAUNCHER_PATH_RE = new RegExp(`${LAYOUT.root.replace(".", "\\.")}/(${LAYOUT.state}/[^/]+/)?${LAYOUT.launcher.replace(".", "\\.")}$`);
+export const LAUNCHER_PATH_RE = new RegExp(
+  `${LAYOUT.root.replace(".", "\\.")}/(${LAYOUT.state}/[^/]+/)?${LAYOUT.launcher.replace(".", "\\.")}$`,
+);
 export function isLauncherPath(p) {
   return LAUNCHER_PATH_RE.test(String(p || "").replace(/\\/g, "/"));
 }
@@ -920,12 +1147,16 @@ export function registrationProvenance(manifest, s) {
 // comes from the source manifest's registration surface, and the directory
 // from `p` itself — never a path built from the home.
 function isRegistrationPayloadScript(p, harness = sourceHarness()) {
-  const s = Object.values(harness?.surfaces || {}).find((x) => x && x.kind === "registration" && x.format === "host-plugin-registration" && x.plugin_subdir && x.manifest);
+  const s = Object.values(harness?.surfaces || {}).find(
+    (x) => x && x.kind === "registration" && x.format === "host-plugin-registration" && x.plugin_subdir && x.manifest,
+  );
   if (!s) return false;
   const tail = `/${s.plugin_subdir}/scripts/statusline.mjs`;
   if (!p.endsWith(tail)) return false;
   try {
-    return Boolean(registrationProvenance(JSON.parse(readFileSync(join(p.slice(0, -tail.length), s.manifest), "utf8")), s));
+    return Boolean(
+      registrationProvenance(JSON.parse(readFileSync(join(p.slice(0, -tail.length), s.manifest), "utf8")), s),
+    );
   } catch {
     return false;
   }
@@ -986,7 +1217,9 @@ export function writeStatusLineLauncher(projectDir, root) {
     if (src === null) return null;
     const p = statusLineLauncherPath(projectDir);
     let cur = null;
-    try { cur = readFileSync(p, "utf8"); } catch {}
+    try {
+      cur = readFileSync(p, "utf8");
+    } catch {}
     if (cur !== src) {
       ensureStateDir(projectDir); // carries the nested .gitignore: this path is machine-specific
       mkdirSync(dirname(p), { recursive: true });
@@ -1007,7 +1240,9 @@ export function desiredStatusLineCommand(projectDir, root = pluginRoot(), home =
   const launcher = isPluginCacheRoot(root, home);
   return {
     launcher,
-    command: launcher ? `node "${statusLineLauncherPath(projectDir)}"` : `node "${join(root, "scripts", "statusline.mjs")}"`,
+    command: launcher
+      ? `node "${statusLineLauncherPath(projectDir)}"`
+      : `node "${join(root, "scripts", "statusline.mjs")}"`,
   };
 }
 
@@ -1066,10 +1301,11 @@ export function syncStatusLine(cfg, projectDir, home = homedir()) {
     const { launcher } = desiredStatusLineCommand(projectDir, root, home);
     // A launcher on disk at either path — the new one, or the legacy one an
     // earlier release wrote (the layout ADR) — is kept; moving it is install's.
-    const onDisk = [statusLineLauncherPath(projectDir), legacyStatusLineLauncherPath(projectDir)].find((f) => existsSync(f));
-    const desired = (launcher || namesLauncher) && onDisk
-      ? `node "${onDisk}"`
-      : `node "${join(root, "scripts", "statusline.mjs")}"`;
+    const onDisk = [statusLineLauncherPath(projectDir), legacyStatusLineLauncherPath(projectDir)].find((f) =>
+      existsSync(f),
+    );
+    const desired =
+      (launcher || namesLauncher) && onDisk ? `node "${onDisk}"` : `node "${join(root, "scripts", "statusline.mjs")}"`;
     if (curCmd !== desired) {
       // Keep any sibling keys the platform supports on this object
       // (refreshInterval and friends) — we own the command, not the entry.
@@ -1146,19 +1382,40 @@ export function findAgentsBlock(text) {
     const loose = new RegExp(AGENTS_BLOCK_OPEN_LOOSE_SRC).exec(text);
     if (!loose) return null;
     const line = text.slice(0, loose.index).split("\n").length;
-    return { present: true, v: Number(loose[1]), start: loose.index, end: null, unclosed: true, wrapped: true, line, count, block: null };
+    return {
+      present: true,
+      v: Number(loose[1]),
+      start: loose.index,
+      end: null,
+      unclosed: true,
+      wrapped: true,
+      line,
+      count,
+      block: null,
+    };
   }
   const closeAt = text.indexOf(AGENTS_BLOCK_CLOSE, m.index + m[0].length);
-  if (closeAt === -1) return { present: true, v: Number(m[1]), start: m.index, end: null, unclosed: true, count, block: null };
+  if (closeAt === -1)
+    return { present: true, v: Number(m[1]), start: m.index, end: null, unclosed: true, count, block: null };
   const end = closeAt + AGENTS_BLOCK_CLOSE.length;
-  return { present: true, v: Number(m[1]), start: m.index, end, unclosed: false, count, block: text.slice(m.index, end) };
+  return {
+    present: true,
+    v: Number(m[1]),
+    start: m.index,
+    end,
+    unclosed: false,
+    count,
+    block: text.slice(m.index, end),
+  };
 }
 
 // Whether `text` holds `line` as a line of its own, trimmed and exact — the
 // installer's match for the `@<file>` import, so `@./AGENTS.md` reads as
 // absent to install and doctor alike.
 export function importsLine(text, line) {
-  return String(text ?? "").split("\n").some((l) => l.trim() === line);
+  return String(text ?? "")
+    .split("\n")
+    .some((l) => l.trim() === line);
 }
 
 // Whether a harness sees the one agents block where it stands — the predicate
@@ -1218,14 +1475,24 @@ export function renderAgentsBlock(tmpl, roster = null) {
   const AGENT_LINE = /^- [^:]*?:\s+(?:run|consult) (?:the )?`projectstore:([a-z]+)`/;
   const flush = () => {
     if (!bullet) return;
-    const m = AGENT_LINE.exec(bullet.map((l) => l.trim()).join(" ").replace(/^- /, "- "));
+    const m = AGENT_LINE.exec(
+      bullet
+        .map((l) => l.trim())
+        .join(" ")
+        .replace(/^- /, "- "),
+    );
     if (!names || !m || names.has(m[1])) out.push(...bullet);
     bullet = null;
   };
   for (const l of lines) {
-    if (/^- /.test(l)) { flush(); bullet = [l]; }
-    else if (bullet && /^\s+\S/.test(l)) bullet.push(l);
-    else { flush(); out.push(l); }
+    if (/^- /.test(l)) {
+      flush();
+      bullet = [l];
+    } else if (bullet && /^\s+\S/.test(l)) bullet.push(l);
+    else {
+      flush();
+      out.push(l);
+    }
   }
   flush();
   return out.join("\n");
@@ -1249,7 +1516,9 @@ export function layoutRoster(cfg, root = pluginRoot()) {
   try {
     const r = loadLayout(cfg.layout, root).agents;
     return Array.isArray(r) && r.length ? r : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 export function folderByKind(layout, kind) {
@@ -1324,7 +1593,7 @@ export function loadHeadingsRegistry() {
   try {
     _headingsCache = JSON.parse(readFileSync(p, "utf8"));
   } catch (e) {
-    throw new Error(`heading registry missing or unreadable (${p}): ${e.message}`);
+    throw new Error(`heading registry missing or unreadable (${p}): ${e.message}`, { cause: e });
   }
   return _headingsCache;
 }
@@ -1406,10 +1675,10 @@ export function footerDateRe() {
 // so the loss had no detector at all. Anchored, both halves behave as
 // documented: reconcile reports the index unusable and doctor warns.
 export function indexHeaderRe() {
-  const cols = ["file", "title", "status", "date"].map((c) =>
-    allForms("index_columns", c).map(escapeRe).join("|"));
+  const cols = ["file", "title", "status", "date"].map((c) => allForms("index_columns", c).map(escapeRe).join("|"));
   return new RegExp(
-    `^\\|\\s*(?:${cols[0]})\\s*\\|\\s*(?:${cols[1]})\\s*\\|\\s*(?:${cols[2]})\\s*\\|\\s*(?:${cols[3]})\\s*\\|\\s*$`);
+    `^\\|\\s*(?:${cols[0]})\\s*\\|\\s*(?:${cols[1]})\\s*\\|\\s*(?:${cols[2]})\\s*\\|\\s*(?:${cols[3]})\\s*\\|\\s*$`,
+  );
 }
 
 // ─── Frontmatter list fields (code_refs / specs / stories / adr) ───────
@@ -1475,10 +1744,39 @@ export function isLegacyStory(fm, since) {
 // Cyrillic → Latin so ru titles produce portable ASCII filenames; every other
 // Unicode letter/digit survives via \p{L}\p{N}. Never returns an empty slug.
 const CYRILLIC = {
-  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z",
-  и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r",
-  с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts", ч: "ch", ш: "sh",
-  щ: "shch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+  а: "a",
+  б: "b",
+  в: "v",
+  г: "g",
+  д: "d",
+  е: "e",
+  ё: "e",
+  ж: "zh",
+  з: "z",
+  и: "i",
+  й: "y",
+  к: "k",
+  л: "l",
+  м: "m",
+  н: "n",
+  о: "o",
+  п: "p",
+  р: "r",
+  с: "s",
+  т: "t",
+  у: "u",
+  ф: "f",
+  х: "h",
+  ц: "ts",
+  ч: "ch",
+  ш: "sh",
+  щ: "shch",
+  ъ: "",
+  ы: "y",
+  ь: "",
+  э: "e",
+  ю: "yu",
+  я: "ya",
 };
 
 export function slugify(s) {
@@ -1674,7 +1972,11 @@ export function listStoryFiles(storiesDir) {
   for (const entry of readdirSync(storiesDir).sort()) {
     const full = join(storiesDir, entry);
     let st;
-    try { st = statSync(full); } catch { continue; }
+    try {
+      st = statSync(full);
+    } catch {
+      continue;
+    }
     if (st.isFile() && entry.endsWith(".md")) {
       out.push({ abs: full, rel: entry, slug: entry.replace(/\.md$/, "") });
       continue;
@@ -1700,14 +2002,22 @@ export function listStoryFiles(storiesDir) {
 export function listEpicStories(epicDir) {
   const out = [];
   // epics/ holds loose files too (README, notes) — only folders are epics.
-  try { if (!statSync(epicDir).isDirectory()) return out; } catch { return out; }
+  try {
+    if (!statSync(epicDir).isDirectory()) return out;
+  } catch {
+    return out;
+  }
   for (const s of listStoryFiles(join(epicDir, "stories"))) {
     out.push({ abs: s.abs, rel: `stories/${s.rel}`, slug: s.slug });
   }
   for (const entry of readdirSync(epicDir).sort()) {
     if (!entry.startsWith("story-") || !entry.endsWith(".md")) continue;
     const full = join(epicDir, entry);
-    try { if (!statSync(full).isFile()) continue; } catch { continue; }
+    try {
+      if (!statSync(full).isFile()) continue;
+    } catch {
+      continue;
+    }
     out.push({ abs: full, rel: entry, slug: entry.replace(/\.md$/, "") });
   }
   return out;
@@ -1788,14 +2098,16 @@ export function buildNodeIndex(cfg, layout) {
   const nodes = [];
   const push = (abs, rel, type, { prefix = null, story = false } = {}) => {
     let md;
-    try { md = readFileSync(abs, "utf8"); } catch { return; }
+    try {
+      md = readFileSync(abs, "utf8");
+    } catch {
+      return;
+    }
     const fm = parseFrontmatter(md).data;
     const name = basename(rel);
     // A folder-shape story is identified by its folder name, like doctor's
     // storyStemOf; every other node by its filename stem.
-    const stem = name === "README.md"
-      ? basename(dirname(rel))
-      : name.replace(/\.md$/i, "");
+    const stem = name === "README.md" ? basename(dirname(rel)) : name.replace(/\.md$/i, "");
     const idField = fm.id ?? fm.slug; // research/concept/runbook/meeting templates carry slug:, not id:
     nodes.push({
       path: rel,
@@ -1920,10 +2232,13 @@ export function resolveLinkTarget(rawTarget, linkType, ctx) {
   const tiers = [
     () => (index.byIdentity.get(key) || []).filter(eligible),
     () => (index.byStem.get(key) || []).filter(eligible),
-    () => index.nodes.filter((n) =>
-      eligible(n)
-      && isLegacyNumberedId(target, n.story ? { story: true } : { prefix: n.prefix })
-      && n.stem.toLowerCase().startsWith(`${key}-`)),
+    () =>
+      index.nodes.filter(
+        (n) =>
+          eligible(n) &&
+          isLegacyNumberedId(target, n.story ? { story: true } : { prefix: n.prefix }) &&
+          n.stem.toLowerCase().startsWith(`${key}-`),
+      ),
   ];
   for (const tier of tiers) {
     const hits = [...new Set(tier())];
@@ -1948,11 +2263,11 @@ export function resolveLinkTarget(rawTarget, linkType, ctx) {
 // split is what makes the bounds unit-testable without a slow filesystem, and
 // what stops a second convenience being paid for out of the same budget later.
 
-export const PURPOSE_CELL = 160;   // contract 1
-export const TITLE_CELL = 80;      // contract 1
-export const PATH_CELL = 200;      // contracts 1, 19 — measured: longest path here is 123
-export const INFLIGHT_CAP = 5;     // contracts 1, 19
-export const ERROR_CELL = 500;     // contract 3
+export const PURPOSE_CELL = 160; // contract 1
+export const TITLE_CELL = 80; // contract 1
+export const PATH_CELL = 200; // contracts 1, 19 — measured: longest path here is 123
+export const INFLIGHT_CAP = 5; // contracts 1, 19
+export const ERROR_CELL = 500; // contract 3
 
 // A truncation marks itself, and the mark counts toward the budget (contract 1).
 export function truncEnd(s, max) {
@@ -2291,8 +2606,10 @@ export function renderVaultSkeleton(facts) {
       if (more > 0) L.push(`- …and ${more} more; see \`${commandForm("status")}\``);
       if (cont.artifact) {
         L.push("");
-        L.push(`**In flight**: ${pathCell(cont.artifact)} was the newest structured write before` +
-          " compaction. If we were drafting it, continue from there.");
+        L.push(
+          `**In flight**: ${pathCell(cont.artifact)} was the newest structured write before` +
+            " compaction. If we were drafting it, continue from there.",
+        );
       }
       L.push("");
     }
@@ -2356,7 +2673,11 @@ export function ensureSessionsDir(vault) {
   // vault lives. The .gitignore inside <vault>/.projectstore/ is merged by
   // line (2026-09-06: a vault that is also a project shares the directory
   // with the project layout, whose committed harness/ a "*" would hide).
-  ensureGitignoreLines(join(vault, LAYOUT.root, ".gitignore"), [`${LAYOUT.vaultSessions}/`], "projectstore — runtime data, do not commit");
+  ensureGitignoreLines(
+    join(vault, LAYOUT.root, ".gitignore"),
+    [`${LAYOUT.vaultSessions}/`],
+    "projectstore — runtime data, do not commit",
+  );
   return dir;
 }
 
@@ -2368,7 +2689,9 @@ export function writeSession(vault, sessionId, projectRoot) {
   const path = sessionFilePath(vault, sessionId);
   let existing = null;
   if (existsSync(path)) {
-    try { existing = JSON.parse(readFileSync(path, "utf8")); } catch {}
+    try {
+      existing = JSON.parse(readFileSync(path, "utf8"));
+    } catch {}
   }
   const data = {
     id: sessionId,
@@ -2403,10 +2726,18 @@ export function readActiveSessions(vault, currentSessionId, maxAgeMinutes = 30) 
     if (!name.endsWith(".json")) continue;
     const path = join(dir, name);
     let stat;
-    try { stat = statSync(path); } catch { continue; }
+    try {
+      stat = statSync(path);
+    } catch {
+      continue;
+    }
     if (stat.mtimeMs < cutoff) continue;
     let data;
-    try { data = JSON.parse(readFileSync(path, "utf8")); } catch { continue; }
+    try {
+      data = JSON.parse(readFileSync(path, "utf8"));
+    } catch {
+      continue;
+    }
     if (data.id === currentSessionId) continue;
     out.push({ ...data, last_active: stat.mtime });
   }
@@ -2449,7 +2780,6 @@ export function cleanupStaleSessions(vault, maxAgeHours = 24, currentSessionId =
 // One-shot migration helper (retired): delete .claude/.projectstore-session-id left
 // behind by v0.3 – v0.5 (file-based per-project session id). Safe to call
 // on every session start; no-op if the file is absent. Kept until v0.7.
-
 
 // ─── Session activity log ──────────────────────────────────────────────
 //
@@ -2579,7 +2909,11 @@ export function sessionStatePath(projectDir, sessionId) {
 export function ensureRuntimeDir(projectDir) {
   const p = layoutPaths(projectDir);
   mkdirSync(p.root, { recursive: true });
-  ensureGitignoreLines(p.gitignore, [...LAYOUT.gitignore], "projectstore — the binding and the state are machine-local; harness/ is committed");
+  ensureGitignoreLines(
+    p.gitignore,
+    [...LAYOUT.gitignore],
+    "projectstore — the binding and the state are machine-local; harness/ is committed",
+  );
   return p.root;
 }
 
@@ -2602,13 +2936,17 @@ export function ensureStateRoot(projectDir) {
   ensureRuntimeDir(projectDir);
   const p = layoutPaths(projectDir);
   mkdirSync(p.state, { recursive: true });
-  if (!existsSync(p.stateGitignore)) writeFileSync(p.stateGitignore, `# ${RUNTIME_GITIGNORE_HEADER}, do not commit\n*\n`, "utf8");
+  if (!existsSync(p.stateGitignore))
+    writeFileSync(p.stateGitignore, `# ${RUNTIME_GITIGNORE_HEADER}, do not commit\n*\n`, "utf8");
   return p.state;
 }
 
 export function readSessionState(projectDir, sessionId) {
   try {
-    const p = pickExisting(sessionStatePath(projectDir, sessionId), join(legacyStateDir(projectDir), `${sessionId}.json`));
+    const p = pickExisting(
+      sessionStatePath(projectDir, sessionId),
+      join(legacyStateDir(projectDir), `${sessionId}.json`),
+    );
     return JSON.parse(readFileSync(p, "utf8"));
   } catch {
     return null;
@@ -2681,9 +3019,15 @@ export function cleanupStaleSessionState(projectDir, maxAgeHours = 24) {
 // consumer. Lifted out of diff-refs.mjs so the hook, doctor and diff-refs
 // cannot drift apart (contract 1).
 export const SOURCE_IGNORE = [
-  /(^|\/)package-lock\.json$/, /(^|\/)yarn\.lock$/, /(^|\/)pnpm-lock\.yaml$/,
-  /(^|\/)Cargo\.lock$/, /(^|\/)node_modules\//, /(^|\/)dist\//, /(^|\/)build\//,
-  /(^|\/)\.claude\//, /\.min\.(js|css)$/,
+  /(^|\/)package-lock\.json$/,
+  /(^|\/)yarn\.lock$/,
+  /(^|\/)pnpm-lock\.yaml$/,
+  /(^|\/)Cargo\.lock$/,
+  /(^|\/)node_modules\//,
+  /(^|\/)dist\//,
+  /(^|\/)build\//,
+  /(^|\/)\.claude\//,
+  /\.min\.(js|css)$/,
 ];
 
 // The entry-rule counter ignores strictly more than the base set, and the
@@ -2701,7 +3045,9 @@ export const SOURCE_IGNORE = [
 // Built from LAYOUT.root, which the resolver alone spells (layout contract 0).
 export const ENTRY_IGNORE = [
   ...SOURCE_IGNORE,
-  /^AGENTS\.md$/, /^CLAUDE\.md$/, /^\.gitignore$/,
+  /^AGENTS\.md$/,
+  /^CLAUDE\.md$/,
+  /^\.gitignore$/,
   new RegExp(`^${LAYOUT.root.replace(".", "\\.")}\\/\\.gitignore$`),
 ];
 
@@ -2776,7 +3122,11 @@ export function listVaultStoryFiles(vaultPath) {
   const out = [];
   const epicsDir = join(vaultPath, "epics");
   let entries;
-  try { entries = readdirSync(epicsDir).sort(); } catch { return out; }
+  try {
+    entries = readdirSync(epicsDir).sort();
+  } catch {
+    return out;
+  }
   for (const e of entries) {
     for (const s of listEpicStories(join(epicsDir, e))) out.push(s.abs);
   }
@@ -2806,7 +3156,11 @@ export async function resolveOpenStory(vaultPath, opts = {}) {
   const scan = (async () => {
     for (const f of files) {
       let text;
-      try { text = await readFile(f); } catch { continue; }
+      try {
+        text = await readFile(f);
+      } catch {
+        continue;
+      }
       // String(): the injected reader is a seam, and a caller that forgets an
       // encoding hands back a Buffer. Coercing here keeps that a non-event.
       if (openStoryFrom([parseFrontmatter(String(text)).data])) return true;
@@ -2829,7 +3183,11 @@ export function lastVaultActivityMs(vaultPath) {
   let newest = 0;
   const walk = (dir) => {
     let entries;
-    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
     for (const e of entries) {
       if (e.name.startsWith(".")) continue; // .projectstore/, .obsidian/, .git/
       const p = join(dir, e.name);
@@ -2888,8 +3246,7 @@ export function writeOpenStoryCache(projectDir, sessionId, value) {
 
 export function firedCount(projectDir, sessionId) {
   try {
-    return readdirSync(markerDir(projectDir, sessionId))
-      .filter((n) => /^fired-\d+$/.test(n)).length;
+    return readdirSync(markerDir(projectDir, sessionId)).filter((n) => /^fired-\d+$/.test(n)).length;
   } catch {
     return 0;
   }
@@ -3004,7 +3361,11 @@ export function electEmitter(projectDir, sessionId) {
   if (n === 0) target = "fired-1";
   else if (n === 1 && isArmed(projectDir, sessionId)) target = "fired-2";
   if (!target) return false;
-  try { mkdirSync(dir, { recursive: true }); } catch { return false; }
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch {
+    return false;
+  }
 
   // In the ARMED state the arming is the scarce thing, so consuming it must be
   // the atomic act. Creating fired-2 first and unlinking `armed` afterwards
@@ -3014,7 +3375,11 @@ export function electEmitter(projectDir, sessionId) {
   // both win). unlink() succeeding is what elects here, exactly as create()
   // does in the unarmed state.
   if (target === "fired-2") {
-    try { unlinkSync(join(dir, "armed")); } catch { return false; }
+    try {
+      unlinkSync(join(dir, "armed"));
+    } catch {
+      return false;
+    }
   }
   try {
     writeFileSync(join(dir, target), "", { flag: "wx" });
@@ -3052,17 +3417,16 @@ export function electEmitter(projectDir, sessionId) {
 // did; without the second, parallel subagents (which share one session id)
 // vote on a name none of them can accept.
 
-export const ANCHOR_SETTLE = 5;   // tally at which a key becomes offerable
-export const ANCHOR_MARGIN = 10;  // lead a challenger needs to take over
-const ANCHOR_NAME_CELL = 48;      // a name is typed by hand; keep it typeable
+export const ANCHOR_SETTLE = 5; // tally at which a key becomes offerable
+export const ANCHOR_MARGIN = 10; // lead a challenger needs to take over
+const ANCHOR_NAME_CELL = 48; // a name is typed by hand; keep it typeable
 
 // Which cluster an artifact belongs to: its epic, or the document itself.
 // Folders come from the layout, never from a hard-coded set — a vault that
 // renames `research/` must not silently stop being nameable.
 export function anchorKeyOf(rel, layout) {
   if (typeof rel !== "string" || !rel) return null;
-  const folders = (layout && Array.isArray(layout.folders) ? layout.folders : [])
-    .filter((f) => f && f.path);
+  const folders = (layout && Array.isArray(layout.folders) ? layout.folders : []).filter((f) => f && f.path);
   const epic = folders.find((f) => f.kind === "epic");
   if (epic && rel.startsWith(epic.path + "/")) {
     // String ops, never an interpolated RegExp: a layout path is user data, and
@@ -3076,7 +3440,7 @@ export function anchorKeyOf(rel, layout) {
     if (f.kind === "epic") continue;
     if (rel.startsWith(f.path + "/") && rel.endsWith(".md")) {
       const base = rel.slice(f.path.length + 1);
-      if (base.includes("/")) continue;      // only files directly in the folder
+      if (base.includes("/")) continue; // only files directly in the folder
       // A folder's generated index is not a document: `adr/README.md` would
       // otherwise settle an anchor and compose the name "readme".
       if (f.readme && base.toLowerCase() === "readme.md") continue;
@@ -3114,9 +3478,7 @@ export function foldAnchor(state, hit) {
   let offer = null;
   const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
   if (top && top[1] >= ANCHOR_SETTLE) {
-    const take = incumbent === null
-      ? true
-      : top[0] !== incumbent && top[1] >= (counts[incumbent] || 0) + ANCHOR_MARGIN;
+    const take = incumbent === null ? true : top[0] !== incumbent && top[1] >= (counts[incumbent] || 0) + ANCHOR_MARGIN;
     if (take && top[0] !== incumbent) {
       incumbent = top[0];
       // A moved anchor is not automatically a new NAME. Two documents can share
@@ -3191,7 +3553,10 @@ export function anchorDir(projectDir, sessionId) {
 }
 
 function anchorSlot(key, leaf) {
-  const h = createHash("sha1").update(leaf ? `${key}\u0000${leaf}` : key).digest("hex").slice(0, 16);
+  const h = createHash("sha1")
+    .update(leaf ? `${key}\u0000${leaf}` : key)
+    .digest("hex")
+    .slice(0, 16);
   return leaf ? `l${h}` : `k${h}`;
 }
 
@@ -3238,14 +3603,17 @@ export function readAnchorState(projectDir, sessionId) {
     try {
       raw = readFileSync(join(dir, f), "utf8");
       n = statSync(join(dir, slot)).size;
-    } catch { continue; }
+    } catch {
+      continue;
+    }
     if (!raw || !n) continue;
     if (slot.startsWith("k")) {
       st.counts[raw] = n;
     } else {
       const nl = raw.indexOf("\n");
       if (nl < 0) continue;
-      const key = raw.slice(0, nl), leaf = raw.slice(nl + 1);
+      const key = raw.slice(0, nl),
+        leaf = raw.slice(nl + 1);
       st.leaves[key] = { ...(st.leaves[key] || {}), [leaf]: n };
     }
   }
@@ -3305,7 +3673,11 @@ export function liveSessionNames(selfSessionId, dir = null) {
   const root = dir || join(claudeHome(), "sessions");
   const out = [];
   let files;
-  try { files = readdirSync(root); } catch { return out; }
+  try {
+    files = readdirSync(root);
+  } catch {
+    return out;
+  }
   for (const f of files) {
     if (!f.endsWith(".json")) continue;
     try {
@@ -3324,7 +3696,11 @@ export function liveSessionNames(selfSessionId, dir = null) {
 export function ownSessionName(selfSessionId, dir = null) {
   const root = dir || join(claudeHome(), "sessions");
   let files;
-  try { files = readdirSync(root); } catch { return null; }
+  try {
+    files = readdirSync(root);
+  } catch {
+    return null;
+  }
   for (const f of files) {
     if (!f.endsWith(".json")) continue;
     try {
@@ -3342,7 +3718,7 @@ export function sessionNameOffer(name, { peers = [], current = null, declined = 
   // Never talk over a name the person chose. `declined` carries names we have
   // seen the session wear that we did not compose.
   if (current && current !== name && declined.includes(current)) return null;
-  if (current === name) return null;                       // already wearing it
+  if (current === name) return null; // already wearing it
   const taken = new Set(peers.map((p) => p && p.name).filter(Boolean));
   if (!taken.has(name)) return { name, qualified: false };
   // Taken. Qualify rather than skip: the anchor is still the honest answer, and

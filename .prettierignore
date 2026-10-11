@@ -1,0 +1,40 @@
+# Prettier formats what package.json's format scripts name: bin/, scripts/,
+# hooks/*.mjs, packaging/**/*.mjs, tests/**/*.mjs and eslint.config.mjs (the
+# lint ADR, decision 3). This list keeps the rest out, so an editor's
+# format-on-save agrees with the scripts.
+
+# Not ours to format: worktrees, the local binding and state, build output.
+.claude/
+.projectstore/
+dist/
+node_modules/
+
+# Markdown is shipped text that tests pin byte for byte.
+*.md
+
+# Generated: their generators' --check modes guard them.
+adapters/
+site/
+
+# Rendered by renderShellBin (packaging/shells.mjs) and compared byte for byte
+# by `node packaging/shells.mjs --check`: linted, never formatted. A finding
+# there is fixed in the template, then `npm run shells`.
+packaging/shells/*/bin/
+
+# Byte-stable fixtures. The .mjs beside them are code and are formatted.
+tests/fixtures/**/*.json
+tests/fixtures/**/*.txt
+
+# TypeScript keeps the host kit's single-quoted style.
+hooks/band.tsx
+hooks/band-state.d.ts
+tests/band/*.tsx
+
+# JSON is hand-written, and tests read its layout or key order: the manifests
+# (harnesses/*.json, .claude-plugin/plugin.json, .mcp.json,
+# scaffold/layouts/*.json, the shells' package.json and plugin manifests) and
+# every other config. Formatting it is a later, separate decision.
+*.json
+
+# The workflows are hand-written YAML; no script formats them.
+*.yml

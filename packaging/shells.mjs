@@ -38,7 +38,9 @@
 // Nothing here ships inside `projectstore`: `packaging/` is not on the root
 // package.json's files allowlist, and tests/packaging.test.mjs keeps it so.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, cpSync, rmSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, readdirSync } from "node:fs";
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- build-time only, never shipped: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite builds a shell with it on Node 20 in CI
+import { cpSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve, dirname, join, basename } from "node:path";
 import { tmpdir } from "node:os";
@@ -60,7 +62,8 @@ export const SHELLS = Object.freeze([
     display: "Claude Code",
     private: false,
     plugin_root: null, // the core IS Claude Code's plugin root; this shell is the installer only
-    description: "Installs projectstore for Claude Code from npm: the core pinned and bundled, the harness fixed — npx projectstore-claude install --project \"$PWD\".",
+    description:
+      'Installs projectstore for Claude Code from npm: the core pinned and bundled, the harness fixed — npx projectstore-claude install --project "$PWD".',
   }),
   Object.freeze({
     name: "projectstore-codex",
@@ -68,15 +71,18 @@ export const SHELLS = Object.freeze([
     display: "Codex",
     private: false,
     plugin_root: "adapters/codex",
-    description: "ProjectStore for Codex: portable project memory, rendered workflow skills and lifecycle hooks, with the core pinned and bundled.",
+    description:
+      "ProjectStore for Codex: portable project memory, rendered workflow skills and lifecycle hooks, with the core pinned and bundled.",
   }),
   Object.freeze({
     name: "projectstore-opencode",
     harness: "opencode",
     display: "opencode",
     private: true,
-    plugin_root: "rendered by roadmap C4 (the opencode plugin entry point and the rendered adapters/opencode/ surfaces)",
-    description: "Installs projectstore for opencode from npm: the core pinned and bundled, the harness fixed. Not published until its plugin root is rendered.",
+    plugin_root:
+      "rendered by roadmap C4 (the opencode plugin entry point and the rendered adapters/opencode/ surfaces)",
+    description:
+      "Installs projectstore for opencode from npm: the core pinned and bundled, the harness fixed. Not published until its plugin root is rendered.",
   }),
 ]);
 
@@ -173,7 +179,8 @@ function textTree(dir, prefix = "") {
   const out = {};
   const walk = (at, rel) => {
     for (const e of readdirSync(at, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const p = join(at, e.name), r = join(rel, e.name);
+      const p = join(at, e.name),
+        r = join(rel, e.name);
       if (e.isDirectory()) walk(p, r);
       else out[join(prefix, r)] = readFileSync(p, "utf8");
     }
@@ -288,7 +295,8 @@ export function renderShell(shell, { root = ROOT, verbs }) {
   };
   if (shell.harness === "codex") {
     const adapter = resolve(root, shell.plugin_root);
-    if (!existsSync(adapter)) throw new Error(`${shell.plugin_root} is missing — run node scripts/build-adapters.mjs --write`);
+    if (!existsSync(adapter))
+      throw new Error(`${shell.plugin_root} is missing — run node scripts/build-adapters.mjs --write`);
     Object.assign(rendered, renderCodexManifests(core), textTree(adapter));
   }
   return rendered;
@@ -337,7 +345,11 @@ export async function checkShells(root = ROOT) {
 // The core's own pack tarball — the only source a shell is ever built from.
 // `dest` is the caller's to keep or remove; buildShells owns its own.
 export function packCore({ root = ROOT, dest = mkdtempSync(join(tmpdir(), "ps-core-")) } = {}) {
-  const r = spawnSync("npm", ["pack", "--pack-destination", dest, "--json", "--loglevel=error"], { cwd: root, encoding: "utf8", timeout: 120000 });
+  const r = spawnSync("npm", ["pack", "--pack-destination", dest, "--json", "--loglevel=error"], {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 120000,
+  });
   if (r.status !== 0) return { error: `npm pack (the core) failed: ${r.stderr?.trim()}` };
   try {
     const [p] = JSON.parse(r.stdout);
@@ -352,25 +364,51 @@ export function packCore({ root = ROOT, dest = mkdtempSync(join(tmpdir(), "ps-co
 // is a hazard nobody needs. `{error}` on any failure, like currentPacklist.
 // `scratch` is the caller's to keep or remove (buildShells owns its own): the
 // built directory is what a publish-from-directory fallback needs.
-export function buildShell(name, { coreTgz, root = ROOT, out = null, scratch = mkdtempSync(join(tmpdir(), "ps-shell-")), dev = false } = {}) {
+export function buildShell(
+  name,
+  { coreTgz, root = ROOT, out = null, scratch = mkdtempSync(join(tmpdir(), "ps-shell-")), dev = false } = {},
+) {
   const shell = SHELLS.find((s) => s.name === name);
   if (!shell) return { error: `no shell named ${name} — known: ${SHELLS.map((s) => s.name).join(", ")}` };
   if (!coreTgz || !existsSync(coreTgz)) return { error: `the core's tarball is missing: ${coreTgz}` };
   const src = shellDir(name, root);
-  if (!existsSync(join(src, "package.json"))) return { error: `${SHELLS_DIR}/${name}/package.json is missing — run \`node packaging/shells.mjs --write\`` };
+  if (!existsSync(join(src, "package.json")))
+    return { error: `${SHELLS_DIR}/${name}/package.json is missing — run \`node packaging/shells.mjs --write\`` };
   const dst = join(scratch, name);
-  cpSync(src, dst, { recursive: true, filter: (p) => { const b = basename(p); return b !== "node_modules" && b !== "packlist.json"; } });
+  cpSync(src, dst, {
+    recursive: true,
+    filter: (p) => {
+      const b = basename(p);
+      return b !== "node_modules" && b !== "packlist.json";
+    },
+  });
   const before = readFileSync(join(dst, "package.json"), "utf8");
-  const inst = spawnSync("npm", ["install", "--no-save", "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error", coreTgz], { cwd: dst, encoding: "utf8", timeout: 180000 });
+  const inst = spawnSync(
+    "npm",
+    ["install", "--no-save", "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error", coreTgz],
+    { cwd: dst, encoding: "utf8", timeout: 180000 },
+  );
   if (inst.status !== 0) return { error: `npm install of the core into ${name} failed: ${inst.stderr?.trim()}` };
-  if (readFileSync(join(dst, "package.json"), "utf8") !== before) return { error: `${name}: npm install rewrote package.json — the "=<version>" pin must survive the build (--no-save)` };
-  const dry = spawnSync("npm", ["pack", "--dry-run", "--json", "--loglevel=error"], { cwd: dst, encoding: "utf8", timeout: 120000 });
+  if (readFileSync(join(dst, "package.json"), "utf8") !== before)
+    return {
+      error: `${name}: npm install rewrote package.json — the "=<version>" pin must survive the build (--no-save)`,
+    };
+  const dry = spawnSync("npm", ["pack", "--dry-run", "--json", "--loglevel=error"], {
+    cwd: dst,
+    encoding: "utf8",
+    timeout: 120000,
+  });
   if (dry.status !== 0) return { error: `npm pack --dry-run (${name}) failed: ${dry.stderr?.trim()}` };
   let pkg;
-  try { [pkg] = JSON.parse(dry.stdout); } catch (e) { return { error: `npm pack output unparseable (${name}): ${e.message}` }; }
+  try {
+    [pkg] = JSON.parse(dry.stdout);
+  } catch (e) {
+    return { error: `npm pack output unparseable (${name}): ${e.message}` };
+  }
   let devVersion = null;
   if (dev) {
-    if (shell.harness !== "codex") return { error: `${name}: --dev is supported only for a shell with the portable plugin root` };
+    if (shell.harness !== "codex")
+      return { error: `${name}: --dev is supported only for a shell with the portable plugin root` };
     const digest = filesDigest(dst, pkg.files.map((f) => f.path).sort());
     const release = corePackage(root).version;
     devVersion = `${release}+codex.dev.${digest.sha256.slice(0, 12)}`;
@@ -382,14 +420,25 @@ export function buildShell(name, { coreTgz, root = ROOT, out = null, scratch = m
     }
   }
   const bundled = pkg.bundled || [];
-  if (!bundled.includes(CORE)) return { error: `${name}: the pack bundles ${JSON.stringify(bundled)} — node_modules/${CORE} is not in the tree, so the tarball would carry no core (a shell packed without its install exits 0 and ships three files)` };
+  if (!bundled.includes(CORE))
+    return {
+      error: `${name}: the pack bundles ${JSON.stringify(bundled)} — node_modules/${CORE} is not in the tree, so the tarball would carry no core (a shell packed without its install exits 0 and ships three files)`,
+    };
   const files = pkg.files.map((f) => f.path).sort();
   let tgz = null;
   if (out) {
     mkdirSync(out, { recursive: true });
-    const real = spawnSync("npm", ["pack", "--pack-destination", out, "--json", "--loglevel=error"], { cwd: dst, encoding: "utf8", timeout: 120000 });
+    const real = spawnSync("npm", ["pack", "--pack-destination", out, "--json", "--loglevel=error"], {
+      cwd: dst,
+      encoding: "utf8",
+      timeout: 120000,
+    });
     if (real.status !== 0) return { error: `npm pack (${name}) failed: ${real.stderr?.trim()}` };
-    try { tgz = resolve(out, JSON.parse(real.stdout)[0].filename); } catch (e) { return { error: `npm pack output unparseable (${name}): ${e.message}` }; }
+    try {
+      tgz = resolve(out, JSON.parse(real.stdout)[0].filename);
+    } catch (e) {
+      return { error: `npm pack output unparseable (${name}): ${e.message}` };
+    }
   }
   return { name, dir: dst, files, bundled, tgz, devVersion };
 }
@@ -400,8 +449,14 @@ export function compareWithFixture(name, files, root = ROOT) {
   const p = resolve(root, shellPacklistPath(name));
   if (!existsSync(p)) return { fixture: shellPacklistPath(name), present: false, unexpected: files, missing: [] };
   const expected = JSON.parse(readFileSync(p, "utf8"));
-  const shipped = new Set(files), listed = new Set(expected);
-  return { fixture: shellPacklistPath(name), present: true, unexpected: files.filter((f) => !listed.has(f)), missing: expected.filter((f) => !shipped.has(f)) };
+  const shipped = new Set(files),
+    listed = new Set(expected);
+  return {
+    fixture: shellPacklistPath(name),
+    present: true,
+    unexpected: files.filter((f) => !listed.has(f)),
+    missing: expected.filter((f) => !shipped.has(f)),
+  };
 }
 
 // --build: every shell (or --only one) from one core tarball. With --out the
@@ -422,13 +477,30 @@ export function buildShells({ root = ROOT, only = null, out = null, dev = false 
     for (const s of SHELLS) {
       if (only && s.name !== only) continue;
       const b = buildShell(s.name, { coreTgz: core.tgz, root, out, scratch, dev });
-      if (b.error) { ok = false; shells.push({ name: s.name, error: b.error }); continue; }
+      if (b.error) {
+        ok = false;
+        shells.push({ name: s.name, error: b.error });
+        continue;
+      }
       const cmp = compareWithFixture(s.name, b.files, root);
       if (!cmp.present || cmp.unexpected.length || cmp.missing.length) ok = false;
-      shells.push({ name: s.name, count: b.files.length, bundled: b.bundled, tgz: b.tgz, dir: keep ? b.dir : null, files: b.files, fixture: cmp });
+      shells.push({
+        name: s.name,
+        count: b.files.length,
+        bundled: b.bundled,
+        tgz: b.tgz,
+        dir: keep ? b.dir : null,
+        files: b.files,
+        fixture: cmp,
+      });
     }
     if (only && !shells.length) return { ok: false, error: `no shell named ${only}` };
-    return { ok, core: { tgz: keep ? core.tgz : null, version: core.version, count: core.files.length, files: core.files }, shells, hint: ok ? undefined : "a fixture drifted — run `npm run packlist` if the change is intended" };
+    return {
+      ok,
+      core: { tgz: keep ? core.tgz : null, version: core.version, count: core.files.length, files: core.files },
+      shells,
+      hint: ok ? undefined : "a fixture drifted — run `npm run packlist` if the change is intended",
+    };
   } finally {
     if (!keep) rmSync(scratch, { recursive: true, force: true });
   }
@@ -439,21 +511,45 @@ function list() {
   for (const s of SHELLS) {
     const p = join(shellDir(s.name), "package.json");
     const pkg = existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
-    process.stdout.write(`${s.name.padEnd(24)} ${s.harness.padEnd(12)} ${s.private ? "private " : "publish "} ${pkg ? `${pkg.version} pin ${pkg.dependencies?.[CORE]}` : "(not rendered)"}   core ${core.version}\n`);
+    process.stdout.write(
+      `${s.name.padEnd(24)} ${s.harness.padEnd(12)} ${s.private ? "private " : "publish "} ${pkg ? `${pkg.version} pin ${pkg.dependencies?.[CORE]}` : "(not rendered)"}   core ${core.version}\n`,
+    );
   }
 }
 
 async function main(argv) {
   const flag = (n) => argv.includes(n);
-  const value = (n) => { const i = argv.indexOf(n); return i === -1 ? null : argv[i + 1] || null; };
+  const value = (n) => {
+    const i = argv.indexOf(n);
+    return i === -1 ? null : argv[i + 1] || null;
+  };
   const emit = (o) => process.stdout.write(JSON.stringify(o, null, 2) + "\n");
-  if (flag("--list")) { if (flag("--json")) process.stdout.write(JSON.stringify(publishable()) + "\n"); else list(); return 0; }
-  if (flag("--write")) { emit(await writeShells()); return 0; }
-  if (flag("--check")) { const r = await checkShells(); emit(r); return r.ok ? 0 : 1; }
+  if (flag("--list")) {
+    if (flag("--json")) process.stdout.write(JSON.stringify(publishable()) + "\n");
+    else list();
+    return 0;
+  }
+  if (flag("--write")) {
+    emit(await writeShells());
+    return 0;
+  }
+  if (flag("--check")) {
+    const r = await checkShells();
+    emit(r);
+    return r.ok ? 0 : 1;
+  }
   if (flag("--build")) {
-    const r = buildShells({ only: value("--only"), out: value("--out") ? resolve(value("--out")) : null, dev: flag("--dev") });
+    const r = buildShells({
+      only: value("--only"),
+      out: value("--out") ? resolve(value("--out")) : null,
+      dev: flag("--dev"),
+    });
     // The listings stay out of the report — 148 lines per shell say nothing a count and a fixture diff do not.
-    emit({ ...r, core: r.core && { ...r.core, files: undefined }, shells: (r.shells || []).map((s) => ({ ...s, files: undefined })) });
+    emit({
+      ...r,
+      core: r.core && { ...r.core, files: undefined },
+      shells: (r.shells || []).map((s) => ({ ...s, files: undefined })),
+    });
     return r.ok ? 0 : 1;
   }
   list();

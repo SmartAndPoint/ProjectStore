@@ -132,9 +132,13 @@ function main() {
   const status = String(fm.status || "").toLowerCase();
 
   if (mode === "plan") {
-    const r = insertSection(text, "implementation_plan", lang,
+    const r = insertSection(
+      text,
+      "implementation_plan",
+      lang,
       "<!-- Route through the covering spec's contracts: which contracts, in what order, which files. Filled at the gate. -->",
-      ["decomposition", "description"]);
+      ["decomposition", "description"],
+    );
     text = r.text;
     if (r.inserted) notes.push("inserted Implementation Plan section");
     if (!["in-progress", "in_progress", "review", "done"].includes(status)) {
@@ -148,9 +152,13 @@ function main() {
     text = setFm(text, "plan_updated_at", JSON.stringify(now));
     notes.push("stamped plan_updated_at");
   } else {
-    const r = insertSection(text, "final_summary", lang,
+    const r = insertSection(
+      text,
+      "final_summary",
+      lang,
       "<!-- What changed, why, tests executed, risks and follow-ups. Filled at the gate. -->",
-      ["acceptance", "decomposition", "description"]);
+      ["acceptance", "decomposition", "description"],
+    );
     text = r.text;
     if (r.inserted) notes.push("inserted Final Summary section");
     if (status !== "done") {
@@ -181,28 +189,42 @@ function main() {
       // otherwise shifts every later pairing and the report drowns in
       // artifacts of the shift instead of naming the change. Line numbers are
       // post-normalization (volatile keys may have been inserted).
-      const al = a.split("\n"), bl = b.split("\n");
+      const al = a.split("\n"),
+        bl = b.split("\n");
       let lo = 0;
       while (lo < al.length && lo < bl.length && al[lo] === bl[lo]) lo++;
-      let hiA = al.length - 1, hiB = bl.length - 1;
-      while (hiA > lo && hiB > lo && al[hiA] === bl[hiB]) { hiA--; hiB--; }
+      let hiA = al.length - 1,
+        hiB = bl.length - 1;
+      while (hiA > lo && hiB > lo && al[hiA] === bl[hiB]) {
+        hiA--;
+        hiB--;
+      }
       for (let i = 0; i <= Math.max(hiA, hiB) - lo && drift.length < 5; i++) {
-        const x = al[lo + i], y = bl[lo + i];
+        const x = al[lo + i],
+          y = bl[lo + i];
         if (lo + i > hiA && lo + i > hiB) break;
-        drift.push(`normalized line ${lo + i + 1}: ${JSON.stringify((x ?? "«absent»").slice(0, 120))} vs ${JSON.stringify((y ?? "«absent»").slice(0, 120))}`);
+        drift.push(
+          `normalized line ${lo + i + 1}: ${JSON.stringify((x ?? "«absent»").slice(0, 120))} vs ${JSON.stringify((y ?? "«absent»").slice(0, 120))}`,
+        );
       }
     }
     check = { baseline: resolve(checkPath), match: a === b, drift };
   }
 
-  process.stdout.write(JSON.stringify({
-    path: abs,
-    mode,
-    changed: text !== original,
-    check,
-    notes,
-    content: text,
-  }, null, 2) + "\n");
+  process.stdout.write(
+    JSON.stringify(
+      {
+        path: abs,
+        mode,
+        changed: text !== original,
+        check,
+        notes,
+        content: text,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

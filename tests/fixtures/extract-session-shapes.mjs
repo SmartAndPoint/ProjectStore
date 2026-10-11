@@ -30,23 +30,32 @@ if (!dir || !vault) {
 }
 
 const out = [];
-for (const f of readdirSync(dir).filter((f) => f.endsWith(".jsonl")).sort()) {
+for (const f of readdirSync(dir)
+  .filter((f) => f.endsWith(".jsonl"))
+  .sort()) {
   const ev = [];
   for (const line of readFileSync(join(dir, f), "utf8").split("\n")) {
     if (!line || line.indexOf(vault) === -1) continue;
-    let o; try { o = JSON.parse(line); } catch { continue; }
+    let o;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
     const sub = o.isSidechain === true;
     const content = o?.message?.content;
     if (!Array.isArray(content)) continue;
     for (const x of content) {
       if (x?.type !== "tool_use") continue;
-      const w = WRITE.has(x.name), r = READ.has(x.name);
+      const w = WRITE.has(x.name),
+        r = READ.has(x.name);
       if (!w && !r) continue;
       const p = x.input?.file_path || x.input?.path;
       if (typeof p !== "string" || !p.startsWith(vault + "/")) continue;
       const rel = p.slice(vault.length + 1);
       const m = rel.match(/^epics\/([^/]+)\//);
-      let cluster = null, leaf = null;
+      let cluster;
+      let leaf = null;
       if (m) {
         cluster = `epic:${m[1]}`;
         const lm = rel.match(/\/stories\/(.+)\.md$/);
@@ -62,7 +71,8 @@ for (const f of readdirSync(dir).filter((f) => f.endsWith(".jsonl")).sort()) {
     }
   }
   if (ev.length < 5) continue;
-  const cm = new Map(), lm = new Map();
+  const cm = new Map(),
+    lm = new Map();
   const anon = ev.map((e) => {
     if (!cm.has(e.cluster)) {
       const kind = e.cluster.startsWith("epic:") ? "epic:E" : `doc:${e.cluster.slice(4).split("/")[0]}/D`;

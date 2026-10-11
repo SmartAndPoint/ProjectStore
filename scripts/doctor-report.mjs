@@ -50,7 +50,8 @@ import { commandForm, doctorSummaryLine } from "./lib.mjs";
 //   - folds: notes of this check fold on a terminal — true for all of them,
 //     or a pattern for the ones it names. The offer checks (doctor.mjs's
 //     OFFER_CHECKS: upgrade, layout-legacy) never fold, so they have no row.
-const row = ({ instance = null, title = null, fix = null, folds = false }) => Object.freeze({ instance, title, fix, folds });
+const row = ({ instance = null, title = null, fix = null, folds = false }) =>
+  Object.freeze({ instance, title, fix, folds });
 
 export const CHECKS = Object.freeze({
   // Fixes: the checks whose messages name no command.
@@ -59,7 +60,7 @@ export const CHECKS = Object.freeze({
     title: "code_refs path does not resolve inside the project",
     fix: "make each code_refs path exist in the project, and keep a story's paths inside its epic's",
   }),
-  "wikilink": row({
+  wikilink: row({
     instance: /^Dead wiki-link \[\[(.+)\]\]\.$/,
     title: "Dead wiki-link",
     fix: "make each [[link]] name exactly one existing artifact (correct the name, or qualify it with its folder); if the check was skipped, fix the error it names",
@@ -69,24 +70,26 @@ export const CHECKS = Object.freeze({
     title: "Dead relative link",
     fix: "point each relative link at a file that exists, or remove it",
   }),
-  "acceptance": row({ fix: "tick the criteria the work met, or move the story out of done" }),
+  acceptance: row({ fix: "tick the criteria the work met, or move the story out of done" }),
   "review-status": row({ fix: "set reviewed_at to the review's date, or clear review_status" }),
   "epic-status": row({ fix: "close the open stories, or move the epic out of done" }),
-  "spec-links": row({ fix: "make each spec's stories and each story's specs name existing artifacts that list each other back, written inline as specs: [\"id\"]" }),
-  "index": row({
+  "spec-links": row({
+    fix: "make each spec's stories and each story's specs name existing artifacts that list each other back, written inline as specs: [\"id\"]",
+  }),
+  index: row({
     instance: / is not listed in .+\/README\.md's index\.$/,
     title: "Artifact is not listed in its folder's README index",
     fix: { say: "rebuild the folder indexes from frontmatter", command: (env) => commandForm("reconcile", { env }) },
   }),
   "index-header": row({ fix: "rewrite the index header in a registered form, so reconcile can rebuild the index" }),
   // Notes that fold on a terminal while their section has something to fix.
-  "surface": row({ folds: /— current, last written by / }),
-  "mcp": row({ folds: true }),
-  "statusline": row({ folds: /^Base HUD present/ }),
-  "harness": row({ folds: true }),
+  surface: row({ folds: /— current, last written by / }),
+  mcp: row({ folds: true }),
+  statusline: row({ folds: /^Base HUD present/ }),
+  harness: row({ folds: true }),
   "plugin-registration": row({ folds: / registered from the npm package / }),
   "spec-policy": row({ folds: true }),
-  "identity": row({ folds: true }),
+  identity: row({ folds: true }),
   "artifact-name": row({ folds: true }),
 });
 
@@ -106,11 +109,24 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 // at a line's end with the path alone below; a space again once wrapped.
 const GLUE = "";
 
-const folderName = (p) => (p ? String(p).replace(/[\\/]+$/, "").split(/[\\/]/).pop() || null : null);
+const folderName = (p) =>
+  p
+    ? String(p)
+        .replace(/[\\/]+$/, "")
+        .split(/[\\/]/)
+        .pop() || null
+    : null;
 const folds = (r, f) => f.level === "info" && Boolean(r.folds) && (r.folds === true || r.folds.test(f.message));
-const capture = (r, f) => { const m = r.instance.exec(f.message); return m && m[1] !== undefined ? m[1] : null; };
+const capture = (r, f) => {
+  const m = r.instance.exec(f.message);
+  return m && m[1] !== undefined ? m[1] : null;
+};
 
-export function report(findings, groups, { caps: c = PLAIN, verbose = false, version = null, project = null, env = process.env } = {}) {
+export function report(
+  findings,
+  groups,
+  { caps: c = PLAIN, verbose = false, version = null, project = null, env = process.env } = {},
+) {
   const paint = painter(c);
   // The terminal's compaction (contract 11, "on a TTY only"): the cap, the
   // folds and the short instance lines. Plain output prints everything, and
@@ -122,9 +138,12 @@ export function report(findings, groups, { caps: c = PLAIN, verbose = false, ver
   // first indented two further; one line anywhere else.
   const prose = (n, text) => {
     const pad = " ".repeat(n);
-    return wrap(text, width, pad + "  ").split("\n").map((l, k) => (k ? l : pad + l).split(GLUE).join(" "));
+    return wrap(text, width, pad + "  ")
+      .split("\n")
+      .map((l, k) => (k ? l : pad + l).split(GLUE).join(" "));
   };
-  const withPath = (text, f) => (f.file ? `${text} ${paint("explanation", dash)}${GLUE}${paint("explanation", f.file)}` : text);
+  const withPath = (text, f) =>
+    f.file ? `${text} ${paint("explanation", dash)}${GLUE}${paint("explanation", f.file)}` : text;
 
   function entries(level, check, r, these) {
     const [, glyph, role] = LEVELS.find(([l]) => l === level);
@@ -141,21 +160,47 @@ export function report(findings, groups, { caps: c = PLAIN, verbose = false, ver
       const [said, ...commands] = String(f.message).split("\n");
       if (!grouped.includes(f) && commands.length) {
         const colon = said.endsWith(":") ? ":" : "";
-        out.push(...prose(2, withPath(`${lead} ${colon ? said.slice(0, -1) : said}`, f) + colon), ...commandBlock(c, commands, { indent: 6 }), "");
+        out.push(
+          ...prose(2, withPath(`${lead} ${colon ? said.slice(0, -1) : said}`, f) + colon),
+          ...commandBlock(c, commands, { indent: 6 }),
+          "",
+        );
         continue;
       }
-      if (!grouped.includes(f)) { out.push(...prose(2, withPath(`${lead} ${f.message}`, f))); continue; }
+      if (!grouped.includes(f)) {
+        out.push(...prose(2, withPath(`${lead} ${f.message}`, f)));
+        continue;
+      }
       if (f !== grouped[0]) continue;
       out.push(...prose(2, `${lead} ${paint("emphasis", r.title)} (${grouped.length})`));
-      if (!compact) { for (const g of grouped) out.push(...prose(6, withPath(g.message, g))); continue; }
+      if (!compact) {
+        for (const g of grouped) out.push(...prose(6, withPath(g.message, g)));
+        continue;
+      }
       // Each instance a row with its own glyph: its capture, then its path.
       // A path moved beneath its capture (contract 5) reads `— <path>`, as
       // plain's `message — file` does, so neither colour nor the indent is
       // all that tells it from the next capture.
       const shown = grouped.slice(0, INSTANCE_CAP);
-      const laid = rowLines(c, shown.map((g) => { const cap = capture(r, g); return { glyph: "dot", role: "explanation", ...(cap === null ? { target: g.file || g.message } : { target: cap, note: g.file || "" }) }; }), { indent: 6 });
-      for (const [first, ...moved] of laid) out.push(first, ...moved.map((l, k) => (k ? l : l.replace(/^ */, (pad) => `${pad}${paint("explanation", dash)} `))));
-      if (grouped.length > shown.length) out.push(`      ${paint("explanation", `+${grouped.length - shown.length} more`)}`);
+      const laid = rowLines(
+        c,
+        shown.map((g) => {
+          const cap = capture(r, g);
+          return {
+            glyph: "dot",
+            role: "explanation",
+            ...(cap === null ? { target: g.file || g.message } : { target: cap, note: g.file || "" }),
+          };
+        }),
+        { indent: 6 },
+      );
+      for (const [first, ...moved] of laid)
+        out.push(
+          first,
+          ...moved.map((l, k) => (k ? l : l.replace(/^ */, (pad) => `${pad}${paint("explanation", dash)} `))),
+        );
+      if (grouped.length > shown.length)
+        out.push(`      ${paint("explanation", `+${grouped.length - shown.length} more`)}`);
     }
     if (r.fix) {
       const fix = typeof r.fix === "string" ? { say: r.fix, command: null } : r.fix;
@@ -180,11 +225,16 @@ export function report(findings, groups, { caps: c = PLAIN, verbose = false, ver
       for (const check of [...new Set(atLevel.map((f) => f.check))]) {
         const r = Object.hasOwn(CHECKS, check) ? CHECKS[check] : NONE;
         let these = atLevel.filter((f) => f.check === check);
-        if (folding) { const kept = these.filter((f) => !folds(r, f)); hidden += these.length - kept.length; these = kept; }
+        if (folding) {
+          const kept = these.filter((f) => !folds(r, f));
+          hidden += these.length - kept.length;
+          these = kept;
+        }
         if (these.length) out.push(...entries(level, check, r, these));
       }
     }
-    if (hidden) out.push(`  ${paint("explanation", `${plural(hidden, "note")} hidden ${icon(c, "dot")} --verbose shows them`)}`);
+    if (hidden)
+      out.push(`  ${paint("explanation", `${plural(hidden, "note")} hidden ${icon(c, "dot")} --verbose shows them`)}`);
     while (out.at(-1) === "") out.pop();
     return out;
   }

@@ -307,6 +307,23 @@ See [`docs/extending.md`](./docs/extending.md) for adding layouts, templates, an
 
 Issues and discussions: https://github.com/SmartAndPoint/ProjectStore/issues. PRs welcome — adding a layout is a good first contribution (see `scaffold/layouts/engineering.json` for the format).
 
+The published package has no dependencies; the linter and the formatter are dev-only, pinned in `package-lock.json`. Every pull request runs the tests, ESLint and Prettier:
+
+```sh
+npm test              # Node 20+, no install needed
+npm ci                # once, for the lint tools (Node 20.19+, 22.13+ or 24+)
+npm run lint
+npm run format        # rewrites; npm run format:check only reports
+```
+
+One formatting-only commit is listed in `.git-blame-ignore-revs`. GitHub skips it in blame by itself; a local clone needs this once:
+
+```sh
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+A branch opened before that commit rebases in two steps, so that the lint fixes before it are kept: `git rebase <the commit before it>` (real conflicts, resolved as usual), then `git rebase --onto <it> <the commit before it>`, where every conflict is formatting only: take your side, run `npx prettier --write <file>`, `git add` it and continue.
+
 ## License
 
 MIT — see [`LICENSE`](./LICENSE).

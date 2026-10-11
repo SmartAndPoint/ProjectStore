@@ -14,7 +14,9 @@
 // wrong-name, wrong-version, no-plugin-manifest, plugin-version,
 // core-version, ETARGET, E404, E401, E403, ECONNREFUSED, FETCH_ERROR, hang.
 
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, cpSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, statSync } from "node:fs";
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite runs on Node 20 in CI
+import { cpSync } from "node:fs";
 import { join, dirname, delimiter } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { EventEmitter } from "node:events";
@@ -26,11 +28,27 @@ export const FAKE_REGISTRY = "https://registry.example.test/";
 // npm's --json failure bodies (stdout), as npm 11.19 prints them, with the
 // stderr line it prints beside them.
 export const NPM_ERRORS = {
-  ETARGET: { code: "ETARGET", summary: "No matching version found for <spec>.", detail: "In most cases you or one of your dependencies are requesting\na package version that doesn't exist." },
-  E404: { code: "E404", summary: "Not Found - GET <registry><name> - Not found", detail: "The requested resource '<spec>' could not be found or you do not have permission to access it." },
-  E401: { code: "E401", summary: "Unable to authenticate, your authentication token seems to be invalid.", detail: "To correct this please try logging in again with:\n  npm login" },
+  ETARGET: {
+    code: "ETARGET",
+    summary: "No matching version found for <spec>.",
+    detail: "In most cases you or one of your dependencies are requesting\na package version that doesn't exist.",
+  },
+  E404: {
+    code: "E404",
+    summary: "Not Found - GET <registry><name> - Not found",
+    detail: "The requested resource '<spec>' could not be found or you do not have permission to access it.",
+  },
+  E401: {
+    code: "E401",
+    summary: "Unable to authenticate, your authentication token seems to be invalid.",
+    detail: "To correct this please try logging in again with:\n  npm login",
+  },
   E403: { code: "E403", summary: "403 Forbidden - GET <registry><name> - forbidden", detail: "" },
-  ECONNREFUSED: { code: "ECONNREFUSED", summary: "request to <registry><name> failed, reason: connect ECONNREFUSED 127.0.0.1:9", detail: "" },
+  ECONNREFUSED: {
+    code: "ECONNREFUSED",
+    summary: "request to <registry><name> failed, reason: connect ECONNREFUSED 127.0.0.1:9",
+    detail: "",
+  },
   FETCH_ERROR: { code: "FETCH_ERROR", summary: "network timeout at: <registry><name>", detail: "" },
 };
 
@@ -39,42 +57,90 @@ function parseInstall(argv) {
   const at = argv.indexOf("--prefix");
   const spec = argv[argv.length - 1];
   const i = spec.lastIndexOf("@");
-  return { prefix: at >= 0 ? argv[at + 1] : null, spec, name: spec.slice(0, i), version: spec.slice(i + 1), registry: argv.includes("--registry") ? argv[argv.indexOf("--registry") + 1] : FAKE_REGISTRY };
+  return {
+    prefix: at >= 0 ? argv[at + 1] : null,
+    spec,
+    name: spec.slice(0, i),
+    version: spec.slice(i + 1),
+    registry: argv.includes("--registry") ? argv[argv.indexOf("--registry") + 1] : FAKE_REGISTRY,
+  };
 }
 
 // The tree a published shell lays: its package.json, the legacy plugin
 // manifest Codex validates, one skill, and the bundled core — plus what npm
 // writes beside it at the prefix top. Each mode breaks one of rule 3's checks.
-export function layShellTree(prefix, { name, version, pluginName = "projectstore", coreName = "projectstore" }, mode = "ok") {
+export function layShellTree(
+  prefix,
+  { name, version, pluginName = "projectstore", coreName = "projectstore" },
+  mode = "ok",
+) {
   const root = join(prefix, "node_modules", name);
-  const put = (rel, body) => { mkdirSync(dirname(join(root, rel)), { recursive: true }); writeFileSync(join(root, rel), typeof body === "string" ? body : JSON.stringify(body, null, 2) + "\n"); };
-  put("package.json", { name: mode === "wrong-name" ? `${name}-other` : name, version: mode === "wrong-version" ? `${version}-other` : version, bundleDependencies: [coreName] });
+  const put = (rel, body) => {
+    mkdirSync(dirname(join(root, rel)), { recursive: true });
+    writeFileSync(join(root, rel), typeof body === "string" ? body : JSON.stringify(body, null, 2) + "\n");
+  };
+  put("package.json", {
+    name: mode === "wrong-name" ? `${name}-other` : name,
+    version: mode === "wrong-version" ? `${version}-other` : version,
+    bundleDependencies: [coreName],
+  });
   if (mode === "root-manifest") put("plugin.json", { name: pluginName, version });
-  else if (mode !== "no-plugin-manifest") put(join(".codex-plugin", "plugin.json"), { name: pluginName, version: mode === "plugin-version" ? `${version}-other` : version });
-  put(join("skills", "projectstore-status", "SKILL.md"), `---\nname: projectstore-status\ndescription: status\n---\n${version}\n`);
-  put(join("node_modules", coreName, "package.json"), { name: coreName, version: mode === "core-version" ? `${version}-other` : version });
-  writeFileSync(join(prefix, "node_modules", ".package-lock.json"), JSON.stringify({ name: "fetch", lockfileVersion: 3 }) + "\n");
+  else if (mode !== "no-plugin-manifest")
+    put(join(".codex-plugin", "plugin.json"), {
+      name: pluginName,
+      version: mode === "plugin-version" ? `${version}-other` : version,
+    });
+  put(
+    join("skills", "projectstore-status", "SKILL.md"),
+    `---\nname: projectstore-status\ndescription: status\n---\n${version}\n`,
+  );
+  put(join("node_modules", coreName, "package.json"), {
+    name: coreName,
+    version: mode === "core-version" ? `${version}-other` : version,
+  });
+  writeFileSync(
+    join(prefix, "node_modules", ".package-lock.json"),
+    JSON.stringify({ name: "fetch", lockfileVersion: 3 }) + "\n",
+  );
   return root;
 }
 
 const errorBody = (mode, { name, spec, registry }) => {
   const e = NPM_ERRORS[mode];
   const fill = (t) => t.split("<spec>").join(spec).split("<name>").join(name).split("<registry>").join(registry);
-  return { stdout: JSON.stringify({ error: { code: e.code, summary: fill(e.summary), detail: fill(e.detail) } }, null, 2) + "\n", stderr: `npm error code ${e.code}\nnpm error ${fill(e.summary)}\nnpm error A complete log of this run can be found in: /secret/_logs/debug-0.log\n` };
+  return {
+    stdout:
+      JSON.stringify({ error: { code: e.code, summary: fill(e.summary), detail: fill(e.detail) } }, null, 2) + "\n",
+    stderr: `npm error code ${e.code}\nnpm error ${fill(e.summary)}\nnpm error A complete log of this run can be found in: /secret/_logs/debug-0.log\n`,
+  };
 };
 
 // One npm call, decided: what it prints and how it exits. `hang` never exits.
 export function npmAnswer(argv, { mode = "ok", registry = FAKE_REGISTRY } = {}) {
   if (argv[0] === "config" && argv[1] === "get" && argv[2] === "registry") {
     if (mode === "hang") return { hang: true };
-    return registry === false ? { status: 1, stdout: "", stderr: "fake npm: config read failed\n" } : { status: 0, stdout: registry + "\n", stderr: "" };
+    return registry === false
+      ? { status: 1, stdout: "", stderr: "fake npm: config read failed\n" }
+      : { status: 0, stdout: registry + "\n", stderr: "" };
   }
   if (argv[0] !== "install") return { status: 1, stdout: "", stderr: `fake npm: ${argv.join(" ")} is not faked\n` };
   const call = parseInstall(argv);
   if (mode === "hang") return { hang: true };
   if (NPM_ERRORS[mode]) return { status: 1, ...errorBody(mode, call) };
   layShellTree(call.prefix, call, mode);
-  return { status: 0, stdout: JSON.stringify({ add: [{ name: call.name, version: call.version, path: `${call.prefix}/node_modules/***/${call.name}` }], added: 1 }, null, 2) + "\n", stderr: "" };
+  return {
+    status: 0,
+    stdout:
+      JSON.stringify(
+        {
+          add: [{ name: call.name, version: call.version, path: `${call.prefix}/node_modules/***/${call.name}` }],
+          added: 1,
+        },
+        null,
+        2,
+      ) + "\n",
+    stderr: "",
+  };
 }
 
 // The in-process stand-in for child_process.spawn, after fakeCodex's pattern
@@ -85,7 +151,13 @@ export function npmAnswer(argv, { mode = "ok", registry = FAKE_REGISTRY } = {}) 
 // `registryAt` answers that read by its working directory ({ [cwd]: url }),
 // so a project's registry and the user's can differ; `false` there makes the
 // read fail for that directory.
-export function fakeNpmSpawn({ mode = "ok", registry = FAKE_REGISTRY, onInstall = null, registryMode = "ok", registryAt = {} } = {}) {
+export function fakeNpmSpawn({
+  mode = "ok",
+  registry = FAKE_REGISTRY,
+  onInstall = null,
+  registryMode = "ok",
+  registryAt = {},
+} = {}) {
   const calls = [];
   const spawn = (bin, argv, opts = {}) => {
     const child = new EventEmitter();
@@ -95,9 +167,21 @@ export function fakeNpmSpawn({ mode = "ok", registry = FAKE_REGISTRY, onInstall 
     child.unref = () => {};
     const call = { bin, argv: [...argv], cwd: opts.cwd, env: opts.env, stdio: opts.stdio };
     calls.push(call);
-    child.kill = (signal = "SIGTERM") => { child.killed = signal; call.killed = signal; setImmediate(() => { child.stdout.end(); child.stderr.end(); child.emit("exit", null, signal); }); return true; };
+    child.kill = (signal = "SIGTERM") => {
+      child.killed = signal;
+      call.killed = signal;
+      setImmediate(() => {
+        child.stdout.end();
+        child.stderr.end();
+        child.emit("exit", null, signal);
+      });
+      return true;
+    };
     setImmediate(() => {
-      const r = npmAnswer(argv, { mode: argv[0] === "install" ? mode : registryMode, registry: registryAt[opts.cwd] === false ? false : registryAt[opts.cwd] || registry });
+      const r = npmAnswer(argv, {
+        mode: argv[0] === "install" ? mode : registryMode,
+        registry: registryAt[opts.cwd] === false ? false : registryAt[opts.cwd] || registry,
+      });
       if (r.hang) return;
       if (argv[0] === "install" && onInstall) onInstall(call);
       child.stdout.end(r.stdout);
@@ -138,16 +222,36 @@ import(${JSON.stringify(SELF)}).then(({ npmAnswer }) => {
   return {
     bin,
     dir,
-    log: () => { try { return readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } },
-    installs() { return this.log().filter((c) => c.argv[0] === "install"); },
-    reset: () => { try { rmSync(join(dir, "calls.jsonl")); } catch {} },
+    log: () => {
+      try {
+        return readFileSync(join(dir, "calls.jsonl"), "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((l) => JSON.parse(l));
+      } catch {
+        return [];
+      }
+    },
+    installs() {
+      return this.log().filter((c) => c.argv[0] === "install");
+    },
+    reset: () => {
+      try {
+        rmSync(join(dir, "calls.jsonl"));
+      } catch {}
+    },
   };
 }
 
 function whichReal(name) {
-  for (const d of String(process.env.PATH || "").split(delimiter).filter(Boolean)) {
+  for (const d of String(process.env.PATH || "")
+    .split(delimiter)
+    .filter(Boolean)) {
     const p = join(d, name);
-    try { if (statSync(p).isFile()) return p; } catch {}
+    try {
+      if (statSync(p).isFile()) return p;
+    } catch {}
   }
   return null;
 }
@@ -162,13 +266,41 @@ export function registryFetch(mode = { latest: "0.30.1" }) {
   const fetch = (url, init = {}) => {
     const call = { url: String(url), accept: init.headers?.accept, signal: init.signal || null, cancelled: false };
     calls.push(call);
-    if (mode === "reject") return Promise.reject(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }));
+    if (mode === "reject")
+      return Promise.reject(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }));
     if (mode === "hang") return new Promise(() => {});
     // An error status: the body a reader never reads, and whether it was cancelled.
-    if (mode === 500) return Promise.resolve({ ok: false, status: 500, body: { cancel: () => { call.cancelled = true; return Promise.resolve(); } }, json: async () => ({}) });
-    if (mode === "not-json") return Promise.resolve({ ok: true, status: 200, json: async () => { throw new SyntaxError("Unexpected token <"); } });
-    if (mode === "no-tag") return Promise.resolve({ ok: true, status: 200, json: async () => ({ name: "projectstore", "dist-tags": { latest: "v0.31" } }) });
-    return Promise.resolve({ ok: true, status: 200, json: async () => ({ name: "projectstore", "dist-tags": { latest: mode.latest, next: "0.99.0-rc.1" } }) });
+    if (mode === 500)
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        body: {
+          cancel: () => {
+            call.cancelled = true;
+            return Promise.resolve();
+          },
+        },
+        json: async () => ({}),
+      });
+    if (mode === "not-json")
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError("Unexpected token <");
+        },
+      });
+    if (mode === "no-tag")
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ name: "projectstore", "dist-tags": { latest: "v0.31" } }),
+      });
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ name: "projectstore", "dist-tags": { latest: mode.latest, next: "0.99.0-rc.1" } }),
+    });
   };
   return { fetch, calls };
 }
@@ -180,7 +312,19 @@ export function registryFetch(mode = { latest: "0.30.1" }) {
 // loop, and the runner cancels the rest of the file before the bound fires.
 export function instantTimers() {
   const asked = [];
-  return { asked, setTimeout: (fn, ms) => { asked.push(ms); return { immediate: setImmediate(fn), unref() { return this; } }; }, clearTimeout: (h) => clearImmediate(h?.immediate) };
+  return {
+    asked,
+    setTimeout: (fn, ms) => {
+      asked.push(ms);
+      return {
+        immediate: setImmediate(fn),
+        unref() {
+          return this;
+        },
+      };
+    },
+    clearTimeout: (h) => clearImmediate(h?.immediate),
+  };
 }
 
 // Codex's plugin CLI in the shapes measured on codex-cli 0.153.4 — marketplace
@@ -194,35 +338,52 @@ export function codexHost(home, { fail = null } = {}) {
     const config = join(home, "config.toml");
     let text = existsSync(config) ? readFileSync(config, "utf8") : "";
     if (op.startsWith("plugin marketplace add ")) {
-      text = `[marketplaces.projectstore-npx]\nsource_type = "local"\nsource = "${join(home, "projectstore", "marketplace")}"\n\n` + text.replace(/\[marketplaces\.projectstore-npx][\s\S]*?(?=\n\[|$)/, "");
+      text =
+        `[marketplaces.projectstore-npx]\nsource_type = "local"\nsource = "${join(home, "projectstore", "marketplace")}"\n\n` +
+        text.replace(/\[marketplaces\.projectstore-npx][\s\S]*?(?=\n\[|$)/, "");
       writeFileSync(config, text);
     } else if (op === "plugin add projectstore@projectstore-npx") {
       const payload = join(home, "projectstore", "marketplace", "plugins", "projectstore");
       const version = JSON.parse(readFileSync(join(payload, ".codex-plugin", "plugin.json"), "utf8")).version;
       const cache = join(home, "plugins", "cache", "projectstore-npx", "projectstore", version);
-      mkdirSync(cache, { recursive: true }); cpSync(payload, cache, { recursive: true });
-      if (!text.includes('[plugins."projectstore@projectstore-npx"]')) text += `\n[plugins."projectstore@projectstore-npx"]\nenabled = true\n`;
+      mkdirSync(cache, { recursive: true });
+      cpSync(payload, cache, { recursive: true });
+      if (!text.includes('[plugins."projectstore@projectstore-npx"]'))
+        text += `\n[plugins."projectstore@projectstore-npx"]\nenabled = true\n`;
       writeFileSync(config, text);
     } else if (op === "plugin remove projectstore@projectstore-npx") {
-      text = text.replace(/\n?\[plugins\."projectstore@projectstore-npx"]\n(?:[^\[]|\n(?!\[))*?(?=\n\[|$)/, "\n");
+      text = text.replace(/\n?\[plugins\."projectstore@projectstore-npx"]\n(?:[^[]|\n(?!\[))*?(?=\n\[|$)/, "\n");
       writeFileSync(config, text);
       rmSync(join(home, "plugins", "cache", "projectstore-npx", "projectstore"), { recursive: true, force: true });
     } else if (op === "plugin marketplace remove projectstore-npx") {
-      text = text.replace(/\n?\[marketplaces\.projectstore-npx]\n(?:[^\[]|\n(?!\[))*?(?=\n\[|$)/, "\n");
+      text = text.replace(/\n?\[marketplaces\.projectstore-npx]\n(?:[^[]|\n(?!\[))*?(?=\n\[|$)/, "\n");
       writeFileSync(config, text);
     } else if (op === "plugin list") {
-      return { status: 0, stderr: "", stdout: "Marketplace  Plugin  Status\nprojectstore-npx  projectstore  enabled\n" };
+      return {
+        status: 0,
+        stderr: "",
+        stdout: "Marketplace  Plugin  Status\nprojectstore-npx  projectstore  enabled\n",
+      };
     } else if (op === "plugin list --json") {
-      if (!text.includes('[plugins."projectstore@projectstore-npx"]')) return { status: 0, stderr: "", stdout: JSON.stringify({ installed: [] }) };
+      if (!text.includes('[plugins."projectstore@projectstore-npx"]'))
+        return { status: 0, stderr: "", stdout: JSON.stringify({ installed: [] }) };
       const cacheBase = join(home, "plugins", "cache", "projectstore-npx", "projectstore");
       const version = readdirSync(cacheBase).sort().at(-1);
-      return { status: 0, stderr: "", stdout: JSON.stringify({ installed: [{
-        pluginId: "projectstore@projectstore-npx",
-        version,
-        installed: true,
-        enabled: true,
-        marketplaceSource: { source: join(home, "projectstore", "marketplace") },
-      }] }) };
+      return {
+        status: 0,
+        stderr: "",
+        stdout: JSON.stringify({
+          installed: [
+            {
+              pluginId: "projectstore@projectstore-npx",
+              version,
+              installed: true,
+              enabled: true,
+              marketplaceSource: { source: join(home, "projectstore", "marketplace") },
+            },
+          ],
+        }),
+      };
     }
     return { status: 0, stdout: "", stderr: "" };
   };
@@ -234,7 +395,9 @@ export function codexHost(home, { fail = null } = {}) {
 export function fakeCodexBin(dir) {
   mkdirSync(dir, { recursive: true });
   const bin = join(dir, "codex");
-  writeFileSync(bin, `#!/usr/bin/env node
+  writeFileSync(
+    bin,
+    `#!/usr/bin/env node
 const fs = require("node:fs"), path = require("node:path");
 const argv = process.argv.slice(2);
 fs.appendFileSync(path.join(__dirname, "codex-calls.jsonl"), JSON.stringify({ argv, cwd: process.cwd() }) + "\\n");
@@ -242,6 +405,22 @@ import(${JSON.stringify(SELF)}).then(({ codexHost }) => {
   const r = codexHost(process.env.CODEX_HOME, { fail: process.env.FAKE_CODEX_FAIL || null })("codex", argv);
   process.stdout.write(r.stdout || ""); process.stderr.write(r.stderr || ""); process.exitCode = r.status;
 });
-`, { mode: 0o755 });
-  return { bin, dir, log: () => { try { return readFileSync(join(dir, "codex-calls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } } };
+`,
+    { mode: 0o755 },
+  );
+  return {
+    bin,
+    dir,
+    log: () => {
+      try {
+        return readFileSync(join(dir, "codex-calls.jsonl"), "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((l) => JSON.parse(l));
+      } catch {
+        return [];
+      }
+    },
+  };
 }

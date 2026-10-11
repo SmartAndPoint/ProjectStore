@@ -62,7 +62,13 @@ const CODEX = loadHarness("codex");
 
 export const packageVersion = () => JSON.parse(readFileSync(join(REPO, "package.json"), "utf8")).version;
 
-const real = (p) => { try { return realpathSync(p); } catch { return p; } };
+const real = (p) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+};
 const literal = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // An ISO 8601 timestamp: a date with a time, optional seconds, fraction and
@@ -81,7 +87,11 @@ export function normaliser({ paths = {}, version = packageVersion() } = {}) {
   }
   pairs.sort((a, b) => b[0].length - a[0].length);
   const ver = new RegExp(`(?<![\\d.])${literal(version)}(?!\\.?\\d)`, "g");
-  const text = (s) => pairs.reduce((t, [from, to]) => t.split(from).join(to), s).replace(ver, "<version>").replace(ISO, "<time>");
+  const text = (s) =>
+    pairs
+      .reduce((t, [from, to]) => t.split(from).join(to), s)
+      .replace(ver, "<version>")
+      .replace(ISO, "<time>");
   const walk = (v) => {
     if (typeof v === "string") return text(v);
     if (Array.isArray(v)) return v.map(walk);
@@ -103,7 +113,13 @@ export function captureEnv(home) {
 }
 
 function spawnBin(args, { home, cwd = REPO }) {
-  const r = spawnSync(process.execPath, [BIN, ...args], { encoding: "utf8", cwd, env: captureEnv(home), timeout: 60000, maxBuffer: 1 << 24 });
+  const r = spawnSync(process.execPath, [BIN, ...args], {
+    encoding: "utf8",
+    cwd,
+    env: captureEnv(home),
+    timeout: 60000,
+    maxBuffer: 1 << 24,
+  });
   if (r.error) throw r.error;
   return r;
 }
@@ -111,7 +127,11 @@ function spawnBin(args, { home, cwd = REPO }) {
 function bin(args, opts) {
   const r = spawnBin(args, opts);
   let stdout;
-  try { stdout = JSON.parse(r.stdout); } catch { throw new Error(`projectstore ${args.join(" ")}: stdout is not JSON (exit ${r.status})\n${r.stdout}\n${r.stderr}`); }
+  try {
+    stdout = JSON.parse(r.stdout);
+  } catch {
+    throw new Error(`projectstore ${args.join(" ")}: stdout is not JSON (exit ${r.status})\n${r.stdout}\n${r.stderr}`);
+  }
   return { exit: r.status, stdout };
 }
 
@@ -124,9 +144,16 @@ function bin(args, opts) {
 function inCaptureEnv(home, fn) {
   const env = captureEnv(home);
   const saved = { ...process.env };
-  const swap = (to) => { for (const k of Object.keys(process.env)) delete process.env[k]; Object.assign(process.env, to); };
+  const swap = (to) => {
+    for (const k of Object.keys(process.env)) delete process.env[k];
+    Object.assign(process.env, to);
+  };
   swap(env);
-  try { return fn(env); } finally { swap(saved); }
+  try {
+    return fn(env);
+  } finally {
+    swap(saved);
+  }
 }
 
 // tests/install.test.mjs's installed(): its fixture() — a temp home holding a
@@ -184,11 +211,20 @@ export const SCENARIOS = Object.freeze([
   ["install", () => ({ ...installedTree(), args: ["install", "--harness", SRC.id] })],
   ["upgrade", () => ({ ...installedTree(), args: ["upgrade", "--harness", SRC.id] })],
   ["uninstall", () => ({ ...installedTree(), args: ["uninstall", "--harness", SRC.id] })],
-  ["plan codex, no codex CLI", () => ({ proj: harnessProject(CODEX), home: tempHome(), args: ["plan", "--harness", CODEX.id] })],
+  [
+    "plan codex, no codex CLI",
+    () => ({ proj: harnessProject(CODEX), home: tempHome(), args: ["plan", "--harness", CODEX.id] }),
+  ],
   ["doctor --install", () => ({ ...installedTree(), args: ["doctor", "--install"] })],
   ["doctor --install, vault present", () => ({ ...installedTree({ vault: true }), args: ["doctor", "--install"] })],
   ["doctor --vault", () => ({ proj: seedCliVault().proj, home: tempHome(), args: ["doctor", "--vault"] })],
-  ["status", () => { const home = tempHome(); return { proj: cliVault(home), home, args: ["status"] }; }],
+  [
+    "status",
+    () => {
+      const home = tempHome();
+      return { proj: cliVault(home), home, args: ["status"] };
+    },
+  ],
 ]);
 
 // Every scenario's capture, normalised: name → { argv, exit, stdout }.
@@ -206,7 +242,11 @@ export function captureAll({ version = packageVersion() } = {}) {
 
 export const serialise = (captures) => JSON.stringify(captures, null, 2) + "\n";
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url) && process.argv.includes("--write")) {
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url) &&
+  process.argv.includes("--write")
+) {
   writeFileSync(CAPTURES, serialise(captureAll()));
   process.stdout.write(`wrote ${CAPTURES}\n`);
 }

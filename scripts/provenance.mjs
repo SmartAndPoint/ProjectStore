@@ -88,15 +88,18 @@ export const STALE_TEXT = Object.freeze({
 
 // Contract 5's resolution wording (Ivan Morozov's), in one place for the
 // verbs that refuse and the report that names.
-export const FOREIGN_TEXT = "a file we did not write sits at our path — rename it if it is yours, or delete it to let install take the name";
+export const FOREIGN_TEXT =
+  "a file we did not write sits at our path — rename it if it is yours, or delete it to let install take the name";
 
 const normalizeEol = (s) => s.replace(/\r\n/g, "\n");
 
 function unsupportedFormat(format) {
   return new Error(
     `format "${format}" cannot carry a provenance line — a JSON surface is a ` +
-    `SHARED surface (install spec contracts 2 and 6), owned per entry, not stamped; ` +
-    `known stampable formats: ${Object.keys(DELIMITERS).filter((k) => DELIMITERS[k]).join(", ")}`,
+      `SHARED surface (install spec contracts 2 and 6), owned per entry, not stamped; ` +
+      `known stampable formats: ${Object.keys(DELIMITERS)
+        .filter((k) => DELIMITERS[k])
+        .join(", ")}`,
   );
 }
 
@@ -149,7 +152,8 @@ export function provenanceLine({ src, srcHash, pkg, project, render }) {
   // whitespace would be emitted, fail to parse back, derive `foreign`, and
   // make our own file immune to uninstall — refuse it here instead.
   for (const [k, v] of Object.entries({ src, pkg })) {
-    if (/\s/.test(v)) throw new Error(`provenanceLine: field "${k}" may not contain whitespace (got ${JSON.stringify(v)})`);
+    if (/\s/.test(v))
+      throw new Error(`provenanceLine: field "${k}" may not contain whitespace (got ${JSON.stringify(v)})`);
   }
   if (!/^[0-9a-f]{12}$/.test(srcHash) || !/^[0-9a-f]{12}$/.test(render)) {
     throw new Error("provenanceLine: srcHash and render must be 12 lowercase hex characters");
@@ -198,7 +202,9 @@ function insertionOffset(body, format) {
     const m = /^---\n(?:[\s\S]*?\n)?---(?:\n|$)/.exec(body);
     if (m) return m[0].length;
     if (body.startsWith("---\n") || body === "---") {
-      throw new Error("insertStamp: markdown body opens a frontmatter block that never closes — refusing to stamp before it");
+      throw new Error(
+        "insertStamp: markdown body opens a frontmatter block that never closes — refusing to stamp before it",
+      );
     }
   }
   if (format === "mjs" && body.startsWith("#!")) {
@@ -219,7 +225,9 @@ export function insertStamp(body, { format, harness, source, generator = DEFAULT
   delimitersFor(format);
   const text = normalizeEol(String(body));
   if (bareTokenRe().test(text)) {
-    throw new Error(`insertStamp: the body already carries a bare ${PROVENANCE_TOKEN} line — it would survive into the installed file`);
+    throw new Error(
+      `insertStamp: the body already carries a bare ${PROVENANCE_TOKEN} line — it would survive into the installed file`,
+    );
   }
   const at = insertionOffset(text, format);
   const block = banner(format, { harness, source, generator, remedy }) + PROVENANCE_TOKEN + "\n";
@@ -250,7 +258,10 @@ export function substituteProvenance(tokenized, { format, src, srcHash, pkg, pro
 // read and be born "edited by hand" — a false accusation reinstalling cannot
 // clear. The cost: an edit confined to such a quoted line does not move
 // `render=`; strictly narrower harm than a permanent false positive.
-export function stamp(body, { format, src, srcHash, pkg, project, harness, generator = DEFAULT_GENERATOR, remedy = DEFAULT_REMEDY }) {
+export function stamp(
+  body,
+  { format, src, srcHash, pkg, project, harness, generator = DEFAULT_GENERATOR, remedy = DEFAULT_REMEDY },
+) {
   const tokenized = insertStamp(body, { format, harness, source: src, generator, remedy });
   const render = renderHash(neutralizeProject(tokenizeProvenance(tokenized) ?? tokenized, project));
   const text = substituteProvenance(tokenized, { format, src, srcHash, pkg, project, render });
@@ -336,7 +347,8 @@ export function deriveState({ file, sourceHash: srcNow, pkg, renderNowHash, proj
     provenance,
     writtenBy: provenance ? provenance.project : null,
     sameProject: Boolean(
-      provenance && typeof project === "string" &&
+      provenance &&
+      typeof project === "string" &&
       stripTrailingSlash(provenance.project) === stripTrailingSlash(project),
     ),
   });
@@ -348,8 +360,12 @@ export function deriveState({ file, sourceHash: srcNow, pkg, renderNowHash, proj
   const parsed = parseProvenance(file.text);
   if (!parsed) return result("foreign");
   const provenance = {
-    v: parsed.v, src: parsed.src, srcHash: parsed.srcHash,
-    pkg: parsed.pkg, project: parsed.project, render: parsed.render,
+    v: parsed.v,
+    src: parsed.src,
+    srcHash: parsed.srcHash,
+    pkg: parsed.pkg,
+    project: parsed.project,
+    render: parsed.render,
   };
 
   // A newer grammar than this parser knows. The spec does not say; reporting

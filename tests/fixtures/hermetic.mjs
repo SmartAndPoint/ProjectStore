@@ -21,7 +21,8 @@ for (const m of loadHarnesses().values()) if (m.runtime?.home_env) delete proces
 // a host session that runs the suite carries its own, and every registration
 // of that harness a test plans would defer. A test of the deferral sets it on
 // the environment it passes.
-for (const m of loadHarnesses().values()) for (const k of m.runtime?.registration_defer_env || []) delete process.env[k];
+for (const m of loadHarnesses().values())
+  for (const k of m.runtime?.registration_defer_env || []) delete process.env[k];
 // A shell's named root would stand in for every fetch, and the animation
 // switch would change every live line a test reads (the shell-fetch story).
 for (const k of ["PROJECTSTORE_DISTRIBUTION_ROOT", "PROJECTSTORE_NO_ANIMATION"]) delete process.env[k];
@@ -36,18 +37,27 @@ const scratch = mkdtempSync(join(tmpdir(), "ps-hermetic-"));
 process.env.XDG_CACHE_HOME = join(scratch, "cache");
 process.env.npm_config_cache = join(scratch, "npm-cache");
 process.env.npm_config_offline = "true";
-process.on("exit", () => { try { rmSync(scratch, { recursive: true, force: true, maxRetries: 2 }); } catch {} });
+process.on("exit", () => {
+  try {
+    rmSync(scratch, { recursive: true, force: true, maxRetries: 2 });
+  } catch {}
+});
 // The registry read of install and upgrade (the converge story's rules 6 and
 // 8) is off for every test and every child that inherits this environment; a
 // test of the read passes its own environment without it, and its own fetch.
 process.env.PROJECTSTORE_NO_UPDATE_CHECK = "1";
 // …and a test that forgets to inject `fetch` never reaches the network: Node's
 // fetch answers only the loopback here (the bin tests' 127.0.0.1 registry).
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: the global fetch is experimental but present at Node 20 and stable from 21, and the suite runs on Node 20 in CI
 if (typeof globalThis.fetch === "function") {
+  // eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: the global fetch is present at Node 20, stable from 21
   const loopback = globalThis.fetch;
+  // eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: the global fetch is present at Node 20, stable from 21
   globalThis.fetch = (input, init) => {
     let host = null;
-    try { host = new URL(typeof input === "string" || input instanceof URL ? String(input) : input?.url).hostname; } catch {}
+    try {
+      host = new URL(typeof input === "string" || input instanceof URL ? String(input) : input?.url).hostname;
+    } catch {}
     if (["127.0.0.1", "localhost", "[::1]", "::1"].includes(host)) return loopback(input, init);
     return Promise.reject(new TypeError(`hermetic: the suite reaches no network (${host || "an unparseable URL"})`));
   };

@@ -16,16 +16,22 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DIR = join(ROOT, "tests", "band");
-const FILES = readdirSync(DIR).filter((f) => f.endsWith(".test.tsx")).sort();
+const FILES = readdirSync(DIR)
+  .filter((f) => f.endsWith(".test.tsx"))
+  .sort();
 
 // Each test's name as its file writes it: test('…', …) with a plain string.
-const titles = (file) => [...readFileSync(join(DIR, file), "utf8").matchAll(/^test\((["'`])((?:\\.|(?!\1).)*)\1/gm)].map((m) => m[2].replace(/\\(.)/g, "$1"));
+const titles = (file) =>
+  [...readFileSync(join(DIR, file), "utf8").matchAll(/^test\((["'`])((?:\\.|(?!\1).)*)\1/gm)].map((m) =>
+    m[2].replace(/\\(.)/g, "$1"),
+  );
 
 function claude(args) {
   // A CLI that hangs is a refusal too: its tests are skipped by name, and
   // npm test is not held for longer than this.
   const r = spawnSync("claude", args, { cwd: ROOT, encoding: "utf8", timeout: 180_000, env: process.env });
-  if (r.error) return { missing: true, why: r.error.code === "ENOENT" ? "no Claude Code CLI on PATH" : String(r.error.message) };
+  if (r.error)
+    return { missing: true, why: r.error.code === "ENOENT" ? "no Claude Code CLI on PATH" : String(r.error.message) };
   return { status: r.status, out: `${r.stdout || ""}${r.stderr || ""}` };
 }
 
@@ -39,11 +45,16 @@ if (run) {
   let file = null;
   for (const line of run.out.split("\n")) {
     const header = line.match(/^(\S+\.test\.tsx):\s*$/);
-    if (header) { file = header[1].replace(/\\/g, "/"); continue; }
+    if (header) {
+      file = header[1].replace(/\\/g, "/");
+      continue;
+    }
     const m = line.match(/^\((pass|fail)\) (.*) \[[\d.]+m?s\]\s*$/);
-    if (m && file && file.startsWith("tests/band/")) results.set(`${file.split("/").pop()}\0${m[2]}`, { ok: m[1] === "pass", file });
+    if (m && file && file.startsWith("tests/band/"))
+      results.set(`${file.split("/").pop()}\0${m[2]}`, { ok: m[1] === "pass", file });
   }
-  if (!results.size) refusal = `claude plugin test did not run the tests: ${run.out.trim().split("\n")[0] || `exit ${run.status}`}`;
+  if (!results.size)
+    refusal = `claude plugin test did not run the tests: ${run.out.trim().split("\n")[0] || `exit ${run.status}`}`;
 }
 
 for (const file of FILES) {

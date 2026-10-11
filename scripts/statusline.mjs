@@ -61,7 +61,11 @@ const ARROW = " › ";
 process.stdout.on("error", () => process.exit(0));
 
 function readRawStdin() {
-  try { return readFileSync(0, "utf8"); } catch { return ""; }
+  try {
+    return readFileSync(0, "utf8");
+  } catch {
+    return "";
+  }
 }
 
 const FALLBACK_STRINGS = {
@@ -214,22 +218,33 @@ function runBase(cmd, rawStdin, env) {
 
 function main() {
   const raw = readRawStdin();
-  let input = {};
-  try { input = JSON.parse(raw) || {}; } catch { input = {}; }
+  let input;
+  try {
+    input = JSON.parse(raw) || {};
+  } catch {
+    input = {};
+  }
 
   // The status line gets no project variable from the harness; the project is
   // on stdin, and it deliberately beats any exported variable. Read the config
   // for that directory directly — never by mutating process.env, which the
   // composed base command would then inherit.
-  const projectDir =
-    (input.workspace && input.workspace.project_dir) || input.cwd || process.cwd();
+  const projectDir = (input.workspace && input.workspace.project_dir) || input.cwd || process.cwd();
 
-  let cfg = null;
-  try { cfg = readConfigAt(projectDir); } catch { cfg = null; }
+  let cfg;
+  try {
+    cfg = readConfigAt(projectDir);
+  } catch {
+    cfg = null;
+  }
 
   const strings = loadStrings(cfg && cfg.language);
-  let book = null;
-  try { book = cfg && cfg.vault_path ? bookSegment(cfg, projectDir, input, strings) : null; } catch { book = null; }
+  let book;
+  try {
+    book = cfg && cfg.vault_path ? bookSegment(cfg, projectDir, input, strings) : null;
+  } catch {
+    book = null;
+  }
 
   const yielded = Boolean(cfg && cfg.vault_path && bandYields(projectDir, input.session_id));
 
@@ -242,8 +257,7 @@ function main() {
 
   // "Never blank" must be total: even if the resolver threw (book === null on a
   // bound project), fall back to the cold-start line rather than vanishing.
-  const bookOut =
-    cfg && cfg.vault_path && !yielded ? book || BOOK + strings.statusline_no_work : null;
+  const bookOut = cfg && cfg.vault_path && !yielded ? book || BOOK + strings.statusline_no_work : null;
 
   const lines = [];
   if (baseOut) {

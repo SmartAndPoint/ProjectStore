@@ -20,7 +20,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
 
 // Substituted by renderStatusLineLauncher() in scripts/lib.mjs — the fallback
 // root and the harness's own variable names (this file runs before it knows
@@ -35,7 +35,9 @@ const PLUGIN_ROOT_ENV = "__PROJECTSTORE_PLUGIN_ROOT_ENV__";
 const PROJECT_DIR = "__PROJECTSTORE_PROJECT__";
 
 function versionKey(v) {
-  const p = String(v || "0").split(".").map((n) => parseInt(n, 10) || 0);
+  const p = String(v || "0")
+    .split(".")
+    .map((n) => parseInt(n, 10) || 0);
   return [p[0] || 0, p[1] || 0, p[2] || 0]; // pad: a missing component must compare as 0, not NaN
 }
 
@@ -46,16 +48,24 @@ function versionKey(v) {
 function installedRoot() {
   try {
     const claudeHome = (HOME_ENV && process.env[HOME_ENV]) || join(homedir(), ".claude");
-    const reg = JSON.parse(
-      readFileSync(join(claudeHome, "plugins", "installed_plugins.json"), "utf8"),
-    );
+    const reg = JSON.parse(readFileSync(join(claudeHome, "plugins", "installed_plugins.json"), "utf8"));
     const family = dirname(FALLBACK_ROOT); // …/<marketplace>/projectstore
     // This launcher lives at <project>/<config dir>/<runtime dir>/…: a row the
     // host recorded for THIS checkout (local scope, one per checkout) comes
     // first; another checkout's newer install is the fallback, not the pick.
     let project = null;
-    try { project = realpathSync(PROJECT_DIR); } catch { project = PROJECT_DIR || null; }
-    const sameProject = (p) => { try { return Boolean(project && p && realpathSync(p) === project); } catch { return false; } };
+    try {
+      project = realpathSync(PROJECT_DIR);
+    } catch {
+      project = PROJECT_DIR || null;
+    }
+    const sameProject = (p) => {
+      try {
+        return Boolean(project && p && realpathSync(p) === project);
+      } catch {
+        return false;
+      }
+    };
     const found = [];
     for (const [key, list] of Object.entries((reg && reg.plugins) || {})) {
       if (key !== "projectstore" && !key.startsWith("projectstore@")) continue;
@@ -116,12 +126,20 @@ for (const root of [installedRoot(), FALLBACK_ROOT]) {
 if (!rendered) {
   let out = null;
   try {
-    const stdin = (() => { try { return readFileSync(0, "utf8"); } catch { return ""; } })();
+    const stdin = (() => {
+      try {
+        return readFileSync(0, "utf8");
+      } catch {
+        return "";
+      }
+    })();
     const projectDir = (() => {
       try {
         const i = JSON.parse(stdin) || {};
         return (i.workspace && i.workspace.project_dir) || i.cwd || null;
-      } catch { return null; }
+      } catch {
+        return null;
+      }
     })();
     const claudeHome = (HOME_ENV && process.env[HOME_ENV]) || join(homedir(), ".claude");
     const candidates = [
@@ -130,11 +148,18 @@ if (!rendered) {
     ].filter(Boolean);
     for (const p of candidates) {
       let cmd = null;
-      try { cmd = JSON.parse(readFileSync(p, "utf8"))?.statusLine?.command; } catch { continue; }
+      try {
+        cmd = JSON.parse(readFileSync(p, "utf8"))?.statusLine?.command;
+      } catch {
+        continue;
+      }
       if (typeof cmd !== "string" || !cmd.trim()) continue;
       if (cmd.includes("statusline.mjs")) continue; // ours — would recurse
       const r = spawnSync(cmd, { shell: true, input: stdin, encoding: "utf8", timeout: 2000, maxBuffer: 1 << 20 });
-      if (r.status === 0 && r.stdout && r.stdout.trim()) { out = r.stdout.replace(/\s+$/, ""); break; }
+      if (r.status === 0 && r.stdout && r.stdout.trim()) {
+        out = r.stdout.replace(/\s+$/, "");
+        break;
+      }
     }
   } catch {}
   process.stdout.write((out || "") + "\n");

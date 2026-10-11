@@ -29,7 +29,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
 import {
   readConfig,
   readConfigAt,
@@ -40,7 +39,8 @@ import {
   slugIdentity,
   displayNumberOf,
   compareArtifactOrder,
-  writeFileAtomic, isMain,
+  writeFileAtomic,
+  isMain,
   commandForm,
 } from "./lib.mjs";
 import { childEnv } from "./harness.mjs";
@@ -63,11 +63,19 @@ function runGenerator(script) {
     env: _env || childEnv(process.env, { projectRoot: _projectDir || projectRoot() }),
   });
   if (r.status !== 0) return { error: (r.stderr || "generator failed").trim() };
-  try { return JSON.parse(r.stdout); } catch { return { error: "unparseable generator output" }; }
+  try {
+    return JSON.parse(r.stdout);
+  } catch {
+    return { error: "unparseable generator output" };
+  }
 }
 
 const normalize = (s) =>
-  s.split("\n").filter((l) => !l.startsWith("generated_at:")).join("\n").trimEnd();
+  s
+    .split("\n")
+    .filter((l) => !l.startsWith("generated_at:"))
+    .join("\n")
+    .trimEnd();
 
 const errMsg = (e) => String((e && e.message) || e);
 
@@ -78,9 +86,9 @@ const errMsg = (e) => String((e && e.message) || e);
 // cannot provide them; the class-wide selectors skip, like bare invocation.
 export function resolveSelection(layout, onlyRaw) {
   const validSelectors = () =>
-    [layout.kanban ? "kanban" : null, "codemap", "graph", "indexes",
-     ...layout.folders.map((f) => `indexes=${f.path}`)]
-      .filter(Boolean).join(", ");
+    [layout.kanban ? "kanban" : null, "codemap", "graph", "indexes", ...layout.folders.map((f) => `indexes=${f.path}`)]
+      .filter(Boolean)
+      .join(", ");
   if (onlyRaw == null) {
     return {
       explicit: false,
@@ -91,7 +99,10 @@ export function resolveSelection(layout, onlyRaw) {
     };
   }
   const sel = { explicit: true, kanban: false, codemap: false, graph: false, indexes: [] };
-  const parts = String(onlyRaw).split(",").map((s) => s.trim()).filter(Boolean);
+  const parts = String(onlyRaw)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (!parts.length) return { error: `empty --only selection — valid: ${validSelectors()}` };
   for (const raw of parts) {
     if (raw === "kanban") {
@@ -118,7 +129,8 @@ export function resolveSelection(layout, onlyRaw) {
         return { error: `no folder "${p}" in this layout — valid: ${validSelectors()}` };
       }
       const existing = sel.indexes.find((x) => x.path === p);
-      if (existing) existing.named = true; // upgrade, whatever the order
+      if (existing)
+        existing.named = true; // upgrade, whatever the order
       else sel.indexes.push({ path: p, named: true });
     } else {
       return { error: `unknown selector "${raw}" — valid: ${validSelectors()}` };
@@ -156,7 +168,7 @@ const SKIP = {
 function derivedTarget(script, explicit = false, fallbackPath = null) {
   const g = runGenerator(script);
   if (g.error) return { ...(fallbackPath ? { path: fallbackPath } : {}), error: g.error };
-  let onDisk = null;
+  let onDisk;
   try {
     onDisk = existsSync(g.path) ? readFileSync(g.path, "utf8") : null;
   } catch (e) {
@@ -195,7 +207,8 @@ export function rebuildIndexRows(original, folder, artifacts) {
   const inFolder = artifacts.filter((a) =>
     folder.kind === "epic"
       ? a.kind === "epic" && a.rel.startsWith(`${folder.path}/`)
-      : a.kind === folder.kind && a.rel === `${folder.path}/${basename(a.rel)}`);
+      : a.kind === folder.kind && a.rel === `${folder.path}/${basename(a.rel)}`,
+  );
   // Ordering per SPEC-002 contract 8: date ascending (date:, else created:),
   // display number then slug as tiebreak — the grandfathered ADR-001…N order
   // survives because same-date groups tiebreak by number.
@@ -292,7 +305,8 @@ export function writeIndexWithRetry(readmePath, rebuild, { attempts = 3 } = {}) 
 // shrinks the staleness window to microseconds (spec contract 1).
 function applyDerived(script, explicit, fallbackPath) {
   const t = derivedTarget(script, explicit, fallbackPath);
-  if (t.error) return { ...(t.path ? { path: t.path } : {}), changed: t.changed === true, written: false, error: t.error };
+  if (t.error)
+    return { ...(t.path ? { path: t.path } : {}), changed: t.changed === true, written: false, error: t.error };
   if (t.skipped) return { path: t.path, changed: false, written: false, skipped: t.skipped, stats: t.stats };
   if (!t.changed) return { path: t.path, changed: false, written: false, stats: t.stats };
   try {
@@ -307,7 +321,11 @@ export function runReconcile({ write = false, only = null, projectDir = null, en
   _projectDir = projectDir;
   _env = env;
   const cfg = projectDir ? readConfigAt(projectDir) : readConfig();
-  if (!cfg) { const e = new Error(`No projectstore config. Run ${commandForm("bind")} first.`); e.code = "UNBOUND"; throw e; }
+  if (!cfg) {
+    const e = new Error(`No projectstore config. Run ${commandForm("bind")} first.`);
+    e.code = "UNBOUND";
+    throw e;
+  }
   const layout = loadLayout(cfg.layout);
   const sel = resolveSelection(layout, only);
   if (sel.error) throw new Error(sel.error);
@@ -334,15 +352,24 @@ export function runReconcile({ write = false, only = null, projectDir = null, en
   const kanbanPath = layout.kanban ? join(cfg.vault_path, layout.kanban.file || "kanban.md") : null;
   if (!sel.kanban) out.kanban = { skipped: "not selected" };
   else if (!layout.kanban) out.kanban = { skipped: "layout has no kanban" };
-  else out.kanban = write ? applyDerived("kanban.mjs", sel.explicit, kanbanPath) : derivedTarget("kanban.mjs", sel.explicit, kanbanPath);
+  else
+    out.kanban = write
+      ? applyDerived("kanban.mjs", sel.explicit, kanbanPath)
+      : derivedTarget("kanban.mjs", sel.explicit, kanbanPath);
 
   const codemapPath = join(cfg.vault_path, "code-map.md");
   if (!sel.codemap) out.codemap = { skipped: "not selected" };
-  else out.codemap = write ? applyDerived("codemap.mjs", sel.explicit, codemapPath) : derivedTarget("codemap.mjs", sel.explicit, codemapPath);
+  else
+    out.codemap = write
+      ? applyDerived("codemap.mjs", sel.explicit, codemapPath)
+      : derivedTarget("codemap.mjs", sel.explicit, codemapPath);
 
   const graphPath = join(cfg.vault_path, "graph.md");
   if (!sel.graph) out.graph = { skipped: "not selected" };
-  else out.graph = write ? applyDerived("graph.mjs", sel.explicit, graphPath) : derivedTarget("graph.mjs", sel.explicit, graphPath);
+  else
+    out.graph = write
+      ? applyDerived("graph.mjs", sel.explicit, graphPath)
+      : derivedTarget("graph.mjs", sel.explicit, graphPath);
 
   out.indexes = [];
   for (const { path: folderPath, named } of sel.indexes) {
@@ -359,7 +386,13 @@ export function runReconcile({ write = false, only = null, projectDir = null, en
       if (r.unusable) {
         // Pre-flighted named targets can only reach this via a race.
         if (named) {
-          out.indexes.push({ path: readmePath, folder: folder.path, changed: false, written: false, error: r.unusable });
+          out.indexes.push({
+            path: readmePath,
+            folder: folder.path,
+            changed: false,
+            written: false,
+            error: r.unusable,
+          });
         }
         continue;
       }
@@ -374,7 +407,11 @@ export function runReconcile({ write = false, only = null, projectDir = null, en
       const t = rebuildIndex(cfg, folder, artifacts);
       if (t === null) {
         if (named) {
-          out.indexes.push({ path: readmePath, folder: folder.path, error: "absent or no managed index table (changed since pre-flight)" });
+          out.indexes.push({
+            path: readmePath,
+            folder: folder.path,
+            error: "absent or no managed index table (changed since pre-flight)",
+          });
         }
         continue;
       }

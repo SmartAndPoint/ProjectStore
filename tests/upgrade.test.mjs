@@ -24,17 +24,49 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  mkdtempSync,
+  existsSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { resolve, dirname, join, delimiter } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { sourceHarness, loadHarness } from "../scripts/harness.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
-import { renderStatusLineLauncher, statusLineLauncherPath, renderAgentsBlock, syncStatusLine, LAUNCHER_HEADER, layoutPaths} from "../scripts/lib.mjs";
+import {
+  renderStatusLineLauncher,
+  statusLineLauncherPath,
+  renderAgentsBlock,
+  syncStatusLine,
+  LAUNCHER_HEADER,
+  layoutPaths,
+} from "../scripts/lib.mjs";
 import { plan, apply } from "../scripts/install-harness.mjs";
-import { checkHarnessSurfaces, checkPendingUpgrade, runStartupChecks, checkLayout, checkAgentsBlock, foldIntoMove } from "../scripts/doctor.mjs";
-import { fakeInstall, writeRegistry, installEnv, noHostEnv, fakeClaude, legacyProject, fakePackageRoot } from "./fixtures/install.mjs";
+import {
+  checkHarnessSurfaces,
+  checkPendingUpgrade,
+  runStartupChecks,
+  checkLayout,
+  checkAgentsBlock,
+  foldIntoMove,
+} from "../scripts/doctor.mjs";
+import {
+  fakeInstall,
+  writeRegistry,
+  installEnv,
+  noHostEnv,
+  fakeClaude,
+  legacyProject,
+  fakePackageRoot,
+} from "./fixtures/install.mjs";
 import { seedCliVault } from "./fixtures/vault.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -69,19 +101,33 @@ function project027(home) {
   const lp = layoutPaths(proj);
   const cfgPath = lp.legacy.binding;
   mkdirSync(dirname(cfgPath), { recursive: true });
-  writeFileSync(cfgPath, JSON.stringify({ ...JSON.parse(read(lp.binding)), statusline: { enabled: true } }, null, 2) + "\n");
+  writeFileSync(
+    cfgPath,
+    JSON.stringify({ ...JSON.parse(read(lp.binding)), statusline: { enabled: true } }, null, 2) + "\n",
+  );
   rmSync(lp.root, { recursive: true, force: true });
   mkdirSync(lp.legacy.runtime, { recursive: true });
   const launcher = lp.legacy.launcher;
   writeFileSync(launcher, render027(TPL_027, old));
-  writeFileSync(join(proj, CFG_DIR, "settings.local.json"), JSON.stringify({ statusLine: { type: "command", command: `node "${launcher}"` } }, null, 2) + "\n");
+  writeFileSync(
+    join(proj, CFG_DIR, "settings.local.json"),
+    JSON.stringify({ statusLine: { type: "command", command: `node "${launcher}"` } }, null, 2) + "\n",
+  );
   writeFileSync(join(proj, "AGENTS.md"), BLOCK + "\n");
   writeFileSync(join(proj, "CLAUDE.md"), "# My project\n\n@AGENTS.md\n");
   return { proj, vault, launcher, old };
 }
 
 function snapshot(proj, vault) {
-  const files = [join(proj, CFG_DIR, "settings.local.json"), layoutPaths(proj).legacy.launcher, join(proj, "AGENTS.md"), join(proj, "CLAUDE.md"), join(vault, "kanban.md"), join(vault, "graph.md"), join(vault, "code-map.md")];
+  const files = [
+    join(proj, CFG_DIR, "settings.local.json"),
+    layoutPaths(proj).legacy.launcher,
+    join(proj, "AGENTS.md"),
+    join(proj, "CLAUDE.md"),
+    join(vault, "kanban.md"),
+    join(vault, "graph.md"),
+    join(vault, "code-map.md"),
+  ];
   return Object.fromEntries(files.filter(existsSync).map((f) => [f, read(f)]));
 }
 
@@ -92,8 +138,25 @@ function install028() {
   return { home, root };
 }
 
-const bin = (root, env, args) => spawnSync(process.execPath, [join(root, "bin", "projectstore.mjs"), ...args], { encoding: "utf8", env, timeout: 90000, maxBuffer: 1 << 24 });
-const INSTALL_FAMILY = ["surface", "surface-foreign", "version-drift", "harness", "mcp", "upgrade", "plugin-registration", "plugin-registration-foreign", "layout-legacy", "layout-two-configs"];
+const bin = (root, env, args) =>
+  spawnSync(process.execPath, [join(root, "bin", "projectstore.mjs"), ...args], {
+    encoding: "utf8",
+    env,
+    timeout: 90000,
+    maxBuffer: 1 << 24,
+  });
+const INSTALL_FAMILY = [
+  "surface",
+  "surface-foreign",
+  "version-drift",
+  "harness",
+  "mcp",
+  "upgrade",
+  "plugin-registration",
+  "plugin-registration-foreign",
+  "layout-legacy",
+  "layout-two-configs",
+];
 
 test("upgrade: the first 0.28 session touches nothing of ours, names the one pending step, and doctor reports exactly the stale launcher plus the mcp info", async () => {
   const { home, root } = install028();
@@ -101,11 +164,21 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   // The views are in sync before the update.
   const rec = bin(root, installEnv(home, root, proj), ["reconcile", "--write", "--only", "graph", "--project", proj]);
   assert.equal(rec.status, 0, rec.stderr);
-  for (const t of ["kanban", "codemap"]) assert.equal(bin(root, installEnv(home, root, proj), ["reconcile", "--write", "--only", t, "--project", proj]).status, 0);
+  for (const t of ["kanban", "codemap"])
+    assert.equal(
+      bin(root, installEnv(home, root, proj), ["reconcile", "--write", "--only", t, "--project", proj]).status,
+      0,
+    );
   const before = snapshot(proj, vault);
 
   // First session: the hook, spawned from the install.
-  const hook = spawnSync(process.execPath, [join(root, "hooks", "session-start.mjs")], { encoding: "utf8", input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "up-1", source: "startup", cwd: proj }), env: installEnv(home, root, proj), cwd: proj, timeout: 30000 });
+  const hook = spawnSync(process.execPath, [join(root, "hooks", "session-start.mjs")], {
+    encoding: "utf8",
+    input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "up-1", source: "startup", cwd: proj }),
+    env: installEnv(home, root, proj),
+    cwd: proj,
+    timeout: 30000,
+  });
   assert.equal(hook.status, 0, hook.stderr);
   const out = hook.stdout.trim() ? JSON.parse(hook.stdout) : {};
   const sys = (out.systemMessage || "") + " " + JSON.stringify(out.hookSpecificOutput || {});
@@ -114,13 +187,25 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   // and the move runs this copy's own bin, because the copy came from the git
   // marketplace (contract 12, amended the same day).
   const ownBin = `node "${join(root, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj}"`;
-  assert.match(sys, /layout moved to \.projectstore\//, "the startup line names the layout move (the layout ADR, 2026-09-06)");
+  assert.match(
+    sys,
+    /layout moved to \.projectstore\//,
+    "the startup line names the layout move (the layout ADR, 2026-09-06)",
+  );
   assert.ok(sys.includes(ownBin), "in the copy's own channel: " + sys);
   assert.match(sys, /The same run re-stamps the status line launcher\./, "and says it covers the re-stamp");
   assert.doesNotMatch(sys, /doctor --fix/, "not a second step");
   assert.doesNotMatch(sys, /npx /, "not the shell, which would switch the channel");
-  assert.deepEqual(snapshot(proj, vault), before, "settings, launcher, block and views are byte-identical after the first session");
-  assert.ok(existsSync(join(vault, ".projectstore", "sessions", "up-1.json")) || readdirSync(join(vault, ".projectstore", "sessions")).length > 0, "the session marker is the write");
+  assert.deepEqual(
+    snapshot(proj, vault),
+    before,
+    "settings, launcher, block and views are byte-identical after the first session",
+  );
+  assert.ok(
+    existsSync(join(vault, ".projectstore", "sessions", "up-1.json")) ||
+      readdirSync(join(vault, ".projectstore", "sessions")).length > 0,
+    "the session marker is the write",
+  );
 
   // Doctor: the install family is exactly {surface issue, mcp info} plus the offer.
   const doc = bin(root, installEnv(home, root, proj), ["doctor", "--json", "--install", "--project", proj]);
@@ -130,15 +215,30 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   // where this assertion gained a `plugin-registration` info and went red.
   // registration.test.mjs pins that environment with a fake CLI and owns those
   // rows; this test owns the launcher, the layout and the mcp line.
-  const fam = findings.filter((f) => INSTALL_FAMILY.includes(f.check) && !f.check.startsWith("plugin-registration")).map((f) => [f.check, f.level]).sort();
-  assert.deepEqual(fam, [["layout-legacy", "warn"], ["mcp", "info"], ["surface", "issue"]], "the install family is exactly the stale launcher, the legacy layout and the permanent mcp info");
+  const fam = findings
+    .filter((f) => INSTALL_FAMILY.includes(f.check) && !f.check.startsWith("plugin-registration"))
+    .map((f) => [f.check, f.level])
+    .sort();
+  assert.deepEqual(
+    fam,
+    [
+      ["layout-legacy", "warn"],
+      ["mcp", "info"],
+      ["surface", "issue"],
+    ],
+    "the install family is exactly the stale launcher, the legacy layout and the permanent mcp info",
+  );
   const stale = findings.find((f) => f.check === "surface");
   assert.match(stale.message, /plugin updated \(pre-provenance file\)/);
   assert.match(stale.message, /bin\/projectstore\.mjs" install --harness/);
-  assert.deepEqual(checkPendingUpgrade(proj, home, root).map((f) => f.check), ["upgrade"]);
+  assert.deepEqual(
+    checkPendingUpgrade(proj, home, root).map((f) => f.check),
+    ["upgrade"],
+  );
   // In-process, this repo is the root — a dev checkout — so the re-stamp offer is correctly absent; the layout offer does not depend on the root.
   const offers = runStartupChecks(JSON.parse(read(join(proj, CFG_DIR, "projectstore.json"))), proj).offers;
-  assert.equal(offers.length, 1); assert.match(offers[0], /layout moved/);
+  assert.equal(offers.length, 1);
+  assert.match(offers[0], /layout moved/);
 
   // One upgrade: the layout moves, the launcher is stamped at its new path, the
   // entry is re-pointed, the legacy launcher and runtime dir are gone (the
@@ -147,12 +247,27 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   // the move calls none, so the checkout keeps its channel.
   const host = fakeClaude(mkdtempSync(join(TMP, "ps-up-host-")));
   const settingsBefore = JSON.parse(read(join(proj, CFG_DIR, "settings.local.json")));
-  const up = bin(root, installEnv(home, root, proj, { PATH: [host.dir, dirname(process.execPath)].join(delimiter) }), ["upgrade", "--harness", SRC.id, "--no-register", "--project", proj]);
+  const up = bin(root, installEnv(home, root, proj, { PATH: [host.dir, dirname(process.execPath)].join(delimiter) }), [
+    "upgrade",
+    "--harness",
+    SRC.id,
+    "--no-register",
+    "--project",
+    proj,
+  ]);
   assert.equal(up.status, 0, up.stderr + up.stdout);
   assert.deepEqual(host.log(), [], "the move calls no host command");
   const settingsAfter = JSON.parse(read(join(proj, CFG_DIR, "settings.local.json")));
-  assert.deepEqual(settingsAfter.enabledPlugins, settingsBefore.enabledPlugins, "no plugin is enabled or silenced for the checkout");
-  assert.deepEqual(settingsAfter.extraKnownMarketplaces, settingsBefore.extraKnownMarketplaces, "and no marketplace is added");
+  assert.deepEqual(
+    settingsAfter.enabledPlugins,
+    settingsBefore.enabledPlugins,
+    "no plugin is enabled or silenced for the checkout",
+  );
+  assert.deepEqual(
+    settingsAfter.extraKnownMarketplaces,
+    settingsBefore.extraKnownMarketplaces,
+    "and no marketplace is added",
+  );
   const lp = layoutPaths(proj);
   const stamped = read(statusLineLauncherPath(proj));
   const prov = parseProvenance(stamped);
@@ -163,11 +278,25 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   assert.ok(!existsSync(lp.legacy.launcher), "the legacy launcher is removed once the entry names the new one");
   assert.ok(!existsSync(lp.legacy.runtime), "the emptied legacy runtime directory is pruned");
   assert.ok(!existsSync(lp.legacy.binding) && existsSync(lp.binding), "the binding moved");
-  assert.equal(JSON.parse(read(join(proj, CFG_DIR, "settings.local.json"))).statusLine.command, `node "${statusLineLauncherPath(proj)}"`, "the entry is re-pointed");
+  assert.equal(
+    JSON.parse(read(join(proj, CFG_DIR, "settings.local.json"))).statusLine.command,
+    `node "${statusLineLauncherPath(proj)}"`,
+    "the entry is re-pointed",
+  );
   const after = snapshot(proj, vault);
-  for (const [f, text] of Object.entries(before)) if (f !== lp.legacy.launcher && f !== join(proj, CFG_DIR, "settings.local.json")) assert.equal(after[f], text, `${f} untouched by upgrade`);
-  const doc2 = JSON.parse(bin(root, installEnv(home, root, proj), ["doctor", "--json", "--install", "--project", proj]).stdout).result;
-  assert.deepEqual(doc2.filter((f) => INSTALL_FAMILY.includes(f.check) && !f.check.startsWith("plugin-registration")).map((f) => [f.check, f.level]), [["mcp", "info"]], "clean but for the permanent mcp info");
+  for (const [f, text] of Object.entries(before))
+    if (f !== lp.legacy.launcher && f !== join(proj, CFG_DIR, "settings.local.json"))
+      assert.equal(after[f], text, `${f} untouched by upgrade`);
+  const doc2 = JSON.parse(
+    bin(root, installEnv(home, root, proj), ["doctor", "--json", "--install", "--project", proj]).stdout,
+  ).result;
+  assert.deepEqual(
+    doc2
+      .filter((f) => INSTALL_FAMILY.includes(f.check) && !f.check.startsWith("plugin-registration"))
+      .map((f) => [f.check, f.level]),
+    [["mcp", "info"]],
+    "clean but for the permanent mcp info",
+  );
   assert.deepEqual(checkPendingUpgrade(proj, home, root), [], "nothing pending after the re-stamp");
   // The views owe no reconcile.
   const rec2 = JSON.parse(bin(root, installEnv(home, root, proj), ["reconcile", "--project", proj]).stdout);
@@ -186,14 +315,24 @@ test("upgrade --no-register: from a checkout root the plan has no registration r
   const env = { ...host.env(), HOME: home, [SRC.runtime.home_env]: join(home, SRC.runtime.home_default) };
   const p = plan(proj, { home, root: ROOT, env, register: false });
   assert.ok(!p.items.some((i) => i.kind === "registration"), "no registration row");
-  assert.ok(p.items.some((i) => i.surface === "layout"), "the move is still planned");
-  const run = spawnSync(process.execPath, [join(ROOT, "bin", "projectstore.mjs"), "upgrade", "--harness", SRC.id, "--no-register", "--project", proj], { encoding: "utf8", env, timeout: 90000 });
+  assert.ok(
+    p.items.some((i) => i.surface === "layout"),
+    "the move is still planned",
+  );
+  const run = spawnSync(
+    process.execPath,
+    [join(ROOT, "bin", "projectstore.mjs"), "upgrade", "--harness", SRC.id, "--no-register", "--project", proj],
+    { encoding: "utf8", env, timeout: 90000 },
+  );
   assert.deepEqual(host.log(), [], "no host command: " + run.stdout + run.stderr);
   const settings = JSON.parse(readFileSync(join(proj, CFG_DIR, "settings.local.json"), "utf8"));
   assert.ok(!settings.enabledPlugins && !settings.extraKnownMarketplaces, "the checkout's channel is untouched");
   assert.ok(existsSync(layoutPaths(proj).binding), "the binding moved");
   // The control: the same plan without the flag carries the registration.
-  assert.ok(plan(proj, { home, root: ROOT, env }).items.some((i) => i.kind === "registration"), "without --no-register a checkout plans the registration");
+  assert.ok(
+    plan(proj, { home, root: ROOT, env }).items.some((i) => i.kind === "registration"),
+    "without --no-register a checkout plans the registration",
+  );
 });
 
 // The converge story's rule 4 (PS-HARNESS: "Setup and upgrade converge this
@@ -210,7 +349,10 @@ test("converge criterion 'A remedy never switches': the layout remedy's command,
   const host = fakeClaude(mkdtempSync(join(TMP, "ps-up-remedy-host-")));
   const hostEnv = { ...host.env(), HOME: home };
   // Switched by a plain upgrade from the package: the copy off for this checkout, no mark.
-  const pkg = fakePackageRoot(join(mkdtempSync(join(TMP, "ps-up-remedy-pkg-")), "node_modules", "projectstore"), VERSION);
+  const pkg = fakePackageRoot(
+    join(mkdtempSync(join(TMP, "ps-up-remedy-pkg-")), "node_modules", "projectstore"),
+    VERSION,
+  );
   const switched = apply(plan(proj, { home, root: pkg, env: hostEnv, harnesses: [SRC.id] }), { env: hostEnv, home });
   assert.equal(switched.failed, undefined, JSON.stringify(switched));
   const settings = () => JSON.parse(read(join(proj, CFG_DIR, "settings.local.json")));
@@ -220,18 +362,39 @@ test("converge criterion 'A remedy never switches': the layout remedy's command,
   assert.ok(!bindingBefore.includes("channel_switch"));
   host.reset();
   // The layout remedy: the copy's own bin, as doctor and the startup line name it.
-  const run = bin(copy, installEnv(home, copy, proj, { PATH: [host.dir, dirname(process.execPath)].join(delimiter) }), ["upgrade", "--harness", SRC.id, "--no-register", "--json", "--project", proj]);
+  const run = bin(copy, installEnv(home, copy, proj, { PATH: [host.dir, dirname(process.execPath)].join(delimiter) }), [
+    "upgrade",
+    "--harness",
+    SRC.id,
+    "--no-register",
+    "--json",
+    "--project",
+    proj,
+  ]);
   const out = JSON.parse(run.stdout);
   assert.equal(out.ok, true, run.stdout + run.stderr);
-  assert.ok(!out.result.items.some((i) => ["channel", "binding"].includes(i.kind) || String(i.surface).endsWith("_others")), JSON.stringify(out.result.items.map((i) => [i.kind, i.surface, i.action])));
+  assert.ok(
+    !out.result.items.some((i) => ["channel", "binding"].includes(i.kind) || String(i.surface).endsWith("_others")),
+    JSON.stringify(out.result.items.map((i) => [i.kind, i.surface, i.action])),
+  );
   assert.deepEqual(host.log(), [], "no host call");
   assert.equal(read(binding), bindingBefore, "no mark");
   // A doctor remedy's narrowed run (`upgrade --surface plugin`, the two-copies
   // remedy) on the same checkout with the copy turned back on: it plans the
   // switch — asked, never silent — and never the mark.
-  writeFileSync(join(proj, CFG_DIR, "settings.local.json"), JSON.stringify({ ...settings(), enabledPlugins: { ...settings().enabledPlugins, "projectstore@SmartAndPoint": true } }, null, 2) + "\n");
+  writeFileSync(
+    join(proj, CFG_DIR, "settings.local.json"),
+    JSON.stringify(
+      { ...settings(), enabledPlugins: { ...settings().enabledPlugins, "projectstore@SmartAndPoint": true } },
+      null,
+      2,
+    ) + "\n",
+  );
   const remedy = plan(proj, { home, root: pkg, env: hostEnv, harnesses: [SRC.id], surfaces: ["plugin"] });
-  assert.ok(remedy.items.some((i) => i.surface === "plugin_others" && i.action === "disable"), "the switch is planned");
+  assert.ok(
+    remedy.items.some((i) => i.surface === "plugin_others" && i.action === "disable"),
+    "the switch is planned",
+  );
   assert.ok(!remedy.items.some((i) => i.kind === "binding"), "the mark is not");
   assert.equal(remedy.channel, null);
   assert.deepEqual(host.log(), []);
@@ -242,14 +405,31 @@ test("converge criterion 'A remedy never switches': the layout remedy's command,
 test("upgrade: the re-stamp offer needs our status-line entry — under a foreign one there is nothing to offer", () => {
   const { home, root } = install028();
   const { proj } = project027(home);
-  assert.deepEqual(checkPendingUpgrade(proj, home, root).map((f) => f.check), ["upgrade"], "our entry: offered");
+  assert.deepEqual(
+    checkPendingUpgrade(proj, home, root).map((f) => f.check),
+    ["upgrade"],
+    "our entry: offered",
+  );
   const sp = join(proj, CFG_DIR, "settings.local.json");
   const s = JSON.parse(readFileSync(sp, "utf8"));
-  writeFileSync(sp, JSON.stringify({ ...s, statusLine: { type: "command", command: "node /opt/someone-else/statusline.js" } }, null, 2) + "\n");
+  writeFileSync(
+    sp,
+    JSON.stringify(
+      { ...s, statusLine: { type: "command", command: "node /opt/someone-else/statusline.js" } },
+      null,
+      2,
+    ) + "\n",
+  );
   assert.deepEqual(checkPendingUpgrade(proj, home, root), [], "a foreign entry: not offered");
   // The session's line, through the real hook from the cache root: the layout
   // offer is there, without the re-stamp clause.
-  const hook = spawnSync(process.execPath, [join(root, "hooks", "session-start.mjs")], { encoding: "utf8", input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "fs-1", source: "startup", cwd: proj }), env: installEnv(home, root, proj), cwd: proj, timeout: 30000 });
+  const hook = spawnSync(process.execPath, [join(root, "hooks", "session-start.mjs")], {
+    encoding: "utf8",
+    input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "fs-1", source: "startup", cwd: proj }),
+    env: installEnv(home, root, proj),
+    cwd: proj,
+    timeout: 30000,
+  });
   const said = hook.stdout.trim() ? JSON.parse(hook.stdout).systemMessage || "" : "";
   assert.match(said, /layout moved to \.projectstore\//, said);
   assert.doesNotMatch(said, /re-stamps the status line launcher/, "no re-stamp is promised under a foreign slot");
@@ -259,11 +439,22 @@ test("upgrade: the re-stamp offer needs our status-line entry — under a foreig
   // (the critic of the layout spec's 2026-10-03 amendment, case S1).
   const lp = layoutPaths(proj);
   assert.ok(existsSync(lp.legacy.launcher), "the legacy launcher is there to clean up");
-  const up = bin(root, installEnv(home, root, proj), ["upgrade", "--harness", SRC.id, "--no-register", "--project", proj]);
+  const up = bin(root, installEnv(home, root, proj), [
+    "upgrade",
+    "--harness",
+    SRC.id,
+    "--no-register",
+    "--project",
+    proj,
+  ]);
   assert.equal(up.status, 0, up.stderr + up.stdout);
   assert.ok(!existsSync(lp.legacy.launcher), "a launcher no slot runs goes with the move");
   assert.deepEqual(checkLayout(proj, undefined, { root, home }), [], "and the layout offer clears");
-  assert.equal(JSON.parse(readFileSync(sp, "utf8")).statusLine.command, "node /opt/someone-else/statusline.js", "the foreign slot is untouched");
+  assert.equal(
+    JSON.parse(readFileSync(sp, "utf8")).statusLine.command,
+    "node /opt/someone-else/statusline.js",
+    "the foreign slot is untouched",
+  );
 });
 
 // The same under an EMPTY slot: the status line is off, nothing names the
@@ -272,13 +463,20 @@ test("upgrade: under an empty status-line slot (the status line is off) the move
   const { home, root } = install028();
   const { proj } = project027(home);
   const sp = join(proj, CFG_DIR, "settings.local.json");
-  const { statusLine, ...rest } = JSON.parse(readFileSync(sp, "utf8"));
+  const { statusLine: _statusLine, ...rest } = JSON.parse(readFileSync(sp, "utf8"));
   writeFileSync(sp, JSON.stringify(rest, null, 2) + "\n");
   const lp = layoutPaths(proj);
   const cfg = JSON.parse(readFileSync(lp.legacy.binding, "utf8"));
   writeFileSync(lp.legacy.binding, JSON.stringify({ ...cfg, statusline: { enabled: false } }, null, 2) + "\n");
   assert.ok(existsSync(lp.legacy.launcher));
-  const up = bin(root, installEnv(home, root, proj), ["upgrade", "--harness", SRC.id, "--no-register", "--project", proj]);
+  const up = bin(root, installEnv(home, root, proj), [
+    "upgrade",
+    "--harness",
+    SRC.id,
+    "--no-register",
+    "--project",
+    proj,
+  ]);
   assert.equal(up.status, 0, up.stderr + up.stdout);
   assert.ok(!existsSync(lp.legacy.launcher), "a launcher no slot runs goes with the move");
   assert.ok(!existsSync(statusLineLauncherPath(proj)), "and none is made: the status line is off");
@@ -297,8 +495,26 @@ test("upgrade: a legacy launcher still run by any settings file survives the mov
   const link = join(mkdtempSync(join(TMP, "ps-up-link-")), "p");
   symlinkSync(proj, link);
   const s0 = JSON.parse(readFileSync(sp, "utf8"));
-  writeFileSync(sp, JSON.stringify({ ...s0, statusLine: { type: "command", command: `node "${join(link, CFG_DIR, ".projectstore", "statusline.mjs")}"` } }, null, 2) + "\n");
-  const up = bin(root, installEnv(home, root, proj), ["upgrade", "--harness", SRC.id, "--no-register", "--json", "--project", proj]);
+  writeFileSync(
+    sp,
+    JSON.stringify(
+      {
+        ...s0,
+        statusLine: { type: "command", command: `node "${join(link, CFG_DIR, ".projectstore", "statusline.mjs")}"` },
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  const up = bin(root, installEnv(home, root, proj), [
+    "upgrade",
+    "--harness",
+    SRC.id,
+    "--no-register",
+    "--json",
+    "--project",
+    proj,
+  ]);
   assert.equal(up.status, 0, up.stderr + up.stdout);
   assert.ok(existsSync(lp.legacy.launcher), "spelled through a symlink, it is still the file the status line runs");
   assert.match(up.stdout, /still runs it as the status line/, "the run says why it kept the launcher");
@@ -333,9 +549,13 @@ test("upgrade O1: while the move is pending, the v3 block and Claude Code's view
   const st = runStartupChecks(JSON.parse(read(lp.legacy.binding)), proj);
   const v3 = st.findings.find((f) => /is v3, expected v4/.test(f.message));
   assert.ok(v3 && v3.level === "info" && /layout move repairs this/.test(v3.message), JSON.stringify(v3));
-  assert.ok(!st.findings.some((f) => f.check === "agents-block" && f.level === "issue"), "nothing of the block's is counted");
+  assert.ok(
+    !st.findings.some((f) => f.check === "agents-block" && f.level === "issue"),
+    "nothing of the block's is counted",
+  );
   assert.equal(st.offers.filter((o) => /layout moved to \.projectstore\//.test(o)).length, 1);
-  const pending = (env) => foldIntoMove([...checkAgentsBlock(proj, { env }), ...checkLayout(proj, undefined, { root, home })]);
+  const pending = (env) =>
+    foldIntoMove([...checkAgentsBlock(proj, { env }), ...checkLayout(proj, undefined, { root, home })]);
   const settled = (env) => foldIntoMove(checkAgentsBlock(proj, { env }));
   // With no move pending, the same block counts.
   assert.equal(settled({}).find((f) => /is v3/.test(f.message)).level, "issue");
@@ -344,36 +564,73 @@ test("upgrade O1: while the move is pending, the v3 block and Claude Code's view
   rmSync(join(proj, "CLAUDE.md"));
   const session = { [SRC.runtime.session_env[0]]: "1" };
   const unseen = pending(session).find((f) => /Claude Code does not see/.test(f.message));
-  assert.ok(unseen && unseen.level === "info" && /layout move repairs this/.test(unseen.message), JSON.stringify(unseen));
-  assert.equal(settled(session).find((f) => /Claude Code does not see/.test(f.message)).level, "issue", "and counts once the move is done");
+  assert.ok(
+    unseen && unseen.level === "info" && /layout move repairs this/.test(unseen.message),
+    JSON.stringify(unseen),
+  );
+  assert.equal(
+    settled(session).find((f) => /Claude Code does not see/.test(f.message)).level,
+    "issue",
+    "and counts once the move is done",
+  );
   // The fold's tag is internal: no finding leaves carrying it, folded or not.
   assert.ok([...pending(session), ...settled(session)].every((f) => !("byMove" in f)));
   // Another harness's view is not the move's to repair: Codex, identified, with the block where it cannot read it.
   writeFileSync(join(proj, "CLAUDE.md"), BLOCK + "\n");
   rmSync(join(proj, "AGENTS.md"));
   const kept = (f, level) => f && f.level === level && !/layout move repairs this/.test(f.message);
-  const codex = pending({ [loadHarness("codex").runtime.plugin_root_env]: "/x" }).find((f) => /Codex does not see/.test(f.message));
+  const codex = pending({ [loadHarness("codex").runtime.plugin_root_env]: "/x" }).find((f) =>
+    /Codex does not see/.test(f.message),
+  );
   assert.ok(kept(codex, "issue"), JSON.stringify(codex));
   // A block twice in one file, one that never closes, or a wrapped marker makes
   // the agents-block plan refuse — the move itself: counted, with its own remedy,
   // and its stale version is not the move's to repair either.
   writeFileSync(join(proj, "CLAUDE.md"), V3 + "\n\n" + V3 + "\n");
   const twice = pending({});
-  assert.ok(kept(twice.find((f) => /times — keep exactly one/.test(f.message)), "issue"), JSON.stringify(twice));
-  assert.ok(twice.filter((f) => /is v3/.test(f.message)).every((f) => kept(f, "issue")), JSON.stringify(twice));
+  assert.ok(
+    kept(
+      twice.find((f) => /times — keep exactly one/.test(f.message)),
+      "issue",
+    ),
+    JSON.stringify(twice),
+  );
+  assert.ok(
+    twice.filter((f) => /is v3/.test(f.message)).every((f) => kept(f, "issue")),
+    JSON.stringify(twice),
+  );
   // Unclosed, in the file Claude Code reaches only through an import it lacks.
   rmSync(join(proj, "CLAUDE.md"));
   writeFileSync(join(proj, "AGENTS.md"), "<!-- projectstore:agents v3 -->\n## half a block\n");
   const unclosed = pending(session);
-  assert.ok(kept(unclosed.find((f) => /is v3/.test(f.message)), "issue"), JSON.stringify(unclosed));
+  assert.ok(
+    kept(
+      unclosed.find((f) => /is v3/.test(f.message)),
+      "issue",
+    ),
+    JSON.stringify(unclosed),
+  );
   assert.ok(!unclosed.some((f) => /does not see/.test(f.message)), "no view of a block the plan refuses");
   rmSync(join(proj, "AGENTS.md"));
-  writeFileSync(join(proj, "CLAUDE.md"), "# Mine\n<!-- projectstore:agents v3 (managed)\n-->\n" + V3.split("\n").slice(1).join("\n") + "\n");
-  assert.ok(kept(pending({}).find((f) => /does not close on its own line/.test(f.message)), "issue"));
+  writeFileSync(
+    join(proj, "CLAUDE.md"),
+    "# Mine\n<!-- projectstore:agents v3 (managed)\n-->\n" + V3.split("\n").slice(1).join("\n") + "\n",
+  );
+  assert.ok(
+    kept(
+      pending({}).find((f) => /does not close on its own line/.test(f.message)),
+      "issue",
+    ),
+  );
   // A block in both files is a warning the move clears: never counted, never folded.
   writeFileSync(join(proj, "CLAUDE.md"), BLOCK + "\n");
   writeFileSync(join(proj, "AGENTS.md"), BLOCK + "\n");
-  assert.ok(kept(pending({}).find((f) => /in both CLAUDE\.md and AGENTS\.md/.test(f.message)), "warn"));
+  assert.ok(
+    kept(
+      pending({}).find((f) => /in both CLAUDE\.md and AGENTS\.md/.test(f.message)),
+      "warn",
+    ),
+  );
 });
 
 test("upgrade: a dev-checkout root (this repo's bin) reports the 0.27.1 launcher and never deletes it; uninstall removes it", () => {
@@ -385,11 +642,37 @@ test("upgrade: a dev-checkout root (this repo's bin) reports the 0.27.1 launcher
   const item = p.items.find((i) => i.surface === "statusline_launcher");
   assert.equal(item.action, "skip");
   assert.match(item.reason, /left in place/);
-  const up = spawnSync(process.execPath, [join(ROOT, "bin", "projectstore.mjs"), "upgrade", "--harness", SRC.id, "--surface", "statusline", "--project", proj], { encoding: "utf8", env, timeout: 60000 });
+  const up = spawnSync(
+    process.execPath,
+    [
+      join(ROOT, "bin", "projectstore.mjs"),
+      "upgrade",
+      "--harness",
+      SRC.id,
+      "--surface",
+      "statusline",
+      "--project",
+      proj,
+    ],
+    { encoding: "utf8", env, timeout: 60000 },
+  );
   assert.equal(up.status, 0, up.stderr + up.stdout);
   assert.equal(read(launcher), before, "byte-identical after upgrade from a dev root");
   assert.deepEqual(checkPendingUpgrade(proj, home, ROOT), [], "no offer from a root whose install would not re-stamp");
-  const un = spawnSync(process.execPath, [join(ROOT, "bin", "projectstore.mjs"), "uninstall", "--harness", SRC.id, "--surface", "statusline", "--project", proj], { encoding: "utf8", env, timeout: 60000 });
+  const un = spawnSync(
+    process.execPath,
+    [
+      join(ROOT, "bin", "projectstore.mjs"),
+      "uninstall",
+      "--harness",
+      SRC.id,
+      "--surface",
+      "statusline",
+      "--project",
+      proj,
+    ],
+    { encoding: "utf8", env, timeout: 60000 },
+  );
   assert.equal(un.status, 0, un.stderr + un.stdout);
   assert.ok(!existsSync(launcher), "uninstall is the one verb that removes it from a dev root");
 });
@@ -397,22 +680,50 @@ test("upgrade: a dev-checkout root (this repo's bin) reports the 0.27.1 launcher
 test("upgrade: a wrapped block marker and a hand-edited block are named, never duplicated, never 'removed' by a no-op", async () => {
   const { home, root } = install028();
   const { proj } = project027(home);
-  const wrapped = "# Mine\n\n<!-- projectstore:agents v3 (managed by projectstore — edit outside\n     markers) -->\n" + BLOCK.split("\n").slice(1).join("\n") + "\n";
+  const wrapped =
+    "# Mine\n\n<!-- projectstore:agents v3 (managed by projectstore — edit outside\n     markers) -->\n" +
+    BLOCK.split("\n").slice(1).join("\n") +
+    "\n";
   writeFileSync(join(proj, "AGENTS.md"), wrapped);
   const f = await checkHarnessSurfaces({}, proj, { home, root });
   assert.ok(f.some((x) => x.check === "surface" && /AGENTS\.md:3: .*does not close on its own line/.test(x.message)));
-  const reg = bin(root, installEnv(home, root, proj), ["install", "--harness", SRC.id, "--surface", "agents_block", "--project", proj]);
+  const reg = bin(root, installEnv(home, root, proj), [
+    "install",
+    "--harness",
+    SRC.id,
+    "--surface",
+    "agents_block",
+    "--project",
+    proj,
+  ]);
   assert.notEqual(reg.status, 0, "install refuses");
   assert.equal(read(join(proj, "AGENTS.md")), wrapped, "never appends a second block");
-  const un = bin(root, installEnv(home, root, proj), ["uninstall", "--harness", SRC.id, "--surface", "agents_block", "--project", proj]);
+  const un = bin(root, installEnv(home, root, proj), [
+    "uninstall",
+    "--harness",
+    SRC.id,
+    "--surface",
+    "agents_block",
+    "--project",
+    proj,
+  ]);
   assert.notEqual(un.status, 0, "uninstall refuses rather than reporting nothing to remove");
   assert.equal(read(join(proj, "AGENTS.md")), wrapped);
   // A hand-edited block: reported as content drift, replaced in place by register.
-  const edited = BLOCK.replace("- **Report instruction conflicts", "- **Changed line\n- **Report instruction conflicts") + "\n";
+  const edited =
+    BLOCK.replace("- **Report instruction conflicts", "- **Changed line\n- **Report instruction conflicts") + "\n";
   writeFileSync(join(proj, "AGENTS.md"), edited);
   const d = await checkHarnessSurfaces({}, proj, { home, root });
   assert.ok(d.some((x) => x.check === "surface" && /content differs/.test(x.message)));
-  const fix = bin(root, installEnv(home, root, proj), ["install", "--harness", SRC.id, "--surface", "agents_block", "--project", proj]);
+  const fix = bin(root, installEnv(home, root, proj), [
+    "install",
+    "--harness",
+    SRC.id,
+    "--surface",
+    "agents_block",
+    "--project",
+    proj,
+  ]);
   assert.equal(fix.status, 0, fix.stderr + fix.stdout);
   assert.equal(read(join(proj, "AGENTS.md")), BLOCK + "\n", "one block, the template's");
 });
@@ -421,14 +732,21 @@ test("upgrade rollback (rewritten for the layout move): 0.28 cannot fill 0.27.1'
   const { home, root } = install028();
   const { proj, launcher: legacyLauncher } = project027(home);
   const lp = layoutPaths(proj);
-  assert.equal(renderStatusLineLauncher(TPL_027, root, proj), null, "the old template lacks the newer placeholders: a rollback is not papered over by re-rendering it");
+  assert.equal(
+    renderStatusLineLauncher(TPL_027, root, proj),
+    null,
+    "the old template lacks the newer placeholders: a rollback is not papered over by re-rendering it",
+  );
   // Forward: the layout moves (planned whatever --surface names), the launcher is
   // stamped at its new path, the entry re-pointed, the legacy launcher removed.
   const env = noHostEnv();
   const fwd = plan(proj, { home, root, surfaces: ["statusline"], env });
-  assert.equal(fwd.items[0].kind, "layout"); assert.equal(fwd.items[0].action, "migrate");
+  assert.equal(fwd.items[0].kind, "layout");
+  assert.equal(fwd.items[0].action, "migrate");
   const i0 = fwd.items.find((x) => x.surface === "statusline_launcher");
-  assert.equal(i0.state, "stale"); assert.match(i0.reason, /plugin updated \(pre-provenance file\).*moving from/); assert.equal(i0.action, "create");
+  assert.equal(i0.state, "stale");
+  assert.match(i0.reason, /plugin updated \(pre-provenance file\).*moving from/);
+  assert.equal(i0.action, "create");
   apply(fwd, { env, home });
   const launcher = statusLineLauncherPath(proj);
   assert.ok(parseProvenance(read(launcher)));
@@ -439,11 +757,15 @@ test("upgrade rollback (rewritten for the layout move): 0.28 cannot fill 0.27.1'
   // version-free launcher keeps rendering from the registry. A 0.27.1 session that
   // re-binds writes the legacy file back — two bindings: install and upgrade
   // refuse, doctor names both, uninstall is not blocked.
-  writeFileSync(lp.legacy.binding, JSON.stringify({ ...JSON.parse(read(lp.binding)), default_author: "someone-on-0.27.1" }, null, 2) + "\n");
+  writeFileSync(
+    lp.legacy.binding,
+    JSON.stringify({ ...JSON.parse(read(lp.binding)), default_author: "someone-on-0.27.1" }, null, 2) + "\n",
+  );
   const both = plan(proj, { home, root, env });
   assert.equal(both.ok, false);
   const li = both.items.find((x) => x.surface === "layout");
-  assert.equal(li.action, "refuse"); assert.match(li.reason, /two bindings/);
+  assert.equal(li.action, "refuse");
+  assert.match(li.reason, /two bindings/);
   assert.throws(() => apply(both, { env, home }));
   assert.equal(checkLayout(proj)[0].check, "layout-two-configs");
   assert.equal(plan(proj, { home, root, env, mode: "uninstall" }).ok, true, "uninstall proceeds");

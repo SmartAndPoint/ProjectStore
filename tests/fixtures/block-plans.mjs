@@ -47,13 +47,19 @@ export function blockTexts(root) {
 // The nine file states: what CLAUDE.md and AGENTS.md hold before the plan
 // (null: absent).
 export const STATES = Object.freeze({
-  "empty": () => ({}),
+  empty: () => ({}),
   "prose in CLAUDE.md": () => ({ "CLAUDE.md": "# Mine\n" }),
   "prose in AGENTS.md": () => ({ "AGENTS.md": "# Agents\n" }),
   "block in CLAUDE.md": ({ block }) => ({ "CLAUDE.md": "# Mine\n\n" + block + "\n" }),
   "block in AGENTS.md + import": ({ block }) => ({ "AGENTS.md": block + "\n", "CLAUDE.md": "@AGENTS.md\n\n# Mine\n" }),
-  "block in AGENTS.md + CLAUDE.md holding only the import": ({ block }) => ({ "AGENTS.md": block + "\n", "CLAUDE.md": "@AGENTS.md\n" }),
-  "block in both": ({ block }) => ({ "CLAUDE.md": "# Mine\n\n" + block + "\n", "AGENTS.md": "# Agents\n\n" + block + "\n" }),
+  "block in AGENTS.md + CLAUDE.md holding only the import": ({ block }) => ({
+    "AGENTS.md": block + "\n",
+    "CLAUDE.md": "@AGENTS.md\n",
+  }),
+  "block in both": ({ block }) => ({
+    "CLAUDE.md": "# Mine\n\n" + block + "\n",
+    "AGENTS.md": "# Agents\n\n" + block + "\n",
+  }),
   "stale block": ({ stale }) => ({ "AGENTS.md": stale + "\n" }),
   "unclosed block": () => ({ "CLAUDE.md": "<!-- projectstore:agents v3 -->\n## half\n" }),
 });
@@ -78,9 +84,16 @@ function scrub(v, pairs) {
   return v;
 }
 
-const real = (p) => { try { return realpathSync(p); } catch { return p; } };
+const real = (p) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+};
 
-export const caseKey = (id, mode, surfaces, state) => `${id} | ${mode} | ${surfaces ? surfaces.join(",") : "-"} | ${state}`;
+export const caseKey = (id, mode, surfaces, state) =>
+  `${id} | ${mode} | ${surfaces ? surfaces.join(",") : "-"} | ${state}`;
 
 // The table, keyed by caseKey: each case's block items, scrubbed. `planFn` is
 // the plan() under test (the default: the installer's own).
@@ -97,12 +110,18 @@ export function blockPlanTable({ planFn = plan } = {}) {
         for (const [state, files] of Object.entries(STATES)) {
           const proj = resolve(stateProject(files(texts)));
           const p = planFn(proj, { harnesses: [m.id], mode, surfaces, home, root, env });
-          const items = JSON.parse(JSON.stringify(p.items.filter((i) => i.surface === "agents_block" || i.surface === "agents_block_import")));
+          const items = JSON.parse(
+            JSON.stringify(p.items.filter((i) => i.surface === "agents_block" || i.surface === "agents_block_import")),
+          );
           out[caseKey(m.id, mode, surfaces, state)] = scrub(items, [
-            [texts.block, "<block>"], [texts.stale, "<stale-block>"],
-            [real(root), "<root>"], [root, "<root>"],
-            [real(proj), "<project>"], [proj, "<project>"],
-            [real(home), "<home>"], [home, "<home>"],
+            [texts.block, "<block>"],
+            [texts.stale, "<stale-block>"],
+            [real(root), "<root>"],
+            [root, "<root>"],
+            [real(proj), "<project>"],
+            [proj, "<project>"],
+            [real(home), "<home>"],
+            [home, "<home>"],
           ]);
         }
       }
@@ -111,7 +130,11 @@ export function blockPlanTable({ planFn = plan } = {}) {
   return out;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url) && process.argv.includes("--write")) {
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url) &&
+  process.argv.includes("--write")
+) {
   writeFileSync(SNAPSHOT, JSON.stringify(blockPlanTable(), null, 2) + "\n");
   process.stdout.write(`wrote ${SNAPSHOT}\n`);
 }

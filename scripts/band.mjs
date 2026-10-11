@@ -31,20 +31,38 @@ export function bandKeys(cfg) {
 export function epicIds(cfg, root) {
   if (!cfg || !cfg.vault_path) return [];
   let folder;
-  try { folder = folderByKind(loadLayout(cfg.layout || "engineering", root), "epic"); } catch { folder = null; }
+  try {
+    folder = folderByKind(loadLayout(cfg.layout || "engineering", root), "epic");
+  } catch {
+    folder = null;
+  }
   if (!folder) return [];
   const dir = join(cfg.vault_path, folder.path);
-  let names = [];
-  try { names = readdirSync(dir); } catch { return []; }
-  return names.filter((n) => {
-    if (!isEpicName(n)) return false;
-    try { return statSync(join(dir, n)).isDirectory(); } catch { return false; }
-  }).sort();
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return names
+    .filter((n) => {
+      if (!isEpicName(n)) return false;
+      try {
+        return statSync(join(dir, n)).isDirectory();
+      } catch {
+        return false;
+      }
+    })
+    .sort();
 }
 
 function readBinding(path) {
   if (!existsSync(path)) return { raw: null, corrupt: false };
-  try { return { raw: JSON.parse(readFileSync(path, "utf8")), corrupt: false }; } catch { return { raw: null, corrupt: true }; }
+  try {
+    return { raw: JSON.parse(readFileSync(path, "utf8")), corrupt: false };
+  } catch {
+    return { raw: null, corrupt: true };
+  }
 }
 
 // What a write would do: the binding's path, its band keys before and after,
@@ -53,9 +71,20 @@ function readBinding(path) {
 export function planBand(projectDir, sub, arg, { env = process.env, root } = {}) {
   const path = harnessConfigPath(projectDir, env);
   const { raw, corrupt } = readBinding(path);
-  if (corrupt) return { path, refusal: { code: "UNREADABLE", message: `${path} is not valid JSON — fix or remove it first; nothing is written` } };
+  if (corrupt)
+    return {
+      path,
+      refusal: {
+        code: "UNREADABLE",
+        message: `${path} is not valid JSON — fix or remove it first; nothing is written`,
+      },
+    };
   // A bare `{ band: {} }` file would read as a binding: never create one.
-  if (!raw) return { path, refusal: { code: "UNBOUND", message: `${projectDir} is not bound to a vault; there is no band to switch` } };
+  if (!raw)
+    return {
+      path,
+      refusal: { code: "UNBOUND", message: `${projectDir} is not bound to a vault; there is no band to switch` },
+    };
   const before = bandKeys(raw);
   const next = { ...(raw.band && typeof raw.band === "object" ? raw.band : {}) };
   if (sub === "on") next.enabled = true;
@@ -63,7 +92,14 @@ export function planBand(projectDir, sub, arg, { env = process.env, root } = {})
   else if (sub === "epic" && arg) {
     const ids = epicIds(raw, root);
     const hit = ids.find((id) => id.toLowerCase() === String(arg).toLowerCase());
-    if (!hit) return { path, refusal: { code: "UNKNOWN_EPIC", message: `no epic ${arg}${ids.length ? ` — epics: ${ids.join(", ")}` : " — the vault has no epics"}` } };
+    if (!hit)
+      return {
+        path,
+        refusal: {
+          code: "UNKNOWN_EPIC",
+          message: `no epic ${arg}${ids.length ? ` — epics: ${ids.join(", ")}` : " — the vault has no epics"}`,
+        },
+      };
     next.epic = hit;
   } else if (sub === "epic") delete next.epic;
   else return { path, refusal: { code: "USAGE", message: `band takes ${SUBCOMMANDS.join(", ")}` } };
@@ -83,10 +119,12 @@ export function applyBand(plan) {
 const REASONS = Object.freeze({
   harness: "this harness has no band",
   off: "switched off (projectstore band on)",
-  session_unknown: "this session is unknown here (no session id from the host), so neither its epic nor its heartbeat can be read",
+  session_unknown:
+    "this session is unknown here (no session id from the host), so neither its epic nor its heartbeat can be read",
   pin_missing: "the pinned epic no longer exists",
   no_epic: "this session has no epic, and none is pinned",
-  not_drawing: "the module is not drawing (modules switched off by the host, an older Claude Code, or a crashed module)",
+  not_drawing:
+    "the module is not drawing (modules switched off by the host, an older Claude Code, or a crashed module)",
 });
 
 // Why the band is or is not drawing in this session, read-only. The session
@@ -105,7 +143,11 @@ export function bandStatus(projectDir, cfg, { env = process.env, now = Date.now(
     } catch {}
     const name = heartbeatFile(sessionId);
     if (name) {
-      try { heartbeat = heartbeatState(JSON.parse(readFileSync(join(stateDir(projectDir), name), "utf8")), now); } catch { heartbeat = "none"; }
+      try {
+        heartbeat = heartbeatState(JSON.parse(readFileSync(join(stateDir(projectDir), name), "utf8")), now);
+      } catch {
+        heartbeat = "none";
+      }
     }
   }
   const ids = epicIds(cfg, root);
@@ -146,11 +188,20 @@ export function renderBandStatus(s) {
 }
 
 export function renderBandPlan(plan, sub, arg) {
-  const what = sub === "on" ? "switch the band on" : sub === "off" ? "switch the band off" : arg ? `pin the band to ${plan.after.epic}` : "release the pinned epic";
-  return [
-    `band ${sub}${arg ? ` ${arg}` : ""} — ${plan.path}`,
-    `  ${what}`,
-    `  enabled: ${plan.before.enabled ? "on" : "off"} → ${plan.after.enabled ? "on" : "off"}`,
-    `  pinned: ${plan.before.epic || "—"} → ${plan.after.epic || "—"}`,
-  ].join("\n") + "\n";
+  const what =
+    sub === "on"
+      ? "switch the band on"
+      : sub === "off"
+        ? "switch the band off"
+        : arg
+          ? `pin the band to ${plan.after.epic}`
+          : "release the pinned epic";
+  return (
+    [
+      `band ${sub}${arg ? ` ${arg}` : ""} — ${plan.path}`,
+      `  ${what}`,
+      `  enabled: ${plan.before.enabled ? "on" : "off"} → ${plan.after.enabled ? "on" : "off"}`,
+      `  pinned: ${plan.before.epic || "—"} → ${plan.after.epic || "—"}`,
+    ].join("\n") + "\n"
+  );
 }

@@ -59,19 +59,38 @@ function die(msg) {
 // or command name so plugin-prefixed and legacy (pre-v0.13) names both land.
 const STAGE_OF = {
   // writing the artifact
-  adr: "authoring", research: "authoring", epic: "authoring", story: "authoring",
-  spec: "authoring", concept: "authoring", meeting: "authoring", runbook: "authoring",
+  adr: "authoring",
+  research: "authoring",
+  epic: "authoring",
+  story: "authoring",
+  spec: "authoring",
+  concept: "authoring",
+  meeting: "authoring",
+  runbook: "authoring",
   // checking the artifact — independent adversarial pass
-  critic: "critique", "projectstore-critic": "critique", review: "critique",
+  critic: "critique",
+  "projectstore-critic": "critique",
+  review: "critique",
   // planning the implementation, then checking the diff against the story
-  planner: "planning", "code-planner": "planning",
-  reviewer: "code-review", "code-reviewer": "code-review",
+  planner: "planning",
+  "code-planner": "planning",
+  reviewer: "code-review",
+  "code-reviewer": "code-review",
   // keeping the vault itself coherent
-  librarian: "curation", archaeologist: "curation",
+  librarian: "curation",
+  archaeologist: "curation",
   clerk: "upkeep",
-  doctor: "upkeep", kanban: "upkeep", reconcile: "upkeep", codemap: "upkeep",
-  status: "upkeep", statusline: "upkeep", search: "upkeep", bind: "upkeep",
-  scaffold: "upkeep", agents: "upkeep", tokens: "upkeep",
+  doctor: "upkeep",
+  kanban: "upkeep",
+  reconcile: "upkeep",
+  codemap: "upkeep",
+  status: "upkeep",
+  statusline: "upkeep",
+  search: "upkeep",
+  bind: "upkeep",
+  scaffold: "upkeep",
+  agents: "upkeep",
+  tokens: "upkeep",
 };
 const STAGE_ORDER = ["authoring", "critique", "planning", "code-review", "curation", "upkeep", "other"];
 
@@ -92,7 +111,12 @@ export const PRICING = {
 // Transcripts carry variant ids ("claude-haiku-4-5-20251001", "opus",
 // "claude-opus-5[1m]") — normalize before the PRICING lookup so they don't
 // silently price at $0.
-const MODEL_ALIASES = { fable: "claude-fable-5-1", opus: "claude-opus-5", sonnet: "claude-sonnet-5", haiku: "claude-haiku-4-5" };
+const MODEL_ALIASES = {
+  fable: "claude-fable-5-1",
+  opus: "claude-opus-5",
+  sonnet: "claude-sonnet-5",
+  haiku: "claude-haiku-4-5",
+};
 
 export function normModel(model) {
   const m = model.replace(/\[[^\]]*\]$/, "").replace(/-\d{8}$/, "");
@@ -122,8 +146,10 @@ function parseArgs(argv) {
     else if (a === "--runs") opts.runs = true;
     else if (a === "--sessions") opts.sessions = true;
     else if (a === "--since") opts.since = argv[++i];
-    else if (a === "--project") { opts.project = argv[++i]; if (!opts.project) die("--project expects a directory"); }
-    else if (a === "--help" || a === "-h") opts.help = true;
+    else if (a === "--project") {
+      opts.project = argv[++i];
+      if (!opts.project) die("--project expects a directory");
+    } else if (a === "--help" || a === "-h") opts.help = true;
     else die(`unknown argument: ${a}`);
   }
   if (opts.since && !/^\d{4}-\d{2}-\d{2}$/.test(opts.since)) die("--since expects YYYY-MM-DD");
@@ -294,7 +320,21 @@ export function aggregate(rows, keyFn, calls) {
     const k = keyFn(row);
     let g = out.get(k);
     if (!g) {
-      g = { key: k, reqs: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, toolCalls: 0, toolTurns: 0, cost: 0, ps: isProjectstore(row), models: new Set(), buckets: new Set(), unpriced: new Set() };
+      g = {
+        key: k,
+        reqs: 0,
+        input: 0,
+        cacheWrite: 0,
+        cacheRead: 0,
+        output: 0,
+        toolCalls: 0,
+        toolTurns: 0,
+        cost: 0,
+        ps: isProjectstore(row),
+        models: new Set(),
+        buckets: new Set(),
+        unpriced: new Set(),
+      };
       out.set(k, g);
     }
     g.reqs++;
@@ -329,12 +369,18 @@ function table(groups, label, { runs = false } = {}) {
   const head = cols(label, "runs", "reqs", "t/turn", "cache_rd", "output", "cost", "cost/run");
   const lines = [head, "─".repeat(head.length)];
   for (const g of groups) {
-    lines.push(cols(
-      g.key, g.runs ? n(g.runs) : "—", n(g.reqs),
-      g.toolTurns ? (g.toolCalls / g.toolTurns).toFixed(2) : "—",
-      n(g.cacheRead), n(g.output), usd(g.cost),
-      g.runs ? usd(g.cost / g.runs) : "—",
-    ));
+    lines.push(
+      cols(
+        g.key,
+        g.runs ? n(g.runs) : "—",
+        n(g.reqs),
+        g.toolTurns ? (g.toolCalls / g.toolTurns).toFixed(2) : "—",
+        n(g.cacheRead),
+        n(g.output),
+        usd(g.cost),
+        g.runs ? usd(g.cost / g.runs) : "—",
+      ),
+    );
   }
   return lines.join("\n");
 }
@@ -368,8 +414,9 @@ function main() {
   if (rows.size === 0) die(opts.since ? `no requests since ${opts.since}` : "no assistant requests found");
 
   const byBucket = aggregate(rows, (r) => r.bucket, calls);
-  const byStage = aggregate([...rows.values()].filter(isProjectstore), stageOf, calls)
-    .sort((a, b) => STAGE_ORDER.indexOf(a.key) - STAGE_ORDER.indexOf(b.key));
+  const byStage = aggregate([...rows.values()].filter(isProjectstore), stageOf, calls).sort(
+    (a, b) => STAGE_ORDER.indexOf(a.key) - STAGE_ORDER.indexOf(b.key),
+  );
   const ps = byBucket.filter((g) => g.ps);
   const rest = byBucket.filter((g) => !g.ps);
   const psT = totals(ps);
@@ -401,12 +448,26 @@ function main() {
           buckets: byBucket.map(shape),
           stages: byStage.map(shape),
           totals: Object.fromEntries(
-            Object.entries({ projectstore: psT, other: restT, all: allT }).map(([k, t]) => [k, {
-              requests: t.reqs, input: t.input, cache_write: t.cacheWrite,
-              cache_read: t.cacheRead, output: t.output, cost_usd: +t.cost.toFixed(4),
-            }]),
+            Object.entries({ projectstore: psT, other: restT, all: allT }).map(([k, t]) => [
+              k,
+              {
+                requests: t.reqs,
+                input: t.input,
+                cache_write: t.cacheWrite,
+                cache_read: t.cacheRead,
+                output: t.output,
+                cost_usd: +t.cost.toFixed(4),
+              },
+            ]),
           ),
-          ...(opts.runs ? { agent_runs: aggregate([...rows.values()].filter((r) => r.run), (r) => r.run).map(shape) } : {}),
+          ...(opts.runs
+            ? {
+                agent_runs: aggregate(
+                  [...rows.values()].filter((r) => r.run),
+                  (r) => r.run,
+                ).map(shape),
+              }
+            : {}),
           ...(opts.sessions ? { by_session: aggregate(rows, (r) => r.session, calls).map(shape) } : {}),
         },
         null,
@@ -438,10 +499,27 @@ function main() {
   if (unpriced.size) out.push(`⚠ unpriced models (cost counted as $0): ${[...unpriced].join(", ")}`);
 
   if (opts.runs) {
-    out.push("", "per agent run:", table(aggregate([...rows.values()].filter((r) => r.run), (r) => r.run), "run"));
+    out.push(
+      "",
+      "per agent run:",
+      table(
+        aggregate(
+          [...rows.values()].filter((r) => r.run),
+          (r) => r.run,
+        ),
+        "run",
+      ),
+    );
   }
   if (opts.sessions) {
-    out.push("", table(aggregate(rows, (r) => r.session, calls), "session", { runs: true }));
+    out.push(
+      "",
+      table(
+        aggregate(rows, (r) => r.session, calls),
+        "session",
+        { runs: true },
+      ),
+    );
   }
   process.stdout.write(out.join("\n") + "\n");
 }

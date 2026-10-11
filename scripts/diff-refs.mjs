@@ -112,14 +112,20 @@ function main() {
   ]);
   const files = filterFiles(committed);
 
-  const fallback = !range && !since || (files.length === 0 && uncommitted.length === 0);
-  process.stdout.write(JSON.stringify({
-    since: since || null,
-    range: usedRange,
-    files,
-    uncommitted,
-    fallback,
-  }, null, 2) + "\n");
+  const fallback = (!range && !since) || (files.length === 0 && uncommitted.length === 0);
+  process.stdout.write(
+    JSON.stringify(
+      {
+        since: since || null,
+        range: usedRange,
+        files,
+        uncommitted,
+        fallback,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

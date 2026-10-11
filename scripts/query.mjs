@@ -116,7 +116,10 @@ function usageError(msg) {
 export function intOption(name, value, { min = 0, max = Infinity, fallback }) {
   if (value === undefined || value === null) return fallback;
   const n = Number(value);
-  if (!Number.isInteger(n) || n < min || n > max) throw usageError(`--${name} takes an integer${max < Infinity ? ` between ${min} and ${max}` : ` ≥ ${min}`}, not "${value}"`);
+  if (!Number.isInteger(n) || n < min || n > max)
+    throw usageError(
+      `--${name} takes an integer${max < Infinity ? ` between ${min} and ${max}` : ` ≥ ${min}`}, not "${value}"`,
+    );
   return n;
 }
 
@@ -141,7 +144,11 @@ function nodeFacts(n) {
 }
 
 function layoutOf(cfg) {
-  try { return { layout: loadLayout(cfg.layout), error: null }; } catch (e) { return { layout: null, error: e.message }; }
+  try {
+    return { layout: loadLayout(cfg.layout), error: null };
+  } catch (e) {
+    return { layout: null, error: e.message };
+  }
 }
 
 // ─── status ────────────────────────────────────────────────────────────
@@ -154,10 +161,38 @@ function layoutOf(cfg) {
 // total is explainable without reading the generator.
 export function status(cfg, { project = null } = {}) {
   if (!cfg || !cfg.vault_path) {
-    return { bound: false, project, vault_path: null, vault_exists: false, layout: null, language: null, auto_inject: null, approval_mode: null, spec_policy: null, lifecycle_gates: null, stories: null, views: null, sessions: null };
+    return {
+      bound: false,
+      project,
+      vault_path: null,
+      vault_exists: false,
+      layout: null,
+      language: null,
+      auto_inject: null,
+      approval_mode: null,
+      spec_policy: null,
+      lifecycle_gates: null,
+      stories: null,
+      views: null,
+      sessions: null,
+    };
   }
   const vault = vaultOf(cfg);
-  const out = { bound: true, project, vault_path: vault, vault_exists: existsSync(vault), layout: cfg.layout || null, language: cfg.language || "en", auto_inject: cfg.auto_inject !== false, approval_mode: cfg.approval_mode || "always", spec_policy: null, lifecycle_gates: null, stories: null, views: null, sessions: null };
+  const out = {
+    bound: true,
+    project,
+    vault_path: vault,
+    vault_exists: existsSync(vault),
+    layout: cfg.layout || null,
+    language: cfg.language || "en",
+    auto_inject: cfg.auto_inject !== false,
+    approval_mode: cfg.approval_mode || "always",
+    spec_policy: null,
+    lifecycle_gates: null,
+    stories: null,
+    views: null,
+    sessions: null,
+  };
   if (!out.vault_exists) return out;
   const vcfg = readVaultConfig(vault);
   out.spec_policy = vcfg.spec_policy || "optional";
@@ -170,18 +205,30 @@ export function status(cfg, { project = null } = {}) {
     const { stories, skipped } = findStories(vault, epicFolder.path);
     const byStatus = {};
     for (const s of stories) byStatus[s.status] = (byStatus[s.status] || 0) + 1;
-    const inProgress = stories.filter((s) => statusToColumn(s.status) === "In Progress")
+    const inProgress = stories
+      .filter((s) => statusToColumn(s.status) === "In Progress")
       .map((s) => ({ path: s.relPath, epic: s.epicId, title: s.title, started_at: null }));
     // started_at is not part of the finder's row; read it for the few in flight.
     for (const s of inProgress) {
-      try { s.started_at = parseFrontmatter(readFileSync(join(vault, s.path), "utf8")).data.started_at ?? null; } catch {}
+      try {
+        s.started_at = parseFrontmatter(readFileSync(join(vault, s.path), "utf8")).data.started_at ?? null;
+      } catch {}
     }
     inProgress.sort((a, b) => cmp(String(b.started_at || ""), String(a.started_at || "")) || cmp(a.path, b.path));
-    const skippedCounts = Object.fromEntries(Object.entries(skipped || {}).map(([k, v]) => [k, Array.isArray(v) ? v.length : 0]).filter(([, n]) => n > 0).sort(([a], [b]) => cmp(a, b)));
+    const skippedCounts = Object.fromEntries(
+      Object.entries(skipped || {})
+        .map(([k, v]) => [k, Array.isArray(v) ? v.length : 0])
+        .filter(([, n]) => n > 0)
+        .sort(([a], [b]) => cmp(a, b)),
+    );
     out.stories = {
-      status: "ok", total: stories.length, by_status: Object.fromEntries(Object.entries(byStatus).sort(([a], [b]) => cmp(a, b))),
-      in_progress: inProgress.slice(0, IN_FLIGHT_CAP), in_progress_total: inProgress.length,
-      off_board: skippedCounts, off_board_total: Object.values(skippedCounts).reduce((a, b) => a + b, 0),
+      status: "ok",
+      total: stories.length,
+      by_status: Object.fromEntries(Object.entries(byStatus).sort(([a], [b]) => cmp(a, b))),
+      in_progress: inProgress.slice(0, IN_FLIGHT_CAP),
+      in_progress_total: inProgress.length,
+      off_board: skippedCounts,
+      off_board_total: Object.values(skippedCounts).reduce((a, b) => a + b, 0),
     };
   }
   // Freshness: a view is stale when any artifact is newer than it. The derived
@@ -191,19 +238,42 @@ export function status(cfg, { project = null } = {}) {
   let newest = 0;
   for (const f of walkVaultFiles(vault)) {
     if (views.includes(f.rel)) continue;
-    try { newest = Math.max(newest, statSync(join(vault, f.rel)).mtimeMs); } catch {}
+    try {
+      newest = Math.max(newest, statSync(join(vault, f.rel)).mtimeMs);
+    } catch {}
   }
   out.views = {};
-  for (const [key, file] of [["kanban", views[0]], ["code_map", views[1]], ["graph", views[2]]]) {
+  for (const [key, file] of [
+    ["kanban", views[0]],
+    ["code_map", views[1]],
+    ["graph", views[2]],
+  ]) {
     const p = join(vault, file);
     const exists = existsSync(p);
     const generatedAt = exists ? readGeneratedAt(p) : null;
     let viewMs = NaN;
-    if (exists) { try { viewMs = statSync(p).mtimeMs; } catch {} }
-    out.views[key] = { path: file, exists, generated_at: generatedAt, stale: exists ? (Number.isNaN(viewMs) ? null : viewMs < newest) : null };
+    if (exists) {
+      try {
+        viewMs = statSync(p).mtimeMs;
+      } catch {}
+    }
+    out.views[key] = {
+      path: file,
+      exists,
+      generated_at: generatedAt,
+      stale: exists ? (Number.isNaN(viewMs) ? null : viewMs < newest) : null,
+    };
   }
   const sessions = readActiveSessions(vault, null);
-  out.sessions = { active: sessions.length, entries: sessions.slice(0, IN_FLIGHT_CAP).map((s) => ({ id: s.id ?? s.session_id ?? null, project_root: s.project_root ?? s.projectRoot ?? s.project ?? null, started_at: s.started_at ?? s.startedAt ?? null, last_active: s.last_active ?? s.lastActive ?? s.updated_at ?? null })) };
+  out.sessions = {
+    active: sessions.length,
+    entries: sessions.slice(0, IN_FLIGHT_CAP).map((s) => ({
+      id: s.id ?? s.session_id ?? null,
+      project_root: s.project_root ?? s.projectRoot ?? s.project ?? null,
+      started_at: s.started_at ?? s.startedAt ?? null,
+      last_active: s.last_active ?? s.lastActive ?? s.updated_at ?? null,
+    })),
+  };
   return out;
 }
 
@@ -233,34 +303,65 @@ export function startDate(at) {
 // harness, and the terminal's as this run was invoked (a shell's own name).
 export function renderStatus(r, { caps: c = PLAIN, env = process.env } = {}) {
   const paint = painter(c);
-  const dash = icon(c, "dash"), dot = icon(c, "dot");
+  const dash = icon(c, "dash"),
+    dot = icon(c, "dot");
   const prose = (text, indent = "") => indent + wrap(text, c.live ? c.width : 0, indent + "  ");
   // A heading whose counts wrap only between them, after the dot: a count is
   // never parted from its word. Each part's spaces are glued for wrap() and
   // given back after it.
   const counted = (title, parts) => {
-    const glued = parts.map((x) => (Array.isArray(x) ? [x[0].split(" ").join(GLUE), x[1]] : String(x).split(" ").join(GLUE)));
-    return prose(heading(c, title, glued).split(` ${dot} `).join(`${GLUE}${dot} `)).split(GLUE).join(" ");
+    const glued = parts.map((x) =>
+      Array.isArray(x) ? [x[0].split(" ").join(GLUE), x[1]] : String(x).split(" ").join(GLUE),
+    );
+    return prose(heading(c, title, glued).split(` ${dot} `).join(`${GLUE}${dot} `))
+      .split(GLUE)
+      .join(" ");
   };
   if (!r.bound) {
-    return [
-      prose(`Not bound${r.project ? ` ${dash} ${r.project}` : ""}`),
-      "",
-      prose("Next: bind it to a vault, in a session or from a terminal:"),
-      ...commandBlock(c, [commandForm("bind", { args: "<vault>", env }), `${invokedAs(env).cmd} bind <vault>`]),
-    ].join("\n") + "\n";
+    return (
+      [
+        prose(`Not bound${r.project ? ` ${dash} ${r.project}` : ""}`),
+        "",
+        prose("Next: bind it to a vault, in a session or from a terminal:"),
+        ...commandBlock(c, [commandForm("bind", { args: "<vault>", env }), `${invokedAs(env).cmd} bind <vault>`]),
+      ].join("\n") + "\n"
+    );
   }
   const missing = r.vault_exists ? "" : `  ${paint("attention", `${icon(c, "warning")} missing`)}`;
-  const binding = [["vault_path", `${r.vault_path}${missing}`], ["layout", r.layout], ["language", r.language], ["auto_inject", r.auto_inject], ["approval_mode", r.approval_mode], ["spec_policy", r.spec_policy], ["lifecycle_gates", r.lifecycle_gates]];
-  const lines = [heading(c, "Binding"), ...kv(c, binding.filter(([, v]) => v !== null && v !== undefined))];
+  const binding = [
+    ["vault_path", `${r.vault_path}${missing}`],
+    ["layout", r.layout],
+    ["language", r.language],
+    ["auto_inject", r.auto_inject],
+    ["approval_mode", r.approval_mode],
+    ["spec_policy", r.spec_policy],
+    ["lifecycle_gates", r.lifecycle_gates],
+  ];
+  const lines = [
+    heading(c, "Binding"),
+    ...kv(
+      c,
+      binding.filter(([, v]) => v !== null && v !== undefined),
+    ),
+  ];
   const s = r.stories;
-  if (s && s.status !== "ok") lines.push("", prose(heading(c, "Stories", [[`not counted ${dash} ${s.error}`, "attention"]])));
+  if (s && s.status !== "ok")
+    lines.push("", prose(heading(c, "Stories", [[`not counted ${dash} ${s.error}`, "attention"]])));
   else if (s) {
     const counts = [`${s.total} on the board`, ...Object.entries(s.by_status).map(([k, n]) => `${n} ${k}`)];
-    if (s.off_board_total) counts.push([`${s.off_board_total} off the board (${Object.entries(s.off_board).map(([k, n]) => `${k} ${n}`).join(", ")})`, "explanation"]);
+    if (s.off_board_total)
+      counts.push([
+        `${s.off_board_total} off the board (${Object.entries(s.off_board)
+          .map(([k, n]) => `${k} ${n}`)
+          .join(", ")})`,
+        "explanation",
+      ]);
     lines.push("", counted("Stories", counts));
     const listed = s.in_progress || [];
-    lines.push("", heading(c, "In progress", [s.in_progress_total ? String(s.in_progress_total) : ["nothing", "explanation"]]));
+    lines.push(
+      "",
+      heading(c, "In progress", [s.in_progress_total ? String(s.in_progress_total) : ["nothing", "explanation"]]),
+    );
     const byEpic = new Map();
     for (const x of listed) {
       const epic = x.epic || "";
@@ -274,7 +375,20 @@ export function renderStatus(r, { caps: c = PLAIN, env = process.env } = {}) {
       // its spaces, under itself, and a path that does not fit moves beneath
       // it, at the same column. A story with no title is its path, never
       // wrapped.
-      lines.push(...rows(c, xs.map((x) => ({ glyph: "dot", role: "explanation", action: x.started_at ? startDate(x.started_at) : "", target: x.title || x.path, prose: Boolean(x.title), note: x.title ? x.path : "" })), { indent: 4 }));
+      lines.push(
+        ...rows(
+          c,
+          xs.map((x) => ({
+            glyph: "dot",
+            role: "explanation",
+            action: x.started_at ? startDate(x.started_at) : "",
+            target: x.title || x.path,
+            prose: Boolean(x.title),
+            note: x.title ? x.path : "",
+          })),
+          { indent: 4 },
+        ),
+      );
     }
     const more = (s.in_progress_total || 0) - listed.length;
     const kanban = r.views && r.views.kanban ? r.views.kanban.path : null;
@@ -282,8 +396,24 @@ export function renderStatus(r, { caps: c = PLAIN, env = process.env } = {}) {
   }
   if (r.views) {
     // A view that is stale or missing wants a reconcile: both in the attention role.
-    const state = (v) => (!v.exists ? ["missing", "attention"] : v.stale === null ? ["unknown", "explanation"] : v.stale ? ["stale", "attention"] : ["fresh", "done"]);
-    lines.push("", counted("Views", Object.values(r.views).map((v) => { const [word, role] = state(v); return `${v.path} ${paint(role, word)}`; })));
+    const state = (v) =>
+      !v.exists
+        ? ["missing", "attention"]
+        : v.stale === null
+          ? ["unknown", "explanation"]
+          : v.stale
+            ? ["stale", "attention"]
+            : ["fresh", "done"];
+    lines.push(
+      "",
+      counted(
+        "Views",
+        Object.values(r.views).map((v) => {
+          const [word, role] = state(v);
+          return `${v.path} ${paint(role, word)}`;
+        }),
+      ),
+    );
   }
   if (r.sessions) lines.push(heading(c, "Sessions", [`${r.sessions.active} active`]));
   return lines.join("\n") + "\n";
@@ -300,7 +430,15 @@ export async function orientation(cfg, { budgetMs = ORIENTATION_BUDGET_MS } = {}
   const facts = await gatherVaultFacts(cfg, { budgetMs });
   const skeleton = renderVaultSkeleton(facts);
   if (facts.vaultMissing) return { facts, skeleton };
-  const safe = { ...facts, folders: facts.folders.map((f) => ({ path: f.path, kind: f.kind, counts: f.counts, purpose: folderPurpose(f.readme, f.kind) })) };
+  const safe = {
+    ...facts,
+    folders: facts.folders.map((f) => ({
+      path: f.path,
+      kind: f.kind,
+      counts: f.counts,
+      purpose: folderPurpose(f.readme, f.kind),
+    })),
+  };
   return { facts: safe, skeleton };
 }
 
@@ -312,14 +450,31 @@ export async function orientation(cfg, { budgetMs = ORIENTATION_BUDGET_MS } = {}
 // (type, status) are filters and columns here, and a hit on `id:` would push
 // the prose a reader wanted past the per-file cap. Derived views are excluded
 // unless asked for: they repeat every path in the vault.
-export function search(cfg, query, { kinds = null, status: st = null, limit = SEARCH_DEFAULT_LIMIT, includeDerived = false, caseSensitive = false, deadlineMs = SEARCH_DEADLINE_MS } = {}) {
+export function search(
+  cfg,
+  query,
+  {
+    kinds = null,
+    status: st = null,
+    limit = SEARCH_DEFAULT_LIMIT,
+    includeDerived = false,
+    caseSensitive = false,
+    deadlineMs = SEARCH_DEADLINE_MS,
+  } = {},
+) {
   if (typeof query !== "string" || !query.trim()) throw usageError("a query is required");
   const vault = vaultOf(cfg);
   const cap = intOption("limit", limit, { min: 1, max: SEARCH_HARD_CAP, fallback: SEARCH_DEFAULT_LIMIT });
   const needle = caseSensitive ? query : query.toLowerCase();
   const { layout } = layoutOf(cfg);
   let index = null;
-  if (layout) { try { index = buildNodeIndex(cfg, layout); } catch { index = null; } }
+  if (layout) {
+    try {
+      index = buildNodeIndex(cfg, layout);
+    } catch {
+      index = null;
+    }
+  }
   const views = derivedViews(layout);
   const files = walkVaultFiles(vault).filter((f) => includeDerived || !views.includes(f.rel));
   files.sort((a, b) => cmp(a.rel, b.rel));
@@ -329,12 +484,19 @@ export function search(cfg, query, { kinds = null, status: st = null, limit = SE
   let timedOut = false;
   const deadline = Date.now() + deadlineMs;
   for (const f of files) {
-    if (Date.now() > deadline) { timedOut = true; break; }
+    if (Date.now() > deadline) {
+      timedOut = true;
+      break;
+    }
     // Synchronous reads with the deadline checked between files: a vault on
     // a local disk reads in milliseconds, and a timer per file would keep the
     // process alive after the answer is written (the MCP server lives long).
     let text;
-    try { text = readFileSync(join(vault, f.rel), "utf8"); } catch { continue; }
+    try {
+      text = readFileSync(join(vault, f.rel), "utf8");
+    } catch {
+      continue;
+    }
     scanned++;
     const node = index ? index.byPath.get(f.rel) : null;
     const nf = nodeFacts(node);
@@ -343,7 +505,10 @@ export function search(cfg, query, { kinds = null, status: st = null, limit = SE
     const lines = String(text).split("\n");
     // The frontmatter's line span, so its lines other than title: are skipped.
     let fmEnd = -1;
-    if (lines[0] === "---") { const close = lines.indexOf("---", 1); fmEnd = close === -1 ? lines.length : close; }
+    if (lines[0] === "---") {
+      const close = lines.indexOf("---", 1);
+      fmEnd = close === -1 ? lines.length : close;
+    }
     const hits = [];
     for (let i = 0; i < lines.length; i++) {
       if (i <= fmEnd && !/^title:/.test(lines[i])) continue;
@@ -357,17 +522,35 @@ export function search(cfg, query, { kinds = null, status: st = null, limit = SE
     for (const h of hits.slice(0, SEARCH_PER_FILE_CAP)) all.push({ ...h, of: hits.length });
   }
   all.sort((a, b) => cmp(a.path, b.path) || a.line - b.line);
-  return { query, matches: all.slice(0, cap), total: all.length, returned: Math.min(all.length, cap), truncated: all.length > cap, per_file_cap: SEARCH_PER_FILE_CAP, files_truncated: filesTruncated, files_scanned: scanned, status: timedOut ? "timeout" : "ok" };
+  return {
+    query,
+    matches: all.slice(0, cap),
+    total: all.length,
+    returned: Math.min(all.length, cap),
+    truncated: all.length > cap,
+    per_file_cap: SEARCH_PER_FILE_CAP,
+    files_truncated: filesTruncated,
+    files_scanned: scanned,
+    status: timedOut ? "timeout" : "ok",
+  };
 }
 
 export function renderSearch(r) {
-  if (!r.matches.length) return `No matches for "${r.query}" in ${r.files_scanned} file(s)${r.status === "timeout" ? " (scan timed out — partial)" : ""}. Try a shorter or case-insensitive phrase.\n`;
+  if (!r.matches.length)
+    return `No matches for "${r.query}" in ${r.files_scanned} file(s)${r.status === "timeout" ? " (scan timed out — partial)" : ""}. Try a shorter or case-insensitive phrase.\n`;
   const groups = new Map();
-  for (const m of r.matches) { const g = m.path.includes("/") ? m.path.split("/")[0] : "(root)"; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(m); }
-  const lines = [`${r.total} match(es) for "${r.query}"${r.truncated ? ` — showing ${r.returned}` : ""}${r.files_truncated ? ` — ${r.files_truncated} file(s) cut at ${r.per_file_cap} lines each` : ""}${r.status === "timeout" ? " (scan timed out — partial)" : ""}`];
+  for (const m of r.matches) {
+    const g = m.path.includes("/") ? m.path.split("/")[0] : "(root)";
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(m);
+  }
+  const lines = [
+    `${r.total} match(es) for "${r.query}"${r.truncated ? ` — showing ${r.returned}` : ""}${r.files_truncated ? ` — ${r.files_truncated} file(s) cut at ${r.per_file_cap} lines each` : ""}${r.status === "timeout" ? " (scan timed out — partial)" : ""}`,
+  ];
   for (const [g, ms] of [...groups.entries()].sort(([a], [b]) => cmp(a, b))) {
     lines.push("", `${g}/ (${ms.length})`);
-    for (const m of ms) lines.push(`  ${m.path}:${m.line}  ${m.snippet}${m.of > r.per_file_cap ? `   [${m.of} in file]` : ""}`);
+    for (const m of ms)
+      lines.push(`  ${m.path}:${m.line}  ${m.snippet}${m.of > r.per_file_cap ? `   [${m.of} in file]` : ""}`);
   }
   return lines.join("\n") + "\n";
 }
@@ -382,7 +565,15 @@ export function show(cfg, path, { body = false, section = null } = {}) {
   const text = readFileSync(abs, "utf8");
   const parsed = parseFrontmatter(text);
   const fm = parsed.data;
-  const out = { path: rel, type: fm.type ?? null, title: fm.title ?? null, status: fm.status ?? null, frontmatter: fm, lines: text.split("\n").length, bytes: Buffer.byteLength(text, "utf8") };
+  const out = {
+    path: rel,
+    type: fm.type ?? null,
+    title: fm.title ?? null,
+    status: fm.status ?? null,
+    frontmatter: fm,
+    lines: text.split("\n").length,
+    bytes: Buffer.byteLength(text, "utf8"),
+  };
   if (body) out.body = parsed.body;
   if (section) {
     const ids = Object.keys(loadHeadingsRegistry().headings || {}).sort();
@@ -394,7 +585,10 @@ export function show(cfg, path, { body = false, section = null } = {}) {
 }
 
 export function renderShow(r) {
-  const lines = [`${r.path}`, `type: ${r.type ?? "—"} · title: ${r.title ?? "—"} · status: ${r.status ?? "—"} · ${r.lines} lines`];
+  const lines = [
+    `${r.path}`,
+    `type: ${r.type ?? "—"} · title: ${r.title ?? "—"} · status: ${r.status ?? "—"} · ${r.lines} lines`,
+  ];
   if (r.section) lines.push("", `## ${r.section.id}`, "", r.section.text ?? "(section not found)");
   if (r.body !== undefined) lines.push("", r.body);
   return lines.join("\n") + "\n";
@@ -418,13 +612,34 @@ export function neighbors(cfg, path, { kinds = null, direction = "both", limit =
   const self = index.get(rel);
   if (!self) throw usageError(`${rel} is not a node of the graph (not an artifact the layout knows)`);
   const want = (e) => !kinds || !kinds.length || kinds.includes(e.kind);
-  const out = dir === "in" ? [] : g.edges.filter((e) => e.from === rel && want(e)).map((e) => ({ kind: e.kind, to: e.to, ...prefixed(nodeFacts(index.get(e.to)), "to_") }));
-  const inn = dir === "out" ? [] : g.edges.filter((e) => e.to === rel && want(e)).map((e) => ({ kind: e.kind, from: e.from, ...prefixed(nodeFacts(index.get(e.from)), "from_") }));
+  const out =
+    dir === "in"
+      ? []
+      : g.edges
+          .filter((e) => e.from === rel && want(e))
+          .map((e) => ({ kind: e.kind, to: e.to, ...prefixed(nodeFacts(index.get(e.to)), "to_") }));
+  const inn =
+    dir === "out"
+      ? []
+      : g.edges
+          .filter((e) => e.to === rel && want(e))
+          .map((e) => ({ kind: e.kind, from: e.from, ...prefixed(nodeFacts(index.get(e.from)), "from_") }));
   out.sort((a, b) => cmp(a.kind, b.kind) || cmp(a.to, b.to));
   inn.sort((a, b) => cmp(a.kind, b.kind) || cmp(a.from, b.from));
   const byKind = {};
   for (const e of [...out, ...inn]) byKind[e.kind] = (byKind[e.kind] || 0) + 1;
-  return { path: rel, ...nodeFacts(self), out: out.slice(0, cap), in: inn.slice(0, cap), counts: { in: inn.length, out: out.length, by_kind: Object.fromEntries(Object.entries(byKind).sort(([a], [b]) => cmp(a, b))) }, truncated: out.length > cap || inn.length > cap };
+  return {
+    path: rel,
+    ...nodeFacts(self),
+    out: out.slice(0, cap),
+    in: inn.slice(0, cap),
+    counts: {
+      in: inn.length,
+      out: out.length,
+      by_kind: Object.fromEntries(Object.entries(byKind).sort(([a], [b]) => cmp(a, b))),
+    },
+    truncated: out.length > cap || inn.length > cap,
+  };
 }
 
 function prefixed(o, p) {
@@ -432,7 +647,10 @@ function prefixed(o, p) {
 }
 
 export function renderNeighbors(r) {
-  const lines = [`${r.path}  (${r.type ?? "—"} · ${r.status ?? "—"})  ${r.title ?? ""}`.trimEnd(), `out ${r.counts.out} · in ${r.counts.in}${r.truncated ? " · truncated" : ""}`];
+  const lines = [
+    `${r.path}  (${r.type ?? "—"} · ${r.status ?? "—"})  ${r.title ?? ""}`.trimEnd(),
+    `out ${r.counts.out} · in ${r.counts.in}${r.truncated ? " · truncated" : ""}`,
+  ];
   for (const e of r.out) lines.push(`  → ${e.kind.padEnd(19)} ${e.to}${e.to_title ? `  (${e.to_title})` : ""}`);
   for (const e of r.in) lines.push(`  ← ${e.kind.padEnd(19)} ${e.from}${e.from_title ? `  (${e.from_title})` : ""}`);
   return lines.join("\n") + "\n";
@@ -444,11 +662,19 @@ export function renderNeighbors(r) {
 // lineage — walking them returns most of the vault, so `kinds` is validated
 // against LINEAGE_KINDS — and containment is not walked from an epic down to
 // its stories unless the epic is the root.
-export function lineage(cfg, path, { depth = LINEAGE_DEFAULT_DEPTH, kinds = LINEAGE_KINDS, cap = LINEAGE_NODE_CAP } = {}) {
+export function lineage(
+  cfg,
+  path,
+  { depth = LINEAGE_DEFAULT_DEPTH, kinds = LINEAGE_KINDS, cap = LINEAGE_NODE_CAP } = {},
+) {
   const vault = vaultOf(cfg);
   const rel = toVaultRel(vault, path);
   const maxDepth = intOption("depth", depth, { min: 0, max: 10, fallback: LINEAGE_DEFAULT_DEPTH });
-  for (const k of kinds || []) if (!LINEAGE_KINDS.includes(k)) throw usageError(`--kind for lineage takes one of ${LINEAGE_KINDS.join(", ")}, not "${k}" (use graph neighbors for the other edge kinds)`);
+  for (const k of kinds || [])
+    if (!LINEAGE_KINDS.includes(k))
+      throw usageError(
+        `--kind for lineage takes one of ${LINEAGE_KINDS.join(", ")}, not "${k}" (use graph neighbors for the other edge kinds)`,
+      );
   const { g, index } = graphOf(cfg);
   if (!index.has(rel)) throw usageError(`${rel} is not a node of the graph`);
   const kindSet = new Set(kinds && kinds.length ? kinds : LINEAGE_KINDS);
@@ -469,26 +695,42 @@ export function lineage(cfg, path, { depth = LINEAGE_DEFAULT_DEPTH, kinds = LINE
         // siblings, and a depth of 3 would return the whole epic.
         if (e.kind === "epic-contains" && e.from === p && p !== rel) continue;
         if (!seen.has(other)) {
-          if (seen.size >= cap) { truncated = true; continue; }
+          if (seen.size >= cap) {
+            truncated = true;
+            continue;
+          }
           seen.set(other, d);
           next.push(other);
         }
         // Recorded only once both endpoints are nodes of the result.
         const k = `${e.from} ${e.kind} ${e.to}`;
-        if (!edgeKeys.has(k)) { edgeKeys.add(k); edges.push({ from: e.from, kind: e.kind, to: e.to }); }
+        if (!edgeKeys.has(k)) {
+          edgeKeys.add(k);
+          edges.push({ from: e.from, kind: e.kind, to: e.to });
+        }
       }
     }
     frontier = next.sort(cmp);
   }
-  const nodes = [...seen.entries()].map(([p, distance]) => ({ path: p, ...nodeFacts(index.get(p)), distance })).sort((a, b) => a.distance - b.distance || cmp(a.path, b.path));
+  const nodes = [...seen.entries()]
+    .map(([p, distance]) => ({ path: p, ...nodeFacts(index.get(p)), distance }))
+    .sort((a, b) => a.distance - b.distance || cmp(a.path, b.path));
   edges.sort((a, b) => cmp(a.from, b.from) || cmp(a.kind, b.kind) || cmp(a.to, b.to));
   return { root: rel, depth: maxDepth, kinds: [...kindSet], nodes, edges, truncated };
 }
 
 export function renderLineage(r) {
-  const lines = [`${r.root} — lineage over ${r.kinds.join(", ")} to depth ${r.depth}${r.truncated ? " (truncated)" : ""}`];
-  for (const n of r.nodes) lines.push(`  ${String(n.distance).padStart(2)}  ${n.path}  (${n.type ?? "—"} · ${n.status ?? "—"})${n.title ? `  ${n.title}` : ""}`);
-  if (r.edges.length) { lines.push("", "edges:"); for (const e of r.edges) lines.push(`  ${e.from}  ${e.kind}  ${e.to}`); }
+  const lines = [
+    `${r.root} — lineage over ${r.kinds.join(", ")} to depth ${r.depth}${r.truncated ? " (truncated)" : ""}`,
+  ];
+  for (const n of r.nodes)
+    lines.push(
+      `  ${String(n.distance).padStart(2)}  ${n.path}  (${n.type ?? "—"} · ${n.status ?? "—"})${n.title ? `  ${n.title}` : ""}`,
+    );
+  if (r.edges.length) {
+    lines.push("", "edges:");
+    for (const e of r.edges) lines.push(`  ${e.from}  ${e.kind}  ${e.to}`);
+  }
   return lines.join("\n") + "\n";
 }
 
@@ -501,7 +743,8 @@ const normRef = (r) => String(r).replace(/\\/g, "/").replace(/^\.\//, "").replac
 // repo-relative path; the result says which reading was taken. A tie is
 // ambiguity, never a first match — as in the link resolver and doctor.
 export function codeRefs(cfg, selector, { reverse = false } = {}) {
-  if (typeof selector !== "string" || !selector.trim()) throw usageError("a selector is required — an epic id, an artifact, or a repo path");
+  if (typeof selector !== "string" || !selector.trim())
+    throw usageError("a selector is required — an epic id, an artifact, or a repo path");
   const sel = selector.trim();
   const layout = loadLayout(cfg.layout);
   const index = buildNodeIndex(cfg, layout);
@@ -509,42 +752,92 @@ export function codeRefs(cfg, selector, { reverse = false } = {}) {
   const refsOf = (n) => {
     const refs = listOf(n.fm, "code_refs");
     if (!refs.length && typeof n.fm.code_refs === "string" && n.fm.code_refs.trim() === "") {
-      warnings.push(`${n.path}: code_refs is written in block form, which the line-based frontmatter parser cannot read — write it as a JSON list`);
+      warnings.push(
+        `${n.path}: code_refs is written in block form, which the line-based frontmatter parser cannot read — write it as a JSON list`,
+      );
     }
     return refs;
   };
-  const row = (n, matched) => ({ path: n.path, type: n.type, title: n.title, status: n.status, code_refs: refsOf(n), ...(matched !== undefined ? { matched } : {}) });
-  const bounded = (rows) => ({ artifacts: rows.slice(0, CODE_REFS_CAP), total: rows.length, truncated: rows.length > CODE_REFS_CAP });
+  const row = (n, matched) => ({
+    path: n.path,
+    type: n.type,
+    title: n.title,
+    status: n.status,
+    code_refs: refsOf(n),
+    ...(matched !== undefined ? { matched } : {}),
+  });
+  const bounded = (rows) => ({
+    artifacts: rows.slice(0, CODE_REFS_CAP),
+    total: rows.length,
+    truncated: rows.length > CODE_REFS_CAP,
+  });
   const epicFolder = folderByKind(layout, "epic");
   if (!reverse) {
     // An epic by its id or its folder name — never by the stem "epic", which every epic.md shares.
-    const epics = index.nodes.filter((n) => n.type === "epic" && (n.identity === sel || (epicFolder && n.path === `${epicFolder.path}/${sel}/epic.md`)));
-    if (epics.length > 1) throw usageError(`"${sel}" names ${epics.length} epics: ${epics.map((n) => n.path).join(", ")}`);
+    const epics = index.nodes.filter(
+      (n) =>
+        n.type === "epic" && (n.identity === sel || (epicFolder && n.path === `${epicFolder.path}/${sel}/epic.md`)),
+    );
+    if (epics.length > 1)
+      throw usageError(`"${sel}" names ${epics.length} epics: ${epics.map((n) => n.path).join(", ")}`);
     if (epics.length === 1) {
       const epicDir = epics[0].path.replace(/\/epic\.md$/, "");
-      const stories = index.nodes.filter((n) => n.type === "story" && n.path.startsWith(epicDir + "/")).sort((a, b) => cmp(a.path, b.path));
-      return { selector: sel, resolved_as: "epic", ...bounded([row(epics[0]), ...stories.map((n) => row(n))]), warnings };
+      const stories = index.nodes
+        .filter((n) => n.type === "story" && n.path.startsWith(epicDir + "/"))
+        .sort((a, b) => cmp(a.path, b.path));
+      return {
+        selector: sel,
+        resolved_as: "epic",
+        ...bounded([row(epics[0]), ...stories.map((n) => row(n))]),
+        warnings,
+      };
     }
     const byPath = index.byPath.get(sel);
-    const candidates = byPath ? [byPath] : [...new Set([...(index.byIdentity.get(sel.toLowerCase()) || []), ...(index.byStem.get(sel.toLowerCase()) || [])])];
-    if (candidates.length > 1) throw usageError(`"${sel}" is ambiguous — ${candidates.map((n) => n.path).sort(cmp).join(", ")}; pass the vault path`);
-    if (candidates.length === 1) return { selector: sel, resolved_as: "artifact", ...bounded([row(candidates[0])]), warnings };
+    const candidates = byPath
+      ? [byPath]
+      : [
+          ...new Set([
+            ...(index.byIdentity.get(sel.toLowerCase()) || []),
+            ...(index.byStem.get(sel.toLowerCase()) || []),
+          ]),
+        ];
+    if (candidates.length > 1)
+      throw usageError(
+        `"${sel}" is ambiguous — ${candidates
+          .map((n) => n.path)
+          .sort(cmp)
+          .join(", ")}; pass the vault path`,
+      );
+    if (candidates.length === 1)
+      return { selector: sel, resolved_as: "artifact", ...bounded([row(candidates[0])]), warnings };
   }
   const target = normRef(sel);
-  const covering = index.nodes.map((n) => {
-    // A ref covers the selector when they are equal, or one is a directory
-    // prefix of the other ("scripts/" covers "scripts/cli.mjs"; asking about
-    // "scripts/" lists whoever names a file under it). Reported as written.
-    const matched = refsOf(n).filter((ref) => { const r = normRef(ref); return r === target || target.startsWith(r + "/") || r.startsWith(target + "/"); });
-    return matched.length ? row(n, matched) : null;
-  }).filter(Boolean).sort((a, b) => cmp(a.path, b.path));
+  const covering = index.nodes
+    .map((n) => {
+      // A ref covers the selector when they are equal, or one is a directory
+      // prefix of the other ("scripts/" covers "scripts/cli.mjs"; asking about
+      // "scripts/" lists whoever names a file under it). Reported as written.
+      const matched = refsOf(n).filter((ref) => {
+        const r = normRef(ref);
+        return r === target || target.startsWith(r + "/") || r.startsWith(target + "/");
+      });
+      return matched.length ? row(n, matched) : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => cmp(a.path, b.path));
   return { selector: sel, resolved_as: "path", ...bounded(covering), warnings };
 }
 
 export function renderCodeRefs(r) {
-  const lines = [`${r.selector}  (read as ${r.resolved_as})${r.truncated ? ` — ${r.artifacts.length} of ${r.total}` : ""}`];
+  const lines = [
+    `${r.selector}  (read as ${r.resolved_as})${r.truncated ? ` — ${r.artifacts.length} of ${r.total}` : ""}`,
+  ];
   if (!r.artifacts.length) lines.push("  nothing maps here");
-  for (const a of r.artifacts) lines.push(`  ${a.path}  (${a.type ?? "—"} · ${a.status ?? "—"})`, `    ${a.code_refs.length ? a.code_refs.join(", ") : "—"}${a.matched ? `   ← ${a.matched.join(", ")}` : ""}`);
+  for (const a of r.artifacts)
+    lines.push(
+      `  ${a.path}  (${a.type ?? "—"} · ${a.status ?? "—"})`,
+      `    ${a.code_refs.length ? a.code_refs.join(", ") : "—"}${a.matched ? `   ← ${a.matched.join(", ")}` : ""}`,
+    );
   for (const w of r.warnings) lines.push(`  ⚠ ${w}`);
   return lines.join("\n") + "\n";
 }

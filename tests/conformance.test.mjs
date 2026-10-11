@@ -29,9 +29,26 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { plan, apply } from "../scripts/install-harness.mjs";
 import { detectHarnesses } from "../scripts/harness.mjs";
-import { readOverlayAt, readConfigAt, layoutPaths, resolveAgentModel, findAgentsBlock, importsLine } from "../scripts/lib.mjs";
+import {
+  readOverlayAt,
+  readConfigAt,
+  layoutPaths,
+  resolveAgentModel,
+  findAgentsBlock,
+  importsLine,
+} from "../scripts/lib.mjs";
 import { run } from "../scripts/cli.mjs";
-import { ROWS, row, rowCoverage, manifests, treeOf, boundProject, unboundProject, sharedProject, stand } from "./fixtures/conformance.mjs";
+import {
+  ROWS,
+  row,
+  rowCoverage,
+  manifests,
+  treeOf,
+  boundProject,
+  unboundProject,
+  sharedProject,
+  stand,
+} from "./fixtures/conformance.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(p, "utf8");
@@ -44,8 +61,15 @@ test("conformance: every manifest has a row and every row has a manifest", () =>
   // file — the foreign directory, the foreign block file, the foreign clerk
   // pin — iterates an empty list and passes saying nothing. Dropping a harness
   // is a legitimate change; doing it silently is not.
-  assert.ok(c.ids.length >= 2, "conformance needs at least two harnesses to compare; with one, this file asserts nothing");
-  assert.deepEqual(c.missingRow, [], "a harness with no conformance row — install it into an empty tree and record what appeared");
+  assert.ok(
+    c.ids.length >= 2,
+    "conformance needs at least two harnesses to compare; with one, this file asserts nothing",
+  );
+  assert.deepEqual(
+    c.missingRow,
+    [],
+    "a harness with no conformance row — install it into an empty tree and record what appeared",
+  );
   assert.deepEqual(c.orphanRow, [], "a conformance row for a harness with no manifest");
 });
 
@@ -72,7 +96,9 @@ test("conformance: an install writes exactly the row's files, and never into ano
     // project's neutral one. Writing into a directory another manifest claims
     // is the collision the whole per-harness layout exists to prevent, and it
     // is the assertion that keeps two harnesses safe in one checkout.
-    const foreign = manifests().filter((o) => o.id !== h.id).map((o) => o.runtime.harness_dir);
+    const foreign = manifests()
+      .filter((o) => o.id !== h.id)
+      .map((o) => o.runtime.harness_dir);
     for (const f of written) {
       for (const d of foreign) {
         assert.ok(!f.startsWith(d + "/"), `${h.id}: wrote ${f}, inside ${d}, which belongs to another harness`);
@@ -88,11 +114,19 @@ test("conformance: an install writes exactly the row's files, and never into ano
     // two-harness case below (the story "One run plans the agents block once,
     // and a bare uninstall selects every harness the project uses", rule 1).
     const blockFiles = h.surfaces.agents_block.files;
-    const otherBlockFiles = manifests().flatMap((o) => o.surfaces?.agents_block?.files || []).filter((f) => !blockFiles.includes(f));
+    const otherBlockFiles = manifests()
+      .flatMap((o) => o.surfaces?.agents_block?.files || [])
+      .filter((f) => !blockFiles.includes(f));
     for (const f of otherBlockFiles) {
-      assert.ok(!existsSync(join(proj, f)), `${h.id}: created ${f}, which its own surfaces.agents_block.files does not name`);
+      assert.ok(
+        !existsSync(join(proj, f)),
+        `${h.id}: created ${f}, which its own surfaces.agents_block.files does not name`,
+      );
     }
-    assert.ok(written.some((f) => blockFiles.includes(f)), `${h.id}: no agents block was written at all`);
+    assert.ok(
+      written.some((f) => blockFiles.includes(f)),
+      `${h.id}: no agents block was written at all`,
+    );
   }
 });
 
@@ -106,7 +140,11 @@ test("conformance: a run of every harness writes one block, in a file every run 
   const ids = all.map((h) => h.id);
   const p = plan(proj, { harnesses: ids, home, root, env });
   assert.equal(p.ok, true, p.refusals.join("; "));
-  assert.equal(p.items.filter((i) => i.surface === "agents_block").length, 1, "one block item for the run, not one per harness");
+  assert.equal(
+    p.items.filter((i) => i.surface === "agents_block").length,
+    1,
+    "one block item for the run, not one per harness",
+  );
   apply(p, { env, home });
 
   const common = all.map((h) => h.surfaces.agents_block.files).reduce((acc, l) => acc.filter((f) => l.includes(f)));
@@ -118,9 +156,18 @@ test("conformance: a run of every harness writes one block, in a file every run 
   for (const h of all) {
     const native = h.surfaces.agents_block.reads_natively;
     assert.ok(existsSync(join(proj, native)), `${h.id}: ${native} must exist after a run that names it`);
-    assert.ok(native === holding[0] || importsLine(read(join(proj, native)), `@${holding[0]}`), `${h.id}: ${native} neither holds the block nor imports it`);
+    assert.ok(
+      native === holding[0] || importsLine(read(join(proj, native)), `@${holding[0]}`),
+      `${h.id}: ${native} neither holds the block nor imports it`,
+    );
   }
-  assert.deepEqual(plan(proj, { harnesses: ids, home, root, env }).items.filter((i) => i.surface.startsWith("agents_block") && !["skip", "refuse"].includes(i.action)), [], "a second run plans no block change");
+  assert.deepEqual(
+    plan(proj, { harnesses: ids, home, root, env }).items.filter(
+      (i) => i.surface.startsWith("agents_block") && !["skip", "refuse"].includes(i.action),
+    ),
+    [],
+    "a second run plans no block change",
+  );
 });
 
 test("conformance: an unsupported surface says so in the plan — a state, not an absence — and the host report names only surfaces the harness has", () => {
@@ -140,12 +187,19 @@ test("conformance: an unsupported surface says so in the plan — a state, not a
       // `state: "unsupported"` is written in exactly the two branches that
       // read the flag, so asserting it is asserting the guard.
       assert.deepEqual(
-        p.items.filter((i) => i.surface === key).map((i) => i.state), ["unsupported"],
+        p.items.filter((i) => i.surface === key).map((i) => i.state),
+        ["unsupported"],
         `${h.id}: ${key} is unsupported in the manifest and the plan does not say so`,
       );
-      assert.deepEqual(p.items.filter((i) => i.surface === key).map((i) => i.action), ["skip"]);
+      assert.deepEqual(
+        p.items.filter((i) => i.surface === key).map((i) => i.action),
+        ["skip"],
+      );
       const item = p.items.find((i) => i.surface === key);
-      assert.ok(item.reason && item.reason.length > 0, `${h.id}: ${key} is skipped with no reason a reader can evaluate`);
+      assert.ok(
+        item.reason && item.reason.length > 0,
+        `${h.id}: ${key} is skipped with no reason a reader can evaluate`,
+      );
       const file = h.surfaces[key].file;
       if (file) assert.ok(!existsSync(join(proj, file)), `${h.id}: wrote ${file} for the unsupported surface ${key}`);
     }
@@ -189,7 +243,10 @@ test("conformance: the bind VERB writes one harness-neutral file, and its shape 
     // Never inside the harness's own directory: that is what made the binding
     // unshareable before the layout ADR, and it is the one thing that would
     // make two harnesses in one checkout collide on their first verb.
-    assert.ok(!existsSync(join(proj, h.runtime.harness_dir, "projectstore.json")), `${h.id}: bind wrote inside its own directory`);
+    assert.ok(
+      !existsSync(join(proj, h.runtime.harness_dir, "projectstore.json")),
+      `${h.id}: bind wrote inside its own directory`,
+    );
     const cfg = readConfigAt(proj);
     assert.equal(cfg.vault_path, vault, `${h.id}: the binding does not name the vault it was given`);
     assert.ok(!("agents" in cfg), `${h.id}: a model leaked into the harness-neutral binding`);
@@ -203,7 +260,11 @@ test("conformance: the bind VERB writes one harness-neutral file, and its shape 
     }
     seen.push(Object.keys(cfg).sort().join(","));
   }
-  assert.equal(new Set(seen).size, 1, "the binding's key set differs by harness — it is supposed to be the neutral one");
+  assert.equal(
+    new Set(seen).size,
+    1,
+    "the binding's key set differs by harness — it is supposed to be the neutral one",
+  );
 });
 
 // ─── Configure: one overlay each, and neither disturbs the other ────────
@@ -211,13 +272,21 @@ test("conformance: the bind VERB writes one harness-neutral file, and its shape 
 test("conformance: configuring one harness writes its overlay alone, and the clerk takes that harness's own cheap model", async () => {
   const all = manifests();
   const proj = sharedProject();
-  assert.deepEqual(detectHarnesses(proj).map((d) => d.id).sort(), all.map((h) => h.id).sort(),
-    "the shared project is detected as every harness at once — that is the arrangement under test");
+  assert.deepEqual(
+    detectHarnesses(proj)
+      .map((d) => d.id)
+      .sort(),
+    all.map((h) => h.id).sort(),
+    "the shared project is detected as every harness at once — that is the arrangement under test",
+  );
 
   const written = [];
   for (const h of all) {
     const before = all.map((o) => snapshotOverlay(proj, o));
-    const code = await run(["agents", "configure", "--harness", h.id, "--default", "a-strong-model", "--json", "--project", proj], { env: {}, stdout: sink(), stderr: sink() });
+    const code = await run(
+      ["agents", "configure", "--harness", h.id, "--default", "a-strong-model", "--json", "--project", proj],
+      { env: {}, stdout: sink(), stderr: sink() },
+    );
     assert.equal(code, 0, `${h.id}: configure failed`);
 
     const mine = readOverlayAt(proj, h.runtime.overlay);
@@ -228,7 +297,11 @@ test("conformance: configuring one harness writes its overlay alone, and the cle
 
     // The clerk's pin is this manifest's, or absent — never another's.
     const cheap = h.agent_translation?.cheap_model || null;
-    assert.equal(mine.agents.per_agent.clerk || null, cheap, `${h.id}: the clerk's pin is not this harness's cheap model`);
+    assert.equal(
+      mine.agents.per_agent.clerk || null,
+      cheap,
+      `${h.id}: the clerk's pin is not this harness's cheap model`,
+    );
     for (const o of all) {
       if (o.id === h.id) continue;
       const foreign = o.agent_translation?.cheap_model;
@@ -240,7 +313,11 @@ test("conformance: configuring one harness writes its overlay alone, and the cle
     // Every other overlay is byte-unchanged.
     for (const b of before) {
       if (b.id === h.runtime.overlay) continue;
-      assert.equal(snapshotOverlay(proj, byOverlay(all, b.id)).raw, b.raw, `${h.id}: configuring it changed ${b.id}'s overlay`);
+      assert.equal(
+        snapshotOverlay(proj, byOverlay(all, b.id)).raw,
+        b.raw,
+        `${h.id}: configuring it changed ${b.id}'s overlay`,
+      );
     }
     // And the binding never moves.
     assert.ok(!("agents" in readConfigAt(proj)), "configure wrote a model into the binding");
@@ -260,8 +337,11 @@ test("conformance: configuring one harness writes its overlay alone, and the cle
   // nothing. This says the goal outright: as many distinct answers as there are
   // distinct declarations, from one project.
   const declared = all.map((h) => h.agent_translation?.cheap_model || "a-strong-model");
-  assert.equal(new Set(resolved).size, new Set(declared).size,
-    "one role, one project, and the harnesses do not resolve it as distinctly as their manifests declare it");
+  assert.equal(
+    new Set(resolved).size,
+    new Set(declared).size,
+    "one role, one project, and the harnesses do not resolve it as distinctly as their manifests declare it",
+  );
 });
 
 // ─── The modularity guard ──────────────────────────────────────────────
@@ -273,12 +353,21 @@ test("conformance: neither half of the pair branches on a harness — the vocabu
   // read only the test file, leaving the fixture's helpers — the natural home
   // for a per-harness `if` — unguarded. A harness's VOCABULARY is what must not
   // appear: every name the manifest gives it.
-  const vocabulary = manifests().flatMap((h) => [
-    h.id, h.display_name, h.runtime.harness_dir, h.runtime.overlay, h.runtime.home_default,
-    h.runtime.project_dir_env, h.runtime.plugin_root_env, h.runtime.home_env,
-    ...(h.runtime.detect_env || []), ...(h.runtime.shared_env || []),
-    ...(h.runtime.registration_defer_env || []),
-  ].filter(Boolean));
+  const vocabulary = manifests().flatMap((h) =>
+    [
+      h.id,
+      h.display_name,
+      h.runtime.harness_dir,
+      h.runtime.overlay,
+      h.runtime.home_default,
+      h.runtime.project_dir_env,
+      h.runtime.plugin_root_env,
+      h.runtime.home_env,
+      ...(h.runtime.detect_env || []),
+      ...(h.runtime.shared_env || []),
+      ...(h.runtime.registration_defer_env || []),
+    ].filter(Boolean),
+  );
   assert.ok(vocabulary.length > 0);
 
   // Line comments FIRST. This file's own header carries `tests/*.test.mjs`,
@@ -290,7 +379,10 @@ test("conformance: neither half of the pair branches on a harness — the vocabu
   // rows are the one place a name belongs.
   const halves = [
     ["tests/conformance.test.mjs", strip(read(join(ROOT, "tests", "conformance.test.mjs")))],
-    ["tests/fixtures/conformance.mjs", strip(read(join(ROOT, "tests", "fixtures", "conformance.mjs"))).replace(/export const ROWS[\s\S]*?\n\}\);\n/, "")],
+    [
+      "tests/fixtures/conformance.mjs",
+      strip(read(join(ROOT, "tests", "fixtures", "conformance.mjs"))).replace(/export const ROWS[\s\S]*?\n\}\);\n/, ""),
+    ],
   ];
   for (const [file, code] of halves) {
     for (const v of vocabulary) {

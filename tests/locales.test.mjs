@@ -6,8 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync,
-  readdirSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -47,34 +46,65 @@ const LOCALES = readdirSync(join(REPO, "templates"))
 
 // Kinds the engineering layout declares a command for, plus folder-readme and
 // the vault's top-level README (scaffold renders both).
-const KINDS = ["adr", "concept", "epic", "folder-readme", "kanban", "meeting",
-  "research", "runbook", "spec", "story", "vault-readme"];
+const KINDS = [
+  "adr",
+  "concept",
+  "epic",
+  "folder-readme",
+  "kanban",
+  "meeting",
+  "research",
+  "runbook",
+  "spec",
+  "story",
+  "vault-readme",
+];
 // The ones with no frontmatter of their own: contract 9's artifact kinds are the rest.
 const NO_FRONTMATTER = new Set(["folder-readme", "kanban", "vault-readme"]);
 
 const VARS = {
-  id: "ADR-001", title: "T", date: "2026-01-01", author: "A", tags: "[]",
-  slug: "s", epic_id: "EPIC-1", alternative_a_name: "Alt",
-  generated_at: "2026-01-01T00:00:00Z", folder_name: "adr", folder_description: "d",
-  backlog_items: "", todo_items: "", in_progress_items: "", review_items: "",
-  done_items: "", vault_name: "v", folder_rows: "| [A](adr/README.md) | d |",
+  id: "ADR-001",
+  title: "T",
+  date: "2026-01-01",
+  author: "A",
+  tags: "[]",
+  slug: "s",
+  epic_id: "EPIC-1",
+  alternative_a_name: "Alt",
+  generated_at: "2026-01-01T00:00:00Z",
+  folder_name: "adr",
+  folder_description: "d",
+  backlog_items: "",
+  todo_items: "",
+  in_progress_items: "",
+  review_items: "",
+  done_items: "",
+  vault_name: "v",
+  folder_rows: "| [A](adr/README.md) | d |",
 };
 
 // Every kind the engineering layout's folders declare — diagram included,
 // though no command creates one: scaffold needs a name and a description for each.
-const LAYOUT_KINDS = JSON.parse(readFileSync(join(REPO, "scaffold", "layouts", "engineering.json"), "utf8"))
-  .folders.map((f) => f.kind);
+const LAYOUT_KINDS = JSON.parse(
+  readFileSync(join(REPO, "scaffold", "layouts", "engineering.json"), "utf8"),
+).folders.map((f) => f.kind);
 
-const STATUSLINE_KEYS = ["statusline_no_work", "statusline_state_error",
-  "statusline_example_epic", "statusline_example_story"];
+const STATUSLINE_KEYS = [
+  "statusline_no_work",
+  "statusline_state_error",
+  "statusline_example_epic",
+  "statusline_example_story",
+];
 
 const registry = loadHeadingsRegistry();
 
 // Which registry ids each EN template uses; every locale must match the same set.
-const idsPerKind = Object.fromEntries(KINDS.map((kind) => {
-  const en = loadTemplate("en", kind);
-  return [kind, Object.keys(registry.headings).filter((id) => headingLineRe(id).test(en))];
-}));
+const idsPerKind = Object.fromEntries(
+  KINDS.map((kind) => {
+    const en = loadTemplate("en", kind);
+    return [kind, Object.keys(registry.headings).filter((id) => headingLineRe(id).test(en))];
+  }),
+);
 
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -89,8 +119,7 @@ test("locales: no heading form matches more than one registry id (contract 4)", 
     for (const form of Object.values(registry.headings[a]).flat()) {
       for (const b of ids) {
         if (a === b) continue;
-        assert.ok(!headingLineRe(b).test(`## ${form}`),
-          `"${form}" is registered for "${a}" but also matches "${b}"`);
+        assert.ok(!headingLineRe(b).test(`## ${form}`), `"${form}" is registered for "${a}" but also matches "${b}"`);
       }
     }
   }
@@ -111,8 +140,10 @@ test("locales: every bundled language covers every registry entry (contract 3)",
     for (const [id, entry] of Object.entries(registry[section])) {
       for (const lang of LOCALES) {
         const forms = entry[lang];
-        assert.ok(Array.isArray(forms) && forms.length > 0 && forms.every((f) => f.trim()),
-          `${section}.${id} has no ${lang} form`);
+        assert.ok(
+          Array.isArray(forms) && forms.length > 0 && forms.every((f) => f.trim()),
+          `${section}.${id} has no ${lang} form`,
+        );
       }
     }
   }
@@ -121,8 +152,7 @@ test("locales: every bundled language covers every registry entry (contract 3)",
 for (const lang of LOCALES) {
   test(`locale ${lang}: templates complete, doctor clean (contract 1)`, () => {
     const findings = checkLayoutTemplates({ layout: "engineering", language: lang });
-    assert.deepEqual(findings, [],
-      findings.map((f) => f.message).join("; "));
+    assert.deepEqual(findings, [], findings.map((f) => f.message).join("; "));
   });
 
   test(`locale ${lang}: templates render, frontmatter survives (contracts 2, 9)`, () => {
@@ -134,8 +164,11 @@ for (const lang of LOCALES) {
       assert.ok(data && data.type, `${kind}: frontmatter lost its type:`);
       // Enum values are machine-read and stay English in every locale.
       if (data.status) {
-        assert.match(String(data.status), /^(proposed|draft|planned)$/,
-          `${kind}: status "${data.status}" is not an English enum value`);
+        assert.match(
+          String(data.status),
+          /^(proposed|draft|planned)$/,
+          `${kind}: status "${data.status}" is not an English enum value`,
+        );
       }
     }
   });
@@ -144,13 +177,15 @@ for (const lang of LOCALES) {
     for (const kind of KINDS) {
       const raw = loadTemplate(lang, kind);
       for (const id of idsPerKind[kind]) {
-        assert.ok(headingLineRe(id).test(raw),
-          `${kind}: heading "${id}" is not matched by the registry`);
+        assert.ok(headingLineRe(id).test(raw), `${kind}: heading "${id}" is not matched by the registry`);
         // story-section writes heading(id, lang); a template spelled differently
         // makes the plan/close gate append a SECOND section instead of filling it.
         const canon = heading(id, lang);
-        assert.match(raw, new RegExp(`^##\\s+${escapeRe(canon)}\\s*$`, "m"),
-          `${kind}: template heading differs from the canonical write form "${canon}"`);
+        assert.match(
+          raw,
+          new RegExp(`^##\\s+${escapeRe(canon)}\\s*$`, "m"),
+          `${kind}: template heading differs from the canonical write form "${canon}"`,
+        );
       }
     }
   });
@@ -160,21 +195,22 @@ for (const lang of LOCALES) {
     const i = lines.findIndex((l) => indexHeaderRe().test(l));
     assert.notEqual(i, -1, "index header row not recognized by indexHeaderRe()");
     // reconcile's rebuildIndexRows refuses an index whose separator is malformed.
-    assert.match(lines[i + 1] || "", /^\|[-\s|]+\|$/,
-      "malformed separator row under the index header");
+    assert.match(lines[i + 1] || "", /^\|[-\s|]+\|$/, "malformed separator row under the index header");
   });
 
   test(`locale ${lang}: story evidence example satisfies the gate (contract 6)`, () => {
     // The SAME regex the gate uses, imported rather than mirrored — a copy here
     // could drift from doctor.mjs and the drift would be undetectable.
-    assert.match(loadTemplate(lang, "story"), evidenceSuffixRe(),
-      "the story template's evidence example would read as MISSING evidence");
+    assert.match(
+      loadTemplate(lang, "story"),
+      evidenceSuffixRe(),
+      "the story template's evidence example would read as MISSING evidence",
+    );
   });
 
   test(`locale ${lang}: kanban placeholders and statusline strings (contracts 7, 8)`, () => {
     const kb = loadTemplate(lang, "kanban");
-    for (const p of ["backlog_items", "todo_items", "in_progress_items",
-      "review_items", "done_items"]) {
+    for (const p of ["backlog_items", "todo_items", "in_progress_items", "review_items", "done_items"]) {
       assert.ok(kb.includes(`{{${p}}}`), `kanban: missing {{${p}}}`);
     }
     const p = join(REPO, "templates", lang, "strings.json");
@@ -189,10 +225,19 @@ for (const lang of LOCALES) {
     const s = JSON.parse(readFileSync(join(REPO, "templates", lang, "strings.json"), "utf8"));
     for (const kind of LAYOUT_KINDS) {
       const f = s.folders && s.folders[kind];
-      assert.ok(f && f.name && f.name.trim() && f.description && f.description.trim(), `folders.${kind} has no ${lang} name and description`);
+      assert.ok(
+        f && f.name && f.name.trim() && f.description && f.description.trim(),
+        `folders.${kind} has no ${lang} name and description`,
+      );
       // The skeleton's Purpose cell, which takes this prose back out of the README.
-      assert.ok(f.description.length <= PURPOSE_CELL, `folders.${kind}.description is ${f.description.length} characters (cell: ${PURPOSE_CELL})`);
-      assert.ok(!f.description.includes("|") && !f.name.includes("|"), `folders.${kind}: a | breaks the README's table`);
+      assert.ok(
+        f.description.length <= PURPOSE_CELL,
+        `folders.${kind}.description is ${f.description.length} characters (cell: ${PURPOSE_CELL})`,
+      );
+      assert.ok(
+        !f.description.includes("|") && !f.name.includes("|"),
+        `folders.${kind}: a | breaks the README's table`,
+      );
       assert.ok(!/\n/.test(f.description), `folders.${kind}.description is one line`);
     }
     // The machine token stays literal (contract 2).
@@ -207,10 +252,15 @@ for (const lang of LOCALES) {
     assert.equal(lines[header + 2], "{{folder_rows}}");
     // Its heading is no registered section (contract 3 is the artifact kinds'), and no
     // harness's command form: the README is the same bytes whoever made the vault.
-    for (const id of Object.keys(registry.headings)) assert.ok(!headingLineRe(id).test(raw), `the vault README's heading reads as "${id}"`);
-    for (const p of invocationPatterns(REPO)) { p.re.lastIndex = 0; assert.ok(!p.re.test(raw), `the vault README names ${p.harness}'s ${p.kind} form`); }
+    for (const id of Object.keys(registry.headings))
+      assert.ok(!headingLineRe(id).test(raw), `the vault README's heading reads as "${id}"`);
+    for (const p of invocationPatterns(REPO)) {
+      p.re.lastIndex = 0;
+      assert.ok(!p.re.test(raw), `the vault README names ${p.harness}'s ${p.kind} form`);
+    }
     const last = lines.filter((l) => l.trim()).at(-1);
-    for (const t of ["`kanban.md`", "`graph.md`", "`code-map.md`", "`reconcile`"]) assert.ok(last.includes(t), `the last line says reconcile regenerates the derived views: ${t}`);
+    for (const t of ["`kanban.md`", "`graph.md`", "`code-map.md`", "`reconcile`"])
+      assert.ok(last.includes(t), `the last line says reconcile regenerates the derived views: ${t}`);
   });
 }
 
@@ -220,7 +270,10 @@ for (const lang of LOCALES) {
 
 function runScript(proj, script, args) {
   const r = spawnSync(process.execPath, [join(REPO, "scripts", script), ...args], {
-    encoding: "utf8", env: { ...ENV, CLAUDE_PROJECT_DIR: proj }, cwd: REPO, timeout: 30000,
+    encoding: "utf8",
+    env: { ...ENV, CLAUDE_PROJECT_DIR: proj },
+    cwd: REPO,
+    timeout: 30000,
   });
   assert.equal(r.status, 0, `${script} ${args.join(" ")}: ${r.stderr}`);
   // A checker that greps a text report for a JSON field passes vacuously — parse,
@@ -244,12 +297,22 @@ function makeLocaleVault(lang) {
   applyScaffold(plan);
   mkdirSync(join(vault, "epics", "PS-X", "stories"), { recursive: true });
   mkdirSync(join(proj, ".claude"), { recursive: true });
-  writeFileSync(join(proj, ".claude", "projectstore.json"), JSON.stringify({
-    vault_path: vault, layout: "engineering", language: lang, default_author: "Test",
-  }));
-  writeFileSync(join(vault, ".projectstore.json"), JSON.stringify({
-    spec_policy: "optional", lifecycle_gates: "on",
-  }));
+  writeFileSync(
+    join(proj, ".claude", "projectstore.json"),
+    JSON.stringify({
+      vault_path: vault,
+      layout: "engineering",
+      language: lang,
+      default_author: "Test",
+    }),
+  );
+  writeFileSync(
+    join(vault, ".projectstore.json"),
+    JSON.stringify({
+      spec_policy: "optional",
+      lifecycle_gates: "on",
+    }),
+  );
   return { proj, vault };
 }
 
@@ -267,7 +330,10 @@ for (const lang of LOCALES) {
   test(`locale ${lang}: draft → gates → reconcile → doctor, no localization finding`, () => {
     const { proj } = makeLocaleVault(lang);
 
-    for (const args of [["adr", "Use Postgres"], ["epic", "PS-X", "Payments"]]) {
+    for (const args of [
+      ["adr", "Use Postgres"],
+      ["epic", "PS-X", "Payments"],
+    ]) {
       const d = runScript(proj, "draft.mjs", args);
       writeFileSync(d.path, d.content);
     }
@@ -280,9 +346,11 @@ for (const lang of LOCALES) {
       if (r.content) writeFileSync(story.path, r.content);
     }
     for (const id of ["implementation_plan", "final_summary"]) {
-      assert.match(readFileSync(story.path, "utf8"),
+      assert.match(
+        readFileSync(story.path, "utf8"),
         new RegExp(`^##\\s+${escapeRe(heading(id, lang))}\\s*$`, "m"),
-        `the ${gateLabel(id)} gate did not write the ${lang} form`);
+        `the ${gateLabel(id)} gate did not write the ${lang} form`,
+      );
     }
 
     // Close the story for real: every acceptance criterion checked, with evidence.
@@ -303,19 +371,19 @@ for (const lang of LOCALES) {
     // named), so absence of an error proves nothing. Assert presence instead: every
     // scaffolded folder must come back as a rebuilt index.
     const rebuilt = new Set((rec.indexes || []).map((i) => i.folder));
-    for (const folder of ["adr", "specs", "epics", "research", "concepts",
-      "meetings", "ops", "diagrams"]) {
-      assert.ok(rebuilt.has(folder),
-        `reconcile skipped ${folder}/README.md — its localized index header was not recognized`);
+    for (const folder of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
+      assert.ok(
+        rebuilt.has(folder),
+        `reconcile skipped ${folder}/README.md — its localized index header was not recognized`,
+      );
     }
 
     const findings = runScript(proj, "doctor.mjs", ["--json"]);
     assert.ok(Array.isArray(findings), "doctor --json did not return an array");
     const localization = findings.filter((f) =>
-      /templates|index|heading|evidence|acceptance|plan-gate|summary/i
-        .test(`${f.check} ${f.message}`));
-    assert.deepEqual(localization, [],
-      localization.map((f) => `[${f.check}] ${f.message}`).join("; "));
+      /templates|index|heading|evidence|acceptance|plan-gate|summary/i.test(`${f.check} ${f.message}`),
+    );
+    assert.deepEqual(localization, [], localization.map((f) => `[${f.check}] ${f.message}`).join("; "));
   });
 }
 
@@ -324,23 +392,35 @@ for (const lang of LOCALES) {
     const { proj, vault } = makeLocaleVault(lang);
     const strings = JSON.parse(readFileSync(join(REPO, "templates", lang, "strings.json"), "utf8"));
     const layout = JSON.parse(readFileSync(join(REPO, "scaffold", "layouts", "engineering.json"), "utf8"));
-    const header = loadTemplate(lang, "folder-readme").split("\n").find((l) => indexHeaderRe().test(l));
+    const header = loadTemplate(lang, "folder-readme")
+      .split("\n")
+      .find((l) => indexHeaderRe().test(l));
     const top = readFileSync(join(vault, "README.md"), "utf8");
     assert.match(top, /^# vault\n/);
     for (const f of layout.folders) {
       const { name, description } = strings.folders[f.kind];
       const readme = readFileSync(join(vault, f.path, "README.md"), "utf8");
-      assert.ok(readme.startsWith(`# ${name}\n\n${description}\n`), `${f.path}/README.md opens with the ${lang} name and description`);
+      assert.ok(
+        readme.startsWith(`# ${name}\n\n${description}\n`),
+        `${f.path}/README.md opens with the ${lang} name and description`,
+      );
       assert.ok(readme.split("\n").includes(header), `${f.path}/README.md carries the ${lang} index header`);
       assert.equal(folderPurpose(readme, f.kind), description, `${f.path}: the purpose read back is the description`);
-      assert.ok(top.includes(`| [${name}](${f.path}/README.md) | ${description} |`), `the vault README's row for ${f.path}`);
+      assert.ok(
+        top.includes(`| [${name}](${f.path}/README.md) | ${description} |`),
+        `the vault README's row for ${f.path}`,
+      );
     }
-    for (const p of invocationPatterns(REPO)) { p.re.lastIndex = 0; assert.ok(!p.re.test(top), `the vault README names ${p.harness}'s ${p.kind} form`); }
+    for (const p of invocationPatterns(REPO)) {
+      p.re.lastIndex = 0;
+      assert.ok(!p.re.test(top), `the vault README names ${p.harness}'s ${p.kind} form`);
+    }
 
     const rec = runScript(proj, "reconcile.mjs", ["--write"]);
     assert.equal(rec.summary.failed, 0, JSON.stringify(rec.summary));
     const rebuilt = new Set((rec.indexes || []).map((i) => i.folder));
-    for (const f of layout.folders) assert.ok(rebuilt.has(f.path), `reconcile skipped ${f.path}/README.md in a ${lang} vault`);
+    for (const f of layout.folders)
+      assert.ok(rebuilt.has(f.path), `reconcile skipped ${f.path}/README.md in a ${lang} vault`);
 
     // A generous budget: this asserts what the skeleton says, not how fast.
     const o = await orientation({ vault_path: vault, layout: "engineering", language: lang }, { budgetMs: 10000 });
@@ -370,8 +450,8 @@ function dropSection(text, id) {
 
 function countHeadings(text, id) {
   const forms = Object.values(loadHeadingsRegistry().headings[id]).flat();
-  return text.split("\n").filter((l) =>
-    forms.some((f) => new RegExp(`^##\\s+${escapeRe(f)}\\s*$`, "i").test(l))).length;
+  return text.split("\n").filter((l) => forms.some((f) => new RegExp(`^##\\s+${escapeRe(f)}\\s*$`, "i").test(l)))
+    .length;
 }
 
 for (const lang of LOCALES) {
@@ -396,10 +476,12 @@ for (const lang of LOCALES) {
 
     const final = readFileSync(story.path, "utf8");
     for (const id of ["implementation_plan", "final_summary"]) {
-      assert.equal(countHeadings(final, id), 1,
-        `${gateLabel(id)} gate did not insert exactly one ${id} heading`);
-      assert.match(final, new RegExp(`^##\\s+${escapeRe(heading(id, lang))}\\s*$`, "m"),
-        `${gateLabel(id)} gate did not write the ${lang} form`);
+      assert.equal(countHeadings(final, id), 1, `${gateLabel(id)} gate did not insert exactly one ${id} heading`);
+      assert.match(
+        final,
+        new RegExp(`^##\\s+${escapeRe(heading(id, lang))}\\s*$`, "m"),
+        `${gateLabel(id)} gate did not write the ${lang} form`,
+      );
     }
   });
 }
@@ -412,14 +494,19 @@ for (const lang of LOCALES) {
     const story = runScript(proj, "draft.mjs", ["story", "PS-X", "Refunds"]);
 
     // Backdate both carriers, then let the gate bring them forward together.
-    writeFileSync(story.path, story.content
-      .replace(/^updated: .*$/m, "updated: 2020-01-01")
-      .replace(footerDateRe(), (_m, pre, post) => `${pre}2020-01-01${post}`));
+    writeFileSync(
+      story.path,
+      story.content
+        .replace(/^updated: .*$/m, "updated: 2020-01-01")
+        .replace(footerDateRe(), (_m, pre, post) => `${pre}2020-01-01${post}`),
+    );
     assert.match(readFileSync(story.path, "utf8"), /2020-01-01/, "backdating did not take");
 
     const r = runScript(proj, "story-section.mjs", ["plan", story.path]);
-    assert.ok(!/2020-01-01/.test(r.content),
-      `the ${lang} footer kept its stale date while frontmatter moved — the refresh is not registry-driven`);
+    assert.ok(
+      !/2020-01-01/.test(r.content),
+      `the ${lang} footer kept its stale date while frontmatter moved — the refresh is not registry-driven`,
+    );
     const footer = r.content.match(footerDateRe());
     assert.ok(footer, `the ${lang} footer stopped matching the registry form`);
   });
@@ -434,12 +521,17 @@ test("gates: a heading in another language's registered form is not duplicated",
   const epic = runScript(proj, "draft.mjs", ["epic", "PS-X", "Payments"]);
   writeFileSync(epic.path, epic.content);
   const story = runScript(proj, "draft.mjs", ["story", "PS-X", "Refunds"]);
-  writeFileSync(story.path, story.content.replace(
-    /^## Implementation Plan$/m, `## ${heading("implementation_plan", "ru")}`));
+  writeFileSync(
+    story.path,
+    story.content.replace(/^## Implementation Plan$/m, `## ${heading("implementation_plan", "ru")}`),
+  );
 
   const r = runScript(proj, "story-section.mjs", ["plan", story.path]);
-  assert.equal(countHeadings(r.content, "implementation_plan"), 1,
-    "the ru-form heading was not recognized and a duplicate English section was appended");
+  assert.equal(
+    countHeadings(r.content, "implementation_plan"),
+    1,
+    "the ru-form heading was not recognized and a duplicate English section was appended",
+  );
 });
 
 test("gates: a heading matching NO registered form does get a second section", () => {
@@ -447,14 +539,19 @@ test("gates: a heading matching NO registered form does get a second section", (
   const epic = runScript(proj, "draft.mjs", ["epic", "PS-X", "Payments"]);
   writeFileSync(epic.path, epic.content);
   const story = runScript(proj, "draft.mjs", ["story", "PS-X", "Refunds"]);
-  writeFileSync(story.path, story.content.replace(
-    /^## Implementation Plan$/m, "## Plan of Implementation"));
+  writeFileSync(story.path, story.content.replace(/^## Implementation Plan$/m, "## Plan of Implementation"));
 
   const r = runScript(proj, "story-section.mjs", ["plan", story.path]);
-  assert.equal(countHeadings(r.content, "implementation_plan"), 1,
-    "expected the unregistered spelling to be ignored and the canonical section inserted");
-  assert.match(r.content, /^## Plan of Implementation$/m,
-    "the unregistered heading should survive untouched beside the inserted one");
+  assert.equal(
+    countHeadings(r.content, "implementation_plan"),
+    1,
+    "expected the unregistered spelling to be ignored and the canonical section inserted",
+  );
+  assert.match(
+    r.content,
+    /^## Plan of Implementation$/m,
+    "the unregistered heading should survive untouched beside the inserted one",
+  );
 });
 
 // Epic PS-I18N's third expected result: a vault holding files authored under two
@@ -469,29 +566,40 @@ test("mixed-language vault: ru-headed files lint and reconcile in an en-bound va
   const enStory = runScript(proj, "draft.mjs", ["story", "PS-X", "Refunds"]);
   writeFileSync(enStory.path, enStory.content);
   const ruStory = runScript(proj, "draft.mjs", ["story", "PS-X", "Chargebacks"]);
-  writeFileSync(ruStory.path, renderTemplate(loadTemplate("ru", "story"), {
-    ...VARS, id: "story-chargebacks", epic_id: "PS-X", title: "Chargebacks",
-  }));
+  writeFileSync(
+    ruStory.path,
+    renderTemplate(loadTemplate("ru", "story"), {
+      ...VARS,
+      id: "story-chargebacks",
+      epic_id: "PS-X",
+      title: "Chargebacks",
+    }),
+  );
   // And a folder README carrying ru column names.
-  writeFileSync(join(vault, "adr", "README.md"),
-    renderTemplate(loadTemplate("ru", "folder-readme"),
-      { folder_name: "adr", folder_description: "d" }));
+  writeFileSync(
+    join(vault, "adr", "README.md"),
+    renderTemplate(loadTemplate("ru", "folder-readme"), { folder_name: "adr", folder_description: "d" }),
+  );
   const adr = runScript(proj, "draft.mjs", ["adr", "Use Postgres"]);
   writeFileSync(adr.path, adr.content);
 
   const rec = runScript(proj, "reconcile.mjs", ["--write"]);
   assert.equal(rec.summary.failed, 0, JSON.stringify(rec.summary));
-  assert.ok((rec.indexes || []).some((i) => i.folder === "adr"),
-    "the ru-headed adr index was skipped in an en-bound vault");
-  assert.match(readFileSync(join(vault, "adr", "README.md"), "utf8"), /use-postgres/,
-    "the ru-headed index was not populated with the new artifact");
+  assert.ok(
+    (rec.indexes || []).some((i) => i.folder === "adr"),
+    "the ru-headed adr index was skipped in an en-bound vault",
+  );
+  assert.match(
+    readFileSync(join(vault, "adr", "README.md"), "utf8"),
+    /use-postgres/,
+    "the ru-headed index was not populated with the new artifact",
+  );
 
   const findings = runScript(proj, "doctor.mjs", ["--json"]);
   const localization = findings.filter((f) =>
-    /templates|index|heading|evidence|acceptance|plan-gate|summary/i
-      .test(`${f.check} ${f.message}`));
-  assert.deepEqual(localization, [],
-    localization.map((f) => `[${f.check}] ${f.message}`).join("; "));
+    /templates|index|heading|evidence|acceptance|plan-gate|summary/i.test(`${f.check} ${f.message}`),
+  );
+  assert.deepEqual(localization, [], localization.map((f) => `[${f.check}] ${f.message}`).join("; "));
 });
 
 // Contract 6 applies to both inline grammars, not just the evidence suffix: a spec

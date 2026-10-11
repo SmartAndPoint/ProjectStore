@@ -13,20 +13,58 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, realpathSync, rmSync, renameSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  mkdtempSync,
+  existsSync,
+  realpathSync,
+  rmSync,
+  renameSync,
+} from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { fakeInstall, fakePackageRoot, fakeClaude, noHostEnv, writeRegistry, installEnv, legacyProject, stubCopy, stubCalls, preFlagInstall } from "./fixtures/install.mjs";
-import { plan, renderPreview, apply, runVerb, publicItem, renderDone, applyReporter, gateText } from "../scripts/install-harness.mjs";
+import {
+  fakeInstall,
+  fakePackageRoot,
+  fakeClaude,
+  noHostEnv,
+  writeRegistry,
+  installEnv,
+  legacyProject,
+  stubCopy,
+  stubCalls,
+  preFlagInstall,
+} from "./fixtures/install.mjs";
+import {
+  plan,
+  renderPreview,
+  apply,
+  runVerb,
+  publicItem,
+  renderDone,
+  applyReporter,
+  gateText,
+} from "../scripts/install-harness.mjs";
 import { planBind } from "../scripts/binding.mjs";
 import { analyseRegistration, registrationPaths, surfaceStates } from "../scripts/surfaces.mjs";
-import { sourceHarness, loadHarness, packageCommand } from "../scripts/harness.mjs";
+import { sourceHarness, loadHarness } from "../scripts/harness.mjs";
 import { PLAIN } from "../scripts/term.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
 import { fakeNpmSpawn, registryFetch, instantTimers, FAKE_REGISTRY } from "./fixtures/fetch.mjs";
-import { statusLineLauncherPath, whichOnPath, treeFiles, installedPluginEntries, installedPluginRoot, layoutPaths, cmpPrecedence, cmpVersion } from "../scripts/lib.mjs";
+import {
+  statusLineLauncherPath,
+  whichOnPath,
+  treeFiles,
+  installedPluginEntries,
+  installedPluginRoot,
+  layoutPaths,
+  cmpPrecedence,
+  cmpVersion,
+} from "../scripts/lib.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
 import { checkPluginRegistration, checkVersionDrift, checkAutoUpdate } from "../scripts/doctor.mjs";
 
@@ -49,17 +87,45 @@ function sandbox({ version = "0.28.0", statusline = true, npx = false, vault = f
   const home = tmp("ps-reg-home-");
   const proj = tmp("ps-reg-proj-");
   mkdirSync(join(proj, CFG_DIR), { recursive: true });
-  writeBinding(proj, JSON.stringify({ vault_path: vault ? tmp("ps-reg-vault-") : "/tmp/nowhere", layout: "engineering", ...(statusline ? { statusline: { enabled: true } } : {}) }));
+  writeBinding(
+    proj,
+    JSON.stringify({
+      vault_path: vault ? tmp("ps-reg-vault-") : "/tmp/nowhere",
+      layout: "engineering",
+      ...(statusline ? { statusline: { enabled: true } } : {}),
+    }),
+  );
   writeFileSync(join(proj, "CLAUDE.md"), "# Mine\n");
-  const root = fakePackageRoot(join(tmp("ps-reg-npx-"), ...(npx ? ["_npx", "4f1c2a9e7b3d5c60"] : []), "node_modules", "projectstore"), version);
+  const root = fakePackageRoot(
+    join(tmp("ps-reg-npx-"), ...(npx ? ["_npx", "4f1c2a9e7b3d5c60"] : []), "node_modules", "projectstore"),
+    version,
+  );
   const host = fakeClaude(tmp("ps-reg-bin-"));
   const paths = registrationPaths(S, { home, projectDir: proj, harness: SRC });
-  const readJson = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
-  return { home, proj, root, host, paths, env: host.env(), readJson, item: (p, k) => p.items.find((i) => i.surface === k), local: () => readJson(paths.projectSettings), registry: () => readJson(paths.installed), known: () => readJson(paths.marketplaces) };
+  const readJson = (p) => {
+    try {
+      return JSON.parse(readFileSync(p, "utf8"));
+    } catch {
+      return null;
+    }
+  };
+  return {
+    home,
+    proj,
+    root,
+    host,
+    paths,
+    env: host.env(),
+    readJson,
+    item: (p, k) => p.items.find((i) => i.surface === k),
+    local: () => readJson(paths.projectSettings),
+    registry: () => readJson(paths.installed),
+    known: () => readJson(paths.marketplaces),
+  };
 }
 
 // The host subcommand of each step: "plugin validate", "plugin marketplace add", "plugin install" …
-const sub = (argv) => argv[1] === "marketplace" ? argv.slice(0, 3).join(" ") : argv.slice(0, 2).join(" ");
+const sub = (argv) => (argv[1] === "marketplace" ? argv.slice(0, 3).join(" ") : argv.slice(0, 2).join(" "));
 const hostArgv = (i) => (i.steps || []).filter((s) => s.kind === "host").map((s) => sub(s.argv));
 
 test("registration contract 4′/9: from an npx root the plan registers first, previews every host argv, and the other surfaces are planned against the install path the host will produce", () => {
@@ -72,9 +138,15 @@ test("registration contract 4′/9: from an npx root the plan registers first, p
   assert.equal(reg.kind, "registration");
   assert.equal(reg.state, "absent");
   assert.equal(reg.action, "create");
-  assert.deepEqual(reg.steps.map((s) => s.kind), ["write", "host", "host", "host"]);
+  assert.deepEqual(
+    reg.steps.map((s) => s.kind),
+    ["write", "host", "host", "host"],
+  );
   assert.deepEqual(hostArgv(reg), ["plugin validate", "plugin marketplace add", "plugin install"]);
-  assert.ok(reg.steps.every((s) => s.kind !== "host" || s.argv.includes("local") || s.name === "validate"), "every scoped command names the local scope");
+  assert.ok(
+    reg.steps.every((s) => s.kind !== "host" || s.argv.includes("local") || s.name === "validate"),
+    "every scoped command names the local scope",
+  );
   assert.equal(reg.steps[0].files, PACKLIST.length, "the write is the packlist");
   assert.equal(reg.scope, "local");
   assert.equal(reg.home, join(home, SRC.runtime.home_default));
@@ -83,14 +155,26 @@ test("registration contract 4′/9: from an npx root the plan registers first, p
   assert.ok(reg.root.startsWith(paths.cacheDir + "/"), reg.root);
   assert.equal(item(p, "statusline_launcher").action, "create");
   assert.equal(item(p, "statusline").after.statusLine.command, `node "${statusLineLauncherPath(proj)}"`);
-  assert.ok(!JSON.stringify(item(p, "statusline").after).includes(root), "the npx root never reaches the user's settings");
-  assert.match(p.reports[0], /They come from the registration/, "the host-managed report says which registration feeds it (contract 14, amended)");
+  assert.ok(
+    !JSON.stringify(item(p, "statusline").after).includes(root),
+    "the npx root never reaches the user's settings",
+  );
+  assert.match(
+    p.reports[0],
+    /They come from the registration/,
+    "the host-managed report says which registration feeds it (contract 14, amended)",
+  );
   const preview = renderPreview(p);
-  for (const s of reg.steps.filter((s) => s.kind === "host")) assert.ok(preview.includes(`$ ${[s.bin, ...s.argv].join(" ")}`), `preview carries ${s.name}'s argv`);
+  for (const s of reg.steps.filter((s) => s.kind === "host"))
+    assert.ok(preview.includes(`$ ${[s.bin, ...s.argv].join(" ")}`), `preview carries ${s.name}'s argv`);
   // …and the files each one touches, project-relative where they are the project's (contract 9's consent content).
   const shown = (t) => (relative(proj, t).startsWith("..") ? t : relative(proj, t));
-  for (const s of reg.steps.filter((s) => s.kind === "host" && s.touches.length)) assert.ok(preview.includes(`touches ${s.touches.map(shown).join(", ")}`), `preview names what ${s.name} touches`);
-  assert.ok(renderPreview(p, { verbose: true }).includes("planned against the host's install path"), "--verbose names the install path the plan is made against");
+  for (const s of reg.steps.filter((s) => s.kind === "host" && s.touches.length))
+    assert.ok(preview.includes(`touches ${s.touches.map(shown).join(", ")}`), `preview names what ${s.name} touches`);
+  assert.ok(
+    renderPreview(p, { verbose: true }).includes("planned against the host's install path"),
+    "--verbose names the install path the plan is made against",
+  );
   assert.ok(preview.includes(`harness home ${reg.home}, scope local`));
   assert.ok(preview.includes("Each $ line runs the host's own CLI"));
   assert.equal(host.log().length, 0, "plan runs nothing");
@@ -122,8 +206,14 @@ test("registration contract 4′: apply writes the directory whole, runs the hos
   assert.equal(reg.verified.installPath, item(p, "plugin").root);
   // The host saw the pinned home and the project cwd, in the planned order.
   const calls = host.log();
-  assert.deepEqual(calls.map((c) => sub(c.argv)), ["plugin validate", "plugin marketplace add", "plugin install"]);
-  for (const c of calls) { assert.equal(c.cwd, proj, "--scope local resolves the project from cwd"); assert.equal(c.home, join(home, SRC.runtime.home_default), "the harness home is pinned"); }
+  assert.deepEqual(
+    calls.map((c) => sub(c.argv)),
+    ["plugin validate", "plugin marketplace add", "plugin install"],
+  );
+  for (const c of calls) {
+    assert.equal(c.cwd, proj, "--scope local resolves the project from cwd");
+    assert.equal(c.home, join(home, SRC.runtime.home_default), "the harness home is pinned");
+  }
   // Our directory: the payload equals the packlist, the manifest carries the provenance field with the digest.
   assert.deepEqual(treeFiles(paths.payload), PACKLIST);
   const manifest = JSON.parse(readFileSync(paths.manifest, "utf8"));
@@ -139,7 +229,9 @@ test("registration contract 4′: apply writes the directory whole, runs the hos
   assert.ok(!existsSync(join(proj, CFG_DIR, "settings.json")), "the committed settings file is never written");
   assert.ok(!existsSync(paths.userSettings), "the user's settings are never written");
   const row = registry().plugins[ID][0];
-  assert.equal(row.scope, "local"); assert.equal(row.projectPath, proj); assert.equal(row.version, "0.28.0");
+  assert.equal(row.scope, "local");
+  assert.equal(row.projectPath, proj);
+  assert.equal(row.version, "0.28.0");
   assert.equal(known()[S.marketplace_name].installLocation, paths.dir);
   // The launcher names the produced install, and a plan from that install finds it current — byte for byte.
   const launcher = readFileSync(statusLineLauncherPath(proj), "utf8");
@@ -149,21 +241,31 @@ test("registration contract 4′: apply writes the directory whole, runs the hos
   const fromCache = plan(proj, { home, root: row.installPath, env: noHostEnv() });
   assert.equal(fromCache.items.find((i) => i.surface === "statusline_launcher").action, "skip");
   assert.equal(fromCache.items.find((i) => i.surface === "statusline_launcher").state, "current");
-  assert.equal(fromCache.items.find((i) => i.surface === "plugin").action, "skip", "a cache install never plans a registration of itself (condition npm_package_root)");
+  assert.equal(
+    fromCache.items.find((i) => i.surface === "plugin").action,
+    "skip",
+    "a cache install never plans a registration of itself (condition npm_package_root)",
+  );
   assert.equal(fromCache.items.find((i) => i.surface === "plugin").reason, null);
   // installedPluginRoot resolves to the enabled row — the launcher's own pick.
   assert.equal(installedPluginRoot(home).path, row.installPath);
   // Re-run: current, nothing to do, the host is not called.
   host.reset();
   const again = plan(proj, { home, root, env });
-  assert.ok(again.items.every((i) => i.action === "skip"), JSON.stringify(again.items.map(publicItem)));
+  assert.ok(
+    again.items.every((i) => i.action === "skip"),
+    JSON.stringify(again.items.map(publicItem)),
+  );
   assert.equal(item(again, "plugin").state, "current");
   assert.equal(host.log().length, 0);
   // The states doctor reads agree.
   const st = surfaceStates(proj, { home, root }).states.find((s) => s.kind === "registration");
   assert.equal(st.state, "current");
   assert.equal(st.installPath, row.installPath);
-  assert.deepEqual(checkPluginRegistration(proj, [st], { home }).map((f) => f.level), ["info"]);
+  assert.deepEqual(
+    checkPluginRegistration(proj, [st], { home }).map((f) => f.level),
+    ["info"],
+  );
 });
 
 test("registration contract 4′/14: a newer package rewrites the directory and runs plugin update at local scope; an older one does not downgrade what a newer wrote", () => {
@@ -177,9 +279,15 @@ test("registration contract 4′/14: a newer package rewrites the directory and 
   assert.equal(reg.state, "stale");
   assert.match(reg.reason, /plugin updated/);
   assert.equal(reg.action, "update");
-  assert.deepEqual(reg.steps.map((s) => s.kind), ["write", "host", "host"]);
+  assert.deepEqual(
+    reg.steps.map((s) => s.kind),
+    ["write", "host", "host"],
+  );
   assert.deepEqual(hostArgv(reg), ["plugin validate", "plugin update"]);
-  assert.ok(reg.steps[2].argv.includes("--scope") && reg.steps[2].argv.includes("local"), "update names the scope (measured: without it the host looks at user scope and fails)");
+  assert.ok(
+    reg.steps[2].argv.includes("--scope") && reg.steps[2].argv.includes("local"),
+    "update names the scope (measured: without it the host looks at user scope and fails)",
+  );
   assert.ok(reg.root.endsWith("/0.29.0"));
   assert.equal(item(p, "statusline_launcher").action, "update", "the launcher follows the new install path");
   const done = apply(p, { env, home });
@@ -196,7 +304,11 @@ test("registration contract 4′/14: a newer package rewrites the directory and 
   assert.deepEqual(hostArgv(item(same, "plugin")), ["plugin validate", "plugin uninstall", "plugin install"]);
   const sameDone = apply(same, { env, home });
   assert.equal(sameDone.failed, undefined, JSON.stringify(sameDone));
-  assert.equal(readFileSync(join(registry().plugins[ID][0].installPath, "README.md"), "utf8"), "# changed\n", "the host holds the rewritten payload");
+  assert.equal(
+    readFileSync(join(registry().plugins[ID][0].installPath, "README.md"), "utf8"),
+    "# changed\n",
+    "the host holds the rewritten payload",
+  );
   assert.equal(plan(proj, { home, root: newer, env }).items.find((i) => i.surface === "plugin").state, "current");
   // Back from the older package: the directory is newer — current, reported, not rewritten.
   host.reset();
@@ -210,7 +322,13 @@ test("registration contract 4′/14: a newer package rewrites the directory and 
   const second = plan(proj2, { home, root, env, harnesses: [SRC.id] });
   const reg2 = second.items.find((i) => i.surface === "plugin");
   assert.equal(reg2.action, "create");
-  assert.ok(reg2.steps.some((st) => st.kind === "note" && /holds 0\.29\.0.*newer than this package \(0\.28\.0\); this checkout registers 0\.29\.0/.test(st.why)));
+  assert.ok(
+    reg2.steps.some(
+      (st) =>
+        st.kind === "note" &&
+        /holds 0\.29\.0.*newer than this package \(0\.28\.0\); this checkout registers 0\.29\.0/.test(st.why),
+    ),
+  );
   assert.ok(!reg2.steps.some((st) => st.kind === "write"), "not downgraded");
   assert.match(renderPreview(second), /note: the directory holds 0\.29\.0/);
   assert.equal(host.log().length, 0);
@@ -244,12 +362,27 @@ test("registration contract 4′/14: a registration made at a release candidate 
 });
 
 test("cmpPrecedence: a candidate ranks below its release and by its own counter, an alphanumeric identifier above a numeric one, and build metadata never ranks", () => {
-  const order = ["0.27.1", "0.28.0-1", "0.28.0-alpha", "0.28.0-rc.1", "0.28.0-rc.2", "0.28.0-rc.10", "0.28.0", "0.28.1-rc.1", "0.28.1", "0.29.0"];
+  const order = [
+    "0.27.1",
+    "0.28.0-1",
+    "0.28.0-alpha",
+    "0.28.0-rc.1",
+    "0.28.0-rc.2",
+    "0.28.0-rc.10",
+    "0.28.0",
+    "0.28.1-rc.1",
+    "0.28.1",
+    "0.29.0",
+  ];
   for (let i = 0; i < order.length; i++)
     for (let j = 0; j < order.length; j++)
       assert.equal(Math.sign(cmpPrecedence(order[i], order[j])), Math.sign(i - j), `${order[i]} against ${order[j]}`);
   assert.equal(cmpPrecedence("0.28.0-rc.2+codex.dev.15c346cc0791", "0.28.0-rc.2"), 0);
-  assert.equal(cmpVersion("0.28.0-rc.2", "0.28.0"), 0, "cmpVersion keeps comparing the release triple, which the layout window's sunset wants");
+  assert.equal(
+    cmpVersion("0.28.0-rc.2", "0.28.0"),
+    0,
+    "cmpVersion keeps comparing the release triple, which the layout window's sunset wants",
+  );
 });
 
 test("registration contract 4′/13: a competing enabled copy is silenced for this checkout only and recorded; uninstall reverts exactly that, forgets this checkout, and removes the shared directory only when no other checkout uses it", () => {
@@ -265,26 +398,42 @@ test("registration contract 4′/13: a competing enabled copy is silenced for th
   assert.equal(silence.entry, "projectstore@SmartAndPoint");
   assert.deepEqual(hostArgv(silence), ["plugin disable"]);
   assert.ok(silence.steps[0].argv.includes("local"));
-  assert.ok(renderPreview(p).includes(`$ ${[silence.steps[0].bin, ...silence.steps[0].argv].join(" ")}`), "the disable command is in the default preview");
+  assert.ok(
+    renderPreview(p).includes(`$ ${[silence.steps[0].bin, ...silence.steps[0].argv].join(" ")}`),
+    "the disable command is in the default preview",
+  );
   assert.match(renderPreview(p, { verbose: true }), /silenced in this checkout's local settings only, never globally/);
   const done = apply(p, { env, home });
   assert.equal(done.failed, undefined, JSON.stringify(done));
   assert.equal(local().enabledPlugins["projectstore@SmartAndPoint"], false);
   assert.equal(local().enabledPlugins[ID], true);
   assert.ok(!existsSync(paths.userSettings), "the user's global enablement is untouched");
-  assert.deepEqual(JSON.parse(readFileSync(paths.manifest, "utf8"))[S.provenance_key].disabled, ["projectstore@SmartAndPoint"]);
+  assert.deepEqual(JSON.parse(readFileSync(paths.manifest, "utf8"))[S.provenance_key].disabled, [
+    "projectstore@SmartAndPoint",
+  ]);
   // doctor: version drift is quiet — the other row is disabled for this project; the registration is one info.
   const states = surfaceStates(proj, { home, root }).states;
-  assert.deepEqual(checkVersionDrift(home, states, proj), [], "a copy disabled for the project is not a drift (contract 17, amended)");
+  assert.deepEqual(
+    checkVersionDrift(home, states, proj),
+    [],
+    "a copy disabled for the project is not a drift (contract 17, amended)",
+  );
   const doc = checkPluginRegistration(proj, states, { home });
-  assert.deepEqual(doc.map((f) => f.level), ["info", "info"]);
+  assert.deepEqual(
+    doc.map((f) => f.level),
+    ["info", "info"],
+  );
   // The copy it turned off is named, with the way back (contract 13 as amended after the rc.3 tag).
   const off = doc.find((f) => f.message.startsWith("projectstore@SmartAndPoint"));
   assert.ok(off, JSON.stringify(doc));
   assert.match(off.message, /\(0\.27\.1\) is off for this checkout/);
   assert.match(off.message, /Update that copy first/, "0.27.x reads a moved project as unbound");
   assert.match(off.message, /npx projectstore-claude@\S+ uninstall --surface plugin --project/);
-  assert.deepEqual(checkAutoUpdate(home).filter((f) => f.level !== "info"), [], "a directory marketplace has nothing to toggle");
+  assert.deepEqual(
+    checkAutoUpdate(home).filter((f) => f.level !== "info"),
+    [],
+    "a directory marketplace has nothing to toggle",
+  );
   // A second checkout installed from the same directory.
   const reg = registry();
   reg.plugins[ID].push({ ...reg.plugins[ID][0], projectPath: "/elsewhere/checkout" });
@@ -293,15 +442,27 @@ test("registration contract 4′/13: a competing enabled copy is silenced for th
   const un = plan(proj, { home, root, env, mode: "uninstall" });
   const u = item(un, "plugin");
   assert.equal(u.action, "remove");
-  assert.deepEqual(u.steps.map((s) => s.kind), ["host", "unregister", "host"], JSON.stringify(u.steps.map((s) => s.kind)));
-  assert.deepEqual(u.steps.map((s) => s.kind === "host" ? s.name : s.kind), ["uninstall", "unregister", "enable"]);
+  assert.deepEqual(
+    u.steps.map((s) => s.kind),
+    ["host", "unregister", "host"],
+    JSON.stringify(u.steps.map((s) => s.kind)),
+  );
+  assert.deepEqual(
+    u.steps.map((s) => (s.kind === "host" ? s.name : s.kind)),
+    ["uninstall", "unregister", "enable"],
+  );
   assert.deepEqual(hostArgv(u), ["plugin uninstall", "plugin enable"]);
   assert.match(u.reason, /1 other checkout/);
   assert.match(renderPreview(un, { verbose: true }), /marketplace remove.*would drop every checkout's rows/);
   const undone = apply(un, { env, home });
   assert.equal(undone.failed, undefined, JSON.stringify(undone));
   assert.equal(local().enabledPlugins["projectstore@SmartAndPoint"], true, "the silenced copy is turned back on");
-  assert.ok(!checkPluginRegistration(proj, surfaceStates(proj, { home, root }).states, { home }).some((f) => /is off for this checkout/.test(f.message)), "and doctor no longer names it");
+  assert.ok(
+    !checkPluginRegistration(proj, surfaceStates(proj, { home, root }).states, { home }).some((f) =>
+      /is off for this checkout/.test(f.message),
+    ),
+    "and doctor no longer names it",
+  );
   assert.equal(local().enabledPlugins[ID], undefined);
   assert.equal(local().extraKnownMarketplaces[S.marketplace_name], undefined, "our entry is gone");
   assert.ok(existsSync(paths.dir), "the shared directory stays for the other checkout");
@@ -309,8 +470,13 @@ test("registration contract 4′/13: a competing enabled copy is silenced for th
   assert.equal(registry().plugins[ID].length, 1);
   assert.equal(registry().plugins[ID][0].projectPath, "/elsewhere/checkout");
   // The last checkout out removes it all.
-  const reg2 = registry(); reg2.plugins[ID][0].projectPath = proj; writeFileSync(paths.installed, JSON.stringify(reg2, null, 2));
-  const s2 = local(); s2.extraKnownMarketplaces[S.marketplace_name] = { source: { source: "directory", path: paths.dir } }; s2.enabledPlugins[ID] = true; writeFileSync(paths.projectSettings, JSON.stringify(s2, null, 2));
+  const reg2 = registry();
+  reg2.plugins[ID][0].projectPath = proj;
+  writeFileSync(paths.installed, JSON.stringify(reg2, null, 2));
+  const s2 = local();
+  s2.extraKnownMarketplaces[S.marketplace_name] = { source: { source: "directory", path: paths.dir } };
+  s2.enabledPlugins[ID] = true;
+  writeFileSync(paths.projectSettings, JSON.stringify(s2, null, 2));
   host.reset();
   const last = plan(proj, { home, root, env, mode: "uninstall" });
   // The competitor was already turned back on for this checkout by the first uninstall; nothing here holds it disabled, so no enable runs.
@@ -379,7 +545,11 @@ test("setup rule 15: the host plugin registration proceeds under another host's 
     assert.equal(p.incomplete, true);
     assert.ok(row.reason.endsWith(text), row.reason);
     assert.equal(sb.host.log().length, 0, "no host command ran");
-    assert.equal(sb.item(plan(sb.proj, { home: sb.home, root: sb.root, env: sb.env }), "plugin").action, "create", "unset, the same plan registers");
+    assert.equal(
+      sb.item(plan(sb.proj, { home: sb.home, root: sb.root, env: sb.env }), "plugin").action,
+      "create",
+      "unset, the same plan registers",
+    );
     // Registered from a terminal, its removal defers the same way.
     live.runtime.registration_defer_env = declared;
     apply(plan(sb.proj, { home: sb.home, root: sb.root, env: sb.env }), { env: sb.env, home: sb.home });
@@ -389,7 +559,11 @@ test("setup rule 15: the host plugin registration proceeds under another host's 
     assert.equal(sb.item(u, "plugin").action, "skip");
     assert.equal(sb.item(u, "plugin").reason, text);
     assert.equal(u.incomplete, true);
-    assert.equal(sb.item(plan(sb.proj, { home: sb.home, root: sb.root, env: sb.env, mode: "uninstall" }), "plugin").action, "remove", "unset, the removal is planned");
+    assert.equal(
+      sb.item(plan(sb.proj, { home: sb.home, root: sb.root, env: sb.env, mode: "uninstall" }), "plugin").action,
+      "remove",
+      "unset, the removal is planned",
+    );
     assert.equal(sb.host.log().length, calls, "planning calls no host");
   } finally {
     live.runtime.registration_defer_env = declared;
@@ -417,7 +591,15 @@ test("registration contract 5: a directory at our path without the provenance fi
   // A registry naming our marketplace elsewhere.
   const sb2 = sandbox();
   mkdirSync(dirname(sb2.paths.marketplaces), { recursive: true });
-  writeFileSync(sb2.paths.marketplaces, JSON.stringify({ [S.marketplace_name]: { source: { source: "directory", path: "/somewhere/else" }, installLocation: "/somewhere/else" } }));
+  writeFileSync(
+    sb2.paths.marketplaces,
+    JSON.stringify({
+      [S.marketplace_name]: {
+        source: { source: "directory", path: "/somewhere/else" },
+        installLocation: "/somewhere/else",
+      },
+    }),
+  );
   const p2 = plan(sb2.proj, { home: sb2.home, root: sb2.root, env: sb2.env });
   assert.equal(p2.items.find((i) => i.surface === "plugin").state, "foreign");
   assert.match(p2.items.find((i) => i.surface === "plugin").reason, /not at/);
@@ -470,16 +652,28 @@ test("registration contract 4′: a checkout that never registered is absent eve
   const a = analyseRegistration(proj2, S, { root, home, harness: SRC, env });
   assert.equal(a.state, "absent");
   assert.match(a.reason, /directory is present.*not registered/);
-  assert.deepEqual(checkPluginRegistration(proj2, surfaceStates(proj2, { home, root, harnesses: [SRC.id] }).states, { home }), [], "no nag in a checkout that never registered");
+  assert.deepEqual(
+    checkPluginRegistration(proj2, surfaceStates(proj2, { home, root, harnesses: [SRC.id] }).states, { home }),
+    [],
+    "no nag in a checkout that never registered",
+  );
   // Two enabled copies in the registered checkout.
   const other = fakeInstall(home, "0.27.1");
   const reg = JSON.parse(readFileSync(sb.paths.installed, "utf8"));
-  reg.plugins["projectstore@SmartAndPoint"] = [{ scope: "user", installPath: other, version: "0.27.1", lastUpdated: "2026-09-01T00:00:00Z" }];
+  reg.plugins["projectstore@SmartAndPoint"] = [
+    { scope: "user", installPath: other, version: "0.27.1", lastUpdated: "2026-09-01T00:00:00Z" },
+  ];
   writeFileSync(sb.paths.installed, JSON.stringify(reg));
   const states = surfaceStates(sb.proj, { home, root }).states;
   const f = checkPluginRegistration(sb.proj, states, { home: sb.home });
-  assert.equal(f.length, 1); assert.equal(f[0].level, "issue"); assert.match(f[0].message, /two enabled copies/);
-  assert.equal(checkVersionDrift(home, states, sb.proj).length, 1, "and the drift between the two enabled copies is reported");
+  assert.equal(f.length, 1);
+  assert.equal(f[0].level, "issue");
+  assert.match(f[0].message, /two enabled copies/);
+  assert.equal(
+    checkVersionDrift(home, states, sb.proj).length,
+    1,
+    "and the drift between the two enabled copies is reported",
+  );
   // The plan silences it, without touching the directory beyond its manifest.
   const p = plan(sb.proj, { home, root, env });
   assert.equal(sb.item(p, "plugin").action, "skip");
@@ -501,29 +695,55 @@ test("registration contract 13: doctor names each copy the registration silenced
   const sb = sandbox();
   const { home, proj, root, env, paths, local, registry } = sb;
   const git = fakeInstall(home, "0.28.0-rc.2");
-  writeRegistry(home, [{ scope: "user", installPath: git, version: "0.28.0-rc.2", lastUpdated: "2026-09-07T00:00:00Z" }]);
+  writeRegistry(home, [
+    { scope: "user", installPath: git, version: "0.28.0-rc.2", lastUpdated: "2026-09-07T00:00:00Z" },
+  ]);
   apply(plan(proj, { home, root, env }), { env, home });
-  const offs = () => checkPluginRegistration(proj, surfaceStates(proj, { home, root }).states, { home }).filter((f) => /off for this checkout|held off/.test(f.message));
+  const offs = () =>
+    checkPluginRegistration(proj, surfaceStates(proj, { home, root }).states, { home }).filter((f) =>
+      /off for this checkout|held off/.test(f.message),
+    );
   let off = offs();
   assert.equal(off.length, 1, JSON.stringify(off));
   assert.match(off[0].message, /^projectstore@SmartAndPoint \(0\.28\.0-rc\.2\) is off for this checkout/);
   assert.doesNotMatch(off[0].message, /Update that copy first/, "a 0.28 release candidate reads a moved project");
   // A key held off by hand, which the registration never recorded, is not ours to name.
-  const s = local(); s.enabledPlugins["projectstore@elsewhere"] = false; writeFileSync(paths.projectSettings, JSON.stringify(s, null, 2));
+  const s = local();
+  s.enabledPlugins["projectstore@elsewhere"] = false;
+  writeFileSync(paths.projectSettings, JSON.stringify(s, null, 2));
   assert.ok(!offs().some((f) => f.message.includes("projectstore@elsewhere")));
   // The recorded copy turned back on by hand: the checkout loads it again, so nothing to say.
-  const on = local(); on.enabledPlugins["projectstore@SmartAndPoint"] = true; writeFileSync(paths.projectSettings, JSON.stringify(on, null, 2));
+  const on = local();
+  on.enabledPlugins["projectstore@SmartAndPoint"] = true;
+  writeFileSync(paths.projectSettings, JSON.stringify(on, null, 2));
   assert.deepEqual(offs(), []);
-  on.enabledPlugins["projectstore@SmartAndPoint"] = false; writeFileSync(paths.projectSettings, JSON.stringify(on, null, 2));
+  on.enabledPlugins["projectstore@SmartAndPoint"] = false;
+  writeFileSync(paths.projectSettings, JSON.stringify(on, null, 2));
   // Another checkout's local row is not the copy this checkout loads, however old.
-  const r0 = registry(); r0.plugins["projectstore@SmartAndPoint"].unshift({ ...r0.plugins["projectstore@SmartAndPoint"][0], scope: "local", projectPath: "/elsewhere/checkout", version: "0.27.1" }); writeFileSync(paths.installed, JSON.stringify(r0, null, 2));
-  assert.doesNotMatch(offs()[0].message, /Update that copy first/, "the user-scope 0.28 rc row is the one this checkout loads");
-  r0.plugins["projectstore@SmartAndPoint"].shift(); writeFileSync(paths.installed, JSON.stringify(r0, null, 2));
+  const r0 = registry();
+  r0.plugins["projectstore@SmartAndPoint"].unshift({
+    ...r0.plugins["projectstore@SmartAndPoint"][0],
+    scope: "local",
+    projectPath: "/elsewhere/checkout",
+    version: "0.27.1",
+  });
+  writeFileSync(paths.installed, JSON.stringify(r0, null, 2));
+  assert.doesNotMatch(
+    offs()[0].message,
+    /Update that copy first/,
+    "the user-scope 0.28 rc row is the one this checkout loads",
+  );
+  r0.plugins["projectstore@SmartAndPoint"].shift();
+  writeFileSync(paths.installed, JSON.stringify(r0, null, 2));
   // A row with no version reads as old.
-  const r = registry(); r.plugins["projectstore@SmartAndPoint"][0].version = null; writeFileSync(paths.installed, JSON.stringify(r, null, 2));
+  const r = registry();
+  r.plugins["projectstore@SmartAndPoint"][0].version = null;
+  writeFileSync(paths.installed, JSON.stringify(r, null, 2));
   assert.match(offs()[0].message, /Update that copy first/);
   // The silenced copy uninstalled since: no row, so the local entry is stale.
-  const r2 = registry(); r2.plugins["projectstore@SmartAndPoint"] = []; writeFileSync(paths.installed, JSON.stringify(r2, null, 2));
+  const r2 = registry();
+  r2.plugins["projectstore@SmartAndPoint"] = [];
+  writeFileSync(paths.installed, JSON.stringify(r2, null, 2));
   off = offs();
   assert.equal(off.length, 1);
   assert.match(off[0].message, /no longer installed, so the entry is stale/);
@@ -536,8 +756,13 @@ test("registration: the copied payload is the packlist, and installedPluginEntri
   assert.deepEqual(treeFiles(paths.payload), PACKLIST);
   const rows = installedPluginEntries(home, proj);
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].key, ID); assert.equal(rows[0].enabled, true); assert.equal(rows[0].projectPath, proj); assert.equal(rows[0].scope, "local");
-  const local = JSON.parse(readFileSync(paths.projectSettings, "utf8")); local.enabledPlugins[ID] = false; writeFileSync(paths.projectSettings, JSON.stringify(local));
+  assert.equal(rows[0].key, ID);
+  assert.equal(rows[0].enabled, true);
+  assert.equal(rows[0].projectPath, proj);
+  assert.equal(rows[0].scope, "local");
+  const local = JSON.parse(readFileSync(paths.projectSettings, "utf8"));
+  local.enabledPlugins[ID] = false;
+  writeFileSync(paths.projectSettings, JSON.stringify(local));
   assert.equal(installedPluginEntries(home, proj)[0].enabled, false);
   assert.equal(installedPluginEntries(home)[0].enabled, true, "without a project only the user's settings speak");
   assert.equal(analyseRegistration(proj, S, { root, home, harness: SRC, env }).reason, "disabled for this checkout");
@@ -566,20 +791,48 @@ test("registration: a run that leaves the registration out still renders the pro
   // The --surface half: a run narrowed to the status line reads the left-out
   // registration the same way…
   const narrowed = plan(proj, { home, root, env, surfaces: ["statusline"] });
-  assert.equal(item(narrowed, "statusline").plannedAgainst, installPath, "--surface statusline renders against the install path");
+  assert.equal(
+    item(narrowed, "statusline").plannedAgainst,
+    installPath,
+    "--surface statusline renders against the install path",
+  );
   // …and only an enabled one: disabled for this project, it decides nothing.
   const sp = join(proj, CFG_DIR, "settings.local.json");
   const s0 = JSON.parse(readFileSync(sp, "utf8"));
-  writeFileSync(sp, JSON.stringify({ ...s0, enabledPlugins: { ...(s0.enabledPlugins || {}), [item(plan(proj, { home, root, env }), "plugin").entry]: false } }, null, 2) + "\n");
-  assert.equal(item(plan(proj, { home, root, env, surfaces: ["statusline"] }), "statusline").plannedAgainst, undefined, "a disabled registration is not the render root");
+  writeFileSync(
+    sp,
+    JSON.stringify(
+      {
+        ...s0,
+        enabledPlugins: {
+          ...(s0.enabledPlugins || {}),
+          [item(plan(proj, { home, root, env }), "plugin").entry]: false,
+        },
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  assert.equal(
+    item(plan(proj, { home, root, env, surfaces: ["statusline"] }), "statusline").plannedAgainst,
+    undefined,
+    "a disabled registration is not the render root",
+  );
 });
 
 test("registration: a dev checkout's directly wired status line stays ours when the plan renders against the registration's install path; a competitor the user disabled elsewhere is not re-enabled; a failed registration skips only the dependent surfaces", () => {
   const sb = sandbox();
   const { home, proj, root, host, env, item, paths } = sb;
-  writeFileSync(join(proj, CFG_DIR, "settings.local.json"), JSON.stringify({ statusLine: { type: "command", command: `node "${join(root, "scripts", "statusline.mjs")}"` } }));
+  writeFileSync(
+    join(proj, CFG_DIR, "settings.local.json"),
+    JSON.stringify({ statusLine: { type: "command", command: `node "${join(root, "scripts", "statusline.mjs")}"` } }),
+  );
   const p = plan(proj, { home, root, env });
-  assert.equal(item(p, "statusline").state, "ours-stale", "recognised as ours at the package root, re-pointed at the launcher");
+  assert.equal(
+    item(p, "statusline").state,
+    "ours-stale",
+    "recognised as ours at the package root, re-pointed at the launcher",
+  );
   assert.equal(item(p, "statusline").action, "replace-entry");
   assert.equal(item(p, "statusline").plannedAgainst, item(p, "plugin").root);
   assert.equal(item(p, "agents_block").plannedAgainst, undefined, "the block is rendered from the package root");
@@ -588,10 +841,18 @@ test("registration: a dev checkout's directly wired status line stays ours when 
   const done = apply(plan(proj, { home, root, env: failing }), { env: failing, home });
   assert.ok(done.failed);
   assert.ok(done.find((d) => d.surface === "agents_block" && d.action === "add"));
-  assert.deepEqual(done.filter((d) => d.action === "skipped").map((d) => d.surface).sort(), ["statusline", "statusline_launcher"]);
+  assert.deepEqual(
+    done
+      .filter((d) => d.action === "skipped")
+      .map((d) => d.surface)
+      .sort(),
+    ["statusline", "statusline_launcher"],
+  );
   // Then it succeeds; the manifest records a silenced competitor that THIS checkout never disabled → uninstall leaves it alone.
   apply(plan(proj, { home, root, env }), { env, home });
-  const m = JSON.parse(readFileSync(paths.manifest, "utf8")); m[S.provenance_key].disabled = ["projectstore@SmartAndPoint"]; writeFileSync(paths.manifest, JSON.stringify(m));
+  const m = JSON.parse(readFileSync(paths.manifest, "utf8"));
+  m[S.provenance_key].disabled = ["projectstore@SmartAndPoint"];
+  writeFileSync(paths.manifest, JSON.stringify(m));
   const un = plan(proj, { home, root, env, mode: "uninstall" });
   assert.ok(!hostArgv(item(un, "plugin")).includes("plugin enable"), "not disabled here → not re-enabled here");
   // A cache root asked for the surface by name says why it does nothing.
@@ -602,33 +863,45 @@ test("registration: a dev checkout's directly wired status line stays ours when 
   assert.equal(item(asked, "plugin").deferred, true);
   assert.match(item(asked, "plugin").reason, /this root is the host's own install/);
   const empty = sandbox();
-  const asked2 = plan(empty.proj, { home: empty.home, root: fakeInstall(empty.home, "0.28.0", { full: true }), env: empty.env, surfaces: ["plugin"] });
+  const asked2 = plan(empty.proj, {
+    home: empty.home,
+    root: fakeInstall(empty.home, "0.28.0", { full: true }),
+    env: empty.env,
+    surfaces: ["plugin"],
+  });
   assert.match(item(asked2, "plugin").reason, /does not register a second copy of itself/);
 });
 
 const REAL = whichOnPath(S.cli.bin, process.env);
-test("registration: the real host CLI, sandboxed by the pinned home, registers and forgets a temporary project", { skip: !REAL && "no host CLI on PATH" }, () => {
-  const sb = sandbox();
-  const { home, proj, root, paths, registry, local } = sb;
-  const env = noHostEnv({ PATH: process.env.PATH });
-  const p = plan(proj, { home, root, env });
-  assert.equal(sb.item(p, "plugin").action, "create");
-  const done = apply(p, { env, home });
-  assert.equal(done.failed, undefined, JSON.stringify(done, null, 2));
-  const row = registry().plugins[ID].find((r) => r.projectPath === proj);
-  assert.ok(row, JSON.stringify(registry()));
-  assert.equal(row.scope, "local");
-  assert.equal(row.version, "0.28.0");
-  assert.equal(local().enabledPlugins[ID], true);
-  assert.ok(existsSync(join(row.installPath, "bin", "projectstore.mjs")), "the host copied the payload into its cache");
-  assert.equal(analyseRegistration(proj, S, { root, home, harness: SRC, env }).state, "current");
-  const un = runVerb("uninstall", proj, { home, root, env, harnesses: [SRC.id] });
-  return un.then((r) => {
-    assert.equal(r.failed, null, JSON.stringify(r.applied, null, 2));
-    assert.ok(!existsSync(paths.dir));
-    assert.equal((registry().plugins[ID] || []).length, 0);
-  });
-});
+test(
+  "registration: the real host CLI, sandboxed by the pinned home, registers and forgets a temporary project",
+  { skip: !REAL && "no host CLI on PATH" },
+  () => {
+    const sb = sandbox();
+    const { home, proj, root, paths, registry, local } = sb;
+    const env = noHostEnv({ PATH: process.env.PATH });
+    const p = plan(proj, { home, root, env });
+    assert.equal(sb.item(p, "plugin").action, "create");
+    const done = apply(p, { env, home });
+    assert.equal(done.failed, undefined, JSON.stringify(done, null, 2));
+    const row = registry().plugins[ID].find((r) => r.projectPath === proj);
+    assert.ok(row, JSON.stringify(registry()));
+    assert.equal(row.scope, "local");
+    assert.equal(row.version, "0.28.0");
+    assert.equal(local().enabledPlugins[ID], true);
+    assert.ok(
+      existsSync(join(row.installPath, "bin", "projectstore.mjs")),
+      "the host copied the payload into its cache",
+    );
+    assert.equal(analyseRegistration(proj, S, { root, home, harness: SRC, env }).state, "current");
+    const un = runVerb("uninstall", proj, { home, root, env, harnesses: [SRC.id] });
+    return un.then((r) => {
+      assert.equal(r.failed, null, JSON.stringify(r.applied, null, 2));
+      assert.ok(!existsSync(paths.dir));
+      assert.equal((registry().plugins[ID] || []).length, 0);
+    });
+  },
+);
 
 // Contract 19: a host command that cannot start names its cause. Node says
 // `spawnSync claude ENOENT` for a binary not on PATH and for a working
@@ -661,15 +934,35 @@ test("registration: recovery from a demoted entry — from an _npx root the plan
   // This machine on 2026-10-07: a session run from the marketplace payload
   // re-pointed install's entry at the payload's own script; the launcher stayed.
   const settingsPath = join(proj, CFG_DIR, "settings.local.json");
-  writeFileSync(settingsPath, JSON.stringify({ ...local(), statusLine: { type: "command", command: `node "${join(paths.payload, "scripts", "statusline.mjs")}"` } }, null, 2) + "\n");
+  writeFileSync(
+    settingsPath,
+    JSON.stringify(
+      {
+        ...local(),
+        statusLine: { type: "command", command: `node "${join(paths.payload, "scripts", "statusline.mjs")}"` },
+      },
+      null,
+      2,
+    ) + "\n",
+  );
 
   const p = plan(proj, { harnesses: [SRC.id], home, root, env });
   assert.equal(p.ok, true, JSON.stringify(p.refusals));
   assert.deepEqual([item(p, "plugin").state, item(p, "plugin").action], ["current", "skip"]);
-  assert.deepEqual([item(p, "statusline").state, item(p, "statusline").action], ["ours-stale", "replace-entry"], "the payload's script is ours, recognised by its directory's provenance field — no longer `theirs`");
+  assert.deepEqual(
+    [item(p, "statusline").state, item(p, "statusline").action],
+    ["ours-stale", "replace-entry"],
+    "the payload's script is ours, recognised by its directory's provenance field — no longer `theirs`",
+  );
   assert.deepEqual([item(p, "statusline_launcher").state, item(p, "statusline_launcher").action], ["current", "skip"]);
   assert.equal(item(p, "statusline").after.statusLine.command, `node "${launcher}"`);
-  assert.match(p.reports[0], new RegExp(`install path ${escapeRe(item(p, "plugin").root)}; the host loads them in place from ${escapeRe(paths.payload)}\\.`), "the host-managed report names the install path and the plugin root it loads in place");
+  assert.match(
+    p.reports[0],
+    new RegExp(
+      `install path ${escapeRe(item(p, "plugin").root)}; the host loads them in place from ${escapeRe(paths.payload)}\\.`,
+    ),
+    "the host-managed report names the install path and the plugin root it loads in place",
+  );
   assert.ok(!("payload" in item(p, "plugin")), "the plan item keeps its shape");
 
   const done = apply(p, { env, home });
@@ -677,7 +970,13 @@ test("registration: recovery from a demoted entry — from an _npx root the plan
   assert.equal(local().statusLine.command, `node "${launcher}"`);
   const settled = readFileSync(settingsPath, "utf8");
   // A SessionStart as the host runs it: the payload's own hook, its plugin root the payload.
-  const hook = spawnSync(process.execPath, [join(paths.payload, "hooks", "session-start.mjs")], { encoding: "utf8", input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "recovery-1", source: "startup", cwd: proj }), env: installEnv(home, paths.payload, proj), cwd: proj, timeout: 30000 });
+  const hook = spawnSync(process.execPath, [join(paths.payload, "hooks", "session-start.mjs")], {
+    encoding: "utf8",
+    input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "recovery-1", source: "startup", cwd: proj }),
+    env: installEnv(home, paths.payload, proj),
+    cwd: proj,
+    timeout: 30000,
+  });
   assert.equal(hook.status, 0, hook.stderr);
   assert.equal(readFileSync(settingsPath, "utf8"), settled, "the entry still names the launcher, byte for byte");
   assert.equal(readFileSync(launcher, "utf8"), launcherBytes, "and the launcher is as install wrote it");
@@ -689,16 +988,31 @@ test("registration: doctor --install run from the marketplace payload the host l
   const done = apply(plan(proj, { home, root, env }), { env, home });
   assert.equal(done.failed, undefined, JSON.stringify(done));
   const installPath = registry().plugins[ID][0].installPath;
-  for (const [where, from] of [["the marketplace payload", paths.payload], ["the package root", root]]) {
+  for (const [where, from] of [
+    ["the marketplace payload", paths.payload],
+    ["the package root", root],
+  ]) {
     // The states doctor derives, in-process against this sandbox's home.
-    const launcher = surfaceStates(proj, { home, root: from, env }).states.find((x) => x.surface === "statusline_launcher");
+    const launcher = surfaceStates(proj, { home, root: from, env }).states.find(
+      (x) => x.surface === "statusline_launcher",
+    );
     assert.deepEqual([launcher.produced, launcher.state], [true, "current"], where);
     // The verb itself, from that root's own bin, as a terminal runs it.
-    const r = spawnSync(process.execPath, [join(from, "bin", "projectstore.mjs"), "doctor", "--install", "--json", "--project", proj], { encoding: "utf8", cwd: proj, env: host.env({ HOME: home }), timeout: 60000, maxBuffer: 1 << 24 });
+    const r = spawnSync(
+      process.execPath,
+      [join(from, "bin", "projectstore.mjs"), "doctor", "--install", "--json", "--project", proj],
+      { encoding: "utf8", cwd: proj, env: host.env({ HOME: home }), timeout: 60000, maxBuffer: 1 << 24 },
+    );
     const findings = JSON.parse(r.stdout).result;
-    assert.ok(!findings.some((f) => /not produced for this installation/.test(f.message)), `${where}: ${JSON.stringify(findings, null, 2)}`);
+    assert.ok(
+      !findings.some((f) => /not produced for this installation/.test(f.message)),
+      `${where}: ${JSON.stringify(findings, null, 2)}`,
+    );
     const info = findings.find((f) => f.check === "plugin-registration" && f.level === "info");
-    assert.ok(info && info.message.includes(`(install path ${installPath}; loaded in place from ${paths.payload})`), `${where}: ${JSON.stringify(findings, null, 2)}`);
+    assert.ok(
+      info && info.message.includes(`(install path ${installPath}; loaded in place from ${paths.payload})`),
+      `${where}: ${JSON.stringify(findings, null, 2)}`,
+    );
   }
 });
 
@@ -731,21 +1045,62 @@ test("registration contract 2/5: a directory that appears at our path between pl
 // One upgrade through runVerb from `root`, its registry read injected. Text
 // mode answers "n" at the terminal double and records whether it was asked;
 // `json` is the named run without a terminal.
-async function convergeRun(sb, root, { latest = "0.31.0", mode = null, json = false, extra = {}, timers, harnesses = [SRC.id], channel = null } = {}) {
-  const env = sb.host.env({ PROJECTSTORE_NO_UPDATE_CHECK: "", CI: "", XDG_CACHE_HOME: join(tmp("ps-reg-xdg-"), "cache"), ...extra });
+async function convergeRun(
+  sb,
+  root,
+  { latest = "0.31.0", mode = null, json = false, extra = {}, timers, harnesses = [SRC.id], channel = null } = {},
+) {
+  const env = sb.host.env({
+    PROJECTSTORE_NO_UPDATE_CHECK: "",
+    CI: "",
+    XDG_CACHE_HOME: join(tmp("ps-reg-xdg-"), "cache"),
+    ...extra,
+  });
   for (const k of ["FORCE_COLOR", "TERM", "NO_COLOR", "PROJECTSTORE_ASCII"]) delete env[k];
   const reg = registryFetch(mode ?? { latest });
   const npm = fakeNpmSpawn();
   const chunks = [];
   let asked = false;
-  const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
-  const r = await runVerb("upgrade", sb.proj, { harnesses, home: sb.home, root, env, fetch: reg.fetch, timers, fetchSpawn: npm.spawn, channel, ...(json ? { json: true } : { out, ask: async () => { asked = true; return "n"; } }) });
+  const out = {
+    isTTY: false,
+    write: (s) => {
+      chunks.push(String(s));
+      return true;
+    },
+  };
+  const r = await runVerb("upgrade", sb.proj, {
+    harnesses,
+    home: sb.home,
+    root,
+    env,
+    fetch: reg.fetch,
+    timers,
+    fetchSpawn: npm.spawn,
+    channel,
+    ...(json
+      ? { json: true }
+      : {
+          out,
+          ask: async () => {
+            asked = true;
+            return "n";
+          },
+        }),
+  });
   return { r, text: chunks.join(""), asked, reg, npm, env };
 }
 
 // What a run may not touch, byte for byte: the project's files and the host's registry.
 function snapshot(sb) {
-  const files = [sb.paths.projectSettings, join(sb.proj, "CLAUDE.md"), layoutPaths(sb.proj).binding, statusLineLauncherPath(sb.proj), sb.paths.installed, sb.paths.manifest, sb.paths.marketplaces];
+  const files = [
+    sb.paths.projectSettings,
+    join(sb.proj, "CLAUDE.md"),
+    layoutPaths(sb.proj).binding,
+    statusLineLauncherPath(sb.proj),
+    sb.paths.installed,
+    sb.paths.manifest,
+    sb.paths.marketplaces,
+  ];
   return Object.fromEntries(files.map((f) => [f, existsSync(f) ? readFileSync(f, "utf8") : null]));
 }
 
@@ -758,7 +1113,12 @@ test("converge criterion 'The stop (Claude Code)': this checkout's npm row at 0.
   const before = snapshot(sb);
   const s = await convergeRun(sb, older);
   assert.equal(s.r.plan.ok, false);
-  assert.ok(s.r.plan.refusals[0].startsWith("this project runs projectstore 0.31.0 (projectstore@projectstore-npm), newer than this package (0.30.0), and 0.31.0 is published. Nothing is written."), s.r.plan.refusals[0]);
+  assert.ok(
+    s.r.plan.refusals[0].startsWith(
+      "this project runs projectstore 0.31.0 (projectstore@projectstore-npm), newer than this package (0.30.0), and 0.31.0 is published. Nothing is written.",
+    ),
+    s.r.plan.refusals[0],
+  );
   assert.deepEqual(s.r.gate, { confirmed: false, why: "refused" });
   assert.equal(s.asked, false, "refused before the question");
   assert.deepEqual(s.r.plan.items, [], "nothing is planned");
@@ -771,45 +1131,76 @@ test("converge criterion 'The stop (Claude Code)': this checkout's npm row at 0.
   const lines = s.text.split("\n");
   const at = lines.indexOf(`    npx projectstore@latest upgrade --harness ${SRC.id}`);
   assert.ok(at > 0 && lines[at - 1] === "", s.text);
-  assert.deepEqual(lines.slice(at + 1, at + 5), ["", "  or install it for the whole machine:", "", "    npm install -g projectstore@latest"], s.text);
-  assert.match(lines.find((l) => l.includes("▲ refused")), /▲ refused {2}this project runs projectstore 0\.31\.0 \(projectstore@projectstore-npm\), newer than this package \(0\.30\.0\)/);
+  assert.deepEqual(
+    lines.slice(at + 1, at + 5),
+    ["", "  or install it for the whole machine:", "", "    npm install -g projectstore@latest"],
+    s.text,
+  );
+  assert.match(
+    lines.find((l) => l.includes("▲ refused")),
+    /▲ refused {2}this project runs projectstore 0\.31\.0 \(projectstore@projectstore-npm\), newer than this package \(0\.30\.0\)/,
+  );
   assert.ok(!s.text.includes("newer published"), "no notice beside the stop: the refusal names the update");
   assert.ok(!s.r.plan.refusals[0].includes("--project"));
   assert.ok(!Object.keys(s.r.plan).includes("stop"), "the commands stay off the envelope");
   // --json, and CI=1: the read still happens (it decides what is written), and it writes the cache.
   const j = await convergeRun(sb, older, { json: true, extra: { CI: "1" } });
   assert.equal(j.r.plan.ok, false);
-  assert.ok(j.r.plan.refusals[0].includes(`npx projectstore@latest upgrade --harness ${SRC.id}`) && j.r.plan.refusals[0].includes("npm install -g projectstore@latest"), j.r.plan.refusals[0]);
+  assert.ok(
+    j.r.plan.refusals[0].includes(`npx projectstore@latest upgrade --harness ${SRC.id}`) &&
+      j.r.plan.refusals[0].includes("npm install -g projectstore@latest"),
+    j.r.plan.refusals[0],
+  );
   assert.equal(j.reg.calls.length, 1);
-  assert.equal(JSON.parse(readFileSync(join(j.env.XDG_CACHE_HOME, "projectstore", "registry.json"), "utf8"))[FAKE_REGISTRY].latest, "0.31.0");
+  assert.equal(
+    JSON.parse(readFileSync(join(j.env.XDG_CACHE_HOME, "projectstore", "registry.json"), "utf8"))[FAKE_REGISTRY].latest,
+    "0.31.0",
+  );
   assert.deepEqual(host.log(), []);
   // latest 0.30.0: the run proceeds, and the row names both versions and the case.
   const below = await convergeRun(sb, older, { latest: "0.30.0" });
   assert.equal(below.r.plan.ok, true);
   const row = sb.item(below.r.plan, "plugin");
   assert.equal(row.action, "skip");
-  assert.match(row.reason, /^the directory is at 0\.31\.0, newer than this package \(0\.30\.0\) — not downgraded; the registry's latest \(0\.30\.0\) does not reach 0\.31\.0$/);
+  assert.match(
+    row.reason,
+    /^the directory is at 0\.31\.0, newer than this package \(0\.30\.0\) — not downgraded; the registry's latest \(0\.30\.0\) does not reach 0\.31\.0$/,
+  );
   assert.ok(below.text.includes(row.reason), "the default view shows it");
   // One request serves both: rule 6's case and, from this _npx root, the notice.
   const shared = await convergeRun(sb, older, { latest: "0.30.5" });
   assert.equal(shared.reg.calls.length, 1, "one request per run, whether or not rule 6 needed it too");
-  assert.ok(shared.text.includes("\n  ▲ newer published: 0.30.5 (this is 0.30.0). To update:\n\n    npx projectstore@latest upgrade\n\n"), shared.text);
+  assert.ok(
+    shared.text.includes(
+      "\n  ▲ newer published: 0.30.5 (this is 0.30.0). To update:\n\n    npx projectstore@latest upgrade\n\n",
+    ),
+    shared.text,
+  );
   assert.match(sb.item(shared.r.plan, "plugin").reason, /the registry's latest \(0\.30\.5\) does not reach 0\.31\.0$/);
   // A fetch that never settles, cut at the injected 2 s bound; the switch off.
   const timers = instantTimers();
   const hung = await convergeRun(sb, older, { mode: "hang", timers });
   assert.deepEqual(timers.asked, [2000]);
-  assert.match(sb.item(hung.r.plan, "plugin").reason, /not downgraded; the registry could not be read \(no answer within 2 s\)$/);
+  assert.match(
+    sb.item(hung.r.plan, "plugin").reason,
+    /not downgraded; the registry could not be read \(no answer within 2 s\)$/,
+  );
   const off = await convergeRun(sb, older, { extra: { PROJECTSTORE_NO_UPDATE_CHECK: "1" } });
   assert.equal(off.reg.calls.length, 0);
-  assert.match(sb.item(off.r.plan, "plugin").reason, /not downgraded; the registry was not read \(PROJECTSTORE_NO_UPDATE_CHECK\)$/);
+  assert.match(
+    sb.item(off.r.plan, "plugin").reason,
+    /not downgraded; the registry was not read \(PROJECTSTORE_NO_UPDATE_CHECK\)$/,
+  );
   // A run from a host cache copy — the copy this checkout's session runs — never stops and reads nothing.
   const cached = await convergeRun(sb, sb.registry().plugins[ID][0].installPath);
   assert.equal(cached.r.plan.ok, true, JSON.stringify(cached.r.plan.refusals));
   assert.equal(cached.reg.calls.length, 0);
   // plan reads nothing; its newer row says what install and upgrade do first.
   const dry = plan(proj, { harnesses: [SRC.id], home, root: older, env });
-  assert.match(sb.item(dry, "plugin").reason, /not downgraded; install and upgrade read the registry first, and stop when 0\.31\.0 is published$/);
+  assert.match(
+    sb.item(dry, "plugin").reason,
+    /not downgraded; install and upgrade read the registry first, and stop when 0\.31\.0 is published$/,
+  );
   assert.deepEqual(host.log(), [], "nothing ran through any of it");
 });
 
@@ -820,7 +1211,10 @@ test("converge criterion 'The stop (Claude Code)': a git copy at 0.31.0 enabled 
   writeRegistry(home, [{ scope: "user", installPath: git, version: "0.31.0", lastUpdated: "2026-10-01T00:00:00Z" }]);
   const s = await convergeRun(sb, sb.root);
   assert.equal(s.r.plan.ok, false);
-  assert.match(s.r.plan.refusals[0], /^this project runs projectstore 0\.31\.0 \(projectstore@SmartAndPoint\), newer than this package \(0\.30\.0\), and 0\.31\.0 is published/);
+  assert.match(
+    s.r.plan.refusals[0],
+    /^this project runs projectstore 0\.31\.0 \(projectstore@SmartAndPoint\), newer than this package \(0\.30\.0\), and 0\.31\.0 is published/,
+  );
   assert.equal(s.asked, false);
   // The channel "npm" alike: the answer to the channel question does not
   // make the older package's run over a published newer copy a choice.
@@ -842,7 +1236,11 @@ test("converge criterion 'The stop (Claude Code)': a git copy at 0.31.0 enabled 
   const both = await convergeRun(sb, sb.root, { harnesses: [], extra: codexHome });
   assert.equal(both.r.plan.ok, false);
   assert.deepEqual(both.r.plan.harnesses, [SRC.id, CODEX.id]);
-  assert.equal(both.r.plan.stop.commands[0], "npx projectstore@latest upgrade", "a bare run's command names no harness");
+  assert.equal(
+    both.r.plan.stop.commands[0],
+    "npx projectstore@latest upgrade",
+    "a bare run's command names no harness",
+  );
   assert.deepEqual(both.npm.installs(), [], "no shell is fetched");
   // …where the same run with the registry below the copy fetches Codex's shell.
   const fetching = await convergeRun(sb, sb.root, { latest: "0.30.0", harnesses: [], extra: codexHome });
@@ -865,23 +1263,35 @@ test("converge criterion 'A newer git copy is not switched off for an older pack
   // setup's commands (the setup story, rule 17), pinned to the running
   // version: the package root is npx's.
   const setup = (x = "") => `npx projectstore@0.30.0 setup --harness ${SRC.id}${x}`;
-  assert.equal(reg.reason, [
-    "this project runs a newer copy (projectstore@SmartAndPoint 0.31.0) than this package (0.30.0), so it is not switched off — the registry's latest (0.30.0) does not reach 0.31.0.",
-    "Choose at a terminal in this project; setup asks whether to keep that copy or switch:",
-    setup(),
-    "Without a terminal, keep projectstore@SmartAndPoint, which then writes this project's surfaces itself:",
-    setup(" --channel git"),
-    "Or move this project to this package's npm install, the older 0.30.0:",
-    setup(" --channel npm"),
-  ].join("\n"), "the envelope's reason, every part on its own line");
-  assert.equal(others.reason, `not switched off — see ${ID} above`, "the long reason prints once; the switch row points to it");
+  assert.equal(
+    reg.reason,
+    [
+      "this project runs a newer copy (projectstore@SmartAndPoint 0.31.0) than this package (0.30.0), so it is not switched off — the registry's latest (0.30.0) does not reach 0.31.0.",
+      "Choose at a terminal in this project; setup asks whether to keep that copy or switch:",
+      setup(),
+      "Without a terminal, keep projectstore@SmartAndPoint, which then writes this project's surfaces itself:",
+      setup(" --channel git"),
+      "Or move this project to this package's npm install, the older 0.30.0:",
+      setup(" --channel npm"),
+    ].join("\n"),
+    "the envelope's reason, every part on its own line",
+  );
+  assert.equal(
+    others.reason,
+    `not switched off — see ${ID} above`,
+    "the long reason prints once; the switch row points to it",
+  );
   assert.ok(!("advice" in publicItem(reg)), "the drawn form stays off the envelope");
   assert.ok(!/`/.test(reg.reason), "no backticks");
   assert.ok(!(reg.steps || []).length && !(others.steps || []).length, "no host step is planned");
   assert.equal(s.r.plan.incomplete, true, "so the exit is 1");
   assert.equal(s.r.gate.why, "named");
   assert.deepEqual(host.log(), [], "no host command runs");
-  assert.notEqual(local()?.enabledPlugins?.["projectstore@SmartAndPoint"], false, "the copy stays on for this checkout");
+  assert.notEqual(
+    local()?.enabledPlugins?.["projectstore@SmartAndPoint"],
+    false,
+    "the copy stays on for this checkout",
+  );
   // In PLAN: the prose once, then each command alone on its line after a blank one.
   const t = await convergeRun(sb, sb.root, { latest: "0.30.0" });
   const lines = t.text.split("\n");
@@ -892,7 +1302,10 @@ test("converge criterion 'A newer git copy is not switched off for an older pack
   assert.equal(t.text.split("so it is not switched off").length, 2, "printed once");
   assert.ok(t.text.includes(`not switched off — see ${ID} above`));
   // plan reads nothing; the deferral says what install and upgrade do first.
-  assert.match(sb.item(plan(proj, { harnesses: [SRC.id], home, root: sb.root, env: sb.env }), "plugin").reason, /install and upgrade read the registry first, and stop when 0\.31\.0 is published/);
+  assert.match(
+    sb.item(plan(proj, { harnesses: [SRC.id], home, root: sb.root, env: sb.env }), "plugin").reason,
+    /install and upgrade read the registry first, and stop when 0\.31\.0 is published/,
+  );
   // The channel "npm" is the answer to the channel question: the switch
   // proceeds, and its row names both versions, the case, and that the project
   // will run the older one — in the default view, beneath the consequence.
@@ -900,11 +1313,19 @@ test("converge criterion 'A newer git copy is not switched off for an older pack
   assert.equal(sb.item(n.r.plan, "plugin").action, "create");
   const sw = sb.item(n.r.plan, "plugin_others");
   assert.equal(sw.action, "disable");
-  assert.equal(sw.reason, "projectstore@SmartAndPoint 0.31.0 is newer than this package (0.30.0) — the registry's latest (0.30.0) does not reach 0.31.0; turning it off runs this project on the older 0.30.0");
+  assert.equal(
+    sw.reason,
+    "projectstore@SmartAndPoint 0.31.0 is newer than this package (0.30.0) — the registry's latest (0.30.0) does not reach 0.31.0; turning it off runs this project on the older 0.30.0",
+  );
   assert.equal(n.r.plan.incomplete, false);
   assert.equal(n.asked, true, "asked at the terminal double, as any change");
   const at = n.text.indexOf("⇄ switch");
-  assert.ok(at > 0 && n.text.indexOf("from now on it is updated by") > at && n.text.indexOf(sw.reason) > n.text.indexOf("from now on it is updated by"), n.text);
+  assert.ok(
+    at > 0 &&
+      n.text.indexOf("from now on it is updated by") > at &&
+      n.text.indexOf(sw.reason) > n.text.indexOf("from now on it is updated by"),
+    n.text,
+  );
   assert.deepEqual(host.log(), [], "declined: nothing ran");
 });
 
@@ -922,11 +1343,14 @@ test("converge rule 6 (Claude Code): our directory newer than the package and of
   const row = sb.item(s.r.plan, "plugin");
   assert.equal(row.action, "skip");
   assert.equal(row.deferred, true);
-  assert.equal(row.reason, [
-    "the directory holds 0.31.0, newer than this package (0.30.0), and its payload does not match its digest (edited by hand or half-written); the registry's latest (0.30.0) does not reach 0.31.0",
-    "not downgraded — repair it from its own version:",
-    `npx projectstore@0.31.0 upgrade --harness ${SRC.id}`,
-  ].join("\n"));
+  assert.equal(
+    row.reason,
+    [
+      "the directory holds 0.31.0, newer than this package (0.30.0), and its payload does not match its digest (edited by hand or half-written); the registry's latest (0.30.0) does not reach 0.31.0",
+      "not downgraded — repair it from its own version:",
+      `npx projectstore@0.31.0 upgrade --harness ${SRC.id}`,
+    ].join("\n"),
+  );
   assert.ok(!(row.steps || []).some((st) => st.kind === "write"), "never a write");
   assert.equal(s.r.plan.incomplete, true);
   assert.equal(readFileSync(paths.manifest, "utf8"), manifest, "the directory is left as it is");
@@ -934,7 +1358,10 @@ test("converge rule 6 (Claude Code): our directory newer than the package and of
   // plan's dry run: the same skip, with its note.
   const dry = sb.item(plan(proj, { harnesses: [SRC.id], home, root: older, env }), "plugin");
   assert.equal(dry.action, "skip");
-  assert.match(dry.reason, /install and upgrade read the registry first, and stop when 0\.31\.0 is published\nnot downgraded — repair it from its own version:\nnpx projectstore@0\.31\.0 upgrade --harness \S+$/);
+  assert.match(
+    dry.reason,
+    /install and upgrade read the registry first, and stop when 0\.31\.0 is published\nnot downgraded — repair it from its own version:\nnpx projectstore@0\.31\.0 upgrade --harness \S+$/,
+  );
 });
 
 // F2 of the PR1 review: the root an npm-registered Claude Code session runs —
@@ -947,7 +1374,9 @@ test("converge criterion 'The stop (Claude Code)': a run from the npm registrati
   // A git copy at 0.31.0, re-enabled at user scope beside the registration.
   const git = fakeInstall(home, "0.31.0");
   const reg = sb.registry();
-  reg.plugins["projectstore@SmartAndPoint"] = [{ scope: "user", installPath: git, version: "0.31.0", lastUpdated: "2026-10-01T00:00:00Z" }];
+  reg.plugins["projectstore@SmartAndPoint"] = [
+    { scope: "user", installPath: git, version: "0.31.0", lastUpdated: "2026-10-01T00:00:00Z" },
+  ];
   writeFileSync(paths.installed, JSON.stringify(reg, null, 2));
   const fromPackage = await convergeRun(sb, sb.root);
   assert.equal(fromPackage.r.plan.ok, false, "the package root stops");
@@ -974,7 +1403,10 @@ test("converge rule 7: an upgrade from checkout A that rewrites the shared direc
   const bSettings = readFileSync(join(b, CFG_DIR, "settings.local.json"), "utf8");
   const newer = fakePackageRoot(join(tmp("ps-reg-npx-a-"), "node_modules", "projectstore"), "0.29.0");
   const up = plan(proj, { home, root: newer, env, harnesses: [SRC.id] });
-  assert.ok(sb.item(up, "plugin").steps.some((st) => st.kind === "write"), "A rewrites the shared directory");
+  assert.ok(
+    sb.item(up, "plugin").steps.some((st) => st.kind === "write"),
+    "A rewrites the shared directory",
+  );
   assert.equal(apply(up, { env, home }).failed, undefined);
   assert.equal(JSON.parse(readFileSync(paths.manifest, "utf8"))[S.provenance_key].pkg, "0.29.0");
   assert.equal(JSON.parse(rowOf(proj)).version, "0.29.0");
@@ -1005,9 +1437,15 @@ const writesOf = (p) => p.items.filter((i) => !["skip", "refuse"].includes(i.act
 // Contract 13's info for a copy the registration turned off, read as doctor
 // reads it, given the binding.
 // It ends with setup's command alone on its line (the setup story, rule 17).
-const RECORD_IT = /If moving to npm was meant, record it from a terminal in this project:\nnpx projectstore setup --channel npm$/;
-const ignoreThis = (sb, cfg) => checkPluginRegistration(sb.proj, surfaceStates(sb.proj, { home: sb.home, root: sb.root }).states, { home: sb.home, cfg }).filter((f) => RECORD_IT.test(f.message));
-const CONSEQUENCE = "this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by npx projectstore setup";
+const RECORD_IT =
+  /If moving to npm was meant, record it from a terminal in this project:\nnpx projectstore setup --channel npm$/;
+const ignoreThis = (sb, cfg) =>
+  checkPluginRegistration(sb.proj, surfaceStates(sb.proj, { home: sb.home, root: sb.root }).states, {
+    home: sb.home,
+    cfg,
+  }).filter((f) => RECORD_IT.test(f.message));
+const CONSEQUENCE =
+  "this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by npx projectstore setup";
 
 test("converge criterion 'The switch': channel npm plans the registration, the switch with its consequence line and the mark last; apply turns the copy off and records the switch, doctor drops its info, a second plan is zero-change; channel null plans no mark", () => {
   const sb = sandbox({ vault: true });
@@ -1019,12 +1457,18 @@ test("converge criterion 'The switch': channel npm plans the registration, the s
   const sw = item(p, "plugin_others");
   assert.equal(sw.action, "disable");
   // The consequence is a note step after the host step: a plain note in the envelope.
-  assert.deepEqual(sw.steps.map((s) => s.kind === "host" ? s.name : s.kind), ["disable", "note"]);
+  assert.deepEqual(
+    sw.steps.map((s) => (s.kind === "host" ? s.name : s.kind)),
+    ["disable", "note"],
+  );
   assert.deepEqual(publicItem(sw).steps[1], { kind: "note", why: CONSEQUENCE });
   assert.ok(!("reason" in sw), "a bound project's switch over an older copy adds no words");
   // The mark: one item of kind binding, Claude Code's last.
   const mark = p.items.filter((i) => i.harness === SRC.id).at(-1);
-  assert.deepEqual([mark.kind, mark.surface, mark.entry, mark.action, mark.path], ["binding", "channel_switch", "channel_switch", "add", layoutPaths(proj).binding]);
+  assert.deepEqual(
+    [mark.kind, mark.surface, mark.entry, mark.action, mark.path],
+    ["binding", "channel_switch", "channel_switch", "add", layoutPaths(proj).binding],
+  );
   assert.equal(p.items.filter((i) => i.kind === "binding").length, 1);
   // PLAN: the consequence is the first line beneath the switch row, before
   // its $ line; the summary counts the switch; the mark names its edit.
@@ -1035,7 +1479,10 @@ test("converge criterion 'The switch': channel npm plans the registration, the s
   assert.equal(lines[row + 1], `      ${CONSEQUENCE}`);
   assert.equal(lines[row + 2], `      $ ${S.cli.bin} plugin disable ${GIT} --scope local`);
   assert.match(text, /\nPlan — [^\n]*1 to switch/);
-  assert.ok(text.includes(`edit .projectstore/projectstore.json  [channel_switch] → by "setup", at the time of apply`), text);
+  assert.ok(
+    text.includes(`edit .projectstore/projectstore.json  [channel_switch] → by "setup", at the time of apply`),
+    text,
+  );
   assert.ok(!text.includes("note: this project stops"), "drawn as the consequence, never as a note step");
   // Apply: the copy off for this checkout, the switch recorded, every other key kept.
   const before = bindingOf(proj);
@@ -1048,14 +1495,26 @@ test("converge criterion 'The switch': channel npm plans the registration, the s
   assert.match(after.channel_switch.at, ISO_TIME);
   assert.deepEqual(Object.keys(after), [...Object.keys(before), "channel_switch"]);
   for (const k of Object.keys(before)) assert.deepEqual(after[k], before[k], k);
-  assert.deepEqual(done.find((d) => d.surface === "channel_switch").steps, [{ kind: "mark", path: layoutPaths(proj).binding, ok: true }]);
+  assert.deepEqual(done.find((d) => d.surface === "channel_switch").steps, [
+    { kind: "mark", path: layoutPaths(proj).binding, ok: true },
+  ]);
   // Doctor, given the binding: the "ignore this" info is gone for the marked checkout only.
   assert.deepEqual(ignoreThis(sb, after), []);
   assert.equal(ignoreThis(sb, before).length, 1, "without the mark it stays");
   // …and doctor --install itself reads the binding it was run for.
-  const doctor = (s) => JSON.parse(spawnSync(process.execPath, [join(s.root, "bin", "projectstore.mjs"), "doctor", "--install", "--json", "--project", s.proj], { encoding: "utf8", cwd: s.proj, env: s.host.env({ HOME: s.home }), timeout: 60000, maxBuffer: 1 << 24 }).stdout).result;
+  const doctor = (s) =>
+    JSON.parse(
+      spawnSync(
+        process.execPath,
+        [join(s.root, "bin", "projectstore.mjs"), "doctor", "--install", "--json", "--project", s.proj],
+        { encoding: "utf8", cwd: s.proj, env: s.host.env({ HOME: s.home }), timeout: 60000, maxBuffer: 1 << 24 },
+      ).stdout,
+    ).result;
   const found = doctor(sb);
-  assert.ok(found.some((f) => f.check === "plugin-registration"), JSON.stringify(found, null, 2));
+  assert.ok(
+    found.some((f) => f.check === "plugin-registration"),
+    JSON.stringify(found, null, 2),
+  );
   assert.ok(!found.some((f) => /If moving to npm was meant/.test(f.message)), JSON.stringify(found, null, 2));
   // A re-run is zero-change: the copy is off and the mark is there.
   assert.deepEqual(writesOf(plan(proj, { home, root, env, channel: "npm" })).map(publicItem), []);
@@ -1064,7 +1523,10 @@ test("converge criterion 'The switch': channel npm plans the registration, the s
   withGitCopy(sb2);
   const q = plan(sb2.proj, { home: sb2.home, root: sb2.root, env: sb2.env });
   assert.equal(sb2.item(q, "plugin").action, "create");
-  assert.deepEqual(publicItem(sb2.item(q, "plugin_others")).steps.map((s) => s.kind), ["host", "note"]);
+  assert.deepEqual(
+    publicItem(sb2.item(q, "plugin_others")).steps.map((s) => s.kind),
+    ["host", "note"],
+  );
   assert.ok(renderPreview(q).includes(`\n      ${CONSEQUENCE}\n`), "in the default view");
   assert.ok(!q.items.some((i) => i.kind === "binding"), "no mark under null");
   assert.equal(apply(q, { env: sb2.env, home: sb2.home }).failed, undefined);
@@ -1073,8 +1535,16 @@ test("converge criterion 'The switch': channel npm plans the registration, the s
   assert.equal(doctor(sb2).filter((f) => RECORD_IT.test(f.message)).length, 1, "and so does doctor --install");
   // The text report draws the command alone on its line, after a blank one;
   // the path comes before the colon, which introduces the command.
-  const report = spawnSync(process.execPath, [join(sb2.root, "bin", "projectstore.mjs"), "doctor", "--install", "--project", sb2.proj], { encoding: "utf8", cwd: sb2.proj, env: sb2.host.env({ HOME: sb2.home }), timeout: 60000, maxBuffer: 1 << 24 }).stdout;
-  assert.match(report, /record it from a terminal in this project — [^\n:]+:\n\n {6}npx projectstore setup --channel npm\n/, report);
+  const report = spawnSync(
+    process.execPath,
+    [join(sb2.root, "bin", "projectstore.mjs"), "doctor", "--install", "--project", sb2.proj],
+    { encoding: "utf8", cwd: sb2.proj, env: sb2.host.env({ HOME: sb2.home }), timeout: 60000, maxBuffer: 1 << 24 },
+  ).stdout;
+  assert.match(
+    report,
+    /record it from a terminal in this project — [^\n:]+:\n\n {6}npx projectstore setup --channel npm\n/,
+    report,
+  );
 });
 
 test("converge criterion 'The order': after a failed registration the switch is skipped and APPLY says why, the copy stays on, no mark is written, and DONE is STOPPED — under channel npm and channel null", () => {
@@ -1085,7 +1555,18 @@ test("converge criterion 'The order': after a failed registration the switch is 
     const failing = host.env({ FAKE_CLAUDE_FAIL: "install" });
     const p = plan(proj, { home, root, env: failing, channel });
     const chunks = [];
-    const rep = applyReporter({ isTTY: false, write: (s) => { chunks.push(String(s)); return true; } }, PLAIN, p, { home });
+    const rep = applyReporter(
+      {
+        isTTY: false,
+        write: (s) => {
+          chunks.push(String(s));
+          return true;
+        },
+      },
+      PLAIN,
+      p,
+      { home },
+    );
     const done = apply(p, { env: failing, home, spawn: rep.spawn(spawnSync), onItem: rep.onItem, onStep: rep.onStep });
     assert.equal(done.failed.step, "install", String(channel));
     const sw = done.find((d) => d.surface === "plugin_others");
@@ -1100,7 +1581,10 @@ test("converge criterion 'The order': after a failed registration the switch is 
       assert.deepEqual([mark.action, mark.reason], ["skipped", "the switch did not complete; nothing is recorded"]);
     }
     assert.equal(bindingOf(proj).channel_switch, undefined, "no mark");
-    assert.match(renderDone({ verb: "upgrade", plan: p, applied: done, failed: done.failed, elapsed: 0 }), /^Stopped — \d+ changes? applied, then a host command failed$/m);
+    assert.match(
+      renderDone({ verb: "upgrade", plan: p, applied: done, failed: done.failed, elapsed: 0 }),
+      /^Stopped — \d+ changes? applied, then a host command failed$/m,
+    );
   }
 });
 
@@ -1113,8 +1597,15 @@ test("converge criterion 'The adoption, and an unbound project': an earlier swit
   assert.equal(bindingOf(proj).channel_switch, undefined);
   assert.ok(!plan(proj, { home, root, env }).items.some((i) => i.kind === "binding"), "channel null never adopts");
   const p = plan(proj, { home, root, env, channel: "npm" });
-  assert.deepEqual(writesOf(p).map((i) => [i.kind, i.surface]), [["binding", "channel_switch"]], "the mark alone");
-  assert.equal(sb.item(p, "channel_switch").reason, `this checkout already holds ${GIT} off for the npm registration; the switch is recorded`);
+  assert.deepEqual(
+    writesOf(p).map((i) => [i.kind, i.surface]),
+    [["binding", "channel_switch"]],
+    "the mark alone",
+  );
+  assert.equal(
+    sb.item(p, "channel_switch").reason,
+    `this checkout already holds ${GIT} off for the npm registration; the switch is recorded`,
+  );
   sb.host.reset();
   assert.equal(apply(p, { env, home }).failed, undefined);
   assert.equal(sb.host.log().length, 0, "recording it runs nothing of the host's");
@@ -1123,9 +1614,18 @@ test("converge criterion 'The adoption, and an unbound project': an earlier swit
 
   // No copy from another marketplace: neither a switch nor a mark.
   const plain = sandbox();
-  assert.equal(apply(plan(plain.proj, { home: plain.home, root: plain.root, env: plain.env }), { env: plain.env, home: plain.home }).failed, undefined);
+  assert.equal(
+    apply(plan(plain.proj, { home: plain.home, root: plain.root, env: plain.env }), {
+      env: plain.env,
+      home: plain.home,
+    }).failed,
+    undefined,
+  );
   const none = plan(plain.proj, { home: plain.home, root: plain.root, env: plain.env, channel: "npm" });
-  assert.ok(!none.items.some((i) => i.kind === "binding" || i.surface === "plugin_others"), JSON.stringify(none.items.map(publicItem)));
+  assert.ok(
+    !none.items.some((i) => i.kind === "binding" || i.surface === "plugin_others"),
+    JSON.stringify(none.items.map(publicItem)),
+  );
 
   // Unbound: the switch and the mark are both planned; the switch row says
   // when it is recorded; at apply the mark is skipped and no binding appears.
@@ -1141,10 +1641,17 @@ test("converge criterion 'The adoption, and an unbound project': an earlier swit
   assert.ok(renderPreview(u).includes(`\n      ${sw.reason}\n`), "in the default view");
   const done = apply(u, { env: ub.env, home: ub.home });
   assert.equal(done.failed, undefined, JSON.stringify(done));
-  assert.deepEqual([done.at(-1).surface, done.at(-1).action, done.at(-1).reason], ["channel_switch", "skipped", "the project is not bound; the switch is recorded once it is"]);
+  assert.deepEqual(
+    [done.at(-1).surface, done.at(-1).action, done.at(-1).reason],
+    ["channel_switch", "skipped", "the project is not bound; the switch is recorded once it is"],
+  );
   assert.ok(!existsSync(layoutPaths(ub.proj).binding), "no binding is created");
   assert.equal(ub.local().enabledPlugins[GIT], false, "the switch itself applied");
-  assert.deepEqual(writesOf(plan(ub.proj, { home: ub.home, root: ub.root, env: ub.env, channel: "npm" })), [], "a second plan is zero-change");
+  assert.deepEqual(
+    writesOf(plan(ub.proj, { home: ub.home, root: ub.root, env: ub.env, channel: "npm" })),
+    [],
+    "a second plan is zero-change",
+  );
 
   // A binding written between plan and apply (the bind row's place): the mark merges into it.
   const late = sandbox();
@@ -1172,7 +1679,11 @@ test("converge criterion 'The mark on a legacy layout': the preview names the mo
   assert.ok(p.items.some((i) => i.surface === "plugin_others" && i.action === "disable"));
   const mark = p.items.find((i) => i.kind === "binding");
   assert.equal(mark.path, lp.binding, "the binding where the move puts it");
-  assert.ok(renderPreview(p).includes(`edit .projectstore/projectstore.json  [channel_switch] → by "setup", at the time of apply`));
+  assert.ok(
+    renderPreview(p).includes(
+      `edit .projectstore/projectstore.json  [channel_switch] → by "setup", at the time of apply`,
+    ),
+  );
   const done = apply(p, { env, home });
   assert.equal(done.failed, undefined, JSON.stringify(done));
   assert.ok(!existsSync(lp.legacy.binding), "the legacy binding is not re-created");
@@ -1181,7 +1692,11 @@ test("converge criterion 'The mark on a legacy layout': the preview names the mo
   assert.match(moved.channel_switch.at, ISO_TIME);
   const { agents, ...rest } = legacyBefore;
   assert.ok(agents, "the fixture's legacy binding carried an agents block");
-  assert.deepEqual(Object.keys(moved), [...Object.keys(rest), "channel_switch"], "every key the move kept, then the mark");
+  assert.deepEqual(
+    Object.keys(moved),
+    [...Object.keys(rest), "channel_switch"],
+    "every key the move kept, then the mark",
+  );
 });
 
 test("converge criterion 'No git copy': channel git with the git copy held off by this checkout and no npm row refuses before the question, plans nothing, and names /plugin enable and the way back, each command alone on its line", async () => {
@@ -1193,13 +1708,16 @@ test("converge criterion 'No git copy': channel git with the git copy held off b
   const p = plan(proj, { home, root: sb.root, env: sb.env, channel: "git" });
   assert.equal(p.ok, false);
   assert.deepEqual(p.items, [], "nothing is planned");
-  assert.equal(p.refusals[0], [
-    "no git-marketplace copy of projectstore is enabled for this project, so there is none to keep. Nothing is written.",
-    `This checkout's local settings hold ${GIT} off. To load it again, run this in ${SRC.display_name}:`,
-    `/plugin enable ${GIT}`,
-    "The way back from an earlier switch to the npm install is its uninstall, from a terminal in this project:",
-    back,
-  ].join("\n"));
+  assert.equal(
+    p.refusals[0],
+    [
+      "no git-marketplace copy of projectstore is enabled for this project, so there is none to keep. Nothing is written.",
+      `This checkout's local settings hold ${GIT} off. To load it again, run this in ${SRC.display_name}:`,
+      `/plugin enable ${GIT}`,
+      "The way back from an earlier switch to the npm install is its uninstall, from a terminal in this project:",
+      back,
+    ].join("\n"),
+  );
   assert.ok(!Object.keys(p).includes("refusalAdvice"), "the drawn form stays off the envelope");
   // Through the verb: refused before the question; each command alone on its line.
   const s = await convergeRun(sb, sb.root, { channel: "git" });
@@ -1215,7 +1733,10 @@ test("converge criterion 'No git copy': channel git with the git copy held off b
   // No copy of ours held off, and none installed: only the way back.
   writeFileSync(paths.projectSettings, "{}\n");
   writeRegistry(home, []);
-  assert.deepEqual(plan(proj, { home, root: sb.root, env: sb.env, channel: "git" }).refusals[0].split("\n").slice(1), ["The way back from an earlier switch to the npm install is its uninstall, from a terminal in this project:", back]);
+  assert.deepEqual(plan(proj, { home, root: sb.root, env: sb.env, channel: "git" }).refusals[0].split("\n").slice(1), [
+    "The way back from an earlier switch to the npm install is its uninstall, from a terminal in this project:",
+    back,
+  ]);
   // An unknown channel is a refusal too.
   assert.match(plan(proj, { home, root: sb.root, env: sb.env, channel: "svn" }).refusals[0], /^unknown channel: svn/);
 });
@@ -1229,8 +1750,16 @@ test("converge criterion 'The way back': uninstall --surface plugin on the switc
   assert.ok(before.channel_switch);
   const un = plan(proj, { home, root, env, mode: "uninstall", surfaces: ["plugin"] });
   const u = sb.item(un, "plugin");
-  assert.deepEqual(u.steps.map((s) => s.kind === "host" ? s.name : s.kind), ["uninstall", "marketplace_remove", "enable", "unmark", "remove"]);
-  assert.deepEqual(publicItem(u).steps[3], { kind: "unmark", path: layoutPaths(proj).binding, key: "channel_switch", why: u.steps[3].why });
+  assert.deepEqual(
+    u.steps.map((s) => (s.kind === "host" ? s.name : s.kind)),
+    ["uninstall", "marketplace_remove", "enable", "unmark", "remove"],
+  );
+  assert.deepEqual(publicItem(u).steps[3], {
+    kind: "unmark",
+    path: layoutPaths(proj).binding,
+    key: "channel_switch",
+    why: u.steps[3].why,
+  });
   const text = renderPreview(un);
   assert.ok(text.includes(`$ ${S.cli.bin} plugin enable ${GIT} --scope local`), text);
   assert.ok(text.includes("edit .projectstore/projectstore.json  [channel_switch] → removed"), text);
@@ -1245,8 +1774,20 @@ test("converge criterion 'The way back': uninstall --surface plugin on the switc
   // A binding with no mark: no unmark step.
   const plainSb = sandbox();
   withGitCopy(plainSb);
-  assert.equal(apply(plan(plainSb.proj, { home: plainSb.home, root: plainSb.root, env: plainSb.env }), { env: plainSb.env, home: plainSb.home }).failed, undefined);
-  const plainUn = plan(plainSb.proj, { home: plainSb.home, root: plainSb.root, env: plainSb.env, mode: "uninstall", surfaces: ["plugin"] });
+  assert.equal(
+    apply(plan(plainSb.proj, { home: plainSb.home, root: plainSb.root, env: plainSb.env }), {
+      env: plainSb.env,
+      home: plainSb.home,
+    }).failed,
+    undefined,
+  );
+  const plainUn = plan(plainSb.proj, {
+    home: plainSb.home,
+    root: plainSb.root,
+    env: plainSb.env,
+    mode: "uninstall",
+    surfaces: ["plugin"],
+  });
   assert.ok(!plainSb.item(plainUn, "plugin").steps.some((s) => s.kind === "unmark"));
 });
 
@@ -1260,7 +1801,13 @@ test("converge criterion 'The way back': uninstall --surface plugin on the switc
 
 // Two writes the stub's plan lists while their files are missing.
 const STUB_WRITES = [
-  { surface: "statusline_launcher", kind: "exclusive", action: "create", file: join(".projectstore", "stub-launcher.mjs"), body: "// written by the stub copy\n" },
+  {
+    surface: "statusline_launcher",
+    kind: "exclusive",
+    action: "create",
+    file: join(".projectstore", "stub-launcher.mjs"),
+    body: "// written by the stub copy\n",
+  },
   { surface: "statusline", kind: "shared", action: "create", file: join(CFG_DIR, "stub-settings.json"), body: "{}\n" },
 ];
 // The git copy, a stub at `version` unless `copy` makes another, enabled at
@@ -1277,13 +1824,47 @@ async function keepRun(sb, { answer = "n", json = false, extra = {}, surfaces = 
   const env = sb.host.env({ HOME: sb.home, ...extra });
   const chunks = [];
   let asked = false;
-  const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
-  const r = await runVerb("upgrade", sb.proj, { harnesses: [SRC.id], home: sb.home, root: sb.root, env, channel: "git", surfaces, cwd: sb.proj, ...(json ? { json: true } : { out, ask: async () => { asked = true; return answer; } }) });
+  const out = {
+    isTTY: false,
+    write: (s) => {
+      chunks.push(String(s));
+      return true;
+    },
+  };
+  const r = await runVerb("upgrade", sb.proj, {
+    harnesses: [SRC.id],
+    home: sb.home,
+    root: sb.root,
+    env,
+    channel: "git",
+    surfaces,
+    cwd: sb.proj,
+    ...(json
+      ? { json: true }
+      : {
+          out,
+          ask: async () => {
+            asked = true;
+            return answer;
+          },
+        }),
+  });
   return { r, text: chunks.join(""), asked };
 }
 const keepItem = (p) => p.items.find((i) => i.kind === "channel");
-const stubArgv = (copy, proj, verb) => [process.execPath, join(copy, "bin", "projectstore.mjs"), verb, "--harness", SRC.id, "--no-register", "--json", "--project", proj];
-const KEPT = (v) => `this project keeps ${GIT} ${v} from the git marketplace, and that copy writes its own ${SRC.display_name} surfaces here — no registration changes`;
+const stubArgv = (copy, proj, verb) => [
+  process.execPath,
+  join(copy, "bin", "projectstore.mjs"),
+  verb,
+  "--harness",
+  SRC.id,
+  "--no-register",
+  "--json",
+  "--project",
+  proj,
+];
+const KEPT = (v) =>
+  `this project keeps ${GIT} ${v} from the git marketplace, and that copy writes its own ${SRC.display_name} surfaces here — no registration changes`;
 const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 test("converge criterion 'The keep': channel git plans one channel item for Claude Code — the copy's own upgrade, its argv exact and its touches the copy's planned writes — and no row of its own; apply spawns the copy once, as a host command, and a re-run is zero-change", async () => {
@@ -1296,19 +1877,38 @@ test("converge criterion 'The keep': channel git plans one channel item for Clau
   // Claude Code's rows: the run's block, then the keep — no registration, no
   // switch, no status line, no launcher, no host-managed report.
   const mine = p.items.filter((i) => i.harness === SRC.id);
-  assert.deepEqual(mine.map((i) => [i.kind, i.surface, i.action]), [["shared", "agents_block", "add"], ["channel", "channel", "update"]]);
+  assert.deepEqual(
+    mine.map((i) => [i.kind, i.surface, i.action]),
+    [
+      ["shared", "agents_block", "add"],
+      ["channel", "channel", "update"],
+    ],
+  );
   assert.deepEqual(p.reports, [], "no host-managed report");
   const keep = keepItem(p);
   assert.equal(keep.entry, GIT);
-  assert.deepEqual(keep.steps.map((st) => [st.kind, st.name]), [["host", "keep"]]);
-  assert.deepEqual(keep.steps[0].argv, stubArgv(copy, proj, "upgrade"), "the layout remedy's form, plus --json, from the Node that runs us");
+  assert.deepEqual(
+    keep.steps.map((st) => [st.kind, st.name]),
+    [["host", "keep"]],
+  );
+  assert.deepEqual(
+    keep.steps[0].argv,
+    stubArgv(copy, proj, "upgrade"),
+    "the layout remedy's form, plus --json, from the Node that runs us",
+  );
   assert.ok(!keep.steps[0].argv.includes("--surface"), "never --surface: it would opt a status line in");
-  assert.deepEqual(keep.steps[0].touches, STUB_WRITES.map((w) => ({ surface: w.surface, action: w.action, path: join(proj, w.file) })));
+  assert.deepEqual(
+    keep.steps[0].touches,
+    STUB_WRITES.map((w) => ({ surface: w.surface, action: w.action, path: join(proj, w.file) })),
+  );
   assert.equal(keep.reason, KEPT("0.29.0"));
   // The copy's own plan was read once, through its bin, from the project, with
   // its root as the plugin root and the harness home pinned.
   const calls = stubCalls(copy);
-  assert.deepEqual(calls.map((c) => c.argv), [stubArgv(copy, proj, "plan").slice(2)]);
+  assert.deepEqual(
+    calls.map((c) => c.argv),
+    [stubArgv(copy, proj, "plan").slice(2)],
+  );
   assert.equal(calls[0].cwd, proj);
   assert.equal(calls[0].pluginRoot, copy);
   assert.equal(calls[0].home, join(sb.home, SRC.runtime.home_default));
@@ -1333,7 +1933,14 @@ test("converge criterion 'The keep': channel git plans one channel item for Clau
   assert.deepEqual(host.log(), [], "no host call");
   for (const w of STUB_WRITES) assert.equal(readFileSync(join(proj, w.file), "utf8"), w.body);
   const record = y.r.applied.find((a) => a.surface === "channel");
-  assert.deepEqual(record.steps.map((st) => [st.kind, st.ok]), [["host", true], ["kept", true], ["kept", true]]);
+  assert.deepEqual(
+    record.steps.map((st) => [st.kind, st.ok]),
+    [
+      ["host", true],
+      ["kept", true],
+      ["kept", true],
+    ],
+  );
   assert.ok(y.text.includes(`↻ updating ${GIT}\n`), y.text);
   assert.ok(y.text.includes(`$ node ${stubArgv(copy, proj, "upgrade").slice(1).join(" ")}`), y.text);
   for (const w of STUB_WRITES) assert.match(y.text, new RegExp(`✓ added ${reEscape(w.file)}\\b`), y.text);
@@ -1358,7 +1965,11 @@ test("converge criterion 'The keep': channel git plans one channel item for Clau
   assert.equal(keepItem(again.r.plan), undefined);
   assert.deepEqual(writesOf(again.r.plan), []);
   assert.ok(again.text.includes("\n  Nothing to change.\n"), again.text);
-  assert.equal(stubCalls(copy).filter((c) => c.argv[0] === "upgrade").length, 1, "and the copy's upgrade is not run again");
+  assert.equal(
+    stubCalls(copy).filter((c) => c.argv[0] === "upgrade").length,
+    1,
+    "and the copy's upgrade is not run again",
+  );
 });
 
 test("converge criterion 'The keep': a legacy layout plans no layout item and no cleanup; a real copy (this tree) moves it itself, and with statusline.enabled unset no statusLine entry is written", async () => {
@@ -1369,9 +1980,21 @@ test("converge criterion 'The keep': a legacy layout plans no layout item and no
   writeRegistry(home, [{ scope: "user", installPath: copy, version: "0.29.0", lastUpdated: "2026-10-01T00:00:00Z" }]);
   const host = fakeClaude(tmp("ps-reg-keep-legacy-bin-"));
   const root = fakePackageRoot(join(tmp("ps-reg-keep-legacy-npx-"), "node_modules", "projectstore"), "0.30.0");
-  const r = await runVerb("upgrade", proj, { harnesses: [SRC.id], home, root, env: host.env({ HOME: home }), channel: "git", out: { isTTY: false, write: () => true }, ask: async () => "n" });
+  const r = await runVerb("upgrade", proj, {
+    harnesses: [SRC.id],
+    home,
+    root,
+    env: host.env({ HOME: home }),
+    channel: "git",
+    out: { isTTY: false, write: () => true },
+    ask: async () => "n",
+  });
   assert.equal(r.plan.ok, true, JSON.stringify(r.plan.refusals));
-  assert.deepEqual(r.plan.items.filter((i) => i.kind === "layout"), [], "no layout item, no cleanup");
+  assert.deepEqual(
+    r.plan.items.filter((i) => i.kind === "layout"),
+    [],
+    "no layout item, no cleanup",
+  );
   assert.equal(keepItem(r.plan).action, "update");
   assert.ok(existsSync(lp.legacy.binding), "nothing moved");
 
@@ -1387,8 +2010,14 @@ test("converge criterion 'The keep': a legacy layout plans no layout item and no
   assert.equal(s.r.plan.ok, true, JSON.stringify(s.r.plan.refusals));
   const keep = keepItem(s.r.plan);
   assert.ok(keep && keep.action === "update", JSON.stringify(s.r.plan.items.map(publicItem), null, 2));
-  assert.ok(keep.steps[0].touches.some((t) => t.surface === "layout"), "the move is the copy's");
-  assert.ok(!keep.steps[0].touches.some((t) => t.surface.startsWith("agents_block")), "the block rows are dropped: this run's block item writes it");
+  assert.ok(
+    keep.steps[0].touches.some((t) => t.surface === "layout"),
+    "the move is the copy's",
+  );
+  assert.ok(
+    !keep.steps[0].touches.some((t) => t.surface.startsWith("agents_block")),
+    "the block rows are dropped: this run's block item writes it",
+  );
   assert.equal(s.r.failed, null, `${JSON.stringify(s.r.failed)}\n${s.text}`);
   assert.ok(!existsSync(legacy), "the copy moved the binding");
   assert.ok(existsSync(layoutPaths(sb.proj).binding));
@@ -1400,7 +2029,11 @@ test("converge criterion 'The keep': a legacy layout plans no layout item and no
 test("converge criterion 'The keep': this checkout's npm row enabled beside the kept copy stays — the plan says so, DONE names its uninstall, no removal is planned — and the npm registration's copy is never the one kept", async () => {
   const sb = sandbox({ version: "0.30.0", statusline: false });
   const { home, proj, root, host, paths } = sb;
-  assert.equal(apply(plan(proj, { home, root, env: sb.env }), { env: sb.env, home }).failed, undefined, "the npm registration, for this checkout");
+  assert.equal(
+    apply(plan(proj, { home, root, env: sb.env }), { env: sb.env, home }).failed,
+    undefined,
+    "the npm registration, for this checkout",
+  );
   host.reset();
   const copy = stubCopy(home, "0.29.0", { writes: STUB_WRITES });
   const reg = sb.registry();
@@ -1410,9 +2043,19 @@ test("converge criterion 'The keep': this checkout's npm row enabled beside the 
   const s = await keepRun(k);
   const keep = keepItem(s.r.plan);
   assert.equal(keep.entry, GIT, "the git copy is kept, never the npm registration's own");
-  assert.ok(!s.r.plan.items.some((i) => i.action === "remove" || i.kind === "registration"), "no removal, no registration row");
+  assert.ok(
+    !s.r.plan.items.some((i) => i.action === "remove" || i.kind === "registration"),
+    "no removal, no registration row",
+  );
   const back = `npx projectstore uninstall --harness ${SRC.id} --surface plugin`;
-  assert.equal(keep.reason, [KEPT("0.29.0"), `This checkout's npm registration (${ID}) stays enabled beside the kept copy. To drop it, from a terminal in this project:`, back].join("\n"));
+  assert.equal(
+    keep.reason,
+    [
+      KEPT("0.29.0"),
+      `This checkout's npm registration (${ID}) stays enabled beside the kept copy. To drop it, from a terminal in this project:`,
+      back,
+    ].join("\n"),
+  );
   assert.ok(s.text.includes(`\n          ${back}\n`), s.text);
   const y = await keepRun(k, { answer: "y" });
   assert.equal(y.r.failed, null, JSON.stringify(y.r.failed));
@@ -1424,11 +2067,16 @@ test("converge criterion 'The keep': this checkout's npm row enabled beside the 
 });
 
 test("converge criterion 'The keep', the other cases: no bin or no --no-register gives no step and DONE's advice; no envelope names the copy's own upgrade; a refusal refuses before the question; incomplete still steps; inside a session it defers; a failed upgrade is STOPPED", async () => {
-  const ADVICE = (v, cannot) => `This project's projectstore plugin (${v}) ${cannot}: update it first (in ${SRC.display_name}: /plugin marketplace update, then /plugin update, then restart), then run this again`;
+  const ADVICE = (v, cannot) =>
+    `This project's projectstore plugin (${v}) ${cannot}: update it first (in ${SRC.display_name}: /plugin marketplace update, then /plugin update, then restart), then run this again`;
   // A copy without bin/projectstore.mjs, and one whose CLI lacks "no-register".
   for (const [what, make, cannot] of [
     ["no bin", (h, v) => fakeInstall(h, v), "predates the move and cannot write this project's surfaces itself"],
-    ["no --no-register", (h, v) => preFlagInstall(h, v), "predates --no-register and cannot write this project's surfaces without registering"],
+    [
+      "no --no-register",
+      (h, v) => preFlagInstall(h, v),
+      "predates --no-register and cannot write this project's surfaces without registering",
+    ],
   ]) {
     const sb = keepSandbox({ version: "0.28.0-rc.2", copy: make });
     const s = await keepRun(sb, { answer: "y" });
@@ -1437,16 +2085,26 @@ test("converge criterion 'The keep', the other cases: no bin or no --no-register
     assert.equal(keep.reason, ADVICE("0.28.0-rc.2", cannot), what);
     assert.equal(s.r.plan.incomplete, true, what);
     const done = s.text.slice(s.text.indexOf("\nDone"));
-    assert.ok(done.includes("\nNext\n") && done.replace(/\n\s*/g, " ").includes(ADVICE("0.28.0-rc.2", cannot)), `${what}: DONE's next names the advice\n${s.text}`);
+    assert.ok(
+      done.includes("\nNext\n") && done.replace(/\n\s*/g, " ").includes(ADVICE("0.28.0-rc.2", cannot)),
+      `${what}: DONE's next names the advice\n${s.text}`,
+    );
     assert.deepEqual(stubCalls(sb.copy), [], `${what}: nothing of the copy runs`);
   }
 
   // A plan that prints no envelope: no step; DONE names the copy's own upgrade, alone on its line.
-  const quiet = keepSandbox({ spec: { writes: STUB_WRITES, plan: { print: false, exit: 3, stderr: "stub: cannot plan\n" } } });
+  const quiet = keepSandbox({
+    spec: { writes: STUB_WRITES, plan: { print: false, exit: 3, stderr: "stub: cannot plan\n" } },
+  });
   const q = await keepRun(quiet, { answer: "y" });
   const own = `node "${join(quiet.copy, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register`;
   assert.deepEqual([keepItem(q.r.plan).action, keepItem(q.r.plan).steps], ["skip", undefined]);
-  assert.ok(keepItem(q.r.plan).reason.startsWith(`${GIT} 0.29.0's own plan printed no result to read (it exited 3: stub: cannot plan), so nothing is planned for it.\n`), keepItem(q.r.plan).reason);
+  assert.ok(
+    keepItem(q.r.plan).reason.startsWith(
+      `${GIT} 0.29.0's own plan printed no result to read (it exited 3: stub: cannot plan), so nothing is planned for it.\n`,
+    ),
+    keepItem(q.r.plan).reason,
+  );
   const qd = q.text.slice(q.text.indexOf("\nDone")).split("\n");
   assert.ok(qd.indexOf(`    ${own}`) > 0 && qd[qd.indexOf(`    ${own}`) - 1] === "", q.text);
   assert.ok(!stubCalls(quiet.copy).some((c) => c.argv[0] === "upgrade"), "never run unpreviewed");
@@ -1473,7 +2131,9 @@ test("converge criterion 'The keep', the other cases: no bin or no --no-register
   // incomplete leaves ours incomplete, not STOPPED; an item the preview did
   // not list says so.
   const extra = { surface: "statusline", action: "update", file: join(CFG_DIR, "stub-extra.json"), body: "{}\n" };
-  const part = keepSandbox({ spec: { writes: STUB_WRITES, plan: { incomplete: true }, upgrade: { incomplete: true, extra: [extra] } } });
+  const part = keepSandbox({
+    spec: { writes: STUB_WRITES, plan: { incomplete: true }, upgrade: { incomplete: true, extra: [extra] } },
+  });
   const pp = await keepRun(part, { answer: "y" });
   assert.equal(keepItem(pp.r.plan).action, "update");
   assert.equal(pp.r.failed, null);
@@ -1487,10 +2147,24 @@ test("converge criterion 'The keep', the other cases: no bin or no --no-register
   assert.deepEqual([lk.action, lk.deferred], ["skip", true]);
   assert.ok(lk.reason.includes(`inside a ${SRC.display_name} session`), lk.reason);
   assert.equal(l.r.plan.incomplete, true);
-  assert.deepEqual(stubCalls(live.copy).map((c) => c.argv[0]), ["plan"], "its plan is read, its upgrade never spawned");
+  assert.deepEqual(
+    stubCalls(live.copy).map((c) => c.argv[0]),
+    ["plan"],
+    "its plan is read, its upgrade never spawned",
+  );
 
   // An upgrade that exits 1 with ok false: STOPPED, with the argv, the status and stderr.
-  const bad = keepSandbox({ spec: { writes: STUB_WRITES, upgrade: { ok: false, failed: { step: "write", status: null, stderr: "stub: disk full" }, exit: 1, stderr: "stub went wrong\n" } } });
+  const bad = keepSandbox({
+    spec: {
+      writes: STUB_WRITES,
+      upgrade: {
+        ok: false,
+        failed: { step: "write", status: null, stderr: "stub: disk full" },
+        exit: 1,
+        stderr: "stub went wrong\n",
+      },
+    },
+  });
   const b = await keepRun(bad, { answer: "y" });
   assert.equal(b.r.failed.step, "keep");
   assert.equal(b.r.failed.status, 1);
@@ -1498,7 +2172,8 @@ test("converge criterion 'The keep', the other cases: no bin or no --no-register
   const stopped = b.text.slice(b.text.indexOf("\nStopped"));
   assert.match(stopped, /^\nStopped — 1 change applied, then a host command failed\n/, b.text);
   assert.ok(stopped.includes(`$ ${stubArgv(bad.copy, bad.proj, "upgrade").join(" ")} exited 1\n`), stopped);
-  for (const said of ["stub went wrong", `${GIT} stopped at write`, "stub: disk full"]) assert.ok(stopped.includes(said), `${said}\n${stopped}`);
+  for (const said of ["stub went wrong", `${GIT} stopped at write`, "stub: disk full"])
+    assert.ok(stopped.includes(said), `${said}\n${stopped}`);
   assert.deepEqual(bad.host.log(), []);
 
   // A run narrowed by --surface: one skip row for Claude Code, saying the
@@ -1506,8 +2181,14 @@ test("converge criterion 'The keep', the other cases: no bin or no --no-register
   const narrow = keepSandbox();
   const nr = await keepRun(narrow, { answer: "y", surfaces: ["statusline"] });
   const nk = nr.r.plan.items.filter((i) => i.harness === SRC.id);
-  assert.deepEqual(nk.map((i) => [i.kind, i.action, i.deferred]), [["channel", "skip", undefined]]);
-  assert.equal(nk[0].reason, `${KEPT("0.29.0")}; ${GIT} 0.29.0's own upgrade takes no --surface, so a run narrowed by --surface leaves these surfaces to it — run without --surface to converge them`);
+  assert.deepEqual(
+    nk.map((i) => [i.kind, i.action, i.deferred]),
+    [["channel", "skip", undefined]],
+  );
+  assert.equal(
+    nk[0].reason,
+    `${KEPT("0.29.0")}; ${GIT} 0.29.0's own upgrade takes no --surface, so a run narrowed by --surface leaves these surfaces to it — run without --surface to converge them`,
+  );
   assert.ok(nr.text.includes(nk[0].reason), nr.text);
   assert.deepEqual(stubCalls(narrow.copy), []);
 
@@ -1517,8 +2198,12 @@ test("converge criterion 'The keep', the other cases: no bin or no --no-register
   // work pending. Settled first, so nothing else of this run writes.
   const pend = keepSandbox({ spec: { writes: [] } });
   assert.equal((await keepRun(pend, { answer: "y" })).r.failed, null);
-  const deferral = "the layout migration moves files this Claude Code session reads and writes — run it from a terminal outside the session";
-  writeFileSync(join(pend.copy, "stub.json"), JSON.stringify({ writes: [], plan: { incomplete: true, deferred: [{ surface: "layout", reason: deferral }] } }));
+  const deferral =
+    "the layout migration moves files this Claude Code session reads and writes — run it from a terminal outside the session";
+  writeFileSync(
+    join(pend.copy, "stub.json"),
+    JSON.stringify({ writes: [], plan: { incomplete: true, deferred: [{ surface: "layout", reason: deferral }] } }),
+  );
   const pd = await keepRun(pend);
   const pk = keepItem(pd.r.plan);
   assert.deepEqual([pk.action, pk.deferred, pk.steps], ["skip", true, undefined]);
@@ -1549,21 +2234,55 @@ test("setup engine 'The keep's record': runVerb('setup') under the channel git p
   const env = sb.host.env({ HOME: home });
   const run = async (verb, answer) => {
     const chunks = [];
-    const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
-    const r = await runVerb(verb, proj, { harnesses: [SRC.id], home, root, env, channel: "git", cwd: proj, out, ask: async () => answer });
+    const out = {
+      isTTY: false,
+      write: (s) => {
+        chunks.push(String(s));
+        return true;
+      },
+    };
+    const r = await runVerb(verb, proj, {
+      harnesses: [SRC.id],
+      home,
+      root,
+      env,
+      channel: "git",
+      cwd: proj,
+      out,
+      ask: async () => answer,
+    });
     return { r, text: chunks.join("") };
   };
   const up = await run("upgrade", "n");
-  assert.ok(!up.r.plan.items.some((i) => i.kind === "binding" || i.kind === "state"), "upgrade records no keep and plans no state directory");
+  assert.ok(
+    !up.r.plan.items.some((i) => i.kind === "binding" || i.kind === "state"),
+    "upgrade records no keep and plans no state directory",
+  );
   const s = await run("setup", "n");
   assert.equal(s.r.plan.ok, true, JSON.stringify(s.r.plan.refusals));
   assert.ok(s.text.startsWith(`projectstore setup · ${SRC.display_name}\n`), s.text);
   const mine = s.r.plan.items.filter((i) => i.harness === SRC.id);
-  assert.deepEqual(mine.map((i) => [i.kind, i.surface, i.action]), [["shared", "agents_block", "add"], ["channel", "channel", "update"], ["state", "harness_state", "create"], ["binding", "channel_keep", "add"]]);
+  assert.deepEqual(
+    mine.map((i) => [i.kind, i.surface, i.action]),
+    [
+      ["shared", "agents_block", "add"],
+      ["channel", "channel", "update"],
+      ["state", "harness_state", "create"],
+      ["binding", "channel_keep", "add"],
+    ],
+  );
   const rec = mine.at(-1);
   assert.deepEqual([rec.entry, rec.state, rec.path], ["channel_keep", "absent", layoutPaths(proj).binding]);
-  assert.deepEqual(publicItem(rec).steps.map(({ why, ...st }) => st), [{ kind: "mark", path: layoutPaths(proj).binding, key: "channel_keep" }]);
-  assert.ok(s.text.includes(`\n      edit .projectstore/projectstore.json  [channel_keep] → by "setup", at the time of apply\n`), s.text);
+  assert.deepEqual(
+    publicItem(rec).steps.map(({ why: _why, ...st }) => st),
+    [{ kind: "mark", path: layoutPaths(proj).binding, key: "channel_keep" }],
+  );
+  assert.ok(
+    s.text.includes(
+      `\n      edit .projectstore/projectstore.json  [channel_keep] → by "setup", at the time of apply\n`,
+    ),
+    s.text,
+  );
   const before = bindingOf(proj);
   const y = await run("setup", "y");
   assert.equal(y.r.failed, null, JSON.stringify(y.r.failed));
@@ -1574,19 +2293,46 @@ test("setup engine 'The keep's record': runVerb('setup') under the channel git p
   assert.match(after.channel_keep.at, ISO_TIME);
   assert.ok(y.text.includes("✓ edited .projectstore/projectstore.json [channel_keep]"), y.text);
   const order = y.r.applied.map((a) => a.surface);
-  assert.ok(order.indexOf("channel") >= 0 && order.indexOf("channel") < order.indexOf("channel_keep"), `the keep step first: ${order.join(", ")}`);
+  assert.ok(
+    order.indexOf("channel") >= 0 && order.indexOf("channel") < order.indexOf("channel_keep"),
+    `the keep step first: ${order.join(", ")}`,
+  );
   const again = await run("setup", "n");
   assert.deepEqual(writesOf(again.r.plan).map(publicItem), [], "zero-change after a keep");
   // Unbound, with no vault item: nothing to record it in. With one: recorded in the binding it writes.
   const ub = keepSandbox();
   rmSync(layoutPaths(ub.proj).binding);
   const uenv = ub.host.env({ HOME: ub.home });
-  const bare = plan(ub.proj, { harnesses: [SRC.id], home: ub.home, root: ub.root, env: uenv, channel: "git", recordKeep: true });
+  const bare = plan(ub.proj, {
+    harnesses: [SRC.id],
+    home: ub.home,
+    root: ub.root,
+    env: uenv,
+    channel: "git",
+    recordKeep: true,
+  });
   assert.ok(!bare.items.some((i) => i.kind === "binding"), JSON.stringify(bare.items.map(publicItem)));
-  const vault = planBind(ub.proj, { vault: join(tmp("ps-reg-keep-vault-"), "v"), init: true, env: uenv, home: ub.home, root: ROOT });
+  const vault = planBind(ub.proj, {
+    vault: join(tmp("ps-reg-keep-vault-"), "v"),
+    init: true,
+    env: uenv,
+    home: ub.home,
+    root: ROOT,
+  });
   assert.equal(vault.ok, true, JSON.stringify(vault.refusals));
-  const withVault = plan(ub.proj, { harnesses: [SRC.id], home: ub.home, root: ub.root, env: uenv, channel: "git", recordKeep: true, vault });
-  assert.deepEqual([withVault.items[0].kind, withVault.items.at(-1).surface, withVault.items.at(-1).path], ["vault", "channel_keep", vault.configPath]);
+  const withVault = plan(ub.proj, {
+    harnesses: [SRC.id],
+    home: ub.home,
+    root: ub.root,
+    env: uenv,
+    channel: "git",
+    recordKeep: true,
+    vault,
+  });
+  assert.deepEqual(
+    [withVault.items[0].kind, withVault.items.at(-1).surface, withVault.items.at(-1).path],
+    ["vault", "channel_keep", vault.configPath],
+  );
 });
 
 test("setup engine 'A later switch': channel npm on a binding that carries channel_keep plans the mark and the keep's removal in one binding item; apply records the switch, removes the keep and keeps every other key; a re-run is zero-change", () => {
@@ -1598,19 +2344,32 @@ test("setup engine 'A later switch': channel npm on a binding that carries chann
   const p = plan(proj, { home, root, env, channel: "npm" });
   assert.equal(p.ok, true, JSON.stringify(p.refusals));
   const mark = sb.item(p, "channel_switch");
-  assert.deepEqual(mark.steps.map((st) => [st.kind, st.key]), [["mark", "channel_switch"], ["unmark", "channel_keep"]]);
+  assert.deepEqual(
+    mark.steps.map((st) => [st.kind, st.key]),
+    [
+      ["mark", "channel_switch"],
+      ["unmark", "channel_keep"],
+    ],
+  );
   assert.equal(p.items.filter((i) => i.kind === "binding").length, 1, "one item");
   assert.equal(p.items.filter((i) => i.harness === SRC.id).at(-1), mark, "the mark stays last");
   const text = renderPreview(p);
-  for (const l of [`edit .projectstore/projectstore.json  [channel_switch] → by "setup", at the time of apply`, "edit .projectstore/projectstore.json  [channel_keep] → removed"]) assert.ok(text.includes(`\n      ${l}\n`), `${l}\n${text}`);
+  for (const l of [
+    `edit .projectstore/projectstore.json  [channel_switch] → by "setup", at the time of apply`,
+    "edit .projectstore/projectstore.json  [channel_keep] → removed",
+  ])
+    assert.ok(text.includes(`\n      ${l}\n`), `${l}\n${text}`);
   const done = apply(p, { env, home });
   assert.equal(done.failed, undefined, JSON.stringify(done));
-  assert.deepEqual(done.find((d) => d.surface === "channel_switch").steps, [{ kind: "mark", path: layoutPaths(proj).binding, ok: true }, { kind: "unmark", path: layoutPaths(proj).binding, ok: true }]);
+  assert.deepEqual(done.find((d) => d.surface === "channel_switch").steps, [
+    { kind: "mark", path: layoutPaths(proj).binding, ok: true },
+    { kind: "unmark", path: layoutPaths(proj).binding, ok: true },
+  ]);
   const after = bindingOf(proj);
   assert.equal(after.channel_keep, undefined, "the keep goes");
   assert.equal(after.channel_switch.by, "setup");
   assert.match(after.channel_switch.at, ISO_TIME);
-  const { channel_keep, ...rest } = kept;
+  const { channel_keep: _keep, ...rest } = kept;
   assert.deepEqual(Object.keys(after), [...Object.keys(rest), "channel_switch"]);
   for (const k of Object.keys(rest)) assert.deepEqual(after[k], rest[k], k);
   assert.deepEqual(writesOf(plan(proj, { home, root, env, channel: "npm" })), []);
@@ -1623,15 +2382,38 @@ test("setup engine 'dryRun': runVerb('setup', { dryRun }) prints PLAN and stops 
   host.reset();
   const older = fakePackageRoot(join(tmp("ps-reg-dry-"), "_npx", "0a1b", "node_modules", "projectstore"), "0.30.0");
   const before = snapshot(sb);
-  const env = sb.host.env({ PROJECTSTORE_NO_UPDATE_CHECK: "", CI: "", XDG_CACHE_HOME: join(tmp("ps-reg-xdg-"), "cache") });
+  const env = sb.host.env({
+    PROJECTSTORE_NO_UPDATE_CHECK: "",
+    CI: "",
+    XDG_CACHE_HOME: join(tmp("ps-reg-xdg-"), "cache"),
+  });
   for (const k of ["FORCE_COLOR", "TERM", "NO_COLOR", "PROJECTSTORE_ASCII"]) delete env[k];
   const go = async (extra) => {
     const reg = registryFetch({ latest: "0.31.0" });
     const npm = fakeNpmSpawn();
     const chunks = [];
     let asked = false;
-    const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
-    const r = await runVerb("setup", proj, { harnesses: [SRC.id], home, root: older, env, fetch: reg.fetch, fetchSpawn: npm.spawn, out, ask: async () => { asked = true; return "y"; }, ...extra });
+    const out = {
+      isTTY: false,
+      write: (s) => {
+        chunks.push(String(s));
+        return true;
+      },
+    };
+    const r = await runVerb("setup", proj, {
+      harnesses: [SRC.id],
+      home,
+      root: older,
+      env,
+      fetch: reg.fetch,
+      fetchSpawn: npm.spawn,
+      out,
+      ask: async () => {
+        asked = true;
+        return "y";
+      },
+      ...extra,
+    });
     return { r, reg, npm, asked, text: chunks.join("") };
   };
   const d = await go({ dryRun: true });
@@ -1659,11 +2441,26 @@ test("setup engine 'dryRun': runVerb('setup', { dryRun }) prints PLAN and stops 
   const k = keepSandbox();
   const kenv = k.host.env({ HOME: k.home });
   const claudeMd = readFileSync(join(k.proj, "CLAUDE.md"), "utf8");
-  const kr = await runVerb("setup", k.proj, { harnesses: [SRC.id], home: k.home, root: k.root, env: kenv, channel: "git", dryRun: true, out: { isTTY: false, write: () => true } });
+  const kr = await runVerb("setup", k.proj, {
+    harnesses: [SRC.id],
+    home: k.home,
+    root: k.root,
+    env: kenv,
+    channel: "git",
+    dryRun: true,
+    out: { isTTY: false, write: () => true },
+  });
   assert.deepEqual(kr.gate, { confirmed: false, why: "dry-run" });
-  assert.deepEqual(stubCalls(k.copy).map((c) => c.argv[0]), ["plan"]);
+  assert.deepEqual(
+    stubCalls(k.copy).map((c) => c.argv[0]),
+    ["plan"],
+  );
   assert.equal(keepItem(kr.plan).action, "update");
-  assert.deepEqual(keepItem(kr.plan).steps[0].touches.map((t) => t.surface), STUB_WRITES.map((w) => w.surface), "the copy's real writes");
+  assert.deepEqual(
+    keepItem(kr.plan).steps[0].touches.map((t) => t.surface),
+    STUB_WRITES.map((w) => w.surface),
+    "the copy's real writes",
+  );
   assert.equal(readFileSync(join(k.proj, "CLAUDE.md"), "utf8"), claudeMd);
   for (const w of STUB_WRITES) assert.ok(!existsSync(join(k.proj, w.file)), w.file);
   assert.equal(bindingOf(k.proj).channel_keep, undefined);
@@ -1686,26 +2483,51 @@ test("setup engine 'The latest answer wins: a switch': channel npm on a binding 
   assert.equal(p.ok, true, JSON.stringify(p.refusals));
   assert.equal(sb.item(p, "channel_switch"), undefined, "no second mark");
   const gone = sb.item(p, "channel_keep");
-  assert.deepEqual([gone.harness, gone.kind, gone.action, gone.state, gone.entry, gone.path], [SRC.id, "binding", "update", "present", "channel_keep", layoutPaths(proj).binding]);
-  assert.deepEqual(publicItem(gone).steps.map(({ why, ...st }) => st), [{ kind: "unmark", path: layoutPaths(proj).binding, key: "channel_keep" }]);
+  assert.deepEqual(
+    [gone.harness, gone.kind, gone.action, gone.state, gone.entry, gone.path],
+    [SRC.id, "binding", "update", "present", "channel_keep", layoutPaths(proj).binding],
+  );
+  assert.deepEqual(
+    publicItem(gone).steps.map(({ why: _why, ...st }) => st),
+    [{ kind: "unmark", path: layoutPaths(proj).binding, key: "channel_keep" }],
+  );
   assert.equal(p.items.filter((i) => i.kind === "binding").length, 1, "one item");
   assert.equal(p.items.filter((i) => i.harness === SRC.id).at(-1), gone, "last in its group");
-  assert.ok(renderPreview(p).includes("\n      edit .projectstore/projectstore.json  [channel_keep] → removed\n"), renderPreview(p));
+  assert.ok(
+    renderPreview(p).includes("\n      edit .projectstore/projectstore.json  [channel_keep] → removed\n"),
+    renderPreview(p),
+  );
   const done = apply(p, { env, home });
   assert.equal(done.failed, undefined, JSON.stringify(done));
-  assert.deepEqual(done.find((d) => d.surface === "channel_keep").steps, [{ kind: "unmark", path: layoutPaths(proj).binding, ok: true }]);
-  const { channel_keep, ...rest } = both;
-  assert.equal(JSON.stringify(bindingOf(proj)), JSON.stringify(rest), "the mark as it was; every other key, in its place");
+  assert.deepEqual(done.find((d) => d.surface === "channel_keep").steps, [
+    { kind: "unmark", path: layoutPaths(proj).binding, ok: true },
+  ]);
+  const { channel_keep: _keep, ...rest } = both;
+  assert.equal(
+    JSON.stringify(bindingOf(proj)),
+    JSON.stringify(rest),
+    "the mark as it was; every other key, in its place",
+  );
   assert.deepEqual(writesOf(plan(proj, { home, root, env, channel: "npm" })), []);
   // Presence is what a removal reads: a malformed keep goes too.
   const m = sandbox({ vault: true });
   withGitCopy(m);
   writeBinding(m.proj, { ...bindingOf(m.proj), channel_switch: OLD_MARK, channel_keep: true });
-  assert.deepEqual(keyedSteps(m.item(plan(m.proj, { home: m.home, root: m.root, env: m.env, channel: "npm" }), "channel_keep")), [["unmark", "channel_keep"]]);
+  assert.deepEqual(
+    keyedSteps(m.item(plan(m.proj, { home: m.home, root: m.root, env: m.env, channel: "npm" }), "channel_keep")),
+    [["unmark", "channel_keep"]],
+  );
 });
 
 test("setup engine 'The latest answer wins: a keep': the keep's record removes channel_switch — alone, as an update, when the keep is already recorded; beside the record when it is not — and keeps every other key; a channel_keep that is not lib's { by, at } is no record: it is stamped over; each re-run is zero-change", () => {
-  const opts = (k) => ({ harnesses: [SRC.id], home: k.home, root: k.root, env: k.env, channel: "git", recordKeep: true });
+  const opts = (k) => ({
+    harnesses: [SRC.id],
+    home: k.home,
+    root: k.root,
+    env: k.env,
+    channel: "git",
+    recordKeep: true,
+  });
   const bindingItems = (p) => p.items.filter((i) => i.kind === "binding");
   // Both there: the switch goes alone, the record stays as it was.
   const k = keepSandbox();
@@ -1715,20 +2537,41 @@ test("setup engine 'The latest answer wins: a keep': the keep's record removes c
   assert.equal(p.ok, true, JSON.stringify(p.refusals));
   const [gone, ...more] = bindingItems(p);
   assert.deepEqual(more, [], "one item");
-  assert.deepEqual([gone.harness, gone.surface, gone.action, gone.state, gone.entry], [SRC.id, "channel_keep", "update", "present", "channel_keep"]);
+  assert.deepEqual(
+    [gone.harness, gone.surface, gone.action, gone.state, gone.entry],
+    [SRC.id, "channel_keep", "update", "present", "channel_keep"],
+  );
   assert.deepEqual(keyedSteps(gone), [["unmark", "channel_switch"]]);
   assert.equal(p.items.filter((i) => i.harness === SRC.id).at(-1), gone, "last in its group");
-  assert.ok(renderPreview(p).includes("\n      edit .projectstore/projectstore.json  [channel_switch] → removed\n"), renderPreview(p));
+  assert.ok(
+    renderPreview(p).includes("\n      edit .projectstore/projectstore.json  [channel_switch] → removed\n"),
+    renderPreview(p),
+  );
   assert.equal(apply(p, { env: k.env, home: k.home }).failed, undefined);
-  const { channel_switch, ...rest } = both;
-  assert.equal(JSON.stringify(bindingOf(k.proj)), JSON.stringify(rest), "the keep as it was; every other key, in its place");
+  const { channel_switch: _switch, ...rest } = both;
+  assert.equal(
+    JSON.stringify(bindingOf(k.proj)),
+    JSON.stringify(rest),
+    "the keep as it was; every other key, in its place",
+  );
   assert.deepEqual(bindingItems(plan(k.proj, opts(k))), [], "zero-change");
   // The switch alone: the keep recorded and the switch removed, in one item.
   const s = keepSandbox();
   writeBinding(s.proj, { ...bindingOf(s.proj), channel_switch: OLD_MARK });
   const sp = plan(s.proj, opts(s));
   const [rec] = bindingItems(sp);
-  assert.deepEqual([rec.surface, rec.action, rec.state, keyedSteps(rec)], ["channel_keep", "add", "absent", [["mark", "channel_keep"], ["unmark", "channel_switch"]]]);
+  assert.deepEqual(
+    [rec.surface, rec.action, rec.state, keyedSteps(rec)],
+    [
+      "channel_keep",
+      "add",
+      "absent",
+      [
+        ["mark", "channel_keep"],
+        ["unmark", "channel_switch"],
+      ],
+    ],
+  );
   assert.equal(apply(sp, { env: s.env, home: s.home }).failed, undefined);
   const after = bindingOf(s.proj);
   assert.equal(after.channel_switch, undefined, "the switch goes");

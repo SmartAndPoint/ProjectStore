@@ -72,7 +72,11 @@ export function parseFrontmatter(md) {
     else if (v.startsWith('"') && v.endsWith('"')) {
       // JSON.parse round-trips escaped scalars from renderTemplate's _json
       // form (titles containing quotes); fall back to the bare strip.
-      try { v = JSON.parse(v); } catch { v = v.slice(1, -1); }
+      try {
+        v = JSON.parse(v);
+      } catch {
+        v = v.slice(1, -1);
+      }
     }
     data[kv[1]] = v;
   }

@@ -54,7 +54,8 @@ import {
   slugify,
   findSlugCollision,
   displayNumberOf,
-  today, isMain,
+  today,
+  isMain,
   commandForm,
 } from "./lib.mjs";
 
@@ -117,7 +118,9 @@ function scanCollision(dir, fileName, opts) {
 
 function digitLeadingWarnings(slug) {
   return /^\d/.test(slug)
-    ? [`Slug "${slug}" is digit-leading — the filename visually resembles a numbered-era artifact. Machine resolution keys on id:, so this is safe, but a word-leading title avoids the ambiguity.`]
+    ? [
+        `Slug "${slug}" is digit-leading — the filename visually resembles a numbered-era artifact. Machine resolution keys on id:, so this is safe, but a word-leading title avoids the ambiguity.`,
+      ]
     : [];
 }
 

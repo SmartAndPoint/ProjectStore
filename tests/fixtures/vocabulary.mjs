@@ -24,7 +24,12 @@ export function sourceNames(root) {
     const s = src.surfaces[kind];
     const dir = join(root, s.dir);
     const suffix = s.file.replace("<name>", "");
-    names[kind] = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(suffix)).map((f) => f.slice(0, -suffix.length)).sort() : [];
+    names[kind] = existsSync(dir)
+      ? readdirSync(dir)
+          .filter((f) => f.endsWith(suffix))
+          .map((f) => f.slice(0, -suffix.length))
+          .sort()
+      : [];
   }
   return names;
 }
@@ -48,7 +53,13 @@ export function invocationPatterns(root) {
       // Carried on the pattern too, so a consumer that matches ANY name after
       // the prefix (tests/site.test.mjs) reuses this guard instead of a copy.
       const guard = /^\w/.test(prefix) ? "(?<![\\w/$:-])" : "";
-      out.push({ harness: m.id, kind, prefix, guard, re: new RegExp(`${guard}${escape(prefix)}(?:${alts.join("|")})`, "g") });
+      out.push({
+        harness: m.id,
+        kind,
+        prefix,
+        guard,
+        re: new RegExp(`${guard}${escape(prefix)}(?:${alts.join("|")})`, "g"),
+      });
     }
   }
   return out;
@@ -61,13 +72,32 @@ export function exemptions() {
   const list = [];
   for (const m of loadHarnesses().values()) {
     const marker = m.surfaces?.agents_block?.marker;
-    if (marker?.close) list.push({ phrase: marker.close, why: "the agents block's close marker: a marker in a file, not a command anyone runs" });
+    if (marker?.close)
+      list.push({
+        phrase: marker.close,
+        why: "the agents block's close marker: a marker in a file, not a command anyone runs",
+      });
   }
   list.push(
-    { phrase: "\\/projectstore:agents", why: "the agents-block parser's regex source — it matches the close marker, it names no command" },
-    { phrase: "Regenerate via `/projectstore:codemap`", file: "scripts/codemap.mjs", why: "written into code-map.md, a derived vault view doctor compares byte for byte; a harness-dependent sentence would read stale whenever the other harness last wrote it" },
-    { phrase: "edit refs via `/projectstore:codemap set`", file: "scripts/codemap.mjs", why: "the same code-map.md header line" },
-    { phrase: "Regenerate via `/projectstore:graph`", file: "scripts/graph.mjs", why: "written into graph.md, a derived vault view doctor compares byte for byte" },
+    {
+      phrase: "\\/projectstore:agents",
+      why: "the agents-block parser's regex source — it matches the close marker, it names no command",
+    },
+    {
+      phrase: "Regenerate via `/projectstore:codemap`",
+      file: "scripts/codemap.mjs",
+      why: "written into code-map.md, a derived vault view doctor compares byte for byte; a harness-dependent sentence would read stale whenever the other harness last wrote it",
+    },
+    {
+      phrase: "edit refs via `/projectstore:codemap set`",
+      file: "scripts/codemap.mjs",
+      why: "the same code-map.md header line",
+    },
+    {
+      phrase: "Regenerate via `/projectstore:graph`",
+      file: "scripts/graph.mjs",
+      why: "written into graph.md, a derived vault view doctor compares byte for byte",
+    },
   );
   return list;
 }
@@ -88,16 +118,26 @@ export function stripComments(src) {
 }
 
 // Every literal in an invocation form, as { file, line, text, harness, kind }.
-export function scanLiterals(root, files, { patterns = invocationPatterns(root), exempt = exemptions(), read = (f) => readFileSync(join(root, f), "utf8") } = {}) {
+export function scanLiterals(
+  root,
+  files,
+  {
+    patterns = invocationPatterns(root),
+    exempt = exemptions(),
+    read = (f) => readFileSync(join(root, f), "utf8"),
+  } = {},
+) {
   const hits = [];
   for (const file of files) {
     const lines = stripComments(read(file)).split("\n");
     lines.forEach((raw, k) => {
       let line = raw;
-      for (const e of exempt) if (!e.file || e.file === file) line = line.split(e.phrase).join(" ".repeat(e.phrase.length));
+      for (const e of exempt)
+        if (!e.file || e.file === file) line = line.split(e.phrase).join(" ".repeat(e.phrase.length));
       for (const p of patterns) {
         p.re.lastIndex = 0;
-        for (const m of line.matchAll(p.re)) hits.push({ file, line: k + 1, text: m[0], harness: p.harness, kind: p.kind });
+        for (const m of line.matchAll(p.re))
+          hits.push({ file, line: k + 1, text: m[0], harness: p.harness, kind: p.kind });
       }
     });
   }
@@ -112,35 +152,76 @@ export function scanLiterals(root, files, { patterns = invocationPatterns(root),
 export function uiExemptions() {
   const gated = "checkAutoUpdate, gated on a host-plugin-registration surface";
   return [
-    { phrase: "a /plugin update no longer reaches the project", file: "scripts/doctor.mjs", why: "a finding about the source harness's own registration; under another harness it is marked `about` it" },
-    { phrase: "(in Claude Code: /plugin marketplace update, then /plugin update, then restart)", file: "scripts/lib.mjs", why: "an old marketplace copy's advice (copyUpdateAdvice), for the source harness's own copies only: doctor's layout move marks its finding `about` that harness under any other, and the installer's keep is planned only on a host-plugin-registration surface" },
+    {
+      phrase: "a /plugin update no longer reaches the project",
+      file: "scripts/doctor.mjs",
+      why: "a finding about the source harness's own registration; under another harness it is marked `about` it",
+    },
+    {
+      phrase: "(in Claude Code: /plugin marketplace update, then /plugin update, then restart)",
+      file: "scripts/lib.mjs",
+      why: "an old marketplace copy's advice (copyUpdateAdvice), for the source harness's own copies only: doctor's layout move marks its finding `about` that harness under any other, and the installer's keep is planned only on a host-plugin-registration surface",
+    },
     { phrase: "Re-add it: /plugin marketplace add <owner/repo>.", file: "scripts/doctor.mjs", why: gated },
     { phrase: "(set via /plugin → Marketplaces → ", file: "scripts/doctor.mjs", why: gated },
-    { phrase: "Manual path: /plugin marketplace update ${marketplace}, then /reload-plugins.", file: "scripts/doctor.mjs", why: gated },
-    { phrase: "run /plugin marketplace update ${marketplace}, then /reload-plugins.", file: "scripts/doctor.mjs", why: gated },
+    {
+      phrase: "Manual path: /plugin marketplace update ${marketplace}, then /reload-plugins.",
+      file: "scripts/doctor.mjs",
+      why: gated,
+    },
+    {
+      phrase: "run /plugin marketplace update ${marketplace}, then /reload-plugins.",
+      file: "scripts/doctor.mjs",
+      why: gated,
+    },
     // The converge story's channel (rules 1 and 2): planned only for a harness
     // whose registration is a host plugin registration — the source harness's
     // — so no other harness's run ever prints them.
-    { phrase: "and /plugin update no longer reaches it", file: "scripts/convergence.mjs", why: "a channel switch's consequence line, planned only on a host-plugin-registration surface's competing copies" },
-    { phrase: "command: `/plugin enable ${key}`", file: "scripts/convergence.mjs", why: "the channel git refusal's way out, planned only for a harness with a host-plugin-registration surface" },
+    {
+      phrase: "and /plugin update no longer reaches it",
+      file: "scripts/convergence.mjs",
+      why: "a channel switch's consequence line, planned only on a host-plugin-registration surface's competing copies",
+    },
+    {
+      phrase: "command: `/plugin enable ${key}`",
+      file: "scripts/convergence.mjs",
+      why: "the channel git refusal's way out, planned only for a harness with a host-plugin-registration surface",
+    },
     // The setup story's channel question (rule 6): asked only when the harness
     // with a host plugin registration is in the run and a copy of ours from
     // another marketplace is enabled for this project.
-    ...["(updated by /plugin)", "/plugin keeps updating it", "; /plugin update no longer reaches this project"].map((phrase) => ({ phrase, file: "scripts/setup.mjs", why: "setup's channel question and its choices, asked only for a harness with a host-plugin-registration surface whose git-marketplace copy is enabled here" })),
+    ...["(updated by /plugin)", "/plugin keeps updating it", "; /plugin update no longer reaches this project"].map(
+      (phrase) => ({
+        phrase,
+        file: "scripts/setup.mjs",
+        why: "setup's channel question and its choices, asked only for a harness with a host-plugin-registration surface whose git-marketplace copy is enabled here",
+      }),
+    ),
   ];
 }
 
-export function scanUiWords(root, files, { patterns = uiWordPatterns(sourceHarness()), exempt = uiExemptions(), read = (f) => readFileSync(join(root, f), "utf8") } = {}) {
+export function scanUiWords(
+  root,
+  files,
+  {
+    patterns = uiWordPatterns(sourceHarness()),
+    exempt = uiExemptions(),
+    read = (f) => readFileSync(join(root, f), "utf8"),
+  } = {},
+) {
   const hits = [];
   for (const file of files) {
-    stripComments(read(file)).split("\n").forEach((raw, k) => {
-      let line = raw;
-      for (const e of exempt) if (!e.file || e.file === file) line = line.split(e.phrase).join(" ".repeat(e.phrase.length));
-      for (const p of patterns) {
-        p.re.lastIndex = 0;
-        for (const m of line.matchAll(p.re)) hits.push({ file, line: k + 1, text: m[0] });
-      }
-    });
+    stripComments(read(file))
+      .split("\n")
+      .forEach((raw, k) => {
+        let line = raw;
+        for (const e of exempt)
+          if (!e.file || e.file === file) line = line.split(e.phrase).join(" ".repeat(e.phrase.length));
+        for (const p of patterns) {
+          p.re.lastIndex = 0;
+          for (const m of line.matchAll(p.re)) hits.push({ file, line: k + 1, text: m[0] });
+        }
+      });
   }
   return hits;
 }
@@ -148,8 +229,15 @@ export function scanUiWords(root, files, { patterns = uiWordPatterns(sourceHarne
 // The runtime code a session can execute: hooks and scripts, the generator
 // aside (it holds the source vocabulary on purpose, to rewrite it).
 export function runtimeFiles(root) {
-  const pick = (dir) => (existsSync(join(root, dir)) ? readdirSync(join(root, dir)).filter((f) => f.endsWith(".mjs")).map((f) => `${dir}/${f}`) : []);
-  return [...pick("bin"), ...pick("hooks"), ...pick("scripts")].filter((f) => f !== "scripts/build-adapters.mjs").sort();
+  const pick = (dir) =>
+    existsSync(join(root, dir))
+      ? readdirSync(join(root, dir))
+          .filter((f) => f.endsWith(".mjs"))
+          .map((f) => `${dir}/${f}`)
+      : [];
+  return [...pick("bin"), ...pick("hooks"), ...pick("scripts")]
+    .filter((f) => f !== "scripts/build-adapters.mjs")
+    .sort();
 }
 
 export const relTo = (root, p) => relative(root, p);
@@ -169,20 +257,36 @@ export function helperCalls(root, files, { read = (f) => readFileSync(join(root,
     // harness's form (doctor's aboutHarness) — is held to the same rule, in
     // the files that import the helper. The two that define the helper and
     // its wrappers pass a `name` parameter through, and are skipped.
-    const direct = !["scripts/harness.mjs", "scripts/lib.mjs"].includes(file) && /import\s*\{[^}]*\binvocation\b[^}]*\}\s*from\s*["']\.\/harness\.mjs["']/.test(src);
-    stripComments(src).split("\n").forEach((line, k) => {
-      if (direct) {
-        for (const m of line.matchAll(/(?<![\w.])invocation\(([^;]*)/g)) {
-          const lit = /^[^"'`]*?,\s*(["'`])([a-z0-9*-]+)\1/.exec(m[1]);
-          calls.push({ file, line: k + 1, kind: /kind:\s*["']agents["']/.test(m[1]) ? "agents" : "commands", name: lit ? lit[2] : null, raw: m[1].slice(0, 60) });
+    const direct =
+      !["scripts/harness.mjs", "scripts/lib.mjs"].includes(file) &&
+      /import\s*\{[^}]*\binvocation\b[^}]*\}\s*from\s*["']\.\/harness\.mjs["']/.test(src);
+    stripComments(src)
+      .split("\n")
+      .forEach((line, k) => {
+        if (direct) {
+          for (const m of line.matchAll(/(?<![\w.])invocation\(([^;]*)/g)) {
+            const lit = /^[^"'`]*?,\s*(["'`])([a-z0-9*-]+)\1/.exec(m[1]);
+            calls.push({
+              file,
+              line: k + 1,
+              kind: /kind:\s*["']agents["']/.test(m[1]) ? "agents" : "commands",
+              name: lit ? lit[2] : null,
+              raw: m[1].slice(0, 60),
+            });
+          }
         }
-      }
-      for (const m of line.matchAll(/(?<![\w.])(commandForm|roleForm)\(\s*([^,)\s]+)?/g)) {
-        if (/^export function/.test(line.trim())) continue;
-        const lit = m[2] && /^(["'`])([a-z0-9*-]+)\1$/.exec(m[2]);
-        calls.push({ file, line: k + 1, kind: m[1] === "roleForm" ? "agents" : "commands", name: lit ? lit[2] : null, raw: m[2] || "" });
-      }
-    });
+        for (const m of line.matchAll(/(?<![\w.])(commandForm|roleForm)\(\s*([^,)\s]+)?/g)) {
+          if (/^export function/.test(line.trim())) continue;
+          const lit = m[2] && /^(["'`])([a-z0-9*-]+)\1$/.exec(m[2]);
+          calls.push({
+            file,
+            line: k + 1,
+            kind: m[1] === "roleForm" ? "agents" : "commands",
+            name: lit ? lit[2] : null,
+            raw: m[2] || "",
+          });
+        }
+      });
   }
   return calls;
 }
@@ -195,7 +299,10 @@ export function unresolved(root, calls, { exists = (p) => existsSync(join(root, 
   const src = sourceHarness();
   const out = [];
   for (const c of calls) {
-    if (c.name === null) { out.push({ ...c, harness: null, why: `the name is not a string literal (${c.raw || "nothing"})` }); continue; }
+    if (c.name === null) {
+      out.push({ ...c, harness: null, why: `the name is not a string literal (${c.raw || "nothing"})` });
+      continue;
+    }
     if (c.name === "*") continue;
     const s = src.surfaces[c.kind];
     const srcPath = join(s.dir, s.file.replace("<name>", c.name));
@@ -204,10 +311,14 @@ export function unresolved(root, calls, { exists = (p) => existsSync(join(root, 
       if (!m.emit || m.source_layout) continue;
       const t = m.surfaces?.[c.kind] || {};
       if (t.supported !== false) continue; // the harness loads the source surface itself
-      if (t.rendered_as !== "skill" || !t.rendered_name) { out.push({ ...c, harness: m.id, why: `${m.id} has no ${c.kind} surface and renders none` }); continue; }
+      if (t.rendered_as !== "skill" || !t.rendered_name) {
+        out.push({ ...c, harness: m.id, why: `${m.id} has no ${c.kind} surface and renders none` });
+        continue;
+      }
       const skill = t.rendered_name.split("<name>").join(c.name);
       const rel = join(m.output_dir, "skills", skill, "SKILL.md");
-      if (!exists(rel)) out.push({ ...c, harness: m.id, why: `${invocation(m, c.name, { kind: c.kind })} has no ${rel}` });
+      if (!exists(rel))
+        out.push({ ...c, harness: m.id, why: `${invocation(m, c.name, { kind: c.kind })} has no ${rel}` });
     }
   }
   return out;
@@ -223,7 +334,9 @@ export function unresolved(root, calls, { exists = (p) => existsSync(join(root, 
 // affordance it cannot use.
 export function foreignPatterns(root, speakerId) {
   const src = sourceHarness();
-  const pats = invocationPatterns(root).filter((p) => p.harness !== speakerId).map((p) => ({ ...p, what: `${p.harness} ${p.kind} form` }));
+  const pats = invocationPatterns(root)
+    .filter((p) => p.harness !== speakerId)
+    .map((p) => ({ ...p, what: `${p.harness} ${p.kind} form` }));
   if (speakerId !== src.id) {
     for (const { re } of uiWordPatterns(src)) pats.push({ harness: src.id, kind: "ui", what: `${src.id} UI word`, re });
   }
@@ -235,10 +348,26 @@ export function foreignPatterns(root, speakerId) {
 // roots, homes) and the three PROJECTSTORE_* identity names are dropped, so a
 // test run from inside a live session cannot answer for the fixture.
 export function hermeticEnv(extra = {}, base = process.env) {
-  const drop = new Set(["PROJECTSTORE_HARNESS", "PROJECTSTORE_IDENTIFIED", "PROJECTSTORE_SHELL", "FORCE_COLOR", "NO_COLOR", "CI"]);
+  const drop = new Set([
+    "PROJECTSTORE_HARNESS",
+    "PROJECTSTORE_IDENTIFIED",
+    "PROJECTSTORE_SHELL",
+    "FORCE_COLOR",
+    "NO_COLOR",
+    "CI",
+  ]);
   for (const m of loadHarnesses().values()) {
     const r = m.runtime || {};
-    for (const k of [...(r.detect_env || []), ...(r.session_env || []), ...(r.registration_defer_env || []), ...(r.shared_env || []), r.project_dir_env, r.plugin_root_env, r.home_env]) if (k) drop.add(k);
+    for (const k of [
+      ...(r.detect_env || []),
+      ...(r.session_env || []),
+      ...(r.registration_defer_env || []),
+      ...(r.shared_env || []),
+      r.project_dir_env,
+      r.plugin_root_env,
+      r.home_env,
+    ])
+      if (k) drop.add(k);
   }
   const env = {};
   for (const [k, v] of Object.entries(base)) if (!drop.has(k)) env[k] = v;
@@ -249,7 +378,10 @@ export function hermeticEnv(extra = {}, base = process.env) {
 // that names the shared AGENTS.md block's form, so the model reads both forms
 // as one role (generation spec, contract 18).
 export const RUN_EXEMPT = [
-  { phrase: /The `AGENTS\.md` block may name roles as `[^`]+`; that is the same role, called `[^`]+` here\./g, why: "the session rules' bridge to the shared block's form, by design" },
+  {
+    phrase: /The `AGENTS\.md` block may name roles as `[^`]+`; that is the same role, called `[^`]+` here\./g,
+    why: "the session rules' bridge to the shared block's form, by design",
+  },
 ];
 
 // A finding ABOUT another harness in the same project (doctor marks it
@@ -262,7 +394,13 @@ export const RUN_EXEMPT = [
 //   its whole output as one line, so a filter by line, or by a harness's name
 //   anywhere in it, blanked the lot (the reviewer's re-pass, 2026-10-05).
 export function aboutMessages(doctorJson, speakerId) {
-  try { return JSON.parse(doctorJson).result.filter((f) => f.about && f.about !== speakerId).map((f) => f.message); } catch { return []; }
+  try {
+    return JSON.parse(doctorJson)
+      .result.filter((f) => f.about && f.about !== speakerId)
+      .map((f) => f.message);
+  } catch {
+    return [];
+  }
 }
 
 export function withoutAboutFindings(text, speakerId, about = []) {
@@ -272,12 +410,34 @@ export function withoutAboutFindings(text, speakerId, about = []) {
   // cut on its own, the whole message first, as JSON carries it. The report
   // puts the path before a line's closing colon, so such a line is cut
   // without its colon too.
-  const parts = (msg) => [msg, ...String(msg).split("\n").flatMap((l) => (l.endsWith(":") ? [l, l.slice(0, -1)] : [l]))];
-  const cut = (v) => about.reduce((acc, msg) => parts(msg).reduce((a, part) => (part ? a.split(part).join("") : a), acc), v);
+  const parts = (msg) => [
+    msg,
+    ...String(msg)
+      .split("\n")
+      .flatMap((l) => (l.endsWith(":") ? [l, l.slice(0, -1)] : [l])),
+  ];
+  const cut = (v) =>
+    about.reduce((acc, msg) => parts(msg).reduce((a, part) => (part ? a.split(part).join("") : a), acc), v);
   let parsed;
-  try { parsed = JSON.parse(t); } catch { return cut(t); }
-  if (parsed && Array.isArray(parsed.result)) return JSON.stringify({ ...parsed, result: parsed.result.filter((f) => !f.about || f.about === speakerId) }, null, 2);
-  const deep = (v) => (typeof v === "string" ? cut(v) : Array.isArray(v) ? v.map(deep) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x)])) : v);
+  try {
+    parsed = JSON.parse(t);
+  } catch {
+    return cut(t);
+  }
+  if (parsed && Array.isArray(parsed.result))
+    return JSON.stringify(
+      { ...parsed, result: parsed.result.filter((f) => !f.about || f.about === speakerId) },
+      null,
+      2,
+    );
+  const deep = (v) =>
+    typeof v === "string"
+      ? cut(v)
+      : Array.isArray(v)
+        ? v.map(deep)
+        : v && typeof v === "object"
+          ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x)]))
+          : v;
   return JSON.stringify(deep(parsed), null, 2);
 }
 

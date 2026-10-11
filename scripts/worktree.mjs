@@ -31,7 +31,14 @@ const trim = (s) => (typeof s === "string" ? s.trim() : null);
 // `layout` and `language` are the parent's: what a bind without an inherit
 // path must name to write the parent's binding rather than bind's defaults.
 function record(state, worktree, mainCheckout, vaultPath, parent = null) {
-  return { state, worktree, mainCheckout, vaultPath, layout: parent?.layout || null, language: parent?.language || null };
+  return {
+    state,
+    worktree,
+    mainCheckout,
+    vaultPath,
+    layout: parent?.layout || null,
+    language: parent?.language || null,
+  };
 }
 
 // The main checkout behind a linked worktree.
@@ -96,10 +103,14 @@ export function bindingOfferText(b) {
     `- its vault: \`${truncFront(String(b.vaultPath), PATH_CELL)}\``,
     "",
     ...(bindInherits()
-      ? [`Run \`${inheritForm(b.vaultPath, { layout: b.layout, language: b.language })}\` to adopt that binding. It copies the binding`,
-        "only — the vault is shared and unchanged, and no session state travels with it."]
-      : [`Run \`${inheritForm(b.vaultPath, { layout: b.layout, language: b.language })}\` to bind this checkout to the same vault,`,
-        "layout and language — the vault is shared and unchanged, and no session state travels with it."]),
+      ? [
+          `Run \`${inheritForm(b.vaultPath, { layout: b.layout, language: b.language })}\` to adopt that binding. It copies the binding`,
+          "only — the vault is shared and unchanged, and no session state travels with it.",
+        ]
+      : [
+          `Run \`${inheritForm(b.vaultPath, { layout: b.layout, language: b.language })}\` to bind this checkout to the same vault,`,
+          "layout and language — the vault is shared and unchanged, and no session state travels with it.",
+        ]),
     "",
     "",
   ].join("\n");

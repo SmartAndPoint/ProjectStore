@@ -15,15 +15,27 @@ import { fileURLToPath } from "node:url";
 import { sourceHarness, layoutPaths } from "../scripts/harness.mjs";
 import { cleanupStaleSessionState } from "../scripts/lib.mjs";
 import { checkStatusline } from "../scripts/doctor.mjs";
-import { HEARTBEAT_WINDOW_MS, heartbeatFile, heartbeatBody, heartbeatState, heartbeatYields } from "../scripts/band-shared.mjs";
+import {
+  HEARTBEAT_WINDOW_MS,
+  heartbeatFile,
+  heartbeatBody,
+  heartbeatState,
+  heartbeatYields,
+} from "../scripts/band-shared.mjs";
 import { makeVaultProject } from "./fixtures/vault.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
 const VERSION = JSON.parse(readFileSync(join(ROOT, ".claude-plugin", "plugin.json"), "utf8")).version;
 const TEMP = [];
-after(() => { for (const d of TEMP) rmSync(d, { recursive: true, force: true }); });
-const tmp = (prefix) => { const d = mkdtempSync(join(tmpdir(), prefix)); TEMP.push(d); return d; };
+after(() => {
+  for (const d of TEMP) rmSync(d, { recursive: true, force: true });
+});
+const tmp = (prefix) => {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  TEMP.push(d);
+  return d;
+};
 
 const SID = "5e55-10n";
 
@@ -44,7 +56,8 @@ test("contract 11: the heartbeat yields only while it says drawing and is younge
     ["not a boolean", { drawn: "true", drawn_at: now }],
     ["null", null],
     ["a number", 42],
-  ]) assert.equal(heartbeatYields(value, now), false, why);
+  ])
+    assert.equal(heartbeatYields(value, now), false, why);
   assert.equal(heartbeatState({ drawn: true, drawn_at: now }, now), "drawing");
   assert.equal(heartbeatState({ drawn: false, drawn_at: now }, now), "stopped");
   assert.equal(heartbeatState({ drawn: true, drawn_at: now - 30_000 }, now), "stale");
@@ -53,7 +66,8 @@ test("contract 11: the heartbeat yields only while it says drawing and is younge
 
 test("contract 11: the heartbeat's name is dot-prefixed and refuses an id that cannot name a file", () => {
   assert.equal(heartbeatFile("abc"), ".band-abc.json");
-  for (const bad of ["", null, undefined, "a/b", "a\\b", "..", "."]) assert.equal(heartbeatFile(bad), null, String(bad));
+  for (const bad of ["", null, undefined, "a/b", "a\\b", "..", "."])
+    assert.equal(heartbeatFile(bad), null, String(bad));
 });
 
 // ─── The renderer ──────────────────────────────────────────────────────
@@ -61,7 +75,11 @@ test("contract 11: the heartbeat's name is dot-prefixed and refuses an id that c
 function project({ base }) {
   const { proj } = makeVaultProject();
   TEMP.push(proj);
-  if (base) writeFileSync(join(proj, ".claude", "settings.json"), JSON.stringify({ statusLine: { type: "command", command: "printf BASE" } }));
+  if (base)
+    writeFileSync(
+      join(proj, ".claude", "settings.json"),
+      JSON.stringify({ statusLine: { type: "command", command: "printf BASE" } }),
+    );
   return proj;
 }
 
@@ -76,7 +94,13 @@ function heartbeat(proj, value) {
 function render(proj) {
   const env = { ...process.env, [SRC.runtime.plugin_root_env]: ROOT, [SRC.runtime.home_env]: tmp("ps-sl-home-") };
   const input = { session_id: SID, workspace: { project_dir: proj }, model: { display_name: "Opus" } };
-  const r = spawnSync(process.execPath, [join(ROOT, "scripts", "statusline.mjs")], { cwd: proj, env, input: JSON.stringify(input), encoding: "utf8", timeout: 30000 });
+  const r = spawnSync(process.execPath, [join(ROOT, "scripts", "statusline.mjs")], {
+    cwd: proj,
+    env,
+    input: JSON.stringify(input),
+    encoding: "utf8",
+    timeout: 30000,
+  });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
 }
@@ -139,7 +163,10 @@ test("a heartbeat with no pointer raises no session-id divergence in doctor", ()
   render(proj); // writes the breadcrumb for SID; no pointer file exists
   const home = tmp("ps-sl-doctor-home-");
   const findings = checkStatusline({ vault_path: join(proj, "vault"), statusline: { enabled: false } }, proj, home);
-  assert.deepEqual(findings.filter((f) => /divergence/.test(f.message)), []);
+  assert.deepEqual(
+    findings.filter((f) => /divergence/.test(f.message)),
+    [],
+  );
 });
 
 test("the session-state sweep reaps an aged heartbeat", () => {

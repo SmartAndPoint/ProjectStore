@@ -25,7 +25,7 @@ export const HEARTBEAT_WINDOW_MS = 30_000;
 // as one. Null for an id that cannot name a file.
 export function heartbeatFile(sessionId) {
   if (typeof sessionId !== "string" || !sessionId) return null;
-  if (/[\/\\\0]/.test(sessionId) || sessionId === "." || sessionId === "..") return null;
+  if (/[/\\\0]/.test(sessionId) || sessionId === "." || sessionId === "..") return null;
   return `.band-${sessionId}.json`;
 }
 
@@ -63,13 +63,34 @@ export function heartbeatNext(lastRender, wasDrawing, now) {
 // templates/<lang>/strings.json, the English file the fallback per key.
 
 export const BAND_STRING_KEYS = Object.freeze([
-  "band_this_session", "band_pinned", "band_goal", "band_story", "band_agent",
-  "band_done", "band_in_work", "band_backlog", "band_stories", "band_no_stories",
-  "band_more", "band_hint", "band_ended_done", "band_ended_stopped",
-  "band_verb_critic", "band_verb_reviewer", "band_verb_planner", "band_verb_clerk",
-  "band_verb_librarian", "band_verb_archaeologist", "band_verb_other",
-  "band_step_reads", "band_step_writes", "band_step_edits", "band_step_searches",
-  "band_step_runs", "band_step_web", "band_step_vault",
+  "band_this_session",
+  "band_pinned",
+  "band_goal",
+  "band_story",
+  "band_agent",
+  "band_done",
+  "band_in_work",
+  "band_backlog",
+  "band_stories",
+  "band_no_stories",
+  "band_more",
+  "band_hint",
+  "band_ended_done",
+  "band_ended_stopped",
+  "band_verb_critic",
+  "band_verb_reviewer",
+  "band_verb_planner",
+  "band_verb_clerk",
+  "band_verb_librarian",
+  "band_verb_archaeologist",
+  "band_verb_other",
+  "band_step_reads",
+  "band_step_writes",
+  "band_step_edits",
+  "band_step_searches",
+  "band_step_runs",
+  "band_step_web",
+  "band_step_vault",
 ]);
 
 // The band's words for a language: the English file's, each overlaid by the
@@ -140,14 +161,23 @@ const byName = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 export async function storyFiles(fs, epicDir) {
   const out = [];
   const stories = `${epicDir}/stories`;
-  let entries = [];
-  try { entries = await fs.list(stories); } catch { entries = []; }
+  let entries;
+  try {
+    entries = await fs.list(stories);
+  } catch {
+    entries = [];
+  }
   for (const e of [...entries].sort(byName)) {
     if (e.kind === "file" && e.name.endsWith(".md")) out.push(`${stories}/${e.name}`);
-    else if (e.kind === "dir" && (await fs.exists(`${stories}/${e.name}/README.md`))) out.push(`${stories}/${e.name}/README.md`);
+    else if (e.kind === "dir" && (await fs.exists(`${stories}/${e.name}/README.md`)))
+      out.push(`${stories}/${e.name}/README.md`);
   }
-  let beside = [];
-  try { beside = await fs.list(epicDir); } catch { beside = []; }
+  let beside;
+  try {
+    beside = await fs.list(epicDir);
+  } catch {
+    beside = [];
+  }
   for (const e of [...beside].sort(byName)) {
     if (e.kind === "file" && e.name.startsWith("story-") && e.name.endsWith(".md")) out.push(`${epicDir}/${e.name}`);
   }
@@ -165,12 +195,26 @@ export function isEpicName(id) {
 // marks and variation selectors none.
 
 const WIDE = [
-  [0x1100, 0x115f], [0x2e80, 0x303e], [0x3041, 0x33ff], [0x3400, 0x4dbf],
-  [0x4e00, 0x9fff], [0xa000, 0xa4cf], [0xac00, 0xd7a3], [0xf900, 0xfaff],
-  [0xfe30, 0xfe4f], [0xff00, 0xff60], [0xffe0, 0xffe6], [0x1f300, 0x1f64f],
-  [0x1f900, 0x1f9ff], [0x20000, 0x3fffd],
+  [0x1100, 0x115f],
+  [0x2e80, 0x303e],
+  [0x3041, 0x33ff],
+  [0x3400, 0x4dbf],
+  [0x4e00, 0x9fff],
+  [0xa000, 0xa4cf],
+  [0xac00, 0xd7a3],
+  [0xf900, 0xfaff],
+  [0xfe30, 0xfe4f],
+  [0xff00, 0xff60],
+  [0xffe0, 0xffe6],
+  [0x1f300, 0x1f64f],
+  [0x1f900, 0x1f9ff],
+  [0x20000, 0x3fffd],
 ];
-const ZERO = [[0x0300, 0x036f], [0x200b, 0x200f], [0xfe00, 0xfe0f]];
+const ZERO = [
+  [0x0300, 0x036f],
+  [0x200b, 0x200f],
+  [0xfe00, 0xfe0f],
+];
 const within = (cp, ranges) => ranges.some(([a, b]) => cp >= a && cp <= b);
 
 export function cellWidth(text) {
@@ -249,7 +293,8 @@ export function subjectPath(prompt, vault, kindFolders) {
   const text = String(prompt || "");
   const found = [];
   if (vault) {
-    for (const m of text.matchAll(new RegExp(`${escRe(vault)}/([^\\s\`'")\\]]+?\\.md)`, "g"))) found.push({ at: m.index, rel: m[1] });
+    for (const m of text.matchAll(new RegExp(`${escRe(vault)}/([^\\s\`'")\\]]+?\\.md)`, "g")))
+      found.push({ at: m.index, rel: m[1] });
   }
   const kinds = (kindFolders || []).filter(Boolean).map(escRe);
   if (kinds.length) {
@@ -283,9 +328,14 @@ const vaultRel = (vault, p) => (vault && p.startsWith(`${vault}/`) ? p.slice(vau
 
 // `node /x/reconcile.mjs --a` reads `reconcile`, `git diff --stat` reads `git diff`.
 export function commandWord(command) {
-  const words = String(command).replace(/^(\s*cd\s+("[^"]*"|'[^']*'|\S+)\s*&&\s*)+/, "").trim().split(/\s+/).filter((x) => !/^\w+=/.test(x));
+  const words = String(command)
+    .replace(/^(\s*cd\s+("[^"]*"|'[^']*'|\S+)\s*&&\s*)+/, "")
+    .trim()
+    .split(/\s+/)
+    .filter((x) => !/^\w+=/.test(x));
   const [cmd = "", arg = ""] = words.map((x) => x.replace(/^["']|["']$/g, ""));
-  if (/^(node|python3?|bash|sh|npx|bun|deno|tsx)$/.test(lastSegment(cmd)) && arg && !arg.startsWith("-")) return lastSegment(arg).replace(/\.(m?js|cjs|py|sh|ts)$/, "");
+  if (/^(node|python3?|bash|sh|npx|bun|deno|tsx)$/.test(lastSegment(cmd)) && arg && !arg.startsWith("-"))
+    return lastSegment(arg).replace(/\.(m?js|cjs|py|sh|ts)$/, "");
   return /^[a-z][\w:-]*$/.test(arg) ? `${lastSegment(cmd)} ${arg}` : lastSegment(cmd);
 }
 
@@ -295,10 +345,16 @@ const QUIET = /^(echo|printf|true|sleep|:)(\s|$)/;
 // nothing worth a row (an echo, a tool the band does not name).
 export function stepOf(call, vault, w) {
   const tool = typeof call.tool === "string" ? call.tool : "";
-  const path = typeof call.file_path === "string" ? call.file_path : typeof call.notebook_path === "string" ? call.notebook_path : null;
+  const path =
+    typeof call.file_path === "string"
+      ? call.file_path
+      : typeof call.notebook_path === "string"
+        ? call.notebook_path
+        : null;
   if (tool === "Read" && path) return `${w.band_step_reads} ${vaultRel(vault, path)}`;
   if (tool === "Write" && path) return `${w.band_step_writes} ${vaultRel(vault, path)}`;
-  if ((tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit") && path) return `${w.band_step_edits} ${vaultRel(vault, path)}`;
+  if ((tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit") && path)
+    return `${w.band_step_edits} ${vaultRel(vault, path)}`;
   if (tool === "Grep" || tool === "Glob") {
     if (typeof call.pattern !== "string") return w.band_step_searches;
     return `${w.band_step_searches} ${call.pattern.length > 32 ? call.pattern.slice(0, 31) + "…" : call.pattern}`;
@@ -323,7 +379,9 @@ export function leadAgent(agents, now) {
   const order = new Map(live.map((a, i) => [a, i]));
   const later = (a, b) => order.get(b) - order.get(a);
   const running = live.filter((a) => a.status === "running").sort((a, b) => b.startedAt - a.startedAt || later(a, b));
-  const ended = live.filter((a) => a.status !== "running").sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0) || later(a, b));
+  const ended = live
+    .filter((a) => a.status !== "running")
+    .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0) || later(a, b));
   const lead = running[0] || ended[0] || null;
   return { lead, others: lead ? live.length - 1 : 0, live };
 }

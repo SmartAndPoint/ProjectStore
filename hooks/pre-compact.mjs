@@ -57,10 +57,7 @@ async function readActivityBudgeted(vault, sid, budgetMs) {
   const deadline = new Promise((resolve) => {
     timer = setTimeout(() => resolve(null), budgetMs);
   });
-  const out = await Promise.race([
-    readActivityAsync(vault, sid).catch(() => []),
-    deadline,
-  ]);
+  const out = await Promise.race([readActivityAsync(vault, sid).catch(() => []), deadline]);
   clearTimeout(timer);
   return out;
 }
@@ -85,9 +82,7 @@ async function main() {
   try {
     layout = loadLayout(cfg.layout);
   } catch {}
-  const artifact = activity && layout
-    ? resolveInFlightArtifact(activity, layout, cfg.vault_path)
-    : null;
+  const artifact = activity && layout ? resolveInFlightArtifact(activity, layout, cfg.vault_path) : null;
 
   const parts = [`vault ${basename(cfg.vault_path)}`];
   // Dropped rather than rendered empty when nothing resolves.
@@ -105,9 +100,11 @@ async function main() {
     // Recent files are a separate referent with a separate condition: an empty
     // log renders no continuity section, so the stronger wording would be false
     // on a path the activity log's last-tool-wins dedupe makes ordinary.
-    parts.push(activity && activity.length > 0
-      ? "orientation and this session's recent files return at session start"
-      : "orientation returns at session start");
+    parts.push(
+      activity && activity.length > 0
+        ? "orientation and this session's recent files return at session start"
+        : "orientation returns at session start",
+    );
   } else {
     // True on every path: plugin commands are installation-scoped and not
     // gated by auto_inject.

@@ -11,7 +11,9 @@
 // repo. writeRegistry(home, entries) — installed_plugins.json in the shape
 // lib.installedPluginEntries reads.
 
-import { mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, copyFileSync, readFileSync, rmSync } from "node:fs";
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite runs on Node 20 in CI
+import { cpSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sourceHarness, loadHarnesses } from "../../scripts/harness.mjs";
@@ -37,18 +39,24 @@ export function fakeInstall(home, version, { full = false, marketplace = "SmartA
       recursive: true,
       filter: (src) => {
         const rel = relative(REPO, src);
-        return rel === "" || !/^(\.git|node_modules|tests|docs|\.omc|\.claude|\.github|packaging|scratch)(\/|$)/.test(rel);
+        return (
+          rel === "" || !/^(\.git|node_modules|tests|docs|\.omc|\.claude|\.github|packaging|scratch)(\/|$)/.test(rel)
+        );
       },
     });
     writeFileSync(join(root, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version }));
     return root;
   }
-  for (const d of ["scripts", ".claude-plugin", "templates", join("scaffold", "layouts")]) mkdirSync(join(root, d), { recursive: true });
+  for (const d of ["scripts", ".claude-plugin", "templates", join("scaffold", "layouts")])
+    mkdirSync(join(root, d), { recursive: true });
   copyFileSync(join(REPO, "scripts", "statusline-launcher.mjs"), join(root, "scripts", "statusline-launcher.mjs"));
   writeFileSync(join(root, "scripts", "statusline.mjs"), `process.stdout.write("rendered-by-${version}\\n");\n`);
   writeFileSync(join(root, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version }));
   copyFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), join(root, "templates", "claude-md-block.md.tmpl"));
-  copyFileSync(join(REPO, "scaffold", "layouts", "engineering.json"), join(root, "scaffold", "layouts", "engineering.json"));
+  copyFileSync(
+    join(REPO, "scaffold", "layouts", "engineering.json"),
+    join(root, "scaffold", "layouts", "engineering.json"),
+  );
   return root;
 }
 
@@ -64,13 +72,27 @@ export function fakeInstall(home, version, { full = false, marketplace = "SmartA
 export function fakeMarketplace(home, version, { proj = null, dir = null } = {}) {
   const S = SRC.surfaces.plugin;
   const base = registrationPaths(S, { home, projectDir: proj, harness: SRC });
-  const paths = dir ? { dir, manifest: join(dir, S.manifest), payload: join(dir, S.plugin_subdir) } : { dir: base.dir, manifest: base.manifest, payload: base.payload };
+  const paths = dir
+    ? { dir, manifest: join(dir, S.manifest), payload: join(dir, S.plugin_subdir) }
+    : { dir: base.dir, manifest: base.manifest, payload: base.payload };
   for (const d of ["scripts", ".claude-plugin"]) mkdirSync(join(paths.payload, d), { recursive: true });
-  copyFileSync(join(REPO, "scripts", "statusline-launcher.mjs"), join(paths.payload, "scripts", "statusline-launcher.mjs"));
-  writeFileSync(join(paths.payload, "scripts", "statusline.mjs"), `process.stdout.write("rendered-by-${version}\\n");\n`);
-  writeFileSync(join(paths.payload, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version }));
+  copyFileSync(
+    join(REPO, "scripts", "statusline-launcher.mjs"),
+    join(paths.payload, "scripts", "statusline-launcher.mjs"),
+  );
+  writeFileSync(
+    join(paths.payload, "scripts", "statusline.mjs"),
+    `process.stdout.write("rendered-by-${version}\\n");\n`,
+  );
+  writeFileSync(
+    join(paths.payload, ".claude-plugin", "plugin.json"),
+    JSON.stringify({ name: "projectstore", version }),
+  );
   mkdirSync(dirname(paths.manifest), { recursive: true });
-  writeFileSync(paths.manifest, JSON.stringify(registrationManifest(S, { pkg: version, projectDir: proj }), null, 2) + "\n");
+  writeFileSync(
+    paths.manifest,
+    JSON.stringify(registrationManifest(S, { pkg: version, projectDir: proj }), null, 2) + "\n",
+  );
   return paths;
 }
 
@@ -82,15 +104,21 @@ export function fakeMarketplace(home, version, { proj = null, dir = null } = {})
 export function preFlagInstall(home, version, { marketplace = "SmartAndPoint" } = {}) {
   const root = fakeInstall(home, version, { marketplace });
   mkdirSync(join(root, "bin"), { recursive: true });
-  writeFileSync(join(root, "bin", "projectstore.mjs"), `import { run } from "../scripts/cli.mjs";\nprocess.exitCode = await run(process.argv.slice(2));\n`);
-  writeFileSync(join(root, "scripts", "cli.mjs"), [
-    `import { parseArgs } from "node:util";`,
-    `export async function run(argv) {`,
-    `  try { parseArgs({ args: argv, allowPositionals: true, strict: true, options: { project: { type: "string" }, harness: { type: "string", multiple: true }, surface: { type: "string", multiple: true }, json: { type: "boolean" }, help: { type: "boolean", short: "h" } } }); }`,
-    `  catch (e) { process.stderr.write(e.message + "\\n"); return 2; }`,
-    `  return 0;`,
-    `}`,
-  ].join("\n") + "\n");
+  writeFileSync(
+    join(root, "bin", "projectstore.mjs"),
+    `import { run } from "../scripts/cli.mjs";\nprocess.exitCode = await run(process.argv.slice(2));\n`,
+  );
+  writeFileSync(
+    join(root, "scripts", "cli.mjs"),
+    [
+      `import { parseArgs } from "node:util";`,
+      `export async function run(argv) {`,
+      `  try { parseArgs({ args: argv, allowPositionals: true, strict: true, options: { project: { type: "string" }, harness: { type: "string", multiple: true }, surface: { type: "string", multiple: true }, json: { type: "boolean" }, help: { type: "boolean", short: "h" } } }); }`,
+      `  catch (e) { process.stderr.write(e.message + "\\n"); return 2; }`,
+      `  return 0;`,
+      `}`,
+    ].join("\n") + "\n",
+  );
   return root;
 }
 
@@ -116,12 +144,23 @@ export function stubCopy(home, version, spec = {}) {
   mkdirSync(join(root, "bin"), { recursive: true });
   // The capability reads look for these two names in the copy's parse table;
   // spec.verbose === false leaves the second out (a copy from rc.3 to 0.28.x).
-  writeFileSync(join(root, "scripts", "cli.mjs"), `// a stub copy's CLI: its parse table names "no-register"${spec.verbose === false ? "" : ` and "verbose"`}\n`);
+  writeFileSync(
+    join(root, "scripts", "cli.mjs"),
+    `// a stub copy's CLI: its parse table names "no-register"${spec.verbose === false ? "" : ` and "verbose"`}\n`,
+  );
   writeFileSync(join(root, "stub.json"), JSON.stringify(spec, null, 2) + "\n");
   // Every manifest's runtime names, logged as the child saw them (`env`).
-  const watch = [...new Set([...loadHarnesses().values()].flatMap((m) => [m.runtime?.plugin_root_env, m.runtime?.project_dir_env, m.runtime?.home_env]).filter(Boolean))];
+  const watch = [
+    ...new Set(
+      [...loadHarnesses().values()]
+        .flatMap((m) => [m.runtime?.plugin_root_env, m.runtime?.project_dir_env, m.runtime?.home_env])
+        .filter(Boolean),
+    ),
+  ];
   const names = { pluginRoot: SRC.runtime.plugin_root_env, home: SRC.runtime.home_env, watch };
-  writeFileSync(join(root, "bin", "projectstore.mjs"), `import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
+  writeFileSync(
+    join(root, "bin", "projectstore.mjs"),
+    `import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -160,15 +199,29 @@ if (verb === "upgrade") {
 }
 process.stderr.write("stub copy: " + verb + " is not stubbed\\n");
 process.exit(2);
-`);
+`,
+  );
   return root;
 }
-export const stubCalls = (copy) => { try { return readFileSync(join(copy, "calls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
+export const stubCalls = (copy) => {
+  try {
+    return readFileSync(join(copy, "calls.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
+  } catch {
+    return [];
+  }
+};
 
 export function writeRegistry(home, entries) {
   const dir = join(home, SRC.runtime.home_default, "plugins");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "installed_plugins.json"), JSON.stringify({ version: 2, plugins: { "projectstore@SmartAndPoint": entries } }));
+  writeFileSync(
+    join(dir, "installed_plugins.json"),
+    JSON.stringify({ version: 2, plugins: { "projectstore@SmartAndPoint": entries } }),
+  );
 }
 
 // The environment a spawn from the fake install needs: the fake home, the
@@ -176,14 +229,22 @@ export function writeRegistry(home, entries) {
 // never literals. PROJECTSTORE_PROJECT_DIR is dropped so the harness variable
 // is what resolves the project, as in a real session.
 export function installEnv(home, root, proj, extra = {}) {
-  const env = { ...process.env, HOME: home, [SRC.runtime.home_env]: join(home, SRC.runtime.home_default), [SRC.runtime.plugin_root_env]: root, [SRC.runtime.project_dir_env]: proj, ...extra };
+  const env = {
+    ...process.env,
+    HOME: home,
+    [SRC.runtime.home_env]: join(home, SRC.runtime.home_default),
+    [SRC.runtime.plugin_root_env]: root,
+    [SRC.runtime.project_dir_env]: proj,
+    ...extra,
+  };
   delete env.PROJECTSTORE_PROJECT_DIR;
   // The suite may run inside a live session; a spawned install must not defer
   // its migration or registration because the developer's shell says so.
   for (const k of SRC.runtime.session_env || []) if (!(k in extra)) delete env[k];
   // …nor defer a registration because another host's session runs the suite
   // (runtime.registration_defer_env, every manifest's).
-  for (const m of loadHarnesses().values()) for (const k of m.runtime?.registration_defer_env || []) if (!(k in extra)) delete env[k];
+  for (const m of loadHarnesses().values())
+    for (const k of m.runtime?.registration_defer_env || []) if (!(k in extra)) delete env[k];
   // Our own identity variables decide harness identity too; a suite run under
   // one of our spawns, or with the override exported, must not carry them in.
   for (const k of ["PROJECTSTORE_IDENTIFIED", "PROJECTSTORE_HARNESS"]) if (!(k in extra)) delete env[k];
@@ -201,7 +262,13 @@ export function noHostEnv(extra = {}) {
   // write it. tests/scripts.test.mjs's envWithoutProjectDir does the same.
   for (const m of loadHarnesses().values()) {
     const r = m.runtime || {};
-    for (const k of [...(r.detect_env || []), ...(r.session_env || []), ...(r.registration_defer_env || []), ...(r.shared_env || [])]) delete env[k];
+    for (const k of [
+      ...(r.detect_env || []),
+      ...(r.session_env || []),
+      ...(r.registration_defer_env || []),
+      ...(r.shared_env || []),
+    ])
+      delete env[k];
     // The three runtime names are already in every current manifest's
     // detect_env, so these three lines delete nothing today. They are here
     // because detect() derives the same union rather than trusting detect_env
@@ -297,9 +364,24 @@ process.stderr.write("fake claude: unknown subcommand " + argv.join(" ") + "\\n"
     bin,
     dir,
     // The fake's PATH: this dir and the directory of the node that runs the suite (the shebang needs one).
-    env: (extra = {}) => noHostEnv({ PATH: [dir, dirname(process.execPath)].join(process.platform === "win32" ? ";" : ":"), ...extra }),
-    log: () => { try { return readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } },
-    reset: () => { try { rmSync(join(dir, "calls.jsonl")); } catch {} },
+    env: (extra = {}) =>
+      noHostEnv({ PATH: [dir, dirname(process.execPath)].join(process.platform === "win32" ? ";" : ":"), ...extra }),
+    log: () => {
+      try {
+        return readFileSync(join(dir, "calls.jsonl"), "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((l) => JSON.parse(l));
+      } catch {
+        return [];
+      }
+    },
+    reset: () => {
+      try {
+        rmSync(join(dir, "calls.jsonl"));
+      } catch {}
+    },
   };
 }
 
@@ -324,7 +406,10 @@ export function fakePackageRoot(dir, version) {
 // file, settings.local.json naming the legacy launcher, the v3 block in
 // AGENTS.md. Bound to a seeded vault. Everything absolute-path-bearing is
 // built here, which is why this is a function and not a checked-in tree.
-export function legacyProject(home, { version = "0.27.1", agents = { default: { model: "sonnet" }, per_agent: { critic: { model: "opus" } } } } = {}) {
+export function legacyProject(
+  home,
+  { version = "0.27.1", agents = { default: { model: "sonnet" }, per_agent: { critic: { model: "opus" } } } } = {},
+) {
   const old = join(home, SRC.runtime.home_default, "plugins", "cache", "SmartAndPoint", "projectstore", version);
   mkdirSync(join(old, "scripts"), { recursive: true });
   writeFileSync(join(old, "scripts", "statusline.mjs"), `process.stdout.write("rendered-by-${version}\\n");\n`);
@@ -342,14 +427,29 @@ export function legacyProject(home, { version = "0.27.1", agents = { default: { 
   mkdirSync(join(lp.legacy.state, "s1.paths"), { recursive: true });
   writeFileSync(join(lp.legacy.state, "s1.paths", "a.mjs"), "");
   writeFileSync(join(lp.legacy.state, ".last-render.json"), JSON.stringify({ session_id: "s1", version }));
-  writeFileSync(lp.legacy.entryLog, JSON.stringify({ at: "2026-09-01T00:00:00Z", session_id: "s1", score: 3 }) + "\n" + JSON.stringify({ at: "2026-09-02T00:00:00Z", session_id: "s1", score: 4 }) + "\n");
+  writeFileSync(
+    lp.legacy.entryLog,
+    JSON.stringify({ at: "2026-09-01T00:00:00Z", session_id: "s1", score: 3 }) +
+      "\n" +
+      JSON.stringify({ at: "2026-09-02T00:00:00Z", session_id: "s1", score: 4 }) +
+      "\n",
+  );
   writeFileSync(lp.legacy.welcomed, "2026-09-01T00:00:00Z\n");
   writeFileSync(lp.legacy.sessionId, "s1\n");
-  writeFileSync(join(proj, SRC.runtime.harness_dir, "settings.local.json"), JSON.stringify({ statusLine: { type: "command", command: `node "${lp.legacy.launcher}"` }, other: { keep: true } }, null, 2) + "\n");
+  writeFileSync(
+    join(proj, SRC.runtime.harness_dir, "settings.local.json"),
+    JSON.stringify(
+      { statusLine: { type: "command", command: `node "${lp.legacy.launcher}"` }, other: { keep: true } },
+      null,
+      2,
+    ) + "\n",
+  );
   // The v3 block a 0.27.x install registered: the v3 marker and the config
   // path the v3 template named (the v4 template names the overlay).
   const tmpl = readFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), "utf8");
-  const v3 = renderAgentsBlock(tmpl, null).replace("projectstore:agents v4 ", "projectstore:agents v3 ").replace("`.projectstore/harness/<harness>.json`", "`.claude/projectstore.json`");
+  const v3 = renderAgentsBlock(tmpl, null)
+    .replace("projectstore:agents v4 ", "projectstore:agents v3 ")
+    .replace("`.projectstore/harness/<harness>.json`", "`.claude/projectstore.json`");
   writeFileSync(join(proj, "AGENTS.md"), v3 + "\n");
   writeFileSync(join(proj, "CLAUDE.md"), "# My project\n\n@AGENTS.md\n");
   return { proj, vault, old, lp };
