@@ -1327,13 +1327,13 @@ const PLANTED = [
 
   // AC 4: the version, the links, the counts, the statuses.
   { ac: "4", what: "the support grid says the previous version", ...onPage("pt", (p) => checkVersion(p, REPO)), fact: "version", message: /package\.json is/,
-    edits: [['data-fact="version">v0.29.2</span></div>', 'data-fact="version">v0.28.0</span></div>']] },
+    edits: [['data-fact="version">v0.29.3</span></div>', 'data-fact="version">v0.28.0</span></div>']] },
   { ac: "4", what: "a version in the title, outside a marker", ...onPage("ru", (p) => checkVersion(p, REPO)), fact: "version", message: /outside a data-fact="version"/,
-    edits: [['<title data-i18n="meta.title">ProjectStore —', '<title data-i18n="meta.title">ProjectStore v0.29.2 —']] },
+    edits: [['<title data-i18n="meta.title">ProjectStore —', '<title data-i18n="meta.title">ProjectStore v0.29.3 —']] },
   { ac: "4", what: "a stale version in an attribute value", ...onPage("pt", (p) => checkVersion(p, REPO)), fact: "version", message: /"v0\.28\.0" in the content attribute of <meta>/,
     edits: [[/(<meta name="description" content=")/, "$1ProjectStore v0.28.0: "]] },
-  { ac: "4", what: "llms-full.txt's closing line names another release", ...onText(LLMS_FULL, (f, t) => checkVersionText(f, t, REPO)), fact: "version", message: /Version 0\.29\.1/,
-    edits: [["Version 0.29.2. Facts and figures", "Version 0.29.1. Facts and figures"]] },
+  { ac: "4", what: "llms-full.txt's closing line names another release", ...onText(LLMS_FULL, (f, t) => checkVersionText(f, t, REPO)), fact: "version", message: /Version 0\.29\.2/,
+    edits: [["Version 0.29.3. Facts and figures", "Version 0.29.2. Facts and figures"]] },
   { ac: "4", what: "a link to a docs/ heading that does not exist", ...onPage("uk", (p) => checkLinks(p, REPO)), fact: "link", message: /has no heading #kodeks$/,
     edits: [["docs/harnesses.md#codex", "docs/harnesses.md#kodeks"]] },
   { ac: "4", what: "an llms.txt link to a docs/ page that does not exist", ...onText(LLMS_TXT, (f, t) => checkTextLinks(f, t, REPO)), fact: "link", message: /no docs\/extend\.md/,
@@ -1369,7 +1369,7 @@ const PLANTED = [
   { ac: "4", what: "no figure is marked data-source", ...onPage("zh", (p) => checkRequired(p, REPO)), fact: "data-source",
     edits: [[/ data-source="[^"]*"/g, ""]] },
   { ac: "4", what: "a value fact that holds markup", ...onPage("en", (p) => checkRequired(p, REPO)), fact: "version", message: /a value fact is a leaf/,
-    edits: [['<span class="version-badge" data-fact="version">v0.29.2</span>', '<span class="version-badge" data-fact="version"><b>v0.29.2</b></span>']] },
+    edits: [['<span class="version-badge" data-fact="version">v0.29.3</span>', '<span class="version-badge" data-fact="version"><b>v0.29.3</b></span>']] },
   { ac: "4", what: "the example story loses its data-template", ...onPage("uk", (p) => checkRequired(p, REPO)), fact: "template:story", message: /no example is marked data-template="story"/,
     edits: [[' data-template="story"', ""]] },
 
@@ -1395,7 +1395,7 @@ const PLANTED = [
 
   // AC 4: the llms files' fixed shape and their links.
   { ac: "4", what: "llms.txt's facts heading names another release", ...onText(LLMS_TXT, (f, t) => checkLlmsFacts(f, t, REPO)), fact: "version",
-    edits: [["**Facts about version 0.29.2.**", "**Facts about version 0.29.1.**"]] },
+    edits: [["**Facts about version 0.29.3.**", "**Facts about version 0.29.2.**"]] },
   { ac: "4", what: "llms.txt counts a command too many", ...onText(LLMS_TXT, (f, t) => checkLlmsFacts(f, t, REPO)), fact: "commands",
     edits: [["- 21 commands", "- 22 commands"]] },
   { ac: "4", what: "llms.txt lists a tool scripts/mcp.mjs does not have", ...onText(LLMS_TXT, (f, t) => checkLlmsFacts(f, t, REPO)), fact: "mcp-tool",
