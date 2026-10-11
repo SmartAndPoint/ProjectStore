@@ -44,6 +44,7 @@ import {
   claudeHome,
   whichOnPath,
   installedPluginEntries,
+  projectCopiesByKey,
   pluginEnabled,
   treeDigest,
   packageDigest,
@@ -288,12 +289,13 @@ export function analyseRegistration(projectDir, s, { root = pluginRoot(), home =
   a.installPath = row ? row.path : null;
   a.installedVersion = row ? row.version : null;
   a.enabled = pluginEnabled(id, home, projectDir);
-  // Competing registrations of the same plugin, enabled for this project.
-  const seen = new Set();
-  for (const e of installedPluginEntries(home, projectDir)) {
-    if (e.key === id || seen.has(e.key) || !e.present || e.enabled === false) continue;
-    if (e.projectPath && !samePath(e.projectPath, projectDir)) continue;
-    seen.add(e.key); a.others.push({ key: e.key, path: e.path, version: e.version });
+  // Competing registrations of the same plugin, enabled for this project:
+  // contract 12's selection, one row per key — the row the host loads here,
+  // this checkout's own before a user-scope one. The convergence story's rule
+  // 6 reads the same rows (lib's projectCopiesByKey), so the deferral of a
+  // newer copy and the stop never disagree about its version.
+  for (const e of projectCopiesByKey(home, projectDir)) {
+    if (e.key !== id) a.others.push({ key: e.key, path: e.path, version: e.version });
   }
   a.newer = Boolean(a.dir.pkg) && cmpPrecedence(a.dir.pkg, pkg) > 0;
   // Same version, different payload: the directory's recorded digest against

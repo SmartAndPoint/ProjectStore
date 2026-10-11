@@ -15,7 +15,8 @@ import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdi
 import { resolve, dirname, join, delimiter, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn as spawnChild } from "node:child_process";
+import { createServer } from "node:http";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject, run, opt, doctorText } from "../scripts/cli.mjs";
 import { loadHarness, sourceHarness, harnessIds } from "../scripts/harness.mjs";
@@ -23,6 +24,8 @@ import { layoutPaths, commandForm, doctorSummaryLine, doctorFallbackText } from 
 import { textReport } from "../scripts/doctor.mjs";
 import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
 import { fakeNpm, fakeCodexBin } from "./fixtures/fetch.mjs";
+import { fakeClaude, fakePackageRoot, noHostEnv } from "./fixtures/install.mjs";
+import { plan as installPlan, apply as installApply } from "../scripts/install-harness.mjs";
 import { neighbors as neighborsOp, LINEAGE_KINDS } from "../scripts/query.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -503,13 +506,25 @@ test("cli shell fetch: a project .npmrc's registry reaches the fetch's --registr
     const env = viaNpx ? { ...f.env, npm_config_registry: "https://npmrc.example.test/" } : f.env;
     const r = bin(["upgrade", "--harness", f.codex.id, "--json", "--project", proj], { env });
     assert.equal(r.status, 0, r.stdout + r.stderr);
+    // Two resolvers, each once (the converge story's 2026-10-09 amendment):
+    // the project's in the project, the user's from home without npx's variables.
     const reads = f.npm.log().filter((c) => c.argv[0] === "config");
-    assert.equal(reads.length, 1, "the registry is read once");
-    assert.equal(reads[0].cwd, realpathSync(proj), "in the project");
+    assert.equal(reads.length, 2, "each registry is read once");
+    assert.equal(reads.filter((c) => c.cwd === realpathSync(proj)).length, 1, "the project's, in the project");
+    assert.deepEqual(reads.filter((c) => c.cwd === realpathSync(f.home)).map((c) => c.npmConfig), [[]], "the user's, from home, with every lowercase npm_config_* removed");
     const [install] = f.npm.installs();
     assert.equal(install.argv[install.argv.indexOf("--registry") + 1], "https://npmrc.example.test/", viaNpx ? "through npx" : "without npx");
     assert.deepEqual(readdirSync(f.fetchDir), []);
   }
+  // In text, PLAN names the project's registry beneath the row it fetched for, beside the user's.
+  const f = fetchBins();
+  const proj = projectForHarness(f.codex);
+  writeFileSync(join(proj, ".npmrc"), "registry=https://npmrc.example.test/\n");
+  const t = bin(["upgrade", "--harness", f.codex.id, "--project", proj], { env: { ...f.env, FAKE_NPM_REGISTRY: undefined } });
+  assert.equal(t.status, 0, t.stdout + t.stderr);
+  const user = f.npm.log().find((c) => c.argv[0] === "config" && c.cwd === realpathSync(f.home));
+  assert.ok(user, "the user's registry was resolved");
+  assert.ok(t.stdout.includes("\n      fetched from https://npmrc.example.test/\n      your npm's own registry is "), t.stdout);
 });
 
 test("cli shell fetch: text puts the badge first, the fetch line under it, then the project and PLAN; --json is one JSON document carrying fetched", () => {
@@ -585,6 +600,130 @@ test("cli shell fetch: plan --harness codex calls no npm and makes no cache; its
   assert.ok(!("analysed" in row), "the recheck's inputs stay private");
   assert.deepEqual(f.npm.log(), [], "plan never calls npm");
   assert.equal(existsSync(f.cache), false, "and creates nothing under the cache");
+});
+
+// ─── The update notice and the stop through the bin (the converge story) ─
+//
+// PS-HARNESS: "Setup and upgrade converge this project onto the running
+// version: the channel switch, no downgrade, and the update notice", rules 6
+// and 8. The registry is a server on 127.0.0.1 that the fake npm's `config get
+// registry` names; the bin runs from a fake package root under _npx, spawned
+// without blocking so the server can answer; the host is the logging fake.
+
+async function localRegistry(latest) {
+  const requests = [];
+  const server = createServer((req, res) => {
+    requests.push({ method: req.method, url: req.url, accept: req.headers.accept, authorization: req.headers.authorization || null });
+    if (req.url !== "/projectstore") { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { "content-type": "application/vnd.npm.install-v1+json" });
+    res.end(JSON.stringify({ name: "projectstore", "dist-tags": { latest, next: "0.99.0-rc.1" } }));
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  return { url: `http://127.0.0.1:${server.address().port}/`, requests, close: () => new Promise((r) => server.close(r)) };
+}
+
+function binAt(root, args, env) {
+  return new Promise((settle) => {
+    const child = spawnChild(process.execPath, [join(root, "bin", "projectstore.mjs"), ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "", stderr = "";
+    child.stdout.on("data", (d) => { stdout += d; });
+    child.stderr.on("data", (d) => { stderr += d; });
+    child.on("close", (status) => settle({ status, stdout, stderr }));
+  });
+}
+
+// PATH: the fake host, the fake npm and node. The check on, CI off, no colour;
+// each run its own cache, so a request is never a cache's to answer. An outer
+// npx's lowercase npm_config_registry is set, to be dropped by the resolver.
+function convergeBins(registry, version = "0.30.0") {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "ps-cli-conv-")));
+  const npm = fakeNpm(join(base, "npm-bin"));
+  const host = fakeClaude(join(base, "claude-bin"));
+  const home = join(base, "home");
+  mkdirSync(home);
+  const root = fakePackageRoot(join(base, "_npx", "9f8e7d", "node_modules", "projectstore"), version);
+  const env = (extra = {}) => {
+    const e = noHostEnv({ HOME: home, PATH: [host.dir, npm.dir, dirname(process.execPath)].join(delimiter), XDG_CACHE_HOME: join(mkdtempSync(join(base, "xdg-")), "cache"), FAKE_NPM_REGISTRY: registry.url, npm_config_registry: "https://outer-npx.example.test/", ...extra });
+    for (const k of ["PROJECTSTORE_NO_UPDATE_CHECK", "CI", "FORCE_COLOR", "TERM", "NO_COLOR", "PROJECTSTORE_ASCII", "PROJECTSTORE_SHELL", "PROJECTSTORE_PROJECT_DIR"]) if (!(k in extra)) delete e[k];
+    return e;
+  };
+  return { base, npm, host, home, root, env };
+}
+
+test("cli converge: the update notice through the bin — one request to the user's registry, the notice under the badge with its command alone; --json, CI=1, plan, uninstall, doctor and a checkout make none", async () => {
+  const registry = await localRegistry("0.30.1");
+  try {
+    const b = convergeBins(registry);
+    const proj = project();
+    const args = ["upgrade", "--harness", SRC.id, "--surface", "agents_block", "--project", proj];
+    const r = await binAt(b.root, args, b.env());
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const lines = r.stdout.split("\n");
+    assert.equal(lines[0], `projectstore upgrade · ${SRC.display_name}`);
+    assert.equal(lines[1], "  ▲ newer published: 0.30.1 (this is 0.30.0). To update:");
+    assert.deepEqual(lines.slice(2, 6), ["", "    npx projectstore@latest upgrade", "", `  ${proj}`]);
+    assert.deepEqual(registry.requests, [{ method: "GET", url: "/projectstore", accept: "application/vnd.npm.install-v1+json", authorization: null }], "one request, no credentials");
+    const reads = b.npm.log().filter((c) => c.argv[0] === "config");
+    assert.equal(reads.length, 1, "the user's registry is resolved once");
+    assert.equal(reads[0].cwd, b.home, "from the home directory");
+    assert.deepEqual(reads[0].npmConfig, [], "with every lowercase npm_config_* removed");
+    // The same run with the check off: the same exit, no notice.
+    const off = await binAt(b.root, ["upgrade", "--harness", SRC.id, "--surface", "agents_block", "--project", project()], b.env({ PROJECTSTORE_NO_UPDATE_CHECK: "1" }));
+    assert.equal(off.status, r.status);
+    assert.ok(!off.stdout.includes("newer published"));
+    // None of these reads the registry or resolves it.
+    const quiet = [
+      ["--json", b.root, [...args.slice(0, -2), "--json", "--project", project()], {}],
+      ["CI=1", b.root, [...args.slice(0, -2), "--project", project()], { CI: "1" }],
+      ["plan", b.root, ["plan", "--harness", SRC.id, "--project", proj], {}],
+      ["uninstall", b.root, ["uninstall", "--harness", SRC.id, "--surface", "agents_block", "--project", project()], {}],
+      ["doctor", b.root, ["doctor", "--install", "--project", proj], {}],
+      ["a checkout", ROOT, [...args.slice(0, -2), "--project", project()], {}],
+    ];
+    for (const [label, root, a, extra] of quiet) {
+      b.npm.reset();
+      const q = await binAt(root, a, b.env(extra));
+      assert.ok(!q.stdout.includes("newer published"), label);
+      assert.equal(registry.requests.length, 1, `${label}: no request`);
+      assert.deepEqual(b.npm.log().filter((c) => c.argv[0] === "config"), [], `${label}: no registry resolved`);
+    }
+    assert.deepEqual(b.host.log(), [], "no host command ran");
+  } finally { await registry.close(); }
+});
+
+test("cli converge: the stop through the bin — this checkout's npm row at 0.31.0, the package at 0.30.0, latest 0.31.0: exit 1 before the question, both commands alone on their lines, --json ok:false with the message in refusals, nothing written or run; CI=1 still reads", async () => {
+  const registry = await localRegistry("0.31.0");
+  try {
+    const b = convergeBins(registry);
+    const proj = project();
+    writeFileSync(join(proj, "CLAUDE.md"), "# Mine\n");
+    // This checkout registered from a 0.31.0 package, in-process against the same home and fake host.
+    const newer = fakePackageRoot(join(b.base, "newer", "node_modules", "projectstore"), "0.31.0");
+    const hostEnv = b.host.env({ HOME: b.home });
+    const done = installApply(installPlan(proj, { harnesses: [SRC.id], home: b.home, root: newer, env: hostEnv }), { env: hostEnv, home: b.home });
+    assert.equal(done.failed, undefined, JSON.stringify(done));
+    b.host.reset();
+    const settings = join(proj, CFG_DIR, "settings.local.json");
+    const before = [readFileSync(settings, "utf8"), readFileSync(join(proj, "CLAUDE.md"), "utf8"), readFileSync(layoutPaths(proj).binding, "utf8")];
+    const t = await binAt(b.root, ["upgrade", "--harness", SRC.id, "--project", proj], b.env());
+    assert.equal(t.status, 1, t.stdout + t.stderr);
+    assert.ok(t.stdout.includes("▲ refused  this project runs projectstore 0.31.0 (projectstore@projectstore-npm), newer than this package (0.30.0), and 0.31.0 is published. Nothing is written. Run the newer one from a terminal in this project:\n"), t.stdout);
+    assert.ok(t.stdout.includes(`:\n\n    npx projectstore@latest upgrade --harness ${SRC.id}\n\n  or install it for the whole machine:\n\n    npm install -g projectstore@latest\n`), t.stdout);
+    assert.ok(!t.stdout.includes("Apply"), "no question");
+    assert.ok(!t.stdout.includes("newer published"));
+    const j = await binAt(b.root, ["upgrade", "--harness", SRC.id, "--json", "--project", proj], b.env({ CI: "1" }));
+    assert.equal(j.status, 1, j.stdout + j.stderr);
+    const doc = JSON.parse(j.stdout);
+    assert.equal(doc.ok, false);
+    assert.deepEqual(doc.result.gate, { confirmed: false, why: "refused" });
+    assert.deepEqual(doc.result.items, []);
+    assert.deepEqual(doc.result.fetched, []);
+    assert.deepEqual(Object.keys(doc.result), ["gate", "applied", "failed", "incomplete", "plannedAgainst", "items", "refusals", "reports", "fetched"], "the envelope gains no key");
+    assert.equal(doc.result.refusals[0], `this project runs projectstore 0.31.0 (projectstore@projectstore-npm), newer than this package (0.30.0), and 0.31.0 is published. Nothing is written. Run the newer one from a terminal in this project:\nnpx projectstore@latest upgrade --harness ${SRC.id}\nor install it for the whole machine:\nnpm install -g projectstore@latest`, "each command on a line of its own, nothing after it");
+    assert.equal(registry.requests.length, 2, "CI and --json still read for this case");
+    assert.deepEqual(b.host.log(), [], "no host command ran");
+    assert.deepEqual([readFileSync(settings, "utf8"), readFileSync(join(proj, "CLAUDE.md"), "utf8"), readFileSync(layoutPaths(proj).binding, "utf8")], before, "nothing written");
+  } finally { await registry.close(); }
 });
 
 // Roadmap A8: the prompt surface (commands, agents, skills) invokes ONE path,

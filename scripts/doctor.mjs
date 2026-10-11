@@ -68,7 +68,7 @@ import {
   findAgentsBlock,
   statusLineLauncherPath,
   LAUNCHER_HEADER,
-  installedPluginEntries, isMain,
+  installedPluginEntries, projectCopies, isMain,
   pickExisting,
   legacyStatusLineLauncherPath,
   stateDir,
@@ -967,14 +967,9 @@ export function layoutRemedy(proj, { root = pluginRoot(), home = homedir(), harn
   const channel = installChannel(root, { home, harness });
   if (channel === "registration") return shell(pluginVersion(root));
   if (channel === "marketplace") return own(root);
-  // Real paths: the host records the project's cwd as one, and /var against
-  // /private/var would otherwise drop the project's own row.
-  const real = (x) => { try { return realpathSync.native(x); } catch { return resolve(x); } };
-  const here = real(proj);
-  const mine = (e) => Boolean(e.projectPath) && real(e.projectPath) === here;
-  const copy = installedPluginEntries(home, proj)
-    .filter((e) => e.present && e.enabled && (!e.projectPath || mine(e)))
-    .sort((a, b) => (Number(mine(b)) - Number(mine(a))) || (b.at - a.at))[0];
+  // The selection is lib's projectCopies: this checkout's row first, then
+  // user-scope rows by recency, never another checkout's.
+  const copy = projectCopies(home, proj)[0];
   if (copy) {
     const v = copy.version ? ` (${copy.version})` : "";
     if (!existsSync(join(copy.path, "bin", "projectstore.mjs"))) {

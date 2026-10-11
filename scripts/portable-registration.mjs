@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { whichOnPath } from "./lib.mjs";
+import { whichOnPath, cmpPrecedence } from "./lib.mjs";
 
 const readJson = (path) => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; } };
 const samePath = (a, b) => {
@@ -205,9 +205,15 @@ export function analysePortableRegistration(projectDir, s, { root, payloadRoot: 
       const g = global.get(pluginTable(other)) || null, p = project.get(pluginTable(other)) || null;
       return { id: other, enabled: typeof p?.enabled === "boolean" ? p.enabled : g?.enabled === true };
     });
+  // A registration newer than what this run offers (the converge story's rule
+  // 6): set before the ladder, so a damaged one keeps it beside its real
+  // reason, and the cache is then read at the version the host registered —
+  // keyed on the desired version, a newer registration's integrity rungs
+  // checked the wrong cache directory.
+  const newer = typeof ownership?.version === "string" && typeof desiredVersion === "string" && cmpPrecedence(ownership.version, desiredVersion) > 0;
   const caches = cacheEntries(paths, s);
-  const installed = caches.find((e) => e.version === desiredVersion) || caches[0] || null;
-  const out = { id, paths, path: paths.dir, payloadRoot, desiredVersion, versionOnly, bin, ownership, journal, catalog, market, globalPlugin, projectPlugin, enabled, others, caches, installed, installPath: installed?.path || null, installedVersion: installed?.version || null, state: "absent", reason: null, produced: Boolean(desiredManifest), contentDiffers: null };
+  const installed = caches.find((e) => e.version === (newer ? ownership.version : desiredVersion)) || caches[0] || null;
+  const out = { id, paths, path: paths.dir, payloadRoot, desiredVersion, versionOnly, bin, ownership, journal, catalog, market, globalPlugin, projectPlugin, enabled, others, caches, installed, installPath: installed?.path || null, installedVersion: installed?.version || null, state: "absent", reason: null, produced: Boolean(desiredManifest), contentDiffers: null, newer };
   const enabledOther = others.find((other) => other.enabled);
   const nothing = !existsSync(paths.dir) && !market && !globalPlugin && !installed && !enabledOther;
   if (!desiredManifest && !versionOnly) return { ...out, state: "unavailable", reason: payloadRoot ? `${payloadRoot} is not a portable plugin root` : `nothing to register from this run: ${harness?.display_name || "this harness"}'s plugin is registered from its distribution shell, not from the core` };
@@ -235,6 +241,10 @@ export function analysePortableRegistration(projectDir, s, { root, payloadRoot: 
   if (!market) return { ...out, state: "stale", reason: "the host does not know the marketplace" };
   if (!installed || installed.version !== ownership.version) return { ...out, state: "stale", reason: "the host cache does not contain the registered payload version" };
   if (!installed.digest || installed.digest.sha256 !== ownership.digest?.sha256 || installed.digest.count !== ownership.digest?.count) return { ...out, state: "stale", reason: "the materialised host cache does not match the registered payload digest" };
+  // The newer rung, after the integrity rungs: a sound registration newer
+  // than this run is current and never staged over (rule 6). A damaged one
+  // stayed stale above, with its real reason; the planner skips it.
+  if (newer) return { ...out, state: "current", reason: `the registration is at ${ownership.version}, newer than this package (${desiredVersion}) — not downgraded` };
   if (ownership.version !== desiredVersion) return { ...out, state: "stale", reason: `installed ${ownership.version}; package offers ${desiredVersion}` };
   return { ...out, state: "current", reason: enabled ? null : "installed globally but disabled by effective configuration" };
 }
