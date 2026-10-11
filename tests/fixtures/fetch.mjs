@@ -65,7 +65,10 @@ const errorBody = (mode, { name, spec, registry }) => {
 
 // One npm call, decided: what it prints and how it exits. `hang` never exits.
 export function npmAnswer(argv, { mode = "ok", registry = FAKE_REGISTRY } = {}) {
-  if (argv[0] === "config" && argv[1] === "get" && argv[2] === "registry") return mode === "hang" ? { hang: true } : { status: 0, stdout: registry + "\n", stderr: "" };
+  if (argv[0] === "config" && argv[1] === "get" && argv[2] === "registry") {
+    if (mode === "hang") return { hang: true };
+    return registry === false ? { status: 1, stdout: "", stderr: "fake npm: config read failed\n" } : { status: 0, stdout: registry + "\n", stderr: "" };
+  }
   if (argv[0] !== "install") return { status: 1, stdout: "", stderr: `fake npm: ${argv.join(" ")} is not faked\n` };
   const call = parseInstall(argv);
   if (mode === "hang") return { hang: true };
@@ -78,8 +81,11 @@ export function npmAnswer(argv, { mode = "ok", registry = FAKE_REGISTRY } = {}) 
 // in tests/codex-registration.test.mjs: an EventEmitter with piped stdout and
 // stderr, `kill` and `unref`. Every call is recorded with its argv, cwd and
 // env; a hung child exits only when killed, as a real one does on SIGTERM.
-// `registryMode: "hang"` hangs the `config get registry` read instead.
-export function fakeNpmSpawn({ mode = "ok", registry = FAKE_REGISTRY, onInstall = null, registryMode = "ok" } = {}) {
+// `registryMode: "hang"` hangs the `config get registry` read instead;
+// `registryAt` answers that read by its working directory ({ [cwd]: url }),
+// so a project's registry and the user's can differ; `false` there makes the
+// read fail for that directory.
+export function fakeNpmSpawn({ mode = "ok", registry = FAKE_REGISTRY, onInstall = null, registryMode = "ok", registryAt = {} } = {}) {
   const calls = [];
   const spawn = (bin, argv, opts = {}) => {
     const child = new EventEmitter();
@@ -91,7 +97,7 @@ export function fakeNpmSpawn({ mode = "ok", registry = FAKE_REGISTRY, onInstall 
     calls.push(call);
     child.kill = (signal = "SIGTERM") => { child.killed = signal; call.killed = signal; setImmediate(() => { child.stdout.end(); child.stderr.end(); child.emit("exit", null, signal); }); return true; };
     setImmediate(() => {
-      const r = npmAnswer(argv, { mode: argv[0] === "install" ? mode : registryMode, registry });
+      const r = npmAnswer(argv, { mode: argv[0] === "install" ? mode : registryMode, registry: registryAt[opts.cwd] === false ? false : registryAt[opts.cwd] || registry });
       if (r.hang) return;
       if (argv[0] === "install" && onInstall) onInstall(call);
       child.stdout.end(r.stdout);
@@ -103,9 +109,10 @@ export function fakeNpmSpawn({ mode = "ok", registry = FAKE_REGISTRY, onInstall 
   return { spawn, calls, installs: () => calls.filter((c) => c.argv[0] === "install") };
 }
 
-// The PATH stub: a node script named npm that logs argv and cwd to
-// <dir>/calls.jsonl and answers as npmAnswer does, its mode from
-// FAKE_NPM_MODE. `config get registry` is the REAL npm's, run in the same
+// The PATH stub: a node script named npm that logs argv, cwd and the
+// lowercase npm_config_* names it was given to <dir>/calls.jsonl and answers
+// as npmAnswer does, its mode from FAKE_NPM_MODE. `config get registry` is
+// FAKE_NPM_REGISTRY when that is set, else the REAL npm's, run in the same
 // cwd, so a project's .npmrc and npm_config_registry decide it as they would.
 export function fakeNpm(dir, { realNpm = whichReal("npm") } = {}) {
   mkdirSync(dir, { recursive: true });
@@ -113,7 +120,10 @@ export function fakeNpm(dir, { realNpm = whichReal("npm") } = {}) {
   const script = `#!/usr/bin/env node
 const fs = require("node:fs"), path = require("node:path"), { spawnSync } = require("node:child_process");
 const argv = process.argv.slice(2);
-fs.appendFileSync(path.join(__dirname, "calls.jsonl"), JSON.stringify({ argv, cwd: process.cwd(), registryEnv: process.env.npm_config_registry || null }) + "\\n");
+fs.appendFileSync(path.join(__dirname, "calls.jsonl"), JSON.stringify({ argv, cwd: process.cwd(), registryEnv: process.env.npm_config_registry || null, npmConfig: Object.keys(process.env).filter((k) => k.startsWith("npm_config_")).sort() }) + "\\n");
+// FAKE_NPM_REGISTRY answers the registry read itself: the bin tests' local
+// 127.0.0.1 registry, named the way npm would name a user's registry.
+if (argv[0] === "config" && argv[1] === "get" && argv[2] === "registry" && process.env.FAKE_NPM_REGISTRY) { process.stdout.write(process.env.FAKE_NPM_REGISTRY + "\\n"); process.exit(0); }
 if (argv[0] === "config" && argv[1] === "get" && argv[2] === "registry" && ${JSON.stringify(Boolean(realNpm))}) {
   const r = spawnSync(${JSON.stringify(realNpm)}, argv, { cwd: process.cwd(), env: process.env, encoding: "utf8" });
   process.stdout.write(r.stdout || ""); process.stderr.write(r.stderr || ""); process.exit(r.status ?? 1);
@@ -140,6 +150,34 @@ function whichReal(name) {
     try { if (statSync(p).isFile()) return p; } catch {}
   }
   return null;
+}
+
+// The registry the update notice and rule 6 read (the converge story), as
+// Node's fetch sees it, in-process: each call recorded with its URL, its
+// Accept header and its signal. `mode`: { latest } answers the abbreviated
+// document; "reject", 500, "not-json", "no-tag" (a latest that is not
+// semver) and "hang" (never settles) fail as named.
+export function registryFetch(mode = { latest: "0.30.1" }) {
+  const calls = [];
+  const fetch = (url, init = {}) => {
+    const call = { url: String(url), accept: init.headers?.accept, signal: init.signal || null, cancelled: false };
+    calls.push(call);
+    if (mode === "reject") return Promise.reject(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }));
+    if (mode === "hang") return new Promise(() => {});
+    // An error status: the body a reader never reads, and whether it was cancelled.
+    if (mode === 500) return Promise.resolve({ ok: false, status: 500, body: { cancel: () => { call.cancelled = true; return Promise.resolve(); } }, json: async () => ({}) });
+    if (mode === "not-json") return Promise.resolve({ ok: true, status: 200, json: async () => { throw new SyntaxError("Unexpected token <"); } });
+    if (mode === "no-tag") return Promise.resolve({ ok: true, status: 200, json: async () => ({ name: "projectstore", "dist-tags": { latest: "v0.31" } }) });
+    return Promise.resolve({ ok: true, status: 200, json: async () => ({ name: "projectstore", "dist-tags": { latest: mode.latest, next: "0.99.0-rc.1" } }) });
+  };
+  return { fetch, calls };
+}
+
+// Timers whose every timeout fires at once — "the bound has passed" — each
+// bound asked for recorded.
+export function instantTimers() {
+  const asked = [];
+  return { asked, setTimeout: (fn, ms) => { asked.push(ms); return setImmediate(fn); }, clearTimeout: (h) => clearImmediate(h) };
 }
 
 // Codex's plugin CLI in the shapes measured on codex-cli 0.153.4 — marketplace

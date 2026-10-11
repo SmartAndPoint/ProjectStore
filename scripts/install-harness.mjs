@@ -57,6 +57,14 @@
 // facts and the version alone. plan() stays synchronous and pure either way;
 // runVerb removes the run's scratch after apply() in a `finally`.
 //
+// Before that fetch, install and upgrade decide about the copies of ours this
+// project already runs (convergence.mjs; the story "Setup and upgrade converge
+// this project onto the running version…", rules 6 and 8): a copy newer than
+// this root is never downgraded — the run stops and names the update when
+// the registry's latest reaches it, and proceeds, saying why, when it does not
+// — and a package root run in text says when a newer release is published.
+// The registry is read there, at most once; plan() is handed the decision.
+//
 // Direction: installer → surfaces ← doctor; installer → provenance ← doctor.
 // Doctor never imports this file.
 //
@@ -77,9 +85,10 @@ import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses,
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
 import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, analyseHarnessState, isOurFile, readText, registrationRenderRoot, registrationPaths } from "./surfaces.mjs";
 import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
-import { rootVersion, rootName, fetchDecision, fetchArgv, npmRegistry, REGISTRY_BUDGET_MS, fetchShell, fetchRefusal, fetchRunId, sweepFetchRuns } from "./fetch-shell.mjs";
+import { rootVersion, rootName, fetchDecision, fetchArgv, npmRegistry, npmUserRegistry, REGISTRY_BUDGET_MS, fetchShell, fetchRefusal, fetchRunId, sweepFetchRuns } from "./fetch-shell.mjs";
 import { HOST_BUDGET_MS, startFailure } from "./run-host.mjs";
-import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal, registrationProvenance } from "./lib.mjs";
+import { runningCopies, newerCopies, lowestVersion, readLatest, decide, proceedCase, newerCopyDeferral, repairAdvice, advised, updateNotice, checksRoot, noticeRoot, updateCheckOff, DEFAULT_REGISTRY, NOTICE_BUDGET_MS, READ_TIMEOUT_MS } from "./convergence.mjs";
+import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal, registrationProvenance, envFlag } from "./lib.mjs";
 
 import { GENERATOR } from "./surfaces.mjs";
 export { GENERATOR };
@@ -436,9 +445,21 @@ function planPortableRegistration(ctx, key, s) {
     if (a.ownership) steps.push({ kind: "portable-remove", path: a.paths.dir, homeBase: a.paths.home, why: "the stable marketplace source is owned by this installer" });
     return [{ ...base, action: "remove", steps, reason: "explicit global removal; project overrides are preserved" }];
   }
+  // A registration newer than this run (the converge story's rule 6): the
+  // rows name both versions and, when the run proceeds, which case it was —
+  // the registry's latest below it, no answer, the check switched off, or for
+  // plan's dry run that install and upgrade read the registry first.
+  const newerCase = a.newer ? proceedCase(ctx.convergence, a.ownership.version) : null;
   // An unchanged row carries no note by default (presentation spec contract
   // 7); that its payload digest waits for a fetch is said under --verbose.
-  if (a.state === "current") return [{ ...base, action: "skip", reason: a.reason, ...(a.versionOnly ? { digestDeferred: true } : {}) }];
+  if (a.state === "current") return [{ ...base, action: "skip", reason: newerCase ? `${a.reason}; ${newerCase}` : a.reason, ...(a.versionOnly ? { digestDeferred: true } : {}) }];
+  // A newer registration that is damaged keeps its real reason and is never
+  // staged over with this run's older payload: it is repaired from its own
+  // version. Nothing of the host's runs, so the run is incomplete.
+  if (a.newer) {
+    ctx.incomplete = true;
+    return [{ ...base, action: "skip", deferred: true, ...advised(`${a.reason}${newerCase ? `; ${newerCase}` : ""}`, [repairAdvice(harness, a.ownership.version)]) }];
+  }
   if (!a.bin) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `\`${s.cli.bin}\` is not on PATH; no registration mutation was attempted` }]; }
   // Decision 2 of the front-door ADR: the registration defers in the planned
   // harness's own session, as the host-plugin registration does. Dormant while
@@ -542,9 +563,33 @@ function planRegistration(ctx, key, s) {
   const needsHost = a.state !== "current" || a.others.length > 0;
   if (needsHost && !bin) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `${a.reason ? a.reason + "; " : ""}${notOnPath}` }]; }
   if (needsHost && insideHostSession(env, harness)) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `${a.reason ? a.reason + "; " : ""}${inSession}` }]; }
+  // Our directory newer than this package and damaged (the converge story's
+  // rule 6): never rewritten from the older package — this checkout and every
+  // other would then update down to it. It is repaired from its own version;
+  // nothing of the host's runs, and the run is incomplete.
+  if (a.newer && a.dir.digestOk === false) {
+    ctx.incomplete = true;
+    const newerCase = proceedCase(ctx.convergence, a.dir.pkg);
+    return [{ ...base, action: "skip", deferred: true, ...advised(`the directory holds ${a.dir.pkg}, newer than this package (${a.pkg}), and its payload does not match its digest (edited by hand or half-written)${newerCase ? `; ${newerCase}` : ""}`, [repairAdvice(harness, a.dir.pkg)]) }];
+  }
+  // A copy from another marketplace newer than this package (rule 6), under
+  // no channel answer: switching it off would run the project on an older
+  // package, and the git channel serves main, often ahead of latest. The
+  // registration and every switch defer; no host command runs. The reason and
+  // its ways out print once, under the registration; each switch row points
+  // there.
+  const newerOther = a.others.filter((o) => typeof o.version === "string" && cmpPrecedence(o.version, a.pkg) > 0).sort((x, y) => cmpPrecedence(y.version, x.version))[0];
+  if (newerOther && (ctx.channel ?? null) === null) {
+    ctx.incomplete = true;
+    const deferral = newerCopyDeferral({ copy: newerOther, running: a.pkg, decision: ctx.convergence, harness, s });
+    return [{ ...base, action: "skip", deferred: true, ...deferral }, ...a.others.map((o) => ({ ...other(o), action: "skip", deferred: true, reason: `not switched off — see ${id} above` }))];
+  }
 
   if (a.state === "current") {
-    items.push({ ...base, action: "skip" });
+    // A directory and row newer than this package: rung 12, not downgraded,
+    // and — when the run proceeds — which case it was (rule 6).
+    const newerCase = a.newer ? proceedCase(ctx.convergence, a.dir.pkg) : null;
+    items.push({ ...base, action: "skip", ...(newerCase ? { reason: `${a.reason}; ${newerCase}` } : {}) });
   } else {
     const steps = [];
     // The directory is rewritten when it is missing, older than this package or
@@ -685,8 +730,15 @@ function surfaceExcluded(key, s, { surfaces = null, register = true } = {}) {
 // root for every harness and is inherited by every child the run spawns.
 // `layout` is a layout NAME: the agents block's roster is rendered from it,
 // the layout the run leaves; null keeps the binding's (the story "One run
-// plans the agents block once…", rule 3).
-export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null, layout = null } = {}) {
+// plans the agents block once…", rule 3). `convergence` is the prepare step's
+// decision about the copies this project runs (convergence.mjs, the converge
+// story's rule 6): a stop is rendered as the plan's refusal, and the proceed
+// cases as the newer rows' words. plan() reads no registry and decides
+// nothing about it; without a decision (plan's dry run) a newer row says
+// that install and upgrade read the registry first — from a root that checks
+// at all. `fetchedFrom` names the project's registry a shell was fetched
+// from, when it is not the user's ({ registry, user, harnesses }).
+export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null, layout = null, convergence = null, fetchedFrom = null } = {}) {
   projectDir = resolve(projectDir);
   const detected = detectHarnesses(projectDir, { state });
   const named = harnesses.filter(Boolean);
@@ -695,6 +747,8 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   // Not enumerable, like hostManaged: plan --json keeps the shape it had.
   Object.defineProperty(out, "version", { value: version, enumerable: false });
   Object.defineProperty(out, "payloadRoots", { value: { ...(payloadRoots || {}) }, enumerable: false });
+  Object.defineProperty(out, "convergence", { value: convergence, enumerable: false });
+  Object.defineProperty(out, "fetchedFrom", { value: fetchedFrom, enumerable: false });
   const unknown = named.filter((id) => !harnessIds().includes(id));
   if (unknown.length) {
     out.refusals.push(`unknown harness: ${unknown.join(", ")} — known: ${harnessIds().join(", ")}`);
@@ -716,6 +770,21 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
     out.ok = false;
     return out;
   }
+  // The stop (rule 6), decided in the prepare step: this project runs a newer
+  // copy and the registry's latest reaches it. Nothing is planned; the
+  // refusal carries the whole text, and its two commands — each printed on a
+  // line of its own (presentation spec contract 6) — are kept off the
+  // envelope, as hostManaged is.
+  if (convergence?.stop) {
+    out.harnesses = ids;
+    out.refusals.push(convergence.stop.text);
+    out.ok = false;
+    Object.defineProperty(out, "stop", { value: { lead: convergence.stop.lead, commands: [...convergence.stop.commands], between: convergence.stop.between }, enumerable: false });
+    return out;
+  }
+  // What the newer rows say: the prepare step's decision; for a dry run, the
+  // note that install and upgrade read first — only from a root that checks.
+  const decision = convergence ?? (mode === "install" && !checksRoot(root, { home, env }) ? { checks: false } : null);
   const cfg = readConfigAt(projectDir);
   const optIn = new Set(surfaces || []);
   if (cfg?.statusline?.enabled === true) optIn.add("statusline");
@@ -772,7 +841,7 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   for (const id of ids) {
     const harness = loadHarness(id);
     out.harnesses.push(id);
-    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [], globalRemoval, version, fetched: payloadRoots?.[id] || null };
+    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [], globalRemoval, version, fetched: payloadRoots?.[id] || null, convergence: decision, channel: null };
     const hostRows = [];
     const unsupportedHost = [];
     let registration = null;
@@ -1139,6 +1208,9 @@ const writtenElsewhere = (i) => i.state === "current" && Boolean(i.writtenBy) &&
 // A row that writes nothing and asks nothing of the reader collapses into
 // one line per group naming it (contract 7).
 const isQuiet = (i) => isUnchanged(i) && !writtenElsewhere(i) && !(i.steps || []).length;
+// The registration row a fetched shell's registry lines sit beneath, when the
+// run fetched one from a registry that is not the user's.
+const fetchedFor = (p, i) => (p.fetchedFrom && i.kind === "registration" && !String(i.surface).endsWith("_others") && p.fetchedFrom.harnesses.includes(i.harness) ? p.fetchedFrom : null);
 
 function actionWord(i) {
   if (i.action === "skip") return isUnchanged(i) ? "unchanged" : "skipped";
@@ -1164,7 +1236,9 @@ function rowNote(i, { verbose, glyph }) {
 // plan's own action, as install spec contract 18 wrote them.
 function transitionText(i, glyph) {
   let state = writtenElsewhere(i) ? `current, last written by ${i.writtenBy}` : i.state;
-  if (i.reason && i.action !== "refuse") state += ` (${i.reason})`;
+  // A reason with commands gives its prose here; the commands follow, alone.
+  const reason = i.advice ? i.advice.text : i.reason;
+  if (reason && i.action !== "refuse") state += ` (${reason})`;
   // A dry run's unchanged registration: right by every host fact, its
   // payload digest still to compare. Said only where the reasoning is.
   if (i.digestDeferred) state += " (the payload digest is compared when install or upgrade fetches the shell)";
@@ -1228,6 +1302,15 @@ export function badgeLine(p, { verb = null, caps: c = PLAIN } = {}) {
   return badgeText(c, `projectstore ${verb || p.mode}`, [displayNames(p)]);
 }
 
+// The update notice in the badge's slot (the converge story's rule 8;
+// presentation spec contracts 6 and 7): the note glyph, the text in the
+// explanation role, then the command alone on its line after a blank one, in
+// the action role, and a blank line before the preview.
+export function noticeText(n, c = PLAIN) {
+  const paint = painter(c);
+  return [`  ${paint("attention", termIcon(c, "note"))} ${paint("explanation", n.text)}`, ...commandBlock(c, [n.command], { indent: 4 }), ""].join("\n") + "\n";
+}
+
 // The summary line: the counts by kind of change, each in its word's role.
 // Unsupported rows are not counted: they are the harness's, not the run's.
 const COUNTED = [["add", (n) => `${n} to add`], ["register", (n) => `${n} to register`], ["update", (n) => `${n} to update`], ["remove", (n) => `${n} to remove`], ["unchanged", (n) => `${n} unchanged`], ["skipped", (n) => `${n} skipped`]];
@@ -1268,7 +1351,18 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
     // consequence line, on the line beneath its row, before anything else.
     if (isWrite(i) && i.kind === "registration" && i.scope === "user") out.push(...prose("      ", `user-wide: the plugin is ${i.action === "remove" ? "removed" : "registered"} for every project ${displayName(i.harness)} opens, not only this one`));
     if (verbose) out.push(...prose("      ", transitionText(i, glyph)));
-    else if (i.reason && !isUnsupported(i)) out.push(...prose("      ", i.reason, i.action === "refuse" ? "attention" : "explanation"));
+    else if (i.reason && !isUnsupported(i)) out.push(...prose("      ", i.advice ? i.advice.text : i.reason, i.action === "refuse" ? "attention" : "explanation"));
+    // The reason's ways out (the converge story): each lead, then its command
+    // alone on its line after a blank one (contract 6), and a blank line after.
+    if (i.advice?.blocks?.length) {
+      for (const b of i.advice.blocks) out.push(...prose("      ", b.lead), ...commandBlock(c, [b.command], { indent: 10 }), "");
+    }
+    // A shell this run fetched from a registry that is not the user's (the
+    // converge story's rule 8, as amended 2026-10-09): both named. Neutral
+    // words: the fetch's URL can come from the project's .npmrc or from the
+    // run's own environment (`npx --registry`), and either reads the same.
+    const from = fetchedFor(p, i);
+    if (from) out.push(...prose("      ", `fetched from ${from.registry}`), ...prose("      ", `your npm's own registry is ${from.user}`));
     for (const st of i.steps || []) out.push(...stepLines(p, st, { verbose, paint, width, glyph }));
     if (i.kind === "registration" && i.home && i.surface && !i.surface.endsWith("_others")) out.push(`      ${paint("explanation", `(harness home ${i.home}${i.scope ? `, scope ${i.scope}` : ""})`)}`);
     if (i.deleteIfEmpty && typeof i.after === "string" && !i.after.trim()) out.push(`      ${paint("explanation", "(the file would hold nothing else and is removed)")}`);
@@ -1292,7 +1386,9 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
     const host = (p.hostManaged || []).filter((h) => h.harness === id);
     if (!entries.length && !others.length && !host.length) continue;
     const folded = verbose ? [] : entries.filter((e) => isUnsupported(e.i));
-    const quiet = verbose ? [] : entries.filter((e) => isQuiet(e.i));
+    // A registration this run fetched from another registry keeps its row, so
+    // the registry lines beneath it show on every run, not only on a change.
+    const quiet = verbose ? [] : entries.filter((e) => isQuiet(e.i) && !fetchedFor(p, e.i));
     const shown = entries.filter((e) => !folded.includes(e) && !quiet.includes(e));
     const specs = shown.map(({ i }) => ({ glyph: glyphName(i), role: WORD_ROLE[actionWord(i)], action: actionWord(i), target: rowTarget(p, i), note: rowNote(i, { verbose, glyph }) }));
     if (quiet.length) specs.push({ glyph: "unchanged", role: "explanation", action: "unchanged", target: paint("explanation", quiet.map((e) => surfaceWords(e.i.surface)).join(", ")) });
@@ -1314,12 +1410,17 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
   if (p.refusals.length) lines.push("");
   // A plan-level refusal: its message in the attention role, as an item's
   // refusal reason is (presentation spec contract 3 as amended 2026-10-11).
-  for (const r of p.refusals) {
+  p.refusals.forEach((r, k) => {
     const lead = `  ${paint("attention", glyph("refuse"))} ${paint("attention", "refused")}  `;
     const pad = " ".repeat(plain(lead).length);
-    const [first, ...rest] = wrap(r, width, pad).split("\n");
+    // The stop (the converge story's rule 6) carries its commands apart from
+    // its words: each is printed alone on its line after a blank one, with
+    // nothing after it (contract 6), the way a person copies it.
+    const stop = k === 0 && p.stop ? p.stop : null;
+    const [first, ...rest] = wrap(stop ? stop.lead : r, width, pad).split("\n");
     lines.push(lead + paint("attention", first), ...rest.map((l) => pad + paint("attention", l.slice(pad.length))));
-  }
+    if (stop) lines.push(...commandBlock(c, [stop.commands[0]], { indent: 4 }), "", ...prose("  ", stop.between), ...commandBlock(c, stop.commands.slice(1), { indent: 4 }));
+  });
   // The closing lines, in a person's words: only what is listed is written,
   // and a $ line is the host's own CLI at work.
   const closing = [];
@@ -1342,7 +1443,7 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
 export function isInteractive({ stdin = null, stdout = null, env = process.env, json = false } = {}) {
   if (json) return false;
   if (!(stdin && stdin.isTTY && stdout && stdout.isTTY)) return false;
-  if (env.CI && !["0", "false"].includes(String(env.CI).toLowerCase())) return false;
+  if (envFlag(env, "CI")) return false;
   // A host session's own tool may run us in a pseudo-terminal; the manifests'
   // session markers say when that is happening — every manifest's, not only
   // the planned harness's: a Claude Code agent running the Codex shell is
@@ -1862,12 +1963,27 @@ export function planOptions(opts = {}) {
 // held before the plan.
 //   opts.onFetch(label, ids) → a live line ({ end, abort }) or null
 //   opts.fetchSpawn, opts.fetchBudget → the tests' npm and clock
+//
+// Before the fetch, the converge story's rules 6 and 8, in this order (its
+// Technical Notes): the copies this project runs (read-only); the registry
+// read — awaited when a copy is newer than this root, else started for the
+// update notice and awaited after the fetch, before PLAN; the stop, which
+// returns here with nothing fetched, written, locked or spawned but the
+// registry resolver; the keep read's slot (the channel "git" is not passed
+// yet); then the fetch, which skips a newer registration. The user's registry
+// is resolved at most once: for a read, and by every run that fetches a shell
+// — which also resolves the project's, and names it in PLAN when the two
+// differ (the 2026-10-09 amendment). A run that neither fetches nor reads
+// resolves neither. On the notice-only path the resolver and the request
+// share one 2 s bound.
+//   opts.notice → the caller prints text (runVerb's `out`): the notice may show
+//   opts.fetch, opts.now, opts.timers → the tests' registry read and clock
 async function prepareRun(verb, projectDir, opts = {}) {
   const env = opts.env || process.env;
   const home = opts.home || homedir();
   const root = opts.root || pluginRoot();
   const version = rootVersion(root);
-  const none = { version, payloadRoots: {}, fetched: [], refused: null, cleanup: () => {} };
+  const none = { version, payloadRoots: {}, fetched: [], refused: null, convergence: null, notice: null, cleanup: () => {} };
   if (!["install", "upgrade"].includes(verb)) return none;
   projectDir = resolve(projectDir);
   const state = verb === "upgrade";
@@ -1876,6 +1992,58 @@ async function prepareRun(verb, projectDir, opts = {}) {
   const detected = detectHarnesses(projectDir, { state });
   const ids = named.length ? named : detected.map((d) => d.id);
   if (!ids.length) return none;
+  // One version-only analysis per shell-rooted registration, shared by the
+  // running copies and the fetch's decision.
+  const analyses = new Map();
+  const analyse = (harness, s) => {
+    if (!analyses.has(harness.id)) analyses.set(harness.id, analysePortableRegistration(projectDir, s, { root, home, harness, env, version }));
+    return analyses.get(harness.id);
+  };
+  // 1. The user's registry: resolved once, when first needed (the 2026-10-09
+  // amendment); null when npm could not say.
+  let userRegistry = null;
+  const userRegistryOf = (budget) => (userRegistry ||= npmUserRegistry({ home, env, spawn: opts.fetchSpawn, budget }).catch(() => null));
+  // The read. `shared`: the resolver and the request fit in one bound — the
+  // notice-only path's 2 s; otherwise the request has its own 2 s after a
+  // resolver allowed rule 6's 10 s.
+  const read = (budget, { atLeast = null, shared = false } = {}) => {
+    const t0 = Date.now();
+    return userRegistryOf(budget)
+      .then((registry) => {
+        const timeoutMs = shared ? budget - (Date.now() - t0) : READ_TIMEOUT_MS;
+        if (timeoutMs < 1) return { latest: null, from: null, error: `no answer within ${budget / 1000} s` };
+        return readLatest({ registry: registry || DEFAULT_REGISTRY, cachePath: cachePaths({ env, home }).registry, fetch: opts.fetch, now: opts.now, timers: opts.timers, atLeast, timeoutMs });
+      })
+      .catch((e) => ({ latest: null, from: null, error: String(e?.message || e) }));
+  };
+  // 2. The copies this project runs: from a package root or a checkout only;
+  // a host's copy is updated through its own channel and never stopped.
+  const checks = Boolean(version) && checksRoot(root, { home, env });
+  const copies = checks ? runningCopies(projectDir, { harnesses: ids, root, home, env, version, analyse }) : [];
+  const newer = newerCopies(copies, version);
+  const off = updateCheckOff(env);
+  // The notice: text mode, from a package root, never under CI or the switch.
+  const wantNotice = Boolean(opts.notice) && !opts.json && Boolean(version) && noticeRoot(root, { home, env }) && !envFlag(env, "CI") && !off;
+  // 3. The read: one request per run at most, shared by rule 6 and the notice.
+  // --json and CI do not switch rule 6's read off: it decides what is written.
+  let answer = null, pending = null;
+  if (newer.length && !off) answer = await read(REGISTRY_BUDGET_MS, { atLeast: lowestVersion(newer) });
+  else if (wantNotice) pending = read(NOTICE_BUDGET_MS, { shared: true });
+  // 4. The stop: nothing after it runs.
+  const convergence = checks
+    ? decide({ copies, version, read: answer, skipped: off && newer.length > 0, verb, args: { harnesses: named, surfaces: opts.surfaces || null, register: opts.register !== false } })
+    : { checks: false };
+  if (convergence.stop) return { ...none, convergence };
+  // 5. The keep read: for the channel "git", which no verb passes yet.
+  // 6. The fetch.
+  const fetchedPart = await fetchShells(verb, projectDir, { ...opts, env, home, root, version, named, detected, ids, analyse, userRegistryOf });
+  const latest = pending ? (await pending).latest : answer?.latest;
+  const notice = wantNotice ? updateNotice({ latest, version, root, verb }) : null;
+  return { ...fetchedPart, convergence, notice };
+}
+
+async function fetchShells(verb, projectDir, { env, home, root, version, named, detected, ids, analyse, userRegistryOf, ...opts }) {
+  const none = { version, payloadRoots: {}, fetched: [], refused: null, fetchedFrom: null, cleanup: () => {} };
   const interactive = asksAtTerminal({ ...opts, env });
   const ownShell = bundlingShellHarnessId({ core: root });
   const jobs = [];
@@ -1884,7 +2052,7 @@ async function prepareRun(verb, projectDir, opts = {}) {
     for (const [key, s] of Object.entries(harness.surfaces || {})) {
       if (key.startsWith("_") || s.format !== "portable-plugin-registration") continue;
       const excluded = surfaceExcluded(key, s, { surfaces: opts.surfaces || null, register: opts.register });
-      const analysis = excluded ? null : analysePortableRegistration(projectDir, s, { root, home, harness, env, version });
+      const analysis = excluded ? null : analyse(harness, s);
       const decision = fetchDecision({ verb, harness, s, excluded, named: named.length > 0, interactive, analysis, ownShell: ownShell === id, env });
       if (decision.fetch) jobs.push({ harness, s });
     }
@@ -1903,7 +2071,19 @@ async function prepareRun(verb, projectDir, opts = {}) {
   const budget = opts.fetchBudget || HOST_BUDGET_MS;
   let line = null;
   try {
-    const registry = await npmRegistry(projectDir, { env, spawn: opts.fetchSpawn, budget: Math.min(budget, REGISTRY_BUDGET_MS) });
+    // Two resolvers, side by side: the project's registry, which the fetch
+    // uses (its .npmrc counts), and the user's, which PLAN names beside it
+    // when they differ — a shell from a registry the user did not choose is
+    // said, never silent (the 2026-10-09 amendment).
+    const [registry, user] = await Promise.all([
+      npmRegistry(projectDir, { env, spawn: opts.fetchSpawn, budget: Math.min(budget, REGISTRY_BUDGET_MS) }),
+      userRegistryOf(Math.min(budget, REGISTRY_BUDGET_MS)),
+    ]);
+    // A user read that failed means npm's default (the amendment), so a
+    // project registry is still named when the user's could not be read.
+    const bare = (u) => String(u || "").replace(/\/+$/, "");
+    const mine = user || DEFAULT_REGISTRY;
+    const differs = Boolean(registry) && bare(registry) !== bare(mine);
     const payloadRoots = {}, fetched = [];
     for (const job of jobs) {
       const { harness } = job;
@@ -1923,7 +2103,7 @@ async function prepareRun(verb, projectDir, opts = {}) {
       payloadRoots[harness.id] = r.root;
       fetched.push({ harness: harness.id, package: harness.install.shell, version, ms: r.ms });
     }
-    return { version, payloadRoots, fetched, refused: null, cleanup };
+    return { version, payloadRoots, fetched, refused: null, fetchedFrom: differs ? { registry, user: mine, harnesses: fetched.map((f) => f.harness) } : null, cleanup };
   } catch (e) {
     // The caller's `finally` is not reached from here: the scratch goes now.
     if (line) line.abort();
@@ -1947,7 +2127,7 @@ export async function runVerb(verb, projectDir, opts = {}) {
     if (!badged) { out.write(badgeLine({ harnesses: ids, mode }, { verb, caps: c }) + "\n"); badged = true; }
     return liveLine(out, c, label, { env });
   } : null;
-  const prep = await prepareRun(verb, projectDir, { ...opts, env, onFetch });
+  const prep = await prepareRun(verb, projectDir, { ...opts, env, onFetch, notice: Boolean(out) });
   try {
     // upgrade selects by the state directory too (rule 5), and so does a
     // project uninstall, setup's mirror: it leaves the project for every
@@ -1955,9 +2135,16 @@ export async function runVerb(verb, projectDir, opts = {}) {
     // rule 5). `uninstall --global` keeps contract 8 — a state directory is a
     // project fact. install and plan keep contract 8, so a bare plan and a
     // bare install still agree.
-    const p = prep.refused || plan(projectDir, { ...opts, mode, state: verb === "upgrade" || (verb === "uninstall" && !opts.globalRemoval), version: prep.version, payloadRoots: prep.payloadRoots });
+    const p = prep.refused || plan(projectDir, { ...opts, mode, state: verb === "upgrade" || (verb === "uninstall" && !opts.globalRemoval), version: prep.version, payloadRoots: prep.payloadRoots, convergence: prep.convergence, fetchedFrom: prep.fetchedFrom || null });
     const view = { verbose: Boolean(opts.verbose), verb, caps: c || PLAIN, home };
     const preview = renderPreview(p, view);
+    // The update notice (the converge story's rule 8): in the header slot,
+    // under the badge and after the fetch line, before PLAN. Never beside the
+    // stop, whose refusal names the update itself.
+    if (out && prep.notice) {
+      if (!badged) { out.write(badgeLine(p, { verb, caps: c }) + "\n"); badged = true; }
+      out.write(noticeText(prep.notice, c));
+    }
     if (out) out.write((badged ? renderPreview(p, { ...view, badge: false }) : preview) + "\n");
     const gate = await confirm(p, { ...opts, env, ...(c ? { caps: c } : {}) });
     const result = { verb, plan: p, preview, gate, applied: [], failed: null, elapsed: 0, fetched: prep.fetched };
@@ -2187,7 +2374,9 @@ function publicStep({ manifest, ...s }) {
 }
 // `analysed` (the recheck's inputs) and `digestDeferred` (a --verbose note)
 // are the plan's own, never the envelope's.
-export const publicItem = ({ before, after, steps, observed, analysed, digestDeferred, ...rest }) => steps
+// `advice` is the reason's commands, kept apart for PLAN to draw alone on
+// their lines; the envelope has them in `reason`, one part per line.
+export const publicItem = ({ before, after, steps, observed, analysed, digestDeferred, advice, ...rest }) => steps
   ? { ...rest, steps: steps.map(publicStep) }
   : rest;
 

@@ -21,14 +21,16 @@ import { spawnSync } from "node:child_process";
 import { fakeInstall, fakePackageRoot, fakeClaude, noHostEnv, writeRegistry, installEnv } from "./fixtures/install.mjs";
 import { plan, renderPreview, apply, runVerb, publicItem, renderDone } from "../scripts/install-harness.mjs";
 import { analyseRegistration, registrationPaths, surfaceStates } from "../scripts/surfaces.mjs";
-import { sourceHarness } from "../scripts/harness.mjs";
+import { sourceHarness, loadHarness } from "../scripts/harness.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
+import { fakeNpmSpawn, registryFetch, instantTimers, FAKE_REGISTRY } from "./fixtures/fetch.mjs";
 import { statusLineLauncherPath, whichOnPath, treeFiles, installedPluginEntries, installedPluginRoot, layoutPaths, cmpPrecedence, cmpVersion } from "../scripts/lib.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
 import { checkPluginRegistration, checkVersionDrift, checkAutoUpdate } from "../scripts/doctor.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
+const CODEX = loadHarness("codex");
 const S = SRC.surfaces.plugin;
 const ID = `${S.plugin_name}@${S.marketplace_name}`;
 const CFG_DIR = SRC.runtime.harness_dir; // the harness's own directory (settings.local.json); our binding is layoutPaths(proj).binding
@@ -668,4 +670,240 @@ test("registration contract 2/5: a directory that appears at our path between pl
   assert.equal(readFileSync(paths.manifest, "utf8"), theirs, "nothing is written over it");
   assert.ok(!existsSync(paths.payload), "no payload copied in");
   assert.equal(host.log().length, 0, "no host command ran");
+});
+
+// ─── Never downgrade, never another project's (the converge story) ───────
+//
+// PS-HARNESS: "Setup and upgrade converge this project onto the running
+// version: the channel switch, no downgrade, and the update notice", rules 6
+// and 7. Every registry read is an injected fetch against a temporary cache;
+// the registry resolver is the in-process npm; the host is the logging fake.
+
+// One upgrade through runVerb from `root`, its registry read injected. Text
+// mode answers "n" at the terminal double and records whether it was asked;
+// `json` is the named run without a terminal.
+async function convergeRun(sb, root, { latest = "0.31.0", mode = null, json = false, extra = {}, timers, harnesses = [SRC.id] } = {}) {
+  const env = sb.host.env({ PROJECTSTORE_NO_UPDATE_CHECK: "", CI: "", XDG_CACHE_HOME: join(tmp("ps-reg-xdg-"), "cache"), ...extra });
+  for (const k of ["FORCE_COLOR", "TERM", "NO_COLOR", "PROJECTSTORE_ASCII"]) delete env[k];
+  const reg = registryFetch(mode ?? { latest });
+  const npm = fakeNpmSpawn();
+  const chunks = [];
+  let asked = false;
+  const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+  const r = await runVerb("upgrade", sb.proj, { harnesses, home: sb.home, root, env, fetch: reg.fetch, timers, fetchSpawn: npm.spawn, ...(json ? { json: true } : { out, ask: async () => { asked = true; return "n"; } }) });
+  return { r, text: chunks.join(""), asked, reg, npm, env };
+}
+
+// What a run may not touch, byte for byte: the project's files and the host's registry.
+function snapshot(sb) {
+  const files = [sb.paths.projectSettings, join(sb.proj, "CLAUDE.md"), layoutPaths(sb.proj).binding, statusLineLauncherPath(sb.proj), sb.paths.installed, sb.paths.manifest, sb.paths.marketplaces];
+  return Object.fromEntries(files.map((f) => [f, existsSync(f) ? readFileSync(f, "utf8") : null]));
+}
+
+test("converge criterion 'The stop (Claude Code)': this checkout's npm row at 0.31.0, the package at 0.30.0 and latest 0.31.0 — upgrade refuses before the question, fetches, writes and runs nothing, and names both versions and two commands alone on their lines", async () => {
+  const sb = sandbox({ version: "0.31.0", npx: true });
+  const { home, proj, host, env } = sb;
+  assert.equal(apply(plan(proj, { home, root: sb.root, env }), { env, home }).failed, undefined);
+  host.reset();
+  const older = fakePackageRoot(join(tmp("ps-reg-old-"), "_npx", "0a1b", "node_modules", "projectstore"), "0.30.0");
+  const before = snapshot(sb);
+  const s = await convergeRun(sb, older);
+  assert.equal(s.r.plan.ok, false);
+  assert.ok(s.r.plan.refusals[0].startsWith("this project runs projectstore 0.31.0 (projectstore@projectstore-npm), newer than this package (0.30.0), and 0.31.0 is published. Nothing is written."), s.r.plan.refusals[0]);
+  assert.deepEqual(s.r.gate, { confirmed: false, why: "refused" });
+  assert.equal(s.asked, false, "refused before the question");
+  assert.deepEqual(s.r.plan.items, [], "nothing is planned");
+  assert.deepEqual(s.r.fetched, [], "no shell is fetched");
+  assert.deepEqual(s.npm.installs(), []);
+  assert.deepEqual(host.log(), [], "no host command runs");
+  assert.deepEqual(snapshot(sb), before, "nothing is written");
+  assert.equal(s.reg.calls.length, 1, "the registry is read once");
+  // Each command alone on its line, after a blank one; nothing after it.
+  const lines = s.text.split("\n");
+  const at = lines.indexOf(`    npx projectstore@latest upgrade --harness ${SRC.id}`);
+  assert.ok(at > 0 && lines[at - 1] === "", s.text);
+  assert.deepEqual(lines.slice(at + 1, at + 5), ["", "  or install it for the whole machine:", "", "    npm install -g projectstore@latest"], s.text);
+  assert.match(lines.find((l) => l.includes("▲ refused")), /▲ refused {2}this project runs projectstore 0\.31\.0 \(projectstore@projectstore-npm\), newer than this package \(0\.30\.0\)/);
+  assert.ok(!s.text.includes("newer published"), "no notice beside the stop: the refusal names the update");
+  assert.ok(!s.r.plan.refusals[0].includes("--project"));
+  assert.ok(!Object.keys(s.r.plan).includes("stop"), "the commands stay off the envelope");
+  // --json, and CI=1: the read still happens (it decides what is written), and it writes the cache.
+  const j = await convergeRun(sb, older, { json: true, extra: { CI: "1" } });
+  assert.equal(j.r.plan.ok, false);
+  assert.ok(j.r.plan.refusals[0].includes(`npx projectstore@latest upgrade --harness ${SRC.id}`) && j.r.plan.refusals[0].includes("npm install -g projectstore@latest"), j.r.plan.refusals[0]);
+  assert.equal(j.reg.calls.length, 1);
+  assert.equal(JSON.parse(readFileSync(join(j.env.XDG_CACHE_HOME, "projectstore", "registry.json"), "utf8"))[FAKE_REGISTRY].latest, "0.31.0");
+  assert.deepEqual(host.log(), []);
+  // latest 0.30.0: the run proceeds, and the row names both versions and the case.
+  const below = await convergeRun(sb, older, { latest: "0.30.0" });
+  assert.equal(below.r.plan.ok, true);
+  const row = sb.item(below.r.plan, "plugin");
+  assert.equal(row.action, "skip");
+  assert.match(row.reason, /^the directory is at 0\.31\.0, newer than this package \(0\.30\.0\) — not downgraded; the registry's latest \(0\.30\.0\) does not reach 0\.31\.0$/);
+  assert.ok(below.text.includes(row.reason), "the default view shows it");
+  // One request serves both: rule 6's case and, from this _npx root, the notice.
+  const shared = await convergeRun(sb, older, { latest: "0.30.5" });
+  assert.equal(shared.reg.calls.length, 1, "one request per run, whether or not rule 6 needed it too");
+  assert.ok(shared.text.includes("\n  ▲ newer published: 0.30.5 (this is 0.30.0). To update:\n\n    npx projectstore@latest upgrade\n\n"), shared.text);
+  assert.match(sb.item(shared.r.plan, "plugin").reason, /the registry's latest \(0\.30\.5\) does not reach 0\.31\.0$/);
+  // A fetch that never settles, cut at the injected 2 s bound; the switch off.
+  const timers = instantTimers();
+  const hung = await convergeRun(sb, older, { mode: "hang", timers });
+  assert.deepEqual(timers.asked, [2000]);
+  assert.match(sb.item(hung.r.plan, "plugin").reason, /not downgraded; the registry could not be read \(no answer within 2 s\)$/);
+  const off = await convergeRun(sb, older, { extra: { PROJECTSTORE_NO_UPDATE_CHECK: "1" } });
+  assert.equal(off.reg.calls.length, 0);
+  assert.match(sb.item(off.r.plan, "plugin").reason, /not downgraded; the registry was not read \(PROJECTSTORE_NO_UPDATE_CHECK\)$/);
+  // A run from a host cache copy — the copy this checkout's session runs — never stops and reads nothing.
+  const cached = await convergeRun(sb, sb.registry().plugins[ID][0].installPath);
+  assert.equal(cached.r.plan.ok, true, JSON.stringify(cached.r.plan.refusals));
+  assert.equal(cached.reg.calls.length, 0);
+  // plan reads nothing; its newer row says what install and upgrade do first.
+  const dry = plan(proj, { harnesses: [SRC.id], home, root: older, env });
+  assert.match(sb.item(dry, "plugin").reason, /not downgraded; install and upgrade read the registry first, and stop when 0\.31\.0 is published$/);
+  assert.deepEqual(host.log(), [], "nothing ran through any of it");
+});
+
+test("converge criterion 'The stop (Claude Code)': a git copy at 0.31.0 enabled at user scope stops channel null; with Codex in the same bare run, nothing is fetched", async () => {
+  const sb = sandbox({ version: "0.30.0", npx: true });
+  const { home, proj, host } = sb;
+  const git = fakeInstall(home, "0.31.0");
+  writeRegistry(home, [{ scope: "user", installPath: git, version: "0.31.0", lastUpdated: "2026-10-01T00:00:00Z" }]);
+  const s = await convergeRun(sb, sb.root);
+  assert.equal(s.r.plan.ok, false);
+  assert.match(s.r.plan.refusals[0], /^this project runs projectstore 0\.31\.0 \(projectstore@SmartAndPoint\), newer than this package \(0\.30\.0\), and 0\.31\.0 is published/);
+  assert.equal(s.asked, false);
+  // A bare upgrade at a terminal that would fetch Codex's shell: the stop comes first.
+  mkdirSync(join(proj, CODEX.runtime.harness_dir), { recursive: true });
+  writeFileSync(join(host.dir, CODEX.surfaces.plugin.cli.bin), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  const codexHome = { [CODEX.runtime.home_env]: tmp("ps-reg-codex-home-") };
+  const both = await convergeRun(sb, sb.root, { harnesses: [], extra: codexHome });
+  assert.equal(both.r.plan.ok, false);
+  assert.deepEqual(both.r.plan.harnesses, [SRC.id, CODEX.id]);
+  assert.equal(both.r.plan.stop.commands[0], "npx projectstore@latest upgrade", "a bare run's command names no harness");
+  assert.deepEqual(both.npm.installs(), [], "no shell is fetched");
+  // …where the same run with the registry below the copy fetches Codex's shell.
+  const fetching = await convergeRun(sb, sb.root, { latest: "0.30.0", harnesses: [], extra: codexHome });
+  assert.equal(fetching.npm.installs().length, 1);
+  assert.deepEqual(host.log(), []);
+});
+
+test("converge criterion 'A newer git copy is not switched off for an older package': channel null defers the registration and the switch, names both versions, the case and the ways this release offers — each command alone on its line — runs no host command and is incomplete", async () => {
+  const sb = sandbox({ version: "0.30.0", npx: true });
+  const { home, proj, host, local } = sb;
+  const git = fakeInstall(home, "0.31.0", { full: true });
+  writeRegistry(home, [{ scope: "user", installPath: git, version: "0.31.0", lastUpdated: "2026-10-01T00:00:00Z" }]);
+  const s = await convergeRun(sb, sb.root, { latest: "0.30.0", json: true });
+  const reg = sb.item(s.r.plan, "plugin");
+  const others = sb.item(s.r.plan, "plugin_others");
+  for (const i of [reg, others]) {
+    assert.equal(i.action, "skip", i.surface);
+    assert.equal(i.deferred, true, i.surface);
+  }
+  const ownBin = `node "${join(git, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register`;
+  const disable = `${S.cli.bin} plugin disable projectstore@SmartAndPoint --scope local`;
+  assert.equal(reg.reason, [
+    "this project runs a newer copy (projectstore@SmartAndPoint 0.31.0) than this package (0.30.0), so it is not switched off — the registry's latest (0.30.0) does not reach 0.31.0.",
+    "Run the newer copy instead, from a terminal in this project:",
+    ownBin,
+    "Or move this project to this package's registration, the older 0.30.0: turn that copy off for this project, then repeat this run:",
+    disable,
+  ].join("\n"), "the envelope's reason, every part on its own line");
+  assert.equal(others.reason, `not switched off — see ${ID} above`, "the long reason prints once; the switch row points to it");
+  assert.ok(!("advice" in publicItem(reg)), "the drawn form stays off the envelope");
+  assert.ok(!/`|\bsetup\b/.test(reg.reason), "no backticks, and no verb this release lacks");
+  assert.ok(!(reg.steps || []).length && !(others.steps || []).length, "no host step is planned");
+  assert.equal(s.r.plan.incomplete, true, "so the exit is 1");
+  assert.equal(s.r.gate.why, "named");
+  assert.deepEqual(host.log(), [], "no host command runs");
+  assert.notEqual(local()?.enabledPlugins?.["projectstore@SmartAndPoint"], false, "the copy stays on for this checkout");
+  // In PLAN: the prose once, then each command alone on its line after a blank one.
+  const t = await convergeRun(sb, sb.root, { latest: "0.30.0" });
+  const lines = t.text.split("\n");
+  for (const cmd of [ownBin, disable]) {
+    const at = lines.indexOf(`          ${cmd}`);
+    assert.ok(at > 0 && lines[at - 1] === "" && lines[at + 1] === "", `${cmd}:\n${t.text}`);
+  }
+  assert.equal(t.text.split("so it is not switched off").length, 2, "printed once");
+  assert.ok(t.text.includes(`not switched off — see ${ID} above`));
+  assert.ok(!/\bsetup\b/.test(t.text), t.text);
+  // plan reads nothing; the deferral says what install and upgrade do first.
+  assert.match(sb.item(plan(proj, { harnesses: [SRC.id], home, root: sb.root, env: sb.env }), "plugin").reason, /install and upgrade read the registry first, and stop when 0\.31\.0 is published/);
+});
+
+// F3 of the PR1 review: the Claude Code counterpart of Codex's damaged newer
+// registration (tests/codex-registration.test.mjs).
+test("converge rule 6 (Claude Code): our directory newer than the package and off its digest is planned skip with the repair from its own version — never rewritten from the older package", async () => {
+  const sb = sandbox({ version: "0.31.0", npx: true });
+  const { home, proj, host, env, paths } = sb;
+  assert.equal(apply(plan(proj, { home, root: sb.root, env }), { env, home }).failed, undefined);
+  host.reset();
+  writeFileSync(join(paths.payload, "README.md"), "edited by hand\n");
+  const manifest = readFileSync(paths.manifest, "utf8");
+  const older = fakePackageRoot(join(tmp("ps-reg-old-"), "_npx", "0c", "node_modules", "projectstore"), "0.30.0");
+  const s = await convergeRun(sb, older, { latest: "0.30.0", json: true });
+  const row = sb.item(s.r.plan, "plugin");
+  assert.equal(row.action, "skip");
+  assert.equal(row.deferred, true);
+  assert.equal(row.reason, [
+    "the directory holds 0.31.0, newer than this package (0.30.0), and its payload does not match its digest (edited by hand or half-written); the registry's latest (0.30.0) does not reach 0.31.0",
+    "not downgraded — repair it from its own version:",
+    `npx projectstore@0.31.0 upgrade --harness ${SRC.id}`,
+  ].join("\n"));
+  assert.ok(!(row.steps || []).some((st) => st.kind === "write"), "never a write");
+  assert.equal(s.r.plan.incomplete, true);
+  assert.equal(readFileSync(paths.manifest, "utf8"), manifest, "the directory is left as it is");
+  assert.deepEqual(host.log(), []);
+  // plan's dry run: the same skip, with its note.
+  const dry = sb.item(plan(proj, { harnesses: [SRC.id], home, root: older, env }), "plugin");
+  assert.equal(dry.action, "skip");
+  assert.match(dry.reason, /install and upgrade read the registry first, and stop when 0\.31\.0 is published\nnot downgraded — repair it from its own version:\nnpx projectstore@0\.31\.0 upgrade --harness \S+$/);
+});
+
+// F2 of the PR1 review: the root an npm-registered Claude Code session runs —
+// the plugin in our marketplace directory, loaded in place — is a host's copy.
+test("converge criterion 'The stop (Claude Code)': a run from the npm registration's marketplace directory — its sessions' root — never stops and reads nothing, where the package root stops", async () => {
+  const sb = sandbox({ version: "0.30.0", npx: true });
+  const { home, proj, host, env, paths } = sb;
+  assert.equal(apply(plan(proj, { home, root: sb.root, env }), { env, home }).failed, undefined);
+  host.reset();
+  // A git copy at 0.31.0, re-enabled at user scope beside the registration.
+  const git = fakeInstall(home, "0.31.0");
+  const reg = sb.registry();
+  reg.plugins["projectstore@SmartAndPoint"] = [{ scope: "user", installPath: git, version: "0.31.0", lastUpdated: "2026-10-01T00:00:00Z" }];
+  writeFileSync(paths.installed, JSON.stringify(reg, null, 2));
+  const fromPackage = await convergeRun(sb, sb.root);
+  assert.equal(fromPackage.r.plan.ok, false, "the package root stops");
+  const fromPayload = await convergeRun(sb, paths.payload);
+  assert.ok(existsSync(join(paths.payload, "package.json")), "a full package tree: only the root decides");
+  assert.ok(fromPayload.r.plan.ok, JSON.stringify(fromPayload.r.plan.refusals));
+  assert.equal(fromPayload.reg.calls.length, 0, "no request");
+  assert.deepEqual(fromPayload.npm.calls, [], "no registry resolved");
+  assert.deepEqual(host.log(), []);
+});
+
+// Rule 7: the install half of "never another project's registration". The
+// shared directory is one per user; rewriting it leaves another checkout's
+// row at its version (contract 4′ rung 10), reported by its own doctor.
+test("converge rule 7: an upgrade from checkout A that rewrites the shared directory leaves checkout B's registry row and settings byte-identical, and B then reads stale", () => {
+  const sb = sandbox({ version: "0.28.0" });
+  const { home, proj, root, env, paths, registry } = sb;
+  assert.equal(apply(plan(proj, { home, root, env }), { env, home }).failed, undefined);
+  const b = tmp("ps-reg-proj-b-");
+  mkdirSync(join(b, CFG_DIR), { recursive: true });
+  assert.equal(apply(plan(b, { home, root, env, harnesses: [SRC.id] }), { env, home }).failed, undefined);
+  const rowOf = (dir) => JSON.stringify(registry().plugins[ID].find((r) => r.projectPath === dir));
+  const bRow = rowOf(b);
+  const bSettings = readFileSync(join(b, CFG_DIR, "settings.local.json"), "utf8");
+  const newer = fakePackageRoot(join(tmp("ps-reg-npx-a-"), "node_modules", "projectstore"), "0.29.0");
+  const up = plan(proj, { home, root: newer, env, harnesses: [SRC.id] });
+  assert.ok(sb.item(up, "plugin").steps.some((st) => st.kind === "write"), "A rewrites the shared directory");
+  assert.equal(apply(up, { env, home }).failed, undefined);
+  assert.equal(JSON.parse(readFileSync(paths.manifest, "utf8"))[S.provenance_key].pkg, "0.29.0");
+  assert.equal(JSON.parse(rowOf(proj)).version, "0.29.0");
+  assert.equal(rowOf(b), bRow, "B's registry row is byte-identical");
+  assert.equal(readFileSync(join(b, CFG_DIR, "settings.local.json"), "utf8"), bSettings, "and so are B's settings");
+  const bPlan = sb.item(plan(b, { home, root: newer, env, harnesses: [SRC.id] }), "plugin");
+  assert.equal(bPlan.state, "stale");
+  assert.match(bPlan.reason, /plugin updated \(installed 0\.28\.0, directory 0\.29\.0\)/);
 });

@@ -26,3 +26,18 @@ process.env.XDG_CACHE_HOME = join(scratch, "cache");
 process.env.npm_config_cache = join(scratch, "npm-cache");
 process.env.npm_config_offline = "true";
 process.on("exit", () => { try { rmSync(scratch, { recursive: true, force: true, maxRetries: 2 }); } catch {} });
+// The registry read of install and upgrade (the converge story's rules 6 and
+// 8) is off for every test and every child that inherits this environment; a
+// test of the read passes its own environment without it, and its own fetch.
+process.env.PROJECTSTORE_NO_UPDATE_CHECK = "1";
+// …and a test that forgets to inject `fetch` never reaches the network: Node's
+// fetch answers only the loopback here (the bin tests' 127.0.0.1 registry).
+if (typeof globalThis.fetch === "function") {
+  const loopback = globalThis.fetch;
+  globalThis.fetch = (input, init) => {
+    let host = null;
+    try { host = new URL(typeof input === "string" || input instanceof URL ? String(input) : input?.url).hostname; } catch {}
+    if (["127.0.0.1", "localhost", "[::1]", "::1"].includes(host)) return loopback(input, init);
+    return Promise.reject(new TypeError(`hermetic: the suite reaches no network (${host || "an unparseable URL"})`));
+  };
+}

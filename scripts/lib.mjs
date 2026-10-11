@@ -500,6 +500,44 @@ export function installedPluginEntries(home = homedir(), projectDir = null) {
   return out;
 }
 
+// Contract 12's selection (the layout spec, as amended 2026-10-03): the copies
+// of ours the host loads for this project — present, enabled for it, and this
+// checkout's own row or a row with no project (user scope), never another
+// checkout's. This checkout's row first, then the most recently updated. Real
+// paths: the host records the project's cwd as one, and /var against
+// /private/var would otherwise drop the project's own row. One filter for
+// doctor's layout remedy and the convergence story's running copies (the
+// converge story's rule 6), so the two cannot disagree about what a project
+// runs. `own` marks this checkout's row.
+export function projectCopies(home = homedir(), projectDir) {
+  const real = (x) => { try { return realpathSync.native(x); } catch { return resolve(x); } };
+  const here = real(projectDir);
+  const mine = (e) => Boolean(e.projectPath) && real(e.projectPath) === here;
+  return installedPluginEntries(home, projectDir)
+    .filter((e) => e.present && e.enabled && (!e.projectPath || mine(e)))
+    .map((e) => ({ ...e, own: mine(e) }))
+    .sort((a, b) => (Number(b.own) - Number(a.own)) || (b.at - a.at));
+}
+
+// The same selection, one row per plugin key: the row the host loads for this
+// project — this checkout's own row over a user-scope row of the same key,
+// else the most recent. What "a copy enabled for this project" means for the
+// competing copies the registration silences (surfaces.mjs, contract 13) and
+// for the copies the convergence story's rule 6 compares, so the stop and the
+// deferral of a newer copy always see the same (key, version) pairs.
+export function projectCopiesByKey(home = homedir(), projectDir) {
+  const seen = new Set();
+  return projectCopies(home, projectDir).filter((e) => !seen.has(e.key) && seen.add(e.key));
+}
+
+// A switch read from the environment the way contract 9 reads CI: set, and
+// not empty, "0" or "false" (any case). One reading for CI and for
+// PROJECTSTORE_NO_UPDATE_CHECK (the converge story's rule 8).
+export function envFlag(env, name) {
+  const v = env ? env[name] : undefined;
+  return v !== undefined && v !== null && v !== "" && !["0", "false"].includes(String(v).toLowerCase());
+}
+
 // A pure PATH walk for a host binary — a read, not a subprocess: the analysers
 // run on every doctor call. Returns the absolute path or null.
 export function whichOnPath(name, env = process.env) {

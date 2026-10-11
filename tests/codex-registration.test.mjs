@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, cpSync, chmodSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, cpSync, chmodSync, existsSync, rmSync, utimesSync } from "node:fs";
 import { join, basename, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { plan, apply, publicItem, renderPreview, renderDone, runVerb, planOptions } from "../scripts/install-harness.mjs";
@@ -8,7 +8,8 @@ import { surfaceStates } from "../scripts/surfaces.mjs";
 import { checkHarnessSurfaces, checkPluginRegistration } from "../scripts/doctor.mjs";
 import { loadHarness, cachePaths } from "../scripts/harness.mjs";
 import { fetchDecision, fetchRefusal, sweepFetchRuns, rootVersion, REGISTRY_BUDGET_MS } from "../scripts/fetch-shell.mjs";
-import { codexHost, fakeNpmSpawn, FAKE_REGISTRY } from "./fixtures/fetch.mjs";
+import { codexHost, fakeNpmSpawn, FAKE_REGISTRY, registryFetch } from "./fixtures/fetch.mjs";
+import { fakePackageRoot } from "./fixtures/install.mjs";
 import { PLAIN } from "../scripts/term.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -632,16 +633,19 @@ const coreOpts = (f, extra = {}) => ({ harnesses: ["codex"], root: CORE, home: f
 const leftovers = (f) => (existsSync(f.fetchDir) ? readdirSync(f.fetchDir) : []);
 const rule2Argv = (prefix, registry = FAKE_REGISTRY) => ["install", "--prefix", prefix, "--no-save", "--ignore-scripts", "--no-audit", "--no-fund", "--no-update-notifier", "--json", "--registry", registry, "--fetch-timeout=30000", "--fetch-retries=2", "--fetch-retry-mintimeout=1000", "--fetch-retry-maxtimeout=5000", `${SHELL}@${V}`];
 
-test("shell fetch: upgrade --harness codex --json from the core reads the registry once, fetches once at the core's version, plans from the fetched root, rechecks, applies and reports it", async () => {
+test("shell fetch: upgrade --harness codex --json from the core reads the project's registry once and the user's once, fetches once at the core's version, plans from the fetched root, rechecks, applies and reports it", async () => {
   const f = coreFixture();
   const npm = fakeNpmSpawn();
   const r = await runVerb("upgrade", f.project, { ...coreOpts(f), json: true, fetchSpawn: npm.spawn });
   assert.equal(r.gate.why, "named");
   assert.equal(r.failed, null, JSON.stringify(r.failed));
+  // Two resolvers, each once: the project's, which the fetch uses, and the
+  // user's, which PLAN names beside it when they differ (the converge story's
+  // 2026-10-09 amendment).
   const registry = npm.calls.filter((c) => c.argv[0] === "config");
-  assert.equal(registry.length, 1, "the registry is read once");
-  assert.deepEqual(registry[0].argv, ["config", "get", "registry", "--no-update-notifier"]);
-  assert.equal(registry[0].cwd, f.project, "in the project, so its .npmrc counts");
+  assert.deepEqual(registry.map((c) => c.argv), [["config", "get", "registry", "--no-update-notifier"], ["config", "get", "registry", "--no-update-notifier"]]);
+  assert.deepEqual(registry.filter((c) => c.cwd === f.project).length, 1, "the project's registry, read in the project, so its .npmrc counts");
+  assert.deepEqual(registry.filter((c) => c.cwd === f.home).length, 1, "the user's, read from the home directory");
   const installs = npm.installs();
   assert.equal(installs.length, 1, "one fetch");
   const [call] = installs;
@@ -901,6 +905,163 @@ test("shell fetch, rule 1: the decision skips a harness whose session marker is 
   assert.deepEqual(fetchDecision({ ...go, env: {}, analysis: { state: "stale", bin: null } }), { fetch: false, why: "no-host-cli" });
   assert.equal(fetchDecision({ ...go, env: {}, ownShell: true }).why, "own-shell");
   assert.equal(fetchDecision({ ...go, env: {}, harness: loadHarness("claude-code"), s: loadHarness("claude-code").surfaces.plugin }).why, "not-shell-rooted");
+  // The converge story's rule 6: a registration newer than the running version, sound or damaged.
+  for (const state of ["current", "stale"]) assert.deepEqual(fetchDecision({ ...go, env: {}, analysis: { state, bin: "/usr/local/bin/codex", newer: true } }), { fetch: false, why: "newer" });
+});
+
+// ─── Never downgrade a newer registration (the converge story, rule 6) ──
+//
+// PS-HARNESS: "Setup and upgrade converge this project onto the running
+// version: the channel switch, no downgrade, and the update notice". A
+// registration made at 0.31.0 (its shell root, applied through the measured
+// host shapes), read from a 0.30.0 payload and from the version alone.
+
+function newerFixture() {
+  const f = fixture("0.31.0");
+  assert.equal(apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) }).failed, undefined);
+  // A 0.30.0 cache beside the registered 0.31.0 one, newer by mtime: the
+  // lookup by the desired version would read it.
+  const base = join(f.home, "plugins", "cache", CODEX.surfaces.plugin.marketplace_name, CODEX.surfaces.plugin.plugin_name);
+  cpSync(join(base, "0.31.0"), join(base, "0.30.0"), { recursive: true });
+  writeFileSync(join(base, "0.30.0", ".codex-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.30.0" }) + "\n");
+  utimesSync(join(base, "0.31.0"), new Date(2026, 9, 1, 10, 0, 0), new Date(2026, 9, 1, 10, 0, 0));
+  utimesSync(join(base, "0.30.0"), new Date(2026, 9, 5, 10, 0, 0), new Date(2026, 9, 5, 10, 0, 0));
+  // The older shell's own root, for the payload mode.
+  const older = join(f.base, "shell-0.30.0");
+  for (const dir of [join(older, ".codex-plugin"), join(older, "skills", "projectstore-status")]) mkdirSync(dir, { recursive: true });
+  writeFileSync(join(older, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version: "0.30.0" }) + "\n");
+  writeFileSync(join(older, "skills", "projectstore-status", "SKILL.md"), "---\nname: projectstore-status\n---\n0.30.0\n");
+  const { PROJECTSTORE_DISTRIBUTION_ROOT: _drop, ...bare } = f.env;
+  return {
+    f, older, base,
+    // From the older payload, and from the version alone (plan's dry run, a skipped fetch).
+    fromPayload: () => registration(plan(f.project, { ...opts(f), root: older, env: { ...f.env, PROJECTSTORE_DISTRIBUTION_ROOT: older } })),
+    fromVersion: () => registration(plan(f.project, { ...opts(f), root: CORE, version: "0.30.0", env: bare })),
+    bare,
+  };
+}
+
+test("converge criterion 'The stop (Codex)': a sound registration at 0.31.0 read from a 0.30.0 payload or version is current, not downgraded, with no staging and no host step — read from its own 0.31.0 cache though a 0.30.0 one is newer by mtime", () => {
+  const n = newerFixture();
+  for (const [mode, row] of [["payload", n.fromPayload()], ["version", n.fromVersion()]]) {
+    assert.equal(row.state, "current", `${mode}: ${row.reason}`);
+    assert.equal(row.action, "skip", mode);
+    assert.match(row.reason, /^the registration is at 0\.31\.0, newer than this package \(0\.30\.0\) — not downgraded; install and upgrade read the registry first, and stop when 0\.31\.0 is published$/, mode);
+    assert.equal(row.steps, undefined, `${mode}: no portable-write and no host step`);
+    assert.equal(row.observed.installed_version, "0.31.0", `${mode}: the cache at the registered version`);
+  }
+});
+
+test("converge criterion 'The stop (Codex)': a newer registration that is damaged — a source off its digest, a recovery journal — keeps its reason and is planned skip with the repair from its own version; never a portable-write", () => {
+  const n = newerFixture();
+  const source = join(n.f.home, "projectstore", "marketplace", CODEX.surfaces.plugin.plugin_subdir);
+  writeFileSync(join(source, "skills", "projectstore-status", "SKILL.md"), "edited by hand\n");
+  for (const [mode, row] of [["payload", n.fromPayload()], ["version", n.fromVersion()]]) {
+    assert.equal(row.state, "stale", mode);
+    assert.equal(row.action, "skip", mode);
+    assert.equal(row.deferred, true, mode);
+    assert.ok(row.reason.startsWith("the stable source does not match its recorded digest; "), `${mode}: ${row.reason}`);
+    assert.ok(row.reason.endsWith(`\nnot downgraded — repair it from its own version:\nnpx projectstore@0.31.0 upgrade --harness ${CODEX.id}`), `${mode}: the command alone on the last line`);
+    assert.ok(!(row.steps || []).some((s) => s.kind === "portable-write"), mode);
+  }
+  assert.equal(plan(n.f.project, { ...opts(n.f), root: CORE, version: "0.30.0", env: n.bare }).incomplete, true, "the run did not converge");
+  // A sound source with a recovery journal left by a run: skipped too, never overwritten.
+  const m = newerFixture();
+  writeFileSync(join(m.f.home, "projectstore", `${CODEX.surfaces.plugin.marketplace_name}.journal.json`), JSON.stringify({ version: 1, phase: "staged" }) + "\n");
+  const journaled = m.fromVersion();
+  assert.equal(journaled.action, "skip");
+  assert.match(journaled.reason, /recovery journal[^\n]*\nnot downgraded — repair it from its own version:\nnpx projectstore@0\.31\.0 upgrade --harness \S+$/);
+});
+
+test("converge criterion 'The stop (Codex)': a bare upgrade at a terminal on either fixture calls no npm install; latest 0.31.0 stops it, latest 0.30.0 lets it proceed", async () => {
+  const pkg = fakePackageRoot(join(mkdtempSync(join(tmpdir(), "ps-codex-pkg-")), "node_modules", "projectstore"), "0.30.0");
+  const run = async (n, latest) => {
+    mkdirSync(join(n.f.project, CODEX.runtime.harness_dir), { recursive: true });
+    const npm = fakeNpmSpawn();
+    const reg = registryFetch({ latest });
+    let asked = false;
+    const r = await runVerb("upgrade", n.f.project, { root: pkg, home: n.f.home, env: { ...n.bare, XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "ps-codex-xdg-")) }, ask: async () => { asked = true; return "n"; }, fetchSpawn: npm.spawn, fetch: reg.fetch, spawn: fakeCodex(n.f) });
+    return { r, npm, reg, asked };
+  };
+  const sound = newerFixture();
+  const stop = await run(sound, "0.31.0");
+  assert.equal(stop.r.plan.ok, false);
+  assert.match(stop.r.plan.refusals[0], /^this project runs projectstore 0\.31\.0 \(projectstore@projectstore-npx\), newer than this package \(0\.30\.0\), and 0\.31\.0 is published\. .*:\nnpx projectstore@latest upgrade\nor install it for the whole machine:\nnpm install -g projectstore@latest$/);
+  assert.equal(stop.asked, false);
+  assert.deepEqual(stop.npm.installs(), []);
+  const go = await run(sound, "0.30.0");
+  assert.equal(go.r.plan.ok, true);
+  assert.match(registration(go.r.plan).reason, /not downgraded; the registry's latest \(0\.30\.0\) does not reach 0\.31\.0$/);
+  assert.deepEqual(go.npm.installs(), [], "a newer registration is never fetched for");
+  assert.equal(go.reg.calls.length, 1, "one read");
+  const damaged = newerFixture();
+  writeFileSync(join(damaged.f.home, "projectstore", "marketplace", CODEX.surfaces.plugin.plugin_subdir, "skills", "projectstore-status", "SKILL.md"), "edited by hand\n");
+  assert.equal((await run(damaged, "0.31.0")).r.plan.ok, false, "a damaged one stops the same way");
+  const repair = await run(damaged, "0.30.0");
+  assert.deepEqual(repair.npm.installs(), []);
+  assert.match(registration(repair.r.plan).reason, /the registry's latest \(0\.30\.0\) does not reach 0\.31\.0\nnot downgraded — repair it from its own version:\nnpx projectstore@0\.31\.0 upgrade --harness \S+$/);
+  assert.equal(repair.r.plan.incomplete, true);
+});
+
+// F2 and F8 of the PR1 review: the core a shell bundles under Codex's plugin
+// cache — what the Codex skills run — is a host's copy: it never stops, never
+// reads the registry, and plan from it names no registry read either.
+test("converge criterion 'The stop (Codex)': from the core bundled under Codex's plugin cache, a run never stops and reads nothing, and plan's newer row carries no note about a read", async () => {
+  const n = newerFixture();
+  mkdirSync(join(n.f.project, CODEX.runtime.harness_dir), { recursive: true });
+  // <Codex home>/plugins/cache/<marketplace>/<plugin>/<version>/node_modules/projectstore
+  const bundled = fakePackageRoot(join(n.base, "0.30.0", "node_modules", "projectstore"), "0.30.0");
+  const npm = fakeNpmSpawn();
+  const reg = registryFetch({ latest: "0.31.0" });
+  const r = await runVerb("upgrade", n.f.project, { root: bundled, home: n.f.home, env: { ...n.bare, XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "ps-codex-xdg-")) }, ask: async () => "n", fetchSpawn: npm.spawn, fetch: reg.fetch, spawn: fakeCodex(n.f) });
+  assert.equal(r.plan.ok, true, JSON.stringify(r.plan.refusals));
+  assert.deepEqual(reg.calls, [], "no request");
+  assert.deepEqual(npm.calls, [], "no registry resolved, nothing fetched");
+  assert.equal(registration(r.plan).reason, "the registration is at 0.31.0, newer than this package (0.30.0) — not downgraded");
+  const dry = registration(plan(n.f.project, { ...opts(n.f), root: bundled, version: "0.30.0", env: n.bare }));
+  assert.equal(dry.reason, "the registration is at 0.31.0, newer than this package (0.30.0) — not downgraded", "a root that never checks says nothing of a read");
+});
+
+// The 2026-10-09 amendment: a run that fetches a shell resolves both
+// registries, fetches from the project's, and PLAN names it when it is not
+// the user's.
+test("converge rule 8, amended: a fetching run resolves the project's registry and the user's; PLAN names the project's under the row when they differ, and says nothing when they agree", async () => {
+  const run = async (registryAt) => {
+    const f = coreFixture();
+    const chunks = [];
+    const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+    const npm = fakeNpmSpawn({ registry: "https://npmrc.example.test/", registryAt: registryAt(f) });
+    const r = await runVerb("upgrade", f.project, { ...coreOpts(f), out, ask: async () => "n", fetchSpawn: npm.spawn });
+    return { f, r, npm, text: chunks.join("") };
+  };
+  const differ = await run((f) => ({ [f.home]: "https://registry.npmjs.org/" }));
+  const [install] = differ.npm.installs();
+  assert.equal(install.argv[install.argv.indexOf("--registry") + 1], "https://npmrc.example.test/", "the fetch uses the project's");
+  const lines = differ.text.split("\n");
+  const at = lines.indexOf("      fetched from https://npmrc.example.test/");
+  assert.ok(at > 0, differ.text);
+  assert.equal(lines[at + 1], "      your npm's own registry is https://registry.npmjs.org/");
+  assert.ok(lines.slice(0, at).reverse().find((l) => /^ {2}\S /.test(l)).includes("projectstore@projectstore-npx"), "beneath the registration's row");
+  assert.ok(!Object.keys(differ.r.plan).includes("fetchedFrom"), "PLAN's, never the envelope's");
+  const same = await run(() => ({}));
+  assert.ok(!same.text.includes("fetched from "), same.text);
+  assert.equal(same.npm.calls.filter((c) => c.argv[0] === "config").length, 2, "both resolved, once each");
+  // A user read that fails means npm's default (the amendment): the project's
+  // registry is still named, beside the public one.
+  const failed = await run((f) => ({ [f.home]: false }));
+  const fl = failed.text.split("\n");
+  const fat = fl.indexOf("      fetched from https://npmrc.example.test/");
+  assert.ok(fat > 0, failed.text);
+  assert.equal(fl[fat + 1], "      your npm's own registry is https://registry.npmjs.org/");
+  // An unchanged registration keeps its row while the lines apply, so they
+  // show on every run, not only on the run that changed something.
+  const p = differ.r.plan;
+  const items = p.items.map((i) => (i.kind === "registration" && !String(i.surface).endsWith("_others") ? { ...i, action: "skip", state: "current", reason: null, deferred: false, steps: [] } : i));
+  const quietPlan = { ...p, items };
+  for (const k of ["fetchedFrom", "sharedBlock", "hostManaged", "convergence", "stop"]) if (Object.hasOwn(p, k) || p[k] !== undefined) Object.defineProperty(quietPlan, k, { value: p[k], enumerable: false });
+  const text = renderPreview(quietPlan, { home: differ.f.home });
+  assert.ok(text.includes("\n      fetched from https://npmrc.example.test/\n"), text);
+  assert.match(text, /^ {2}\S \S+ +projectstore@projectstore-npx\b/m, "the registration keeps its own row, not folded into the unchanged line");
 });
 
 test("shell fetch: plan() given payloadRoots plans Codex from its root and Claude Code from the core; an entry under another id leaves Codex deferred", () => {

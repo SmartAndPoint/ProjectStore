@@ -56,6 +56,7 @@
   "scripts/build-adapters.mjs",
   "scripts/cli.mjs",
   "scripts/codemap.mjs",
+  "scripts/convergence.mjs",
   "scripts/diff-refs.mjs",
   "scripts/doctor-report.mjs",
   "scripts/doctor.mjs",

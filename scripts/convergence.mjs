@@ -1,0 +1,342 @@
+// projectstore — convergence.mjs: what install and upgrade decide, before
+// the plan, about the copies of ours this project already runs (the story
+// "Setup and upgrade converge this project onto the running version: the
+// channel switch, no downgrade, and the update notice", rules 6 and 8; the
+// ADR "One front door: projectstore setup installs every harness it finds;
+// shells are release artifacts, not user commands", decision 4).
+//
+//   runningCopies(projectDir, { harnesses, root, home, env, channel, … })
+//                                     → rule 6's copies, read-only
+//   readLatest({ registry, cachePath, fetch, now, timers, timeoutMs, atLeast })
+//                                     → { latest, from, error }: one read, cached a day
+//   decide({ copies, version, read, skipped, verb, args })
+//                                     → stop or proceed, with the stop's texts
+//   proceedCase(decision, v)          → the words a newer row adds when not stopped
+//   channelChoices({ harness, s, copy, running }) → the ways this release offers
+//                                       to settle a project's channel (rule 2's helper)
+//   newerCopyDeferral({ copy, running, decision, harness, s })
+//                                     → a newer copy not switched off: { reason, advice }
+//   repairAdvice(harness, v)          → a damaged newer registration's way out
+//   advised(text, blocks)             → { reason, advice }: prose, then commands alone
+//   updateNotice({ latest, version, root, verb }) → the notice's text and command
+//   hostCopyRoot, checksRoot, noticeRoot (root, { home, env }), updateCheckOff(env)
+//
+// The one owner of the stop: the prepare step calls decide() and, on a stop,
+// short-circuits before the keep read and the fetch; plan() only renders what
+// it is handed and reads no registry. Every clock, timer, fetch and cache
+// path is a parameter, so each rule is a unit test with plain values. The
+// one file it touches is the registry cache, written after a successful read.
+//
+// Imports lib, harness, portable-registration and surfaces, never the fetch
+// or the host runner: every spawn and resolver is the caller's. Only the
+// installer imports this file; doctor, lib and the hooks never do, so the
+// SessionStart graph never loads it (tests/convergence.test.mjs asserts
+// both). Pure node, no external deps — the read is Node's own fetch.
+
+import { readFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
+import { dirname, join, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { cmpPrecedence, installChannel, projectCopiesByKey, writeFileAtomic, envFlag } from "./lib.mjs";
+import { loadHarness, loadHarnesses } from "./harness.mjs";
+import { analysePortableRegistration, portableRegistrationPaths } from "./portable-registration.mjs";
+import { registrationPaths } from "./surfaces.mjs";
+
+// The package every literal command here names: the core, in the core form
+// (rule 9's command-form rule). The shells bundle it; the notice and the stop
+// name the package that runs, never a shell.
+export const PACKAGE = "projectstore";
+// What the read uses when the user's registry cannot be resolved.
+export const DEFAULT_REGISTRY = "https://registry.npmjs.org/";
+// The abbreviated packument: what `npm install` itself reads (8 728 bytes
+// against 50 896 for the full document, measured 2026-10-09).
+export const ACCEPT = "application/vnd.npm.install-v1+json";
+// The request's bound. On the notice-only path it is the whole bound — the
+// user's registry resolver and the request share it; rule 6's read keeps the
+// resolver's own 10 s (REGISTRY_BUDGET_MS, fetch-shell.mjs) before it.
+export const READ_TIMEOUT_MS = 2000;
+export const NOTICE_BUDGET_MS = 2000;
+export const FRESH_MS = 24 * 60 * 60 * 1000;
+export const NO_CHECK_ENV = "PROJECTSTORE_NO_UPDATE_CHECK";
+
+// Strict semver 2.0 (semver.org's own grammar): a `dist-tags.latest` that is
+// anything else counts as missing — never printed, never compared.
+const NUM = "(?:0|[1-9]\\d*)";
+const PRE = `(?:${NUM}|\\d*[A-Za-z-][0-9A-Za-z-]*)`;
+const SEMVER = new RegExp(`^${NUM}\\.${NUM}\\.${NUM}(?:-${PRE}(?:\\.${PRE})*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`);
+export const isSemver = (v) => typeof v === "string" && SEMVER.test(v);
+
+// ─── Which roots check (rule 6) and show the notice (rule 8) ────────────
+
+const real = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
+const within = (root, dir) => { const r = real(root), d = real(dir); return r === d || r.startsWith(d + sep); };
+
+// A copy a host runs, updated through its own channel (layout spec contract
+// 12): never stopped, never told to update. installChannel names the host's
+// cache copies; two more roots a session runs are recognised here, from the
+// manifests' own paths (the review of PR1, F2):
+// - our registration's marketplace directory: a host that loads it in place
+//   runs the plugin from <dir>/<plugin_subdir> (the npm registration's root);
+// - anything under a portable registration's stable source or its host's
+//   plugin cache: the core a harness's shell bundles there (the Codex skills'
+//   root, <harness home>/plugins/cache/…/node_modules/projectstore).
+// Doctor keeps installChannel's answers; only these two checks read this.
+export function hostCopyRoot(root, { home = homedir(), env = process.env } = {}) {
+  if (!root) return false;
+  if (["registration", "marketplace"].includes(installChannel(root, { home }))) return true;
+  for (const m of loadHarnesses().values()) {
+    for (const s of Object.values(m.surfaces || {})) {
+      if (s?.kind !== "registration") continue;
+      if (s.format === "host-plugin-registration") {
+        const p = registrationPaths(s, { home, harness: m });
+        if (within(root, p.payload) || within(root, p.cacheDir)) return true;
+      } else if (s.format === "portable-plugin-registration") {
+        const p = portableRegistrationPaths(s, { home, projectDir: home, harness: m, env });
+        if (within(root, p.dir) || within(root, p.cacheDir)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Who checks (rule 6): a package root or a checkout that is not a host's
+// copy. Who shows the notice (rule 8): a package root that is not one. A
+// checkout is updated by git and shows no notice.
+export function checksRoot(root, { home = homedir(), env = process.env } = {}) {
+  return ["package", "checkout"].includes(installChannel(root, { home })) && !hostCopyRoot(root, { home, env });
+}
+export function noticeRoot(root, { home = homedir(), env = process.env } = {}) {
+  return installChannel(root, { home }) === "package" && !hostCopyRoot(root, { home, env });
+}
+export const updateCheckOff = (env) => envFlag(env, NO_CHECK_ENV);
+
+// ─── The copies this project runs (rule 6) ──────────────────────────────
+
+// For each harness of the run:
+// - a host plugin registration: contract 12's rows, one per key — the row the
+//   host loads here (lib's projectCopiesByKey, the same rows the registration's
+//   competing copies are read from) — of any marketplace: the npm
+//   registration's row and a git-marketplace copy alike. Under channel "git"
+//   none: that run renders nothing for it;
+// - a portable registration: the global registration's recorded version,
+//   when it is effectively enabled for this project.
+// `analyse(harness, s)` lets the caller share one analysis with the fetch.
+export function runningCopies(projectDir, { harnesses = [], root, home = homedir(), env = process.env, channel = null, version = null, analyse = null } = {}) {
+  const out = [];
+  for (const id of harnesses) {
+    const harness = loadHarness(id);
+    if (!harness) continue;
+    for (const [key, s] of Object.entries(harness.surfaces || {})) {
+      if (key.startsWith("_") || s?.kind !== "registration") continue;
+      if (s.format === "host-plugin-registration") {
+        if (channel === "git") continue;
+        for (const e of projectCopiesByKey(home, projectDir)) {
+          if (typeof e.version === "string" && e.version) out.push({ harness: id, key: e.key, version: e.version, path: e.path, scope: e.scope, own: e.own });
+        }
+      } else if (s.format === "portable-plugin-registration") {
+        const a = analyse ? analyse(harness, s) : analysePortableRegistration(projectDir, s, { root, home, harness, env, version });
+        const v = a?.ownership?.version;
+        if (typeof v === "string" && v && a.enabled) out.push({ harness: id, key: a.id, version: v });
+      }
+    }
+  }
+  return out;
+}
+
+export const newerCopies = (copies, version) => (version ? copies.filter((c) => cmpPrecedence(c.version, version) > 0) : []);
+// The lowest of them: a fresh cache entry below it is read again (rule 8).
+export const lowestVersion = (copies) => copies.map((c) => c.version).sort(cmpPrecedence)[0] || null;
+
+// ─── The registry read (rule 8) ──────────────────────────────────────────
+
+function readCache(cachePath) {
+  if (!cachePath) return {};
+  try {
+    const c = JSON.parse(readFileSync(cachePath, "utf8"));
+    return c && typeof c === "object" && !Array.isArray(c) ? c : {};
+  } catch { return {}; }
+}
+
+// Fresh for a day; an `at` in the future is stale (a clock that moved back).
+function fresh(entry, t) {
+  const at = Date.parse(entry?.at || "");
+  return Number.isFinite(at) && at <= t && t - at < FRESH_MS;
+}
+
+// One request, bounded: the timer aborts the request and settles the read,
+// whatever the fetch does after — a fetch that never settles costs the bound.
+// An answer that is not read (an error status) has its body cancelled, so
+// its connection is released.
+function request(url, { fetch, timers, timeoutMs }) {
+  return new Promise((settle) => {
+    let done = false, timer = null;
+    const ac = typeof AbortController === "function" ? new AbortController() : null;
+    const finish = (r) => {
+      if (done) return;
+      done = true;
+      if (timer !== null) { try { timers.clearTimeout(timer); } catch {} }
+      settle(r);
+    };
+    timer = timers.setTimeout(() => {
+      timer = null;
+      try { ac?.abort(); } catch {}
+      finish({ error: `no answer within ${timeoutMs / 1000} s` });
+    }, timeoutMs);
+    try { timer?.unref?.(); } catch {}
+    Promise.resolve()
+      .then(() => fetch(url, { headers: { accept: ACCEPT }, ...(ac ? { signal: ac.signal } : {}) }))
+      .then(async (res) => {
+        if (!res || !res.ok) {
+          try { Promise.resolve(res?.body?.cancel?.()).catch(() => {}); } catch {}
+          return finish({ error: `HTTP ${res?.status ?? "error"}` });
+        }
+        let body;
+        try { body = await res.json(); } catch { return finish({ error: "the answer is not JSON" }); }
+        const latest = body && typeof body === "object" ? body["dist-tags"]?.latest : undefined;
+        if (!isSemver(latest)) return finish({ error: "the answer names no dist-tags.latest" });
+        finish({ latest });
+      })
+      .catch((e) => finish({ error: String(e?.cause?.code || e?.code || e?.message || "the request failed") }));
+  });
+}
+
+// The cache's one write per answer (a failed read is never cached): the entry
+// keyed by the registry this run resolved, and `user_latest`, which the
+// self-update ADR's session line reads without a registry of its own. This
+// read never learns a publish time: `published_at` stays as it was for the
+// same latest, else null. A write that fails is ignored.
+function writeCache(cachePath, cache, registry, latest, at) {
+  if (!cachePath) return;
+  const prev = cache.user_latest && typeof cache.user_latest === "object" ? cache.user_latest : null;
+  const next = { ...cache, [registry]: { latest, at }, user_latest: { latest, at, published_at: prev && prev.latest === latest && typeof prev.published_at === "string" ? prev.published_at : null } };
+  try {
+    mkdirSync(dirname(cachePath), { recursive: true });
+    writeFileAtomic(cachePath, JSON.stringify(next, null, 2) + "\n", { sweep: false });
+  } catch {}
+}
+
+// `GET <registry>/projectstore` with the abbreviated Accept header, no
+// credentials, bounded by `timeoutMs`; the answer is `dist-tags.latest`. A
+// fresh entry for this registry answers instead — unless it is below
+// `atLeast`, the lowest newer copy rule 6 asks about: a release may have come
+// out since it was written. The cache never supplies a URL: an entry is only
+// looked up with the registry this run resolved. Never throws.
+export async function readLatest({ registry, cachePath = null, fetch = globalThis.fetch, now = Date.now, timers = globalThis, timeoutMs = READ_TIMEOUT_MS, atLeast = null } = {}) {
+  try {
+    const cache = readCache(cachePath);
+    const entry = cache[registry];
+    const t = now();
+    if (entry && isSemver(entry.latest) && fresh(entry, t) && !(atLeast && cmpPrecedence(entry.latest, atLeast) < 0)) {
+      return { latest: entry.latest, from: "cache", error: null };
+    }
+    if (typeof fetch !== "function") return { latest: null, from: null, error: "no fetch in this Node" };
+    const url = `${String(registry).replace(/\/+$/, "")}/${PACKAGE}`;
+    const r = await request(url, { fetch, timers, timeoutMs });
+    if (!r.latest) return { latest: null, from: "network", error: r.error };
+    writeCache(cachePath, cache, registry, r.latest, new Date(now()).toISOString());
+    return { latest: r.latest, from: "network", error: null };
+  } catch (e) {
+    return { latest: null, from: null, error: String(e?.message || e) };
+  }
+}
+
+// ─── Stop or proceed (rule 6) ───────────────────────────────────────────
+
+// A command in the core form: `npx projectstore[@<v>] <verb> <args>`.
+export function coreCommand(verb, { version = null, args = "" } = {}) {
+  return `npx ${PACKAGE}${version ? `@${version}` : ""} ${verb}${args ? ` ${args}` : ""}`;
+}
+
+// Prose, then each command on a line of its own after its lead, nothing after
+// it (presentation spec contract 6). `reason` is the whole of it with every
+// part on its own line — the envelope's form, which an agent relays as it
+// is; `advice` is what PLAN draws, the commands in their own blocks.
+export function advised(text, blocks = []) {
+  return { reason: [text, ...blocks.flatMap((b) => [b.lead, b.command])].join("\n"), advice: { text, blocks } };
+}
+
+// The run's own selection, repeated: --harness and --surface as given, and
+// --no-register; never --project (the ADR's decision 5).
+function runArgs({ harnesses = [], surfaces = null, register = true } = {}) {
+  return [...harnesses.map((h) => `--harness ${h}`), ...(surfaces || []).map((s) => `--surface ${s}`), ...(register === false ? ["--no-register"] : [])].join(" ");
+}
+
+// Stop when the registry's latest is at least a newer copy this project runs
+// — the newest such copy is named. A copy the latest does not reach, or no
+// answer, proceeds: the rows say which case it was (proceedCase). `read` is
+// readLatest's answer, null when nothing was read; `skipped` says the read
+// was switched off by PROJECTSTORE_NO_UPDATE_CHECK. The refusal's text puts
+// each command on a line of its own, never followed by punctuation.
+export function decide({ copies = [], version = null, read = null, skipped = false, verb = "upgrade", args = {} } = {}) {
+  const newer = newerCopies(copies, version);
+  const decision = { checks: true, version, newer, read: skipped ? { skipped: true } : read, stop: null };
+  const latest = read && isSemver(read.latest) ? read.latest : null;
+  if (skipped || !latest) return decision;
+  const top = newer.filter((c) => cmpPrecedence(latest, c.version) >= 0).sort((a, b) => cmpPrecedence(b.version, a.version))[0];
+  if (!top) return decision;
+  const lead = `this project runs ${PACKAGE} ${top.version} (${top.key}), newer than this package (${version}), and ${top.version} is published. Nothing is written. Run the newer one from a terminal in this project:`;
+  const commands = [coreCommand(verb, { version: "latest", args: runArgs(args) }), `npm install -g ${PACKAGE}@latest`];
+  const between = "or install it for the whole machine:";
+  decision.stop = { copy: top, lead, commands, between, text: [lead, commands[0], between, commands[1]].join("\n") };
+  return decision;
+}
+
+// The case a newer row names when the run proceeds (rule 6), for the copy at
+// `v`: the dry run's note when no decision was made (plan reads nothing), none
+// for a root that never checks, else what the read found.
+export function proceedCase(decision, v) {
+  if (decision === null || decision === undefined) return `install and upgrade read the registry first, and stop when ${v} is published`;
+  if (!decision.checks) return null;
+  const r = decision.read;
+  if (!r) return null;
+  if (r.skipped) return `the registry was not read (${NO_CHECK_ENV})`;
+  if (!isSemver(r.latest)) return `the registry could not be read (${r.error || "no answer"})`;
+  if (cmpPrecedence(r.latest, v) < 0) return `the registry's latest (${r.latest}) does not reach ${v}`;
+  return `${v} is published (the registry's latest is ${r.latest})`;
+}
+
+// Rule 2's helper: the ways this release offers to settle which copy a
+// project runs, when a copy from another marketplace is enabled for it. Only
+// what exists is named — the copy's own bin in the layout remedy's form
+// (layout spec contract 12), which converges the project on that copy; and
+// the host's own disable, built from the manifest as a plan step is, which
+// leaves the project to this package's registration on the next run. The
+// channel gate's text is built from the same blocks, and a later verb that
+// asks the channel question is added here, last.
+export function channelChoices({ harness, s, copy, running }) {
+  const blocks = [];
+  const bin = copy?.path ? join(copy.path, "bin", "projectstore.mjs") : null;
+  if (bin && existsSync(bin)) blocks.push({ lead: "Run the newer copy instead, from a terminal in this project:", command: `node "${bin}" upgrade --harness ${harness.id} --no-register` });
+  const disable = s?.cli?.commands?.disable;
+  if (Array.isArray(disable) && disable.length && s.cli.bin) {
+    const argv = disable.map((t) => t.replace(/\{(\w+)\}/g, (_, k) => (k === "other" || k === "id" ? copy.key : `{${k}}`)));
+    blocks.push({ lead: `Or move this project to this package's registration, the older ${running}: turn that copy off for this project, then repeat this run:`, command: [s.cli.bin, ...argv].join(" ") });
+  }
+  return blocks;
+}
+
+// A newer copy from another marketplace under channel null: not switched
+// off, because switching it off would run the project on an older package.
+// The rows name both versions and the case, then the ways out.
+export function newerCopyDeferral({ copy, running, decision, harness, s }) {
+  const c = proceedCase(decision, copy.version);
+  const text = `this project runs a newer copy (${copy.key} ${copy.version}) than this package (${running}), so it is not switched off${c ? ` — ${c}` : ""}.`;
+  return advised(text, channelChoices({ harness, s, copy, running }));
+}
+
+// A newer registration that is damaged: never rewritten or staged over from
+// the older package; repaired from its own version.
+export function repairAdvice(harness, v) {
+  return { lead: "not downgraded — repair it from its own version:", command: coreCommand("upgrade", { version: v, args: `--harness ${harness.id}` }) };
+}
+
+// ─── The update notice (rule 8) ─────────────────────────────────────────
+
+// The notice, when the registry's latest ranks above the running version: its
+// text, and the command on a line of its own (presentation spec contract 6).
+// A root under npx's cache is told npx; anything else the global install,
+// the ADR's form — npm install -g would add a global copy an npx user never had.
+export function updateNotice({ latest, version, root, verb = "upgrade" } = {}) {
+  if (!isSemver(latest) || !version || cmpPrecedence(latest, version) <= 0) return null;
+  const npx = /[\\/]_npx[\\/]/.test(String(root || ""));
+  return { latest, text: `newer published: ${latest} (this is ${version}). To update:`, command: npx ? coreCommand(verb, { version: "latest" }) : `npm install -g ${PACKAGE}@latest` };
+}

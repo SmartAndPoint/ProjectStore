@@ -15,6 +15,7 @@
 //   fetchDecision({…})                → { fetch, why } — rule 1, pure
 //   fetchArgv({ prefix, registry, … }) → rule 2's npm argv, plan's and the run's
 //   npmRegistry(projectDir, { env })  → the registry npx would see there, or null
+//   npmUserRegistry({ home, env })    → the user's own registry, read from home, or null
 //   fetchShell(job, { dir, registry }) → { ok, root, ms } or { ok: false, code, refusal }
 //   verifyFetched(root, { … })        → null, or the refusal naming file and values
 //   fetchRefusal(code, ctx)           → rule 4's texts
@@ -76,6 +77,10 @@ export function fetchDecision({ verb, harness, s, excluded = false, named = fals
   if (insideHostSession(env, harness)) return { fetch: false, why: "in-session" };
   // The host's facts alone decide these rows; a payload would change none.
   if (["unavailable", "foreign", "conflict"].includes(analysis?.state)) return { fetch: false, why: analysis.state };
+  // A registration newer than the running version is never staged over (the
+  // converge story's rule 6): its row is the newer rung's, sound or damaged,
+  // decided from the version and the host's facts alone.
+  if (analysis?.newer) return { fetch: false, why: "newer" };
   // No host CLI: the row defers whatever of ours exists, so a fetch — which
   // may fail offline — must not turn a deferral into a refusal (the ADR: the
   // fetch is skipped for a harness whose registration will defer).
@@ -127,6 +132,21 @@ export async function npmRegistry(projectDir, { env = process.env, spawn, budget
   if (r.error || r.status !== 0) return null;
   const value = String(r.stdout || "").trim().split(/\r?\n/).pop()?.trim() || "";
   return value && !/\s/.test(value) && value !== "undefined" ? value : null;
+}
+
+// The registry the user's npm resolves outside any project (the converge
+// story's rule 8, as amended 2026-10-09): `npm config get registry` run from
+// the home directory, with every lowercase npm_config_* variable removed from
+// its environment — what an outer npx injects into its child, and a user's
+// own lowercase variable too. Only the uppercase NPM_CONFIG_* survive, with
+// ~/.npmrc and the global npmrc. What chooses code before the question reads
+// this one: the update notice and rule 6's read. Only the previewed shell
+// fetch keeps the project's registry (npmRegistry, above). Null when the read
+// fails; the caller then uses the public registry.
+export async function npmUserRegistry({ home = null, env = process.env, spawn, budget = REGISTRY_BUDGET_MS } = {}) {
+  const clean = {};
+  for (const [k, v] of Object.entries(env || {})) if (!k.startsWith("npm_config_")) clean[k] = v;
+  return npmRegistry(home || process.cwd(), { env: clean, spawn, budget });
 }
 
 // npm's --json error, which it prints on stdout: { error: { code, summary,
