@@ -8,3 +8,7 @@ node_modules/
 # npm pack and the shell build write here
 *.tgz
 dist/
+# Claude Code lays these beside a plugin folder it loads (--plugin-dir): the
+# band module's declarations and a tsconfig that extends them.
+.claude-plugin/types/
+/tsconfig.json

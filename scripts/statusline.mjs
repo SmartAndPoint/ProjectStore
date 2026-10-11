@@ -25,6 +25,13 @@
 //      cold-start line. The renderer drops a .last-render.json breadcrumb so
 //      doctor can detect session_id divergence between hook and statusLine.
 //
+// While this session's band above the prompt is drawing (hooks/band.tsx keeps
+// a heartbeat fresh in the session-state directory), our line gives way to it:
+// composed, the base HUD prints alone; standalone, the badge and the 📚
+// segment drop. A missing, unreadable or stale heartbeat changes nothing, so
+// a band that cannot draw always gives the line back (the band ADR, decision
+// 5; spec contract 11).
+//
 // Everything is best-effort; on any error emit what we have and exit 0.
 
 import { readFileSync, existsSync } from "node:fs";
@@ -41,6 +48,7 @@ import {
   claudeHome,
   writeFileAtomic,
 } from "./lib.mjs";
+import { heartbeatFile, heartbeatYields } from "./band-shared.mjs";
 
 const SELF = fileURLToPath(import.meta.url);
 const SEP = " · ";
@@ -153,6 +161,19 @@ function bookSegment(cfg, proj, input, strings) {
   return seg;
 }
 
+// Whether this session's band is drawing now. Read after bookSegment has
+// written the breadcrumb, so doctor keeps its evidence while the band is up;
+// any failure reads as "no band" and the line stays.
+function bandYields(proj, sid) {
+  try {
+    const name = heartbeatFile(sid);
+    if (!name) return false;
+    return heartbeatYields(JSON.parse(readFileSync(join(stateDir(proj), name), "utf8")), Date.now());
+  } catch {
+    return false;
+  }
+}
+
 // The base statusLine command we compose with — highest-precedence entry BELOW
 // our own local one: project settings.json, else user settings.json.
 function discoverBaseCommand(projectDir) {
@@ -210,8 +231,10 @@ function main() {
   let book = null;
   try { book = cfg && cfg.vault_path ? bookSegment(cfg, projectDir, input, strings) : null; } catch { book = null; }
 
+  const yielded = Boolean(cfg && cfg.vault_path && bandYields(projectDir, input.session_id));
+
   const showVersion = !(cfg && cfg.statusline && cfg.statusline.show_version === false);
-  const ver = showVersion ? pluginVersion() : null;
+  const ver = showVersion && !yielded ? pluginVersion() : null;
   const badge = ver ? `[PS#${ver}] ` : "";
 
   const baseCmd = discoverBaseCommand(projectDir);
@@ -220,7 +243,7 @@ function main() {
   // "Never blank" must be total: even if the resolver threw (book === null on a
   // bound project), fall back to the cold-start line rather than vanishing.
   const bookOut =
-    cfg && cfg.vault_path ? book || BOOK + strings.statusline_no_work : null;
+    cfg && cfg.vault_path && !yielded ? book || BOOK + strings.statusline_no_work : null;
 
   const lines = [];
   if (baseOut) {

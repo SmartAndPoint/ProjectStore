@@ -31,6 +31,7 @@ import { checkLayoutTemplates } from "../scripts/doctor.mjs";
 import { planScaffold, applyScaffold } from "../scripts/scaffold.mjs";
 import { orientation } from "../scripts/query.mjs";
 import { invocationPatterns } from "./fixtures/vocabulary.mjs";
+import { BAND_STRING_KEYS } from "../scripts/band-shared.mjs";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const ENV = { ...process.env, CLAUDE_PLUGIN_ROOT: REPO };
@@ -180,6 +181,8 @@ for (const lang of LOCALES) {
     assert.ok(existsSync(p), "strings.json missing");
     const s = JSON.parse(readFileSync(p, "utf8"));
     for (const k of STATUSLINE_KEYS) assert.ok(s[k], `strings.json missing ${k}`);
+    // The band spec, contract 14: every word the band draws, in every locale.
+    for (const k of BAND_STRING_KEYS) assert.ok(typeof s[k] === "string" && s[k].trim(), `strings.json missing ${k}`);
   });
 
   test(`locale ${lang}: a name and a description for every folder kind the layout declares; the vault README is a table in the language`, () => {

@@ -707,6 +707,22 @@ export function harnessForOverlay(key, dir = MANIFEST_DIR) {
   return all.find((m) => m.runtime?.overlay === key) || all.find((m) => m.id === key) || null;
 }
 
+// Whether a harness draws the band above the prompt (the band spec, contract
+// 1): the one predicate for "a harness without a band", read by the generator
+// (which keeps the module out of such a harness's tree) and by `band status`.
+export function hasBand(manifest) {
+  return manifest?.surfaces?.band?.supported === true;
+}
+
+// The session id the host hands a tool process, by the manifest's name for
+// it (runtime.session_id_env), or null where the harness names none or the
+// process got none.
+export function hostSessionId(env = process.env, harness = activeHarness(env)) {
+  const k = harness?.runtime?.session_id_env;
+  const v = k && env ? env[k] : null;
+  return typeof v === "string" && v ? v : null;
+}
+
 // A reader's fallback: the new path when it exists, else the legacy one when
 // THAT exists, else the new path (a writer's target) — at most two existsSync
 // calls, never a directory scan (contract 1; the SessionStart budget).

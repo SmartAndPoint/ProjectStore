@@ -1841,6 +1841,7 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
     agents: ["agents model <name> [options]", "agents show [options]", "agents configure [options]"],
     bind: ["bind <vault> [options]"], init: ["init <vault> [options]"],
     scaffold: ["scaffold [options]"],
+    band: ["band on [options]", "band off [options]", "band status [options]", "band epic <ID> [options]"],
   };
   assert.deepEqual(VERBS.map((v) => v.verb).sort(), Object.keys(GOLDEN).sort(), "every verb has its 0.29.2 forms here");
   for (const v of VERBS) {

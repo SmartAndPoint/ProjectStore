@@ -22,7 +22,7 @@ CHECK AND REPAIR
   upgrade      After an update, refresh what install wrote and leave the rest.
 
 ADVANCED
-  plan . orientation . agents . init . scaffold . mcp . version
+  plan . orientation . agents . band . init . scaffold . mcp . version
 
 Options
   --project <dir>  the project (default: the session's, else this directory)

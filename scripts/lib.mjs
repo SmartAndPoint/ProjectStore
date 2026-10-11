@@ -8,6 +8,7 @@ import { join, dirname, basename, resolve, relative, isAbsolute } from "node:pat
 import { fileURLToPath } from "node:url";
 import { hostname, homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
+import { parseFrontmatter } from "./stages.mjs";
 import {
   projectRoot as harnessProjectRoot,
   pluginRoot as harnessPluginRoot,
@@ -3351,21 +3352,6 @@ export function sessionNameOfferText(offer, { env = process.env } = {}) {
 
 // ─── Frontmatter parsing (minimal) ─────────────────────────────────────
 
-export function parseFrontmatter(md) {
-  const m = md.match(/^---\n([\s\S]*?)\n---/);
-  if (!m) return { data: {}, body: md };
-  const data = {};
-  for (const line of m[1].split("\n")) {
-    const kv = line.match(/^(\w+):\s*(.*)$/);
-    if (!kv) continue;
-    let v = kv[2].trim();
-    if (v === "null") v = null;
-    else if (v.startsWith('"') && v.endsWith('"')) {
-      // JSON.parse round-trips escaped scalars from renderTemplate's _json
-      // form (titles containing quotes); fall back to the bare strip.
-      try { v = JSON.parse(v); } catch { v = v.slice(1, -1); }
-    }
-    data[kv[1]] = v;
-  }
-  return { data, body: md.slice(m[0].length) };
-}
+// Moved to stages.mjs (Node-free) so the band module parses frontmatter by
+// the same rule; re-exported here for every existing caller.
+export { parseFrontmatter };

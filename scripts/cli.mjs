@@ -64,6 +64,7 @@ import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_L
 // trip on.
 import { planBind, applyBind, renderBindPlan, bindResult, bindFailed, normaliseVaultPath, shellQuote, DEFAULT_LAYOUT, DEFAULT_LANGUAGE } from "./binding.mjs";
 import { planScaffold, applyScaffold, scaffoldResult, renderScaffoldPlan } from "./scaffold.mjs";
+import { planBand, applyBand, bandStatus, renderBandStatus, renderBandPlan, SUBCOMMANDS as BAND_SUBCOMMANDS } from "./band.mjs";
 
 export const SCHEMA_VERSION = 1;
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -198,6 +199,12 @@ export const VERBS = Object.freeze([
     run: runAgents,
   }),
   Object.freeze({
+    verb: "band", summary: "The band above the prompt: switch it, pin an epic, ask why.", usage: Object.freeze(["on", "off", "status", "epic <ID>"]),
+    module: "./band.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: true, mcp: Object.freeze([]),
+    options: [JSON_OPT],
+    run: runBand,
+  }),
+  Object.freeze({
     verb: "bind", summary: "Bind this project to an existing vault; naming it confirms.", usage: Object.freeze(["<vault>"]),
     module: "./binding.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
     options: [opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`), opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`), opt("rebind", false, "point an already bound project at another vault; every other setting is kept"), JSON_OPT],
@@ -279,6 +286,7 @@ const EXAMPLES = {
   init: ["{cmd} init ~/vaults/new-project --language ru"],
   scaffold: ["{cmd} scaffold  # what would be created; nothing is written", "{cmd} scaffold --write"],
   agents: ["{cmd} agents show", "{cmd} agents configure{h} --default opus --agent clerk=sonnet"],
+  band: ["{cmd} band status", "{cmd} band off", "{cmd} band epic PS-CORE  # a session with no epic of its own shows this one"],
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
 
@@ -917,6 +925,36 @@ async function runAgents(ctx) {
   const path = writeOverlayAt(project, harness, next);
   const after = readOverlayAt(project, harness);
   return emit("agents configure", true, { harness, path, wrote: true, agents: after.agents, pinnedClerk, clerkPinUnavailable, dropped, rejected: after.rejected, agents_in_binding: inBinding }, preview.join("\n") + `\n  wrote ${path}.${inBinding ? " The binding still carries an agents block (pre-0.28); run upgrade to move it." : ""}\n`);
+}
+
+// The band's switch (the band spec, contract 13): one atomic binding write per
+// change, previewed; a terminal is asked, --json is the confirmation (the
+// command that runs it has asked already), and without either it refuses.
+// `status` writes nothing.
+async function runBand(ctx) {
+  const { row, values, positionals, cfg, project, env, stdout, stderr, stdin, ask } = ctx;
+  const sub = positionals[0];
+  const arg = positionals[1];
+  const usage = (m) => usageFail(Object.assign(new Error(m), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (!BAND_SUBCOMMANDS.includes(sub)) return usage(`band takes ${BAND_SUBCOMMANDS.join(", ")} (epic takes an epic id, or none to release the pin)`);
+  const emit = (verb, ok, result, text) => { if (values.json) stdout.write(JSON.stringify(envelope(verb, project, ok, result), null, 2) + "\n"); else (ok ? stdout : stderr).write(text); return ok ? 0 : 1; };
+  if (sub === "status") {
+    const s = bandStatus(project, cfg, { env, root: PACKAGE_ROOT });
+    return emit("band status", true, s, renderBandStatus(s));
+  }
+  const plan = planBand(project, sub, arg, { env, root: PACKAGE_ROOT });
+  if (plan.refusal) return emit(`band ${sub}`, false, { error: plan.refusal.message, code: plan.refusal.code, path: plan.path }, `${plan.refusal.message}\n`);
+  const preview = renderBandPlan(plan, sub, arg);
+  if (!plan.changed) return emit(`band ${sub}`, true, { path: plan.path, wrote: false, band: plan.after }, preview + "  Nothing to change.\n");
+  let confirmed = Boolean(values.json);
+  if (!confirmed) {
+    const a = await confirmWrite(preview + `Write ${plan.path}? [y/N] `, { stdin, stdout, ask });
+    if (a === null) return usage("a non-interactive band write passes --json; there is no --yes");
+    confirmed = a;
+  }
+  if (!confirmed) return emit(`band ${sub}`, false, { path: plan.path, wrote: false, declined: true, band: plan.after }, preview + "  nothing written.\n");
+  const done = applyBand(plan);
+  return emit(`band ${sub}`, true, { path: plan.path, wrote: done.wrote, band: plan.after }, preview + `  wrote ${plan.path}. The band follows within a few seconds; no restart.\n`);
 }
 
 async function runGraph(ctx) {
