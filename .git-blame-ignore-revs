@@ -1,0 +1,6 @@
+# Commits that change formatting only; `git blame` skips them.
+# GitHub reads this file by itself. A local clone needs, once:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: format the JavaScript with Prettier at printWidth 120 (the lint ADR)
+46dc17571fbcfa2f7bac95370f07eef6c044a76f
