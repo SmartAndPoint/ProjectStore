@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { emittingHarnesses, sourceHarness, invocation, uiWordPatterns } from "./harness.mjs";
+import { emittingHarnesses, sourceHarness, invocation, uiWordPatterns, hasBand } from "./harness.mjs";
 import { writeFileAtomic } from "./lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -167,6 +167,14 @@ result — \`--json\` never waits on a terminal's question. Unsupported
 surfaces remain unsupported; do not create host configuration by hand. Never
 claim a fix after a non-zero exit.`,
   },
+  bar: {
+    description: "Explain ProjectStore band availability for Codex. This surface is unsupported and the skill never writes configuration. Arguments: on | off | status | epic [<ID>].",
+    body: `ProjectStore's band above the prompt is not supported by the Codex
+harness: Codex has no surface that draws above the prompt and no module
+runtime to draw it. Do not run the band verb's writes and do not edit project
+or host configuration. Report the surface as unsupported. For project state
+use \`$projectstore-status\`.`,
+  },
   statusline: {
     description: "Explain ProjectStore status-line availability for Codex. This surface is unsupported and the skill never writes configuration. Arguments: on | off | status.",
     body: `ProjectStore's status-line surface is not supported by the Codex
@@ -216,8 +224,12 @@ function renderRole(file) {
   return [join("skills", name, "SKILL.md"), skill(name, description, orchestration + body)];
 }
 
-function renderHooks(manifest, root = ROOT) {
+export function renderHooks(manifest, root = ROOT) {
   const source = json(join(root, "hooks", "hooks.json"));
+  // The band is a hooks module only a harness with a band runs (the band
+  // spec, contract 1): elsewhere `modules` would name a file that harness
+  // cannot load, so its tree carries the classic hooks alone.
+  if (!hasBand(manifest)) delete source.modules;
   const post = source.hooks?.PostToolUse || [];
   for (const group of post) if (group.matcher) group.matcher = (manifest.tools?.write_tools || []).join("|");
   const rewrite = (value) => {

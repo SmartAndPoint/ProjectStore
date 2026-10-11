@@ -242,6 +242,13 @@
       "scope_reason": "There is no per-project status-line slot to occupy: Codex has no status-line surface at all, so nothing of ours is written anywhere and the scope is the host's, not a file's.",
       "why_unsupported": "No status-line mechanism was found in the harness — no settings slot, no plugin field, no handler contract. Recorded as a row rather than an absence so the generator's coverage invariant sees a stated omission (contract 9) instead of a surface that quietly does not exist here."
     },
+    "band": {
+      "supported": false,
+      "kind": "host",
+      "scope": "user",
+      "scope_reason": "There is no surface above the prompt to draw into: nothing of ours is written anywhere, so the scope is the host's, not a file's.",
+      "why_unsupported": "Codex has no plugin surface that draws above the prompt and no hooks module runtime. The generator drops the module from this tree's hooks.json and renders the bar command as a skill that says so (the band spec, contract 1)."
+    },
     "plugin": {
       "supported": true,
       "kind": "registration",

@@ -13,7 +13,7 @@ This page says which harnesses exist, how far each one is trusted, and what
 
 | Harness | id | Status | Verified | Surfaces installed |
 |---|---|---|---|---|
-| Claude Code | `claude-code` | **supported** | 2026-08-30 | hooks, commands, agents, skills, MCP, status line, agents block |
+| Claude Code | `claude-code` | **supported** | 2026-08-30 | hooks, commands, agents, skills, MCP, status line, agents block; the band above the prompt (experimental until its own live run) |
 | Codex | `codex` | **experimental** | — | portable plugin, hooks, rendered workflow skills, agents block |
 
 **supported** means the manifest carries a `verified` block: a session id and a

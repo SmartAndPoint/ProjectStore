@@ -89,6 +89,7 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
 /projectstore:codemap                                     # epic ↔ code mapping view
 /projectstore:graph                                       # vault link graph: nodes + typed edges
 /projectstore:agents status                               # routing block + model config state
+/projectstore:bar status                                  # the band above the prompt: on/off, a pinned epic, why it is not drawing
 ```
 
 ## How approval works

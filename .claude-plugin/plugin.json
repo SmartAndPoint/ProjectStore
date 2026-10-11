@@ -11,6 +11,7 @@
   "homepage": "https://github.com/SmartAndPoint/ProjectStore",
   "repository": "https://github.com/SmartAndPoint/ProjectStore",
   "license": "MIT",
+  "types": "./hooks/band-state.d.ts",
   "keywords": [
     "project-management",
     "adr",

@@ -41,6 +41,7 @@
   "files": [
     "bin/",
     ".claude-plugin/",
+    "!.claude-plugin/types/",
     "agents/",
     "commands/",
     "harnesses/",

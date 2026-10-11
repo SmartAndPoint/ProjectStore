@@ -134,6 +134,13 @@ has one, else `~/.claude/settings.json`), prints its output
 verbatim, and adds one `[PS#version] 📚 …` line above it (`statusline.position`:
 `above`/`below`). With no base command it renders a standalone line.
 
+While this session's band above the prompt is drawing, the line gives way to
+it: the band keeps a heartbeat file fresh in the session-state directory, and
+the renderer leaves its own line out while that file is younger than 30 s —
+the base HUD prints as it always does. A band that stops, or never starts
+(an older Claude Code, modules switched off), lets the heartbeat go stale, and
+the line is back on its own.
+
 ## Doctor and reconcile: the trust layer
 
 The vault's guarantees used to depend on everyone using the gated commands —

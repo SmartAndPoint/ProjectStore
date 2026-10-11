@@ -71,6 +71,8 @@ Six months later, *"why Postgres?"* has an answer with a date and the alternativ
 
 ![projectstore status line: the 📚 epic › story line sitting above an existing oh-my-claudecode HUD](docs/images/statusline-hud.png)
 
+In Claude Code a band above the prompt goes further (experimental): the session's epic with its goal and how far it is, the story in hand, and the ProjectStore agent at work — `critic · opus 5.5 · reviews «…»` — on the model its own requests name. While it draws, the status line steps aside; `/projectstore:bar off` hides it, `/projectstore:bar status` says why it is not there.
+
 Open the vault in [Obsidian](https://obsidian.md) and you get the graph view and the board for free. Don't use Obsidian? Everything renders on GitHub and in any editor.
 
 ## Install — one message
@@ -281,7 +283,7 @@ And they are the exit door. The vault is plain markdown in git — no server, no
 
 ## Fact sheet
 
-**20 commands** · **6 agents** — critic, planner, reviewer, librarian, archaeologist (the advisors: read-only, fresh-context) and clerk (the sole write-capable one — it executes approved writes, post-gate, and composes nothing) · **6 languages** — en, ru, es, de, fr, zh · zero runtime dependencies
+**21 commands** · **6 agents** — critic, planner, reviewer, librarian, archaeologist (the advisors: read-only, fresh-context) and clerk (the sole write-capable one — it executes approved writes, post-gate, and composes nothing) · **6 languages** — en, ru, es, de, fr, zh · zero runtime dependencies
 
 The deep dive — real session files, measured payloads, how every mechanism works and where its limits are: [docs/how-it-works.md](./docs/how-it-works.md).
 

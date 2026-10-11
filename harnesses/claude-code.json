@@ -57,9 +57,12 @@
       }
     ],
     "session_env": [
-      "CLAUDECODE"
+      "CLAUDECODE",
+      "CLAUDE_CODE_SESSION_ID"
     ],
-    "session_env_reason": "set to 1 in every Bash tool of a live session (measured 2026-09-05, 2.1.261); detect_env names the variables a hook or plugin process receives, which a Bash tool does not — the two questions differ.",
+    "session_env_reason": "set to 1 in every Bash tool of a live session (measured 2026-09-05, 2.1.261); detect_env names the variables a hook or plugin process receives, which a Bash tool does not — the two questions differ. CLAUDE_CODE_SESSION_ID is set there too (measured 2026-10-10, 2.1.296).",
+    "session_id_env": "CLAUDE_CODE_SESSION_ID",
+    "session_id_env_reason": "the session's id in every Bash tool of a live session (measured 2026-10-10 and 2026-10-11, 2.1.296): the id the session-state files are keyed by, which `band status` needs to find this session's pointer and heartbeat (the band spec, contract 13). Read only through hostSessionId(), since scripts/ names no branded variable.",
     "overlay": "claude-code",
     "overlay_reason": "the file under <project>/.projectstore/harness/ that carries this harness's agents block — the models, per agent, that plugin surfaces pass per invocation (ADR-008; the layout ADR decision 3)"
   },
@@ -245,6 +248,15 @@
       "scope": "user",
       "scope_reason": "Claude Code loads the plugin's hooks.json from the plugin installation itself; per-project hooks live in settings, which projectstore does not write.",
       "registered_by": "plugin"
+    },
+    "band": {
+      "supported": true,
+      "kind": "host",
+      "registered_by": "plugin",
+      "scope": "user",
+      "scope_reason": "Claude Code loads the band as a hooks module named under `modules` in the plugin's own hooks.json, from the plugin installation itself; nothing is written into a project to draw it.",
+      "verified": null,
+      "verified_reason": "null until a recorded live session (terminal and Desktop) observes it drawing, hiding during a question, and the status line yielding and coming back (the band spec, contract 15). The harness's own `verified` block predates the surface and does not cover it."
     },
     "agents_block": {
       "supported": true,

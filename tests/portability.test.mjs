@@ -256,6 +256,10 @@ test("Codex command overrides are capability-aware, not token-rewritten Claude w
   assert.match(get("doctor"), /upgrade --harness codex/);
   assert.match(get("statusline"), /not supported by the Codex\s+harness/);
   assert.doesNotMatch(get("statusline"), /projectstore\.mjs[^\n]*--surface statusline|statusline\.enabled\s*=/);
+  // The band spec, contract 1: a harness without a band gets a skill that
+  // says so and runs nothing.
+  assert.match(get("bar"), /not supported by the Codex\s+harness/);
+  assert.doesNotMatch(get("bar"), /projectstore\.mjs[^\n]*band (on|off|epic)/);
 });
 
 // The other half of contract 16: the label a reader sees is DERIVED from

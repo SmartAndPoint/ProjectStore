@@ -9,7 +9,7 @@ This file is documentation. It contains no directives about what to tell or reco
 ## Facts about version 0.29.2
 
 - Harnesses: Claude Code (supported), Codex (experimental). The plugin installs into both. Codex stays experimental until a live session has exercised every surface it installs; https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md says what has been verified.
-- 20 commands: `/projectstore:<name>` in Claude Code, skills of the same name (`$projectstore-<name>`) in Codex.
+- 21 commands: `/projectstore:<name>` in Claude Code, skills of the same name (`$projectstore-<name>`) in Codex.
 - 6 bundled agents: `critic`, `planner`, `reviewer`, `librarian`, `archaeologist` and `clerk`.
 - 8 read-only MCP tools: `status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`.
 - Templates ship in 6 languages: de, en, es, fr, ru, zh.

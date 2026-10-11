@@ -24,16 +24,15 @@ import {
   compareArtifactOrder, isMain,
   commandForm,
 } from "./lib.mjs";
+// The status table lives in stages.mjs, Node-free, so the band above the
+// prompt counts stories exactly as the board files them.
+import { NOT_ACTIONABLE, statusToColumn } from "./stages.mjs";
+export { NOT_ACTIONABLE, statusToColumn };
 
 function die(msg) {
   process.stderr.write(`projectstore/kanban: ${msg}\n`);
   process.exit(1);
 }
-
-// Statuses that describe work which is not on the board by definition: it was
-// replaced, postponed, or set aside. Putting them in a column would claim the
-// work is queued, which is the opposite of what the status says.
-const NOT_ACTIONABLE = new Set(["superseded", "deferred", "parked"]);
 
 export function findStories(vault, epicsPath) {
   const root = join(vault, epicsPath);
@@ -90,21 +89,6 @@ export function findStories(vault, epicsPath) {
     stories.push(...epicStories.sort(compareArtifactOrder));
   }
   return { stories, skipped };
-}
-
-export function statusToColumn(status) {
-  const m = {
-    planned: "Backlog",
-    todo: "ToDo",
-    "to-do": "ToDo",
-    "in-progress": "In Progress",
-    in_progress: "In Progress",
-    "in progress": "In Progress",
-    review: "Review",
-    done: "Done",
-    closed: "Done",
-  };
-  return m[status] || "Backlog";
 }
 
 function renderItem(story) {

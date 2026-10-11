@@ -1,6 +1,14 @@
 {
   "_description": "Language-independent registry of section headings, inline keywords and index-table column names recognized by the deterministic scripts (doctor, reconcile, story-section). Per id, per language: an ARRAY of accepted forms; the FIRST form of the bound language is the canonical form used when writing. Matching accepts every form of every language, so a ru-headed file lints in an en-bound vault. New sections/keywords added by any story MUST register a form for every bundled language (en, ru, es, de, fr, zh) here (PS-SPEC story-002).",
   "headings": {
+    "goal": {
+      "en": ["Goal"],
+      "ru": ["Цель"],
+      "es": ["Objetivo"],
+      "de": ["Ziel"],
+      "fr": ["Objectif"],
+      "zh": ["目标"]
+    },
     "description": {
       "en": ["Description"],
       "ru": ["Описание"],

@@ -182,6 +182,10 @@ export const NOT_SHIPPED = new Set([
   "adapters", // generated harness inputs copied into their distribution shells at build time
   "site", // the public site: Pages serves it, npm never does
   "package-lock.json",
+  // Claude Code lays this beside a plugin folder it loads with --plugin-dir
+  // (extending .claude-plugin/types/, which is gitignored and kept out of the
+  // package too): the band module's type-check reads it, nobody installs it.
+  "tsconfig.json",
 ]);
 
 // Top-level entries that are neither shipped nor deliberately excluded. Kept

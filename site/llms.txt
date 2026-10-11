@@ -13,7 +13,7 @@ The premise is that ADRs, design review, backlogs, acceptance criteria and requi
 **Facts about version 0.29.2.**
 
 - Harnesses: Claude Code (supported), Codex (experimental). Codex stays experimental until a live session has exercised every surface it installs; `docs/harnesses.md` says what has been verified.
-- 20 commands, invoked as `/projectstore:<name>` in Claude Code and as skills of the same name, `$projectstore-<name>`, in Codex.
+- 21 commands, invoked as `/projectstore:<name>` in Claude Code and as skills of the same name, `$projectstore-<name>`, in Codex.
 - 6 bundled agents. `critic`, `planner`, `reviewer`, `librarian` and `archaeologist` are read-only advisors that run with fresh contexts. `clerk` is the only write-capable one; it runs only after a human approval and copies the approved content byte-for-byte, composing nothing. In Codex each role is a skill that asks Codex to start it.
 - 8 read-only MCP tools: `status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`. They are served by the npm package `projectstore`, which also carries a CLI with a `--json` envelope on every verb.
 - Every create or edit renders its draft in memory, shows the target path and the full content, and waits for Yes, Edit before saving, or No. Declining leaves the vault byte-for-byte unchanged.
