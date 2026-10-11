@@ -2,9 +2,9 @@
 
 People who meet ProjectStore compare it with what they already run next to a coding agent: a
 memory plugin, an instruction file, a spec-driven tool. This page says what each of those keeps,
-what ProjectStore keeps instead, and which parts of ProjectStore exist elsewhere. The README names
-three kinds of tools; the first table here has four kinds, because agent memory kept in the
-repository gets its own column.
+what ProjectStore keeps instead, and which parts of ProjectStore exist elsewhere. The README and
+the site name three kinds of tools; the first table here has four kinds, because agent memory kept
+in the repository gets its own column.
 
 The claims about other tools come from their own documentation, repositories and release notes,
 **read on 2026-10-09**. Tools move fast; if a cell below is wrong or out of date,

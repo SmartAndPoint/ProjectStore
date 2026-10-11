@@ -675,6 +675,39 @@ function checkParity(en, page, repo) {
   return out;
 }
 
+// AC 4: the sections are numbered in their labels ("01 / Principle", …). A
+// changed English label leaves its translations stale with no tool to notice —
+// i18n.py check compares the template with en.json only — so the numbers are
+// held here: on every page the numbered labels run 01, 02, … in page order,
+// as many as on the English page. An unnumbered label (the FAQ's) is not one.
+const sectionNumbers = (page) => page.els
+  .filter((el) => hasClass(el, "section-label") && /^\s*\d/.test(el.text))
+  .map((el) => (el.text.trim().match(/^(\d{2}) \//) || [])[1] ?? el.text.trim());
+function checkSectionNumbers(page, en) {
+  const nums = sectionNumbers(page);
+  const out = [];
+  const bad = nums.findIndex((n, i) => n !== String(i + 1).padStart(2, "0"));
+  if (bad >= 0) out.push(finding(page.file, "section-number", `numbered section #${bad + 1} is labelled ${JSON.stringify(nums[bad])}; the labels run 01, 02, … in page order`));
+  const want = sectionNumbers(en).length;
+  if (nums.length !== want) out.push(finding(page.file, "section-number", `${nums.length} numbered sections here, ${want} on ${en.file}`));
+  return out;
+}
+
+// The loop diagram's cartoon (assets/site.js) presses its blocks, svg
+// .node[data-step], one by one in document order, and the template writes them
+// in the order of the arrows. So on every page their steps never go down
+// (1, 1, 2, 3, 3, 4, 4, 5, 5, 6): a block moved or renumbered out of that order
+// would be pressed out of turn. A page with no blocks is a finding, not a pass.
+function checkPressOrder(page) {
+  const svgs = page.els.filter((el) => el.name === "svg");
+  const steps = page.els
+    .filter((el) => hasClass(el, "node") && "data-step" in el.attrs && svgs.some((svg) => within(svg, el)))
+    .map((el) => el.attrs["data-step"]);
+  if (!steps.length) return [finding(page.file, "press-order", "no svg .node[data-step]: the loop diagram has no blocks to press")];
+  const i = steps.findIndex((s, k) => k > 0 && !(Number(s) >= Number(steps[k - 1])));
+  return i === -1 ? [] : [finding(page.file, "press-order", `block #${i + 1} is step ${steps[i]}, after step ${steps[i - 1]}: the cartoon presses the blocks in document order (${steps.join(", ")})`)];
+}
+
 // AC 4: every page carries every fact a check reads, so removing a marker
 // cannot switch a check off — the example artifacts' data-template among them;
 // and a value fact is a leaf, its text the fact.
@@ -1119,6 +1152,16 @@ test("site AC 4: every language page has the English page's ids, markers, facts,
   assert.deepEqual(found, [], show(found));
 });
 
+test("site AC 4: on every page the numbered section labels run 01, 02, … in page order, as many as on the English page", () => {
+  const found = eachPage((p) => checkSectionNumbers(p, EN.page));
+  assert.deepEqual(found, [], show(found));
+});
+
+test("site AC 4: on every page the loop diagram's blocks are in arrow order, the order the cartoon presses them in", () => {
+  const found = eachPage(checkPressOrder);
+  assert.deepEqual(found, [], show(found));
+});
+
 test("site AC 4: every page carries every fact a check reads, each value fact a leaf", () => {
   const found = eachPage((p) => checkRequired(p, REPO));
   assert.deepEqual(found, [], show(found));
@@ -1393,6 +1436,16 @@ const PLANTED = [
     edits: ukStory },
   { ac: "5", what: "an example path with no data-slug", ...onPage("en", (p) => checkSlugs(p, REPO)), fact: "slug", message: /example path "adr\/use-postgres-for-primary-storage\.md" is not marked/,
     edits: [['<span data-i18n="artifacts.span.9" data-slug="adr:path">', '<span data-i18n="artifacts.span.9">']] },
+
+  // AC 4: a translation keeps a section's old number after the English one moved.
+  { ac: "4", what: "a translated section label keeps its old number", ...onPage("de", (p) => checkSectionNumbers(p, EN.page)), fact: "section-number", message: /#6 is labelled "05"/,
+    edits: [['>06 / Zusammenarbeit<', '>05 / Zusammenarbeit<']] },
+
+  // AC 4: a loop block out of arrow order, which the cartoon would press out of turn; no blocks at all.
+  { ac: "4", what: "the critic block numbered step 4, ahead of the approval", ...onPage("fr", checkPressOrder), fact: "press-order", message: /block #4 is step 3, after step 4/,
+    edits: [['<g class="node" data-step="2">', '<g class="node" data-step="4">']] },
+  { ac: "4", what: "the loop diagram's blocks lose their class", ...onPage("es", checkPressOrder), fact: "press-order", message: /no svg \.node\[data-step\]/,
+    edits: [['<g class="node" data-step=', '<g class="step" data-step=', "all"]] },
 
   // AC 6: a citation that resolves to nothing, or to the wrong kind of file.
   { ac: "6", what: "a figure cites a docs/ heading that does not exist", ...onPage("pt", (p) => checkSources(p, REPO)), fact: "data-source", message: /has no heading #sessions$/,
