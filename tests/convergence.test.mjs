@@ -41,6 +41,7 @@ import {
   FRESH_MS,
   READ_TIMEOUT_MS,
   NO_CHECK_ENV,
+  MIN_READ_MS,
 } from "../scripts/convergence.mjs";
 import { registrationPaths, analyseRegistration } from "../scripts/surfaces.mjs";
 import { portableRegistrationPaths } from "../scripts/portable-registration.mjs";
@@ -806,6 +807,13 @@ test("converge rule 8: on the notice-only path the user's registry resolver and 
   assert.ok(ms >= 1900 && ms < 3000, `one bound, not two: ${ms} ms`);
   assert.deepEqual(reg.calls, [], "no time is left for a request");
   assert.equal(r.text, off.text);
+  // CI on Node 24 once saw the resolver's timer fire with Date.now() reading
+  // 1 ms of the bound left, and a request went out: a remainder that small is
+  // no time, so the floor sits well above clock rounding.
+  assert.ok(
+    MIN_READ_MS >= 10 && MIN_READ_MS < 200,
+    `the floor is above clock rounding, below a real budget: ${MIN_READ_MS}`,
+  );
 });
 
 // ─── The module's place ─────────────────────────────────────────────────

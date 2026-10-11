@@ -75,6 +75,11 @@ export const ACCEPT = "application/vnd.npm.install-v1+json";
 // resolver's own 10 s (REGISTRY_BUDGET_MS, fetch-shell.mjs) before it.
 export const READ_TIMEOUT_MS = 2000;
 export const NOTICE_BUDGET_MS = 2000;
+// What the resolver leaves of a shared bound is no time for a request below
+// this: no registry answers in less, and the resolver's timer and Date.now()
+// round differently, so a resolver that took the whole bound can read as one
+// that left 1 ms of it.
+export const MIN_READ_MS = 50;
 export const FRESH_MS = 24 * 60 * 60 * 1000;
 export const NO_CHECK_ENV = "PROJECTSTORE_NO_UPDATE_CHECK";
 
