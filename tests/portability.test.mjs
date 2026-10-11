@@ -100,6 +100,13 @@ test("generation contract 1: every manifest parses strictly and declares what th
       `${n}: runtime.project_dir_env must be a string or null`,
     );
     assert.ok(Array.isArray(m.runtime.detect_env), `${n}: runtime.detect_env`);
+    // registration_defer_env (the setup story, rule 15): the variables that
+    // defer this harness's registration and the shell fetch, and nothing
+    // else. Present on every manifest, an array of names, with its reason —
+    // an empty list is a decision on the record, as project_dir_env's null is.
+    assert.ok(Array.isArray(m.runtime.registration_defer_env), `${n}: runtime.registration_defer_env must be present, an array`);
+    for (const k of m.runtime.registration_defer_env) assert.ok(typeof k === "string" && /^[A-Z][A-Z0-9_]*$/.test(k), `${n}: runtime.registration_defer_env names an environment variable: ${JSON.stringify(k)}`);
+    assert.ok(typeof m.runtime.registration_defer_env_reason === "string" && m.runtime.registration_defer_env_reason.length > 0, `${n}: runtime.registration_defer_env_reason`);
     assert.ok(Array.isArray(m.tools?.write_tools) && m.tools.write_tools.length > 0, `${n}: tools.write_tools`);
     assert.ok(Array.isArray(m.tools.path_fields), `${n}: tools.path_fields`);
     assert.ok(Array.isArray(m.tools.known_non_write_tools), `${n}: tools.known_non_write_tools`);

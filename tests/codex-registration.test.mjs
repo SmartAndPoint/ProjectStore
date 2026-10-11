@@ -909,6 +909,120 @@ test("shell fetch, rule 1: the decision skips a harness whose session marker is 
   for (const state of ["current", "stale"]) assert.deepEqual(fetchDecision({ ...go, env: {}, analysis: { state, bin: "/usr/local/bin/codex", newer: true } }), { fetch: false, why: "newer" });
 });
 
+// ─── Inside a Codex session (the story "projectstore setup asks, shows one
+// plan and installs every harness it finds, with the vault", rule 15) ─────
+//
+// Codex's session_env stays empty; its exec tool's CODEX_THREAD_ID (measured
+// 2026-10-05) is runtime.registration_defer_env, which defers the
+// registration and the shell fetch and nothing else. The variable's name is
+// the manifest's, never spelled here.
+
+const DEFER = CODEX.runtime.registration_defer_env;
+const deferralText = (marker) => `this runs inside a ${CODEX.display_name} session (${marker} is set), and the host's CLI would change the configuration that session runs on — run it from a terminal outside the session`;
+const recording = (f, calls) => (bin, argv, o) => { calls.push(argv.join(" ")); return fakeCodex(f)(bin, argv, o); };
+
+test("setup rule 15: the shell fetch is skipped under Codex's own deferral marker, and not under another host's session marker", () => {
+  assert.ok(DEFER.length >= 1, "Codex declares the variable its exec tool sets");
+  const go = { verb: "install", harness: CODEX, s: CODEX.surfaces.plugin, named: true, analysis: { state: "absent", bin: "/usr/local/bin/codex" } };
+  for (const marker of DEFER) assert.deepEqual(fetchDecision({ ...go, env: { [marker]: "1" } }), { fetch: false, why: "in-session" }, marker);
+  assert.deepEqual(fetchDecision({ ...go, env: {} }), { fetch: true, why: null });
+  // Deferral keys on the planned harness's own session: a Claude Code session fetches Codex's shell.
+  for (const marker of loadHarness("claude-code").runtime.session_env) assert.deepEqual(fetchDecision({ ...go, env: { [marker]: "1" } }), { fetch: true, why: null }, marker);
+});
+
+test("setup rule 15: inside a Codex session the registration defers with the reason, the plan is incomplete and the host is never called; outside it the same plan registers", async () => {
+  for (const marker of DEFER) {
+    const f = fixture();
+    const env = { ...f.env, [marker]: "thread-1" };
+    const p = plan(f.project, opts(f, { env }));
+    const row = registration(p);
+    assert.equal(row.action, "skip", marker);
+    assert.equal(row.deferred, true);
+    assert.equal(p.incomplete, true);
+    assert.ok(row.reason.endsWith(deferralText(marker)), row.reason);
+    const calls = [];
+    const r = await runVerb("install", f.project, { ...opts(f, { env }), spawn: recording(f, calls), json: true });
+    assert.equal(r.plan.incomplete, true);
+    assert.deepEqual(calls, [], "no host command ran");
+    assert.equal(existsSync(join(f.home, "projectstore")), false, "nothing staged");
+    // Outside the session nothing changes: the same fixture registers.
+    const outside = registration(plan(f.project, opts(f)));
+    assert.equal(outside.action, "create");
+    assert.equal(outside.deferred, undefined);
+  }
+});
+
+test("setup rule 15: from the core inside a Codex session, install fetches nothing — npm is never called — and the registration defers; outside, the same run fetches once", async () => {
+  for (const marker of DEFER) {
+    const f = coreFixture();
+    const npm = fakeNpmSpawn();
+    const calls = [];
+    const r = await runVerb("install", f.project, { ...coreOpts(f, { env: { ...f.env, [marker]: "thread-1" }, spawn: recording(f, calls) }), json: true, fetchSpawn: npm.spawn });
+    assert.deepEqual(npm.calls, [], "npm was called");
+    assert.deepEqual(r.fetched, []);
+    const row = registration(r.plan);
+    assert.equal(row.action, "skip");
+    assert.equal(row.deferred, true);
+    assert.ok(row.reason.endsWith(deferralText(marker)), row.reason);
+    assert.equal(r.plan.incomplete, true);
+    assert.deepEqual(calls, [], "no host command ran");
+    assert.deepEqual(leftovers(f), [], "no fetch directory");
+  }
+  const g = coreFixture();
+  const npm = fakeNpmSpawn();
+  const r = await runVerb("install", g.project, { ...coreOpts(g), json: true, fetchSpawn: npm.spawn });
+  assert.equal(npm.installs().length, 1, "outside the session the shell is fetched");
+  assert.equal(registration(r.plan).action, "create");
+});
+
+// The doctor skill's fix runs `upgrade --harness codex --json` from the core
+// its shell bundles, inside a Codex session. Rule 8's own-copy deferral is
+// decided first and is not incomplete, so that flow's exit is unchanged, and
+// the layout move does not read the deferral marker.
+test("setup rule 15: the doctor skill's upgrade from the shell's bundled core, inside a Codex session, keeps rule 8's own-copy row and is not incomplete", async () => {
+  const shellDir = mkdtempSync(join(tmpdir(), "ps-own-shell-"));
+  writeFileSync(join(shellDir, "package.json"), JSON.stringify({ name: SHELL, version: V }) + "\n");
+  const own = join(shellDir, "node_modules", "projectstore");
+  mkdirSync(own, { recursive: true });
+  writeFileSync(join(own, "package.json"), JSON.stringify({ name: "projectstore", version: V }) + "\n");
+  for (const marker of DEFER) {
+    const f = coreFixture();
+    mkdirSync(join(f.project, CODEX.runtime.harness_dir));
+    const npm = fakeNpmSpawn();
+    const calls = [];
+    const r = await runVerb("upgrade", f.project, { ...coreOpts(f, { env: { ...f.env, [marker]: "thread-1" }, spawn: recording(f, calls) }), root: own, json: true, fetchSpawn: npm.spawn });
+    assert.deepEqual(npm.calls, []);
+    const row = registration(r.plan);
+    assert.equal(row.reason, "this run is from the plugin's own copy, which does not fetch");
+    assert.equal(r.plan.incomplete, false, "as before: deferred, not incomplete");
+    assert.ok(!r.plan.items.some((i) => i.deferred && /session/.test(i.reason || "")), "nothing else defers on the marker");
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("setup rule 15: uninstall --global defers its removal inside a Codex session — the host is never called and the registration stays; outside it removes", async () => {
+  for (const marker of DEFER) {
+    const f = fixture();
+    assert.equal(apply(plan(f.project, opts(f)), { env: f.env, home: f.home, spawn: fakeCodex(f) }).failed, undefined);
+    const env = { ...f.env, [marker]: "thread-1" };
+    const p = plan(f.project, opts(f, { mode: "uninstall", globalRemoval: true, env }));
+    const row = registration(p);
+    assert.equal(row.action, "skip", marker);
+    assert.equal(row.deferred, true);
+    assert.equal(row.reason, deferralText(marker));
+    assert.equal(p.incomplete, true);
+    const calls = [];
+    const r = await runVerb("uninstall", f.project, { ...opts(f, { env }), globalRemoval: true, spawn: recording(f, calls), json: true });
+    assert.equal(r.plan.incomplete, true);
+    assert.deepEqual(calls, [], "no host command ran");
+    assert.ok(existsSync(row.path), "the staged marketplace source stays");
+    // Outside the session the same removal is planned as before.
+    const outside = registration(plan(f.project, opts(f, { mode: "uninstall", globalRemoval: true })));
+    assert.equal(outside.action, "remove");
+    assert.ok(outside.steps.some((s) => s.kind === "host" && s.name === "uninstall"));
+  }
+});
+
 // ─── Never downgrade a newer registration (the converge story, rule 6) ──
 //
 // PS-HARNESS: "Setup and upgrade converge this project onto the running

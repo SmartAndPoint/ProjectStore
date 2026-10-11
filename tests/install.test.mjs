@@ -13,7 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, copyFileSync, rmSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, copyFileSync, rmSync, readdirSync, chmodSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -22,7 +22,7 @@ import { PassThrough } from "node:stream";
 import { fakeInstall, writeRegistry, noHostEnv, fakeClaude, stubCopy, stubCalls } from "./fixtures/install.mjs";
 import { codexHost, fakeNpmSpawn } from "./fixtures/fetch.mjs";
 import { plan, renderPreview, confirm, apply, runVerb, isInteractive, renderDone } from "../scripts/install-harness.mjs";
-import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses, loadHarness, identifiedHarnessId, packageCommand } from "../scripts/harness.mjs";
+import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses, loadHarness, identifiedHarnessId, packageCommand, hostPresence, whichOnPath, registrationDeferred, insideHostSession } from "../scripts/harness.mjs";
 import { writeBinding, seedCliVault } from "./fixtures/vault.mjs";
 import { PLAIN } from "../scripts/term.mjs";
 import { stamp, sourceHash, parseProvenance } from "../scripts/provenance.mjs";
@@ -39,6 +39,7 @@ import {
   sessionStatePath,
   layoutPaths,
   RUNTIME_GITIGNORE_HEADER,
+  whichOnPath as libWhichOnPath,
 } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -95,6 +96,82 @@ test("install contract 8: a project is detected by its harness directory, and an
   const unknown = plan(empty, { home, root, harnesses: ["no-such"] });
   assert.equal(unknown.ok, false);
   assert.match(unknown.refusals[0], /unknown harness/);
+});
+
+// ─── Host presence and the registration deferral (the story "projectstore
+// setup asks, shows one plan and installs every harness it finds, with the
+// vault", rules 5 and 15) ────────────────────────────────────────────────
+
+test("setup rule 5: hostPresence answers whether the registration's CLI is on PATH and the home directory exists, from the manifest's names, for every host", () => {
+  for (const m of manifests()) {
+    const s = Object.entries(m.surfaces || {}).find(([k, x]) => !k.startsWith("_") && x?.kind === "registration" && x.cli?.bin)?.[1];
+    assert.ok(s, `${m.id}: its registration surface names its CLI`);
+    const name = s.cli.bin;
+    const home = mkdtempSync(join(tmpdir(), "ps-presence-home-"));
+    const bin = mkdtempSync(join(tmpdir(), "ps-presence-bin-"));
+    const homeDir = join(home, m.runtime.home_default);
+    const at = (env) => hostPresence(m, { env, home });
+    assert.deepEqual(at({ PATH: bin }), { cli: null, home: null, bin: name, homeDir }, `${m.id}: neither`);
+    // A file that is not executable is not the CLI.
+    writeFileSync(join(bin, name), "#!/bin/sh\nexit 0\n");
+    if (process.platform !== "win32") {
+      chmodSync(join(bin, name), 0o644);
+      assert.equal(at({ PATH: bin }).cli, null, `${m.id}: not executable`);
+    }
+    chmodSync(join(bin, name), 0o755);
+    assert.deepEqual(at({ PATH: bin }), { cli: join(bin, name), home: null, bin: name, homeDir }, `${m.id}: the CLI alone`);
+    // A file where the home should be is not a home.
+    writeFileSync(homeDir, "");
+    assert.equal(at({ PATH: "" }).home, null, `${m.id}: a file is not a home directory`);
+    rmSync(homeDir);
+    mkdirSync(homeDir);
+    assert.deepEqual(at({ PATH: "" }), { cli: null, home: homeDir, bin: name, homeDir }, `${m.id}: the home alone`);
+    assert.deepEqual(at({ PATH: bin }), { cli: join(bin, name), home: homeDir, bin: name, homeDir }, `${m.id}: both`);
+    // The manifest's home variable relocates the home, and an empty one is unset.
+    const moved = join(home, "relocated");
+    assert.deepEqual(at({ PATH: "", [m.runtime.home_env]: moved }), { cli: null, home: null, bin: name, homeDir: moved }, `${m.id}: the variable names a missing directory`);
+    mkdirSync(moved);
+    assert.equal(at({ PATH: "", [m.runtime.home_env]: moved }).home, moved, `${m.id}: the variable wins over the default`);
+    assert.equal(at({ PATH: "", [m.runtime.home_env]: "" }).home, homeDir, `${m.id}: an empty variable is unset`);
+  }
+  // A manifest that names no registration CLI looks for none.
+  const bare = { id: "bare", runtime: { home_default: ".bare" }, surfaces: { plugin: { kind: "registration", supported: false, cli: { bin: "bare" } } } };
+  assert.deepEqual(hostPresence(bare, { env: { PATH: "" }, home: mkdtempSync(join(tmpdir(), "ps-presence-bare-")) }).bin, null, "an unsupported surface is not looked for");
+  assert.deepEqual(hostPresence(null, { env: {}, home: null }), { cli: null, home: null, bin: null, homeDir: null });
+  // whichOnPath moved into harness.mjs; lib.mjs re-exports the same function.
+  assert.equal(libWhichOnPath, whichOnPath);
+});
+
+test("setup rule 15: registrationDeferred keys on the planned harness's own session marker or its registration_defer_env; isInteractive and identity read neither variable of the second list", () => {
+  const all = manifests();
+  const deferMarkers = all.flatMap((m) => m.runtime.registration_defer_env);
+  assert.ok(deferMarkers.length >= 1, "a harness names the variable its session's commands carry (Codex: measured 2026-10-05)");
+  for (const m of all) {
+    assert.equal(registrationDeferred({}, m), false, `${m.id}: outside any session`);
+    assert.equal(registrationDeferred(null, m), false, `${m.id}: no environment`);
+    for (const k of m.runtime.session_env || []) assert.equal(registrationDeferred({ [k]: "1" }, m), true, `${m.id}: its session marker ${k}`);
+    for (const k of m.runtime.registration_defer_env) {
+      assert.equal(registrationDeferred({ [k]: "1" }, m), true, `${m.id}: its deferral marker ${k}`);
+      assert.equal(registrationDeferred({ [k]: "" }, m), false, `${m.id}: ${k} empty is unset`);
+      assert.equal(insideHostSession({ [k]: "1" }, m), false, `${m.id}: ${k} is no session marker, so the layout move does not defer on it`);
+    }
+    // Another harness's markers never defer this one's registration.
+    for (const o of all.filter((o) => o.id !== m.id)) {
+      for (const k of [...(o.runtime.session_env || []), ...o.runtime.registration_defer_env]) {
+        if ([...(m.runtime.session_env || []), ...m.runtime.registration_defer_env].includes(k)) continue;
+        assert.equal(registrationDeferred({ [k]: "1" }, m), false, `${m.id}: ${o.id}'s ${k} does not defer it`);
+      }
+    }
+  }
+  // isInteractive and identifiedHarnessId give the same answers with a
+  // deferral marker set as without it.
+  const tty = { isTTY: true };
+  for (const k of deferMarkers) {
+    assert.equal(isInteractive({ stdin: tty, stdout: tty, env: { [k]: "1" } }), isInteractive({ stdin: tty, stdout: tty, env: {} }), `isInteractive with ${k}`);
+    for (const base of [{}, ...all.map((m) => ({ [m.runtime.plugin_root_env]: "/x" })), ...all.flatMap((m) => (m.runtime.session_env || []).map((s) => ({ [s]: "1" })))]) {
+      assert.equal(identifiedHarnessId({ ...base, [k]: "1" }), identifiedHarnessId(base), `identity with ${k} over ${JSON.stringify(base)}`);
+    }
+  }
 });
 
 // ─── The plan on a fresh project ────────────────────────────────────────
