@@ -371,3 +371,26 @@ test('contract 5: Desktop draws the bar as a grid whose alt names the numbers', 
   expect(svg?.props.source).toMatch(/^<svg [^>]*>(<rect [^>]*\/>)+<\/svg>$/)
   await ui.unmount()
 })
+
+test("contract 14: a render that throws draws nothing of its own — the host's band", async ($, on) => {
+  hostBand(on)
+  let broken = false
+  // The agents' list read back as something that is not a list: the render's
+  // own code throws on it.
+  on('state.get', ($, e, next) => (broken && e.plugin === 'projectstore' && e.key === 'crew' ? ({ value: { value: 42, version: 1 } } as never) : next(e)))
+  const w = world(on, { [BINDING_PATH]: binding(), [`${SESSIONS}/s1.json`]: pointer('PS-HARNESS') })
+  await start($, w)
+  let ui = await mount($, 'terminal')
+  expect(await ui.find({ type: 'Text', text: /📚 PS-HARNESS/ })).toBeDefined()
+  await ui.unmount()
+  await w.clock.advance(6_000)
+  expect(JSON.parse(w.writes.get(`${SESSIONS}/.band-s1.json`) ?? '{}').drawn).toBe(true)
+  broken = true
+  ui = await mount($, 'terminal')
+  expect(await ui.find({ type: 'Text', text: /📚/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /the host's own band/ })).toBeDefined()
+  // The band that could not draw lets the status line have its line back.
+  await w.clock.advance(6_000)
+  expect(JSON.parse(w.writes.get(`${SESSIONS}/.band-s1.json`) ?? '{}').drawn).toBe(false)
+  await ui.unmount()
+})
