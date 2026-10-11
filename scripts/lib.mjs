@@ -530,6 +530,19 @@ export function projectCopiesByKey(home = homedir(), projectDir) {
   return projectCopies(home, projectDir).filter((e) => !seen.has(e.key) && seen.add(e.key));
 }
 
+// The mark a channel switch leaves in this checkout's machine-local binding
+// (the converge story's rules 2–4): `channel_switch: { by, at }`, two strings.
+// It says this checkout chose the npm install; it lists no copies — the
+// silenced set lives in our manifest and the checkout's local settings.
+// Doctor drops contract 13's "if moving to npm was meant, ignore this" info
+// for a marked checkout, the installer plans no second mark, and uninstall
+// removes the key with the registration. `bind --inherit` never copies it.
+export const CHANNEL_SWITCH_KEY = "channel_switch";
+export function channelMark(cfg) {
+  const m = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg[CHANNEL_SWITCH_KEY] : null;
+  return m && typeof m === "object" && !Array.isArray(m) && typeof m.by === "string" && typeof m.at === "string" ? m : null;
+}
+
 // A switch read from the environment the way contract 9 reads CI: set, and
 // not empty, "0" or "false" (any case). One reading for CI and for
 // PROJECTSTORE_NO_UPDATE_CHECK (the converge story's rule 8).

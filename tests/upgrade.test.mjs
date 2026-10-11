@@ -34,7 +34,7 @@ import { parseProvenance } from "../scripts/provenance.mjs";
 import { renderStatusLineLauncher, statusLineLauncherPath, renderAgentsBlock, syncStatusLine, LAUNCHER_HEADER, layoutPaths} from "../scripts/lib.mjs";
 import { plan, apply } from "../scripts/install-harness.mjs";
 import { checkHarnessSurfaces, checkPendingUpgrade, runStartupChecks, checkLayout, checkAgentsBlock, foldIntoMove } from "../scripts/doctor.mjs";
-import { fakeInstall, writeRegistry, installEnv, noHostEnv, fakeClaude, legacyProject } from "./fixtures/install.mjs";
+import { fakeInstall, writeRegistry, installEnv, noHostEnv, fakeClaude, legacyProject, fakePackageRoot } from "./fixtures/install.mjs";
 import { seedCliVault } from "./fixtures/vault.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -194,6 +194,47 @@ test("upgrade --no-register: from a checkout root the plan has no registration r
   assert.ok(existsSync(layoutPaths(proj).binding), "the binding moved");
   // The control: the same plan without the flag carries the registration.
   assert.ok(plan(proj, { home, root: ROOT, env }).items.some((i) => i.kind === "registration"), "without --no-register a checkout plans the registration");
+});
+
+// The converge story's rule 4 (PS-HARNESS: "Setup and upgrade converge this
+// project onto the running version: the channel switch, no downgrade, and the
+// update notice"): a remedy is not the user choosing an install. It passes no
+// channel, so it never answers the channel question and never writes the
+// mark — the layout spec's 2026-10-03 rule, unchanged.
+test("converge criterion 'A remedy never switches': the layout remedy's command, run against a switched checkout with the logging fake host, plans no channel item and no binding item and makes no host call; a doctor remedy's narrowed run plans no mark", () => {
+  const home = mkdtempSync(join(TMP, "ps-up-remedy-"));
+  // The git marketplace's copy, a capable one, enabled at user scope.
+  const copy = fakeInstall(home, VERSION, { full: true });
+  writeRegistry(home, [{ scope: "user", installPath: copy, version: VERSION, lastUpdated: new Date().toISOString() }]);
+  const { proj } = seedCliVault();
+  const host = fakeClaude(mkdtempSync(join(TMP, "ps-up-remedy-host-")));
+  const hostEnv = { ...host.env(), HOME: home };
+  // Switched by a plain upgrade from the package: the copy off for this checkout, no mark.
+  const pkg = fakePackageRoot(join(mkdtempSync(join(TMP, "ps-up-remedy-pkg-")), "node_modules", "projectstore"), VERSION);
+  const switched = apply(plan(proj, { home, root: pkg, env: hostEnv, harnesses: [SRC.id] }), { env: hostEnv, home });
+  assert.equal(switched.failed, undefined, JSON.stringify(switched));
+  const settings = () => JSON.parse(read(join(proj, CFG_DIR, "settings.local.json")));
+  assert.equal(settings().enabledPlugins["projectstore@SmartAndPoint"], false, "switched");
+  const binding = layoutPaths(proj).binding;
+  const bindingBefore = read(binding);
+  assert.ok(!bindingBefore.includes("channel_switch"));
+  host.reset();
+  // The layout remedy: the copy's own bin, as doctor and the startup line name it.
+  const run = bin(copy, installEnv(home, copy, proj, { PATH: [host.dir, dirname(process.execPath)].join(delimiter) }), ["upgrade", "--harness", SRC.id, "--no-register", "--json", "--project", proj]);
+  const out = JSON.parse(run.stdout);
+  assert.equal(out.ok, true, run.stdout + run.stderr);
+  assert.ok(!out.result.items.some((i) => ["channel", "binding"].includes(i.kind) || String(i.surface).endsWith("_others")), JSON.stringify(out.result.items.map((i) => [i.kind, i.surface, i.action])));
+  assert.deepEqual(host.log(), [], "no host call");
+  assert.equal(read(binding), bindingBefore, "no mark");
+  // A doctor remedy's narrowed run (`upgrade --surface plugin`, the two-copies
+  // remedy) on the same checkout with the copy turned back on: it plans the
+  // switch — asked, never silent — and never the mark.
+  writeFileSync(join(proj, CFG_DIR, "settings.local.json"), JSON.stringify({ ...settings(), enabledPlugins: { ...settings().enabledPlugins, "projectstore@SmartAndPoint": true } }, null, 2) + "\n");
+  const remedy = plan(proj, { home, root: pkg, env: hostEnv, harnesses: [SRC.id], surfaces: ["plugin"] });
+  assert.ok(remedy.items.some((i) => i.surface === "plugin_others" && i.action === "disable"), "the switch is planned");
+  assert.ok(!remedy.items.some((i) => i.kind === "binding"), "the mark is not");
+  assert.equal(remedy.channel, null);
+  assert.deepEqual(host.log(), []);
 });
 
 // The re-stamp offer is for a launcher our entry runs. Under a foreign status

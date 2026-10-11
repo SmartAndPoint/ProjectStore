@@ -55,7 +55,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import * as term from "./term.mjs";
-import { projectRootDeclared, childEnv, harnessIds, harnessForOverlay, pinPluginRoot, invokedAs } from "./harness.mjs";
+import { projectRootDeclared, childEnv, harnessIds, harnessForOverlay, pinPluginRoot, invokedAs, loadHarnesses, invocation } from "./harness.mjs";
 import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster, commandForm, projectDirRefusal, doctorFallbackText } from "./lib.mjs";
 import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_LIMIT, GRAPH_EDGE_CAP, DIRECTIONS } from "./query.mjs";
 // binding.mjs and scaffold.mjs beneath it are write modules imported
@@ -257,11 +257,15 @@ export const SUMMARY_MAX = 80 - (2 + VERB_COLUMN + 1);
 // verbs through, so its name serves them too), `{h}` the harness argument the
 // core needs and a shell fixes. A `{core}` example is the core's alone: under
 // a shell `{h}` is empty, so it would repeat the line above it and say what
-// the shell's own run does not.
+// the shell's own run does not. `{switch.surface}`, `{switch.host}` and
+// `{switch.doctor}` name the harness whose project can switch channels — the
+// one with a host plugin registration — from its manifest: its surface key,
+// its display name and its doctor form (switchHarness, below); an example
+// naming them is left out when no manifest has one.
 const EXAMPLES = {
   install: ["{cmd} install{h}", "{cmd} plan{h}  # the same plan; nothing is written"],
   upgrade: ["{cmd}@<version> upgrade{h}  # the version you name is the version that runs", "{cmd} upgrade{h} --verbose"],
-  uninstall: ["{core}{cmd} uninstall  # every harness this project uses", "{cmd} uninstall{h}", "{cmd} uninstall{h} --surface statusline"],
+  uninstall: ["{core}{cmd} uninstall  # every harness this project uses", "{cmd} uninstall{h}", "{cmd} uninstall{h} --surface statusline", "{core}{cmd} uninstall{h} --surface {switch.surface}  # back to the git marketplace after a switch, then restart {switch.host} and run {switch.doctor} in it"],
   plan: ["{cmd} plan{h}", "{cmd} plan{h} --json  # one envelope, for scripts and agents"],
   status: ["{cmd} status", "{cmd} status --json"],
   orientation: ["{cmd} orientation --json"],
@@ -278,9 +282,20 @@ const EXAMPLES = {
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
 
-// The one spelling of how this run was invoked (harness.mjs), which status's
-// and bind's next commands print too.
-const invocation = invokedAs;
+// How this run was invoked is invokedAs (harness.mjs), the one spelling,
+// which status's and bind's next commands print too.
+
+// The harness whose project can switch channels (the converge story's rule
+// 4): the one whose manifest declares a host plugin registration. Its surface
+// key, display name and doctor form, from the manifest — `invocation()` in
+// harness.mjs, never a literal; null when no manifest has one.
+function switchHarness() {
+  for (const m of loadHarnesses().values()) {
+    const row = Object.entries(m.surfaces || {}).find(([k, s]) => !k.startsWith("_") && s?.format === "host-plugin-registration");
+    if (row) return { "switch.surface": row[0], "switch.host": m.display_name, "switch.doctor": invocation(m, "doctor", { args: "--fix" }) };
+  }
+  return null;
+}
 
 // An aligned options block: each option's form in a column at most 28 wide,
 // its description beside it — or, past that column, on the next line under
@@ -326,7 +341,7 @@ const EVERY_VERB = Object.freeze([
 // `caps` is the writing stream's (term.mjs): painted at a terminal, plain on a
 // pipe, and every line of it fits 80 columns either way.
 export function usage(env = process.env, verbs = VERBS, { caps: c = term.PLAIN, version = packageVersion() } = {}) {
-  const { shell, cmd } = invocation(env);
+  const { shell, cmd } = invokedAs(env);
   const paint = term.painter(c);
   const width = c.live ? c.width : 0;
   const prose = (text) => "  " + term.wrap(term.glyphText(c, text), width, "    ");
@@ -374,7 +389,7 @@ export function usage(env = process.env, verbs = VERBS, { caps: c = term.PLAIN, 
 // disagree about what a verb takes. Its first line is the summary the
 // top-level help lists, after the command; `caps` as usage()'s.
 export function verbHelp(row, env = process.env, { caps: c = term.PLAIN } = {}) {
-  const { shell, cmd } = invocation(env);
+  const { shell, cmd } = invokedAs(env);
   const paint = term.painter(c);
   const fixed = Boolean(shell) && row.options.some((o) => o.name === "harness");
   const opts = row.options.filter((o) => !(fixed && o.name === "harness"));
@@ -386,7 +401,8 @@ export function verbHelp(row, env = process.env, { caps: c = term.PLAIN } = {}) 
   if (opts.length) lines.push("", term.heading(c, "Options"), ...optionLines(opts, c));
   if (fixed) lines.push("", term.wrap(`${shell} names the harness itself: without a terminal, the verb is its own confirmation.`, c.live ? c.width : 0, "  "));
   else if (row.options.some((o) => o.name === "harness")) lines.push("", fact(c, "Harnesses", harnessIds().join(", ")));
-  const ex = (EXAMPLES[row.verb] || []).filter((e) => !(fixed && e.startsWith("{core}"))).map((e) => e.replace(/^\{core\}/, ""));
+  const sw = switchHarness();
+  const ex = (EXAMPLES[row.verb] || []).filter((e) => !(fixed && e.startsWith("{core}")) && (sw || !e.includes("{switch."))).map((e) => e.replace(/^\{core\}/, "").replace(/\{(switch\.\w+)\}/g, (_, k) => sw[k]));
   const h = fixed ? "" : " --harness <id>";
   // Each example command stands alone on its line, after a blank one
   // (contract 6): nothing after it, so a paste takes exactly the command — a
@@ -607,7 +623,7 @@ export async function run(argv, { verbs = VERBS, env = process.env, cwd = proces
     // Through a shell the harness is fixed (verbHelp's test: the row declares
     // it): the order shown drops it, since the shell inserts it after the verb.
     // The rest of the line follows, so the command shown is the one to run.
-    const { shell, cmd } = invocation(env);
+    const { shell, cmd } = invokedAs(env);
     const moved = shell && o.name === "harness" ? [] : [m.raw, ...(o.arg && m.value !== undefined ? [m.value] : [])];
     return refuse(`\`--${o.name}\` belongs after the verb: \`${[cmd, verb, ...moved, ...argv.slice(scan.at + 1)].join(" ")}\``);
   }
@@ -1047,10 +1063,11 @@ async function runInstallVerb({ row, values, project, env, cwd, stdin, stdout, a
     // `fetched` is additive: the shells a run fetched before its plan, [] for
     // a run that fetched none (uninstall always).
     stdout.write(JSON.stringify(envelope(row.verb, project, ok, { gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, plannedAgainst: r.plan.plannedAgainst, items: r.plan.items.map(ih.publicItem), refusals: r.plan.refusals, reports: r.plan.reports, fetched: r.fetched || [] }), null, 2) + "\n");
-  } else if (r.gate.why === "non-tty") {
-    stdout.write(`Nothing written: without a terminal, a bare ${row.verb} refuses. Name the harness to confirm: --harness ${r.plan.detected.map((d) => d.id).join(" | ") || harnessIds().join(" | ")}\n`);
-  } else if (r.gate.why === "declined") {
-    stdout.write("Nothing written.\n");
+  } else {
+    // The installer's own words for a gate that wrote nothing — a bare run
+    // without a terminal, a declined question, a channel switch without a
+    // terminal — shared with its main(), so the two entries say the same.
+    stdout.write(ih.gateText(r, { verb: row.verb, harnesses: opts.harnesses, surfaces: opts.surfaces, caps: term.caps(stdout, env) }));
   }
   return ok ? 0 : 1;
 }

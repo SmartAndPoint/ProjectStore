@@ -118,6 +118,11 @@ export function uiExemptions() {
     { phrase: "(set via /plugin → Marketplaces → ", file: "scripts/doctor.mjs", why: gated },
     { phrase: "Manual path: /plugin marketplace update ${marketplace}, then /reload-plugins.", file: "scripts/doctor.mjs", why: gated },
     { phrase: "run /plugin marketplace update ${marketplace}, then /reload-plugins.", file: "scripts/doctor.mjs", why: gated },
+    // The converge story's channel (rules 1 and 2): planned only for a harness
+    // whose registration is a host plugin registration — the source harness's
+    // — so no other harness's run ever prints them.
+    { phrase: "and /plugin update no longer reaches it", file: "scripts/convergence.mjs", why: "a channel switch's consequence line, planned only on a host-plugin-registration surface's competing copies" },
+    { phrase: "command: `/plugin enable ${key}`", file: "scripts/convergence.mjs", why: "the channel git refusal's way out, planned only for a harness with a host-plugin-registration surface" },
   ];
 }
 

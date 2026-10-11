@@ -30,7 +30,9 @@
 // and a bare one refuses. There is no --yes flag. --surface narrows the plan
 // (by prefix, so `statusline` covers the launcher too); it confirms nothing —
 // except that naming the statusline surface is how a user opts into it
-// without the config flag.
+// without the config flag. One change is never confirmed by a name: a channel
+// switch planned with no channel answer (the converge story's rule 2) is asked
+// at a terminal and, without one, answered `channel` — nothing is written.
 //
 // Surface handlers are keyed by the manifest's surfaces.<kind>.format, never
 // by a harness id: adding a harness is adding harnesses/<id>.json, and this
@@ -81,14 +83,14 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { caps as termCaps, painter, icon as termIcon, duration, stepReporter, liveLine, wrap, askApply, plain, badge as badgeText, heading, rowLines, kv, commandBlock, PLAIN } from "./term.mjs";
-import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand, insideHostSession, bundlingShellHarnessId, cachePaths, commonBlockFiles, agentsBlockRow } from "./harness.mjs";
+import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand, insideHostSession, bundlingShellHarnessId, cachePaths, commonBlockFiles, agentsBlockRow, configPath } from "./harness.mjs";
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
 import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, analyseHarnessState, isOurFile, readText, registrationRenderRoot, registrationPaths } from "./surfaces.mjs";
 import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
 import { rootVersion, rootName, fetchDecision, fetchArgv, npmRegistry, npmUserRegistry, REGISTRY_BUDGET_MS, fetchShell, fetchRefusal, fetchRunId, sweepFetchRuns } from "./fetch-shell.mjs";
 import { HOST_BUDGET_MS, startFailure } from "./run-host.mjs";
-import { runningCopies, newerCopies, lowestVersion, readLatest, decide, proceedCase, newerCopyDeferral, repairAdvice, advised, updateNotice, checksRoot, noticeRoot, updateCheckOff, DEFAULT_REGISTRY, NOTICE_BUDGET_MS, READ_TIMEOUT_MS } from "./convergence.mjs";
-import { pluginRoot, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal, registrationProvenance, envFlag } from "./lib.mjs";
+import { runningCopies, newerCopies, lowestVersion, readLatest, decide, proceedCase, newerCopyDeferral, repairAdvice, advised, updateNotice, checksRoot, noticeRoot, updateCheckOff, channelChoices, switchConsequence, switchReason, noCopyToKeep, DEFAULT_REGISTRY, NOTICE_BUDGET_MS, READ_TIMEOUT_MS } from "./convergence.mjs";
+import { pluginRoot, channelMark, CHANNEL_SWITCH_KEY, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal, registrationProvenance, envFlag } from "./lib.mjs";
 
 import { GENERATOR } from "./surfaces.mjs";
 export { GENERATOR };
@@ -546,6 +548,10 @@ function planRegistration(ctx, key, s) {
     // manifest says what install silenced somewhere; a copy the user disabled by
     // hand in another checkout is not ours to turn on (reviewer, 2026-09-05).
     for (const o of a.dir.disabled.filter((k) => a.disabledHere.includes(k))) steps.push(hostStep(a, s, "enable", { ...fill, other: o }, `${o} was silenced for this checkout by install; it is turned back on`));
+    // The mark goes with the registration (the converge story's rule 4): the
+    // binding stops recording that this checkout chose the npm install. After
+    // the host's steps, so a failed one leaves the record as it was.
+    if (ctx.binding?.hasKey) steps.push({ kind: "unmark", path: ctx.binding.path, key: CHANNEL_SWITCH_KEY, why: "the switch goes with the registration: this checkout's binding stops recording that it chose the npm install" });
     if (last && a.dir.present) steps.push({ kind: "remove", path: a.paths.dir, why: "our marketplace directory, removed whole (its manifest carries our provenance field); no other checkout is installed from it" });
     return [{ ...base, action: "remove", steps, reason: a.otherProjects ? `${a.otherProjects} other checkout(s) are installed from the shared directory; it and the host's marketplace entry stay` : a.reason }];
   }
@@ -578,12 +584,20 @@ function planRegistration(ctx, key, s) {
   // registration and every switch defer; no host command runs. The reason and
   // its ways out print once, under the registration; each switch row points
   // there.
-  const newerOther = a.others.filter((o) => typeof o.version === "string" && cmpPrecedence(o.version, a.pkg) > 0).sort((x, y) => cmpPrecedence(y.version, x.version))[0];
+  // Newer than what the project would run with the copy off — the shared
+  // directory's version when another checkout wrote a newer one — not merely
+  // newer than this package: under that, turning it off is no downgrade.
+  const newerOther = a.others.filter((o) => typeof o.version === "string" && cmpPrecedence(o.version, a.targetPkg || a.pkg) > 0).sort((x, y) => cmpPrecedence(y.version, x.version))[0];
   if (newerOther && (ctx.channel ?? null) === null) {
     ctx.incomplete = true;
     const deferral = newerCopyDeferral({ copy: newerOther, running: a.pkg, decision: ctx.convergence, harness, s });
     return [{ ...base, action: "skip", deferred: true, ...deferral }, ...a.others.map((o) => ({ ...other(o), action: "skip", deferred: true, reason: `not switched off — see ${id} above` }))];
   }
+  // What the mark (rule 2) is planned from, after the harness's rows: the
+  // switches this run plans, and contract 13's silenced set — the copies this
+  // registration turned off that this checkout still holds off — for a
+  // registration this checkout holds.
+  ctx.channelFacts = { switches: a.others.map((o) => o.key), silenced: ["current", "stale"].includes(a.state) ? a.dir.disabled.filter((k) => a.disabledHere.includes(k)) : [] };
 
   if (a.state === "current") {
     // A directory and row newer than this package: rung 12, not downgraded,
@@ -618,13 +632,80 @@ function planRegistration(ctx, key, s) {
   // A competing enabled registration of the same plugin is silenced for THIS
   // checkout only, as a precaution the preview names (whether two enabled copies
   // load twice is the live test's row). Our manifest records it for uninstall.
+  //
+  // That is the channel switch (the converge story's rule 2): its row says
+  // what it means, as the consequence line — a `note` step after the host
+  // step, so the JSON item keeps its keys, drawn first beneath the row
+  // (presentation spec contract 7). Under no channel answer it is asked, never
+  // silent: without a terminal the gate answers `channel` (confirm()). Under
+  // the channel "npm" the row also names a newer copy's versions and case
+  // (rule 6), and that an unbound project's switch is recorded once it is
+  // bound — words only that channel adds, so the null row keeps its shape.
   for (const o of a.others) {
     const steps = [];
     if (a.state === "current" && !a.dir.disabled.includes(o.key)) steps.push({ kind: "write", path: a.paths.dir, files: 0, manifestOnly: true, manifest: { ...a.dir.manifest, [s.provenance_key]: { ...a.dir.prov, disabled: [...a.dir.disabled, o.key] } }, why: "our manifest records what install silences, so uninstall can turn it back on" });
     steps.push(hostStep(a, s, "disable", { ...fill, other: o.key }, `${o.key} (${o.version}) is enabled for this checkout too; two enabled copies of one plugin would load twice — silenced in this checkout's local settings only, never globally`));
-    items.push({ ...other(o), action: "disable", steps });
+    steps.push(consequenceStep(switchConsequence(harness)));
+    const reason = ctx.channel === "npm" ? switchReason({ copy: o, running: a.pkg, runs: a.targetPkg, decision: ctx.convergence, unbound: !ctx.binding?.bound }) : null;
+    items.push({ ...other(o), action: "disable", ...(reason ? { reason } : {}), steps });
   }
   return items;
+}
+
+// A row's consequence (presentation spec contract 7) carried as a `note` step:
+// the envelope reads `{ kind: "note", why }`, as any note; PLAN draws it first
+// beneath its row, in the explanation role, by the mark kept off the envelope.
+function consequenceStep(why) {
+  const st = { kind: "note", why };
+  Object.defineProperty(st, "consequence", { value: true, enumerable: false });
+  return st;
+}
+const isConsequence = (st) => st?.kind === "note" && st.consequence === true;
+// A channel switch: a copy from another marketplace turned off for this checkout.
+const isSwitch = (i) => String(i?.surface || "").endsWith("_others") && i.action === "disable";
+
+// The channel "git" (the converge story's rule 1), for each harness of the run
+// with a host plugin registration — the channel concerns that registration
+// alone; Codex has none. No copy from another marketplace enabled for this
+// project (analyseRegistration's competing copies) is a refusal: there is
+// nothing to keep. A copy of ours this checkout's local settings hold off — a
+// hand removal of the npm row leaves the git copy off — is named with the way
+// to turn it back on. The keep itself (rule 5) is not built yet: a run that
+// would keep a copy refuses too, rather than plan the switch it did not ask for.
+function keepRefusal(projectDir, ids, { root, home, env }) {
+  for (const id of ids) {
+    const harness = loadHarness(id);
+    const row = Object.entries(harness?.surfaces || {}).find(([k, s]) => !k.startsWith("_") && s?.format === "host-plugin-registration");
+    if (!row) continue;
+    const [key, s] = row;
+    const a = analyseRegistration(projectDir, s, { root, home, harness, env });
+    if (a.others.length) return { reason: `keeping the copy from another marketplace (${a.others.map((o) => o.key).join(", ")}) is not planned by this build; nothing is written`, advice: null };
+    const off = (a.disabledHere || []).filter((k) => k !== a.id && k.split("@")[0] === s.plugin_name);
+    return noCopyToKeep({ harness, surface: key, off });
+  }
+  return null;
+}
+
+// The mark (the converge story's rule 2), for the channel "npm" only: one
+// item of kind `binding`, last in its harness's group, adding `channel_switch:
+// { by: "setup", at: <the time of apply> }` to the binding and keeping every
+// other key. Planned when this run switches a copy off, bound or not; or, to
+// adopt an earlier switch, when the registration this checkout holds already
+// keeps a copy off and a binding exists to record it in. Never over a mark
+// already there: a re-run after a switch is zero-change. The file is the one
+// configPath resolves at apply time, after the layout item moved it; the
+// preview names the new path when the plan moves the binding.
+function planMark(ctx, facts) {
+  const b = ctx.binding;
+  if (!b || b.hasMark || !facts) return null;
+  const switching = facts.switches.length > 0;
+  const adopting = !switching && facts.silenced.length > 0 && b.bound;
+  if (!switching && !adopting) return null;
+  const reason = !b.bound ? "the project is not bound yet: the switch is recorded only if a binding exists by the time of apply"
+    : adopting ? `this checkout already holds ${facts.silenced.join(", ")} off for the npm registration; the switch is recorded`
+    : null;
+  return { surface: CHANNEL_SWITCH_KEY, kind: "binding", path: b.path, entry: CHANNEL_SWITCH_KEY, state: b.bound ? "absent" : "unbound", action: "add", reason,
+    steps: [{ kind: "mark", path: b.path, key: CHANNEL_SWITCH_KEY, why: "this checkout chose the npm install; doctor stops naming the copy it turned off, and the registration's uninstall removes the record with it" }] };
 }
 
 function planJsonEntry(ctx, key, s) {
@@ -738,7 +819,12 @@ function surfaceExcluded(key, s, { surfaces = null, register = true } = {}) {
 // that install and upgrade read the registry first — from a root that checks
 // at all. `fetchedFrom` names the project's registry a shell was fetched
 // from, when it is not the user's ({ registry, user, harnesses }).
-export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null, layout = null, convergence = null, fetchedFrom = null } = {}) {
+// `channel` is the answer to setup's channel question (the converge story's
+// rule 1): "npm" switches a copy from another marketplace off and records the
+// switch in the binding; "git" keeps it; null — what install and upgrade pass
+// — plans the switch as before, and the gate asks it at a terminal and refuses
+// it without one.
+export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null, layout = null, convergence = null, fetchedFrom = null, channel = null } = {}) {
   projectDir = resolve(projectDir);
   const detected = detectHarnesses(projectDir, { state });
   const named = harnesses.filter(Boolean);
@@ -749,9 +835,17 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   Object.defineProperty(out, "payloadRoots", { value: { ...(payloadRoots || {}) }, enumerable: false });
   Object.defineProperty(out, "convergence", { value: convergence, enumerable: false });
   Object.defineProperty(out, "fetchedFrom", { value: fetchedFrom, enumerable: false });
+  // The channel answer, for the gate (confirm()): a switch planned under null
+  // is asked at a terminal and refused without one.
+  Object.defineProperty(out, "channel", { value: channel, enumerable: false });
   const unknown = named.filter((id) => !harnessIds().includes(id));
   if (unknown.length) {
     out.refusals.push(`unknown harness: ${unknown.join(", ")} — known: ${harnessIds().join(", ")}`);
+    out.ok = false;
+    return out;
+  }
+  if (![null, "npm", "git"].includes(channel)) {
+    out.refusals.push(`unknown channel: ${channel} — known: npm, git`);
     out.ok = false;
     return out;
   }
@@ -782,6 +876,20 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
     Object.defineProperty(out, "stop", { value: { lead: convergence.stop.lead, commands: [...convergence.stop.commands], between: convergence.stop.between }, enumerable: false });
     return out;
   }
+  // The channel "git" (rule 1): with no copy from another marketplace enabled
+  // for this project there is nothing to keep, and nothing is planned. The
+  // refusal carries the whole text; its commands, each printed on a line of
+  // its own, are kept off the envelope, as the stop's are.
+  if (channel === "git" && mode !== "uninstall") {
+    const refused = keepRefusal(projectDir, ids, { root, home, env });
+    if (refused) {
+      out.harnesses = ids;
+      out.refusals.push(refused.reason);
+      out.ok = false;
+      if (refused.advice) Object.defineProperty(out, "refusalAdvice", { value: refused.advice, enumerable: false });
+      return out;
+    }
+  }
   // What the newer rows say: the prepare step's decision; for a dry run, the
   // note that install and upgrade read first — only from a root that checks.
   const decision = convergence ?? (mode === "install" && !checksRoot(root, { home, env }) ? { checks: false } : null);
@@ -796,6 +904,19 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   const moved = planLayout(layoutCtx);
   for (const item of moved.first) out.items.push({ harness: layoutHarness.id, ...item });
   if (layoutCtx.incomplete) out.incomplete = true;
+  // The binding a channel switch is recorded in (the converge story's rules 2
+  // and 4): the file configPath resolves now, whether it exists, and whether it
+  // carries the mark. Apply resolves it again, after the layout item; when the
+  // plan moves the binding, the preview names where the move puts it.
+  const binding = (() => {
+    const at = configPath(projectDir, env);
+    const bound = existsSync(at);
+    let cfg = null;
+    if (bound) { try { cfg = JSON.parse(readFileSync(at, "utf8")); } catch { cfg = null; } }
+    const movesIt = moved.first.some((i) => i.action === "migrate");
+    return { path: movesIt ? layoutPaths(projectDir).binding : at, bound, hasMark: Boolean(channelMark(cfg)), hasKey: Boolean(cfg && typeof cfg === "object" && Object.hasOwn(cfg, CHANNEL_SWITCH_KEY)) };
+  })();
+  const marks = [];
   // The agents block is the PROJECT's, not a harness's (the story "One run
   // plans the agents block once, and a bare uninstall selects every harness
   // the project uses", rule 1): planned once for the run, before the loop and
@@ -841,7 +962,7 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   for (const id of ids) {
     const harness = loadHarness(id);
     out.harnesses.push(id);
-    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [], globalRemoval, version, fetched: payloadRoots?.[id] || null, convergence: decision, channel: null };
+    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [], globalRemoval, version, fetched: payloadRoots?.[id] || null, convergence: decision, channel, binding, channelFacts: null };
     const hostRows = [];
     const unsupportedHost = [];
     let registration = null;
@@ -921,6 +1042,13 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
     for (const [key, s] of unsupportedHost) {
       out.items.push({ harness: id, surface: key, kind: "host", path: null, entry: null, state: "unsupported", action: "skip", reason: s.why_unsupported || "not supported for this harness yet" });
     }
+    // The mark, for the channel "npm" only: placed last of all (below), so it
+    // is the last row of this harness's group and applies after the layout
+    // item has moved the binding it is recorded in.
+    if (mode !== "uninstall" && channel === "npm") {
+      const mark = planMark(ctx, ctx.channelFacts);
+      if (mark) marks.push({ harness: id, ...mark });
+    }
     // Last for this harness: its state directory, which a project uninstall
     // empties of the welcome marker and removes once empty. A narrowed
     // uninstall plans no such step, as it plans no layout cleanup.
@@ -931,6 +1059,7 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   }
   placeBlock();
   for (const item of moved.last) out.items.push({ harness: layoutHarness.id, ...item });
+  out.items.push(...marks);
   if (out.items.some((i) => i.action === "refuse")) out.ok = false;
   if (out.refusals.length) out.ok = false;
   return out;
@@ -1184,19 +1313,21 @@ const unicodeGlyph = (name) => termIcon({ ascii: false }, name);
 // Every action a plan item can carry, as its glyph. A write never wears the
 // skip glyph: `add` and `replace-entry` are changes as much as `create` and
 // `update`.
-const ACTION_ICON = { create: "create", add: "create", update: "update", "replace-entry": "update", migrate: "migrate", disable: "update", cleanup: "cleanup", remove: "remove", prune: "remove", skip: "skip", refuse: "refuse" };
+// A copy from another marketplace turned off for this checkout is a channel
+// switch, `disable` (the converge story; contract 7's `switch` word, ⇄).
+const ACTION_ICON = { create: "create", add: "create", update: "update", "replace-entry": "update", migrate: "migrate", disable: "switch", cleanup: "cleanup", remove: "remove", prune: "remove", skip: "skip", refuse: "refuse" };
 // …and as a person's word (contract 7's table). A registration's write takes
 // `register`; a skip reads `unchanged` when the item is current and carries
 // no reason, and `skipped` otherwise — deferred, opted out, unsupported, or
 // left in place: a current row with a reason is one the run did not act on
 // for that reason (uninstall keeping a user-global registration, a host CLI
 // not on PATH), and the reason beneath it is what the reader acts on.
-const ACTION_WORD = { create: "add", add: "add", update: "update", "replace-entry": "update", migrate: "update", disable: "update", cleanup: "remove", remove: "remove", prune: "remove", refuse: "refused" };
-// Each word's colour role (contract 3): a refusal's ▲ and a removal are
-// attention; red is for what failed.
-const WORD_ROLE = { add: "done", register: "done", update: "action", remove: "attention", refused: "attention", unchanged: "explanation", skipped: "explanation" };
+const ACTION_WORD = { create: "add", add: "add", update: "update", "replace-entry": "update", migrate: "update", disable: "switch", cleanup: "remove", remove: "remove", prune: "remove", refuse: "refused" };
+// Each word's colour role (contract 3): a refusal's ▲, a channel switch and a
+// removal are attention; red is for what failed.
+const WORD_ROLE = { add: "done", register: "done", update: "action", switch: "attention", remove: "attention", refused: "attention", unchanged: "explanation", skipped: "explanation" };
 // APPLY says a word while its step runs and once it has (contract 8).
-const WORD_TENSES = { add: ["adding", "added"], register: ["registering", "registered"], update: ["updating", "updated"], remove: ["removing", "removed"] };
+const WORD_TENSES = { add: ["adding", "added"], register: ["registering", "registered"], update: ["updating", "updated"], switch: ["switching", "switched"], remove: ["removing", "removed"] };
 
 const CURRENT_STATES = new Set(["current", "ours-current", "ours"]);
 const isUnchanged = (i) => i.action === "skip" && !i.deferred && !i.reason && CURRENT_STATES.has(i.state);
@@ -1273,6 +1404,10 @@ function stepLines(p, st, { verbose, paint, width = 0, glyph = unicodeGlyph }) {
     case "portable-remove":
     case "remove": return [said(`remove ${st.path}`), ...why];
     case "unregister": return [said(`edit ${r(st.path)}  [${st.pointer}.${st.name}]${to}removed`), ...why];
+    // The channel switch's record in the binding (the converge story's rules
+    // 2 and 4): its time is the apply's, unknown to a preview.
+    case "mark": return [said(`edit ${r(st.path)}  [${st.key}]${to}by "setup", at the time of apply`), ...why];
+    case "unmark": return [said(`edit ${r(st.path)}  [${st.key}]${to}removed`), ...why];
     case "ensure": return [said(`ensure ${r(st.path)}/`), ...why];
     case "move-state": return [said(`move ${r(st.from)}/${to}${r(st.to)}/ (${st.files} entries)`), ...why];
     case "merge-log": return [said(`merge ${r(st.from)}${to}${r(st.to)}`), ...why];
@@ -1313,7 +1448,7 @@ export function noticeText(n, c = PLAIN) {
 
 // The summary line: the counts by kind of change, each in its word's role.
 // Unsupported rows are not counted: they are the harness's, not the run's.
-const COUNTED = [["add", (n) => `${n} to add`], ["register", (n) => `${n} to register`], ["update", (n) => `${n} to update`], ["remove", (n) => `${n} to remove`], ["unchanged", (n) => `${n} unchanged`], ["skipped", (n) => `${n} skipped`]];
+const COUNTED = [["add", (n) => `${n} to add`], ["register", (n) => `${n} to register`], ["update", (n) => `${n} to update`], ["switch", (n) => `${n} to switch`], ["remove", (n) => `${n} to remove`], ["unchanged", (n) => `${n} unchanged`], ["skipped", (n) => `${n} skipped`]];
 function planSummary(p, c) {
   if (!p.ok) return heading(c, "Plan", [["refused", "attention"]]);
   const n = {};
@@ -1350,6 +1485,9 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
     // A user-scope registration reaches past this project: contract 7's
     // consequence line, on the line beneath its row, before anything else.
     if (isWrite(i) && i.kind === "registration" && i.scope === "user") out.push(...prose("      ", `user-wide: the plugin is ${i.action === "remove" ? "removed" : "registered"} for every project ${displayName(i.harness)} opens, not only this one`));
+    // …and a channel switch's (the converge story's rule 2), carried as its
+    // note step: first, before the reason and the consent lines.
+    for (const st of (i.steps || []).filter(isConsequence)) out.push(...prose("      ", st.why));
     if (verbose) out.push(...prose("      ", transitionText(i, glyph)));
     else if (i.reason && !isUnsupported(i)) out.push(...prose("      ", i.advice ? i.advice.text : i.reason, i.action === "refuse" ? "attention" : "explanation"));
     // The reason's ways out (the converge story): each lead, then its command
@@ -1363,7 +1501,7 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
     // run's own environment (`npx --registry`), and either reads the same.
     const from = fetchedFor(p, i);
     if (from) out.push(...prose("      ", `fetched from ${from.registry}`), ...prose("      ", `your npm's own registry is ${from.user}`));
-    for (const st of i.steps || []) out.push(...stepLines(p, st, { verbose, paint, width, glyph }));
+    for (const st of (i.steps || []).filter((x) => !isConsequence(x))) out.push(...stepLines(p, st, { verbose, paint, width, glyph }));
     if (i.kind === "registration" && i.home && i.surface && !i.surface.endsWith("_others")) out.push(`      ${paint("explanation", `(harness home ${i.home}${i.scope ? `, scope ${i.scope}` : ""})`)}`);
     if (i.deleteIfEmpty && typeof i.after === "string" && !i.after.trim()) out.push(`      ${paint("explanation", "(the file would hold nothing else and is removed)")}`);
     if (!pruneSaid && i.action === "remove" && i.kind === "exclusive") { pruneSaid = true; out.push(`      ${paint("explanation", `(an emptied ${rel(p.projectDir, dirname(i.path))}/ is pruned)`)}`); }
@@ -1417,9 +1555,13 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
     // its words: each is printed alone on its line after a blank one, with
     // nothing after it (contract 6), the way a person copies it.
     const stop = k === 0 && p.stop ? p.stop : null;
-    const [first, ...rest] = wrap(stop ? stop.lead : r, width, pad).split("\n");
+    // The same for a refusal that names its ways out (the channel "git" with
+    // nothing to keep): its prose, then each lead and its command alone.
+    const advice = k === 0 && !stop && p.refusalAdvice ? p.refusalAdvice : null;
+    const [first, ...rest] = wrap(stop ? stop.lead : advice ? advice.text : r, width, pad).split("\n");
     lines.push(lead + paint("attention", first), ...rest.map((l) => pad + paint("attention", l.slice(pad.length))));
     if (stop) lines.push(...commandBlock(c, [stop.commands[0]], { indent: 4 }), "", ...prose("  ", stop.between), ...commandBlock(c, stop.commands.slice(1), { indent: 4 }));
+    if (advice) for (const b of advice.blocks) lines.push("", ...prose("  ", b.lead), ...commandBlock(c, [b.command], { indent: 4 }));
   });
   // The closing lines, in a person's words: only what is listed is written,
   // and a $ line is the host's own CLI at work.
@@ -1465,11 +1607,20 @@ export function asksAtTerminal({ stdin = null, stdout = null, ask = null, env = 
 // the library never asks — the bin and main() pass theirs. `caps` is the
 // asking stream's (colour and glyphs), read from `stdout` when not given;
 // with neither, the question is unpainted, in Unicode.
+//
+// One answer more (the converge story's rule 2): a channel switch planned
+// under no channel answer is the ADR's choice made at a terminal — asked
+// there, previewed, never silent. Without one, naming the harness does not
+// confirm it, a bare run is refused for it too, and nothing is written:
+// `channel`, ahead of the whole non-interactive branch. A plan built without
+// plan() (no `channel` on it) reads as no answer.
+export const switchUnanswered = (p) => (p.channel ?? null) === null && p.items.some(isSwitch);
 export async function confirm(p, { stdin = null, stdout = null, ask = null, env = process.env, json = false, caps = stdout ? termCaps(stdout, env) : null } = {}) {
   if (!p.ok) return { confirmed: false, why: "refused" };
   const writes = p.items.filter(isWrite);
   if (!writes.length) return { confirmed: false, why: "nothing-to-do" };
   const interactive = asksAtTerminal({ stdin, stdout, ask, env, json });
+  if (!interactive && switchUnanswered(p)) return { confirmed: false, why: "channel" };
   if (!interactive) return p.named ? { confirmed: true, why: "named" } : { confirmed: false, why: "non-tty" };
   // The question's bytes and its answer rule are term.mjs's, shared with
   // `scaffold --write`; the refused / nothing / named branches above stay here.
@@ -1483,6 +1634,10 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
   const done = [];
   let registrationFailed = false;
   let layoutFailed = false;
+  // Per harness: whether its registration applied without failure, and each
+  // switch's outcome — what the order rule and the mark read.
+  const registered = new Map();
+  const switched = new Map();
   // One item's writes, returning the record apply reports for it. The order
   // and the failure rules are the loop's; onItem only watches (contract 18).
   const one = (i) => {
@@ -1491,12 +1646,36 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
       if (r.failed) { done.failed = r.failed; layoutFailed = true; }
       return r;
     }
+    if (i.kind === "registration" && isSwitch(i)) {
+      // The order (the converge story's rule 2): a switch applies only when
+      // this run's registration for the same harness is current, or applied
+      // without failure. Turning the copy off after a failed registration left
+      // the checkout loading no copy at all (measured on 0.29.2).
+      const reg = p.items.find((x) => x.harness === i.harness && x.kind === "registration" && !String(x.surface).endsWith("_others"));
+      const ready = Boolean(reg) && (isWrite(reg) ? registered.get(i.harness) === true : reg.state === "current");
+      if (!ready) {
+        if (!switched.has(i.harness)) switched.set(i.harness, []);
+        switched.get(i.harness).push(false);
+        return { path: i.path, action: "skipped", surface: i.surface, reason: `the npm registration did not complete; ${i.entry} stays on for this checkout` };
+      }
+      const r = applyRegistration(p, i, { env, spawn, home, onStep });
+      if (r.failed) { done.failed = r.failed; registrationFailed = true; }
+      if (!switched.has(i.harness)) switched.set(i.harness, []);
+      switched.get(i.harness).push(!r.failed);
+      return r;
+    }
     if (i.kind === "registration") {
       const r = applyRegistration(p, i, { env, spawn, home, onStep });
       // A registration that did not complete leaves the surfaces planned against
       // its install path unwritten: a launcher pointing at nothing is worse than
       // none. Surfaces rendered from the package root (the block) still apply.
       if (r.failed) { done.failed = r.failed; registrationFailed = true; }
+      registered.set(i.harness, !r.failed);
+      return r;
+    }
+    if (i.kind === "binding") {
+      const r = applyMark(p, i, { env, onStep, switched: switched.get(i.harness) || [] });
+      if (r.failed) done.failed = r.failed;
       return r;
     }
     if (registrationFailed && i.plannedAgainst) return { path: i.path, action: "skipped", surface: i.surface, reason: "the registration did not complete; this surface was planned against its install path" };
@@ -1536,6 +1715,36 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
     if (onItem) onItem(i, "end", r);
   }
   return done;
+}
+
+// The mark (the converge story's rule 2), at apply: the binding is the one
+// configPath resolves now — after the layout item moved it, or a bind wrote it
+// — and must be the one the preview named; a mark is never written to a file
+// the preview did not name, so a legacy binding is never re-created. Skipped,
+// with the reason, when no binding exists, when a switch it records was
+// skipped or failed in this run, or when a mark is already there. Every other
+// key of the binding is kept.
+function applyMark(p, i, { env, onStep = null, switched = [] }) {
+  const out = { path: i.path, action: i.action, surface: i.surface };
+  const skipped = (reason) => ({ ...out, action: "skipped", reason });
+  if (switched.some((ok) => !ok)) return skipped("the switch did not complete; nothing is recorded");
+  const at = configPath(p.projectDir, env);
+  if (!existsSync(at)) return skipped("the project is not bound; the switch is recorded once it is");
+  if (resolve(at) !== resolve(i.path)) return skipped(`the binding is at ${at}, not where the plan named it; nothing is recorded`);
+  let cfg;
+  try { cfg = JSON.parse(readFileSync(at, "utf8")); } catch { cfg = null; }
+  if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) return skipped(`${at} is not a JSON object; the switch is not recorded`);
+  if (channelMark(cfg)) return { ...out, action: "skip", reason: "the switch is already recorded" };
+  const st = (i.steps || []).find((x) => x.kind === "mark") || { kind: "mark", path: at, key: CHANNEL_SWITCH_KEY };
+  if (onStep) onStep(st, "start");
+  try {
+    writeFileAtomic(at, JSON.stringify({ ...cfg, [CHANNEL_SWITCH_KEY]: { by: "setup", at: new Date().toISOString() } }, null, 2) + "\n", { sweep: false });
+  } catch (e) {
+    if (onStep) onStep(st, "end", { ok: false });
+    return { ...out, failed: { step: "mark", status: null, stderr: e && e.message ? e.message : String(e) } };
+  }
+  if (onStep) onStep(st, "end", { ok: true });
+  return { ...out, steps: [{ kind: "mark", path: at, ok: true }] };
 }
 
 // The registration's steps, in order, each leaving a state plan() can read.
@@ -1843,6 +2052,19 @@ function applyRegistration(p, i, { env, spawn, home, onStep = null }) {
       if (!settings || typeof settings !== "object" || Array.isArray(settings)) { out.steps.push({ kind: "unregister", ok: false }); return fail("unregister", null, `${st.path} is not a JSON object; the marketplace entry was not removed`); }
       if (settings[st.pointer] && typeof settings[st.pointer] === "object") { delete settings[st.pointer][st.name]; writeFileAtomic(st.path, JSON.stringify(settings, null, 2) + "\n", { sweep: false }); }
       out.steps.push({ kind: "unregister", path: st.path, ok: true });
+    } else if (st.kind === "unmark") {
+      // The switch's record goes with the registration (the converge story's
+      // rule 4): the one key, from the binding configPath resolves now; every
+      // other key stays. A binding already without it is left as it is.
+      const at = configPath(p.projectDir, env);
+      let cfg = null;
+      if (existsSync(at)) {
+        try { cfg = JSON.parse(readFileSync(at, "utf8")); } catch { cfg = null; }
+        if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) { out.steps.push({ kind: "unmark", ok: false }); return fail("unmark", null, `${at} is not a JSON object; ${st.key} was not removed`); }
+      }
+      const has = Boolean(cfg) && Object.hasOwn(cfg, st.key);
+      if (has) { delete cfg[st.key]; writeFileAtomic(at, JSON.stringify(cfg, null, 2) + "\n", { sweep: false }); }
+      out.steps.push({ kind: "unmark", path: at, ok: true, removed: has });
     } else if (st.kind === "remove") {
       removeOwnTree(st.path, home);
       out.steps.push({ kind: "remove", path: st.path, ok: true });
@@ -2019,7 +2241,9 @@ async function prepareRun(verb, projectDir, opts = {}) {
   // 2. The copies this project runs: from a package root or a checkout only;
   // a host's copy is updated through its own channel and never stopped.
   const checks = Boolean(version) && checksRoot(root, { home, env });
-  const copies = checks ? runningCopies(projectDir, { harnesses: ids, root, home, env, version, analyse }) : [];
+  // Under the channel "git" no host plugin copy counts: the run renders
+  // nothing for that harness (rule 6). "npm" and null count them alike.
+  const copies = checks ? runningCopies(projectDir, { harnesses: ids, root, home, env, version, analyse, channel: opts.channel ?? null }) : [];
   const newer = newerCopies(copies, version);
   const off = updateCheckOff(env);
   // The notice: text mode, from a package root, never under CI or the switch.
@@ -2185,7 +2409,9 @@ export function applyReporter(out, c, p, { now = Date.now, home = homedir() } = 
     const target = rowTarget(p, i);
     return { word, running: `${running} ${target}`, done: `${done} ${target}` };
   };
-  const stepped = (i) => i.kind === "registration" || i.kind === "layout";
+  // The mark too: a skip prints its reason (the project not bound, the switch
+  // not done) beneath the line it started.
+  const stepped = (i) => i.kind === "registration" || i.kind === "layout" || i.kind === "binding";
   const began = new Map();
   return {
     onItem(i, phase, r) {
@@ -2243,6 +2469,8 @@ function stepLabel(p, st, { home = homedir(), glyph = unicodeGlyph } = {}) {
     case "recover": return said("lift", `${r(st.path)} ${glyph("dash")} the previous state proved${st.lifted ? `; it held: ${String(st.lifted).split("\n")[0]}` : ""}`);
     case "write": return said("write", r(st.path));
     case "unregister": return said("edit", `${r(st.path)} [${st.pointer}.${st.name}]`);
+    case "mark":
+    case "unmark": return said("edit", `${r(st.path)} [${st.key}]`);
     case "ensure": return said("ensure", `${r(st.path)}/`);
     case "move-state": return said("move", `${r(st.from)}/${to}${r(st.to)}/`);
     case "merge-log": return said("merge", `${r(st.from)}${to}${r(st.to)}`);
@@ -2345,6 +2573,23 @@ export function renderDone(r, { caps: c = PLAIN, verbose = false, cwd = process.
   return lines.join("\n") + "\n";
 }
 
+// What a text run that wrote nothing says after its plan: one helper for
+// main() and the bin's runInstallVerb, so the two entries cannot drift (the
+// converge story's rule 2). `harnesses` and `surfaces` are the run's own
+// arguments, which the channel gate's command repeats — never --project. Its
+// commands are rule 2's helper's (channelChoices), each alone on its line
+// after a blank one (presentation spec contract 6).
+export function gateText(r, { verb, harnesses = [], surfaces = null, caps: c = PLAIN } = {}) {
+  const why = r.gate?.why;
+  if (why === "non-tty") return `Nothing written: without a terminal, a bare ${verb} refuses. Name the harness to confirm: --harness ${r.plan.detected.map((d) => d.id).join(" | ") || harnessIds().join(" | ")}\n`;
+  if (why === "declined") return "Nothing written.\n";
+  if (why === "channel") {
+    const keys = [...new Set(r.plan.items.filter(isSwitch).map((i) => i.entry))];
+    return channelChoices({ gate: { verb, args: { harnesses, surfaces }, keys } }).map((b) => [b.lead, ...commandBlock(c, [b.command], { indent: 4 })].join("\n")).join("\n\n") + "\n";
+  }
+  return "";
+}
+
 // ─── main ──────────────────────────────────────────────────────────────
 
 function usage() {
@@ -2408,14 +2653,15 @@ async function main() {
     process.exit(p.ok && !p.incomplete ? 0 : 1);
   }
   const r = await runVerb(verb, projectDir, json ? opts : { ...opts, out: process.stdout });
+  // The bin's form (scripts/cli.mjs): a gate that confirmed nothing — a
+  // channel switch without a terminal among them — is not ok through either entry.
+  const ok = r.plan.ok && !r.plan.incomplete && !r.failed && (r.gate.confirmed || r.gate.why === "nothing-to-do");
   if (json) {
-    process.stdout.write(JSON.stringify({ verb, ok: r.plan.ok && !r.plan.incomplete && !r.failed, gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, items: r.plan.items.map(publicItem), refusals: r.plan.refusals, reports: r.plan.reports, fetched: r.fetched }, null, 2) + "\n");
-  } else if (r.gate.why === "non-tty") {
-    process.stdout.write(`Nothing written: without a terminal, a bare ${verb} refuses. Name the harness to confirm: --harness ${r.plan.detected.map((d) => d.id).join(" | ") || harnessIds().join(" | ")}\n`);
-  } else if (r.gate.why === "declined") {
-    process.stdout.write("Nothing written.\n");
+    process.stdout.write(JSON.stringify({ verb, ok, gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, items: r.plan.items.map(publicItem), refusals: r.plan.refusals, reports: r.plan.reports, fetched: r.fetched }, null, 2) + "\n");
+  } else {
+    process.stdout.write(gateText(r, { verb, harnesses, surfaces: opts.surfaces, caps: termCaps(process.stdout, process.env) }));
   }
-  process.exit(r.plan.ok && !r.plan.incomplete && !r.failed && (r.gate.confirmed || r.gate.why === "nothing-to-do") ? 0 : 1);
+  process.exit(ok ? 0 : 1);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

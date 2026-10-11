@@ -1,7 +1,7 @@
 // projectstore — convergence.mjs: what install and upgrade decide, before
 // the plan, about the copies of ours this project already runs (the story
 // "Setup and upgrade converge this project onto the running version: the
-// channel switch, no downgrade, and the update notice", rules 6 and 8; the
+// channel switch, no downgrade, and the update notice", rules 1, 2, 6 and 8; the
 // ADR "One front door: projectstore setup installs every harness it finds;
 // shells are release artifacts, not user commands", decision 4).
 //
@@ -12,10 +12,15 @@
 //   decide({ copies, version, read, skipped, verb, args })
 //                                     → stop or proceed, with the stop's texts
 //   proceedCase(decision, v)          → the words a newer row adds when not stopped
-//   channelChoices({ harness, s, copy, running }) → the ways this release offers
-//                                       to settle a project's channel (rule 2's helper)
+//   channelChoices({ harness, s, copy, running, gate }) → the ways this release
+//                                       offers to settle a project's channel (rule
+//                                       2's helper: the gate's text, and a newer copy's)
 //   newerCopyDeferral({ copy, running, decision, harness, s })
 //                                     → a newer copy not switched off: { reason, advice }
+//   switchConsequence(harness)        → a switch row's consequence line (rule 2)
+//   switchReason({ copy, running, runs, decision, unbound })
+//                                     → what a switch row adds under the channel "npm"
+//   noCopyToKeep({ harness, surface, off }) → the channel "git" with nothing to keep
 //   repairAdvice(harness, v)          → a damaged newer registration's way out
 //   advised(text, blocks)             → { reason, advice }: prose, then commands alone
 //   updateNotice({ latest, version, root, verb }) → the notice's text and command
@@ -37,7 +42,7 @@ import { readFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { cmpPrecedence, installChannel, projectCopiesByKey, writeFileAtomic, envFlag } from "./lib.mjs";
-import { loadHarness, loadHarnesses } from "./harness.mjs";
+import { loadHarness, loadHarnesses, packageCommand } from "./harness.mjs";
 import { analysePortableRegistration, portableRegistrationPaths } from "./portable-registration.mjs";
 import { registrationPaths } from "./surfaces.mjs";
 
@@ -296,13 +301,25 @@ export function proceedCase(decision, v) {
 
 // Rule 2's helper: the ways this release offers to settle which copy a
 // project runs, when a copy from another marketplace is enabled for it. Only
-// what exists is named — the copy's own bin in the layout remedy's form
-// (layout spec contract 12), which converges the project on that copy; and
-// the host's own disable, built from the manifest as a plan step is, which
-// leaves the project to this package's registration on the next run. The
-// channel gate's text is built from the same blocks, and a later verb that
-// asks the channel question is added here, last.
-export function channelChoices({ harness, s, copy, running }) {
+// verbs this release has are named, never `setup`, which does not exist yet;
+// the setup story replaces both branches below with its own commands
+// (`npx projectstore setup`, and its `--channel npm` and `--channel git`),
+// here and nowhere else.
+// - `gate` ({ verb, args, keys }): the channel gate's text (rule 2). A switch
+//   planned under no channel answer is a choice made at a terminal, and this
+//   release has no verb that takes the answer without one, so it names the
+//   terminal run of the same verb with the run's own --harness and --surface,
+//   in the core form (rule 9).
+// - otherwise, a newer copy that is not switched off (rule 6): the copy's own
+//   bin in the layout remedy's form (layout spec contract 12), which converges
+//   the project on that copy; and the host's own disable, built from the
+//   manifest as a plan step is, which leaves the project to this package's
+//   registration on the next run.
+export function channelChoices({ harness = null, s = null, copy = null, running = null, gate = null } = {}) {
+  if (gate) {
+    const from = gate.keys?.length ? ` (${gate.keys.join(", ")})` : "";
+    return [{ lead: `Nothing written: this project loads ${PACKAGE} from the git marketplace${from}, and moving it to the npm install is a choice made at a terminal in this project:`, command: coreCommand(gate.verb || "upgrade", { args: runArgs(gate.args || {}) }) }];
+  }
   const blocks = [];
   const bin = copy?.path ? join(copy.path, "bin", "projectstore.mjs") : null;
   if (bin && existsSync(bin)) blocks.push({ lead: "Run the newer copy instead, from a terminal in this project:", command: `node "${bin}" upgrade --harness ${harness.id} --no-register` });
@@ -321,6 +338,46 @@ export function newerCopyDeferral({ copy, running, decision, harness, s }) {
   const c = proceedCase(decision, copy.version);
   const text = `this project runs a newer copy (${copy.key} ${copy.version}) than this package (${running}), so it is not switched off${c ? ` — ${c}` : ""}.`;
   return advised(text, channelChoices({ harness, s, copy, running }));
+}
+
+// The consequence line of a switch (rule 2; presentation spec contract 7):
+// the ADR's three facts — the git-marketplace copy is off for this project,
+// the host's update no longer reaches it, and what updates it from now on —
+// with no backticks, and no command followed by punctuation. The command is
+// packageCommand's, so it keeps the shell form until the text-cleanup story
+// moves it (rule 9's command-form rule).
+export function switchConsequence(harness) {
+  return `this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by ${packageCommand(harness, "upgrade")}`;
+}
+
+// The words a switch row adds under the channel "npm" (rules 2 and 6): over a
+// copy newer than this package, both versions, the case the registry read
+// found, and that the project will run the older one; for a project not bound
+// yet, that the switch is recorded once it is.
+export function switchReason({ copy, running, runs = running, decision, unbound = false }) {
+  const parts = [];
+  // Against what the project runs once the copy is off (`runs`: the shared
+  // directory's version when another checkout wrote a newer one), not against
+  // this package: a copy older than that is no downgrade, and saying so
+  // would be false.
+  if (copy && typeof copy.version === "string" && runs && cmpPrecedence(copy.version, runs) > 0) {
+    const c = proceedCase(decision, copy.version);
+    parts.push(`${copy.key} ${copy.version} is newer than this package (${running})${c ? ` — ${c}` : ""}; turning it off runs this project on the older ${runs}`);
+  }
+  if (unbound) parts.push("the project is not bound yet: the switch is recorded in its binding once it is");
+  return parts.length ? parts.join("; ") : null;
+}
+
+// The channel "git" with no copy from another marketplace enabled for this
+// project (rule 1): there is nothing to keep, and nothing is planned. The way
+// back from an earlier switch is the registration's uninstall (rule 4); a copy
+// of ours this checkout's local settings hold off — what a hand removal of the
+// npm row leaves — is turned back on in the host. Each command alone on its
+// line (presentation spec contract 6).
+export function noCopyToKeep({ harness, surface, off = [] }) {
+  const blocks = off.map((key) => ({ lead: `This checkout's local settings hold ${key} off. To load it again, run this in ${harness.display_name}:`, command: `/plugin enable ${key}` }));
+  blocks.push({ lead: "The way back from an earlier switch to the npm install is its uninstall, from a terminal in this project:", command: coreCommand("uninstall", { args: runArgs({ harnesses: [harness.id], surfaces: [surface] }) }) });
+  return advised(`no git-marketplace copy of ${PACKAGE} is enabled for this project, so there is none to keep. Nothing is written.`, blocks);
 }
 
 // A newer registration that is damaged: never rewritten or staged over from
