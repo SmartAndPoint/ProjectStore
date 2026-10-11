@@ -174,10 +174,13 @@ export function registryFetch(mode = { latest: "0.30.1" }) {
 }
 
 // Timers whose every timeout fires at once — "the bound has passed" — each
-// bound asked for recorded.
+// bound asked for recorded. The handle's unref is a no-op: the code unrefs its
+// bound so a real timer never holds the process, but an unref'd immediate
+// beside a fetch that never settles leaves Node 20 and 22 an empty event
+// loop, and the runner cancels the rest of the file before the bound fires.
 export function instantTimers() {
   const asked = [];
-  return { asked, setTimeout: (fn, ms) => { asked.push(ms); return setImmediate(fn); }, clearTimeout: (h) => clearImmediate(h) };
+  return { asked, setTimeout: (fn, ms) => { asked.push(ms); return { immediate: setImmediate(fn), unref() { return this; } }; }, clearTimeout: (h) => clearImmediate(h?.immediate) };
 }
 
 // Codex's plugin CLI in the shapes measured on codex-cli 0.153.4 — marketplace
