@@ -11,7 +11,16 @@
 
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  existsSync,
+  rmSync,
+} from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -20,20 +29,46 @@ import { listEpicStories, layoutPaths } from "../scripts/lib.mjs";
 import { invocation, sourceHarness } from "../scripts/harness.mjs";
 import { foldStages, stageOf, parseFrontmatter, NOT_ACTIONABLE } from "../scripts/stages.mjs";
 import {
-  BAND_STRING_KEYS, mergeWords, goalForms, goalOf, storyFiles, isEpicName, cellWidth, planRows, countsText,
-  segments, progressLayout, BAR_MIN, BAR_MAX, modelLabel, subjectPath, subjectLabel, phraseOf, commandWord,
-  stepOf, leadAgent, LINGER_MS, heartbeatNext,
+  BAND_STRING_KEYS,
+  mergeWords,
+  goalForms,
+  goalOf,
+  storyFiles,
+  isEpicName,
+  cellWidth,
+  planRows,
+  countsText,
+  segments,
+  progressLayout,
+  BAR_MIN,
+  BAR_MAX,
+  modelLabel,
+  subjectPath,
+  subjectLabel,
+  phraseOf,
+  commandWord,
+  stepOf,
+  leadAgent,
+  LINGER_MS,
+  heartbeatNext,
 } from "../scripts/band-shared.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TEMP = [];
-after(() => { for (const d of TEMP) rmSync(d, { recursive: true, force: true }); });
-const tmp = (p) => { const d = mkdtempSync(join(tmpdir(), p)); TEMP.push(d); return d; };
+after(() => {
+  for (const d of TEMP) rmSync(d, { recursive: true, force: true });
+});
+const tmp = (p) => {
+  const d = mkdtempSync(join(tmpdir(), p));
+  TEMP.push(d);
+  return d;
+};
 
 const EN = JSON.parse(readFileSync(join(ROOT, "templates", "en", "strings.json"), "utf8"));
 const W = mergeWords(EN, null);
 const nodeFs = {
-  list: (dir) => readdirSync(dir).map((name) => ({ name, kind: statSync(join(dir, name)).isDirectory() ? "dir" : "file" })),
+  list: (dir) =>
+    readdirSync(dir).map((name) => ({ name, kind: statSync(join(dir, name)).isDirectory() ? "dir" : "file" })),
   exists: (p) => existsSync(p) && statSync(p).isFile(),
 };
 
@@ -43,21 +78,50 @@ test("contract 9: the band's stages equal kanban.md's columns for one epic, ever
   const vault = tmp("ps-band-parity-");
   const epic = join(vault, "epics", "PS-X");
   mkdirSync(join(epic, "stories", "folder-story"), { recursive: true });
-  writeFileSync(join(epic, "epic.md"), "---\ntype: epic\nid: \"PS-X\"\n---\n");
-  const statuses = ["done", "Closed", "in-progress", "IN_PROGRESS", "in progress", "review", "planned", "todo", "To-Do",
-    "superseded", "deferred", "Parked", null, "blocked", "something-else"];
-  statuses.forEach((st, i) => writeFileSync(join(epic, "stories", `s${String(i).padStart(2, "0")}.md`),
-    `---\ntype: story\nepic: "PS-X"\ntitle: "S${i}"\n${st === null ? "" : `status: ${st}\n`}---\n`));
-  writeFileSync(join(epic, "stories", "folder-story", "README.md"), "---\nepic: \"PS-X\"\nstatus: review\n---\n");
-  writeFileSync(join(epic, "story-beside.md"), "---\nepic: \"PS-X\"\nstatus: DONE\n---\n");
+  writeFileSync(join(epic, "epic.md"), '---\ntype: epic\nid: "PS-X"\n---\n');
+  const statuses = [
+    "done",
+    "Closed",
+    "in-progress",
+    "IN_PROGRESS",
+    "in progress",
+    "review",
+    "planned",
+    "todo",
+    "To-Do",
+    "superseded",
+    "deferred",
+    "Parked",
+    null,
+    "blocked",
+    "something-else",
+  ];
+  statuses.forEach((st, i) =>
+    writeFileSync(
+      join(epic, "stories", `s${String(i).padStart(2, "0")}.md`),
+      `---\ntype: story\nepic: "PS-X"\ntitle: "S${i}"\n${st === null ? "" : `status: ${st}\n`}---\n`,
+    ),
+  );
+  writeFileSync(join(epic, "stories", "folder-story", "README.md"), '---\nepic: "PS-X"\nstatus: review\n---\n');
+  writeFileSync(join(epic, "story-beside.md"), '---\nepic: "PS-X"\nstatus: DONE\n---\n');
 
   const board = { Done: 0, "In Progress": 0, Review: 0, ToDo: 0, Backlog: 0 };
   for (const s of findStories(vault, "epics").stories) board[statusToColumn(s.status)]++;
 
   const files = await storyFiles(nodeFs, epic);
-  assert.deepEqual(files.sort(), listEpicStories(epic).map((s) => s.abs).sort(), "the band lists the files the board lists");
+  assert.deepEqual(
+    files.sort(),
+    listEpicStories(epic)
+      .map((s) => s.abs)
+      .sort(),
+    "the band lists the files the board lists",
+  );
   const band = foldStages(files.map((f) => parseFrontmatter(readFileSync(f, "utf8")).data.status));
-  assert.deepEqual(band, { done: board.Done, active: board["In Progress"] + board.Review, backlog: board.Backlog + board.ToDo });
+  assert.deepEqual(band, {
+    done: board.Done,
+    active: board["In Progress"] + board.Review,
+    backlog: board.Backlog + board.ToDo,
+  });
   assert.deepEqual(band, { done: 3, active: 5, backlog: 5 });
 });
 
@@ -73,7 +137,9 @@ test("contract 9: a story's stage — lower-cased, not-actionable and missing co
 
 test("contract 7: the goal is the first paragraph under the language's goal heading, every bundled locale", () => {
   const registry = JSON.parse(readFileSync(join(ROOT, "scaffold", "headings.json"), "utf8"));
-  for (const lang of readdirSync(join(ROOT, "templates")).filter((d) => existsSync(join(ROOT, "templates", d, "epic.md.tmpl")))) {
+  for (const lang of readdirSync(join(ROOT, "templates")).filter((d) =>
+    existsSync(join(ROOT, "templates", d, "epic.md.tmpl")),
+  )) {
     const tmpl = readFileSync(join(ROOT, "templates", lang, "epic.md.tmpl"), "utf8");
     const heading = tmpl.split("\n").find((l) => goalForms(registry, lang).some((f) => l === `## ${f}`));
     assert.ok(heading, `${lang}: the epic template's goal heading is in the registry`);
@@ -111,7 +177,8 @@ test("contract 5: the counts are never cut — the hint goes first, then the bar
   const counts = countsText(c, W);
   assert.equal(counts, "21%  8 done · 16 in work · 14 backlog · 38 stories");
   const hint = "· hide: /projectstore:bar off";
-  const row = (lay) => 2 + 3 + (lay.bar ? lay.bar + 2 : 0) + cellWidth(counts) + (lay.hint ? cellWidth(`  ${hint}`) : 0);
+  const row = (lay) =>
+    2 + 3 + (lay.bar ? lay.bar + 2 : 0) + cellWidth(counts) + (lay.hint ? cellWidth(`  ${hint}`) : 0);
   for (let cols = 30; cols <= 200; cols++) {
     const lay = progressLayout(counts, hint, cols);
     assert.ok(lay.bar === 0 || (lay.bar >= BAR_MIN && lay.bar <= BAR_MAX), `${cols}: bar ${lay.bar}`);
@@ -143,8 +210,15 @@ test("contract 12: the model label, the subject, the phrase", () => {
   assert.equal(modelLabel("sonnet"), "sonnet");
   assert.equal(modelLabel(""), null);
   const kinds = ["adr", "specs", "epics", "research"];
-  assert.equal(subjectPath("Critique /v/epics/A/stories/b.md against adr/README.md.", "/v", kinds), "epics/A/stories/b.md");
-  assert.equal(subjectPath("Read adr/README.md, then specs/x.md.", "/v", kinds), "specs/x.md", "a derived view is never the subject");
+  assert.equal(
+    subjectPath("Critique /v/epics/A/stories/b.md against adr/README.md.", "/v", kinds),
+    "epics/A/stories/b.md",
+  );
+  assert.equal(
+    subjectPath("Read adr/README.md, then specs/x.md.", "/v", kinds),
+    "specs/x.md",
+    "a derived view is never the subject",
+  );
   assert.equal(subjectPath("Copy /tmp/s/draft.md to epics/A/stories/new.md", "/v", kinds), "epics/A/stories/new.md");
   assert.equal(subjectPath("Plan the next step.", "/v", kinds), null);
   assert.equal(subjectLabel("epics/A/stories/new.md", null), "new");
@@ -158,11 +232,17 @@ test("contract 12: an agent's last step, from its tool call", () => {
   assert.equal(stepOf({ tool: "Read", file_path: "/v/adr/README.md" }, "/v", W), "reads adr/README.md");
   assert.equal(stepOf({ tool: "Edit", file_path: "/elsewhere/x.mjs" }, "/v", W), "edits x.mjs");
   assert.equal(stepOf({ tool: "Grep", pattern: "a".repeat(40) }, "/v", W), `searches ${"a".repeat(31)}…`);
-  assert.equal(stepOf({ tool: "Bash", command: "git status", description: "Show working tree status" }, "/v", W), "show working tree status");
+  assert.equal(
+    stepOf({ tool: "Bash", command: "git status", description: "Show working tree status" }, "/v", W),
+    "show working tree status",
+  );
   assert.equal(stepOf({ tool: "Bash", command: "node /x/scripts/reconcile.mjs --write" }, "/v", W), "runs reconcile");
   assert.equal(stepOf({ tool: "Bash", command: "echo hi" }, "/v", W), null);
   assert.equal(stepOf({ tool: "WebSearch", query: "x" }, "/v", W), "searches the web");
-  assert.equal(stepOf({ tool: "mcp__plugin_projectstore_projectstore__get_artifact" }, "/v", W), "asks the vault: get artifact");
+  assert.equal(
+    stepOf({ tool: "mcp__plugin_projectstore_projectstore__get_artifact" }, "/v", W),
+    "asks the vault: get artifact",
+  );
   assert.equal(stepOf({ tool: "TodoWrite" }, "/v", W), null);
   assert.equal(commandWord("cd /a && git diff --stat"), "git diff");
 });
@@ -203,7 +283,9 @@ test("contract 14: the band's words — English per key, nothing invented", () =
 function importsOf(file) {
   const src = readFileSync(file, "utf8");
   assert.doesNotMatch(src, /\bimport\s*\(/, `${file}: no dynamic import — a module holding one does not load`);
-  return [...src.matchAll(/^\s*(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']/gm)].map((m) => m[1]);
+  return [...src.matchAll(/^\s*(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']/gm)].map(
+    (m) => m[1],
+  );
 }
 
 test("the band module and every plugin file it imports are Node-free: relative imports and claude-code only", () => {
@@ -213,13 +295,17 @@ test("the band module and every plugin file it imports are Node-free: relative i
     seen.add(file);
     for (const spec of importsOf(file)) {
       if (spec === "claude-code") continue;
-      assert.ok(spec.startsWith("./") || spec.startsWith("../"), `${file}: imports ${spec} — a hooks module imports its own files by relative path and claude-code, nothing else`);
+      assert.ok(
+        spec.startsWith("./") || spec.startsWith("../"),
+        `${file}: imports ${spec} — a hooks module imports its own files by relative path and claude-code, nothing else`,
+      );
       const target = resolve(dirname(file), spec);
       walk(existsSync(target) ? target : existsSync(`${target}.d.ts`) ? `${target}.d.ts` : target);
     }
   };
   walk(join(ROOT, "hooks", "band.tsx"));
-  for (const f of ["scripts/stages.mjs", "scripts/band-shared.mjs", "hooks/band-state.d.ts"]) assert.ok(seen.has(join(ROOT, f)), `${f} is in the module's import graph`);
+  for (const f of ["scripts/stages.mjs", "scripts/band-shared.mjs", "hooks/band-state.d.ts"])
+    assert.ok(seen.has(join(ROOT, f)), `${f} is in the module's import graph`);
 });
 
 test("the band module's paths and hint token are the core's", () => {

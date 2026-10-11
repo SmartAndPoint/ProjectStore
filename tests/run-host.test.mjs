@@ -21,7 +21,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const node = (code) => [process.execPath, ["-e", code]];
 
 test("run-host: a child's status and both outputs come back in spawnSync's shape, with stdin ignored", async () => {
-  const [bin, argv] = node("process.stdout.write('out'); process.stderr.write('err'); process.exitCode = 3; process.stdin.on('data', () => process.stdout.write('stdin!'));");
+  const [bin, argv] = node(
+    "process.stdout.write('out'); process.stderr.write('err'); process.exitCode = 3; process.stdin.on('data', () => process.stdout.write('stdin!'));",
+  );
   const r = await runHost(bin, argv, { cwd: tmpdir() });
   assert.deepEqual(r, { status: 3, signal: null, stdout: "out", stderr: "err", error: undefined });
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "ps-run-host-")));
@@ -32,28 +34,36 @@ test("run-host: a child's status and both outputs come back in spawnSync's shape
 
 test("run-host: a character split across two writes stays whole", async () => {
   // "↓" is three bytes; the child writes them in two chunks with a pause between.
-  const code = "const b = Buffer.from('a↓b'); process.stdout.write(b.subarray(0, 2)); setTimeout(() => process.stdout.write(b.subarray(2)), 30);";
+  const code =
+    "const b = Buffer.from('a↓b'); process.stdout.write(b.subarray(0, 2)); setTimeout(() => process.stdout.write(b.subarray(2)), 30);";
   const r = await runHost(...node(code), { cwd: tmpdir() });
   assert.equal(r.stdout, "a↓b");
 });
 
 test("run-host: it settles on the child's exit; a grandchild holding the pipe gets 200 ms, not the run", async () => {
   // The child starts a grandchild that inherits its stdout and lives 3 s, then exits.
-  const code = "const { spawn } = require('node:child_process'); const g = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 3000)'], { stdio: ['ignore', 'inherit', 'inherit'] }); process.stderr.write(String(g.pid)); g.unref();";
+  const code =
+    "const { spawn } = require('node:child_process'); const g = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 3000)'], { stdio: ['ignore', 'inherit', 'inherit'] }); process.stderr.write(String(g.pid)); g.unref();";
   const t0 = Date.now();
   const r = await runHost(...node(code), { cwd: tmpdir() });
   const ms = Date.now() - t0;
   assert.equal(r.status, 0);
   assert.ok(ms < 2000, `settled in ${ms} ms, not when the grandchild let go of the pipe`);
-  try { process.kill(Number(r.stderr), "SIGTERM"); } catch {}
+  try {
+    process.kill(Number(r.stderr), "SIGTERM");
+  } catch {}
 });
 
 test("run-host: past its budget the child gets SIGTERM and the result carries ETIMEDOUT with no status", async () => {
   const killed = [];
   const spawn = () => {
     const child = new EventEmitter();
-    child.stdout = new PassThrough(); child.stderr = new PassThrough();
-    child.kill = (signal) => { killed.push(signal); return true; };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = (signal) => {
+      killed.push(signal);
+      return true;
+    };
     child.unref = () => {};
     return child;
   };
@@ -73,16 +83,26 @@ test("run-host: a child that cannot start is an error with no status, and startF
   const r = await runHost("projectstore-no-such-binary", [], { cwd: tmpdir(), env: { PATH: "" } });
   assert.equal(r.status, null);
   assert.equal(r.error.code, "ENOENT");
-  assert.equal(startFailure(r.error, { bin: "npm", resolved: null, cwd: tmpdir() }), "npm could not start: it was not found on PATH");
+  assert.equal(
+    startFailure(r.error, { bin: "npm", resolved: null, cwd: tmpdir() }),
+    "npm could not start: it was not found on PATH",
+  );
   const gone = join(tmpdir(), "ps-run-host-no-such-dir");
   const r2 = await runHost(process.execPath, ["-e", ""], { cwd: gone });
   assert.equal(r2.status, null);
-  assert.equal(startFailure(r2.error, { bin: "npm", resolved: process.execPath, cwd: gone }), `npm could not start: the working directory ${JSON.stringify(gone)} is not an existing directory`);
+  assert.equal(
+    startFailure(r2.error, { bin: "npm", resolved: process.execPath, cwd: gone }),
+    `npm could not start: the working directory ${JSON.stringify(gone)} is not an existing directory`,
+  );
 });
 
 test("run-host: the installer's host commands take their bound from HOST_BUDGET_MS, never a literal", () => {
   const src = readFileSync(join(ROOT, "scripts", "install-harness.mjs"), "utf8");
   assert.ok(!/timeout:\s*120000/.test(src), "no literal 120000 timeout is left");
-  assert.equal((src.match(/timeout: HOST_BUDGET_MS/g) || []).length, 4, "the list read, the compensation, the planned step and the keep step (the converge story's rule 5)");
+  assert.equal(
+    (src.match(/timeout: HOST_BUDGET_MS/g) || []).length,
+    4,
+    "the list read, the compensation, the planned step and the keep step (the converge story's rule 5)",
+  );
   assert.ok(!/^function startFailure/m.test(src), "startFailure lives in run-host.mjs");
 });

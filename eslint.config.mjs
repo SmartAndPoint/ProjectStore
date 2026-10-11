@@ -32,7 +32,15 @@ export default [
       "no-control-regex": "off",
       // A name a signature or a destructuring needs but the code does not use
       // is spelled _x.
-      "no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_", destructuredArrayIgnorePattern: "^_" }],
+      "no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+        },
+      ],
       // The bin and the hooks are processes that end with an exit code.
       "n/no-process-exit": "off",
       // The #!/usr/bin/env node lines are harmless: nothing executes these files

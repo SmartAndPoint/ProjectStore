@@ -23,7 +23,8 @@ import {
   buildNodeIndex,
   extractLinks,
   resolveLinkTarget,
-  storyMatchesEntry, isMain,
+  storyMatchesEntry,
+  isMain,
   commandForm,
 } from "./lib.mjs";
 import { walkVaultFiles } from "./doctor.mjs";
@@ -39,9 +40,7 @@ function refsOf(fm, key) {
   const viaList = listOf(fm, key);
   if (viaList.length) return viaList;
   const raw = fm[key];
-  return typeof raw === "string" && raw && raw !== "[]" && !raw.trim().startsWith("[")
-    ? [raw.trim()]
-    : [];
+  return typeof raw === "string" && raw && raw !== "[]" && !raw.trim().startsWith("[") ? [raw.trim()] : [];
 }
 
 // Resolve a qualified "<epic-id>/<story-id>" spec entry to a story node —
@@ -58,8 +57,10 @@ function resolveStoryEntry(entry, index, epicsPath) {
     if (n.type !== "story" || !n.path.startsWith(`${epicsPath}/${epicId}/`)) continue;
     const tier = storyMatchesEntry(storyId, { id: n.identity, stem: n.stem });
     if (!tier) continue;
-    if (best === 0 || tier < best) { best = tier; hits = [n]; }
-    else if (tier === best) hits.push(n);
+    if (best === 0 || tier < best) {
+      best = tier;
+      hits = [n];
+    } else if (tier === best) hits.push(n);
   }
   if (hits.length === 1) return { outcome: "node", node: hits[0] };
   if (hits.length > 1) return { outcome: "ambiguous", candidates: hits.map((n) => n.path).sort() };
@@ -151,8 +152,7 @@ export function buildGraph(cfg, layout, { files = null } = {}) {
   // machines and locales; minimal diffs on a synced root file.
   const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
   const nodeRows = [...index.nodes].sort((a, b) => cmp(a.path, b.path));
-  const edgeRows = [...edges.values()].sort(
-    (a, b) => cmp(a.from, b.from) || cmp(a.kind, b.kind) || cmp(a.to, b.to));
+  const edgeRows = [...edges.values()].sort((a, b) => cmp(a.from, b.from) || cmp(a.kind, b.kind) || cmp(a.to, b.to));
 
   const esc = (s) => String(s).replace(/\|/g, "\\|");
   const lines = [
@@ -208,11 +208,17 @@ function main() {
   if (!cfg) die(`No projectstore config. Run ${commandForm("bind")} first.`);
   const layout = loadLayout(cfg.layout);
   const g = buildGraph(cfg, layout);
-  process.stdout.write(JSON.stringify({
-    path: join(cfg.vault_path, "graph.md"),
-    content: g.content,
-    stats: g.stats,
-  }, null, 2) + "\n");
+  process.stdout.write(
+    JSON.stringify(
+      {
+        path: join(cfg.vault_path, "graph.md"),
+        content: g.content,
+        stats: g.stats,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
 }
 
 if (isMain(import.meta.url)) {

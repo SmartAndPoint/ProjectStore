@@ -8,9 +8,21 @@ import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { whichOnPath, cmpPrecedence } from "./lib.mjs";
 
-const readJson = (path) => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; } };
+const readJson = (path) => {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+};
 const samePath = (a, b) => {
-  const real = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
+  const real = (p) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return resolve(p);
+    }
+  };
   return Boolean(a && b) && real(a) === real(b);
 };
 
@@ -19,19 +31,31 @@ function parseValue(raw) {
   if (s === "true") return true;
   if (s === "false") return false;
   if (s.startsWith('"') && s.endsWith('"')) {
-    try { return JSON.parse(s); } catch { return s.slice(1, -1); }
+    try {
+      return JSON.parse(s);
+    } catch {
+      return s.slice(1, -1);
+    }
   }
   return s;
 }
 
 export function readTomlSections(path) {
   let text;
-  try { text = readFileSync(path, "utf8"); } catch { return new Map(); }
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return new Map();
+  }
   const sections = new Map();
   let current = null;
   for (const line of text.split(/\r?\n/)) {
     const header = line.match(/^\s*\[([^\]]+)]\s*(?:#.*)?$/);
-    if (header) { current = header[1]; if (!sections.has(current)) sections.set(current, {}); continue; }
+    if (header) {
+      current = header[1];
+      if (!sections.has(current)) sections.set(current, {});
+      continue;
+    }
     if (!current || /^\s*(?:#|$)/.test(line)) continue;
     const kv = line.match(/^\s*([A-Za-z0-9_-]+)\s*=\s*(.*?)\s*(?:#.*)?$/);
     if (kv) sections.get(current)[kv[1]] = parseValue(kv[2]);
@@ -43,17 +67,23 @@ export function payloadFiles(root) {
   const out = [];
   const walk = (at, rel = "") => {
     let entries;
-    try { entries = readdirSync(at, { withFileTypes: true }); } catch { return; }
+    try {
+      entries = readdirSync(at, { withFileTypes: true });
+    } catch {
+      return;
+    }
     for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (e.name.startsWith(".DS_Store")) continue;
-      const abs = join(at, e.name), next = rel ? `${rel}/${e.name}` : e.name;
+      const abs = join(at, e.name),
+        next = rel ? `${rel}/${e.name}` : e.name;
       // npm creates command shims as symlinks here. The shell invokes the
       // bundled core by its real path, so these convenience links are neither
       // runtime input nor portable plugin payload.
       if (next === "node_modules/.bin" || next.startsWith("node_modules/.bin/")) continue;
       const st = lstatSync(abs);
       if (st.isSymbolicLink()) throw new Error(`plugin payload contains a symlink: ${next}`);
-      if (st.isDirectory()) walk(abs, next); else if (st.isFile()) out.push(next);
+      if (st.isDirectory()) walk(abs, next);
+      else if (st.isFile()) out.push(next);
     }
   };
   walk(root);
@@ -65,7 +95,11 @@ export function payloadDigest(root) {
   const h = createHash("sha256");
   for (const rel of files) {
     h.update(rel + "\n");
-    h.update(createHash("sha256").update(readFileSync(join(root, rel))).digest("hex") + "\n");
+    h.update(
+      createHash("sha256")
+        .update(readFileSync(join(root, rel)))
+        .digest("hex") + "\n",
+    );
   }
   return { count: files.length, sha256: h.digest("hex") };
 }
@@ -92,24 +126,32 @@ export function renderPortableCatalog(s) {
   return {
     name: s.marketplace_name,
     interface: { displayName: "ProjectStore (npm)" },
-    plugins: [{
-      name: s.plugin_name,
-      source: { source: "local", path: `./${s.plugin_subdir}` },
-      policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" },
-      category: "Developer Tools",
-    }],
+    plugins: [
+      {
+        name: s.plugin_name,
+        source: { source: "local", path: `./${s.plugin_subdir}` },
+        policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" },
+        category: "Developer Tools",
+      },
+    ],
   };
 }
 
-function pluginTable(id) { return `plugins.${JSON.stringify(id)}`; }
-function marketplaceTable(name) { return `marketplaces.${name}`; }
+function pluginTable(id) {
+  return `plugins.${JSON.stringify(id)}`;
+}
+function marketplaceTable(name) {
+  return `marketplaces.${name}`;
+}
 
 function pluginIds(sections) {
   const ids = [];
   for (const key of sections.keys()) {
     const m = key.match(/^plugins\.(.+)$/);
     if (!m) continue;
-    try { ids.push(m[1].startsWith('"') ? JSON.parse(m[1]) : m[1]); } catch {}
+    try {
+      ids.push(m[1].startsWith('"') ? JSON.parse(m[1]) : m[1]);
+    } catch {}
   }
   return ids;
 }
@@ -132,23 +174,38 @@ export function isPortablePluginRoot(root) {
 }
 // The first manifest that parses, or null — or, with `kind`, that one only.
 export function payloadManifest(root, { kind = null } = {}) {
-  for (const p of kind ? [payloadManifestPath(root, kind)] : payloadManifestPaths(root)) { const m = readJson(p); if (m) return m; }
+  for (const p of kind ? [payloadManifestPath(root, kind)] : payloadManifestPaths(root)) {
+    const m = readJson(p);
+    if (m) return m;
+  }
   return null;
 }
 
 function cacheEntries(paths, s) {
   const base = join(paths.cacheDir, s.marketplace_name, s.plugin_name);
   let names;
-  try { names = readdirSync(base); } catch { return []; }
-  return names.map((name) => {
-    const path = join(base, name);
-    const manifest = payloadManifest(path);
-    let at = 0; try { at = statSync(path).mtimeMs; } catch {}
-    if (!manifest || typeof manifest.version !== "string") return null;
-    let digest = null;
-    try { digest = payloadDigest(path); } catch {}
-    return { path, version: manifest.version, at, digest };
-  }).filter(Boolean).sort((a, b) => b.at - a.at || b.version.localeCompare(a.version));
+  try {
+    names = readdirSync(base);
+  } catch {
+    return [];
+  }
+  return names
+    .map((name) => {
+      const path = join(base, name);
+      const manifest = payloadManifest(path);
+      let at = 0;
+      try {
+        at = statSync(path).mtimeMs;
+      } catch {}
+      if (!manifest || typeof manifest.version !== "string") return null;
+      let digest = null;
+      try {
+        digest = payloadDigest(path);
+      } catch {}
+      return { path, version: manifest.version, at, digest };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.at - a.at || b.version.localeCompare(a.version));
 }
 
 // Where the payload to register lives. A surface conditioned on a distribution
@@ -182,7 +239,20 @@ export function portablePayloadRoot(s, { root, env = process.env, fetched = null
 // the one rung a local-tarball install at an unchanged version trips, and it
 // is decided after a real fetch. `unavailable` for want of a payload fires
 // only when there is neither. Doctor passes neither and reads as before.
-export function analysePortableRegistration(projectDir, s, { root, payloadRoot: explicitPayloadRoot = null, version = null, fetched = null, home = homedir(), harness, env = process.env, ignoreJournal = false } = {}) {
+export function analysePortableRegistration(
+  projectDir,
+  s,
+  {
+    root,
+    payloadRoot: explicitPayloadRoot = null,
+    version = null,
+    fetched = null,
+    home = homedir(),
+    harness,
+    env = process.env,
+    ignoreJournal = false,
+  } = {},
+) {
   const paths = portableRegistrationPaths(s, { home, projectDir, harness, env });
   const payloadRoot = explicitPayloadRoot || portablePayloadRoot(s, { root, env, fetched });
   const desiredManifest = payloadRoot ? payloadManifest(payloadRoot) : null;
@@ -202,7 +272,8 @@ export function analysePortableRegistration(projectDir, s, { root, payloadRoot: 
   const others = [...new Set([...pluginIds(global), ...pluginIds(project)])]
     .filter((other) => other !== id && other.split("@")[0] === s.plugin_name)
     .map((other) => {
-      const g = global.get(pluginTable(other)) || null, p = project.get(pluginTable(other)) || null;
+      const g = global.get(pluginTable(other)) || null,
+        p = project.get(pluginTable(other)) || null;
       return { id: other, enabled: typeof p?.enabled === "boolean" ? p.enabled : g?.enabled === true };
     });
   // A registration newer than what this run offers (the converge story's rule
@@ -210,41 +281,143 @@ export function analysePortableRegistration(projectDir, s, { root, payloadRoot: 
   // reason, and the cache is then read at the version the host registered —
   // keyed on the desired version, a newer registration's integrity rungs
   // checked the wrong cache directory.
-  const newer = typeof ownership?.version === "string" && typeof desiredVersion === "string" && cmpPrecedence(ownership.version, desiredVersion) > 0;
+  const newer =
+    typeof ownership?.version === "string" &&
+    typeof desiredVersion === "string" &&
+    cmpPrecedence(ownership.version, desiredVersion) > 0;
   const caches = cacheEntries(paths, s);
   const installed = caches.find((e) => e.version === (newer ? ownership.version : desiredVersion)) || caches[0] || null;
-  const out = { id, paths, path: paths.dir, payloadRoot, desiredVersion, versionOnly, bin, ownership, journal, catalog, market, globalPlugin, projectPlugin, enabled, others, caches, installed, installPath: installed?.path || null, installedVersion: installed?.version || null, state: "absent", reason: null, produced: Boolean(desiredManifest), contentDiffers: null, newer };
+  const out = {
+    id,
+    paths,
+    path: paths.dir,
+    payloadRoot,
+    desiredVersion,
+    versionOnly,
+    bin,
+    ownership,
+    journal,
+    catalog,
+    market,
+    globalPlugin,
+    projectPlugin,
+    enabled,
+    others,
+    caches,
+    installed,
+    installPath: installed?.path || null,
+    installedVersion: installed?.version || null,
+    state: "absent",
+    reason: null,
+    produced: Boolean(desiredManifest),
+    contentDiffers: null,
+    newer,
+  };
   const enabledOther = others.find((other) => other.enabled);
   const nothing = !existsSync(paths.dir) && !market && !globalPlugin && !installed && !enabledOther;
-  if (!desiredManifest && !versionOnly) return { ...out, state: "unavailable", reason: payloadRoot ? `${payloadRoot} is not a portable plugin root` : `nothing to register from this run: ${harness?.display_name || "this harness"}'s plugin is registered from its distribution shell, not from the core` };
-  if (!bin && nothing) return { ...out, state: "unavailable", reason: `\`${s.cli.bin}\` is not on PATH — the registration needs the host CLI` };
+  if (!desiredManifest && !versionOnly)
+    return {
+      ...out,
+      state: "unavailable",
+      reason: payloadRoot
+        ? `${payloadRoot} is not a portable plugin root`
+        : `nothing to register from this run: ${harness?.display_name || "this harness"}'s plugin is registered from its distribution shell, not from the core`,
+    };
+  if (!bin && nothing)
+    return {
+      ...out,
+      state: "unavailable",
+      reason: `\`${s.cli.bin}\` is not on PATH — the registration needs the host CLI`,
+    };
   let desiredDigest = null;
-  if (!versionOnly) { try { desiredDigest = payloadDigest(payloadRoot); } catch (e) { return { ...out, state: "unavailable", reason: e.message }; } }
+  if (!versionOnly) {
+    try {
+      desiredDigest = payloadDigest(payloadRoot);
+    } catch (e) {
+      return { ...out, state: "unavailable", reason: e.message };
+    }
+  }
   out.desiredDigest = desiredDigest;
-  if (enabledOther) return { ...out, state: "conflict", refusal: `${enabledOther.id} is already enabled; two ProjectStore plugins would load the same skills and hooks. Disable or remove that registration explicitly, then retry` };
+  if (enabledOther)
+    return {
+      ...out,
+      state: "conflict",
+      refusal: `${enabledOther.id} is already enabled; two ProjectStore plugins would load the same skills and hooks. Disable or remove that registration explicitly, then retry`,
+    };
   // A journal the rollback could not prove names the run that left it, when,
   // and its error, so the reader of the plan is not told recovery is assured
   // (issue #28). Every other phase reads as before.
-  if (journal && !ignoreJournal) return { ...out, state: "stale", reason: journal.phase === "recovery-required"
-    ? `a previous run${journal.failed_at ? ` (${journal.failed_at})` : ""} could not prove its restore: ${String(journal.error || "no error recorded").split("\n")[0]}; this run re-proves the previous state before applying this plan, and refuses if it cannot (${paths.journal})`
-    : "an interrupted registration has a recovery journal; the next confirmed run recovers it before applying this plan" };
-  if (existsSync(paths.dir) && !ownership) return { ...out, state: "foreign", refusal: `${paths.dir} exists without ${s.ownership_manifest}; a source this installer does not own holds the stable marketplace path` };
-  if (market?.source && !samePath(market.source, paths.dir)) return { ...out, state: "foreign", refusal: `${paths.globalConfig} points marketplace ${s.marketplace_name} at ${market.source}, not ${paths.dir}` };
+  if (journal && !ignoreJournal)
+    return {
+      ...out,
+      state: "stale",
+      reason:
+        journal.phase === "recovery-required"
+          ? `a previous run${journal.failed_at ? ` (${journal.failed_at})` : ""} could not prove its restore: ${String(journal.error || "no error recorded").split("\n")[0]}; this run re-proves the previous state before applying this plan, and refuses if it cannot (${paths.journal})`
+          : "an interrupted registration has a recovery journal; the next confirmed run recovers it before applying this plan",
+    };
+  if (existsSync(paths.dir) && !ownership)
+    return {
+      ...out,
+      state: "foreign",
+      refusal: `${paths.dir} exists without ${s.ownership_manifest}; a source this installer does not own holds the stable marketplace path`,
+    };
+  if (market?.source && !samePath(market.source, paths.dir))
+    return {
+      ...out,
+      state: "foreign",
+      refusal: `${paths.globalConfig} points marketplace ${s.marketplace_name} at ${market.source}, not ${paths.dir}`,
+    };
   if (nothing) return out;
   let sourceDigest = null;
-  try { if (existsSync(paths.payload)) sourceDigest = payloadDigest(paths.payload); } catch {}
+  try {
+    if (existsSync(paths.payload)) sourceDigest = payloadDigest(paths.payload);
+  } catch {}
   out.sourceDigest = sourceDigest;
-  out.contentDiffers = versionOnly ? null : Boolean(ownership?.digest) && (ownership.digest.sha256 !== desiredDigest.sha256 || ownership.digest.count !== desiredDigest.count);
+  out.contentDiffers = versionOnly
+    ? null
+    : Boolean(ownership?.digest) &&
+      (ownership.digest.sha256 !== desiredDigest.sha256 || ownership.digest.count !== desiredDigest.count);
   if (!ownership || !catalog) return { ...out, state: "stale", reason: "the owned marketplace source is incomplete" };
-  if (!versionOnly && ownership.version === desiredVersion && out.contentDiffers) return { ...out, state: "conflict", refusal: `release ${desiredVersion} already owns this marketplace with a different payload digest` };
-  if (!sourceDigest || sourceDigest.sha256 !== ownership.digest?.sha256 || sourceDigest.count !== ownership.digest?.count) return { ...out, state: "stale", reason: "the stable source does not match its recorded digest" };
+  if (!versionOnly && ownership.version === desiredVersion && out.contentDiffers)
+    return {
+      ...out,
+      state: "conflict",
+      refusal: `release ${desiredVersion} already owns this marketplace with a different payload digest`,
+    };
+  if (
+    !sourceDigest ||
+    sourceDigest.sha256 !== ownership.digest?.sha256 ||
+    sourceDigest.count !== ownership.digest?.count
+  )
+    return { ...out, state: "stale", reason: "the stable source does not match its recorded digest" };
   if (!market) return { ...out, state: "stale", reason: "the host does not know the marketplace" };
-  if (!installed || installed.version !== ownership.version) return { ...out, state: "stale", reason: "the host cache does not contain the registered payload version" };
-  if (!installed.digest || installed.digest.sha256 !== ownership.digest?.sha256 || installed.digest.count !== ownership.digest?.count) return { ...out, state: "stale", reason: "the materialised host cache does not match the registered payload digest" };
+  if (!installed || installed.version !== ownership.version)
+    return { ...out, state: "stale", reason: "the host cache does not contain the registered payload version" };
+  if (
+    !installed.digest ||
+    installed.digest.sha256 !== ownership.digest?.sha256 ||
+    installed.digest.count !== ownership.digest?.count
+  )
+    return {
+      ...out,
+      state: "stale",
+      reason: "the materialised host cache does not match the registered payload digest",
+    };
   // The newer rung, after the integrity rungs: a sound registration newer
   // than this run is current and never staged over (rule 6). A damaged one
   // stayed stale above, with its real reason; the planner skips it.
-  if (newer) return { ...out, state: "current", reason: `the registration is at ${ownership.version}, newer than this package (${desiredVersion}) — not downgraded` };
-  if (ownership.version !== desiredVersion) return { ...out, state: "stale", reason: `installed ${ownership.version}; package offers ${desiredVersion}` };
-  return { ...out, state: "current", reason: enabled ? null : "installed globally but disabled by effective configuration" };
+  if (newer)
+    return {
+      ...out,
+      state: "current",
+      reason: `the registration is at ${ownership.version}, newer than this package (${desiredVersion}) — not downgraded`,
+    };
+  if (ownership.version !== desiredVersion)
+    return { ...out, state: "stale", reason: `installed ${ownership.version}; package offers ${desiredVersion}` };
+  return {
+    ...out,
+    state: "current",
+    reason: enabled ? null : "installed globally but disabled by effective configuration",
+  };
 }

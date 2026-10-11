@@ -21,7 +21,8 @@ import {
   listEpicStories,
   slugIdentity,
   displayNumberOf,
-  compareArtifactOrder, isMain,
+  compareArtifactOrder,
+  isMain,
   commandForm,
 } from "./lib.mjs";
 // The status table lives in stages.mjs, Node-free, so the band above the

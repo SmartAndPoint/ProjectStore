@@ -17,15 +17,7 @@
 //      Without --json the findings are drawn by doctor-report.mjs, the
 //      renderer the bin uses, in its plain layout.
 
-import {
-  existsSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-  accessSync,
-  constants,
-  realpathSync,
-} from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, accessSync, constants, realpathSync } from "node:fs";
 import { join, basename, resolve, dirname, relative } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -67,17 +59,23 @@ import {
   findAgentsBlock,
   statusLineLauncherPath,
   LAUNCHER_HEADER,
-  installedPluginEntries, selectCopy, takesNoRegister, copyUpdateAdvice, isMain,
+  installedPluginEntries,
+  selectCopy,
+  takesNoRegister,
+  copyUpdateAdvice,
+  isMain,
   channelMark,
   pickExisting,
   legacyStatusLineLauncherPath,
   stateDir,
   legacyStateDir,
-  layoutPaths,  sessionsDir,
+  layoutPaths,
+  sessionsDir,
   isLauncherPath,
   LAYOUT,
   hostSettingsPath,
-  readOverlayAt, layoutRoster,
+  readOverlayAt,
+  layoutRoster,
   installChannel,
   cmpPrecedence,
   cmpVersion,
@@ -89,7 +87,17 @@ import {
   bindInherits,
   doctorFallbackText,
 } from "./lib.mjs";
-import { agentOverrides, childEnv, sourceHarness, loadHarness, detectHarnesses, identifiedHarnessId, configPath as harnessConfigPath, packageCommand, invocation } from "./harness.mjs";
+import {
+  agentOverrides,
+  childEnv,
+  sourceHarness,
+  loadHarness,
+  detectHarnesses,
+  identifiedHarnessId,
+  configPath as harnessConfigPath,
+  packageCommand,
+  invocation,
+} from "./harness.mjs";
 
 // A remedy used to interpolate the surface's harness variable here. It cannot:
 // measured 2026-09-06, NO harness gives its Bash tool that variable, and a
@@ -166,9 +174,7 @@ export function aboutHarness(f, h, speaker = speakingHarness()) {
 
 function pluginVersion(root = pluginRoot()) {
   try {
-    return JSON.parse(
-      readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8"),
-    ).version;
+    return JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).version;
   } catch {
     return null;
   }
@@ -195,19 +201,40 @@ export function checkConfig(cfg, proj = projectRoot()) {
     // new one. Assigned rather than appended: two instructions for one problem
     // is how a person ends up binding a second vault by hand.
     let b = null;
-    try { b = resolveBinding(proj); } catch {}
+    try {
+      b = resolveBinding(proj);
+    } catch {}
     if (b && b.state === "inheritable") {
-      return [finding("install", "issue", "worktree-unbound",
-        `This worktree is unbound while the checkout it was forked from (${b.mainCheckout}) is bound to ${b.vaultPath}. Run ${inheritForm(b.vaultPath, { layout: b.layout, language: b.language })} ${bindInherits() ? "to adopt that binding" : "to bind it to the same vault, layout and language"}.`)];
+      return [
+        finding(
+          "install",
+          "issue",
+          "worktree-unbound",
+          `This worktree is unbound while the checkout it was forked from (${b.mainCheckout}) is bound to ${b.vaultPath}. Run ${inheritForm(b.vaultPath, { layout: b.layout, language: b.language })} ${bindInherits() ? "to adopt that binding" : "to bind it to the same vault, layout and language"}.`,
+        ),
+      ];
     }
     const p = layoutPaths(proj);
     const present = [p.binding, p.legacy.binding].find((f) => existsSync(f));
     if (present) {
-      return [finding("install", "issue", "config-unparseable",
-        `${relative(proj, present)} exists but is not valid JSON — the project reads as unbound until it is fixed; bind refuses to overwrite it.`, relative(proj, present))];
+      return [
+        finding(
+          "install",
+          "issue",
+          "config-unparseable",
+          `${relative(proj, present)} exists but is not valid JSON — the project reads as unbound until it is fixed; bind refuses to overwrite it.`,
+          relative(proj, present),
+        ),
+      ];
     }
-    return [finding("install", "issue", "config",
-      `No projectstore config (.projectstore/projectstore.json). Run ${commandForm("bind", { args: "<vault-path>" })}.`)];
+    return [
+      finding(
+        "install",
+        "issue",
+        "config",
+        `No projectstore config (.projectstore/projectstore.json). Run ${commandForm("bind", { args: "<vault-path>" })}.`,
+      ),
+    ];
   }
   const out = [];
   if (!cfg.vault_path) out.push(finding("install", "issue", "config", "Config has no vault_path."));
@@ -271,8 +298,14 @@ export function checkLayoutTemplates(cfg) {
     out.push(finding("install", "warn", "templates", `${m.message} — scaffold and init refuse until it is there.`));
   }
   if (!existsSync(join(pluginRoot(), "scaffold", "headings.json"))) {
-    out.push(finding("install", "issue", "templates",
-      "scaffold/headings.json is missing — heading-registry checks (index headers, acceptance, spec gates) cannot run. Stale/corrupt plugin install?"));
+    out.push(
+      finding(
+        "install",
+        "issue",
+        "templates",
+        "scaffold/headings.json is missing — heading-registry checks (index headers, acceptance, spec gates) cannot run. Stale/corrupt plugin install?",
+      ),
+    );
   }
   return out;
 }
@@ -280,16 +313,34 @@ export function checkLayoutTemplates(cfg) {
 export function checkHooksAlive(cfg, maxAgeMinutes = 30) {
   const dir = sessionsDir(cfg.vault_path);
   if (!existsSync(dir)) {
-    return [finding("install", "warn", "hooks",
-      "No session registry in the vault — SessionStart hook may not be firing (or no session started yet).")];
+    return [
+      finding(
+        "install",
+        "warn",
+        "hooks",
+        "No session registry in the vault — SessionStart hook may not be firing (or no session started yet).",
+      ),
+    ];
   }
   const cutoff = Date.now() - maxAgeMinutes * 60 * 1000;
   const fresh = readdirSync(dir).some((n) => {
     if (!n.endsWith(".json")) return false;
-    try { return statSync(join(dir, n)).mtimeMs >= cutoff; } catch { return false; }
+    try {
+      return statSync(join(dir, n)).mtimeMs >= cutoff;
+    } catch {
+      return false;
+    }
   });
-  return fresh ? [] : [finding("install", "warn", "hooks",
-    `No session registration fresher than ${maxAgeMinutes} min — hooks may not be firing.`)];
+  return fresh
+    ? []
+    : [
+        finding(
+          "install",
+          "warn",
+          "hooks",
+          `No session registration fresher than ${maxAgeMinutes} min — hooks may not be firing.`,
+        ),
+      ];
 }
 
 // Which plugin version a wired statusLine script belongs to. Null for our
@@ -298,9 +349,7 @@ export function checkHooksAlive(cfg, maxAgeMinutes = 30) {
 export function statusLineScriptVersion(scriptPath) {
   try {
     const root = dirname(dirname(scriptPath)); // <root>/scripts/statusline.mjs
-    return (
-      JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).version || null
-    );
+    return JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).version || null;
   } catch {
     return null;
   }
@@ -330,20 +379,38 @@ export function checkStatusline(cfg, proj, home = homedir(), harness = speakingH
 
   if (st && st.enabled === true) {
     if (!curCmd) {
-      out.push(finding("install", "issue", "statusline",
-        `statusline.enabled=true but no statusLine wired in settings.local.json — run ${commandForm("statusline", { args: "on" })} (it installs the entry and the launcher behind a preview); the SessionStart hook only refreshes an entry that already exists.`));
+      out.push(
+        finding(
+          "install",
+          "issue",
+          "statusline",
+          `statusline.enabled=true but no statusLine wired in settings.local.json — run ${commandForm("statusline", { args: "on" })} (it installs the entry and the launcher behind a preview); the SessionStart hook only refreshes an entry that already exists.`,
+        ),
+      );
     } else if (!isOurs) {
-      out.push(finding("install", "issue", "statusline",
-        "statusline.enabled=true but a foreign statusLine occupies settings.local.json — the hook will not clobber it. Clear it or disable the flag."));
+      out.push(
+        finding(
+          "install",
+          "issue",
+          "statusline",
+          "statusline.enabled=true but a foreign statusLine occupies settings.local.json — the hook will not clobber it. Clear it or disable the flag.",
+        ),
+      );
     } else {
       const m = curCmd.match(/"([^"]+statusline\.mjs)"/) || curCmd.match(/(\S+statusline\.mjs)/);
       const wiredRoot = m ? dirname(dirname(m[1])) : null;
       const isLauncher = m ? isLauncherPath(m[1]) : false;
       if (m && !existsSync(m[1])) {
-        out.push(finding("install", "issue", "statusline",
-          isLauncher
-            ? `statusLine points at a generated launcher that no longer exists: ${m[1]} — run ${commandForm("statusline", { args: "on" })} to reinstall it; until then the next session start repoints the entry at the installed script.`
-            : `statusLine points at a missing script (stale plugin path?): ${m[1]}`));
+        out.push(
+          finding(
+            "install",
+            "issue",
+            "statusline",
+            isLauncher
+              ? `statusLine points at a generated launcher that no longer exists: ${m[1]} — run ${commandForm("statusline", { args: "on" })} to reinstall it; until then the next session start repoints the entry at the installed script.`
+              : `statusLine points at a missing script (stale plugin path?): ${m[1]}`,
+          ),
+        );
       } else if (m && isPluginCacheRoot(wiredRoot, home)) {
         // Only a versioned cache path can go stale this way. The launcher
         // carries no version, and a dev checkout is wired deliberately and
@@ -351,23 +418,48 @@ export function checkStatusline(cfg, proj, home = homedir(), harness = speakingH
         const wired = statusLineScriptVersion(m[1]);
         const inst = installedPluginRoot(home, dirname(wiredRoot));
         if (wired && inst && inst.version && wired !== inst.version) {
-          out.push(finding("install", "warn", "statusline",
-            `statusLine is wired to projectstore ${wired} while ${inst.version} is installed — a version-pinned path lags one session behind each update. Run ${commandForm("statusline", { args: "on" })} to install the version-agnostic launcher; the SessionStart hook only repoints the pinned path at the current install.`));
+          out.push(
+            finding(
+              "install",
+              "warn",
+              "statusline",
+              `statusLine is wired to projectstore ${wired} while ${inst.version} is installed — a version-pinned path lags one session behind each update. Run ${commandForm("statusline", { args: "on" })} to install the version-agnostic launcher; the SessionStart hook only repoints the pinned path at the current install.`,
+            ),
+          );
         }
       }
     }
   } else if (st && st.enabled === false && isOurs) {
-    out.push(finding("install", "warn", "statusline",
-      "statusline.enabled=false but our statusLine entry is still wired — the hook removes it on next session start."));
+    out.push(
+      finding(
+        "install",
+        "warn",
+        "statusline",
+        "statusline.enabled=false but our statusLine entry is still wired — the hook removes it on next session start.",
+      ),
+    );
   } else if ((!st || typeof st.enabled !== "boolean") && isOurs) {
-    out.push(finding("install", "info", "statusline",
-      "statusLine wired manually (no statusline flag in projectstore.json) — the hook will leave it alone."));
+    out.push(
+      finding(
+        "install",
+        "info",
+        "statusline",
+        "statusLine wired manually (no statusline flag in projectstore.json) — the hook will leave it alone.",
+      ),
+    );
   }
 
   try {
     const base = JSON.parse(readFileSync(join(claudeHome(home), "settings.json"), "utf8"))?.statusLine?.command;
     if (base && !statusLineIsOurs(base)) {
-      out.push(finding("install", "info", "statusline", "Base HUD present in your user settings.json — projectstore composes above it."));
+      out.push(
+        finding(
+          "install",
+          "info",
+          "statusline",
+          "Base HUD present in your user settings.json — projectstore composes above it.",
+        ),
+      );
     }
   } catch {}
   // session_id divergence (ADR-006): the renderer's breadcrumb names the id
@@ -382,8 +474,14 @@ export function checkStatusline(cfg, proj, home = homedir(), harness = speakingH
         .filter((n) => n.endsWith(".json") && !n.startsWith("."))
         .map((n) => n.replace(/\.json$/, ""));
       if (hookIds.length && !hookIds.includes(bc.session_id)) {
-        out.push(finding("install", "warn", "statusline",
-          `statusLine renderer last saw session_id ${String(bc.session_id).slice(0, 8)}… with no hook-side state file — possible session_id divergence (renderer shows the cold-start line while hooks log activity).`));
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "statusline",
+            `statusLine renderer last saw session_id ${String(bc.session_id).slice(0, 8)}… with no hook-side state file — possible session_id divergence (renderer shows the cold-start line while hooks log activity).`,
+          ),
+        );
       }
     }
     // What the user is actually looking at: the renderer stamps the version
@@ -392,8 +490,14 @@ export function checkStatusline(cfg, proj, home = homedir(), harness = speakingH
     if (bc && bc.version && isPluginCacheRoot(bc.root, home)) {
       const inst = installedPluginRoot(home, dirname(bc.root));
       if (inst && inst.version && inst.version !== bc.version) {
-        out.push(finding("install", "warn", "statusline",
-          `The last status line rendered in this project came from projectstore ${bc.version} while ${inst.version} is installed — a session that resolved its statusLine command before the update (the breadcrumb is per project, so it may belong to a sibling session). Restart that session; after that the launcher picks up the installed version at every render.`));
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "statusline",
+            `The last status line rendered in this project came from projectstore ${bc.version} while ${inst.version} is installed — a session that resolved its statusLine command before the update (the breadcrumb is per project, so it may belong to a sibling session). Restart that session; after that the launcher picks up the installed version at every render.`,
+          ),
+        );
       }
     }
   } catch {}
@@ -415,15 +519,27 @@ export function checkPendingUpgrade(proj, home = homedir(), root = pluginRoot(),
   // session with a command that cannot clear it (the critic of the layout
   // spec's 2026-10-03 amendment, case S1).
   let wired = null;
-  try { wired = JSON.parse(readFileSync(hostSettingsPath(proj), "utf8"))?.statusLine?.command || null; } catch {}
+  try {
+    wired = JSON.parse(readFileSync(hostSettingsPath(proj), "utf8"))?.statusLine?.command || null;
+  } catch {}
   if (!wired || !statusLineIsOurWiring(wired, proj, home, root)) return [];
   const lp = pickExisting(statusLineLauncherPath(proj), legacyStatusLineLauncherPath(proj));
   let text;
-  try { text = readFileSync(lp, "utf8"); } catch { return []; }
+  try {
+    text = readFileSync(lp, "utf8");
+  } catch {
+    return [];
+  }
   if (!text.includes(LAUNCHER_HEADER) || text.includes(STAMP_PREFIX)) return [];
-  return [finding("install", "info", "upgrade",
-    `The status line launcher predates this plugin's file stamps (plugin updated) — it keeps rendering; run ${commandForm("doctor", { args: "--fix" })} once to re-stamp it.`,
-    relative(proj, lp))];
+  return [
+    finding(
+      "install",
+      "info",
+      "upgrade",
+      `The status line launcher predates this plugin's file stamps (plugin updated) — it keeps rendering; run ${commandForm("doctor", { args: "--fix" })} once to re-stamp it.`,
+      relative(proj, lp),
+    ),
+  ];
 }
 
 // The two findings the layout move itself repairs carry what they say without
@@ -448,7 +564,11 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
     const p = join(proj, name);
     if (!existsSync(p)) continue;
     let text;
-    try { text = readFileSync(p, "utf8"); } catch { continue; }
+    try {
+      text = readFileSync(p, "utf8");
+    } catch {
+      continue;
+    }
     texts[name] = text;
     const f = findAgentsBlock(text);
     if (!f) continue;
@@ -456,16 +576,30 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
     blocks += f.count;
     if (f.wrapped) {
       wrappedFiles++;
-      out.push(finding("install", "issue", "agents-block",
-        `${name}:${f.line}: the projectstore:agents open marker does not close on its own line — put \`-->\` back on the marker's line, then run ${commandForm("agents", { args: "register" })} (install and uninstall refuse until it does).`, name));
+      out.push(
+        finding(
+          "install",
+          "issue",
+          "agents-block",
+          `${name}:${f.line}: the projectstore:agents open marker does not close on its own line — put \`-->\` back on the marker's line, then run ${commandForm("agents", { args: "register" })} (install and uninstall refuse until it does).`,
+          name,
+        ),
+      );
       continue;
     }
     if (f.unclosed) {
       // Named here as the wrapped marker is, so the startup count carries it:
       // the agents-block plan refuses it, and the layout move with it.
       unclosedFiles++;
-      out.push(finding("install", "issue", "agents-block",
-        `${name}: the projectstore:agents block opens and never closes — close it with \`${AGENTS_BLOCK_CLOSE}\` or delete the half block, then run ${commandForm("agents", { args: "register" })} (install and uninstall refuse until then).`, name));
+      out.push(
+        finding(
+          "install",
+          "issue",
+          "agents-block",
+          `${name}: the projectstore:agents block opens and never closes — close it with \`${AGENTS_BLOCK_CLOSE}\` or delete the half block, then run ${commandForm("agents", { args: "register" })} (install and uninstall refuse until then).`,
+          name,
+        ),
+      );
     }
     for (const m of text.matchAll(AGENT_BLOCK_MARKER)) {
       const v = parseInt(m[1], 10);
@@ -473,8 +607,14 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
     }
   }
   if (blocks === 0) {
-    out.push(finding("install", "info", "agents-block",
-      `Agent routing block not registered — optional; ships with ${commandForm("agents")} (v0.13).`));
+    out.push(
+      finding(
+        "install",
+        "info",
+        "agents-block",
+        `Agent routing block not registered — optional; ships with ${commandForm("agents")} (v0.13).`,
+      ),
+    );
   }
   if (blocks > 1) {
     // One block in each file is a state install resolves (it keeps the
@@ -483,13 +623,26 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
     // advice is withheld while one is wrapped or never closes.
     const twiceInOne = Object.entries(perFile).find(([, n]) => n > 1);
     if (twiceInOne) {
-      out.push(finding("install", "issue", "agents-block",
-        `${twiceInOne[0]} carries the projectstore:agents block ${twiceInOne[1]} times — keep exactly one; install refuses until it does.`, twiceInOne[0]));
+      out.push(
+        finding(
+          "install",
+          "issue",
+          "agents-block",
+          `${twiceInOne[0]} carries the projectstore:agents block ${twiceInOne[1]} times — keep exactly one; install refuses until it does.`,
+          twiceInOne[0],
+        ),
+      );
     } else if (wrappedFiles || unclosedFiles) {
       // already named above, file by file
     } else {
-      out.push(finding("install", "warn", "agents-block",
-        `The projectstore:agents block is in both CLAUDE.md and AGENTS.md — run ${commandForm("agents", { args: "register" })}: install keeps the one in ${(sourceHarness()?.surfaces?.agents_block?.files || ["AGENTS.md"])[0]} and removes the other.`));
+      out.push(
+        finding(
+          "install",
+          "warn",
+          "agents-block",
+          `The projectstore:agents block is in both CLAUDE.md and AGENTS.md — run ${commandForm("agents", { args: "register" })}: install keeps the one in ${(sourceHarness()?.surfaces?.agents_block?.files || ["AGENTS.md"])[0]} and removes the other.`,
+        ),
+      );
     }
   }
   // A state the agents-block plan refuses — a wrapped marker, a block that
@@ -498,7 +651,13 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
   const refuses = wrappedFiles > 0 || unclosedFiles > 0 || Object.values(perFile).some((n) => n > 1);
   for (const s of staleVersions) {
     const fact = `Agents block in ${s.file} is v${s.v}, expected v${AGENT_BLOCK_VERSION}`;
-    const f = finding("install", "issue", "agents-block", `${fact} — re-run ${commandForm("agents", { args: "register" })}.`, s.file);
+    const f = finding(
+      "install",
+      "issue",
+      "agents-block",
+      `${fact} — re-run ${commandForm("agents", { args: "register" })}.`,
+      s.file,
+    );
     out.push(refuses ? f : moveRepairs(f, fact));
   }
   // Placement, held to the predicate install plans from (the install spec,
@@ -515,7 +674,10 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
   const blockFile = blocks === 1 && !refuses ? Object.keys(perFile)[0] : null;
   if (blockFile) {
     const identified = identifiedHarnessId(env);
-    const used = new Set([...detectHarnesses(proj, { state: true }).map((d) => d.id), ...(identified ? [identified] : [])]);
+    const used = new Set([
+      ...detectHarnesses(proj, { state: true }).map((d) => d.id),
+      ...(identified ? [identified] : []),
+    ]);
     for (const id of used) {
       const m = loadHarness(id);
       if (!m || blockVisibleTo(m, blockFile, texts)) continue;
@@ -526,7 +688,13 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
       const fact = `The projectstore:agents block is in ${blockFile}, which ${m.display_name} does not see: ${why}`;
       // The resolved-root form the surface remedy uses: the running copy's own bin.
       const remedy = `install the block for ${m.display_name}: node "${join(root, "bin", "projectstore.mjs")}" install --harness ${id} --surface agents_block --project "${proj}"`;
-      const f = finding("install", id === identified ? "issue" : "warn", "agents-block", `${fact} — ${remedy}.`, blockFile);
+      const f = finding(
+        "install",
+        id === identified ? "issue" : "warn",
+        "agents-block",
+        `${fact} — ${remedy}.`,
+        blockFile,
+      );
       // The layout's harness is the one the move's command installs for, so the
       // move plans this import; another harness's is not the move's to repair.
       out.push(id === sourceHarness()?.id ? moveRepairs(f, fact) : f);
@@ -546,10 +714,14 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
 // finding leaves here carrying it.
 export function foldIntoMove(findings) {
   const layout = findings.find((f) => f.check === "layout-legacy" || f.check === "layout-two-configs");
-  const step = layout && (layout.check === "layout-two-configs"
-    ? "delete the binding the layout-two-configs finding names, then run the layout move, which repairs this"
-    : "the layout move repairs this: run what the layout-legacy finding names");
-  return findings.map(({ byMove, ...f }) => (byMove && layout ? { ...f, level: "info", message: `${byMove} — ${step}.` } : f));
+  const step =
+    layout &&
+    (layout.check === "layout-two-configs"
+      ? "delete the binding the layout-two-configs finding names, then run the layout move, which repairs this"
+      : "the layout move repairs this: run what the layout-legacy finding names");
+  return findings.map(({ byMove, ...f }) =>
+    byMove && layout ? { ...f, level: "info", message: `${byMove} — ${step}.` } : f,
+  );
 }
 
 // Both scopes are walked. The original reason ("project > user > plugin, so a
@@ -579,24 +751,44 @@ export function foldIntoMove(findings) {
 // surfaces.mjs needs — out of the SessionStart module graph. The startup
 // checks never call this.
 // Read the states once per doctor run; both checks below consume the result.
-export async function readSurfaceStates(proj, { home = homedir(), root = pluginRoot(), manifestDir = undefined, env = process.env } = {}) {
+export async function readSurfaceStates(
+  proj,
+  { home = homedir(), root = pluginRoot(), manifestDir = undefined, env = process.env } = {},
+) {
   const { surfaceStates, FOREIGN_TEXT } = await import("./surfaces.mjs");
   return { result: surfaceStates(proj, { home, root, env, ...(manifestDir ? { manifestDir } : {}) }), FOREIGN_TEXT };
 }
 
-export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root = pluginRoot(), manifestDir = undefined, read = null, env = process.env, speaker = speakingHarness() } = {}) {
+export async function checkHarnessSurfaces(
+  _cfg,
+  proj,
+  {
+    home = homedir(),
+    root = pluginRoot(),
+    manifestDir = undefined,
+    read = null,
+    env = process.env,
+    speaker = speakingHarness(),
+  } = {},
+) {
   const out = [];
   let r, FOREIGN_TEXT;
   try {
-    ({ result: r, FOREIGN_TEXT } = read || await readSurfaceStates(proj, { home, root, manifestDir, env }));
+    ({ result: r, FOREIGN_TEXT } = read || (await readSurfaceStates(proj, { home, root, manifestDir, env })));
   } catch (e) {
     return [finding("install", "warn", "surface", `Installed-surface states could not be read: ${e && e.message}`)];
   }
   // Contract 16: a harness is reported only when the project uses it; when
   // none does and nothing of ours is installed, one line names what can be.
   if (!r.used.length) {
-    out.push(finding("install", "info", "harness",
-      `No harness detected in this project and nothing of ours installed — install can target: ${r.installable.join(", ")}.`));
+    out.push(
+      finding(
+        "install",
+        "info",
+        "harness",
+        `No harness detected in this project and nothing of ours installed — install can target: ${r.installable.join(", ")}.`,
+      ),
+    );
     return out;
   }
   for (const s of r.states) {
@@ -606,15 +798,33 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
     // steps in its forms, and no status-line hint where it has no status line.
     // A shared surface — the agents block, one file every harness owns — is
     // every harness's: never marked, its step in the listener's form.
-    const sh = s.kind === "shared" ? speaker : (loadHarness(s.harness) || speaker);
+    const sh = s.kind === "shared" ? speaker : loadHarness(s.harness) || speaker;
     const push = (f) => out.push(aboutHarness(f, sh, speaker));
     if (s.kind === "exclusive") {
       if (s.state === "foreign") {
-        push(finding("install", "issue", "surface-foreign",
-          `${where} — ${FOREIGN_TEXT}. install, uninstall and upgrade refuse it; nothing repairs it.`, where));
+        push(
+          finding(
+            "install",
+            "issue",
+            "surface-foreign",
+            `${where} — ${FOREIGN_TEXT}. install, uninstall and upgrade refuse it; nothing repairs it.`,
+            where,
+          ),
+        );
       } else if (s.state === "stale" && s.produced) {
-        const status = sh?.surfaces?.statusline?.supported === false ? "" : ` (for the status line, ${invocation(sh, "statusline", { args: "on" })})`;
-        push(finding("install", "issue", "surface", `${where} — stale: ${s.reason}. Reinstall it: node "${join(root, "bin", "projectstore.mjs")}" install --harness ${s.harness} --surface ${s.surface} --project "${proj}"${status}.`, where));
+        const status =
+          sh?.surfaces?.statusline?.supported === false
+            ? ""
+            : ` (for the status line, ${invocation(sh, "statusline", { args: "on" })})`;
+        push(
+          finding(
+            "install",
+            "issue",
+            "surface",
+            `${where} — stale: ${s.reason}. Reinstall it: node "${join(root, "bin", "projectstore.mjs")}" install --harness ${s.harness} --surface ${s.surface} --project "${proj}"${status}.`,
+            where,
+          ),
+        );
       } else if (s.state === "stale" && !s.produced) {
         push(finding("install", "info", "surface", `${where} — ${s.reason}.`, where));
       } else if (s.state === "current" && s.writtenBy && !s.sameProject) {
@@ -629,7 +839,15 @@ export async function checkHarnessSurfaces(_cfg, proj, { home = homedir(), root 
       if (s.state === "unparseable") {
         push(finding("install", "issue", "surface", `${where} — ${s.reason}`, where));
       } else if (s.state === "ours-stale" && /content differs|migrates/.test(s.reason || "")) {
-        push(finding("install", "warn", "surface", `${where} [projectstore:agents] — ${s.reason}. Run ${invocation(sh, "agents", { args: "register" })}.`, where));
+        push(
+          finding(
+            "install",
+            "warn",
+            "surface",
+            `${where} [projectstore:agents] — ${s.reason}. Run ${invocation(sh, "agents", { args: "register" })}.`,
+            where,
+          ),
+        );
       }
     }
     // The statusline entry's states are checkStatusline's, under its own id.
@@ -650,8 +868,26 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
   const out = [];
   const o = readOverlayAt(proj);
   const where = relative(proj, o.path);
-  if (o.unparseable) out.push(finding("install", "issue", "overlay-unparseable", `${where} is not valid JSON — the agents run on their frontmatter models until it is fixed.`, where));
-  for (const k of o.rejected) out.push(finding("install", "issue", "overlay-forbidden-key", `${where} carries \`${k}\`, which an overlay may not: only agents.default.model and agents.per_agent.<name>.model are read; the key is ignored.`, where));
+  if (o.unparseable)
+    out.push(
+      finding(
+        "install",
+        "issue",
+        "overlay-unparseable",
+        `${where} is not valid JSON — the agents run on their frontmatter models until it is fixed.`,
+        where,
+      ),
+    );
+  for (const k of o.rejected)
+    out.push(
+      finding(
+        "install",
+        "issue",
+        "overlay-forbidden-key",
+        `${where} carries \`${k}\`, which an overlay may not: only agents.default.model and agents.per_agent.<name>.model are read; the key is ignored.`,
+        where,
+      ),
+    );
   if (cfg && cfg.agents && typeof cfg.agents === "object") {
     // The binding that carries the block is the one the reader found — before
     // the migration that is the legacy path, and naming the new one would send
@@ -663,7 +899,19 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
     const remedy = layoutRemedy(proj, { root, home });
     // The block and its move are the source harness's — a pre-0.28 binding
     // and that harness's command — so its fact under any other listener.
-    out.push(aboutHarness(finding("install", "warn", "agents-in-binding", `${b} still carries an agents block — since 0.28 the models live in ${where} (the layout ADR); nothing reads it there. ${remedy.command ? `Move it from a terminal outside the session: ${remedy.command}` : remedy.advice}.`, b), sourceHarness(), speaker));
+    out.push(
+      aboutHarness(
+        finding(
+          "install",
+          "warn",
+          "agents-in-binding",
+          `${b} still carries an agents block — since 0.28 the models live in ${where} (the layout ADR); nothing reads it there. ${remedy.command ? `Move it from a terminal outside the session: ${remedy.command}` : remedy.advice}.`,
+          b,
+        ),
+        sourceHarness(),
+        speaker,
+      ),
+    );
   }
   // A project can be used from more than one harness, and a model name is
   // harness-specific (ADR-008) — so each one has its own overlay and they do
@@ -683,12 +931,18 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
     if (configured.length) {
       for (const { id, o } of overlays) {
         if (o.present) continue;
-        out.push(finding("install", "info", "overlay-absent",
-          `This project is used from ${id} too, and ${relative(proj, o.path)} does not exist — `
-          + `its agents run on their frontmatter models (${configured.map((c) => c.id).join(", ")} `
-          + `${configured.length > 1 ? "have" : "has"} an overlay; a model name is harness-specific, so nothing carries over). `
-          + `Configure it: ${commandForm("agents", { args: `configure --harness ${id}` })}.`,
-          relative(proj, o.path)));
+        out.push(
+          finding(
+            "install",
+            "info",
+            "overlay-absent",
+            `This project is used from ${id} too, and ${relative(proj, o.path)} does not exist — ` +
+              `its agents run on their frontmatter models (${configured.map((c) => c.id).join(", ")} ` +
+              `${configured.length > 1 ? "have" : "has"} an overlay; a model name is harness-specific, so nothing carries over). ` +
+              `Configure it: ${commandForm("agents", { args: `configure --harness ${id}` })}.`,
+            relative(proj, o.path),
+          ),
+        );
       }
     }
   }
@@ -698,7 +952,16 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
   const roster = layoutRoster(cfg);
   if (roster) {
     for (const n of Object.keys(o.agents.per_agent)) {
-      if (!roster.includes(n)) out.push(finding("install", "warn", "overlay-unknown-agent", `${where} configures \`${n}\`, which is not in the ${cfg.layout} roster (${roster.join(", ")}) — no agent by that name runs, so the model never applies. A typo, or an agent this package does not ship yet.`, where));
+      if (!roster.includes(n))
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "overlay-unknown-agent",
+            `${where} configures \`${n}\`, which is not in the ${cfg.layout} roster (${roster.join(", ")}) — no agent by that name runs, so the model never applies. A typo, or an agent this package does not ship yet.`,
+            where,
+          ),
+        );
     }
   }
   return out;
@@ -717,7 +980,11 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
 // own inside the message — the report draws it alone, after a blank line, as
 // any command (doctor-report.mjs), and --json carries it one part per line.
 const SETUP_NPM = "npx projectstore setup --channel npm";
-export function checkPluginRegistration(proj, states = [], { home = homedir(), speaker = speakingHarness(), cfg = null } = {}) {
+export function checkPluginRegistration(
+  proj,
+  states = [],
+  { home = homedir(), speaker = speakingHarness(), cfg = null } = {},
+) {
   const out = [];
   // A checkout whose binding records a channel switch (the converge story's
   // rule 3) chose the npm install: the info that ends "If moving to npm was
@@ -731,7 +998,10 @@ export function checkPluginRegistration(proj, states = [], { home = homedir(), s
     // A registration of ANOTHER harness in the same project is that
     // harness's fact: named, marked, its steps in its own forms (aboutHarness).
     const push = (f) => out.push(aboutHarness(f, h, speaker));
-    const refresh = packageCommand(h, "upgrade", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` });
+    const refresh = packageCommand(h, "upgrade", {
+      version: s.pkg || "latest",
+      args: `--surface ${s.surface} --project "${proj}"`,
+    });
     // A copy this registration silenced for the checkout and the checkout
     // still holds off, one per key (the install spec, contract 13 as amended
     // after the rc.3 tag): rc.1 and rc.2's startup offer left exactly this on
@@ -741,44 +1011,110 @@ export function checkPluginRegistration(proj, states = [], { home = homedir(), s
     if ((s.silenced || []).length && (s.state === "current" || s.state === "stale")) {
       // The row this checkout loads: its own local-scope row first, then a
       // user-scope one — never another checkout's (layoutRemedy's rule).
-      const real = (x) => { try { return realpathSync.native(x); } catch { return resolve(x); } };
+      const real = (x) => {
+        try {
+          return realpathSync.native(x);
+        } catch {
+          return resolve(x);
+        }
+      };
       const here = real(proj);
-      const rows = installedPluginEntries(home, proj).filter((e) => e.present && (!e.projectPath || real(e.projectPath) === here));
+      const rows = installedPluginEntries(home, proj).filter(
+        (e) => e.present && (!e.projectPath || real(e.projectPath) === here),
+      );
       for (const key of s.silenced) {
-        const row = rows.filter((e) => e.key === key).sort((a, b) => Number(Boolean(b.projectPath)) - Number(Boolean(a.projectPath)))[0];
+        const row = rows
+          .filter((e) => e.key === key)
+          .sort((a, b) => Number(Boolean(b.projectPath)) - Number(Boolean(a.projectPath)))[0];
         if (!row) {
-          push(finding("install", "info", "plugin-registration", `${key} is held off in this checkout's local settings, where the npm registration turned it off — and that copy is no longer installed, so the entry is stale.`, s.path));
+          push(
+            finding(
+              "install",
+              "info",
+              "plugin-registration",
+              `${key} is held off in this checkout's local settings, where the npm registration turned it off — and that copy is no longer installed, so the entry is stale.`,
+              s.path,
+            ),
+          );
           continue;
         }
         if (marked) continue;
         // The release line, not the build: a 0.28 release candidate reads a
         // moved project; 0.27.x reads it as unbound. No version reads as old.
         const old = !row.version || cmpVersion(row.version, "0.28.0") < 0;
-        push(finding("install", "info", "plugin-registration",
-          `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and a /plugin update no longer reaches the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it: from a terminal outside the session, ${packageCommand(h, "uninstall", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` })}, restart, then ${invocation(loadHarness(h.id) || speaker, "doctor", { args: "--fix" })}. If moving to npm was meant, record it from a terminal in this project:\n${SETUP_NPM}`, s.path));
+        push(
+          finding(
+            "install",
+            "info",
+            "plugin-registration",
+            `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and a /plugin update no longer reaches the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it: from a terminal outside the session, ${packageCommand(h, "uninstall", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` })}, restart, then ${invocation(loadHarness(h.id) || speaker, "doctor", { args: "--fix" })}. If moving to npm was meant, record it from a terminal in this project:\n${SETUP_NPM}`,
+            s.path,
+          ),
+        );
       }
     }
     const others = (s.others || []).map((o) => `${o.key} (${o.version || "?"})`).join(", ");
     if (s.state === "foreign") {
-      push(finding("install", "issue", "plugin-registration-foreign", `${s.reason} — install, uninstall and upgrade refuse it; nothing repairs it.`, s.path));
+      push(
+        finding(
+          "install",
+          "issue",
+          "plugin-registration-foreign",
+          `${s.reason} — install, uninstall and upgrade refuse it; nothing repairs it.`,
+          s.path,
+        ),
+      );
     } else if (s.state === "unavailable") {
-      push(finding("install", "info", "plugin-registration", `No npm registration of projectstore for this project, and ${s.reason}.`));
+      push(
+        finding(
+          "install",
+          "info",
+          "plugin-registration",
+          `No npm registration of projectstore for this project, and ${s.reason}.`,
+        ),
+      );
     } else if (s.state === "absent") {
       // A git-marketplace install alone is not a finding: a permanent info
       // advertising the npm path to every marketplace user is noise (2026-09-05).
     } else if (s.state === "stale") {
-      push(finding("install", "issue", "plugin-registration", `${s.entry} — stale: ${s.reason}. Refresh it: ${refresh}`, s.path));
+      push(
+        finding(
+          "install",
+          "issue",
+          "plugin-registration",
+          `${s.entry} — stale: ${s.reason}. Refresh it: ${refresh}`,
+          s.path,
+        ),
+      );
     } else if (s.state === "current") {
       // The host loads a host plugin registration in place, from the
       // plugin's root inside our marketplace directory (the payload — what
       // its plugin-root variable names); the install path is the registry's
       // copy, the one the launcher renders (measured on host 2.1.293 and
       // 2.1.296). A portable registration's host loads the copy.
-      const loaded = h.surfaces?.[s.surface]?.format === "host-plugin-registration" && s.payload
-        ? `install path ${s.installPath}; loaded in place from ${s.payload}`
-        : `loaded from ${s.installPath}`;
-      if (others) push(finding("install", "issue", "plugin-registration", `${s.entry} is current, and ${others} is enabled for this project too — two enabled copies of one plugin load twice. install silences the other for this project: ${packageCommand(h, "install", { args: `--surface ${s.surface} --project "${proj}"` })} (or the host's own disable at the scope the manifest names — never the committed project scope).`, s.path));
-      else push(finding("install", "info", "plugin-registration", `${s.entry} ${s.installedVersion} registered from the npm package for this project (${loaded}); refresh with ${refresh}.`));
+      const loaded =
+        h.surfaces?.[s.surface]?.format === "host-plugin-registration" && s.payload
+          ? `install path ${s.installPath}; loaded in place from ${s.payload}`
+          : `loaded from ${s.installPath}`;
+      if (others)
+        push(
+          finding(
+            "install",
+            "issue",
+            "plugin-registration",
+            `${s.entry} is current, and ${others} is enabled for this project too — two enabled copies of one plugin load twice. install silences the other for this project: ${packageCommand(h, "install", { args: `--surface ${s.surface} --project "${proj}"` })} (or the host's own disable at the scope the manifest names — never the committed project scope).`,
+            s.path,
+          ),
+        );
+      else
+        push(
+          finding(
+            "install",
+            "info",
+            "plugin-registration",
+            `${s.entry} ${s.installedVersion} registered from the npm package for this project (${loaded}); refresh with ${refresh}.`,
+          ),
+        );
     }
   }
   return out;
@@ -799,10 +1135,16 @@ export function checkVersionDrift(home = homedir(), states = [], proj = null, { 
   const registryOf = sourceHarness()?.id || null;
   for (const e of installedPluginEntries(home, proj)) {
     // A disabled registration is not a copy anyone runs (contract 17, amended 2026-09-05).
-    if (e.version && e.present && e.enabled !== false) seen.push({ source: `registry ${e.key}${e.scope ? " (" + e.scope + ")" : ""} at ${e.path}`, version: e.version, harness: registryOf });
+    if (e.version && e.present && e.enabled !== false)
+      seen.push({
+        source: `registry ${e.key}${e.scope ? " (" + e.scope + ")" : ""} at ${e.path}`,
+        version: e.version,
+        harness: registryOf,
+      });
   }
   for (const s of states) {
-    if (s.installedPkg) seen.push({ source: `pkg= of ${s.surface}`, version: s.installedPkg, harness: s.harness || null });
+    if (s.installedPkg)
+      seen.push({ source: `pkg= of ${s.surface}`, version: s.installedPkg, harness: s.harness || null });
   }
   const versions = new Set(seen.map((x) => x.version));
   if (versions.size < 2) return [];
@@ -812,9 +1154,22 @@ export function checkVersionDrift(home = homedir(), states = [], proj = null, { 
   // for copies of several harnesses, the listener — has one.
   const owners = [...new Set(seen.map((x) => x.harness))];
   const subject = owners.length === 1 && owners[0] ? loadHarness(owners[0]) : null;
-  const launcher = (subject || speaker)?.surfaces?.statusline?.supported === false ? "" : "; the launcher renders whichever is registered";
-  return [aboutHarness(finding("install", "warn", "version-drift",
-    `projectstore is registered or installed at more than one version on this machine: ${list}. Update the older one${launcher}.`), subject, speaker)];
+  const launcher =
+    (subject || speaker)?.surfaces?.statusline?.supported === false
+      ? ""
+      : "; the launcher renders whichever is registered";
+  return [
+    aboutHarness(
+      finding(
+        "install",
+        "warn",
+        "version-drift",
+        `projectstore is registered or installed at more than one version on this machine: ${list}. Update the older one${launcher}.`,
+      ),
+      subject,
+      speaker,
+    ),
+  ];
 }
 
 export function checkOverrideCopies(proj, home = homedir(), harness = speakingHarness()) {
@@ -831,7 +1186,11 @@ export function checkOverrideCopies(proj, home = homedir(), harness = speakingHa
   for (const { dir, label, scope } of scopes) {
     for (const f of listMd(dir)) {
       let text;
-      try { text = readFileSync(join(dir, f), "utf8"); } catch { continue; }
+      try {
+        text = readFileSync(join(dir, f), "utf8");
+      } catch {
+        continue;
+      }
       const m = text.match(/#\s*source:\s*projectstore\s+v(\S+)/);
       const { data } = parseFrontmatter(text);
       // A provenance-marked copy with no `name:` still deserves a usable
@@ -850,14 +1209,27 @@ export function checkOverrideCopies(proj, home = homedir(), harness = speakingHa
         // without a provenance marker we cannot prove lineage — hedge FIRST,
         // not 40 words in, or the false premise leads for user-authored agents
         const lead = m ? `${f}` : `If ${f} began as a projectstore copy (no provenance marker — ignore otherwise): it`;
-        out.push(finding("install", m ? "warn" : "info", "override-copies",
-          `${lead} carries the pre-v0.13 name "${name}", which no longer matches a bundled agent, so it overrides nothing and stands alongside "${now}" in the roster.${everywhere} ${advice}`,
-          where));
+        out.push(
+          finding(
+            "install",
+            m ? "warn" : "info",
+            "override-copies",
+            `${lead} carries the pre-v0.13 name "${name}", which no longer matches a bundled agent, so it overrides nothing and stands alongside "${now}" in the roster.${everywhere} ${advice}`,
+            where,
+          ),
+        );
         continue; // a stale-version note on top would just be noise
       }
       if (!CURRENT_AGENT_NAMES.includes(name)) {
-        out.push(finding("install", "warn", "override-copies",
-          `Override copy ${f} has name "${name}" which matches no bundled agent — it duplicates instead of overriding.${everywhere}`, where));
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "override-copies",
+            `Override copy ${f} has name "${name}" which matches no bundled agent — it duplicates instead of overriding.${everywhere}`,
+            where,
+          ),
+        );
         continue;
       }
       // ADR-008. A current-name copy overrides nothing either: the bundled agent
@@ -867,9 +1239,7 @@ export function checkOverrideCopies(proj, home = homedir(), harness = speakingHa
       // refreshing such a copy fixes nothing; that is why it replaces the old
       // "frozen at vX — re-run configure" advice instead of sitting beside it.
       // Staleness is demoted to a parenthetical: still true, no longer the point.
-      const stale = m && ver && m[1] !== ver
-        ? ` (It is also frozen at projectstore v${m[1]}, installed v${ver}.)`
-        : "";
+      const stale = m && ver && m[1] !== ver ? ` (It is also frozen at projectstore v${m[1]}, installed v${ver}.)` : "";
       // Without a marker we cannot prove lineage — hedge FIRST, and never issue
       // a delete imperative against a file the user may well have written.
       const lead = m
@@ -878,15 +1248,22 @@ export function checkOverrideCopies(proj, home = homedir(), harness = speakingHa
       // `configure` only ever touched PROJECT scope, so pointing a user-scope
       // copy at it would name a command that will not act — the scope split
       // fca8def introduced for staleness applies here for the same reason.
-      const remove = scope === "user"
-        ? `Delete ${where} by hand (or via ${commandForm("doctor", { args: "--fix" })}) — ${commandForm("agents", { args: "configure" })} only cleans up project-scope copies.`
-        : `Delete it via ${commandForm("agents", { args: "configure" })}, which now records the model in .projectstore/harness/<harness>.json (the active harness's overlay) and passes it per invocation.`;
+      const remove =
+        scope === "user"
+          ? `Delete ${where} by hand (or via ${commandForm("doctor", { args: "--fix" })}) — ${commandForm("agents", { args: "configure" })} only cleans up project-scope copies.`
+          : `Delete it via ${commandForm("agents", { args: "configure" })}, which now records the model in .projectstore/harness/<harness>.json (the active harness's overlay) and passes it per invocation.`;
       const advice = m
         ? remove
         : `If you wrote it yourself, nothing is broken; if you meant to change the bundled agent's model, that is ${commandForm("agents", { args: "configure" })}, not a copy.`;
-      out.push(finding("install", m ? "warn" : "info", "override-copies",
-        `${lead} It registers as "${name}" while the bundled agent registers as "${sharedRoleForm(name)}", so both exist side by side.${everywhere}${stale} ${advice}`,
-        where));
+      out.push(
+        finding(
+          "install",
+          m ? "warn" : "info",
+          "override-copies",
+          `${lead} It registers as "${name}" while the bundled agent registers as "${sharedRoleForm(name)}", so both exist side by side.${everywhere}${stale} ${advice}`,
+          where,
+        ),
+      );
     }
   }
   return out;
@@ -900,28 +1277,60 @@ export function checkOverrideCopies(proj, home = homedir(), harness = speakingHa
 // The variable names come from the manifest (runtime.agent_overrides); the
 // wording is projectstore's, because the claim — ADR-008's quality floor — is.
 export function checkEnvEffort() {
-  return agentOverrides().filter((o) => o.kind === "effort").map((o) => finding("install", "warn", "env-effort",
-    `${o.env}=${o.value} is set — it overrides the bundled agents' "effort: max" frontmatter, so every projectstore agent runs at "${o.value}". Effort is not configurable per project (ADR-008); unset the variable to restore the quality floor.`));
+  return agentOverrides()
+    .filter((o) => o.kind === "effort")
+    .map((o) =>
+      finding(
+        "install",
+        "warn",
+        "env-effort",
+        `${o.env}=${o.value} is set — it overrides the bundled agents' "effort: max" frontmatter, so every projectstore agent runs at "${o.value}". Effort is not configurable per project (ADR-008); unset the variable to restore the quality floor.`,
+      ),
+    );
 }
 
 export function checkEnvModel() {
-  return agentOverrides().filter((o) => o.kind === "model").map((o) => finding("install", "warn", "env-model",
-    `${o.env}=${o.value} is set — it overrides ALL projectstore agent model configuration, per-invocation parameter included.`));
+  return agentOverrides()
+    .filter((o) => o.kind === "model")
+    .map((o) =>
+      finding(
+        "install",
+        "warn",
+        "env-model",
+        `${o.env}=${o.value} is set — it overrides ALL projectstore agent model configuration, per-invocation parameter included.`,
+      ),
+    );
 }
 
 // The project-level layout (the layout ADR): a legacy .projectstore/projectstore.json
 // or .projectstore/state/ is one warn naming the upgrade; two bindings is an
 // issue. Cheap — a handful of existsSync — so the startup line carries the
 // warn as an offer (OFFER_CHECKS).
-export function checkLayout(proj, harness = sourceHarness(), { level = "warn", root = pluginRoot(), home = homedir(), speaker = speakingHarness() } = {}) {
+export function checkLayout(
+  proj,
+  harness = sourceHarness(),
+  { level = "warn", root = pluginRoot(), home = homedir(), speaker = speakingHarness() } = {},
+) {
   const p = layoutPaths(proj, { harnessDir: harness?.runtime?.harness_dir || null });
-  const legacyBinding = existsSync(p.legacy.binding), legacyRuntime = existsSync(p.legacy.runtime);
+  const legacyBinding = existsSync(p.legacy.binding),
+    legacyRuntime = existsSync(p.legacy.runtime);
   let resumable = false;
   if (legacyBinding && existsSync(p.binding)) {
-    try { const { agents: _agents, ...rest } = JSON.parse(readFileSync(p.legacy.binding, "utf8")); resumable = JSON.stringify(rest) === JSON.stringify(JSON.parse(readFileSync(p.binding, "utf8"))); } catch {}
+    try {
+      const { agents: _agents, ...rest } = JSON.parse(readFileSync(p.legacy.binding, "utf8"));
+      resumable = JSON.stringify(rest) === JSON.stringify(JSON.parse(readFileSync(p.binding, "utf8")));
+    } catch {}
   }
   if (legacyBinding && existsSync(p.binding) && !resumable) {
-    return [finding("install", "issue", "layout-two-configs", `Two bindings: ${relative(proj, p.legacy.binding)} (legacy) and ${relative(proj, p.binding)} — keep one and delete the other; install and upgrade refuse while both exist. Usually the legacy one goes: it is the copy an interrupted migration or a 0.27.x re-bind left behind (when both name the same vault, upgrade removes it itself).`, relative(proj, p.legacy.binding))];
+    return [
+      finding(
+        "install",
+        "issue",
+        "layout-two-configs",
+        `Two bindings: ${relative(proj, p.legacy.binding)} (legacy) and ${relative(proj, p.binding)} — keep one and delete the other; install and upgrade refuse while both exist. Usually the legacy one goes: it is the copy an interrupted migration or a 0.27.x re-bind left behind (when both name the same vault, upgrade removes it itself).`,
+        relative(proj, p.legacy.binding),
+      ),
+    ];
   }
   if (!legacyBinding && !legacyRuntime && !existsSync(p.legacy.welcomed) && !existsSync(p.legacy.sessionId)) return [];
   // The command in the channel of the copy the project runs (the layout spec,
@@ -934,12 +1343,37 @@ export function checkLayout(proj, harness = sourceHarness(), { level = "warn", r
   // the registration out of the plan — no host command by construction, not by
   // recognising the root (a checkout, a symlinked or relocated home).
   const remedy = layoutRemedy(proj, { root, home, harness });
-  const held = [legacyBinding && relative(proj, p.legacy.binding), legacyRuntime && relative(proj, p.legacy.runtime) + "/", existsSync(p.legacy.welcomed) && relative(proj, p.legacy.welcomed), existsSync(p.legacy.sessionId) && relative(proj, p.legacy.sessionId)].filter(Boolean).join(", ");
+  const held = [
+    legacyBinding && relative(proj, p.legacy.binding),
+    legacyRuntime && relative(proj, p.legacy.runtime) + "/",
+    existsSync(p.legacy.welcomed) && relative(proj, p.legacy.welcomed),
+    existsSync(p.legacy.sessionId) && relative(proj, p.legacy.sessionId),
+  ]
+    .filter(Boolean)
+    .join(", ");
   // The files sit in that harness's legacy directory and the move is its
   // command: its fact under any other listener (aboutHarness).
-  return [aboutHarness(finding("install", level, "layout-legacy",
-    `The project layout moved to .projectstore/ (the layout ADR, 0.28); this project still holds ${held}. ${remedy.command ? `Migrate it from a terminal outside the session: ${remedy.command}` : remedy.advice} (readers fall back to the old paths through 0.29).`,
-    relative(proj, [legacyBinding && p.legacy.binding, legacyRuntime && p.legacy.runtime, existsSync(p.legacy.welcomed) && p.legacy.welcomed, p.legacy.sessionId].find(Boolean))), harness, speaker)];
+  return [
+    aboutHarness(
+      finding(
+        "install",
+        level,
+        "layout-legacy",
+        `The project layout moved to .projectstore/ (the layout ADR, 0.28); this project still holds ${held}. ${remedy.command ? `Migrate it from a terminal outside the session: ${remedy.command}` : remedy.advice} (readers fall back to the old paths through 0.29).`,
+        relative(
+          proj,
+          [
+            legacyBinding && p.legacy.binding,
+            legacyRuntime && p.legacy.runtime,
+            existsSync(p.legacy.welcomed) && p.legacy.welcomed,
+            p.legacy.sessionId,
+          ].find(Boolean),
+        ),
+      ),
+      harness,
+      speaker,
+    ),
+  ];
 }
 
 // The one command that moves this project's files (the layout spec, contract
@@ -961,14 +1395,23 @@ export function checkLayout(proj, harness = sourceHarness(), { level = "warn", r
 // re-exported here, where its callers already import it.
 export { takesNoRegister };
 
-export function layoutRemedy(proj, { root = pluginRoot(), home = homedir(), harness = sourceHarness(), env = process.env } = {}) {
+export function layoutRemedy(
+  proj,
+  { root = pluginRoot(), home = homedir(), harness = sourceHarness(), env = process.env } = {},
+) {
   // A session under a relocated host home hands it on: a terminal without it
   // would classify the copy as a checkout, render no launcher and never clear
   // the offer (the second review of the 2026-10-03 fixes, S2).
   const homeVar = harness?.runtime?.home_env;
   const prefix = homeVar && env[homeVar] ? `${homeVar}="${env[homeVar]}" ` : "";
-  const shell = (version) => ({ command: prefix + packageCommand(harness, "upgrade", { version: version || "latest", args: `--no-register --project "${proj}"` }) });
-  const own = (copy) => ({ command: `${prefix}node "${join(copy, "bin", "projectstore.mjs")}" upgrade --harness ${harness?.id || "<id>"} --no-register --project "${proj}"` });
+  const shell = (version) => ({
+    command:
+      prefix +
+      packageCommand(harness, "upgrade", { version: version || "latest", args: `--no-register --project "${proj}"` }),
+  });
+  const own = (copy) => ({
+    command: `${prefix}node "${join(copy, "bin", "projectstore.mjs")}" upgrade --harness ${harness?.id || "<id>"} --no-register --project "${proj}"`,
+  });
   const channel = installChannel(root, { home, harness });
   if (channel === "registration") return shell(pluginVersion(root));
   if (channel === "marketplace") return own(root);
@@ -978,17 +1421,20 @@ export function layoutRemedy(proj, { root = pluginRoot(), home = homedir(), harn
   if (copy) {
     const v = copy.version ? ` (${copy.version})` : "";
     const then = "and the startup line names the command";
-    if (copy.missing === "bin") return { advice: copyUpdateAdvice(copy, { cannot: "predates the move and cannot run it", then }) };
+    if (copy.missing === "bin")
+      return { advice: copyUpdateAdvice(copy, { cannot: "predates the move and cannot run it", then }) };
     // Chosen first, gated after: the copy is what the project runs, so an
     // incapable one gets advice even beside a capable user-scope copy.
     const viaRegistration = copy.channel === "registration";
     if (copy.missing === "no-register") {
-      return { advice: viaRegistration
-        // Its channel's ordinary refresh, at the running version: the plain
-        // upgrade re-registers from npm — not a switch for an npm project — and
-        // moves the project in the same run.
-        ? `This project's projectstore plugin${v} is the npm registration's copy and predates --no-register, so it cannot run the move as named: refresh that registration, which moves the project too, from a terminal outside the session: ${prefix}${packageCommand(harness, "upgrade", { version: pluginVersion(root) || "latest", args: `--project "${proj}"` })}`
-        : copyUpdateAdvice(copy, { cannot: "predates --no-register and cannot run the move as named", then }) };
+      return {
+        advice: viaRegistration
+          ? // Its channel's ordinary refresh, at the running version: the plain
+            // upgrade re-registers from npm — not a switch for an npm project — and
+            // moves the project in the same run.
+            `This project's projectstore plugin${v} is the npm registration's copy and predates --no-register, so it cannot run the move as named: refresh that registration, which moves the project too, from a terminal outside the session: ${prefix}${packageCommand(harness, "upgrade", { version: pluginVersion(root) || "latest", args: `--project "${proj}"` })}`
+          : copyUpdateAdvice(copy, { cannot: "predates --no-register and cannot run the move as named", then }),
+      };
     }
     return viaRegistration ? shell(copy.version) : own(copy.path);
   }
@@ -1003,31 +1449,61 @@ export function checkGitignore(proj) {
   const p = layoutPaths(proj);
   if (existsSync(p.root)) {
     let lines = null;
-    try { lines = readFileSync(p.gitignore, "utf8").split("\n").map((l) => l.trim()); } catch {}
+    try {
+      lines = readFileSync(p.gitignore, "utf8")
+        .split("\n")
+        .map((l) => l.trim());
+    } catch {}
     if (lines === null) {
       // Contract 5's ignore file is what keeps a machine-local binding — with
       // an absolute vault path — out of a commit. Until 2026-09-06 bind never
       // wrote it, so a project bound and committed before its first session
       // carried one; doctor reasoned from the self-ignoring without ever
       // checking it.
-      out.push(finding("install", "warn", "gitignore",
-        `.projectstore/ exists without its .gitignore — the binding and state/ are machine-local and would be committed. Write the lines ${[...LAYOUT.gitignore].map((l) => JSON.stringify(l)).join(", ")}.`, ".projectstore/.gitignore"));
+      out.push(
+        finding(
+          "install",
+          "warn",
+          "gitignore",
+          `.projectstore/ exists without its .gitignore — the binding and state/ are machine-local and would be committed. Write the lines ${[...LAYOUT.gitignore].map((l) => JSON.stringify(l)).join(", ")}.`,
+          ".projectstore/.gitignore",
+        ),
+      );
     } else {
-      if (lines.includes("*") && existsSync(p.overlayDir)) out.push(finding("install", "warn", "gitignore", `.projectstore/.gitignore carries "*", which hides harness/ (the committed overlays) from git — replace it with the lines ${[...LAYOUT.gitignore, LAYOUT.vaultSessions + "/"].map((l) => JSON.stringify(l)).join(", ")}.`, ".projectstore/.gitignore"));
+      if (lines.includes("*") && existsSync(p.overlayDir))
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "gitignore",
+            `.projectstore/.gitignore carries "*", which hides harness/ (the committed overlays) from git — replace it with the lines ${[...LAYOUT.gitignore, LAYOUT.vaultSessions + "/"].map((l) => JSON.stringify(l)).join(", ")}.`,
+            ".projectstore/.gitignore",
+          ),
+        );
       else if (!lines.includes("*")) {
         // A lone "*" is the pre-2026-09-06 vault-that-is-a-project shape: it
         // ignores the binding and state/ already, and only hides harness/ when
         // that directory exists — which the branch above is for.
         const short = [...LAYOUT.gitignore].filter((l) => !lines.includes(l));
-        if (short.length) out.push(finding("install", "warn", "gitignore",
-          `.projectstore/.gitignore is missing ${short.map((l) => JSON.stringify(l)).join(", ")} — the file is line-merged, so add the line rather than rewriting it.`, ".projectstore/.gitignore"));
+        if (short.length)
+          out.push(
+            finding(
+              "install",
+              "warn",
+              "gitignore",
+              `.projectstore/.gitignore is missing ${short.map((l) => JSON.stringify(l)).join(", ")} — the file is line-merged, so add the line rather than rewriting it.`,
+              ".projectstore/.gitignore",
+            ),
+          );
       }
     }
   }
   if (!existsSync(join(proj, ".git"))) return out;
   let lines = [];
   try {
-    lines = readFileSync(join(proj, ".gitignore"), "utf8").split("\n").map((l) => l.trim());
+    lines = readFileSync(join(proj, ".gitignore"), "utf8")
+      .split("\n")
+      .map((l) => l.trim());
   } catch {}
   const coveredAll = lines.includes(".claude/") || lines.includes(".claude");
   if (coveredAll) return out;
@@ -1035,8 +1511,14 @@ export function checkGitignore(proj) {
   const wanted = [relative(proj, hostSettingsPath(proj))];
   const missing = wanted.filter((w) => !lines.includes(w));
   if (!missing.length) return out;
-  out.push(finding("install", "warn", "gitignore",
-    `Machine-specific files not gitignored: ${missing.join(", ")} (or ignore ".claude/" wholesale).`));
+  out.push(
+    finding(
+      "install",
+      "warn",
+      "gitignore",
+      `Machine-specific files not gitignored: ${missing.join(", ")} (or ignore ".claude/" wholesale).`,
+    ),
+  );
   return out;
 }
 
@@ -1050,16 +1532,32 @@ export function checkTrackedRuntime(proj) {
   const want = [relative(proj, p.binding), relative(proj, p.state)];
   const r = spawnSync("git", ["ls-files", "--", ...want], { cwd: proj, encoding: "utf8", timeout: 5000 });
   if (r.status !== 0 || !r.stdout) return [];
-  const tracked = r.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+  const tracked = r.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
   if (!tracked.length) return [];
-  return [finding("install", "warn", "gitignore-tracked",
-    `git already tracks ${tracked.join(", ")} — machine-local files with an absolute vault path, committed before the ignore lines existed. An ignore line does not untrack them: run \`git rm --cached ${tracked.join(" ")}\` and commit.`, tracked[0])];
+  return [
+    finding(
+      "install",
+      "warn",
+      "gitignore-tracked",
+      `git already tracks ${tracked.join(", ")} — machine-local files with an absolute vault path, committed before the ignore lines existed. An ignore line does not untrack them: run \`git rm --cached ${tracked.join(" ")}\` and commit.`,
+      tracked[0],
+    ),
+  ];
 }
 
 export function checkVaultGit(cfg) {
   if (existsSync(join(cfg.vault_path, ".git"))) return [];
-  return [finding("install", "warn", "vault-git",
-    "Vault is not a git repository — the knowledge has no history/blame/review. Consider `git init` (doctor --fix offers it).")];
+  return [
+    finding(
+      "install",
+      "warn",
+      "vault-git",
+      "Vault is not a git repository — the knowledge has no history/blame/review. Consider `git init` (doctor --fix offers it).",
+    ),
+  ];
 }
 
 // Marketplace auto-update (maintainer request 2026-07-03): third-party
@@ -1085,12 +1583,20 @@ export function checkAutoUpdate(home = homedir(), harness = speakingHarness()) {
   //    session. So fall back to the registered install when our own path says
   //    nothing, and never claim --plugin-dir as a conclusion.
   const marketplaceOf = (p) =>
-    (String(p || "").replace(/\\/g, "/").match(/\/plugins\/(?:cache|marketplaces)\/([^/]+)(?:\/|$)/) || [])[1] || null;
+    (String(p || "")
+      .replace(/\\/g, "/")
+      .match(/\/plugins\/(?:cache|marketplaces)\/([^/]+)(?:\/|$)/) || [])[1] || null;
   const inst = installedPluginRoot(home);
   const marketplace = marketplaceOf(pluginRoot()) || marketplaceOf(inst && inst.path);
   if (!marketplace) {
-    out.push(finding("install", "info", "auto-update",
-      "No marketplace install of projectstore found (--plugin-dir, or a checkout with none registered) — marketplace auto-update not applicable."));
+    out.push(
+      finding(
+        "install",
+        "info",
+        "auto-update",
+        "No marketplace install of projectstore found (--plugin-dir, or a checkout with none registered) — marketplace auto-update not applicable.",
+      ),
+    );
     return out;
   }
 
@@ -1104,8 +1610,14 @@ export function checkAutoUpdate(home = homedir(), harness = speakingHarness()) {
   // verb, reported by checkPluginRegistration (2026-09-05).
   if (entry && entry.source && entry.source.source === "directory") return out;
   if (!entry) {
-    out.push(finding("install", "warn", "auto-update",
-      `Marketplace "${marketplace}" is missing from ~/.claude/plugins/known_marketplaces.json — updates cannot be tracked. Re-add it: /plugin marketplace add <owner/repo>.`));
+    out.push(
+      finding(
+        "install",
+        "warn",
+        "auto-update",
+        `Marketplace "${marketplace}" is missing from ~/.claude/plugins/known_marketplaces.json — updates cannot be tracked. Re-add it: /plugin marketplace add <owner/repo>.`,
+      ),
+    );
     return out;
   }
 
@@ -1117,11 +1629,17 @@ export function checkAutoUpdate(home = homedir(), harness = speakingHarness()) {
     } catch {}
   }
   if (!enabled) {
-    out.push(finding("install", "warn", "auto-update",
-      `Auto-update is OFF for marketplace "${marketplace}" — new projectstore releases will not be noticed. ` +
-      `Correct values: "autoUpdate": true on the "${marketplace}" entry in ~/.claude/plugins/known_marketplaces.json ` +
-      `(set via /plugin → Marketplaces → ${marketplace} → toggle auto-update), or in ~/.claude/settings.json → ` +
-      `extraKnownMarketplaces.${marketplace}.autoUpdate: true. Manual path: /plugin marketplace update ${marketplace}, then /reload-plugins.`));
+    out.push(
+      finding(
+        "install",
+        "warn",
+        "auto-update",
+        `Auto-update is OFF for marketplace "${marketplace}" — new projectstore releases will not be noticed. ` +
+          `Correct values: "autoUpdate": true on the "${marketplace}" entry in ~/.claude/plugins/known_marketplaces.json ` +
+          `(set via /plugin → Marketplaces → ${marketplace} → toggle auto-update), or in ~/.claude/settings.json → ` +
+          `extraKnownMarketplaces.${marketplace}.autoUpdate: true. Manual path: /plugin marketplace update ${marketplace}, then /reload-plugins.`,
+      ),
+    );
   }
 
   // Bonus: the marketplace checkout's catalog knows the latest released
@@ -1137,12 +1655,18 @@ export function checkAutoUpdate(home = homedir(), harness = speakingHarness()) {
     const name = JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).name;
     const catalog = JSON.parse(readFileSync(join(entry.installLocation, ".claude-plugin", "marketplace.json"), "utf8"));
     const latest = (catalog.plugins || []).find((p) => p.name === name)?.version;
-    const running = (named && named.version)
-      || JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).version;
+    const running =
+      (named && named.version) || JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).version;
     // Precedence, not the triple: a session on 0.28.0-rc.3 hears that 0.28.0 is out.
     if (latest && running && cmpPrecedence(latest, running) > 0) {
-      out.push(finding("install", "warn", "auto-update",
-        `A newer ${name} is available: v${latest} (running v${running}) — run /plugin marketplace update ${marketplace}, then /reload-plugins.`));
+      out.push(
+        finding(
+          "install",
+          "warn",
+          "auto-update",
+          `A newer ${name} is available: v${latest} (running v${running}) — run /plugin marketplace update ${marketplace}, then /reload-plugins.`,
+        ),
+      );
     }
   } catch {}
   return out;
@@ -1160,17 +1684,45 @@ export function checkMcpRegistration(root = pluginRoot(), harness = speakingHarn
   const mcp = harness && harness.surfaces && harness.surfaces.mcp;
   if (!mcp || mcp.kind !== "host" || mcp.supported === false) return [];
   const p = join(root, mcp.file || ".mcp.json");
-  if (!existsSync(p)) return [finding("install", "warn", "mcp", "No .mcp.json at the plugin root — the MCP read tools are not registered; the package ships one, so this install is incomplete or predates the MCP surface (0.28).")];
+  if (!existsSync(p))
+    return [
+      finding(
+        "install",
+        "warn",
+        "mcp",
+        "No .mcp.json at the plugin root — the MCP read tools are not registered; the package ships one, so this install is incomplete or predates the MCP surface (0.28).",
+      ),
+    ];
   let reg;
-  try { reg = JSON.parse(readFileSync(p, "utf8")); } catch (e) { return [finding("install", "issue", "mcp", `.mcp.json at the plugin root is not valid JSON: ${e.message}`, ".mcp.json")]; }
+  try {
+    reg = JSON.parse(readFileSync(p, "utf8"));
+  } catch (e) {
+    return [
+      finding("install", "issue", "mcp", `.mcp.json at the plugin root is not valid JSON: ${e.message}`, ".mcp.json"),
+    ];
+  }
   const server = reg && reg.mcpServers && reg.mcpServers.projectstore;
   const args = server && Array.isArray(server.args) ? server.args : [];
   if (!server || !args.some((a) => String(a).endsWith("/bin/projectstore.mjs")) || !args.includes("mcp")) {
-    return [finding("install", "issue", "mcp", ".mcp.json at the plugin root does not launch bin/projectstore.mjs mcp — the MCP read tools will not answer.", ".mcp.json")];
+    return [
+      finding(
+        "install",
+        "issue",
+        "mcp",
+        ".mcp.json at the plugin root does not launch bin/projectstore.mjs mcp — the MCP read tools will not answer.",
+        ".mcp.json",
+      ),
+    ];
   }
-  return [finding("install", "info", "mcp", "MCP read tools registered by the plugin's .mcp.json (one server per project, bound through the host's project directory).")];
+  return [
+    finding(
+      "install",
+      "info",
+      "mcp",
+      "MCP read tools registered by the plugin's .mcp.json (one server per project, bound through the host's project directory).",
+    ),
+  ];
 }
-
 
 // ─── Vault checks ──────────────────────────────────────────────────────
 
@@ -1180,7 +1732,11 @@ export function scanArtifacts(cfg, layout) {
   const artifacts = [];
   const push = (abs, rel, kind) => {
     let md;
-    try { md = readFileSync(abs, "utf8"); } catch { return; }
+    try {
+      md = readFileSync(abs, "utf8");
+    } catch {
+      return;
+    }
     artifacts.push({ abs, rel, kind, fm: parseFrontmatter(md).data, body: md });
   };
   for (const folder of layout.folders) {
@@ -1222,13 +1778,27 @@ export function checkKanbanSync(cfg) {
     return [finding("vault", "warn", "kanban", `kanban generator failed: ${(r.stderr || "").trim()}`)];
   }
   let expected;
-  try { expected = JSON.parse(r.stdout).content; } catch {
+  try {
+    expected = JSON.parse(r.stdout).content;
+  } catch {
     return [finding("vault", "warn", "kanban", "kanban generator returned unparseable output.")];
   }
-  const norm = (s) => s.split("\n").filter((l) => !l.startsWith("generated_at:")).join("\n").trimEnd();
+  const norm = (s) =>
+    s
+      .split("\n")
+      .filter((l) => !l.startsWith("generated_at:"))
+      .join("\n")
+      .trimEnd();
   if (norm(expected) !== norm(readFileSync(onDisk, "utf8"))) {
-    return [finding("vault", "issue", "kanban",
-      `kanban.md is out of sync with story frontmatter — run ${commandForm("kanban")} (or reconcile).`, "kanban.md")];
+    return [
+      finding(
+        "vault",
+        "issue",
+        "kanban",
+        `kanban.md is out of sync with story frontmatter — run ${commandForm("kanban")} (or reconcile).`,
+        "kanban.md",
+      ),
+    ];
   }
   return [];
 }
@@ -1252,28 +1822,51 @@ export function checkIndexes(cfg, layout, artifacts) {
       indexed.add(rel);
       const art = artifacts.find((a) => a.rel === rel);
       if (!art) {
-        out.push(finding("vault", "issue", "index",
-          `${folder.path}/README.md row "${row.label}" points at a missing file: ${row.target}`, `${folder.path}/README.md`));
+        out.push(
+          finding(
+            "vault",
+            "issue",
+            "index",
+            `${folder.path}/README.md row "${row.label}" points at a missing file: ${row.target}`,
+            `${folder.path}/README.md`,
+          ),
+        );
         continue;
       }
       const fmStatus = (art.fm.status || "").trim();
       if (fmStatus && row.status && fmStatus !== row.status) {
-        out.push(finding("vault", "issue", "index",
-          `${folder.path}/README.md lists "${row.label}" as "${row.status}" but its frontmatter says "${fmStatus}".`, art.rel));
+        out.push(
+          finding(
+            "vault",
+            "issue",
+            "index",
+            `${folder.path}/README.md lists "${row.label}" as "${row.status}" but its frontmatter says "${fmStatus}".`,
+            art.rel,
+          ),
+        );
       }
       const fmTitle = (art.fm.title || "").trim();
       if (fmTitle && row.title && fmTitle !== row.title) {
-        out.push(finding("vault", "warn", "index",
-          `${folder.path}/README.md title for "${row.label}" differs from frontmatter title.`, art.rel));
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "index",
+            `${folder.path}/README.md title for "${row.label}" differs from frontmatter title.`,
+            art.rel,
+          ),
+        );
       }
     }
     for (const a of artifacts) {
-      const inFolder = folder.kind === "epic"
-        ? a.kind === "epic" && a.rel.startsWith(`${folder.path}/`)
-        : a.kind === folder.kind && a.rel === `${folder.path}/${basename(a.rel)}`;
+      const inFolder =
+        folder.kind === "epic"
+          ? a.kind === "epic" && a.rel.startsWith(`${folder.path}/`)
+          : a.kind === folder.kind && a.rel === `${folder.path}/${basename(a.rel)}`;
       if (inFolder && !indexed.has(a.rel)) {
-        out.push(finding("vault", "warn", "index",
-          `${a.rel} is not listed in ${folder.path}/README.md's index.`, a.rel));
+        out.push(
+          finding("vault", "warn", "index", `${a.rel} is not listed in ${folder.path}/README.md's index.`, a.rel),
+        );
       }
     }
   }
@@ -1290,7 +1883,10 @@ function linesOutsideFences(s) {
   const out = [];
   let fenced = false;
   for (const line of s.split("\n")) {
-    if (/^\s*```/.test(line)) { fenced = !fenced; continue; }
+    if (/^\s*```/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
     if (!fenced) out.push(line);
   }
   return out;
@@ -1310,23 +1906,39 @@ export function checkStoriesAndEpics(artifacts) {
       const sec = sectionOf(a.body, "acceptance") || "";
       const unchecked = (stripCodeSpans(sec).match(/- \[ \]/g) || []).length;
       if (unchecked > 0) {
-        out.push(finding("vault", "warn", "acceptance",
-          `Story is "done" with ${unchecked} unchecked acceptance criteria.`, a.rel));
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "acceptance",
+            `Story is "done" with ${unchecked} unchecked acceptance criteria.`,
+            a.rel,
+          ),
+        );
       }
     }
     if ((a.fm.review_status || "") === "reviewed" && (!a.fm.reviewed_at || a.fm.reviewed_at === "null")) {
-      out.push(finding("vault", "issue", "review-status",
-        `review_status is "reviewed" but reviewed_at is empty.`, a.rel));
+      out.push(
+        finding("vault", "issue", "review-status", `review_status is "reviewed" but reviewed_at is empty.`, a.rel),
+      );
     }
   }
   for (const epic of artifacts.filter((a) => a.kind === "epic")) {
     if ((epic.fm.status || "").toLowerCase() !== "done") continue;
     const dir = epic.rel.replace(/\/epic\.md$/, "");
-    const open = artifacts.filter((s) =>
-      s.kind === "story" && s.rel.startsWith(dir + "/") && (s.fm.status || "").toLowerCase() !== "done");
+    const open = artifacts.filter(
+      (s) => s.kind === "story" && s.rel.startsWith(dir + "/") && (s.fm.status || "").toLowerCase() !== "done",
+    );
     if (open.length) {
-      out.push(finding("vault", "issue", "epic-status",
-        `Epic is "done" while ${open.length} child stor${open.length === 1 ? "y is" : "ies are"} not.`, epic.rel));
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "epic-status",
+          `Epic is "done" while ${open.length} child stor${open.length === 1 ? "y is" : "ies are"} not.`,
+          epic.rel,
+        ),
+      );
     }
   }
   return out;
@@ -1344,13 +1956,18 @@ export function checkIndexHeaders(cfg, layout) {
     const readme = join(cfg.vault_path, folder.path, "README.md");
     if (!existsSync(readme)) continue;
     const lines = readFileSync(readme, "utf8").split("\n");
-    const headIdx = lines.findIndex((l, i) =>
-      /^\|.*\|\s*$/.test(l) && /^\|[-\s|]+\|\s*$/.test(lines[i + 1] || ""));
+    const headIdx = lines.findIndex((l, i) => /^\|.*\|\s*$/.test(l) && /^\|[-\s|]+\|\s*$/.test(lines[i + 1] || ""));
     if (headIdx === -1) continue; // no table at all — nothing to lint
     if (!headerRe.test(lines[headIdx])) {
-      out.push(finding("vault", "warn", "index-header",
-        `${folder.path}/README.md index header "${lines[headIdx].trim()}" matches no registered form — reconcile cannot rebuild this index (standard form: | File | Title | Status | Date |, localized forms in scaffold/headings.json).`,
-        `${folder.path}/README.md`));
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "index-header",
+          `${folder.path}/README.md index header "${lines[headIdx].trim()}" matches no registered form — reconcile cannot rebuild this index (standard form: | File | Title | Status | Date |, localized forms in scaffold/headings.json).`,
+          `${folder.path}/README.md`,
+        ),
+      );
     }
   }
   return out;
@@ -1388,14 +2005,20 @@ function resolveSpecStory(entry, artifacts, epicFolderPath) {
     if (a.kind !== "story" || epicIdOf(a.rel, epicFolderPath) !== epicId) continue;
     const tier = storyMatchesEntry(storyId, { id: a.fm.id, stem: storyStemOf(a.rel) });
     if (!tier) continue;
-    if (best === 0 || tier < best) { best = tier; hits = [a]; }
-    else if (tier === best) hits.push(a);
+    if (best === 0 || tier < best) {
+      best = tier;
+      hits = [a];
+    } else if (tier === best) hits.push(a);
   }
   if (hits.length === 1) return { story: hits[0] };
   if (hits.length > 1) {
-    return { error: `ambiguous — "${storyId}" matches ${hits.map((a) => storyStemOf(a.rel)).join(", ")}; qualify the reference` };
+    return {
+      error: `ambiguous — "${storyId}" matches ${hits.map((a) => storyStemOf(a.rel)).join(", ")}; qualify the reference`,
+    };
   }
-  return { error: `no story in ${epicFolderPath}/${epicId} matches "${storyId}" (by exact id:, exact filename stem, or legacy story-NNN prefix)` };
+  return {
+    error: `no story in ${epicFolderPath}/${epicId} matches "${storyId}" (by exact id:, exact filename stem, or legacy story-NNN prefix)`,
+  };
 }
 
 // The ONE spec resolver (SPEC-002 contract 5) — shared by checkSpecLinks,
@@ -1407,7 +2030,7 @@ function resolveSpecStory(entry, artifacts, epicFolderPath) {
 // grandfathered SPEC-NNN-<slug>.md files. Cross-spec identity clashes are
 // the identity check's finding, so first-wins here stays deterministic.
 function buildSpecResolver(artifacts, layout = null) {
-  const prefix = layout ? folderByKind(layout, "spec")?.prefix ?? null : null;
+  const prefix = layout ? (folderByKind(layout, "spec")?.prefix ?? null) : null;
   const byId = new Map();
   const byStem = new Map();
   for (const s of artifacts.filter((a) => a.kind === "spec")) {
@@ -1437,7 +2060,10 @@ export function parseSpecAcceptance(spec) {
     // story, not silently fall through to "applies to every covered story".
     const attr = text.match(attrRe);
     const stories = attr
-      ? attr[1].split(",").map((s) => s.trim()).filter(Boolean)
+      ? attr[1]
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
       : null;
     items.push({ checked, text, stories });
   }
@@ -1455,14 +2081,27 @@ export function checkSpecLinks(cfg, layout, artifacts) {
     for (const entry of listOf(spec.fm, "stories")) {
       const r = resolveSpecStory(entry, artifacts, epicFolder.path);
       if (r.error) {
-        out.push(finding("vault", "issue", "spec-links",
-          `Spec "${spec.fm.id}" stories entry "${entry}" does not resolve: ${r.error}.`, spec.rel));
-      } else if (spec.fm.id &&
-                 !listOf(r.story.fm, "specs").some((ref) => resolveSpec(ref) === spec)) {
+        out.push(
+          finding(
+            "vault",
+            "issue",
+            "spec-links",
+            `Spec "${spec.fm.id}" stories entry "${entry}" does not resolve: ${r.error}.`,
+            spec.rel,
+          ),
+        );
+      } else if (spec.fm.id && !listOf(r.story.fm, "specs").some((ref) => resolveSpec(ref) === spec)) {
         // Membership through the SAME resolver — a slug-form back-reference
         // to a grandfathered SPEC-NNN file is a valid link, not a gap.
-        out.push(finding("vault", "warn", "spec-links",
-          `Spec "${spec.fm.id}" covers ${entry} but the story's \`specs:\` list lacks "${spec.fm.id}" (bidirectional link).`, r.story.rel));
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "spec-links",
+            `Spec "${spec.fm.id}" covers ${entry} but the story's \`specs:\` list lacks "${spec.fm.id}" (bidirectional link).`,
+            r.story.rel,
+          ),
+        );
       }
     }
   }
@@ -1470,19 +2109,32 @@ export function checkSpecLinks(cfg, layout, artifacts) {
     for (const id of listOf(story.fm, "specs")) {
       const spec = resolveSpec(id);
       if (!spec) {
-        out.push(finding("vault", "issue", "spec-links",
-          `Story lists spec "${id}" which does not exist in specs/.`, story.rel));
+        out.push(
+          finding(
+            "vault",
+            "issue",
+            "spec-links",
+            `Story lists spec "${id}" which does not exist in specs/.`,
+            story.rel,
+          ),
+        );
       } else {
         const epicId = epicIdOf(story.rel, epicFolder.path);
         const stem = storyStemOf(story.rel);
         const covered = listOf(spec.fm, "stories").some((e) => {
           const m = String(e).match(/^([^/]+)\/(.+)$/);
-          return m && m[1] === epicId &&
-            storyMatchesEntry(m[2], { id: story.fm.id, stem }) > 0;
+          return m && m[1] === epicId && storyMatchesEntry(m[2], { id: story.fm.id, stem }) > 0;
         });
         if (!covered) {
-          out.push(finding("vault", "warn", "spec-links",
-            `Story lists spec "${id}" but that spec's \`stories:\` does not list it back.`, story.rel));
+          out.push(
+            finding(
+              "vault",
+              "warn",
+              "spec-links",
+              `Story lists spec "${id}" but that spec's \`stories:\` does not list it back.`,
+              story.rel,
+            ),
+          );
         }
       }
     }
@@ -1491,8 +2143,15 @@ export function checkSpecLinks(cfg, layout, artifacts) {
     // the list is invisible to every deterministic check.
     const fmBlock = story.body.match(/^---\n[\s\S]*?\n---/);
     if (story.fm.specs === "" && fmBlock && /\nspecs:\s*\n\s+-\s/.test(fmBlock[0])) {
-      out.push(finding("vault", "issue", "spec-links",
-        "`specs:` uses block-sequence YAML which projectstore cannot parse — use inline flow: specs: [\"SPEC-001\"].", story.rel));
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "spec-links",
+          '`specs:` uses block-sequence YAML which projectstore cannot parse — use inline flow: specs: ["SPEC-001"].',
+          story.rel,
+        ),
+      );
     }
   }
   return out;
@@ -1516,8 +2175,15 @@ export function checkSpecCoverage(artifacts, vaultCfg, layout = null) {
     if (isLegacyStory(story.fm, since)) continue;
     const ids = listOf(story.fm, "specs");
     if (!ids.length) {
-      out.push(finding("vault", "issue", "spec-coverage",
-        `Story is ${status} with no covering spec (spec_policy: required — every story needs a spec; ADR-007).`, story.rel));
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "spec-coverage",
+          `Story is ${status} with no covering spec (spec_policy: required — every story needs a spec; ADR-007).`,
+          story.rel,
+        ),
+      );
       continue;
     }
     for (const id of ids) {
@@ -1526,12 +2192,26 @@ export function checkSpecCoverage(artifacts, vaultCfg, layout = null) {
       const st = specStatusOf(spec);
       if (status === "done") {
         if (!["active", "superseded"].includes(st)) {
-          out.push(finding("vault", "issue", "spec-status",
-            `Story is done while covering spec "${id}" is ${st} — a story may close only against an active spec.`, story.rel));
+          out.push(
+            finding(
+              "vault",
+              "issue",
+              "spec-status",
+              `Story is done while covering spec "${id}" is ${st} — a story may close only against an active spec.`,
+              story.rel,
+            ),
+          );
         }
       } else if (st === "draft") {
-        out.push(finding("vault", "warn", "spec-status",
-          `Story is ${status} while covering spec "${id}" is still draft — the spec must go active before implementation.`, story.rel));
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "spec-status",
+            `Story is ${status} while covering spec "${id}" is still draft — the spec must go active before implementation.`,
+            story.rel,
+          ),
+        );
       }
     }
   }
@@ -1562,8 +2242,15 @@ export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
       if (!spec) continue;
       const items = parseSpecAcceptance(spec);
       if (items === null) {
-        out.push(finding("vault", "warn", "spec-acceptance",
-          `Covering spec "${id}" has no Acceptance section — its criteria cannot gate this story.`, spec.rel));
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "spec-acceptance",
+            `Covering spec "${id}" has no Acceptance section — its criteria cannot gate this story.`,
+            spec.rel,
+          ),
+        );
         continue;
       }
       const coveredEntries = listOf(spec.fm, "stories");
@@ -1576,24 +2263,40 @@ export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
           applies = item.stories.some((bare) =>
             coveredEntries.some((e) => {
               const m = String(e).match(/^([^/]+)\/(.+)$/);
-              return m && m[1] === epicId && bare === m[2] &&
-                storyMatchesEntry(bare, { id: story.fm.id, stem }) > 0;
-            }));
-          const ambiguous = item.stories.some((bare) =>
-            coveredEntries.filter((e) => {
-              const m = String(e).match(/^([^/]+)\/(.+)$/);
-              return m && bare === m[2];
-            }).length > 1);
+              return m && m[1] === epicId && bare === m[2] && storyMatchesEntry(bare, { id: story.fm.id, stem }) > 0;
+            }),
+          );
+          const ambiguous = item.stories.some(
+            (bare) =>
+              coveredEntries.filter((e) => {
+                const m = String(e).match(/^([^/]+)\/(.+)$/);
+                return m && bare === m[2];
+              }).length > 1,
+          );
           const ambKey = `${spec.rel}|${item.text}`;
           if (ambiguous && !ambiguousReported.has(ambKey)) {
             ambiguousReported.add(ambKey);
-            out.push(finding("vault", "warn", "ambiguous-attribution",
-              `Spec "${id}" acceptance item attributes bare id(s) "${item.stories.join(", ")}" that match more than one covered epic — qualify as <epic-id>/<story-id>.`, spec.rel));
+            out.push(
+              finding(
+                "vault",
+                "warn",
+                "ambiguous-attribution",
+                `Spec "${id}" acceptance item attributes bare id(s) "${item.stories.join(", ")}" that match more than one covered epic — qualify as <epic-id>/<story-id>.`,
+                spec.rel,
+              ),
+            );
           }
         }
         if (applies && !item.checked) {
-          out.push(finding("vault", "issue", "spec-acceptance",
-            `Story is done but spec "${id}" acceptance item is unchecked: "${item.text.slice(0, 80)}".`, story.rel));
+          out.push(
+            finding(
+              "vault",
+              "issue",
+              "spec-acceptance",
+              `Story is done but spec "${id}" acceptance item is unchecked: "${item.text.slice(0, 80)}".`,
+              story.rel,
+            ),
+          );
         }
       }
     }
@@ -1620,25 +2323,53 @@ export function checkLifecycleGates(artifacts, vaultCfg) {
       for (const line of linesOutsideFences(acc)) {
         const m = line.match(/^\s*-\s*\[(x|X)\]\s*(.*)$/);
         if (m && !evidenceRe.test(m[2])) {
-          out.push(finding("vault", "warn", "evidence",
-            `Checked acceptance criterion carries no evidence suffix ("— evidence: <test | command | file:line>"): "${m[2].slice(0, 70)}".`, story.rel));
+          out.push(
+            finding(
+              "vault",
+              "warn",
+              "evidence",
+              `Checked acceptance criterion carries no evidence suffix ("— evidence: <test | command | file:line>"): "${m[2].slice(0, 70)}".`,
+              story.rel,
+            ),
+          );
         }
       }
     }
 
     const plan = sectionOf(story.body, "implementation_plan");
     if (plan !== null && (!story.fm.plan_updated_at || story.fm.plan_updated_at === "null")) {
-      out.push(finding("vault", "warn", "plan-gate",
-        `Story has an Implementation Plan section but no plan_updated_at — the plan bypassed the ${commandForm("story", { args: "plan" })} gate.`, story.rel));
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "plan-gate",
+          `Story has an Implementation Plan section but no plan_updated_at — the plan bypassed the ${commandForm("story", { args: "plan" })} gate.`,
+          story.rel,
+        ),
+      );
     }
     const summary = sectionOf(story.body, "final_summary");
     if (summary === null) {
-      out.push(finding("vault", "warn", "final-summary",
-        "Done story has no Final Summary section (lifecycle_gates: on requires a close-out record).", story.rel));
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "final-summary",
+          "Done story has no Final Summary section (lifecycle_gates: on requires a close-out record).",
+          story.rel,
+        ),
+      );
     }
     if (plan === null) {
-      out.push(finding("vault", "warn", "plan-gate",
-        "Done story has no Implementation Plan section (lifecycle_gates: on requires the plan to live in the story).", story.rel));
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "plan-gate",
+          "Done story has no Implementation Plan section (lifecycle_gates: on requires the plan to live in the story).",
+          story.rel,
+        ),
+      );
     }
   }
   return out;
@@ -1649,12 +2380,24 @@ export function checkVaultPolicy(cfg, layout, artifacts, vaultCfg) {
   const out = [];
   const hasSpecs = artifacts.some((a) => a.kind === "spec");
   if (hasSpecs && !vaultCfg.spec_policy) {
-    out.push(finding("vault", "info", "spec-policy",
-      "Vault contains specs but declares no spec_policy — consider enabling spec-first: add { \"spec_policy\": \"required\" } to <vault>/.projectstore.json (doctor gates activate; ADR-007)."));
+    out.push(
+      finding(
+        "vault",
+        "info",
+        "spec-policy",
+        'Vault contains specs but declares no spec_policy — consider enabling spec-first: add { "spec_policy": "required" } to <vault>/.projectstore.json (doctor gates activate; ADR-007).',
+      ),
+    );
   }
   if (vaultCfg.spec_policy === "required" && !vaultCfg.spec_policy_since) {
-    out.push(finding("vault", "warn", "spec-policy",
-      "spec_policy is required but spec_policy_since is missing — the legacy exemption cannot be evaluated; stamp it with the enable date (ISO-8601)."));
+    out.push(
+      finding(
+        "vault",
+        "warn",
+        "spec-policy",
+        "spec_policy is required but spec_policy_since is missing — the legacy exemption cannot be evaluated; stamp it with the enable date (ISO-8601).",
+      ),
+    );
   }
   return out;
 }
@@ -1670,7 +2413,11 @@ export function walkVaultFiles(vault) {
       if (n.startsWith(".")) continue;
       const p = join(dir, n);
       let st;
-      try { st = statSync(p); } catch { continue; }
+      try {
+        st = statSync(p);
+      } catch {
+        continue;
+      }
       if (st.isDirectory()) walk(p, relDir ? `${relDir}/${n}` : n);
       else if (n.endsWith(".md")) files.push({ rel: relDir ? `${relDir}/${n}` : n, name: n });
     }
@@ -1696,7 +2443,9 @@ export function checkWikilinks(cfg, artifacts, vaultFiles = null, nodeIndex = nu
   const files = vaultFiles ?? walkVaultFiles(cfg.vault_path);
   let index = nodeIndex;
   if (!index) {
-    try { index = buildNodeIndex(cfg, loadLayout(cfg.layout)); } catch (e) {
+    try {
+      index = buildNodeIndex(cfg, loadLayout(cfg.layout));
+    } catch (e) {
       // A silent no-op check would read as "links are fine" — say why not.
       return [finding("vault", "warn", "wikilink", `Link check skipped — node index failed: ${e.message}`)];
     }
@@ -1711,12 +2460,21 @@ export function checkWikilinks(cfg, artifacts, vaultFiles = null, nodeIndex = nu
     for (const link of extractLinks(a.body)) {
       const r = resolveLinkTarget(link.target, link.type, ctx);
       if (r.outcome === "dead") {
-        out.push(link.type === "wikilink"
-          ? finding("vault", "issue", "wikilink", `Dead wiki-link [[${link.target}]].`, a.rel)
-          : finding("vault", "issue", "rel-link", `Dead relative link (${link.target}).`, a.rel));
+        out.push(
+          link.type === "wikilink"
+            ? finding("vault", "issue", "wikilink", `Dead wiki-link [[${link.target}]].`, a.rel)
+            : finding("vault", "issue", "rel-link", `Dead relative link (${link.target}).`, a.rel),
+        );
       } else if (r.outcome === "ambiguous") {
-        out.push(finding("vault", "warn", "wikilink",
-          `Ambiguous wiki-link [[${link.target}]] — matches ${r.candidates.join(", ")}; qualify with a path.`, a.rel));
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "wikilink",
+            `Ambiguous wiki-link [[${link.target}]] — matches ${r.candidates.join(", ")}; qualify with a path.`,
+            a.rel,
+          ),
+        );
       }
     }
   }
@@ -1778,7 +2536,8 @@ export function checkArtifactIdentity(layout, vaultFiles, artifacts = []) {
       const parts = x.rel.split("/");
       let entry = null; // stories/<f>.md | stories/<dir>/README.md | standalone story-*.md
       if (parts.length === 4 && parts[2] === "stories") entry = { name: parts[3], rel: x.rel };
-      else if (parts.length === 5 && parts[2] === "stories" && parts[4] === "README.md") entry = { name: parts[3], rel: x.rel };
+      else if (parts.length === 5 && parts[2] === "stories" && parts[4] === "README.md")
+        entry = { name: parts[3], rel: x.rel };
       else if (parts.length === 3 && parts[2].startsWith("story-")) entry = { name: parts[2], rel: x.rel };
       if (!entry || INFRA_NAMES.has(entry.name)) continue;
       if (!byEpic.has(parts[1])) byEpic.set(parts[1], []);
@@ -1808,31 +2567,53 @@ export function checkArtifactIdentity(layout, vaultFiles, artifacts = []) {
     for (const [ident, hits] of groups) {
       const uniq = [...new Map(hits.map((h) => [h.entry.rel, h])).values()];
       if (uniq.length < 2) continue;
-      const key = uniq.map((h) => h.entry.rel).sort().join("|");
+      const key = uniq
+        .map((h) => h.entry.rel)
+        .sort()
+        .join("|");
       if (reported.has(key)) continue;
       reported.add(key);
       const selfOnly = uniq.every((h) => h.via === "self");
       const classed = uniq.map((h) => ({ h, era: eraOf(h.entry, opts) }));
-      const level = selfOnly ? "issue"
-        // Overlap reached via the legacy reading of a PROVEN slug-era file
-        // (its machine id is the full stem) is spurious — the file's real
-        // identity is the unstripped slug.
-        : classed.some(({ h, era }) => h.via !== "self" && era === "new") ? "warn"
-        : classed.some(({ era }) => era === "uncertain") ? "warn"
-        : classed.every(({ era }) => era === "legacy") ? "info"
-        : "issue"; // a new-era name colliding with a certain legacy one
-      const note = level === "warn" ? "; the overlap depends on a legacy reading that frontmatter does not confirm"
-        : level === "info" ? "; all carry legacy numbers — legal in the numbered era, duplicate topic is hygiene"
-        : "";
-      out.push(finding("vault", level, "identity",
-        `Same normalized identity "${ident}" in ${label}: ${uniq.map((h) => h.entry.name).join(", ")} — two artifacts claim one topic (ADR-010${note}).`,
-        uniq[0].entry.rel));
+      const level = selfOnly
+        ? "issue"
+        : // Overlap reached via the legacy reading of a PROVEN slug-era file
+          // (its machine id is the full stem) is spurious — the file's real
+          // identity is the unstripped slug.
+          classed.some(({ h, era }) => h.via !== "self" && era === "new")
+          ? "warn"
+          : classed.some(({ era }) => era === "uncertain")
+            ? "warn"
+            : classed.every(({ era }) => era === "legacy")
+              ? "info"
+              : "issue"; // a new-era name colliding with a certain legacy one
+      const note =
+        level === "warn"
+          ? "; the overlap depends on a legacy reading that frontmatter does not confirm"
+          : level === "info"
+            ? "; all carry legacy numbers — legal in the numbered era, duplicate topic is hygiene"
+            : "";
+      out.push(
+        finding(
+          "vault",
+          level,
+          "identity",
+          `Same normalized identity "${ident}" in ${label}: ${uniq.map((h) => h.entry.name).join(", ")} — two artifacts claim one topic (ADR-010${note}).`,
+          uniq[0].entry.rel,
+        ),
+      );
     }
     for (const [num, ents] of numbers) {
       if (new Set(ents.map((e) => e.rel)).size < 2) continue;
-      out.push(finding("vault", "info", "identity",
-        `Display number ${num} is carried by ${ents.length} artifacts in ${label}: ${ents.map((e) => e.name).join(", ")} — numbers are reference metadata (ADR-010), duplicates confuse humans.`,
-        ents[0].rel));
+      out.push(
+        finding(
+          "vault",
+          "info",
+          "identity",
+          `Display number ${num} is carried by ${ents.length} artifacts in ${label}: ${ents.map((e) => e.name).join(", ")} — numbers are reference metadata (ADR-010), duplicates confuse humans.`,
+          ents[0].rel,
+        ),
+      );
     }
   }
   return out;
@@ -1848,8 +2629,15 @@ export function checkExternalRefsForm(artifacts) {
     if (a.fm.external_refs !== "") continue;
     const fmBlock = a.body.match(/^---\n[\s\S]*?\n---/);
     if (fmBlock && /\nexternal_refs:\s*\n\s+\S/.test(fmBlock[0])) {
-      out.push(finding("vault", "issue", "external-refs",
-        "`external_refs:` uses block-form YAML which projectstore cannot parse — use inline flow: external_refs: {jira: \"ABC-123\"}.", a.rel));
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "external-refs",
+          '`external_refs:` uses block-form YAML which projectstore cannot parse — use inline flow: external_refs: {jira: "ABC-123"}.',
+          a.rel,
+        ),
+      );
     }
   }
   return out;
@@ -1865,8 +2653,15 @@ export function checkArtifactNames(vaultFiles) {
   for (const x of vaultFiles) {
     const bad = legalArtifactName(x.name);
     if (bad) {
-      out.push(finding("vault", "warn", "artifact-name",
-        `Sync-conflict filename shape — ${bad}. Merge or remove; sync engines leave these beside the original.`, x.rel));
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "artifact-name",
+          `Sync-conflict filename shape — ${bad}. Merge or remove; sync engines leave these beside the original.`,
+          x.rel,
+        ),
+      );
     }
     if (INFRA_NAMES.has(x.name)) continue;
     if (!byName.has(x.name)) byName.set(x.name, []);
@@ -1874,9 +2669,15 @@ export function checkArtifactNames(vaultFiles) {
   }
   for (const [name, rels] of byName) {
     if (rels.length < 2) continue;
-    out.push(finding("vault", "info", "artifact-name",
-      `Basename "${name}" appears in ${rels.length} folders (${rels.map((r) => dirname(r)).join(", ")}) — short wiki-links [[${name.replace(/\.md$/, "")}]] are ambiguous.`,
-      rels[0]));
+    out.push(
+      finding(
+        "vault",
+        "info",
+        "artifact-name",
+        `Basename "${name}" appears in ${rels.length} folders (${rels.map((r) => dirname(r)).join(", ")}) — short wiki-links [[${name.replace(/\.md$/, "")}]] are ambiguous.`,
+        rels[0],
+      ),
+    );
   }
   return out;
 }
@@ -1904,12 +2705,22 @@ export function checkWorkWithoutStory(cfg, proj) {
   const fms = [];
   let unreadable = 0;
   for (const f of files) {
-    try { fms.push(parseFrontmatter(readFileSync(f, "utf8")).data); } catch { unreadable++; }
+    try {
+      fms.push(parseFrontmatter(readFileSync(f, "utf8")).data);
+    } catch {
+      unreadable++;
+    }
   }
   if (unreadable > 0 && !openStoryFrom(fms)) {
     // A diagnostic that goes quiet because it could not read is a false clean.
-    out.push(finding("vault", "warn", "work-without-story",
-      `Could not read ${unreadable} story file(s), so "is any story in progress" is unproven — this check is inconclusive rather than clean.`));
+    out.push(
+      finding(
+        "vault",
+        "warn",
+        "work-without-story",
+        `Could not read ${unreadable} story file(s), so "is any story in progress" is unproven — this check is inconclusive rather than clean.`,
+      ),
+    );
     return out;
   }
   if (openStoryFrom(fms)) return out;
@@ -1932,14 +2743,21 @@ export function checkWorkWithoutStory(cfg, proj) {
   // kind: null — entry reminders only. The log is shared with the session-name
   // offer, whose breadcrumbs would otherwise be reported as reminders delivered.
   const fired = readEntryLog(proj, { withinDays: 30, kind: null }).length;
-  const firedNote = fired > 0
-    ? ` An entry reminder fired ${fired} time(s) in the last 30 days on this machine, so the prompt was delivered and the work still went untracked.`
-    : " No entry reminder fired in the last 30 days on this machine (the log is machine-local — .claude/ is gitignored).";
+  const firedNote =
+    fired > 0
+      ? ` An entry reminder fired ${fired} time(s) in the last 30 days on this machine, so the prompt was delivered and the work still went untracked.`
+      : " No entry reminder fired in the last 30 days on this machine (the log is machine-local — .claude/ is gitignored).";
   const what = [];
   if (dirty.length) what.push(`${dirty.length} uncommitted source file(s)`);
   if (committedSince) what.push("commits newer than the vault's last activity");
-  out.push(finding("vault", "warn", "work-without-story",
-    `${what.join(" and ")} in the project, and no story is in progress. If this is feature-sized work, open it in the vault: ${commandForm("story", { args: '<EPIC> "<title>"' })}.${firedNote}`));
+  out.push(
+    finding(
+      "vault",
+      "warn",
+      "work-without-story",
+      `${what.join(" and ")} in the project, and no story is in progress. If this is feature-sized work, open it in the vault: ${commandForm("story", { args: '<EPIC> "<title>"' })}.${firedNote}`,
+    ),
+  );
   return out;
 }
 
@@ -1957,8 +2775,15 @@ export function checkCodeRefs(artifacts, proj) {
       for (const ref of refs) {
         if (ref.includes("*")) continue;
         if (!existsSync(join(proj, ref))) {
-          out.push(finding("vault", "issue", "code-refs",
-            `code_refs path "${ref}" does not resolve inside the project (status: ${status}).`, a.rel));
+          out.push(
+            finding(
+              "vault",
+              "issue",
+              "code-refs",
+              `code_refs path "${ref}" does not resolve inside the project (status: ${status}).`,
+              a.rel,
+            ),
+          );
         }
       }
     }
@@ -1966,14 +2791,28 @@ export function checkCodeRefs(artifacts, proj) {
       const dir = a.rel.replace(/\/stories\/[^/]+$/, "");
       const parent = epicRefs.get(dir) || [];
       if (!parent.length) {
-        out.push(finding("vault", "warn", "code-refs",
-          "Story has code_refs but its epic has none — set the epic's footprint first.", a.rel));
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "code-refs",
+            "Story has code_refs but its epic has none — set the epic's footprint first.",
+            a.rel,
+          ),
+        );
       } else {
         const norm = (r) => r.replace(/\/+$/, "");
         for (const ref of refs) {
           if (!parent.some((p) => norm(ref).startsWith(norm(p)))) {
-            out.push(finding("vault", "warn", "code-refs",
-              `Story code_ref "${ref}" falls outside the parent epic's code_refs.`, a.rel));
+            out.push(
+              finding(
+                "vault",
+                "warn",
+                "code-refs",
+                `Story code_ref "${ref}" falls outside the parent epic's code_refs.`,
+                a.rel,
+              ),
+            );
           }
         }
       }
@@ -1994,13 +2833,27 @@ export function checkCodeMap(cfg) {
   });
   if (r.status !== 0) return [finding("vault", "warn", "code-map", "codemap generator failed.")];
   let expected;
-  try { expected = JSON.parse(r.stdout).content; } catch {
+  try {
+    expected = JSON.parse(r.stdout).content;
+  } catch {
     return [finding("vault", "warn", "code-map", "codemap generator returned unparseable output.")];
   }
-  const norm = (s) => s.split("\n").filter((l) => !l.startsWith("generated_at:")).join("\n").trimEnd();
+  const norm = (s) =>
+    s
+      .split("\n")
+      .filter((l) => !l.startsWith("generated_at:"))
+      .join("\n")
+      .trimEnd();
   if (norm(expected) !== norm(readFileSync(p, "utf8"))) {
-    return [finding("vault", "issue", "code-map",
-      `code-map.md is stale against frontmatter code_refs — run ${commandForm("codemap")} (or reconcile).`, "code-map.md")];
+    return [
+      finding(
+        "vault",
+        "issue",
+        "code-map",
+        `code-map.md is stale against frontmatter code_refs — run ${commandForm("codemap")} (or reconcile).`,
+        "code-map.md",
+      ),
+    ];
   }
   return [];
 }
@@ -2013,7 +2866,9 @@ export function checkCodeMap(cfg) {
 export function checkGraph(cfg) {
   const p = join(cfg.vault_path, "graph.md");
   if (!existsSync(p)) {
-    return [finding("vault", "info", "graph", `No graph.md yet — run ${commandForm("graph")} to create the link graph.`)];
+    return [
+      finding("vault", "info", "graph", `No graph.md yet — run ${commandForm("graph")} to create the link graph.`),
+    ];
   }
   const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", "graph.mjs")], {
     encoding: "utf8",
@@ -2022,13 +2877,27 @@ export function checkGraph(cfg) {
   });
   if (r.status !== 0) return [finding("vault", "warn", "graph", `graph generator failed: ${(r.stderr || "").trim()}`)];
   let expected;
-  try { expected = JSON.parse(r.stdout).content; } catch {
+  try {
+    expected = JSON.parse(r.stdout).content;
+  } catch {
     return [finding("vault", "warn", "graph", "graph generator returned unparseable output.")];
   }
-  const norm = (s) => s.split("\n").filter((l) => !l.startsWith("generated_at:")).join("\n").trimEnd();
+  const norm = (s) =>
+    s
+      .split("\n")
+      .filter((l) => !l.startsWith("generated_at:"))
+      .join("\n")
+      .trimEnd();
   if (norm(expected) !== norm(readFileSync(p, "utf8"))) {
-    return [finding("vault", "issue", "graph",
-      `graph.md is out of sync with vault links — run ${commandForm("graph")} (or reconcile).`, "graph.md")];
+    return [
+      finding(
+        "vault",
+        "issue",
+        "graph",
+        `graph.md is out of sync with vault links — run ${commandForm("graph")} (or reconcile).`,
+        "graph.md",
+      ),
+    ];
   }
   return [];
 }
@@ -2057,8 +2926,10 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
     ...checkOverlays(cfg, proj, opts),
   );
   let read = null;
-  try { read = await readSurfaceStates(proj, opts); } catch {} // reported as a warn by checkHarnessSurfaces
-  out.push(...await checkHarnessSurfaces(cfg, proj, { ...opts, read }));
+  try {
+    read = await readSurfaceStates(proj, opts);
+  } catch {} // reported as a warn by checkHarnessSurfaces
+  out.push(...(await checkHarnessSurfaces(cfg, proj, { ...opts, read })));
   if (read) out.push(...checkPluginRegistration(proj, read.result.states, { home: opts.home, cfg }));
   if (read) out.push(...checkVersionDrift(opts.home, read.result.states, proj));
   return foldIntoMove(out);
@@ -2066,7 +2937,9 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
 
 export function runVaultChecks(cfg) {
   let layout;
-  try { layout = loadLayout(cfg.layout); } catch (e) {
+  try {
+    layout = loadLayout(cfg.layout);
+  } catch (e) {
     return [finding("vault", "issue", "layout", `Layout not loadable: ${e.message}`)];
   }
   const artifacts = scanArtifacts(cfg, layout);
@@ -2085,7 +2958,9 @@ export function runVaultChecks(cfg) {
     () => checkLifecycleGates(artifacts, vaultCfg),
   ];
   for (const step of guarded) {
-    try { findings.push(...step()); } catch (e) {
+    try {
+      findings.push(...step());
+    } catch (e) {
       findings.push(finding("vault", "issue", "registry", e.message));
       break;
     }
@@ -2125,7 +3000,9 @@ export function runStartupChecks(cfg, proj, budgetMs = 150) {
   const findings = [];
   for (const step of steps) {
     if (Date.now() - started > budgetMs) return { skipped: true, count: 0, findings: foldIntoMove(findings) };
-    try { findings.push(...step()); } catch {}
+    try {
+      findings.push(...step());
+    } catch {}
   }
   // The findings the move repairs are not counted beside it (foldIntoMove).
   const settled = foldIntoMove(findings);
@@ -2138,7 +3015,11 @@ export function runStartupChecks(cfg, proj, budgetMs = 150) {
   const restamp = settled.some((f) => f.level === "info" && f.check === "upgrade");
   const offers = settled
     .filter((f) => f.level === "info" && OFFER_CHECKS.has(f.check) && !(movePending && f.check === "upgrade"))
-    .map((f) => (movePending && restamp && f.check === "layout-legacy" ? `${f.message} The same run re-stamps the status line launcher.` : f.message));
+    .map((f) =>
+      movePending && restamp && f.check === "layout-legacy"
+        ? `${f.message} The same run re-stamps the status line launcher.`
+        : f.message,
+    );
   return {
     skipped: false,
     count: settled.filter((f) => f.level === "issue").length,
@@ -2155,7 +3036,10 @@ async function main() {
   const startup = args.includes("--startup");
   let install = args.includes("--install");
   let vault = args.includes("--vault");
-  if (!install && !vault && !startup) { install = true; vault = true; }
+  if (!install && !vault && !startup) {
+    install = true;
+    vault = true;
+  }
 
   const cfg = readConfig();
   const proj = projectRoot();
@@ -2168,7 +3052,10 @@ async function main() {
 
   const findings = [];
   const groups = [];
-  if (install) { groups.push("install"); findings.push(...await runInstallChecks(cfg, proj)); }
+  if (install) {
+    groups.push("install");
+    findings.push(...(await runInstallChecks(cfg, proj)));
+  }
   if (vault && cfg && cfg.vault_path && existsSync(cfg.vault_path)) {
     groups.push("vault");
     findings.push(...runVaultChecks(cfg));
@@ -2177,7 +3064,10 @@ async function main() {
     findings.push(finding("vault", "info", "vault", "Vault checks skipped — no usable vault (see install issues)."));
   }
 
-  if (wantJson) { process.stdout.write(JSON.stringify(findings, null, 2) + "\n"); return; }
+  if (wantJson) {
+    process.stdout.write(JSON.stringify(findings, null, 2) + "\n");
+    return;
+  }
   process.stdout.write(await textReport(findings, groups, { version: pluginVersion(), project: proj }));
 }
 
@@ -2187,12 +3077,20 @@ async function main() {
 // statically, and the renderer's term.mjs is not on its path. A renderer
 // that cannot load, or throws, costs the reader nothing: the findings one
 // per line and the Summary line, still last (lib.mjs). `load` is a test's.
-export async function textReport(findings, groups, { version = null, project = null, env = process.env, stderr = process.stderr } = {}, { load = () => import("./doctor-report.mjs") } = {}) {
+export async function textReport(
+  findings,
+  groups,
+  { version = null, project = null, env = process.env, stderr = process.stderr } = {},
+  { load = () => import("./doctor-report.mjs") } = {},
+) {
   try {
     const { report } = await load();
     return report(findings, groups, { version, project, env });
   } catch (e) {
-    if (stderr) stderr.write(`doctor: the report could not be drawn (${e && e.message ? e.message : e}); its findings follow, one per line.\n`);
+    if (stderr)
+      stderr.write(
+        `doctor: the report could not be drawn (${e && e.message ? e.message : e}); its findings follow, one per line.\n`,
+      );
     return doctorFallbackText(findings, { env });
   }
 }

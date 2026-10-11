@@ -26,19 +26,27 @@ const SOURCE_UI = uiWordPatterns(SOURCE);
 // way only the source harness calls it. Never inside another form
 // (`/projectstore:`, `$projectstore-`), never a longer name.
 const ROLE_SUFFIX = SOURCE.surfaces.agents.file.replace("<name>", "");
-const SOURCE_ROLES = readdirSync(join(ROOT, SOURCE.surfaces.agents.dir)).filter((f) => f.endsWith(ROLE_SUFFIX)).map((f) => f.slice(0, -ROLE_SUFFIX.length)).sort();
-const SOURCE_ROLE = new RegExp(`(?<![\\w/$:-])${escapeRe(SOURCE.surfaces.agents.invocation.split("<name>")[0])}(${SOURCE_ROLES.map(escapeRe).join("|")})(?![\\w-])`, "g");
+const SOURCE_ROLES = readdirSync(join(ROOT, SOURCE.surfaces.agents.dir))
+  .filter((f) => f.endsWith(ROLE_SUFFIX))
+  .map((f) => f.slice(0, -ROLE_SUFFIX.length))
+  .sort();
+const SOURCE_ROLE = new RegExp(
+  `(?<![\\w/$:-])${escapeRe(SOURCE.surfaces.agents.invocation.split("<name>")[0])}(${SOURCE_ROLES.map(escapeRe).join("|")})(?![\\w-])`,
+  "g",
+);
 const TARGETS = emittingHarnesses();
-if (TARGETS.length !== 1) throw new Error(`this renderer currently requires exactly one emitting harness; found ${TARGETS.length}`);
+if (TARGETS.length !== 1)
+  throw new Error(`this renderer currently requires exactly one emitting harness; found ${TARGETS.length}`);
 const TARGET = TARGETS[0];
 const OUT = resolve(ROOT, TARGET.output_dir);
 
 const read = (p) => readFileSync(p, "utf8");
 const json = (p) => JSON.parse(read(p));
-const files = (dir, suffix = ".md") => readdirSync(dir)
-  .filter((name) => name.endsWith(suffix))
-  .sort()
-  .map((name) => join(dir, name));
+const files = (dir, suffix = ".md") =>
+  readdirSync(dir)
+    .filter((name) => name.endsWith(suffix))
+    .sort()
+    .map((name) => join(dir, name));
 
 function frontmatter(text, file) {
   const m = text.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
@@ -48,7 +56,8 @@ function frontmatter(text, file) {
     const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
     if (!kv) continue;
     let value = kv[2].trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))
+      value = value.slice(1, -1);
     data[kv[1]] = value;
   }
   return { data, body: m[2].replace(/^\n+/, "") };
@@ -92,7 +101,8 @@ function skill(name, description, body, { runtime = true } = {}) {
 
 const COMMAND_OVERRIDES = {
   agents: {
-    description: "Register or remove ProjectStore's shared agents block, inspect its Codex model overlay, or configure per-role models. Arguments: <register | unregister | status | configure>.",
+    description:
+      "Register or remove ProjectStore's shared agents block, inspect its Codex model overlay, or configure per-role models. Arguments: <register | unregister | status | configure>.",
     body: `You are managing ProjectStore's Codex agent integration. Require a bound project.
 
 ## register / unregister
@@ -122,7 +132,8 @@ contract. A configured model is consumed by the role-orchestration skills on
 their next spawn; no restart is needed.`,
   },
   bind: {
-    description: "Bind this project to an existing ProjectStore vault, or initialize and bind a new vault, using the harness-neutral core. Arguments: [vault-path] [--layout <name>] [--language <code>].",
+    description:
+      "Bind this project to an existing ProjectStore vault, or initialize and bind a new vault, using the harness-neutral core. Arguments: [vault-path] [--layout <name>] [--language <code>].",
     body: `Bind the current project through the core; never write the binding by
 hand.
 
@@ -154,7 +165,8 @@ write one. Model choices, when requested, go through \`$projectstore-agents
 configure\` and the Codex overlay.`,
   },
   doctor: {
-    description: "Diagnose the ProjectStore install and vault through the harness-neutral doctor; fixes remain previewed and approval-gated. Arguments: [--install | --vault] [--fix].",
+    description:
+      "Diagnose the ProjectStore install and vault through the harness-neutral doctor; fixes remain previewed and approval-gated. Arguments: [--install | --vault] [--fix].",
     body: `Run the deterministic doctor through the bundled core with the user's
 arguments and \`--json\`. Summarize every finding without re-deriving it.
 
@@ -168,7 +180,8 @@ surfaces remain unsupported; do not create host configuration by hand. Never
 claim a fix after a non-zero exit.`,
   },
   bar: {
-    description: "Explain ProjectStore band availability for Codex. This surface is unsupported and the skill never writes configuration. Arguments: on | off | status | epic [<ID>].",
+    description:
+      "Explain ProjectStore band availability for Codex. This surface is unsupported and the skill never writes configuration. Arguments: on | off | status | epic [<ID>].",
     body: `ProjectStore's band above the prompt is not supported by the Codex
 harness: Codex has no surface that draws above the prompt and no module
 runtime to draw it. Do not run the band verb's writes and do not edit project
@@ -176,7 +189,8 @@ or host configuration. Report the surface as unsupported. For project state
 use \`$projectstore-status\`.`,
   },
   statusline: {
-    description: "Explain ProjectStore status-line availability for Codex. This surface is unsupported and the skill never writes configuration. Arguments: on | off | status.",
+    description:
+      "Explain ProjectStore status-line availability for Codex. This surface is unsupported and the skill never writes configuration. Arguments: on | off | status.",
     body: `ProjectStore's status-line surface is not supported by the Codex
 harness. Do not run install or uninstall for \`--surface statusline\`, and do
 not edit project or host configuration. Report the surface as unsupported.
@@ -203,7 +217,10 @@ function renderCommand(file) {
   const override = COMMAND_OVERRIDES[verb];
   if (override) return [join("skills", name, "SKILL.md"), skill(name, override.description, override.body)];
   const hint = data["argument-hint"] ? ` Arguments: ${data["argument-hint"]}.` : "";
-  return [join("skills", name, "SKILL.md"), skill(name, `${data.description || `Run the ProjectStore ${verb} workflow.`}${hint}`, body)];
+  return [
+    join("skills", name, "SKILL.md"),
+    skill(name, `${data.description || `Run the ProjectStore ${verb} workflow.`}${hint}`, body),
+  ];
 }
 
 function renderPassive(file) {
@@ -219,8 +236,10 @@ function renderRole(file) {
   const role = file.split("/").pop().replace(/\.md$/, "");
   const name = renderedName("agents", role);
   const orchestration = `## Codex orchestration\n\nThis is a role-orchestration skill, not a native agent registration. Resolve the\nrole model by running:\n\n\`\`\`bash\nnode "\${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model ${role} --json --project "$PWD"\n\`\`\`\n\nSpawn a collaboration agent for the bounded task. If the result names a model,\npass that model and use an empty or bounded context fork; otherwise inherit the\ncurrent model. Do not pass a reasoning-effort override: per-role effort belongs\nto a separate accepted story. Give the spawned agent the role contract below\nand the exact artifact/diff it must inspect. Wait for its final result.\n\n## Role contract\n\n`;
-  const description = (data.description || `Run the ProjectStore ${role} role in a fresh collaboration agent.`)
-    .replace(/^(?:Opus|Sonnet) \(max-effort\)\s+/, "");
+  const description = (data.description || `Run the ProjectStore ${role} role in a fresh collaboration agent.`).replace(
+    /^(?:Opus|Sonnet) \(max-effort\)\s+/,
+    "",
+  );
   return [join("skills", name, "SKILL.md"), skill(name, description, orchestration + body)];
 }
 
@@ -234,12 +253,15 @@ export function renderHooks(manifest, root = ROOT) {
   for (const group of post) if (group.matcher) group.matcher = (manifest.tools?.write_tools || []).join("|");
   const rewrite = (value) => {
     if (Array.isArray(value)) return value.map(rewrite);
-    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, rewrite(v)]));
+    if (value && typeof value === "object")
+      return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, rewrite(v)]));
     if (typeof value !== "string") return value;
     const sourceRoot = "${" + SOURCE.runtime.plugin_root_env + "}";
     const targetRoot = "${" + manifest.runtime.plugin_root_env + "}";
     const command = value.startsWith(`node ${sourceRoot}/`) ? value.slice(`node ${sourceRoot}/`.length) : null;
-    return command ? `node "${targetRoot}/node_modules/projectstore/${command}"` : value.replaceAll(sourceRoot, `${targetRoot}/node_modules/projectstore`);
+    return command
+      ? `node "${targetRoot}/node_modules/projectstore/${command}"`
+      : value.replaceAll(sourceRoot, `${targetRoot}/node_modules/projectstore`);
   };
   const text = JSON.stringify(rewrite(source), null, 2) + "\n";
   return [join("hooks", "hooks.json"), text];
@@ -247,7 +269,8 @@ export function renderHooks(manifest, root = ROOT) {
 
 export function renderCodexAdapter(root = ROOT) {
   const manifest = json(join(root, "harnesses", `${TARGET.id}.json`));
-  if (!manifest.emit || !manifest.output_dir) throw new Error(`${TARGET.id} must declare an output_dir when emit is true`);
+  if (!manifest.emit || !manifest.output_dir)
+    throw new Error(`${TARGET.id} must declare an output_dir when emit is true`);
   const rows = [
     ...files(join(root, "commands")).map(renderCommand),
     ...files(join(root, "agents")).map(renderRole),
@@ -259,15 +282,34 @@ export function renderCodexAdapter(root = ROOT) {
   ];
   const out = new Map();
   for (const [rel, text] of rows) {
-    if (rel.startsWith("..") || resolve(OUT, rel).slice(0, OUT.length + 1) !== OUT + "/") throw new Error(`adapter path escapes output root: ${rel}`);
+    if (rel.startsWith("..") || resolve(OUT, rel).slice(0, OUT.length + 1) !== OUT + "/")
+      throw new Error(`adapter path escapes output root: ${rel}`);
     if (out.has(rel)) throw new Error(`adapter collision: ${rel}`);
     out.set(rel, text);
   }
   for (const [rel, text] of out) {
-    const sourceTokens = [SOURCE.runtime.plugin_root_env, SOURCE.runtime.project_dir_env, SOURCE.display_name, SOURCE.runtime.harness_dir + "/"].filter(Boolean);
+    const sourceTokens = [
+      SOURCE.runtime.plugin_root_env,
+      SOURCE.runtime.project_dir_env,
+      SOURCE.display_name,
+      SOURCE.runtime.harness_dir + "/",
+    ].filter(Boolean);
     const sourceAgentEnvs = (SOURCE.runtime.agent_overrides || []).map((row) => row.env).filter(Boolean);
-    if (sourceTokens.some((token) => text.includes(token)) || sourceAgentEnvs.some((token) => text.includes(token)) || text.includes(SOURCE_COMMAND_PREFIX) || new RegExp(SOURCE_ROLE.source).test(text) || /\$ARGUMENTS/.test(text)) throw new Error(`${rel}: source-harness vocabulary leaked into ${TARGET.display_name} adapter`);
-    if (SOURCE_UI.some(({ re }) => new RegExp(re.source).test(text)) || /harness\/codex-code\.json|\b(?:opus|sonnet|fable)\b/i.test(text)) throw new Error(`${rel}: source-harness model, environment or UI semantics leaked into ${TARGET.display_name} adapter`);
+    if (
+      sourceTokens.some((token) => text.includes(token)) ||
+      sourceAgentEnvs.some((token) => text.includes(token)) ||
+      text.includes(SOURCE_COMMAND_PREFIX) ||
+      new RegExp(SOURCE_ROLE.source).test(text) ||
+      /\$ARGUMENTS/.test(text)
+    )
+      throw new Error(`${rel}: source-harness vocabulary leaked into ${TARGET.display_name} adapter`);
+    if (
+      SOURCE_UI.some(({ re }) => new RegExp(re.source).test(text)) ||
+      /harness\/codex-code\.json|\b(?:opus|sonnet|fable)\b/i.test(text)
+    )
+      throw new Error(
+        `${rel}: source-harness model, environment or UI semantics leaked into ${TARGET.display_name} adapter`,
+      );
   }
   return out;
 }
@@ -313,4 +355,5 @@ function main(argv) {
   return result.ok ? 0 : 1;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv.slice(2));
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))
+  process.exitCode = main(process.argv.slice(2));

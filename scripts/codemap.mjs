@@ -79,19 +79,34 @@ function main() {
     lines.push(`| [[${folder.path}/${e.id}/epic\\|${e.id}]] | ${e.title} | ${e.status} | ${refs} |`);
   }
   if (storyRows.length) {
-    lines.push("", "## Story-level refs (files each story touched)", "",
-      "| Epic | Story | code_refs |", "|------|-------|-----------|");
+    lines.push(
+      "",
+      "## Story-level refs (files each story touched)",
+      "",
+      "| Epic | Story | code_refs |",
+      "|------|-------|-----------|",
+    );
     for (const s of storyRows) {
       lines.push(`| ${s.epic} | ${s.title} | ${s.refs.map((r) => `\`${r}\``).join(", ")} |`);
     }
   }
   lines.push("");
 
-  process.stdout.write(JSON.stringify({
-    path: join(cfg.vault_path, "code-map.md"),
-    content: lines.join("\n"),
-    stats: { epics: epics.length, epics_with_refs: epics.filter((e) => e.refs.length).length, story_rows: storyRows.length },
-  }, null, 2) + "\n");
+  process.stdout.write(
+    JSON.stringify(
+      {
+        path: join(cfg.vault_path, "code-map.md"),
+        content: lines.join("\n"),
+        stats: {
+          epics: epics.length,
+          epics_with_refs: epics.filter((e) => e.refs.length).length,
+          story_rows: storyRows.length,
+        },
+      },
+      null,
+      2,
+    ) + "\n",
+  );
 }
 
 if (isMain(import.meta.url)) {

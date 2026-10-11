@@ -6,7 +6,16 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, copyFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  mkdirSync,
+  readFileSync,
+  copyFileSync,
+  existsSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -84,10 +93,7 @@ import {
   parseSpecAcceptance,
   walkVaultFiles,
 } from "../scripts/doctor.mjs";
-import {
-  resolveSelection,
-  writeIndexWithRetry,
-} from "../scripts/reconcile.mjs";
+import { resolveSelection, writeIndexWithRetry } from "../scripts/reconcile.mjs";
 
 // ─── numbering ─────────────────────────────────────────────────────────
 
@@ -229,36 +235,57 @@ test("writeIndexWithRetry: unusable table and absent file are reported, not writ
 test("slugIdentity: numbered-era names contribute both readings", () => {
   const adr = slugIdentity("ADR-003-foo.md", { prefix: "ADR-" });
   assert.equal(adr.primary, "adr-003-foo");
-  assert.deepEqual(adr.candidates.map((c) => c.id), ["adr-003-foo", "foo"]);
+  assert.deepEqual(
+    adr.candidates.map((c) => c.id),
+    ["adr-003-foo", "foo"],
+  );
   assert.equal(adr.legacyNumber, "003");
   assert.equal(adr.digitLeading, false);
 
   const story = slugIdentity("story-006-foo.md", { story: true });
-  assert.deepEqual(story.candidates.map((c) => c.id), ["006-foo", "foo"]);
+  assert.deepEqual(
+    story.candidates.map((c) => c.id),
+    ["006-foo", "foo"],
+  );
   assert.equal(story.legacyNumber, "006");
 });
 
 test("slugIdentity: lowercase spec-NNN files strip against the uppercase layout prefix", () => {
   const s = slugIdentity("spec-002-dvizhok-zameny.md", { prefix: "SPEC-" });
-  assert.deepEqual(s.candidates.map((c) => c.id), ["spec-002-dvizhok-zameny", "dvizhok-zameny"]);
+  assert.deepEqual(
+    s.candidates.map((c) => c.id),
+    ["spec-002-dvizhok-zameny", "dvizhok-zameny"],
+  );
   assert.equal(s.legacyNumber, "002");
 });
 
 test("slugIdentity: slug-only names are single-reading; folder-shape dir names work", () => {
-  assert.deepEqual(slugIdentity("foo.md", { prefix: "ADR-" }).candidates.map((c) => c.id), ["foo"]);
+  assert.deepEqual(
+    slugIdentity("foo.md", { prefix: "ADR-" }).candidates.map((c) => c.id),
+    ["foo"],
+  );
   const folder = slugIdentity("story-006-foo", { story: true }); // dir name, no .md
-  assert.deepEqual(folder.candidates.map((c) => c.id), ["006-foo", "foo"]);
+  assert.deepEqual(
+    folder.candidates.map((c) => c.id),
+    ["006-foo", "foo"],
+  );
 });
 
 test("slugIdentity: digit-leading slug is flagged and keeps its full candidate set", () => {
   const s = slugIdentity("story-2024-review.md", { story: true });
   assert.equal(s.digitLeading, true);
-  assert.deepEqual(s.candidates.map((c) => c.id), ["2024-review", "review"]);
+  assert.deepEqual(
+    s.candidates.map((c) => c.id),
+    ["2024-review", "review"],
+  );
 });
 
 test("slugIdentity: number-only legacy ids keep a single reading", () => {
   const s = slugIdentity("SPEC-002.md", { prefix: "SPEC-" });
-  assert.deepEqual(s.candidates.map((c) => c.id), ["spec-002"]);
+  assert.deepEqual(
+    s.candidates.map((c) => c.id),
+    ["spec-002"],
+  );
   assert.equal(s.legacyNumber, "002");
 });
 
@@ -466,15 +493,20 @@ test("checkOverrideCopies gives scope-appropriate removal advice", () => {
   const user = out.find((f) => f.file.startsWith("~"));
   assert.match(project.message, /configure/);
   assert.match(user.message, /by hand/);
-  assert.ok(!/Delete it via \/projectstore:agents configure/.test(user.message),
-    "user scope must not be pointed at a command that only touches project scope");
+  assert.ok(
+    !/Delete it via \/projectstore:agents configure/.test(user.message),
+    "user scope must not be pointed at a command that only touches project scope",
+  );
 });
 
 // A marked copy with no `name:` used to fall through to the staleness branch;
 // after ADR-008 it must still get an actionable message, not `name ""`.
 test("checkOverrideCopies falls back to the filename when a marked copy has no name", () => {
   const { proj, home } = agentDirs();
-  writeFileSync(join(proj, ".claude", "agents", "critic.md"), `---\nmodel: opus\n---\n\n# source: projectstore v0.0.1\n\nbody\n`);
+  writeFileSync(
+    join(proj, ".claude", "agents", "critic.md"),
+    `---\nmodel: opus\n---\n\n# source: projectstore v0.0.1\n\nbody\n`,
+  );
   const out = checkOverrideCopies(proj, home);
   assert.equal(out.length, 1);
   assert.ok(!/name ""/.test(out[0].message), "an empty name in the message helps nobody");
@@ -587,8 +619,12 @@ test("checkSpecCoverage: done story against draft spec is an issue; in-progress 
 });
 
 test("parseSpecAcceptance: attribution and unattributed items", () => {
-  const s = spec("SPEC-001", ["E1/story-001"], "active",
-    "- [x] for all stories\n- [ ] only story-002 — stories: story-002\n- [x] ru attributed — подтверждение: test\n");
+  const s = spec(
+    "SPEC-001",
+    ["E1/story-001"],
+    "active",
+    "- [x] for all stories\n- [ ] only story-002 — stories: story-002\n- [x] ru attributed — подтверждение: test\n",
+  );
   const items = parseSpecAcceptance(s);
   assert.equal(items.length, 3);
   assert.equal(items[0].stories, null);
@@ -597,8 +633,12 @@ test("parseSpecAcceptance: attribution and unattributed items", () => {
 });
 
 test("checkSpecAcceptance: unchecked attributed item blocks its story only", () => {
-  const s = spec("SPEC-001", ["E1/story-001", "E1/story-002"], "active",
-    "- [x] shared\n- [ ] mine — stories: story-001\n");
+  const s = spec(
+    "SPEC-001",
+    ["E1/story-001", "E1/story-002"],
+    "active",
+    "- [x] shared\n- [ ] mine — stories: story-001\n",
+  );
   const arts = [
     s,
     story("E1", "story-001", "done", { specs: '["SPEC-001"]', closed_at: "2026-08-04T00:00:00.000Z" }),
@@ -620,7 +660,10 @@ test("compareArtifactOrder: date asc; in a date group number wins, numbered befo
     { date: "2026-08-09", number: null, slug: "alpha" },
   ];
   const sorted = [...rows].sort(compareArtifactOrder);
-  assert.deepEqual(sorted.map((r) => r.number ?? r.slug), ["004", "009", "010", "alpha", "zeta"]);
+  assert.deepEqual(
+    sorted.map((r) => r.number ?? r.slug),
+    ["004", "009", "010", "alpha", "zeta"],
+  );
 });
 
 test("displayNumberOf: frontmatter number wins, legacy filename number falls back, else null", () => {
@@ -642,14 +685,18 @@ test("checkArtifactIdentity: cross-era collision is an issue, digit-leading over
   assert.equal(issue[0].level, "issue");
   assert.ok(issue[0].message.includes('"foo"'), issue[0].message);
 
-  const warn = checkArtifactIdentity(layout,
-    vf("epics/E1/stories/story-2024-review.md", "epics/E1/stories/story-review.md"));
+  const warn = checkArtifactIdentity(
+    layout,
+    vf("epics/E1/stories/story-2024-review.md", "epics/E1/stories/story-review.md"),
+  );
   assert.equal(warn.length, 1);
   assert.equal(warn[0].level, "warn");
 
   // Flat story + folder-shape namesake: both as-written readings coincide.
-  const twin = checkArtifactIdentity(layout,
-    vf("epics/E1/stories/story-foo.md", "epics/E1/stories/story-foo/README.md"));
+  const twin = checkArtifactIdentity(
+    layout,
+    vf("epics/E1/stories/story-foo.md", "epics/E1/stories/story-foo/README.md"),
+  );
   assert.equal(twin.length, 1);
   assert.equal(twin[0].level, "issue");
 });
@@ -665,20 +712,24 @@ test("checkArtifactIdentity: frontmatter decides the era where the filename is a
   assert.equal(certain[0].level, "issue");
   // The same pair with a new-era machine id on the digit-leading file: the
   // overlap exists only under the legacy reading of a slug-era file → warn.
-  const newEra = checkArtifactIdentity(layout, files,
-    [{ rel: "epics/E1/stories/story-006-foo.md", fm: { id: "story-006-foo" } }]);
+  const newEra = checkArtifactIdentity(layout, files, [
+    { rel: "epics/E1/stories/story-006-foo.md", fm: { id: "story-006-foo" } },
+  ]);
   assert.equal(newEra[0].level, "warn");
   // Two same-slug legacy-numbered ADRs were legal in the numbered era —
   // grandfathering must not turn them into a defect (contract 6) → info.
-  const legacyPair = checkArtifactIdentity(layout,
-    vf("adr/ADR-005-caching-strategy.md", "adr/ADR-012-caching-strategy.md"));
+  const legacyPair = checkArtifactIdentity(
+    layout,
+    vf("adr/ADR-005-caching-strategy.md", "adr/ADR-012-caching-strategy.md"),
+  );
   assert.equal(legacyPair.length, 1);
   assert.equal(legacyPair[0].level, "info");
 });
 
 test("checkExternalRefsForm: block-form map is an issue, inline flow is clean (contract 3)", () => {
   const mk = (frontmatterLines) => ({
-    kind: "story", rel: "epics/E1/stories/story-x.md",
+    kind: "story",
+    rel: "epics/E1/stories/story-x.md",
     fm: { external_refs: "" },
     body: `---\n${frontmatterLines}\n---\n\n# X\n`,
   });
@@ -696,27 +747,45 @@ test("checkExternalRefsForm: block-form map is an issue, inline flow is clean (c
 test("checkArtifactIdentity: scopes are independent; duplicate display numbers are info", () => {
   const layout = loadLayout("engineering");
   // Same slug in different kind folders / different epics: no identity clash.
-  assert.deepEqual(checkArtifactIdentity(layout, vf(
-    "adr/foo.md", "research/foo.md",
-    "epics/E1/stories/story-foo.md", "epics/E2/stories/story-foo.md")).filter((f) => f.check === "identity" && f.level !== "info"), []);
+  assert.deepEqual(
+    checkArtifactIdentity(
+      layout,
+      vf("adr/foo.md", "research/foo.md", "epics/E1/stories/story-foo.md", "epics/E2/stories/story-foo.md"),
+    ).filter((f) => f.check === "identity" && f.level !== "info"),
+    [],
+  );
   // GrammarHelper's double allocation: SPEC-002 twice, distinct slugs → info only.
   const dup = checkArtifactIdentity(layout, vf("specs/SPEC-002-a.md", "specs/spec-002-b.md"));
   assert.equal(dup.length, 1);
   assert.equal(dup[0].level, "info");
   assert.ok(dup[0].message.includes("Display number 2"), dup[0].message);
   // This vault's real shape stays clean: sequential numbers, distinct slugs.
-  assert.deepEqual(checkArtifactIdentity(layout, vf(
-    "adr/ADR-009-runtime-neutral-core.md", "adr/ADR-010-slug-first-identity.md",
-    "epics/PS-CORE/stories/story-001-slug-first-artifact-identity.md")), []);
+  assert.deepEqual(
+    checkArtifactIdentity(
+      layout,
+      vf(
+        "adr/ADR-009-runtime-neutral-core.md",
+        "adr/ADR-010-slug-first-identity.md",
+        "epics/PS-CORE/stories/story-001-slug-first-artifact-identity.md",
+      ),
+    ),
+    [],
+  );
 });
 
 test("checkArtifactNames: sync-conflict shapes warn; cross-folder basenames info; infrastructure exempt", () => {
-  const f = checkArtifactNames(vf(
-    "research/foo 2.md",                       // sync-conflict → warn
-    "adr/topic.md", "research/topic.md",       // cross-folder basename → info
-    "adr/README.md", "research/README.md",     // infrastructure → exempt
-    "epics/E1/epic.md", "epics/E2/epic.md",    // infrastructure → exempt
-    "concepts/clean.md"));
+  const f = checkArtifactNames(
+    vf(
+      "research/foo 2.md", // sync-conflict → warn
+      "adr/topic.md",
+      "research/topic.md", // cross-folder basename → info
+      "adr/README.md",
+      "research/README.md", // infrastructure → exempt
+      "epics/E1/epic.md",
+      "epics/E2/epic.md", // infrastructure → exempt
+      "concepts/clean.md",
+    ),
+  );
   const warns = f.filter((x) => x.level === "warn");
   const infos = f.filter((x) => x.level === "info");
   assert.equal(warns.length, 1);
@@ -739,8 +808,10 @@ test("checkSpecLinks: slug entries never prefix-match a story (mis-attribution r
   // The case SPEC-002 pins: "E1/cache" must NOT resolve to cache-invalidation.md.
   const wrong = spec("SPEC-009", ["E1/cache"], "active", "- [x] a\n");
   const f = checkSpecLinks({}, layout, [wrong, storyArt]);
-  assert.ok(f.some((x) => x.check === "spec-links" && x.message.includes("does not resolve")),
-    JSON.stringify(f));
+  assert.ok(
+    f.some((x) => x.check === "spec-links" && x.message.includes("does not resolve")),
+    JSON.stringify(f),
+  );
   // The exact filename stem resolves (hand-created story without id:).
   const exact = spec("SPEC-009", ["E1/cache-invalidation"], "active", "- [x] a\n");
   const f2 = checkSpecLinks({}, layout, [exact, storyArt]);
@@ -750,7 +821,9 @@ test("checkSpecLinks: slug entries never prefix-match a story (mis-attribution r
 test("checkSpecLinks: legacy story-NNN fallback resolves, exact id wins, ambiguity is reported", () => {
   const layout = loadLayout("engineering");
   const mk = (rel, id) => ({
-    kind: "story", rel, abs: `/x/${rel}`,
+    kind: "story",
+    rel,
+    abs: `/x/${rel}`,
     fm: { ...(id ? { id } : {}), type: "story", status: "planned", specs: "[]" },
     body: "---\ntype: story\n---\n",
   });
@@ -764,7 +837,10 @@ test("checkSpecLinks: legacy story-NNN fallback resolves, exact id wins, ambigui
     mk("epics/E1/stories/story-001-a.md", "story-001"),
     mk("epics/E1/stories/story-001-b.md", "story-001"),
   ]);
-  assert.ok(amb.some((x) => x.message.includes("ambiguous")), JSON.stringify(amb));
+  assert.ok(
+    amb.some((x) => x.message.includes("ambiguous")),
+    JSON.stringify(amb),
+  );
 });
 
 test("shared spec resolver: slug-form references to grandfathered SPEC-NNN files hit in links AND coverage", () => {
@@ -782,7 +858,10 @@ test("shared spec resolver: slug-form references to grandfathered SPEC-NNN files
   // Coverage sees the same spec through the SAME resolver (draft while
   // in-progress → warn) instead of silently skipping the "dead" link.
   const cov = checkSpecCoverage([grand, st], REQUIRED, layout);
-  assert.ok(cov.some((x) => x.check === "spec-status" && x.level === "warn"), JSON.stringify(cov));
+  assert.ok(
+    cov.some((x) => x.check === "spec-status" && x.level === "warn"),
+    JSON.stringify(cov),
+  );
 
   // GrammarHelper shape end-to-end: lowercase spec-NNN-* filename against the
   // uppercase layout prefix, story without fm.id — both eras resolve.
@@ -805,16 +884,34 @@ test("checkLifecycleGates: evidence suffix accepted in en and ru, fenced boxes i
   const done = {
     kind: "story",
     rel: "epics/E1/stories/story-001-x.md",
-    fm: { type: "story", status: "done", closed_at: "2026-08-04T00:00:00.000Z", plan_updated_at: "2026-08-04T00:00:00.000Z" },
+    fm: {
+      type: "story",
+      status: "done",
+      closed_at: "2026-08-04T00:00:00.000Z",
+      plan_updated_at: "2026-08-04T00:00:00.000Z",
+    },
     body: [
-      "---", "type: story", "---", "",
-      "## Implementation Plan", "", "route", "",
-      "## Acceptance Criteria", "",
+      "---",
+      "type: story",
+      "---",
+      "",
+      "## Implementation Plan",
+      "",
+      "route",
+      "",
+      "## Acceptance Criteria",
+      "",
       "- [x] good — evidence: node --test",
       "- [x] good ru — подтверждение: команда",
       "- [x] bad no evidence",
-      "```", "- [x] fenced ignored", "```", "",
-      "## Final Summary", "", "done", "",
+      "```",
+      "- [x] fenced ignored",
+      "```",
+      "",
+      "## Final Summary",
+      "",
+      "done",
+      "",
     ].join("\n"),
   };
   const f = checkLifecycleGates([done], { ...REQUIRED, lifecycle_gates: "on" });
@@ -842,9 +939,7 @@ test("checkLifecycleGates: missing plan/summary/plan_updated_at on a done story"
 // version-pinned path rendered the PREVIOUS session's plugin. These pin the
 // fix: resolve the installed root, and wire a launcher that carries no version.
 
-const LAUNCHER_TEMPLATE = fileURLToPath(
-  new URL("../scripts/statusline-launcher.mjs", import.meta.url),
-);
+const LAUNCHER_TEMPLATE = fileURLToPath(new URL("../scripts/statusline-launcher.mjs", import.meta.url));
 
 // These resolve against tmp homes; a real CLAUDE_CONFIG_DIR in the developer's
 // environment would take precedence (claudeHome() prefers it) and mask them.
@@ -860,10 +955,7 @@ function fakeInstall(home, version, { marketplace = "SmartAndPoint", broken = fa
     join(root, "scripts", "statusline.mjs"),
     broken ? "const = ;\n" : `process.stdout.write("rendered-by-${version}\\n");\n`,
   );
-  writeFileSync(
-    join(root, ".claude-plugin", "plugin.json"),
-    JSON.stringify({ name: "projectstore", version }),
-  );
+  writeFileSync(join(root, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "projectstore", version }));
   copyFileSync(LAUNCHER_TEMPLATE, join(root, "scripts", "statusline-launcher.mjs"));
   return root;
 }
@@ -964,13 +1056,23 @@ test("checkAutoUpdate: reports a newer release from the marketplace catalog", ()
 });
 
 test("checkAutoUpdate: a release candidate hears that its release or the next candidate is out; a release never hears of its own candidate", () => {
-  for (const [running, latest, notice] of [["0.28.0-rc.3", "0.28.0", true], ["0.28.0-rc.2", "0.28.0-rc.3", true], ["0.28.0", "0.28.0-rc.3", false]]) {
+  for (const [running, latest, notice] of [
+    ["0.28.0-rc.3", "0.28.0", true],
+    ["0.28.0-rc.2", "0.28.0-rc.3", true],
+    ["0.28.0", "0.28.0-rc.3", false],
+  ]) {
     const home = mkdtempSync(join(tmpdir(), "ps-home-"));
     const installed = fakeInstall(home, running);
     const clone = join(home, ".claude", "plugins", "marketplaces", "SmartAndPoint");
     mkdirSync(join(clone, ".claude-plugin"), { recursive: true });
-    writeFileSync(join(clone, ".claude-plugin", "marketplace.json"), JSON.stringify({ plugins: [{ name: "projectstore", version: latest }] }));
-    writeFileSync(join(home, ".claude", "plugins", "known_marketplaces.json"), JSON.stringify({ SmartAndPoint: { autoUpdate: true, installLocation: clone } }));
+    writeFileSync(
+      join(clone, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({ plugins: [{ name: "projectstore", version: latest }] }),
+    );
+    writeFileSync(
+      join(home, ".claude", "plugins", "known_marketplaces.json"),
+      JSON.stringify({ SmartAndPoint: { autoUpdate: true, installLocation: clone } }),
+    );
     const out = withPluginRoot(installed, () => checkAutoUpdate(home)).filter((f) => /is available/.test(f.message));
     assert.equal(out.length, notice ? 1 : 0, `running ${running}, the catalog at ${latest}`);
   }
@@ -991,7 +1093,12 @@ test("installedPluginRoot: newest install wins, wiped installPaths are ignored",
   const r15 = fakeInstall(home, "0.15.0");
   writeRegistry(home, [
     // newest timestamp, but the directory is gone — must not be chosen
-    { scope: "user", installPath: join(home, "gone", "0.16.0"), version: "0.16.0", lastUpdated: "2026-08-04T23:00:00Z" },
+    {
+      scope: "user",
+      installPath: join(home, "gone", "0.16.0"),
+      version: "0.16.0",
+      lastUpdated: "2026-08-04T23:00:00Z",
+    },
     { scope: "user", installPath: r14, version: "0.14.0", lastUpdated: "2026-08-01T10:00:00Z" },
     { scope: "user", installPath: r15, version: "0.15.0", lastUpdated: "2026-08-04T17:51:53Z" },
   ]);
@@ -1017,9 +1124,7 @@ test("syncStatusLine never creates: an enabled flag with no entry reports needs-
   const proj = mkdtempSync(join(tmpdir(), "ps-proj-"));
   assert.ok(isPluginCacheRoot(root, home));
 
-  const res = withPluginRoot(root, () =>
-    syncStatusLine({ statusline: { enabled: true } }, proj, home),
-  );
+  const res = withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, proj, home));
   assert.equal(res, "needs-install");
   assert.ok(!existsSync(join(proj, ".claude", "settings.local.json")), "no settings written");
   assert.ok(!existsSync(statusLineLauncherPath(proj)), "no launcher written");
@@ -1091,7 +1196,11 @@ test("syncStatusLine keeps a launcher entry across updates and leaves the launch
     "unchanged",
     "the wired command is version-free, so it does not change across updates",
   );
-  assert.equal(fallback(), v16, "the launcher is a stamped file; refreshing its fallback is upgrade's, behind the gate");
+  assert.equal(
+    fallback(),
+    v16,
+    "the launcher is a stamped file; refreshing its fallback is upgrade's, behind the gate",
+  );
 });
 
 test("syncStatusLine keeps the direct path for a dev checkout (no version to go stale)", () => {
@@ -1101,9 +1210,15 @@ test("syncStatusLine keeps the direct path for a dev checkout (no version to go 
   assert.ok(!isPluginCacheRoot(dev, home));
   mkdirSync(join(proj, ".claude"), { recursive: true });
   const cmd = `node "${join(dev, "scripts", "statusline.mjs")}"`;
-  writeFileSync(join(proj, ".claude", "settings.local.json"), JSON.stringify({ statusLine: { type: "command", command: cmd } }));
+  writeFileSync(
+    join(proj, ".claude", "settings.local.json"),
+    JSON.stringify({ statusLine: { type: "command", command: cmd } }),
+  );
 
-  assert.equal(withPluginRoot(dev, () => syncStatusLine({ statusline: { enabled: true } }, proj, home)), "unchanged");
+  assert.equal(
+    withPluginRoot(dev, () => syncStatusLine({ statusline: { enabled: true } }, proj, home)),
+    "unchanged",
+  );
   assert.equal(JSON.parse(readFileSync(join(proj, ".claude", "settings.local.json"), "utf8")).statusLine.command, cmd);
   assert.ok(!existsSync(statusLineLauncherPath(proj)), "no launcher for a dev checkout");
 });
@@ -1143,7 +1258,17 @@ function wiredProject(entry, launchers = []) {
     mkdirSync(dirname(at), { recursive: true });
     writeFileSync(at, renderStatusLineLauncher(readFileSync(LAUNCHER_TEMPLATE, "utf8"), "/fallback/root", proj));
   }
-  writeFileSync(settingsOf(proj), JSON.stringify({ permissions: { allow: ["Bash(npm:*)"] }, statusLine: { type: "command", command: `node "${entry(proj)}"`, refreshInterval: 5000 } }, null, 2) + "\n");
+  writeFileSync(
+    settingsOf(proj),
+    JSON.stringify(
+      {
+        permissions: { allow: ["Bash(npm:*)"] },
+        statusLine: { type: "command", command: `node "${entry(proj)}"`, refreshInterval: 5000 },
+      },
+      null,
+      2,
+    ) + "\n",
+  );
   return proj;
 }
 
@@ -1152,7 +1277,15 @@ function wiredProject(entry, launchers = []) {
 function sessionRoots(version = "0.29.2") {
   const home = realTmp("ps-home-");
   const mp = fakeMarketplace(home, version);
-  return { home, mp, roots: { "the marketplace payload": mp.payload, "a cache install": fakeInstall(home, version, { marketplace: REG.marketplace_name }), "a checkout": realTmp("ps-dev-") } };
+  return {
+    home,
+    mp,
+    roots: {
+      "the marketplace payload": mp.payload,
+      "a cache install": fakeInstall(home, version, { marketplace: REG.marketplace_name }),
+      "a checkout": realTmp("ps-dev-"),
+    },
+  };
 }
 
 // Every readFileSync the module graph makes inside fn, as paths — lib.mjs
@@ -1177,10 +1310,17 @@ test("syncStatusLine never demotes a launcher: an entry naming one on disk stays
   assert.equal(typeof JSON.parse(readFileSync(mp.manifest, "utf8"))[REG.provenance_key].pkg, "string");
   assert.ok(!isPluginCacheRoot(mp.payload, home));
   for (const [where, root] of Object.entries(roots)) {
-    for (const [which, at] of [["the launcher", NEW_LAUNCHER], ["the legacy launcher", LEGACY_LAUNCHER]]) {
+    for (const [which, at] of [
+      ["the launcher", NEW_LAUNCHER],
+      ["the legacy launcher", LEGACY_LAUNCHER],
+    ]) {
       const proj = wiredProject(at, [at]);
       const before = readFileSync(settingsOf(proj), "utf8");
-      assert.equal(withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, proj, home)), "unchanged", `${which}, from ${where}`);
+      assert.equal(
+        withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, proj, home)),
+        "unchanged",
+        `${which}, from ${where}`,
+      );
       assert.equal(readFileSync(settingsOf(proj), "utf8"), before, `${which}, from ${where}`);
     }
   }
@@ -1191,17 +1331,29 @@ test("syncStatusLine with the named launcher missing points the entry at the run
   for (const [where, root] of Object.entries(roots)) {
     // No launcher on disk: the running root's own script, as before.
     const bare = wiredProject(NEW_LAUNCHER);
-    assert.equal(withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, bare, home)), "enabled", where);
+    assert.equal(
+      withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, bare, home)),
+      "enabled",
+      where,
+    );
     assert.equal(entryOf(bare).statusLine.command, `node "${join(root, "scripts", "statusline.mjs")}"`, where);
     assert.equal(entryOf(bare).statusLine.refreshInterval, 5000, "we own the command, not the entry");
     // The named launcher missing, the legacy one on disk: still a launcher, from
     // any root (the layout spec's contract 6 self-heal, amended 2026-10-10).
     const legacy = wiredProject(NEW_LAUNCHER, [LEGACY_LAUNCHER]);
-    assert.equal(withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, legacy, home)), "enabled", where);
+    assert.equal(
+      withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, legacy, home)),
+      "enabled",
+      where,
+    );
     assert.equal(entryOf(legacy).statusLine.command, `node "${LEGACY_LAUNCHER(legacy)}"`, where);
     // Disabled: our entry and the launcher we wrote go; every other key stays.
     const off = wiredProject(NEW_LAUNCHER, [NEW_LAUNCHER]);
-    assert.equal(withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: false } }, off, home)), "disabled", where);
+    assert.equal(
+      withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: false } }, off, home)),
+      "disabled",
+      where,
+    );
     assert.equal(entryOf(off).statusLine, undefined, where);
     assert.deepEqual(entryOf(off).permissions, { allow: ["Bash(npm:*)"] });
     assert.ok(!existsSync(NEW_LAUNCHER(off)), `the launcher is removed, from ${where}`);
@@ -1215,10 +1367,16 @@ test("syncStatusLine from a checkout run directly keeps a direct entry on its ow
   assert.ok(!isPluginCacheRoot(dev, home));
   const own = wiredProject(() => join(dev, "scripts", "statusline.mjs"), [NEW_LAUNCHER]);
   const before = readFileSync(settingsOf(own), "utf8");
-  assert.equal(withPluginRoot(dev, () => syncStatusLine({ statusline: { enabled: true } }, own, home)), "unchanged");
+  assert.equal(
+    withPluginRoot(dev, () => syncStatusLine({ statusline: { enabled: true } }, own, home)),
+    "unchanged",
+  );
   assert.equal(readFileSync(settingsOf(own), "utf8"), before, "wired to its own script, byte for byte");
   const pinned = wiredProject(() => join(old, "scripts", "statusline.mjs"), [NEW_LAUNCHER]);
-  assert.equal(withPluginRoot(dev, () => syncStatusLine({ statusline: { enabled: true } }, pinned, home)), "enabled");
+  assert.equal(
+    withPluginRoot(dev, () => syncStatusLine({ statusline: { enabled: true } }, pinned, home)),
+    "enabled",
+  );
   assert.equal(entryOf(pinned).statusLine.command, `node "${join(dev, "scripts", "statusline.mjs")}"`);
 });
 
@@ -1226,10 +1384,16 @@ test("syncStatusLine reads no new file: from the marketplace payload, a cache in
   const { home, mp, roots } = sessionRoots();
   const cases = Object.entries(roots).map(([where, root]) => [where, root, wiredProject(NEW_LAUNCHER, [NEW_LAUNCHER])]);
   // The payload's own script, from the payload: matched before the manifest rung.
-  cases.push(["the marketplace payload, its own script", mp.payload, wiredProject(() => join(mp.payload, "scripts", "statusline.mjs"), [NEW_LAUNCHER])]);
+  cases.push([
+    "the marketplace payload, its own script",
+    mp.payload,
+    wiredProject(() => join(mp.payload, "scripts", "statusline.mjs"), [NEW_LAUNCHER]),
+  ]);
   for (const [where, root, proj] of cases) {
     let res = null;
-    const reads = readsDuring(t, () => { res = withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, proj, home)); });
+    const reads = readsDuring(t, () => {
+      res = withPluginRoot(root, () => syncStatusLine({ statusline: { enabled: true } }, proj, home));
+    });
     assert.equal(res, "unchanged", where);
     const sandboxed = reads.filter((p) => p.startsWith(home) || p.startsWith(proj));
     assert.deepEqual(sandboxed, [settingsOf(proj)], `from ${where}: ${JSON.stringify(sandboxed)}`);
@@ -1246,9 +1410,15 @@ test("statusLineIsOurWiring recognises the npm registration's payload script by 
   // A user's own HUD at the user-level scripts path lacks the payload's shape: false, and nothing is read.
   const theirs = `node "${join(home, ".claude", "scripts", "statusline.mjs")}"`;
   let mine = null;
-  const reads = readsDuring(t, () => { mine = statusLineIsOurWiring(theirs, proj, home, checkout); });
+  const reads = readsDuring(t, () => {
+    mine = statusLineIsOurWiring(theirs, proj, home, checkout);
+  });
   assert.equal(mine, false);
-  assert.deepEqual(reads.filter((p) => p.startsWith(home) || p.startsWith(proj)), [], "no read for a path without the payload's shape");
+  assert.deepEqual(
+    reads.filter((p) => p.startsWith(home) || p.startsWith(proj)),
+    [],
+    "no read for a path without the payload's shape",
+  );
   // A directory at that shape whose manifest carries no provenance field of ours is someone else's.
   const m = JSON.parse(readFileSync(mp.manifest, "utf8"));
   delete m[REG.provenance_key];
@@ -1258,16 +1428,16 @@ test("statusLineIsOurWiring recognises the npm registration's payload script by 
   // found from the entry's own path.
   const elsewhere = fakeMarketplace(home, "0.29.2", { dir: join(realTmp("ps-cfg-"), ...REG.dir) });
   assert.ok(!elsewhere.dir.startsWith(home));
-  assert.ok(statusLineIsOurWiring(`node "${join(elsewhere.payload, "scripts", "statusline.mjs")}"`, proj, home, checkout));
+  assert.ok(
+    statusLineIsOurWiring(`node "${join(elsewhere.payload, "scripts", "statusline.mjs")}"`, proj, home, checkout),
+  );
 });
 
 test("launcher renders the INSTALLED version, not the one it was generated from", () => {
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   const old = fakeInstall(home, "0.14.0");
   const cur = fakeInstall(home, "0.16.0");
-  writeRegistry(home, [
-    { scope: "user", installPath: cur, version: "0.16.0", lastUpdated: "2026-08-04T18:00:00Z" },
-  ]);
+  writeRegistry(home, [{ scope: "user", installPath: cur, version: "0.16.0", lastUpdated: "2026-08-04T18:00:00Z" }]);
   const r = renderViaLauncher(old, home); // generated back when 0.14.0 was current
   assert.equal(r.status, 0);
   assert.equal(r.stdout, "rendered-by-0.16.0\n");
@@ -1285,9 +1455,7 @@ test("launcher retries the fallback when the installed renderer is broken", () =
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   const good = fakeInstall(home, "0.14.0");
   const broken = fakeInstall(home, "0.16.0", { broken: true }); // truncated mid-update
-  writeRegistry(home, [
-    { scope: "user", installPath: broken, version: "0.16.0", lastUpdated: "2026-08-04T18:00:00Z" },
-  ]);
+  writeRegistry(home, [{ scope: "user", installPath: broken, version: "0.16.0", lastUpdated: "2026-08-04T18:00:00Z" }]);
   const r = renderViaLauncher(good, home);
   assert.equal(r.status, 0);
   // Without the retry the whole HUD — including the base one we compose over —
@@ -1315,9 +1483,7 @@ test("launcher never imports another marketplace's projectstore", () => {
     join(dir, "installed_plugins.json"),
     JSON.stringify({
       plugins: {
-        "projectstore@Fork": [
-          { installPath: fork, version: "9.9.9", lastUpdated: "2026-08-04T23:00:00Z" },
-        ],
+        "projectstore@Fork": [{ installPath: fork, version: "9.9.9", lastUpdated: "2026-08-04T23:00:00Z" }],
       },
     }),
   );
@@ -1399,7 +1565,10 @@ test("syncStatusLine will not clobber a user's own script that merely looks like
     "foreign-present",
   );
   assert.equal(readFileSync(join(proj, ".claude", "settings.local.json"), "utf8"), before);
-  assert.ok(statusLineIsOurs(`node "${theirs}"`), "the loose shape test still matches — that is why it cannot decide writes");
+  assert.ok(
+    statusLineIsOurs(`node "${theirs}"`),
+    "the loose shape test still matches — that is why it cannot decide writes",
+  );
 });
 
 test("syncStatusLine keeps sibling keys on the statusLine entry", () => {
@@ -1437,9 +1606,7 @@ test("checkStatusline warns when the wired version is not the installed one", ()
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   const old = fakeInstall(home, "0.14.0");
   const cur = fakeInstall(home, "0.15.0");
-  writeRegistry(home, [
-    { scope: "user", installPath: cur, version: "0.15.0", lastUpdated: "2026-08-04T17:51:53Z" },
-  ]);
+  writeRegistry(home, [{ scope: "user", installPath: cur, version: "0.15.0", lastUpdated: "2026-08-04T17:51:53Z" }]);
   const proj = mkdtempSync(join(tmpdir(), "ps-proj-"));
   mkdirSync(join(proj, ".claude"), { recursive: true });
   writeFileSync(
@@ -1504,10 +1671,14 @@ test("extractLinks: code excluded; alias/#section/escaped-pipe forms; only relat
   ].join("\n");
   assert.equal(stripCodeSpans("a `b` c\n```\nd\n```\n").includes("b"), false);
   const links = extractLinks(text);
-  assert.deepEqual(links.filter((l) => l.type === "wikilink").map((l) => l.target),
-    ["plain", "target", "sect", "epics/PS-A/epic"]);
-  assert.deepEqual(links.filter((l) => l.type === "mdlink").map((l) => l.target),
-    ["./sib.md", "../up.md"]);
+  assert.deepEqual(
+    links.filter((l) => l.type === "wikilink").map((l) => l.target),
+    ["plain", "target", "sect", "epics/PS-A/epic"],
+  );
+  assert.deepEqual(
+    links.filter((l) => l.type === "mdlink").map((l) => l.target),
+    ["./sib.md", "../up.md"],
+  );
 });
 
 // A real temp vault for index + resolver tests — engineering layout shapes.
@@ -1518,24 +1689,60 @@ function graphVault() {
     writeFileSync(join(vault, rel), content);
   };
   const fm = (lines) => `---\n${lines.join("\n")}\n---\n\n# T\n`;
-  put("adr/ADR-010-slug-first.md", fm(['type: adr', 'id: "ADR-010"', 'title: "Slug first"', 'status: accepted', 'date: 2026-01-01']));
-  put("adr/loose.md", fm(['type: adr', 'id: "loose-decision"', 'title: "Loose"', 'status: proposed', 'date: 2026-01-02']));
-  put("adr/dup.md", fm(['type: adr', 'id: "dup-adr"', 'title: "D2"', 'status: proposed', 'date: 2026-01-01']));
-  put("specs/SPEC-002-slug-first-artifact-identity.md", fm(['type: spec', 'id: "SPEC-002"', 'title: "Identity"', 'status: active', 'date: 2026-01-01']));
-  put("research/some-note.md", fm(['type: research', 'slug: "research-alias"', 'title: "Note"', 'date: 2026-01-03']));
-  put("concepts/MixedCase.md", fm(['type: concept', 'slug: "mixedcase"', 'title: "MC"', 'date: 2026-01-01']));
-  put("concepts/dup.md", fm(['type: concept', 'slug: "dup-concept"', 'title: "D1"', 'date: 2026-01-01']));
-  put("epics/PS-A/epic.md", fm(['type: epic', 'id: "PS-A"', 'title: "A"', 'status: in-progress', 'created: 2026-01-01']));
-  put("epics/PS-B/epic.md", fm(['type: epic', 'id: "PS-B"', 'title: "B"', 'status: planned', 'created: 2026-01-01']));
-  put("epics/PS-A/stories/story-cache.md", fm(['type: story', 'id: "story-cache"', 'title: "Cache"', 'status: planned', 'created: 2026-01-01']));
-  put("epics/PS-A/stories/story-cache-invalidation.md", fm(['type: story', 'id: "story-cache-invalidation"', 'title: "CacheInv"', 'status: planned', 'created: 2026-01-02']));
-  put("epics/PS-A/stories/story-004-old-era.md", fm(['type: story', 'id: "story-004-old-era"', 'title: "Old"', 'status: done', 'created: 2025-01-01']));
+  put(
+    "adr/ADR-010-slug-first.md",
+    fm(["type: adr", 'id: "ADR-010"', 'title: "Slug first"', "status: accepted", "date: 2026-01-01"]),
+  );
+  put(
+    "adr/loose.md",
+    fm(["type: adr", 'id: "loose-decision"', 'title: "Loose"', "status: proposed", "date: 2026-01-02"]),
+  );
+  put("adr/dup.md", fm(["type: adr", 'id: "dup-adr"', 'title: "D2"', "status: proposed", "date: 2026-01-01"]));
+  put(
+    "specs/SPEC-002-slug-first-artifact-identity.md",
+    fm(["type: spec", 'id: "SPEC-002"', 'title: "Identity"', "status: active", "date: 2026-01-01"]),
+  );
+  put("research/some-note.md", fm(["type: research", 'slug: "research-alias"', 'title: "Note"', "date: 2026-01-03"]));
+  put("concepts/MixedCase.md", fm(["type: concept", 'slug: "mixedcase"', 'title: "MC"', "date: 2026-01-01"]));
+  put("concepts/dup.md", fm(["type: concept", 'slug: "dup-concept"', 'title: "D1"', "date: 2026-01-01"]));
+  put(
+    "epics/PS-A/epic.md",
+    fm(["type: epic", 'id: "PS-A"', 'title: "A"', "status: in-progress", "created: 2026-01-01"]),
+  );
+  put("epics/PS-B/epic.md", fm(["type: epic", 'id: "PS-B"', 'title: "B"', "status: planned", "created: 2026-01-01"]));
+  put(
+    "epics/PS-A/stories/story-cache.md",
+    fm(["type: story", 'id: "story-cache"', 'title: "Cache"', "status: planned", "created: 2026-01-01"]),
+  );
+  put(
+    "epics/PS-A/stories/story-cache-invalidation.md",
+    fm([
+      "type: story",
+      'id: "story-cache-invalidation"',
+      'title: "CacheInv"',
+      "status: planned",
+      "created: 2026-01-02",
+    ]),
+  );
+  put(
+    "epics/PS-A/stories/story-004-old-era.md",
+    fm(["type: story", 'id: "story-004-old-era"', 'title: "Old"', "status: done", "created: 2025-01-01"]),
+  );
   // Real legacy stories carry a SHORT id (story-013), not the full stem —
   // the reviewer regression: the as-written stem must be a tier-2 reading.
-  put("epics/PS-A/stories/story-013-short-id.md", fm(['type: story', 'id: "story-013"', 'title: "Short id era"', 'status: done', 'created: 2025-01-02']));
-  put("epics/PS-A/stories/story-folder/README.md", fm(['type: story', 'id: "story-folder"', 'title: "Folder"', 'status: planned', 'created: 2026-01-01']));
-  put("epics/PS-A/story-standalone.md", fm(['type: story', 'id: "story-standalone"', 'title: "Standalone"', 'status: planned', 'created: 2026-01-01']));
-  put("epics/_templates/epic.md", fm(['type: epic', 'id: "T"', 'title: "Blank"']));
+  put(
+    "epics/PS-A/stories/story-013-short-id.md",
+    fm(["type: story", 'id: "story-013"', 'title: "Short id era"', "status: done", "created: 2025-01-02"]),
+  );
+  put(
+    "epics/PS-A/stories/story-folder/README.md",
+    fm(["type: story", 'id: "story-folder"', 'title: "Folder"', "status: planned", "created: 2026-01-01"]),
+  );
+  put(
+    "epics/PS-A/story-standalone.md",
+    fm(["type: story", 'id: "story-standalone"', 'title: "Standalone"', "status: planned", "created: 2026-01-01"]),
+  );
+  put("epics/_templates/epic.md", fm(["type: epic", 'id: "T"', 'title: "Blank"']));
   put("meetings/Plain Note.md", "just text, no frontmatter\n");
   put("adr/README.md", "# adr index\n");
   put("specs/README.md", "# specs index\n");
@@ -1568,14 +1775,23 @@ test("resolveLinkTarget tiers: identity (id and slug:), stem readings, legacy pr
   const at = (t, extra) => resolveLinkTarget(t, "wikilink", ctx("adr/loose.md", extra));
   assert.equal(at("ADR-010").node.path, "adr/ADR-010-slug-first.md", "tier 1: fm.id");
   assert.equal(at("research-alias").node.path, "research/some-note.md", "tier 1: fm.slug for slug-carrying kinds");
-  assert.equal(at("slug-first-artifact-identity").node.path,
-    "specs/SPEC-002-slug-first-artifact-identity.md", "tier 2: number-stripped stem reading");
+  assert.equal(
+    at("slug-first-artifact-identity").node.path,
+    "specs/SPEC-002-slug-first-artifact-identity.md",
+    "tier 2: number-stripped stem reading",
+  );
   assert.equal(at("story-004").node.path, "epics/PS-A/stories/story-004-old-era.md", "tier 3: legacy story-NNN prefix");
-  assert.equal(at("story-013-short-id").node.path, "epics/PS-A/stories/story-013-short-id.md",
-    "tier 2: the as-written story stem — the Obsidian-autocompleted form — must resolve (kanban cards never out-of-scope)");
+  assert.equal(
+    at("story-013-short-id").node.path,
+    "epics/PS-A/stories/story-013-short-id.md",
+    "tier 2: the as-written story stem — the Obsidian-autocompleted form — must resolve (kanban cards never out-of-scope)",
+  );
   assert.equal(at("story-013").node.path, "epics/PS-A/stories/story-013-short-id.md", "tier 1: short legacy id");
-  assert.equal(at("cache").node.path, "epics/PS-A/stories/story-cache.md",
-    "slug form matches exactly — cache must not prefix-match cache-invalidation");
+  assert.equal(
+    at("cache").node.path,
+    "epics/PS-A/stories/story-cache.md",
+    "slug form matches exactly — cache must not prefix-match cache-invalidation",
+  );
   assert.equal(at("mixedCASE").node.path, "concepts/MixedCase.md", "stems are case-insensitive");
 });
 
@@ -1588,10 +1804,16 @@ test("resolveLinkTarget paths: / bypasses tiers; root-relative escape rejected; 
   assert.deepEqual(r2.candidates, ["epics/PS-A/epic.md", "epics/PS-B/epic.md"]);
   const r3 = resolveLinkTarget("../epics/PS-B/epic", "wikilink", ctx("adr/loose.md"));
   assert.equal(r3.node.path, "epics/PS-B/epic.md", "source-relative try fires after the root try is rejected");
-  assert.equal(resolveLinkTarget("../../adr/ADR-010-slug-first", "wikilink", ctx("adr/loose.md")).outcome,
-    "dead", "a wrong relative depth is dead — no basename fallback");
-  assert.equal(resolveLinkTarget("epics/PS-A/epic.md", "wikilink", ctx("adr/loose.md")).node.path,
-    "epics/PS-A/epic.md", ".md-suffixed form accepted");
+  assert.equal(
+    resolveLinkTarget("../../adr/ADR-010-slug-first", "wikilink", ctx("adr/loose.md")).outcome,
+    "dead",
+    "a wrong relative depth is dead — no basename fallback",
+  );
+  assert.equal(
+    resolveLinkTarget("epics/PS-A/epic.md", "wikilink", ctx("adr/loose.md")).node.path,
+    "epics/PS-A/epic.md",
+    ".md-suffixed form accepted",
+  );
 });
 
 test("resolveLinkTarget rings: node beats non-node; non-node-only is out-of-scope; kinds scoping skips ring 2 (contract 3)", () => {
@@ -1621,12 +1843,17 @@ test("resolveLinkTarget mdlinks: source-relative only; attachments via injected 
   assert.equal(readme.path, "adr/README.md");
   assert.equal(resolveLinkTarget("../kanban.md", "mdlink", ctx(from)).outcome, "out-of-scope");
   assert.equal(resolveLinkTarget("./missing.md", "mdlink", ctx(from)).outcome, "dead");
-  assert.equal(resolveLinkTarget("../../outside.md", "mdlink", ctx(from)).outcome, "out-of-scope",
-    "escaping the vault root is out-of-scope, never probed");
+  assert.equal(
+    resolveLinkTarget("../../outside.md", "mdlink", ctx(from)).outcome,
+    "out-of-scope",
+    "escaping the vault root is out-of-scope, never probed",
+  );
   assert.equal(resolveLinkTarget("./art.png", "mdlink", ctx(from)).outcome, "dead", "non-md needs exists()");
   assert.equal(
     resolveLinkTarget("./art.png", "mdlink", ctx(from, { exists: (rel) => rel === "adr/art.png" })).outcome,
-    "out-of-scope", "attachment classified via injected exists()");
+    "out-of-scope",
+    "attachment classified via injected exists()",
+  );
 });
 
 test("resolveSelection: graph — in bare selection, composable, valid on kanban-less and epic-less layouts", () => {
@@ -1675,8 +1902,11 @@ test("isSourcePath: inside project, outside vault, not ignored (contract 1)", ()
   assert.equal(isSourcePath(p("dist/bundle.js"), proj, vault), false);
   assert.equal(isSourcePath(p("package-lock.json"), proj, vault), false);
   assert.equal(isSourcePath(p("app.min.js"), proj, vault), false);
-  assert.equal(isSourcePath(p(".claude/projectstore.json"), proj, vault), false,
-    "plugin state must never count as source work");
+  assert.equal(
+    isSourcePath(p(".claude/projectstore.json"), proj, vault),
+    false,
+    "plugin state must never count as source work",
+  );
 });
 
 test("isSourcePath: bind's own writes are ignored for the counter, root-anchored (contract 1)", () => {
@@ -1691,7 +1921,11 @@ test("isSourcePath: bind's own writes are ignored for the counter, root-anchored
   // And the binding's own ignore file, which bind and init write (rule 7 of
   // the story "Scaffold is a core verb, and init creates a whole vault…").
   assert.equal(isSourcePath(p(".projectstore/.gitignore"), proj, vault), false);
-  assert.equal(isSourcePath(p("sub/.projectstore/.gitignore"), proj, vault), true, "root-anchored: a nested one is someone's source");
+  assert.equal(
+    isSourcePath(p("sub/.projectstore/.gitignore"), proj, vault),
+    true,
+    "root-anchored: a nested one is someone's source",
+  );
 
   // Root-anchored: a monorepo's nested AGENTS.md is ordinary source.
   assert.equal(isSourcePath(p("packages/web/AGENTS.md"), proj, vault), true);
@@ -1717,8 +1951,11 @@ test("isSourcePath: matching is project-relative, not absolute (contract 1)", ()
   const proj = join(root, "build", "myproject");
   const vault = join(root, "vault");
   mkdirSync(proj, { recursive: true });
-  assert.equal(isSourcePath(join(proj, "src/index.js"), proj, vault), true,
-    "a project under a build/ ancestor still has source files");
+  assert.equal(
+    isSourcePath(join(proj, "src/index.js"), proj, vault),
+    true,
+    "a project under a build/ ancestor still has source files",
+  );
 });
 
 test("entryScore: distinct paths, idempotent, exact and uncapped (contract 2)", () => {
@@ -1732,8 +1969,7 @@ test("entryScore: distinct paths, idempotent, exact and uncapped (contract 2)", 
   assert.equal(entryScore(proj, sid), 2, "re-registering the same path does not double-count");
 
   for (let i = 0; i < 53; i++) registerSourcePath(proj, sid, join(proj, `f${i}.mjs`));
-  assert.equal(entryScore(proj, sid), 55,
-    "uncapped: the reminder quotes this number, so 55 files must not report 3");
+  assert.equal(entryScore(proj, sid), 55, "uncapped: the reminder quotes this number, so 55 files must not report 3");
 
   assert.equal(entryScore(proj, "other-session"), 0, "scores are per session");
 });
@@ -1748,15 +1984,25 @@ test("entryScore: registration never rewrites, so parallel writers cannot lose a
   for (const p of paths) registerSourcePath(proj, sid, p);
   assert.equal(entryScore(proj, sid), 40);
   // And the ADR-006 pointer file is untouched by any of it.
-  assert.equal(existsSync(join(scoreDir(proj, sid), "..", `${sid}.json`)), false,
-    "scoring writes nothing into the session pointer's file");
+  assert.equal(
+    existsSync(join(scoreDir(proj, sid), "..", `${sid}.json`)),
+    false,
+    "scoring writes nothing into the session pointer's file",
+  );
 });
 
 test("openStoryFrom: only in-progress counts as open (contract 5)", () => {
   assert.equal(openStoryFrom([{ status: "in-progress" }]), true);
-  assert.equal(openStoryFrom([{ status: "in_progress" }]), true, "the underscore spelling the kanban maps counts too (2026-09-05)");
-  assert.equal(openStoryFrom([{ status: "planned" }]), false,
-    "a story that never went through /projectstore:story plan is not open work");
+  assert.equal(
+    openStoryFrom([{ status: "in_progress" }]),
+    true,
+    "the underscore spelling the kanban maps counts too (2026-09-05)",
+  );
+  assert.equal(
+    openStoryFrom([{ status: "planned" }]),
+    false,
+    "a story that never went through /projectstore:story plan is not open work",
+  );
   assert.equal(openStoryFrom([{ status: "done" }]), false);
   assert.equal(openStoryFrom([{ status: "planned" }, { status: "done" }]), false);
   assert.equal(openStoryFrom([{ status: "planned" }, { status: "in-progress" }]), true);
@@ -1784,22 +2030,30 @@ test("the pinned case table: which sessions trip the threshold (contracts 2, 4)"
   assert.equal(score([]), 0, "a question writes nothing");
   assert.equal(score(["README.md"]), 1, "README typo");
   assert.equal(score(["src/a.mjs", "README.md"]), 2, "two-file fix touching README");
-  assert.equal(score(["package.json"]), 1,
-    "a lone manifest edit is a one-liner — the weighted design scored this 3 and fired");
+  assert.equal(
+    score(["package.json"]),
+    1,
+    "a lone manifest edit is a one-liner — the weighted design scored this 3 and fired",
+  );
 
   // Positives.
-  assert.equal(score(["README.md", "docs/getting-started.md", "docs/how-it-works.md"]), THRESHOLD,
-    "a three-page documentation pass is a content project — true positive");
+  assert.equal(
+    score(["README.md", "docs/getting-started.md", "docs/how-it-works.md"]),
+    THRESHOLD,
+    "a three-page documentation pass is a content project — true positive",
+  );
 
   // The incident's own commit: 44 templates plus registry, doctor, manifests, README.
   const incident = [
     ...Array.from({ length: 44 }, (_, i) => `templates/x/${i}.md.tmpl`),
-    "scaffold/headings.json", "scripts/doctor.mjs",
-    ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json", "README.md",
+    "scaffold/headings.json",
+    "scripts/doctor.mjs",
+    ".claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json",
+    "README.md",
   ];
   assert.ok(score(incident) >= THRESHOLD, "the reported incident trips the threshold");
-  assert.equal(score(incident.slice(0, 3)), THRESHOLD,
-    "and it trips at the third template file, not the fiftieth");
+  assert.equal(score(incident.slice(0, 3)), THRESHOLD, "and it trips at the third template file, not the fiftieth");
 });
 
 import { readFile as readFileAsyncTest } from "node:fs/promises";
@@ -1825,8 +2079,14 @@ test("listVaultStoryFiles: sees flat, folder-shape and standalone stories (contr
   const found = listVaultStoryFiles(vault).map((p) => p.replace(vault + "/", ""));
   assert.equal(found.length, 3, "all three shapes, none missed");
   assert.ok(found.some((f) => f.endsWith("story-flat.md")));
-  assert.ok(found.some((f) => f.endsWith("story-folder/README.md")), "folder-shape story");
-  assert.ok(found.some((f) => f.endsWith("story-standalone.md")), "standalone story");
+  assert.ok(
+    found.some((f) => f.endsWith("story-folder/README.md")),
+    "folder-shape story",
+  );
+  assert.ok(
+    found.some((f) => f.endsWith("story-standalone.md")),
+    "standalone story",
+  );
   assert.deepEqual(listVaultStoryFiles(join(vault, "nope")), [], "missing vault yields nothing");
 });
 
@@ -1886,7 +2146,10 @@ test("resolveOpenStory: the scan short-circuits, so a later stall cannot matter 
   // is settled and nothing after it is read, stalled or not.
   let reached = 0;
   const readFile = (p) => {
-    if (p.endsWith("story-z-stuck.md")) { reached++; return new Promise(() => {}); }
+    if (p.endsWith("story-z-stuck.md")) {
+      reached++;
+      return new Promise(() => {});
+    }
     return readFileAsyncTest(p, "utf8");
   };
   assert.equal(await resolveOpenStory(vault, { budgetMs: 60, readFile }), true);
@@ -1907,19 +2170,22 @@ test("open-story cache: written once, O_EXCL, distinguishes unknown from absent 
   assert.equal(writeOpenStoryCache(proj, sid, false), true);
   assert.equal(readOpenStoryCache(proj, sid), false);
 
-  assert.equal(writeOpenStoryCache(proj, sid, true), false,
-    "a second writer loses the race and does not overwrite the verdict");
+  assert.equal(
+    writeOpenStoryCache(proj, sid, true),
+    false,
+    "a second writer loses the race and does not overwrite the verdict",
+  );
   assert.equal(readOpenStoryCache(proj, sid), false, "the first verdict stands");
 
   const sid2 = "sess-unknown";
   writeOpenStoryCache(proj, sid2, "unknown");
-  assert.equal(readOpenStoryCache(proj, sid2), "unknown",
-    "a cached unknown is distinct from no verdict at all");
+  assert.equal(readOpenStoryCache(proj, sid2), "unknown", "a cached unknown is distinct from no verdict at all");
 });
 
 test("cleanupStaleSessionState: reaps stale score/marker dirs, spares fresh ones (contract 3)", () => {
   const { proj } = seedEntryFixture();
-  const stale = "sess-old", fresh = "sess-new";
+  const stale = "sess-old",
+    fresh = "sess-new";
   registerSourcePath(proj, stale, join(proj, "a.mjs"));
   writeOpenStoryCache(proj, stale, false);
   registerSourcePath(proj, fresh, join(proj, "b.mjs"));
@@ -1996,9 +2262,12 @@ test("the cap is reachable at all — the defect the earlier design had (contrac
   // never held two and the cap state was unreachable: one firing per compaction
   // cycle, unbounded. Here two compactions are enough to exhaust it.
   electEmitter(proj, sid);
-  armReminder(proj, sid); electEmitter(proj, sid);
-  armReminder(proj, sid); electEmitter(proj, sid);
-  armReminder(proj, sid); electEmitter(proj, sid);
+  armReminder(proj, sid);
+  electEmitter(proj, sid);
+  armReminder(proj, sid);
+  electEmitter(proj, sid);
+  armReminder(proj, sid);
+  electEmitter(proj, sid);
   assert.equal(firedCount(proj, sid), 2, "four compactions still yield two firings");
 });
 
@@ -2020,8 +2289,11 @@ test("election state is disjoint from the score (contracts 2, 12)", () => {
   electEmitter(proj, sid);
   armReminder(proj, sid);
   writeOpenStoryCache(proj, sid, false);
-  assert.equal(entryScore(proj, sid), 2,
-    "markers and the cached verdict live in a sibling directory and are never counted as paths");
+  assert.equal(
+    entryScore(proj, sid),
+    2,
+    "markers and the cached verdict live in a sibling directory and are never counted as paths",
+  );
   assert.notEqual(scoreDir(proj, sid), markerDir(proj, sid));
 });
 
@@ -2039,7 +2311,7 @@ test("racing: real parallel processes — one emitter, exact count, pointer inta
 
   const N = 12;
   const startAt = Date.now() + 500; // shared barrier — process startup jitter
-                                    // alone would serialize them and prove nothing
+  // alone would serialize them and prove nothing
   const src = `
     import { registerSourcePath, electEmitter } from ${JSON.stringify(lib)};
     const [proj, sid, i, startAt] = process.argv.slice(1);
@@ -2049,23 +2321,33 @@ test("racing: real parallel processes — one emitter, exact count, pointer inta
     registerSourcePath(proj, sid, proj + "/uniq" + i + ".mjs");
     process.stdout.write(won ? "WON" : "lost");
   `;
-  const runs = Array.from({ length: N }, (_, i) =>
-    new Promise((resolve) => {
-      const cp = spawn(
-        process.execPath,
-        ["--input-type=module", "-e", src, proj, sid, String(i), String(startAt)],
-        { stdio: ["ignore", "pipe", "ignore"] });
-      let out = "";
-      cp.stdout.on("data", (d) => { out += d; });
-      cp.on("close", () => resolve(out));
-    }));
+  const runs = Array.from(
+    { length: N },
+    (_, i) =>
+      new Promise((resolve) => {
+        const cp = spawn(process.execPath, ["--input-type=module", "-e", src, proj, sid, String(i), String(startAt)], {
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+        let out = "";
+        cp.stdout.on("data", (d) => {
+          out += d;
+        });
+        cp.on("close", () => resolve(out));
+      }),
+  );
   const results = await Promise.all(runs);
 
-  assert.equal(results.filter((r) => r === "WON").length, 1,
-    `exactly one process may emit, got ${JSON.stringify(results)}`);
+  assert.equal(
+    results.filter((r) => r === "WON").length,
+    1,
+    `exactly one process may emit, got ${JSON.stringify(results)}`,
+  );
   assert.equal(firedCount(proj, sid), 1, "and exactly one marker exists");
-  assert.equal(entryScore(proj, sid), 8 + N,
-    "every distinct path counted once — no increment lost to a concurrent writer");
+  assert.equal(
+    entryScore(proj, sid),
+    8 + N,
+    "every distinct path counted once — no increment lost to a concurrent writer",
+  );
 
   const st = JSON.parse(readFileSync(join(stateDirOf(proj), `${sid}.json`), "utf8"));
   assert.equal(st.active_epic, "PS-A", "ADR-006 pointer survived the storm");
@@ -2081,8 +2363,11 @@ test("checkWorkWithoutStory: fires on dirty tree with no open story, silent othe
   mkdirSync(join(vault, "epics", "PS-A", "stories"), { recursive: true });
   const cfg = { vault_path: vault };
   const story = (name, status) =>
-    writeFileSync(join(vault, "epics", "PS-A", "stories", name),
-      `---\ntype: story\nstatus: ${status}\n---\n\n# s\n`, "utf8");
+    writeFileSync(
+      join(vault, "epics", "PS-A", "stories", name),
+      `---\ntype: story\nstatus: ${status}\n---\n\n# s\n`,
+      "utf8",
+    );
 
   const prevProj = process.env.CLAUDE_PROJECT_DIR;
   process.env.CLAUDE_PROJECT_DIR = proj;
@@ -2101,24 +2386,35 @@ test("checkWorkWithoutStory: fires on dirty tree with no open story, silent othe
     assert.equal(fired.length, 1, "dirty tree + no story in progress");
     assert.equal(fired[0].level, "warn", "never issue — spikes legitimately look like this");
     assert.equal(fired[0].check, "work-without-story");
-    assert.ok(/no reminder fired|No entry reminder/i.test(fired[0].message),
-      "the finding says whether the prompt was ever delivered, and on which machine");
+    assert.ok(
+      /no reminder fired|No entry reminder/i.test(fired[0].message),
+      "the finding says whether the prompt was ever delivered, and on which machine",
+    );
 
     story("story-b.md", "in-progress");
-    assert.deepEqual(checkWorkWithoutStory(cfg, proj), [],
-      "the same predicate as the hook: in-progress means the work is tracked");
+    assert.deepEqual(
+      checkWorkWithoutStory(cfg, proj),
+      [],
+      "the same predicate as the hook: in-progress means the work is tracked",
+    );
 
     // An unreadable vault must not read as clean.
     const unreadable = join(vault, "epics", "PS-A", "stories", "story-c.md");
     writeFileSync(unreadable, "---\nstatus: planned\n---\n", "utf8");
-    writeFileSync(join(vault, "epics", "PS-A", "stories", "story-b.md"),
-      "---\ntype: story\nstatus: planned\n---\n", "utf8");
+    writeFileSync(
+      join(vault, "epics", "PS-A", "stories", "story-b.md"),
+      "---\ntype: story\nstatus: planned\n---\n",
+      "utf8",
+    );
     spawnSync("chmod", ["000", unreadable]);
     const inconclusive = checkWorkWithoutStory(cfg, proj);
     spawnSync("chmod", ["644", unreadable]);
     if (inconclusive.length) {
-      assert.match(inconclusive[0].message, /inconclusive rather than clean/,
-        "a diagnostic that cannot read must say so, not go quiet");
+      assert.match(
+        inconclusive[0].message,
+        /inconclusive rather than clean/,
+        "a diagnostic that cannot read must say so, not go quiet",
+      );
     }
   } finally {
     if (prevProj === undefined) delete process.env.CLAUDE_PROJECT_DIR;
@@ -2170,29 +2466,37 @@ test("skeleton contract 2: the payload is O(1) in vault size, decided by a diff"
     { path: "epics", kind: "epic", counts: { epics: n, stories: n * 4 }, readme: "# Epics\n\nEpics and stories.\n" },
     { path: "research", kind: "research", counts: { artifacts: n }, readme: "# Research\n\nSpikes.\n" },
   ];
-  const small = renderVaultSkeleton(factsFor({
-    folders: mkFolders(0),
-    inFlight: { status: "ok", entries: [], total: 0 },
-  }));
-  const large = renderVaultSkeleton(factsFor({
-    folders: mkFolders(50),
-    inFlight: {
-      status: "ok",
-      total: 40,
-      entries: Array.from({ length: 9 }, (_, i) => ({ epic: `PS-${i}`, title: `story number ${i}` })),
-    },
-  }));
+  const small = renderVaultSkeleton(
+    factsFor({
+      folders: mkFolders(0),
+      inFlight: { status: "ok", entries: [], total: 0 },
+    }),
+  );
+  const large = renderVaultSkeleton(
+    factsFor({
+      folders: mkFolders(50),
+      inFlight: {
+        status: "ok",
+        total: 40,
+        entries: Array.from({ length: 9 }, (_, i) => ({ epic: `PS-${i}`, title: `story number ${i}` })),
+      },
+    }),
+  );
 
   // Mask exactly what the spec allows to differ: digit runs, the capped
   // in-flight lines, and the "and N more" marker.
-  const mask = (s) => s
-    .split("\n")
-    .filter((l) => !/^- (PS-|nothing in progress|…and )/.test(l))
-    .join("\n")
-    .replace(/\d+/g, "#");
-  assert.equal(mask(large), mask(small),
+  const mask = (s) =>
+    s
+      .split("\n")
+      .filter((l) => !/^- (PS-|nothing in progress|…and )/.test(l))
+      .join("\n")
+      .replace(/\d+/g, "#");
+  assert.equal(
+    mask(large),
+    mask(small),
     "a renderer leaking even two characters per artifact fails here, while " +
-    "'under the cap for a vault this size' would have passed it");
+      "'under the cap for a vault this size' would have passed it",
+  );
 });
 
 test("skeleton contract 4: every layout folder gets a row, none is a literal", () => {
@@ -2206,28 +2510,38 @@ test("skeleton contract 4: every layout folder gets a row, none is a literal", (
     assert.ok(out.includes(`\`${f.path}/\``), `${f.path} must appear — rows come from the layout`);
   }
   // A layout that gains a kind gains a row, with no renderer change.
-  const grown = renderVaultSkeleton(factsFor({
-    folders: [...folders, { path: "decisions", kind: "decision", counts: { artifacts: 9 }, readme: null }],
-  }));
+  const grown = renderVaultSkeleton(
+    factsFor({
+      folders: [...folders, { path: "decisions", kind: "decision", counts: { artifacts: 9 }, readme: null }],
+    }),
+  );
   assert.ok(grown.includes("`decisions/`"), "a new layout kind appears without touching the renderer");
 });
 
 test("skeleton contract 5: counts are per folder, and epics report stories separately", () => {
-  const out = renderVaultSkeleton(factsFor({
-    folders: [
-      { path: "epics", kind: "epic", counts: { epics: 5, stories: 48 }, readme: null },
-      { path: "adr", kind: "adr", counts: { artifacts: 12 }, readme: null },
-    ],
-  }));
+  const out = renderVaultSkeleton(
+    factsFor({
+      folders: [
+        { path: "epics", kind: "epic", counts: { epics: 5, stories: 48 }, readme: null },
+        { path: "adr", kind: "adr", counts: { artifacts: 12 }, readme: null },
+      ],
+    }),
+  );
   assert.ok(/\| 5 epics · 48 stories \|/.test(out), "epics and stories are separate counts");
   assert.ok(/\| 12 \|/.test(out), "a plain folder reports one number");
 });
 
 test("skeleton contract 6: purpose is the README's own prose, with named fallbacks", () => {
-  assert.equal(folderPurpose("# ADRs\n\nDecisions with context.\n\n## Index\n| a |\n", "adr"),
-    "Decisions with context.", "prose above the first ## heading, headings dropped");
-  assert.equal(folderPurpose("## Index\n\nrows\n", "adr"), "adr",
-    "a README opening with ## at byte 0 has no preamble — the kind, never a blank");
+  assert.equal(
+    folderPurpose("# ADRs\n\nDecisions with context.\n\n## Index\n| a |\n", "adr"),
+    "Decisions with context.",
+    "prose above the first ## heading, headings dropped",
+  );
+  assert.equal(
+    folderPurpose("## Index\n\nrows\n", "adr"),
+    "adr",
+    "a README opening with ## at byte 0 has no preamble — the kind, never a blank",
+  );
   assert.equal(folderPurpose(null, "research"), "research", "missing README yields the kind");
   assert.equal(folderPurpose("", "ops"), "ops", "empty README yields the kind");
   assert.equal(folderPurpose("# T\n\nA | B\n", "adr"), "A \\| B", "pipes are escaped for the cell");
@@ -2255,8 +2569,10 @@ test("skeleton contracts 8, 11: the graph is taught by path, with its prohibitio
   assert.ok(/grep '<vault-relative-path>' graph\.md/.test(flat), "the recipe greps a path");
   assert.ok(/never read whole/.test(flat), "the prohibition renders alongside it");
   assert.ok(/a bare slug is not a key/.test(flat), "and says why a slug is not a substitute");
-  assert.ok(/regenerated/.test(flat) && /never hand-edited/.test(flat) && /source of truth/.test(flat),
-    "derived views can lag, are not hand-edited, and lose to the artifact");
+  assert.ok(
+    /regenerated/.test(flat) && /never hand-edited/.test(flat) && /source of truth/.test(flat),
+    "derived views can lag, are not hand-edited, and lose to the artifact",
+  );
 });
 
 test("skeleton contract 9: all five descent steps render, including the one that fires on deciding", () => {
@@ -2264,8 +2580,10 @@ test("skeleton contract 9: all five descent steps render, including the one that
   for (const n of [1, 2, 3, 4, 5]) {
     assert.ok(new RegExp(`${n}\\. \\*\\*`).test(flat), `step ${n} renders`);
   }
-  assert.ok(/Before authoring an ADR or spec, or making an architectural choice — read `adr\/README\.md`/.test(flat),
-    "step 4 fires on deciding, not on searching — it is the answer to dropping the dump");
+  assert.ok(
+    /Before authoring an ADR or spec, or making an architectural choice — read `adr\/README\.md`/.test(flat),
+    "step 4 fires on deciding, not on searching — it is the answer to dropping the dump",
+  );
   assert.ok(/fires on \*deciding\*, not on searching/.test(flat));
 });
 
@@ -2278,18 +2596,23 @@ test("skeleton contract 10: the header carries policy, and absent config renders
 });
 
 test("skeleton contracts 1, 15: in-flight is capped, ordered as given, and never renders an empty list as a claim", () => {
-  const many = renderVaultSkeleton(factsFor({
-    inFlight: {
-      status: "ok", total: 12,
-      entries: Array.from({ length: 12 }, (_, i) => ({ epic: "PS-A", title: `t${i}` })),
-    },
-  }));
+  const many = renderVaultSkeleton(
+    factsFor({
+      inFlight: {
+        status: "ok",
+        total: 12,
+        entries: Array.from({ length: 12 }, (_, i) => ({ epic: "PS-A", title: `t${i}` })),
+      },
+    }),
+  );
   assert.equal((many.match(/^- PS-A · /gm) || []).length, 5, "capped at five");
   assert.ok(/…and 7 more; see `kanban\.md`/.test(many), "and the remainder is named, not dropped silently");
 
-  const longTitle = renderVaultSkeleton(factsFor({
-    inFlight: { status: "ok", total: 1, entries: [{ epic: "PS-A", title: "z".repeat(200) }] },
-  }));
+  const longTitle = renderVaultSkeleton(
+    factsFor({
+      inFlight: { status: "ok", total: 1, entries: [{ epic: "PS-A", title: "z".repeat(200) }] },
+    }),
+  );
   const titleLine = longTitle.split("\n").find((l) => l.startsWith("- PS-A · "));
   assert.equal(titleLine.slice("- PS-A · ".length).length, TITLE_CELL, "title truncated to its cell");
 
@@ -2297,8 +2620,10 @@ test("skeleton contracts 1, 15: in-flight is capped, ordered as given, and never
   assert.ok(/- nothing in progress/.test(empty), "empty renders its own line");
   const expired = renderVaultSkeleton(factsFor({ inFlight: { status: "timeout" } }));
   assert.ok(/not resolved within budget/.test(expired), "expiry says so");
-  assert.ok(!/nothing in progress/.test(expired),
-    "an empty list claims the vault is idle; an expired budget claims only that we did not find out");
+  assert.ok(
+    !/nothing in progress/.test(expired),
+    "an empty list claims the vault is idle; an expired budget claims only that we did not find out",
+  );
 });
 
 test("skeleton contract 1: the cell truncators mark themselves and count the mark", () => {
@@ -2338,8 +2663,11 @@ test("resolver contract 20: the newest write-family entry wins, reads are not wr
     ["/vault/specs/second.md", "Edit"],
     ["/vault/adr/third.md", "Write"],
   );
-  assert.equal(resolveInFlightArtifact(activity, LAYOUT, VAULT), "specs/second.md",
-    "a Read of a vault file is not evidence of authoring it");
+  assert.equal(
+    resolveInFlightArtifact(activity, LAYOUT, VAULT),
+    "specs/second.md",
+    "a Read of a vault file is not evidence of authoring it",
+  );
 });
 
 test("resolver contract 20: every tool in the write family resolves, and only those", () => {
@@ -2347,8 +2675,11 @@ test("resolver contract 20: every tool in the write family resolves, and only th
   // shrinks with it — a narrowed constant would pass its own test.
   assert.deepEqual([...WRITE_TOOLS].sort(), ["Edit", "MultiEdit", "NotebookEdit", "Write"]);
   for (const tool of WRITE_TOOLS) {
-    assert.equal(resolveInFlightArtifact(log(["/vault/adr/x.md", tool]), LAYOUT, VAULT),
-      "adr/x.md", `${tool} writes and must resolve`);
+    assert.equal(
+      resolveInFlightArtifact(log(["/vault/adr/x.md", tool]), LAYOUT, VAULT),
+      "adr/x.md",
+      `${tool} writes and must resolve`,
+    );
     assert.ok(isWriteTool(tool));
   }
   for (const tool of ["Read", "Grep", "Glob", "Bash", "Task"]) {
@@ -2360,15 +2691,21 @@ test("resolver contract 20: every tool in the write family resolves, and only th
 test("resolver contract 20: the match is vault-anchored, not a substring", () => {
   // A folder name occurring at depth is the case a substring match gets wrong,
   // and it is not exotic: `notes/adr/` is a plausible vault subfolder.
-  assert.equal(resolveInFlightArtifact(log(["/vault/notes/adr/x.md", "Edit"]), LAYOUT, VAULT), null,
-    "notes/adr/x.md is not an ADR — its anchor is `notes`, which is not a layout folder");
+  assert.equal(
+    resolveInFlightArtifact(log(["/vault/notes/adr/x.md", "Edit"]), LAYOUT, VAULT),
+    null,
+    "notes/adr/x.md is not an ADR — its anchor is `notes`, which is not a layout folder",
+  );
   // Same folder name, outside the vault entirely.
   assert.equal(resolveInFlightArtifact(log(["/elsewhere/adr/x.md", "Edit"]), LAYOUT, VAULT), null);
   // A file at the vault root belongs to no folder.
   assert.equal(resolveInFlightArtifact(log(["/vault/kanban.md", "Edit"]), LAYOUT, VAULT), null);
   // A sibling directory that merely starts with a folder name.
-  assert.equal(resolveInFlightArtifact(log(["/vault/adrs/x.md", "Edit"]), LAYOUT, VAULT), null,
-    "`adrs/` is not `adr/` — the separator is part of the anchor");
+  assert.equal(
+    resolveInFlightArtifact(log(["/vault/adrs/x.md", "Edit"]), LAYOUT, VAULT),
+    null,
+    "`adrs/` is not `adr/` — the separator is part of the anchor",
+  );
   // The folder itself, exactly, is a legitimate match.
   assert.equal(resolveInFlightArtifact(log(["/vault/adr", "Write"]), LAYOUT, VAULT), "adr");
 });
@@ -2376,8 +2713,11 @@ test("resolver contract 20: the match is vault-anchored, not a substring", () =>
 test("resolver contract 24: the return is vault-relative, and a trailing slash on the root is tolerated", () => {
   const activity = log(["/vault/epics/PS-X/stories/story-y.md", "Edit"]);
   assert.equal(resolveInFlightArtifact(activity, LAYOUT, VAULT), "epics/PS-X/stories/story-y.md");
-  assert.equal(resolveInFlightArtifact(activity, LAYOUT, "/vault/"), "epics/PS-X/stories/story-y.md",
-    "relativizing twice is how the two callers would drift; there is one place that does it");
+  assert.equal(
+    resolveInFlightArtifact(activity, LAYOUT, "/vault/"),
+    "epics/PS-X/stories/story-y.md",
+    "relativizing twice is how the two callers would drift; there is one place that does it",
+  );
 });
 
 test("resolver contract 20: folders come from the layout, never from a hard-coded set", () => {
@@ -2385,14 +2725,15 @@ test("resolver contract 20: folders come from the layout, never from a hard-code
   // engineering alternation — the defect being moved away from — answers null
   // here and resolves `adr/` below; this asserts the exact opposite pairing.
   const other = { folders: [{ path: "decisions" }, { path: "notebooks" }] };
-  assert.equal(resolveInFlightArtifact(log(["/vault/decisions/d1.md", "Write"]), other, VAULT),
-    "decisions/d1.md");
-  assert.equal(resolveInFlightArtifact(log(["/vault/adr/x.md", "Write"]), other, VAULT), null,
-    "`adr` is not a folder of THIS layout");
+  assert.equal(resolveInFlightArtifact(log(["/vault/decisions/d1.md", "Write"]), other, VAULT), "decisions/d1.md");
+  assert.equal(
+    resolveInFlightArtifact(log(["/vault/adr/x.md", "Write"]), other, VAULT),
+    null,
+    "`adr` is not a folder of THIS layout",
+  );
   // And the real thing, loaded rather than transcribed.
   const eng = loadLayout("engineering");
-  assert.equal(resolveInFlightArtifact(log(["/vault/ops/runbook.md", "Write"]), eng, VAULT),
-    "ops/runbook.md");
+  assert.equal(resolveInFlightArtifact(log(["/vault/ops/runbook.md", "Write"]), eng, VAULT), "ops/runbook.md");
 });
 
 test("resolver: degenerate input yields null, never a throw", () => {
@@ -2411,14 +2752,19 @@ test("resolver contract 20: hooks.json's PostToolUse matcher lists exactly the w
   // The third copy, which cannot import. If it ever narrows, the log stops
   // recording a tool the resolver still expects — the NotebookEdit defect in
   // reverse, and silent in both directions.
-  const hooks = JSON.parse(
-    readFileSync(fileURLToPath(new URL("../hooks/hooks.json", import.meta.url)), "utf8"));
+  const hooks = JSON.parse(readFileSync(fileURLToPath(new URL("../hooks/hooks.json", import.meta.url)), "utf8"));
   const matchers = JSON.stringify(hooks).match(/"matcher":\s*"([^"]*Edit[^"]*)"/g) || [];
   assert.ok(matchers.length > 0, "expected at least one write-tool matcher");
   for (const m of matchers) {
-    const alts = m.match(/"matcher":\s*"([^"]*)"/)[1].split("|").sort();
-    assert.deepEqual(alts, [...WRITE_TOOLS].sort(),
-      `matcher ${m} disagrees with WRITE_TOOLS — writer and reader must record the same set`);
+    const alts = m
+      .match(/"matcher":\s*"([^"]*)"/)[1]
+      .split("|")
+      .sort();
+    assert.deepEqual(
+      alts,
+      [...WRITE_TOOLS].sort(),
+      `matcher ${m} disagrees with WRITE_TOOLS — writer and reader must record the same set`,
+    );
   }
 });
 
@@ -2445,15 +2791,21 @@ function mkVault({ stories = [], activity = null, sessionId = "s1", readmes = {}
     // Contract 5 defines an epic as a subdirectory containing `epic.md`. An
     // earlier fixture omitted it and asserted the count anyway, which locked in
     // the "every subdirectory is an epic" reading the contract forbids.
-    writeFileSync(join(vault, "epics", s.epic, "epic.md"),
-      `---\ntype: epic\nid: "${s.epic}"\nstatus: in-progress\n---\n\n# ${s.epic}\n`);
-    writeFileSync(join(dir, `${s.slug}.md`),
-      `---\ntype: story\nstatus: ${s.status}\ntitle: "${s.title}"\nstarted_at: "${s.startedAt || ""}"\n---\n\n# ${s.title}\n`);
+    writeFileSync(
+      join(vault, "epics", s.epic, "epic.md"),
+      `---\ntype: epic\nid: "${s.epic}"\nstatus: in-progress\n---\n\n# ${s.epic}\n`,
+    );
+    writeFileSync(
+      join(dir, `${s.slug}.md`),
+      `---\ntype: story\nstatus: ${s.status}\ntitle: "${s.title}"\nstarted_at: "${s.startedAt || ""}"\n---\n\n# ${s.title}\n`,
+    );
   }
   if (activity) {
     mkdirSync(join(vault, ".projectstore", "sessions"), { recursive: true });
-    writeFileSync(join(vault, ".projectstore", "sessions", `${sessionId}.json`),
-      JSON.stringify({ session_id: sessionId, recent_activity: activity }, null, 2));
+    writeFileSync(
+      join(vault, ".projectstore", "sessions", `${sessionId}.json`),
+      JSON.stringify({ session_id: sessionId, recent_activity: activity }, null, 2),
+    );
   }
   return vault;
 }
@@ -2469,19 +2821,28 @@ test("gather contract 13: an unresolvable read expires the budget and every fami
   });
   const t0 = Date.now();
   const facts = await gatherVaultFacts(cfgFor(vault), {
-    sessionId: "s1", source: "compact", budgetMs: 30, readFile: NEVER,
+    sessionId: "s1",
+    source: "compact",
+    budgetMs: 30,
+    readFile: NEVER,
   });
   const elapsed = Date.now() - t0;
   assert.ok(elapsed < 2000, `gather must return on the timer, took ${elapsed}ms`);
   assert.equal(facts.inFlight.status, "timeout");
   assert.equal(facts.continuity.status, "timeout");
-  assert.ok(facts.folders.every((f) => f.readme === null), "unread READMEs fall back, they do not hang");
+  assert.ok(
+    facts.folders.every((f) => f.readme === null),
+    "unread READMEs fall back, they do not hang",
+  );
   // The named line, not an empty list — an empty list asserts the vault is idle.
   const out = renderVaultSkeleton(facts);
   assert.ok(/not resolved within budget/.test(out));
   assert.ok(!/nothing in progress/.test(out));
   // And the purposes degrade to the folder kind (contract 6), never to blanks.
-  assert.ok(/\| `adr\/` \| adr \| \d+ \| adr \|/.test(out), out.split("\n").find((l) => l.startsWith("| `adr/`")));
+  assert.ok(
+    /\| `adr\/` \| adr \| \d+ \| adr \|/.test(out),
+    out.split("\n").find((l) => l.startsWith("| `adr/`")),
+  );
 });
 
 test("gather contract 13: a family that finished before expiry keeps its result", async () => {
@@ -2492,8 +2853,10 @@ test("gather contract 13: a family that finished before expiry keeps its result"
   const readFile = (p) => (p.includes("/epics/") ? NEVER() : readFileSync(p, "utf8"));
   const facts = await gatherVaultFacts(cfgFor(vault), { source: "startup", budgetMs: 30, readFile });
   assert.equal(facts.inFlight.status, "timeout", "the scan that hung degrades");
-  assert.ok(facts.folders.find((f) => f.path === "adr").readme.includes("The adr folder"),
-    "the family that landed keeps what it read");
+  assert.ok(
+    facts.folders.find((f) => f.path === "adr").readme.includes("The adr folder"),
+    "the family that landed keeps what it read",
+  );
 });
 
 test("gather contract 19: continuity facts exist on compact alone, and need a session id", async () => {
@@ -2503,10 +2866,20 @@ test("gather contract 19: continuity facts exist on compact alone, and need a se
     const facts = await gatherVaultFacts(cfgFor(vault), { sessionId: "s1", source, budgetMs: 500, readFile: read });
     assert.equal(facts.continuity, null, `source ${String(source)} must not gather continuity`);
   }
-  const onCompact = await gatherVaultFacts(cfgFor(vault), { sessionId: "s1", source: "compact", budgetMs: 500, readFile: read });
+  const onCompact = await gatherVaultFacts(cfgFor(vault), {
+    sessionId: "s1",
+    source: "compact",
+    budgetMs: 500,
+    readFile: read,
+  });
   assert.ok(onCompact.continuity, "compact gathers it");
   // Contract 21: stdin can parse carrying a source and no id.
-  const noId = await gatherVaultFacts(cfgFor(vault), { sessionId: null, source: "compact", budgetMs: 500, readFile: read });
+  const noId = await gatherVaultFacts(cfgFor(vault), {
+    sessionId: null,
+    source: "compact",
+    budgetMs: 500,
+    readFile: read,
+  });
   assert.equal(noId.continuity, null, "no session id, no log to read");
 });
 
@@ -2523,13 +2896,22 @@ test("gather contracts 20, 21: continuity carries vault-relative paths and the s
   const sp = join(vault, ".projectstore", "sessions", "s1.json");
   writeFileSync(sp, readFileSync(sp, "utf8").replaceAll("@@VAULT@@", vault));
   const facts = await gatherVaultFacts(cfgFor(vault), {
-    sessionId: "s1", source: "compact", budgetMs: 500, readFile: (p) => readFileSync(p, "utf8"),
+    sessionId: "s1",
+    source: "compact",
+    budgetMs: 500,
+    readFile: (p) => readFileSync(p, "utf8"),
   });
-  assert.deepEqual(facts.continuity.paths, ["adr/decision.md", "epics/E1/stories/story-a.md"],
-    "out-of-vault and empty entries are dropped; the rest are relative");
+  assert.deepEqual(
+    facts.continuity.paths,
+    ["adr/decision.md", "epics/E1/stories/story-a.md"],
+    "out-of-vault and empty entries are dropped; the rest are relative",
+  );
   assert.equal(facts.continuity.total, 2);
-  assert.equal(facts.continuity.artifact, "epics/E1/stories/story-a.md",
-    "the Read of the ADR is not evidence of authoring it");
+  assert.equal(
+    facts.continuity.artifact,
+    "epics/E1/stories/story-a.md",
+    "the Read of the ADR is not evidence of authoring it",
+  );
 });
 
 test("gather contracts 5, 15: counts are per folder and in-flight is newest-started first", async () => {
@@ -2543,7 +2925,9 @@ test("gather contracts 5, 15: counts are per folder and in-flight is newest-star
   writeFileSync(join(vault, "adr", "ADR-001-x.md"), "---\ntype: adr\n---\n");
   writeFileSync(join(vault, "adr", "ADR-002-y.md"), "---\ntype: adr\n---\n");
   const facts = await gatherVaultFacts(cfgFor(vault), {
-    source: "startup", budgetMs: 2000, readFile: (p) => readFileSync(p, "utf8"),
+    source: "startup",
+    budgetMs: 2000,
+    readFile: (p) => readFileSync(p, "utf8"),
   });
   const adr = facts.folders.find((f) => f.path === "adr");
   assert.deepEqual(adr.counts, { artifacts: 2 }, "README.md is not an artifact");
@@ -2557,19 +2941,34 @@ test("gather contracts 5, 15: counts are per folder and in-flight is newest-star
   // holding an in-progress story tells those two apart — and contract 5's
   // second clause says stories come from the shared walker regardless.
   mkdirSync(join(vault, "epics", "scratch-notes", "stories"), { recursive: true });
-  writeFileSync(join(vault, "epics", "scratch-notes", "stories", "story-orphan.md"),
-    `---\ntype: story\nstatus: in-progress\ntitle: "Orphan"\nstarted_at: "2026-08-09T00:00:00Z"\n---\n`);
+  writeFileSync(
+    join(vault, "epics", "scratch-notes", "stories", "story-orphan.md"),
+    `---\ntype: story\nstatus: in-progress\ntitle: "Orphan"\nstarted_at: "2026-08-09T00:00:00Z"\n---\n`,
+  );
   const again = await gatherVaultFacts(cfgFor(vault), {
-    source: "startup", budgetMs: 2000, readFile: (p) => readFileSync(p, "utf8"),
+    source: "startup",
+    budgetMs: 2000,
+    readFile: (p) => readFileSync(p, "utf8"),
   });
-  assert.deepEqual(again.folders.find((f) => f.path === "epics").counts, { epics: 2, stories: 4 },
+  assert.deepEqual(
+    again.folders.find((f) => f.path === "epics").counts,
+    { epics: 2, stories: 4 },
     "a scratch folder is not an epic, but its story is still a story — the count " +
-    "and the walker must not disagree about the same vault three lines apart");
-  assert.ok(again.inFlight.entries.some((e) => e.title === "Orphan"),
-    "and the walker did list it, which is what makes the count above checkable");
-  assert.deepEqual(facts.inFlight.entries.map((e) => e.title), ["New", "Old"],
-    "most recently started first — unstated, the cap favours whichever epic sorts first");
-  assert.deepEqual(facts.inFlight.entries.map((e) => e.epic), ["E2", "E1"]);
+      "and the walker must not disagree about the same vault three lines apart",
+  );
+  assert.ok(
+    again.inFlight.entries.some((e) => e.title === "Orphan"),
+    "and the walker did list it, which is what makes the count above checkable",
+  );
+  assert.deepEqual(
+    facts.inFlight.entries.map((e) => e.title),
+    ["New", "Old"],
+    "most recently started first — unstated, the cap favours whichever epic sorts first",
+  );
+  assert.deepEqual(
+    facts.inFlight.entries.map((e) => e.epic),
+    ["E2", "E1"],
+  );
   assert.equal(facts.inFlight.total, 2);
   assert.equal(facts.inFlight.status, "ok");
 });
@@ -2577,11 +2976,15 @@ test("gather contracts 5, 15: counts are per folder and in-flight is newest-star
 test("gather contract 6: a folder purpose falls back to its kind, never to a blank cell", async () => {
   const vault = mkVault({ readmes: { research: "## Index\n\n| File |\n" } });
   const facts = await gatherVaultFacts(cfgFor(vault), {
-    source: "startup", budgetMs: 2000, readFile: (p) => readFileSync(p, "utf8"),
+    source: "startup",
+    budgetMs: 2000,
+    readFile: (p) => readFileSync(p, "utf8"),
   });
   const out = renderVaultSkeleton(facts);
-  assert.ok(/\| `research\/` \| research \| \d+ \| research \|/.test(out),
-    "a README that opens with `## ` has no preamble to quote");
+  assert.ok(
+    /\| `research\/` \| research \| \d+ \| research \|/.test(out),
+    "a README that opens with `## ` has no preamble to quote",
+  );
 });
 
 // ── Review follow-ups (second pass) ───────────────────────────────────
@@ -2594,19 +2997,22 @@ test("gather contract 21: a continuity timeout renders its OWN named line", asyn
   // Only the session file hangs. With the in-flight family ALSO timing out, its
   // near-identical "in-flight work not resolved within budget" line stands in
   // for this assertion and the continuity branch can render nothing at all.
-  const readFile = (p) =>
-    p.includes("/.projectstore/sessions/") ? new Promise(() => {}) : readFileSync(p, "utf8");
+  const readFile = (p) => (p.includes("/.projectstore/sessions/") ? new Promise(() => {}) : readFileSync(p, "utf8"));
   const facts = await gatherVaultFacts(cfgFor(vault), {
-    sessionId: "s1", source: "compact", budgetMs: 40, readFile,
+    sessionId: "s1",
+    source: "compact",
+    budgetMs: 40,
+    readFile,
   });
   assert.equal(facts.inFlight.status, "ok", "the fixture must not let the sibling line cover for it");
   assert.equal(facts.continuity.status, "timeout");
   const out = renderVaultSkeleton(facts);
   assert.ok(out.includes("Where this session left off"), "the heading renders");
-  assert.ok(out.includes("recent activity not resolved within budget"),
-    "the literal contract 21 names — the timer knows it expired, so silence discards information");
-  assert.ok(!/in-flight work not resolved/.test(out),
-    "and the two degradations must never render the same text");
+  assert.ok(
+    out.includes("recent activity not resolved within budget"),
+    "the literal contract 21 names — the timer knows it expired, so silence discards information",
+  );
+  assert.ok(!/in-flight work not resolved/.test(out), "and the two degradations must never render the same text");
 });
 
 test("writeSession preserves recent_activity and started_at across a re-registration", () => {
@@ -2617,12 +3023,15 @@ test("writeSession preserves recent_activity and started_at across a re-registra
   const vault = mkVault({});
   ensureSessionsDir(vault);
   const path = sessionFilePath(vault, "keepme");
-  writeFileSync(path, JSON.stringify({
-    id: "keepme",
-    started_at: "2026-08-01T00:00:00.000Z",
-    project_root: "/old",
-    recent_activity: [{ path: join(vault, "adr", "x.md"), tool: "Edit", at: "2026-08-01T01:00:00.000Z" }],
-  }));
+  writeFileSync(
+    path,
+    JSON.stringify({
+      id: "keepme",
+      started_at: "2026-08-01T00:00:00.000Z",
+      project_root: "/old",
+      recent_activity: [{ path: join(vault, "adr", "x.md"), tool: "Edit", at: "2026-08-01T01:00:00.000Z" }],
+    }),
+  );
   writeSession(vault, "keepme", "/new");
   const after = JSON.parse(readFileSync(path, "utf8"));
   assert.equal(after.started_at, "2026-08-01T00:00:00.000Z", "the original start time survives");
@@ -2644,8 +3053,9 @@ test("writeSession preserves recent_activity and started_at across a re-registra
 // changing the rule — which is their job, not validation. Every drive after
 // them asserts something the fixtures did not decide.
 
-const ANCHOR_FIXTURES = JSON.parse(readFileSync(
-  fileURLToPath(new URL("./fixtures/session-anchor-shapes.json", import.meta.url)), "utf8"));
+const ANCHOR_FIXTURES = JSON.parse(
+  readFileSync(fileURLToPath(new URL("./fixtures/session-anchor-shapes.json", import.meta.url)), "utf8"),
+);
 
 // The shipping rule, replayed. The two gates are the CALLER's contract, and are
 // applied here exactly as touch-session.mjs must apply them.
@@ -2667,15 +3077,35 @@ function replayAnchor(events, { reoffer = true, gates = true } = {}) {
 function countAlternative(events, kind) {
   const w = events.filter(([, , write, sub]) => write && !sub);
   const pairKey = ([c, l]) => `${c}/${l || ""}`;
-  let n = 0, prev = null, run = 0, cur = null, fired = null;
+  let n = 0,
+    prev = null,
+    run = 0,
+    cur = null,
+    fired = null;
   for (const e of w) {
-    if (kind === "every-pair") { const k = pairKey(e); if (k !== prev) { n++; prev = k; } }
-    else if (kind === "cluster-only") { if (e[0] !== prev) { n++; prev = e[0]; } }
-    else if (kind === "dwell-3" || kind === "dwell-5") {
+    if (kind === "every-pair") {
+      const k = pairKey(e);
+      if (k !== prev) {
+        n++;
+        prev = k;
+      }
+    } else if (kind === "cluster-only") {
+      if (e[0] !== prev) {
+        n++;
+        prev = e[0];
+      }
+    } else if (kind === "dwell-3" || kind === "dwell-5") {
       const need = kind === "dwell-3" ? 3 : 5;
       const k = pairKey(e);
-      if (k === cur) run++; else { cur = k; run = 1; }
-      if (run === need && k !== fired) { n++; fired = k; }
+      if (k === cur) run++;
+      else {
+        cur = k;
+        run = 1;
+      }
+      if (run === need && k !== fired) {
+        n++;
+        fired = k;
+      }
     }
   }
   if (kind === "once-per-session") n = w.length ? 1 : 0;
@@ -2684,7 +3114,11 @@ function countAlternative(events, kind) {
 
 test("anchor: regression pin — the recorded sessions fire 12 times, at most 2 each", () => {
   const per = ANCHOR_FIXTURES.map((s) => replayAnchor(s.events).length);
-  assert.equal(per.reduce((a, b) => a + b, 0), 12, `per-session: ${per.join(" ")}`);
+  assert.equal(
+    per.reduce((a, b) => a + b, 0),
+    12,
+    `per-session: ${per.join(" ")}`,
+  );
   assert.equal(Math.max(...per), 2);
   assert.equal(per.filter((n) => n === 1).length, 6, `per-session: ${per.join(" ")}`);
 });
@@ -2718,11 +3152,17 @@ test("anchor: the constants are pinned by literal, because nothing else pins the
 });
 
 test("anchor: the margin is a real threshold, not a rounding artifact", () => {
-  const SETTLE = 5, MARGIN = 10;   // literals, not the constants — see above
+  const SETTLE = 5,
+    MARGIN = 10; // literals, not the constants — see above
   const settle = (key, n) => Array.from({ length: n }, () => ({ key, leaf: null }));
   const feed = (hits) => {
-    let st = emptyAnchorState(); const offers = [];
-    for (const h of hits) { const r = foldAnchor(st, h); st = r.state; if (r.offer) offers.push(r.offer.key); }
+    let st = emptyAnchorState();
+    const offers = [];
+    for (const h of hits) {
+      const r = foldAnchor(st, h);
+      st = r.state;
+      if (r.offer) offers.push(r.offer.key);
+    }
     return offers;
   };
   assert.deepEqual(feed(settle("epic:A", SETTLE)), ["epic:A"], "settles at the threshold");
@@ -2736,29 +3176,46 @@ test("anchor: the margin is a real threshold, not a rounding artifact", () => {
 test("anchor: the same name is never offered twice running", () => {
   const n = (key, c) => Array.from({ length: c }, () => ({ key, leaf: null }));
   const feed = (hits) => {
-    let st = emptyAnchorState(); const out = [];
-    for (const h of hits) { const r = foldAnchor(st, h); st = r.state; if (r.offer) out.push(r.offer.name); }
+    let st = emptyAnchorState();
+    const out = [];
+    for (const h of hits) {
+      const r = foldAnchor(st, h);
+      st = r.state;
+      if (r.offer) out.push(r.offer.name);
+    }
     return out;
   };
   // Two documents sharing a basename across folders are different ANCHORS that
   // compose the same NAME. Offering it twice reads as a bug in the mechanism.
   assert.deepEqual(
     feed([...n("doc:research/session-name.md", 5), ...n("doc:specs/session-name.md", 15)]),
-    ["session-name"], "a moved anchor that composes the same name is not re-offered");
+    ["session-name"],
+    "a moved anchor that composes the same name is not re-offered",
+  );
   // But returning to an earlier anchor IS a new offer: the work genuinely moved
   // back, and a name that follows the work has to follow it home. Deliberate,
   // and the reason the suppression is "twice running" rather than "ever again".
   assert.deepEqual(
     feed([...n("epic:FOO", 5), ...n("epic:BAR", 15), ...n("epic:FOO", 30)]),
-    ["foo", "bar", "foo"], "an A->B->A pivot re-offers the first name on purpose");
+    ["foo", "bar", "foo"],
+    "an A->B->A pivot re-offers the first name on purpose",
+  );
 });
 
 test("anchor: keys come from the layout, and the match is neither depth-blind nor a regex", () => {
-  const L = { folders: [
-    { path: "epics", kind: "epic" }, { path: "adr", kind: "adr", readme: true },
-    { path: "specs", kind: "spec", readme: true }, { path: "research", kind: "research", readme: true }] };
-  assert.deepEqual(anchorKeyOf("epics/PS-X/stories/story-foo-bar.md", L),
-    { key: "epic:PS-X", id: "PS-X", leaf: "foo-bar" });
+  const L = {
+    folders: [
+      { path: "epics", kind: "epic" },
+      { path: "adr", kind: "adr", readme: true },
+      { path: "specs", kind: "spec", readme: true },
+      { path: "research", kind: "research", readme: true },
+    ],
+  };
+  assert.deepEqual(anchorKeyOf("epics/PS-X/stories/story-foo-bar.md", L), {
+    key: "epic:PS-X",
+    id: "PS-X",
+    leaf: "foo-bar",
+  });
   assert.equal(anchorKeyOf("epics/PS-X/epic.md", L).leaf, null);
   assert.equal(anchorKeyOf("adr/a-decision.md", L).key, "doc:adr/a-decision.md");
   assert.equal(anchorKeyOf("notes/adr/x.md", L), null, "a folder name at depth is not that folder");
@@ -2793,8 +3250,15 @@ test("anchor: composed names are typeable — kebab, capped, transliterated", ()
   assert.equal(composeAnchorName(settle("doc:research/critic-economics.md", null)), "critic-economics");
   // A non-ASCII title used to compose null and burn the incumbent slot, leaving
   // the session permanently nameless. Four bundled locales make this ordinary.
-  assert.equal(composeAnchorName(settle("doc:research/\u041a\u044d\u0448\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435-\u0437\u0430\u043f\u0440\u043e\u0441\u043e\u0432.md", null)),
-    "keshirovanie-zaprosov");
+  assert.equal(
+    composeAnchorName(
+      settle(
+        "doc:research/\u041a\u044d\u0448\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435-\u0437\u0430\u043f\u0440\u043e\u0441\u043e\u0432.md",
+        null,
+      ),
+    ),
+    "keshirovanie-zaprosov",
+  );
   assert.equal(composeAnchorName(emptyAnchorState()), null, "no anchor, no name");
 });
 
@@ -2802,11 +3266,14 @@ test("entry log: `kind` keeps two mechanisms from being counted as one", () => {
   const proj = mkdtempSync(join(tmpdir(), "ps-log-"));
   mkdirSync(join(proj, ".claude", ".projectstore"), { recursive: true });
   const at = new Date().toISOString();
-  appendEntryLog(proj, { at, session_id: "s", score: 3 });                     // a reminder
+  appendEntryLog(proj, { at, session_id: "s", score: 3 }); // a reminder
   appendEntryLog(proj, { at, session_id: "s", kind: "name-offer", name: "x" }); // not one
   assert.equal(readEntryLog(proj).length, 2, "unfiltered still returns everything");
-  assert.equal(readEntryLog(proj, { kind: null }).length, 1,
-    "doctor's count must see the reminder alone — it renders it as 'an entry reminder fired N time(s)'");
+  assert.equal(
+    readEntryLog(proj, { kind: null }).length,
+    1,
+    "doctor's count must see the reminder alone — it renders it as 'an entry reminder fired N time(s)'",
+  );
   assert.equal(readEntryLog(proj, { kind: "name-offer" }).length, 1);
 });
 
@@ -2821,8 +3288,11 @@ test("checkWorkWithoutStory: name-offer breadcrumbs are not counted as reminders
   const vault = join(root, "vault");
   mkdirSync(join(proj, ".claude", ".projectstore"), { recursive: true });
   mkdirSync(join(vault, "epics", "PS-A", "stories"), { recursive: true });
-  writeFileSync(join(vault, "epics", "PS-A", "stories", "story-a.md"),
-    "---\ntype: story\nstatus: planned\n---\n", "utf8");
+  writeFileSync(
+    join(vault, "epics", "PS-A", "stories", "story-a.md"),
+    "---\ntype: story\nstatus: planned\n---\n",
+    "utf8",
+  );
   spawnSync("git", ["init", "-q"], { cwd: proj });
   spawnSync("git", ["config", "user.email", "t@example.com"], { cwd: proj });
   spawnSync("git", ["config", "user.name", "t"], { cwd: proj });
@@ -2837,12 +3307,18 @@ test("checkWorkWithoutStory: name-offer breadcrumbs are not counted as reminders
   try {
     const fired = checkWorkWithoutStory({ vault_path: vault }, proj);
     assert.equal(fired.length, 1);
-    assert.match(fired[0].message, /No entry reminder fired/i,
-      `two name offers are not two reminders: ${fired[0].message}`);
+    assert.match(
+      fired[0].message,
+      /No entry reminder fired/i,
+      `two name offers are not two reminders: ${fired[0].message}`,
+    );
     appendEntryLog(proj, { at, session_id: "s", score: 3 });
     const again = checkWorkWithoutStory({ vault_path: vault }, proj);
-    assert.match(again[0].message, /fired 1 time\(s\)/,
-      `one real reminder must count as exactly one: ${again[0].message}`);
+    assert.match(
+      again[0].message,
+      /fired 1 time\(s\)/,
+      `one real reminder must count as exactly one: ${again[0].message}`,
+    );
   } finally {
     if (prevProj === undefined) delete process.env.CLAUDE_PROJECT_DIR;
     else process.env.CLAUDE_PROJECT_DIR = prevProj;
@@ -2853,18 +3329,29 @@ test("session name: an offer never talks over the name the session already wears
   // Two suppressions with different reasons. Wearing the composed name already
   // makes the offer a no-op; wearing a DIFFERENT name the person chose makes it
   // an intrusion, and that one must survive every later anchor move.
-  assert.equal(sessionNameOffer("ps-a-alpha", { current: "ps-a-alpha" }), null,
-    "already wearing exactly this name");
-  assert.deepEqual(sessionNameOffer("ps-a-alpha", { current: "my-own-thing", declined: ["my-own-thing"] }), null,
-    "a name we did not compose is the person's, not a slot to overwrite");
-  assert.deepEqual(sessionNameOffer("ps-a-alpha", { current: "ps-a-old", declined: [] }),
+  assert.equal(sessionNameOffer("ps-a-alpha", { current: "ps-a-alpha" }), null, "already wearing exactly this name");
+  assert.deepEqual(
+    sessionNameOffer("ps-a-alpha", { current: "my-own-thing", declined: ["my-own-thing"] }),
+    null,
+    "a name we did not compose is the person's, not a slot to overwrite",
+  );
+  assert.deepEqual(
+    sessionNameOffer("ps-a-alpha", { current: "ps-a-old", declined: [] }),
     { name: "ps-a-alpha", qualified: false },
-    "a name WE composed earlier is ours to replace when the work moves");
-  assert.deepEqual(sessionNameOffer("ps-a-alpha", { peers: [{ name: "ps-a-alpha" }] }),
-    { name: "ps-a-alpha-2", qualified: true }, "a peer holds it — qualify rather than go silent");
-  assert.equal(sessionNameOffer("ps-a-alpha",
-    { peers: [{ name: "ps-a-alpha" }, { name: "ps-a-alpha-2" }, { name: "ps-a-alpha-3" }] }), null,
-    "three collisions means the name does not discriminate; silence beats -4");
+    "a name WE composed earlier is ours to replace when the work moves",
+  );
+  assert.deepEqual(
+    sessionNameOffer("ps-a-alpha", { peers: [{ name: "ps-a-alpha" }] }),
+    { name: "ps-a-alpha-2", qualified: true },
+    "a peer holds it — qualify rather than go silent",
+  );
+  assert.equal(
+    sessionNameOffer("ps-a-alpha", {
+      peers: [{ name: "ps-a-alpha" }, { name: "ps-a-alpha-2" }, { name: "ps-a-alpha-3" }],
+    }),
+    null,
+    "three collisions means the name does not discriminate; silence beats -4",
+  );
   assert.equal(sessionNameOffer(null, {}), null);
 });
 
@@ -2877,23 +3364,26 @@ test("session name: an offer never talks over the name the session already wears
 
 test("README: every version it quotes is the version that ships", () => {
   const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
-  const version = JSON.parse(readFileSync(
-    fileURLToPath(new URL("../.claude-plugin/plugin.json", import.meta.url)), "utf8")).version;
+  const version = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../.claude-plugin/plugin.json", import.meta.url)), "utf8"),
+  ).version;
   const marketplace = readFileSync(
-    fileURLToPath(new URL("../.claude-plugin/marketplace.json", import.meta.url)), "utf8");
-  assert.ok(marketplace.includes(`"${version}"`),
-    "both manifests must carry the same version — a release with two answers has none");
+    fileURLToPath(new URL("../.claude-plugin/marketplace.json", import.meta.url)),
+    "utf8",
+  );
+  assert.ok(
+    marketplace.includes(`"${version}"`),
+    "both manifests must carry the same version — a release with two answers has none",
+  );
   // A concrete version in prose is only ever an example of the status-line
   // badge; whatever it shows must be what a reader would actually see.
   for (const m of readme.matchAll(/PS#(\d+\.\d+\.\d+)/g)) {
-    assert.equal(m[1], version,
-      `README quotes PS#${m[1]} but this build is ${version}`);
+    assert.equal(m[1], version, `README quotes PS#${m[1]} but this build is ${version}`);
   }
   // A version-stamped section heading is a promise to edit it every release,
   // and that promise has never been kept.
   const stamped = [...readme.matchAll(/^#{2,3} .*\(v\d+\.\d+\)/gm)].map((m) => m[0]);
-  assert.deepEqual(stamped, [],
-    `headings must not be version-stamped: ${JSON.stringify(stamped)}`);
+  assert.deepEqual(stamped, [], `headings must not be version-stamped: ${JSON.stringify(stamped)}`);
 });
 
 test("README: the inventory counts what is actually in the tree", () => {
@@ -2901,9 +3391,11 @@ test("README: the inventory counts what is actually in the tree", () => {
   const readme = readFileSync(join(repo, "README.md"), "utf8");
   const count = (rel, filter) => readdirSync(join(repo, rel)).filter(filter).length;
   const md = (f) => f.endsWith(".md");
-  const hooks = new Set(Object.values(
-    JSON.parse(readFileSync(join(repo, "hooks", "hooks.json"), "utf8")).hooks)
-    .flat().flatMap((e) => (e.hooks || []).map((h) => h.command)));
+  const hooks = new Set(
+    Object.values(JSON.parse(readFileSync(join(repo, "hooks", "hooks.json"), "utf8")).hooks)
+      .flat()
+      .flatMap((e) => (e.hooks || []).map((h) => h.command)),
+  );
 
   // The selling rewrite reduced the fact sheet to three counts; skills and
   // hooks are implementation detail the README no longer advertises. `hooks`
@@ -2914,9 +3406,11 @@ test("README: the inventory counts what is actually in the tree", () => {
     [/\*\*(\d+) agents\*\*/, count("agents", md), "agents"],
     // Directories only: templates/ also holds claude-md-block.md.tmpl, which is
     // not a language and briefly made this drive report the README as wrong.
-    [/\*\*(\d+) languages\*\*/,
-      readdirSync(join(repo, "templates"), { withFileTypes: true })
-        .filter((d) => d.isDirectory()).length, "template languages"],
+    [
+      /\*\*(\d+) languages\*\*/,
+      readdirSync(join(repo, "templates"), { withFileTypes: true }).filter((d) => d.isDirectory()).length,
+      "template languages",
+    ],
   ];
   for (const [re, actual, what] of claims) {
     const m = readme.match(re);
@@ -2947,8 +3441,11 @@ function seedWorktreePair({ bindParent = true } = {}) {
   spawnSync("git", ["commit", "-qm", "base"], { cwd: main });
   if (bindParent) {
     mkdirSync(join(main, ".claude"), { recursive: true });
-    writeFileSync(join(main, ".claude", "projectstore.json"),
-      JSON.stringify({ vault_path: join(root, "vault"), layout: "engineering" }, null, 2) + "\n", "utf8");
+    writeFileSync(
+      join(main, ".claude", "projectstore.json"),
+      JSON.stringify({ vault_path: join(root, "vault"), layout: "engineering" }, null, 2) + "\n",
+      "utf8",
+    );
   }
   spawnSync("git", ["worktree", "add", "-q", child, "-b", "feat"], { cwd: main });
   return { root, main, child };
@@ -2964,8 +3461,10 @@ test("resolveBinding: a worktree of a bound checkout is inheritable", async () =
   assert.equal(b.state, "inheritable");
   assert.equal(b.worktree, true);
   assert.equal(b.vaultPath, join(root, "vault"), "it names the vault it would adopt");
-  assert.ok(b.mainCheckout && existsSync(join(b.mainCheckout, ".claude", "projectstore.json")),
-    "mainCheckout points at a real checkout carrying the config");
+  assert.ok(
+    b.mainCheckout && existsSync(join(b.mainCheckout, ".claude", "projectstore.json")),
+    "mainCheckout points at a real checkout carrying the config",
+  );
 });
 
 test("resolveBinding: it refuses to guess, and every branch returns every field", async () => {
@@ -2992,15 +3491,22 @@ test("resolveBinding: it refuses to guess, and every branch returns every field"
 
   const bound = seedWorktreePair();
   for (const r of [resolveBinding(bound.main), resolveBinding(bound.child), orphan, notARepo, mainUnbound]) {
-    assert.deepEqual(Object.keys(r).sort(), [...KEYS].sort(),
-      "a caller reading a happy-path-only field throws, and a hook swallows that into silence");
+    assert.deepEqual(
+      Object.keys(r).sort(),
+      [...KEYS].sort(),
+      "a caller reading a happy-path-only field throws, and a hook swallows that into silence",
+    );
   }
 });
 
 test("resolveBinding: an inheritable worktree carries the parent's layout and language", async () => {
   const { resolveBinding } = await import("../scripts/worktree.mjs");
   const pair = seedWorktreePair();
-  writeFileSync(join(pair.main, ".claude", "projectstore.json"), JSON.stringify({ vault_path: join(pair.root, "vault"), layout: "research", language: "ru" }, null, 2) + "\n", "utf8");
+  writeFileSync(
+    join(pair.main, ".claude", "projectstore.json"),
+    JSON.stringify({ vault_path: join(pair.root, "vault"), layout: "research", language: "ru" }, null, 2) + "\n",
+    "utf8",
+  );
   const b = resolveBinding(pair.child);
   assert.equal(b.state, "inheritable");
   assert.equal(b.layout, "research", "what a bind without an inherit path must name");
@@ -3060,15 +3566,20 @@ test("resolveBinding: a separate git dir nested in another repo must not offer t
   spawnSync("git", ["config", "user.email", "t@example.com"], { cwd: outer });
   spawnSync("git", ["config", "user.name", "t"], { cwd: outer });
   mkdirSync(join(outer, ".claude"), { recursive: true });
-  writeFileSync(join(outer, ".claude", "projectstore.json"),
-    JSON.stringify({ vault_path: join(root, "vaultOuter") }), "utf8");
+  writeFileSync(
+    join(outer, ".claude", "projectstore.json"),
+    JSON.stringify({ vault_path: join(root, "vaultOuter") }),
+    "utf8",
+  );
   writeFileSync(join(outer, "o.md"), "o\n", "utf8");
   spawnSync("git", ["add", "-A"], { cwd: outer });
   spawnSync("git", ["commit", "-qm", "outer"], { cwd: outer });
 
   // ...whose tree happens to contain the git directory of a SECOND repository.
   mkdirSync(inner, { recursive: true });
-  spawnSync("git", ["init", "-q", "-b", "main", "--separate-git-dir", join(outer, "gitdirs", "inner.git")], { cwd: inner });
+  spawnSync("git", ["init", "-q", "-b", "main", "--separate-git-dir", join(outer, "gitdirs", "inner.git")], {
+    cwd: inner,
+  });
   spawnSync("git", ["config", "user.email", "t@example.com"], { cwd: inner });
   spawnSync("git", ["config", "user.name", "t"], { cwd: inner });
   writeFileSync(join(inner, "i.md"), "i\n", "utf8");
@@ -3092,9 +3603,10 @@ test("clerk: the layout roster, the agents/ directory and doctor's name list agr
   const repo = dirname(fileURLToPath(new URL("./", import.meta.url)));
   const roster = [...loadLayout("engineering").agents].sort();
   const onDisk = readdirSync(join(repo, "agents"))
-    .filter((f) => f.endsWith(".md")).map((f) => f.replace(/\.md$/, "")).sort();
-  assert.deepEqual(onDisk, roster,
-    "every roster agent has a definition file, and no stray definition exists");
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => f.replace(/\.md$/, ""))
+    .sort();
+  assert.deepEqual(onDisk, roster, "every roster agent has a definition file, and no stray definition exists");
 
   // doctor's CURRENT_AGENT_NAMES is a hardcoded mirror nothing links to the
   // layout — a mismatch is silent in production (a user's clerk copy would be
@@ -3102,7 +3614,11 @@ test("clerk: the layout roster, the agents/ directory and doctor's name list agr
   const doctorSrc = readFileSync(join(repo, "scripts", "doctor.mjs"), "utf8");
   const m = doctorSrc.match(/const CURRENT_AGENT_NAMES = \[([^\]]+)\]/);
   assert.ok(m, "CURRENT_AGENT_NAMES exists");
-  const doctorNames = m[1].split(",").map((x) => x.trim().replace(/"/g, "")).filter(Boolean).sort();
+  const doctorNames = m[1]
+    .split(",")
+    .map((x) => x.trim().replace(/"/g, ""))
+    .filter(Boolean)
+    .sort();
   assert.deepEqual(doctorNames, roster, "doctor's mirror matches the layout");
 
   // tokens.mjs must give the clerk a stage, or its runs land in "other" and the
@@ -3115,8 +3631,10 @@ test("clerk: definition carries the contract the ADR pinned", () => {
   const repo = dirname(fileURLToPath(new URL("./", import.meta.url)));
   const src = readFileSync(join(repo, "agents", "clerk.md"), "utf8");
   const fm = src.match(/^---\n([\s\S]*?)\n---/)[1];
-  assert.ok(/^model: sonnet$/m.test(fm),
-    "cheap by default, but not the cheapest — decision 5 as amended: a procedure-following floor");
+  assert.ok(
+    /^model: sonnet$/m.test(fm),
+    "cheap by default, but not the cheapest — decision 5 as amended: a procedure-following floor",
+  );
   assert.ok(/^effort: max$/m.test(fm), "effort is orthogonal to price and mitigates the cheap-model risk");
   assert.ok(/^tools: .*Write/m.test(fm), "the sole write-capable agent");
   assert.ok(!/^tools: .*Edit/m.test(fm), "no Edit: whole approved files only");
@@ -3124,7 +3642,9 @@ test("clerk: definition carries the contract the ADR pinned", () => {
   assert.ok(/never composes artifact content/i.test(flat), "refusal 1");
   assert.ok(/never decides? whether or where to write/i.test(flat), "refusal 2");
   assert.ok(/never interacts? with the user/i.test(flat), "refusal 3");
-  assert.ok(/cp <scratch> <target>/.test(src) && /Write tool is\s+NEVER used on the target/i.test(src),
-    "the copy is cp — content never re-enters the model (alternative F is the disease)");
+  assert.ok(
+    /cp <scratch> <target>/.test(src) && /Write tool is\s+NEVER used on the target/i.test(src),
+    "the copy is cp — content never re-enters the model (alternative F is the disease)",
+  );
   assert.ok(/"verbatim"/.test(src), "the report proves byte fidelity");
 });

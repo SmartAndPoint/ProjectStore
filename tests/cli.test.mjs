@@ -11,14 +11,33 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  mkdtempSync,
+  existsSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { resolve, dirname, join, delimiter, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync, spawn as spawnChild } from "node:child_process";
 import { createServer } from "node:http";
 import { createRequire, syncBuiltinESMExports } from "node:module";
-import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject, run, opt, doctorText } from "../scripts/cli.mjs";
+import {
+  VERBS,
+  PLANNED_VERBS,
+  SCHEMA_VERSION,
+  envelope,
+  resolveProject,
+  run,
+  opt,
+  doctorText,
+} from "../scripts/cli.mjs";
 import { loadHarness, loadHarnesses, sourceHarness, harnessIds, invocation } from "../scripts/harness.mjs";
 import { layoutPaths, commandForm, doctorSummaryLine, doctorFallbackText } from "../scripts/lib.mjs";
 import { textReport } from "../scripts/doctor.mjs";
@@ -48,7 +67,13 @@ function bin(args, { cwd = ROOT, env = {} } = {}) {
   delete e.PROJECTSTORE_SHELL;
   Object.assign(e, env);
   for (const k of Object.keys(e)) if (e[k] === undefined) delete e[k];
-  return spawnSync(process.execPath, [BIN, ...args], { encoding: "utf8", cwd, env: e, timeout: 60000, maxBuffer: 1 << 24 });
+  return spawnSync(process.execPath, [BIN, ...args], {
+    encoding: "utf8",
+    cwd,
+    env: e,
+    timeout: 60000,
+    maxBuffer: 1 << 24,
+  });
 }
 
 function project({ bound = true } = {}) {
@@ -74,7 +99,10 @@ function semanticInstallItems(items, projectDir, home = null) {
     harness: item.harness,
     surface: item.surface,
     kind: item.kind,
-    path: item.path === null ? null : (home ? item.path.replace(home, "<home>") : item.path).replace(projectDir, "<project>"),
+    path:
+      item.path === null
+        ? null
+        : (home ? item.path.replace(home, "<home>") : item.path).replace(projectDir, "<project>"),
     entry: item.entry ?? null,
     state: item.state,
     action: item.action,
@@ -84,7 +112,8 @@ function semanticInstallItems(items, projectDir, home = null) {
 
 test("cli: the verb table is the contract — every shipped verb wraps a module that exists, and the union covers the MCP ADR's eight tools", () => {
   for (const v of VERBS) {
-    if (v.module) assert.ok(existsSync(join(ROOT, "scripts", v.module.replace(/^\.\//, ""))), `${v.verb} wraps ${v.module}`);
+    if (v.module)
+      assert.ok(existsSync(join(ROOT, "scripts", v.module.replace(/^\.\//, ""))), `${v.verb} wraps ${v.module}`);
     else assert.equal(v.wraps, "new", `${v.verb} without a module is new code`);
     assert.ok(typeof v.run === "function" && typeof v.summary === "string" && v.summary.length > 0);
     assert.ok(["script", "module", "new"].includes(v.wraps) && ["spawn", "import"].includes(v.how));
@@ -95,8 +124,10 @@ test("cli: the verb table is the contract — every shipped verb wraps a module 
   // Both directions: every tool the table names is one the ADR names.
   const ADR_TOOLS = ["status", "orientation", "search", "get_artifact", "neighbors", "lineage", "code_refs", "doctor"];
   for (const t of tools) assert.ok(ADR_TOOLS.includes(t), `tool ${t} is not in the MCP ADR's table`);
-  for (const v of VERBS.filter((v) => ["init", "bind", "status", "search"].includes(v.verb))) assert.equal(v.wraps, "new", `${v.verb} is marked new`);
-  for (const t of ["status", "orientation", "search", "get_artifact", "neighbors", "lineage", "code_refs", "doctor"]) assert.ok(tools.has(t), `tool ${t} has a verb`);
+  for (const v of VERBS.filter((v) => ["init", "bind", "status", "search"].includes(v.verb)))
+    assert.equal(v.wraps, "new", `${v.verb} is marked new`);
+  for (const t of ["status", "orientation", "search", "get_artifact", "neighbors", "lineage", "code_refs", "doctor"])
+    assert.ok(tools.has(t), `tool ${t} has a verb`);
   const names = [...VERBS, ...PLANNED_VERBS].map((v) => v.verb);
   assert.equal(new Set(names).size, names.length, "no verb twice");
   assert.deepEqual(Object.keys(envelope("x", "/p", true, null)), ["schema_version", "verb", "project", "ok", "result"]);
@@ -106,7 +137,13 @@ test("cli: the verb table is the contract — every shipped verb wraps a module 
 test("cli: --version equals package.json, help lists every verb, an unknown verb is usage, nothing is planned and every failure answers in the envelope under --json", () => {
   assert.equal(bin(["--version"]).stdout.trim(), PKG.version);
   const vj = JSON.parse(bin(["--version", "--json"]).stdout);
-  assert.deepEqual(vj, { schema_version: 1, verb: "version", project: null, ok: true, result: { version: PKG.version } });
+  assert.deepEqual(vj, {
+    schema_version: 1,
+    verb: "version",
+    project: null,
+    ok: true,
+    result: { version: PKG.version },
+  });
   const help = bin(["--help"]);
   assert.equal(help.status, 0, "bare --help is not an error");
   assert.equal(bin(["-h"]).status, 0);
@@ -115,7 +152,11 @@ test("cli: --version equals package.json, help lists every verb, an unknown verb
   const helpLines = help.stdout.split("\n");
   const grouped = helpLines.filter((l) => /^ {2}[a-z]+ {2,}\S/.test(l)).map((l) => l.trim().split(" ")[0]);
   const at = helpLines.indexOf("ADVANCED") + 1;
-  const advanced = helpLines.slice(at, helpLines.indexOf("", at)).map((l) => l.trim()).join(" ").split(" · ");
+  const advanced = helpLines
+    .slice(at, helpLines.indexOf("", at))
+    .map((l) => l.trim())
+    .join(" ")
+    .split(" · ");
   assert.deepEqual([...grouped, ...advanced].sort(), VERBS.map((v) => v.verb).sort());
   assert.ok(help.stdout.includes("there is no --yes"));
   const none = bin([]);
@@ -125,7 +166,11 @@ test("cli: --version equals package.json, help lists every verb, an unknown verb
   assert.match(bad.stderr, /unknown verb: frobnicate/);
   assert.deepEqual(PLANNED_VERBS, [], "every verb the story names has landed");
   // The envelope on every exit under --json: usage, unknown verb, stray option, not bound.
-  for (const [args, code] of [[["frobnicate", "--json"], 2], [["doctor", "--frob", "--json"], 2], [["doctor", "--json", "--frob"], 2]]) {
+  for (const [args, code] of [
+    [["frobnicate", "--json"], 2],
+    [["doctor", "--frob", "--json"], 2],
+    [["doctor", "--json", "--frob"], 2],
+  ]) {
     const r = bin(args);
     assert.equal(r.status, code, args.join(" "));
     const e = JSON.parse(r.stdout);
@@ -150,18 +195,32 @@ test("cli: <verb> --help prints the verb's options and examples, a shell's name 
   }
   const install = bin(["install", "--help"]).stdout;
   // Each example command alone on its line (contract 6); a note leads its command, a blank line between.
-  assert.match(install, /\nExamples\n\n {2}npx projectstore install --harness <id>\n\n {2}The same plan; nothing is written:\n\n {2}npx projectstore plan --harness <id>\n/);
+  assert.match(
+    install,
+    /\nExamples\n\n {2}npx projectstore install --harness <id>\n\n {2}The same plan; nothing is written:\n\n {2}npx projectstore plan --harness <id>\n/,
+  );
   // A bare uninstall is the core's, for every harness the project uses (the
   // story "One run plans the agents block once…", rule 5); a shell names its
   // own harness, so its help has no such line.
   const uninstall = bin(["uninstall", "--help"]).stdout;
-  assert.match(uninstall, /\nExamples\n\n {2}Every harness this project uses:\n\n {2}npx projectstore uninstall\n\n {2}npx projectstore uninstall --harness <id>\n/, uninstall);
+  assert.match(
+    uninstall,
+    /\nExamples\n\n {2}Every harness this project uses:\n\n {2}npx projectstore uninstall\n\n {2}npx projectstore uninstall --harness <id>\n/,
+    uninstall,
+  );
   // The way back from a channel switch (the converge story's rule 4): the
   // registration's own uninstall, then the doctor of the harness that has the
   // registration, in its own form from invocation() — never a literal.
-  const switching = [...loadHarnesses().values()].find((m) => Object.values(m.surfaces || {}).some((s) => s?.format === "host-plugin-registration"));
+  const switching = [...loadHarnesses().values()].find((m) =>
+    Object.values(m.surfaces || {}).some((s) => s?.format === "host-plugin-registration"),
+  );
   const surface = Object.entries(switching.surfaces).find(([, s]) => s?.format === "host-plugin-registration")[0];
-  assert.ok(uninstall.includes(`\n  Back to the git marketplace after a switch, then restart ${switching.display_name} and run ${invocation(switching, "doctor", { args: "--fix" })} in it:\n\n  npx projectstore uninstall --harness <id> --surface ${surface}\n`), uninstall);
+  assert.ok(
+    uninstall.includes(
+      `\n  Back to the git marketplace after a switch, then restart ${switching.display_name} and run ${invocation(switching, "doctor", { args: "--fix" })} in it:\n\n  npx projectstore uninstall --harness <id> --surface ${surface}\n`,
+    ),
+    uninstall,
+  );
   const shellUninstall = bin(["uninstall", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
   assert.ok(!/every harness this project uses/i.test(shellUninstall), shellUninstall);
   assert.ok(!/after a switch/.test(shellUninstall), "the way back is the core's example");
@@ -178,12 +237,19 @@ test("cli: <verb> --help prints the verb's options and examples, a shell's name 
   const shell = bin(["upgrade", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
   assert.ok(shell.startsWith("npx projectstore-codex upgrade — "), shell);
   assert.ok(!shell.includes("--harness"), "a shell's harness is not an option");
-  assert.match(shell, /\n {2}The version you name is the version that runs:\n\n {2}npx projectstore-codex@<version> upgrade\n/);
+  assert.match(
+    shell,
+    /\n {2}The version you name is the version that runs:\n\n {2}npx projectstore-codex@<version> upgrade\n/,
+  );
   // mcp's help says how it is told its project, which its summary has no room for.
-  assert.match(bin(["mcp", "--help"]).stdout, /\n {2}It serves the project --project names, else PROJECTSTORE_PROJECT_DIR or the host session's project; never the directory it was started in\.\n/);
+  assert.match(
+    bin(["mcp", "--help"]).stdout,
+    /\n {2}It serves the project --project names, else PROJECTSTORE_PROJECT_DIR or the host session's project; never the directory it was started in\.\n/,
+  );
   const top = bin(["--help"], { env: { PROJECTSTORE_SHELL: "projectstore-claude" } }).stdout;
   assert.match(top, /Usage\n {2}npx projectstore-claude <verb> \[options\]/);
-  for (const g of ["START", "VAULT", "CHECK AND REPAIR", "ADVANCED", "Options", "Examples", "Tips"]) assert.ok(top.includes(`\n${g}\n`), g);
+  for (const g of ["START", "VAULT", "CHECK AND REPAIR", "ADVANCED", "Options", "Examples", "Tips"])
+    assert.ok(top.includes(`\n${g}\n`), g);
   // Through a shell the harness is the shell's: no --harness in the examples or the tips, and the verb confirms.
   assert.ok(!top.includes("--harness"), top);
   assert.ok(top.includes("\n  Without a terminal, the verb is its own confirmation — there is no --yes.\n"), top);
@@ -204,7 +270,12 @@ test("cli: <verb> --help prints the verb's options and examples, a shell's name 
 test("cli: doctor through the bin equals the bare script's findings, inside the envelope; exit 1 on issues", () => {
   const proj = project({ bound: false });
   const viaBin = bin(["doctor", "--json", "--project", proj]);
-  const bare = spawnSync(process.execPath, [join(ROOT, "scripts", "doctor.mjs"), "--json"], { encoding: "utf8", cwd: proj, env: { ...process.env, [SRC.runtime.project_dir_env]: proj }, timeout: 60000 });
+  const bare = spawnSync(process.execPath, [join(ROOT, "scripts", "doctor.mjs"), "--json"], {
+    encoding: "utf8",
+    cwd: proj,
+    env: { ...process.env, [SRC.runtime.project_dir_env]: proj },
+    timeout: 60000,
+  });
   const env = JSON.parse(viaBin.stdout);
   assert.equal(env.schema_version, 1);
   assert.equal(env.verb, "doctor");
@@ -212,7 +283,10 @@ test("cli: doctor through the bin equals the bare script's findings, inside the 
   assert.deepEqual(env.result, JSON.parse(bare.stdout));
   assert.equal(env.ok, !env.result.some((f) => f.level === "issue"));
   assert.equal(viaBin.status, env.ok ? 0 : 1);
-  assert.ok(env.result.some((f) => f.level === "issue"), "an unbound project is an issue, so this exercises exit 1");
+  assert.ok(
+    env.result.some((f) => f.level === "issue"),
+    "an unbound project is an issue, so this exercises exit 1",
+  );
   const text = bin(["doctor", "--project", proj]);
   assert.equal(text.status, 1);
   assert.match(text.stdout, /projectstore doctor/);
@@ -227,21 +301,35 @@ test("cli: doctor through the bin equals the bare script's findings, inside the 
 
 // A terminal's stdout, in process: a stream with isTTY and columns.
 class TtySink {
-  constructor() { this.text = ""; }
-  write(s) { this.text += String(s); return true; }
-  get isTTY() { return true; }
-  get columns() { return 80; }
+  constructor() {
+    this.text = "";
+  }
+  write(s) {
+    this.text += String(s);
+    return true;
+  }
+  get isTTY() {
+    return true;
+  }
+  get columns() {
+    return 80;
+  }
 }
 const stripSgr = (s) => String(s).replace(/\x1b\[[0-9;]*m/g, "");
 
 test("cli doctor: run() at a terminal spawns doctor once, with --json, and prints the report in colour, the Summary line last", async () => {
   const proj = project();
   const home = mkdtempSync(join(tmpdir(), "ps-cli-home-"));
-  const out = new TtySink(), err = new Sink();
+  const out = new TtySink(),
+    err = new Sink();
   const cp = createRequire(import.meta.url)("node:child_process");
   const original = cp.spawnSync;
   const calls = [];
-  cp.spawnSync = function (...args) { const r = original.apply(this, args); calls.push({ args, r }); return r; };
+  cp.spawnSync = function (...args) {
+    const r = original.apply(this, args);
+    calls.push({ args, r });
+    return r;
+  };
   syncBuiltinESMExports();
   let code;
   try {
@@ -259,12 +347,24 @@ test("cli doctor: run() at a terminal spawns doctor once, with --json, and print
   assert.match(out.text, /\x1b\[[0-9;]*m/, "coloured at a terminal");
   const lines = out.text.split("\n");
   assert.equal(stripSgr(lines[0]), `projectstore doctor · ${PKG.version} · ${basename(proj)}`);
-  assert.ok(lines.some((l) => stripSgr(l).startsWith("INSTALL — ")) && lines.some((l) => stripSgr(l).startsWith("VAULT — ")), out.text);
-  assert.match(lines.at(-2), /^Summary: \d+ issue\(s\), \d+ warning\(s\)\. /, "the Summary line is last, and unpainted");
+  assert.ok(
+    lines.some((l) => stripSgr(l).startsWith("INSTALL — ")) && lines.some((l) => stripSgr(l).startsWith("VAULT — ")),
+    out.text,
+  );
+  assert.match(
+    lines.at(-2),
+    /^Summary: \d+ issue\(s\), \d+ warning\(s\)\. /,
+    "the Summary line is last, and unpainted",
+  );
   assert.equal(lines.at(-1), "");
   // NO_COLOR at the same terminal: the same report, no escape.
   const bare = new TtySink();
-  await run(["doctor", "--project", proj], { env: { HOME: home, NO_COLOR: "1" }, cwd: proj, stdout: bare, stderr: new Sink() });
+  await run(["doctor", "--project", proj], {
+    env: { HOME: home, NO_COLOR: "1" },
+    cwd: proj,
+    stdout: bare,
+    stderr: new Sink(),
+  });
   assert.ok(!bare.text.includes("\x1b"), bare.text);
   assert.equal(bare.text, stripSgr(out.text));
 });
@@ -276,13 +376,21 @@ test("cli doctor: the bin's text on a pipe is doctor.mjs's own text mode — one
   const env = { ...process.env, HOME: home, [SRC.runtime.project_dir_env]: proj };
   delete env.FORCE_COLOR;
   delete env.TERM;
-  const own = spawnSync(process.execPath, [join(ROOT, "scripts", "doctor.mjs"), "--vault"], { encoding: "utf8", cwd: proj, env, timeout: 60000 });
+  const own = spawnSync(process.execPath, [join(ROOT, "scripts", "doctor.mjs"), "--vault"], {
+    encoding: "utf8",
+    cwd: proj,
+    env,
+    timeout: 60000,
+  });
   assert.equal(viaBin.status, 1, viaBin.stderr);
   assert.equal(viaBin.stdout, own.stdout);
   assert.ok(!/\x1b/.test(own.stdout), "doctor.mjs draws plain text");
   assert.ok(/\n {2}✕ \[kanban\] /.test(own.stdout) && /\n\nSummary: \d+ issue\(s\), /.test(own.stdout), own.stdout);
   // On a pipe --verbose changes nothing: plain output already holds every note.
-  assert.equal(bin(["doctor", "--vault", "--verbose", "--project", proj], { env: { HOME: home } }).stdout, viaBin.stdout);
+  assert.equal(
+    bin(["doctor", "--vault", "--verbose", "--project", proj], { env: { HOME: home } }).stdout,
+    viaBin.stdout,
+  );
   const help = bin(["doctor", "--help"]);
   const line = help.stdout.split("\n").find((l) => l.startsWith("  --verbose"));
   assert.match(line, /^ {2}--verbose +on a terminal too: every note, every instance, whole messages$/, help.stdout);
@@ -297,35 +405,90 @@ const FALLBACK_FINDINGS = [
   { group: "vault", level: "issue", check: "kanban", message: "kanban.md is out of sync.", file: "kanban.md" },
   { group: "vault", level: "info", check: "graph", message: "No graph.md yet." },
 ];
-const FALLBACK_TEXT = () => `issue kanban kanban.md is out of sync. — kanban.md\ninfo graph No graph.md yet.\n\n${doctorSummaryLine(FALLBACK_FINDINGS, { env: {} })}\n`;
+const FALLBACK_TEXT = () =>
+  `issue kanban kanban.md is out of sync. — kanban.md\ninfo graph No graph.md yet.\n\n${doctorSummaryLine(FALLBACK_FINDINGS, { env: {} })}\n`;
 
 test("cli doctor: a renderer that throws or cannot load costs the reader nothing — the findings one per line, the Summary line last", async () => {
   const real = await import("../scripts/doctor-report.mjs");
-  assert.equal(doctorSummaryLine(FALLBACK_FINDINGS, { env: {} }), `Summary: 1 issue(s), 0 warning(s). Repairs: ${commandForm("doctor", { args: "--fix", env: {} })} (install), ${commandForm("kanban", { env: {} })} / reconcile (vault).`);
-  for (const [why, load] of [["boom", async () => ({ ...real, report: () => { throw new Error("boom"); } })], ["gone", async () => { throw new Error("gone"); }]]) {
+  assert.equal(
+    doctorSummaryLine(FALLBACK_FINDINGS, { env: {} }),
+    `Summary: 1 issue(s), 0 warning(s). Repairs: ${commandForm("doctor", { args: "--fix", env: {} })} (install), ${commandForm("kanban", { env: {} })} / reconcile (vault).`,
+  );
+  for (const [why, load] of [
+    [
+      "boom",
+      async () => ({
+        ...real,
+        report: () => {
+          throw new Error("boom");
+        },
+      }),
+    ],
+    [
+      "gone",
+      async () => {
+        throw new Error("gone");
+      },
+    ],
+  ]) {
     const err = new Sink();
-    assert.equal(await doctorText(FALLBACK_FINDINGS, ["vault"], { env: {}, stderr: err }, { load }), FALLBACK_TEXT(), why);
+    assert.equal(
+      await doctorText(FALLBACK_FINDINGS, ["vault"], { env: {}, stderr: err }, { load }),
+      FALLBACK_TEXT(),
+      why,
+    );
     assert.equal(err.text, `doctor: the report could not be drawn (${why}); its findings follow, one per line.\n`);
   }
-  assert.equal(doctorFallbackText([], { env: {} }), "Summary: 0 issue(s), 0 warning(s). Vault and wiring look healthy.\n");
+  assert.equal(
+    doctorFallbackText([], { env: {} }),
+    "Summary: 0 issue(s), 0 warning(s). Vault and wiring look healthy.\n",
+  );
   // And without a failure, the report.
   const drawn = await doctorText(FALLBACK_FINDINGS, ["vault"], { env: {}, project: "/x/shop" });
-  assert.ok(drawn.startsWith(`projectstore doctor · ${PKG.version} · shop\n\nVAULT — 1 issue · 0 warnings · 1 note\n`), drawn);
+  assert.ok(
+    drawn.startsWith(`projectstore doctor · ${PKG.version} · shop\n\nVAULT — 1 issue · 0 warnings · 1 note\n`),
+    drawn,
+  );
   assert.ok(drawn.endsWith(`\n\n${doctorSummaryLine(FALLBACK_FINDINGS, { env: {} })}\n`));
 });
 
 test("cli doctor: doctor.mjs run directly falls back the same way when its renderer cannot load or throws", async () => {
   const real = await import("../scripts/doctor-report.mjs");
-  for (const [why, load] of [["gone", async () => { throw new Error("gone"); }], ["boom", async () => ({ ...real, report: () => { throw new Error("boom"); } })]]) {
+  for (const [why, load] of [
+    [
+      "gone",
+      async () => {
+        throw new Error("gone");
+      },
+    ],
+    [
+      "boom",
+      async () => ({
+        ...real,
+        report: () => {
+          throw new Error("boom");
+        },
+      }),
+    ],
+  ]) {
     const err = new Sink();
-    assert.equal(await textReport(FALLBACK_FINDINGS, ["vault"], { env: {}, stderr: err }, { load }), FALLBACK_TEXT(), why);
+    assert.equal(
+      await textReport(FALLBACK_FINDINGS, ["vault"], { env: {}, stderr: err }, { load }),
+      FALLBACK_TEXT(),
+      why,
+    );
     assert.equal(err.text, `doctor: the report could not be drawn (${why}); its findings follow, one per line.\n`);
   }
-  assert.equal(await textReport(FALLBACK_FINDINGS, ["vault"], { version: "1.2.3", project: "/x/shop", env: {} }), real.report(FALLBACK_FINDINGS, ["vault"], { version: "1.2.3", project: "/x/shop", env: {} }), "the renderer, in its plain layout");
+  assert.equal(
+    await textReport(FALLBACK_FINDINGS, ["vault"], { version: "1.2.3", project: "/x/shop", env: {} }),
+    real.report(FALLBACK_FINDINGS, ["vault"], { version: "1.2.3", project: "/x/shop", env: {} }),
+    "the renderer, in its plain layout",
+  );
 });
 
 test("cli: --project wins over cwd, and PROJECTSTORE_PROJECT_DIR wins over cwd", () => {
-  const a = project({ bound: false }), b = project({ bound: false });
+  const a = project({ bound: false }),
+    b = project({ bound: false });
   const viaFlag = JSON.parse(bin(["doctor", "--json", "--project", a], { cwd: b }).stdout);
   assert.equal(viaFlag.project, a);
   const viaEnv = JSON.parse(bin(["doctor", "--json"], { cwd: b, env: { PROJECTSTORE_PROJECT_DIR: a } }).stdout);
@@ -362,7 +525,10 @@ test("cli: reconcile in an unbound project exits 3 naming init; in a bound one i
   assert.ok(existsSync(join(vault, "kanban.md")), "--only named the write and it happened");
   assert.equal(bin(["reconcile", "--only"]).status, 2, "--only without a value is usage");
   const sections = JSON.parse(bin(["doctor", "--json", "--install", "--project", bound]).stdout);
-  assert.ok(sections.result.every((f) => f.group === "install"), "--install narrows to the install section");
+  assert.ok(
+    sections.result.every((f) => f.group === "install"),
+    "--install narrows to the install section",
+  );
 });
 
 test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses, a named one applies, and there is no --yes", () => {
@@ -370,7 +536,12 @@ test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses
   const proj = project();
   writeFileSync(join(proj, "CLAUDE.md"), "# Mine\n");
   // PATH is emptied and the session marker dropped so the developer's real host CLI never enters this plan.
-  const env = { HOME: home, [SRC.runtime.plugin_root_env]: ROOT, PATH: "", ...Object.fromEntries((SRC.runtime.detect_env || []).map((k) => [k, undefined])) };
+  const env = {
+    HOME: home,
+    [SRC.runtime.plugin_root_env]: ROOT,
+    PATH: "",
+    ...Object.fromEntries((SRC.runtime.detect_env || []).map((k) => [k, undefined])),
+  };
   const bare = bin(["install", "--project", proj], { env });
   assert.equal(bare.status, 1, bare.stderr);
   assert.match(bare.stdout, /Nothing written: without a terminal, a bare install refuses/);
@@ -390,9 +561,14 @@ test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses
   assert.equal(out.result.incomplete, true);
   assert.equal(out.result.items.find((i) => i.surface === "plugin").state, "unavailable");
   assert.equal(out.result.applied.length, 1, "the block is applied even though the registration could not be");
-  const narrowed = bin(["install", "--project", proj, "--harness", SRC.id, "--surface", "agents_block", "--json"], { env });
+  const narrowed = bin(["install", "--project", proj, "--harness", SRC.id, "--surface", "agents_block", "--json"], {
+    env,
+  });
   assert.equal(narrowed.status, 0, "a plan that never asked for the registration is complete");
-  assert.ok(out.result.items.every((i) => !("before" in i) && !("after" in i)), "no file bodies in the envelope");
+  assert.ok(
+    out.result.items.every((i) => !("before" in i) && !("after" in i)),
+    "no file bodies in the envelope",
+  );
   assert.ok(readFileSync(join(proj, "CLAUDE.md"), "utf8").includes("projectstore:agents"));
   const planned = JSON.parse(bin(["plan", "--project", proj, "--json"], { env }).stdout);
   assert.equal(planned.verb, "plan");
@@ -401,7 +577,10 @@ test("cli: the gate reaches the bin unchanged — a bare non-TTY install refuses
   assert.equal(again.result.gate.why, "nothing-to-do");
   const un = JSON.parse(bin(["uninstall", "--project", proj, "--harness", SRC.id, "--json"], { env }).stdout);
   assert.equal(un.ok, true);
-  assert.ok(!existsSync(join(proj, "CLAUDE.md")) || !readFileSync(join(proj, "CLAUDE.md"), "utf8").includes("projectstore:agents"));
+  assert.ok(
+    !existsSync(join(proj, "CLAUDE.md")) ||
+      !readFileSync(join(proj, "CLAUDE.md"), "utf8").includes("projectstore:agents"),
+  );
 });
 
 test("cli: Codex plan/install preserve pathless rows and semantics in text and JSON", () => {
@@ -466,7 +645,10 @@ test("cli: Codex plan/install preserve pathless rows and semantics in text and J
       assert.match(folded, /^ {2}· skipped +not on .* {2}--verbose says why$/);
       assert.ok(!folded.includes("unsupported"), "no state word in the default view");
     }
-    assert.ok(verbose.stdout.includes(`${item.surface} [${item.harness}, no filesystem path]`), `--verbose marks ${item.surface} as having no filesystem path`);
+    assert.ok(
+      verbose.stdout.includes(`${item.surface} [${item.harness}, no filesystem path]`),
+      `--verbose marks ${item.surface} as having no filesystem path`,
+    );
     assert.match(verbose.stdout, /unsupported \(.*\) → skip/);
   }
 
@@ -475,7 +657,10 @@ test("cli: Codex plan/install preserve pathless rows and semantics in text and J
   assert.match(installText.result.stdout, /\n {2}✓ added AGENTS\.md +\d/);
   assert.match(installText.result.stdout, /\nDone — 1 change in \d/);
   // Next: one line for the harness, its display name in a column and its steps beside it.
-  assert.ok(installText.result.stdout.includes(`\nNext\n  ${codex.display_name}  ${codex.install.next.join("; ")}\n`), `DONE names the manifest's next steps:\n${installText.result.stdout}`);
+  assert.ok(
+    installText.result.stdout.includes(`\nNext\n  ${codex.display_name}  ${codex.install.next.join("; ")}\n`),
+    `DONE names the manifest's next steps:\n${installText.result.stdout}`,
+  );
   assert.equal(
     readFileSync(join(installText.proj, "AGENTS.md"), "utf8"),
     readFileSync(join(installJson.proj, "AGENTS.md"), "utf8"),
@@ -493,7 +678,9 @@ function fetchBins() {
   const base = mkdtempSync(join(tmpdir(), "ps-cli-fetch-"));
   const npm = fakeNpm(join(base, "npm-bin"));
   const host = fakeCodexBin(join(base, "codex-bin"));
-  const home = join(base, "home"), codexHome = join(base, "codex-home"), cache = join(base, "cache");
+  const home = join(base, "home"),
+    codexHome = join(base, "codex-home"),
+    cache = join(base, "cache");
   for (const d of [home, codexHome]) mkdirSync(d, { recursive: true });
   const env = {
     ...Object.fromEntries((codex.runtime.detect_env || []).map((key) => [key, undefined])),
@@ -520,20 +707,33 @@ test("cli shell fetch: a project .npmrc's registry reaches the fetch's --registr
     const reads = f.npm.log().filter((c) => c.argv[0] === "config");
     assert.equal(reads.length, 2, "each registry is read once");
     assert.equal(reads.filter((c) => c.cwd === realpathSync(proj)).length, 1, "the project's, in the project");
-    assert.deepEqual(reads.filter((c) => c.cwd === realpathSync(f.home)).map((c) => c.npmConfig), [[]], "the user's, from home, with every lowercase npm_config_* removed");
+    assert.deepEqual(
+      reads.filter((c) => c.cwd === realpathSync(f.home)).map((c) => c.npmConfig),
+      [[]],
+      "the user's, from home, with every lowercase npm_config_* removed",
+    );
     const [install] = f.npm.installs();
-    assert.equal(install.argv[install.argv.indexOf("--registry") + 1], "https://npmrc.example.test/", viaNpx ? "through npx" : "without npx");
+    assert.equal(
+      install.argv[install.argv.indexOf("--registry") + 1],
+      "https://npmrc.example.test/",
+      viaNpx ? "through npx" : "without npx",
+    );
     assert.deepEqual(readdirSync(f.fetchDir), []);
   }
   // In text, PLAN names the project's registry beneath the row it fetched for, beside the user's.
   const f = fetchBins();
   const proj = projectForHarness(f.codex);
   writeFileSync(join(proj, ".npmrc"), "registry=https://npmrc.example.test/\n");
-  const t = bin(["upgrade", "--harness", f.codex.id, "--project", proj], { env: { ...f.env, FAKE_NPM_REGISTRY: undefined } });
+  const t = bin(["upgrade", "--harness", f.codex.id, "--project", proj], {
+    env: { ...f.env, FAKE_NPM_REGISTRY: undefined },
+  });
   assert.equal(t.status, 0, t.stdout + t.stderr);
   const user = f.npm.log().find((c) => c.argv[0] === "config" && c.cwd === realpathSync(f.home));
   assert.ok(user, "the user's registry was resolved");
-  assert.ok(t.stdout.includes("\n      fetched from https://npmrc.example.test/\n      your npm's own registry is "), t.stdout);
+  assert.ok(
+    t.stdout.includes("\n      fetched from https://npmrc.example.test/\n      your npm's own registry is "),
+    t.stdout,
+  );
 });
 
 test("cli shell fetch: text puts the badge first, the fetch line under it, then the project and PLAN; --json is one JSON document carrying fetched", () => {
@@ -544,19 +744,33 @@ test("cli shell fetch: text puts the badge first, the fetch line under it, then 
   assert.equal(r.status, 0, r.stdout + r.stderr);
   const lines = r.stdout.split("\n");
   assert.equal(lines[0], `projectstore install · ${f.codex.display_name}`);
-  assert.match(lines[1], new RegExp(`^ {2}✓ fetched ${shell}@${PKG.version.replace(/\./g, "\\.")} for ${f.codex.display_name} +\\d+\\.\\ds$`), lines[1]);
+  assert.match(
+    lines[1],
+    new RegExp(
+      `^ {2}✓ fetched ${shell}@${PKG.version.replace(/\./g, "\\.")} for ${f.codex.display_name} +\\d+\\.\\ds$`,
+    ),
+    lines[1],
+  );
   assert.equal(lines[2], `  ${proj}`);
   assert.equal(lines[3], "");
   assert.match(lines[4], /^Plan — \d+ to (add|register)/);
   assert.equal(r.stdout.split("projectstore install").length, 2, "the preview does not print the badge again");
   assert.match(r.stdout, /\nDone — /);
-  assert.ok(f.host.log().some((c) => c.argv.join(" ") === "plugin add projectstore@projectstore-npx"), "registered through the host");
+  assert.ok(
+    f.host.log().some((c) => c.argv.join(" ") === "plugin add projectstore@projectstore-npx"),
+    "registered through the host",
+  );
   const g = fetchBins();
-  const j = bin(["upgrade", "--harness", g.codex.id, "--json", "--project", projectForHarness(g.codex)], { env: g.env });
+  const j = bin(["upgrade", "--harness", g.codex.id, "--json", "--project", projectForHarness(g.codex)], {
+    env: g.env,
+  });
   assert.equal(j.status, 0, j.stdout + j.stderr);
   const doc = JSON.parse(j.stdout);
   assert.equal(doc.ok, true);
-  assert.deepEqual(doc.result.fetched.map(({ ms: _ms, ...x }) => x), [{ harness: g.codex.id, package: shell, version: PKG.version }]);
+  assert.deepEqual(
+    doc.result.fetched.map(({ ms: _ms, ...x }) => x),
+    [{ harness: g.codex.id, package: shell, version: PKG.version }],
+  );
   assert.ok(!j.stdout.includes("✓ fetched"), "nothing but the envelope");
   assert.deepEqual(readdirSync(g.fetchDir), []);
 });
@@ -589,8 +803,16 @@ test("cli shell fetch: a headless bare upgrade on .claude/ plus state/codex/ exi
   mkdirSync(layoutPaths(proj).harnessState(f.codex.id), { recursive: true });
   const r = bin(["upgrade", "--project", proj], { env: f.env });
   assert.equal(r.status, 1, r.stdout + r.stderr);
-  assert.ok(r.stdout.includes(`Nothing written: without a terminal, a bare upgrade refuses. Name the harness to confirm: --harness ${SRC.id} | ${f.codex.id}\n`), r.stdout);
-  assert.ok(r.stdout.startsWith(`projectstore upgrade · ${SRC.display_name}, ${f.codex.display_name}\n`), "both are planned");
+  assert.ok(
+    r.stdout.includes(
+      `Nothing written: without a terminal, a bare upgrade refuses. Name the harness to confirm: --harness ${SRC.id} | ${f.codex.id}\n`,
+    ),
+    r.stdout,
+  );
+  assert.ok(
+    r.stdout.startsWith(`projectstore upgrade · ${SRC.display_name}, ${f.codex.display_name}\n`),
+    "both are planned",
+  );
   assert.deepEqual(f.npm.log(), [], "nothing fetched for a run that cannot be asked");
 });
 
@@ -603,7 +825,20 @@ test("cli shell fetch: plan --harness codex calls no npm and makes no cache; its
   assert.ok(r.stdout.includes("--registry <registry>"));
   const j = bin(["plan", "--harness", f.codex.id, "--json", "--project", proj], { env: f.env });
   const doc = JSON.parse(j.stdout);
-  assert.deepEqual(Object.keys(doc.result).sort(), ["detected", "harnesses", "incomplete", "items", "mode", "named", "ok", "plannedAgainst", "projectDir", "refusals", "reports", "root"]);
+  assert.deepEqual(Object.keys(doc.result).sort(), [
+    "detected",
+    "harnesses",
+    "incomplete",
+    "items",
+    "mode",
+    "named",
+    "ok",
+    "plannedAgainst",
+    "projectDir",
+    "refusals",
+    "reports",
+    "root",
+  ]);
   const row = doc.result.items.find((i) => i.surface === "plugin");
   assert.deepEqual([row.state, row.action, row.steps[0].kind], ["absent", "create", "fetch"]);
   assert.ok(!("analysed" in row), "the recheck's inputs stay private");
@@ -622,21 +857,42 @@ test("cli shell fetch: plan --harness codex calls no npm and makes no cache; its
 async function localRegistry(latest) {
   const requests = [];
   const server = createServer((req, res) => {
-    requests.push({ method: req.method, url: req.url, accept: req.headers.accept, authorization: req.headers.authorization || null });
-    if (req.url !== "/projectstore") { res.writeHead(404); res.end(); return; }
+    requests.push({
+      method: req.method,
+      url: req.url,
+      accept: req.headers.accept,
+      authorization: req.headers.authorization || null,
+    });
+    if (req.url !== "/projectstore") {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
     res.writeHead(200, { "content-type": "application/vnd.npm.install-v1+json" });
     res.end(JSON.stringify({ name: "projectstore", "dist-tags": { latest, next: "0.99.0-rc.1" } }));
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  return { url: `http://127.0.0.1:${server.address().port}/`, requests, close: () => new Promise((r) => server.close(r)) };
+  return {
+    url: `http://127.0.0.1:${server.address().port}/`,
+    requests,
+    close: () => new Promise((r) => server.close(r)),
+  };
 }
 
 function binAt(root, args, env) {
   return new Promise((settle) => {
-    const child = spawnChild(process.execPath, [join(root, "bin", "projectstore.mjs"), ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "", stderr = "";
-    child.stdout.on("data", (d) => { stdout += d; });
-    child.stderr.on("data", (d) => { stderr += d; });
+    const child = spawnChild(process.execPath, [join(root, "bin", "projectstore.mjs"), ...args], {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "",
+      stderr = "";
+    child.stdout.on("data", (d) => {
+      stdout += d;
+    });
+    child.stderr.on("data", (d) => {
+      stderr += d;
+    });
     child.on("close", (status) => settle({ status, stdout, stderr }));
   });
 }
@@ -652,8 +908,25 @@ function convergeBins(registry, version = "0.30.0") {
   mkdirSync(home);
   const root = fakePackageRoot(join(base, "_npx", "9f8e7d", "node_modules", "projectstore"), version);
   const env = (extra = {}) => {
-    const e = noHostEnv({ HOME: home, PATH: [host.dir, npm.dir, dirname(process.execPath)].join(delimiter), XDG_CACHE_HOME: join(mkdtempSync(join(base, "xdg-")), "cache"), FAKE_NPM_REGISTRY: registry.url, npm_config_registry: "https://outer-npx.example.test/", ...extra });
-    for (const k of ["PROJECTSTORE_NO_UPDATE_CHECK", "CI", "FORCE_COLOR", "TERM", "NO_COLOR", "PROJECTSTORE_ASCII", "PROJECTSTORE_SHELL", "PROJECTSTORE_PROJECT_DIR"]) if (!(k in extra)) delete e[k];
+    const e = noHostEnv({
+      HOME: home,
+      PATH: [host.dir, npm.dir, dirname(process.execPath)].join(delimiter),
+      XDG_CACHE_HOME: join(mkdtempSync(join(base, "xdg-")), "cache"),
+      FAKE_NPM_REGISTRY: registry.url,
+      npm_config_registry: "https://outer-npx.example.test/",
+      ...extra,
+    });
+    for (const k of [
+      "PROJECTSTORE_NO_UPDATE_CHECK",
+      "CI",
+      "FORCE_COLOR",
+      "TERM",
+      "NO_COLOR",
+      "PROJECTSTORE_ASCII",
+      "PROJECTSTORE_SHELL",
+      "PROJECTSTORE_PROJECT_DIR",
+    ])
+      if (!(k in extra)) delete e[k];
     return e;
   };
   return { base, npm, host, home, root, env };
@@ -671,13 +944,21 @@ test("cli converge: the update notice through the bin — one request to the use
     assert.equal(lines[0], `projectstore upgrade · ${SRC.display_name}`);
     assert.equal(lines[1], "  ▲ newer published: 0.30.1 (this is 0.30.0). To update:");
     assert.deepEqual(lines.slice(2, 6), ["", "    npx projectstore@latest upgrade", "", `  ${proj}`]);
-    assert.deepEqual(registry.requests, [{ method: "GET", url: "/projectstore", accept: "application/vnd.npm.install-v1+json", authorization: null }], "one request, no credentials");
+    assert.deepEqual(
+      registry.requests,
+      [{ method: "GET", url: "/projectstore", accept: "application/vnd.npm.install-v1+json", authorization: null }],
+      "one request, no credentials",
+    );
     const reads = b.npm.log().filter((c) => c.argv[0] === "config");
     assert.equal(reads.length, 1, "the user's registry is resolved once");
     assert.equal(reads[0].cwd, b.home, "from the home directory");
     assert.deepEqual(reads[0].npmConfig, [], "with every lowercase npm_config_* removed");
     // The same run with the check off: the same exit, no notice.
-    const off = await binAt(b.root, ["upgrade", "--harness", SRC.id, "--surface", "agents_block", "--project", project()], b.env({ PROJECTSTORE_NO_UPDATE_CHECK: "1" }));
+    const off = await binAt(
+      b.root,
+      ["upgrade", "--harness", SRC.id, "--surface", "agents_block", "--project", project()],
+      b.env({ PROJECTSTORE_NO_UPDATE_CHECK: "1" }),
+    );
     assert.equal(off.status, r.status);
     assert.ok(!off.stdout.includes("newer published"));
     // None of these reads the registry or resolves it.
@@ -685,7 +966,12 @@ test("cli converge: the update notice through the bin — one request to the use
       ["--json", b.root, [...args.slice(0, -2), "--json", "--project", project()], {}],
       ["CI=1", b.root, [...args.slice(0, -2), "--project", project()], { CI: "1" }],
       ["plan", b.root, ["plan", "--harness", SRC.id, "--project", proj], {}],
-      ["uninstall", b.root, ["uninstall", "--harness", SRC.id, "--surface", "agents_block", "--project", project()], {}],
+      [
+        "uninstall",
+        b.root,
+        ["uninstall", "--harness", SRC.id, "--surface", "agents_block", "--project", project()],
+        {},
+      ],
       ["doctor", b.root, ["doctor", "--install", "--project", proj], {}],
       ["a checkout", ROOT, [...args.slice(0, -2), "--project", project()], {}],
     ];
@@ -694,10 +980,16 @@ test("cli converge: the update notice through the bin — one request to the use
       const q = await binAt(root, a, b.env(extra));
       assert.ok(!q.stdout.includes("newer published"), label);
       assert.equal(registry.requests.length, 1, `${label}: no request`);
-      assert.deepEqual(b.npm.log().filter((c) => c.argv[0] === "config"), [], `${label}: no registry resolved`);
+      assert.deepEqual(
+        b.npm.log().filter((c) => c.argv[0] === "config"),
+        [],
+        `${label}: no registry resolved`,
+      );
     }
     assert.deepEqual(b.host.log(), [], "no host command ran");
-  } finally { await registry.close(); }
+  } finally {
+    await registry.close();
+  }
 });
 
 test("cli converge: the stop through the bin — this checkout's npm row at 0.31.0, the package at 0.30.0, latest 0.31.0: exit 1 before the question, both commands alone on their lines, --json ok:false with the message in refusals, nothing written or run; CI=1 still reads", async () => {
@@ -709,15 +1001,32 @@ test("cli converge: the stop through the bin — this checkout's npm row at 0.31
     // This checkout registered from a 0.31.0 package, in-process against the same home and fake host.
     const newer = fakePackageRoot(join(b.base, "newer", "node_modules", "projectstore"), "0.31.0");
     const hostEnv = b.host.env({ HOME: b.home });
-    const done = installApply(installPlan(proj, { harnesses: [SRC.id], home: b.home, root: newer, env: hostEnv }), { env: hostEnv, home: b.home });
+    const done = installApply(installPlan(proj, { harnesses: [SRC.id], home: b.home, root: newer, env: hostEnv }), {
+      env: hostEnv,
+      home: b.home,
+    });
     assert.equal(done.failed, undefined, JSON.stringify(done));
     b.host.reset();
     const settings = join(proj, CFG_DIR, "settings.local.json");
-    const before = [readFileSync(settings, "utf8"), readFileSync(join(proj, "CLAUDE.md"), "utf8"), readFileSync(layoutPaths(proj).binding, "utf8")];
+    const before = [
+      readFileSync(settings, "utf8"),
+      readFileSync(join(proj, "CLAUDE.md"), "utf8"),
+      readFileSync(layoutPaths(proj).binding, "utf8"),
+    ];
     const t = await binAt(b.root, ["upgrade", "--harness", SRC.id, "--project", proj], b.env());
     assert.equal(t.status, 1, t.stdout + t.stderr);
-    assert.ok(t.stdout.includes("▲ refused  this project runs projectstore 0.31.0 (projectstore@projectstore-npm), newer than this package (0.30.0), and 0.31.0 is published. Nothing is written. Run the newer one from a terminal in this project:\n"), t.stdout);
-    assert.ok(t.stdout.includes(`:\n\n    npx projectstore@latest upgrade --harness ${SRC.id}\n\n  or install it for the whole machine:\n\n    npm install -g projectstore@latest\n`), t.stdout);
+    assert.ok(
+      t.stdout.includes(
+        "▲ refused  this project runs projectstore 0.31.0 (projectstore@projectstore-npm), newer than this package (0.30.0), and 0.31.0 is published. Nothing is written. Run the newer one from a terminal in this project:\n",
+      ),
+      t.stdout,
+    );
+    assert.ok(
+      t.stdout.includes(
+        `:\n\n    npx projectstore@latest upgrade --harness ${SRC.id}\n\n  or install it for the whole machine:\n\n    npm install -g projectstore@latest\n`,
+      ),
+      t.stdout,
+    );
     assert.ok(!t.stdout.includes("Apply"), "no question");
     assert.ok(!t.stdout.includes("newer published"));
     const j = await binAt(b.root, ["upgrade", "--harness", SRC.id, "--json", "--project", proj], b.env({ CI: "1" }));
@@ -727,12 +1036,30 @@ test("cli converge: the stop through the bin — this checkout's npm row at 0.31
     assert.deepEqual(doc.result.gate, { confirmed: false, why: "refused" });
     assert.deepEqual(doc.result.items, []);
     assert.deepEqual(doc.result.fetched, []);
-    assert.deepEqual(Object.keys(doc.result), ["gate", "applied", "failed", "incomplete", "plannedAgainst", "items", "refusals", "reports", "fetched"], "the envelope gains no key");
-    assert.equal(doc.result.refusals[0], `this project runs projectstore 0.31.0 (projectstore@projectstore-npm), newer than this package (0.30.0), and 0.31.0 is published. Nothing is written. Run the newer one from a terminal in this project:\nnpx projectstore@latest upgrade --harness ${SRC.id}\nor install it for the whole machine:\nnpm install -g projectstore@latest`, "each command on a line of its own, nothing after it");
+    assert.deepEqual(
+      Object.keys(doc.result),
+      ["gate", "applied", "failed", "incomplete", "plannedAgainst", "items", "refusals", "reports", "fetched"],
+      "the envelope gains no key",
+    );
+    assert.equal(
+      doc.result.refusals[0],
+      `this project runs projectstore 0.31.0 (projectstore@projectstore-npm), newer than this package (0.30.0), and 0.31.0 is published. Nothing is written. Run the newer one from a terminal in this project:\nnpx projectstore@latest upgrade --harness ${SRC.id}\nor install it for the whole machine:\nnpm install -g projectstore@latest`,
+      "each command on a line of its own, nothing after it",
+    );
     assert.equal(registry.requests.length, 2, "CI and --json still read for this case");
     assert.deepEqual(b.host.log(), [], "no host command ran");
-    assert.deepEqual([readFileSync(settings, "utf8"), readFileSync(join(proj, "CLAUDE.md"), "utf8"), readFileSync(layoutPaths(proj).binding, "utf8")], before, "nothing written");
-  } finally { await registry.close(); }
+    assert.deepEqual(
+      [
+        readFileSync(settings, "utf8"),
+        readFileSync(join(proj, "CLAUDE.md"), "utf8"),
+        readFileSync(layoutPaths(proj).binding, "utf8"),
+      ],
+      before,
+      "nothing written",
+    );
+  } finally {
+    await registry.close();
+  }
 });
 
 // Roadmap A8: the prompt surface (commands, agents, skills) invokes ONE path,
@@ -744,17 +1071,32 @@ test("cli converge: the stop through the bin — this checkout's npm row at 0.31
 // (Spelling superseded 2026-09-06 — the braced placeholder is the one the host
 // substitutes; see the amendment below.)
 const SCRIPT_ONLY = [
-  { script: "draft.mjs", why: "a pure renderer whose consumer is the creation prose, which reads path/content/index/collision at the top level — an envelope would be eight command files of field renames for no gain" },
-  { script: "story-section.mjs", why: "PS-SPEC's lifecycle-gate machinery (story-007); wrapping it is a design decision, not a re-pointing" },
+  {
+    script: "draft.mjs",
+    why: "a pure renderer whose consumer is the creation prose, which reads path/content/index/collision at the top level — an envelope would be eight command files of field renames for no gain",
+  },
+  {
+    script: "story-section.mjs",
+    why: "PS-SPEC's lifecycle-gate machinery (story-007); wrapping it is a design decision, not a re-pointing",
+  },
   { script: "diff-refs.mjs", why: "PS-SPEC's story 'code-refs from diff' owns turning it into a verb" },
-  { script: "worktree.mjs", why: "PS-WT's inherit probe; its consumer copies the parent config verbatim, which bind deliberately does not do" },
+  {
+    script: "worktree.mjs",
+    why: "PS-WT's inherit probe; its consumer copies the parent config verbatim, which bind deliberately does not do",
+  },
 ];
 
 test("cli: every invocation in the prompt surface is the bin with a known verb, or a named script-only exception (roadmap A8)", () => {
   const files = [
-    ...readdirSync(join(ROOT, "commands")).filter((f) => f.endsWith(".md")).map((f) => join("commands", f)),
-    ...readdirSync(join(ROOT, "agents")).filter((f) => f.endsWith(".md")).map((f) => join("agents", f)),
-    ...readdirSync(join(ROOT, "skills")).map((d) => join("skills", d, "SKILL.md")).filter((p) => existsSync(join(ROOT, p))),
+    ...readdirSync(join(ROOT, "commands"))
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => join("commands", f)),
+    ...readdirSync(join(ROOT, "agents"))
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => join("agents", f)),
+    ...readdirSync(join(ROOT, "skills"))
+      .map((d) => join("skills", d, "SKILL.md"))
+      .filter((p) => existsSync(join(ROOT, p))),
   ];
   const exceptions = new Set(SCRIPT_ONLY.map((s) => s.script));
   let binCalls = 0;
@@ -769,19 +1111,31 @@ test("cli: every invocation in the prompt surface is the bin with a known verb, 
         // The parser is strict: every flag the prose passes must be one the row (or the CLI) declares.
         const rest = src.slice(m.index + m[0].length).split(/[`\n]/)[0];
         const declared = new Set([...row.options.map((o) => o.name), "project", "json"]);
-        for (const flag of rest.matchAll(/--([a-z][a-z-]*)/g)) assert.ok(declared.has(flag[1]), `${rel}: ${first} does not take --${flag[1]}`);
+        for (const flag of rest.matchAll(/--([a-z][a-z-]*)/g))
+          assert.ok(declared.has(flag[1]), `${rel}: ${first} does not take --${flag[1]}`);
         continue;
       }
       const base = path.split("/").pop();
-      assert.ok(path.startsWith("scripts/") && exceptions.has(base), `${rel} invokes ${path} — either the bin or a named exception`);
+      assert.ok(
+        path.startsWith("scripts/") && exceptions.has(base),
+        `${rel} invokes ${path} — either the bin or a named exception`,
+      );
     }
-    for (const gone of ["scripts/reconcile.mjs", "scripts/doctor.mjs", "scripts/install-harness.mjs"]) assert.ok(!src.includes(gone), `${rel} still names ${gone}`);
+    for (const gone of ["scripts/reconcile.mjs", "scripts/doctor.mjs", "scripts/install-harness.mjs"])
+      assert.ok(!src.includes(gone), `${rel} still names ${gone}`);
   }
   assert.ok(binCalls >= 20, `the prompt surface invokes the bin (${binCalls} calls)`);
   // Every exception is still invoked somewhere (the list stays minimal), and no prose reaches the bin by another spelling.
   const all = files.map((rel) => readFileSync(join(ROOT, rel), "utf8")).join("\n");
-  for (const s of SCRIPT_ONLY) assert.ok(all.includes(`scripts/${s.script}"`), `exception ${s.script} is still invoked — drop it from SCRIPT_ONLY otherwise`);
-  assert.ok(!/npx projectstore/.test(all), "a git-marketplace install has no bin on PATH — never npx in the prompt surface");
+  for (const s of SCRIPT_ONLY)
+    assert.ok(
+      all.includes(`scripts/${s.script}"`),
+      `exception ${s.script} is still invoked — drop it from SCRIPT_ONLY otherwise`,
+    );
+  assert.ok(
+    !/npx projectstore/.test(all),
+    "a git-marketplace install has no bin on PATH — never npx in the prompt surface",
+  );
   assert.ok(!/node \$\{CLAUDE_PLUGIN_ROOT\}\//.test(all), "the plugin root is always quoted (paths with spaces)");
   // Measured 2026-09-06 with a probe plugin: the host substitutes the BRACED
   // placeholder inline in command, skill and agent content before the model
@@ -790,8 +1144,14 @@ test("cli: every invocation in the prompt surface is the bin with a known verb, 
   // it required the one spelling that cannot work, and every release since at
   // least 0.21 shipped it. See the story "The prompt surface asks the shell for
   // a variable the host would have substituted".
-  assert.ok(!/\$CLAUDE_PLUGIN_ROOT/.test(all), "the prompt surface names the root braced — the unbraced form is not substituted and the Bash tool has no such variable");
-  for (const s of SCRIPT_ONLY) { assert.ok(existsSync(join(ROOT, "scripts", s.script)), `exception ${s.script} exists`); assert.ok(s.why.length > 20); }
+  assert.ok(
+    !/\$CLAUDE_PLUGIN_ROOT/.test(all),
+    "the prompt surface names the root braced — the unbraced form is not substituted and the Bash tool has no such variable",
+  );
+  for (const s of SCRIPT_ONLY) {
+    assert.ok(existsSync(join(ROOT, "scripts", s.script)), `exception ${s.script} exists`);
+    assert.ok(s.why.length > 20);
+  }
   // A15: the project argument is the host's placeholder, never a model-filled
   // blank — ${CLAUDE_PROJECT_DIR} is substituted in command, skill and agent
   // content (measured 2026-09-06), and the bin's resolveProject otherwise falls
@@ -799,7 +1159,11 @@ test("cli: every invocation in the prompt surface is the bin with a known verb, 
   for (const rel of files) {
     const src = readFileSync(join(ROOT, rel), "utf8");
     for (const m of src.matchAll(/--project "([^"]*)"/g)) {
-      assert.equal(m[1], "${CLAUDE_PROJECT_DIR}", `${rel}: --project takes the host placeholder, not ${JSON.stringify(m[1])}`);
+      assert.equal(
+        m[1],
+        "${CLAUDE_PROJECT_DIR}",
+        `${rel}: --project takes the host placeholder, not ${JSON.stringify(m[1])}`,
+      );
     }
   }
   // One spelling of the plugin root across every surface that names it — the
@@ -826,19 +1190,33 @@ test("cli: every invocation in the prompt surface is the bin with a known verb, 
 const BUN = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
 test("cli: bun runs the bin with the same --json as node", { skip: !BUN && "bun is not on PATH" }, () => {
   const proj = project();
-  const e = { ...process.env }; delete e[SRC.runtime.project_dir_env]; delete e.PROJECTSTORE_PROJECT_DIR;
-  const run = (exe, args) => spawnSync(exe, [BIN, ...args], { encoding: "utf8", env: e, timeout: 60000, maxBuffer: 1 << 24 });
+  const e = { ...process.env };
+  delete e[SRC.runtime.project_dir_env];
+  delete e.PROJECTSTORE_PROJECT_DIR;
+  const run = (exe, args) =>
+    spawnSync(exe, [BIN, ...args], { encoding: "utf8", env: e, timeout: 60000, maxBuffer: 1 << 24 });
   assert.equal(run("bun", ["--version"]).stdout, run(process.execPath, ["--version"]).stdout);
   const status = ["status", "--json", "--project", proj];
   assert.equal(run("bun", status).stdout, run(process.execPath, status).stdout, "status --json is byte-identical");
   const doctor = ["doctor", "--json", "--project", proj];
-  const ids = (r) => JSON.parse(r.stdout).result.map((f) => f.check).sort();
-  assert.deepEqual(ids(run("bun", doctor)), ids(run(process.execPath, doctor)), "doctor --json carries the same check ids");
+  const ids = (r) =>
+    JSON.parse(r.stdout)
+      .result.map((f) => f.check)
+      .sort();
+  assert.deepEqual(
+    ids(run("bun", doctor)),
+    ids(run(process.execPath, doctor)),
+    "doctor --json carries the same check ids",
+  );
 });
 
 test("cli: the packed tarball's bin runs", () => {
   const dir = mkdtempSync(join(tmpdir(), "ps-pack-"));
-  const pack = spawnSync("npm", ["pack", "--pack-destination", dir, "--silent"], { cwd: ROOT, encoding: "utf8", timeout: 120000 });
+  const pack = spawnSync("npm", ["pack", "--pack-destination", dir, "--silent"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    timeout: 120000,
+  });
   assert.equal(pack.status, 0, pack.stderr);
   const tgz = readdirSync(dir).find((f) => f.endsWith(".tgz"));
   assert.ok(tgz, "a tarball was written");
@@ -850,16 +1228,28 @@ test("cli: the packed tarball's bin runs", () => {
   assert.equal(r.stdout.trim(), PKG.version);
   // AC 1: from the packed tree, doctor equals the script's findings, inside the envelope.
   const proj = project();
-  const e = { ...process.env }; delete e[SRC.runtime.project_dir_env]; delete e.PROJECTSTORE_PROJECT_DIR;
-  const viaPack = spawnSync(process.execPath, [packed, "doctor", "--json", "--project", proj], { encoding: "utf8", env: e, timeout: 60000, maxBuffer: 1 << 24 });
-  const bare = spawnSync(process.execPath, [join(ROOT, "scripts", "doctor.mjs"), "--json"], { encoding: "utf8", cwd: proj, env: { ...e, [SRC.runtime.project_dir_env]: proj, [SRC.runtime.plugin_root_env]: join(dir, "package") }, timeout: 60000, maxBuffer: 1 << 24 });
+  const e = { ...process.env };
+  delete e[SRC.runtime.project_dir_env];
+  delete e.PROJECTSTORE_PROJECT_DIR;
+  const viaPack = spawnSync(process.execPath, [packed, "doctor", "--json", "--project", proj], {
+    encoding: "utf8",
+    env: e,
+    timeout: 60000,
+    maxBuffer: 1 << 24,
+  });
+  const bare = spawnSync(process.execPath, [join(ROOT, "scripts", "doctor.mjs"), "--json"], {
+    encoding: "utf8",
+    cwd: proj,
+    env: { ...e, [SRC.runtime.project_dir_env]: proj, [SRC.runtime.plugin_root_env]: join(dir, "package") },
+    timeout: 60000,
+    maxBuffer: 1 << 24,
+  });
   const envd = JSON.parse(viaPack.stdout);
   assert.equal(envd.schema_version, 1);
   assert.deepEqual(envd.result, JSON.parse(bare.stdout), "the packed bin's doctor equals the script's");
 });
 
 // ─── Slice A6a: the read verbs ──────────────────────────────────────────
-
 
 function cliVault() {
   const { proj, vault } = seedCliVault();
@@ -868,7 +1258,11 @@ function cliVault() {
   assert.equal(r.status, 0, r.stderr);
   return { proj, vault };
 }
-const envOf = (r) => { const e = JSON.parse(r.stdout); assert.equal(e.schema_version, 1); return e; };
+const envOf = (r) => {
+  const e = JSON.parse(r.stdout);
+  assert.equal(e.schema_version, 1);
+  return e;
+};
 
 test("cli read verbs: the table names them, each wraps query.mjs, and importing the generators prints nothing", () => {
   for (const v of ["status", "orientation", "search", "show", "graph", "codemap"]) {
@@ -880,7 +1274,23 @@ test("cli read verbs: the table names them, each wraps query.mjs, and importing 
   for (const v of ["status", "search"]) assert.equal(VERBS.find((x) => x.verb === v).wraps, "new");
   // kanban.mjs and codemap.mjs used to run main() at import time.
   // The modules travel in env, not argv: the main guard compares argv[1].
-  const probe = spawnSync(process.execPath, ["--input-type=module", "-e", 'for (const m of process.env.PS_MODULES.split(":")) await import(m); process.stdout.write("quiet")'], { encoding: "utf8", timeout: 30000, cwd: tmpdir(), env: { ...process.env, PS_MODULES: [join(ROOT, "scripts", "kanban.mjs"), join(ROOT, "scripts", "codemap.mjs")].join(":") } });
+  const probe = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      'for (const m of process.env.PS_MODULES.split(":")) await import(m); process.stdout.write("quiet")',
+    ],
+    {
+      encoding: "utf8",
+      timeout: 30000,
+      cwd: tmpdir(),
+      env: {
+        ...process.env,
+        PS_MODULES: [join(ROOT, "scripts", "kanban.mjs"), join(ROOT, "scripts", "codemap.mjs")].join(":"),
+      },
+    },
+  );
   assert.equal(probe.stdout, "quiet", probe.stderr);
 });
 
@@ -897,24 +1307,48 @@ test("cli status: unbound is bound:false at exit 0; bound reports the board from
   assert.deepEqual(s.stories.by_status, { "in-progress": 1, planned: 3 });
   assert.deepEqual(s.stories.off_board, { not_actionable: 1 }, "the parked story is counted, not dropped");
   assert.equal(s.stories.off_board_total, 1);
-  assert.deepEqual(s.stories.in_progress.map((x) => x.path), ["epics/PS-X/stories/story-in-flight.md"]);
+  assert.deepEqual(
+    s.stories.in_progress.map((x) => x.path),
+    ["epics/PS-X/stories/story-in-flight.md"],
+  );
   assert.equal(s.stories.in_progress[0].started_at, "2026-02-02");
   assert.equal(s.views.graph.exists, true);
   assert.equal(s.views.graph.stale, false);
   assert.equal(s.views.code_map.exists, false);
-  assert.deepEqual(Object.keys(s).sort(), ["approval_mode", "auto_inject", "bound", "language", "layout", "lifecycle_gates", "project", "sessions", "spec_policy", "stories", "vault_exists", "vault_path", "views"]);
+  assert.deepEqual(Object.keys(s).sort(), [
+    "approval_mode",
+    "auto_inject",
+    "bound",
+    "language",
+    "layout",
+    "lifecycle_gates",
+    "project",
+    "sessions",
+    "spec_policy",
+    "stories",
+    "vault_exists",
+    "vault_path",
+    "views",
+  ]);
   assert.equal(s.auto_inject, true);
   assert.equal(s.approval_mode, "always");
   // The text: the in-progress count, then the story under its epic — its start, its title, its path.
   const text = bin(["status", "--project", proj]);
-  assert.match(text.stdout, /\nIn progress — 1\n {2}PS-X\n {4}· 2026-02-02 {2}In flight {2}epics\/PS-X\/stories\/story-in-flight\.md\n/, text.stdout);
+  assert.match(
+    text.stdout,
+    /\nIn progress — 1\n {2}PS-X\n {4}· 2026-02-02 {2}In flight {2}epics\/PS-X\/stories\/story-in-flight\.md\n/,
+    text.stdout,
+  );
 });
 
 test("cli orientation: the skeleton equals the SessionStart renderer's, and README bodies never enter the envelope", async () => {
   const { proj } = cliVault();
   const o = envOf(bin(["orientation", "--json", "--project", proj])).result;
   assert.ok(o.skeleton.includes("Projectstore vault:"), o.skeleton.slice(0, 200));
-  assert.ok(o.facts.folders.every((f) => !("readme" in f) && "purpose" in f), "purpose, not readme");
+  assert.ok(
+    o.facts.folders.every((f) => !("readme" in f) && "purpose" in f),
+    "purpose, not readme",
+  );
   const adr = o.facts.folders.find((f) => f.path === "adr");
   assert.equal(adr.purpose, "Decisions that stick.");
   const text = bin(["orientation", "--project", proj]).stdout;
@@ -928,20 +1362,39 @@ test("cli search: deterministic, bounded, case-insensitive by default, derived v
   const { proj } = cliVault();
   const r = envOf(bin(["search", "zebra", "--json", "--project", proj])).result;
   assert.equal(r.status, "ok");
-  assert.ok(r.matches.every((m) => !["kanban.md", "graph.md"].includes(m.path)), "derived views excluded");
+  assert.ok(
+    r.matches.every((m) => !["kanban.md", "graph.md"].includes(m.path)),
+    "derived views excluded",
+  );
   const note = r.matches.filter((m) => m.path === "research/zebra-note.md");
   assert.equal(note.length, 3, "per-file cap");
   assert.equal(note[0].type, "research");
   assert.equal(note[0].title, "Zebra note");
-  assert.ok(note.every((m) => m.of === 6), "the cap is reported: 6 hits in the file (title + 5 body lines)");
+  assert.ok(
+    note.every((m) => m.of === 6),
+    "the cap is reported: 6 hits in the file (title + 5 body lines)",
+  );
   assert.equal(r.files_truncated, 1);
   assert.equal(r.per_file_cap, 3);
-  assert.ok(note.some((m) => m.snippet.includes("zebra crossing, again")), "body lines come back, not only frontmatter");
-  assert.ok(!r.matches.some((m) => m.snippet.startsWith("slug:") || m.snippet.startsWith("id:")), "frontmatter other than title: is not searched");
-  assert.ok(note.some((m) => m.snippet.startsWith("title:")), "the title line is");
+  assert.ok(
+    note.some((m) => m.snippet.includes("zebra crossing, again")),
+    "body lines come back, not only frontmatter",
+  );
+  assert.ok(
+    !r.matches.some((m) => m.snippet.startsWith("slug:") || m.snippet.startsWith("id:")),
+    "frontmatter other than title: is not searched",
+  );
+  assert.ok(
+    note.some((m) => m.snippet.startsWith("title:")),
+    "the title line is",
+  );
   assert.ok(r.matches.some((m) => m.path === "epics/PS-X/stories/story-in-flight.md" && m.status === "in-progress"));
   const order = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.line - b.line);
-  assert.deepEqual(r.matches.map((m) => m.path + ":" + m.line), [...r.matches].sort(order).map((m) => m.path + ":" + m.line), "sorted by path then line");
+  assert.deepEqual(
+    r.matches.map((m) => m.path + ":" + m.line),
+    [...r.matches].sort(order).map((m) => m.path + ":" + m.line),
+    "sorted by path then line",
+  );
   const cs = envOf(bin(["search", "Zebra Crossing", "--case-sensitive", "--json", "--project", proj])).result;
   assert.equal(cs.total, 1);
   const kind = envOf(bin(["search", "zebra", "--kind", "story", "--json", "--project", proj])).result;
@@ -963,7 +1416,17 @@ test("cli show: frontmatter by default, body and a registry section on request, 
   assert.equal(s.status, "in-progress");
   assert.ok(!("body" in s));
   assert.deepEqual(Object.keys(s).sort(), ["bytes", "frontmatter", "lines", "path", "status", "title", "type"]);
-  const sec = envOf(bin(["show", join(vault, "epics/PS-X/stories/story-in-flight.md"), "--section", "description", "--json", "--project", proj])).result;
+  const sec = envOf(
+    bin([
+      "show",
+      join(vault, "epics/PS-X/stories/story-in-flight.md"),
+      "--section",
+      "description",
+      "--json",
+      "--project",
+      proj,
+    ]),
+  ).result;
   assert.equal(sec.path, "epics/PS-X/stories/story-in-flight.md", "absolute inside the vault is normalised");
   assert.equal(sec.section.text, "The zebra crossing phrase lives here.");
   const body = envOf(bin(["show", "adr/new-way.md", "--body", "--json", "--project", proj])).result;
@@ -977,10 +1440,17 @@ test("cli show: frontmatter by default, body and a registry section on request, 
   assert.equal(climb.status, 2, "resolved before the containment test");
   assert.equal(envOf(climb).result.frontmatter, undefined, "nothing outside the vault is read");
   assert.match(envOf(climb).result.error, /outside the vault/);
-  assert.equal(bin(["show", "adr/new-way.md", "--section", "nope", "--project", proj]).status, 2, "unknown section is usage");
+  assert.equal(
+    bin(["show", "adr/new-way.md", "--section", "nope", "--project", proj]).status,
+    2,
+    "unknown section is usage",
+  );
   assert.match(bin(["show", "adr/new-way.md", "--section", "nope", "--project", proj]).stderr, /one of: .*description/);
   // In-process reads resolve the registry from this package, not from the host session's plugin root.
-  const foreign = bin(["show", "epics/PS-X/stories/story-in-flight.md", "--section", "description", "--json", "--project", proj], { env: { [SRC.runtime.plugin_root_env]: mkdtempSync(join(tmpdir(), "ps-bogus-root-")) } });
+  const foreign = bin(
+    ["show", "epics/PS-X/stories/story-in-flight.md", "--section", "description", "--json", "--project", proj],
+    { env: { [SRC.runtime.plugin_root_env]: mkdtempSync(join(tmpdir(), "ps-bogus-root-")) } },
+  );
   assert.equal(foreign.status, 0, foreign.stderr);
   assert.equal(envOf(foreign).result.section.text, "The zebra crossing phrase lives here.");
 });
@@ -994,19 +1464,61 @@ test("cli graph neighbors: the same edges graph.md holds, by path, typed, both d
   assert.ok(n.in.some((e) => e.kind === "spec-implements-adr" && e.from === "specs/covering.md"));
   assert.ok(n.in.some((e) => e.kind === "wikilink" && e.from === "epics/PS-X/stories/story-ship-it.md"));
   // Parity with the view: every row grep finds for the path is an edge here.
-  const rows = readFileSync(join(vault, "graph.md"), "utf8").split("\n").filter((l) => l.startsWith("| ") && l.includes(" adr/new-way.md ") && l.split("|").length === 5);
-  const asEdges = rows.map((l) => l.split("|").map((c) => c.trim()).filter(Boolean)).filter((c) => c.length === 3 && (c[0] === "adr/new-way.md" || c[2] === "adr/new-way.md"));
+  const rows = readFileSync(join(vault, "graph.md"), "utf8")
+    .split("\n")
+    .filter((l) => l.startsWith("| ") && l.includes(" adr/new-way.md ") && l.split("|").length === 5);
+  const asEdges = rows
+    .map((l) =>
+      l
+        .split("|")
+        .map((c) => c.trim())
+        .filter(Boolean),
+    )
+    .filter((c) => c.length === 3 && (c[0] === "adr/new-way.md" || c[2] === "adr/new-way.md"));
   for (const [from, kind, to] of asEdges) {
-    assert.ok(from === "adr/new-way.md" ? n.out.some((e) => e.kind === kind && e.to === to) : n.in.some((e) => e.kind === kind && e.from === from), `${from} ${kind} ${to}`);
+    assert.ok(
+      from === "adr/new-way.md"
+        ? n.out.some((e) => e.kind === kind && e.to === to)
+        : n.in.some((e) => e.kind === kind && e.from === from),
+      `${from} ${kind} ${to}`,
+    );
   }
-  const onlyOut = envOf(bin(["graph", "neighbors", "adr/new-way.md", "--direction", "out", "--kind", "supersedes", "--json", "--project", proj])).result;
+  const onlyOut = envOf(
+    bin([
+      "graph",
+      "neighbors",
+      "adr/new-way.md",
+      "--direction",
+      "out",
+      "--kind",
+      "supersedes",
+      "--json",
+      "--project",
+      proj,
+    ]),
+  ).result;
   assert.deepEqual(onlyOut.in, []);
-  assert.deepEqual(onlyOut.out.map((e) => e.kind), ["supersedes"]);
+  assert.deepEqual(
+    onlyOut.out.map((e) => e.kind),
+    ["supersedes"],
+  );
   assert.equal(bin(["graph", "frob", "x", "--project", proj]).status, 2);
   assert.equal(bin(["graph", "neighbors", "kanban.md", "--project", proj]).status, 2, "not a node");
-  assert.equal(bin(["graph", "neighbors", "adr/new-way.md", "--body", "--project", proj]).status, 2, "an option the verb does not take");
-  assert.equal(bin(["graph", "neighbors", "adr/new-way.md", "--direction", "sideways", "--project", proj]).status, 2, "a value the option does not take");
-  assert.equal(bin(["graph", "neighbors", "adr/new-way.md", "--depth", "2", "--project", proj]).status, 2, "an option of the other mode");
+  assert.equal(
+    bin(["graph", "neighbors", "adr/new-way.md", "--body", "--project", proj]).status,
+    2,
+    "an option the verb does not take",
+  );
+  assert.equal(
+    bin(["graph", "neighbors", "adr/new-way.md", "--direction", "sideways", "--project", proj]).status,
+    2,
+    "a value the option does not take",
+  );
+  assert.equal(
+    bin(["graph", "neighbors", "adr/new-way.md", "--depth", "2", "--project", proj]).status,
+    2,
+    "an option of the other mode",
+  );
   assert.equal(bin(["graph", "neighbors", "adr/new-way.md", "--limit", "0", "--project", proj]).status, 2);
 });
 
@@ -1022,27 +1534,65 @@ test("cli graph lineage: typed edges only, both directions, depth- and cycle-saf
   assert.ok(!paths.includes("specs/dup.md"), "body wikilinks are not lineage");
   assert.ok(paths.includes("epics/PS-X/epic.md"), "the epic is lineage");
   assert.ok(!paths.includes("epics/PS-X/stories/story-nested/README.md"), "siblings through the epic are not");
-  const fromEpic = envOf(bin(["graph", "lineage", "epics/PS-X/epic.md", "--depth", "1", "--json", "--project", proj])).result;
-  assert.ok(fromEpic.nodes.some((n) => n.path === "epics/PS-X/stories/story-nested/README.md"), "from the epic itself, its stories are");
-  const shallow = envOf(bin(["graph", "lineage", "epics/PS-X/stories/story-ship-it.md", "--depth", "1", "--json", "--project", proj])).result;
+  const fromEpic = envOf(
+    bin(["graph", "lineage", "epics/PS-X/epic.md", "--depth", "1", "--json", "--project", proj]),
+  ).result;
+  assert.ok(
+    fromEpic.nodes.some((n) => n.path === "epics/PS-X/stories/story-nested/README.md"),
+    "from the epic itself, its stories are",
+  );
+  const shallow = envOf(
+    bin(["graph", "lineage", "epics/PS-X/stories/story-ship-it.md", "--depth", "1", "--json", "--project", proj]),
+  ).result;
   assert.ok(!shallow.nodes.some((n) => n.path === "adr/new-way.md"));
   assert.equal(l.nodes[0].distance, 0);
   const nodeSet = new Set(l.nodes.map((n) => n.path));
-  assert.ok(l.edges.every((e) => nodeSet.has(e.from) && nodeSet.has(e.to)), "every edge joins two nodes of the result");
-  assert.equal(bin(["graph", "lineage", "adr/new-way.md", "--depth", "abc", "--project", proj]).status, 2, "depth is validated, not coerced");
-  assert.equal(bin(["graph", "lineage", "adr/new-way.md", "--kind", "wikilink", "--project", proj]).status, 2, "wikilinks are not lineage");
-  assert.equal(bin(["graph", "lineage", "adr/new-way.md", "--limit", "5", "--project", proj]).status, 2, "an option of the other mode");
+  assert.ok(
+    l.edges.every((e) => nodeSet.has(e.from) && nodeSet.has(e.to)),
+    "every edge joins two nodes of the result",
+  );
+  assert.equal(
+    bin(["graph", "lineage", "adr/new-way.md", "--depth", "abc", "--project", proj]).status,
+    2,
+    "depth is validated, not coerced",
+  );
+  assert.equal(
+    bin(["graph", "lineage", "adr/new-way.md", "--kind", "wikilink", "--project", proj]).status,
+    2,
+    "wikilinks are not lineage",
+  );
+  assert.equal(
+    bin(["graph", "lineage", "adr/new-way.md", "--limit", "5", "--project", proj]).status,
+    2,
+    "an option of the other mode",
+  );
 });
 
 test("cli codemap --for: an epic lists its refs and its stories'; a path lists who covers it; the reading is named", () => {
   const { proj } = cliVault();
   const epic = envOf(bin(["codemap", "--for", "PS-X", "--json", "--project", proj])).result;
   assert.equal(epic.resolved_as, "epic");
-  assert.deepEqual(epic.artifacts[0], { path: "epics/PS-X/epic.md", type: "epic", title: "X", status: "in-progress", code_refs: ["scripts/"] });
-  assert.ok(epic.artifacts.some((a) => a.path === "epics/PS-X/stories/story-in-flight.md" && a.code_refs.includes("scripts/cli.mjs")));
+  assert.deepEqual(epic.artifacts[0], {
+    path: "epics/PS-X/epic.md",
+    type: "epic",
+    title: "X",
+    status: "in-progress",
+    code_refs: ["scripts/"],
+  });
+  assert.ok(
+    epic.artifacts.some(
+      (a) => a.path === "epics/PS-X/stories/story-in-flight.md" && a.code_refs.includes("scripts/cli.mjs"),
+    ),
+  );
   const path = envOf(bin(["codemap", "--for", "scripts/cli.mjs", "--json", "--project", proj])).result;
   assert.equal(path.resolved_as, "path");
-  assert.deepEqual(path.artifacts.map((a) => [a.path, a.matched]), [["epics/PS-X/epic.md", ["scripts/"]], ["epics/PS-X/stories/story-in-flight.md", ["scripts/cli.mjs"]]]);
+  assert.deepEqual(
+    path.artifacts.map((a) => [a.path, a.matched]),
+    [
+      ["epics/PS-X/epic.md", ["scripts/"]],
+      ["epics/PS-X/stories/story-in-flight.md", ["scripts/cli.mjs"]],
+    ],
+  );
   const art = envOf(bin(["codemap", "--for", "story-in-flight", "--json", "--project", proj])).result;
   assert.equal(art.resolved_as, "artifact");
   assert.equal(art.truncated, false);
@@ -1058,11 +1608,25 @@ test("cli codemap --for: an epic lists its refs and its stories'; a path lists w
 
 test("cli read verbs: unbound is exit 3 for every read but status; the results are small", () => {
   const unbound = project({ bound: false });
-  for (const args of [["orientation"], ["search", "x"], ["show", "a.md"], ["graph", "neighbors", "a.md"], ["codemap", "--for", "x"]]) {
+  for (const args of [
+    ["orientation"],
+    ["search", "x"],
+    ["show", "a.md"],
+    ["graph", "neighbors", "a.md"],
+    ["codemap", "--for", "x"],
+  ]) {
     assert.equal(bin([...args, "--project", unbound]).status, 3, args.join(" "));
   }
   const { proj } = cliVault();
-  for (const args of [["status"], ["orientation"], ["search", "zebra"], ["show", "adr/new-way.md"], ["graph", "neighbors", "adr/new-way.md"], ["graph", "lineage", "adr/new-way.md"], ["codemap", "--for", "PS-X"]]) {
+  for (const args of [
+    ["status"],
+    ["orientation"],
+    ["search", "zebra"],
+    ["show", "adr/new-way.md"],
+    ["graph", "neighbors", "adr/new-way.md"],
+    ["graph", "lineage", "adr/new-way.md"],
+    ["codemap", "--for", "PS-X"],
+  ]) {
     const r = bin([...args, "--json", "--project", proj]);
     assert.equal(r.status, 0, args.join(" ") + r.stderr);
     assert.ok(r.stdout.length < 20000, `${args.join(" ")} stays small (${r.stdout.length} bytes)`);
@@ -1082,7 +1646,21 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   assert.equal(e.result.wrote, true);
   assert.equal(e.result.config, undefined, "no file body in the envelope");
   // 0.29.2's eleven keys, kept, plus init's two steps (null on a bind).
-  assert.deepEqual(Object.keys(e.result).sort(), ["config_path", "created_vault", "git", "ignored", "kept_keys", "language", "layout", "refusals", "scaffold", "state", "vault_exists", "vault_path", "wrote"]);
+  assert.deepEqual(Object.keys(e.result).sort(), [
+    "config_path",
+    "created_vault",
+    "git",
+    "ignored",
+    "kept_keys",
+    "language",
+    "layout",
+    "refusals",
+    "scaffold",
+    "state",
+    "vault_exists",
+    "vault_path",
+    "wrote",
+  ]);
   assert.equal(e.result.git, null, "bind never runs git");
   assert.equal(e.result.scaffold, null, "nor the scaffold");
   const cfg = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8"));
@@ -1092,7 +1670,16 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   assert.equal(cfg.vault_path, vault);
   assert.equal(cfg.layout, "engineering");
   assert.equal(cfg.language, "en");
-  assert.deepEqual(Object.keys(cfg).sort(), ["active_skills", "approval_mode", "auto_inject", "default_author", "language", "layout", "tags", "vault_path"]);
+  assert.deepEqual(Object.keys(cfg).sort(), [
+    "active_skills",
+    "approval_mode",
+    "auto_inject",
+    "default_author",
+    "language",
+    "layout",
+    "tags",
+    "vault_path",
+  ]);
   // Same vault again: nothing written, exit 0.
   const again = bin(["bind", vault + "/", "--json", "--project", proj]);
   assert.equal(again.status, 0);
@@ -1119,7 +1706,14 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   assert.equal(after.vault_path, other);
   assert.equal(after.language, "ru");
   assert.deepEqual(after.statusline, { enabled: true }, "other keys kept");
-  assert.deepEqual(envOf(rebound).result.kept_keys, ["active_skills", "approval_mode", "auto_inject", "default_author", "statusline", "tags"]);
+  assert.deepEqual(envOf(rebound).result.kept_keys, [
+    "active_skills",
+    "approval_mode",
+    "auto_inject",
+    "default_author",
+    "statusline",
+    "tags",
+  ]);
   assert.equal(readFileSync(join(proj, "CLAUDE.md"), "utf8"), "# mine\n", "bind never touches the agents block");
   assert.ok(!existsSync(join(proj, ".gitignore")), "nor .gitignore");
   // A corrupt config is refused, never overwritten.
@@ -1135,16 +1729,28 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   writeBinding(p3, JSON.stringify({ vault_path: "~/v", layout: "engineering" }));
   const tilde = envOf(bin(["bind", join(home, "v"), "--json", "--project", p3], { env: { HOME: home } })).result;
   assert.equal(tilde.state, "same");
-  const tildeIn = envOf(bin(["bind", "~/v", "--json", "--project", project({ bound: false })], { env: { HOME: home } })).result;
+  const tildeIn = envOf(
+    bin(["bind", "~/v", "--json", "--project", project({ bound: false })], { env: { HOME: home } }),
+  ).result;
   assert.equal(tildeIn.vault_path, join(home, "v"), "a tilde expands");
   assert.equal(bin(["bind", "~someone/v", "--project", project({ bound: false })]).status, 2, "~user is not expanded");
   assert.equal(bin(["bind", "/", "--project", project({ bound: false })]).status, 2, "the root is not a vault");
-  assert.equal(bin(["bind", vault, "--project", join(tmpdir(), "ps-none-" + Date.now())]).status, 1, "a project directory that does not exist is not created");
+  assert.equal(
+    bin(["bind", vault, "--project", join(tmpdir(), "ps-none-" + Date.now())]).status,
+    1,
+    "a project directory that does not exist is not created",
+  );
   // Usage: no vault, unknown layout, unknown language, a missing vault.
   assert.equal(bin(["bind", "--project", project({ bound: false })]).status, 2);
   assert.equal(bin(["bind", vault, "--layout", "nope", "--project", project({ bound: false })]).status, 2);
   assert.equal(bin(["bind", vault, "--language", "xx", "--project", project({ bound: false })]).status, 2);
-  const missing = bin(["bind", join(tmpdir(), "ps-none-" + Date.now()), "--json", "--project", project({ bound: false })]);
+  const missing = bin([
+    "bind",
+    join(tmpdir(), "ps-none-" + Date.now()),
+    "--json",
+    "--project",
+    project({ bound: false }),
+  ]);
   assert.equal(missing.status, 1);
   assert.match(envOf(missing).result.refusals[0].message, /projectstore init/);
 });
@@ -1157,9 +1763,18 @@ test("cli init: refuses when already bound to a vault that is there, and rebuild
   assert.equal(envOf(r).result.created_vault, true);
   assert.ok(existsSync(vault));
   assert.equal(JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path, vault);
-  const text = bin(["init", join(mkdtempSync(join(tmpdir(), "ps-init-")), "v2"), "--project", project({ bound: false })]);
+  const text = bin([
+    "init",
+    join(mkdtempSync(join(tmpdir(), "ps-init-")), "v2"),
+    "--project",
+    project({ bound: false }),
+  ]);
   assert.match(text.stdout, /Scaffolded the engineering layout/);
-  assert.match(text.stdout, /\nNext, optional: generate the derived views — kanban\.md, graph\.md and code-map\.md:\n\n {2}npx projectstore reconcile --write\n/, "the derived views are offered, not run — the command on its own line");
+  assert.match(
+    text.stdout,
+    /\nNext, optional: generate the derived views — kanban\.md, graph\.md and code-map\.md:\n\n {2}npx projectstore reconcile --write\n/,
+    "the derived views are offered, not run — the command on its own line",
+  );
   assert.ok(!/in a session/.test(text.stdout), "a whole vault needs no session command after it");
   const twice = bin(["init", vault, "--json", "--project", proj]);
   assert.equal(twice.status, 1);
@@ -1204,7 +1819,10 @@ test("cli init: refuses when already bound to a vault that is there, and rebuild
 
 const LAYOUT_FOLDERS = JSON.parse(readFileSync(join(ROOT, "scaffold", "layouts", "engineering.json"), "utf8")).folders;
 // Every folder, its README, and the vault README — the engineering layout's whole skeleton.
-const SKELETON = [...LAYOUT_FOLDERS.flatMap((f) => [`${f.path}/`, ...(f.readme ? [`${f.path}/README.md`] : [])]), "README.md"];
+const SKELETON = [
+  ...LAYOUT_FOLDERS.flatMap((f) => [`${f.path}/`, ...(f.readme ? [`${f.path}/README.md`] : [])]),
+  "README.md",
+];
 const vaultOf = (proj) => JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path;
 // A whole tree as {path: bytes}, .git left out.
 function treeOf(dir, at = "") {
@@ -1212,13 +1830,19 @@ function treeOf(dir, at = "") {
   for (const n of readdirSync(join(dir, at)).sort()) {
     if (!at && n === ".git") continue;
     const rel = at ? `${at}/${n}` : n;
-    if (statSync(join(dir, rel)).isDirectory()) { out[`${rel}/`] = null; Object.assign(out, treeOf(dir, rel)); }
-    else out[rel] = readFileSync(join(dir, rel), "utf8");
+    if (statSync(join(dir, rel)).isDirectory()) {
+      out[`${rel}/`] = null;
+      Object.assign(out, treeOf(dir, rel));
+    } else out[rel] = readFileSync(join(dir, rel), "utf8");
   }
   return out;
 }
 // git with an identity and no signing, whatever the developer's config says.
-const git = (cwd, args) => spawnSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
+const git = (cwd, args) =>
+  spawnSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], {
+    cwd,
+    encoding: "utf8",
+  });
 // A project that is a git repository with one commit and nothing else uncommitted.
 function gitProject() {
   const proj = project({ bound: false });
@@ -1228,14 +1852,18 @@ function gitProject() {
   assert.equal(git(proj, ["commit", "-q", "-m", "one"]).status, 0, "the fixture commit");
   return proj;
 }
-const notInfo = (r) => envOf(r).result.filter((f) => f.level !== "info").map((f) => `[${f.check}] ${f.message}`);
+const notInfo = (r) =>
+  envOf(r)
+    .result.filter((f) => f.level !== "info")
+    .map((f) => `[${f.check}] ${f.message}`);
 
 test("cli scaffold: on a bound vault with no layout folders the bare verb lists every folder, folder README and the vault README as create, writes nothing, exit 0", () => {
   const proj = project();
   const vault = vaultOf(proj);
   const r = bin(["scaffold", "--project", proj]);
   assert.equal(r.status, 0, r.stderr);
-  for (const p of SKELETON) assert.ok(r.stdout.includes(`\n  create  ${p}\n`), `${p} is planned as create:\n${r.stdout}`);
+  for (const p of SKELETON)
+    assert.ok(r.stdout.includes(`\n  create  ${p}\n`), `${p} is planned as create:\n${r.stdout}`);
   assert.match(r.stdout, new RegExp(`${SKELETON.length} to create\\.\\n`));
   // The bare plan's text ends with the command that writes it, in both forms.
   assert.match(r.stdout, /\nTo write them: \S+scaffold in a session, or `projectstore scaffold --write`\.\n$/);
@@ -1245,7 +1873,10 @@ test("cli scaffold: on a bound vault with no layout folders the bare verb lists 
   const e = envOf(j);
   assert.equal(e.verb, "scaffold");
   assert.equal(e.ok, true);
-  assert.deepEqual(e.result.rows.map((x) => (x.type === "folder" ? `${x.path}/` : x.path)), SKELETON);
+  assert.deepEqual(
+    e.result.rows.map((x) => (x.type === "folder" ? `${x.path}/` : x.path)),
+    SKELETON,
+  );
   assert.ok(e.result.rows.every((x) => x.action === "create"));
   assert.equal(e.result.creates, SKELETON.length);
   assert.equal(e.result.wrote, false);
@@ -1266,7 +1897,11 @@ test("cli scaffold: without a terminal --write creates them; a second run plans 
   assert.equal(e.wrote, true);
   assert.equal(e.created.length, SKELETON.length - 2);
   assert.deepEqual(e.exists, ["adr", "adr/README.md"]);
-  assert.equal(readFileSync(join(vault, "adr", "README.md"), "utf8"), "# My decisions\n\nHand-written.\n", "never rewritten");
+  assert.equal(
+    readFileSync(join(vault, "adr", "README.md"), "utf8"),
+    "# My decisions\n\nHand-written.\n",
+    "never rewritten",
+  );
   for (const f of LAYOUT_FOLDERS) assert.ok(existsSync(join(vault, f.path, "README.md")), f.path);
   assert.ok(existsSync(join(vault, "README.md")));
   const before = treeOf(vault);
@@ -1275,7 +1910,10 @@ test("cli scaffold: without a terminal --write creates them; a second run plans 
   assert.equal(envOf(again).result.creates, 0, "zero changes planned");
   assert.deepEqual(envOf(again).result.created, []);
   assert.deepEqual(treeOf(vault), before, "and nothing written");
-  assert.match(bin(["scaffold", "--write", "--project", proj]).stdout, /Nothing to create: every folder and README the layout declares is there\.\n$/);
+  assert.match(
+    bin(["scaffold", "--write", "--project", proj]).stdout,
+    /Nothing to create: every folder and README the layout declares is there\.\n$/,
+  );
   // Text mode, spawned: stdin is no terminal, so --write is the confirmation.
   const p2 = project();
   const t = bin(["scaffold", "--write", "--project", p2]);
@@ -1285,12 +1923,17 @@ test("cli scaffold: without a terminal --write creates them; a second run plans 
   assert.ok(existsSync(join(vaultOf(p2), "README.md")));
 });
 
-test("cli scaffold: at a terminal (injected ask, run() in process) the plan prints before \"◆ Apply N changes? [Y/n]\"; Enter applies, n prints Nothing written. and exits 1, end of input is a no", async () => {
+test('cli scaffold: at a terminal (injected ask, run() in process) the plan prints before "◆ Apply N changes? [Y/n]"; Enter applies, n prints Nothing written. and exits 1, end of input is a no', async () => {
   const call = async (proj, answer) => {
-    const stdout = new Sink(), stderr = new Sink();
+    const stdout = new Sink(),
+      stderr = new Sink();
     const asked = [];
     // The terminal writes the question where the plan went; `ask` stands in for it.
-    const ask = async (q) => { asked.push(q); stdout.write(q); return answer; };
+    const ask = async (q) => {
+      asked.push(q);
+      stdout.write(q);
+      return answer;
+    };
     const code = await run(["scaffold", "--write", "--project", proj], { env: {}, cwd: proj, stdout, stderr, ask });
     return { code, out: stdout.text, err: stderr.text, asked };
   };
@@ -1300,7 +1943,10 @@ test("cli scaffold: at a terminal (injected ask, run() in process) the plan prin
   assert.equal(y.code, 0, y.err);
   assert.deepEqual(y.asked, [question]);
   const q = y.out.indexOf(question);
-  assert.ok(q > 0 && y.out.indexOf("  create  adr/\n") < q && y.out.indexOf("  create  README.md\n") < q, `the plan, then the question:\n${y.out}`);
+  assert.ok(
+    q > 0 && y.out.indexOf("  create  adr/\n") < q && y.out.indexOf("  create  README.md\n") < q,
+    `the plan, then the question:\n${y.out}`,
+  );
   assert.ok(!y.out.slice(0, q).includes("To write them"), "the plan asked about does not also say how to write it");
   assert.match(y.out.slice(q), new RegExp(`Created ${SKELETON.length}\\.\\n$`));
   assert.ok(existsSync(join(vaultOf(yes), "adr", "README.md")));
@@ -1308,7 +1954,11 @@ test("cli scaffold: at a terminal (injected ask, run() in process) the plan prin
   const none = await call(yes, "n");
   assert.equal(none.code, 0);
   assert.deepEqual(none.asked, []);
-  for (const [answer, why] of [["n", "n"], [null, "end of input"], ["nope", "anything else"]]) {
+  for (const [answer, why] of [
+    ["n", "n"],
+    [null, "end of input"],
+    ["nope", "anything else"],
+  ]) {
     const proj = project();
     const r = await call(proj, answer);
     assert.equal(r.code, 1, why);
@@ -1324,7 +1974,13 @@ test("cli scaffold: at a terminal (injected ask, run() in process) the plan prin
   // --json never asks, at a terminal too: it is how a session confirms.
   const j = project();
   const stdout = new Sink();
-  const code = await run(["scaffold", "--write", "--json", "--project", j], { env: {}, cwd: j, stdout, stderr: new Sink(), ask: async () => assert.fail("--json asked") });
+  const code = await run(["scaffold", "--write", "--json", "--project", j], {
+    env: {},
+    cwd: j,
+    stdout,
+    stderr: new Sink(),
+    ask: async () => assert.fail("--json asked"),
+  });
   assert.equal(code, 0);
   assert.equal(JSON.parse(stdout.text).result.created.length, SKELETON.length);
 });
@@ -1337,23 +1993,37 @@ test("scaffold plan: a kind with no string in the language, or a missing vault-r
   mkdirSync(join(root, "scaffold", "layouts"), { recursive: true });
   const eng = JSON.parse(readFileSync(join(ROOT, "scaffold", "layouts", "engineering.json"), "utf8"));
   writeFileSync(join(root, "scaffold", "layouts", "engineering.json"), JSON.stringify(eng));
-  writeFileSync(join(root, "scaffold", "layouts", "widgets.json"), JSON.stringify({ ...eng, name: "widgets", folders: [...eng.folders, { path: "widgets", kind: "widget", readme: true }] }));
+  writeFileSync(
+    join(root, "scaffold", "layouts", "widgets.json"),
+    JSON.stringify({
+      ...eng,
+      name: "widgets",
+      folders: [...eng.folders, { path: "widgets", kind: "widget", readme: true }],
+    }),
+  );
   for (const lang of ["en", "ru"]) {
     mkdirSync(join(root, "templates", lang), { recursive: true });
-    for (const f of ["folder-readme.md.tmpl", "vault-readme.md.tmpl", "strings.json"]) writeFileSync(join(root, "templates", lang, f), readFileSync(join(ROOT, "templates", lang, f)));
+    for (const f of ["folder-readme.md.tmpl", "vault-readme.md.tmpl", "strings.json"])
+      writeFileSync(join(root, "templates", lang, f), readFileSync(join(ROOT, "templates", lang, f)));
   }
   const vault = mkdtempSync(join(tmpdir(), "ps-scaffold-v-"));
   assert.equal(planScaffold(vault, { layout: "engineering", language: "ru", root }).ok, true, "the copy is complete");
   const kind = planScaffold(vault, { layout: "widgets", language: "ru", root });
   assert.equal(kind.ok, false);
-  assert.deepEqual(kind.refusals.map((r) => r.code), ["STRINGS"]);
+  assert.deepEqual(
+    kind.refusals.map((r) => r.code),
+    ["STRINGS"],
+  );
   assert.match(kind.refusals[0].message, /"widget"/);
   assert.match(kind.refusals[0].message, /"ru"/);
   assert.throws(() => applyScaffold(kind), /widget/);
   rmSync(join(root, "templates", "en", "vault-readme.md.tmpl"));
   const tmpl = planScaffold(vault, { layout: "engineering", language: "en", root });
   assert.equal(tmpl.ok, false);
-  assert.deepEqual(tmpl.refusals.map((r) => r.code), ["TEMPLATE"]);
+  assert.deepEqual(
+    tmpl.refusals.map((r) => r.code),
+    ["TEMPLATE"],
+  );
   assert.match(tmpl.refusals[0].message, /vault-readme/);
   assert.match(tmpl.refusals[0].message, /"en"/);
   // doctor warns on the same list, through the same check (the folder README stays its issue).
@@ -1362,9 +2032,15 @@ test("scaffold plan: a kind with no string in the language, or a missing vault-r
   pinPluginRoot(root);
   let warns;
   try {
-    warns = [...checkLayoutTemplates({ layout: "widgets", language: "ru" }), ...checkLayoutTemplates({ layout: "engineering", language: "en" })]
-      .filter((f) => f.level === "warn").map((f) => `${f.check}: ${f.message}`);
-  } finally { pinPluginRoot(ROOT); }
+    warns = [
+      ...checkLayoutTemplates({ layout: "widgets", language: "ru" }),
+      ...checkLayoutTemplates({ layout: "engineering", language: "en" }),
+    ]
+      .filter((f) => f.level === "warn")
+      .map((f) => `${f.check}: ${f.message}`);
+  } finally {
+    pinPluginRoot(ROOT);
+  }
   assert.equal(warns.length, 2, warns.join("\n"));
   assert.match(warns[0], /^templates: language "ru" has no name and description for the folder kind "widget"/);
   assert.match(warns[1], /^templates: language "en" has no vault-readme template/);
@@ -1372,10 +2048,16 @@ test("scaffold plan: a kind with no string in the language, or a missing vault-r
   // A vault path that is a file, and a folder path that is a file.
   const file = join(vault, "a-file");
   writeFileSync(file, "x");
-  assert.deepEqual(planScaffold(file, { layout: "engineering", language: "ru", root }).refusals.map((r) => r.code), ["NOT_A_DIRECTORY"]);
+  assert.deepEqual(
+    planScaffold(file, { layout: "engineering", language: "ru", root }).refusals.map((r) => r.code),
+    ["NOT_A_DIRECTORY"],
+  );
   writeFileSync(join(vault, "adr"), "x");
   const folder = planScaffold(vault, { layout: "engineering", language: "ru", root });
-  assert.deepEqual(folder.refusals.map((r) => r.code), ["FOLDER_IS_FILE"]);
+  assert.deepEqual(
+    folder.refusals.map((r) => r.code),
+    ["FOLDER_IS_FILE"],
+  );
   assert.match(folder.refusals[0].message, /^adr exists in .* as a file/);
   // init's whole-vault path is one plan: the scaffold's refusal stops the mkdir too.
   const proj = project({ bound: false });
@@ -1384,7 +2066,10 @@ test("scaffold plan: a kind with no string in the language, or a missing vault-r
   assert.equal(p.ok, false);
   assert.equal(p.buildsVault, false);
   assert.equal(p.createsVault, false);
-  assert.ok(p.refusals.some((r) => r.code === "STRINGS" && /"widget"/.test(r.message)), JSON.stringify(p.refusals));
+  assert.ok(
+    p.refusals.some((r) => r.code === "STRINGS" && /"widget"/.test(r.message)),
+    JSON.stringify(p.refusals),
+  );
   assert.throws(() => applyBind(p));
   assert.ok(!existsSync(missing), "nothing created");
   assert.ok(!existsSync(layoutPaths(proj).binding), "no binding written");
@@ -1414,7 +2099,10 @@ test("scaffold plan: a kind with no string in the language, or a missing vault-r
 test("cli init: a missing directory becomes a whole vault — binding, a git repository with no commit, folders and READMEs; doctor --install has no vault-git and doctor --vault --json has no issue or warn; an existing empty directory does the same without the mkdir", () => {
   for (const shape of ["missing", "empty"]) {
     const proj = gitProject();
-    const vault = shape === "missing" ? join(mkdtempSync(join(tmpdir(), "ps-init-whole-")), "vault") : mkdtempSync(join(tmpdir(), "ps-init-empty-"));
+    const vault =
+      shape === "missing"
+        ? join(mkdtempSync(join(tmpdir(), "ps-init-whole-")), "vault")
+        : mkdtempSync(join(tmpdir(), "ps-init-empty-"));
     const r = bin(["init", vault, "--json", "--project", proj]);
     assert.equal(r.status, 0, r.stderr + r.stdout);
     const e = envOf(r);
@@ -1437,12 +2125,21 @@ test("cli init: a missing directory becomes a whole vault — binding, a git rep
 test("cli init/bind: work-without-story ignores .projectstore/.gitignore and still counts any other uncommitted source file", () => {
   for (const verb of ["init", "bind"]) {
     const proj = gitProject();
-    const vault = verb === "init" ? join(mkdtempSync(join(tmpdir(), "ps-wws-")), "vault") : mkdtempSync(join(tmpdir(), "ps-wws-"));
+    const vault =
+      verb === "init" ? join(mkdtempSync(join(tmpdir(), "ps-wws-")), "vault") : mkdtempSync(join(tmpdir(), "ps-wws-"));
     assert.equal(bin([verb, vault, "--project", proj]).status, 0);
     const untracked = git(proj, ["ls-files", "--others", "--exclude-standard"]).stdout.split("\n").filter(Boolean);
-    assert.deepEqual(untracked, [".projectstore/.gitignore"], `${verb}: the binding's ignore file is the one untracked file`);
+    assert.deepEqual(
+      untracked,
+      [".projectstore/.gitignore"],
+      `${verb}: the binding's ignore file is the one untracked file`,
+    );
     const wws = (r) => envOf(r).result.filter((f) => f.check === "work-without-story");
-    assert.deepEqual(wws(bin(["doctor", "--vault", "--json", "--project", proj])), [], `${verb}: the plugin's own setup is not work`);
+    assert.deepEqual(
+      wws(bin(["doctor", "--vault", "--json", "--project", proj])),
+      [],
+      `${verb}: the plugin's own setup is not work`,
+    );
     writeFileSync(join(proj, "app.mjs"), "export {};\n");
     const after = wws(bin(["doctor", "--vault", "--json", "--project", proj]));
     assert.equal(after.length, 1, `${verb}: another uncommitted file still counts`);
@@ -1450,7 +2147,7 @@ test("cli init/bind: work-without-story ignores .projectstore/.gitignore and sti
   }
 });
 
-test("cli init: git absent (PATH \"\") skips with git.skipped and exits 0; inside a work tree it prints the embedded-repository line; a failing git init is git.failed with the remedy, scaffold still runs, ok:false, exit 1", () => {
+test('cli init: git absent (PATH "") skips with git.skipped and exits 0; inside a work tree it prints the embedded-repository line; a failing git init is git.failed with the remedy, scaffold still runs, ok:false, exit 1', () => {
   // Absent: the one skip the ADR allows; every other step completes.
   const absent = join(mkdtempSync(join(tmpdir(), "ps-nogit-")), "vault");
   const a = bin(["init", absent, "--json", "--project", project({ bound: false })], { env: { PATH: "" } });
@@ -1459,7 +2156,10 @@ test("cli init: git absent (PATH \"\") skips with git.skipped and exits 0; insid
   assert.deepEqual(envOf(a).result.git, { skipped: "git is not on PATH" });
   assert.equal(envOf(a).result.scaffold.created.length, SKELETON.length);
   assert.ok(!existsSync(join(absent, ".git")));
-  const at = bin(["init", join(mkdtempSync(join(tmpdir(), "ps-nogit-")), "vault"), "--project", project({ bound: false })], { env: { PATH: "" } });
+  const at = bin(
+    ["init", join(mkdtempSync(join(tmpdir(), "ps-nogit-")), "vault"), "--project", project({ bound: false })],
+    { env: { PATH: "" } },
+  );
   assert.equal(at.status, 0);
   assert.match(at.stdout, /\nSkipped git init: git is not on PATH\. .*vault-git/);
   // Inside another work tree: git init still runs, and one line says so.
@@ -1469,12 +2169,24 @@ test("cli init: git absent (PATH \"\") skips with git.skipped and exits 0; insid
   assert.equal(t.status, 0, t.stderr);
   assert.ok(existsSync(join(inner, ".git")), "the vault gets its own repository");
   const top = realpathSync(outer);
-  assert.ok(t.stdout.includes(`\`${inner}\` is inside the git work tree at \`${top}\`; the vault gets its own repository, which that repository will see as an embedded one.`), t.stdout);
+  assert.ok(
+    t.stdout.includes(
+      `\`${inner}\` is inside the git work tree at \`${top}\`; the vault gets its own repository, which that repository will see as an embedded one.`,
+    ),
+    t.stdout,
+  );
   const inner2 = join(outer, "notes", "vault2");
-  assert.deepEqual(envOf(bin(["init", inner2, "--json", "--project", project({ bound: false })])).result.git, { done: true, inside: top });
+  assert.deepEqual(envOf(bin(["init", inner2, "--json", "--project", project({ bound: false })])).result.git, {
+    done: true,
+    inside: top,
+  });
   // Failing: a git whose init fails (a read-only parent, simulated), on PATH ahead of nothing else.
   const fake = mkdtempSync(join(tmpdir(), "ps-fakegit-"));
-  writeFileSync(join(fake, "git"), "#!/bin/sh\nif [ \"$1\" = init ]; then echo \"fatal: cannot mkdir .git: Read-only file system\" >&2; exit 128; fi\necho \"fatal: not a git repository\" >&2\nexit 128\n", { mode: 0o755 });
+  writeFileSync(
+    join(fake, "git"),
+    '#!/bin/sh\nif [ "$1" = init ]; then echo "fatal: cannot mkdir .git: Read-only file system" >&2; exit 128; fi\necho "fatal: not a git repository" >&2\nexit 128\n',
+    { mode: 0o755 },
+  );
   const failing = join(mkdtempSync(join(tmpdir(), "ps-failgit-")), "vault");
   const fp = project({ bound: false });
   const f = bin(["init", failing, "--json", "--project", fp], { env: { PATH: fake } });
@@ -1482,13 +2194,23 @@ test("cli init: git absent (PATH \"\") skips with git.skipped and exits 0; insid
   const fe = envOf(f);
   assert.equal(fe.ok, false);
   assert.equal(fe.result.git.failed, "fatal: cannot mkdir .git: Read-only file system");
-  assert.match(fe.result.git.remedy, /^Run `git init` in \S+, or \S+doctor --fix, which offers it\.$/, "the --json result carries the remedy the text prints");
+  assert.match(
+    fe.result.git.remedy,
+    /^Run `git init` in \S+, or \S+doctor --fix, which offers it\.$/,
+    "the --json result carries the remedy the text prints",
+  );
   assert.equal(fe.result.wrote, true, "the binding is written");
   assert.equal(fe.result.scaffold.created.length, SKELETON.length, "scaffold still runs");
   assert.ok(existsSync(join(failing, "README.md")));
-  const ft = bin(["init", join(mkdtempSync(join(tmpdir(), "ps-failgit-")), "vault"), "--project", project({ bound: false })], { env: { PATH: fake } });
+  const ft = bin(
+    ["init", join(mkdtempSync(join(tmpdir(), "ps-failgit-")), "vault"), "--project", project({ bound: false })],
+    { env: { PATH: fake } },
+  );
   assert.equal(ft.status, 1);
-  assert.match(ft.stdout, /\ngit init failed: fatal: cannot mkdir \.git: Read-only file system\n {2}Run `git init` in \S+, or \S+doctor --fix, which offers it\.\n/);
+  assert.match(
+    ft.stdout,
+    /\ngit init failed: fatal: cannot mkdir \.git: Read-only file system\n {2}Run `git init` in \S+, or \S+doctor --fix, which offers it\.\n/,
+  );
   assert.match(ft.stdout, /\nScaffolded the engineering layout/);
   assert.ok(!/Next:/.test(ft.stdout), "the remedy is the next step");
   // Inherited repository-locating variables (a hook, a script) point nowhere
@@ -1496,7 +2218,9 @@ test("cli init: git absent (PATH \"\") skips with git.skipped and exits 0; insid
   // they name is left alone.
   const decoy = mkdtempSync(join(tmpdir(), "ps-decoy-"));
   const located = join(mkdtempSync(join(tmpdir(), "ps-located-")), "vault");
-  const d = bin(["init", located, "--json", "--project", project({ bound: false })], { env: { GIT_DIR: join(decoy, "elsewhere.git"), GIT_OBJECT_DIRECTORY: join(decoy, "objects"), GIT_WORK_TREE: decoy } });
+  const d = bin(["init", located, "--json", "--project", project({ bound: false })], {
+    env: { GIT_DIR: join(decoy, "elsewhere.git"), GIT_OBJECT_DIRECTORY: join(decoy, "objects"), GIT_WORK_TREE: decoy },
+  });
   assert.equal(d.status, 0, d.stderr + d.stdout);
   assert.deepEqual(envOf(d).result.git, { done: true });
   assert.ok(existsSync(join(located, ".git", "HEAD")), "the vault gets its own repository");
@@ -1506,7 +2230,8 @@ test("cli init: git absent (PATH \"\") skips with git.skipped and exits 0; insid
 test("cli bind/init on an existing non-empty vault: binds, no git init, no scaffold; Next names scaffold in both forms only when the plan has a create row, status otherwise", () => {
   // Each command alone on its line, after a blank one (presentation spec
   // contract 6); the terminal's form is the package this run was invoked as.
-  const both = /\nNext: create the layout's missing folders and READMEs, in a session or from a terminal:\n\n {2}\S+scaffold\n {2}npx projectstore scaffold --write\n$/;
+  const both =
+    /\nNext: create the layout's missing folders and READMEs, in a session or from a terminal:\n\n {2}\S+scaffold\n {2}npx projectstore scaffold --write\n$/;
   const status = /\nNext: see where the project stands:\n\n {2}npx projectstore status\n$/;
   const vault = mkdtempSync(join(tmpdir(), "ps-nonempty-"));
   writeFileSync(join(vault, "notes.md"), "# mine\n");
@@ -1518,7 +2243,10 @@ test("cli bind/init on an existing non-empty vault: binds, no git init, no scaff
   // init again on that binding: BOUND, and its hint gives both forms too.
   const bound = bin(["init", vault, "--project", proj]);
   assert.equal(bound.status, 1);
-  assert.match(bound.stderr, /already bound to .* — \S+scaffold in a session, or `projectstore scaffold --write`, creates the layout's missing folders and READMEs\n$/);
+  assert.match(
+    bound.stderr,
+    /already bound to .* — \S+scaffold in a session, or `projectstore scaffold --write`, creates the layout's missing folders and READMEs\n$/,
+  );
   const ij = envOf(bin(["init", vault, "--json", "--project", project({ bound: false })])).result;
   assert.equal(ij.git, null);
   assert.equal(ij.scaffold, null);
@@ -1534,13 +2262,18 @@ test("cli bind/init on an existing non-empty vault: binds, no git init, no scaff
   assert.match(fresh.stdout, status);
   assert.ok(!/scaffold/.test(fresh.stdout), fresh.stdout);
   // Through a shell, the shell's own name: it passes bind and status through.
-  const shell = bin(["bind", vault, "--project", project({ bound: false })], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } });
+  const shell = bin(["bind", vault, "--project", project({ bound: false })], {
+    env: { PROJECTSTORE_SHELL: "projectstore-codex" },
+  });
   assert.match(shell.stdout, /\n\n {2}npx projectstore-codex status\n$/, shell.stdout);
   // A folder present without its README is a create row too.
   rmSync(join(vault, "ops", "README.md"));
   assert.match(bin(["bind", vault, "--project", project({ bound: false })]).stdout, both);
   // A fresh bind to an empty vault names scaffold.
-  assert.match(bin(["bind", mkdtempSync(join(tmpdir(), "ps-empty-")), "--project", project({ bound: false })]).stdout, both);
+  assert.match(
+    bin(["bind", mkdtempSync(join(tmpdir(), "ps-empty-")), "--project", project({ bound: false })]).stdout,
+    both,
+  );
 });
 
 test("cli scaffold: bind + scaffold --write and init give byte-identical trees outside .git", () => {
@@ -1552,7 +2285,8 @@ test("cli scaffold: bind + scaffold --write and init give byte-identical trees o
     assert.equal(bin(["bind", a, "--language", language, "--project", pa]).status, 0);
     assert.equal(bin(["scaffold", "--write", "--project", pa]).status, 0);
     assert.equal(bin(["init", b, "--language", language, "--project", project({ bound: false })]).status, 0);
-    const ta = treeOf(a), tb = treeOf(b);
+    const ta = treeOf(a),
+      tb = treeOf(b);
     assert.ok(Object.keys(ta).length === SKELETON.length, language);
     assert.deepEqual(ta, tb, `${language}: the two vaults differ`);
     assert.match(ta["README.md"], /^# team-vault\n/, "titled by the directory's name alone");
@@ -1561,16 +2295,39 @@ test("cli scaffold: bind + scaffold --write and init give byte-identical trees o
 
 test("cli: commands/scaffold.md and the rendered $projectstore-scaffold skill run the bin and compose no README", async () => {
   const codex = loadHarness("codex");
-  const skill = join(codex.output_dir, "skills", codex.surfaces.commands.rendered_name.split("<name>").join("scaffold"), "SKILL.md");
+  const skill = join(
+    codex.output_dir,
+    "skills",
+    codex.surfaces.commands.rendered_name.split("<name>").join("scaffold"),
+    "SKILL.md",
+  );
   for (const rel of [join("commands", "scaffold.md"), skill]) {
     const src = readFileSync(join(ROOT, rel), "utf8");
     assert.match(src, /bin\/projectstore\.mjs" scaffold --project "[^"]+"/, `${rel}: the plan is the bin's`);
-    assert.match(src, /bin\/projectstore\.mjs" scaffold --write --json --project "[^"]+"/, `${rel}: so is the confirmed write, under --json`);
-    for (const gone of ["folder-readme.md.tmpl", "mkdir", "Skip READMEs", "{{folder_name}}", "{{folder_description}}", "layout-name", "scaffold/layouts/", "file-writing tool", "Write tool"]) {
+    assert.match(
+      src,
+      /bin\/projectstore\.mjs" scaffold --write --json --project "[^"]+"/,
+      `${rel}: so is the confirmed write, under --json`,
+    );
+    for (const gone of [
+      "folder-readme.md.tmpl",
+      "mkdir",
+      "Skip READMEs",
+      "{{folder_name}}",
+      "{{folder_description}}",
+      "layout-name",
+      "scaffold/layouts/",
+      "file-writing tool",
+      "Write tool",
+    ]) {
       assert.ok(!src.includes(gone), `${rel} still composes the vault itself: ${gone}`);
     }
   }
-  assert.match(readFileSync(join(ROOT, "commands", "scaffold.md"), "utf8"), /^---\n[\s\S]*?\nargument-hint: ""\n[\s\S]*?---\n/, "no layout argument");
+  assert.match(
+    readFileSync(join(ROOT, "commands", "scaffold.md"), "utf8"),
+    /^---\n[\s\S]*?\nargument-hint: ""\n[\s\S]*?---\n/,
+    "no layout argument",
+  );
   const { checkCodexAdapter } = await import("../scripts/build-adapters.mjs");
   assert.equal(checkCodexAdapter().ok, true, "the Codex render is current");
 });
@@ -1583,16 +2340,23 @@ test("cli contract 19: the install family and agents configure refuse a project 
   const parent = mkdtempSync(join(tmpdir(), "ps-cli-missing-"));
   const file = join(parent, "a-file");
   writeFileSync(file, "x");
-  const homes = { HOME: mkdtempSync(join(tmpdir(), "ps-cli-home-")), CODEX_HOME: mkdtempSync(join(tmpdir(), "ps-cli-codex-")), [SRC.runtime.home_env]: mkdtempSync(join(tmpdir(), "ps-cli-claude-")) };
+  const homes = {
+    HOME: mkdtempSync(join(tmpdir(), "ps-cli-home-")),
+    CODEX_HOME: mkdtempSync(join(tmpdir(), "ps-cli-codex-")),
+    [SRC.runtime.home_env]: mkdtempSync(join(tmpdir(), "ps-cli-claude-")),
+  };
   const verbs = [["plan"], ["install"], ["upgrade"], ["uninstall"], ["uninstall", "--global"]];
   for (const missing of [join(parent, "project,"), join(parent, "project "), file]) {
     const quoted = JSON.stringify(missing);
     for (const args of verbs) {
       for (const json of [false, true]) {
         for (const via of ["flag", "env"]) {
-          const r = via === "flag"
-            ? bin([...args, "--harness", "codex", ...(json ? ["--json"] : []), "--project", missing], { env: homes })
-            : bin([...args, "--harness", "codex", ...(json ? ["--json"] : [])], { env: { ...homes, PROJECTSTORE_PROJECT_DIR: missing } });
+          const r =
+            via === "flag"
+              ? bin([...args, "--harness", "codex", ...(json ? ["--json"] : []), "--project", missing], { env: homes })
+              : bin([...args, "--harness", "codex", ...(json ? ["--json"] : [])], {
+                  env: { ...homes, PROJECTSTORE_PROJECT_DIR: missing },
+                });
           const what = `${args.join(" ")} ${json ? "--json" : "text"} ${via} ${quoted}`;
           assert.equal(r.status, 1, `${what}: ${r.stdout}${r.stderr}`);
           const want = `no such project directory: ${json ? JSON.stringify(quoted).slice(1, -1) : quoted}`;
@@ -1601,7 +2365,20 @@ test("cli contract 19: the install family and agents configure refuse a project 
       }
     }
     for (const json of [false, true]) {
-      const conf = bin(["agents", "configure", "--harness", "codex", "--default", "gpt-5", ...(json ? ["--json"] : []), "--project", missing], { env: homes });
+      const conf = bin(
+        [
+          "agents",
+          "configure",
+          "--harness",
+          "codex",
+          "--default",
+          "gpt-5",
+          ...(json ? ["--json"] : []),
+          "--project",
+          missing,
+        ],
+        { env: homes },
+      );
       assert.equal(conf.status, 1, conf.stdout + conf.stderr);
       if (json) assert.ok(envOf(conf).result.error.startsWith(`no such project directory: ${quoted}`), conf.stdout);
       else assert.ok(conf.stderr.startsWith(`no such project directory: ${quoted}`), conf.stderr);
@@ -1611,7 +2388,10 @@ test("cli contract 19: the install family and agents configure refuse a project 
   for (const dir of Object.values(homes)) assert.deepEqual(readdirSync(dir), [], `${dir} stays empty`);
   for (const args of [["doctor"], ["agents", "show", "--harness", "codex"]]) {
     const r = bin([...args, "--project", join(parent, "project,")], { env: homes });
-    assert.ok(!/no such project directory/.test(r.stdout + r.stderr), `${args.join(" ")} still runs: ${r.stdout}${r.stderr}`);
+    assert.ok(
+      !/no such project directory/.test(r.stdout + r.stderr),
+      `${args.join(" ")} still runs: ${r.stdout}${r.stderr}`,
+    );
   }
 });
 
@@ -1625,18 +2405,36 @@ test("cli contract 19: the install family and agents configure refuse a project 
 
 // The MCP server's sink, for the in-process seam.
 class Sink {
-  constructor() { this.text = ""; }
-  write(s) { this.text += String(s); return true; }
-  get isTTY() { return false; }
+  constructor() {
+    this.text = "";
+  }
+  write(s) {
+    this.text += String(s);
+    return true;
+  }
+  get isTTY() {
+    return false;
+  }
 }
 
 test("cli per-verb parse: one name, two types — boolean --x on a, --x <value> on b, through run(argv, { verbs })", async () => {
   const seen = [];
-  const row = (verb, x) => ({ verb, summary: `The ${verb} verb.`, usage: [], options: [x], requiresBinding: false, run: async ({ values, positionals }) => { seen.push({ verb, values, positionals }); return 0; } });
+  const row = (verb, x) => ({
+    verb,
+    summary: `The ${verb} verb.`,
+    usage: [],
+    options: [x],
+    requiresBinding: false,
+    run: async ({ values, positionals }) => {
+      seen.push({ verb, values, positionals });
+      return 0;
+    },
+  });
   const verbs = [row("a", opt("x", false, "a flag")), row("b", opt("x", "<value>", "a value"))];
   const cwd = mkdtempSync(join(tmpdir(), "ps-cli-seam-"));
   const call = async (argv) => {
-    const stdout = new Sink(), stderr = new Sink();
+    const stdout = new Sink(),
+      stderr = new Sink();
     const code = await run(argv, { verbs, env: {}, cwd, stdout, stderr });
     return { code, out: stdout.text, err: stderr.text };
   };
@@ -1653,7 +2451,10 @@ test("cli per-verb parse: one name, two types — boolean --x on a, --x <value> 
   const inline = await call(["a", "--x=v"]);
   assert.equal(inline.code, 2);
   assert.match(inline.err, /^`--x` takes no value\nRun `a --help` for the options\.\n$/);
-  for (const argv of [["b", "--x"], ["b", "--x", "--json"]]) {
+  for (const argv of [
+    ["b", "--x"],
+    ["b", "--x", "--json"],
+  ]) {
     const r = await call(argv);
     assert.equal(r.code, 2, argv.join(" "));
     assert.match(r.err, /^`--x` needs a value: `--x <value>`\n/, argv.join(" "));
@@ -1673,10 +2474,16 @@ test("cli per-verb parse: one name, two types — boolean --x on a, --x <value> 
   // A verb no group names is ADVANCED's; a group lists only the verbs the table has.
   assert.match(real.err, /\nADVANCED\n {2}a · b\n/);
   assert.ok(!/\n(START|VAULT|CHECK AND REPAIR)\n/.test(real.err), real.err);
-  assert.ok(!/\n {2}doctor |npx projectstore (install|status|doctor|plan)\b/.test(real.err), "VERBS does not leak into the usage, its examples or its tips");
+  assert.ok(
+    !/\n {2}doctor |npx projectstore (install|status|doctor|plan)\b/.test(real.err),
+    "VERBS does not leak into the usage, its examples or its tips",
+  );
   const help = await call(["b", "--help"]);
   assert.equal(help.code, 0);
-  assert.ok(help.out.startsWith("npx projectstore b — The b verb.\n\nUsage\n  npx projectstore b [options]\n"), help.out);
+  assert.ok(
+    help.out.startsWith("npx projectstore b — The b verb.\n\nUsage\n  npx projectstore b [options]\n"),
+    help.out,
+  );
 });
 
 test("cli per-verb parse: doctor --vault /tmp/x and status extra exit 2 naming the argument; the --json envelope's verb is doctor", () => {
@@ -1684,7 +2491,10 @@ test("cli per-verb parse: doctor --vault /tmp/x and status extra exit 2 naming t
   const text = bin(["doctor", "--vault", "/tmp/x"], { cwd: proj });
   assert.equal(text.status, 2);
   assert.equal(text.stdout, "", "doctor never ran");
-  assert.equal(text.stderr, "doctor takes no argument `/tmp/x` — `--vault` takes no value\nRun `doctor --help` for the options.\n");
+  assert.equal(
+    text.stderr,
+    "doctor takes no argument `/tmp/x` — `--vault` takes no value\nRun `doctor --help` for the options.\n",
+  );
   const json = bin(["doctor", "--vault", "/tmp/x", "--json"], { cwd: proj });
   assert.equal(json.status, 2);
   const e = envOf(json);
@@ -1701,7 +2511,12 @@ test("cli per-verb parse: doctor --vault /tmp/x and status extra exit 2 naming t
 
 test("cli per-verb parse: globals before or after the verb give one envelope, -- ends them, help and version answer first", () => {
   const proj = project({ bound: false });
-  const lines = [["--project", proj, "status", "--json"], ["status", "--project", proj, "--json"], ["--json", "status", "--project", proj], ["--json", "--project", proj, "--", "status"]];
+  const lines = [
+    ["--project", proj, "status", "--json"],
+    ["status", "--project", proj, "--json"],
+    ["--json", "status", "--project", proj],
+    ["--json", "--project", proj, "--", "status"],
+  ];
   const outs = lines.map((argv) => bin(argv));
   outs.forEach((r, i) => assert.equal(r.status, 0, `${lines[i].join(" ")}: ${r.stderr}`));
   const first = envOf(outs[0]);
@@ -1717,45 +2532,87 @@ test("cli per-verb parse: globals before or after the verb give one envelope, --
     assert.equal(r.status, 0, argv.join(" "));
     assert.ok(r.stdout.startsWith(`projectstore · ${PKG.version} · `), argv.join(" "));
   }
-  for (const [argv, verb] of [[["status", "--help"], "status"], [["status", "-h"], "status"], [["--help", "status"], "status"], [["-h", "status"], "status"], [["status", "extra", "--help"], "status"], [["--harness", "codex", "plan", "--help"], "plan"], [["doctor", "--bogus", "-h"], "doctor"]]) {
+  for (const [argv, verb] of [
+    [["status", "--help"], "status"],
+    [["status", "-h"], "status"],
+    [["--help", "status"], "status"],
+    [["-h", "status"], "status"],
+    [["status", "extra", "--help"], "status"],
+    [["--harness", "codex", "plan", "--help"], "plan"],
+    [["doctor", "--bogus", "-h"], "doctor"],
+  ]) {
     const r = bin(argv);
     assert.equal(r.status, 0, argv.join(" "));
     assert.ok(r.stdout.startsWith(`npx projectstore ${verb} — `), `${argv.join(" ")}: ${r.stdout.split("\n")[0]}`);
   }
-  for (const argv of [["--version"], ["-v"], ["-hv"], ["-vh"], ["status", "--version"], ["status", "-hv"], ["--version", "status"], ["-hv", "status", "extra"]]) {
+  for (const argv of [
+    ["--version"],
+    ["-v"],
+    ["-hv"],
+    ["-vh"],
+    ["status", "--version"],
+    ["status", "-hv"],
+    ["--version", "status"],
+    ["-hv", "status", "extra"],
+  ]) {
     const r = bin(argv);
     assert.equal(r.status, 0, argv.join(" "));
     assert.equal(r.stdout, PKG.version + "\n", argv.join(" "));
   }
-  assert.deepEqual(envOf(bin(["status", "-hv", "--json"])).result, { version: PKG.version }, "version wins over help, in the envelope too");
+  assert.deepEqual(
+    envOf(bin(["status", "-hv", "--json"])).result,
+    { version: PKG.version },
+    "version wins over help, in the envelope too",
+  );
 });
 
 test("cli per-verb parse: a verb's option before the verb shows the corrected order; an undeclared one gets the verb's hint", () => {
   const proj = project({ bound: false });
   const plan = bin(["--harness", "codex", "plan"], { cwd: proj });
   assert.equal(plan.status, 2);
-  assert.equal(plan.stderr, "`--harness` belongs after the verb: `npx projectstore plan --harness codex`\nRun `plan --help` for the options.\n");
-  assert.match(bin(["--harness=codex", "plan"], { cwd: proj }).stderr, /^`--harness` belongs after the verb: `npx projectstore plan --harness=codex`\n/);
-  assert.match(bin(["--verbose", "upgrade"], { cwd: proj }).stderr, /^`--verbose` belongs after the verb: `npx projectstore upgrade --verbose`\n/);
+  assert.equal(
+    plan.stderr,
+    "`--harness` belongs after the verb: `npx projectstore plan --harness codex`\nRun `plan --help` for the options.\n",
+  );
+  assert.match(
+    bin(["--harness=codex", "plan"], { cwd: proj }).stderr,
+    /^`--harness` belongs after the verb: `npx projectstore plan --harness=codex`\n/,
+  );
+  assert.match(
+    bin(["--verbose", "upgrade"], { cwd: proj }).stderr,
+    /^`--verbose` belongs after the verb: `npx projectstore upgrade --verbose`\n/,
+  );
   const json = bin(["--harness", "codex", "plan", "--json"], { cwd: proj });
   assert.equal(json.status, 2);
   assert.equal(envOf(json).verb, "plan");
   assert.match(envOf(json).result.error, /plan --harness codex/);
   const verbos = bin(["--verbos", "install"], { cwd: proj });
   assert.equal(verbos.status, 2);
-  assert.match(verbos.stderr, /^install does not take --verbos — did you mean --verbose\?\nRun `install --help` for the options\.\n$/);
+  assert.match(
+    verbos.stderr,
+    /^install does not take --verbos — did you mean --verbose\?\nRun `install --help` for the options\.\n$/,
+  );
   // With no verb to scope it, an option no verb declares keeps 0.29.2's hint over the whole table.
   const instal = bin(["--verbos", "instal"], { cwd: proj });
   assert.equal(instal.status, 2);
   assert.match(instal.stderr, /^unknown option --verbos — did you mean --verbose\?\nRun --help for the options\.\n$/);
   // Through a shell the harness is the shell's: the order shown is the bare verb.
-  const shell = bin(["--harness", "codex", "install"], { cwd: proj, env: { PROJECTSTORE_SHELL: "projectstore-codex" } });
+  const shell = bin(["--harness", "codex", "install"], {
+    cwd: proj,
+    env: { PROJECTSTORE_SHELL: "projectstore-codex" },
+  });
   assert.equal(shell.status, 2);
   assert.match(shell.stderr, /^`--harness` belongs after the verb: `npx projectstore-codex install`\n/);
   // The rest of the line follows the moved option, so the command shown is the one to run.
   const tail = ["--harness", "codex", "agents", "configure", "--default", "opus"];
-  assert.match(bin(tail, { cwd: proj }).stderr, /^`--harness` belongs after the verb: `npx projectstore agents --harness codex configure --default opus`\n/);
-  assert.match(bin(tail, { cwd: proj, env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stderr, /^`--harness` belongs after the verb: `npx projectstore-codex agents configure --default opus`\n/);
+  assert.match(
+    bin(tail, { cwd: proj }).stderr,
+    /^`--harness` belongs after the verb: `npx projectstore agents --harness codex configure --default opus`\n/,
+  );
+  assert.match(
+    bin(tail, { cwd: proj, env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stderr,
+    /^`--harness` belongs after the verb: `npx projectstore-codex agents configure --default opus`\n/,
+  );
   // A bare word after a verb's option, and no verb: the usage, as before — not "unknown verb: codex".
   const none = bin(["--harness", "codex"], { cwd: proj });
   assert.equal(none.status, 2);
@@ -1774,8 +2631,16 @@ test("cli per-verb parse: an error before the verb names the scanned verb, in th
   assert.equal(r.stderr, "doctor does not take --bogus\nRun `doctor --help` for the options.\n");
   // During the parse (a bad value) and after it (an argument past the form), and with no verb at all.
   for (const [argv, verb, error] of [
-    [["--json", "--project", "/tmp", "reconcile", "--only"], "reconcile", /^`--only` needs a value: `--only <target>`\nRun `reconcile --help`/],
-    [["--project", "/tmp", "show", "a.md", "b.md", "--json"], "show", /^`show <path>` takes no further argument `b\.md`\nRun `show --help`/],
+    [
+      ["--json", "--project", "/tmp", "reconcile", "--only"],
+      "reconcile",
+      /^`--only` needs a value: `--only <target>`\nRun `reconcile --help`/,
+    ],
+    [
+      ["--project", "/tmp", "show", "a.md", "b.md", "--json"],
+      "show",
+      /^`show <path>` takes no further argument `b\.md`\nRun `show --help`/,
+    ],
     [["--project", "/tmp", "frobnicate", "--json"], "frobnicate", /^unknown verb: frobnicate/],
     [["--project", "/tmp", "--bogus", "--json"], null, /^unknown option --bogus\nRun --help for the options\.$/],
     // A word after an option no verb declares is not its value: the option is named, as in 0.29.2.
@@ -1804,11 +2669,17 @@ test("cli per-verb parse: show, graph, agents, bind and init refuse an argument 
   ]) {
     const r = bin([...argv, "--project", proj]);
     assert.equal(r.status, 2, argv.join(" "));
-    assert.ok(r.stderr.startsWith(`${message}\nRun \`${argv[0]} --help\` for the options.\n`), `${argv.join(" ")}: ${r.stderr}`);
+    assert.ok(
+      r.stderr.startsWith(`${message}\nRun \`${argv[0]} --help\` for the options.\n`),
+      `${argv.join(" ")}: ${r.stderr}`,
+    );
   }
   assert.ok(!existsSync(vault), "init refused before it created anything");
   // The bound reads past "--" too, and says so.
-  assert.match(bin(["show", "--project", proj, "--", "adr/new-way.md", "-x"]).stderr, /^`show <path>` takes no further argument `-x` — everything after `--` is an argument\n/);
+  assert.match(
+    bin(["show", "--project", proj, "--", "adr/new-way.md", "-x"]).stderr,
+    /^`show <path>` takes no further argument `-x` — everything after `--` is an argument\n/,
+  );
   // A first word no form names: the verb's own message, as in 0.29.2.
   const graph = bin(["graph", "frob", "x", "--project", proj]);
   assert.equal(graph.status, 2);
@@ -1828,20 +2699,33 @@ test("cli per-verb parse: show, graph, agents, bind and init refuse an argument 
   const dashPath = bin(["show", "--json", "--project", proj, "--", "-not-there.md"]);
   assert.equal(dashPath.status, 2);
   assert.equal(envOf(dashPath).verb, "show");
-  assert.ok(!/takes no|does not take/.test(envOf(dashPath).result.error), `the verb answered: ${envOf(dashPath).result.error}`);
+  assert.ok(
+    !/takes no|does not take/.test(envOf(dashPath).result.error),
+    `the verb answered: ${envOf(dashPath).result.error}`,
+  );
 });
 
 test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, search's <phrase…>, no summary opens with its verb", () => {
   // 0.29.2's Usage lines, verb by verb; search's placeholder gains its variadic mark.
   const GOLDEN = {
     setup: ["setup [options]"],
-    doctor: ["doctor [options]"], reconcile: ["reconcile [options]"], plan: ["plan [options]"], install: ["install [options]"], uninstall: ["uninstall [options]"], upgrade: ["upgrade [options]"],
-    status: ["status [options]"], orientation: ["orientation [options]"], version: ["version [options]"], mcp: ["mcp"],
-    search: ["search <phrase…> [options]"], show: ["show <path> [options]"],
+    doctor: ["doctor [options]"],
+    reconcile: ["reconcile [options]"],
+    plan: ["plan [options]"],
+    install: ["install [options]"],
+    uninstall: ["uninstall [options]"],
+    upgrade: ["upgrade [options]"],
+    status: ["status [options]"],
+    orientation: ["orientation [options]"],
+    version: ["version [options]"],
+    mcp: ["mcp"],
+    search: ["search <phrase…> [options]"],
+    show: ["show <path> [options]"],
     graph: ["graph neighbors <path> [options]", "graph lineage <path> [options]"],
     codemap: ["codemap --for <selector> [options]"],
     agents: ["agents model <name> [options]", "agents show [options]", "agents configure [options]"],
-    bind: ["bind <vault> [options]"], init: ["init <vault> [options]"],
+    bind: ["bind <vault> [options]"],
+    init: ["init <vault> [options]"],
     scaffold: ["scaffold [options]"],
     band: ["band on [options]", "band off [options]", "band status [options]", "band epic <ID> [options]"],
   };
@@ -1850,8 +2734,16 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
     const h = bin([v.verb, "--help"]).stdout;
     // The header is the summary as written: nothing is parsed out of it.
     assert.ok(h.startsWith(`npx projectstore ${v.verb} — ${v.summary}\n\nUsage\n`), h.split("\n")[0]);
-    const block = h.split("\n\n").find((b) => b.startsWith("Usage\n")).split("\n").slice(1);
-    assert.deepEqual(block, GOLDEN[v.verb].map((l) => `  npx projectstore ${l}`), v.verb);
+    const block = h
+      .split("\n\n")
+      .find((b) => b.startsWith("Usage\n"))
+      .split("\n")
+      .slice(1);
+    assert.deepEqual(
+      block,
+      GOLDEN[v.verb].map((l) => `  npx projectstore ${l}`),
+      v.verb,
+    );
     assert.ok(!v.summary.startsWith(v.verb), `${v.verb}'s summary is prose, not a form`);
     assert.ok(Array.isArray(v.usage) && Object.isFrozen(v.usage), `${v.verb}.usage is a frozen list`);
     // A form's --option is one the row declares, and the word after it is that option's own placeholder.
@@ -1867,7 +2759,11 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
   }
   // No row retypes a global: --project takes a value, the rest are flags, on every verb.
   const GLOBALS = { project: true, json: false, help: false, version: false };
-  const retyped = VERBS.flatMap((v) => v.options.filter((o) => o.name in GLOBALS && Boolean(o.arg) !== GLOBALS[o.name]).map((o) => `${v.verb} --${o.name}`));
+  const retyped = VERBS.flatMap((v) =>
+    v.options
+      .filter((o) => o.name in GLOBALS && Boolean(o.arg) !== GLOBALS[o.name])
+      .map((o) => `${v.verb} --${o.name}`),
+  );
   assert.deepEqual(retyped, []);
 });
 
@@ -1884,7 +2780,10 @@ test("cli per-verb parse: a verb's option that takes a value takes the next toke
     const r = bin(argv, { cwd: proj });
     assert.equal(r.status, 2, argv.join(" "));
     assert.equal(r.stdout, "", `${argv.join(" ")}: neither help nor version`);
-    assert.ok(r.stderr.startsWith("`" + name + "` needs a value: `" + name + " " + arg + "`\n"), `${argv.join(" ")}: ${r.stderr}`);
+    assert.ok(
+      r.stderr.startsWith("`" + name + "` needs a value: `" + name + " " + arg + "`\n"),
+      `${argv.join(" ")}: ${r.stderr}`,
+    );
   }
   // There --json is the value, not the global: the refusal is on stderr only.
   const json = bin(["reconcile", "--only", "--json"], { cwd: proj });

@@ -31,10 +31,21 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { registrationDeferred } from "./harness.mjs";
 import { removeTreeUnder, pidAlive, whichOnPath } from "./lib.mjs";
-import { isPortablePluginRoot, payloadManifest, payloadManifestPath, payloadManifestPaths } from "./portable-registration.mjs";
+import {
+  isPortablePluginRoot,
+  payloadManifest,
+  payloadManifestPath,
+  payloadManifestPaths,
+} from "./portable-registration.mjs";
 import { runHost, startFailure, HOST_BUDGET_MS } from "./run-host.mjs";
 
-const readJson = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
+const readJson = (p) => {
+  try {
+    return JSON.parse(readFileSync(p, "utf8"));
+  } catch {
+    return null;
+  }
+};
 
 // The version a shell-rooted harness is fetched at has one source: the
 // package.json of the root the plan runs from — never `latest`, never a range.
@@ -65,9 +76,20 @@ const STAGING_VERBS = ["install", "upgrade", "setup"];
 //   ownShell     — the run is this harness's own shell's core (rule 8)
 //   env          — the run's: a named distribution root, a session marker or a
 //                  registration_defer_env variable
-export function fetchDecision({ verb, harness, s, excluded = false, named = false, interactive = false, analysis = null, ownShell = false, env = process.env } = {}) {
+export function fetchDecision({
+  verb,
+  harness,
+  s,
+  excluded = false,
+  named = false,
+  interactive = false,
+  analysis = null,
+  ownShell = false,
+  env = process.env,
+} = {}) {
   if (!STAGING_VERBS.includes(verb)) return { fetch: false, why: "verb" };
-  if (s?.condition !== "distribution_root" || !harness?.install?.shell) return { fetch: false, why: "not-shell-rooted" };
+  if (s?.condition !== "distribution_root" || !harness?.install?.shell)
+    return { fetch: false, why: "not-shell-rooted" };
   if (excluded) return { fetch: false, why: "excluded" };
   // A set root is used as is — a root or not — and nothing is fetched.
   if (env && env.PROJECTSTORE_DISTRIBUTION_ROOT) return { fetch: false, why: "root-named" };
@@ -100,9 +122,20 @@ export function fetchDecision({ verb, harness, s, excluded = false, named = fals
 // outer bound. --ignore-scripts: no install-time code from a registry runs.
 export function fetchArgv({ prefix, registry = null, shell, version }) {
   return [
-    "install", "--prefix", prefix, "--no-save", "--ignore-scripts", "--no-audit", "--no-fund", "--no-update-notifier", "--json",
+    "install",
+    "--prefix",
+    prefix,
+    "--no-save",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund",
+    "--no-update-notifier",
+    "--json",
     ...(registry ? ["--registry", registry] : []),
-    "--fetch-timeout=30000", "--fetch-retries=2", "--fetch-retry-mintimeout=1000", "--fetch-retry-maxtimeout=5000",
+    "--fetch-timeout=30000",
+    "--fetch-retries=2",
+    "--fetch-retry-mintimeout=1000",
+    "--fetch-retry-maxtimeout=5000",
     `${shell}@${version}`,
   ];
 }
@@ -132,7 +165,12 @@ export async function npmRegistry(projectDir, { env = process.env, spawn, budget
   const call = npmCall(["config", "get", "registry", "--no-update-notifier"], env);
   const r = await runHost(call.bin, call.argv, { env, cwd: projectDir, budget, spawn, shell: call.shell });
   if (r.error || r.status !== 0) return null;
-  const value = String(r.stdout || "").trim().split(/\r?\n/).pop()?.trim() || "";
+  const value =
+    String(r.stdout || "")
+      .trim()
+      .split(/\r?\n/)
+      .pop()
+      ?.trim() || "";
   return value && !/\s/.test(value) && value !== "undefined" ? value : null;
 }
 
@@ -157,10 +195,19 @@ export async function npmUserRegistry({ home = null, env = process.env, spawn, b
 export function npmError(stdout, stderr) {
   try {
     const e = JSON.parse(String(stdout || ""))?.error;
-    if (e && typeof e === "object") return { code: String(e.code || "") || null, summary: String(e.summary || "").trim(), detail: String(e.detail || "").trim() };
+    if (e && typeof e === "object")
+      return {
+        code: String(e.code || "") || null,
+        summary: String(e.summary || "").trim(),
+        detail: String(e.detail || "").trim(),
+      };
   } catch {}
   const code = String(stderr || "").match(/npm (?:error|ERR!) code (\S+)/)?.[1] || null;
-  const summary = String(stderr || "").split(/\r?\n/).map((l) => l.replace(/^npm (?:error|ERR!) ?/, "").trim()).find((l) => l && !/^code \S+$/.test(l) && !/complete log of this run/i.test(l)) || "";
+  const summary =
+    String(stderr || "")
+      .split(/\r?\n/)
+      .map((l) => l.replace(/^npm (?:error|ERR!) ?/, "").trim())
+      .find((l) => l && !/^code \S+$/.test(l) && !/complete log of this run/i.test(l)) || "";
   return { code, summary, detail: "" };
 }
 
@@ -172,7 +219,18 @@ const seconds = (ms) => `${Number((ms / 1000).toFixed(ms % 1000 ? 1 : 0))} s`;
 // cache). Every way out is a terminal command or a variable; none names a
 // version but the one this run is at.
 export function fetchRefusal(code, ctx = {}) {
-  const { pkg = "the shell", shell = "the shell", registry = null, display = "this harness", budget = HOST_BUDGET_MS, summary = "", cause = "", path = null, from = null, variable = null } = ctx;
+  const {
+    pkg = "the shell",
+    shell = "the shell",
+    registry = null,
+    display = "this harness",
+    budget = HOST_BUDGET_MS,
+    summary = "",
+    cause = "",
+    path = null,
+    from = null,
+    variable = null,
+  } = ctx;
   const where = registry || "the registry npm resolves";
   const without = `name --harness without ${display}`;
   switch (code) {
@@ -206,17 +264,20 @@ export function fetchRefusal(code, ctx = {}) {
 // naming the file and both values. Nothing is staged either way.
 export function verifyFetched(root, { shell, version, pluginName, coreName }) {
   const pkg = `${shell}@${version}`;
-  const mismatch = (file, what, got, want) => `the fetched ${pkg} is not what this run plans: ${file} has ${what} ${JSON.stringify(got ?? null)}, expected ${JSON.stringify(want)} — nothing is staged`;
+  const mismatch = (file, what, got, want) =>
+    `the fetched ${pkg} is not what this run plans: ${file} has ${what} ${JSON.stringify(got ?? null)}, expected ${JSON.stringify(want)} — nothing is staged`;
   const pkgFile = join(root, "package.json");
   const shellPkg = readJson(pkgFile);
   if (shellPkg?.name !== shell) return mismatch(pkgFile, "name", shellPkg?.name, shell);
   if (shellPkg?.version !== version) return mismatch(pkgFile, "version", shellPkg?.version, version);
-  if (!isPortablePluginRoot(root)) return `the fetched ${pkg} is not a plugin root: neither ${payloadManifestPaths(root).join(" nor ")} exists — nothing is staged`;
+  if (!isPortablePluginRoot(root))
+    return `the fetched ${pkg} is not a plugin root: neither ${payloadManifestPaths(root).join(" nor ")} exists — nothing is staged`;
   // Exactly the shell's one manifest, the one the host validates: a root
   // manifest would be read first and load no hooks, so it never passes.
   const manifestFile = payloadManifestPath(root, "legacy");
   const rootFile = payloadManifestPath(root, "root");
-  if (existsSync(rootFile)) return `the fetched ${pkg} carries ${rootFile}, which the host reads before ${manifestFile} and loads no hooks from — nothing is staged`;
+  if (existsSync(rootFile))
+    return `the fetched ${pkg} carries ${rootFile}, which the host reads before ${manifestFile} and loads no hooks from — nothing is staged`;
   const manifest = payloadManifest(root, { kind: "legacy" });
   if (!manifest) return `the fetched ${pkg} has no readable plugin manifest at ${manifestFile} — nothing is staged`;
   if (manifest.name !== pluginName) return mismatch(manifestFile, "name", manifest.name, pluginName);
@@ -231,7 +292,10 @@ export function verifyFetched(root, { shell, version, pluginName, coreName }) {
 // the run's environment. The payload root is computed, never read from npm's
 // output: npm's --json result printed it with one UUID-like segment redacted
 // as *** (measured). A failure is a refusal before the plan, never a fallback.
-export async function fetchShell({ harness, s, version, coreName }, { dir, registry = null, env = process.env, spawn, budget = HOST_BUDGET_MS } = {}) {
+export async function fetchShell(
+  { harness, s, version, coreName },
+  { dir, registry = null, env = process.env, spawn, budget = HOST_BUDGET_MS } = {},
+) {
   const shell = harness.install.shell;
   const pkg = `${shell}@${version}`;
   const ctx = { pkg, shell, registry, display: harness.display_name, budget };
@@ -240,16 +304,31 @@ export async function fetchShell({ harness, s, version, coreName }, { dir, regis
   const r = await runHost(call.bin, call.argv, { env, cwd: dir, budget, spawn, shell: call.shell });
   const ms = Date.now() - t0;
   if (r.error) {
-    if (r.error.code === "ETIMEDOUT") return { ok: false, ms, code: "ETIMEDOUT", refusal: fetchRefusal("EBUDGET", ctx) };
-    return { ok: false, ms, code: r.error.code || "ESTART", refusal: fetchRefusal("ESTART", { ...ctx, cause: startFailure(r.error, { bin: "npm", resolved: call.resolved, cwd: dir }) }) };
+    if (r.error.code === "ETIMEDOUT")
+      return { ok: false, ms, code: "ETIMEDOUT", refusal: fetchRefusal("EBUDGET", ctx) };
+    return {
+      ok: false,
+      ms,
+      code: r.error.code || "ESTART",
+      refusal: fetchRefusal("ESTART", {
+        ...ctx,
+        cause: startFailure(r.error, { bin: "npm", resolved: call.resolved, cwd: dir }),
+      }),
+    };
   }
   if (r.status !== 0) {
     const e = npmError(r.stdout, r.stderr);
     // npm reports a request it gave up on as FETCH_ERROR, "network timeout
     // at: <url>" (measured in review, 2026-10-08), not as ETIMEDOUT.
     const timeout = e.code === "FETCH_ERROR" && /network timeout at:\s*(\S+)/.exec(e.summary);
-    if (timeout) return { ok: false, ms, code: e.code, refusal: fetchRefusal("FETCH_TIMEOUT", { ...ctx, url: timeout[1] }) };
-    return { ok: false, ms, code: e.code || `exit ${r.status}`, refusal: fetchRefusal(e.code, { ...ctx, summary: e.summary }) };
+    if (timeout)
+      return { ok: false, ms, code: e.code, refusal: fetchRefusal("FETCH_TIMEOUT", { ...ctx, url: timeout[1] }) };
+    return {
+      ok: false,
+      ms,
+      code: e.code || `exit ${r.status}`,
+      refusal: fetchRefusal(e.code, { ...ctx, summary: e.summary }),
+    };
   }
   const root = join(dir, "node_modules", shell);
   const wrong = verifyFetched(root, { shell, version, pluginName: s.plugin_name, coreName });
@@ -270,14 +349,21 @@ export function fetchRunId() {
 // dead run's directory is caught by a later sweep: it converges.
 export function sweepFetchRuns(fetchDir) {
   let names;
-  try { names = readdirSync(fetchDir); } catch { return []; }
+  try {
+    names = readdirSync(fetchDir);
+  } catch {
+    return [];
+  }
   const removed = [];
   for (const n of names) {
     const m = /^(\d+)-\d+$/.exec(n);
     if (!m) continue;
     const pid = Number(m[1]);
     if (!pid || pid === process.pid || pidAlive(pid)) continue;
-    try { removeTreeUnder(join(fetchDir, n), fetchDir, { maxRetries: 3 }); removed.push(n); } catch {}
+    try {
+      removeTreeUnder(join(fetchDir, n), fetchDir, { maxRetries: 3 });
+      removed.push(n);
+    } catch {}
   }
   return removed;
 }

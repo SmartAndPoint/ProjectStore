@@ -40,11 +40,7 @@ const VERSION_SITES = [
   // Found by name, not by position: `plugins[0]` reads a sibling plugin's
   // version the moment the marketplace lists more than one, and reports the
   // disagreement against the wrong file.
-  [
-    ".claude-plugin/marketplace.json",
-    (j) => j.plugins?.find((p) => p.name === "projectstore")?.version,
-    true,
-  ],
+  [".claude-plugin/marketplace.json", (j) => j.plugins?.find((p) => p.name === "projectstore")?.version, true],
   // The lockfile, committed since the lint ADR, records the root package's
   // version twice. `npm version` rewrites both; a hand edit of package.json
   // leaves both behind, and this is where that shows.
@@ -63,34 +59,51 @@ export function collectShells(root = ROOT) {
   if (!existsSync(dir)) return { shells: [] };
   const shells = [];
   // Directories only: a .DS_Store Finder drops on a browse is not a shell.
-  for (const name of readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort()) {
+  for (const name of readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort()) {
     const rel = `${SHELLS_DIR}/${name}/package.json`;
     const abs = resolve(root, rel);
     if (!existsSync(abs)) return { error: `${rel}: missing — every directory under ${SHELLS_DIR}/ is a shell` };
     let json;
-    try { json = JSON.parse(readFileSync(abs, "utf8")); } catch (e) { return { error: `${rel}: ${e.message}` }; }
+    try {
+      json = JSON.parse(readFileSync(abs, "utf8"));
+    } catch (e) {
+      return { error: `${rel}: ${e.message}` };
+    }
     if (json.name !== name) return { error: `${rel}: name "${json.name}" is not its directory's` };
-    if (typeof json.version !== "string" || !json.version) return { error: `${rel}: no version found where one is required` };
+    if (typeof json.version !== "string" || !json.version)
+      return { error: `${rel}: no version found where one is required` };
     const pluginVersions = [];
     if (name === "projectstore-codex") {
       // A root plugin.json is an Agent Plugins manifest Codex picks first, and
       // Codex loads no hooks from that format (openai/codex#37027, merged
       // 2026-08-05): every hook goes missing.
       if (existsSync(resolve(root, SHELLS_DIR, name, "plugin.json"))) {
-        return { error: `${SHELLS_DIR}/${name}/plugin.json: refused — Codex picks a root Agent Plugins manifest first and loads no hooks from it (openai/codex#37027; codex-rs/core-plugins/src/loader.rs); the shell's manifest is .codex-plugin/plugin.json alone` };
+        return {
+          error: `${SHELLS_DIR}/${name}/plugin.json: refused — Codex picks a root Agent Plugins manifest first and loads no hooks from it (openai/codex#37027; codex-rs/core-plugins/src/loader.rs); the shell's manifest is .codex-plugin/plugin.json alone`,
+        };
       }
       for (const manifest of [".codex-plugin/plugin.json"]) {
         const manifestRel = `${SHELLS_DIR}/${name}/${manifest}`;
         const manifestAbs = resolve(root, manifestRel);
         if (!existsSync(manifestAbs)) return { error: `${manifestRel}: missing — the Codex shell's one manifest` };
         let parsed;
-        try { parsed = JSON.parse(readFileSync(manifestAbs, "utf8")); } catch (e) { return { error: `${manifestRel}: ${e.message}` }; }
-        if (typeof parsed.version !== "string" || !parsed.version) return { error: `${manifestRel}: no version found where one is required` };
+        try {
+          parsed = JSON.parse(readFileSync(manifestAbs, "utf8"));
+        } catch (e) {
+          return { error: `${manifestRel}: ${e.message}` };
+        }
+        if (typeof parsed.version !== "string" || !parsed.version)
+          return { error: `${manifestRel}: no version found where one is required` };
         pluginVersions.push({ file: manifestRel, version: parsed.version });
       }
     }
     shells.push({
-      name, file: rel, version: json.version,
+      name,
+      file: rel,
+      version: json.version,
       pin: json.dependencies?.projectstore ?? null,
       private: json.private === true,
       bin: json.bin?.[name] ?? null,
@@ -109,7 +122,9 @@ function die(msg) {
 
 export function collectVersions(root = ROOT) {
   if (existsSync(resolve(root, ".codex-plugin", "plugin.json"))) {
-    return { error: ".codex-plugin/plugin.json must live in the projectstore-codex shell, not at the core package root" };
+    return {
+      error: ".codex-plugin/plugin.json must live in the projectstore-codex shell, not at the core package root",
+    };
   }
   const found = [];
   for (const [rel, pick, required] of VERSION_SITES) {
@@ -143,7 +158,10 @@ export function checkVersions({ root = ROOT, tag = null } = {}) {
   if (sh.error) return { ok: false, error: sh.error };
 
   // A shell's version is one more site under the same rule.
-  const sites = [...found, ...sh.shells.flatMap((s) => [{ file: s.file, version: s.version }, ...(s.pluginVersions || [])])];
+  const sites = [
+    ...found,
+    ...sh.shells.flatMap((s) => [{ file: s.file, version: s.version }, ...(s.pluginVersions || [])]),
+  ];
   if (tag) sites.push({ file: "<tag>", version: stripV(tag) });
   const distinct = [...new Set(sites.map((s) => s.version))];
   if (distinct.length !== 1) return { ok: false, error: "version mismatch", versions: distinct, checked: sites };
@@ -152,11 +170,32 @@ export function checkVersions({ root = ROOT, tag = null } = {}) {
   // is the one file it ships. A range here is the unverified pairing the
   // shells ADR rejects; a missing bundle ships an installer with no core.
   for (const s of sh.shells) {
-    if (s.pin !== `=${s.version}`) return { ok: false, error: "shell pin mismatch", shell: s.name, pin: s.pin, expected: `=${s.version}`, checked: sites };
+    if (s.pin !== `=${s.version}`)
+      return {
+        ok: false,
+        error: "shell pin mismatch",
+        shell: s.name,
+        pin: s.pin,
+        expected: `=${s.version}`,
+        checked: sites,
+      };
     if (!s.bundled) return { ok: false, error: "shell does not bundle the core", shell: s.name, checked: sites };
-    if (s.bin !== `bin/${s.name}.mjs` || !s.binExists) return { ok: false, error: "shell bin missing or misnamed", shell: s.name, bin: s.bin, expected: `bin/${s.name}.mjs`, checked: sites };
+    if (s.bin !== `bin/${s.name}.mjs` || !s.binExists)
+      return {
+        ok: false,
+        error: "shell bin missing or misnamed",
+        shell: s.name,
+        bin: s.bin,
+        expected: `bin/${s.name}.mjs`,
+        checked: sites,
+      };
   }
-  return { ok: true, version: distinct[0], checked: sites, shells: sh.shells.map((s) => ({ name: s.name, private: s.private })) };
+  return {
+    ok: true,
+    version: distinct[0],
+    checked: sites,
+    shells: sh.shells.map((s) => ({ name: s.name, private: s.private })),
+  };
 }
 
 // Everything at the repository root that is deliberately NOT in the tarball.
@@ -202,12 +241,8 @@ export const NOT_SHIPPED = new Set([
 // pure — it takes the tree listing rather than reading it — so a test can hand
 // it a directory that does not exist and watch it fail.
 export function unshippedTopLevel(entries, packlist) {
-  const shipped = new Set(
-    packlist.map((p) => (p.includes("/") ? p.slice(0, p.indexOf("/")) : p)),
-  );
-  return entries
-    .filter((e) => e !== "." && e !== ".." && !shipped.has(e) && !NOT_SHIPPED.has(e))
-    .sort();
+  const shipped = new Set(packlist.map((p) => (p.includes("/") ? p.slice(0, p.indexOf("/")) : p)));
+  return entries.filter((e) => e !== "." && e !== ".." && !shipped.has(e) && !NOT_SHIPPED.has(e)).sort();
 }
 
 // The packlist is the second release-time invariant: what npm would actually
@@ -256,13 +291,15 @@ async function main(argv) {
       for (const b of built.shells) {
         if (b.error) die(b.error);
         const rel = m.shellPacklistPath(b.name);
-        try { writeFileAtomic(resolve(ROOT, rel), JSON.stringify(b.files, null, 2) + "\n"); } catch (e) { die(`${rel}: ${e.message}`); }
+        try {
+          writeFileAtomic(resolve(ROOT, rel), JSON.stringify(b.files, null, 2) + "\n");
+        } catch (e) {
+          die(`${rel}: ${e.message}`);
+        }
         shells.push({ wrote: rel, count: b.files.length });
       }
     }
-    process.stdout.write(
-      JSON.stringify({ ok: true, wrote: PACKLIST, count: files.length, shells }) + "\n",
-    );
+    process.stdout.write(JSON.stringify({ ok: true, wrote: PACKLIST, count: files.length, shells }) + "\n");
     return;
   }
 

@@ -55,16 +55,59 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import * as term from "./term.mjs";
-import { projectRootDeclared, childEnv, harnessIds, harnessForOverlay, pinPluginRoot, invokedAs, loadHarnesses, invocation } from "./harness.mjs";
-import { readConfigAt, readOverlayAt, resolveAgentModel, writeOverlayAt, overlayId, layoutRoster, commandForm, projectDirRefusal, doctorFallbackText } from "./lib.mjs";
-import { READ_OPERATIONS, LINEAGE_KINDS, LINEAGE_DEFAULT_DEPTH, SEARCH_DEFAULT_LIMIT, GRAPH_EDGE_CAP, DIRECTIONS } from "./query.mjs";
+import {
+  projectRootDeclared,
+  childEnv,
+  harnessIds,
+  harnessForOverlay,
+  pinPluginRoot,
+  invokedAs,
+  loadHarnesses,
+  invocation,
+} from "./harness.mjs";
+import {
+  readConfigAt,
+  readOverlayAt,
+  resolveAgentModel,
+  writeOverlayAt,
+  overlayId,
+  layoutRoster,
+  commandForm,
+  projectDirRefusal,
+  doctorFallbackText,
+} from "./lib.mjs";
+import {
+  READ_OPERATIONS,
+  LINEAGE_KINDS,
+  LINEAGE_DEFAULT_DEPTH,
+  SEARCH_DEFAULT_LIMIT,
+  GRAPH_EDGE_CAP,
+  DIRECTIONS,
+} from "./query.mjs";
 // binding.mjs and scaffold.mjs beneath it are write modules imported
 // statically where the install family is lazy: dependency-free, with no side
 // effects at import, so the MCP server's module graph gains nothing it could
 // trip on.
-import { planBind, applyBind, renderBindPlan, bindResult, bindFailed, normaliseVaultPath, shellQuote, DEFAULT_LAYOUT, DEFAULT_LANGUAGE } from "./binding.mjs";
+import {
+  planBind,
+  applyBind,
+  renderBindPlan,
+  bindResult,
+  bindFailed,
+  normaliseVaultPath,
+  shellQuote,
+  DEFAULT_LAYOUT,
+  DEFAULT_LANGUAGE,
+} from "./binding.mjs";
 import { planScaffold, applyScaffold, scaffoldResult, renderScaffoldPlan } from "./scaffold.mjs";
-import { planBand, applyBand, bandStatus, renderBandStatus, renderBandPlan, SUBCOMMANDS as BAND_SUBCOMMANDS } from "./band.mjs";
+import {
+  planBand,
+  applyBand,
+  bandStatus,
+  renderBandStatus,
+  renderBandPlan,
+  SUBCOMMANDS as BAND_SUBCOMMANDS,
+} from "./band.mjs";
 
 export const SCHEMA_VERSION = 1;
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -72,7 +115,11 @@ export const PACKAGE_ROOT = dirname(HERE);
 const script = (name) => resolve(HERE, name);
 
 export function packageVersion() {
-  try { return String(JSON.parse(readFileSync(resolve(PACKAGE_ROOT, "package.json"), "utf8")).version || ""); } catch { return ""; }
+  try {
+    return String(JSON.parse(readFileSync(resolve(PACKAGE_ROOT, "package.json"), "utf8")).version || "");
+  } catch {
+    return "";
+  }
 }
 
 export function envelope(verb, project, ok, result) {
@@ -108,147 +155,414 @@ const JSON_OPT = opt("json", false, "the envelope");
 // verb: the scan knows their arity before it knows the verb (--project takes
 // a value, the rest do not). Last in every parser map, so a row cannot
 // retype one. SHORT is their one-letter forms (`-hv`: version wins).
-const GLOBAL_OPTS = Object.freeze([opt("project", "<dir>", "the project"), JSON_OPT, opt("help", false, "the help"), opt("version", false, "the package version")]);
+const GLOBAL_OPTS = Object.freeze([
+  opt("project", "<dir>", "the project"),
+  JSON_OPT,
+  opt("help", false, "the help"),
+  opt("version", false, "the package version"),
+]);
 const SHORT = Object.freeze({ help: "h", version: "v" });
 const NO_FORMS = Object.freeze([]);
 const READ_JSON = [JSON_OPT];
-const HARNESS_OPT = opt("harness", "<id>", "the harness — and, without a terminal, the confirmation (a terminal is asked); there is no --yes", true);
+const HARNESS_OPT = opt(
+  "harness",
+  "<id>",
+  "the harness — and, without a terminal, the confirmation (a terminal is asked); there is no --yes",
+  true,
+);
 const SURFACE_OPT = opt("surface", "<key>", "one surface and those beneath it", true);
 // The layout move's remedy names this for any copy but the package's own
 // registration (the layout spec, contract 12 as amended 2026-10-03): it makes
 // "no host command" true by construction instead of by recognising the root.
-const NO_REGISTER_OPT = opt("no-register", false, "leave the plugin registration alone: change only this project's files");
+const NO_REGISTER_OPT = opt(
+  "no-register",
+  false,
+  "leave the plugin registration alone: change only this project's files",
+);
 const VERBOSE_OPT = opt("verbose", false, "every row's reasoning, each step's why and the host's own notes");
 // doctor's --verbose is the same flag in its own words: on a terminal, the
 // report the pipe gets — every note, every instance, each message whole.
-const DOCTOR_VERBOSE_OPT = opt(VERBOSE_OPT.name, VERBOSE_OPT.arg, "on a terminal too: every note, every instance, whole messages");
+const DOCTOR_VERBOSE_OPT = opt(
+  VERBOSE_OPT.name,
+  VERBOSE_OPT.arg,
+  "on a terminal too: every note, every instance, whole messages",
+);
 const INSTALL_OPTS = [HARNESS_OPT, SURFACE_OPT, NO_REGISTER_OPT, VERBOSE_OPT, JSON_OPT];
-const UNINSTALL_OPTS = [HARNESS_OPT, SURFACE_OPT, opt("global", false, "also remove the harness-global plugin registration"), VERBOSE_OPT, JSON_OPT];
+const UNINSTALL_OPTS = [
+  HARNESS_OPT,
+  SURFACE_OPT,
+  opt("global", false, "also remove the harness-global plugin registration"),
+  VERBOSE_OPT,
+  JSON_OPT,
+];
 
 // setup's own options (the setup story, rule 1): seven, beside the globals.
 // `--vault <path>` takes a value here where doctor's `--vault` is a flag —
 // the per-verb parse's own case.
 const SETUP_OPTS = [
   HARNESS_OPT,
-  opt("vault", "<path>", "the vault: an existing folder is bound, a missing or empty one is created (naming it confirms)"),
+  opt(
+    "vault",
+    "<path>",
+    "the vault: an existing folder is bound, a missing or empty one is created (naming it confirms)",
+  ),
   opt("layout", "<name>", `a new vault's layout (default ${DEFAULT_LAYOUT})`),
   opt("language", "<code>", `a new vault's template language (default ${DEFAULT_LANGUAGE})`),
-  opt("channel", "<npm|git>", "with a git-marketplace copy enabled, without a terminal: npm switches to the npm install, git keeps the git marketplace"),
+  opt(
+    "channel",
+    "<npm|git>",
+    "with a git-marketplace copy enabled, without a terminal: npm switches to the npm install, git keeps the git marketplace",
+  ),
   opt("dry-run", false, "the questions and the plan; nothing is written or fetched"),
   VERBOSE_OPT,
 ];
 
 export const VERBS = Object.freeze([
   Object.freeze({
-    verb: "setup", summary: "Set up this project: every harness it uses, and a vault.", usage: NO_FORMS,
-    module: "./setup.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
-    options: [...SETUP_OPTS, JSON_OPT], run: runSetupVerb,
+    verb: "setup",
+    summary: "Set up this project: every harness it uses, and a vault.",
+    usage: NO_FORMS,
+    module: "./setup.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: false,
+    mcp: Object.freeze([]),
+    options: [...SETUP_OPTS, JSON_OPT],
+    run: runSetupVerb,
   }),
   Object.freeze({
-    verb: "doctor", summary: "Check the install wiring and the vault's consistency.", usage: NO_FORMS,
-    module: "./doctor.mjs", wraps: "script", how: "spawn", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze(["doctor"]),
-    options: [opt("install", false, "only the install section"), opt("vault", false, "only the vault section"), DOCTOR_VERBOSE_OPT, JSON_OPT],
+    verb: "doctor",
+    summary: "Check the install wiring and the vault's consistency.",
+    usage: NO_FORMS,
+    module: "./doctor.mjs",
+    wraps: "script",
+    how: "spawn",
+    output: "envelope",
+    writes: false,
+    requiresBinding: false,
+    mcp: Object.freeze(["doctor"]),
+    options: [
+      opt("install", false, "only the install section"),
+      opt("vault", false, "only the vault section"),
+      DOCTOR_VERBOSE_OPT,
+      JSON_OPT,
+    ],
     run: runDoctor,
   }),
   Object.freeze({
-    verb: "reconcile", summary: "Regenerate the derived views (kanban, code map, graph, indexes).", usage: NO_FORMS,
-    module: "./reconcile.mjs", wraps: "module", how: "import", output: "envelope", writes: true, requiresBinding: true, mcp: Object.freeze([]),
-    options: [opt("write", false, "apply the regeneration (asks on a terminal; --only names what is written and confirms headless)"), opt("only", "<target>", "one derived view"), JSON_OPT],
+    verb: "reconcile",
+    summary: "Regenerate the derived views (kanban, code map, graph, indexes).",
+    usage: NO_FORMS,
+    module: "./reconcile.mjs",
+    wraps: "module",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt(
+        "write",
+        false,
+        "apply the regeneration (asks on a terminal; --only names what is written and confirms headless)",
+      ),
+      opt("only", "<target>", "one derived view"),
+      JSON_OPT,
+    ],
     run: runReconcile,
   }),
   Object.freeze({
-    verb: "plan", summary: "Show what install would write for a harness, without writing.", usage: NO_FORMS,
-    module: "./install-harness.mjs", wraps: "module", how: "import", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze([]),
-    options: INSTALL_OPTS, run: runInstallVerb,
+    verb: "plan",
+    summary: "Show what install would write for a harness, without writing.",
+    usage: NO_FORMS,
+    module: "./install-harness.mjs",
+    wraps: "module",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: false,
+    mcp: Object.freeze([]),
+    options: INSTALL_OPTS,
+    run: runInstallVerb,
   }),
   Object.freeze({
-    verb: "install", summary: "Install projectstore's surfaces for a harness, behind a preview.", usage: NO_FORMS,
-    module: "./install-harness.mjs", wraps: "module", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
-    options: INSTALL_OPTS, run: runInstallVerb,
+    verb: "install",
+    summary: "Install projectstore's surfaces for a harness, behind a preview.",
+    usage: NO_FORMS,
+    module: "./install-harness.mjs",
+    wraps: "module",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: false,
+    mcp: Object.freeze([]),
+    options: INSTALL_OPTS,
+    run: runInstallVerb,
   }),
   Object.freeze({
-    verb: "uninstall", summary: "Remove what install wrote, and only that.", usage: NO_FORMS,
-    module: "./install-harness.mjs", wraps: "module", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
-    options: UNINSTALL_OPTS, run: runInstallVerb,
+    verb: "uninstall",
+    summary: "Remove what install wrote, and only that.",
+    usage: NO_FORMS,
+    module: "./install-harness.mjs",
+    wraps: "module",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: false,
+    mcp: Object.freeze([]),
+    options: UNINSTALL_OPTS,
+    run: runInstallVerb,
   }),
   Object.freeze({
-    verb: "upgrade", summary: "After an update, refresh what install wrote and leave the rest.", usage: NO_FORMS,
-    module: "./install-harness.mjs", wraps: "module", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
-    options: INSTALL_OPTS, run: runInstallVerb,
+    verb: "upgrade",
+    summary: "After an update, refresh what install wrote and leave the rest.",
+    usage: NO_FORMS,
+    module: "./install-harness.mjs",
+    wraps: "module",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: false,
+    mcp: Object.freeze([]),
+    options: INSTALL_OPTS,
+    run: runInstallVerb,
   }),
   Object.freeze({
-    verb: "status", summary: "What is bound, what is in progress, and whether views are fresh.", usage: NO_FORMS,
-    module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze(["status"]),
-    options: READ_JSON, run: runRead("status"),
+    verb: "status",
+    summary: "What is bound, what is in progress, and whether views are fresh.",
+    usage: NO_FORMS,
+    module: "./query.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: false,
+    mcp: Object.freeze(["status"]),
+    options: READ_JSON,
+    run: runRead("status"),
   }),
   Object.freeze({
-    verb: "orientation", summary: "The SessionStart skeleton and the facts behind it.", usage: NO_FORMS,
-    module: "./query.mjs", wraps: "module", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["orientation"]),
-    options: READ_JSON, run: runRead("orientation"),
+    verb: "orientation",
+    summary: "The SessionStart skeleton and the facts behind it.",
+    usage: NO_FORMS,
+    module: "./query.mjs",
+    wraps: "module",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: true,
+    mcp: Object.freeze(["orientation"]),
+    options: READ_JSON,
+    run: runRead("orientation"),
   }),
   Object.freeze({
-    verb: "search", summary: "Find a phrase in the vault's artifacts, literal and bounded.", usage: Object.freeze(["<phrase…>"]),
-    module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["search"]),
-    options: [opt("kind", "<type>", "only artifacts of this kind", true), opt("status", "<status>", "only artifacts in this status"), opt("limit", "<n>", `at most n matches (default ${SEARCH_DEFAULT_LIMIT}, hard cap 100)`), opt("include-derived", false, "search the derived views too"), opt("case-sensitive", false, "match case"), JSON_OPT],
+    verb: "search",
+    summary: "Find a phrase in the vault's artifacts, literal and bounded.",
+    usage: Object.freeze(["<phrase…>"]),
+    module: "./query.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: true,
+    mcp: Object.freeze(["search"]),
+    options: [
+      opt("kind", "<type>", "only artifacts of this kind", true),
+      opt("status", "<status>", "only artifacts in this status"),
+      opt("limit", "<n>", `at most n matches (default ${SEARCH_DEFAULT_LIMIT}, hard cap 100)`),
+      opt("include-derived", false, "search the derived views too"),
+      opt("case-sensitive", false, "match case"),
+      JSON_OPT,
+    ],
     run: runRead("search"),
   }),
   Object.freeze({
-    verb: "show", summary: "One artifact's frontmatter; its body or a section on request.", usage: Object.freeze(["<path>"]),
-    module: "./query.mjs", wraps: "module", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["get_artifact"]),
-    options: [opt("body", false, "include the body"), opt("section", "<id>", "one section by its registry id (description, acceptance, …)"), JSON_OPT],
+    verb: "show",
+    summary: "One artifact's frontmatter; its body or a section on request.",
+    usage: Object.freeze(["<path>"]),
+    module: "./query.mjs",
+    wraps: "module",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: true,
+    mcp: Object.freeze(["get_artifact"]),
+    options: [
+      opt("body", false, "include the body"),
+      opt("section", "<id>", "one section by its registry id (description, acceptance, …)"),
+      JSON_OPT,
+    ],
     run: runRead("show"),
   }),
   Object.freeze({
-    verb: "graph", summary: "The live link graph by vault path.", usage: Object.freeze(["neighbors <path>", "lineage <path>"]),
-    module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["neighbors", "lineage"]),
-    options: [opt("kind", "<edge-kind>", "only edges of this kind (lineage: one of its four)", true), opt("direction", DIRECTIONS.join("|"), "neighbors: which edges"), opt("depth", "<n>", `lineage: how far (default ${LINEAGE_DEFAULT_DEPTH})`), opt("limit", "<n>", `neighbors: cap per direction (at most ${GRAPH_EDGE_CAP})`), JSON_OPT],
+    verb: "graph",
+    summary: "The live link graph by vault path.",
+    usage: Object.freeze(["neighbors <path>", "lineage <path>"]),
+    module: "./query.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: true,
+    mcp: Object.freeze(["neighbors", "lineage"]),
+    options: [
+      opt("kind", "<edge-kind>", "only edges of this kind (lineage: one of its four)", true),
+      opt("direction", DIRECTIONS.join("|"), "neighbors: which edges"),
+      opt("depth", "<n>", `lineage: how far (default ${LINEAGE_DEFAULT_DEPTH})`),
+      opt("limit", "<n>", `neighbors: cap per direction (at most ${GRAPH_EDGE_CAP})`),
+      JSON_OPT,
+    ],
     run: runGraph,
   }),
   Object.freeze({
-    verb: "codemap", summary: "The code an epic or artifact maps to, or a path's artifacts.", usage: Object.freeze(["--for <selector>"]),
-    module: "./query.mjs", wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: true, mcp: Object.freeze(["code_refs"]),
-    options: [opt("for", "<selector>", "an epic id, an artifact, or a repo path"), opt("reverse", false, "read the selector as a path even if it names an artifact"), JSON_OPT],
+    verb: "codemap",
+    summary: "The code an epic or artifact maps to, or a path's artifacts.",
+    usage: Object.freeze(["--for <selector>"]),
+    module: "./query.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: true,
+    mcp: Object.freeze(["code_refs"]),
+    options: [
+      opt("for", "<selector>", "an epic id, an artifact, or a repo path"),
+      opt("reverse", false, "read the selector as a path even if it names an artifact"),
+      JSON_OPT,
+    ],
     run: runCodemap,
   }),
   Object.freeze({
-    verb: "agents", summary: "The harness overlay's agents block: the model each agent runs.", usage: Object.freeze(["model <name>", "show", "configure"]),
-    module: "./lib.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
-    options: [opt("harness", "<id>", "configure: the overlay to write — and, non-interactively, the confirmation; there is no --yes", true), opt("default", "<model>", "configure: agents.default.model (pins the clerk to sonnet unless --agent clerk=… says otherwise; an empty model clears it)"), opt("agent", "<name>=<model>", "configure: agents.per_agent.<name>.model (an empty model removes the key)", true), opt("reset", false, "configure: empty the agents block first; --default and --agent given with it apply on top"), JSON_OPT],
+    verb: "agents",
+    summary: "The harness overlay's agents block: the model each agent runs.",
+    usage: Object.freeze(["model <name>", "show", "configure"]),
+    module: "./lib.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: false,
+    mcp: Object.freeze([]),
+    options: [
+      opt(
+        "harness",
+        "<id>",
+        "configure: the overlay to write — and, non-interactively, the confirmation; there is no --yes",
+        true,
+      ),
+      opt(
+        "default",
+        "<model>",
+        "configure: agents.default.model (pins the clerk to sonnet unless --agent clerk=… says otherwise; an empty model clears it)",
+      ),
+      opt("agent", "<name>=<model>", "configure: agents.per_agent.<name>.model (an empty model removes the key)", true),
+      opt("reset", false, "configure: empty the agents block first; --default and --agent given with it apply on top"),
+      JSON_OPT,
+    ],
     run: runAgents,
   }),
   Object.freeze({
-    verb: "band", summary: "The band above the prompt: switch it, pin an epic, ask why.", usage: Object.freeze(["on", "off", "status", "epic <ID>"]),
-    module: "./band.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: true, mcp: Object.freeze([]),
+    verb: "band",
+    summary: "The band above the prompt: switch it, pin an epic, ask why.",
+    usage: Object.freeze(["on", "off", "status", "epic <ID>"]),
+    module: "./band.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
     options: [JSON_OPT],
     run: runBand,
   }),
   Object.freeze({
-    verb: "bind", summary: "Bind this project to an existing vault; naming it confirms.", usage: Object.freeze(["<vault>"]),
-    module: "./binding.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
-    options: [opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`), opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`), opt("rebind", false, "point an already bound project at another vault; every other setting is kept"), JSON_OPT],
+    verb: "bind",
+    summary: "Bind this project to an existing vault; naming it confirms.",
+    usage: Object.freeze(["<vault>"]),
+    module: "./binding.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: false,
+    mcp: Object.freeze([]),
+    options: [
+      opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`),
+      opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`),
+      opt("rebind", false, "point an already bound project at another vault; every other setting is kept"),
+      JSON_OPT,
+    ],
     run: runBind(false),
   }),
   Object.freeze({
-    verb: "init", summary: "Create a vault (folder, git repository, READMEs) and bind to it.", usage: Object.freeze(["<vault>"]),
-    module: "./binding.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
-    options: [opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`), opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`), opt("rebind", false, "an already bound project: create the new vault and point the project at it; every other setting is kept"), JSON_OPT],
+    verb: "init",
+    summary: "Create a vault (folder, git repository, READMEs) and bind to it.",
+    usage: Object.freeze(["<vault>"]),
+    module: "./binding.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: false,
+    mcp: Object.freeze([]),
+    options: [
+      opt("layout", "<name>", `the layout (default ${DEFAULT_LAYOUT})`),
+      opt("language", "<code>", `the template language (default ${DEFAULT_LANGUAGE})`),
+      opt(
+        "rebind",
+        false,
+        "an already bound project: create the new vault and point the project at it; every other setting is kept",
+      ),
+      JSON_OPT,
+    ],
     run: runBind(true),
   }),
   Object.freeze({
-    verb: "scaffold", summary: "Create the vault's missing folders and READMEs; rewrite nothing.", usage: NO_FORMS,
-    module: "./scaffold.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: true, mcp: Object.freeze([]),
-    options: [opt("write", false, "create them (asks at a terminal; without one, --write is the confirmation)"), JSON_OPT],
+    verb: "scaffold",
+    summary: "Create the vault's missing folders and READMEs; rewrite nothing.",
+    usage: NO_FORMS,
+    module: "./scaffold.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("write", false, "create them (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
     run: runScaffold,
   }),
   Object.freeze({
-    verb: "mcp", summary: "Serve the read tools over MCP (stdio) for the project you name.", usage: NO_FORMS,
-    module: "./mcp.mjs", wraps: "new", how: "import", output: "text", writes: false, requiresBinding: false, mcp: Object.freeze([]),
-    options: [], run: runMcp,
+    verb: "mcp",
+    summary: "Serve the read tools over MCP (stdio) for the project you name.",
+    usage: NO_FORMS,
+    module: "./mcp.mjs",
+    wraps: "new",
+    how: "import",
+    output: "text",
+    writes: false,
+    requiresBinding: false,
+    mcp: Object.freeze([]),
+    options: [],
+    run: runMcp,
   }),
   Object.freeze({
-    verb: "version", summary: "Print the package version (also --version).", usage: NO_FORMS,
-    module: null, wraps: "new", how: "import", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze([]),
-    options: [JSON_OPT], run: runVersion,
+    verb: "version",
+    summary: "Print the package version (also --version).",
+    usage: NO_FORMS,
+    module: null,
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: false,
+    mcp: Object.freeze([]),
+    options: [JSON_OPT],
+    run: runVersion,
   }),
 ]);
 
@@ -288,10 +602,22 @@ export const SUMMARY_MAX = 80 - (2 + VERB_COLUMN + 1);
 // its display name and its doctor form (switchHarness, below); an example
 // naming them is left out when no manifest has one.
 const EXAMPLES = {
-  setup: ["{cmd} setup", "{cmd} setup --dry-run  # the questions and the plan; nothing is written or fetched", "{cmd} setup{h} --vault ~/vaults/my-project  # without a terminal: --harness confirms, --vault names the vault"],
+  setup: [
+    "{cmd} setup",
+    "{cmd} setup --dry-run  # the questions and the plan; nothing is written or fetched",
+    "{cmd} setup{h} --vault ~/vaults/my-project  # without a terminal: --harness confirms, --vault names the vault",
+  ],
   install: ["{cmd} install{h}", "{cmd} plan{h}  # the same plan; nothing is written"],
-  upgrade: ["{cmd}@<version> upgrade{h}  # the version you name is the version that runs", "{cmd} upgrade{h} --verbose"],
-  uninstall: ["{core}{cmd} uninstall  # every harness this project uses", "{cmd} uninstall{h}", "{cmd} uninstall{h} --surface statusline", "{core}{cmd} uninstall{h} --surface {switch.surface}  # back to the git marketplace after a switch, then restart {switch.host} and run {switch.doctor} in it"],
+  upgrade: [
+    "{cmd}@<version> upgrade{h}  # the version you name is the version that runs",
+    "{cmd} upgrade{h} --verbose",
+  ],
+  uninstall: [
+    "{core}{cmd} uninstall  # every harness this project uses",
+    "{cmd} uninstall{h}",
+    "{cmd} uninstall{h} --surface statusline",
+    "{core}{cmd} uninstall{h} --surface {switch.surface}  # back to the git marketplace after a switch, then restart {switch.host} and run {switch.doctor} in it",
+  ],
   plan: ["{cmd} plan{h}", "{cmd} plan{h} --json  # one envelope, for scripts and agents"],
   status: ["{cmd} status", "{cmd} status --json"],
   orientation: ["{cmd} orientation --json"],
@@ -305,7 +631,11 @@ const EXAMPLES = {
   init: ["{cmd} init ~/vaults/new-project --language ru"],
   scaffold: ["{cmd} scaffold  # what would be created; nothing is written", "{cmd} scaffold --write"],
   agents: ["{cmd} agents show", "{cmd} agents configure{h} --default opus --agent clerk=sonnet"],
-  band: ["{cmd} band status", "{cmd} band off", "{cmd} band epic PS-CORE  # a session with no epic of its own shows this one"],
+  band: [
+    "{cmd} band status",
+    "{cmd} band off",
+    "{cmd} band epic PS-CORE  # a session with no epic of its own shows this one",
+  ],
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
 
@@ -318,8 +648,15 @@ const EXAMPLES = {
 // harness.mjs, never a literal; null when no manifest has one.
 function switchHarness() {
   for (const m of loadHarnesses().values()) {
-    const row = Object.entries(m.surfaces || {}).find(([k, s]) => !k.startsWith("_") && s?.format === "host-plugin-registration");
-    if (row) return { "switch.surface": row[0], "switch.host": m.display_name, "switch.doctor": invocation(m, "doctor", { args: "--fix" }) };
+    const row = Object.entries(m.surfaces || {}).find(
+      ([k, s]) => !k.startsWith("_") && s?.format === "host-plugin-registration",
+    );
+    if (row)
+      return {
+        "switch.surface": row[0],
+        "switch.host": m.display_name,
+        "switch.doctor": invocation(m, "doctor", { args: "--fix" }),
+      };
   }
   return null;
 }
@@ -329,7 +666,10 @@ function switchHarness() {
 // it. On a live terminal a description wraps with its column as the hanging
 // indent; anywhere else it stays one line, whole, for a reader that greps.
 function optionLines(options, c = term.PLAIN) {
-  const rows = options.map((o) => [term.glyphText(c, `--${o.name}${o.arg ? " " + o.arg : ""}`), term.glyphText(c, `${o.summary}${o.multiple ? " (repeatable)" : ""}`)]);
+  const rows = options.map((o) => [
+    term.glyphText(c, `--${o.name}${o.arg ? " " + o.arg : ""}`),
+    term.glyphText(c, `${o.summary}${o.multiple ? " (repeatable)" : ""}`),
+  ]);
   const w = Math.min(28, Math.max(0, ...rows.map(([l]) => l.length)));
   const pad = " ".repeat(2 + w + 2);
   const text = (r) => term.wrap(r, c.live ? c.width : 0, pad);
@@ -340,7 +680,8 @@ const EXIT_CODES = "0 ok, 1 findings or a refusal, 2 usage, 3 not bound, 130 can
 // The facts that close a help screen (`Harnesses`, `Exit codes`): the key in
 // the explanation role, its value at one column for both.
 const FACT_KEY = "Exit codes".length;
-const fact = (c, key, value) => `${term.painter(c)("explanation", key)}${" ".repeat(FACT_KEY - key.length + 2)}${value}`;
+const fact = (c, key, value) =>
+  `${term.painter(c)("explanation", key)}${" ".repeat(FACT_KEY - key.length + 2)}${value}`;
 
 // What the bin is, in the help's badge: one line with the name and version,
 // short enough that a prerelease version (0.30.0-rc.12) still fits 80 columns.
@@ -376,7 +717,10 @@ export function usage(env = process.env, verbs = VERBS, { caps: c = term.PLAIN, 
     term.badge(c, "projectstore", [version, PURPOSE]),
     "",
     term.heading(c, "Usage"),
-    ...term.rows(c, [{ target: `${cmd} <verb> [options]`, note: "run it inside your code project" }, { target: `${cmd} <verb> --help`, note: "one verb's options and examples" }]),
+    ...term.rows(c, [
+      { target: `${cmd} <verb> [options]`, note: "run it inside your code project" },
+      { target: `${cmd} <verb> --help`, note: "one verb's options and examples" },
+    ]),
   ];
   const listed = new Set(HELP_GROUPS.flatMap(([, names]) => names));
   for (const [title, names] of HELP_GROUPS) {
@@ -392,23 +736,37 @@ export function usage(env = process.env, verbs = VERBS, { caps: c = term.PLAIN, 
   // install and bind among them (contract 10, once setup exists) it no longer
   // fits one row, and a pipe gets the same lines a terminal does.
   const advanced = verbs.filter((v) => !listed.has(v.verb));
-  if (advanced.length) lines.push("", term.heading(c, "ADVANCED"), "  " + term.wrap(advanced.map((v) => paint("action", v.verb)).join(` ${term.icon(c, "dot")} `), 80, "  "));
+  if (advanced.length)
+    lines.push(
+      "",
+      term.heading(c, "ADVANCED"),
+      "  " + term.wrap(advanced.map((v) => paint("action", v.verb)).join(` ${term.icon(c, "dot")} `), 80, "  "),
+    );
   if (PLANNED_VERBS.length) lines.push("", `Planned: ${PLANNED_VERBS.map((v) => `${v.verb} (${v.lands})`).join(", ")}`);
   // A command is offered only for a verb this table has.
   const h = shell ? "" : " --harness <id>";
   const has = (verb) => verbs.some((v) => v.verb === verb);
-  const examples = [["setup", `${cmd} setup`], ["status", `${cmd} status`], ["doctor", `${cmd} doctor`]].filter(([v]) => has(v)).map(([, x]) => x);
+  const examples = [
+    ["setup", `${cmd} setup`],
+    ["status", `${cmd} status`],
+    ["doctor", `${cmd} doctor`],
+  ]
+    .filter(([v]) => has(v))
+    .map(([, x]) => x);
   lines.push("", term.heading(c, "Options"), ...optionLines(EVERY_VERB, c));
   if (examples.length) lines.push("", term.heading(c, "Examples"), ...term.commandBlock(c, examples));
   lines.push(
     "",
     term.heading(c, "Tips"),
     prose("setup, install, upgrade and uninstall show a plan, then ask at a terminal."),
-    prose(`Without a terminal, ${shell ? "the verb is its own" : "--harness is the"} confirmation ${term.icon(c, "dash")} there is no --yes.`),
+    prose(
+      `Without a terminal, ${shell ? "the verb is its own" : "--harness is the"} confirmation ${term.icon(c, "dash")} there is no --yes.`,
+    ),
     prose("Unattended in a terminal: pass --json, set CI=1, or give stdin </dev/null."),
     prose("--verbose on those verbs adds every row's reasoning and the host's notes."),
   );
-  if (has("plan")) lines.push(prose("plan prints the same plan and writes nothing:"), ...term.commandBlock(c, [`${cmd} plan${h}`]));
+  if (has("plan"))
+    lines.push(prose("plan prints the same plan and writes nothing:"), ...term.commandBlock(c, [`${cmd} plan${h}`]));
   lines.push("", fact(c, "Harnesses", harnessIds().join(", ")), fact(c, "Exit codes", EXIT_CODES));
   return lines.join("\n");
 }
@@ -426,13 +784,24 @@ export function verbHelp(row, env = process.env, { caps: c = term.PLAIN } = {}) 
   const prose = (text) => "  " + term.wrap(term.glyphText(c, text), c.live ? c.width : 0, "    ");
   const head = `${paint("emphasis", `${cmd} ${row.verb}`)} ${term.icon(c, "dash")} ${term.glyphText(c, row.summary)}`;
   const lines = [term.wrap(head, c.live ? c.width : 0, "  "), "", term.heading(c, "Usage")];
-  for (const f of row.usage.length ? row.usage : [""]) lines.push(`  ${cmd} ${row.verb}${f ? " " + term.glyphText(c, f) : ""}${opts.length ? " [options]" : ""}`);
+  for (const f of row.usage.length ? row.usage : [""])
+    lines.push(`  ${cmd} ${row.verb}${f ? " " + term.glyphText(c, f) : ""}${opts.length ? " [options]" : ""}`);
   if (NOTES[row.verb]) lines.push("", prose(NOTES[row.verb]));
   if (opts.length) lines.push("", term.heading(c, "Options"), ...optionLines(opts, c));
-  if (fixed) lines.push("", term.wrap(`${shell} names the harness itself: without a terminal, the verb is its own confirmation.`, c.live ? c.width : 0, "  "));
+  if (fixed)
+    lines.push(
+      "",
+      term.wrap(
+        `${shell} names the harness itself: without a terminal, the verb is its own confirmation.`,
+        c.live ? c.width : 0,
+        "  ",
+      ),
+    );
   else if (row.options.some((o) => o.name === "harness")) lines.push("", fact(c, "Harnesses", harnessIds().join(", ")));
   const sw = switchHarness();
-  const ex = (EXAMPLES[row.verb] || []).filter((e) => !(fixed && e.startsWith("{core}")) && (sw || !e.includes("{switch."))).map((e) => e.replace(/^\{core\}/, "").replace(/\{(switch\.\w+)\}/g, (_, k) => sw[k]));
+  const ex = (EXAMPLES[row.verb] || [])
+    .filter((e) => !(fixed && e.startsWith("{core}")) && (sw || !e.includes("{switch.")))
+    .map((e) => e.replace(/^\{core\}/, "").replace(/\{(switch\.\w+)\}/g, (_, k) => sw[k]));
   const h = fixed ? "" : " --harness <id>";
   // Each example command stands alone on its line, after a blank one
   // (contract 6): nothing after it, so a paste takes exactly the command — a
@@ -447,7 +816,12 @@ export function verbHelp(row, env = process.env, { caps: c = term.PLAIN } = {}) 
     else blocks.push({ note: note ? `${note[0].toUpperCase()}${note.slice(1)}:` : null, cmds: [x] });
   }
   if (blocks.length) lines.push("", term.heading(c, "Examples"));
-  for (const b of blocks) lines.push("", ...(b.note ? [prose(paint("explanation", b.note)), ""] : []), ...b.cmds.map((x) => `  ${paint("action", x)}`));
+  for (const b of blocks)
+    lines.push(
+      "",
+      ...(b.note ? [prose(paint("explanation", b.note)), ""] : []),
+      ...b.cmds.map((x) => `  ${paint("action", x)}`),
+    );
   lines.push("", fact(c, "Exit codes", EXIT_CODES));
   return lines.join("\n");
 }
@@ -457,13 +831,19 @@ export function nearest(word, names) {
   const d = (a, b) => {
     const m = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
     for (let j = 1; j <= b.length; j++) m[0][j] = j;
-    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    for (let i = 1; i <= a.length; i++)
+      for (let j = 1; j <= b.length; j++)
+        m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
     return m[a.length][b.length];
   };
-  let best = null, score = 3;
+  let best = null,
+    score = 3;
   for (const n of names) {
     const k = n.startsWith(word) && word.length >= 3 ? 0 : d(word, n);
-    if (k < score) { best = n; score = k; }
+    if (k < score) {
+      best = n;
+      score = k;
+    }
   }
   return best;
 }
@@ -491,7 +871,10 @@ function scanArgv(argv, verbs) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--") {
-      if (scan.at === -1 && i + 1 < argv.length) { scan.verb = argv[i + 1]; scan.at = i + 1; }
+      if (scan.at === -1 && i + 1 < argv.length) {
+        scan.verb = argv[i + 1];
+        scan.at = i + 1;
+      }
       break;
     }
     if (a.length > 1 && a.startsWith("-")) {
@@ -506,12 +889,22 @@ function scanArgv(argv, verbs) {
       const name = a.startsWith("--") ? a.slice(2).split("=")[0] : null;
       const inline = a.includes("=");
       if (!inline && (name === "project" || (row && takesValue(row, name)))) i++;
-      else if (scan.at === -1 && !GLOBAL_OPTS.some((o) => o.name === name)) scan.misplaced.push({ name, raw: a, at: i, inline, value: undefined });
+      else if (scan.at === -1 && !GLOBAL_OPTS.some((o) => o.name === name))
+        scan.misplaced.push({ name, raw: a, at: i, inline, value: undefined });
       continue;
     }
     if (scan.at !== -1) continue;
     const prev = scan.misplaced[scan.misplaced.length - 1];
-    if (!verbs.some((v) => v.verb === a) && prev && prev.at === i - 1 && !prev.inline && verbs.some((v) => takesValue(v, prev.name))) { prev.value = a; continue; }
+    if (
+      !verbs.some((v) => v.verb === a) &&
+      prev &&
+      prev.at === i - 1 &&
+      !prev.inline &&
+      verbs.some((v) => takesValue(v, prev.name))
+    ) {
+      prev.value = a;
+      continue;
+    }
     scan.verb = a;
     scan.at = i;
     row = verbs.find((v) => v.verb === a) || null;
@@ -526,7 +919,12 @@ const optionsOf = (row) => [...(row ? row.options : []), ...GLOBAL_OPTS];
 // Rule 2: the row is the parser — arg is the type, multiple the repetition.
 function parserOptions(row) {
   const options = {};
-  for (const o of optionsOf(row)) options[o.name] = { type: o.arg ? "string" : "boolean", ...(o.multiple ? { multiple: true } : {}), ...(SHORT[o.name] ? { short: SHORT[o.name] } : {}) };
+  for (const o of optionsOf(row))
+    options[o.name] = {
+      type: o.arg ? "string" : "boolean",
+      ...(o.multiple ? { multiple: true } : {}),
+      ...(SHORT[o.name] ? { short: SHORT[o.name] } : {}),
+    };
   return options;
 }
 
@@ -549,7 +947,10 @@ function unknownOption(row, raw, verbs) {
 function parseFailure(e, row, verbs) {
   const raw = e.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION" ? /'(-{1,2}[^']+)'/.exec(e.message)?.[1] : null;
   if (raw) return unknownOption(row, raw, verbs);
-  const name = e.code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE" ? /'(?:-[^-], )?(--[^' ]+)(?: <value>)?'/.exec(e.message)?.[1] : null;
+  const name =
+    e.code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE"
+      ? /'(?:-[^-], )?(--[^' ]+)(?: <value>)?'/.exec(e.message)?.[1]
+      : null;
   const o = name ? optionsOf(row).findLast((x) => `--${x.name}` === name) : null;
   if (!o) return e.message;
   return o.arg ? `\`--${o.name}\` needs a value: \`--${o.name} ${o.arg}\`` : `\`--${o.name}\` takes no value`;
@@ -592,7 +993,18 @@ function matchForm(row, args, values) {
 
 // `verbs` is the table this run answers for: VERBS, or a test's own — the
 // scan, the help, the verb lookup and every hint read it, never VERBS behind it.
-export async function run(argv, { verbs = VERBS, env = process.env, cwd = process.cwd(), stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, ask = null } = {}) {
+export async function run(
+  argv,
+  {
+    verbs = VERBS,
+    env = process.env,
+    cwd = process.cwd(),
+    stdin = process.stdin,
+    stdout = process.stdout,
+    stderr = process.stderr,
+    ask = null,
+  } = {},
+) {
   const scan = scanArgv(argv, verbs);
   const row = verbs.find((v) => v.verb === scan.verb) || null;
   // A failure before a verb runs still answers in the envelope under --json:
@@ -600,7 +1012,8 @@ export async function run(argv, { verbs = VERBS, env = process.env, cwd = proces
   // verb is the scan's, whichever step failed (rule 7) — never the first
   // bare word, which may be --project's value.
   const fail = (message, code, { project = null, help = false } = {}) => {
-    if (scan.json) stdout.write(JSON.stringify(envelope(scan.verb, project, false, { error: message, exit: code }), null, 2) + "\n");
+    if (scan.json)
+      stdout.write(JSON.stringify(envelope(scan.verb, project, false, { error: message, exit: code }), null, 2) + "\n");
     stderr.write(message + "\n" + (help ? usage(env, verbs, { caps: term.caps(stderr, env) }) + "\n" : ""));
     return code;
   };
@@ -630,7 +1043,11 @@ export async function run(argv, { verbs = VERBS, env = process.env, cwd = proces
     // as before — not "unknown verb: codex"; otherwise the globals alone are
     // parsed, so a bad value of one (`--project` last) is named.
     if (!scan.misplaced.length) {
-      try { parseArgs({ args: argv, options: parserOptions(null), strict: true, allowPositionals: true }); } catch (e) { return refuse(parseFailure(e, null, verbs)); }
+      try {
+        parseArgs({ args: argv, options: parserOptions(null), strict: true, allowPositionals: true });
+      } catch (e) {
+        return refuse(parseFailure(e, null, verbs));
+      }
     }
     stderr.write(usage(env, verbs, { caps: term.caps(stderr, env) }) + "\n");
     return 2;
@@ -638,9 +1055,18 @@ export async function run(argv, { verbs = VERBS, env = process.env, cwd = proces
   const verb = scan.verb;
   if (!row) {
     const planned = PLANNED_VERBS.find((v) => v.verb === verb);
-    const guess = planned ? null : nearest(verb, verbs.map((v) => v.verb));
+    const guess = planned
+      ? null
+      : nearest(
+          verb,
+          verbs.map((v) => v.verb),
+        );
     if (guess) return fail(`unknown verb: ${verb} — did you mean ${guess}?\nRun --help for every verb.`, 2);
-    return fail((planned ? `${verb} lands with roadmap ${planned.lands}; not in this release.` : `unknown verb: ${verb}`), 2, { help: true });
+    return fail(
+      planned ? `${verb} lands with roadmap ${planned.lands}; not in this release.` : `unknown verb: ${verb}`,
+      2,
+      { help: true },
+    );
   }
   // Rule 3: only the globals come before the verb (git's model). A verb's
   // own option there is shown in its place; one the verb does not declare is
@@ -655,7 +1081,9 @@ export async function run(argv, { verbs = VERBS, env = process.env, cwd = proces
     // The rest of the line follows, so the command shown is the one to run.
     const { shell, cmd } = invokedAs(env);
     const moved = shell && o.name === "harness" ? [] : [m.raw, ...(o.arg && m.value !== undefined ? [m.value] : [])];
-    return refuse(`\`--${o.name}\` belongs after the verb: \`${[cmd, verb, ...moved, ...argv.slice(scan.at + 1)].join(" ")}\``);
+    return refuse(
+      `\`--${o.name}\` belongs after the verb: \`${[cmd, verb, ...moved, ...argv.slice(scan.at + 1)].join(" ")}\``,
+    );
   }
   // Rule 2: one strict parse with this row's options plus the globals, on the
   // full argv so a token's index is the user's (rule 4's hints read them).
@@ -670,20 +1098,47 @@ export async function run(argv, { verbs = VERBS, env = process.env, cwd = proces
   // hint says how it became one: the flag before it takes no value, or a
   // "--" made everything after it an argument.
   const args = tokens.filter((t) => t.kind === "positional" && t.index !== scan.at);
-  const form = matchForm(row, args.map((t) => t.value), values);
+  const form = matchForm(
+    row,
+    args.map((t) => t.value),
+    values,
+  );
   if (form && args.length > form.bound) {
     const extra = args[form.bound];
     const prev = tokens.find((t) => t.index === extra.index - 1);
     const end = tokens.find((t) => t.kind === "option-terminator");
-    const why = prev && prev.kind === "option" && prev.value === undefined ? ` — \`--${prev.name}\` takes no value`
-      : end && extra.index > end.index ? " — everything after `--` is an argument" : "";
-    return refuse(`${form.bound ? `\`${verb} ${form.form}\` takes no further argument` : `${verb} takes no argument`} \`${extra.value}\`${why}`);
+    const why =
+      prev && prev.kind === "option" && prev.value === undefined
+        ? ` — \`--${prev.name}\` takes no value`
+        : end && extra.index > end.index
+          ? " — everything after `--` is an argument"
+          : "";
+    return refuse(
+      `${form.bound ? `\`${verb} ${form.form}\` takes no further argument` : `${verb} takes no argument`} \`${extra.value}\`${why}`,
+    );
   }
   const project = resolveProject({ project: values.project, env, cwd });
   const cfg = readConfigAt(project);
-  if (row.requiresBinding && !cfg) return fail(`${project} is not bound to a vault — run ${commandForm("bind", { args: "<vault>", env })} in a session, or \`projectstore bind <vault>\` (\`projectstore init <vault>\` also creates the vault).`, 3, { project });
+  if (row.requiresBinding && !cfg)
+    return fail(
+      `${project} is not bound to a vault — run ${commandForm("bind", { args: "<vault>", env })} in a session, or \`projectstore bind <vault>\` (\`projectstore init <vault>\` also creates the vault).`,
+      3,
+      { project },
+    );
   try {
-    return await row.run({ row, values, positionals: positionals.slice(1), cfg, project, env, cwd, stdin, stdout, stderr, ask });
+    return await row.run({
+      row,
+      values,
+      positionals: positionals.slice(1),
+      cfg,
+      project,
+      env,
+      cwd,
+      stdin,
+      stdout,
+      stderr,
+      ask,
+    });
   } catch (e) {
     // An internal failure is not "findings" (1) — it is 2, with an envelope
     // when one was asked for.
@@ -738,8 +1193,16 @@ function runRead(name) {
       let result;
       if (name === "status") result = op.fn(cfg, { project });
       else if (name === "orientation") result = await op.fn(cfg);
-      else if (name === "search") result = op.fn(cfg, positionals.join(" "), { kinds: values.kind || null, status: values.status ?? null, limit: values.limit, includeDerived: Boolean(values["include-derived"]), caseSensitive: Boolean(values["case-sensitive"]) });
-      else if (name === "show") result = op.fn(cfg, positionals[0], { body: Boolean(values.body), section: values.section ?? null });
+      else if (name === "search")
+        result = op.fn(cfg, positionals.join(" "), {
+          kinds: values.kind || null,
+          status: values.status ?? null,
+          limit: values.limit,
+          includeDerived: Boolean(values["include-derived"]),
+          caseSensitive: Boolean(values["case-sensitive"]),
+        });
+      else if (name === "show")
+        result = op.fn(cfg, positionals[0], { body: Boolean(values.body), section: values.section ?? null });
       return emitRead({ verb: row.verb, ...ctx }, op, result);
     } catch (e) {
       if (e && e.code === "USAGE") return usageFail(e, { verb: row.verb, ...ctx });
@@ -780,9 +1243,22 @@ function runBind(init) {
   return async (ctx) => {
     const { row, values, positionals, project, env, stdout, stderr } = ctx;
     const vault = positionals[0];
-    if (!vault) return usageFail(Object.assign(new Error(`${row.verb} takes the vault path`), { code: "USAGE" }), { verb: row.verb, ...ctx });
+    if (!vault)
+      return usageFail(Object.assign(new Error(`${row.verb} takes the vault path`), { code: "USAGE" }), {
+        verb: row.verb,
+        ...ctx,
+      });
     // The author is the caller's to find: the plan reads nothing ambient.
-    const plan = planBind(project, { vault, layout: values.layout ?? null, language: values.language ?? null, rebind: Boolean(values.rebind), init, author: gitAuthor(project, env), env, root: PACKAGE_ROOT });
+    const plan = planBind(project, {
+      vault,
+      layout: values.layout ?? null,
+      language: values.language ?? null,
+      rebind: Boolean(values.rebind),
+      init,
+      author: gitAuthor(project, env),
+      env,
+      root: PACKAGE_ROOT,
+    });
     const usage = plan.refusals.find((r) => r.code === "USAGE");
     if (usage) return usageFail(Object.assign(new Error(usage.message), { code: "USAGE" }), { verb: row.verb, ...ctx });
     let done = null;
@@ -826,13 +1302,20 @@ async function runScaffold(ctx) {
     const why = `${vault} does not exist — the binding names a vault directory that is not there. \`projectstore init ${shellQuote(vault)}\` creates it under this binding: the directory, its git repository and the layout's folders.`;
     return emit(false, { error: why, vault_path: vault }, why + "\n", 1);
   }
-  const plan = planScaffold(vault, { layout: cfg.layout || DEFAULT_LAYOUT, language: cfg.language || DEFAULT_LANGUAGE, root: PACKAGE_ROOT });
+  const plan = planScaffold(vault, {
+    layout: cfg.layout || DEFAULT_LAYOUT,
+    language: cfg.language || DEFAULT_LANGUAGE,
+    root: PACKAGE_ROOT,
+  });
   if (!plan.ok) return emit(false, scaffoldResult(plan), renderScaffoldPlan(plan, null, { env }), 1);
-  if (!values.write || plan.creates === 0) return emit(true, scaffoldResult(plan), renderScaffoldPlan(plan, null, { env }), 0);
+  if (!values.write || plan.creates === 0)
+    return emit(true, scaffoldResult(plan), renderScaffoldPlan(plan, null, { env }), 0);
   // An injected `ask` is a terminal, as for install. Otherwise the installer's
   // definition of one (TTYs, CI, a host session's markers) is the one
   // contract 9 names — imported lazily, as runInstallVerb imports it.
-  const interactive = !values.json && (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+  const interactive =
+    !values.json &&
+    (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
   if (interactive) {
     stdout.write(renderScaffoldPlan(plan, null, { env, asking: true }));
     if (!(await term.askApply(plan.creates, { stdin, stdout, ask, caps: term.caps(stdout, env) }))) {
@@ -856,21 +1339,32 @@ async function runAgents(ctx) {
   if (!["model", "show", "configure"].includes(sub)) return usage("agents takes model <name>, show, or configure");
   // The flag IS the confirmation, so it names exactly one overlay: two are a
   // question, not an answer.
-  if (values.harness && values.harness.length > 1) return usage("--harness names exactly one overlay (it is the confirmation); given twice");
+  if (values.harness && values.harness.length > 1)
+    return usage("--harness names exactly one overlay (it is the confirmation); given twice");
   const named = values.harness && values.harness[0];
-  if (named && !harnessIds().includes(named)) return usage(`unknown harness: ${named} — known: ${harnessIds().join(", ")}`);
+  if (named && !harnessIds().includes(named))
+    return usage(`unknown harness: ${named} — known: ${harnessIds().join(", ")}`);
   const harness = named || overlayId(env);
   const forConfigure = ["default", "agent", "reset"].filter((o) => values[o] !== undefined);
   if (sub !== "configure" && forConfigure.length) return usage(`--${forConfigure[0]} is an option of agents configure`);
   // A refusal goes to stderr, as bind's does; --json keeps its envelope on stdout.
-  const emit = (verb, ok, result, text) => { if (values.json) stdout.write(JSON.stringify(envelope(verb, project, ok, result), null, 2) + "\n"); else (ok ? stdout : stderr).write(text); return ok ? 0 : 1; };
+  const emit = (verb, ok, result, text) => {
+    if (values.json) stdout.write(JSON.stringify(envelope(verb, project, ok, result), null, 2) + "\n");
+    else (ok ? stdout : stderr).write(text);
+    return ok ? 0 : 1;
+  };
   const cfg = readConfigAt(project);
   const roster = layoutRoster(cfg);
   if (sub === "model") {
     const name = positionals[1];
     if (!name) return usage("agents model takes the agent's bare name (critic, planner, …)");
     const r = resolveAgentModel(project, name, { harness });
-    return emit("agents model", true, r, `${name}: ${r.model ? `${r.model} (${r.source}, ${r.overlay})` : "no model configured — the agent's frontmatter decides"}\n`);
+    return emit(
+      "agents model",
+      true,
+      r,
+      `${name}: ${r.model ? `${r.model} (${r.source}, ${r.overlay})` : "no model configured — the agent's frontmatter decides"}\n`,
+    );
   }
   const before = readOverlayAt(project, harness);
   const inBinding = Boolean(cfg && cfg.agents && typeof cfg.agents === "object");
@@ -878,34 +1372,72 @@ async function runAgents(ctx) {
     // Resolved per roster agent (per configured name when no layout loads), so
     // a reader reports what would run without restating the two-term rule.
     const names = [...new Set([...(roster || []), ...Object.keys(before.agents.per_agent)])].sort();
-    const resolved = Object.fromEntries(names.map((n) => { const r = resolveAgentModel(project, n, { harness }); return [n, { model: r.model, source: r.source }]; }));
+    const resolved = Object.fromEntries(
+      names.map((n) => {
+        const r = resolveAgentModel(project, n, { harness });
+        return [n, { model: r.model, source: r.source }];
+      }),
+    );
     const unknown = roster ? Object.keys(before.agents.per_agent).filter((n) => !roster.includes(n)) : [];
-    const lines = [`overlay: ${before.path || "(none: no harness detected and none named)"}${before.path && !before.present ? " (absent)" : ""}`];
+    const lines = [
+      `overlay: ${before.path || "(none: no harness detected and none named)"}${before.path && !before.present ? " (absent)" : ""}`,
+    ];
     if (before.unparseable) lines.push("  not valid JSON");
     if (before.agents.default) lines.push(`  default: ${before.agents.default}`);
-    for (const n of names) lines.push(`  ${n}: ${resolved[n].model ? `${resolved[n].model} (${resolved[n].source})` : "— (the agent's frontmatter)"}${unknown.includes(n) ? " — not in the roster: nothing runs under this name" : ""}`);
+    for (const n of names)
+      lines.push(
+        `  ${n}: ${resolved[n].model ? `${resolved[n].model} (${resolved[n].source})` : "— (the agent's frontmatter)"}${unknown.includes(n) ? " — not in the roster: nothing runs under this name" : ""}`,
+      );
     if (before.rejected.length) lines.push(`  ignored (not an overlay key): ${before.rejected.join(", ")}`);
     if (inBinding) lines.push("  the binding still carries an agents block — a pre-0.28 leftover; run upgrade");
-    return emit("agents show", true, { harness, path: before.path, present: before.present, unparseable: before.unparseable, agents: before.agents, resolved, roster, unknown, rejected: before.rejected, agents_in_binding: inBinding }, lines.join("\n") + "\n");
+    return emit(
+      "agents show",
+      true,
+      {
+        harness,
+        path: before.path,
+        present: before.present,
+        unparseable: before.unparseable,
+        agents: before.agents,
+        resolved,
+        roster,
+        unknown,
+        rejected: before.rejected,
+        agents_in_binding: inBinding,
+      },
+      lines.join("\n") + "\n",
+    );
   }
   // configure — in a project that exists (the install spec, contract 19;
   // the layout spec, contract 4): refused before the preview and the gate.
   const missingProject = projectDirRefusal(project);
   if (missingProject) return emit("agents configure", false, { error: missingProject }, `${missingProject}\n`);
   if (!harness) return usage("no harness detected and none named: agents configure names --harness <id>");
-  if (before.unparseable) return emit("agents configure", false, { error: `${before.path} is not valid JSON; fix or remove it first`, harness, path: before.path }, `${before.path} is not valid JSON; fix or remove it first\n`);
-  if (!values.reset && values.default === undefined && !(values.agent || []).length) return usage("agents configure takes --default <model>, --agent <name>=<model> (repeatable) or --reset");
+  if (before.unparseable)
+    return emit(
+      "agents configure",
+      false,
+      { error: `${before.path} is not valid JSON; fix or remove it first`, harness, path: before.path },
+      `${before.path} is not valid JSON; fix or remove it first\n`,
+    );
+  if (!values.reset && values.default === undefined && !(values.agent || []).length)
+    return usage("agents configure takes --default <model>, --agent <name>=<model> (repeatable) or --reset");
   // --reset empties the block first; --default and --agent then apply on top of
   // the emptied block — "reset, then set" is one call, and nothing given is
   // silently dropped.
   const base = values.reset ? { default: null, per_agent: {} } : before.agents;
-  const next = { default: values.default !== undefined ? (values.default || null) : base.default, per_agent: { ...base.per_agent } };
+  const next = {
+    default: values.default !== undefined ? values.default || null : base.default,
+    per_agent: { ...base.per_agent },
+  };
   for (const spec of values.agent || []) {
     const m = /^([a-z][a-z0-9-]*)=(.*)$/.exec(spec);
     if (!m) return usage(`--agent takes <name>=<model>, got ${spec}`);
     // A name outside the roster would be written, listed, and never run.
-    if (roster && !roster.includes(m[1])) return usage(`no agent named ${m[1]} in the ${cfg.layout} roster — known: ${roster.join(", ")}`);
-    if (m[2]) next.per_agent[m[1]] = m[2]; else delete next.per_agent[m[1]];
+    if (roster && !roster.includes(m[1]))
+      return usage(`no agent named ${m[1]} in the ${cfg.layout} roster — known: ${roster.join(", ")}`);
+    if (m[2]) next.per_agent[m[1]] = m[2];
+    else delete next.per_agent[m[1]];
   }
   // The clerk transcribes; a strong default must not lift it (commands/agents.md,
   // ADR-008). WHICH model it is pinned to is the harness's vocabulary, so the
@@ -924,29 +1456,77 @@ async function runAgents(ctx) {
   const clerkAsked = (values.agent || []).some((s) => s.startsWith("clerk="));
   if (next.default && !next.per_agent.clerk && !clerkAsked) {
     const cheap = harnessForOverlay(harness)?.agent_translation?.cheap_model || null;
-    if (cheap) { next.per_agent.clerk = cheap; pinnedClerk = true; }
-    else clerkPinUnavailable = true;
+    if (cheap) {
+      next.per_agent.clerk = cheap;
+      pinnedClerk = true;
+    } else clerkPinUnavailable = true;
   }
   // Keys inside the agents block that the allowlist rejected (an `effort`, a
   // stray shape) are rewritten out by the write and announced here; keys
   // outside the block are kept, and stay doctor's to name.
   const dropped = before.rejected.filter((k) => k.startsWith("agents."));
-  const same = !dropped.length && JSON.stringify({ d: before.agents.default, p: before.agents.per_agent }) === JSON.stringify({ d: next.default, p: next.per_agent });
-  const preview = [`agents configure — ${harness} — ${before.path}`, `  default: ${before.agents.default || "—"} → ${next.default || "—"}`];
+  const same =
+    !dropped.length &&
+    JSON.stringify({ d: before.agents.default, p: before.agents.per_agent }) ===
+      JSON.stringify({ d: next.default, p: next.per_agent });
+  const preview = [
+    `agents configure — ${harness} — ${before.path}`,
+    `  default: ${before.agents.default || "—"} → ${next.default || "—"}`,
+  ];
   const names = new Set([...Object.keys(before.agents.per_agent), ...Object.keys(next.per_agent)]);
-  for (const n of [...names].sort()) preview.push(`  ${n}: ${before.agents.per_agent[n] || "—"} → ${next.per_agent[n] || "—"}${pinnedClerk && n === "clerk" ? " (pinned: the clerk stays cheap under a strong default)" : ""}`);
+  for (const n of [...names].sort())
+    preview.push(
+      `  ${n}: ${before.agents.per_agent[n] || "—"} → ${next.per_agent[n] || "—"}${pinnedClerk && n === "clerk" ? " (pinned: the clerk stays cheap under a strong default)" : ""}`,
+    );
   // Silence here would read as "the clerk is fine", and it is not: it takes the
   // strong default, which is the one thing ADR-008 says must not happen to it.
-  if (clerkPinUnavailable) preview.push(`  clerk: takes the default — ${harness} declares no cheap model to pin it to, so name one with --agent clerk=<model>`);
-  if (dropped.length) preview.push(`  drops from the agents block (an overlay carries only models): ${dropped.join(", ")}`);
-  if (same) return emit("agents configure", true, { harness, path: before.path, wrote: false, agents: next, pinnedClerk, clerkPinUnavailable, dropped }, preview.join("\n") + "\n  Nothing to change.\n");
+  if (clerkPinUnavailable)
+    preview.push(
+      `  clerk: takes the default — ${harness} declares no cheap model to pin it to, so name one with --agent clerk=<model>`,
+    );
+  if (dropped.length)
+    preview.push(`  drops from the agents block (an overlay carries only models): ${dropped.join(", ")}`);
+  if (same)
+    return emit(
+      "agents configure",
+      true,
+      { harness, path: before.path, wrote: false, agents: next, pinnedClerk, clerkPinUnavailable, dropped },
+      preview.join("\n") + "\n  Nothing to change.\n",
+    );
   // The gate: a named harness confirms; otherwise ask, and refuse without a terminal.
   let confirmed = Boolean(named);
-  if (!confirmed) { const a = await confirmWrite(preview.join("\n") + `\nWrite ${before.path}? [y/N] `, { stdin, stdout, ask }); if (a === null) return usage("a non-interactive agents configure names --harness <id> to confirm; there is no --yes"); confirmed = a; }
-  if (!confirmed) return emit("agents configure", false, { harness, path: before.path, wrote: false, declined: true, agents: next, dropped }, preview.join("\n") + "\n  nothing written.\n");
+  if (!confirmed) {
+    const a = await confirmWrite(preview.join("\n") + `\nWrite ${before.path}? [y/N] `, { stdin, stdout, ask });
+    if (a === null)
+      return usage("a non-interactive agents configure names --harness <id> to confirm; there is no --yes");
+    confirmed = a;
+  }
+  if (!confirmed)
+    return emit(
+      "agents configure",
+      false,
+      { harness, path: before.path, wrote: false, declined: true, agents: next, dropped },
+      preview.join("\n") + "\n  nothing written.\n",
+    );
   const path = writeOverlayAt(project, harness, next);
   const after = readOverlayAt(project, harness);
-  return emit("agents configure", true, { harness, path, wrote: true, agents: after.agents, pinnedClerk, clerkPinUnavailable, dropped, rejected: after.rejected, agents_in_binding: inBinding }, preview.join("\n") + `\n  wrote ${path}.${inBinding ? " The binding still carries an agents block (pre-0.28); run upgrade to move it." : ""}\n`);
+  return emit(
+    "agents configure",
+    true,
+    {
+      harness,
+      path,
+      wrote: true,
+      agents: after.agents,
+      pinnedClerk,
+      clerkPinUnavailable,
+      dropped,
+      rejected: after.rejected,
+      agents_in_binding: inBinding,
+    },
+    preview.join("\n") +
+      `\n  wrote ${path}.${inBinding ? " The binding still carries an agents block (pre-0.28); run upgrade to move it." : ""}\n`,
+  );
 }
 
 // The band's switch (the band spec, contract 13): one atomic binding write per
@@ -958,41 +1538,79 @@ async function runBand(ctx) {
   const sub = positionals[0];
   const arg = positionals[1];
   const usage = (m) => usageFail(Object.assign(new Error(m), { code: "USAGE" }), { verb: row.verb, ...ctx });
-  if (!BAND_SUBCOMMANDS.includes(sub)) return usage(`band takes ${BAND_SUBCOMMANDS.join(", ")} (epic takes an epic id, or none to release the pin)`);
-  const emit = (verb, ok, result, text) => { if (values.json) stdout.write(JSON.stringify(envelope(verb, project, ok, result), null, 2) + "\n"); else (ok ? stdout : stderr).write(text); return ok ? 0 : 1; };
+  if (!BAND_SUBCOMMANDS.includes(sub))
+    return usage(`band takes ${BAND_SUBCOMMANDS.join(", ")} (epic takes an epic id, or none to release the pin)`);
+  const emit = (verb, ok, result, text) => {
+    if (values.json) stdout.write(JSON.stringify(envelope(verb, project, ok, result), null, 2) + "\n");
+    else (ok ? stdout : stderr).write(text);
+    return ok ? 0 : 1;
+  };
   if (sub === "status") {
     const s = bandStatus(project, cfg, { env, root: PACKAGE_ROOT });
     return emit("band status", true, s, renderBandStatus(s));
   }
   const plan = planBand(project, sub, arg, { env, root: PACKAGE_ROOT });
-  if (plan.refusal) return emit(`band ${sub}`, false, { error: plan.refusal.message, code: plan.refusal.code, path: plan.path }, `${plan.refusal.message}\n`);
+  if (plan.refusal)
+    return emit(
+      `band ${sub}`,
+      false,
+      { error: plan.refusal.message, code: plan.refusal.code, path: plan.path },
+      `${plan.refusal.message}\n`,
+    );
   const preview = renderBandPlan(plan, sub, arg);
-  if (!plan.changed) return emit(`band ${sub}`, true, { path: plan.path, wrote: false, band: plan.after }, preview + "  Nothing to change.\n");
+  if (!plan.changed)
+    return emit(
+      `band ${sub}`,
+      true,
+      { path: plan.path, wrote: false, band: plan.after },
+      preview + "  Nothing to change.\n",
+    );
   let confirmed = Boolean(values.json);
   if (!confirmed) {
     const a = await confirmWrite(preview + `Write ${plan.path}? [y/N] `, { stdin, stdout, ask });
     if (a === null) return usage("a non-interactive band write passes --json; there is no --yes");
     confirmed = a;
   }
-  if (!confirmed) return emit(`band ${sub}`, false, { path: plan.path, wrote: false, declined: true, band: plan.after }, preview + "  nothing written.\n");
+  if (!confirmed)
+    return emit(
+      `band ${sub}`,
+      false,
+      { path: plan.path, wrote: false, declined: true, band: plan.after },
+      preview + "  nothing written.\n",
+    );
   const done = applyBand(plan);
-  return emit(`band ${sub}`, true, { path: plan.path, wrote: done.wrote, band: plan.after }, preview + `  wrote ${plan.path}. The band follows within a few seconds; no restart.\n`);
+  return emit(
+    `band ${sub}`,
+    true,
+    { path: plan.path, wrote: done.wrote, band: plan.after },
+    preview + `  wrote ${plan.path}. The band follows within a few seconds; no restart.\n`,
+  );
 }
 
 async function runGraph(ctx) {
   const { row, values, positionals, cfg } = ctx;
   const sub = positionals[0];
   const path = positionals[1];
-  if (!["neighbors", "lineage"].includes(sub)) return usageFail(Object.assign(new Error("graph takes neighbors <path> or lineage <path>"), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (!["neighbors", "lineage"].includes(sub))
+    return usageFail(Object.assign(new Error("graph takes neighbors <path> or lineage <path>"), { code: "USAGE" }), {
+      verb: row.verb,
+      ...ctx,
+    });
   const op = READ_OPERATIONS[sub];
   try {
     // The row declares the union; each mode takes its own — an option the
     // mode would ignore is a usage error, not a silent no-op.
     const notFor = sub === "neighbors" ? ["depth"] : ["direction", "limit"];
-    for (const o of notFor) if (values[o] !== undefined) throw Object.assign(new Error(`--${o} is not an option of graph ${sub}`), { code: "USAGE" });
-    const result = sub === "neighbors"
-      ? op.fn(cfg, path, { kinds: values.kind || null, direction: values.direction, limit: values.limit })
-      : op.fn(cfg, path, { depth: values.depth, kinds: values.kind && values.kind.length ? values.kind : LINEAGE_KINDS });
+    for (const o of notFor)
+      if (values[o] !== undefined)
+        throw Object.assign(new Error(`--${o} is not an option of graph ${sub}`), { code: "USAGE" });
+    const result =
+      sub === "neighbors"
+        ? op.fn(cfg, path, { kinds: values.kind || null, direction: values.direction, limit: values.limit })
+        : op.fn(cfg, path, {
+            depth: values.depth,
+            kinds: values.kind && values.kind.length ? values.kind : LINEAGE_KINDS,
+          });
     return emitRead({ verb: `graph ${sub}`, ...ctx }, op, result);
   } catch (e) {
     if (e && e.code === "USAGE") return usageFail(e, { verb: row.verb, ...ctx });
@@ -1004,7 +1622,10 @@ async function runCodemap(ctx) {
   const { row, values, cfg } = ctx;
   const op = READ_OPERATIONS.codeRefs;
   try {
-    if (!values.for) throw Object.assign(new Error("codemap takes --for <selector>; regeneration is reconcile --only codemap"), { code: "USAGE" });
+    if (!values.for)
+      throw Object.assign(new Error("codemap takes --for <selector>; regeneration is reconcile --only codemap"), {
+        code: "USAGE",
+      });
     return emitRead({ verb: row.verb, ...ctx }, op, op.fn(cfg, values.for, { reverse: Boolean(values.reverse) }));
   } catch (e) {
     if (e && e.code === "USAGE") return usageFail(e, { verb: row.verb, ...ctx });
@@ -1014,14 +1635,22 @@ async function runCodemap(ctx) {
 
 function runVersion({ values, stdout }) {
   const version = packageVersion();
-  stdout.write(values.json ? JSON.stringify(envelope("version", null, true, { version }), null, 2) + "\n" : version + "\n");
+  stdout.write(
+    values.json ? JSON.stringify(envelope("version", null, true, { version }), null, 2) + "\n" : version + "\n",
+  );
   return 0;
 }
 
 function spawnDoctor(project, env, flags) {
   // A project that does not exist is still a project doctor can report on
   // ("not bound") — so the cwd is only set when it can be.
-  return spawnSync(process.execPath, [script("doctor.mjs"), ...flags], { encoding: "utf8", cwd: existsSync(project) ? project : undefined, env: ownEnv(env, project), timeout: 60000, maxBuffer: 1 << 24 });
+  return spawnSync(process.execPath, [script("doctor.mjs"), ...flags], {
+    encoding: "utf8",
+    cwd: existsSync(project) ? project : undefined,
+    env: ownEnv(env, project),
+    timeout: 60000,
+    maxBuffer: 1 << 24,
+  });
 }
 
 // Spawned, never imported (MCP ADR decision 2): doctor's main writes to
@@ -1043,13 +1672,27 @@ async function runDoctor({ values, project, env, stdout, stderr }) {
   if (r.error) return fail(r.error.message);
   if (r.status !== 0 && !r.stdout) return fail((r.stderr || "").trim() || `exit ${r.status}`);
   let findings;
-  try { findings = JSON.parse(r.stdout); } catch { return fail("unparseable output"); }
+  try {
+    findings = JSON.parse(r.stdout);
+  } catch {
+    return fail("unparseable output");
+  }
   const ok = !findings.some((f) => f.level === "issue");
   if (values.json) stdout.write(JSON.stringify(envelope("doctor", project, ok, findings), null, 2) + "\n");
   else {
     // The sections as doctor.mjs derives them: no flag is both.
-    const groups = sections.length ? [values.install && "install", values.vault && "vault"].filter(Boolean) : ["install", "vault"];
-    stdout.write(await doctorText(findings, groups, { caps: term.caps(stdout, env), verbose: Boolean(values.verbose), project, env: ownEnv(env, project), stderr }));
+    const groups = sections.length
+      ? [values.install && "install", values.vault && "vault"].filter(Boolean)
+      : ["install", "vault"];
+    stdout.write(
+      await doctorText(findings, groups, {
+        caps: term.caps(stdout, env),
+        verbose: Boolean(values.verbose),
+        project,
+        env: ownEnv(env, project),
+        stderr,
+      }),
+    );
   }
   return ok ? 0 : 1;
 }
@@ -1060,12 +1703,20 @@ async function runDoctor({ values, project, env, stdout, stderr }) {
 // reader the findings: they are printed one per line, `level check message
 // — file`, and the Summary line still ends them (lib.mjs). `load` stands in
 // for the import in a test.
-export async function doctorText(findings, groups, { caps, verbose = false, project = null, env = process.env, stderr = null } = {}, { load = () => import("./doctor-report.mjs") } = {}) {
+export async function doctorText(
+  findings,
+  groups,
+  { caps, verbose = false, project = null, env = process.env, stderr = null } = {},
+  { load = () => import("./doctor-report.mjs") } = {},
+) {
   try {
     const { report } = await load();
     return report(findings, groups, { caps, verbose, version: packageVersion(), project, env });
   } catch (e) {
-    if (stderr) stderr.write(`doctor: the report could not be drawn (${e && e.message ? e.message : e}); its findings follow, one per line.\n`);
+    if (stderr)
+      stderr.write(
+        `doctor: the report could not be drawn (${e && e.message ? e.message : e}); its findings follow, one per line.\n`,
+      );
     return doctorFallbackText(findings, { env });
   }
 }
@@ -1076,13 +1727,21 @@ async function runReconcile({ values, project, env, stdin, stdout, stderr, ask }
   // The gate: --only names what is written and confirms headless; a bare
   // --write asks on a terminal and refuses without one.
   if (write && !only) {
-    const yes = await confirmWrite(`Regenerate every derived view of ${project}'s vault? [y/N] `, { stdin, stdout, ask });
+    const yes = await confirmWrite(`Regenerate every derived view of ${project}'s vault? [y/N] `, {
+      stdin,
+      stdout,
+      ask,
+    });
     if (yes === null) {
       stderr.write("a bare reconcile --write in a non-TTY refuses; name what is written to confirm: --only <target>\n");
-      if (values.json) stdout.write(JSON.stringify(envelope("reconcile", project, false, { refused: "non-tty" }), null, 2) + "\n");
+      if (values.json)
+        stdout.write(JSON.stringify(envelope("reconcile", project, false, { refused: "non-tty" }), null, 2) + "\n");
       return 1;
     }
-    if (!yes) { stdout.write("nothing written.\n"); return 0; }
+    if (!yes) {
+      stdout.write("nothing written.\n");
+      return 0;
+    }
   }
   const { runReconcile: core } = await import("./reconcile.mjs");
   let out;
@@ -1091,7 +1750,8 @@ async function runReconcile({ values, project, env, stdin, stdout, stderr, ask }
   } catch (e) {
     const msg = e && e.message ? e.message : String(e);
     stderr.write(msg + "\n");
-    if (values.json) stdout.write(JSON.stringify(envelope("reconcile", project, false, { error: msg }), null, 2) + "\n");
+    if (values.json)
+      stdout.write(JSON.stringify(envelope("reconcile", project, false, { error: msg }), null, 2) + "\n");
     return e && e.code === "UNBOUND" ? 3 : 2;
   }
   const failed = write && out.summary && out.summary.failed > 0;
@@ -1107,20 +1767,46 @@ async function runReconcile({ values, project, env, stdin, stdout, stderr, ask }
 async function runSetupVerb(ctx) {
   const { runSetup } = await import("./setup.mjs");
   const { values, env, stdout } = ctx;
-  const r = await runSetup({ ...ctx, root: PACKAGE_ROOT, ownEnv: (p) => ownEnv(env, p), author: (p) => gitAuthor(p, env) });
+  const r = await runSetup({
+    ...ctx,
+    root: PACKAGE_ROOT,
+    ownEnv: (p) => ownEnv(env, p),
+    author: (p) => gitAuthor(p, env),
+  });
   if (r.error) return usageFail(Object.assign(new Error(r.error), { code: "USAGE" }), { verb: "setup", ...ctx });
-  if (values.json && r.result) stdout.write(JSON.stringify(envelope("setup", r.project, r.ok, r.result), null, 2) + "\n");
+  if (values.json && r.result)
+    stdout.write(JSON.stringify(envelope("setup", r.project, r.ok, r.result), null, 2) + "\n");
   return r.code;
 }
 
 async function runInstallVerb({ row, values, project, env, cwd, stdin, stdout, ask }) {
   const ih = await import("./install-harness.mjs");
-  const opts = { harnesses: values.harness || [], surfaces: values.surface && values.surface.length ? values.surface : null, globalRemoval: Boolean(values.global), register: !values["no-register"], root: PACKAGE_ROOT, env: ownEnv(env, project), cwd, stdin, stdout, ask, json: Boolean(values.json), verbose: Boolean(values.verbose) };
+  const opts = {
+    harnesses: values.harness || [],
+    surfaces: values.surface && values.surface.length ? values.surface : null,
+    globalRemoval: Boolean(values.global),
+    register: !values["no-register"],
+    root: PACKAGE_ROOT,
+    env: ownEnv(env, project),
+    cwd,
+    stdin,
+    stdout,
+    ask,
+    json: Boolean(values.json),
+    verbose: Boolean(values.verbose),
+  };
   // plan goes through the installer's own planOptions, as its main() does, so
   // the two entry points read the same root version for a dry-run row.
   if (row.verb === "plan") {
     const p = ih.plan(project, ih.planOptions(opts));
-    if (values.json) stdout.write(JSON.stringify(envelope("plan", project, p.ok && !p.incomplete, { ...p, items: p.items.map(ih.publicItem) }), null, 2) + "\n");
+    if (values.json)
+      stdout.write(
+        JSON.stringify(
+          envelope("plan", project, p.ok && !p.incomplete, { ...p, items: p.items.map(ih.publicItem) }),
+          null,
+          2,
+        ) + "\n",
+      );
     else {
       const c = term.caps(stdout, env);
       stdout.write(ih.renderPreview(p, { verbose: opts.verbose, verb: "plan", caps: c }));
@@ -1136,7 +1822,23 @@ async function runInstallVerb({ row, values, project, env, cwd, stdin, stdout, a
   if (values.json) {
     // `fetched` is additive: the shells a run fetched before its plan, [] for
     // a run that fetched none (uninstall always).
-    stdout.write(JSON.stringify(envelope(row.verb, project, ok, { gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, plannedAgainst: r.plan.plannedAgainst, items: r.plan.items.map(ih.publicItem), refusals: r.plan.refusals, reports: r.plan.reports, fetched: r.fetched || [] }), null, 2) + "\n");
+    stdout.write(
+      JSON.stringify(
+        envelope(row.verb, project, ok, {
+          gate: r.gate,
+          applied: r.applied,
+          failed: r.failed,
+          incomplete: r.plan.incomplete,
+          plannedAgainst: r.plan.plannedAgainst,
+          items: r.plan.items.map(ih.publicItem),
+          refusals: r.plan.refusals,
+          reports: r.plan.reports,
+          fetched: r.fetched || [],
+        }),
+        null,
+        2,
+      ) + "\n",
+    );
   } else {
     // The installer's own words for a gate that wrote nothing — a bare run
     // without a terminal, a declined question, a channel switch without a

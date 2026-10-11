@@ -50,7 +50,10 @@ export function caps(stream = process.stdout, env = process.env) {
   const tty = Boolean(stream && stream.isTTY);
   const dumb = env.TERM === "dumb";
   const off = env.NO_COLOR !== undefined && env.NO_COLOR !== "";
-  const color = env.FORCE_COLOR !== undefined ? ["", "1", "2", "3", "true"].includes(String(env.FORCE_COLOR)) : tty && !dumb && !off;
+  const color =
+    env.FORCE_COLOR !== undefined
+      ? ["", "1", "2", "3", "true"].includes(String(env.FORCE_COLOR))
+      : tty && !dumb && !off;
   const columns = tty && Number(stream.columns) > 0 ? Number(stream.columns) : 100;
   const ascii = dumb || (env.PROJECTSTORE_ASCII !== undefined && env.PROJECTSTORE_ASCII !== "");
   // `width` lays out prose (never below 40); `columns` is the terminal's
@@ -61,8 +64,15 @@ export function caps(stream = process.stdout, env = process.env) {
 // The sixteen ANSI colours, bold and dim — never 256-colour or truecolor, so
 // the reader's terminal theme decides the shades, light or dark.
 const SGR = {
-  bold: [1, 22], dim: [2, 22], red: [31, 39], green: [32, 39], yellow: [33, 39],
-  blue: [34, 39], magenta: [35, 39], cyan: [36, 39], gray: [90, 39],
+  bold: [1, 22],
+  dim: [2, 22],
+  red: [31, 39],
+  green: [32, 39],
+  yellow: [33, 39],
+  blue: [34, 39],
+  magenta: [35, 39],
+  cyan: [36, 39],
+  gray: [90, 39],
 };
 
 // The colour roles (presentation spec contract 3), each one style above.
@@ -74,7 +84,14 @@ const SGR = {
 //   error        ✕, a failed step, an issue count
 //   explanation  notes, reasons, consent lines, the rail, the project path
 //   emphasis     headings, a question's title, a finding's title
-export const ROLES = Object.freeze({ action: "cyan", done: "green", attention: "yellow", error: "red", explanation: "gray", emphasis: "bold" });
+export const ROLES = Object.freeze({
+  action: "cyan",
+  done: "green",
+  attention: "yellow",
+  error: "red",
+  explanation: "gray",
+  emphasis: "bold",
+});
 
 // Raw SGR rather than util.styleText: that arrived in Node 20.12 and 21.7, and
 // the package promises >=20.0.0. `style` is a role or a style name; anything
@@ -126,9 +143,17 @@ export const GLYPHS = Object.freeze({
 // warning / refusal / note, unchanged / skipped) and the plan's own action
 // names, so a caller says what happened rather than which shape to draw.
 export const GLYPH_ALIASES = Object.freeze({
-  issue: "fail", refuse: "warning", refusal: "warning", note: "warning",
-  skip: "unchanged", skipped: "unchanged", create: "add", migrate: "update", refresh: "update",
-  cleanup: "remove", prune: "remove",
+  issue: "fail",
+  refuse: "warning",
+  refusal: "warning",
+  note: "warning",
+  skip: "unchanged",
+  skipped: "unchanged",
+  create: "add",
+  migrate: "update",
+  refresh: "update",
+  cleanup: "remove",
+  prune: "remove",
   // doctor's info finding: not a warning, so not ▲ — the two would differ by
   // colour alone (decided 2026-10-11 with doctor's report).
   info: "dot",
@@ -165,7 +190,8 @@ export function glyphText(c, text) {
 export function duration(ms) {
   if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  const m = Math.floor(ms / 60_000), s = Math.round((ms % 60_000) / 1000);
+  const m = Math.floor(ms / 60_000),
+    s = Math.round((ms % 60_000) / 1000);
   return `${m}m ${String(s).padStart(2, "0")}s`;
 }
 
@@ -182,8 +208,10 @@ export function wrap(text, width, indent = "") {
   const lines = [];
   let line = "";
   for (const word of String(text).split(" ")) {
-    if (line && plain(line).length + 1 + plain(word).length > room) { lines.push(line); line = word; }
-    else line = line ? `${line} ${word}` : word;
+    if (line && plain(line).length + 1 + plain(word).length > room) {
+      lines.push(line);
+      line = word;
+    } else line = line ? `${line} ${word}` : word;
   }
   lines.push(line);
   return lines.map((l, k) => (k ? indent + l : l)).join("\n");
@@ -264,7 +292,14 @@ export function rows(c, list, opts = {}) {
 
 export function rowLines(c, list, { indent = 2 } = {}) {
   const paint = painter(c);
-  const cells = list.map((r) => ({ glyph: r.glyph ? icon(c, r.glyph) : "", role: r.role || null, action: String(r.action ?? ""), target: String(r.target ?? ""), note: String(r.note ?? ""), prose: Boolean(r.prose) }));
+  const cells = list.map((r) => ({
+    glyph: r.glyph ? icon(c, r.glyph) : "",
+    role: r.role || null,
+    action: String(r.action ?? ""),
+    target: String(r.target ?? ""),
+    note: String(r.note ?? ""),
+    prose: Boolean(r.prose),
+  }));
   const widest = (xs) => Math.max(0, ...xs.map((s) => plain(s).length));
   const gw = widest(cells.map((r) => r.glyph));
   const aw = widest(cells.map((r) => r.action));
@@ -278,11 +313,24 @@ export function rowLines(c, list, { indent = 2 } = {}) {
     if (aw) lead += cell(r.action, aw, r.role) + "  ";
     const col = plain(lead).length;
     const pad = " ".repeat(col);
-    const alone = (r.prose && width ? lead + wrap(r.target, width, pad) : lead + r.target).split("\n").map((l) => l.trimEnd());
-    if (!r.note) { out.push(alone); continue; }
+    const alone = (r.prose && width ? lead + wrap(r.target, width, pad) : lead + r.target)
+      .split("\n")
+      .map((l) => l.trimEnd());
+    if (!r.note) {
+      out.push(alone);
+      continue;
+    }
     const line = `${lead}${cell(r.target, tw, null)}  ${paint("explanation", r.note)}`;
-    if (!width || plain(line).length <= width) { out.push([line]); continue; }
-    out.push([...alone, ...wrap(r.note, width, pad).split("\n").map((l, k) => pad + paint("explanation", k ? l.slice(col) : l))]);
+    if (!width || plain(line).length <= width) {
+      out.push([line]);
+      continue;
+    }
+    out.push([
+      ...alone,
+      ...wrap(r.note, width, pad)
+        .split("\n")
+        .map((l, k) => pad + paint("explanation", k ? l.slice(col) : l)),
+    ]);
   }
   return out;
 }
@@ -335,7 +383,13 @@ export function stepReporter(stream = process.stdout, c = caps(stream), { indent
   const finished = (ok, note, kept, label, ms, over, warn = false) => {
     // A step that ran and left its target in place is neither ✓ nor ✕; one
     // that failed without stopping the run (setup's git init) is ▲.
-    const mark = !ok ? paint("error", icon(c, "fail")) : warn ? paint("attention", icon(c, "warning")) : kept ? paint("explanation", icon(c, "skip")) : paint("done", icon(c, "ok"));
+    const mark = !ok
+      ? paint("error", icon(c, "fail"))
+      : warn
+        ? paint("attention", icon(c, "warning"))
+        : kept
+          ? paint("explanation", icon(c, "skip"))
+          : paint("done", icon(c, "ok"));
     const right = paint("explanation", [note, duration(ms)].filter(Boolean).join("  "));
     stream.write((over && c.live ? "\r\x1b[2K" : "") + line(mark, label, right) + "\n");
   };
@@ -352,10 +406,14 @@ export function stepReporter(stream = process.stdout, c = caps(stream), { indent
       finished(ok, note, kept, label ?? open.label, now() - open.t0, true, warn);
       open = null;
     },
-    finish(label, t0, { ok = true, note = "" } = {}) { finished(ok, note, false, label, now() - t0, false); },
+    finish(label, t0, { ok = true, note = "" } = {}) {
+      finished(ok, note, false, label, now() - t0, false);
+    },
     // An exception left a step open: end its line as failed, so whatever is
     // printed next starts on a line of its own.
-    abort() { if (open) self.end(false); },
+    abort() {
+      if (open) self.end(false);
+    },
   };
   return self;
 }
@@ -375,29 +433,53 @@ export function stepReporter(stream = process.stdout, c = caps(stream), { indent
 // is known. The timers are unref'd and cleared by both `end` and `abort`, so
 // a forgotten line never holds the process; the cursor is never hidden, so no
 // exit path has anything to restore. `now` and `timers` are the test's clock.
-export function liveLine(stream = process.stdout, c = caps(stream), label = "", { env = process.env, now = Date.now, timers = globalThis, indent = 2 } = {}) {
+export function liveLine(
+  stream = process.stdout,
+  c = caps(stream),
+  label = "",
+  { env = process.env, now = Date.now, timers = globalThis, indent = 2 } = {},
+) {
   const paint = painter(c);
   const line = rowFor(c, indent);
   const t0 = now();
   const still = Boolean(env.PROJECTSTORE_NO_ANIMATION);
-  let drawn = false, frame = 0, wait = null, tick = null, settled = false;
-  const unref = (h) => { try { h?.unref?.(); } catch {} return h; };
+  let drawn = false,
+    frame = 0,
+    wait = null,
+    tick = null,
+    settled = false;
+  const unref = (h) => {
+    try {
+      h?.unref?.();
+    } catch {}
+    return h;
+  };
   const stop = () => {
-    if (wait !== null) { timers.clearTimeout(wait); wait = null; }
-    if (tick !== null) { timers.clearInterval(tick); tick = null; }
+    if (wait !== null) {
+      timers.clearTimeout(wait);
+      wait = null;
+    }
+    if (tick !== null) {
+      timers.clearInterval(tick);
+      tick = null;
+    }
   };
   const draw = () => {
     const mark = c.ascii ? icon(c, "running") : paint("action", SPINNER[frame++ % SPINNER.length]);
     stream.write("\r\x1b[2K" + line(mark, label, paint("explanation", duration(now() - t0)), { cut: true }));
     drawn = true;
   };
-  if (c.live && still) { stream.write(line(paint("explanation", icon(c, "running")), label, "", { cut: true })); drawn = true; }
-  else if (c.live) {
-    wait = unref(timers.setTimeout(() => {
-      wait = null;
-      draw();
-      tick = unref(timers.setInterval(draw, SPIN_MS));
-    }, QUIET_MS));
+  if (c.live && still) {
+    stream.write(line(paint("explanation", icon(c, "running")), label, "", { cut: true }));
+    drawn = true;
+  } else if (c.live) {
+    wait = unref(
+      timers.setTimeout(() => {
+        wait = null;
+        draw();
+        tick = unref(timers.setInterval(draw, SPIN_MS));
+      }, QUIET_MS),
+    );
   }
   return {
     end(ok = true, doneLabel = label, note = "") {
@@ -432,10 +514,18 @@ export async function askLine(question, input, output) {
   const rl = createInterface({ input, output, terminal: false });
   return await new Promise((settle) => {
     let done = false;
-    const finish = (answer) => { if (done) return; done = true; settle(answer); rl.close(); };
+    const finish = (answer) => {
+      if (done) return;
+      done = true;
+      settle(answer);
+      rl.close();
+    };
     // End of input echoes no newline: end the question's line, so whatever is
     // printed next ("Nothing written.") starts on a line of its own.
-    rl.on("close", () => { if (!done) output.write("\n"); finish(null); });
+    rl.on("close", () => {
+      if (!done) output.write("\n");
+      finish(null);
+    });
     rl.question(question, (a) => finish(a));
   });
 }
@@ -451,7 +541,10 @@ export async function askLine(question, input, output) {
 // isInteractive). `caps` is the asking stream's; without one the question is
 // unpainted, in Unicode. `ask` stands in for the terminal in tests and means
 // "this is one"; it gets the question and returns the answer.
-export async function askApply(n, { stdin = null, stdout = null, ask = null, caps: c = { color: false, ascii: false } } = {}) {
+export async function askApply(
+  n,
+  { stdin = null, stdout = null, ask = null, caps: c = { color: false, ascii: false } } = {},
+) {
   const paint = painter(c);
   const question = `${paint("action", icon(c, "ask"))} ${paint("emphasis", `Apply ${n === 1 ? "1 change" : `${n} changes`}?`)} ${paint("explanation", "[Y/n]")} `;
   const answer = ask ? await ask(question) : await askLine(question, stdin, stdout);
@@ -501,12 +594,20 @@ export function railAvailable(stdin, c) {
 }
 
 // A choice as the rail draws and answers it: a string is its own value.
-const choiceOf = (x) => (typeof x === "object" && x !== null
-  ? { value: x.value ?? x.label, label: String(x.label ?? x.value), reason: x.reason ? String(x.reason) : "", answer: String(x.answer ?? x.label ?? x.value), on: Boolean(x.on) }
-  : { value: x, label: String(x), reason: "", answer: String(x), on: false });
+const choiceOf = (x) =>
+  typeof x === "object" && x !== null
+    ? {
+        value: x.value ?? x.label,
+        label: String(x.label ?? x.value),
+        reason: x.reason ? String(x.reason) : "",
+        answer: String(x.answer ?? x.label ?? x.value),
+        on: Boolean(x.on),
+      }
+    : { value: x, label: String(x), reason: "", answer: String(x), on: false };
 
 const isEnter = (k) => k.name === "return" || k.name === "enter";
-const printable = (k) => typeof k.str === "string" && k.str !== "" && !k.ctrl && !k.meta && !/[\x00-\x1f\x7f]/.test(k.str);
+const printable = (k) =>
+  typeof k.str === "string" && k.str !== "" && !k.ctrl && !k.meta && !/[\x00-\x1f\x7f]/.test(k.str);
 
 // Open a rail on a terminal: draws its top line and holds the terminal for its
 // questions until close(). Everything the run prints while the rail is open
@@ -539,8 +640,17 @@ const printable = (k) => typeof k.str === "string" && k.str !== "" && !k.ctrl &&
 // process ends as the signal would have ended it. `proc` is the process those
 // handlers are added to, a test's emitter in tests. Never process.exit: a
 // cancel is an answer, and the caller returns 130 (contract 9).
-export function openRail({ stdin = process.stdin, stdout = process.stdout, caps: c = caps(stdout), proc = process, head = "projectstore", parts = [], escapeMs = ESCAPE_MS } = {}) {
-  if (!railAvailable(stdin, c)) throw new Error("no question rail: stdin must be a terminal with setRawMode and stdout a live one (railAvailable)");
+export function openRail({
+  stdin = process.stdin,
+  stdout = process.stdout,
+  caps: c = caps(stdout),
+  proc = process,
+  head = "projectstore",
+  parts = [],
+  escapeMs = ESCAPE_MS,
+} = {}) {
+  if (!railAvailable(stdin, c))
+    throw new Error("no question rail: stdin must be a terminal with setRawMode and stdout a live one (railAvailable)");
   const paint = painter(c);
   const bar = paint("explanation", icon(c, "rail"));
   const sep = ` ${icon(c, "dot")} `;
@@ -550,15 +660,35 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
   // that miscounted them would leave half a frame behind.
   const columns = () => (Number(stdout.columns) > 0 ? Number(stdout.columns) : c.columns || 100);
   const room = () => Math.max(20, Math.min(columns(), 100) - 1);
-  const rowsOf = (lines) => { const w = columns(); return lines.reduce((n, l) => n + Math.max(1, Math.ceil([...plain(l)].length / w)), 0); };
+  const rowsOf = (lines) => {
+    const w = columns();
+    return lines.reduce((n, l) => n + Math.max(1, Math.ceil([...plain(l)].length / w)), 0);
+  };
 
   // ── The keys ──
   const queue = [];
   let waiter = null;
-  const wake = () => { if (waiter) { const w = waiter; waiter = null; w(); } };
-  const onKey = (str, key) => { queue.push({ ...(key || {}), str }); wake(); };
-  const onEnd = () => { queue.push(EOF); wake(); };
-  const next = () => (queue.length ? Promise.resolve(queue.shift()) : new Promise((settle) => { waiter = () => settle(queue.shift()); }));
+  const wake = () => {
+    if (waiter) {
+      const w = waiter;
+      waiter = null;
+      w();
+    }
+  };
+  const onKey = (str, key) => {
+    queue.push({ ...(key || {}), str });
+    wake();
+  };
+  const onEnd = () => {
+    queue.push(EOF);
+    wake();
+  };
+  const next = () =>
+    queue.length
+      ? Promise.resolve(queue.shift())
+      : new Promise((settle) => {
+          waiter = () => settle(queue.shift());
+        });
   emitKeypressEvents(stdin, { escapeCodeTimeout: escapeMs });
   stdin.on("keypress", onKey);
   stdin.on("end", onEnd);
@@ -569,10 +699,16 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
 
   // ── The restore, on every path ──
   // `live`: the question being asked, or null between questions.
-  let closed = false, cancelled = false, live = null;
+  let closed = false,
+    cancelled = false,
+    live = null;
   const restore = () => {
-    try { stdin.setRawMode(false); } catch {}
-    try { write(SHOW_CURSOR); } catch {}
+    try {
+      stdin.setRawMode(false);
+    } catch {}
+    try {
+      write(SHOW_CURSOR);
+    } catch {}
   };
   const onExit = () => restore();
   const onSignal = {};
@@ -585,9 +721,14 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
   for (const sig of ["SIGTERM", "SIGHUP", "SIGINT"]) {
     onSignal[sig] = () => {
       restore();
-      if (live) try { write("\n"); } catch {}
+      if (live)
+        try {
+          write("\n");
+        } catch {}
       release();
-      try { proc.kill(proc.pid, sig); } catch {}
+      try {
+        proc.kill(proc.pid, sig);
+      } catch {}
     };
   }
   proc.once("exit", onExit);
@@ -597,17 +738,32 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
   // `shown`: the rows of the question on screen, written with no newline
   // after it, so the cursor is on its last row. `last`: the rows of the line
   // answered before it, which a path's Esc takes back.
-  let shown = 0, last = 0;
+  let shown = 0,
+    last = 0;
   const erase = () => {
     if (!shown) return;
     write(`\r${shown > 1 ? `\x1b[${shown - 1}A` : ""}\x1b[J`);
     shown = 0;
   };
-  const frame = (lines) => { erase(); write(lines.join("\n")); shown = rowsOf(lines); };
-  const item = (lines) => { erase(); write(`${lines.join("\n")}\n`); last = rowsOf(lines); };
+  const frame = (lines) => {
+    erase();
+    write(lines.join("\n"));
+    shown = rowsOf(lines);
+  };
+  const item = (lines) => {
+    erase();
+    write(`${lines.join("\n")}\n`);
+    last = rowsOf(lines);
+  };
 
-  const titled = (title) => wrap(String(title), room() - 2).split("\n").map((t, k) => `${k ? bar : paint("action", icon(c, "ask"))} ${paint("emphasis", t)}`);
-  const prose = (text, role = "explanation") => wrap(String(text), room() - 2).split("\n").map((t) => `${bar} ${paint(role, t)}`);
+  const titled = (title) =>
+    wrap(String(title), room() - 2)
+      .split("\n")
+      .map((t, k) => `${k ? bar : paint("action", icon(c, "ask"))} ${paint("emphasis", t)}`);
+  const prose = (text, role = "explanation") =>
+    wrap(String(text), room() - 2)
+      .split("\n")
+      .map((t) => `${bar} ${paint(role, t)}`);
   const warning = (text) => prose(`${icon(c, "warning")} ${text}`, "attention");
   // The key hint: one line, broken only between its keys on a terminal too
   // narrow for it, each separator ending the line it closes.
@@ -620,8 +776,10 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
     }
     return lines.map((t) => `${bar} ${paint("explanation", t)}`);
   };
-  const answeredLine = (title, text, glyph = "answered", role = "done", answerRole = "explanation") =>
-    [bar, `${paint(role, icon(c, glyph))} ${title}${text ? `  ${paint(answerRole, text)}` : ""}`];
+  const answeredLine = (title, text, glyph = "answered", role = "done", answerRole = "explanation") => [
+    bar,
+    `${paint(role, icon(c, glyph))} ${title}${text ? `  ${paint(answerRole, text)}` : ""}`,
+  ];
   // Choice rows: the marks (one plain width), the label, and the reason in a
   // column after the widest label that keeps its reason beside it. A row that
   // would pass the width puts its reason beneath the label, wrapped, and is
@@ -641,11 +799,15 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
     const lw = widest(list.filter((_, i) => beside[i]));
     const out = [];
     list.forEach((x, i) => {
-      if (beside[i]) { out.push(`${lead(i)}${x.label}${" ".repeat(lw - plain(x.label).length)}  ${paint("explanation", x.reason)}`); return; }
+      if (beside[i]) {
+        out.push(`${lead(i)}${x.label}${" ".repeat(lw - plain(x.label).length)}  ${paint("explanation", x.reason)}`);
+        return;
+      }
       out.push(lead(i) + x.label);
       if (!x.reason) return;
       const col = plain(lead(i)).length;
-      for (const t of wrap(x.reason, room() - col).split("\n")) out.push(`${bar} ${" ".repeat(col - 2)}${paint("explanation", t)}`);
+      for (const t of wrap(x.reason, room() - col).split("\n"))
+        out.push(`${bar} ${" ".repeat(col - 2)}${paint("explanation", t)}`);
     });
     return out;
   };
@@ -668,7 +830,10 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
       for (;;) {
         const k = await next();
         // close() cancelled this question while it waited: it drew the line.
-        if (closed) { settled = true; return CANCELLED; }
+        if (closed) {
+          settled = true;
+          return CANCELLED;
+        }
         if (k === EOF || (k.ctrl && k.name === "c")) {
           cancelled = true;
           item(answeredLine(q.title, "cancelled", "warning", "attention", "attention"));
@@ -676,12 +841,21 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
           return CANCELLED;
         }
         const r = await q.key(k);
-        if (closed) { settled = true; return CANCELLED; }
-        if (r === "redraw") { draw(); continue; }
+        if (closed) {
+          settled = true;
+          return CANCELLED;
+        }
+        if (r === "redraw") {
+          draw();
+          continue;
+        }
         if (!r) continue;
         if (r.back) {
           erase();
-          if (last) { write(`\x1b[${last}A\x1b[J`); last = 0; }
+          if (last) {
+            write(`\x1b[${last}A\x1b[J`);
+            last = 0;
+          }
           settled = true;
           return BACK;
         }
@@ -692,9 +866,16 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
     } finally {
       live = null;
       // A throw left the frame drawn: end its line, so what follows starts on its own.
-      if (!settled && shown) { try { write("\n"); } catch {} shown = 0; }
+      if (!settled && shown) {
+        try {
+          write("\n");
+        } catch {}
+        shown = 0;
+      }
       restore();
-      try { stdin.pause(); } catch {}
+      try {
+        stdin.pause();
+      } catch {}
     }
   }
 
@@ -702,25 +883,46 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
     if (!list.length) throw new TypeError(`${title}: no choices`);
     return ask({
       title,
-      draw: () => [bar, ...titled(title), ...(note ? prose(note) : []),
-        ...choiceLines(list.map((_, i) => (i === at ? paint("action", icon(c, "choiceOn")) : paint("explanation", icon(c, "choiceOff")))), list),
-        ...hint(keys)],
+      draw: () => [
+        bar,
+        ...titled(title),
+        ...(note ? prose(note) : []),
+        ...choiceLines(
+          list.map((_, i) =>
+            i === at ? paint("action", icon(c, "choiceOn")) : paint("explanation", icon(c, "choiceOff")),
+          ),
+          list,
+        ),
+        ...hint(keys),
+      ],
       key: (k) => {
-        if (k.name === "up") { at = (at + list.length - 1) % list.length; return "redraw"; }
-        if (k.name === "down") { at = (at + 1) % list.length; return "redraw"; }
+        if (k.name === "up") {
+          at = (at + list.length - 1) % list.length;
+          return "redraw";
+        }
+        if (k.name === "down") {
+          at = (at + 1) % list.length;
+          return "redraw";
+        }
         if (isEnter(k)) return { value: list[at].value, answer: list[at].answer };
         return null;
       },
     });
   };
-  const defaultAt = (list, value) => Math.max(0, list.findIndex((x) => Object.is(x.value, value)));
+  const defaultAt = (list, value) =>
+    Math.max(
+      0,
+      list.findIndex((x) => Object.is(x.value, value)),
+    );
 
   // The top: `┌` and the badge — `┌ projectstore setup` — in place of the
   // badge line a screen without a rail starts with.
   write(`${paint("explanation", icon(c, "railTop"))} ${badge(c, head, parts)}\n`);
 
   return {
-    get cancelled() { return cancelled; },
+    get cancelled() {
+      return cancelled;
+    },
 
     select(title, choices, { default: value, note = "" } = {}) {
       const list = choices.map(choiceOf);
@@ -736,27 +938,60 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
       const need = Math.min(Math.max(0, Number(min) || 0), list.length);
       const on = list.map((x) => x.on);
       const pointer = icon(c, "pointer");
-      let at = 0, refused = "";
+      let at = 0,
+        refused = "";
       return ask({
         title,
-        draw: () => [bar, ...titled(title), ...(note ? prose(note) : []),
-          ...choiceLines(list.map((_, i) => `${i === at ? paint("action", pointer) : " ".repeat(pointer.length)} ${paint(on[i] ? "action" : "explanation", icon(c, on[i] ? "checkOn" : "checkOff"))}`), list),
+        draw: () => [
+          bar,
+          ...titled(title),
+          ...(note ? prose(note) : []),
+          ...choiceLines(
+            list.map(
+              (_, i) =>
+                `${i === at ? paint("action", pointer) : " ".repeat(pointer.length)} ${paint(on[i] ? "action" : "explanation", icon(c, on[i] ? "checkOn" : "checkOff"))}`,
+            ),
+            list,
+          ),
           ...(refused ? warning(refused) : []),
-          ...hint(["up/down move", "space toggle", "enter confirm", "ctrl+c cancel"])],
+          ...hint(["up/down move", "space toggle", "enter confirm", "ctrl+c cancel"]),
+        ],
         key: (k) => {
-          if (k.name === "up") { at = (at + list.length - 1) % list.length; return "redraw"; }
-          if (k.name === "down") { at = (at + 1) % list.length; return "redraw"; }
-          if (k.name === "space") { on[at] = !on[at]; refused = ""; return "redraw"; }
+          if (k.name === "up") {
+            at = (at + list.length - 1) % list.length;
+            return "redraw";
+          }
+          if (k.name === "down") {
+            at = (at + 1) % list.length;
+            return "redraw";
+          }
+          if (k.name === "space") {
+            on[at] = !on[at];
+            refused = "";
+            return "redraw";
+          }
           if (!isEnter(k)) return null;
           const picked = list.filter((_, i) => on[i]);
-          if (picked.length < need) { refused = need === 1 ? "tick at least one with space" : `tick at least ${need} with space`; return "redraw"; }
-          return { value: picked.map((x) => x.value), answer: picked.length ? picked.map((x) => x.answer).join(", ") : "none" };
+          if (picked.length < need) {
+            refused = need === 1 ? "tick at least one with space" : `tick at least ${need} with space`;
+            return "redraw";
+          }
+          return {
+            value: picked.map((x) => x.value),
+            answer: picked.length ? picked.map((x) => x.answer).join(", ") : "none",
+          };
         },
       });
     },
 
-    confirm(title, { default: yes = true, yes: yesLabel = "Yes", no: noLabel = "No", yesReason = "", noReason = "", note = "" } = {}) {
-      const list = [choiceOf({ value: true, label: yesLabel, reason: yesReason }), choiceOf({ value: false, label: noLabel, reason: noReason })];
+    confirm(
+      title,
+      { default: yes = true, yes: yesLabel = "Yes", no: noLabel = "No", yesReason = "", noReason = "", note = "" } = {},
+    ) {
+      const list = [
+        choiceOf({ value: true, label: yesLabel, reason: yesReason }),
+        choiceOf({ value: false, label: noLabel, reason: noReason }),
+      ];
       return choose(title, list, yes ? 0 : 1, note, ["up/down move", "enter choose", "ctrl+c cancel"]);
     },
 
@@ -766,21 +1001,33 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
     // Enter with nothing typed takes it. Backspace takes back a character;
     // Esc goes back.
     path(title, { default: fallback = "", check = null, note = "", back = true } = {}) {
-      let value = "", refused = "";
+      let value = "",
+        refused = "";
       return ask({
         title,
         cursor: true,
-        draw: () => [bar, ...titled(title), ...(note ? prose(note) : []), ...(refused ? warning(refused) : []),
+        draw: () => [
+          bar,
+          ...titled(title),
+          ...(note ? prose(note) : []),
+          ...(refused ? warning(refused) : []),
           ...(fallback ? prose(`default ${fallback}`) : []),
           ...hint(["enter confirm", back ? "esc back" : null, "ctrl+c cancel"]),
-          `${bar} ${value}`],
+          `${bar} ${value}`,
+        ],
         key: async (k) => {
           if (k.name === "escape") return back ? { back: true } : null;
           if (isEnter(k)) {
             const chosen = value.trim() || String(fallback);
-            if (!chosen) { refused = "type a path"; return "redraw"; }
+            if (!chosen) {
+              refused = "type a path";
+              return "redraw";
+            }
             const why = check ? await check(chosen) : null;
-            if (why) { refused = String(why); return "redraw"; }
+            if (why) {
+              refused = String(why);
+              return "redraw";
+            }
             return { value: chosen, answer: chosen };
           }
           if (k.name === "backspace") {
@@ -834,7 +1081,9 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
       queue.length = 0;
       const woken = waiter;
       waiter = null;
-      try { stdin.pause(); } catch {}
+      try {
+        stdin.pause();
+      } catch {}
       release();
       if (woken) woken();
     },
@@ -854,7 +1103,9 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
 export async function drainInput(stdin, { ticks = 2, wait = () => new Promise(setImmediate) } = {}) {
   if (!stdin || typeof stdin.setRawMode !== "function") return 0;
   let dropped = 0;
-  const sink = (chunk) => { dropped += Buffer.byteLength(chunk); };
+  const sink = (chunk) => {
+    dropped += Buffer.byteLength(chunk);
+  };
   try {
     stdin.setRawMode(true);
     stdin.on("data", sink);
@@ -862,8 +1113,12 @@ export async function drainInput(stdin, { ticks = 2, wait = () => new Promise(se
     for (let k = 0; k < ticks; k++) await wait();
   } finally {
     stdin.removeListener("data", sink);
-    try { stdin.pause(); } catch {}
-    try { stdin.setRawMode(false); } catch {}
+    try {
+      stdin.pause();
+    } catch {}
+    try {
+      stdin.setRawMode(false);
+    } catch {}
   }
   return dropped;
 }

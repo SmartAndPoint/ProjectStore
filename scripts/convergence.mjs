@@ -49,7 +49,14 @@
 import { readFileSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
-import { cmpPrecedence, installChannel, projectCopiesByKey, writeFileAtomic, envFlag, isEphemeralRoot } from "./lib.mjs";
+import {
+  cmpPrecedence,
+  installChannel,
+  projectCopiesByKey,
+  writeFileAtomic,
+  envFlag,
+  isEphemeralRoot,
+} from "./lib.mjs";
 import { loadHarness, loadHarnesses } from "./harness.mjs";
 import { analysePortableRegistration, portableRegistrationPaths } from "./portable-registration.mjs";
 import { registrationPaths } from "./surfaces.mjs";
@@ -75,13 +82,25 @@ export const NO_CHECK_ENV = "PROJECTSTORE_NO_UPDATE_CHECK";
 // anything else counts as missing — never printed, never compared.
 const NUM = "(?:0|[1-9]\\d*)";
 const PRE = `(?:${NUM}|\\d*[A-Za-z-][0-9A-Za-z-]*)`;
-const SEMVER = new RegExp(`^${NUM}\\.${NUM}\\.${NUM}(?:-${PRE}(?:\\.${PRE})*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`);
+const SEMVER = new RegExp(
+  `^${NUM}\\.${NUM}\\.${NUM}(?:-${PRE}(?:\\.${PRE})*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`,
+);
 export const isSemver = (v) => typeof v === "string" && SEMVER.test(v);
 
 // ─── Which roots check (rule 6) and show the notice (rule 8) ────────────
 
-const real = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
-const within = (root, dir) => { const r = real(root), d = real(dir); return r === d || r.startsWith(d + sep); };
+const real = (p) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+};
+const within = (root, dir) => {
+  const r = real(root),
+    d = real(dir);
+  return r === d || r.startsWith(d + sep);
+};
 
 // A copy a host runs, updated through its own channel (layout spec contract
 // 12): never stopped, never told to update. installChannel names the host's
@@ -133,7 +152,10 @@ export const updateCheckOff = (env) => envFlag(env, NO_CHECK_ENV);
 // - a portable registration: the global registration's recorded version,
 //   when it is effectively enabled for this project.
 // `analyse(harness, s)` lets the caller share one analysis with the fetch.
-export function runningCopies(projectDir, { harnesses = [], root, home = homedir(), env = process.env, channel = null, version = null, analyse = null } = {}) {
+export function runningCopies(
+  projectDir,
+  { harnesses = [], root, home = homedir(), env = process.env, channel = null, version = null, analyse = null } = {},
+) {
   const out = [];
   for (const id of harnesses) {
     const harness = loadHarness(id);
@@ -143,10 +165,13 @@ export function runningCopies(projectDir, { harnesses = [], root, home = homedir
       if (s.format === "host-plugin-registration") {
         if (channel === "git") continue;
         for (const e of projectCopiesByKey(home, projectDir)) {
-          if (typeof e.version === "string" && e.version) out.push({ harness: id, key: e.key, version: e.version, path: e.path, scope: e.scope, own: e.own });
+          if (typeof e.version === "string" && e.version)
+            out.push({ harness: id, key: e.key, version: e.version, path: e.path, scope: e.scope, own: e.own });
         }
       } else if (s.format === "portable-plugin-registration") {
-        const a = analyse ? analyse(harness, s) : analysePortableRegistration(projectDir, s, { root, home, harness, env, version });
+        const a = analyse
+          ? analyse(harness, s)
+          : analysePortableRegistration(projectDir, s, { root, home, harness, env, version });
         const v = a?.ownership?.version;
         if (typeof v === "string" && v && a.enabled) out.push({ harness: id, key: a.id, version: v });
       }
@@ -155,7 +180,8 @@ export function runningCopies(projectDir, { harnesses = [], root, home = homedir
   return out;
 }
 
-export const newerCopies = (copies, version) => (version ? copies.filter((c) => cmpPrecedence(c.version, version) > 0) : []);
+export const newerCopies = (copies, version) =>
+  version ? copies.filter((c) => cmpPrecedence(c.version, version) > 0) : [];
 // The lowest of them: a fresh cache entry below it is read again (rule 8).
 export const lowestVersion = (copies) => copies.map((c) => c.version).sort(cmpPrecedence)[0] || null;
 
@@ -166,7 +192,9 @@ function readCache(cachePath) {
   try {
     const c = JSON.parse(readFileSync(cachePath, "utf8"));
     return c && typeof c === "object" && !Array.isArray(c) ? c : {};
-  } catch { return {}; }
+  } catch {
+    return {};
+  }
 }
 
 // Fresh for a day; an `at` in the future is stale (a clock that moved back).
@@ -181,29 +209,44 @@ function fresh(entry, t) {
 // its connection is released.
 function request(url, { fetch, timers, timeoutMs }) {
   return new Promise((settle) => {
-    let done = false, timer = null;
+    let done = false,
+      timer = null;
     const ac = typeof AbortController === "function" ? new AbortController() : null;
     const finish = (r) => {
       if (done) return;
       done = true;
-      if (timer !== null) { try { timers.clearTimeout(timer); } catch {} }
+      if (timer !== null) {
+        try {
+          timers.clearTimeout(timer);
+        } catch {}
+      }
       settle(r);
     };
     timer = timers.setTimeout(() => {
       timer = null;
-      try { ac?.abort(); } catch {}
+      try {
+        ac?.abort();
+      } catch {}
       finish({ error: `no answer within ${timeoutMs / 1000} s` });
     }, timeoutMs);
-    try { timer?.unref?.(); } catch {}
+    try {
+      timer?.unref?.();
+    } catch {}
     Promise.resolve()
       .then(() => fetch(url, { headers: { accept: ACCEPT }, ...(ac ? { signal: ac.signal } : {}) }))
       .then(async (res) => {
         if (!res || !res.ok) {
-          try { Promise.resolve(res?.body?.cancel?.()).catch(() => {}); } catch {}
+          try {
+            Promise.resolve(res?.body?.cancel?.()).catch(() => {});
+          } catch {}
           return finish({ error: `HTTP ${res?.status ?? "error"}` });
         }
         let body;
-        try { body = await res.json(); } catch { return finish({ error: "the answer is not JSON" }); }
+        try {
+          body = await res.json();
+        } catch {
+          return finish({ error: "the answer is not JSON" });
+        }
         const latest = body && typeof body === "object" ? body["dist-tags"]?.latest : undefined;
         if (!isSemver(latest)) return finish({ error: "the answer names no dist-tags.latest" });
         finish({ latest });
@@ -220,7 +263,15 @@ function request(url, { fetch, timers, timeoutMs }) {
 function writeCache(cachePath, cache, registry, latest, at) {
   if (!cachePath) return;
   const prev = cache.user_latest && typeof cache.user_latest === "object" ? cache.user_latest : null;
-  const next = { ...cache, [registry]: { latest, at }, user_latest: { latest, at, published_at: prev && prev.latest === latest && typeof prev.published_at === "string" ? prev.published_at : null } };
+  const next = {
+    ...cache,
+    [registry]: { latest, at },
+    user_latest: {
+      latest,
+      at,
+      published_at: prev && prev.latest === latest && typeof prev.published_at === "string" ? prev.published_at : null,
+    },
+  };
   try {
     mkdirSync(dirname(cachePath), { recursive: true });
     writeFileAtomic(cachePath, JSON.stringify(next, null, 2) + "\n", { sweep: false });
@@ -234,7 +285,15 @@ function writeCache(cachePath, cache, registry, latest, at) {
 // out since it was written. The cache never supplies a URL: an entry is only
 // looked up with the registry this run resolved. Never throws.
 /* eslint-disable n/no-unsupported-features/node-builtins -- the global fetch is experimental but present at Node 20 and stable from 21; without it readLatest answers "no fetch in this Node", and the suite runs it on Node 20 in CI */
-export async function readLatest({ registry, cachePath = null, fetch = globalThis.fetch, now = Date.now, timers = globalThis, timeoutMs = READ_TIMEOUT_MS, atLeast = null } = {}) {
+export async function readLatest({
+  registry,
+  cachePath = null,
+  fetch = globalThis.fetch,
+  now = Date.now,
+  timers = globalThis,
+  timeoutMs = READ_TIMEOUT_MS,
+  atLeast = null,
+} = {}) {
   /* eslint-enable n/no-unsupported-features/node-builtins */
   try {
     const cache = readCache(cachePath);
@@ -266,13 +325,22 @@ export function coreCommand(verb, { version = null, args = "" } = {}) {
 // part on its own line — the envelope's form, which an agent relays as it
 // is; `advice` is what PLAN draws, the commands in their own blocks.
 export function advised(text, blocks = []) {
-  return { reason: [text, ...blocks.flatMap((b) => [b.lead, b.command])].filter((x) => x !== null && x !== undefined).join("\n"), advice: { text, blocks } };
+  return {
+    reason: [text, ...blocks.flatMap((b) => [b.lead, b.command])]
+      .filter((x) => x !== null && x !== undefined)
+      .join("\n"),
+    advice: { text, blocks },
+  };
 }
 
 // The run's own selection, repeated: --harness and --surface as given, and
 // --no-register; never --project (the ADR's decision 5).
 function runArgs({ harnesses = [], surfaces = null, register = true } = {}) {
-  return [...harnesses.map((h) => `--harness ${h}`), ...(surfaces || []).map((s) => `--surface ${s}`), ...(register === false ? ["--no-register"] : [])].join(" ");
+  return [
+    ...harnesses.map((h) => `--harness ${h}`),
+    ...(surfaces || []).map((s) => `--surface ${s}`),
+    ...(register === false ? ["--no-register"] : []),
+  ].join(" ");
 }
 
 // Stop when the registry's latest is at least a newer copy this project runs
@@ -281,12 +349,21 @@ function runArgs({ harnesses = [], surfaces = null, register = true } = {}) {
 // readLatest's answer, null when nothing was read; `skipped` says the read
 // was switched off by PROJECTSTORE_NO_UPDATE_CHECK. The refusal's text puts
 // each command on a line of its own, never followed by punctuation.
-export function decide({ copies = [], version = null, read = null, skipped = false, verb = "upgrade", args = {} } = {}) {
+export function decide({
+  copies = [],
+  version = null,
+  read = null,
+  skipped = false,
+  verb = "upgrade",
+  args = {},
+} = {}) {
   const newer = newerCopies(copies, version);
   const decision = { checks: true, version, newer, read: skipped ? { skipped: true } : read, stop: null };
   const latest = read && isSemver(read.latest) ? read.latest : null;
   if (skipped || !latest) return decision;
-  const top = newer.filter((c) => cmpPrecedence(latest, c.version) >= 0).sort((a, b) => cmpPrecedence(b.version, a.version))[0];
+  const top = newer
+    .filter((c) => cmpPrecedence(latest, c.version) >= 0)
+    .sort((a, b) => cmpPrecedence(b.version, a.version))[0];
   if (!top) return decision;
   const lead = `this project runs ${PACKAGE} ${top.version} (${top.key}), newer than this package (${version}), and ${top.version} is published. Nothing is written. Run the newer one from a terminal in this project:`;
   const commands = [coreCommand(verb, { version: "latest", args: runArgs(args) }), `npm install -g ${PACKAGE}@latest`];
@@ -299,7 +376,8 @@ export function decide({ copies = [], version = null, read = null, skipped = fal
 // `v`: the dry run's note when no decision was made (plan reads nothing), none
 // for a root that never checks, else what the read found.
 export function proceedCase(decision, v) {
-  if (decision === null || decision === undefined) return `install and upgrade read the registry first, and stop when ${v} is published`;
+  if (decision === null || decision === undefined)
+    return `install and upgrade read the registry first, and stop when ${v} is published`;
   if (!decision.checks) return null;
   const r = decision.read;
   if (!r) return null;
@@ -336,18 +414,32 @@ export function pinFor(root, version) {
 export function channelChoices({ harness = null, copy = null, running = null, gate = null, pin = null } = {}) {
   if (gate) {
     const from = gate.keys?.length ? ` (${gate.keys.join(", ")})` : "";
-    const run = (extra = "") => coreCommand("setup", { version: gate.version || null, args: [runArgs({ harnesses: gate.args?.harnesses || [] }), extra].filter(Boolean).join(" ") });
+    const run = (extra = "") =>
+      coreCommand("setup", {
+        version: gate.version || null,
+        args: [runArgs({ harnesses: gate.args?.harnesses || [] }), extra].filter(Boolean).join(" "),
+      });
     return [
-      { lead: `Nothing written: this project loads ${PACKAGE} from the git marketplace${from}, and moving it to the npm install is a choice made at a terminal in this project:`, command: run() },
+      {
+        lead: `Nothing written: this project loads ${PACKAGE} from the git marketplace${from}, and moving it to the npm install is a choice made at a terminal in this project:`,
+        command: run(),
+      },
       { lead: "Without a terminal, name the channel:", command: run("--channel npm") },
       { lead: null, command: run("--channel git") },
     ];
   }
-  const run = (extra = "") => coreCommand("setup", { version: pin, args: [`--harness ${harness.id}`, extra].filter(Boolean).join(" ") });
+  const run = (extra = "") =>
+    coreCommand("setup", { version: pin, args: [`--harness ${harness.id}`, extra].filter(Boolean).join(" ") });
   return [
     { lead: "Choose at a terminal in this project; setup asks whether to keep that copy or switch:", command: run() },
-    { lead: `Without a terminal, keep ${copy?.key || "that copy"}, which then writes this project's surfaces itself:`, command: run("--channel git") },
-    { lead: `Or move this project to this package's npm install, the older ${running}:`, command: run("--channel npm") },
+    {
+      lead: `Without a terminal, keep ${copy?.key || "that copy"}, which then writes this project's surfaces itself:`,
+      command: run("--channel git"),
+    },
+    {
+      lead: `Or move this project to this package's npm install, the older ${running}:`,
+      command: run("--channel npm"),
+    },
   ];
 }
 
@@ -382,7 +474,9 @@ export function switchReason({ copy, running, runs = running, decision, unbound 
   // would be false.
   if (copy && typeof copy.version === "string" && runs && cmpPrecedence(copy.version, runs) > 0) {
     const c = proceedCase(decision, copy.version);
-    parts.push(`${copy.key} ${copy.version} is newer than this package (${running})${c ? ` — ${c}` : ""}; turning it off runs this project on the older ${runs}`);
+    parts.push(
+      `${copy.key} ${copy.version} is newer than this package (${running})${c ? ` — ${c}` : ""}; turning it off runs this project on the older ${runs}`,
+    );
   }
   if (unbound) parts.push("the project is not bound yet: the switch is recorded in its binding once it is");
   return parts.length ? parts.join("; ") : null;
@@ -395,9 +489,18 @@ export function switchReason({ copy, running, runs = running, decision, unbound 
 // npm row leaves — is turned back on in the host. Each command alone on its
 // line (presentation spec contract 6).
 export function noCopyToKeep({ harness, surface, off = [] }) {
-  const blocks = off.map((key) => ({ lead: `This checkout's local settings hold ${key} off. To load it again, run this in ${harness.display_name}:`, command: `/plugin enable ${key}` }));
-  blocks.push({ lead: "The way back from an earlier switch to the npm install is its uninstall, from a terminal in this project:", command: coreCommand("uninstall", { args: runArgs({ harnesses: [harness.id], surfaces: [surface] }) }) });
-  return advised(`no git-marketplace copy of ${PACKAGE} is enabled for this project, so there is none to keep. Nothing is written.`, blocks);
+  const blocks = off.map((key) => ({
+    lead: `This checkout's local settings hold ${key} off. To load it again, run this in ${harness.display_name}:`,
+    command: `/plugin enable ${key}`,
+  }));
+  blocks.push({
+    lead: "The way back from an earlier switch to the npm install is its uninstall, from a terminal in this project:",
+    command: coreCommand("uninstall", { args: runArgs({ harnesses: [harness.id], surfaces: [surface] }) }),
+  });
+  return advised(
+    `no git-marketplace copy of ${PACKAGE} is enabled for this project, so there is none to keep. Nothing is written.`,
+    blocks,
+  );
 }
 
 // ─── The keep (rule 5) ──────────────────────────────────────────────────
@@ -409,7 +512,17 @@ export function noCopyToKeep({ harness, surface, off = [] }) {
 // the status line would opt it in (rule 5). `process.execPath`, not `node`:
 // the Node that runs us is sure to exist, and the PLAN shows the argv verbatim.
 export function keepArgv(copy, { verb, harness, projectDir }) {
-  return [process.execPath, join(copy.path, "bin", "projectstore.mjs"), verb, "--harness", harness.id, "--no-register", "--json", "--project", projectDir];
+  return [
+    process.execPath,
+    join(copy.path, "bin", "projectstore.mjs"),
+    verb,
+    "--harness",
+    harness.id,
+    "--no-register",
+    "--json",
+    "--project",
+    projectDir,
+  ];
 }
 
 // The bin's `--json` envelope, `{ schema_version, verb, project, ok, result }`:
@@ -417,7 +530,11 @@ export function keepArgv(copy, { verb, harness, projectDir }) {
 // read — for plan it is `ok && !incomplete`, for a write verb the gate too.
 export function keepResult(stdout) {
   let env;
-  try { env = JSON.parse(String(stdout || "").trim()); } catch { return null; }
+  try {
+    env = JSON.parse(String(stdout || "").trim());
+  } catch {
+    return null;
+  }
   const r = env && typeof env === "object" && !Array.isArray(env) ? env.result : null;
   return r && typeof r === "object" && !Array.isArray(r) ? r : null;
 }
@@ -437,17 +554,37 @@ export function keepResult(stdout) {
 export async function readKeepPlan(copy, { harness, projectDir, env, run, budget = 120000 } = {}) {
   const argv = keepArgv(copy, { verb: "plan", harness, projectDir });
   let r;
-  try { r = await run(argv[0], argv.slice(1), { env, cwd: projectDir, budget }); }
-  catch (e) { r = { status: null, stdout: "", stderr: "", error: e }; }
+  try {
+    r = await run(argv[0], argv.slice(1), { env, cwd: projectDir, budget });
+  } catch (e) {
+    r = { status: null, stdout: "", stderr: "", error: e };
+  }
   const status = r?.status ?? null;
   const stderr = String(r?.stderr || "").trim();
   const result = keepResult(r?.stdout);
-  if (!result) return { argv, envelope: false, status, stderr, error: r?.error ? String(r.error.message || r.error) : null };
+  if (!result)
+    return { argv, envelope: false, status, stderr, error: r?.error ? String(r.error.message || r.error) : null };
   const items = Array.isArray(result.items) ? result.items.filter((i) => i && typeof i === "object") : [];
-  const writes = items.filter((i) => !["skip", "refuse"].includes(i.action)).map((i) => ({ surface: String(i.surface ?? ""), action: String(i.action ?? ""), path: i.path ?? null }));
-  const refusals = [...(Array.isArray(result.refusals) ? result.refusals : []), ...items.filter((i) => i.action === "refuse").map((i) => i.reason)].filter((x) => typeof x === "string" && x);
-  const deferred = items.filter((i) => i.deferred === true).map((i) => ({ surface: String(i.surface ?? ""), reason: typeof i.reason === "string" ? i.reason : null }));
-  return { argv, envelope: true, ok: result.ok !== false, incomplete: result.incomplete === true, refusals, writes, deferred, status };
+  const writes = items
+    .filter((i) => !["skip", "refuse"].includes(i.action))
+    .map((i) => ({ surface: String(i.surface ?? ""), action: String(i.action ?? ""), path: i.path ?? null }));
+  const refusals = [
+    ...(Array.isArray(result.refusals) ? result.refusals : []),
+    ...items.filter((i) => i.action === "refuse").map((i) => i.reason),
+  ].filter((x) => typeof x === "string" && x);
+  const deferred = items
+    .filter((i) => i.deferred === true)
+    .map((i) => ({ surface: String(i.surface ?? ""), reason: typeof i.reason === "string" ? i.reason : null }));
+  return {
+    argv,
+    envelope: true,
+    ok: result.ok !== false,
+    incomplete: result.incomplete === true,
+    refusals,
+    writes,
+    deferred,
+    status,
+  };
 }
 
 // The kept copy's own upgrade, in the form channelChoices names a copy's bin:
@@ -455,19 +592,28 @@ export async function readKeepPlan(copy, { harness, projectDir, env, run, budget
 // preview and its own question (we never run what we could not preview,
 // install spec contract 9).
 export function ownUpgrade(copy, harness) {
-  return { lead: "Run that copy's own upgrade from a terminal in this project; it shows its own plan and asks:", command: `node "${join(copy.path, "bin", "projectstore.mjs")}" upgrade --harness ${harness.id} --no-register` };
+  return {
+    lead: "Run that copy's own upgrade from a terminal in this project; it shows its own plan and asks:",
+    command: `node "${join(copy.path, "bin", "projectstore.mjs")}" upgrade --harness ${harness.id} --no-register`,
+  };
 }
 
 // This checkout's npm registration enabled beside the kept copy: the keep
 // changes no registration, so it stays; its uninstall (rule 4) drops it.
 export function npmRowBeside({ harness, id, surface }) {
-  return { lead: `This checkout's npm registration (${id}) stays enabled beside the kept copy. To drop it, from a terminal in this project:`, command: coreCommand("uninstall", { args: runArgs({ harnesses: [harness.id], surfaces: [surface] }) }) };
+  return {
+    lead: `This checkout's npm registration (${id}) stays enabled beside the kept copy. To drop it, from a terminal in this project:`,
+    command: coreCommand("uninstall", { args: runArgs({ harnesses: [harness.id], surfaces: [surface] }) }),
+  };
 }
 
 // A newer registration that is damaged: never rewritten or staged over from
 // the older package; repaired from its own version.
 export function repairAdvice(harness, v) {
-  return { lead: "not downgraded — repair it from its own version:", command: coreCommand("upgrade", { version: v, args: `--harness ${harness.id}` }) };
+  return {
+    lead: "not downgraded — repair it from its own version:",
+    command: coreCommand("upgrade", { version: v, args: `--harness ${harness.id}` }),
+  };
 }
 
 // ─── The update notice (rule 8) ─────────────────────────────────────────
@@ -479,5 +625,9 @@ export function repairAdvice(harness, v) {
 export function updateNotice({ latest, version, root, verb = "upgrade" } = {}) {
   if (!isSemver(latest) || !version || cmpPrecedence(latest, version) <= 0) return null;
   const npx = /[\\/]_npx[\\/]/.test(String(root || ""));
-  return { latest, text: `newer published: ${latest} (this is ${version}). To update:`, command: npx ? coreCommand(verb, { version: "latest" }) : `npm install -g ${PACKAGE}@latest` };
+  return {
+    latest,
+    text: `newer published: ${latest} (this is ${version}). To update:`,
+    command: npx ? coreCommand(verb, { version: "latest" }) : `npm install -g ${PACKAGE}@latest`,
+  };
 }

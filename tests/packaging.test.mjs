@@ -26,12 +26,7 @@ import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, copyF
 import { resolve, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import {
-  checkVersions,
-  currentPacklist,
-  unshippedTopLevel,
-  PACKLIST,
-} from "../scripts/version-guard.mjs";
+import { checkVersions, currentPacklist, unshippedTopLevel, PACKLIST } from "../scripts/version-guard.mjs";
 import { treeFiles } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -48,16 +43,8 @@ test("packaging contract 1: the tarball matches the checked-in packlist", () => 
   const unexpected = files.filter((f) => !listed.has(f));
   const missing = expected.filter((f) => !shipped.has(f));
 
-  assert.deepEqual(
-    unexpected,
-    [],
-    `shipped but not in ${PACKLIST} — run \`npm run packlist\` if this is intended`,
-  );
-  assert.deepEqual(
-    missing,
-    [],
-    `in ${PACKLIST} but no longer shipped — a files[] entry was dropped, or the file was`,
-  );
+  assert.deepEqual(unexpected, [], `shipped but not in ${PACKLIST} — run \`npm run packlist\` if this is intended`);
+  assert.deepEqual(missing, [], `in ${PACKLIST} but no longer shipped — a files[] entry was dropped, or the file was`);
 });
 
 test("packaging contract 1b: nothing at the root is silently unshipped", () => {
@@ -120,14 +107,24 @@ test("packaging contract 1d: the directories the plugin cannot work without do s
   }
   assert.ok(!tops.has("tests"), "tests/ must not ship");
   const pkg = readRootJson("package.json");
-  assert.equal(pkg.bin && pkg.bin.projectstore, "bin/projectstore.mjs", "the bin is declared (distribution ADR decision 5)");
-  assert.ok(readFileSync(resolve(ROOT, pkg.bin.projectstore), "utf8").startsWith("#!/usr/bin/env node\n"), "the bin has its shebang");
+  assert.equal(
+    pkg.bin && pkg.bin.projectstore,
+    "bin/projectstore.mjs",
+    "the bin is declared (distribution ADR decision 5)",
+  );
+  assert.ok(
+    readFileSync(resolve(ROOT, pkg.bin.projectstore), "utf8").startsWith("#!/usr/bin/env node\n"),
+    "the bin has its shebang",
+  );
   assert.ok(!tops.has(".claude"), ".claude/ must not ship — it holds local worktrees");
   assert.ok(!tops.has("packaging"), "packaging/ holds reserved-name stubs and must not ship");
 });
 
 test("packaging contract 2: no package.json — the core's or a shell's — declares publishConfig.provenance", () => {
-  const files = ["package.json", ...readdirSync(resolve(ROOT, "packaging", "shells")).map((n) => `packaging/shells/${n}/package.json`)];
+  const files = [
+    "package.json",
+    ...readdirSync(resolve(ROOT, "packaging", "shells")).map((n) => `packaging/shells/${n}/package.json`),
+  ];
   assert.ok(files.length >= 4, "the core and three shells");
   for (const f of files) {
     assert.equal(
@@ -148,11 +145,18 @@ test("packaging contract 2: no package.json — the core's or a shell's — decl
 // pinned exactly so an upgrade is a reviewed change.
 test("packaging: package.json declares no dependency of any kind, its tools are pinned devDependencies, and engines stays >=20.0.0", () => {
   const pkg = readRootJson("package.json");
-  for (const k of ["dependencies", "peerDependencies", "optionalDependencies", "bundleDependencies", "bundledDependencies"]) {
+  for (const k of [
+    "dependencies",
+    "peerDependencies",
+    "optionalDependencies",
+    "bundleDependencies",
+    "bundledDependencies",
+  ]) {
     assert.equal(pkg[k], undefined, `package.json declares ${k}`);
   }
   assert.deepEqual(Object.keys(pkg.devDependencies).sort(), ["@eslint/js", "eslint", "eslint-plugin-n", "prettier"]);
-  for (const [name, v] of Object.entries(pkg.devDependencies)) assert.match(v, /^\d+\.\d+\.\d+$/, `${name} is pinned exactly`);
+  for (const [name, v] of Object.entries(pkg.devDependencies))
+    assert.match(v, /^\d+\.\d+\.\d+$/, `${name} is pinned exactly`);
   assert.equal(pkg.engines.node, ">=20.0.0");
 });
 
@@ -171,19 +175,36 @@ function floorDisablesWithoutReason(src) {
 }
 
 test("lint: every disable of a Node-floor rule gives its reason", () => {
-  const mjs = (dir) => treeFiles(join(ROOT, dir)).filter((f) => f.endsWith(".mjs")).map((f) => `${dir}/${f}`);
+  const mjs = (dir) =>
+    treeFiles(join(ROOT, dir))
+      .filter((f) => f.endsWith(".mjs"))
+      .map((f) => `${dir}/${f}`);
   const files = [...mjs("bin"), ...mjs("scripts"), ...mjs("packaging"), ...mjs("tests"), "eslint.config.mjs"];
-  files.push(...readdirSync(join(ROOT, "hooks")).filter((f) => f.endsWith(".mjs")).map((f) => `hooks/${f}`));
+  files.push(
+    ...readdirSync(join(ROOT, "hooks"))
+      .filter((f) => f.endsWith(".mjs"))
+      .map((f) => `hooks/${f}`),
+  );
   const texts = files.map((f) => [f, readFileSync(join(ROOT, f), "utf8")]);
   // Not vacuous: the scan must reach the real directives, not just this file's
   // own mentions of the rule.
-  const carrying = texts.filter(([f, t]) => f !== "tests/packaging.test.mjs" && t.includes("eslint-disable") && t.includes(FLOOR_RULE)).map(([f]) => f);
-  for (const f of ["scripts/convergence.mjs", "packaging/shells.mjs", "tests/fixtures/hermetic.mjs"]) assert.ok(carrying.includes(f), `the scan reads ${f}'s Node-floor disable`);
-  assert.deepEqual(texts.flatMap(([f, t]) => floorDisablesWithoutReason(t).map((d) => `${f}: ${d}`)), []);
+  const carrying = texts
+    .filter(([f, t]) => f !== "tests/packaging.test.mjs" && t.includes("eslint-disable") && t.includes(FLOOR_RULE))
+    .map(([f]) => f);
+  for (const f of ["scripts/convergence.mjs", "packaging/shells.mjs", "tests/fixtures/hermetic.mjs"])
+    assert.ok(carrying.includes(f), `the scan reads ${f}'s Node-floor disable`);
+  assert.deepEqual(
+    texts.flatMap(([f, t]) => floorDisablesWithoutReason(t).map((d) => `${f}: ${d}`)),
+    [],
+  );
 
   const line = "// eslint-" + "disable-next-line n/no-unsupported-features/node-builtins";
   const block = "/* eslint-" + "disable n/no-unsupported-features/node-builtins */";
-  assert.equal(floorDisablesWithoutReason(`${line}\nimport { cpSync } from "node:fs";\n`).length, 1, "a line disable without a reason");
+  assert.equal(
+    floorDisablesWithoutReason(`${line}\nimport { cpSync } from "node:fs";\n`).length,
+    1,
+    "a line disable without a reason",
+  );
   assert.equal(floorDisablesWithoutReason(`${line} -- stable from 22.3; CI runs Node 20\n`).length, 0);
   assert.equal(floorDisablesWithoutReason(block).length, 1, "a block disable without a reason");
   assert.equal(floorDisablesWithoutReason(block.replace(" */", " -- stable from 21 */")).length, 0);
@@ -216,13 +237,22 @@ test("packaging contract 3c: a lockfile left behind by a bump fails the guard, a
   // package-lock.json is committed since the lint ADR and records the root
   // package's version twice: `version` and `packages[""].version`.
   const scratch = mkdtempSync(join(tmpdir(), "ps-guard-lock-"));
-  for (const rel of ["package.json", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json", "package-lock.json"]) {
+  for (const rel of [
+    "package.json",
+    ".claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json",
+    "package-lock.json",
+  ]) {
     mkdirSync(dirname(join(scratch, rel)), { recursive: true });
     copyFileSync(join(ROOT, rel), join(scratch, rel));
   }
   const agreed = checkVersions({ root: scratch });
   assert.equal(agreed.ok, true, JSON.stringify(agreed));
-  assert.equal(agreed.checked.filter((c) => c.file === "package-lock.json").length, 2, "both lockfile versions are checked");
+  assert.equal(
+    agreed.checked.filter((c) => c.file === "package-lock.json").length,
+    2,
+    "both lockfile versions are checked",
+  );
 
   const lock = join(scratch, "package-lock.json");
   const good = readFileSync(lock, "utf8");
@@ -235,15 +265,30 @@ test("packaging contract 3c: a lockfile left behind by a bump fails the guard, a
     return r;
   };
   for (const [where, fn] of [
-    ["version", (j) => { j.version = "0.0.0-stale"; }],
-    ['packages[""].version', (j) => { j.packages[""].version = "0.0.0-stale"; }],
+    [
+      "version",
+      (j) => {
+        j.version = "0.0.0-stale";
+      },
+    ],
+    [
+      'packages[""].version',
+      (j) => {
+        j.packages[""].version = "0.0.0-stale";
+      },
+    ],
   ]) {
     const r = mutate(fn);
     assert.equal(r.ok, false, `a stale lockfile ${where} must fail the guard`);
     assert.equal(r.error, "version mismatch");
     assert.ok(r.versions.includes("0.0.0-stale"), where);
   }
-  assert.match(mutate((j) => { delete j.packages; }).error, /package-lock\.json: no version found/);
+  assert.match(
+    mutate((j) => {
+      delete j.packages;
+    }).error,
+    /package-lock\.json: no version found/,
+  );
 
   rmSync(lock);
   assert.match(checkVersions({ root: scratch }).error, /package-lock\.json: missing/);

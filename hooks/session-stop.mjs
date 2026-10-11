@@ -71,12 +71,14 @@ async function main() {
 
   if (!electEmitter(proj, sid)) return;
   appendEntryLog(proj, { at: new Date().toISOString(), session_id: sid, score, via: "Stop" });
-  process.stdout.write(JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "Stop",
-      additionalContext: entryReminderText(score),
-    },
-  }) + "\n");
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "Stop",
+        additionalContext: entryReminderText(score),
+      },
+    }) + "\n",
+  );
 }
 
 main().catch(() => {

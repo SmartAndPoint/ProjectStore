@@ -10,12 +10,22 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync, utimesSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  existsSync,
+  utimesSync,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync, spawn } from "node:child_process";
 import { makeVaultProject, seedGraphFixture, writeBinding } from "./fixtures/vault.mjs";
-import { readAnchorState,
+import {
+  readAnchorState,
   layoutPaths,
   stateDir,
   sessionStatePath,
@@ -35,7 +45,10 @@ const BOUND_ENV = { ...ENV, CLAUDE_PROJECT_DIR: makeVaultProject().proj };
 
 function run(script, args, env = ENV) {
   const r = spawnSync(process.execPath, [join(REPO, "scripts", script), ...args], {
-    encoding: "utf8", env, cwd: REPO, timeout: 15000,
+    encoding: "utf8",
+    env,
+    cwd: REPO,
+    timeout: 15000,
   });
   assert.equal(r.status, 0, r.stderr);
   return JSON.parse(r.stdout);
@@ -78,9 +91,9 @@ test("story-section plan: idempotent, preserves hand-written plan, no downgrade 
   const out = runBound("story-section.mjs", ["plan", p]);
   assert.equal((out.content.match(/## Implementation Plan/g) || []).length, 1);
   assert.ok(out.content.includes("HAND WRITTEN — must survive."));
-  assert.match(out.content, /status: review/);           // never downgraded
-  assert.match(out.content, /started_at: "20/);          // stamped
-  assert.match(out.content, /plan_updated_at: "20/);     // stamped
+  assert.match(out.content, /status: review/); // never downgraded
+  assert.match(out.content, /started_at: "20/); // stamped
+  assert.match(out.content, /plan_updated_at: "20/); // stamped
   assert.match(out.content, /\*Last updated: 20\d\d-\d\d-\d\d\*/); // footer synced
 });
 
@@ -105,12 +118,14 @@ test("story-section close: inserts Final Summary, stamps closed_at, status done"
 
 function runIn(projectDir, script, args) {
   const r = spawnSync(process.execPath, [join(REPO, "scripts", script), ...args], {
-    encoding: "utf8", env: { ...ENV, CLAUDE_PROJECT_DIR: projectDir }, cwd: REPO, timeout: 15000,
+    encoding: "utf8",
+    env: { ...ENV, CLAUDE_PROJECT_DIR: projectDir },
+    cwd: REPO,
+    timeout: 15000,
   });
   assert.equal(r.status, 0, r.stderr);
   return JSON.parse(r.stdout);
 }
-
 
 test("draft adr/spec: slug-only filename, machine id, external_refs, no number (contracts 1, 3)", () => {
   const { proj } = makeVaultProject();
@@ -160,34 +175,52 @@ test("draft: cross-era collisions surface in the collision field (contract 4)", 
 test("mixed-era vault: index orders by date with number badge, doctor identity checks stay clean (contracts 6, 8)", () => {
   const { proj, vault } = makeVaultProject();
   const fm = (extra) => `---\n${extra}\n---\n\n# T\n`;
-  writeFileSync(join(vault, "adr", "README.md"),
-    "# ADRs\n\n| File | Title | Status | Date |\n|------|-------|--------|------|\n");
-  writeFileSync(join(vault, "adr", "ADR-001-caching.md"),
-    fm('type: adr\nnumber: "001"\ntitle: "Caching"\nstatus: accepted\ndate: 2026-01-01'));
-  writeFileSync(join(vault, "adr", "zebra.md"),
-    fm('type: adr\nid: "zebra"\ntitle: "Zebra"\nstatus: proposed\ndate: 2026-01-02\nexternal_refs: {}'));
-  writeFileSync(join(vault, "adr", "apple.md"),
-    fm('type: adr\nid: "apple"\ntitle: "Apple"\nstatus: proposed\ndate: 2026-01-02\nexternal_refs: {}'));
-  writeFileSync(join(vault, "epics", "PS-X", "stories", "story-001-legacy-work.md"),
-    fm('type: story\nid: "story-001"\ntitle: "Legacy work"\nstatus: planned\ncreated: 2026-01-01'));
-  writeFileSync(join(vault, "epics", "PS-X", "stories", "story-do-thing.md"),
-    fm('type: story\nid: "story-do-thing"\ntitle: "Do thing"\nstatus: planned\ncreated: 2026-01-02\nexternal_refs: {}'));
+  writeFileSync(
+    join(vault, "adr", "README.md"),
+    "# ADRs\n\n| File | Title | Status | Date |\n|------|-------|--------|------|\n",
+  );
+  writeFileSync(
+    join(vault, "adr", "ADR-001-caching.md"),
+    fm('type: adr\nnumber: "001"\ntitle: "Caching"\nstatus: accepted\ndate: 2026-01-01'),
+  );
+  writeFileSync(
+    join(vault, "adr", "zebra.md"),
+    fm('type: adr\nid: "zebra"\ntitle: "Zebra"\nstatus: proposed\ndate: 2026-01-02\nexternal_refs: {}'),
+  );
+  writeFileSync(
+    join(vault, "adr", "apple.md"),
+    fm('type: adr\nid: "apple"\ntitle: "Apple"\nstatus: proposed\ndate: 2026-01-02\nexternal_refs: {}'),
+  );
+  writeFileSync(
+    join(vault, "epics", "PS-X", "stories", "story-001-legacy-work.md"),
+    fm('type: story\nid: "story-001"\ntitle: "Legacy work"\nstatus: planned\ncreated: 2026-01-01'),
+  );
+  writeFileSync(
+    join(vault, "epics", "PS-X", "stories", "story-do-thing.md"),
+    fm('type: story\nid: "story-do-thing"\ntitle: "Do thing"\nstatus: planned\ncreated: 2026-01-02\nexternal_refs: {}'),
+  );
 
   const rec = runIn(proj, "reconcile.mjs", []);
   const adrIndex = rec.indexes.find((i) => i.folder === "adr");
   assert.ok(adrIndex.changed);
-  const labels = adrIndex.content.split("\n").filter((l) => /^\| \[/.test(l))
+  const labels = adrIndex.content
+    .split("\n")
+    .filter((l) => /^\| \[/.test(l))
     .map((l) => l.match(/^\| \[([^\]]+)\]/)[1]);
   // Date asc; numbered before unnumbered is moot across dates; badge only
   // where a number exists, slug labels elsewhere; same-date slugs sort by slug.
   assert.deepEqual(labels, ["ADR-001", "apple", "zebra"]);
 
   const r = spawnSync(process.execPath, [join(REPO, "scripts", "doctor.mjs"), "--vault", "--json"], {
-    encoding: "utf8", env: { ...ENV, CLAUDE_PROJECT_DIR: proj }, cwd: REPO, timeout: 15000,
+    encoding: "utf8",
+    env: { ...ENV, CLAUDE_PROJECT_DIR: proj },
+    cwd: REPO,
+    timeout: 15000,
   });
   const findings = JSON.parse(r.stdout);
   const identityChecks = findings.filter((f) =>
-    ["identity", "artifact-name", "external-refs", "spec-links"].includes(f.check));
+    ["identity", "artifact-name", "external-refs", "spec-links"].includes(f.check),
+  );
   assert.deepEqual(identityChecks, [], JSON.stringify(identityChecks));
 });
 
@@ -210,7 +243,10 @@ test("draft: nextNumber is gone from the creation path (contract 1)", () => {
 // do not loosen it.
 function runInRaw(projectDir, script, args) {
   return spawnSync(process.execPath, [join(REPO, "scripts", script), ...args], {
-    encoding: "utf8", env: { ...ENV, CLAUDE_PROJECT_DIR: projectDir }, cwd: REPO, timeout: 15000,
+    encoding: "utf8",
+    env: { ...ENV, CLAUDE_PROJECT_DIR: projectDir },
+    cwd: REPO,
+    timeout: 15000,
   });
 }
 
@@ -219,18 +255,31 @@ function runInRaw(projectDir, script, args) {
 function seedDerivedFixture() {
   const { proj, vault } = makeVaultProject();
   const fm = (extra) => `---\n${extra}\n---\n\n# T\n`;
-  writeFileSync(join(vault, "adr", "README.md"),
-    "# ADRs\n\n| File | Title | Status | Date |\n|------|-------|--------|------|\n\nPROSE BELOW THE TABLE.\n");
-  writeFileSync(join(vault, "adr", "caching.md"),
-    fm('type: adr\nid: "caching"\ntitle: "Caching"\nstatus: accepted\ndate: 2026-01-01\nexternal_refs: {}'));
-  writeFileSync(join(vault, "epics", "PS-X", "epic.md"),
-    fm('type: epic\nid: "PS-X"\ntitle: "X"\nstatus: in-progress\ncreated: 2026-01-01\ncode_refs: ["scripts/"]'));
-  writeFileSync(join(vault, "epics", "PS-X", "stories", "story-ship-it.md"),
-    fm('type: story\nid: "story-ship-it"\ntitle: "Ship it"\nstatus: planned\ncreated: 2026-01-01\nexternal_refs: {}'));
+  writeFileSync(
+    join(vault, "adr", "README.md"),
+    "# ADRs\n\n| File | Title | Status | Date |\n|------|-------|--------|------|\n\nPROSE BELOW THE TABLE.\n",
+  );
+  writeFileSync(
+    join(vault, "adr", "caching.md"),
+    fm('type: adr\nid: "caching"\ntitle: "Caching"\nstatus: accepted\ndate: 2026-01-01\nexternal_refs: {}'),
+  );
+  writeFileSync(
+    join(vault, "epics", "PS-X", "epic.md"),
+    fm('type: epic\nid: "PS-X"\ntitle: "X"\nstatus: in-progress\ncreated: 2026-01-01\ncode_refs: ["scripts/"]'),
+  );
+  writeFileSync(
+    join(vault, "epics", "PS-X", "stories", "story-ship-it.md"),
+    fm('type: story\nid: "story-ship-it"\ntitle: "Ship it"\nstatus: planned\ncreated: 2026-01-01\nexternal_refs: {}'),
+  );
   return { proj, vault };
 }
 
-const normEq = (s) => s.split("\n").filter((l) => !l.startsWith("generated_at:")).join("\n").trimEnd();
+const normEq = (s) =>
+  s
+    .split("\n")
+    .filter((l) => !l.startsWith("generated_at:"))
+    .join("\n")
+    .trimEnd();
 
 test("reconcile --write: applies compute output atomically, idempotent second pass (contracts 1, 4, 8)", () => {
   const { proj, vault } = seedDerivedFixture();
@@ -257,7 +306,10 @@ test("reconcile --write: recomputes at write time — status flip and prose edit
   const storyPath = join(vault, "epics", "PS-X", "stories", "story-ship-it.md");
   writeFileSync(storyPath, readFileSync(storyPath, "utf8").replace("status: planned", "status: in-progress"));
   const readmePath = join(vault, "adr", "README.md");
-  writeFileSync(readmePath, readFileSync(readmePath, "utf8").replace("PROSE BELOW THE TABLE.", "PROSE EDITED DURING APPROVAL."));
+  writeFileSync(
+    readmePath,
+    readFileSync(readmePath, "utf8").replace("PROSE BELOW THE TABLE.", "PROSE EDITED DURING APPROVAL."),
+  );
   const w = runIn(proj, "reconcile.mjs", ["--write"]);
   assert.equal(w.summary.failed, 0);
   const board = readFileSync(join(vault, "kanban.md"), "utf8");
@@ -324,8 +376,7 @@ test("reconcile --write: a named-absent index aborts BEFORE any side effect (con
   const r = runInRaw(proj, "reconcile.mjs", ["--write", "--only", "kanban,indexes=specs"]);
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /specs\/README\.md/);
-  assert.ok(!existsSync(join(vault, "kanban.md")),
-    "config errors abort with nothing written — no unreported mutation");
+  assert.ok(!existsSync(join(vault, "kanban.md")), "config errors abort with nothing written — no unreported mutation");
 });
 
 // ─── creation-time index regeneration ────────────────────────────────────
@@ -342,8 +393,7 @@ function seedCreationFixture() {
   const { proj, vault } = makeVaultProject();
   for (const path of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops"]) {
     mkdirSync(join(vault, path), { recursive: true });
-    writeFileSync(join(vault, path, "README.md"),
-      `# ${path}\n\n## Index\n\n${IDX_HEAD}\nPROSE BELOW THE TABLE.\n`);
+    writeFileSync(join(vault, path, "README.md"), `# ${path}\n\n## Index\n\n${IDX_HEAD}\nPROSE BELOW THE TABLE.\n`);
   }
   return { proj, vault };
 }
@@ -385,9 +435,17 @@ test("creation e2e: epic — subfolder shape, row written after the epic exists 
 
 test("draft: index.folder is the layout folder, not the kind; stories carry no index (contract 1)", () => {
   const { proj } = seedCreationFixture();
-  for (const [kind, folder] of [["runbook", "ops"], ["concept", "concepts"], ["meeting", "meetings"], ["adr", "adr"]]) {
-    assert.equal(runIn(proj, "draft.mjs", [kind, "Some title"]).index.folder, folder,
-      `${kind} must select its layout folder — a kind-derived selector would miss ${folder}`);
+  for (const [kind, folder] of [
+    ["runbook", "ops"],
+    ["concept", "concepts"],
+    ["meeting", "meetings"],
+    ["adr", "adr"],
+  ]) {
+    assert.equal(
+      runIn(proj, "draft.mjs", [kind, "Some title"]).index.folder,
+      folder,
+      `${kind} must select its layout folder — a kind-derived selector would miss ${folder}`,
+    );
   }
   assert.equal(runIn(proj, "draft.mjs", ["story", "PS-X", "Some title"]).index, null);
 });
@@ -396,26 +454,40 @@ test("draft: the previewed index row is byte-identical to the row the regenerati
   const { proj, vault } = seedCreationFixture();
   // meeting is the case that used to disagree: draft labelled by bare slug
   // while the regeneration labels by the date-prefixed filename stem.
-  for (const args of [["adr", "Some decision"], ["meeting", "Some sync"], ["runbook", "Some drill"], ["epic", "PS-Z", "Some epic"]]) {
+  for (const args of [
+    ["adr", "Some decision"],
+    ["meeting", "Some sync"],
+    ["runbook", "Some drill"],
+    ["epic", "PS-Z", "Some epic"],
+  ]) {
     const { out } = createThrough(proj, args, args[0] === "epic" ? ["stories"] : []);
     const rows = readFileSync(join(vault, out.index.folder, "README.md"), "utf8")
-      .split("\n").filter((l) => l.startsWith("| ["));
-    assert.ok(rows.includes(out.index.line),
-      `${args[0]}: preview\n  ${out.index.line}\nis not among written rows\n  ${rows.join("\n  ")}`);
+      .split("\n")
+      .filter((l) => l.startsWith("| ["));
+    assert.ok(
+      rows.includes(out.index.line),
+      `${args[0]}: preview\n  ${out.index.line}\nis not among written rows\n  ${rows.join("\n  ")}`,
+    );
   }
 });
 
 test("creation e2e: rows land in SPEC-002 contract 8 order across eras (contract 4)", () => {
   const { proj, vault } = seedCreationFixture();
   const fm = (extra) => `---\n${extra}\n---\n\n# T\n`;
-  writeFileSync(join(vault, "adr", "ADR-001-grandfathered.md"),
-    fm('type: adr\nid: "ADR-001"\nnumber: "001"\ntitle: "Grandfathered"\nstatus: accepted\ndate: 2026-01-01'));
-  writeFileSync(join(vault, "adr", "alpha.md"),
-    fm('type: adr\nid: "alpha"\ntitle: "Alpha"\nstatus: accepted\ndate: 2026-01-01'));
+  writeFileSync(
+    join(vault, "adr", "ADR-001-grandfathered.md"),
+    fm('type: adr\nid: "ADR-001"\nnumber: "001"\ntitle: "Grandfathered"\nstatus: accepted\ndate: 2026-01-01'),
+  );
+  writeFileSync(
+    join(vault, "adr", "alpha.md"),
+    fm('type: adr\nid: "alpha"\ntitle: "Alpha"\nstatus: accepted\ndate: 2026-01-01'),
+  );
   runIn(proj, "reconcile.mjs", ["--write", "--only", "indexes=adr"]);
   createThrough(proj, ["adr", "Zulu"]); // today's date — sorts last
   const labels = readFileSync(join(vault, "adr", "README.md"), "utf8")
-    .split("\n").filter((l) => l.startsWith("| [")).map((l) => l.slice(3, l.indexOf("]")));
+    .split("\n")
+    .filter((l) => l.startsWith("| ["))
+    .map((l) => l.slice(3, l.indexOf("]")));
   assert.deepEqual(labels, ["ADR-001", "alpha", "zulu"]);
 });
 
@@ -434,29 +506,45 @@ test("creation e2e: an unrecognized index header is rejected before any write; t
 
 test("index header: extra hand-added columns are not the managed table — no silent column loss (contract 6)", () => {
   const { proj, vault } = seedCreationFixture();
-  const five = "# ADRs\n\n| File | Title | Status | Date | Notes |\n|------|-------|--------|------|-------|\n" +
+  const five =
+    "# ADRs\n\n| File | Title | Status | Date | Notes |\n|------|-------|--------|------|-------|\n" +
     "| [caching](./caching.md) | Caching | accepted | 2026-01-01 | hand-kept context |\n";
   writeFileSync(join(vault, "adr", "README.md"), five);
-  writeFileSync(join(vault, "adr", "caching.md"),
-    '---\ntype: adr\nid: "caching"\ntitle: "Caching"\nstatus: accepted\ndate: 2026-01-01\n---\n\n# T\n');
+  writeFileSync(
+    join(vault, "adr", "caching.md"),
+    '---\ntype: adr\nid: "caching"\ntitle: "Caching"\nstatus: accepted\ndate: 2026-01-01\n---\n\n# T\n',
+  );
   const r = runInRaw(proj, "reconcile.mjs", ["--write", "--only", "indexes=adr"]);
   assert.notEqual(r.status, 0, "a five-column header is not a recognised index table");
-  assert.equal(readFileSync(join(vault, "adr", "README.md"), "utf8"), five,
-    "the hand-kept fifth column is never rewritten away");
+  assert.equal(
+    readFileSync(join(vault, "adr", "README.md"), "utf8"),
+    five,
+    "the hand-kept fifth column is never rewritten away",
+  );
   // doctor sees the same fact, per its own documented intent.
   const findings = runIn(proj, "doctor.mjs", ["--vault", "--json"]);
-  assert.ok(findings.some((f) => f.check === "index-header" && f.file === "adr/README.md"),
-    JSON.stringify(findings));
+  assert.ok(
+    findings.some((f) => f.check === "index-header" && f.file === "adr/README.md"),
+    JSON.stringify(findings),
+  );
 });
 
 test("creation e2e: a localized index header reconciles (registry-driven, not an English literal)", () => {
   const { proj, vault } = makeVaultProject();
-  writeBinding(proj, JSON.stringify({
-    vault_path: vault, layout: "engineering", language: "de", default_author: "Test",
-  }));
+  writeBinding(
+    proj,
+    JSON.stringify({
+      vault_path: vault,
+      layout: "engineering",
+      language: "de",
+      default_author: "Test",
+    }),
+  );
   mkdirSync(join(vault, "adr"), { recursive: true });
-  writeFileSync(join(vault, "adr", "README.md"),
-    "# ADRs\n\n| Datei | Titel | Status | Datum |\n|-------|-------|--------|-------|\n\nPROSA.\n");
+  writeFileSync(
+    join(vault, "adr", "README.md"),
+    "# ADRs\n\n| Datei | Titel | Status | Datum |\n|-------|-------|--------|-------|\n\nPROSA.\n",
+  );
   const { out, entry } = createThrough(proj, ["adr", "Zwischenspeicher leeren"]);
   assert.equal(entry.written, true, JSON.stringify(entry));
   const idx = readFileSync(out.index.path, "utf8");
@@ -469,18 +557,24 @@ test("creation command prose applies index rows through the core, under one disc
     // Prose wraps at ~80 columns, so match against a whitespace-flattened
     // copy — a guard that a reflow can silence guards nothing.
     const src = readFileSync(join(REPO, "commands", file), "utf8").replace(/\s+/g, " ");
-    assert.ok(src.includes("--write --only indexes="),
-      `${file} must apply its index row via reconcile --write --only indexes=<folder>`);
+    assert.ok(
+      src.includes("--write --only indexes="),
+      `${file} must apply its index row via reconcile --write --only indexes=<folder>`,
+    );
     // Contract 2: collapsing two gates into one is only legitimate if the
     // surviving prompt says what it now covers. Without this assert the
     // disclosure can quietly regress while the call itself stays correct.
-    assert.ok(/only gate/.test(src) && /whole managed index table is regenerated/.test(src),
-      `${file}'s approval step must disclose the single gate and the whole-table regeneration`);
-    assert.ok(/never (the )?Write\/Edit/i.test(src),
-      `${file} must forbid the Write/Edit tools for the index row`);
+    assert.ok(
+      /only gate/.test(src) && /whole managed index table is regenerated/.test(src),
+      `${file}'s approval step must disclose the single gate and the whole-table regeneration`,
+    );
+    assert.ok(/never (the )?Write\/Edit/i.test(src), `${file} must forbid the Write/Edit tools for the index row`);
     // No residual append path, including as a fallback beside the core call.
-    assert.doesNotMatch(src, /append(s|ing)? .{0,40}index|index .{0,20}(row )?Edit|Edit .{0,20}index/i,
-      `${file} must carry no Edit-append path for the index row`);
+    assert.doesNotMatch(
+      src,
+      /append(s|ing)? .{0,40}index|index .{0,20}(row )?Edit|Edit .{0,20}index/i,
+      `${file} must carry no Edit-append path for the index row`,
+    );
     // Positional, because the lexical assertions above are satisfiable by prose
     // that says the right words in the wrong place. These pin the ORDER the
     // contract actually depends on.
@@ -493,12 +587,19 @@ test("creation command prose applies index rows through the core, under one disc
     const rest = src.slice(apply);
     const nextStep = rest.search(/\s\d+\.\s/);
     const indexStep = nextStep === -1 ? rest : rest.slice(0, nextStep);
-    assert.equal(indexStep.indexOf("AskUserQuestion"), -1,
-      `${file} must ask nothing inside its index step — the approval at the creation gate already covers the row`);
-    assert.ok(src.indexOf("only gate") < apply,
-      `${file} must disclose the single gate in the approval step, before the index is written`);
-    assert.ok(src.indexOf("index.line") !== -1 && src.indexOf("index.line") < apply,
-      `${file} must print index.line in the preview — contract 4's byte-identity has no other user-visible surface`);
+    assert.equal(
+      indexStep.indexOf("AskUserQuestion"),
+      -1,
+      `${file} must ask nothing inside its index step — the approval at the creation gate already covers the row`,
+    );
+    assert.ok(
+      src.indexOf("only gate") < apply,
+      `${file} must disclose the single gate in the approval step, before the index is written`,
+    );
+    assert.ok(
+      src.indexOf("index.line") !== -1 && src.indexOf("index.line") < apply,
+      `${file} must print index.line in the preview — contract 4's byte-identity has no other user-visible surface`,
+    );
   }
   // doctor points at reconcile instead of offering hand-written index Edits.
   const doc = readFileSync(join(REPO, "commands", "doctor.md"), "utf8");
@@ -516,29 +617,49 @@ test("graph.mjs golden: three story shapes are nodes; typed edges normalized, de
   const g1 = runIn(proj, "graph.mjs", []);
   const g2 = runIn(proj, "graph.mjs", []);
   assert.equal(normEq(g1.content), normEq(g2.content), "byte-identical modulo generated_at");
-  for (const p of ["epics/PS-X/stories/story-ship-it.md",
-                   "epics/PS-X/stories/story-nested/README.md",
-                   "epics/PS-X/story-loose.md"]) {
+  for (const p of [
+    "epics/PS-X/stories/story-ship-it.md",
+    "epics/PS-X/stories/story-nested/README.md",
+    "epics/PS-X/story-loose.md",
+  ]) {
     assert.ok(g1.content.includes(`| ${p} |`), `${p} is a node`);
   }
-  const edges = g1.content.split("\n").filter((l) => l.startsWith("|")).map((l) => l.trim());
-  assert.deepEqual(edges.filter((l) => l.includes("| spec-covers |")),
-    ["| specs/covering.md | spec-covers | epics/PS-X/stories/story-ship-it.md |",
-     "| specs/one-sided.md | spec-covers | epics/PS-X/story-loose.md |"],
-    "two-sided declaration collapses to ONE edge; a one-sided declaration is still an edge");
-  assert.ok(g1.content.includes("| epics/PS-X/story-loose.md | Loose \\| Pipe | story |"),
-    "titles escape | inside tables");
-  assert.deepEqual(edges.filter((l) => l.includes("| supersedes |")),
+  const edges = g1.content
+    .split("\n")
+    .filter((l) => l.startsWith("|"))
+    .map((l) => l.trim());
+  assert.deepEqual(
+    edges.filter((l) => l.includes("| spec-covers |")),
+    [
+      "| specs/covering.md | spec-covers | epics/PS-X/stories/story-ship-it.md |",
+      "| specs/one-sided.md | spec-covers | epics/PS-X/story-loose.md |",
+    ],
+    "two-sided declaration collapses to ONE edge; a one-sided declaration is still an edge",
+  );
+  assert.ok(
+    g1.content.includes("| epics/PS-X/story-loose.md | Loose \\| Pipe | story |"),
+    "titles escape | inside tables",
+  );
+  assert.deepEqual(
+    edges.filter((l) => l.includes("| supersedes |")),
     ["| adr/new-way.md | supersedes | adr/old-way.md |"],
-    "two-sided supersedes declaration collapses to one edge");
+    "two-sided supersedes declaration collapses to one edge",
+  );
   assert.ok(edges.includes("| specs/covering.md | spec-implements-adr | adr/new-way.md |"));
-  assert.ok(edges.includes("| epics/PS-X/epic.md | epic-contains | epics/PS-X/story-loose.md |"),
-    "standalone story is contained by its epic");
+  assert.ok(
+    edges.includes("| epics/PS-X/epic.md | epic-contains | epics/PS-X/story-loose.md |"),
+    "standalone story is contained by its epic",
+  );
   assert.ok(edges.includes("| adr/new-way.md | dead | missing-target |"), "dead To = raw target text");
-  assert.ok(edges.includes("| adr/new-way.md | ambiguous | dup (matches: adr/dup.md, specs/dup.md) |"),
-    "ambiguous lists candidate paths in the row");
-  assert.equal(edges.filter((l) => l === "| adr/new-way.md | out-of-scope | kanban.md |").length, 1,
-    "duplicate (from, to, kind) triple deduplicated");
+  assert.ok(
+    edges.includes("| adr/new-way.md | ambiguous | dup (matches: adr/dup.md, specs/dup.md) |"),
+    "ambiguous lists candidate paths in the row",
+  );
+  assert.equal(
+    edges.filter((l) => l === "| adr/new-way.md | out-of-scope | kanban.md |").length,
+    1,
+    "duplicate (from, to, kind) triple deduplicated",
+  );
   assert.ok(!g1.content.includes("[["), "plain text — never wikilinks (Obsidian backlink pollution)");
   assert.equal(g1.stats.by_kind["spec-covers"], 2);
   assert.ok(g1.stats.nodes >= 8 && g1.stats.edges >= 7);
@@ -551,8 +672,10 @@ test("reconcile graph: bare skips while absent, explicit creates, repairs edits,
   assert.ok(!existsSync(join(vault, "graph.md")), "bare --write never mints graph.md");
   // The standing signal for a missing/deleted graph (contracts 1 + 6).
   const missing = runIn(proj, "doctor.mjs", ["--vault", "--json"]);
-  assert.ok(missing.some((f) => f.check === "graph" && f.level === "info"),
-    "missing graph.md is a standing doctor info");
+  assert.ok(
+    missing.some((f) => f.check === "graph" && f.level === "info"),
+    "missing graph.md is a standing doctor info",
+  );
 
   const w = runIn(proj, "reconcile.mjs", ["--write", "--only", "graph"]);
   assert.ok(w.graph.written, "explicit selection creates it");
@@ -563,15 +686,26 @@ test("reconcile graph: bare skips while absent, explicit creates, repairs edits,
 
   // Grep contract: one path returns both directions.
   const story = "epics/PS-X/stories/story-ship-it.md";
-  const rows = readFileSync(join(vault, "graph.md"), "utf8").split("\n").filter((l) => l.includes(story));
-  assert.ok(rows.some((l) => l.startsWith(`| ${story} | wikilink |`)), "outgoing edge in the neighborhood");
-  assert.ok(rows.some((l) => l.trimEnd().endsWith(`| spec-covers | ${story} |`)), "incoming edge in the neighborhood");
+  const rows = readFileSync(join(vault, "graph.md"), "utf8")
+    .split("\n")
+    .filter((l) => l.includes(story));
+  assert.ok(
+    rows.some((l) => l.startsWith(`| ${story} | wikilink |`)),
+    "outgoing edge in the neighborhood",
+  );
+  assert.ok(
+    rows.some((l) => l.trimEnd().endsWith(`| spec-covers | ${story} |`)),
+    "incoming edge in the neighborhood",
+  );
 
   // Hand-edit → doctor staleness issue → reconcile repairs → doctor clean.
   const p = join(vault, "graph.md");
   writeFileSync(p, readFileSync(p, "utf8") + "\nHAND EDIT\n");
   const stale = runIn(proj, "doctor.mjs", ["--vault", "--json"]);
-  assert.ok(stale.some((f) => f.check === "graph" && f.level === "issue"), "doctor flags a hand-edited graph");
+  assert.ok(
+    stale.some((f) => f.check === "graph" && f.level === "issue"),
+    "doctor flags a hand-edited graph",
+  );
   const repair = runIn(proj, "reconcile.mjs", ["--write", "--only", "graph"]);
   assert.ok(repair.graph.written, "reconcile repairs an existing graph.md");
   const clean = runIn(proj, "doctor.mjs", ["--vault", "--json"]);
@@ -588,8 +722,13 @@ test("doctor↔graph parity: dead and ambiguous body links are the same facts in
   assert.equal(ambiguous.length, 1, "ambiguous is a NEW warn the basename set could not see");
   assert.match(ambiguous[0].message, /dup.*adr\/dup\.md, specs\/dup\.md/);
   const g = runIn(proj, "graph.mjs", []);
-  assert.deepEqual(g.content.split("\n").filter((l) => l.includes("| dead |")).map((l) => l.trim()),
-    ["| adr/new-way.md | dead | missing-target |"]);
+  assert.deepEqual(
+    g.content
+      .split("\n")
+      .filter((l) => l.includes("| dead |"))
+      .map((l) => l.trim()),
+    ["| adr/new-way.md | dead | missing-target |"],
+  );
   assert.equal(g.content.split("\n").filter((l) => l.includes("| ambiguous |")).length, 1);
   // out-of-scope is silent in doctor: the [[kanban]] link produced no finding.
   assert.ok(!wikilink.some((f) => f.message.includes("kanban")), "out-of-scope is not a doctor finding");
@@ -612,21 +751,41 @@ test("agent prose carries the derived-views orientation contract (spec contract 
     const src = readFileSync(join(REPO, "agents", f), "utf8");
     assert.ok(src.includes(SHARED), `${f} carries the shared derived-views sentence`);
     assert.ok(src.includes(FALLBACK), `${f} carries the freshness fallback`);
-    assert.ok(src.includes(MCP_TIER) && src.includes(WITHOUT), `${f} carries the MCP tier and names the without-MCP case`);
+    assert.ok(
+      src.includes(MCP_TIER) && src.includes(WITHOUT),
+      `${f} carries the MCP tier and names the without-MCP case`,
+    );
     assert.ok(src.indexOf(MCP_TIER) < src.indexOf(SHARED), `${f}: MCP first, derived views as the fallback`);
     // The coupling that makes the tier real: while the agent's tools: allowlist admits no MCP tool, the prose is
     // conditional ("when … exposed"); the day A9 adds the tools, this assertion flips and the prose is revisited.
     const tools = (src.match(/^tools:\s*(.+)$/m) || [])[1] || "";
     const admitsMcp = /mcp__/.test(tools);
-    assert.equal(src.includes(MCP_TIER), !admitsMcp, `${f}: the MCP paragraph is conditional iff tools: lacks the MCP names (tools: ${tools})`);
-    for (const tool of ["status", "orientation", "search", "get_artifact", "neighbors", "lineage", "code_refs", "doctor"]) assert.ok(src.includes(`\`${tool}\``), `${f} names tool ${tool}`);
+    assert.equal(
+      src.includes(MCP_TIER),
+      !admitsMcp,
+      `${f}: the MCP paragraph is conditional iff tools: lacks the MCP names (tools: ${tools})`,
+    );
+    for (const tool of [
+      "status",
+      "orientation",
+      "search",
+      "get_artifact",
+      "neighbors",
+      "lineage",
+      "code_refs",
+      "doctor",
+    ])
+      assert.ok(src.includes(`\`${tool}\``), `${f} names tool ${tool}`);
   }
   // The write agent is not a read-only agent: no MCP prose, bin calls only.
   const clerk = readFileSync(join(REPO, "agents", "clerk.md"), "utf8");
   assert.ok(!clerk.includes(MCP_TIER), "clerk does not gather through MCP");
   assert.ok(clerk.includes('bin/projectstore.mjs" reconcile') && clerk.includes('bin/projectstore.mjs" doctor'));
-  assert.match(readFileSync(join(REPO, "agents", "librarian.md"), "utf8"), /Edges table/,
-    "librarian reads existing edges from the graph");
+  assert.match(
+    readFileSync(join(REPO, "agents", "librarian.md"), "utf8"),
+    /Edges table/,
+    "librarian reads existing edges from the graph",
+  );
 });
 
 test("core writes only via lib.mjs writeFileAtomic (atomic-regeneration contract 2 guard)", () => {
@@ -635,14 +794,27 @@ test("core writes only via lib.mjs writeFileAtomic (atomic-regeneration contract
   // plumbing, not a vault write path — do not "complete" this refactor there.
   // …and bin/, which writes nothing and must stay that way.
   const files = [
-    ...readdirSync(join(REPO, "scripts")).filter((f) => f.endsWith(".mjs") && f !== "lib.mjs").map((n) => join(REPO, "scripts", n)),
-    ...readdirSync(join(REPO, "bin")).filter((f) => f.endsWith(".mjs")).map((n) => join(REPO, "bin", n)),
+    ...readdirSync(join(REPO, "scripts"))
+      .filter((f) => f.endsWith(".mjs") && f !== "lib.mjs")
+      .map((n) => join(REPO, "scripts", n)),
+    ...readdirSync(join(REPO, "bin"))
+      .filter((f) => f.endsWith(".mjs"))
+      .map((n) => join(REPO, "bin", n)),
   ];
   for (const p of files) {
     const n = p.slice(REPO.length + 1);
     const src = readFileSync(p, "utf8");
-    for (const call of ["writeFileSync", "renameSync", "appendFileSync", "createWriteStream",
-                        "writeFile(", "copyFileSync", "cpSync", "truncateSync", "node:fs/promises"]) {
+    for (const call of [
+      "writeFileSync",
+      "renameSync",
+      "appendFileSync",
+      "createWriteStream",
+      "writeFile(",
+      "copyFileSync",
+      "cpSync",
+      "truncateSync",
+      "node:fs/promises",
+    ]) {
       assert.ok(!src.includes(call), `${n} contains ${call} — route writes through lib.mjs`);
     }
   }
@@ -657,8 +829,10 @@ test("command prose routes derived-view applies through reconcile --write (contr
   ]) {
     const src = readFileSync(join(REPO, "commands", file), "utf8");
     assert.ok(src.includes(marker), `${file} applies via ${marker}`);
-    assert.ok(!/Write (the generated content|each approved target|`content`)/.test(src),
-      `${file} must carry no Write-tool apply step for a derived view`);
+    assert.ok(
+      !/Write (the generated content|each approved target|`content`)/.test(src),
+      `${file} must carry no Write-tool apply step for a derived view`,
+    );
   }
   // `codemap set` edits SOURCE frontmatter — contract 7 exempts it explicitly.
   assert.match(readFileSync(join(REPO, "commands", "codemap.md"), "utf8"), /Edit the frontmatter/);
@@ -684,12 +858,18 @@ test("diff-refs: a bare date opens the window at midnight, so same-day commits a
   // case cannot go stale or depend on the hour it runs. In the LOCAL zone, as
   // git reads `--since=<day> 00:00:00`: in the commit's own zone, a commit made
   // after midnight at +03:00 named a day that had not begun in UTC on CI.
-  const day = spawnSync("git", ["log", "-1", "--format=%cd", "--date=format-local:%Y-%m-%d"], { cwd: REPO, encoding: "utf8" }).stdout.trim();
+  const day = spawnSync("git", ["log", "-1", "--format=%cd", "--date=format-local:%Y-%m-%d"], {
+    cwd: REPO,
+    encoding: "utf8",
+  }).stdout.trim();
   assert.match(day, /^\d{4}-\d{2}-\d{2}$/);
   const r = run("diff-refs.mjs", ["--since", day]);
   assert.equal(r.since, day, "the echoed `since` is what the caller passed");
   assert.equal(r.range, `--since=${day} 00:00:00`, "the window git was actually given opens at midnight");
-  assert.ok(r.files.length > 0, `no file attributed to ${day}, the date of HEAD itself — the window closed before its own commit`);
+  assert.ok(
+    r.files.length > 0,
+    `no file attributed to ${day}, the date of HEAD itself — the window closed before its own commit`,
+  );
   // A timestamp the caller supplies is passed through untouched.
   assert.equal(run("diff-refs.mjs", ["--since", "2020-01-01T00:00:00Z"]).range, "--since=2020-01-01T00:00:00Z");
 });
@@ -712,20 +892,26 @@ function seedHookProject() {
 }
 
 function seedStory(vault, name, status) {
-  writeFileSync(join(vault, "epics", "PS-A", "stories", name),
-    `---\ntype: story\nstatus: ${status}\n---\n\n# s\n`, "utf8");
+  writeFileSync(
+    join(vault, "epics", "PS-A", "stories", name),
+    `---\ntype: story\nstatus: ${status}\n---\n\n# s\n`,
+    "utf8",
+  );
 }
 
 function fireHook(proj, payload, sessionsDir = null, { env = null, cwd = proj } = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "scripts", "touch-session.mjs")], {
-    encoding: "utf8", input: JSON.stringify(payload), timeout: 15000,
+    encoding: "utf8",
+    input: JSON.stringify(payload),
+    timeout: 15000,
     env: {
       ...(env || { ...process.env, CLAUDE_PROJECT_DIR: proj }),
       // Without this the wired drives read the developer's real session
       // registry — live machine state inside a test, and two criteria that
       // cannot be driven at all.
       ...(sessionsDir ? { PROJECTSTORE_SESSIONS_DIR: sessionsDir } : {}),
-    }, cwd,
+    },
+    cwd,
   });
   assert.equal(r.status, 0, `hook must exit 0; stderr: ${r.stderr}`);
   const out = r.stdout.trim();
@@ -734,9 +920,12 @@ function fireHook(proj, payload, sessionsDir = null, { env = null, cwd = proj } 
 
 function post(proj, file, extra = {}) {
   return fireHook(proj, {
-    hook_event_name: "PostToolUse", session_id: extra.sid || "s1",
-    tool_name: "Write", tool_input: { file_path: file },
-    tool_response: { success: true }, ...extra,
+    hook_event_name: "PostToolUse",
+    session_id: extra.sid || "s1",
+    tool_name: "Write",
+    tool_input: { file_path: file },
+    tool_response: { success: true },
+    ...extra,
   });
 }
 
@@ -768,8 +957,11 @@ test("entry hook: only an object saying success === false suppresses the count",
   for (const f of ["a.mjs", "b.mjs", "c.mjs", "d.mjs"]) {
     post(proj, join(proj, f), { tool_response: { success: false } });
   }
-  assert.equal(post(proj, join(proj, "e.mjs"), { tool_response: { success: false } }), null,
-    "a declared failure never counts, however many arrive");
+  assert.equal(
+    post(proj, join(proj, "e.mjs"), { tool_response: { success: false } }),
+    null,
+    "a declared failure never counts, however many arrive",
+  );
 });
 
 test("entry hook: fires once at the threshold, on PostToolUse additionalContext (contracts 10, 12, 15)", () => {
@@ -785,8 +977,7 @@ test("entry hook: fires once at the threshold, on PostToolUse additionalContext 
   assert.ok(ctx.includes("3 source files"), "shows the evidence");
   assert.ok(ctx.includes("/projectstore:story"), "names the action");
   assert.ok(/one-off fix/.test(ctx), "grants the exit");
-  assert.equal(out.systemMessage, undefined,
-    "systemMessage is user-only and would reach nobody who can act");
+  assert.equal(out.systemMessage, undefined, "systemMessage is user-only and would reach nobody who can act");
 
   assert.equal(post(proj, join(proj, "d.mjs")), null, "fires once per armed session");
 });
@@ -803,9 +994,12 @@ test("entry hook: an in-progress story anywhere suppresses it (contracts 5, 8)",
 test("entry hook: a planned story does not count as open (contract 5)", () => {
   const { proj, vault } = seedHookProject();
   seedStory(vault, "story-a.md", "planned");
-  post(proj, join(proj, "a.mjs")); post(proj, join(proj, "b.mjs"));
-  assert.ok(post(proj, join(proj, "c.mjs")),
-    "a story that never went through /projectstore:story plan is not open work");
+  post(proj, join(proj, "a.mjs"));
+  post(proj, join(proj, "b.mjs"));
+  assert.ok(
+    post(proj, join(proj, "c.mjs")),
+    "a story that never went through /projectstore:story plan is not open work",
+  );
 });
 
 test("entry hook: subagent writes count but never receive the reminder (contract 13)", () => {
@@ -814,8 +1008,11 @@ test("entry hook: subagent writes count but never receive the reminder (contract
   const asAgent = { agent_id: "a1", agent_type: "general-purpose" };
   assert.equal(post(proj, join(proj, "a.mjs"), asAgent), null);
   assert.equal(post(proj, join(proj, "b.mjs"), asAgent), null);
-  assert.equal(post(proj, join(proj, "c.mjs"), asAgent), null,
-    "the threshold is crossed inside a subagent, which cannot open a story");
+  assert.equal(
+    post(proj, join(proj, "c.mjs"), asAgent),
+    null,
+    "the threshold is crossed inside a subagent, which cannot open a story",
+  );
   const out = post(proj, join(proj, "d.mjs"));
   assert.ok(out, "the main agent's next own call carries it, with the subagents' work counted");
   assert.ok(out.hookSpecificOutput.additionalContext.includes("4 source files"));
@@ -840,7 +1037,9 @@ test("entry hook: vault writes are not source, and the event gate holds (contrac
 
   // The same script on PreToolUse must not run the source branch at all.
   const pre = fireHook(proj, {
-    hook_event_name: "PreToolUse", session_id: "s1", tool_name: "Write",
+    hook_event_name: "PreToolUse",
+    session_id: "s1",
+    tool_name: "Write",
     tool_input: { file_path: join(proj, "a.mjs") },
   });
   assert.equal(pre, null, "PreToolUse never emits the entry reminder");
@@ -902,11 +1101,15 @@ test("no hook emits a field its event does not carry (spec contract 22)", () => 
   // scripts/ (touch-session.mjs already is) would otherwise escape the guard
   // entirely, which is the evasion most likely to happen by accident.
   const reg = JSON.parse(readFileSync(join(REPO, "hooks", "hooks.json"), "utf8"));
-  const files = [...new Set(
-    Object.values(reg.hooks).flatMap((entries) =>
-      entries.flatMap((e) => (e.hooks || []).map((h) =>
-        (h.command || "").replace(/^.*\$\{CLAUDE_PLUGIN_ROOT\}\//, "").trim()))))]
-    .filter((f) => f.endsWith(".mjs"));
+  const files = [
+    ...new Set(
+      Object.values(reg.hooks).flatMap((entries) =>
+        entries.flatMap((e) =>
+          (e.hooks || []).map((h) => (h.command || "").replace(/^.*\$\{CLAUDE_PLUGIN_ROOT\}\//, "").trim()),
+        ),
+      ),
+    ),
+  ].filter((f) => f.endsWith(".mjs"));
   assert.ok(files.length >= 4, `expected every registered hook script, got ${JSON.stringify(files)}`);
   const offenders = [];
   for (const rel of files) {
@@ -933,24 +1136,34 @@ test("no hook emits a field its event does not carry (spec contract 22)", () => 
   // And the known violation must still BE one: if it gets fixed, this fails and
   // the entry is removed, so the list cannot rot into a permanent excuse.
   for (const [rel, story] of Object.entries(KNOWN_SHAPE_VIOLATIONS)) {
-    assert.ok(offenders.some((o) => o.rel === rel),
-      `${rel} is listed as a known violation owned by ${story}, but no longer violates — remove the entry`);
+    assert.ok(
+      offenders.some((o) => o.rel === rel),
+      `${rel} is listed as a known violation owned by ${story}, but no longer violates — remove the entry`,
+    );
   }
 });
 
 test("the block bump and the block content ship together (spec contract 24)", () => {
   const tmpl = readFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), "utf8");
   const doctor = readFileSync(join(REPO, "scripts", "doctor.mjs"), "utf8");
-  assert.ok(!/AGENT_BLOCK_VERSION = \d+/.test(doctor), "doctor reads the version from the template (lib.mjs agentsBlockVersion), never a constant");
+  assert.ok(
+    !/AGENT_BLOCK_VERSION = \d+/.test(doctor),
+    "doctor reads the version from the template (lib.mjs agentsBlockVersion), never a constant",
+  );
   const marker = Number(tmpl.match(/projectstore:agents v(\d+)/)[1]);
   const version = marker;
 
   const hasEntryRule = /opens a vault artifact before it opens an editor/.test(tmpl);
-  assert.equal(hasEntryRule, version >= 3,
+  assert.equal(
+    hasEntryRule,
+    version >= 3,
     "v3 is what carries the entry rule — content and version cannot land apart, " +
-    "because checkAgentsBlock compares the marker version alone");
-  assert.ok(/Report instruction conflicts; do not arbitrate them/.test(tmpl),
-    "the conflict clause is the other half of v3");
+      "because checkAgentsBlock compares the marker version alone",
+  );
+  assert.ok(
+    /Report instruction conflicts; do not arbitrate them/.test(tmpl),
+    "the conflict clause is the other half of v3",
+  );
 
   // This repo dogfoods the block, so its own copy must be re-registered too.
   const own = readFileSync(join(REPO, "AGENTS.md"), "utf8");
@@ -959,10 +1172,12 @@ test("the block bump and the block content ship together (spec contract 24)", ()
 
 test("registration must not strip the new block lines (spec contract 23)", () => {
   const src = readFileSync(join(REPO, "commands", "agents.md"), "utf8").replace(/\s+/g, " ");
-  assert.ok(/entry-rule line/.test(src) && /instruction-conflict line/.test(src),
+  assert.ok(
+    /entry-rule line/.test(src) && /instruction-conflict line/.test(src),
     "the roster filter keeps only agent lines; these two are not agent lines and " +
-    "must be named in the carve-out, or registration silently deletes the durable " +
-    "copy of the rule from every bound project");
+      "must be named in the carve-out, or registration silently deletes the durable " +
+      "copy of the rule from every bound project",
+  );
 });
 
 test("entry hook: read-only tool calls never count (spec contracts 2, 10)", () => {
@@ -976,10 +1191,15 @@ test("entry hook: read-only tool calls never count (spec contracts 2, 10)", () =
   for (const t of ["Read", "Read", "Grep", "Glob", "LS", "NotebookRead"]) {
     assert.equal(
       fireHook(proj, {
-        hook_event_name: "PostToolUse", session_id: "s1", tool_name: t,
+        hook_event_name: "PostToolUse",
+        session_id: "s1",
+        tool_name: t,
         tool_input: { file_path: join(proj, `${t}.mjs`), path: join(proj, "docs") },
         tool_response: { success: true },
-      }), null, `${t} reads; it does not write`);
+      }),
+      null,
+      `${t} reads; it does not write`,
+    );
   }
   // And a genuine write after all that noise is still only the first path.
   assert.equal(post(proj, join(proj, "a.mjs")), null, "score is 1, not 7");
@@ -989,8 +1209,11 @@ test("entry hook: read-only tool calls never count (spec contracts 2, 10)", () =
 
 function fireStop(proj, payload, { env = null, cwd = proj } = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-stop.mjs")], {
-    encoding: "utf8", input: JSON.stringify({ hook_event_name: "Stop", ...payload }),
-    timeout: 15000, env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd,
+    encoding: "utf8",
+    input: JSON.stringify({ hook_event_name: "Stop", ...payload }),
+    timeout: 15000,
+    env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj },
+    cwd,
   });
   assert.equal(r.status, 0, `Stop hook must exit 0; stderr: ${r.stderr}`);
   const out = r.stdout.trim();
@@ -1008,9 +1231,11 @@ test("Stop carrier: covers the session that delegated all its writing (contract 
   assert.equal(out.hookSpecificOutput.hookEventName, "Stop");
   assert.ok(out.hookSpecificOutput.additionalContext.includes("3 source files"));
 
-  assert.equal(fireStop(proj, { session_id: "s1" }), null,
-    "create-then-emit: the second Stop finds the marker, so additionalContext " +
-    "continuing the turn cannot loop");
+  assert.equal(
+    fireStop(proj, { session_id: "s1" }),
+    null,
+    "create-then-emit: the second Stop finds the marker, so additionalContext " + "continuing the turn cannot loop",
+  );
 });
 
 test("Stop carrier: silent on stop_hook_active, agent identity, guard off, below threshold (contracts 13, 14, 20)", () => {
@@ -1019,10 +1244,16 @@ test("Stop carrier: silent on stop_hook_active, agent identity, guard off, below
   assert.equal(fireStop(proj, { session_id: "s1" }), null, "below the threshold");
 
   for (const f of ["a.mjs", "b.mjs", "c.mjs"]) post(proj, join(proj, f), { sid: "s2" });
-  assert.equal(fireStop(proj, { session_id: "s2", stop_hook_active: true }), null,
-    "never speaks while another Stop hook is already driving the turn");
-  assert.equal(fireStop(proj, { session_id: "s2", agent_id: "a1", agent_type: "x" }), null,
-    "same audience rule as the tool-call carrier");
+  assert.equal(
+    fireStop(proj, { session_id: "s2", stop_hook_active: true }),
+    null,
+    "never speaks while another Stop hook is already driving the turn",
+  );
+  assert.equal(
+    fireStop(proj, { session_id: "s2", agent_id: "a1", agent_type: "x" }),
+    null,
+    "same audience rule as the tool-call carrier",
+  );
 
   const cfgPath = layoutPaths(proj).binding;
   mkdirSync(dirname(cfgPath), { recursive: true });
@@ -1042,8 +1273,11 @@ test("Stop carrier: an open story suppresses it (contracts 5, 14)", () => {
 
 function fireRules(proj, payload = {}, { env = null, cwd = proj } = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-rules.mjs")], {
-    encoding: "utf8", input: JSON.stringify({ hook_event_name: "SessionStart", ...payload }),
-    timeout: 15000, env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd,
+    encoding: "utf8",
+    input: JSON.stringify({ hook_event_name: "SessionStart", ...payload }),
+    timeout: 15000,
+    env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj },
+    cwd,
   });
   assert.equal(r.status, 0, r.stderr);
   const out = r.stdout.trim();
@@ -1056,9 +1290,11 @@ test("rule payload: inline, bounded, and silent under auto_inject false (contrac
   assert.ok(out, "delivered");
   assert.equal(out.hookSpecificOutput.hookEventName, "SessionStart");
   const ctx = out.hookSpecificOutput.additionalContext;
-  assert.ok(ctx.length <= 2000,
+  assert.ok(
+    ctx.length <= 2000,
     `payload is ${ctx.length} chars; over 10,000 the harness replaces it with a ` +
-    "file path, and this hook exists precisely because the vault map already is");
+      "file path, and this hook exists precisely because the vault map already is",
+  );
   // Flattened before matching: the payload wraps, and a guard a reflow can
   // silence guards nothing — the same lesson the index-row prose guards learned.
   const flat = ctx.replace(/\s+/g, " ");
@@ -1069,9 +1305,11 @@ test("rule payload: inline, bounded, and silent under auto_inject false (contrac
   mkdirSync(dirname(cfgPath), { recursive: true });
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
   writeFileSync(cfgPath, JSON.stringify({ ...cfg, auto_inject: false }), "utf8");
-  assert.equal(fireRules(proj, { session_id: "c1" }), null,
-    "a session that opted out of injection is exactly where the AGENTS.md block " +
-    "remains the durable copy");
+  assert.equal(
+    fireRules(proj, { session_id: "c1" }),
+    null,
+    "a session that opted out of injection is exactly where the AGENTS.md block " + "remains the durable copy",
+  );
 });
 
 // ── SessionStart, driven for the first time (skeleton spec, step 1) ──
@@ -1112,13 +1350,15 @@ function envWithoutProjectDir(extra = {}) {
 
 // The vault a run answered for: the skeleton's first line is
 // "# Projectstore vault: <path>".
-const vaultNamedBy = (emitted) =>
-  emitted?.hookSpecificOutput?.additionalContext?.split("\n")[0] ?? "";
+const vaultNamedBy = (emitted) => emitted?.hookSpecificOutput?.additionalContext?.split("\n")[0] ?? "";
 
 function fireSessionStart(proj, payload = {}, { env = null, cwd = proj } = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-start.mjs")], {
-    encoding: "utf8", input: JSON.stringify({ hook_event_name: "SessionStart", ...payload }),
-    timeout: 15000, env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd,
+    encoding: "utf8",
+    input: JSON.stringify({ hook_event_name: "SessionStart", ...payload }),
+    timeout: 15000,
+    env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj },
+    cwd,
   });
   assert.equal(r.status, 0, `SessionStart hook must exit 0; stderr: ${r.stderr}`);
   const out = r.stdout.trim();
@@ -1165,7 +1405,8 @@ test("SessionStart: a declared project dir beats the payload's cwd", () => {
 
   assert.ok(emitted, "a bound project with auto_inject on always delivers");
   assert.equal(
-    vaultNamedBy(emitted), `# Projectstore vault: ${a.vault}`,
+    vaultNamedBy(emitted),
+    `# Projectstore vault: ${a.vault}`,
     "the declared project dir wins over both the payload's cwd and the process's cwd",
   );
 });
@@ -1183,7 +1424,8 @@ test("SessionStart: with no declared project dir, the payload's cwd names the pr
   const emitted = fireSessionStart(a.proj, { session_id: "p2", source: "startup", cwd: b.proj }, { env, cwd: a.proj });
 
   assert.equal(
-    vaultNamedBy(emitted), `# Projectstore vault: ${b.vault}`,
+    vaultNamedBy(emitted),
+    `# Projectstore vault: ${b.vault}`,
     "the payload's cwd names the project, not the directory the hook process started in",
   );
 });
@@ -1191,8 +1433,11 @@ test("SessionStart: with no declared project dir, the payload's cwd names the pr
 test("PreCompact: with no declared project dir, the payload's cwd names the vault", () => {
   const a = seedTaggedProject("pc-a");
   const b = seedTaggedProject("pc-b");
-  const out = firePreCompact(a.proj, { session_id: "pc1", trigger: "auto", cwd: b.proj },
-    { env: envWithoutProjectDir(), cwd: a.proj });
+  const out = firePreCompact(
+    a.proj,
+    { session_id: "pc1", trigger: "auto", cwd: b.proj },
+    { env: envWithoutProjectDir(), cwd: a.proj },
+  );
 
   const msg = (out && out.systemMessage) || "";
   assert.ok(msg.includes("vault-pc-b"), `expected the payload's vault, got: ${msg}`);
@@ -1208,10 +1453,13 @@ test("session-rules: the auto_inject gate follows the payload's project", () => 
   const silent = seedTaggedProject("rules-off", { auto_inject: false });
   const env = envWithoutProjectDir();
 
-  assert.ok(fireRules(speaking.proj, { cwd: speaking.proj }, { env, cwd: speaking.proj }),
-    "control: a project with auto_inject on speaks");
+  assert.ok(
+    fireRules(speaking.proj, { cwd: speaking.proj }, { env, cwd: speaking.proj }),
+    "control: a project with auto_inject on speaks",
+  );
   assert.equal(
-    fireRules(speaking.proj, { cwd: silent.proj }, { env, cwd: speaking.proj }), null,
+    fireRules(speaking.proj, { cwd: silent.proj }, { env, cwd: speaking.proj }),
+    null,
     "the gate is read from the payload's project, which opted out — not from the process's cwd",
   );
 });
@@ -1221,15 +1469,21 @@ test("touch-session: with no declared project dir, the session file lands in the
   const b = seedTaggedProject("touch-b");
   const env = envWithoutProjectDir();
 
-  fireHook(a.proj, {
-    hook_event_name: "PreToolUse", session_id: "t1", cwd: b.proj,
-    tool_name: "Read", tool_input: { file_path: join(b.proj, "x.mjs") },
-  }, null, { env, cwd: a.proj });
+  fireHook(
+    a.proj,
+    {
+      hook_event_name: "PreToolUse",
+      session_id: "t1",
+      cwd: b.proj,
+      tool_name: "Read",
+      tool_input: { file_path: join(b.proj, "x.mjs") },
+    },
+    null,
+    { env, cwd: a.proj },
+  );
 
-  assert.ok(existsSync(sessionFilePath(b.vault, "t1")),
-    "the session registers in the payload's vault");
-  assert.ok(!existsSync(sessionFilePath(a.vault, "t1")),
-    "and not in the vault of the project the process started in");
+  assert.ok(existsSync(sessionFilePath(b.vault, "t1")), "the session registers in the payload's vault");
+  assert.ok(!existsSync(sessionFilePath(a.vault, "t1")), "and not in the vault of the project the process started in");
 });
 
 // The discriminator is `guard`, which lives in the CONFIG. `proj` is resolved
@@ -1252,8 +1506,7 @@ test("Stop carrier: with no declared project dir, the config is read from the pa
 
   assert.ok(fireStop(b.proj, { session_id: "s1" }), "control: B is over threshold on its own env");
 
-  const out = fireStop(a.proj, { session_id: "s2", cwd: b.proj },
-    { env: envWithoutProjectDir(), cwd: a.proj });
+  const out = fireStop(a.proj, { session_id: "s2", cwd: b.proj }, { env: envWithoutProjectDir(), cwd: a.proj });
   assert.ok(out, "the carrier speaks for the payload's project, which is over threshold");
   assert.ok(out.hookSpecificOutput.additionalContext.includes("3 source files"));
 });
@@ -1273,8 +1526,7 @@ test("SessionStart: delivers on additionalContext, and the welcome renders once 
   // longer be the welcome alone.
   const second = fireSessionStart(proj, { session_id: "same", source: "startup" });
   const without = second.hookSpecificOutput.additionalContext;
-  assert.ok(!/loaded for the first time/.test(without),
-    "the welcome is once per project, not once per session");
+  assert.ok(!/loaded for the first time/.test(without), "the welcome is once per project, not once per session");
   // Two variants since A15/A14 (2026-09-06): a bound project is told what it is
   // bound to instead of being told to bind. Measured — 1,077 unbound, 1,198 with
   // this fixture's vault path, 1,293 worst case, the ceiling structural because
@@ -1286,11 +1538,15 @@ test("SessionStart: delivers on additionalContext, and the welcome renders once 
   // unbound variant — the one contract 3 quotes as 1,077 — is pinned by the
   // buildWelcome arithmetic below rather than by this delta, because this
   // fixture is bound. Edit the copy and this fails with the number to update.
-  const WELCOME_BOUND_BASE = 1093, WELCOME_UNBOUND = 1077;
+  const WELCOME_BOUND_BASE = 1093,
+    WELCOME_UNBOUND = 1077;
   const vaultPath = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path;
   const delta = withWelcome.length - without.length;
-  assert.equal(delta, WELCOME_BOUND_BASE + Math.min(vaultPath.length, 200),
-    `the welcome is ${WELCOME_BOUND_BASE} + the capped vault path; the skeleton spec's contract 3 quotes ${WELCOME_UNBOUND} unbound and ${WELCOME_BOUND_BASE + 200} worst case — update it in the same change`);
+  assert.equal(
+    delta,
+    WELCOME_BOUND_BASE + Math.min(vaultPath.length, 200),
+    `the welcome is ${WELCOME_BOUND_BASE} + the capped vault path; the skeleton spec's contract 3 quotes ${WELCOME_UNBOUND} unbound and ${WELCOME_BOUND_BASE + 200} worst case — update it in the same change`,
+  );
 });
 
 test("SessionStart: auto_inject false emits no vault content, and still arms the entry reminder", () => {
@@ -1302,9 +1558,11 @@ test("SessionStart: auto_inject false emits no vault content, and still arms the
 
   const first = fireSessionStart(proj, { session_id: "a1", source: "startup" });
   const ctx = first.hookSpecificOutput.additionalContext;
-  assert.ok(/loaded for the first time/.test(ctx),
+  assert.ok(
+    /loaded for the first time/.test(ctx),
     "the welcome sits BELOW the gate on purpose — a literal 'silent' reading of " +
-    "this configuration would invite deleting a working feature");
+      "this configuration would invite deleting a working feature",
+  );
   assert.ok(!/Projectstore vault:/.test(ctx), "but no vault content crosses the gate");
 
   // The marker now exists, so an opted-out session emits nothing at all.
@@ -1316,10 +1574,7 @@ test("SessionStart: auto_inject false emits no vault content, and still arms the
   // whole session block together — which would break this silently, because the
   // entry-rule tests drive touch-session.mjs, not this hook.
   assert.equal(fireSessionStart(proj, { session_id: "a3", source: "compact" }), null);
-  assert.ok(
-    existsSync(join(stateDir(proj), "a3.fired", "armed")),
-    "armReminder must stay above the auto_inject gate",
-  );
+  assert.ok(existsSync(join(stateDir(proj), "a3.fired", "armed")), "armReminder must stay above the auto_inject gate");
 });
 
 // ── The skeleton reaches the model inline (contracts 3, 7, 16) ────────
@@ -1335,11 +1590,16 @@ function seedSkeletonVault() {
     mkdirSync(join(vault, f), { recursive: true });
     // A README shaped like the real ones: prose, then an index table. The
     // prose is the purpose; the table is artifact content and must not travel.
-    writeFileSync(join(vault, f, "README.md"),
+    writeFileSync(
+      join(vault, f, "README.md"),
       `# ${f}\n\nThe ${f} folder holds ${f} artifacts.\n\n## Index\n\n| File | Title | Status |\n|---|---|---|\n` +
-      Array.from({ length: 40 }, (_, i) =>
-        `| [${f}-${i}](./${f}-${i}.md) | Zealously-Named-Artifact-${f}-${i} | accepted |`).join("\n") + "\n",
-      "utf8");
+        Array.from(
+          { length: 40 },
+          (_, i) => `| [${f}-${i}](./${f}-${i}.md) | Zealously-Named-Artifact-${f}-${i} | accepted |`,
+        ).join("\n") +
+        "\n",
+      "utf8",
+    );
     for (let i = 0; i < 40; i++) {
       writeFileSync(join(vault, f, `${f}-${i}.md`), `---\ntype: ${f}\n---\n\n# ${f} ${i}\n`, "utf8");
     }
@@ -1348,9 +1608,12 @@ function seedSkeletonVault() {
     const dir = join(vault, "epics", `PS-E${e}`, "stories");
     mkdirSync(dir, { recursive: true });
     for (let s = 0; s < 12; s++) {
-      writeFileSync(join(dir, `story-${s}.md`),
+      writeFileSync(
+        join(dir, `story-${s}.md`),
         `---\ntype: story\nstatus: ${s < 2 ? "in-progress" : "done"}\ntitle: "Story ${e}.${s}"\n` +
-        `started_at: "2026-08-0${(s % 9) + 1}T00:00:00Z"\n---\n\n# s\n`, "utf8");
+          `started_at: "2026-08-0${(s % 9) + 1}T00:00:00Z"\n---\n\n# s\n`,
+        "utf8",
+      );
     }
   }
   return { root, proj, vault };
@@ -1362,9 +1625,11 @@ test("SessionStart: the payload is a skeleton, delivered inline, with no artifac
   const out = fireSessionStart(proj, { session_id: "sk1", source: "startup" });
   const ctx = out.hookSpecificOutput.additionalContext;
 
-  assert.ok(ctx.length < 10000,
+  assert.ok(
+    ctx.length < 10000,
     `payload is ${ctx.length} chars — over 10,000 the harness writes it to a file ` +
-    "and hands the agent a path, which is the defect this story exists to close");
+      "and hands the agent a path, which is the defect this story exists to close",
+  );
 
   // Contract 9's five steps, contract 4's rows, contract 11's clause.
   const flat = ctx.replace(/\s+/g, " ");
@@ -1386,15 +1651,17 @@ test("SessionStart: the payload is a skeleton, delivered inline, with no artifac
   // Contract 1 — the in-flight list is capped, and says so when it caps.
   const inflight = ctx.split("## In flight now")[1].split("##")[0].trim().split("\n");
   assert.ok(inflight.length <= 6, `in-flight rendered ${inflight.length} lines`);
-  assert.ok(/…and \d+ more/.test(inflight[inflight.length - 1]),
-    "12 stories are in progress; five rendered silently is a truncation wearing the face of a complete answer");
+  assert.ok(
+    /…and \d+ more/.test(inflight[inflight.length - 1]),
+    "12 stories are in progress; five rendered silently is a truncation wearing the face of a complete answer",
+  );
 });
 
 test("SessionStart: the payload does not grow with the vault (contract 2, driven)", () => {
   const big = seedSkeletonVault();
   fireSessionStart(big.proj, { session_id: "sk2", source: "startup" });
-  const grown = fireSessionStart(big.proj, { session_id: "sk2", source: "startup" })
-    .hookSpecificOutput.additionalContext;
+  const grown = fireSessionStart(big.proj, { session_id: "sk2", source: "startup" }).hookSpecificOutput
+    .additionalContext;
 
   const small = seedHookProject();
   for (const f of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
@@ -1402,18 +1669,18 @@ test("SessionStart: the payload does not grow with the vault (contract 2, driven
     writeFileSync(join(small.vault, f, "README.md"), `# ${f}\n\nThe ${f} folder holds ${f} artifacts.\n`, "utf8");
   }
   fireSessionStart(small.proj, { session_id: "sk3", source: "startup" });
-  const bare = fireSessionStart(small.proj, { session_id: "sk3", source: "startup" })
-    .hookSpecificOutput.additionalContext;
+  const bare = fireSessionStart(small.proj, { session_id: "sk3", source: "startup" }).hookSpecificOutput
+    .additionalContext;
 
   // Mask the digits (counts legitimately differ) and the in-flight list, then
   // the two payloads must be the same string. Comparing lengths would pass on a
   // renderer that leaked one artifact per folder and lost a word elsewhere.
-  const mask = (s) => s
-    .replace(/^# Projectstore vault: .*$/m, "# Projectstore vault: <path>")
-    .replace(/\d+/g, "N")
-    .split("## In flight now")[0];
-  assert.equal(mask(grown), mask(bare),
-    "320 artifacts against 0 — the payload must be byte-identical outside counts");
+  const mask = (s) =>
+    s
+      .replace(/^# Projectstore vault: .*$/m, "# Projectstore vault: <path>")
+      .replace(/\d+/g, "N")
+      .split("## In flight now")[0];
+  assert.equal(mask(grown), mask(bare), "320 artifacts against 0 — the payload must be byte-identical outside counts");
 });
 
 // ── Contract 3: the composed cap is structural, term by term ──────────
@@ -1427,11 +1694,15 @@ function seedSiblings(vault, n, rootLen = 40) {
   const dir = join(vault, ".projectstore", "sessions");
   mkdirSync(dir, { recursive: true });
   for (let i = 0; i < n; i++) {
-    writeFileSync(join(dir, `sib-${i}.json`), JSON.stringify({
-      id: `sib-${i}`,
-      started_at: "2026-08-17T00:00:00.000Z",
-      project_root: "/" + "deeply-nested-worktree-".repeat(Math.ceil(rootLen / 23)).slice(0, rootLen) + `/p${i}`,
-    }), "utf8");
+    writeFileSync(
+      join(dir, `sib-${i}.json`),
+      JSON.stringify({
+        id: `sib-${i}`,
+        started_at: "2026-08-17T00:00:00.000Z",
+        project_root: "/" + "deeply-nested-worktree-".repeat(Math.ceil(rootLen / 23)).slice(0, rootLen) + `/p${i}`,
+      }),
+      "utf8",
+    );
   }
 }
 
@@ -1439,8 +1710,7 @@ test("SessionStart contract 3: the sibling list is capped at 5 and says how many
   const { proj, vault } = seedHookProject();
   seedSiblings(vault, 40);
   fireSessionStart(proj, { session_id: "cap1", source: "startup" });
-  const ctx = fireSessionStart(proj, { session_id: "cap1", source: "startup" })
-    .hookSpecificOutput.additionalContext;
+  const ctx = fireSessionStart(proj, { session_id: "cap1", source: "startup" }).hookSpecificOutput.additionalContext;
 
   const listed = (ctx.match(/^- project: /gm) || []).length;
   assert.equal(listed, 5, `rendered ${listed} siblings; uncapped this breaches the composed cap at ~32`);
@@ -1460,12 +1730,10 @@ test("SessionStart contract 3: a sibling path and the vault path truncate at 200
   seedSiblings(deep, 1, 400);
 
   fireSessionStart(proj, { session_id: "long1", source: "startup" });
-  const ctx = fireSessionStart(proj, { session_id: "long1", source: "startup" })
-    .hookSpecificOutput.additionalContext;
+  const ctx = fireSessionStart(proj, { session_id: "long1", source: "startup" }).hookSpecificOutput.additionalContext;
 
   const header = ctx.split("\n")[0];
-  assert.ok(header.length <= "# Projectstore vault: ".length + 200,
-    `header is ${header.length} chars`);
+  assert.ok(header.length <= "# Projectstore vault: ".length + 200, `header is ${header.length} chars`);
   assert.ok(header.includes("…"), "a truncation marks itself");
   assert.ok(header.endsWith(deep.slice(-40)), "the tail is kept — it is the discriminating half");
 
@@ -1489,8 +1757,7 @@ test("SessionStart contract 3: a registration failure's free-text message trunca
   writeFileSync(join(deep, ".projectstore", "sessions"), "not a directory", "utf8");
 
   fireSessionStart(proj, { session_id: "err1", source: "startup" });
-  const ctx = fireSessionStart(proj, { session_id: "err1", source: "startup" })
-    .hookSpecificOutput.additionalContext;
+  const ctx = fireSessionStart(proj, { session_id: "err1", source: "startup" }).hookSpecificOutput.additionalContext;
 
   assert.ok(/session registration failed/.test(ctx), "the failure is reported, not swallowed");
   const body = ctx.split("session registration failed")[1].split("\n").filter(Boolean)[0];
@@ -1516,12 +1783,16 @@ test("SessionStart contract 23: an overnight session keeps its own history, and 
   const old = new Date(Date.now() - 40 * 60 * 60 * 1000); // 40h — well past the 24h reap
 
   const mine = join(dir, "overnight.json");
-  writeFileSync(mine, JSON.stringify({
-    id: "overnight",
-    started_at: "2026-08-15T00:00:00.000Z",
-    project_root: proj,
-    recent_activity: [{ path: join(vault, "adr", "kept.md"), tool: "Edit", at: "2026-08-15T01:00:00.000Z" }],
-  }), "utf8");
+  writeFileSync(
+    mine,
+    JSON.stringify({
+      id: "overnight",
+      started_at: "2026-08-15T00:00:00.000Z",
+      project_root: proj,
+      recent_activity: [{ path: join(vault, "adr", "kept.md"), tool: "Edit", at: "2026-08-15T01:00:00.000Z" }],
+    }),
+    "utf8",
+  );
   utimesSync(mine, old, old);
 
   const sibling = join(dir, "abandoned.json");
@@ -1538,8 +1809,10 @@ test("SessionStart contract 23: an overnight session keeps its own history, and 
   assert.equal(after.recent_activity.length, 1, "recent_activity survived");
   assert.equal(after.started_at, "2026-08-15T00:00:00.000Z", "so did the original start time");
   // 3. The exemption is a NARROWING, not a removal.
-  assert.ok(!existsSync(sibling),
-    "cleanup still runs — an implementation that simply deleted the call passes both assertions above");
+  assert.ok(
+    !existsSync(sibling),
+    "cleanup still runs — an implementation that simply deleted the call passes both assertions above",
+  );
 });
 
 // ── Contracts 19, 21: the continuity section, driven across every source ──
@@ -1552,18 +1825,23 @@ test("SessionStart contract 23: an overnight session keeps its own history, and 
 function seedCompactSession(vault, sid, paths) {
   const dir = join(vault, ".projectstore", "sessions");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `${sid}.json`), JSON.stringify({
-    id: sid,
-    started_at: "2026-08-17T00:00:00.000Z",
-    project_root: "/p",
-    // Newest FIRST, as appendActivity leaves it — so the array order and the
-    // timestamps agree. Stamped backwards, an implementation that sorted on
-    // `at` would invert the rendered list and keep every assertion green.
-    recent_activity: paths.map(([p, tool], i) => ({
-      path: join(vault, p), tool,
-      at: `2026-08-17T${String(20 - i).padStart(2, "0")}:00:00.000Z`,
-    })),
-  }), "utf8");
+  writeFileSync(
+    join(dir, `${sid}.json`),
+    JSON.stringify({
+      id: sid,
+      started_at: "2026-08-17T00:00:00.000Z",
+      project_root: "/p",
+      // Newest FIRST, as appendActivity leaves it — so the array order and the
+      // timestamps agree. Stamped backwards, an implementation that sorted on
+      // `at` would invert the rendered list and keep every assertion green.
+      recent_activity: paths.map(([p, tool], i) => ({
+        path: join(vault, p),
+        tool,
+        at: `2026-08-17T${String(20 - i).padStart(2, "0")}:00:00.000Z`,
+      })),
+    }),
+    "utf8",
+  );
 }
 
 const HEADING = "Where this session left off";
@@ -1585,8 +1863,7 @@ test("SessionStart contract 19: the continuity section renders on compact and on
       assert.ok(ctx.includes(HEADING), "compact carries it");
       assert.ok(ctx.includes("`epics/PS-A/stories/story-a.md`"), "with the path the log held");
     } else {
-      assert.ok(!ctx.includes(HEADING),
-        `source ${String(source)} must render nothing — not an empty header, absent`);
+      assert.ok(!ctx.includes(HEADING), `source ${String(source)} must render nothing — not an empty header, absent`);
     }
   }
 });
@@ -1595,10 +1872,11 @@ test("SessionStart contract 21: an empty log renders absence, not an empty heade
   const { proj, vault } = seedHookProject();
   fireSessionStart(proj, { session_id: "burn2", source: "startup" });
   seedCompactSession(vault, "empty1", []);
-  const ctx = fireSessionStart(proj, { session_id: "empty1", source: "compact" })
-    .hookSpecificOutput.additionalContext;
-  assert.ok(!ctx.includes(HEADING),
-    "a missing continuity section asserts nothing; an empty one asserts we looked and found nothing");
+  const ctx = fireSessionStart(proj, { session_id: "empty1", source: "compact" }).hookSpecificOutput.additionalContext;
+  assert.ok(
+    !ctx.includes(HEADING),
+    "a missing continuity section asserts nothing; an empty one asserts we looked and found nothing",
+  );
   // And a missing session_id on compact reaches the same absence by another route.
   const noId = fireSessionStart(proj, { source: "compact" }).hookSpecificOutput.additionalContext;
   assert.ok(!noId.includes(HEADING), "stdin can parse carrying a source and no id");
@@ -1608,18 +1886,23 @@ test("SessionStart contracts 19, 20: the list caps at five, marks it, and names 
   const { proj, vault } = seedHookProject();
   fireSessionStart(proj, { session_id: "burn3", source: "startup" });
   seedCompactSession(vault, "many", [
-    ["adr/a-read.md", "Read"],                       // newest, but not a write
-    ["epics/PS-A/stories/story-live.md", "Edit"],    // the in-flight artifact
-    ["adr/a1.md", "Write"], ["adr/a2.md", "Write"], ["adr/a3.md", "Write"],
-    ["adr/a4.md", "Write"], ["adr/a5.md", "Write"], ["adr/a6.md", "Write"],
+    ["adr/a-read.md", "Read"], // newest, but not a write
+    ["epics/PS-A/stories/story-live.md", "Edit"], // the in-flight artifact
+    ["adr/a1.md", "Write"],
+    ["adr/a2.md", "Write"],
+    ["adr/a3.md", "Write"],
+    ["adr/a4.md", "Write"],
+    ["adr/a5.md", "Write"],
+    ["adr/a6.md", "Write"],
   ]);
-  const ctx = fireSessionStart(proj, { session_id: "many", source: "compact" })
-    .hookSpecificOutput.additionalContext;
+  const ctx = fireSessionStart(proj, { session_id: "many", source: "compact" }).hookSpecificOutput.additionalContext;
   const section = ctx.split(HEADING)[1].split("## Derived views")[0];
   assert.equal((section.match(/^- `/gm) || []).length, 5, "capped at five");
   assert.ok(/…and 3 more/.test(section), "and it says how many it dropped");
-  assert.ok(/\*\*In flight\*\*: `epics\/PS-A\/stories\/story-live\.md`/.test(section),
-    "the newest WRITE, not the newest entry");
+  assert.ok(
+    /\*\*In flight\*\*: `epics\/PS-A\/stories\/story-live\.md`/.test(section),
+    "the newest WRITE, not the newest entry",
+  );
 });
 
 test("SessionStart contract 19: a path over 200 truncates with the mark outside the backticks", () => {
@@ -1627,13 +1910,15 @@ test("SessionStart contract 19: a path over 200 truncates with the mark outside 
   fireSessionStart(proj, { session_id: "burn4", source: "startup" });
   const long = "adr/" + "z".repeat(120) + "/" + "w".repeat(120) + ".md";
   seedCompactSession(vault, "longpath", [[long, "Write"]]);
-  const ctx = fireSessionStart(proj, { session_id: "longpath", source: "compact" })
-    .hookSpecificOutput.additionalContext;
+  const ctx = fireSessionStart(proj, { session_id: "longpath", source: "compact" }).hookSpecificOutput
+    .additionalContext;
   const line = ctx.split("\n").find((l) => l.startsWith("- …`"));
   assert.ok(line, "front-truncated, and the mark leads the line");
   const token = line.match(/`([^`]*)`/)[1];
-  assert.ok(token.length <= 200 && !token.includes("…"),
-    "what a reader copies must be a clean substring — graph.md holds zero `…` characters");
+  assert.ok(
+    token.length <= 200 && !token.includes("…"),
+    "what a reader copies must be a clean substring — graph.md holds zero `…` characters",
+  );
   assert.ok(long.endsWith(token), "the tail is kept: it carries the filename and the discriminating half");
 });
 
@@ -1646,8 +1931,7 @@ test("SessionStart contract 3: the vault-load failure path truncates its free te
   // so the raw message is over 500 characters on its own.
   writeFileSync(cfgPath, JSON.stringify({ ...cfg, layout: "q".repeat(600) }), "utf8");
   fireSessionStart(proj, { session_id: "vl1", source: "startup" });
-  const ctx = fireSessionStart(proj, { session_id: "vl1", source: "startup" })
-    .hookSpecificOutput.additionalContext;
+  const ctx = fireSessionStart(proj, { session_id: "vl1", source: "startup" }).hookSpecificOutput.additionalContext;
   assert.ok(/vault load failed/.test(ctx), "the hook reports rather than crashes (contract 17)");
   const body = ctx.split("vault load failed")[1].split("\n").filter(Boolean)[0];
   assert.ok(body.length <= 500, `error body is ${body.length} chars`);
@@ -1663,8 +1947,11 @@ test("SessionStart contract 3: the vault-load failure path truncates its free te
 
 function firePreCompact(proj, payload = {}, { env = null, cwd = proj } = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "pre-compact.mjs")], {
-    encoding: "utf8", input: JSON.stringify({ hook_event_name: "PreCompact", ...payload }),
-    timeout: 15000, env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj }, cwd,
+    encoding: "utf8",
+    input: JSON.stringify({ hook_event_name: "PreCompact", ...payload }),
+    timeout: 15000,
+    env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj },
+    cwd,
   });
   assert.equal(r.status, 0, `PreCompact hook must exit 0; stderr: ${r.stderr}`);
   const out = r.stdout.trim();
@@ -1684,9 +1971,12 @@ test("PreCompact contract 22: nothing but systemMessage, on every path", () => {
     {},
   ]) {
     const out = firePreCompact(proj, payload);
-    assert.deepEqual(Object.keys(out), ["systemMessage"],
+    assert.deepEqual(
+      Object.keys(out),
+      ["systemMessage"],
       `${JSON.stringify(payload)} emitted ${JSON.stringify(Object.keys(out))} — an invalid ` +
-      "hookSpecificOutput sinks the whole object, systemMessage included");
+        "hookSpecificOutput sinks the whole object, systemMessage included",
+    );
     assert.ok(!/survival packet injected/.test(out.systemMessage));
   }
 });
@@ -1710,10 +2000,14 @@ test("PreCompact contract 22: the delivery claim needs manual AND auto_inject on
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
   writeFileSync(cfgPath, JSON.stringify({ ...cfg, auto_inject: false }), "utf8");
   const off = firePreCompact(proj, { session_id: "pc2", trigger: "manual" }).systemMessage;
-  assert.ok(!DELIVERY_CLAIM.test(off),
-    `manual under auto_inject:false claimed delivery — deterministically false, not merely unevidenced: ${off}`);
-  assert.ok(/in flight: `epics\/PS-A\/stories\/story-x\.md`/.test(off),
-    "naming the artifact is a fact about the log, not a promise, and survives the gate");
+  assert.ok(
+    !DELIVERY_CLAIM.test(off),
+    `manual under auto_inject:false claimed delivery — deterministically false, not merely unevidenced: ${off}`,
+  );
+  assert.ok(
+    /in flight: `epics\/PS-A\/stories\/story-x\.md`/.test(off),
+    "naming the artifact is a fact about the log, not a promise, and survives the gate",
+  );
 });
 
 test("PreCompact contract 22: an empty log weakens the claim rather than falsifying it", () => {
@@ -1721,8 +2015,10 @@ test("PreCompact contract 22: an empty log weakens the claim rather than falsify
   seedCompactSession(vault, "pc3", []);
   const msg = firePreCompact(proj, { session_id: "pc3", trigger: "manual" }).systemMessage;
   assert.ok(/orientation returns at session start/.test(msg), "the skeleton still comes back");
-  assert.ok(!/recent files/.test(msg),
-    "an empty log renders no continuity section — the stronger wording would be false here");
+  assert.ok(
+    !/recent files/.test(msg),
+    "an empty log renders no continuity section — the stronger wording would be false here",
+  );
   assert.ok(!/in flight/.test(msg), "and nothing resolves, so the clause is dropped, not rendered empty");
 });
 
@@ -1735,16 +2031,21 @@ test("PreCompact contract 24: it calls the shared resolver and re-implements not
   // After the fix these have no legitimate occurrence here in any form. This
   // closes the array-literal clone that "no tool-name alternation" left open.
   for (const literal of ["MultiEdit", "NotebookEdit", "STRUCTURED_ARTIFACT_RX"]) {
-    assert.ok(!src.includes(literal),
-      `${literal} reappeared in pre-compact.mjs — the resolver is shared, or it is two resolvers`);
+    assert.ok(
+      !src.includes(literal),
+      `${literal} reappeared in pre-compact.mjs — the resolver is shared, or it is two resolvers`,
+    );
   }
   // The header comment is what the next reader believes over the code.
   assert.ok(!/Two channels are used/.test(src));
 });
 
 test("the shape-violation registry is empty (spec contract 22)", () => {
-  assert.deepEqual(KNOWN_SHAPE_VIOLATIONS, {},
-    "an entry deleted rather than merely unused is what stops a returning field passing");
+  assert.deepEqual(
+    KNOWN_SHAPE_VIOLATIONS,
+    {},
+    "an entry deleted rather than merely unused is what stops a returning field passing",
+  );
 });
 
 // ── Review follow-ups: the bounds and shapes the first pass missed ────
@@ -1760,16 +2061,19 @@ test("SessionStart contract 17: a missing vault keeps its one-line shape", () =>
   // instead of covering it: registration's recursive mkdir manufactures the
   // vault, and from run 2 the skeleton asserts zeros about it.
   fireSessionStart(proj, { session_id: "nv1", source: "startup" });
-  const ctx = fireSessionStart(proj, { session_id: "nv1", source: "startup" })
-    .hookSpecificOutput.additionalContext;
+  const ctx = fireSessionStart(proj, { session_id: "nv1", source: "startup" }).hookSpecificOutput.additionalContext;
 
   assert.ok(/^# projectstore: vault not found at /.test(ctx), `got: ${ctx.slice(0, 120)}`);
-  assert.ok(!/Where things live/.test(ctx),
+  assert.ok(
+    !/Where things live/.test(ctx),
     "eight rows of authoritative zeros about a vault that does not exist is the " +
-    "silently-false claim contracts 13 and 21 refuse");
+      "silently-false claim contracts 13 and 21 refuse",
+  );
   assert.ok(!/nothing in progress/.test(ctx));
-  assert.ok(!existsSync(join(root, "NO_SUCH_VAULT")),
-    "and the hook did not quietly create the vault it failed to find");
+  assert.ok(
+    !existsSync(join(root, "NO_SUCH_VAULT")),
+    "and the hook did not quietly create the vault it failed to find",
+  );
 });
 
 test("SessionStart contract 3: free-text config cannot breach the composed cap", () => {
@@ -1778,14 +2082,20 @@ test("SessionStart contract 3: free-text config cannot breach the composed cap",
   mkdirSync(dirname(cfgPath), { recursive: true });
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
   writeFileSync(cfgPath, JSON.stringify({ ...cfg, language: "L".repeat(3000) }), "utf8");
-  writeFileSync(join(vault, ".projectstore.json"),
-    JSON.stringify({ spec_policy: "S".repeat(3000), lifecycle_gates: "G".repeat(3000) }), "utf8");
+  writeFileSync(
+    join(vault, ".projectstore.json"),
+    JSON.stringify({ spec_policy: "S".repeat(3000), lifecycle_gates: "G".repeat(3000) }),
+    "utf8",
+  );
   // A directory name is bounded only by NAME_MAX, and five of them render.
   const epic = join(vault, "epics", "E".repeat(200));
   mkdirSync(join(epic, "stories"), { recursive: true });
   writeFileSync(join(epic, "epic.md"), "---\ntype: epic\n---\n", "utf8");
-  writeFileSync(join(epic, "stories", "story-a.md"),
-    `---\ntype: story\nstatus: in-progress\ntitle: "${"T".repeat(500)}"\nstarted_at: "2026-08-01"\n---\n`, "utf8");
+  writeFileSync(
+    join(epic, "stories", "story-a.md"),
+    `---\ntype: story\nstatus: in-progress\ntitle: "${"T".repeat(500)}"\nstarted_at: "2026-08-01"\n---\n`,
+    "utf8",
+  );
 
   // And the term the first fix left raw: `started_at` is free text from a
   // session file this process never wrote, rendered once per sibling. Five of
@@ -1793,17 +2103,24 @@ test("SessionStart contract 3: free-text config cannot breach the composed cap",
   const sdir = join(vault, ".projectstore", "sessions");
   mkdirSync(sdir, { recursive: true });
   for (let i = 0; i < 5; i++) {
-    writeFileSync(join(sdir, `sib-${i}.json`), JSON.stringify({
-      id: `sib-${i}`, project_root: `/p${i}`, started_at: "S".repeat(3000),
-    }), "utf8");
+    writeFileSync(
+      join(sdir, `sib-${i}.json`),
+      JSON.stringify({
+        id: `sib-${i}`,
+        project_root: `/p${i}`,
+        started_at: "S".repeat(3000),
+      }),
+      "utf8",
+    );
   }
 
   fireSessionStart(proj, { session_id: "cap3", source: "startup" });
-  const ctx = fireSessionStart(proj, { session_id: "cap3", source: "startup" })
-    .hookSpecificOutput.additionalContext;
+  const ctx = fireSessionStart(proj, { session_id: "cap3", source: "startup" }).hookSpecificOutput.additionalContext;
   assert.ok(/Multi-session warning/.test(ctx), "the sibling term is actually in this payload");
-  assert.ok(ctx.length < 10000,
-    `payload is ${ctx.length} chars — config is free text, and a bound is only as good as its enumeration`);
+  assert.ok(
+    ctx.length < 10000,
+    `payload is ${ctx.length} chars — config is free text, and a bound is only as good as its enumeration`,
+  );
   const header = ctx.split("\n")[1];
   assert.ok(header.length < 400, `header line is ${header.length} chars`);
 });
@@ -1817,8 +2134,13 @@ test("SessionStart contract 3: welcome + continuity + capped siblings, the state
   // which is the point contract 3 makes.)
   seedSiblings(vault, 40);
   seedCompactSession(vault, "worst", [
-    ["epics/PS-A/stories/story-a.md", "Edit"], ["adr/b.md", "Write"], ["adr/c.md", "Write"],
-    ["adr/d.md", "Write"], ["adr/e.md", "Write"], ["adr/f.md", "Write"], ["adr/g.md", "Write"],
+    ["epics/PS-A/stories/story-a.md", "Edit"],
+    ["adr/b.md", "Write"],
+    ["adr/c.md", "Write"],
+    ["adr/d.md", "Write"],
+    ["adr/e.md", "Write"],
+    ["adr/f.md", "Write"],
+    ["adr/g.md", "Write"],
   ]);
   const out = fireSessionStart(proj, { session_id: "worst", source: "compact" });
   const ctx = out.hookSpecificOutput.additionalContext;
@@ -1831,16 +2153,18 @@ test("SessionStart contract 3: welcome + continuity + capped siblings, the state
 test("SessionStart contract 4: every folder of the LAYOUT appears, iterated not listed", () => {
   const { proj } = seedSkeletonVault();
   fireSessionStart(proj, { session_id: "lay1", source: "startup" });
-  const ctx = fireSessionStart(proj, { session_id: "lay1", source: "startup" })
-    .hookSpecificOutput.additionalContext;
+  const ctx = fireSessionStart(proj, { session_id: "lay1", source: "startup" }).hookSpecificOutput.additionalContext;
   // Read from the layout the hook actually resolves. Naming the eight folders
   // literally leaves a ninth one, silently dropped by the gather, green.
   const layout = JSON.parse(readFileSync(join(REPO, "scaffold", "layouts", "engineering.json"), "utf8"));
   for (const f of layout.folders) {
     assert.ok(ctx.includes(`\`${f.path}/\``), `layout folder ${f.path} has no row`);
   }
-  assert.equal((ctx.match(/^\| `[^`]+\/` \|/gm) || []).length, layout.folders.length,
-    "one row per layout folder, no more");
+  assert.equal(
+    (ctx.match(/^\| `[^`]+\/` \|/gm) || []).length,
+    layout.folders.length,
+    "one row per layout folder, no more",
+  );
 });
 
 test("SessionStart contract 12: folder-shaped and standalone stories both reach the list", () => {
@@ -1853,11 +2177,9 @@ test("SessionStart contract 12: folder-shaped and standalone stories both reach 
   writeFileSync(join(epic, "story-standalone.md"), fm("Standalone", "2026-08-01T00:00:00Z"), "utf8");
 
   fireSessionStart(proj, { session_id: "sh1", source: "startup" });
-  const ctx = fireSessionStart(proj, { session_id: "sh1", source: "startup" })
-    .hookSpecificOutput.additionalContext;
+  const ctx = fireSessionStart(proj, { session_id: "sh1", source: "startup" }).hookSpecificOutput.additionalContext;
   assert.ok(/- PS-A · Nested/.test(ctx), "the folder-shaped story");
-  assert.ok(/- PS-A · Standalone/.test(ctx),
-    "the standalone one — a per-epic loop that skipped it would look correct");
+  assert.ok(/- PS-A · Standalone/.test(ctx), "the standalone one — a per-epic loop that skipped it would look correct");
 });
 
 test("SessionStart contracts 19, 21: the two continuity degradations never share their text", () => {
@@ -1871,8 +2193,7 @@ test("SessionStart contracts 19, 21: the two continuity degradations never share
   // A directory where the session JSON should be: the read rejects rather than
   // hangs, which exercises the [] path; the timeout branch is unit-tested at
   // tests/predicates.test.mjs with an unresolvable reader.
-  const ctx = fireSessionStart(proj, { session_id: "slow", source: "compact" })
-    .hookSpecificOutput.additionalContext;
+  const ctx = fireSessionStart(proj, { session_id: "slow", source: "compact" }).hookSpecificOutput.additionalContext;
   assert.ok(ctx.includes(HEADING) && /- `adr\/a\.md`/.test(ctx), "resolved: the section renders");
   assert.ok(!/recent activity not resolved within budget/.test(ctx));
 });
@@ -1881,12 +2202,14 @@ test("SessionStart contract 19: the rendered path list is newest-first", () => {
   const { proj, vault } = seedHookProject();
   fireSessionStart(proj, { session_id: "burn6", source: "startup" });
   seedCompactSession(vault, "order", [
-    ["adr/newest.md", "Write"], ["adr/middle.md", "Write"], ["adr/oldest.md", "Write"],
+    ["adr/newest.md", "Write"],
+    ["adr/middle.md", "Write"],
+    ["adr/oldest.md", "Write"],
   ]);
-  const ctx = fireSessionStart(proj, { session_id: "order", source: "compact" })
-    .hookSpecificOutput.additionalContext;
-  const listed = (ctx.split(HEADING)[1].match(/^- `adr\/([a-z]+)\.md`$/gm) || [])
-    .map((l) => l.match(/adr\/([a-z]+)\.md/)[1]);
+  const ctx = fireSessionStart(proj, { session_id: "order", source: "compact" }).hookSpecificOutput.additionalContext;
+  const listed = (ctx.split(HEADING)[1].match(/^- `adr\/([a-z]+)\.md`$/gm) || []).map(
+    (l) => l.match(/adr\/([a-z]+)\.md/)[1],
+  );
   assert.deepEqual(listed, ["newest", "middle", "oldest"], "log order IS newest-first");
 });
 
@@ -1896,8 +2219,10 @@ test("PreCompact contract 19: a >200 path renders in the same cell the skeleton 
   seedCompactSession(vault, "pcl", [[long, "Write"]]);
   const msg = firePreCompact(proj, { session_id: "pcl", trigger: "manual" }).systemMessage;
   const token = msg.match(/in flight: …`([^`]*)`/)[1];
-  assert.ok(token.length <= 200 && long.endsWith(token),
-    "one path form: truncated here exactly as it is in the continuity section");
+  assert.ok(
+    token.length <= 200 && long.endsWith(token),
+    "one path form: truncated here exactly as it is in the continuity section",
+  );
 });
 
 // ─── Session-name offer, wired (ADR: the settled-anchor offer) ─────────
@@ -1910,11 +2235,17 @@ test("PreCompact contract 19: a >200 path renders in the same cell the skeleton 
 
 function vaultWrite(proj, vault, rel, extra = {}) {
   const { sessionsDir, ...rest } = extra;
-  return fireHook(proj, {
-    hook_event_name: "PreToolUse", session_id: extra.sid || "n1",
-    tool_name: extra.tool || "Edit", tool_input: { file_path: join(vault, rel) },
-    ...rest,
-  }, sessionsDir);
+  return fireHook(
+    proj,
+    {
+      hook_event_name: "PreToolUse",
+      session_id: extra.sid || "n1",
+      tool_name: extra.tool || "Edit",
+      tool_input: { file_path: join(vault, rel) },
+      ...rest,
+    },
+    sessionsDir,
+  );
 }
 
 // A registry of live sessions, as the harness maintains it. Every wired drive
@@ -1935,10 +2266,12 @@ function offerLine(out) {
 function seedAnchorVault() {
   const h = seedHookProject();
   mkdirSync(join(h.vault, "adr"), { recursive: true });
-  writeFileSync(join(h.vault, "epics", "PS-A", "stories", "story-alpha-beta.md"),
-    "---\ntype: story\nstatus: planned\n---\n", "utf8");
-  writeFileSync(join(h.vault, "adr", "some-decision.md"),
-    "---\ntype: adr\nstatus: proposed\n---\n", "utf8");
+  writeFileSync(
+    join(h.vault, "epics", "PS-A", "stories", "story-alpha-beta.md"),
+    "---\ntype: story\nstatus: planned\n---\n",
+    "utf8",
+  );
+  writeFileSync(join(h.vault, "adr", "some-decision.md"), "---\ntype: adr\nstatus: proposed\n---\n", "utf8");
   return h;
 }
 
@@ -1957,8 +2290,11 @@ test("name offer: reads never name a session, however many there are", () => {
   const { proj, vault } = seedAnchorVault();
   const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
   for (let i = 0; i < 8; i++) {
-    assert.equal(offerLine(vaultWrite(proj, vault, rel, { tool: "Read" })), null,
-      "a review session that reads the vault has not done work worth naming");
+    assert.equal(
+      offerLine(vaultWrite(proj, vault, rel, { tool: "Read" })),
+      null,
+      "a review session that reads the vault has not done work worth naming",
+    );
   }
   // And the same paths written DO settle: the gate is the tool, not the path.
   const after = [];
@@ -1970,8 +2306,11 @@ test("name offer: a subagent's writes never vote on the name", () => {
   const { proj, vault } = seedAnchorVault();
   const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
   for (let i = 0; i < 8; i++) {
-    assert.equal(offerLine(vaultWrite(proj, vault, rel, { agent_id: "sub-7" })), null,
-      "a subagent shares the session id and cannot accept a name");
+    assert.equal(
+      offerLine(vaultWrite(proj, vault, rel, { agent_id: "sub-7" })),
+      null,
+      "a subagent shares the session id and cannot accept a name",
+    );
   }
 });
 
@@ -2015,8 +2354,7 @@ test("name offer: state never touches the statusline pointer's file", () => {
   // ADR-006's pointer must still be intact and complete: the anchor tally is
   // the highest-frequency writer here, and lib.mjs forbids it the shared
   // read-modify-write for exactly this reason.
-  const st = JSON.parse(readFileSync(
-    sessionStatePath(proj, "n1"), "utf8"));
+  const st = JSON.parse(readFileSync(sessionStatePath(proj, "n1"), "utf8"));
   assert.equal(st.active_epic, "PS-A");
   assert.equal(st.active_story, "story-alpha-beta");
   assert.ok(!("counts" in st) && !("incumbent" in st), "anchor state must live in its own files");
@@ -2024,7 +2362,11 @@ test("name offer: state never touches the statusline pointer's file", () => {
 
 test("name offer: guard off silences it, like every other advisory", () => {
   const { proj, vault } = seedAnchorVault();
-  writeBinding(proj, JSON.stringify({ vault_path: vault, layout: "engineering", language: "en", guard: "off" }), "utf8");
+  writeBinding(
+    proj,
+    JSON.stringify({ vault_path: vault, layout: "engineering", language: "en", guard: "off" }),
+    "utf8",
+  );
   const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
   for (let i = 0; i < 8; i++) {
     assert.equal(offerLine(vaultWrite(proj, vault, rel)), null, "guard off means silent");
@@ -2036,7 +2378,9 @@ test("name offer: the breadcrumb is distinguishable from an entry reminder", () 
   const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
   for (let i = 0; i < 5; i++) vaultWrite(proj, vault, rel);
   const log = readFileSync(entryLogPath(proj), "utf8")
-    .split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
   const offers = log.filter((r) => r.kind === "name-offer");
   assert.equal(offers.length, 1, "the offer left a breadcrumb");
   assert.equal(offers[0].name, "ps-a-alpha-beta");
@@ -2051,15 +2395,17 @@ test("name offer: the epic is named after its DOMINANT story, across invocations
   // if the on-disk leaf tally is never written. Two stories are what make the
   // persisted tally load-bearing — and the last-touched one must NOT win.
   const { proj, vault } = seedAnchorVault();
-  writeFileSync(join(vault, "epics", "PS-A", "stories", "story-minor-note.md"),
-    "---\ntype: story\nstatus: planned\n---\n", "utf8");
+  writeFileSync(
+    join(vault, "epics", "PS-A", "stories", "story-minor-note.md"),
+    "---\ntype: story\nstatus: planned\n---\n",
+    "utf8",
+  );
   const major = join("epics", "PS-A", "stories", "story-alpha-beta.md");
   const minor = join("epics", "PS-A", "stories", "story-minor-note.md");
   for (let i = 0; i < 4; i++) vaultWrite(proj, vault, major);
-  const out = offerLine(vaultWrite(proj, vault, minor));   // 5th write settles
+  const out = offerLine(vaultWrite(proj, vault, minor)); // 5th write settles
   assert.ok(out, "the epic settled on the fifth write");
-  assert.match(out, /ps-a-alpha-beta/,
-    "the name follows where the work went, not where the cursor happens to be");
+  assert.match(out, /ps-a-alpha-beta/, "the name follows where the work went, not where the cursor happens to be");
   assert.doesNotMatch(out, /minor-note/, out);
 });
 
@@ -2084,12 +2430,15 @@ test("name offer: once the person picks their own name, nothing talks over it", 
   const story = join("epics", "PS-A", "stories", "story-alpha-beta.md");
   const adr = join("adr", "some-decision.md");
   let dir = seedRegistry(root, [{ pid: 999, sessionId: "n1", name: "warm-otter-42" }]);
-  for (let i = 0; i < 5; i++) vaultWrite(proj, vault, story, { sessionsDir: dir });   // we offer
+  for (let i = 0; i < 5; i++) vaultWrite(proj, vault, story, { sessionsDir: dir }); // we offer
   // The person ignores it and renames to something of their own.
   dir = seedRegistry(root, [{ pid: 999, sessionId: "n1", name: "my-own-choice" }]);
   for (let i = 0; i < 20; i++) {
-    assert.equal(offerLine(vaultWrite(proj, vault, adr, { sessionsDir: dir })), null,
-      "a name we did not compose is the person's, and no later anchor move overrides it");
+    assert.equal(
+      offerLine(vaultWrite(proj, vault, adr, { sessionsDir: dir })),
+      null,
+      "a name we did not compose is the person's, and no later anchor move overrides it",
+    );
   }
 });
 
@@ -2116,10 +2465,16 @@ test("name offer: Bash-mediated vault writes are invisible — no name, and no t
   const dir = seedRegistry(root, []);
   const target = join(vault, "epics", "PS-A", "stories", "story-alpha-beta.md");
   for (let i = 0; i < 8; i++) {
-    const out = fireHook(proj, {
-      hook_event_name: "PreToolUse", session_id: "n1",
-      tool_name: "Bash", tool_input: { command: `printf x >> "${target}"` },
-    }, dir);
+    const out = fireHook(
+      proj,
+      {
+        hook_event_name: "PreToolUse",
+        session_id: "n1",
+        tool_name: "Bash",
+        tool_input: { command: `printf x >> "${target}"` },
+      },
+      dir,
+    );
     assert.equal(offerLine(out), null, "a scripted vault write cannot name the session");
   }
   // And it contributed nothing to the tally: five tool-calls still settle on
@@ -2127,8 +2482,11 @@ test("name offer: Bash-mediated vault writes are invisible — no name, and no t
   const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
   const seen = [];
   for (let i = 0; i < 5; i++) seen.push(offerLine(vaultWrite(proj, vault, rel, { sessionsDir: dir })));
-  assert.deepEqual(seen.map((l, i) => (l ? i + 1 : null)).filter(Boolean), [5],
-    "eight Bash writes must leave the tally at zero");
+  assert.deepEqual(
+    seen.map((l, i) => (l ? i + 1 : null)).filter(Boolean),
+    [5],
+    "eight Bash writes must leave the tally at zero",
+  );
 });
 
 test("name offer: a subagent's writes contribute nothing to the tally, not merely to delivery", () => {
@@ -2144,8 +2502,11 @@ test("name offer: a subagent's writes contribute nothing to the tally, not merel
   }
   const seen = [];
   for (let i = 0; i < 5; i++) seen.push(offerLine(vaultWrite(proj, vault, rel, { sessionsDir: dir })));
-  assert.deepEqual(seen.map((l, i) => (l ? i + 1 : null)).filter(Boolean), [5],
-    "eight subagent writes must leave the tally at zero");
+  assert.deepEqual(
+    seen.map((l, i) => (l ? i + 1 : null)).filter(Boolean),
+    [5],
+    "eight subagent writes must leave the tally at zero",
+  );
 });
 
 test("name offer: concurrent writers keep the tally exact and the ADR-006 pointer intact", async () => {
@@ -2163,7 +2524,11 @@ test("name offer: concurrent writers keep the tally exact and the ADR-006 pointe
   // The pointer is read the same way: a truncate-and-write is momentarily empty
   // or, from two writers, a JSON with a tail — both unparseable, both silently
   // null to readSessionState. Only an atomic replace never shows either.
-  let lost = 0, reads = 0, torn = 0, whole = 0, racing = true;
+  let lost = 0,
+    reads = 0,
+    torn = 0,
+    whole = 0,
+    racing = true;
   const pointer = sessionStatePath(proj, "c1");
   const reader = (async () => {
     while (racing) {
@@ -2172,36 +2537,62 @@ test("name offer: concurrent writers keep the tally exact and the ADR-006 pointe
       else if (reads > 0) lost += 1;
       if (reads > 0 && !seen.counts["epic:PS-A"]) lost += 1;
       let text = null;
-      try { text = readFileSync(pointer, "utf8"); } catch {}
-      if (text !== null) { try { JSON.parse(text); whole += 1; } catch { torn += 1; } }
+      try {
+        text = readFileSync(pointer, "utf8");
+      } catch {}
+      if (text !== null) {
+        try {
+          JSON.parse(text);
+          whole += 1;
+        } catch {
+          torn += 1;
+        }
+      }
       await new Promise((r) => setImmediate(r));
     }
   })();
-  await Promise.all(Array.from({ length: N }, () => new Promise((resolve) => {
-    const c = spawn(process.execPath, [join(REPO, "scripts", "touch-session.mjs")], {
-      env: { ...process.env, CLAUDE_PROJECT_DIR: proj, PROJECTSTORE_SESSIONS_DIR: dir }, cwd: proj,
-    });
-    c.stdin.end(JSON.stringify({
-      hook_event_name: "PreToolUse", session_id: "c1",
-      tool_name: "Edit", tool_input: { file_path: join(vault, rel) },
-    }));
-    c.on("close", resolve);
-  })));
+  await Promise.all(
+    Array.from(
+      { length: N },
+      () =>
+        new Promise((resolve) => {
+          const c = spawn(process.execPath, [join(REPO, "scripts", "touch-session.mjs")], {
+            env: { ...process.env, CLAUDE_PROJECT_DIR: proj, PROJECTSTORE_SESSIONS_DIR: dir },
+            cwd: proj,
+          });
+          c.stdin.end(
+            JSON.stringify({
+              hook_event_name: "PreToolUse",
+              session_id: "c1",
+              tool_name: "Edit",
+              tool_input: { file_path: join(vault, rel) },
+            }),
+          );
+          c.on("close", resolve);
+        }),
+    ),
+  );
   racing = false;
   await reader;
 
   const st = readAnchorState(proj, "c1");
   assert.equal(st.counts["epic:PS-A"], N, "no increment lost under concurrency");
   assert.equal(st.leaves["epic:PS-A"]["alpha-beta"], N, "the leaf tally too");
-  assert.equal(lost, 0,
+  assert.equal(
+    lost,
+    0,
     `a key with a live tally vanished from ${lost}/${reads} concurrent reads — ` +
-    "a truncated sidecar drops the key, and foldAnchor then measures a " +
-    "challenger against a zero incumbent");
+      "a truncated sidecar drops the key, and foldAnchor then measures a " +
+      "challenger against a zero incumbent",
+  );
   assert.ok(whole > 0, "the reader parsed the pointer during the race at least once — otherwise `torn` proves nothing");
-  assert.equal(torn, 0, `the session pointer was unparseable in ${torn} concurrent reads — it must be replaced atomically`);
+  assert.equal(
+    torn,
+    0,
+    `the session pointer was unparseable in ${torn} concurrent reads — it must be replaced atomically`,
+  );
   // And the pointer this state was deliberately kept out of is whole.
-  const ptr = JSON.parse(readFileSync(
-    sessionStatePath(proj, "c1"), "utf8"));
+  const ptr = JSON.parse(readFileSync(sessionStatePath(proj, "c1"), "utf8"));
   assert.equal(ptr.active_epic, "PS-A");
   assert.equal(ptr.active_story, "story-alpha-beta");
 });
@@ -2218,14 +2609,22 @@ test("session state: the pointer and the offer record are replaced by rename, ne
   writeSessionState(proj, "a1", { active_story: "story-x" });
   assert.notEqual(statSync(sessionStatePath(proj, "a1")).ino, before, "writeSessionState publishes a new file");
   assert.deepEqual(
-    (({ active_epic, active_story }) => ({ active_epic, active_story }))(JSON.parse(readFileSync(sessionStatePath(proj, "a1"), "utf8"))),
-    { active_epic: "PS-A", active_story: "story-x" }, "and still merges the patch");
+    (({ active_epic, active_story }) => ({ active_epic, active_story }))(
+      JSON.parse(readFileSync(sessionStatePath(proj, "a1"), "utf8")),
+    ),
+    { active_epic: "PS-A", active_story: "story-x" },
+    "and still merges the patch",
+  );
   const offerFile = join(stateDir(proj), "a1.anchor.json");
   assert.ok(writeAnchorOffer(proj, "a1", { offers: 1 }));
   const offer = statSync(offerFile).ino;
   assert.ok(writeAnchorOffer(proj, "a1", { offers: 2, declined: true }));
   assert.notEqual(statSync(offerFile).ino, offer, "writeAnchorOffer publishes a new file");
-  assert.equal(readdirSync(dirname(sessionStatePath(proj, "a1"))).filter((n) => n.endsWith(".tmp")).length, 0, "no temp is left behind");
+  assert.equal(
+    readdirSync(dirname(sessionStatePath(proj, "a1"))).filter((n) => n.endsWith(".tmp")).length,
+    0,
+    "no temp is left behind",
+  );
 });
 
 // ─── PS-WT: the unbound-worktree offer at session start ────────────────
@@ -2260,8 +2659,7 @@ test("SessionStart: an unbound worktree of a bound checkout is offered its paren
   assert.ok(ctx.includes("/projectstore:bind --inherit"), "names the command that adopts it");
   assert.ok(ctx.includes(vault), "names the vault it would adopt");
   assert.ok(ctx.includes(main), "names the checkout it was forked from");
-  assert.ok(out.systemMessage && out.systemMessage.includes("--inherit"),
-    "the person sees it too, not only the agent");
+  assert.ok(out.systemMessage && out.systemMessage.includes("--inherit"), "the person sees it too, not only the agent");
 
   // The offer precedes the first-run welcome: a fresh worktree has no welcome
   // marker either, and the welcome's "bind and point at a vault" is the wrong
@@ -2278,28 +2676,38 @@ test("SessionStart: detecting an inheritable worktree writes nothing", () => {
 
   // Load-bearing: without it, a resolveBinding that answered "unbound" to
   // everything would pass this test while proving nothing about detection.
-  assert.ok(out.hookSpecificOutput.additionalContext.includes("--inherit"),
-    "detection did run and did speak — the assertions below are about what it did NOT do");
+  assert.ok(
+    out.hookSpecificOutput.additionalContext.includes("--inherit"),
+    "detection did run and did speak — the assertions below are about what it did NOT do",
+  );
 
   // Scoped deliberately: the first-run welcome marker is a pre-existing write on
   // this path and is not part of detection. What must not appear is a binding
   // this session never approved, or per-session state for an unbound project.
-  assert.ok(!existsSync(layoutPaths(child).binding) && !existsSync(join(child, ".claude", "projectstore.json")),
-    "no binding is adopted without the approval gate");
-  assert.ok(!existsSync(layoutPaths(child).sessions) && !existsSync(join(child, ".claude", ".projectstore")),
-    "no per-session state for a project that is not bound (the welcome marker under state/<harness>/ is not session state)");
+  assert.ok(
+    !existsSync(layoutPaths(child).binding) && !existsSync(join(child, ".claude", "projectstore.json")),
+    "no binding is adopted without the approval gate",
+  );
+  assert.ok(
+    !existsSync(layoutPaths(child).sessions) && !existsSync(join(child, ".claude", ".projectstore")),
+    "no per-session state for a project that is not bound (the welcome marker under state/<harness>/ is not session state)",
+  );
 });
 
 test("SessionStart: no offer when there is no bound parent to inherit from", () => {
   const orphan = seedWorktreePairForHook({ bindParent: false });
   const a = fireSessionStart(orphan.child, { session_id: "wt-3", source: "startup" });
-  assert.ok(!(a && a.hookSpecificOutput.additionalContext.includes("--inherit")),
-    "a worktree of an unbound checkout is an ordinary unbound project");
+  assert.ok(
+    !(a && a.hookSpecificOutput.additionalContext.includes("--inherit")),
+    "a worktree of an unbound checkout is an ordinary unbound project",
+  );
 
   const plain = mkdtempSync(join(tmpdir(), "ps-wt-plain-hook-"));
   const b = fireSessionStart(plain, { session_id: "wt-4", source: "startup" });
-  assert.ok(!(b && b.hookSpecificOutput.additionalContext.includes("--inherit")),
-    "a directory that is not a repository at all offers nothing, and does not crash");
+  assert.ok(
+    !(b && b.hookSpecificOutput.additionalContext.includes("--inherit")),
+    "a directory that is not a repository at all offers nothing, and does not crash",
+  );
 });
 
 test("SessionStart: a bound project is never offered an inherit", () => {
@@ -2309,8 +2717,10 @@ test("SessionStart: a bound project is never offered an inherit", () => {
   // Scoped honestly to what an assertion can see. That the probe never RUNS on
   // this path is guarded twice in code (the !cfg gate in the hook, and the bound
   // early return in resolveBinding) and is not observable from the output.
-  assert.ok(!out.hookSpecificOutput.additionalContext.includes("--inherit"),
-    "a bound project is never told to inherit");
+  assert.ok(
+    !out.hookSpecificOutput.additionalContext.includes("--inherit"),
+    "a bound project is never told to inherit",
+  );
 });
 
 test("bind and doctor prompts carry the inherit path", () => {
@@ -2328,8 +2738,10 @@ test("bind and doctor prompts carry the inherit path", () => {
 
 test("clerk: the registration block never names it (ADR decision 6)", () => {
   const tmpl = readFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), "utf8");
-  assert.ok(!/\bclerk\b/i.test(tmpl),
-    "the clerk has no per-turn trigger; a regenerated block must not acquire it silently");
+  assert.ok(
+    !/\bclerk\b/i.test(tmpl),
+    "the clerk has no per-turn trigger; a regenerated block must not acquire it silently",
+  );
   const rules = readFileSync(join(REPO, "hooks", "session-rules.mjs"), "utf8");
   assert.ok(!/\bclerk\b/i.test(rules), "the session-rules payload mirrors the block and stays clerk-free");
 });
@@ -2339,47 +2751,72 @@ test("clerk: the delegating prompts carry the resolution line and the scratch/ba
   const flatStory = story.replace(/\s+/g, " ");
   // Since 2026-09-06 the prose resolves the model through the bin's `agents
   // model` verb (A12) instead of restating ADR-008's two-term rule.
-  assert.ok(flatStory.includes("agents model clerk --json") && flatStory.includes("result.model"),
-    "ADR-008 resolution in story close goes through the agents model verb");
+  assert.ok(
+    flatStory.includes("agents model clerk --json") && flatStory.includes("result.model"),
+    "ADR-008 resolution in story close goes through the agents model verb",
+  );
   assert.ok(flatStory.includes("never guess a model"), "the review.md pattern's safety clause");
-  assert.ok(/5a\./.test(story) && /6a\./.test(story) && /6b\./.test(story),
-    "half-step idiom — load-bearing step numbers survive");
+  assert.ok(
+    /5a\./.test(story) && /6a\./.test(story) && /6b\./.test(story),
+    "half-step idiom — load-bearing step numbers survive",
+  );
   const gateFlow = story.slice(story.indexOf("# Lifecycle gate flow"));
-  assert.ok(gateFlow.indexOf("AskUserQuestion") < gateFlow.indexOf("projectstore:clerk"),
-    "within the lifecycle flow, the gate precedes the delegation");
-  assert.ok(story.indexOf("5a.") < story.indexOf("6. **On Yes"),
-    "5a physically precedes step 6 — an agent reads top-down");
-  assert.ok(/scratch/.test(flatStory) && /baseline/.test(flatStory) &&
-    flatStory.includes("Handing `--check` the scratch makes it report drift on every run"),
-    "scratch and baseline are named as distinct files with distinct jobs");
-  assert.ok(flatStory.includes("There is no fallback agent") ||
-    flatStory.includes("a general-purpose writer is an unpinned procedure"),
-    "no general-purpose substitute for a pinned procedure");
-  assert.ok(flatStory.includes("pre-state"),
-    "the doctor pre-state is captured and passed — the clerk must not judge which findings pre-existed");
+  assert.ok(
+    gateFlow.indexOf("AskUserQuestion") < gateFlow.indexOf("projectstore:clerk"),
+    "within the lifecycle flow, the gate precedes the delegation",
+  );
+  assert.ok(
+    story.indexOf("5a.") < story.indexOf("6. **On Yes"),
+    "5a physically precedes step 6 — an agent reads top-down",
+  );
+  assert.ok(
+    /scratch/.test(flatStory) &&
+      /baseline/.test(flatStory) &&
+      flatStory.includes("Handing `--check` the scratch makes it report drift on every run"),
+    "scratch and baseline are named as distinct files with distinct jobs",
+  );
+  assert.ok(
+    flatStory.includes("There is no fallback agent") ||
+      flatStory.includes("a general-purpose writer is an unpinned procedure"),
+    "no general-purpose substitute for a pinned procedure",
+  );
+  assert.ok(
+    flatStory.includes("pre-state"),
+    "the doctor pre-state is captured and passed — the clerk must not judge which findings pre-existed",
+  );
   assert.ok(/\(close only\)/.test(story), "6a/6b are scoped to close; plan does not silently gain them");
 
   const rec = readFileSync(join(REPO, "commands", "reconcile.md"), "utf8");
   const flatRec = rec.replace(/\s+/g, " ");
-  assert.ok(flatRec.includes("agents model clerk --json") && flatRec.includes("result.model"),
-    "resolution through the agents model verb in reconcile too");
+  assert.ok(
+    flatRec.includes("agents model clerk --json") && flatRec.includes("result.model"),
+    "resolution through the agents model verb in reconcile too",
+  );
   assert.ok(flatRec.includes("two or more targets"), "the enumerated trigger is concrete, not a judgement");
-  assert.ok(rec.indexOf("5a.") >= 0 && rec.indexOf("5a.") < rec.indexOf("6. **On approval**"),
-    "reconcile's 5a sits before the step it delegates — placement is the contract");
+  assert.ok(
+    rec.indexOf("5a.") >= 0 && rec.indexOf("5a.") < rec.indexOf("6. **On approval**"),
+    "reconcile's 5a sits before the step it delegates — placement is the contract",
+  );
 
   const agents = readFileSync(join(REPO, "commands", "agents.md"), "utf8").replace(/\s+/g, " ");
-  assert.ok(agents.includes('per_agent.clerk.model: "sonnet"'),
-    "configure pins the clerk whenever it writes a preset default");
+  assert.ok(
+    agents.includes('per_agent.clerk.model: "sonnet"'),
+    "configure pins the clerk whenever it writes a preset default",
+  );
   // Since 2026-09-06 status reads the verb's `result.resolved.clerk.model` (A12);
   // the literal pair is the property, not the sentence around it.
-  assert.ok(/resolved\.clerk\.model` is anything but `sonnet` or `haiku`/.test(agents),
-    "status carries the warning, and its rule is a literal — never re-derived");
+  assert.ok(
+    /resolved\.clerk\.model` is anything but `sonnet` or `haiku`/.test(agents),
+    "status carries the warning, and its rule is a literal — never re-derived",
+  );
 });
 
 test("story-section --check: fresh stamps are not drift, hand edits are", async () => {
   const { VOLATILE_FM } = await import("../scripts/story-section.mjs");
-  assert.ok(VOLATILE_FM.includes("started_at"),
-    "started_at is volatile by the same mechanism — the planner's extension of the ADR's list, pinned");
+  assert.ok(
+    VOLATILE_FM.includes("started_at"),
+    "started_at is volatile by the same mechanism — the planner's extension of the ADR's list, pinned",
+  );
   const dir = mkdtempSync(join(tmpdir(), "ps-check-"));
   const p = join(dir, "s.md");
   const base = join(dir, "baseline.md");
@@ -2392,16 +2829,17 @@ test("story-section --check: fresh stamps are not drift, hand edits are", async 
   // Re-check immediately: closed_at/updated/footer are stamped fresh each run,
   // and the comparison must call that a match — otherwise every close drifts.
   const clean = runBound("story-section.mjs", ["close", p, "--check", base]);
-  assert.equal(clean.check.match, true,
-    "volatile stamps alone are never drift");
+  assert.equal(clean.check.match, true, "volatile stamps alone are never drift");
   assert.deepEqual(clean.check.drift, []);
 
   // A hand edit in the body IS drift, and it is named.
   writeFileSync(p, STORY.replace("# T", "# T (edited in Obsidian)"), "utf8");
   const drifted = runBound("story-section.mjs", ["close", p, "--check", base]);
   assert.equal(drifted.check.match, false, "a real edit is drift");
-  assert.ok(drifted.check.drift.length > 0 && /edited in Obsidian/.test(drifted.check.drift.join("\n")),
-    "the drift report names the diverging line");
+  assert.ok(
+    drifted.check.drift.length > 0 && /edited in Obsidian/.test(drifted.check.drift.join("\n")),
+    "the drift report names the diverging line",
+  );
 
   // plan mode with a null started_at: the fresh stamp must not read as drift.
   const p2 = join(dir, "s2.md");
@@ -2413,9 +2851,11 @@ test("story-section --check: fresh stamps are not drift, hand edits are", async 
   assert.equal(planCheck.check.match, true, "started_at is volatile by the same mechanism");
 
   // A missing baseline is a caller error, not a computed fact — nonzero, loud.
-  const raw = spawnSync(process.execPath,
+  const raw = spawnSync(
+    process.execPath,
     [join(REPO, "scripts", "story-section.mjs"), "close", p, "--check", join(dir, "nope.md")],
-    { encoding: "utf8", env: BOUND_ENV, cwd: REPO, timeout: 15000 });
+    { encoding: "utf8", env: BOUND_ENV, cwd: REPO, timeout: 15000 },
+  );
   assert.notEqual(raw.status, 0);
   assert.ok(/baseline not found/.test(raw.stderr));
 
@@ -2433,16 +2873,25 @@ test("clerk divergence signals: each is machine-detectable from script output al
   // Signal 1: draft.mjs collision is non-null when the slug exists.
   mkdirSync(join(vault, "adr"), { recursive: true });
   writeFileSync(join(vault, "adr", "taken-slug.md"), "---\ntype: adr\ntitle: t\n---\n# t\n", "utf8");
-  const draft = JSON.parse(spawnSync(process.execPath,
-    [join(REPO, "scripts", "draft.mjs"), "adr", "Taken slug"],
-    { encoding: "utf8", cwd: proj, env: { ...process.env, CLAUDE_PROJECT_DIR: proj } }).stdout);
+  const draft = JSON.parse(
+    spawnSync(process.execPath, [join(REPO, "scripts", "draft.mjs"), "adr", "Taken slug"], {
+      encoding: "utf8",
+      cwd: proj,
+      env: { ...process.env, CLAUDE_PROJECT_DIR: proj },
+    }).stdout,
+  );
   assert.ok(draft.collision !== null, "collision is a readable field, not a prose warning");
 
   // Signal 2: doctor --vault lists the finding (exit stays 0 — findings are
   // facts, not failures; the clerk reads the report, not the exit code).
   writeFileSync(join(vault, "kanban.md"), "hand-edited\n", "utf8");
-  const doc = spawnSync(process.execPath, [join(REPO, "scripts", "doctor.mjs"), "--vault"],
-    { encoding: "utf8", cwd: proj, env: { ...process.env, CLAUDE_PROJECT_DIR: proj } });
-  assert.ok(/\[kanban\]/.test(doc.stdout),
-    "the bracketed check id appears — distinguishable from the repair footer, which names kanban on ANY finding");
+  const doc = spawnSync(process.execPath, [join(REPO, "scripts", "doctor.mjs"), "--vault"], {
+    encoding: "utf8",
+    cwd: proj,
+    env: { ...process.env, CLAUDE_PROJECT_DIR: proj },
+  });
+  assert.ok(
+    /\[kanban\]/.test(doc.stdout),
+    "the bracketed check id appears — distinguishable from the repair footer, which names kanban on ANY finding",
+  );
 });

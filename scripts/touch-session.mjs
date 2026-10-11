@@ -103,7 +103,11 @@ function anchorOffer(cfg, proj, sid, filePath, toolName, isSubagent, sessionsDir
 
   const rel = filePath.slice(cfg.vault_path.length + 1);
   let hit;
-  try { hit = anchorKeyOf(rel, layoutOnce(cfg)); } catch { return null; }
+  try {
+    hit = anchorKeyOf(rel, layoutOnce(cfg));
+  } catch {
+    return null;
+  }
   if (!hit) return null;
 
   // Both slots: the key tally is what settles an anchor, the leaf tally only
@@ -123,8 +127,7 @@ function anchorOffer(cfg, proj, sid, filePath, toolName, isSubagent, sessionsDir
   if (hit.leaf && leaves[hit.key] && leaves[hit.key][hit.leaf]) {
     leaves[hit.key] = { ...leaves[hit.key], [hit.leaf]: leaves[hit.key][hit.leaf] - 1 };
   }
-  const { state, offer } = foldAnchor(
-    { counts, leaves, incumbent: prev.incumbent, offered: prev.offered }, hit);
+  const { state, offer } = foldAnchor({ counts, leaves, incumbent: prev.incumbent, offered: prev.offered }, hit);
   if (!offer) return null;
 
   const rec = readAnchorOffer(proj, sid);
@@ -136,10 +139,10 @@ function anchorOffer(cfg, proj, sid, filePath, toolName, isSubagent, sessionsDir
   // classified as a deliberate choice and nothing was ever spoken again.
   // A name is the person's only if we have spoken at least once and it is none
   // of the names we composed.
-  const declined = current && rec.offers.length > 0 && !rec.offers.includes(current)
-    && !rec.declined.includes(current)
-    ? [...rec.declined, current]
-    : rec.declined;
+  const declined =
+    current && rec.offers.length > 0 && !rec.offers.includes(current) && !rec.declined.includes(current)
+      ? [...rec.declined, current]
+      : rec.declined;
 
   const chosen = sessionNameOffer(offer.name, {
     peers: liveSessionNames(sid, sessionsDir),
@@ -159,7 +162,10 @@ function anchorOffer(cfg, proj, sid, filePath, toolName, isSubagent, sessionsDir
   if (!chosen) return null;
   try {
     appendEntryLog(proj, {
-      at: new Date().toISOString(), session_id: sid, kind: "name-offer", name: chosen.name,
+      at: new Date().toISOString(),
+      session_id: sid,
+      kind: "name-offer",
+      name: chosen.name,
     });
   } catch {}
   return sessionNameOfferText(chosen);
@@ -174,8 +180,7 @@ function updatePointerAndNudge(cfg, proj, sid, filePath, toolName) {
     const epicId = m[1];
     patch = { active_epic: epicId };
     try {
-      const { data } = parseFrontmatter(
-        readFileSync(join(cfg.vault_path, "epics", epicId, "epic.md"), "utf8"));
+      const { data } = parseFrontmatter(readFileSync(join(cfg.vault_path, "epics", epicId, "epic.md"), "utf8"));
       if (data.title) patch.epic_title = String(data.title);
     } catch {}
     const sm = rel.match(/^epics\/[^/]+\/stories\/([^/]+\.md)$/);
@@ -194,8 +199,7 @@ function updatePointerAndNudge(cfg, proj, sid, filePath, toolName) {
     const st = readSessionState(proj, sid);
     const last = st && st.nudged_at ? Date.parse(st.nudged_at) : 0;
     if (Date.now() - last > NUDGE_INTERVAL_MS) {
-      nudge =
-        `projectstore: vault file edited directly — if this bypassed a ${commandForm("*")} command, run ${commandForm("reconcile")} (or doctor) afterwards so the board/indexes stay in sync.`;
+      nudge = `projectstore: vault file edited directly — if this bypassed a ${commandForm("*")} command, run ${commandForm("reconcile")} (or doctor) afterwards so the board/indexes stay in sync.`;
       patch = { ...(patch || {}), nudged_at: new Date().toISOString() };
     }
   }
@@ -259,12 +263,14 @@ async function entryBranch(cfg, proj, sid, filePath, input) {
 
   if (!electEmitter(proj, sid)) return;
   appendEntryLog(proj, { at: new Date().toISOString(), session_id: sid, score });
-  process.stdout.write(JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "PostToolUse",
-      additionalContext: entryReminderText(score),
-    },
-  }) + "\n");
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse",
+        additionalContext: entryReminderText(score),
+      },
+    }) + "\n",
+  );
 }
 
 async function main() {
@@ -312,23 +318,35 @@ async function main() {
   }
 
   const messages = [];
-  for (const filePath of filePaths) if (isInsideVault(filePath, cfg.vault_path)) {
-    try { appendActivity(cfg.vault_path, sid, filePath, input.tool_name); } catch {}
-    let nudge = null, offer = null;
-    try { nudge = updatePointerAndNudge(cfg, proj, sid, filePath, input.tool_name); } catch {}
-    if (cfg.guard !== "off") {
+  for (const filePath of filePaths)
+    if (isInsideVault(filePath, cfg.vault_path)) {
       try {
-        offer = anchorOffer(cfg, proj, sid, filePath, input.tool_name,
-          Boolean(input.agent_id || input.agent_type),
-          process.env.PROJECTSTORE_SESSIONS_DIR || null);
+        appendActivity(cfg.vault_path, sid, filePath, input.tool_name);
       } catch {}
+      let nudge = null,
+        offer = null;
+      try {
+        nudge = updatePointerAndNudge(cfg, proj, sid, filePath, input.tool_name);
+      } catch {}
+      if (cfg.guard !== "off") {
+        try {
+          offer = anchorOffer(
+            cfg,
+            proj,
+            sid,
+            filePath,
+            input.tool_name,
+            Boolean(input.agent_id || input.agent_type),
+            process.env.PROJECTSTORE_SESSIONS_DIR || null,
+          );
+        } catch {}
+      }
+      // One invocation carries one systemMessage, so the two compose rather than
+      // race: emitting twice would silently drop whichever went second, and the
+      // offer fires once or twice a session against a nudge that fires every ten
+      // minutes — the rare one would be the one lost.
+      messages.push(...[nudge, offer].filter(Boolean));
     }
-    // One invocation carries one systemMessage, so the two compose rather than
-    // race: emitting twice would silently drop whichever went second, and the
-    // offer fires once or twice a session against a nudge that fires every ten
-    // minutes — the rare one would be the one lost.
-    messages.push(...[nudge, offer].filter(Boolean));
-  }
   if (messages.length) {
     process.stdout.write(JSON.stringify({ systemMessage: [...new Set(messages)].join("\n") }) + "\n");
   }

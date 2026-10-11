@@ -64,9 +64,10 @@ function welcomedMarkerWritePath(proj) {
 // the one instruction it carries branches on the binding; everything else is
 // the same message.
 function buildWelcome(cfg = null) {
-  const start = cfg && cfg.vault_path
-    ? `**Already bound**: this project's vault is \`${truncFront(String(cfg.vault_path), PATH_CELL)}\`. Ask for what you want — the agent picks up commands like \`${commandForm("adr")}\` and \`${commandForm("epic")}\` from the conversation, and you approve every write. If the vault has no folders yet, \`${commandForm("scaffold")}\` lays them out.`
-    : `**To start using it**: run \`${commandForm("bind", { args: "<vault-path>" })}\` and point it at an Obsidian vault (or any folder). After that, the agent will pick up commands like \`${commandForm("adr")}\` and \`${commandForm("epic")}\` from the conversation; you only approve the writes.`;
+  const start =
+    cfg && cfg.vault_path
+      ? `**Already bound**: this project's vault is \`${truncFront(String(cfg.vault_path), PATH_CELL)}\`. Ask for what you want — the agent picks up commands like \`${commandForm("adr")}\` and \`${commandForm("epic")}\` from the conversation, and you approve every write. If the vault has no folders yet, \`${commandForm("scaffold")}\` lays them out.`
+      : `**To start using it**: run \`${commandForm("bind", { args: "<vault-path>" })}\` and point it at an Obsidian vault (or any folder). After that, the agent will pick up commands like \`${commandForm("adr")}\` and \`${commandForm("epic")}\` from the conversation; you only approve the writes.`;
   return [
     "# 👋 projectstore is loaded for the first time in this project",
     "",
@@ -178,15 +179,17 @@ async function main() {
   // an unbound one that is not a worktree pays a single ~10 ms probe.
   let binding = null;
   if (!cfg) {
-    try { binding = resolveBinding(proj); } catch {}
+    try {
+      binding = resolveBinding(proj);
+    } catch {}
   }
   const welcome = showWelcomeOnce(proj, cfg);
   // The person's channel carries one instruction, and it has to be the right
   // one: a bound project is told what it is bound to, not to bind again.
   const welcomeSystemMessage = welcome
-    ? (cfg && cfg.vault_path
+    ? cfg && cfg.vault_path
       ? `👋 projectstore: first-run welcome shown. Bound to ${cfg.vault_path}. ${updateHint().line}`
-      : `👋 projectstore: first-run welcome shown. Start with ${commandForm("bind", { args: "<vault-path>" })}. ${updateHint().line}`)
+      : `👋 projectstore: first-run welcome shown. Start with ${commandForm("bind", { args: "<vault-path>" })}. ${updateHint().line}`
     : null;
 
   if (!cfg) {
@@ -213,10 +216,14 @@ async function main() {
   // Opt-in status line: keep settings.local.json pointed at this plugin
   // version's statusline.mjs (self-heals on update). Best-effort; a settings
   // write must never break session-context injection.
-  try { syncStatusLine(cfg, proj); } catch {}
+  try {
+    syncStatusLine(cfg, proj);
+  } catch {}
   // Statusline-feature housekeeping, like syncStatusLine — must run even when
   // auto_inject=false (touch-session writes pointers regardless of it).
-  try { cleanupStaleSessionState(proj); } catch {}
+  try {
+    cleanupStaleSessionState(proj);
+  } catch {}
 
   // Arm BEFORE the auto_inject gate. The entry reminder's markers must be
   // re-armed after a compaction whether or not this session injects context —
@@ -231,7 +238,9 @@ async function main() {
   // context while its marker persists on disk. Arming lets it fire once more;
   // the cap of two is enforced by the election, not here.
   if (sid && (input?.source === "compact" || input?.source === "clear")) {
-    try { armReminder(proj, sid); } catch {}
+    try {
+      armReminder(proj, sid);
+    } catch {}
   }
 
   if (cfg.auto_inject === false) {
@@ -287,8 +296,7 @@ async function main() {
     // e.g. the re-stamp after a plugin update — not issues, not silent.
     offers = (r.offers || []).map((m) => `projectstore: ${m}`);
   } catch {}
-  const systemMessage =
-    [welcomeSystemMessage, doctorMsg, ...offers].filter(Boolean).join(" · ") || null;
+  const systemMessage = [welcomeSystemMessage, doctorMsg, ...offers].filter(Boolean).join(" · ") || null;
 
   if (gatherError) {
     emit(

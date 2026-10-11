@@ -143,9 +143,7 @@ function write() {
     writeFileSync(resolve(dir, "package.json"), JSON.stringify(manifest(r), null, 2) + "\n");
     writeFileSync(resolve(dir, "README.md"), readme(r));
   }
-  process.stdout.write(
-    JSON.stringify({ ok: true, wrote: RESERVED.length, names: RESERVED.map((r) => r.name) }) + "\n",
-  );
+  process.stdout.write(JSON.stringify({ ok: true, wrote: RESERVED.length, names: RESERVED.map((r) => r.name) }) + "\n");
 }
 
 function list() {
