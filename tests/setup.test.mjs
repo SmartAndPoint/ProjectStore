@@ -27,7 +27,7 @@ import { runSetup, ownProjectNames, decideProject, listedHarnesses, harnessRows,
 import { run, VERBS } from "../scripts/cli.mjs";
 import { runVerb, plan, publicItem, gateText } from "../scripts/install-harness.mjs";
 import { checkLayout } from "../scripts/doctor.mjs";
-import { planBind, applyBind } from "../scripts/binding.mjs";
+import { planBind, applyBind, shellQuote } from "../scripts/binding.mjs";
 import { planScaffold } from "../scripts/scaffold.mjs";
 import { sourceHarness, loadHarness, loadHarnesses, invocation, LAYOUT, RUNTIME_GITIGNORE_HEADER, hostPresence } from "../scripts/harness.mjs";
 import { layoutPaths, whichOnPath } from "../scripts/lib.mjs";
@@ -389,6 +389,13 @@ test("setup 'Without a terminal': a bare setup prints the pre-tick set's plan, r
     "",
   ].join("\n")), text);
   assert.deepEqual(npm.calls, [], "a bare run that will refuse fetches nothing");
+  assert.deepEqual(machine(sb), was);
+  // What named the run's vault, layout and language is repeated after each
+  // --harness, so the command printed is the run just seen, confirmed.
+  const named = await setup(sb, { values: { vault: sb.vault, layout: "engineering", language: "en" } });
+  assert.equal(named.r.result.gate.why, "non-tty", named.text);
+  const tail = `--vault ${shellQuote(sb.vault)} --layout engineering --language en`;
+  assert.ok(named.text.endsWith(["", `    npx projectstore setup --harness ${SRC.id} ${tail}`, `    npx projectstore setup --harness ${CODEX.id} ${tail}`, ""].join("\n")), named.text);
   assert.deepEqual(machine(sb), was);
   // From a checkout those commands name no version; from a package root they
   // name the running one, as the channel gate's do (pinFor).
@@ -864,6 +871,7 @@ test("setup 'The vault: other cases' bound, and without a terminal: a bound proj
   const elsewhereCwd = tmp("ps-setup-cwd-");
   const gr = await setup(g, { cwd: elsewhereCwd, values: { project: g.proj, harness: [SRC.id], vault: "../v", "dry-run": true } });
   assert.equal(gr.r.result.items[0].path, join(g.home, "src", "v"));
+  assert.equal(gr.r.result.setup.vault.vault_path, join(g.home, "src", "v"), "the envelope's vault_path is absolute, never the form typed");
   // No --vault: unbound, and DONE says how to bind.
   const n = sandbox({ codex: false });
   const nr = await setup(n, { values: { harness: [SRC.id] } });
