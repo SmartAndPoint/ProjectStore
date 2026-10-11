@@ -33,6 +33,7 @@ import {
   invocation,
   speakingHarness,
   packageCommand,
+  whichOnPath,
 } from "./harness.mjs";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
@@ -131,7 +132,9 @@ export function doctorFallbackText(findings, { env = process.env } = {}) {
 // import one module (the layout ADR, 2026-09-06). The active harness's id,
 // for the paths keyed by it (state/<id>/…). cachePaths is the user-level
 // class beside it (layout spec contract 0): the shell fetch's scratch.
-export { layoutPaths, cachePaths, pickExisting, LAYOUT, RUNTIME_GITIGNORE_HEADER, hostSettingsPath, overlayId, speakingHarness };
+// whichOnPath, the PATH walk for a host binary, moved to harness.mjs beside
+// hostPresence (the setup story, rule 5); its importers keep this name.
+export { layoutPaths, cachePaths, pickExisting, LAYOUT, RUNTIME_GITIGNORE_HEADER, hostSettingsPath, overlayId, speakingHarness, whichOnPath };
 
 // A hook's payload carries the `cwd` of the session that fired it, and on a
 // harness that exports no project-dir variable it is the only answer better
@@ -599,20 +602,6 @@ export function channelMark(cfg) {
 export function envFlag(env, name) {
   const v = env ? env[name] : undefined;
   return v !== undefined && v !== null && v !== "" && !["0", "false"].includes(String(v).toLowerCase());
-}
-
-// A pure PATH walk for a host binary — a read, not a subprocess: the analysers
-// run on every doctor call. Returns the absolute path or null.
-export function whichOnPath(name, env = process.env) {
-  const sep = process.platform === "win32" ? ";" : ":";
-  const exts = process.platform === "win32" ? ["", ".cmd", ".exe", ".bat"] : [""];
-  for (const dir of String(env.PATH || "").split(sep).filter(Boolean)) {
-    for (const ext of exts) {
-      const p = join(dir, name + ext);
-      try { const st = statSync(p); if (st.isFile() && (process.platform === "win32" || (st.mode & 0o111))) return p; } catch {}
-    }
-  }
-  return null;
 }
 
 // The files a package ships, as the release gate defines them — package.json

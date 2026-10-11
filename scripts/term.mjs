@@ -28,8 +28,12 @@
 //   liveLine(stream, caps, label) → { end(ok, doneLabel, note), abort() }
 //   askLine(question, in, out)   → the answer, or null on end of input
 //   askApply(n, opts)            → contract 9's question; true applies
+//   railAvailable(stdin, caps)   → true when the question rail may be drawn
+//   openRail(opts)               → { select, multi, confirm, path, answered, close, cancelled }
+//   CANCELLED, BACK              → what a rail question resolves to on Ctrl+C or end of input, and on Esc
 
 import { createInterface } from "node:readline/promises";
+import { emitKeypressEvents } from "node:readline";
 
 // FORCE_COLOR decides when it is set, as Node's own tty reads it: "", "1",
 // "2", "3" or "true" turn colour on even without a terminal, anything else
@@ -128,6 +132,9 @@ export const GLYPH_ALIASES = Object.freeze({
   // doctor's info finding: not a warning, so not ▲ — the two would differ by
   // colour alone (decided 2026-10-11 with doctor's report).
   info: "dot",
+  // The question rail's checklist cursor: the row it is on is marked by a
+  // glyph, not by colour alone (contract 3).
+  pointer: "transition",
 });
 
 // The spinner (presentation spec contract 4): braille frames, one every 80 ms.
@@ -447,4 +454,386 @@ export async function askApply(n, { stdin = null, stdout = null, ask = null, cap
   const answer = ask ? await ask(question) : await askLine(question, stdin, stdout);
   if (answer === null || answer === undefined) return false;
   return /^(y(es)?)?$/i.test(String(answer).trim());
+}
+
+// ─── The question rail (presentation spec contract 9; built by the story
+// "projectstore setup asks, shows one plan and installs every harness it
+// finds, with the vault", its rule 2) ──────────────────────────────────────
+//
+// A run that asks more than one question draws them down one left margin:
+// `┌` and the badge at the top, `◆` on the question being asked, `◇` and its
+// answer on one line once it is answered, `└` at the end. Four kinds —
+// select (one of n), multi (a checklist), confirm and path — each with its
+// default, which Enter takes. The confirm that follows the rail is not one of
+// them: it stays askApply's line-mode question, so every verb has one consent
+// gate (contract 8).
+//
+// Keys come in raw mode, through node:readline's keypress decoder: ↑/↓ move,
+// space toggles a checklist row, Enter confirms; Esc — reported after
+// readline's escape timeout, since a bare Esc begins every arrow sequence —
+// goes back from a path question; Ctrl+C, a byte in raw mode rather than a
+// signal, and end of input cancel. Every other key is ignored.
+
+// What a question resolves to when it is cancelled (Ctrl+C, or stdin ended)
+// and when Esc leaves a path question. Once cancelled, a rail stays so: each
+// later question resolves to CANCELLED at once and draws nothing.
+export const CANCELLED = Symbol("projectstore.rail.cancelled");
+export const BACK = Symbol("projectstore.rail.back");
+
+const HIDE_CURSOR = "\x1b[?25l";
+const SHOW_CURSOR = "\x1b[?25h";
+// readline's own default: how long a lone Esc waits for the rest of a sequence.
+const ESCAPE_MS = 500;
+// End of input, as the key queue carries it, behind the keys typed before it.
+const EOF = Object.freeze({ name: "end of input" });
+
+// Whether a rail may be drawn: stdin is a terminal that can be put in raw
+// mode, and the caps (stdout's) are a live terminal — not a pipe, not
+// TERM=dumb. Without a rail the caller runs as without a terminal: no
+// question is asked (the setup story's rule 2 amends contract 9 so). Whether
+// the run is interactive at all — CI, --json, a host session — is the
+// caller's question (install-harness.mjs's isInteractive), asked before this.
+export function railAvailable(stdin, c) {
+  return Boolean(stdin && stdin.isTTY && typeof stdin.setRawMode === "function" && c && c.live);
+}
+
+// A choice as the rail draws and answers it: a string is its own value.
+const choiceOf = (x) => (typeof x === "object" && x !== null
+  ? { value: x.value ?? x.label, label: String(x.label ?? x.value), reason: x.reason ? String(x.reason) : "", answer: String(x.answer ?? x.label ?? x.value), on: Boolean(x.on) }
+  : { value: x, label: String(x), reason: "", answer: String(x), on: false });
+
+const isEnter = (k) => k.name === "return" || k.name === "enter";
+const printable = (k) => typeof k.str === "string" && k.str !== "" && !k.ctrl && !k.meta && !/[\x00-\x1f\x7f]/.test(k.str);
+
+// Open a rail on a terminal: draws its top line and holds the terminal for its
+// questions until close(). Everything the run prints while the rail is open
+// goes through it, since a redraw counts the rows it drew.
+//
+//   rail.select(title, choices, { default, note })         → the chosen value
+//   rail.multi(title, choices, { note, min = 1 })           → the ticked values, in order
+//   rail.confirm(title, { default = true, yes, no, yesReason, noReason, note }) → true or false
+//   rail.path(title, { default, check, note, back = true }) → the path typed, or the default
+//   rail.answered(title, text)                              → draws a question a flag answered
+//   rail.close(note)                                        → `└`, then the terminal is the caller's
+//
+// A choice is a string, or { value, label, reason, answer, on }: `reason` is
+// shown beside the label (beneath it when the row would pass the width),
+// `answer` is the answered line's text (the label by default), `on` pre-ticks
+// a checklist row. `default` is the value Enter takes. A path's `check(value)`
+// returns a reason to refuse it — shown under the question, which stays open —
+// or nothing to accept it. Each question also resolves to CANCELLED; a path
+// resolves to BACK on Esc, and then its own lines and the answered line
+// before it are erased, so the caller asks that question again where it was.
+//
+// One keypress queue per rail: keys typed ahead of a question — in the same
+// chunk as the Enter that answered the one before, or while the run worked
+// between two — wait for it. Raw mode is on only while a question is asked:
+// each question turns it off and shows the cursor in a `finally`, so a throw
+// restores the terminal as an answer does, and stdin is paused between
+// questions, so an open rail never holds the process. A one-time `exit`
+// handler and a SIGTERM / SIGHUP / SIGINT handler restore it too; the signal handler
+// then removes the rail's handlers and raises the signal again, so the
+// process ends as the signal would have ended it. `proc` is the process those
+// handlers are added to, a test's emitter in tests. Never process.exit: a
+// cancel is an answer, and the caller returns 130 (contract 9).
+export function openRail({ stdin = process.stdin, stdout = process.stdout, caps: c = caps(stdout), proc = process, head = "projectstore", parts = [], escapeMs = ESCAPE_MS } = {}) {
+  if (!railAvailable(stdin, c)) throw new Error("no question rail: stdin must be a terminal with setRawMode and stdout a live one (railAvailable)");
+  const paint = painter(c);
+  const bar = paint("explanation", icon(c, "rail"));
+  const sep = ` ${icon(c, "dot")} `;
+  const write = (s) => stdout.write(s);
+  // The terminal's width now, for the layout and for counting the rows a line
+  // fills: a line wider than the terminal fills more than one, and a redraw
+  // that miscounted them would leave half a frame behind.
+  const columns = () => (Number(stdout.columns) > 0 ? Number(stdout.columns) : c.columns || 100);
+  const room = () => Math.max(20, Math.min(columns(), 100) - 1);
+  const rowsOf = (lines) => { const w = columns(); return lines.reduce((n, l) => n + Math.max(1, Math.ceil([...plain(l)].length / w)), 0); };
+
+  // ── The keys ──
+  const queue = [];
+  let waiter = null;
+  const wake = () => { if (waiter) { const w = waiter; waiter = null; w(); } };
+  const onKey = (str, key) => { queue.push({ ...(key || {}), str }); wake(); };
+  const onEnd = () => { queue.push(EOF); wake(); };
+  const next = () => (queue.length ? Promise.resolve(queue.shift()) : new Promise((settle) => { waiter = () => settle(queue.shift()); }));
+  emitKeypressEvents(stdin, { escapeCodeTimeout: escapeMs });
+  stdin.on("keypress", onKey);
+  stdin.on("end", onEnd);
+  stdin.on("error", onEnd);
+  if (stdin.readableEnded) queue.push(EOF);
+  // Listening resumed the stream; it reads only while a question is asked.
+  stdin.pause();
+
+  // ── The restore, on every path ──
+  // `live`: the question being asked, or null between questions.
+  let closed = false, cancelled = false, live = null;
+  const restore = () => {
+    try { stdin.setRawMode(false); } catch {}
+    try { write(SHOW_CURSOR); } catch {}
+  };
+  const onExit = () => restore();
+  const onSignal = {};
+  const release = () => {
+    proc.removeListener("exit", onExit);
+    for (const [sig, f] of Object.entries(onSignal)) proc.removeListener(sig, f);
+  };
+  // SIGINT too: Ctrl+C typed during a question is a byte, but `kill -INT`
+  // from outside is a signal, and its default would leave the cursor hidden.
+  for (const sig of ["SIGTERM", "SIGHUP", "SIGINT"]) {
+    onSignal[sig] = () => {
+      restore();
+      if (live) try { write("\n"); } catch {}
+      release();
+      try { proc.kill(proc.pid, sig); } catch {}
+    };
+  }
+  proc.once("exit", onExit);
+  for (const [sig, f] of Object.entries(onSignal)) proc.on(sig, f);
+
+  // ── Drawing ──
+  // `shown`: the rows of the question on screen, written with no newline
+  // after it, so the cursor is on its last row. `last`: the rows of the line
+  // answered before it, which a path's Esc takes back.
+  let shown = 0, last = 0;
+  const erase = () => {
+    if (!shown) return;
+    write(`\r${shown > 1 ? `\x1b[${shown - 1}A` : ""}\x1b[J`);
+    shown = 0;
+  };
+  const frame = (lines) => { erase(); write(lines.join("\n")); shown = rowsOf(lines); };
+  const item = (lines) => { erase(); write(`${lines.join("\n")}\n`); last = rowsOf(lines); };
+
+  const titled = (title) => wrap(String(title), room() - 2).split("\n").map((t, k) => `${k ? bar : paint("action", icon(c, "ask"))} ${paint("emphasis", t)}`);
+  const prose = (text, role = "explanation") => wrap(String(text), room() - 2).split("\n").map((t) => `${bar} ${paint(role, t)}`);
+  const warning = (text) => prose(`${icon(c, "warning")} ${text}`, "attention");
+  // The key hint: one line, broken only between its keys on a terminal too
+  // narrow for it, each separator ending the line it closes.
+  const hint = (keys) => {
+    const parts = keys.filter(Boolean).map((k, i, all) => (i < all.length - 1 ? `${k}${sep.trimEnd()}` : k));
+    const lines = [];
+    for (const p of parts) {
+      if (lines.length && plain(`${lines.at(-1)} ${p}`).length <= room() - 2) lines[lines.length - 1] += ` ${p}`;
+      else lines.push(p);
+    }
+    return lines.map((t) => `${bar} ${paint("explanation", t)}`);
+  };
+  const answeredLine = (title, text, glyph = "answered", role = "done", answerRole = "explanation") =>
+    [bar, `${paint(role, icon(c, glyph))} ${title}${text ? `  ${paint(answerRole, text)}` : ""}`];
+  // Choice rows: the marks (one plain width), the label, and the reason in a
+  // column after the widest label that keeps its reason beside it. A row that
+  // would pass the width puts its reason beneath the label, wrapped, and is
+  // then left out of the column — so one wide label does not push every
+  // other reason down. A label is never cut.
+  const choiceLines = (marks, list) => {
+    const lead = (i) => `${bar} ${marks[i]} `;
+    const widest = (xs) => Math.max(0, ...xs.map((x) => plain(x.label).length));
+    const fits = (x, i, w) => plain(lead(i)).length + w + 2 + plain(x.reason).length <= room();
+    let beside = list.map((x, i) => Boolean(x.reason) && fits(x, i, plain(x.label).length));
+    for (;;) {
+      const w = widest(list.filter((_, i) => beside[i]));
+      const still = beside.map((b, i) => b && fits(list[i], i, w));
+      if (still.every((b, i) => b === beside[i])) break;
+      beside = still;
+    }
+    const lw = widest(list.filter((_, i) => beside[i]));
+    const out = [];
+    list.forEach((x, i) => {
+      if (beside[i]) { out.push(`${lead(i)}${x.label}${" ".repeat(lw - plain(x.label).length)}  ${paint("explanation", x.reason)}`); return; }
+      out.push(lead(i) + x.label);
+      if (!x.reason) return;
+      const col = plain(lead(i)).length;
+      for (const t of wrap(x.reason, room() - col).split("\n")) out.push(`${bar} ${" ".repeat(col - 2)}${paint("explanation", t)}`);
+    });
+    return out;
+  };
+
+  // One question: raw mode and a hidden cursor while it is asked (a path
+  // shows the cursor, at the end of what is typed), its frame redrawn on each
+  // key that changes it, collapsed to one answered line when it is answered.
+  async function ask(q) {
+    if (closed) throw new Error("the question rail is closed");
+    if (live) throw new Error("the question rail is already asking");
+    if (cancelled) return CANCELLED;
+    live = q;
+    let settled = false;
+    const draw = () => frame(q.draw());
+    try {
+      stdin.setRawMode(true);
+      if (!q.cursor) write(HIDE_CURSOR);
+      stdin.resume();
+      draw();
+      for (;;) {
+        const k = await next();
+        // close() cancelled this question while it waited: it drew the line.
+        if (closed) { settled = true; return CANCELLED; }
+        if (k === EOF || (k.ctrl && k.name === "c")) {
+          cancelled = true;
+          item(answeredLine(q.title, "cancelled", "warning", "attention", "attention"));
+          settled = true;
+          return CANCELLED;
+        }
+        const r = await q.key(k);
+        if (closed) { settled = true; return CANCELLED; }
+        if (r === "redraw") { draw(); continue; }
+        if (!r) continue;
+        if (r.back) {
+          erase();
+          if (last) { write(`\x1b[${last}A\x1b[J`); last = 0; }
+          settled = true;
+          return BACK;
+        }
+        item(answeredLine(q.title, r.answer));
+        settled = true;
+        return r.value;
+      }
+    } finally {
+      live = null;
+      // A throw left the frame drawn: end its line, so what follows starts on its own.
+      if (!settled && shown) { try { write("\n"); } catch {} shown = 0; }
+      restore();
+      try { stdin.pause(); } catch {}
+    }
+  }
+
+  const choose = (title, list, at, note, keys) => {
+    if (!list.length) throw new TypeError(`${title}: no choices`);
+    return ask({
+      title,
+      draw: () => [bar, ...titled(title), ...(note ? prose(note) : []),
+        ...choiceLines(list.map((_, i) => (i === at ? paint("action", icon(c, "choiceOn")) : paint("explanation", icon(c, "choiceOff")))), list),
+        ...hint(keys)],
+      key: (k) => {
+        if (k.name === "up") { at = (at + list.length - 1) % list.length; return "redraw"; }
+        if (k.name === "down") { at = (at + 1) % list.length; return "redraw"; }
+        if (isEnter(k)) return { value: list[at].value, answer: list[at].answer };
+        return null;
+      },
+    });
+  };
+  const defaultAt = (list, value) => Math.max(0, list.findIndex((x) => Object.is(x.value, value)));
+
+  // The top: `┌` and the badge — `┌ projectstore setup` — in place of the
+  // badge line a screen without a rail starts with.
+  write(`${paint("explanation", icon(c, "railTop"))} ${badge(c, head, parts)}\n`);
+
+  return {
+    get cancelled() { return cancelled; },
+
+    select(title, choices, { default: value, note = "" } = {}) {
+      const list = choices.map(choiceOf);
+      return choose(title, list, defaultAt(list, value), note, ["up/down move", "enter choose", "ctrl+c cancel"]);
+    },
+
+    // The row under the cursor carries the transition mark, so the cursor is
+    // seen without colour (contract 3); a ticked row's box is ◼, an empty one ◻.
+    multi(title, choices, { note = "", min = 1 } = {}) {
+      const list = choices.map(choiceOf);
+      if (!list.length) throw new TypeError(`${title}: no choices`);
+      // More than the list holds could never be ticked: the question would never close.
+      const need = Math.min(Math.max(0, Number(min) || 0), list.length);
+      const on = list.map((x) => x.on);
+      const pointer = icon(c, "pointer");
+      let at = 0, refused = "";
+      return ask({
+        title,
+        draw: () => [bar, ...titled(title), ...(note ? prose(note) : []),
+          ...choiceLines(list.map((_, i) => `${i === at ? paint("action", pointer) : " ".repeat(pointer.length)} ${paint(on[i] ? "action" : "explanation", icon(c, on[i] ? "checkOn" : "checkOff"))}`), list),
+          ...(refused ? warning(refused) : []),
+          ...hint(["up/down move", "space toggle", "enter confirm", "ctrl+c cancel"])],
+        key: (k) => {
+          if (k.name === "up") { at = (at + list.length - 1) % list.length; return "redraw"; }
+          if (k.name === "down") { at = (at + 1) % list.length; return "redraw"; }
+          if (k.name === "space") { on[at] = !on[at]; refused = ""; return "redraw"; }
+          if (!isEnter(k)) return null;
+          const picked = list.filter((_, i) => on[i]);
+          if (picked.length < need) { refused = need === 1 ? "tick at least one with space" : `tick at least ${need} with space`; return "redraw"; }
+          return { value: picked.map((x) => x.value), answer: picked.length ? picked.map((x) => x.answer).join(", ") : "none" };
+        },
+      });
+    },
+
+    confirm(title, { default: yes = true, yes: yesLabel = "Yes", no: noLabel = "No", yesReason = "", noReason = "", note = "" } = {}) {
+      const list = [choiceOf({ value: true, label: yesLabel, reason: yesReason }), choiceOf({ value: false, label: noLabel, reason: noReason })];
+      return choose(title, list, yes ? 0 : 1, note, ["up/down move", "enter choose", "ctrl+c cancel"]);
+    },
+
+    // What is typed is drawn on the last line, the cursor after it. The
+    // default has a line of its own, in words — a placeholder told from typed
+    // text by its colour alone would not be told apart under NO_COLOR — and
+    // Enter with nothing typed takes it. Backspace takes back a character;
+    // Esc goes back.
+    path(title, { default: fallback = "", check = null, note = "", back = true } = {}) {
+      let value = "", refused = "";
+      return ask({
+        title,
+        cursor: true,
+        draw: () => [bar, ...titled(title), ...(note ? prose(note) : []), ...(refused ? warning(refused) : []),
+          ...(fallback ? prose(`default ${fallback}`) : []),
+          ...hint(["enter confirm", back ? "esc back" : null, "ctrl+c cancel"]),
+          `${bar} ${value}`],
+        key: async (k) => {
+          if (k.name === "escape") return back ? { back: true } : null;
+          if (isEnter(k)) {
+            const chosen = value.trim() || String(fallback);
+            if (!chosen) { refused = "type a path"; return "redraw"; }
+            const why = check ? await check(chosen) : null;
+            if (why) { refused = String(why); return "redraw"; }
+            return { value: chosen, answer: chosen };
+          }
+          if (k.name === "backspace") {
+            if (!value) return null;
+            value = [...value].slice(0, -1).join("");
+            refused = "";
+            return "redraw";
+          }
+          if (!printable(k)) return null;
+          value += k.str;
+          refused = "";
+          return "redraw";
+        },
+      });
+    },
+
+    // A question a flag answered, or one the run shows rather than asks: drawn
+    // as an answered one, so the rail always shows the whole set of answers.
+    // After a cancel it draws nothing: the run is stopping, and an answer
+    // drawn under the cancelled question would read as one given.
+    answered(title, text) {
+      if (closed) throw new Error("the question rail is closed");
+      if (cancelled) return;
+      item(answeredLine(title, text));
+    },
+
+    // `└` (and a closing note beside it), then the terminal is the caller's
+    // again: stdin paused and its listeners gone, so the line-mode confirm
+    // (askApply → askLine) reads the next line. Keys the decoder already took
+    // and no question asked for are dropped with the queue. Keys typed after
+    // this, while stdin is paused and the terminal back in line mode, wait in
+    // the terminal's own buffer and reach the next askLine: draining them
+    // before the confirm is the caller's.
+    //
+    // Closed while a question is still asked, it cancels that question
+    // first: its cancelled line drawn and the terminal restored here, then
+    // the question woken, so it resolves to CANCELLED and its `finally` runs.
+    close(note = "") {
+      if (closed) return;
+      closed = true;
+      if (live) {
+        cancelled = true;
+        item(answeredLine(live.title, "cancelled", "warning", "attention", "attention"));
+        restore();
+      }
+      erase();
+      write(`${paint("explanation", icon(c, "railEnd"))}${note ? ` ${note}` : ""}\n`);
+      stdin.removeListener("keypress", onKey);
+      stdin.removeListener("end", onEnd);
+      stdin.removeListener("error", onEnd);
+      queue.length = 0;
+      const woken = waiter;
+      waiter = null;
+      try { stdin.pause(); } catch {}
+      release();
+      if (woken) woken();
+    },
+  };
 }

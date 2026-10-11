@@ -86,7 +86,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { caps as termCaps, painter, icon as termIcon, duration, stepReporter, liveLine, wrap, askApply, plain, badge as badgeText, heading, rowLines, kv, commandBlock, PLAIN } from "./term.mjs";
-import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand, insideHostSession, bundlingShellHarnessId, cachePaths, commonBlockFiles, agentsBlockRow, configPath, childEnv } from "./harness.mjs";
+import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand, insideHostSession, registrationDeferred, bundlingShellHarnessId, cachePaths, commonBlockFiles, agentsBlockRow, configPath, childEnv } from "./harness.mjs";
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
 import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, analyseHarnessState, isOurFile, readText, registrationRenderRoot, registrationPaths } from "./surfaces.mjs";
 import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
@@ -433,9 +433,11 @@ function planPortableRegistration(ctx, key, s) {
   // Rule 8: the core a shell bundles — the doctor skill's copy in the host's
   // plugin cache, an npx copy or a global install of the shell, recognised by
   // the shell's package name and never by a path — keeps today's deferral. A
-  // fetch there would change the host's home from inside a session nothing
-  // marks (the front-door ADR's first open question), and needs the network
-  // inside its sandbox. Only this harness's own shell counts.
+  // fetch there would change the host's home from inside a session (the
+  // front-door ADR's first open question; such a session is marked only by
+  // registration_defer_env, which defers the registration below, and only
+  // when the host's exec tool sets it), and needs the network inside its
+  // sandbox. Only this harness's own shell counts.
   if (!a.payloadRoot && bundlingShellHarnessId({ core: root }) === harness.id) {
     return [{ ...base, action: "skip", deferred: true, reason: "this run is from the plugin's own copy, which does not fetch" }];
   }
@@ -444,6 +446,11 @@ function planPortableRegistration(ctx, key, s) {
   if (mode === "uninstall") {
     if (a.state === "absent") return [{ ...base, action: "skip", reason: "no global registration of ours" }];
     if (!a.bin) { ctx.incomplete = true; return [{ ...base, action: "skip", reason: `\`${s.cli.bin}\` is not on PATH; global registration is left untouched` }]; }
+    // The removal runs the same host CLI against the same home as an install,
+    // so it defers where an install would (the setup story, rule 15), with
+    // the host's checks above decided first, as the host plugin
+    // registration's removal decides them.
+    if (registrationDeferred(env, harness)) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: deferralReason(harness, env) }]; }
     const steps = [];
     if (a.installed) steps.push(hostStep(a, s, "uninstall", fill, `explicit global removal forgets ${a.id}`));
     if (a.market && s.cli.commands.marketplace_remove) steps.push(hostStep(a, s, "marketplace_remove", fill, `explicit global removal forgets marketplace ${s.marketplace_name}`));
@@ -467,9 +474,10 @@ function planPortableRegistration(ctx, key, s) {
   }
   if (!a.bin) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `\`${s.cli.bin}\` is not on PATH; no registration mutation was attempted` }]; }
   // Decision 2 of the front-door ADR: the registration defers in the planned
-  // harness's own session, as the host-plugin registration does. Dormant while
-  // the manifest declares no session marker (Codex's is empty by design).
-  if (insideHostSession(env, harness)) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `${a.reason ? a.reason + "; " : ""}${inSessionReason(harness)}` }]; }
+  // harness's own session, as the host-plugin registration does — by its
+  // session marker, or by its runtime.registration_defer_env (Codex's
+  // session_env is empty by design; the setup story, rule 15).
+  if (registrationDeferred(env, harness)) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `${a.reason ? a.reason + "; " : ""}${deferralReason(harness, env)}` }]; }
   const steps = [];
   const digest = a.desiredDigest;
   const mustWrite = !a.ownership || a.ownership.version !== a.desiredVersion || a.contentDiffers || a.state === "stale";
@@ -520,6 +528,17 @@ export function registrationManifest(s, { pkg, projectDir, disabled = [], digest
 // only from a terminal outside one (insideHostSession, harness.mjs).
 const inSessionReason = (harness) => `this runs inside a ${harness.display_name} session, whose exit rewrites the same settings files the host's CLI writes — run it from a terminal outside the session`;
 
+// Why a registration defers (registrationDeferred, harness.mjs). The session's
+// own marker keeps the measured reason above, byte for byte. A
+// registration_defer_env variable alone names itself instead: what such a
+// session does to the host's configuration is not measured, only that the
+// session is there (the setup story, rule 15).
+function deferralReason(harness, env) {
+  if (insideHostSession(env, harness)) return inSessionReason(harness);
+  const variable = (harness?.runtime?.registration_defer_env || []).find((k) => env && env[k]);
+  return `this runs inside a ${harness.display_name} session (${variable} is set), and the host's CLI would change the configuration that session runs on — run it from a terminal outside the session`;
+}
+
 function planRegistration(ctx, key, s) {
   const { projectDir, mode, root, home, env, harness } = ctx;
   const a = analyseRegistration(projectDir, s, { root, home, harness, env });
@@ -530,14 +549,17 @@ function planRegistration(ctx, key, s) {
   const fill = { dir: a.paths.dir, marketplace: s.marketplace_name, id, other: id };
   const notOnPath = `\`${binName}\` is not on PATH — the registration is left as it is; put the host's CLI on PATH and run install again`;
   const named = (ctx.surfaces || []).includes(key);
-  const inSession = inSessionReason(harness);
+  // The registration defers by the planned harness's session marker or its
+  // registration_defer_env (registrationDeferred; the setup story, rule 15).
+  const deferred = registrationDeferred(env, harness);
+  const inSession = deferred ? deferralReason(harness, env) : null;
   const other = (o) => ({ surface: `${key}_others`, kind: "registration", path: a.paths.projectSettings, entry: o.key, state: "enabled", home: base.home, scope: base.scope });
 
   if (mode === "uninstall") {
     if (a.state === "unavailable" || a.state === "absent") return [{ ...base, action: "skip", reason: a.state === "absent" ? a.reason : a.reason }];
     if (a.state === "foreign") return [{ ...base, action: "refuse", reason: a.refusal }];
     if (!bin) { ctx.incomplete = true; return [{ ...base, action: "skip", reason: notOnPath }]; }
-    if (insideHostSession(env, harness)) { ctx.incomplete = true; return [{ ...base, action: "skip", reason: inSession }]; }
+    if (deferred) { ctx.incomplete = true; return [{ ...base, action: "skip", reason: inSession }]; }
     const steps = [];
     if (a.installed) steps.push(hostStep(a, s, "uninstall", fill, `the host forgets ${id} for this checkout (its row and enablement; other checkouts keep theirs)`));
     const last = a.otherProjects === 0;
@@ -571,7 +593,7 @@ function planRegistration(ctx, key, s) {
   const items = [];
   const needsHost = a.state !== "current" || a.others.length > 0;
   if (needsHost && !bin) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `${a.reason ? a.reason + "; " : ""}${notOnPath}` }]; }
-  if (needsHost && insideHostSession(env, harness)) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `${a.reason ? a.reason + "; " : ""}${inSession}` }]; }
+  if (needsHost && deferred) { ctx.incomplete = true; return [{ ...base, action: "skip", deferred: true, reason: `${a.reason ? a.reason + "; " : ""}${inSession}` }]; }
   // Our directory newer than this package and damaged (the converge story's
   // rule 6): never rewritten from the older package — this checkout and every
   // other would then update down to it. It is repaired from its own version;

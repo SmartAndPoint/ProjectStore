@@ -181,6 +181,9 @@ export function installEnv(home, root, proj, extra = {}) {
   // The suite may run inside a live session; a spawned install must not defer
   // its migration or registration because the developer's shell says so.
   for (const k of SRC.runtime.session_env || []) if (!(k in extra)) delete env[k];
+  // …nor defer a registration because another host's session runs the suite
+  // (runtime.registration_defer_env, every manifest's).
+  for (const m of loadHarnesses().values()) for (const k of m.runtime?.registration_defer_env || []) if (!(k in extra)) delete env[k];
   // Our own identity variables decide harness identity too; a suite run under
   // one of our spawns, or with the override exported, must not carry them in.
   for (const k of ["PROJECTSTORE_IDENTIFIED", "PROJECTSTORE_HARNESS"]) if (!(k in extra)) delete env[k];
@@ -198,7 +201,7 @@ export function noHostEnv(extra = {}) {
   // write it. tests/scripts.test.mjs's envWithoutProjectDir does the same.
   for (const m of loadHarnesses().values()) {
     const r = m.runtime || {};
-    for (const k of [...(r.detect_env || []), ...(r.session_env || []), ...(r.shared_env || [])]) delete env[k];
+    for (const k of [...(r.detect_env || []), ...(r.session_env || []), ...(r.registration_defer_env || []), ...(r.shared_env || [])]) delete env[k];
     // The three runtime names are already in every current manifest's
     // detect_env, so these three lines delete nothing today. They are here
     // because detect() derives the same union rather than trusting detect_env

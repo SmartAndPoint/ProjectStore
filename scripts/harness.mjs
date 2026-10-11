@@ -249,6 +249,46 @@ export function detectHarnesses(projectDir, { dir = MANIFEST_DIR, state = false 
   return out;
 }
 
+// A pure PATH walk for a host binary — a read, not a subprocess: the analysers
+// run on every doctor call. Returns the absolute path or null. It lives here,
+// beside hostPresence, which needs it; lib.mjs re-exports it under the name
+// it already published.
+export function whichOnPath(name, env = process.env) {
+  const sep = process.platform === "win32" ? ";" : ":";
+  const exts = process.platform === "win32" ? ["", ".cmd", ".exe", ".bat"] : [""];
+  for (const dir of String(env.PATH || "").split(sep).filter(Boolean)) {
+    for (const ext of exts) {
+      const p = join(dir, name + ext);
+      try { const st = statSync(p); if (st.isFile() && (process.platform === "win32" || (st.mode & 0o111))) return p; } catch {}
+    }
+  }
+  return null;
+}
+
+// Whether a harness's host is on this MACHINE (the story "projectstore setup
+// asks, shows one plan and installs every harness it finds, with the vault",
+// rule 5): its registration surface's CLI found on PATH, and its home
+// directory present — the manifest's home variable when set, else
+// <home>/<home_default>. Not detectHarnesses, which answers for a PROJECT, and
+// not detectHarnessId, which names the harness running this process. Setup's
+// pre-tick is the one place machine presence counts; install keeps contract 8.
+// Every name comes from the manifest. Read-only: a stat per PATH entry and one
+// for the home.
+//   → { cli, home, bin, homeDir }: `cli` is the absolute path found, or null;
+//     `home` the directory when it exists, or null. `bin` and `homeDir` are
+//     what was looked for (null when the manifest names none), so a reason can
+//     name them when either is missing.
+export function hostPresence(manifest, { env = process.env, home = homedir() } = {}) {
+  const s = Object.entries(manifest?.surfaces || {}).find(([k, x]) => !k.startsWith("_") && x?.kind === "registration" && x.supported !== false && typeof x.cli?.bin === "string" && x.cli.bin)?.[1] || null;
+  const bin = s ? s.cli.bin : null;
+  const r = manifest?.runtime || {};
+  const fromEnv = r.home_env && env ? env[r.home_env] : null;
+  const homeDir = fromEnv || (home && r.home_default ? join(home, r.home_default) : null);
+  let present = false;
+  if (homeDir) { try { present = statSync(homeDir).isDirectory(); } catch {} }
+  return { cli: bin ? whichOnPath(bin, env || {}) : null, home: present ? homeDir : null, bin, homeDir };
+}
+
 // The agents block of a RUN (the story "One run plans the agents block once,
 // and a bare uninstall selects every harness the project uses", rules 1–2):
 // the files every manifest of the run names for it, in the FIRST manifest's
@@ -302,6 +342,23 @@ export function insideHostSession(env, harness) {
   // (measured 2026-09-05; the critic's third pass caught the first draft
   // keying on detect_env, which never fired in a session).
   return (harness?.runtime?.session_env || []).some((k) => env && env[k]);
+}
+
+// Whether a harness's registration — and the shell fetch that would feed it —
+// defers in this environment (the setup story, rule 15: the front-door ADR's
+// first open question, answered by the maintainer on 2026-10-08). It defers
+// inside the harness's own session (insideHostSession, runtime.session_env),
+// or while one of its runtime.registration_defer_env variables is set. That
+// second list defers the registration and the fetch and nothing else:
+// isInteractive, the layout move and session identity read session_env alone.
+// Codex's exec tool sets CODEX_THREAD_ID in every command (measured
+// 2026-10-05), while its session_env stays empty so the doctor skill's
+// `upgrade --json` still moves the layout there. Keyed on the PLANNED
+// harness's manifest: inside one host's session another host's registration
+// does not defer.
+export function registrationDeferred(env, harness) {
+  if (insideHostSession(env, harness)) return true;
+  return (harness?.runtime?.registration_defer_env || []).some((k) => env && env[k]);
 }
 
 export function activeHarness(env = process.env, dir = MANIFEST_DIR) {
