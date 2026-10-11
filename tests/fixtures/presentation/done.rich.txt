@@ -4,8 +4,7 @@
 [1mNext[22m
   [90mClaude Code[39m  restart Claude Code in this project
   [90mCodex[39m        restart Codex from a terminal and approve the ProjectStore hooks
-               when it asks; in an unbound project, run `$projectstore-bind
-               <vault-path>` in Codex
+               when it asks
 
   [90mversion[39m  0.30.0
 

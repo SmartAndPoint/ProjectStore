@@ -31,6 +31,7 @@
 //   railAvailable(stdin, caps)   → true when the question rail may be drawn
 //   openRail(opts)               → { select, multi, confirm, path, answered, close, cancelled }
 //   CANCELLED, BACK              → what a rail question resolves to on Ctrl+C or end of input, and on Esc
+//   drainInput(stdin, opts)      → discards what was typed ahead, before a line-mode question
 
 import { createInterface } from "node:readline/promises";
 import { emitKeypressEvents } from "node:readline";
@@ -837,4 +838,31 @@ export function openRail({ stdin = process.stdin, stdout = process.stdout, caps:
       if (woken) woken();
     },
   };
+}
+
+// What was typed ahead of a line-mode question, discarded (the setup story,
+// rule 2: the rail's raw mode ends at `└`, and the confirm after it is
+// askLine's). Keys typed while the run fetched, read the registry and drew
+// PLAN wait in the terminal's buffer — an Enter double-tapped on the last rail
+// question among them — and the next askLine would take them as the answer
+// to a question nobody saw. So: raw mode on (the terminal hands over what it
+// holds, line or not), the stream resumed for `ticks` turns of the event loop,
+// then paused, raw mode off, and whatever arrived dropped. Returns the bytes
+// dropped. A stream that cannot be put in raw mode is left alone (no rail ran
+// on it). `wait` is the test's turn of the loop.
+export async function drainInput(stdin, { ticks = 2, wait = () => new Promise(setImmediate) } = {}) {
+  if (!stdin || typeof stdin.setRawMode !== "function") return 0;
+  let dropped = 0;
+  const sink = (chunk) => { dropped += Buffer.byteLength(chunk); };
+  try {
+    stdin.setRawMode(true);
+    stdin.on("data", sink);
+    stdin.resume();
+    for (let k = 0; k < ticks; k++) await wait();
+  } finally {
+    stdin.removeListener("data", sink);
+    try { stdin.pause(); } catch {}
+    try { stdin.setRawMode(false); } catch {}
+  }
+  return dropped;
 }

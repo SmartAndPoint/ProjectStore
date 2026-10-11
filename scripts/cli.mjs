@@ -125,7 +125,25 @@ const DOCTOR_VERBOSE_OPT = opt(VERBOSE_OPT.name, VERBOSE_OPT.arg, "on a terminal
 const INSTALL_OPTS = [HARNESS_OPT, SURFACE_OPT, NO_REGISTER_OPT, VERBOSE_OPT, JSON_OPT];
 const UNINSTALL_OPTS = [HARNESS_OPT, SURFACE_OPT, opt("global", false, "also remove the harness-global plugin registration"), VERBOSE_OPT, JSON_OPT];
 
+// setup's own options (the setup story, rule 1): seven, beside the globals.
+// `--vault <path>` takes a value here where doctor's `--vault` is a flag —
+// the per-verb parse's own case.
+const SETUP_OPTS = [
+  HARNESS_OPT,
+  opt("vault", "<path>", "the vault: an existing folder is bound, a missing or empty one is created (naming it confirms)"),
+  opt("layout", "<name>", `a new vault's layout (default ${DEFAULT_LAYOUT})`),
+  opt("language", "<code>", `a new vault's template language (default ${DEFAULT_LANGUAGE})`),
+  opt("channel", "<npm|git>", "with a git-marketplace copy enabled, without a terminal: npm switches to the npm install, git keeps the git marketplace"),
+  opt("dry-run", false, "the questions and the plan; nothing is written or fetched"),
+  VERBOSE_OPT,
+];
+
 export const VERBS = Object.freeze([
+  Object.freeze({
+    verb: "setup", summary: "Set up this project: every harness it uses, and a vault.", usage: NO_FORMS,
+    module: "./setup.mjs", wraps: "new", how: "import", output: "envelope", writes: true, requiresBinding: false, mcp: Object.freeze([]),
+    options: [...SETUP_OPTS, JSON_OPT], run: runSetupVerb,
+  }),
   Object.freeze({
     verb: "doctor", summary: "Check the install wiring and the vault's consistency.", usage: NO_FORMS,
     module: "./doctor.mjs", wraps: "script", how: "spawn", output: "envelope", writes: false, requiresBinding: false, mcp: Object.freeze(["doctor"]),
@@ -244,11 +262,11 @@ export const PLANNED_VERBS = Object.freeze([]);
 // reading the vault, keeping it consistent. Every verb not listed here is
 // ADVANCED, one line of names in table order — so a new row is never hidden
 // by this table, and init and scaffold, which the contract names in no group,
-// are there too. A group lists only the verbs this run's table has. Once
-// setup exists, START becomes setup and uninstall, and install and bind move
-// to ADVANCED.
+// are there too. A group lists only the verbs this run's table has. With
+// setup, START is setup and uninstall, and install and bind are ADVANCED's
+// (contract 10; the setup story, rule 1).
 const HELP_GROUPS = [
-  ["START", ["install", "bind", "uninstall"]],
+  ["START", ["setup", "uninstall"]],
   ["VAULT", ["status", "search", "show", "graph", "codemap"]],
   ["CHECK AND REPAIR", ["doctor", "reconcile", "upgrade"]],
 ];
@@ -270,6 +288,7 @@ export const SUMMARY_MAX = 80 - (2 + VERB_COLUMN + 1);
 // its display name and its doctor form (switchHarness, below); an example
 // naming them is left out when no manifest has one.
 const EXAMPLES = {
+  setup: ["{cmd} setup", "{cmd} setup --dry-run  # the questions and the plan; nothing is written or fetched", "{cmd} setup{h} --vault ~/vaults/my-project  # without a terminal: --harness confirms, --vault names the vault"],
   install: ["{cmd} install{h}", "{cmd} plan{h}  # the same plan; nothing is written"],
   upgrade: ["{cmd}@<version> upgrade{h}  # the version you name is the version that runs", "{cmd} upgrade{h} --verbose"],
   uninstall: ["{core}{cmd} uninstall  # every harness this project uses", "{cmd} uninstall{h}", "{cmd} uninstall{h} --surface statusline", "{core}{cmd} uninstall{h} --surface {switch.surface}  # back to the git marketplace after a switch, then restart {switch.host} and run {switch.doctor} in it"],
@@ -369,19 +388,22 @@ export function usage(env = process.env, verbs = VERBS, { caps: c = term.PLAIN, 
       lines.push(lead + term.wrap(term.glyphText(c, v.summary), width, " ".repeat(term.plain(lead).length)));
     }
   }
+  // ADVANCED is one line of verbs, broken at 80 columns in every mode: with
+  // install and bind among them (contract 10, once setup exists) it no longer
+  // fits one row, and a pipe gets the same lines a terminal does.
   const advanced = verbs.filter((v) => !listed.has(v.verb));
-  if (advanced.length) lines.push("", term.heading(c, "ADVANCED"), "  " + term.wrap(advanced.map((v) => paint("action", v.verb)).join(` ${term.icon(c, "dot")} `), width, "  "));
+  if (advanced.length) lines.push("", term.heading(c, "ADVANCED"), "  " + term.wrap(advanced.map((v) => paint("action", v.verb)).join(` ${term.icon(c, "dot")} `), 80, "  "));
   if (PLANNED_VERBS.length) lines.push("", `Planned: ${PLANNED_VERBS.map((v) => `${v.verb} (${v.lands})`).join(", ")}`);
   // A command is offered only for a verb this table has.
   const h = shell ? "" : " --harness <id>";
   const has = (verb) => verbs.some((v) => v.verb === verb);
-  const examples = [["install", `${cmd} install${h}`], ["status", `${cmd} status`], ["doctor", `${cmd} doctor`]].filter(([v]) => has(v)).map(([, x]) => x);
+  const examples = [["setup", `${cmd} setup`], ["status", `${cmd} status`], ["doctor", `${cmd} doctor`]].filter(([v]) => has(v)).map(([, x]) => x);
   lines.push("", term.heading(c, "Options"), ...optionLines(EVERY_VERB, c));
   if (examples.length) lines.push("", term.heading(c, "Examples"), ...term.commandBlock(c, examples));
   lines.push(
     "",
     term.heading(c, "Tips"),
-    prose("install, upgrade and uninstall show their plan, then ask at a terminal."),
+    prose("setup, install, upgrade and uninstall show a plan, then ask at a terminal."),
     prose(`Without a terminal, ${shell ? "the verb is its own" : "--harness is the"} confirmation ${term.icon(c, "dash")} there is no --yes.`),
     prose("Unattended in a terminal: pass --json, set CI=1, or give stdin </dev/null."),
     prose("--verbose on those verbs adds every row's reasoning and the host's notes."),
@@ -1077,6 +1099,20 @@ async function runReconcile({ values, project, env, stdin, stdout, stderr, ask }
   return failed ? 1 : 0;
 }
 
+// setup (the setup story): its own module, imported lazily as the install
+// family is, run with this package as its root and in the environment every
+// installer run gets (ownEnv, for the project setup settles on). The envelope
+// is written here, as every verb's is: its result is the write verbs' keys
+// plus `setup`. A usage error is exit 2 with its envelope.
+async function runSetupVerb(ctx) {
+  const { runSetup } = await import("./setup.mjs");
+  const { values, env, stdout } = ctx;
+  const r = await runSetup({ ...ctx, root: PACKAGE_ROOT, ownEnv: (p) => ownEnv(env, p), author: (p) => gitAuthor(p, env) });
+  if (r.error) return usageFail(Object.assign(new Error(r.error), { code: "USAGE" }), { verb: "setup", ...ctx });
+  if (values.json && r.result) stdout.write(JSON.stringify(envelope("setup", r.project, r.ok, r.result), null, 2) + "\n");
+  return r.code;
+}
+
 async function runInstallVerb({ row, values, project, env, cwd, stdin, stdout, ask }) {
   const ih = await import("./install-harness.mjs");
   const opts = { harnesses: values.harness || [], surfaces: values.surface && values.surface.length ? values.surface : null, globalRemoval: Boolean(values.global), register: !values["no-register"], root: PACKAGE_ROOT, env: ownEnv(env, project), cwd, stdin, stdout, ask, json: Boolean(values.json), verbose: Boolean(values.verbose) };
@@ -1105,7 +1141,7 @@ async function runInstallVerb({ row, values, project, env, cwd, stdin, stdout, a
     // The installer's own words for a gate that wrote nothing — a bare run
     // without a terminal, a declined question, a channel switch without a
     // terminal — shared with its main(), so the two entries say the same.
-    stdout.write(ih.gateText(r, { verb: row.verb, harnesses: opts.harnesses, surfaces: opts.surfaces, caps: term.caps(stdout, env) }));
+    stdout.write(ih.gateText(r, { verb: row.verb, harnesses: opts.harnesses, caps: term.caps(stdout, env) }));
   }
   return ok ? 0 : 1;
 }

@@ -4,8 +4,7 @@ Done — 6 changes in 3.4s
 Next
   Claude Code  restart Claude Code in this project
   Codex        restart Codex from a terminal and approve the ProjectStore hooks
-               when it asks; in an unbound project, run `$projectstore-bind
-               <vault-path>` in Codex
+               when it asks
 
   version  0.30.0
 

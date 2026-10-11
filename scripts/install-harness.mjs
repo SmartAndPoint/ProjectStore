@@ -101,7 +101,7 @@ import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration
 import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
 import { rootVersion, rootName, fetchDecision, fetchArgv, npmRegistry, npmUserRegistry, REGISTRY_BUDGET_MS, fetchShell, fetchRefusal, fetchRunId, sweepFetchRuns } from "./fetch-shell.mjs";
 import { HOST_BUDGET_MS, startFailure, runHost } from "./run-host.mjs";
-import { runningCopies, newerCopies, lowestVersion, readLatest, decide, proceedCase, newerCopyDeferral, repairAdvice, advised, updateNotice, checksRoot, noticeRoot, updateCheckOff, channelChoices, switchConsequence, switchReason, noCopyToKeep, keepArgv, keepResult, readKeepPlan, ownUpgrade, npmRowBeside, DEFAULT_REGISTRY, NOTICE_BUDGET_MS, READ_TIMEOUT_MS } from "./convergence.mjs";
+import { runningCopies, newerCopies, lowestVersion, readLatest, decide, proceedCase, newerCopyDeferral, repairAdvice, advised, updateNotice, checksRoot, noticeRoot, updateCheckOff, channelChoices, switchConsequence, switchReason, noCopyToKeep, keepArgv, keepResult, readKeepPlan, ownUpgrade, npmRowBeside, pinFor, coreCommand, DEFAULT_REGISTRY, NOTICE_BUDGET_MS, READ_TIMEOUT_MS } from "./convergence.mjs";
 import { applyBind, bindPlanSteps, recheckBind, bindResult } from "./binding.mjs";
 import { pluginRoot, channelMark, channelKeep, CHANNEL_SWITCH_KEY, CHANNEL_KEEP_KEY, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureStateRoot, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal, registrationProvenance, envFlag, selectCopy, copyUpdateAdvice, takesVerbose } from "./lib.mjs";
 
@@ -625,7 +625,7 @@ function planRegistration(ctx, key, s) {
   const newerOther = a.others.filter((o) => typeof o.version === "string" && cmpPrecedence(o.version, a.targetPkg || a.pkg) > 0).sort((x, y) => cmpPrecedence(y.version, x.version))[0];
   if (newerOther && (ctx.channel ?? null) === null) {
     ctx.incomplete = true;
-    const deferral = newerCopyDeferral({ copy: newerOther, running: a.pkg, decision: ctx.convergence, harness, s });
+    const deferral = newerCopyDeferral({ copy: newerOther, running: a.pkg, decision: ctx.convergence, harness, pin: pinFor(root, a.pkg) });
     return [{ ...base, action: "skip", deferred: true, ...deferral }, ...a.others.map((o) => ({ ...other(o), action: "skip", deferred: true, reason: `not switched off — see ${id} above` }))];
   }
   // What the mark (rule 2) is planned from, after the harness's rows: the
@@ -680,7 +680,7 @@ function planRegistration(ctx, key, s) {
     const steps = [];
     if (a.state === "current" && !a.dir.disabled.includes(o.key)) steps.push({ kind: "write", path: a.paths.dir, files: 0, manifestOnly: true, manifest: { ...a.dir.manifest, [s.provenance_key]: { ...a.dir.prov, disabled: [...a.dir.disabled, o.key] } }, why: "our manifest records what install silences, so uninstall can turn it back on" });
     steps.push(hostStep(a, s, "disable", { ...fill, other: o.key }, `${o.key} (${o.version}) is enabled for this checkout too; two enabled copies of one plugin would load twice — silenced in this checkout's local settings only, never globally`));
-    steps.push(consequenceStep(switchConsequence(harness)));
+    steps.push(consequenceStep(switchConsequence()));
     const reason = ctx.channel === "npm" ? switchReason({ copy: o, running: a.pkg, runs: a.targetPkg, decision: ctx.convergence, unbound: !ctx.binding?.bound }) : null;
     items.push({ ...other(o), action: "disable", ...(reason ? { reason } : {}), steps });
   }
@@ -984,9 +984,11 @@ function planJsonEntry(ctx, key, s) {
   const entryKey = (s.marker?.pointer || "statusLine.command").split(".")[0];
   // The status line is opt-in (projectstore.json → statusline.enabled), as
   // the SessionStart refresh already honours; naming the surface explicitly
-  // is the other way to opt in.
+  // is the other way to opt in. A verb with no --surface (setup, its rule 9)
+  // names install's command, which takes it, in the core form.
   if (mode === "install" && !ctx.optIn.has(key)) {
-    return [{ surface: key, kind: "shared", path, entry: entryKey, state: "opt-out", action: "skip", reason: "statusline.enabled is not true in projectstore.json — name --surface statusline to wire it anyway" }];
+    const anyway = ctx.takesSurface === false ? `to wire it anyway: ${coreCommand("install", { args: `--harness ${ctx.harness.id} --surface ${key}` })}` : "name --surface statusline to wire it anyway";
+    return [{ surface: key, kind: "shared", path, entry: entryKey, state: "opt-out", action: "skip", reason: `statusline.enabled is not true in projectstore.json — ${anyway}` }];
   }
   const renderRoot = ctx.renderRoot || root;
   // A root the package manager will collect (npx's cache, a node_modules) is
@@ -1109,7 +1111,9 @@ function surfaceExcluded(key, s, { surfaces = null, register = true } = {}) {
 //   ensureState a `state` item per harness whose registration is not
 //               unavailable and whose state directory is absent
 //   recordKeep  under the channel "git", the keep's `binding` item
-export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null, layout = null, convergence = null, fetchedFrom = null, channel = null, keep = null, vault = null, statusline = null, named: namedOverride = null, ensureState = false, recordKeep = false } = {}) {
+//   takesSurface false for a verb that takes no --surface (setup, its rule
+//               9): a skipped opt-in names install's command instead
+export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null, layout = null, convergence = null, fetchedFrom = null, channel = null, keep = null, vault = null, statusline = null, named: namedOverride = null, ensureState = false, recordKeep = false, takesSurface = true } = {}) {
   projectDir = resolve(projectDir);
   const detected = detectHarnesses(projectDir, { state });
   const named = harnesses.filter(Boolean);
@@ -1301,7 +1305,7 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   for (const id of ids) {
     const harness = loadHarness(id);
     out.harnesses.push(id);
-    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [], globalRemoval, version, fetched: payloadRoots?.[id] || null, convergence: decision, channel, binding, channelFacts: null, refusals: [] };
+    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [], globalRemoval, version, fetched: payloadRoots?.[id] || null, convergence: decision, channel, binding, channelFacts: null, refusals: [], takesSurface };
     // The keep (rule 5): the run's one block first — over the whole run set,
     // this harness included — then the keep's one item, and none of this
     // harness's own rows. Placed here when this harness owns the block; named
@@ -1835,8 +1839,10 @@ function planSummary(p, c) {
 }
 
 // `home` shortens the project path to ~ (the caller's home; a test's fixed
-// one); everything else the screen needs is in `p`.
-export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN, badge = true, home = homedir() } = {}) {
+// one); everything else the screen needs is in `p`. `header` is a caller's
+// lines beneath the project path — setup's, naming the git work tree's top
+// when it runs in a subfolder (the setup story, rule 4).
+export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN, badge = true, home = homedir(), header = [] } = {}) {
   const paint = painter(c);
   const glyph = (name) => termIcon(c, name);
   const width = c.live ? c.width : 0;
@@ -1847,6 +1853,7 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
   const lines = [
     ...(badge ? [badgeLine(p, { verb, caps: c })] : []),
     `  ${paint("explanation", tilde(p.projectDir, home))}`,
+    ...(header || []).flatMap((h) => prose("  ", h)),
     "",
   ];
   if (verbose) {
@@ -2892,14 +2899,21 @@ async function fetchShells(verb, projectDir, { env, home, root, version, named, 
 
 // `setup` runs as install does (the setup story, rule 3 steps 7 and 8), with
 // its own inputs: plan()'s setup inputs pass through `opts` (vault,
-// statusline, named), and its state directories and the keep's record are
-// planned unless `opts.ensureState` / `opts.recordKeep` say otherwise.
+// statusline, named), its state directories and the keep's record are
+// planned unless `opts.ensureState` / `opts.recordKeep` say otherwise, and it
+// takes no --surface (`opts.takesSurface`).
 //   opts.badged → the caller printed its own head (setup's rail, `┌
 //                 projectstore setup`): no badge is printed — not over the
 //                 fetch line, not over the notice, not over PLAN
 //   opts.dryRun → --dry-run (rule 12): PLAN, then nothing — no question, no
 //                 apply; the gate reads { confirmed: false, why: "dry-run" },
 //                 or confirm's "refused" for a plan that refuses
+//   opts.header → lines beneath PLAN's project path (renderPreview's `header`)
+//   opts.drain  → awaited right before the question, when there is one to
+//                 ask: setup's rail discards what was typed ahead, so a key
+//                 meant for the last rail question never answers this one
+//   opts.done   → (result) → DONE's setup lines (renderDone's `extra`): built
+//                 by the caller, so this file imports nothing of setup's
 // The result carries `warnings`: what failed without stopping the run (a
 // vault's git init).
 export async function runVerb(verb, projectDir, opts = {}) {
@@ -2927,8 +2941,8 @@ export async function runVerb(verb, projectDir, opts = {}) {
     // bare install still agree.
     // setup selects by it too, and plans its own items (its rules 5 and 10).
     const setup = verb === "setup";
-    const p = prep.refused || plan(projectDir, { ...opts, mode, state: verb === "upgrade" || setup || (verb === "uninstall" && !opts.globalRemoval), version: prep.version, payloadRoots: prep.payloadRoots, convergence: prep.convergence, fetchedFrom: prep.fetchedFrom || null, keep: prep.keep || null, ensureState: opts.ensureState ?? setup, recordKeep: opts.recordKeep ?? setup });
-    const view = { verbose: Boolean(opts.verbose), verb, caps: c || PLAIN, home };
+    const p = prep.refused || plan(projectDir, { ...opts, mode, state: verb === "upgrade" || setup || (verb === "uninstall" && !opts.globalRemoval), version: prep.version, payloadRoots: prep.payloadRoots, convergence: prep.convergence, fetchedFrom: prep.fetchedFrom || null, keep: prep.keep || null, ensureState: opts.ensureState ?? setup, recordKeep: opts.recordKeep ?? setup, takesSurface: opts.takesSurface ?? !setup });
+    const view = { verbose: Boolean(opts.verbose), verb, caps: c || PLAIN, home, header: opts.header || [] };
     const preview = renderPreview(p, view);
     // The update notice (the converge story's rule 8): in the header slot,
     // under the badge and after the fetch line, before PLAN. Never beside the
@@ -2941,6 +2955,7 @@ export async function runVerb(verb, projectDir, opts = {}) {
     // A dry run ends at PLAN: nothing is asked and nothing is written. A
     // refused plan stays refused — its gate is confirm's, never the dry run's.
     if (opts.dryRun) return { verb, plan: p, preview, gate: { confirmed: false, why: p.ok ? "dry-run" : "refused" }, applied: [], failed: null, warnings: [], elapsed: 0, fetched: prep.fetched };
+    if (typeof opts.drain === "function" && p.ok && p.items.some(isWrite) && asksAtTerminal({ ...opts, env })) await opts.drain();
     const gate = await confirm(p, { ...opts, env, ...(c ? { caps: c } : {}) });
     const result = { verb, plan: p, preview, gate, applied: [], failed: null, warnings: [], elapsed: 0, fetched: prep.fetched };
     if (gate.confirmed) {
@@ -2955,7 +2970,7 @@ export async function runVerb(verb, projectDir, opts = {}) {
       // this one incomplete: both entries read the plan's flag for the exit.
       if (result.applied.incomplete) p.incomplete = true;
       result.elapsed = Date.now() - t0;
-      if (out) out.write(renderDone(result, { caps: c, verbose: Boolean(opts.verbose), cwd: opts.cwd || process.cwd() }));
+      if (out) out.write(renderDone(result, { caps: c, verbose: Boolean(opts.verbose), cwd: opts.cwd || process.cwd(), extra: typeof opts.done === "function" ? opts.done(result) : null }));
     }
     return result;
   } finally {
@@ -3099,7 +3114,16 @@ function stepLabel(p, st, { home = homedir(), glyph = unicodeGlyph } = {}) {
 // or, for a command that could not start, its cause in their place, once —
 // or by its item, the output beneath, and what to do. `cwd` decides whether
 // the tip's --project is "$PWD".
-export function renderDone(r, { caps: c = PLAIN, verbose = false, cwd = process.cwd() } = {}) {
+//
+// `extra` is setup's (the setup story, rules 10, 11 and 13), built by its
+// front-end and handed through runVerb's `done`:
+//   warnings  [{ text, commands }] — a ▲ row each under a Vault heading, after
+//             the Done line: what failed without stopping the run (git init)
+//   blocks    [{ lead, commands, after }] — Next's further lines, after the
+//             keep's: the missing host, what a session left, the bind lines;
+//             `after` a line beneath the commands ("then restart …")
+//   tip       { lead, commands } — in place of the shells' plan commands
+export function renderDone(r, { caps: c = PLAIN, verbose = false, cwd = process.cwd(), extra = null } = {}) {
   const paint = painter(c);
   const glyph = (name) => termIcon(c, name);
   const width = c.live ? c.width : 0;
@@ -3138,6 +3162,16 @@ export function renderDone(r, { caps: c = PLAIN, verbose = false, cwd = process.
     return lines.join("\n") + "\n";
   }
   lines.push(`${paint("emphasis", "Done")} ${dash} ${changes} in ${duration(r.elapsed || 0)}`);
+  const warnings = extra?.warnings || [];
+  if (warnings.length) {
+    lines.push("", paint("emphasis", VAULT_GROUP));
+    warnings.forEach((w, k) => {
+      if (k) lines.push("");
+      const [first, ...rest] = wrap(w.text, width, "    ").split("\n");
+      lines.push(`  ${paint("attention", glyph("warning"))} ${first}`, ...rest);
+      if ((w.commands || []).length) lines.push(...commandBlock(c, w.commands, { indent: 4 }));
+    });
+  }
   const next = [], seen = new Set();
   for (const id of p.harnesses) {
     const m = loadHarness(id);
@@ -3151,7 +3185,8 @@ export function renderDone(r, { caps: c = PLAIN, verbose = false, cwd = process.
   // no result, the npm row's uninstall — each lead, then its command alone on
   // its line (contract 6).
   const kept = p.items.filter((i) => i.kind === "channel" && Array.isArray(i.next)).flatMap((i) => i.next);
-  if (next.length || kept.length) lines.push("", paint("emphasis", "Next"));
+  const more = extra?.blocks || [];
+  if (next.length || kept.length || more.length) lines.push("", paint("emphasis", "Next"));
   if (next.length) {
     const kw = Math.max(...next.map(([name]) => name.length));
     const col = " ".repeat(2 + kw + 2);
@@ -3164,6 +3199,12 @@ export function renderDone(r, { caps: c = PLAIN, verbose = false, cwd = process.
     if (k || next.length) lines.push("");
     lines.push(...wrap(b.lead, width, "  ").split("\n").map((l, n) => (n ? l : `  ${l}`)));
     if (b.command) lines.push(...commandBlock(c, [b.command], { indent: 4 }));
+  });
+  more.forEach((b, k) => {
+    if (k || next.length || kept.length) lines.push("");
+    lines.push(...wrap(b.lead, width, "  ").split("\n").map((l, n) => (n ? l : `  ${l}`)));
+    if ((b.commands || []).length) lines.push(...commandBlock(c, b.commands, { indent: 4 }));
+    if (b.after) lines.push("", ...wrap(b.after, width, "  ").split("\n").map((l, n) => (n ? l : `  ${l}`)));
   });
   // The facts: the version, and under the keep (the converge story's rule 5)
   // the copy each kept harness runs — this package's version is not what that
@@ -3194,27 +3235,46 @@ export function renderDone(r, { caps: c = PLAIN, verbose = false, cwd = process.
     }
   }
   const lead = verbose || !reasoned ? "To preview without writing:" : "To preview without writing, with every row's reasoning:";
-  if (previews.length) lines.push("", `  ${paint("explanation", lead)}`, ...commandBlock(c, previews));
+  if (extra?.tip) lines.push("", `  ${paint("explanation", extra.tip.lead)}`, ...commandBlock(c, extra.tip.commands));
+  else if (previews.length) lines.push("", `  ${paint("explanation", lead)}`, ...commandBlock(c, previews));
   return lines.join("\n") + "\n";
 }
 
 // What a text run that wrote nothing says after its plan: one helper for
-// main() and the bin's runInstallVerb, so the two entries cannot drift (the
-// converge story's rule 2). `harnesses` and `surfaces` are the run's own
-// arguments, which the channel gate's command repeats — never --project. Its
-// commands are rule 2's helper's (channelChoices), each alone on its line
-// after a blank one (presentation spec contract 6).
-export function gateText(r, { verb, harnesses = [], surfaces = null, caps: c = PLAIN } = {}) {
+// main(), the bin's runInstallVerb and setup, so the entries cannot drift (the
+// converge story's rule 2). `harnesses` are the run's own --harness, which
+// the channel gate's commands repeat — never --project. Its commands are rule
+// 2's helper's (channelChoices): setup's, pinned to the running version on a
+// package root (pinFor), each alone on its line after a blank one
+// (presentation spec contract 6). `args` is what setup's own refusal repeats
+// after each --harness (its --vault, --channel, --layout, --language): a
+// string, or a function of the harness id, for words only one harness takes.
+export function gateText(r, { verb, harnesses = [], caps: c = PLAIN, args = "" } = {}) {
   const why = r.gate?.why;
+  // A bare setup without a terminal (the setup story, rule 12): it planned the
+  // pre-ticked set; each harness's confirming run, alone on its line, pinned
+  // as the channel gate's are.
+  if (why === "non-tty" && verb === "setup") {
+    const ids = r.plan.harnesses.length ? r.plan.harnesses : harnessIds();
+    const version = pinFor(r.plan.root, r.plan.version);
+    const more = (id) => (typeof args === "function" ? args(id) : args);
+    return [`Nothing written: without a terminal, a bare setup refuses. Name the harness to confirm ${termIcon(c, "dash")} repeat --harness for more than one:`, ...commandBlock(c, ids.map((id) => coreCommand("setup", { version, args: [`--harness ${id}`, more(id)].filter(Boolean).join(" ") })), { indent: 4 })].join("\n") + "\n";
+  }
   if (why === "non-tty") return `Nothing written: without a terminal, a bare ${verb} refuses. Name the harness to confirm: --harness ${r.plan.detected.map((d) => d.id).join(" | ") || harnessIds().join(" | ")}\n`;
   if (why === "declined") return "Nothing written.\n";
   // runVerb's dry run (setup's --dry-run, its rule 12).
   if (why === "dry-run") return "Nothing written: this was a dry run.\n";
   if (why === "channel") {
     const keys = [...new Set(r.plan.items.filter(isSwitch).map((i) => i.entry))];
-    return channelChoices({ gate: { verb, args: { harnesses, surfaces }, keys } }).map((b) => [b.lead, ...commandBlock(c, [b.command], { indent: 4 })].join("\n")).join("\n\n") + "\n";
+    return channelText(channelChoices({ gate: { args: { harnesses }, keys, version: pinFor(r.plan.root, r.plan.version) } }), c) + "\n";
   }
   return "";
+}
+
+// The channel gate's blocks as text: each lead, then its command alone on its
+// line after a blank one; a block with no lead follows the one before it.
+export function channelText(blocks, c = PLAIN) {
+  return blocks.map((b) => (b.lead ? [b.lead, ...commandBlock(c, [b.command], { indent: 4 })] : commandBlock(c, [b.command], { indent: 4 }).slice(1)).join("\n")).join("\n\n");
 }
 
 // ─── main ──────────────────────────────────────────────────────────────
@@ -3286,7 +3346,7 @@ async function main() {
   if (json) {
     process.stdout.write(JSON.stringify({ verb, ok, gate: r.gate, applied: r.applied, failed: r.failed, incomplete: r.plan.incomplete, items: r.plan.items.map(publicItem), refusals: r.plan.refusals, reports: r.plan.reports, fetched: r.fetched }, null, 2) + "\n");
   } else {
-    process.stdout.write(gateText(r, { verb, harnesses, surfaces: opts.surfaces, caps: termCaps(process.stdout, process.env) }));
+    process.stdout.write(gateText(r, { verb, harnesses, caps: termCaps(process.stdout, process.env) }));
   }
   process.exit(ok ? 0 : 1);
 }

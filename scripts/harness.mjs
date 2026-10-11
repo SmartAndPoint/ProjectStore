@@ -321,13 +321,20 @@ export function blockTargetProblem(manifests) {
 // manifests, so a new harness appears in it without an edit here. With
 // `state` (upgrade's set) it names both signals the selection read.
 export function harnessRefusal(projectDir, { dir = MANIFEST_DIR, state = false } = {}) {
-  const lines = [`No harness detected in ${projectDir}, and none named. Name one:`];
   const p = state ? layoutPaths(projectDir, { dir }) : null;
-  for (const m of loadHarnesses(dir).values()) {
+  const rows = [...loadHarnesses(dir).values()].map((m) => {
     const by = `detected by its project directory: ${m.runtime?.harness_dir || "?"}`;
-    lines.push(`  --harness ${m.id}    (${m.display_name}; ${p ? `${by}, or by its state directory: ${relative(projectDir, p.harnessState(m.id))}` : by})`);
-  }
-  return lines.join("\n");
+    return { id: m.id, display: m.display_name, why: p ? `${by}, or by its state directory: ${relative(projectDir, p.harnessState(m.id))}` : by };
+  });
+  return [`No harness detected in ${projectDir}, and none named. Name one:`, ...harnessNameLines(rows)].join("\n");
+}
+
+// That refusal's rows, one per harness — `--harness <id>`, then its display
+// name and why — shared with setup's (its rule 12), so the two cannot drift.
+// The ids are padded to one width, so every reason starts in one column.
+export function harnessNameLines(rows) {
+  const width = Math.max(0, ...rows.map((r) => r.id.length));
+  return rows.map((r) => `  --harness ${r.id.padEnd(width)}    (${r.display}; ${r.why})`);
 }
 
 // Inside a live session of the host, its CLI and the session both rewrite the

@@ -862,18 +862,21 @@ test("converge criterion 'A newer git copy is not switched off for an older pack
     assert.equal(i.action, "skip", i.surface);
     assert.equal(i.deferred, true, i.surface);
   }
-  const ownBin = `node "${join(git, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register`;
-  const disable = `${S.cli.bin} plugin disable projectstore@SmartAndPoint --scope local`;
+  // setup's commands (the setup story, rule 17), pinned to the running
+  // version: the package root is npx's.
+  const setup = (x = "") => `npx projectstore@0.30.0 setup --harness ${SRC.id}${x}`;
   assert.equal(reg.reason, [
     "this project runs a newer copy (projectstore@SmartAndPoint 0.31.0) than this package (0.30.0), so it is not switched off — the registry's latest (0.30.0) does not reach 0.31.0.",
-    "Run the newer copy instead, from a terminal in this project:",
-    ownBin,
-    "Or move this project to this package's registration, the older 0.30.0: turn that copy off for this project, then repeat this run:",
-    disable,
+    "Choose at a terminal in this project; setup asks whether to keep that copy or switch:",
+    setup(),
+    "Without a terminal, keep projectstore@SmartAndPoint, which then writes this project's surfaces itself:",
+    setup(" --channel git"),
+    "Or move this project to this package's npm install, the older 0.30.0:",
+    setup(" --channel npm"),
   ].join("\n"), "the envelope's reason, every part on its own line");
   assert.equal(others.reason, `not switched off — see ${ID} above`, "the long reason prints once; the switch row points to it");
   assert.ok(!("advice" in publicItem(reg)), "the drawn form stays off the envelope");
-  assert.ok(!/`|\bsetup\b/.test(reg.reason), "no backticks, and no verb this release lacks");
+  assert.ok(!/`/.test(reg.reason), "no backticks");
   assert.ok(!(reg.steps || []).length && !(others.steps || []).length, "no host step is planned");
   assert.equal(s.r.plan.incomplete, true, "so the exit is 1");
   assert.equal(s.r.gate.why, "named");
@@ -882,13 +885,12 @@ test("converge criterion 'A newer git copy is not switched off for an older pack
   // In PLAN: the prose once, then each command alone on its line after a blank one.
   const t = await convergeRun(sb, sb.root, { latest: "0.30.0" });
   const lines = t.text.split("\n");
-  for (const cmd of [ownBin, disable]) {
+  for (const cmd of [setup(), setup(" --channel git"), setup(" --channel npm")]) {
     const at = lines.indexOf(`          ${cmd}`);
     assert.ok(at > 0 && lines[at - 1] === "" && lines[at + 1] === "", `${cmd}:\n${t.text}`);
   }
   assert.equal(t.text.split("so it is not switched off").length, 2, "printed once");
   assert.ok(t.text.includes(`not switched off — see ${ID} above`));
-  assert.ok(!/\bsetup\b/.test(t.text), t.text);
   // plan reads nothing; the deferral says what install and upgrade do first.
   assert.match(sb.item(plan(proj, { harnesses: [SRC.id], home, root: sb.root, env: sb.env }), "plugin").reason, /install and upgrade read the registry first, and stop when 0\.31\.0 is published/);
   // The channel "npm" is the answer to the channel question: the switch
@@ -1002,8 +1004,10 @@ const ISO_TIME = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
 const writesOf = (p) => p.items.filter((i) => !["skip", "refuse"].includes(i.action));
 // Contract 13's info for a copy the registration turned off, read as doctor
 // reads it, given the binding.
-const ignoreThis = (sb, cfg) => checkPluginRegistration(sb.proj, surfaceStates(sb.proj, { home: sb.home, root: sb.root }).states, { home: sb.home, cfg }).filter((f) => /If moving to npm was meant, ignore this\.$/.test(f.message));
-const CONSEQUENCE = `this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by ${packageCommand(SRC, "upgrade")}`;
+// It ends with setup's command alone on its line (the setup story, rule 17).
+const RECORD_IT = /If moving to npm was meant, record it from a terminal in this project:\nnpx projectstore setup --channel npm$/;
+const ignoreThis = (sb, cfg) => checkPluginRegistration(sb.proj, surfaceStates(sb.proj, { home: sb.home, root: sb.root }).states, { home: sb.home, cfg }).filter((f) => RECORD_IT.test(f.message));
+const CONSEQUENCE = "this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by npx projectstore setup";
 
 test("converge criterion 'The switch': channel npm plans the registration, the switch with its consequence line and the mark last; apply turns the copy off and records the switch, doctor drops its info, a second plan is zero-change; channel null plans no mark", () => {
   const sb = sandbox({ vault: true });
@@ -1052,7 +1056,7 @@ test("converge criterion 'The switch': channel npm plans the registration, the s
   const doctor = (s) => JSON.parse(spawnSync(process.execPath, [join(s.root, "bin", "projectstore.mjs"), "doctor", "--install", "--json", "--project", s.proj], { encoding: "utf8", cwd: s.proj, env: s.host.env({ HOME: s.home }), timeout: 60000, maxBuffer: 1 << 24 }).stdout).result;
   const found = doctor(sb);
   assert.ok(found.some((f) => f.check === "plugin-registration"), JSON.stringify(found, null, 2));
-  assert.ok(!found.some((f) => /If moving to npm was meant, ignore this\./.test(f.message)), JSON.stringify(found, null, 2));
+  assert.ok(!found.some((f) => /If moving to npm was meant/.test(f.message)), JSON.stringify(found, null, 2));
   // A re-run is zero-change: the copy is off and the mark is there.
   assert.deepEqual(writesOf(plan(proj, { home, root, env, channel: "npm" })).map(publicItem), []);
   // channel null, the same fixture: the registration and the switch with its note, no mark.
@@ -1066,7 +1070,11 @@ test("converge criterion 'The switch': channel npm plans the registration, the s
   assert.equal(apply(q, { env: sb2.env, home: sb2.home }).failed, undefined);
   assert.equal(bindingOf(sb2.proj).channel_switch, undefined);
   assert.equal(ignoreThis(sb2, bindingOf(sb2.proj)).length, 1, "doctor names the info, as today");
-  assert.equal(doctor(sb2).filter((f) => /If moving to npm was meant, ignore this\./.test(f.message)).length, 1, "and so does doctor --install");
+  assert.equal(doctor(sb2).filter((f) => RECORD_IT.test(f.message)).length, 1, "and so does doctor --install");
+  // The text report draws the command alone on its line, after a blank one;
+  // the path comes before the colon, which introduces the command.
+  const report = spawnSync(process.execPath, [join(sb2.root, "bin", "projectstore.mjs"), "doctor", "--install", "--project", sb2.proj], { encoding: "utf8", cwd: sb2.proj, env: sb2.host.env({ HOME: sb2.home }), timeout: 60000, maxBuffer: 1 << 24 }).stdout;
+  assert.match(report, /record it from a terminal in this project — [^\n:]+:\n\n {6}npx projectstore setup --channel npm\n/, report);
 });
 
 test("converge criterion 'The order': after a failed registration the switch is skipped and APPLY says why, the copy stays on, no mark is written, and DONE is STOPPED — under channel npm and channel null", () => {

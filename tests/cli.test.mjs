@@ -110,10 +110,12 @@ test("cli: --version equals package.json, help lists every verb, an unknown verb
   const help = bin(["--help"]);
   assert.equal(help.status, 0, "bare --help is not an error");
   assert.equal(bin(["-h"]).status, 0);
-  // Each verb exactly once: a row of a named group, or a name on ADVANCED's one line.
+  // Each verb exactly once: a row of a named group, or a name on ADVANCED's
+  // one line, broken at 80 columns.
   const helpLines = help.stdout.split("\n");
   const grouped = helpLines.filter((l) => /^ {2}[a-z]+ {2,}\S/.test(l)).map((l) => l.trim().split(" ")[0]);
-  const advanced = helpLines[helpLines.indexOf("ADVANCED") + 1].trim().split(" · ");
+  const at = helpLines.indexOf("ADVANCED") + 1;
+  const advanced = helpLines.slice(at, helpLines.indexOf("", at)).map((l) => l.trim()).join(" ").split(" · ");
   assert.deepEqual([...grouped, ...advanced].sort(), VERBS.map((v) => v.verb).sort());
   assert.ok(help.stdout.includes("there is no --yes"));
   const none = bin([]);
@@ -1833,6 +1835,7 @@ test("cli per-verb parse: show, graph, agents, bind and init refuse an argument 
 test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, search's <phrase…>, no summary opens with its verb", () => {
   // 0.29.2's Usage lines, verb by verb; search's placeholder gains its variadic mark.
   const GOLDEN = {
+    setup: ["setup [options]"],
     doctor: ["doctor [options]"], reconcile: ["reconcile [options]"], plan: ["plan [options]"], install: ["install [options]"], uninstall: ["uninstall [options]"], upgrade: ["upgrade [options]"],
     status: ["status [options]"], orientation: ["orientation [options]"], version: ["version [options]"], mcp: ["mcp"],
     search: ["search <phrase…> [options]"], show: ["show <path> [options]"],

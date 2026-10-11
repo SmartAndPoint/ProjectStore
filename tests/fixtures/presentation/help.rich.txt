@@ -5,8 +5,7 @@
   npx projectstore <verb> --help     [90mone verb's options and examples[39m
 
 [1mSTART[22m
-  [36minstall[39m      Install projectstore's surfaces for a harness, behind a preview.
-  [36mbind[39m         Bind this project to an existing vault; naming it confirms.
+  [36msetup[39m        Set up this project: every harness it uses, and a vault.
   [36muninstall[39m    Remove what install wrote, and only that.
 
 [1mVAULT[22m
@@ -22,7 +21,8 @@
   [36mupgrade[39m      After an update, refresh what install wrote and leave the rest.
 
 [1mADVANCED[22m
-  [36mplan[39m · [36morientation[39m · [36magents[39m · [36mband[39m · [36minit[39m · [36mscaffold[39m · [36mmcp[39m · [36mversion[39m
+  [36mplan[39m · [36minstall[39m · [36morientation[39m · [36magents[39m · [36mband[39m · [36mbind[39m · [36minit[39m · [36mscaffold[39m · [36mmcp[39m ·
+  [36mversion[39m
 
 [1mOptions[22m
   --project <dir>  the project (default: the session's, else this directory)
@@ -31,12 +31,12 @@
 
 [1mExamples[22m
 
-  [36mnpx projectstore install --harness <id>[39m
+  [36mnpx projectstore setup[39m
   [36mnpx projectstore status[39m
   [36mnpx projectstore doctor[39m
 
 [1mTips[22m
-  install, upgrade and uninstall show their plan, then ask at a terminal.
+  setup, install, upgrade and uninstall show a plan, then ask at a terminal.
   Without a terminal, --harness is the confirmation — there is no --yes.
   Unattended in a terminal: pass --json, set CI=1, or give stdin </dev/null.
   --verbose on those verbs adds every row's reasoning and the host's notes.

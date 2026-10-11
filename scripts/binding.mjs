@@ -16,8 +16,8 @@
 // another vault. Neither asks on a terminal, unlike install: there is no
 // preview to show — the whole write is the three values the caller just
 // typed, and the refusal texts name the second word. A rebind keeps every
-// other key of the config (statusline, agents, autoupdate_asked …): those are
-// the project's decisions, not the vault's.
+// other key of the config (statusline, agents, channel_keep …): those are the
+// project's decisions, not the vault's.
 //
 // Never reads ambient cwd or ambient env: the caller resolves the project
 // (cli.mjs's resolveProject) and supplies the author. Normative: the CLI

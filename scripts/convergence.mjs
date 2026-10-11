@@ -12,12 +12,14 @@
 //   decide({ copies, version, read, skipped, verb, args })
 //                                     → stop or proceed, with the stop's texts
 //   proceedCase(decision, v)          → the words a newer row adds when not stopped
-//   channelChoices({ harness, s, copy, running, gate }) → the ways this release
-//                                       offers to settle a project's channel (rule
-//                                       2's helper: the gate's text, and a newer copy's)
-//   newerCopyDeferral({ copy, running, decision, harness, s })
+//   channelChoices({ harness, copy, running, gate, pin }) → the ways to settle a
+//                                       project's channel (rule 2's helper: the
+//                                       gate's text, and a newer copy's): setup's
+//   pinFor(root, version)             → the version a command names: the running
+//                                       one, on a package root
+//   newerCopyDeferral({ copy, running, decision, harness, pin })
 //                                     → a newer copy not switched off: { reason, advice }
-//   switchConsequence(harness)        → a switch row's consequence line (rule 2)
+//   switchConsequence()               → a switch row's consequence line (rule 2)
 //   switchReason({ copy, running, runs, decision, unbound })
 //                                     → what a switch row adds under the channel "npm"
 //   noCopyToKeep({ harness, surface, off }) → the channel "git" with nothing to keep
@@ -39,15 +41,16 @@
 //
 // Imports lib, harness, portable-registration and surfaces, never the fetch
 // or the host runner: every spawn and resolver is the caller's. Only the
-// installer imports this file; doctor, lib and the hooks never do, so the
-// SessionStart graph never loads it (tests/convergence.test.mjs asserts
-// both). Pure node, no external deps — the read is Node's own fetch.
+// installer and setup's front-end (setup.mjs, which reads the running copies
+// before its questions) import this file; doctor, lib and the hooks never do,
+// so the SessionStart graph never loads it (tests/convergence.test.mjs
+// asserts both). Pure node, no external deps — the read is Node's own fetch.
 
-import { readFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
+import { readFileSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
-import { cmpPrecedence, installChannel, projectCopiesByKey, writeFileAtomic, envFlag } from "./lib.mjs";
-import { loadHarness, loadHarnesses, packageCommand } from "./harness.mjs";
+import { cmpPrecedence, installChannel, projectCopiesByKey, writeFileAtomic, envFlag, isEphemeralRoot } from "./lib.mjs";
+import { loadHarness, loadHarnesses } from "./harness.mjs";
 import { analysePortableRegistration, portableRegistrationPaths } from "./portable-registration.mjs";
 import { registrationPaths } from "./surfaces.mjs";
 
@@ -261,7 +264,7 @@ export function coreCommand(verb, { version = null, args = "" } = {}) {
 // part on its own line — the envelope's form, which an agent relays as it
 // is; `advice` is what PLAN draws, the commands in their own blocks.
 export function advised(text, blocks = []) {
-  return { reason: [text, ...blocks.flatMap((b) => [b.lead, b.command])].join("\n"), advice: { text, blocks } };
+  return { reason: [text, ...blocks.flatMap((b) => [b.lead, b.command])].filter((x) => x !== null && x !== undefined).join("\n"), advice: { text, blocks } };
 }
 
 // The run's own selection, repeated: --harness and --surface as given, and
@@ -304,55 +307,65 @@ export function proceedCase(decision, v) {
   return `${v} is published (the registry's latest is ${r.latest})`;
 }
 
-// Rule 2's helper: the ways this release offers to settle which copy a
-// project runs, when a copy from another marketplace is enabled for it. Only
-// verbs this release has are named, never `setup`, which does not exist yet;
-// the setup story replaces both branches below with its own commands
-// (`npx projectstore setup`, and its `--channel npm` and `--channel git`),
-// here and nowhere else.
-// - `gate` ({ verb, args, keys }): the channel gate's text (rule 2). A switch
-//   planned under no channel answer is a choice made at a terminal, and this
-//   release has no verb that takes the answer without one, so it names the
-//   terminal run of the same verb with the run's own --harness and --surface,
-//   in the core form (rule 9).
-// - otherwise, a newer copy that is not switched off (rule 6): the copy's own
-//   bin in the layout remedy's form (layout spec contract 12), which converges
-//   the project on that copy; and the host's own disable, built from the
-//   manifest as a plan step is, which leaves the project to this package's
-//   registration on the next run.
-export function channelChoices({ harness = null, s = null, copy = null, running = null, gate = null } = {}) {
+// The version a command a person runs next names (the setup story, rule 17;
+// the converge story's review follow-up): the running version on a package
+// root — npx's cache, a node_modules — so a run of `npx projectstore@0.30.0`
+// is answered by commands that run 0.30.0 again, never whatever is latest. A
+// checkout or a host's own copy names none.
+export function pinFor(root, version) {
+  return version && root && isEphemeralRoot(root) ? version : null;
+}
+
+// Rule 2's helper: the ways to settle which copy a project runs, when a copy
+// from another marketplace is enabled for it — setup's own commands (the
+// setup story, rule 17): the terminal run, `npx projectstore setup`, which
+// asks, then the two runs that name the answer without a terminal, `--channel
+// npm` and `--channel git`, each alone on its line (a `|` copied into a shell
+// is a pipe). Each names `@<version>` when the pin says so (pinFor), and
+// never --project (the ADR's decision 5).
+// - `gate` ({ args: { harnesses }, keys, version }): the channel gate's text
+//   (rule 2), for a switch planned under no channel answer without a
+//   terminal, the run's own --harness repeated in each command. setup takes
+//   no --surface, so a narrowed run's --surface is not repeated. A block with
+//   no lead follows the one before it.
+// - otherwise, a newer copy that is not switched off (rule 6), for `harness`:
+//   keeping it lets that copy write this project's surfaces (the keep), and
+//   switching runs this older package — both named, after the terminal run.
+export function channelChoices({ harness = null, copy = null, running = null, gate = null, pin = null } = {}) {
   if (gate) {
     const from = gate.keys?.length ? ` (${gate.keys.join(", ")})` : "";
-    return [{ lead: `Nothing written: this project loads ${PACKAGE} from the git marketplace${from}, and moving it to the npm install is a choice made at a terminal in this project:`, command: coreCommand(gate.verb || "upgrade", { args: runArgs(gate.args || {}) }) }];
+    const run = (extra = "") => coreCommand("setup", { version: gate.version || null, args: [runArgs({ harnesses: gate.args?.harnesses || [] }), extra].filter(Boolean).join(" ") });
+    return [
+      { lead: `Nothing written: this project loads ${PACKAGE} from the git marketplace${from}, and moving it to the npm install is a choice made at a terminal in this project:`, command: run() },
+      { lead: "Without a terminal, name the channel:", command: run("--channel npm") },
+      { lead: null, command: run("--channel git") },
+    ];
   }
-  const blocks = [];
-  const bin = copy?.path ? join(copy.path, "bin", "projectstore.mjs") : null;
-  if (bin && existsSync(bin)) blocks.push({ lead: "Run the newer copy instead, from a terminal in this project:", command: `node "${bin}" upgrade --harness ${harness.id} --no-register` });
-  const disable = s?.cli?.commands?.disable;
-  if (Array.isArray(disable) && disable.length && s.cli.bin) {
-    const argv = disable.map((t) => t.replace(/\{(\w+)\}/g, (_, k) => (k === "other" || k === "id" ? copy.key : `{${k}}`)));
-    blocks.push({ lead: `Or move this project to this package's registration, the older ${running}: turn that copy off for this project, then repeat this run:`, command: [s.cli.bin, ...argv].join(" ") });
-  }
-  return blocks;
+  const run = (extra = "") => coreCommand("setup", { version: pin, args: [`--harness ${harness.id}`, extra].filter(Boolean).join(" ") });
+  return [
+    { lead: "Choose at a terminal in this project; setup asks whether to keep that copy or switch:", command: run() },
+    { lead: `Without a terminal, keep ${copy?.key || "that copy"}, which then writes this project's surfaces itself:`, command: run("--channel git") },
+    { lead: `Or move this project to this package's npm install, the older ${running}:`, command: run("--channel npm") },
+  ];
 }
 
 // A newer copy from another marketplace under channel null: not switched
 // off, because switching it off would run the project on an older package.
 // The rows name both versions and the case, then the ways out.
-export function newerCopyDeferral({ copy, running, decision, harness, s }) {
+export function newerCopyDeferral({ copy, running, decision, harness, pin = null }) {
   const c = proceedCase(decision, copy.version);
   const text = `this project runs a newer copy (${copy.key} ${copy.version}) than this package (${running}), so it is not switched off${c ? ` — ${c}` : ""}.`;
-  return advised(text, channelChoices({ harness, s, copy, running }));
+  return advised(text, channelChoices({ harness, copy, running, pin }));
 }
 
 // The consequence line of a switch (rule 2; presentation spec contract 7):
 // the ADR's three facts — the git-marketplace copy is off for this project,
 // the host's update no longer reaches it, and what updates it from now on —
 // with no backticks, and no command followed by punctuation. The command is
-// packageCommand's, so it keeps the shell form until the text-cleanup story
-// moves it (rule 9's command-form rule).
-export function switchConsequence(harness) {
-  return `this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by ${packageCommand(harness, "upgrade")}`;
+// setup's, in the core form and unpinned (the setup story, rule 17): what
+// updates the project from now on is whichever version runs it next.
+export function switchConsequence() {
+  return `this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by ${coreCommand("setup")}`;
 }
 
 // The words a switch row adds under the channel "npm" (rules 2 and 6): over a
