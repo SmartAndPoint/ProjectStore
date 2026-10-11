@@ -272,7 +272,7 @@ test("upgrade: under an empty status-line slot (the status line is off) the move
   const { home, root } = install028();
   const { proj } = project027(home);
   const sp = join(proj, CFG_DIR, "settings.local.json");
-  const { statusLine, ...rest } = JSON.parse(readFileSync(sp, "utf8"));
+  const { statusLine: _statusLine, ...rest } = JSON.parse(readFileSync(sp, "utf8"));
   writeFileSync(sp, JSON.stringify(rest, null, 2) + "\n");
   const lp = layoutPaths(proj);
   const cfg = JSON.parse(readFileSync(lp.legacy.binding, "utf8"));

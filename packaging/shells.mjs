@@ -38,7 +38,9 @@
 // Nothing here ships inside `projectstore`: `packaging/` is not on the root
 // package.json's files allowlist, and tests/packaging.test.mjs keeps it so.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, cpSync, rmSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, readdirSync } from "node:fs";
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- build-time only, never shipped: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite builds a shell with it on Node 20 in CI
+import { cpSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve, dirname, join, basename } from "node:path";
 import { tmpdir } from "node:os";

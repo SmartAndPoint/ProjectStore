@@ -485,7 +485,7 @@ test("install contract 4: the four stale reasons each fire on the launcher, and 
     const i = item(plan(proj, { home, root }), "statusline_launcher");
     assert.equal(i.state, "stale"); assert.equal(i.reason, "plugin updated"); }
   // configuration changed: the same template and version, rendered from another root
-  { const { home, root, proj } = installed();
+  { const { home, proj } = installed();
     const other = fakeInstall(home, "0.28.0-b");
     writeFileSync(join(other, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.28.0" }));
     const i = item(plan(proj, { home, root: other }), "statusline_launcher");
@@ -2353,7 +2353,7 @@ test("setup engine 'The vault: inherit': planInherit copies the main checkout's 
   assert.equal(ip.ok, true, JSON.stringify(ip.refusals));
   assert.deepEqual(INHERIT_DROPS, ["channel_switch", "channel_keep"]);
   assert.deepEqual(ip.inherit, { from: s.proj, drop: ["channel_switch", "channel_keep"], dropped: ["channel_switch", "channel_keep"] });
-  const { channel_switch, channel_keep, ...kept } = parent;
+  const { channel_switch: _switch, channel_keep: _keep, ...kept } = parent;
   assert.deepEqual(ip.after, kept);
   assert.deepEqual(Object.keys(ip.after), Object.keys(kept), "in the parent's order");
   const p = plan(wt, { harnesses: [SRC.id], vault: ip, env: s.env, home: s.home, root: ROOT });
@@ -2452,7 +2452,7 @@ test("setup engine 'The status-line flag': true plans a binding item, last in Cl
   const p = plan(proj, { harnesses: [SRC.id], home, root, env, statusline: true });
   const flag = p.items.find((i) => i.surface === "statusline_flag");
   assert.deepEqual([flag.harness, flag.kind, flag.action, flag.state, flag.entry, flag.path], [SRC.id, "binding", "add", "absent", "statusline.enabled", bp]);
-  assert.deepEqual(publicItem(flag).steps.map(({ why, ...st }) => st), [{ kind: "set", path: bp, key: "statusline.enabled", value: true }]);
+  assert.deepEqual(publicItem(flag).steps.map(({ why: _why, ...st }) => st), [{ kind: "set", path: bp, key: "statusline.enabled", value: true }]);
   assert.ok(!("set" in publicItem(flag)) && !("unset" in publicItem(flag)), "apply's data stays off the envelope");
   assert.equal(p.items.filter((i) => i.harness === SRC.id).at(-1), flag, "last in its group");
   assert.notEqual(item(p, "statusline").state, "opt-out");

@@ -233,7 +233,9 @@ function writeCache(cachePath, cache, registry, latest, at) {
 // `atLeast`, the lowest newer copy rule 6 asks about: a release may have come
 // out since it was written. The cache never supplies a URL: an entry is only
 // looked up with the registry this run resolved. Never throws.
+/* eslint-disable n/no-unsupported-features/node-builtins -- the global fetch is experimental but present at Node 20 and stable from 21; without it readLatest answers "no fetch in this Node", and the suite runs it on Node 20 in CI */
 export async function readLatest({ registry, cachePath = null, fetch = globalThis.fetch, now = Date.now, timers = globalThis, timeoutMs = READ_TIMEOUT_MS, atLeast = null } = {}) {
+  /* eslint-enable n/no-unsupported-features/node-builtins */
   try {
     const cache = readCache(cachePath);
     const entry = cache[registry];
@@ -414,7 +416,7 @@ export function keepArgv(copy, { verb, harness, projectDir }) {
 // its `result`, or null when stdout holds none. The top-level `ok` is never
 // read — for plan it is `ok && !incomplete`, for a write verb the gate too.
 export function keepResult(stdout) {
-  let env = null;
+  let env;
   try { env = JSON.parse(String(stdout || "").trim()); } catch { return null; }
   const r = env && typeof env === "object" && !Array.isArray(env) ? env.result : null;
   return r && typeof r === "object" && !Array.isArray(r) ? r : null;

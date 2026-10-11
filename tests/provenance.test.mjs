@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { importSpecifiers } from "./fixtures/imports.mjs";
 import {
   GRAMMAR_VERSION,
   PROVENANCE_TOKEN,
@@ -263,7 +264,7 @@ test("install spec acceptance: one emitter, one parser — no other script or ho
 
 test("install spec modules: the leaf stays a leaf — node:crypto only, and no hook imports it", () => {
   const src = readFileSync(join(ROOT, "scripts", "provenance.mjs"), "utf8");
-  const imports = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
+  const imports = importSpecifiers(src);
   assert.deepEqual(imports, ["node:crypto"]);
   assert.ok(!/\bimport\s*\(/.test(src), "no dynamic import");
   assert.ok(!/^import\s+"/m.test(src) && !/from '/.test(src), "no side-effect or single-quoted import");

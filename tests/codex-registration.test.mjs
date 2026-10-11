@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, cpSync, chmodSync, existsSync, rmSync, utimesSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, chmodSync, existsSync, rmSync, utimesSync } from "node:fs";
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite runs on Node 20 in CI
+import { cpSync } from "node:fs";
 import { join, basename, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { plan, apply, publicItem, renderPreview, renderDone, runVerb, planOptions } from "../scripts/install-harness.mjs";

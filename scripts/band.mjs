@@ -34,7 +34,7 @@ export function epicIds(cfg, root) {
   try { folder = folderByKind(loadLayout(cfg.layout || "engineering", root), "epic"); } catch { folder = null; }
   if (!folder) return [];
   const dir = join(cfg.vault_path, folder.path);
-  let names = [];
+  let names;
   try { names = readdirSync(dir); } catch { return []; }
   return names.filter((n) => {
     if (!isEpicName(n)) return false;

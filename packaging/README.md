@@ -9,7 +9,7 @@ because an emergency should not depend on GitHub being up.
 
 | Guard | What it catches | Where it runs |
 |---|---|---|
-| `node scripts/version-guard.mjs [--tag vX.Y.Z]` | `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` and every `packaging/shells/*/package.json` (its version and its exact `=<version>` pin on the core) disagreeing with each other or with the release tag; a shell that does not bundle the core or misnames its bin | CI, and by hand before a local publish |
+| `node scripts/version-guard.mjs [--tag vX.Y.Z]` | `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `package-lock.json` (its `version` and `packages[""].version`) and every `packaging/shells/*/package.json` (its version and its exact `=<version>` pin on the core) disagreeing with each other or with the release tag; a shell that does not bundle the core or misnames its bin | CI, and by hand before a local publish |
 | `node packaging/shells.mjs --check` | a shell's committed `package.json` or bin drifting from its render (the pin, the bin's verb set) | CI, and `npm run release:check` |
 | `tests/packaging.test.mjs`, `tests/shells.test.mjs` | a directory added to the tree but forgotten in `files[]`, a `files[]` entry that stopped shipping, `publishConfig.provenance` creeping back in; a shell whose built tarball differs from its packlist fixture, or whose bin does not exec the bundled core with the harness fixed | CI, and `npm test` |
 | `tests/site.test.mjs` | the public site (`site/`, never shipped: `NOT_SHIPPED`) — its eight pages and `llms.txt`/`llms-full.txt` — stating what the repository contradicts: a command or role with no file, an `npx` verb its bin refuses, an install command README does not fence, the version, a count, a harness's status, a dead link into `main`, an example artifact whose shape or slug the product would not write; a language page out of step with the English one; a load from another origin; committed pages a build would change (asset hashes, alternates, the `en/` stub); `site/` over its 2,621,440-byte budget | CI, `npm test`, and `.github/workflows/pages.yml` before every deploy |
@@ -65,7 +65,9 @@ placeholder as `latest` for the duration of the candidate window. That is the
 intended shape: nothing installs a candidate by accident, and the first real
 release moves `latest` for the first time.
 
-Bumping to a candidate touches the three core version sites; `npm run shells`
+Bumping to a candidate touches the three core version sites, then
+`npm install --package-lock-only` brings `package-lock.json`'s `version` and
+`packages[""].version` along (the guard checks both); `npm run shells`
 re-renders the shells from them and `npm run packlist` regenerates the four
 fixtures. `node scripts/version-guard.mjs --tag v0.28.0-rc.1` is what proves
 they agree.

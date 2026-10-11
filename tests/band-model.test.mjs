@@ -111,11 +111,11 @@ test("contract 5: the counts are never cut — the hint goes first, then the bar
   const counts = countsText(c, W);
   assert.equal(counts, "21%  8 done · 16 in work · 14 backlog · 38 stories");
   const hint = "· hide: /projectstore:bar off";
-  const row = (lay, cols) => 2 + 3 + (lay.bar ? lay.bar + 2 : 0) + cellWidth(counts) + (lay.hint ? cellWidth(`  ${hint}`) : 0);
+  const row = (lay) => 2 + 3 + (lay.bar ? lay.bar + 2 : 0) + cellWidth(counts) + (lay.hint ? cellWidth(`  ${hint}`) : 0);
   for (let cols = 30; cols <= 200; cols++) {
     const lay = progressLayout(counts, hint, cols);
     assert.ok(lay.bar === 0 || (lay.bar >= BAR_MIN && lay.bar <= BAR_MAX), `${cols}: bar ${lay.bar}`);
-    if (lay.bar || lay.hint) assert.ok(row(lay, cols) < cols, `${cols}: the row fits`);
+    if (lay.bar || lay.hint) assert.ok(row(lay) < cols, `${cols}: the row fits`);
     if (lay.hint) assert.ok(lay.bar >= BAR_MIN, `${cols}: the hint stays only beside a bar`);
   }
   assert.deepEqual(progressLayout(counts, hint, 200), { bar: BAR_MAX, hint: true });

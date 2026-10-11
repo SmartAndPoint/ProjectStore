@@ -61,7 +61,6 @@ import {
   loadLayout,
   anchorKeyOf,
   foldAnchor,
-  composeAnchorName,
   bumpAnchor,
   readAnchorState,
   readAnchorOffer,
@@ -103,7 +102,7 @@ function anchorOffer(cfg, proj, sid, filePath, toolName, isSubagent, sessionsDir
   if (!speakingHarness()?.capabilities?.session_rename) return null;
 
   const rel = filePath.slice(cfg.vault_path.length + 1);
-  let hit = null;
+  let hit;
   try { hit = anchorKeyOf(rel, layoutOnce(cfg)); } catch { return null; }
   if (!hit) return null;
 

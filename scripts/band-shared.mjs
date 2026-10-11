@@ -25,7 +25,7 @@ export const HEARTBEAT_WINDOW_MS = 30_000;
 // as one. Null for an id that cannot name a file.
 export function heartbeatFile(sessionId) {
   if (typeof sessionId !== "string" || !sessionId) return null;
-  if (/[\/\\\0]/.test(sessionId) || sessionId === "." || sessionId === "..") return null;
+  if (/[/\\\0]/.test(sessionId) || sessionId === "." || sessionId === "..") return null;
   return `.band-${sessionId}.json`;
 }
 
@@ -140,13 +140,13 @@ const byName = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 export async function storyFiles(fs, epicDir) {
   const out = [];
   const stories = `${epicDir}/stories`;
-  let entries = [];
+  let entries;
   try { entries = await fs.list(stories); } catch { entries = []; }
   for (const e of [...entries].sort(byName)) {
     if (e.kind === "file" && e.name.endsWith(".md")) out.push(`${stories}/${e.name}`);
     else if (e.kind === "dir" && (await fs.exists(`${stories}/${e.name}/README.md`))) out.push(`${stories}/${e.name}/README.md`);
   }
-  let beside = [];
+  let beside;
   try { beside = await fs.list(epicDir); } catch { beside = []; }
   for (const e of [...beside].sort(byName)) {
     if (e.kind === "file" && e.name.startsWith("story-") && e.name.endsWith(".md")) out.push(`${epicDir}/${e.name}`);

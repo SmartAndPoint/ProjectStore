@@ -14,7 +14,9 @@
 // wrong-name, wrong-version, no-plugin-manifest, plugin-version,
 // core-version, ETARGET, E404, E401, E403, ECONNREFUSED, FETCH_ERROR, hang.
 
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, cpSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, statSync } from "node:fs";
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite runs on Node 20 in CI
+import { cpSync } from "node:fs";
 import { join, dirname, delimiter } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { EventEmitter } from "node:events";
@@ -204,11 +206,11 @@ export function codexHost(home, { fail = null } = {}) {
       if (!text.includes('[plugins."projectstore@projectstore-npx"]')) text += `\n[plugins."projectstore@projectstore-npx"]\nenabled = true\n`;
       writeFileSync(config, text);
     } else if (op === "plugin remove projectstore@projectstore-npx") {
-      text = text.replace(/\n?\[plugins\."projectstore@projectstore-npx"]\n(?:[^\[]|\n(?!\[))*?(?=\n\[|$)/, "\n");
+      text = text.replace(/\n?\[plugins\."projectstore@projectstore-npx"]\n(?:[^[]|\n(?!\[))*?(?=\n\[|$)/, "\n");
       writeFileSync(config, text);
       rmSync(join(home, "plugins", "cache", "projectstore-npx", "projectstore"), { recursive: true, force: true });
     } else if (op === "plugin marketplace remove projectstore-npx") {
-      text = text.replace(/\n?\[marketplaces\.projectstore-npx]\n(?:[^\[]|\n(?!\[))*?(?=\n\[|$)/, "\n");
+      text = text.replace(/\n?\[marketplaces\.projectstore-npx]\n(?:[^[]|\n(?!\[))*?(?=\n\[|$)/, "\n");
       writeFileSync(config, text);
     } else if (op === "plugin list") {
       return { status: 0, stderr: "", stdout: "Marketplace  Plugin  Status\nprojectstore-npx  projectstore  enabled\n" };

@@ -13,7 +13,7 @@
 //    open. Bounded and O(1) in vault size by construction.
 
 import { existsSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { dirname } from "node:path";
 import {
   readConfig,
   gatherVaultFacts,

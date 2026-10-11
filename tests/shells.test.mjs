@@ -15,7 +15,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, copyFileSync, cpSync, rmSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, copyFileSync, rmSync, statSync } from "node:fs";
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite runs on Node 20 in CI
+import { cpSync } from "node:fs";
 import { resolve, dirname, join, delimiter } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -294,7 +296,7 @@ test("shells contract 11 / AC 3: the guard counts every shell — a version, a p
   assert.deepEqual(collectShells(mkdtempSync(join(TMP, "noshells-"))), { shells: [] }, "a tree without packaging/ has no shells and no error");
   // A scratch tree with the version sites and the shells.
   const scratch = mkdtempSync(join(TMP, "guard-"));
-  for (const rel of ["package.json", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"]) { mkdirSync(dirname(join(scratch, rel)), { recursive: true }); copyFileSync(join(ROOT, rel), join(scratch, rel)); }
+  for (const rel of ["package.json", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json", "package-lock.json"]) { mkdirSync(dirname(join(scratch, rel)), { recursive: true }); copyFileSync(join(ROOT, rel), join(scratch, rel)); }
   cpSync(join(ROOT, SHELLS_DIR), join(scratch, SHELLS_DIR), { recursive: true });
   writeFileSync(join(scratch, SHELLS_DIR, ".DS_Store"), "finder"); // a file beside the shells is not a shell
   assert.equal(checkVersions({ root: scratch }).ok, true);

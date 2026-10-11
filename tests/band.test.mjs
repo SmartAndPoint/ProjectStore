@@ -5,9 +5,8 @@
 
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
-import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { run } from "../scripts/cli.mjs";
 import { sourceHarness, loadHarness, hasBand, hostSessionId, layoutPaths } from "../scripts/harness.mjs";
@@ -71,7 +70,7 @@ test("contract 13: on, off, epic <ID> and bare epic each write the binding once,
   assert.equal(r.code, 0, r.err);
   assert.equal("epic" in bindingOf(proj).band, false);
 
-  r = await band(proj, ["on", "--json"]);
+  await band(proj, ["on", "--json"]);
   assert.deepEqual(bindingOf(proj).band, { enabled: true, hint_seen: true });
 });
 
@@ -87,11 +86,11 @@ test("contract 13: an unknown epic is refused and names the ones that exist; not
 test("contract 13: without --json a terminal is asked; without a terminal the write is refused", async () => {
   const { proj } = project();
   const asked = [];
-  let r = await band(proj, ["off"], { ask: async (q) => { asked.push(q); return "n"; } });
+  await band(proj, ["off"], { ask: async (q) => { asked.push(q); return "n"; } });
   assert.equal(asked.length, 1);
   assert.match(asked[0], /switch the band off/);
   assert.equal(bindingOf(proj).band, undefined, "a no writes nothing");
-  r = await band(proj, ["off"]);
+  let r = await band(proj, ["off"]);
   assert.equal(r.code, 2);
   assert.match(r.err, /passes --json/);
   r = await band(proj, ["off", "--json"], { ask: async () => { throw new Error("--json never asks"); } });

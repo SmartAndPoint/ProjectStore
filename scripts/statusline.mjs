@@ -214,7 +214,7 @@ function runBase(cmd, rawStdin, env) {
 
 function main() {
   const raw = readRawStdin();
-  let input = {};
+  let input;
   try { input = JSON.parse(raw) || {}; } catch { input = {}; }
 
   // The status line gets no project variable from the harness; the project is
@@ -224,11 +224,11 @@ function main() {
   const projectDir =
     (input.workspace && input.workspace.project_dir) || input.cwd || process.cwd();
 
-  let cfg = null;
+  let cfg;
   try { cfg = readConfigAt(projectDir); } catch { cfg = null; }
 
   const strings = loadStrings(cfg && cfg.language);
-  let book = null;
+  let book;
   try { book = cfg && cfg.vault_path ? bookSegment(cfg, projectDir, input, strings) : null; } catch { book = null; }
 
   const yielded = Boolean(cfg && cfg.vault_path && bandYields(projectDir, input.session_id));

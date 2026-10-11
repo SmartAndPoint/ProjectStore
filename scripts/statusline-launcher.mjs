@@ -20,7 +20,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
 
 // Substituted by renderStatusLineLauncher() in scripts/lib.mjs — the fallback
 // root and the harness's own variable names (this file runs before it knows

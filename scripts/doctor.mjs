@@ -45,7 +45,6 @@ import {
   statusLineIsOurWiring,
   isLegacyStory,
   sectionOf,
-  headingLineRe,
   indexHeaderRe,
   evidenceSuffixRe,
   storiesAttributionRe,
@@ -90,7 +89,7 @@ import {
   bindInherits,
   doctorFallbackText,
 } from "./lib.mjs";
-import { agentOverrides, childEnv, sourceHarness, runtimeEnvNames, loadHarness, detectHarnesses, identifiedHarnessId, configPath as harnessConfigPath, packageCommand, invocation } from "./harness.mjs";
+import { agentOverrides, childEnv, sourceHarness, loadHarness, detectHarnesses, identifiedHarnessId, configPath as harnessConfigPath, packageCommand, invocation } from "./harness.mjs";
 
 // A remedy used to interpolate the surface's harness variable here. It cannot:
 // measured 2026-09-06, NO harness gives its Bash tool that variable, and a
@@ -919,7 +918,7 @@ export function checkLayout(proj, harness = sourceHarness(), { level = "warn", r
   const legacyBinding = existsSync(p.legacy.binding), legacyRuntime = existsSync(p.legacy.runtime);
   let resumable = false;
   if (legacyBinding && existsSync(p.binding)) {
-    try { const { agents, ...rest } = JSON.parse(readFileSync(p.legacy.binding, "utf8")); resumable = JSON.stringify(rest) === JSON.stringify(JSON.parse(readFileSync(p.binding, "utf8"))); } catch {}
+    try { const { agents: _agents, ...rest } = JSON.parse(readFileSync(p.legacy.binding, "utf8")); resumable = JSON.stringify(rest) === JSON.stringify(JSON.parse(readFileSync(p.binding, "utf8"))); } catch {}
   }
   if (legacyBinding && existsSync(p.binding) && !resumable) {
     return [finding("install", "issue", "layout-two-configs", `Two bindings: ${relative(proj, p.legacy.binding)} (legacy) and ${relative(proj, p.binding)} — keep one and delete the other; install and upgrade refuse while both exist. Usually the legacy one goes: it is the copy an interrupted migration or a 0.27.x re-bind left behind (when both name the same vault, upgrade removes it itself).`, relative(proj, p.legacy.binding))];

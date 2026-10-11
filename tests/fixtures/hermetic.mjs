@@ -43,8 +43,11 @@ process.on("exit", () => { try { rmSync(scratch, { recursive: true, force: true,
 process.env.PROJECTSTORE_NO_UPDATE_CHECK = "1";
 // …and a test that forgets to inject `fetch` never reaches the network: Node's
 // fetch answers only the loopback here (the bin tests' 127.0.0.1 registry).
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: the global fetch is experimental but present at Node 20 and stable from 21, and the suite runs on Node 20 in CI
 if (typeof globalThis.fetch === "function") {
+  // eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: the global fetch is present at Node 20, stable from 21
   const loopback = globalThis.fetch;
+  // eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: the global fetch is present at Node 20, stable from 21
   globalThis.fetch = (input, init) => {
     let host = null;
     try { host = new URL(typeof input === "string" || input instanceof URL ? String(input) : input?.url).hostname; } catch {}

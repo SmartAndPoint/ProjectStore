@@ -27,7 +27,7 @@
 import { readFileSync, existsSync, realpathSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { loadHarnesses, loadHarness, harnessIds, detectHarnesses, sourceHarness, MANIFEST_DIR } from "./harness.mjs";
+import { loadHarnesses, harnessIds, detectHarnesses, sourceHarness, MANIFEST_DIR } from "./harness.mjs";
 import { stamp, deriveState, parseProvenance, sourceHash, STALE, STALE_TEXT, FOREIGN_TEXT } from "./provenance.mjs";
 import {
   pluginRoot,
@@ -365,7 +365,7 @@ export function analyseLayout(projectDir, { harness = null } = {}) {
   let resumable = false;
   if (legacy.binding && current.binding) {
     try {
-      const { agents, ...oldRest } = JSON.parse(readFileSync(p.legacy.binding, "utf8"));
+      const { agents: _agents, ...oldRest } = JSON.parse(readFileSync(p.legacy.binding, "utf8"));
       const cur = JSON.parse(readFileSync(p.binding, "utf8"));
       resumable = JSON.stringify(oldRest) === JSON.stringify(cur);
     } catch { resumable = false; }

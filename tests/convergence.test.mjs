@@ -25,6 +25,7 @@ import { npmUserRegistry } from "../scripts/fetch-shell.mjs";
 import { sourceHarness, loadHarness, cachePaths } from "../scripts/harness.mjs";
 import { fakeInstall, fakePackageRoot, noHostEnv, writeRegistry } from "./fixtures/install.mjs";
 import { fakeNpmSpawn, FAKE_REGISTRY, registryFetch, instantTimers } from "./fixtures/fetch.mjs";
+import { importSpecifiers } from "./fixtures/imports.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
@@ -452,7 +453,7 @@ test("converge rule 5: readKeepPlan reads the kept copy's plan through its bin w
 
 test("converge: convergence.mjs imports lib, harness, portable-registration and surfaces only; doctor, lib, the hooks and the SessionStart graph never load it; the installer and setup's front-end are its only importers", () => {
   const src = readFileSync(join(ROOT, "scripts", "convergence.mjs"), "utf8");
-  const local = [...src.matchAll(/^import .* from "(\.\/[^"]+)";$/gm)].map((m) => m[1]);
+  const local = importSpecifiers(src).filter((s) => s.startsWith("./"));
   for (const s of local) assert.ok(["./lib.mjs", "./harness.mjs", "./portable-registration.mjs", "./surfaces.mjs"].includes(s), `convergence.mjs imports ${s}`);
   assert.ok(!/\bimport\s*\(/.test(src), "no dynamic import");
   for (const n of ["doctor.mjs", "lib.mjs", "harness.mjs", "surfaces.mjs", "portable-registration.mjs", "fetch-shell.mjs", "run-host.mjs", "statusline.mjs", "touch-session.mjs"]) {

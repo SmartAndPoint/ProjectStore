@@ -29,7 +29,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
 import {
   readConfig,
   readConfigAt,
@@ -156,7 +155,7 @@ const SKIP = {
 function derivedTarget(script, explicit = false, fallbackPath = null) {
   const g = runGenerator(script);
   if (g.error) return { ...(fallbackPath ? { path: fallbackPath } : {}), error: g.error };
-  let onDisk = null;
+  let onDisk;
   try {
     onDisk = existsSync(g.path) ? readFileSync(g.path, "utf8") : null;
   } catch (e) {

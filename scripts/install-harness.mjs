@@ -151,7 +151,7 @@ function planAgentsBlock(ctx, key, s) {
   const { projectDir, mode, root } = ctx;
   const run = ctx.run || [ctx.harness];
   const a = analyseBlock(projectDir, s, { root, layout: ctx.layout || null, readers: ctx.readers || null });
-  const { withBlock, preferred, claude, importLine, PREFERRED, FALLBACK } = a;
+  const { withBlock, preferred, importLine, FALLBACK } = a;
   const items = [];
   if (a.refusal) return [{ surface: key, kind: "shared", path: a.files[0].path, entry: "projectstore:agents", state: "refused", action: "refuse", reason: a.refusal }];
 
@@ -1517,7 +1517,7 @@ function applyLayout(p, i, { failed, home = homedir(), onStep = null }) {
       else if (st.kind === "delete") { out.steps.push({ kind: st.kind, path: st.path, ok: true, removed: removeInside(st.path, within) }); }
       else if (st.kind === "move-marker") { const r = movePath(st.from, st.to, within); if (r === "target-exists") removeInside(st.from, within); out.steps.push({ kind: st.kind, ok: true, result: r }); }
       else if (st.kind === "move-binding") {
-        let cfg; try { cfg = JSON.parse(readFileSync(st.from, "utf8")); } catch (e) { return fail(st.kind, `${st.from} is not valid JSON; the binding was not moved`); }
+        let cfg; try { cfg = JSON.parse(readFileSync(st.from, "utf8")); } catch { return fail(st.kind, `${st.from} is not valid JSON; the binding was not moved`); }
         if (existsSync(st.to)) return fail(st.kind, `${st.to} appeared under the plan; two bindings are a refusal`);
         const { agents, ...binding } = cfg && typeof cfg === "object" ? cfg : {};
         if (agents && typeof agents === "object") {
@@ -2095,7 +2095,7 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
       // Re-read at write time: a host command run earlier in this apply (the
       // registration's) may have added sibling keys since plan() read the file.
       // Our entry is set or deleted on the file as it stands; nothing else moves.
-      let now = null;
+      let now;
       try { now = JSON.parse(readFileSync(i.path, "utf8")); } catch { now = null; }
       let merged = i.after;
       if (now && typeof now === "object" && !Array.isArray(now) && i.entry) {
@@ -3299,7 +3299,7 @@ function usage() {
 // `plan --json` (S1 of the 2026-10-03 review in "The Codex shell's plugin root:
 // .codex-plugin, the rendered surfaces, and the first Codex install").
 const PRIVATE_STEP_FIELDS = { "portable-write": ["catalog", "ownership", "from"] };
-function publicStep({ manifest, ...s }) {
+function publicStep({ manifest: _manifest, ...s }) {
   for (const k of PRIVATE_STEP_FIELDS[s.kind] || []) delete s[k];
   if (s.kind === "portable-write" && Array.isArray(s.files)) s.files = s.files.length;
   return s;
@@ -3308,7 +3308,7 @@ function publicStep({ manifest, ...s }) {
 // are the plan's own, never the envelope's.
 // `advice` is the reason's commands, kept apart for PLAN to draw alone on
 // their lines; the envelope has them in `reason`, one part per line.
-export const publicItem = ({ before, after, steps, observed, analysed, digestDeferred, advice, ...rest }) => steps
+export const publicItem = ({ before: _before, after: _after, steps, observed: _observed, analysed: _analysed, digestDeferred: _digestDeferred, advice: _advice, ...rest }) => steps
   ? { ...rest, steps: steps.map(publicStep) }
   : rest;
 

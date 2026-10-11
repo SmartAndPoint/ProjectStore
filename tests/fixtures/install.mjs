@@ -11,7 +11,9 @@
 // repo. writeRegistry(home, entries) — installed_plugins.json in the shape
 // lib.installedPluginEntries reads.
 
-import { mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, copyFileSync, readFileSync, rmSync } from "node:fs";
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite runs on Node 20 in CI
+import { cpSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sourceHarness, loadHarnesses } from "../../scripts/harness.mjs";

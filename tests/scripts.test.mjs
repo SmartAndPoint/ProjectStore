@@ -1996,13 +1996,12 @@ test("name offer: it composes with the raw-edit nudge instead of racing it", () 
   const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
   // The nudge fires on the first vault write of a ten-minute window; the offer
   // on the fifth. Force both onto one invocation by clearing the nudge stamp.
-  let out = null;
   for (let i = 0; i < 4; i++) vaultWrite(proj, vault, rel);
   const statePath = sessionStatePath(proj, "n1");
   const st = JSON.parse(readFileSync(statePath, "utf8"));
   delete st.nudged_at;
   writeFileSync(statePath, JSON.stringify(st), "utf8");
-  out = vaultWrite(proj, vault, rel);
+  const out = vaultWrite(proj, vault, rel);
   assert.ok(out && out.systemMessage, "both mechanisms had something to say");
   assert.match(out.systemMessage, /run \/projectstore:reconcile/, "the nudge survived");
   assert.match(out.systemMessage, /looks like/, "the offer survived");

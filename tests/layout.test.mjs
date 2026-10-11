@@ -11,7 +11,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync, rmSync, statSync, utimesSync, symlinkSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync, realpathSync, rmSync, utimesSync, symlinkSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -20,7 +20,7 @@ import { fakeInstall, cacheRoot, writeRegistry, installEnv, noHostEnv, legacyPro
 import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
 import { plan, apply, renderPreview, runVerb, publicItem } from "../scripts/install-harness.mjs";
 import { analyseLayout } from "../scripts/surfaces.mjs";
-import { sourceHarness, loadHarness, loadHarnesses, detectHarnesses, LAYOUT, layoutPaths, cachePaths, pickExisting, RUNTIME_GITIGNORE_HEADER } from "../scripts/harness.mjs";
+import { sourceHarness, loadHarnesses, detectHarnesses, LAYOUT, layoutPaths, cachePaths, pickExisting, RUNTIME_GITIGNORE_HEADER } from "../scripts/harness.mjs";
 import { checkLayout, checkGitignore, runStartupChecks, runInstallChecks, layoutRemedy, takesNoRegister } from "../scripts/doctor.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
 import {
@@ -197,7 +197,7 @@ test("layout contract 6: one ordered `layout` item first, the launcher created a
 
 test("layout contract 6: state on both sides is the normal case — a newer legacy session file wins, a per-session directory keeps the new side, the logs merge legacy-first; a half-run resumes at the pending step", () => {
   const { home, root } = home028();
-  const { proj, lp } = legacyProject(home);
+  const { proj } = legacyProject(home);
   const env = noHostEnv();
   // The first 0.28 session already wrote the new state before the user ran upgrade.
   ensureStateDir(proj);
@@ -290,7 +290,7 @@ test("layout contract 6: the layout item is planned whatever --surface names, an
   assert.ok(existsSync(lp.legacy.launcher), "no launcher item ran, so the legacy launcher stays until one does");
   // An interrupted binding move: the new file written, the legacy not yet removed → resumes with one delete.
   const { proj: p2, lp: lp2 } = legacyProject(home);
-  const cfg = JSON.parse(read(lp2.legacy.binding)); const { agents, ...rest } = cfg;
+  const cfg = JSON.parse(read(lp2.legacy.binding)); const { agents: _agents, ...rest } = cfg;
   writeBinding(p2, rest);
   const resumed = plan(p2, { home, root, env });
   assert.equal(resumed.ok, true, "byte-equal but for agents is a resume, not a refusal");
@@ -513,7 +513,7 @@ test("layout contract 7: the fallback window closes at 0.30 — this test is the
 });
 
 test("layout contract 5: the launcher names its project through a rendered placeholder, and the 0.27.1 template cannot be filled", () => {
-  const { home, root } = home028();
+  const { root } = home028();
   const proj = mkdtempSync(join(TMP, "ps-layout-proj-"));
   const src = renderStatusLineLauncher(TPL, root, proj);
   assert.ok(src.includes(`const PROJECT_DIR = ${JSON.stringify(proj)};`));

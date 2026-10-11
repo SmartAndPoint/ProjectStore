@@ -51,7 +51,7 @@ let _cache = null;
 export function loadHarnesses(dir = MANIFEST_DIR) {
   if (_cache && _cache.dir === dir) return _cache.map;
   const map = new Map();
-  let names = [];
+  let names;
   try {
     names = readdirSync(dir).filter((n) => n.endsWith(".json")).sort();
   } catch {

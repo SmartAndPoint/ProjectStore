@@ -58,3 +58,26 @@ jobs:
 
       - name: Test suite, including the packaging contracts
         run: node --test --import ./tests/fixtures/hermetic.mjs tests/*.test.mjs
+
+  # ESLint and Prettier (the lint ADR): pinned devDependencies, installed from
+  # the committed lockfile. The test job above installs nothing; this one runs
+  # once, on Node 24, since ESLint 10 needs ^20.19, ^22.13 or >=24.
+  lint:
+    runs-on: ubuntu-latest
+    name: lint (node 24)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Formatting
+        run: npm run format:check

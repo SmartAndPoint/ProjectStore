@@ -22,7 +22,7 @@ import { fakeInstall, fakePackageRoot, fakeClaude, noHostEnv, writeRegistry, ins
 import { plan, renderPreview, apply, runVerb, publicItem, renderDone, applyReporter, gateText } from "../scripts/install-harness.mjs";
 import { planBind } from "../scripts/binding.mjs";
 import { analyseRegistration, registrationPaths, surfaceStates } from "../scripts/surfaces.mjs";
-import { sourceHarness, loadHarness, packageCommand } from "../scripts/harness.mjs";
+import { sourceHarness, loadHarness } from "../scripts/harness.mjs";
 import { PLAIN } from "../scripts/term.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
 import { fakeNpmSpawn, registryFetch, instantTimers, FAKE_REGISTRY } from "./fixtures/fetch.mjs";
@@ -1562,7 +1562,7 @@ test("setup engine 'The keep's record': runVerb('setup') under the channel git p
   assert.deepEqual(mine.map((i) => [i.kind, i.surface, i.action]), [["shared", "agents_block", "add"], ["channel", "channel", "update"], ["state", "harness_state", "create"], ["binding", "channel_keep", "add"]]);
   const rec = mine.at(-1);
   assert.deepEqual([rec.entry, rec.state, rec.path], ["channel_keep", "absent", layoutPaths(proj).binding]);
-  assert.deepEqual(publicItem(rec).steps.map(({ why, ...st }) => st), [{ kind: "mark", path: layoutPaths(proj).binding, key: "channel_keep" }]);
+  assert.deepEqual(publicItem(rec).steps.map(({ why: _why, ...st }) => st), [{ kind: "mark", path: layoutPaths(proj).binding, key: "channel_keep" }]);
   assert.ok(s.text.includes(`\n      edit .projectstore/projectstore.json  [channel_keep] → by "setup", at the time of apply\n`), s.text);
   const before = bindingOf(proj);
   const y = await run("setup", "y");
@@ -1610,7 +1610,7 @@ test("setup engine 'A later switch': channel npm on a binding that carries chann
   assert.equal(after.channel_keep, undefined, "the keep goes");
   assert.equal(after.channel_switch.by, "setup");
   assert.match(after.channel_switch.at, ISO_TIME);
-  const { channel_keep, ...rest } = kept;
+  const { channel_keep: _keep, ...rest } = kept;
   assert.deepEqual(Object.keys(after), [...Object.keys(rest), "channel_switch"]);
   for (const k of Object.keys(rest)) assert.deepEqual(after[k], rest[k], k);
   assert.deepEqual(writesOf(plan(proj, { home, root, env, channel: "npm" })), []);
@@ -1687,14 +1687,14 @@ test("setup engine 'The latest answer wins: a switch': channel npm on a binding 
   assert.equal(sb.item(p, "channel_switch"), undefined, "no second mark");
   const gone = sb.item(p, "channel_keep");
   assert.deepEqual([gone.harness, gone.kind, gone.action, gone.state, gone.entry, gone.path], [SRC.id, "binding", "update", "present", "channel_keep", layoutPaths(proj).binding]);
-  assert.deepEqual(publicItem(gone).steps.map(({ why, ...st }) => st), [{ kind: "unmark", path: layoutPaths(proj).binding, key: "channel_keep" }]);
+  assert.deepEqual(publicItem(gone).steps.map(({ why: _why, ...st }) => st), [{ kind: "unmark", path: layoutPaths(proj).binding, key: "channel_keep" }]);
   assert.equal(p.items.filter((i) => i.kind === "binding").length, 1, "one item");
   assert.equal(p.items.filter((i) => i.harness === SRC.id).at(-1), gone, "last in its group");
   assert.ok(renderPreview(p).includes("\n      edit .projectstore/projectstore.json  [channel_keep] → removed\n"), renderPreview(p));
   const done = apply(p, { env, home });
   assert.equal(done.failed, undefined, JSON.stringify(done));
   assert.deepEqual(done.find((d) => d.surface === "channel_keep").steps, [{ kind: "unmark", path: layoutPaths(proj).binding, ok: true }]);
-  const { channel_keep, ...rest } = both;
+  const { channel_keep: _keep, ...rest } = both;
   assert.equal(JSON.stringify(bindingOf(proj)), JSON.stringify(rest), "the mark as it was; every other key, in its place");
   assert.deepEqual(writesOf(plan(proj, { home, root, env, channel: "npm" })), []);
   // Presence is what a removal reads: a malformed keep goes too.
@@ -1720,7 +1720,7 @@ test("setup engine 'The latest answer wins: a keep': the keep's record removes c
   assert.equal(p.items.filter((i) => i.harness === SRC.id).at(-1), gone, "last in its group");
   assert.ok(renderPreview(p).includes("\n      edit .projectstore/projectstore.json  [channel_switch] → removed\n"), renderPreview(p));
   assert.equal(apply(p, { env: k.env, home: k.home }).failed, undefined);
-  const { channel_switch, ...rest } = both;
+  const { channel_switch: _switch, ...rest } = both;
   assert.equal(JSON.stringify(bindingOf(k.proj)), JSON.stringify(rest), "the keep as it was; every other key, in its place");
   assert.deepEqual(bindingItems(plan(k.proj, opts(k))), [], "zero-change");
   // The switch alone: the keep recorded and the switch removed, in one item.

@@ -45,6 +45,11 @@ const VERSION_SITES = [
     (j) => j.plugins?.find((p) => p.name === "projectstore")?.version,
     true,
   ],
+  // The lockfile, committed since the lint ADR, records the root package's
+  // version twice. `npm version` rewrites both; a hand edit of package.json
+  // leaves both behind, and this is where that shows.
+  ["package-lock.json", (j) => j.version, true],
+  ["package-lock.json", (j) => j.packages?.[""]?.version, true],
 ];
 
 // The distribution shells (the shells ADR; layout spec contract 11): one
@@ -182,6 +187,11 @@ export const NOT_SHIPPED = new Set([
   "adapters", // generated harness inputs copied into their distribution shells at build time
   "site", // the public site: Pages serves it, npm never does
   "package-lock.json",
+  // The lint and format tooling (the lint ADR): dev-only, never in the package.
+  "eslint.config.mjs",
+  ".prettierrc.json",
+  ".prettierignore",
+  ".git-blame-ignore-revs",
   // Claude Code lays this beside a plugin folder it loads with --plugin-dir
   // (extending .claude-plugin/types/, which is gitignored and kept out of the
   // package too): the band module's type-check reads it, nobody installs it.

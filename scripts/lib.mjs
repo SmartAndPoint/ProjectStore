@@ -2,7 +2,7 @@
 // Pure node, no external deps. Keep this single-file & dependency-free
 // so plugin install does not require npm install.
 
-import { readFileSync, writeFileSync, writeSync, appendFileSync, existsSync, readdirSync, statSync, lstatSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync, realpathSync, cpSync } from "node:fs";
+import { readFileSync, writeFileSync, writeSync, appendFileSync, existsSync, readdirSync, statSync, lstatSync, mkdirSync, utimesSync, unlinkSync, renameSync, rmSync, realpathSync, copyFileSync } from "node:fs";
 import { readFile as readFileAsync } from "node:fs/promises";
 import { join, dirname, basename, resolve, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -306,7 +306,7 @@ export function readConfigAt(projectDir) {
   if (!existsSync(p)) return null;
   try {
     return JSON.parse(readFileSync(p, "utf8"));
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -655,7 +655,7 @@ export function copyPackageTree(from, to) {
   for (const rel of files) {
     const dst = join(to, rel);
     mkdirSync(dirname(dst), { recursive: true });
-    cpSync(join(from, rel), dst);
+    copyFileSync(join(from, rel), dst);
   }
   return files;
 }
@@ -725,7 +725,7 @@ export function stagePortableMarketplace(dir, { from, files, subdir, catalogRel,
     if (!st.isFile() || st.isSymbolicLink()) throw new Error(`portable payload changed under the plan: ${rel} is not a regular file`);
     const dst = join(stage, subdir, rel);
     mkdirSync(dirname(dst), { recursive: true });
-    cpSync(src, dst);
+    copyFileSync(src, dst);
   }
   mkdirSync(dirname(join(stage, catalogRel)), { recursive: true });
   mkdirSync(dirname(join(stage, ownershipRel)), { recursive: true });
@@ -1324,7 +1324,7 @@ export function loadHeadingsRegistry() {
   try {
     _headingsCache = JSON.parse(readFileSync(p, "utf8"));
   } catch (e) {
-    throw new Error(`heading registry missing or unreadable (${p}): ${e.message}`);
+    throw new Error(`heading registry missing or unreadable (${p}): ${e.message}`, { cause: e });
   }
   return _headingsCache;
 }

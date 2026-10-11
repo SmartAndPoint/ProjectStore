@@ -556,7 +556,7 @@ test("cli shell fetch: text puts the badge first, the fetch line under it, then 
   assert.equal(j.status, 0, j.stdout + j.stderr);
   const doc = JSON.parse(j.stdout);
   assert.equal(doc.ok, true);
-  assert.deepEqual(doc.result.fetched.map(({ ms, ...x }) => x), [{ harness: g.codex.id, package: shell, version: PKG.version }]);
+  assert.deepEqual(doc.result.fetched.map(({ ms: _ms, ...x }) => x), [{ harness: g.codex.id, package: shell, version: PKG.version }]);
   assert.ok(!j.stdout.includes("✓ fetched"), "nothing but the envelope");
   assert.deepEqual(readdirSync(g.fetchDir), []);
 });
@@ -756,7 +756,6 @@ test("cli: every invocation in the prompt surface is the bin with a known verb, 
     ...readdirSync(join(ROOT, "agents")).filter((f) => f.endsWith(".md")).map((f) => join("agents", f)),
     ...readdirSync(join(ROOT, "skills")).map((d) => join("skills", d, "SKILL.md")).filter((p) => existsSync(join(ROOT, p))),
   ];
-  const verbs = new Set(VERBS.map((v) => v.verb));
   const exceptions = new Set(SCRIPT_ONLY.map((s) => s.script));
   let binCalls = 0;
   for (const rel of files) {

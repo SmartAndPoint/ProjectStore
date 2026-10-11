@@ -33,8 +33,7 @@
 //   CANCELLED, BACK              → what a rail question resolves to on Ctrl+C or end of input, and on Esc
 //   drainInput(stdin, opts)      → discards what was typed ahead, before a line-mode question
 
-import { createInterface } from "node:readline/promises";
-import { emitKeypressEvents } from "node:readline";
+import { createInterface, emitKeypressEvents } from "node:readline";
 
 // FORCE_COLOR decides when it is set, as Node's own tty reads it: "", "1",
 // "2", "3" or "true" turn colour on even without a terminal, anything else
@@ -425,8 +424,10 @@ export function liveLine(stream = process.stdout, c = caps(stream), label = "", 
 // the terminal does the editing, and Ctrl+C is a real SIGINT (exit 130, before
 // anything is written). End of input — Ctrl+D, a closed pipe — is null, which
 // every caller reads as no; it never leaves the question pending (an unsettled
-// promise is exit 13 with a warning). The promise API rejects on close in
-// some Node versions and stays pending in others; both settle here.
+// promise is exit 13 with a warning). The question is node:readline's callback
+// form: readline/promises is experimental before Node 22.17 and 24, below the
+// engines floor. Its callback never runs on close, so the close handler
+// settles it.
 export async function askLine(question, input, output) {
   const rl = createInterface({ input, output, terminal: false });
   return await new Promise((settle) => {
@@ -435,7 +436,7 @@ export async function askLine(question, input, output) {
     // End of input echoes no newline: end the question's line, so whatever is
     // printed next ("Nothing written.") starts on a line of its own.
     rl.on("close", () => { if (!done) output.write("\n"); finish(null); });
-    rl.question(question).then((a) => finish(a), () => finish(null));
+    rl.question(question, (a) => finish(a));
   });
 }
 

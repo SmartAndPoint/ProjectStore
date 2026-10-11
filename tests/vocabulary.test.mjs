@@ -12,7 +12,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, cpSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, rmSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -105,7 +105,7 @@ function packedShell(m) {
   const core = join(tree, "node_modules", "projectstore");
   for (const rel of JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "packlist.json"), "utf8"))) {
     mkdirSync(dirname(join(core, rel)), { recursive: true });
-    cpSync(join(ROOT, rel), join(core, rel));
+    copyFileSync(join(ROOT, rel), join(core, rel));
   }
   writeFileSync(join(tree, "package.json"), JSON.stringify({ name: m.install.shell }) + "\n");
   return core;

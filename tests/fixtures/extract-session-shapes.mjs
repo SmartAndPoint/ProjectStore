@@ -46,7 +46,8 @@ for (const f of readdirSync(dir).filter((f) => f.endsWith(".jsonl")).sort()) {
       if (typeof p !== "string" || !p.startsWith(vault + "/")) continue;
       const rel = p.slice(vault.length + 1);
       const m = rel.match(/^epics\/([^/]+)\//);
-      let cluster = null, leaf = null;
+      let cluster;
+      let leaf = null;
       if (m) {
         cluster = `epic:${m[1]}`;
         const lm = rel.match(/\/stories\/(.+)\.md$/);

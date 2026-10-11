@@ -95,7 +95,7 @@ function readExisting(configPath) {
   try { return { cfg: JSON.parse(readFileSync(configPath, "utf8")), corrupt: false }; } catch { return { cfg: null, corrupt: true }; }
 }
 
-export const shellQuote = (s) => (/^[A-Za-z0-9_\/.~-]+$/.test(s) ? s : `'${String(s).replace(/'/g, `'\\''`)}'`);
+export const shellQuote = (s) => (/^[A-Za-z0-9_/.~-]+$/.test(s) ? s : `'${String(s).replace(/'/g, `'\\''`)}'`);
 
 // A directory with no entries at all. A `.DS_Store` makes it not empty: that
 // edge stays visible rather than guessed at. Unreadable is not empty either.
