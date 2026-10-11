@@ -113,7 +113,7 @@ export function uiExemptions() {
   const gated = "checkAutoUpdate, gated on a host-plugin-registration surface";
   return [
     { phrase: "a /plugin update no longer reaches the project", file: "scripts/doctor.mjs", why: "a finding about the source harness's own registration; under another harness it is marked `about` it" },
-    { phrase: "(in Claude Code: /plugin marketplace update, then /plugin update, then restart)", file: "scripts/doctor.mjs", why: "the layout move's advice for an old copy of the source harness; under another harness the finding is marked `about` it" },
+    { phrase: "(in Claude Code: /plugin marketplace update, then /plugin update, then restart)", file: "scripts/lib.mjs", why: "an old marketplace copy's advice (copyUpdateAdvice), for the source harness's own copies only: doctor's layout move marks its finding `about` that harness under any other, and the installer's keep is planned only on a host-plugin-registration surface" },
     { phrase: "Re-add it: /plugin marketplace add <owner/repo>.", file: "scripts/doctor.mjs", why: gated },
     { phrase: "(set via /plugin → Marketplaces → ", file: "scripts/doctor.mjs", why: gated },
     { phrase: "Manual path: /plugin marketplace update ${marketplace}, then /reload-plugins.", file: "scripts/doctor.mjs", why: gated },

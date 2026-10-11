@@ -1,7 +1,7 @@
 // projectstore — convergence.mjs: what install and upgrade decide, before
 // the plan, about the copies of ours this project already runs (the story
 // "Setup and upgrade converge this project onto the running version: the
-// channel switch, no downgrade, and the update notice", rules 1, 2, 6 and 8; the
+// channel switch, no downgrade, and the update notice", rules 1, 2, 5, 6 and 8; the
 // ADR "One front door: projectstore setup installs every harness it finds;
 // shells are release artifacts, not user commands", decision 4).
 //
@@ -21,6 +21,11 @@
 //   switchReason({ copy, running, runs, decision, unbound })
 //                                     → what a switch row adds under the channel "npm"
 //   noCopyToKeep({ harness, surface, off }) → the channel "git" with nothing to keep
+//   keepArgv(copy, { verb, harness, projectDir }) → the kept copy's bin, remedy form + --json
+//   readKeepPlan(copy, { harness, projectDir, env, run, budget })
+//                                     → the kept copy's own plan: writes, ok, incomplete, refusals
+//   keepResult(stdout)                → a bin --json envelope's `result`, or null
+//   ownUpgrade(copy, harness), npmRowBeside({ harness, id, surface }) → the keep's next lines
 //   repairAdvice(harness, v)          → a damaged newer registration's way out
 //   advised(text, blocks)             → { reason, advice }: prose, then commands alone
 //   updateNotice({ latest, version, root, verb }) → the notice's text and command
@@ -378,6 +383,70 @@ export function noCopyToKeep({ harness, surface, off = [] }) {
   const blocks = off.map((key) => ({ lead: `This checkout's local settings hold ${key} off. To load it again, run this in ${harness.display_name}:`, command: `/plugin enable ${key}` }));
   blocks.push({ lead: "The way back from an earlier switch to the npm install is its uninstall, from a terminal in this project:", command: coreCommand("uninstall", { args: runArgs({ harnesses: [harness.id], surfaces: [surface] }) }) });
   return advised(`no git-marketplace copy of ${PACKAGE} is enabled for this project, so there is none to keep. Nothing is written.`, blocks);
+}
+
+// ─── The keep (rule 5) ──────────────────────────────────────────────────
+
+// The keep runs the kept copy's own bin in the layout remedy's form (layout
+// spec contract 12): `--harness <id> --no-register --project <dir>`, plus
+// `--json`, which lets the run read the child's result and keeps the child
+// from asking — the run asks one question, its own. Never `--surface`: naming
+// the status line would opt it in (rule 5). `process.execPath`, not `node`:
+// the Node that runs us is sure to exist, and the PLAN shows the argv verbatim.
+export function keepArgv(copy, { verb, harness, projectDir }) {
+  return [process.execPath, join(copy.path, "bin", "projectstore.mjs"), verb, "--harness", harness.id, "--no-register", "--json", "--project", projectDir];
+}
+
+// The bin's `--json` envelope, `{ schema_version, verb, project, ok, result }`:
+// its `result`, or null when stdout holds none. The top-level `ok` is never
+// read — for plan it is `ok && !incomplete`, for a write verb the gate too.
+export function keepResult(stdout) {
+  let env = null;
+  try { env = JSON.parse(String(stdout || "").trim()); } catch { return null; }
+  const r = env && typeof env === "object" && !Array.isArray(env) ? env.result : null;
+  return r && typeof r === "object" && !Array.isArray(r) ? r : null;
+}
+
+// Rule 5's read of the kept copy's own plan, before plan(), in the prepare
+// step: `plan --json` through its bin, with the project as the working
+// directory and the caller's environment (the copy's root as the plugin root,
+// the harness home pinned), stdin ignored, bounded at `budget`. `run` is the
+// caller's asynchronous runner, runHost's shape: this module spawns nothing
+// itself. `plan` is a dry run in every version the capability read passes, so
+// the read writes nothing. Never throws. Returns:
+//   { argv, envelope: false, status, stderr, error }   no result to read
+//   { argv, envelope: true, ok, incomplete, refusals, writes, deferred, status }
+// `writes` are the plan's rows that change something, as { surface, action,
+// path }; `refusals` its plan-level refusals, then each refused row's reason;
+// `deferred` the rows it left for later, as { surface, reason }.
+export async function readKeepPlan(copy, { harness, projectDir, env, run, budget = 120000 } = {}) {
+  const argv = keepArgv(copy, { verb: "plan", harness, projectDir });
+  let r;
+  try { r = await run(argv[0], argv.slice(1), { env, cwd: projectDir, budget }); }
+  catch (e) { r = { status: null, stdout: "", stderr: "", error: e }; }
+  const status = r?.status ?? null;
+  const stderr = String(r?.stderr || "").trim();
+  const result = keepResult(r?.stdout);
+  if (!result) return { argv, envelope: false, status, stderr, error: r?.error ? String(r.error.message || r.error) : null };
+  const items = Array.isArray(result.items) ? result.items.filter((i) => i && typeof i === "object") : [];
+  const writes = items.filter((i) => !["skip", "refuse"].includes(i.action)).map((i) => ({ surface: String(i.surface ?? ""), action: String(i.action ?? ""), path: i.path ?? null }));
+  const refusals = [...(Array.isArray(result.refusals) ? result.refusals : []), ...items.filter((i) => i.action === "refuse").map((i) => i.reason)].filter((x) => typeof x === "string" && x);
+  const deferred = items.filter((i) => i.deferred === true).map((i) => ({ surface: String(i.surface ?? ""), reason: typeof i.reason === "string" ? i.reason : null }));
+  return { argv, envelope: true, ok: result.ok !== false, incomplete: result.incomplete === true, refusals, writes, deferred, status };
+}
+
+// The kept copy's own upgrade, in the form channelChoices names a copy's bin:
+// for a copy whose plan printed no result — run by the person, with its own
+// preview and its own question (we never run what we could not preview,
+// install spec contract 9).
+export function ownUpgrade(copy, harness) {
+  return { lead: "Run that copy's own upgrade from a terminal in this project; it shows its own plan and asks:", command: `node "${join(copy.path, "bin", "projectstore.mjs")}" upgrade --harness ${harness.id} --no-register` };
+}
+
+// This checkout's npm registration enabled beside the kept copy: the keep
+// changes no registration, so it stays; its uninstall (rule 4) drops it.
+export function npmRowBeside({ harness, id, surface }) {
+  return { lead: `This checkout's npm registration (${id}) stays enabled beside the kept copy. To drop it, from a terminal in this project:`, command: coreCommand("uninstall", { args: runArgs({ harnesses: [harness.id], surfaces: [surface] }) }) };
 }
 
 // A newer registration that is damaged: never rewritten or staged over from

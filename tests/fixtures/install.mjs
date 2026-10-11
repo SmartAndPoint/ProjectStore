@@ -94,6 +94,77 @@ export function preFlagInstall(home, version, { marketplace = "SmartAndPoint" } 
   return root;
 }
 
+// stubCopy(home, version, spec) — a git-marketplace copy whose bin is a stub
+// (the converge story's keep, rule 5): present (the four-file install), capable
+// (a bin, and a scripts/cli.mjs naming "no-register"), and answering `plan
+// --json` and `upgrade --json` from <copy>/stub.json, read at every call, so
+// a test can change it between the two. Each call is logged to
+// <copy>/calls.jsonl with its argv, cwd, and the plugin root and harness home
+// it was given, under the manifest's variable names — and, as `env`, every
+// manifest's runtime variables as the child saw them.
+//   spec.writes  [{ surface, kind?, action?, file, body?, always? }] — listed
+//                (and written by upgrade) only while <project>/<file> is
+//                missing, unless `always`: an idempotent copy
+//   spec.plan    { print: false, exit, stderr } no envelope; { refusals,
+//                incomplete, deferred: [{ surface, reason }] } otherwise
+//   spec.verbose false: the copy's CLI names no --verbose (rc.3 to 0.28.x)
+//   spec.upgrade { print: false, exit, stderr } no envelope; { failed, ok,
+//                exit, stderr, incomplete, extra: [write…] } otherwise
+// stubCalls(copy) → the calls, in order.
+export function stubCopy(home, version, spec = {}) {
+  const root = fakeInstall(home, version);
+  mkdirSync(join(root, "bin"), { recursive: true });
+  // The capability reads look for these two names in the copy's parse table;
+  // spec.verbose === false leaves the second out (a copy from rc.3 to 0.28.x).
+  writeFileSync(join(root, "scripts", "cli.mjs"), `// a stub copy's CLI: its parse table names "no-register"${spec.verbose === false ? "" : ` and "verbose"`}\n`);
+  writeFileSync(join(root, "stub.json"), JSON.stringify(spec, null, 2) + "\n");
+  // Every manifest's runtime names, logged as the child saw them (`env`).
+  const watch = [...new Set([...loadHarnesses().values()].flatMap((m) => [m.runtime?.plugin_root_env, m.runtime?.project_dir_env, m.runtime?.home_env]).filter(Boolean))];
+  const names = { pluginRoot: SRC.runtime.plugin_root_env, home: SRC.runtime.home_env, watch };
+  writeFileSync(join(root, "bin", "projectstore.mjs"), `import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const names = ${JSON.stringify(names)};
+const argv = process.argv.slice(2);
+const flag = (n) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : null);
+appendFileSync(join(root, "calls.jsonl"), JSON.stringify({ argv, cwd: process.cwd(), pluginRoot: process.env[names.pluginRoot] ?? null, home: process.env[names.home] ?? null, env: Object.fromEntries(names.watch.map((k) => [k, process.env[k] ?? null])) }) + "\\n");
+const spec = JSON.parse(readFileSync(join(root, "stub.json"), "utf8"));
+const verb = argv[0], project = flag("--project"), harness = flag("--harness");
+const v = spec[verb] || {};
+if (v.print === false) { process.stderr.write(v.stderr || ""); process.exit(v.exit ?? 3); }
+const pending = (spec.writes || []).filter((w) => w.always || !existsSync(join(project, w.file)));
+const row = (w) => ({ harness, surface: w.surface, kind: w.kind || "shared", path: join(project, w.file), entry: null, state: "absent", action: w.action || "create", reason: null });
+// A row the plan defers (spec.plan.deferred: [{ surface, reason }]): skip, deferred, with its reason.
+const deferredRow = (d) => ({ harness, surface: d.surface, kind: "layout", path: join(project, d.surface), entry: null, state: "legacy", action: "skip", deferred: true, reason: d.reason });
+const print = (ok, result) => { process.stdout.write(JSON.stringify({ schema_version: 1, verb, project, ok, result }, null, 2) + "\\n"); };
+if (verb === "plan") {
+  const refusals = v.refusals || [];
+  const result = { projectDir: project, mode: "install", named: true, detected: [], harnesses: [harness], reports: [], items: [...(v.deferred || []).map(deferredRow), ...pending.map(row)], refusals, ok: refusals.length === 0, incomplete: Boolean(v.incomplete), root, plannedAgainst: {} };
+  print(result.ok && !result.incomplete, result);
+  process.exit(result.ok && !result.incomplete ? 0 : 1);
+}
+if (verb === "upgrade") {
+  const items = pending.map(row);
+  if (v.failed) {
+    process.stderr.write(v.stderr || "");
+    print(false, { gate: { confirmed: true, why: "named" }, applied: [], failed: v.failed, incomplete: false, items, refusals: [], reports: [], fetched: [], ...(v.ok === false ? { ok: false } : {}) });
+    process.exit(v.exit ?? 1);
+  }
+  const done = [...pending, ...(v.extra || [])];
+  for (const w of done) { mkdirSync(dirname(join(project, w.file)), { recursive: true }); writeFileSync(join(project, w.file), w.body ?? ""); }
+  const gate = done.length ? { confirmed: true, why: "named" } : { confirmed: false, why: "nothing-to-do" };
+  const incomplete = Boolean(v.incomplete);
+  print(!incomplete, { gate, applied: done.map((w) => ({ path: join(project, w.file), action: w.action || "create", surface: w.surface })), failed: null, incomplete, items, refusals: [], reports: [], fetched: [] });
+  process.exit(incomplete ? 1 : 0);
+}
+process.stderr.write("stub copy: " + verb + " is not stubbed\\n");
+process.exit(2);
+`);
+  return root;
+}
+export const stubCalls = (copy) => { try { return readFileSync(join(copy, "calls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
+
 export function writeRegistry(home, entries) {
   const dir = join(home, SRC.runtime.home_default, "plugins");
   mkdirSync(dir, { recursive: true });

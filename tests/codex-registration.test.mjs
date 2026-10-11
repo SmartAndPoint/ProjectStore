@@ -9,7 +9,7 @@ import { checkHarnessSurfaces, checkPluginRegistration } from "../scripts/doctor
 import { loadHarness, cachePaths } from "../scripts/harness.mjs";
 import { fetchDecision, fetchRefusal, sweepFetchRuns, rootVersion, REGISTRY_BUDGET_MS } from "../scripts/fetch-shell.mjs";
 import { codexHost, fakeNpmSpawn, FAKE_REGISTRY, registryFetch } from "./fixtures/fetch.mjs";
-import { fakePackageRoot } from "./fixtures/install.mjs";
+import { fakePackageRoot, stubCopy, stubCalls, writeRegistry } from "./fixtures/install.mjs";
 import { PLAIN } from "../scripts/term.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -1001,6 +1001,34 @@ test("converge criterion 'The stop (Codex)': a bare upgrade at a terminal on eit
   assert.deepEqual(repair.npm.installs(), []);
   assert.match(registration(repair.r.plan).reason, /the registry's latest \(0\.30\.0\) does not reach 0\.31\.0\nnot downgraded — repair it from its own version:\nnpx projectstore@0\.31\.0 upgrade --harness \S+$/);
   assert.equal(repair.r.plan.incomplete, true);
+});
+
+// The stop (rule 6) comes before the keep's read (rule 5): under the channel
+// "git", with Claude Code kept and Codex's registration newer than the
+// package, a published latest stops the run before the kept copy's own plan
+// is read; below it, the run proceeds and reads it.
+test("converge criterion 'The stop (Codex)' under the keep: channel git with Claude Code and a newer Codex registration — latest 0.31.0 stops the run and the kept copy is never run; latest 0.30.0 proceeds and reads its plan", async () => {
+  const pkg = fakePackageRoot(join(mkdtempSync(join(tmpdir(), "ps-codex-pkg-")), "node_modules", "projectstore"), "0.30.0");
+  const n = newerFixture();
+  const claude = loadHarness("claude-code");
+  const copy = stubCopy(n.f.home, "0.29.0", { writes: [{ surface: "statusline", action: "create", file: "stub-settings.json", body: "{}\n" }] });
+  writeRegistry(n.f.home, [{ scope: "user", installPath: copy, version: "0.29.0", lastUpdated: "2026-10-01T00:00:00Z" }]);
+  const run = async (latest) => {
+    const npm = fakeNpmSpawn();
+    const reg = registryFetch({ latest });
+    const r = await runVerb("upgrade", n.f.project, { harnesses: [claude.id, CODEX.id], channel: "git", root: pkg, home: n.f.home, env: { ...n.bare, HOME: n.f.home, XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "ps-codex-xdg-")) }, ask: async () => "n", fetchSpawn: npm.spawn, fetch: reg.fetch, spawn: fakeCodex(n.f) });
+    return { r, npm, reg };
+  };
+  const stop = await run("0.31.0");
+  assert.equal(stop.r.plan.ok, false);
+  assert.match(stop.r.plan.refusals[0], /^this project runs projectstore 0\.31\.0 \(projectstore@projectstore-npx\), newer than this package \(0\.30\.0\), and 0\.31\.0 is published\./);
+  assert.deepEqual(stop.r.plan.items, []);
+  assert.deepEqual(stubCalls(copy), [], "the stop comes first: the kept copy's plan is never read");
+  assert.deepEqual(stop.npm.installs(), []);
+  const go = await run("0.30.0");
+  assert.equal(go.r.plan.ok, true, JSON.stringify(go.r.plan.refusals));
+  assert.equal(go.r.plan.items.find((i) => i.kind === "channel")?.action, "update");
+  assert.deepEqual(stubCalls(copy).map((c) => c.argv[0]), ["plan"], "below the copy, the run proceeds and reads it");
 });
 
 // F2 and F8 of the PR1 review: the core a shell bundles under Codex's plugin

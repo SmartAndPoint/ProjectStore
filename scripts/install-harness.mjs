@@ -66,6 +66,9 @@
 // the registry's latest reaches it, and proceeds, saying why, when it does not
 // — and a package root run in text says when a newer release is published.
 // The registry is read there, at most once; plan() is handed the decision.
+// Under the channel "git" (the keep, its rule 5) the kept copy's own plan is
+// read there too, through its bin; plan() is handed it, and plans that
+// harness as one host-style step that runs the copy's own upgrade.
 //
 // Direction: installer → surfaces ← doctor; installer → provenance ← doctor.
 // Doctor never imports this file.
@@ -83,14 +86,14 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { caps as termCaps, painter, icon as termIcon, duration, stepReporter, liveLine, wrap, askApply, plain, badge as badgeText, heading, rowLines, kv, commandBlock, PLAIN } from "./term.mjs";
-import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand, insideHostSession, bundlingShellHarnessId, cachePaths, commonBlockFiles, agentsBlockRow, configPath } from "./harness.mjs";
+import { loadHarness, loadHarnesses, harnessIds, sourceHarness, detectHarnesses, harnessRefusal, packageCommand, insideHostSession, bundlingShellHarnessId, cachePaths, commonBlockFiles, agentsBlockRow, configPath, childEnv } from "./harness.mjs";
 import { FOREIGN_TEXT, GRAMMAR_VERSION } from "./provenance.mjs";
 import { analyseBlock, analyseJsonEntry, analyseStampedFile, analyseRegistration, analysePortableRegistration, analyseLayout, analyseHarnessState, isOurFile, readText, registrationRenderRoot, registrationPaths } from "./surfaces.mjs";
 import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
 import { rootVersion, rootName, fetchDecision, fetchArgv, npmRegistry, npmUserRegistry, REGISTRY_BUDGET_MS, fetchShell, fetchRefusal, fetchRunId, sweepFetchRuns } from "./fetch-shell.mjs";
-import { HOST_BUDGET_MS, startFailure } from "./run-host.mjs";
-import { runningCopies, newerCopies, lowestVersion, readLatest, decide, proceedCase, newerCopyDeferral, repairAdvice, advised, updateNotice, checksRoot, noticeRoot, updateCheckOff, channelChoices, switchConsequence, switchReason, noCopyToKeep, DEFAULT_REGISTRY, NOTICE_BUDGET_MS, READ_TIMEOUT_MS } from "./convergence.mjs";
-import { pluginRoot, channelMark, CHANNEL_SWITCH_KEY, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal, registrationProvenance, envFlag } from "./lib.mjs";
+import { HOST_BUDGET_MS, startFailure, runHost } from "./run-host.mjs";
+import { runningCopies, newerCopies, lowestVersion, readLatest, decide, proceedCase, newerCopyDeferral, repairAdvice, advised, updateNotice, checksRoot, noticeRoot, updateCheckOff, channelChoices, switchConsequence, switchReason, noCopyToKeep, keepArgv, keepResult, readKeepPlan, ownUpgrade, npmRowBeside, DEFAULT_REGISTRY, NOTICE_BUDGET_MS, READ_TIMEOUT_MS } from "./convergence.mjs";
+import { pluginRoot, channelMark, CHANNEL_SWITCH_KEY, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal, registrationProvenance, envFlag, selectCopy, copyUpdateAdvice, takesVerbose } from "./lib.mjs";
 
 import { GENERATOR } from "./surfaces.mjs";
 export { GENERATOR };
@@ -664,26 +667,137 @@ const isConsequence = (st) => st?.kind === "note" && st.consequence === true;
 // A channel switch: a copy from another marketplace turned off for this checkout.
 const isSwitch = (i) => String(i?.surface || "").endsWith("_others") && i.action === "disable";
 
-// The channel "git" (the converge story's rule 1), for each harness of the run
-// with a host plugin registration — the channel concerns that registration
-// alone; Codex has none. No copy from another marketplace enabled for this
-// project (analyseRegistration's competing copies) is a refusal: there is
-// nothing to keep. A copy of ours this checkout's local settings hold off — a
-// hand removal of the npm row leaves the git copy off — is named with the way
-// to turn it back on. The keep itself (rule 5) is not built yet: a run that
-// would keep a copy refuses too, rather than plan the switch it did not ask for.
-function keepRefusal(projectDir, ids, { root, home, env }) {
+// The channel "git" (the converge story's rules 1 and 5), for the first
+// harness of the run with a host plugin registration — the channel concerns
+// that registration alone; Codex has none. The copy kept is contract 12's
+// selection (lib's selectCopy), limited to copies from another marketplace —
+// the git marketplace, a fork's — so the npm registration's copy is never the
+// kept one. None enabled for this project is a refusal: there is nothing to
+// keep. A copy of ours this checkout's local settings hold off — a hand
+// removal of the npm row leaves the git copy off — is named with the way to
+// turn it back on. Read-only; plan() and the prepare step both call it, so the
+// refusal is decided before any shell fetch.
+//   → null: no harness of the run has a host plugin registration
+//   → { harness, key, s, copy: null, refusal }: nothing to keep
+//   → { harness, key, s, copy }: the copy, with selectCopy's capability read
+function keepTarget(projectDir, ids, { root, home, env }) {
   for (const id of ids) {
     const harness = loadHarness(id);
     const row = Object.entries(harness?.surfaces || {}).find(([k, s]) => !k.startsWith("_") && s?.format === "host-plugin-registration");
     if (!row) continue;
     const [key, s] = row;
+    const copy = selectCopy(home, projectDir, { harness, only: "marketplace" });
+    if (copy) return { harness, key, s, copy };
     const a = analyseRegistration(projectDir, s, { root, home, harness, env });
-    if (a.others.length) return { reason: `keeping the copy from another marketplace (${a.others.map((o) => o.key).join(", ")}) is not planned by this build; nothing is written`, advice: null };
     const off = (a.disabledHere || []).filter((k) => k !== a.id && k.split("@")[0] === s.plugin_name);
-    return noCopyToKeep({ harness, surface: key, off });
+    return { harness, key, s, copy: null, refusal: noCopyToKeep({ harness, surface: key, off }) };
   }
   return null;
+}
+
+// The environment the kept copy's bin runs in, for its plan's read and for
+// the keep step: the run's own, through childEnv for who called, then the
+// KEPT harness's own runtime names from its manifest — never the caller's
+// active harness's, which from a Codex terminal would name Codex's: the
+// copy's root as its plugin root, so the child renders from itself; the
+// project; and its home pinned, as every host command's is, so the child reads
+// the home this run read and never another. Every other manifest's plugin-root
+// variable is dropped: the child is that one harness's copy.
+function keepEnv(env, { harness, projectDir, copyRoot, harnessHome }) {
+  const out = childEnv(env);
+  for (const m of loadHarnesses().values()) if (m.runtime?.plugin_root_env) delete out[m.runtime.plugin_root_env];
+  const r = harness.runtime || {};
+  if (r.plugin_root_env) out[r.plugin_root_env] = copyRoot;
+  if (r.project_dir_env) out[r.project_dir_env] = projectDir;
+  if (r.home_env) out[r.home_env] = harnessHome;
+  return out;
+}
+
+// The surface key the keep's one item carries (kind `channel`).
+const KEEP_SURFACE = "channel";
+
+// The keep (the converge story's rule 5): this project goes on loading the
+// git-marketplace copy, and that copy renders its own surfaces here. One item
+// of kind `channel` under the harness, in place of every row of its own —
+// registration, competing copies, status line, launcher, host-managed report.
+// Its one step is host-style: the copy's bin in the layout remedy's form
+// (keepArgv), its touches the writes the copy's own plan listed (`read`, made
+// by the prepare step) less the agents block's rows, which this run's one
+// block item writes before it (the story "One run plans the agents block
+// once…", rule 1). No write left: no item. The other rows it can be:
+// - a copy that cannot run the form (lib's capability read): skip, with the
+//   update in its channel — in the row's reason, since DONE never prints when
+//   nothing else writes, and as DONE's next line;
+// - a plan that printed no result: skip, naming the copy's own upgrade, which
+//   the person runs with its own preview — never run unpreviewed;
+// - a plan that refused: a refuse row, and each refusal on the plan's, led by
+//   the copy's key and version;
+// - inside the harness's own session: skip, deferred, as the registration is;
+// - a copy plan that left work for later and lists no write (its layout move,
+//   deferred inside a session): skip, deferred, naming what it deferred — the
+//   run never reads as converged while the copy has work pending;
+// - a run narrowed by `--surface`: skip — the copy's upgrade takes no
+//   --surface (naming the status line would opt it in), so a narrowed run
+//   leaves this harness's surfaces to it.
+// This checkout's npm row enabled beside the copy stays, and is named with its
+// uninstall (rule 4), in the row and in DONE.
+function planKeep(ctx, target, read) {
+  const { projectDir, env, home, root, harness, surfaces } = ctx;
+  const { key, s, copy } = target;
+  const a = analyseRegistration(projectDir, s, { root, home, harness, env });
+  const beside = a.installed?.present && a.enabled ? npmRowBeside({ harness, id: a.id, surface: key }) : null;
+  const besides = beside ? [beside] : [];
+  const named = `${copy.key} ${copy.version || "(no version recorded)"}`;
+  // Built whole, never spread into place: `next` (what DONE says) and `kept`
+  // (DONE's fact and its tip: the copy, and whether its CLI takes --verbose)
+  // stay off the envelope as properties that are not enumerable.
+  const item = (fields, next = []) => {
+    const it = { harness: harness.id, surface: KEEP_SURFACE, kind: "channel", path: copy.path, entry: copy.key, state: "kept", home: claudeHome(home), scope: copy.scope || null, ...fields };
+    const all = [...next, ...besides];
+    if (all.length) Object.defineProperty(it, "next", { value: all, enumerable: false });
+    Object.defineProperty(it, "kept", { value: { key: copy.key, version: copy.version || null, bin: copy.missing ? null : copy.bin, verbose: !copy.missing && takesVerbose(copy.path) }, enumerable: false });
+    return it;
+  };
+  const kept = `this project keeps ${named} from the git marketplace, and that copy writes its own ${harness.display_name} surfaces here — no registration changes`;
+  if (surfaces && surfaces.length) {
+    return [item({ action: "skip", ...advised(`${kept}; ${named}'s own upgrade takes no --surface, so a run narrowed by --surface leaves these surfaces to it — run without --surface to converge them`, besides) })];
+  }
+  if (copy.missing) {
+    ctx.incomplete = true;
+    const advice = copyUpdateAdvice(copy, { cannot: copy.missing === "bin" ? "predates the move and cannot write this project's surfaces itself" : "predates --no-register and cannot write this project's surfaces without registering", then: "then run this again" });
+    return [item({ action: "skip", deferred: true, ...advised(advice, besides) }, [{ lead: advice }])];
+  }
+  if (!read) {
+    ctx.incomplete = true;
+    return [item({ action: "skip", deferred: true, ...advised(`${kept}; install and upgrade read that copy's own plan first, and this plan did not`, besides) })];
+  }
+  if (!read.envelope) {
+    ctx.incomplete = true;
+    const how = read.error || (read.status !== null && read.status !== undefined ? `it exited ${read.status}` : "it printed nothing");
+    const said = read.stderr ? `: ${read.stderr.split("\n")[0]}` : "";
+    const own = ownUpgrade(copy, harness);
+    return [item({ action: "skip", deferred: true, ...advised(`${named}'s own plan printed no result to read (${how}${said}), so nothing is planned for it.`, [own, ...besides]) }, [own])];
+  }
+  if (!read.ok) {
+    const quoted = read.refusals.length ? read.refusals : ["its plan refused and named no reason"];
+    ctx.refusals.push(...quoted.map((r) => `${named}: ${r}`));
+    return [item({ state: "refused", action: "refuse", reason: `the kept copy's own plan refused, so nothing is written: ${quoted.join("; ")}`, advice: { text: `${named}'s own plan refused (below), so nothing is written`, blocks: [] } })];
+  }
+  const block = agentsBlockRow(harness);
+  const blockRows = block ? [block[0], `${block[0]}_import`] : [];
+  const writes = read.writes.filter((w) => !blockRows.includes(w.surface));
+  if (!writes.length && read.incomplete) {
+    ctx.incomplete = true;
+    const why = (read.deferred || []).filter((d) => !blockRows.includes(d.surface)).map((d) => (d.reason ? `${d.surface}: ${d.reason}` : d.surface));
+    return [item({ action: "skip", deferred: true, ...advised(`${named}'s own plan left work for later${why.length ? ` — ${why.join("; ")}` : ", and names none of it"}`, besides) })];
+  }
+  if (!writes.length) return beside ? [item({ action: "skip", ...advised(`${named} has nothing to change here`, besides) })] : [];
+  if (insideHostSession(env, harness)) {
+    ctx.incomplete = true;
+    return [item({ action: "skip", deferred: true, ...advised(`${kept}; ${inSessionReason(harness)}`, besides) })];
+  }
+  const step = { kind: "host", name: "keep", argv: keepArgv(copy, { verb: "upgrade", harness, projectDir }), why: `the kept copy's own upgrade, from its own bin without registering (the layout remedy's form), read back as JSON; it re-plans from the files as they stand then, after the agents block above`, touches: writes };
+  return [item({ action: "update", ...advised(kept, besides), steps: [step] })];
 }
 
 // The mark (the converge story's rule 2), for the channel "npm" only: one
@@ -823,8 +937,10 @@ function surfaceExcluded(key, s, { surfaces = null, register = true } = {}) {
 // rule 1): "npm" switches a copy from another marketplace off and records the
 // switch in the binding; "git" keeps it; null — what install and upgrade pass
 // — plans the switch as before, and the gate asks it at a terminal and refuses
-// it without one.
-export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null, layout = null, convergence = null, fetchedFrom = null, channel = null } = {}) {
+// it without one. `keep` is the prepare step's read of the kept copy's own
+// plan under the channel "git" ({ copy, read }, rule 5); without it the keep's
+// row says that copy's plan was not read.
+export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null, layout = null, convergence = null, fetchedFrom = null, channel = null, keep = null } = {}) {
   projectDir = resolve(projectDir);
   const detected = detectHarnesses(projectDir, { state });
   const named = harnesses.filter(Boolean);
@@ -879,17 +995,18 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   // The channel "git" (rule 1): with no copy from another marketplace enabled
   // for this project there is nothing to keep, and nothing is planned. The
   // refusal carries the whole text; its commands, each printed on a line of
-  // its own, are kept off the envelope, as the stop's are.
-  if (channel === "git" && mode !== "uninstall") {
-    const refused = keepRefusal(projectDir, ids, { root, home, env });
-    if (refused) {
-      out.harnesses = ids;
-      out.refusals.push(refused.reason);
-      out.ok = false;
-      if (refused.advice) Object.defineProperty(out, "refusalAdvice", { value: refused.advice, enumerable: false });
-      return out;
-    }
+  // its own, are kept off the envelope, as the stop's are. Otherwise the
+  // harness the copy is kept for is planned by the keep alone (rule 5).
+  const keeping = channel === "git" && mode !== "uninstall" ? keepTarget(projectDir, ids, { root, home, env }) : null;
+  if (keeping && !keeping.copy) {
+    out.harnesses = ids;
+    out.refusals.push(keeping.refusal.reason);
+    out.ok = false;
+    if (keeping.refusal.advice) Object.defineProperty(out, "refusalAdvice", { value: keeping.refusal.advice, enumerable: false });
+    return out;
   }
+  // The prepare step's read, when it read the copy this plan keeps.
+  const keepRead = keeping && keep?.copy?.path === keeping.copy.path ? keep.read ?? null : null;
   // What the newer rows say: the prepare step's decision; for a dry run, the
   // note that install and upgrade read first — only from a root that checks.
   const decision = convergence ?? (mode === "install" && !checksRoot(root, { home, env }) ? { checks: false } : null);
@@ -901,7 +1018,10 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   // planned against the new paths; its cleanup is planned last (below).
   const layoutHarness = loadHarness(ids.find((id) => { const p = layoutPaths(projectDir, { harnessDir: loadHarness(id).runtime?.harness_dir || null }); return existsSync(p.legacy.binding) || existsSync(p.legacy.runtime); }) || ids[0]);
   const layoutCtx = { projectDir, mode, env, home, root, harness: layoutHarness, incomplete: false, surfaces };
-  const moved = planLayout(layoutCtx);
+  // Under the keep, the layout move and its cleanup are the kept copy's own
+  // run when their harness is the one kept: moved under a pre-move copy, the
+  // project would read as unbound to it (rule 5).
+  const moved = keeping && layoutHarness.id === keeping.harness.id ? { first: [], last: [] } : planLayout(layoutCtx);
   for (const item of moved.first) out.items.push({ harness: layoutHarness.id, ...item });
   if (layoutCtx.incomplete) out.incomplete = true;
   // The binding a channel switch is recorded in (the converge story's rules 2
@@ -962,7 +1082,19 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   for (const id of ids) {
     const harness = loadHarness(id);
     out.harnesses.push(id);
-    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [], globalRemoval, version, fetched: payloadRoots?.[id] || null, convergence: decision, channel, binding, channelFacts: null };
+    const ctx = { projectDir, mode, env, home, root, harness, optIn, slotForeign: new Set(), incomplete: false, renderRoot: root, surfaces: surfaces || [], globalRemoval, version, fetched: payloadRoots?.[id] || null, convergence: decision, channel, binding, channelFacts: null, refusals: [] };
+    // The keep (rule 5): the run's one block first — over the whole run set,
+    // this harness included — then the keep's one item, and none of this
+    // harness's own rows. Placed here when this harness owns the block; named
+    // as the same block, above, when an earlier harness placed it.
+    if (keeping && id === keeping.harness.id) {
+      if (id !== owner?.id && out.sharedBlock && agentsBlockRow(harness)) out.sharedBlock.others.push({ harness: id, display: harness.display_name, at: out.items.length });
+      placeBlock();
+      for (const item of planKeep(ctx, keeping, keepRead)) out.items.push(item);
+      out.refusals.push(...ctx.refusals);
+      if (ctx.incomplete) out.incomplete = true;
+      continue;
+    }
     const hostRows = [];
     const unsupportedHost = [];
     let registration = null;
@@ -1354,7 +1486,8 @@ const surfaceWords = (key) => String(key).replace(/_/g, " ");
 // What a row names: a registration by its plugin id — its paths are the
 // consent lines beneath it — anything else by its path, project-relative.
 function rowTarget(p, i) {
-  if (i.kind === "registration" && i.entry) return i.entry;
+  // …and the keep (kind `channel`) by the key of the copy it keeps.
+  if ((i.kind === "registration" || i.kind === "channel") && i.entry) return i.entry;
   if (i.path === null) return `${i.surface} [${i.harness}, no filesystem path]`;
   return rel(p.projectDir, i.path);
 }
@@ -1389,8 +1522,10 @@ function stepLines(p, st, { verbose, paint, width = 0, glyph = unicodeGlyph }) {
   const said = (text) => `${lead}${paint("explanation", text)}`;
   switch (st.kind) {
     case "host": {
-      const out = [said(`$ ${[st.bin, ...st.argv].join(" ")}`)];
-      if (st.touches.length) out.push(`${sub}${paint("explanation", `touches ${st.touches.map(r).join(", ")}`)}`);
+      // The keep step's argv is whole (its bin is the Node that runs us), and
+      // its touches are the kept copy's planned writes, each with its action.
+      const out = [said(`$ ${(st.bin ? [st.bin, ...st.argv] : st.argv).join(" ")}`)];
+      if (st.touches.length) out.push(`${sub}${paint("explanation", `touches ${st.touches.map((t) => (typeof t === "string" ? r(t) : `${t.path ? r(t.path) : t.surface} (${t.action})`)).join(", ")}`)}`);
       return [...out, ...why];
     }
     // The fetch a dry run would run first (the shell-fetch story's rule 6),
@@ -1567,10 +1702,13 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
   // and a $ line is the host's own CLI at work.
   const closing = [];
   if (p.ok && writes.length) closing.push(...prose("  ", `Only the entries listed above are written ${glyph("dash")} nothing else in those files is read, rewritten or removed.`));
-  if (p.items.some((i) => (i.steps || []).some((s) => s.kind === "host"))) closing.push(...prose("  ", "Each $ line runs the host's own CLI, which writes the host-owned files named after it."));
+  if (p.items.some((i) => (i.steps || []).some((s) => s.kind === "host" && s.name !== "keep"))) closing.push(...prose("  ", "Each $ line runs the host's own CLI, which writes the host-owned files named after it."));
+  if (p.items.some((i) => isWrite(i) && (i.steps || []).some((s) => s.kind === "host" && s.name === "keep"))) closing.push(...prose("  ", "The kept copy's $ line runs that copy's own projectstore, which writes the files named after it."));
   if (closing.length) lines.push("", ...closing);
   if (!p.ok) lines.push("", `  ${paint("attention", "Nothing will be written: resolve the refusals above first.")}`);
-  else if (!writes.length) lines.push("", "  Nothing to change." + (p.incomplete ? " One surface could not be planned (see above)." : ""));
+  // A plan that wrote nothing because part of it could not be planned never
+  // reads as converged (the converge story's keep, a copy with work pending).
+  else if (!writes.length) lines.push("", p.incomplete ? "  Nothing will be written: one surface could not be planned (see above)." : "  Nothing to change.");
   else if (p.incomplete) lines.push("", "  One surface could not be planned (see above); the rest proceeds.");
   return lines.join("\n") + "\n";
 }
@@ -1678,6 +1816,14 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
       if (r.failed) done.failed = r.failed;
       return r;
     }
+    if (i.kind === "channel") {
+      // The keep (the converge story's rule 5): the kept copy's own upgrade.
+      // A run it left incomplete makes this one incomplete; it is not a stop.
+      const r = applyKeep(p, i, { env, spawn, home, onStep });
+      if (r.failed) done.failed = r.failed;
+      if (r.incomplete) done.incomplete = true;
+      return r;
+    }
     if (registrationFailed && i.plannedAgainst) return { path: i.path, action: "skipped", surface: i.surface, reason: "the registration did not complete; this surface was planned against its install path" };
     if (i.kind === "shared" && typeof i.after === "object" && i.after !== null && !Array.isArray(i.after)) {
       mkdirSync(dirname(i.path), { recursive: true });
@@ -1745,6 +1891,64 @@ function applyMark(p, i, { env, onStep = null, switched = [] }) {
   }
   if (onStep) onStep(st, "end", { ok: true });
   return { ...out, steps: [{ kind: "mark", path: at, ok: true }] };
+}
+
+// The keep step (the converge story's rule 5), at apply: the kept copy's own
+// upgrade, spawned as a host command is — the project as its working
+// directory, the run's environment with the copy's root as the plugin root and
+// the harness home pinned, 120 s — through the caller's spawn, so APPLY prints
+// its $ line. Its envelope is read: one APPLY line beneath per item the copy
+// applied, the ones the preview did not list marked "(not in the preview)" —
+// the copy plans afresh, and a file that changed after the question can add a
+// row. STOPPED (contract 19's cause form, the argv, the status and stderr) is
+// the copy's own failure, an `ok` it reports false, a gate of its that
+// confirmed nothing, or no envelope to read: what it wrote is then not known.
+// The copy's run left incomplete leaves this one incomplete.
+function applyKeep(p, i, { env, spawn, home, onStep = null }) {
+  const out = { path: i.path, action: i.action, surface: i.surface, steps: [] };
+  const st = (i.steps || []).find((x) => x.kind === "host");
+  const harness = loadHarness(i.harness);
+  const [bin, ...argv] = st.argv;
+  const r = spawn(bin, argv, { env: keepEnv(env, { harness, projectDir: p.projectDir, copyRoot: i.path, harnessHome: i.home || claudeHome(home) }), cwd: p.projectDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: HOST_BUDGET_MS, maxBuffer: 1 << 26 });
+  const status = r.status ?? null;
+  const stderr = String(r.stderr || "").trim();
+  const result = keepResult(r.stdout);
+  const stop = (said) => {
+    out.steps.push({ kind: "host", argv: st.argv, status, ok: false, stderr: said });
+    out.failed = { step: "keep", status, stderr: said, argv: st.argv };
+    // How it ended, for STOPPED, as a host command's (not enumerable).
+    Object.defineProperty(out.failed, "couldNotStart", { value: Boolean(r.error) && !r.signal && status === null, enumerable: false });
+    Object.defineProperty(out.failed, "signal", { value: r.signal || null, enumerable: false });
+    return out;
+  };
+  if (r.error && !result) return stop(startFailure(r.error, { bin, resolved: bin, cwd: p.projectDir }));
+  if (!result) return stop([stderr, `${i.entry} printed no result to read, so what it wrote is not known; its own plan starts from what is on disk now`].filter(Boolean).join("\n"));
+  // What the copy applied, beneath its $ line — even when it then stopped.
+  const listed = new Set((st.touches || []).map((t) => `${t.surface}\n${t.path}`));
+  const applied = Array.isArray(result.applied) ? result.applied.filter((x) => x && typeof x === "object" && !["skip", "skipped"].includes(x.action)) : [];
+  const kept = [];
+  for (const rec of applied) {
+    const sub = { kind: "kept", surface: rec.surface ?? null, action: rec.action ?? null, path: rec.path ?? null, ...(listed.has(`${rec.surface}\n${rec.path}`) ? {} : { unplanned: true }) };
+    if (onStep) { onStep(sub, "start"); onStep(sub, "end", { ok: !rec.failed }); }
+    kept.push({ ...sub, ok: !rec.failed });
+  }
+  const gate = result.gate && typeof result.gate === "object" ? result.gate : null;
+  const said = [];
+  if (result.failed && typeof result.failed === "object") {
+    const f = result.failed;
+    said.push(`${i.entry} stopped at ${f.step || "a step"}${f.status !== null && f.status !== undefined ? ` (exit ${f.status})` : ""}${Array.isArray(f.argv) ? `: $ ${f.argv.join(" ")}` : ""}`, ...String(f.stderr || "").split("\n").filter(Boolean));
+  } else if (result.ok === false) said.push(`${i.entry} reported that its run did not succeed`);
+  else if (gate && gate.confirmed !== true && gate.why !== "nothing-to-do") said.push(`${i.entry} wrote nothing: its own gate answered ${gate.why || "no"}`);
+  if (said.length) {
+    for (const x of (Array.isArray(result.refusals) ? result.refusals : [])) said.push(String(x));
+    const back = stop([stderr, ...said].filter(Boolean).join("\n"));
+    back.steps.push(...kept);
+    return back;
+  }
+  out.steps.push({ kind: "host", argv: st.argv, status, ok: true }, ...kept);
+  if (!applied.length) { out.action = "skip"; out.reason = `${i.entry} found nothing to change`; }
+  if (result.incomplete === true) out.incomplete = true;
+  return out;
 }
 
 // The registration's steps, in order, each leaving a state plan() can read.
@@ -2191,8 +2395,9 @@ export function planOptions(opts = {}) {
 // read — awaited when a copy is newer than this root, else started for the
 // update notice and awaited after the fetch, before PLAN; the stop, which
 // returns here with nothing fetched, written, locked or spawned but the
-// registry resolver; the keep read's slot (the channel "git" is not passed
-// yet); then the fetch, which skips a newer registration. The user's registry
+// registry resolver; the keep read, for the channel "git" (rule 5): the kept
+// copy's own plan, read through its bin, and no fetch when plan() will refuse;
+// then the fetch, which skips a newer registration. The user's registry
 // is resolved at most once: for a read, and by every run that fetches a shell
 // — which also resolves the project's, and names it in PLAN when the two
 // differ (the 2026-10-09 amendment). A run that neither fetches nor reads
@@ -2258,12 +2463,27 @@ async function prepareRun(verb, projectDir, opts = {}) {
     ? decide({ copies, version, read: answer, skipped: off && newer.length > 0, verb, args: { harnesses: named, surfaces: opts.surfaces || null, register: opts.register !== false } })
     : { checks: false };
   if (convergence.stop) return { ...none, convergence };
-  // 5. The keep read: for the channel "git", which no verb passes yet.
+  // 5. The keep (rule 5), for the channel "git": the copy kept, and its own
+  // plan read through its bin — before the fetch, so a run plan() will refuse
+  // fetches nothing: no copy to keep (rule 1), or the copy's plan refused. A
+  // copy that cannot run the form, and a run narrowed by --surface, read
+  // nothing; plan() says why. Inside a session the plan is read all the same.
+  let keep = null, refuses = false;
+  if ((opts.channel ?? null) === "git") {
+    const target = keepTarget(projectDir, ids, { root, home, env });
+    if (target && !target.copy) refuses = true;
+    else if (target && !target.copy.missing && !(opts.surfaces && opts.surfaces.length)) {
+      const childEnvironment = keepEnv(env, { harness: target.harness, projectDir, copyRoot: target.copy.path, harnessHome: claudeHome(home) });
+      const read = await readKeepPlan(target.copy, { harness: target.harness, projectDir, env: childEnvironment, run: runHost, budget: HOST_BUDGET_MS });
+      keep = { copy: target.copy, read };
+      if (read.envelope && !read.ok) refuses = true;
+    }
+  }
   // 6. The fetch.
-  const fetchedPart = await fetchShells(verb, projectDir, { ...opts, env, home, root, version, named, detected, ids, analyse, userRegistryOf });
+  const fetchedPart = refuses ? { ...none, fetchedFrom: null } : await fetchShells(verb, projectDir, { ...opts, env, home, root, version, named, detected, ids, analyse, userRegistryOf });
   const latest = pending ? (await pending).latest : answer?.latest;
   const notice = wantNotice ? updateNotice({ latest, version, root, verb }) : null;
-  return { ...fetchedPart, convergence, notice };
+  return { ...fetchedPart, convergence, notice, keep };
 }
 
 async function fetchShells(verb, projectDir, { env, home, root, version, named, detected, ids, analyse, userRegistryOf, ...opts }) {
@@ -2359,7 +2579,7 @@ export async function runVerb(verb, projectDir, opts = {}) {
     // rule 5). `uninstall --global` keeps contract 8 — a state directory is a
     // project fact. install and plan keep contract 8, so a bare plan and a
     // bare install still agree.
-    const p = prep.refused || plan(projectDir, { ...opts, mode, state: verb === "upgrade" || (verb === "uninstall" && !opts.globalRemoval), version: prep.version, payloadRoots: prep.payloadRoots, convergence: prep.convergence, fetchedFrom: prep.fetchedFrom || null });
+    const p = prep.refused || plan(projectDir, { ...opts, mode, state: verb === "upgrade" || (verb === "uninstall" && !opts.globalRemoval), version: prep.version, payloadRoots: prep.payloadRoots, convergence: prep.convergence, fetchedFrom: prep.fetchedFrom || null, keep: prep.keep || null });
     const view = { verbose: Boolean(opts.verbose), verb, caps: c || PLAIN, home };
     const preview = renderPreview(p, view);
     // The update notice (the converge story's rule 8): in the header slot,
@@ -2379,6 +2599,9 @@ export async function runVerb(verb, projectDir, opts = {}) {
       const spawn = opts.spawn || spawnSync;
       result.applied = apply(p, { env, spawn: reporter ? reporter.spawn(spawn) : spawn, home, onItem: reporter ? reporter.onItem : null, onStep: reporter ? reporter.onStep : null });
       result.failed = result.applied.failed || null;
+      // A kept copy's run left incomplete (the converge story's rule 5) leaves
+      // this one incomplete: both entries read the plan's flag for the exit.
+      if (result.applied.incomplete) p.incomplete = true;
       result.elapsed = Date.now() - t0;
       if (out) out.write(renderDone(result, { caps: c, verbose: Boolean(opts.verbose), cwd: opts.cwd || process.cwd() }));
     }
@@ -2411,7 +2634,8 @@ export function applyReporter(out, c, p, { now = Date.now, home = homedir() } = 
   };
   // The mark too: a skip prints its reason (the project not bound, the switch
   // not done) beneath the line it started.
-  const stepped = (i) => i.kind === "registration" || i.kind === "layout" || i.kind === "binding";
+  // …and the keep, whose $ line and the kept copy's own items print beneath it.
+  const stepped = (i) => i.kind === "registration" || i.kind === "layout" || i.kind === "binding" || i.kind === "channel";
   const began = new Map();
   return {
     onItem(i, phase, r) {
@@ -2483,6 +2707,14 @@ function stepLabel(p, st, { home = homedir(), glyph = unicodeGlyph } = {}) {
     case "rmdir-legacy":
     case "remove-legacy-runtime": return said("remove", r(st.path));
     case "rmdir-state": return said("remove", `${r(st.path)}/`);
+    // An item the kept copy applied (the converge story's rule 5), in this
+    // run's words for its action; one the preview did not list says so.
+    case "kept": {
+      const word = ACTION_WORD[st.action] || "update";
+      const [running, done] = WORD_TENSES[word] || [word, word];
+      const target = `${st.path ? r(st.path) : st.surface}${st.unplanned ? " (not in the preview)" : ""}`;
+      return { base: `${word} ${target}`, running: `${running} ${target}`, done: `${done} ${target}` };
+    }
     default: return null;
   }
 }
@@ -2544,31 +2776,54 @@ export function renderDone(r, { caps: c = PLAIN, verbose = false, cwd = process.
     for (const s of steps) seen.add(s);
     if (steps.length) next.push([m.display_name, steps.join("; ")]);
   }
+  // The keep's own next lines (the converge story's rule 5): the update a copy
+  // that could not run the keep needs, its own upgrade when its plan printed
+  // no result, the npm row's uninstall — each lead, then its command alone on
+  // its line (contract 6).
+  const kept = p.items.filter((i) => i.kind === "channel" && Array.isArray(i.next)).flatMap((i) => i.next);
+  if (next.length || kept.length) lines.push("", paint("emphasis", "Next"));
   if (next.length) {
     const kw = Math.max(...next.map(([name]) => name.length));
     const col = " ".repeat(2 + kw + 2);
-    lines.push("", paint("emphasis", "Next"));
     for (const [name, text] of next) {
       const [first, ...rest] = wrap(text, width, col).split("\n");
       lines.push(`  ${paint("explanation", name)}${" ".repeat(kw - name.length + 2)}${first}`, ...rest);
     }
   }
-  if (p.version) lines.push("", ...kv(c, [["version", p.version]]));
+  kept.forEach((b, k) => {
+    if (k || next.length) lines.push("");
+    lines.push(...wrap(b.lead, width, "  ").split("\n").map((l, n) => (n ? l : `  ${l}`)));
+    if (b.command) lines.push(...commandBlock(c, [b.command], { indent: 4 }));
+  });
+  // The facts: the version, and under the keep (the converge story's rule 5)
+  // the copy each kept harness runs — this package's version is not what that
+  // harness's surfaces were written by.
+  const keeps = p.items.filter((i) => i.kind === "channel" && i.kept);
+  const facts = [...(p.version ? [["version", p.version]] : []), ...keeps.map((i) => ["kept", `${displayName(i.harness)}: ${i.kept.key}${i.kept.version ? ` ${i.kept.version}` : ""}`])];
+  if (facts.length) lines.push("", ...kv(c, facts));
   // The tip: each shell's `plan` command, carrying --verbose unless it was
   // given, so the --verbose tip is this one and DONE has one tip, never
   // more than contract 18's two. Each command stands alone on its line, the
   // flag last (contract 6). `plan` previews an install: after an uninstall
   // it would preview the opposite of what just ran, so there is no tip.
+  // A kept harness's tip is the kept copy's own plan, from its bin with
+  // --no-register — this package's plan previews the other channel — and
+  // none when that copy cannot run it; --verbose only where its CLI takes it.
   const here = (() => { try { return realpathSync(p.projectDir) === realpathSync(cwd); } catch { return p.projectDir === cwd; } })();
   const previews = [];
+  let reasoned = true;
   if (r.verb !== "uninstall") {
     for (const id of p.harnesses) {
       const m = loadHarness(id);
-      const cmd = m ? packageCommand(m, "plan", { args: `--project ${here ? '"$PWD"' : `"${p.projectDir}"`}${verbose ? "" : " --verbose"}` }) : null;
+      const k = keeps.find((i) => i.harness === id);
+      if (k && k.kept.bin && !verbose && !k.kept.verbose) reasoned = false;
+      const project = `--project ${here ? '"$PWD"' : `"${p.projectDir}"`}`;
+      const cmd = k ? (k.kept.bin ? `node "${k.kept.bin}" plan --harness ${id} --no-register ${project}${verbose || !k.kept.verbose ? "" : " --verbose"}` : null)
+        : m ? packageCommand(m, "plan", { args: `${project}${verbose ? "" : " --verbose"}` }) : null;
       if (cmd && !previews.includes(cmd)) previews.push(cmd);
     }
   }
-  const lead = verbose ? "To preview without writing:" : "To preview without writing, with every row's reasoning:";
+  const lead = verbose || !reasoned ? "To preview without writing:" : "To preview without writing, with every row's reasoning:";
   if (previews.length) lines.push("", `  ${paint("explanation", lead)}`, ...commandBlock(c, previews));
   return lines.join("\n") + "\n";
 }

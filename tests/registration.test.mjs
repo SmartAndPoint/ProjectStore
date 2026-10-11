@@ -13,12 +13,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, realpathSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, realpathSync, rmSync, renameSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { fakeInstall, fakePackageRoot, fakeClaude, noHostEnv, writeRegistry, installEnv, legacyProject } from "./fixtures/install.mjs";
+import { fakeInstall, fakePackageRoot, fakeClaude, noHostEnv, writeRegistry, installEnv, legacyProject, stubCopy, stubCalls, preFlagInstall } from "./fixtures/install.mjs";
 import { plan, renderPreview, apply, runVerb, publicItem, renderDone, applyReporter } from "../scripts/install-harness.mjs";
 import { analyseRegistration, registrationPaths, surfaceStates } from "../scripts/surfaces.mjs";
 import { sourceHarness, loadHarness, packageCommand } from "../scripts/harness.mjs";
@@ -1192,4 +1192,290 @@ test("converge criterion 'The way back': uninstall --surface plugin on the switc
   assert.equal(apply(plan(plainSb.proj, { home: plainSb.home, root: plainSb.root, env: plainSb.env }), { env: plainSb.env, home: plainSb.home }).failed, undefined);
   const plainUn = plan(plainSb.proj, { home: plainSb.home, root: plainSb.root, env: plainSb.env, mode: "uninstall", surfaces: ["plugin"] });
   assert.ok(!plainSb.item(plainUn, "plugin").steps.some((s) => s.kind === "unmark"));
+});
+
+// ─── The keep (the converge story, rule 5) ──────────────────────────────
+//
+// The channel "git": this project goes on loading the git-marketplace copy,
+// and that copy renders its own surfaces here through its own bin. A stub
+// copy (tests/fixtures/install.mjs, stubCopy) answers its `plan --json` and
+// `upgrade --json` from a spec and logs every call; the host is the logging
+// fake, which must record nothing; HOME is the sandbox's in every child.
+
+// Two writes the stub's plan lists while their files are missing.
+const STUB_WRITES = [
+  { surface: "statusline_launcher", kind: "exclusive", action: "create", file: join(".projectstore", "stub-launcher.mjs"), body: "// written by the stub copy\n" },
+  { surface: "statusline", kind: "shared", action: "create", file: join(CFG_DIR, "stub-settings.json"), body: "{}\n" },
+];
+// The git copy, a stub at `version` unless `copy` makes another, enabled at
+// user scope (the registry's only row).
+function keepSandbox({ version = "0.29.0", spec = { writes: STUB_WRITES }, copy = null } = {}) {
+  const sb = sandbox({ version: "0.30.0", statusline: false });
+  const root = copy ? copy(sb.home, version) : stubCopy(sb.home, version, spec);
+  writeRegistry(sb.home, [{ scope: "user", installPath: root, version, lastUpdated: "2026-10-01T00:00:00Z" }]);
+  return { ...sb, copy: root, env: sb.host.env({ HOME: sb.home }) };
+}
+// One upgrade under the channel "git" through runVerb: text mode at the
+// terminal double answering `answer`, or `json` — the named run without one.
+async function keepRun(sb, { answer = "n", json = false, extra = {}, surfaces = null } = {}) {
+  const env = sb.host.env({ HOME: sb.home, ...extra });
+  const chunks = [];
+  let asked = false;
+  const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+  const r = await runVerb("upgrade", sb.proj, { harnesses: [SRC.id], home: sb.home, root: sb.root, env, channel: "git", surfaces, cwd: sb.proj, ...(json ? { json: true } : { out, ask: async () => { asked = true; return answer; } }) });
+  return { r, text: chunks.join(""), asked };
+}
+const keepItem = (p) => p.items.find((i) => i.kind === "channel");
+const stubArgv = (copy, proj, verb) => [process.execPath, join(copy, "bin", "projectstore.mjs"), verb, "--harness", SRC.id, "--no-register", "--json", "--project", proj];
+const KEPT = (v) => `this project keeps ${GIT} ${v} from the git marketplace, and that copy writes its own ${SRC.display_name} surfaces here — no registration changes`;
+const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+test("converge criterion 'The keep': channel git plans one channel item for Claude Code — the copy's own upgrade, its argv exact and its touches the copy's planned writes — and no row of its own; apply spawns the copy once, as a host command, and a re-run is zero-change", async () => {
+  const sb = keepSandbox();
+  const { proj, copy, host } = sb;
+  const s = await keepRun(sb);
+  const p = s.r.plan;
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  assert.equal(p.incomplete, false);
+  // Claude Code's rows: the run's block, then the keep — no registration, no
+  // switch, no status line, no launcher, no host-managed report.
+  const mine = p.items.filter((i) => i.harness === SRC.id);
+  assert.deepEqual(mine.map((i) => [i.kind, i.surface, i.action]), [["shared", "agents_block", "add"], ["channel", "channel", "update"]]);
+  assert.deepEqual(p.reports, [], "no host-managed report");
+  const keep = keepItem(p);
+  assert.equal(keep.entry, GIT);
+  assert.deepEqual(keep.steps.map((st) => [st.kind, st.name]), [["host", "keep"]]);
+  assert.deepEqual(keep.steps[0].argv, stubArgv(copy, proj, "upgrade"), "the layout remedy's form, plus --json, from the Node that runs us");
+  assert.ok(!keep.steps[0].argv.includes("--surface"), "never --surface: it would opt a status line in");
+  assert.deepEqual(keep.steps[0].touches, STUB_WRITES.map((w) => ({ surface: w.surface, action: w.action, path: join(proj, w.file) })));
+  assert.equal(keep.reason, KEPT("0.29.0"));
+  // The copy's own plan was read once, through its bin, from the project, with
+  // its root as the plugin root and the harness home pinned.
+  const calls = stubCalls(copy);
+  assert.deepEqual(calls.map((c) => c.argv), [stubArgv(copy, proj, "plan").slice(2)]);
+  assert.equal(calls[0].cwd, proj);
+  assert.equal(calls[0].pluginRoot, copy);
+  assert.equal(calls[0].home, join(sb.home, SRC.runtime.home_default));
+  // PLAN: the row names the copy, the $ line is the argv verbatim, and the touches carry their actions.
+  assert.match(s.text, new RegExp(`\\n {2}↻ update +${reEscape(GIT)} +channel\\n`), s.text);
+  assert.ok(s.text.includes(`\n      ${KEPT("0.29.0")}\n`), s.text);
+  assert.ok(s.text.includes(`\n      $ ${keep.steps[0].argv.join(" ")}\n`), s.text);
+  assert.ok(s.text.includes(`touches ${STUB_WRITES[0].file} (create), ${STUB_WRITES[1].file} (create)`), s.text);
+  assert.ok(s.text.includes("The kept copy's $ line runs that copy's own projectstore"), s.text);
+  assert.ok(!s.text.includes("Each $ line runs the host's own CLI"), "no host command is planned");
+  assert.equal(s.asked, true, "asked, as any change");
+  assert.deepEqual(host.log(), []);
+  assert.ok(!existsSync(join(proj, STUB_WRITES[0].file)), "declined: nothing written");
+  // Applied: the copy's upgrade spawned once, as planned; APPLY lists what it applied.
+  const y = await keepRun(sb, { answer: "y" });
+  assert.equal(y.r.failed, null, JSON.stringify(y.r.failed));
+  const ups = stubCalls(copy).filter((c) => c.argv[0] === "upgrade");
+  assert.equal(ups.length, 1, "spawned once");
+  assert.deepEqual(ups[0].argv, stubArgv(copy, proj, "upgrade").slice(2));
+  assert.equal(ups[0].cwd, proj);
+  assert.equal(ups[0].pluginRoot, copy);
+  assert.deepEqual(host.log(), [], "no host call");
+  for (const w of STUB_WRITES) assert.equal(readFileSync(join(proj, w.file), "utf8"), w.body);
+  const record = y.r.applied.find((a) => a.surface === "channel");
+  assert.deepEqual(record.steps.map((st) => [st.kind, st.ok]), [["host", true], ["kept", true], ["kept", true]]);
+  assert.ok(y.text.includes(`↻ updating ${GIT}\n`), y.text);
+  assert.ok(y.text.includes(`$ node ${stubArgv(copy, proj, "upgrade").slice(1).join(" ")}`), y.text);
+  for (const w of STUB_WRITES) assert.match(y.text, new RegExp(`✓ added ${reEscape(w.file)}\\b`), y.text);
+  assert.ok(!y.text.includes("(not in the preview)"), y.text);
+  assert.match(y.text, new RegExp(`✓ updated ${reEscape(GIT)}`), y.text);
+  assert.match(y.text, /\nDone — 2 changes in /, y.text);
+  // DONE under the keep: the version line, then the copy the kept harness
+  // runs; the tip is that copy's own plan, alone on its line — never this
+  // package's, which previews the other channel.
+  const done = y.text.slice(y.text.indexOf("\nDone"));
+  assert.ok(done.includes(`\n  version  0.30.0\n  kept     ${SRC.display_name}: ${GIT} 0.29.0\n`), done);
+  // It names the project as every other tip on the screen does: "$PWD" from
+  // the project, its path from anywhere else.
+  const tipHead = `  node "${join(copy, "bin", "projectstore.mjs")}" plan --harness ${SRC.id} --no-register --project "`;
+  const tl = done.split("\n");
+  const ti = tl.findIndex((l) => l.startsWith(tipHead) && l.endsWith('" --verbose'));
+  assert.ok(ti > 0 && tl[ti - 1] === "" && tl.slice(ti + 1).every((l) => l === ""), done);
+  assert.ok(done.includes("\n  To preview without writing, with every row's reasoning:\n"), done);
+  assert.ok(!/ plan --project /.test(done), `never this package's plan:\n${done}`);
+  // A re-run after a keep is zero-change: the copy's plan lists no writes, so no item.
+  const again = await keepRun(sb);
+  assert.equal(keepItem(again.r.plan), undefined);
+  assert.deepEqual(writesOf(again.r.plan), []);
+  assert.ok(again.text.includes("\n  Nothing to change.\n"), again.text);
+  assert.equal(stubCalls(copy).filter((c) => c.argv[0] === "upgrade").length, 1, "and the copy's upgrade is not run again");
+});
+
+test("converge criterion 'The keep': a legacy layout plans no layout item and no cleanup; a real copy (this tree) moves it itself, and with statusline.enabled unset no statusLine entry is written", async () => {
+  // The stub, over the legacy shape: the move is the kept copy's, never ours.
+  const home = tmp("ps-reg-keep-legacy-home-");
+  const { proj, lp } = legacyProject(home);
+  const copy = stubCopy(home, "0.29.0", { writes: STUB_WRITES });
+  writeRegistry(home, [{ scope: "user", installPath: copy, version: "0.29.0", lastUpdated: "2026-10-01T00:00:00Z" }]);
+  const host = fakeClaude(tmp("ps-reg-keep-legacy-bin-"));
+  const root = fakePackageRoot(join(tmp("ps-reg-keep-legacy-npx-"), "node_modules", "projectstore"), "0.30.0");
+  const r = await runVerb("upgrade", proj, { harnesses: [SRC.id], home, root, env: host.env({ HOME: home }), channel: "git", out: { isTTY: false, write: () => true }, ask: async () => "n" });
+  assert.equal(r.plan.ok, true, JSON.stringify(r.plan.refusals));
+  assert.deepEqual(r.plan.items.filter((i) => i.kind === "layout"), [], "no layout item, no cleanup");
+  assert.equal(keepItem(r.plan).action, "update");
+  assert.ok(existsSync(lp.legacy.binding), "nothing moved");
+
+  // A real copy — this tree, as a git-marketplace install — on a project whose
+  // binding is still at its legacy path, without statusline.enabled.
+  const sb = keepSandbox({ copy: (h, v) => fakeInstall(h, v, { full: true }) });
+  const legacy = layoutPaths(sb.proj).legacy.binding;
+  mkdirSync(dirname(legacy), { recursive: true });
+  renameSync(layoutPaths(sb.proj).binding, legacy);
+  rmSync(layoutPaths(sb.proj).root, { recursive: true, force: true });
+  assert.equal(JSON.parse(readFileSync(legacy, "utf8")).statusline, undefined);
+  const s = await keepRun(sb, { answer: "y" });
+  assert.equal(s.r.plan.ok, true, JSON.stringify(s.r.plan.refusals));
+  const keep = keepItem(s.r.plan);
+  assert.ok(keep && keep.action === "update", JSON.stringify(s.r.plan.items.map(publicItem), null, 2));
+  assert.ok(keep.steps[0].touches.some((t) => t.surface === "layout"), "the move is the copy's");
+  assert.ok(!keep.steps[0].touches.some((t) => t.surface.startsWith("agents_block")), "the block rows are dropped: this run's block item writes it");
+  assert.equal(s.r.failed, null, `${JSON.stringify(s.r.failed)}\n${s.text}`);
+  assert.ok(!existsSync(legacy), "the copy moved the binding");
+  assert.ok(existsSync(layoutPaths(sb.proj).binding));
+  assert.equal(sb.local()?.statusLine, undefined, "no statusLine entry");
+  assert.deepEqual(sb.host.log(), [], "no host command");
+  assert.equal(writesOf((await keepRun(sb)).r.plan).length, 0, "a re-run is zero-change");
+});
+
+test("converge criterion 'The keep': this checkout's npm row enabled beside the kept copy stays — the plan says so, DONE names its uninstall, no removal is planned — and the npm registration's copy is never the one kept", async () => {
+  const sb = sandbox({ version: "0.30.0", statusline: false });
+  const { home, proj, root, host, paths } = sb;
+  assert.equal(apply(plan(proj, { home, root, env: sb.env }), { env: sb.env, home }).failed, undefined, "the npm registration, for this checkout");
+  host.reset();
+  const copy = stubCopy(home, "0.29.0", { writes: STUB_WRITES });
+  const reg = sb.registry();
+  reg.plugins[GIT] = [{ scope: "user", installPath: copy, version: "0.29.0", lastUpdated: "2026-10-01T00:00:00Z" }];
+  writeFileSync(paths.installed, JSON.stringify(reg, null, 2));
+  const k = { ...sb, copy };
+  const s = await keepRun(k);
+  const keep = keepItem(s.r.plan);
+  assert.equal(keep.entry, GIT, "the git copy is kept, never the npm registration's own");
+  assert.ok(!s.r.plan.items.some((i) => i.action === "remove" || i.kind === "registration"), "no removal, no registration row");
+  const back = `npx projectstore uninstall --harness ${SRC.id} --surface plugin`;
+  assert.equal(keep.reason, [KEPT("0.29.0"), `This checkout's npm registration (${ID}) stays enabled beside the kept copy. To drop it, from a terminal in this project:`, back].join("\n"));
+  assert.ok(s.text.includes(`\n          ${back}\n`), s.text);
+  const y = await keepRun(k, { answer: "y" });
+  assert.equal(y.r.failed, null, JSON.stringify(y.r.failed));
+  const lines = y.text.slice(y.text.indexOf("\nDone")).split("\n");
+  const at = lines.indexOf(`    ${back}`);
+  assert.ok(at > 0 && lines[at - 1] === "" && lines[at - 2].includes("stays enabled beside the kept copy"), y.text);
+  assert.equal(sb.local().enabledPlugins[ID], true, "the npm row stays enabled");
+  assert.deepEqual(host.log(), []);
+});
+
+test("converge criterion 'The keep', the other cases: no bin or no --no-register gives no step and DONE's advice; no envelope names the copy's own upgrade; a refusal refuses before the question; incomplete still steps; inside a session it defers; a failed upgrade is STOPPED", async () => {
+  const ADVICE = (v, cannot) => `This project's projectstore plugin (${v}) ${cannot}: update it first (in ${SRC.display_name}: /plugin marketplace update, then /plugin update, then restart), then run this again`;
+  // A copy without bin/projectstore.mjs, and one whose CLI lacks "no-register".
+  for (const [what, make, cannot] of [
+    ["no bin", (h, v) => fakeInstall(h, v), "predates the move and cannot write this project's surfaces itself"],
+    ["no --no-register", (h, v) => preFlagInstall(h, v), "predates --no-register and cannot write this project's surfaces without registering"],
+  ]) {
+    const sb = keepSandbox({ version: "0.28.0-rc.2", copy: make });
+    const s = await keepRun(sb, { answer: "y" });
+    const keep = keepItem(s.r.plan);
+    assert.deepEqual([keep.action, keep.deferred, keep.steps], ["skip", true, undefined], what);
+    assert.equal(keep.reason, ADVICE("0.28.0-rc.2", cannot), what);
+    assert.equal(s.r.plan.incomplete, true, what);
+    const done = s.text.slice(s.text.indexOf("\nDone"));
+    assert.ok(done.includes("\nNext\n") && done.replace(/\n\s*/g, " ").includes(ADVICE("0.28.0-rc.2", cannot)), `${what}: DONE's next names the advice\n${s.text}`);
+    assert.deepEqual(stubCalls(sb.copy), [], `${what}: nothing of the copy runs`);
+  }
+
+  // A plan that prints no envelope: no step; DONE names the copy's own upgrade, alone on its line.
+  const quiet = keepSandbox({ spec: { writes: STUB_WRITES, plan: { print: false, exit: 3, stderr: "stub: cannot plan\n" } } });
+  const q = await keepRun(quiet, { answer: "y" });
+  const own = `node "${join(quiet.copy, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register`;
+  assert.deepEqual([keepItem(q.r.plan).action, keepItem(q.r.plan).steps], ["skip", undefined]);
+  assert.ok(keepItem(q.r.plan).reason.startsWith(`${GIT} 0.29.0's own plan printed no result to read (it exited 3: stub: cannot plan), so nothing is planned for it.\n`), keepItem(q.r.plan).reason);
+  const qd = q.text.slice(q.text.indexOf("\nDone")).split("\n");
+  assert.ok(qd.indexOf(`    ${own}`) > 0 && qd[qd.indexOf(`    ${own}`) - 1] === "", q.text);
+  assert.ok(!stubCalls(quiet.copy).some((c) => c.argv[0] === "upgrade"), "never run unpreviewed");
+
+  // A plan that refuses: a refuse row of kind channel, refused before the question, nothing written.
+  const refusal = "two bindings: .claude/projectstore.json (legacy) and .projectstore/projectstore.json";
+  const no = keepSandbox({ spec: { writes: STUB_WRITES, plan: { refusals: [refusal] } } });
+  const before = readFileSync(join(no.proj, "CLAUDE.md"), "utf8");
+  const n = await keepRun(no);
+  assert.equal(n.r.plan.ok, false);
+  assert.deepEqual(n.r.gate, { confirmed: false, why: "refused" });
+  assert.equal(n.asked, false);
+  assert.deepEqual([keepItem(n.r.plan).kind, keepItem(n.r.plan).action], ["channel", "refuse"]);
+  assert.ok(keepItem(n.r.plan).reason.includes(refusal));
+  assert.equal(readFileSync(join(no.proj, "CLAUDE.md"), "utf8"), before, "nothing written");
+  assert.deepEqual(n.r.fetched, []);
+  const nj = await keepRun(no, { json: true });
+  assert.equal(nj.r.plan.ok, false);
+  assert.ok(nj.r.plan.refusals.includes(`${GIT} 0.29.0: ${refusal}`), JSON.stringify(nj.r.plan.refusals));
+  assert.equal(publicItem(keepItem(nj.r.plan)).action, "refuse");
+  assert.ok(!("advice" in publicItem(keepItem(nj.r.plan))));
+
+  // ok, incomplete, with writes: a step, as above. The copy's run left
+  // incomplete leaves ours incomplete, not STOPPED; an item the preview did
+  // not list says so.
+  const extra = { surface: "statusline", action: "update", file: join(CFG_DIR, "stub-extra.json"), body: "{}\n" };
+  const part = keepSandbox({ spec: { writes: STUB_WRITES, plan: { incomplete: true }, upgrade: { incomplete: true, extra: [extra] } } });
+  const pp = await keepRun(part, { answer: "y" });
+  assert.equal(keepItem(pp.r.plan).action, "update");
+  assert.equal(pp.r.failed, null);
+  assert.equal(pp.r.plan.incomplete, true, "after apply");
+  assert.ok(pp.text.includes(`✓ updated ${extra.file} (not in the preview)`), pp.text);
+
+  // Inside a Claude Code session: the item defers, the plan is incomplete, the copy's upgrade never runs.
+  const live = keepSandbox();
+  const l = await keepRun(live, { answer: "y", extra: { [SRC.runtime.session_env[0]]: "1" } });
+  const lk = keepItem(l.r.plan);
+  assert.deepEqual([lk.action, lk.deferred], ["skip", true]);
+  assert.ok(lk.reason.includes(`inside a ${SRC.display_name} session`), lk.reason);
+  assert.equal(l.r.plan.incomplete, true);
+  assert.deepEqual(stubCalls(live.copy).map((c) => c.argv[0]), ["plan"], "its plan is read, its upgrade never spawned");
+
+  // An upgrade that exits 1 with ok false: STOPPED, with the argv, the status and stderr.
+  const bad = keepSandbox({ spec: { writes: STUB_WRITES, upgrade: { ok: false, failed: { step: "write", status: null, stderr: "stub: disk full" }, exit: 1, stderr: "stub went wrong\n" } } });
+  const b = await keepRun(bad, { answer: "y" });
+  assert.equal(b.r.failed.step, "keep");
+  assert.equal(b.r.failed.status, 1);
+  assert.deepEqual(b.r.failed.argv, stubArgv(bad.copy, bad.proj, "upgrade"));
+  const stopped = b.text.slice(b.text.indexOf("\nStopped"));
+  assert.match(stopped, /^\nStopped — 1 change applied, then a host command failed\n/, b.text);
+  assert.ok(stopped.includes(`$ ${stubArgv(bad.copy, bad.proj, "upgrade").join(" ")} exited 1\n`), stopped);
+  for (const said of ["stub went wrong", `${GIT} stopped at write`, "stub: disk full"]) assert.ok(stopped.includes(said), `${said}\n${stopped}`);
+  assert.deepEqual(bad.host.log(), []);
+
+  // A run narrowed by --surface: one skip row for Claude Code, saying the
+  // copy's upgrade takes no --surface; nothing of the copy is read or run.
+  const narrow = keepSandbox();
+  const nr = await keepRun(narrow, { answer: "y", surfaces: ["statusline"] });
+  const nk = nr.r.plan.items.filter((i) => i.harness === SRC.id);
+  assert.deepEqual(nk.map((i) => [i.kind, i.action, i.deferred]), [["channel", "skip", undefined]]);
+  assert.equal(nk[0].reason, `${KEPT("0.29.0")}; ${GIT} 0.29.0's own upgrade takes no --surface, so a run narrowed by --surface leaves these surfaces to it — run without --surface to converge them`);
+  assert.ok(nr.text.includes(nk[0].reason), nr.text);
+  assert.deepEqual(stubCalls(narrow.copy), []);
+
+  // The copy's own plan left work for later and lists no write (its layout
+  // move, deferred inside a session): a deferred skip row naming it, the plan
+  // incomplete — the run never reads "Nothing to change." while the copy has
+  // work pending. Settled first, so nothing else of this run writes.
+  const pend = keepSandbox({ spec: { writes: [] } });
+  assert.equal((await keepRun(pend, { answer: "y" })).r.failed, null);
+  const deferral = "the layout migration moves files this Claude Code session reads and writes — run it from a terminal outside the session";
+  writeFileSync(join(pend.copy, "stub.json"), JSON.stringify({ writes: [], plan: { incomplete: true, deferred: [{ surface: "layout", reason: deferral }] } }));
+  const pd = await keepRun(pend);
+  const pk = keepItem(pd.r.plan);
+  assert.deepEqual([pk.action, pk.deferred, pk.steps], ["skip", true, undefined]);
+  assert.equal(pk.reason, `${GIT} 0.29.0's own plan left work for later — layout: ${deferral}`);
+  assert.equal(pd.r.plan.incomplete, true);
+  assert.deepEqual(writesOf(pd.r.plan), []);
+  assert.ok(!pd.text.includes("Nothing to change"), pd.text);
+  assert.ok(pd.text.includes("\n  Nothing will be written: one surface could not be planned (see above).\n"), pd.text);
+  assert.equal(pd.asked, false, "nothing to ask");
+
+  // No copy at all under the channel "git" is a refusal (rule 1).
+  const none = sandbox({ version: "0.30.0", statusline: false });
+  const nn = await keepRun(none);
+  assert.equal(nn.r.plan.ok, false);
+  assert.match(nn.r.plan.refusals[0], /^no git-marketplace copy of projectstore is enabled for this project/);
 });
