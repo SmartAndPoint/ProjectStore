@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, realpa
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { readLatest, decide, proceedCase, updateNotice, runningCopies, isSemver, newerCopyDeferral, channelChoices, advised, repairAdvice, checksRoot, noticeRoot, hostCopyRoot, coreCommand, DEFAULT_REGISTRY, ACCEPT, FRESH_MS, READ_TIMEOUT_MS, NO_CHECK_ENV } from "../scripts/convergence.mjs";
+import { readLatest, decide, proceedCase, updateNotice, runningCopies, isSemver, newerCopyDeferral, channelChoices, advised, repairAdvice, checksRoot, noticeRoot, hostCopyRoot, coreCommand, switchReason, DEFAULT_REGISTRY, ACCEPT, FRESH_MS, READ_TIMEOUT_MS, NO_CHECK_ENV } from "../scripts/convergence.mjs";
 import { registrationPaths, analyseRegistration } from "../scripts/surfaces.mjs";
 import { portableRegistrationPaths } from "../scripts/portable-registration.mjs";
 import { runVerb, plan } from "../scripts/install-harness.mjs";
@@ -430,4 +430,17 @@ test("converge: convergence.mjs imports lib, harness, portable-registration and 
   for (const n of readdirSync(join(ROOT, "hooks")).filter((f) => f.endsWith(".mjs"))) assert.ok(!readFileSync(join(ROOT, "hooks", n), "utf8").includes("convergence.mjs"), `hooks/${n}`);
   const importers = readdirSync(join(ROOT, "scripts")).filter((n) => n.endsWith(".mjs") && readFileSync(join(ROOT, "scripts", n), "utf8").includes('"./convergence.mjs"'));
   assert.deepEqual(importers, ["install-harness.mjs"]);
+});
+
+// A switch row under the channel "npm" speaks of a downgrade only when there
+// is one: the copy newer than what the project runs once it is off — the
+// shared directory's version, which another checkout may have written newer
+// than this package — not merely newer than this package.
+test("converge rule 6, the switch row: a downgrade is named only against what the project runs once the copy is off", () => {
+  const copy = { key: "projectstore@SmartAndPoint", version: "0.30.2" };
+  const down = switchReason({ copy, running: "0.30.0", runs: "0.30.0", decision: null });
+  assert.match(down, /0\.30\.2 is newer than this package \(0\.30\.0\).*runs this project on the older 0\.30\.0/);
+  // The shared directory is at 0.30.5: turning 0.30.2 off is no downgrade.
+  assert.equal(switchReason({ copy, running: "0.30.0", runs: "0.30.5", decision: null }), null);
+  assert.equal(switchReason({ copy, running: "0.30.0", runs: "0.30.5", decision: null, unbound: true }), "the project is not bound yet: the switch is recorded in its binding once it is");
 });

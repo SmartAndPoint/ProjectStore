@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { PassThrough } from "node:stream";
-import { fakeInstall, writeRegistry, noHostEnv } from "./fixtures/install.mjs";
+import { fakeInstall, writeRegistry, noHostEnv, fakeClaude } from "./fixtures/install.mjs";
 import { codexHost, fakeNpmSpawn } from "./fixtures/fetch.mjs";
 import { plan, renderPreview, confirm, apply, runVerb, isInteractive, renderDone } from "../scripts/install-harness.mjs";
 import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses, loadHarness, identifiedHarnessId, packageCommand } from "../scripts/harness.mjs";
@@ -645,8 +645,10 @@ test("install contract 18: every reason is in the default view, writes wear writ
   assert.match(loud, /current \(`claude` is not on PATH; global registration is left untouched\) → skip/);
   assert.match(loud, /ours-current \(AGENTS\.md is read by another harness too\) → skip/);
   const writes = renderPreview({ ...p, mode: "install", incomplete: false, items: ["add", "replace-entry", "disable", "prune"].map((action, k) => row({ surface: `s${k}`, kind: "shared", action, state: "ours-absent" })) });
-  // Each write wears a write glyph and reads in contract 7's words.
-  for (const [k, [action, word]] of [["add", "add"], ["replace-entry", "update"], ["disable", "update"], ["prune", "remove"]].entries()) {
+  // Each write wears a write glyph and reads in contract 7's words. `disable`
+  // is a channel switch, the `switch` word (re-pinned deliberately by the
+  // converge story, which maps it; it read `update` until then).
+  for (const [k, [action, word]] of [["add", "add"], ["replace-entry", "update"], ["disable", "switch"], ["prune", "remove"]].entries()) {
     const line = writes.split("\n").find((l) => l.endsWith(`  s${k}`));
     assert.ok(line && !line.trimStart().startsWith("·"), `${action} wears a write glyph: ${line}`);
     assert.match(line, new RegExp(`^ {2}\\S ${word} +x {2}s${k}$`), `${action} reads ${word}`);
@@ -979,6 +981,73 @@ test("install: upgrade runs as install, a missing flag value is a usage error, a
   assert.equal(bad.status, 2);
 });
 
+// The converge story's rule 2 (PS-HARNESS: "Setup and upgrade converge this
+// project onto the running version: the channel switch, no downgrade, and the
+// update notice"): naming the harness no longer confirms a channel switch.
+test("converge criterion 'The channel gate': a switch planned under no channel answer writes nothing without a terminal — through the bin and main(), in --json and in piped text — and a terminal is asked", async () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-gate-home-"));
+  const proj = project({ claude: "# Mine\n" });
+  // The git marketplace's copy, older than this checkout, enabled at user scope.
+  const git = fakeInstall(home, "0.27.1");
+  writeRegistry(home, [{ scope: "user", installPath: git, version: "0.27.1", lastUpdated: "2026-09-01T00:00:00Z" }]);
+  const host = fakeClaude(mkdtempSync(join(tmpdir(), "ps-gate-bin-")));
+  const env = host.env({ HOME: home, [SRC.runtime.plugin_root_env]: ROOT });
+  const run = (script, args) => spawnSync(process.execPath, [script, ...args, "--project", proj], { encoding: "utf8", env, cwd: proj, timeout: 60000 });
+  const files = [join(proj, "CLAUDE.md"), join(proj, CFG_DIR, "settings.local.json"), join(proj, "AGENTS.md")];
+  const snap = () => files.map((f) => (existsSync(f) ? read(f) : null));
+  const before = snap();
+  const captures = JSON.parse(read(join(ROOT, "tests", "fixtures", "json-captures.json")));
+  const gate = [
+    "Nothing written: this project loads projectstore from the git marketplace (projectstore@SmartAndPoint), and moving it to the npm install is a choice made at a terminal in this project:",
+    "",
+    `    npx projectstore upgrade --harness ${SRC.id}`,
+  ].join("\n");
+  for (const [entry, script] of [["the bin", join(ROOT, "bin", "projectstore.mjs")], ["main()", join(ROOT, "scripts", "install-harness.mjs")]]) {
+    const j = run(script, ["upgrade", "--harness", SRC.id, "--json"]);
+    assert.equal(j.status, 1, `${entry}: ${j.stderr}`);
+    const out = JSON.parse(j.stdout);
+    const r = entry === "the bin" ? out.result : out;
+    assert.equal(out.ok, false, entry);
+    assert.deepEqual(r.gate, { confirmed: false, why: "channel" }, entry);
+    assert.deepEqual(r.applied, [], entry);
+    assert.ok(r.items.some((i) => i.surface === "plugin_others" && i.action === "disable"), "the switch is in the envelope's plan");
+    // The envelope gains no key.
+    if (entry === "the bin") {
+      assert.deepEqual(Object.keys(out), Object.keys(captures.upgrade.stdout));
+      assert.deepEqual(Object.keys(r), Object.keys(captures.upgrade.stdout.result));
+    } else assert.deepEqual(Object.keys(out), ["verb", "ok", "gate", "applied", "failed", "incomplete", "items", "refusals", "reports", "fetched"]);
+    // Piped text: the plan, then the gate's words and the terminal run, alone on its line; exit 1.
+    const t = run(script, ["upgrade", "--harness", SRC.id]);
+    assert.equal(t.status, 1, `${entry}: ${t.stdout}${t.stderr}`);
+    assert.ok(t.stdout.endsWith(`\n${gate}\n`), `${entry}:\n${t.stdout}`);
+    assert.ok(t.stdout.includes("⇄ switch"), "the plan was shown first");
+    assert.ok(!/\bsetup\b/.test(t.stdout), "no verb this release lacks");
+    // A --surface the run named is repeated; --project never is.
+    const s = run(script, ["upgrade", "--harness", SRC.id, "--surface", "plugin"]);
+    assert.ok(s.stdout.endsWith(`\n    npx projectstore upgrade --harness ${SRC.id} --surface plugin\n`), `${entry}:\n${s.stdout}`);
+  }
+  assert.deepEqual(host.log(), [], "the logging fake host recorded no call");
+  assert.deepEqual(snap(), before, "nothing written");
+  // plan --json keeps its key set.
+  const pj = JSON.parse(run(join(ROOT, "bin", "projectstore.mjs"), ["plan", "--harness", SRC.id, "--json"]).stdout);
+  assert.deepEqual(Object.keys(pj.result), Object.keys(captures.plan.stdout.result));
+  // A bare run without a terminal gets the same answer, ahead of the bare refusal.
+  const bare = plan(proj, { home, root: ROOT, env });
+  assert.equal(bare.named, false);
+  assert.deepEqual(await confirm(bare, {}), { confirmed: false, why: "channel" });
+  // The channel answered ("npm", which only setup passes) is confirmed by naming the harness, as before.
+  assert.deepEqual(await confirm(plan(proj, { home, root: ROOT, env, harnesses: [SRC.id], channel: "npm" }), {}), { confirmed: true, why: "named" });
+  // At a terminal (the TTY double): the switch with its consequence line, and the one question.
+  const chunks = [];
+  let question = null;
+  const r = await runVerb("upgrade", proj, { harnesses: [SRC.id], home, root: ROOT, env, out: { isTTY: false, write: (x) => { chunks.push(String(x)); return true; } }, ask: async (q) => { question = q; return "n"; } });
+  const writes = r.plan.items.filter((i) => !["skip", "refuse"].includes(i.action)).length;
+  assert.equal(question, `◆ Apply ${writes} changes? [Y/n] `);
+  assert.deepEqual(r.gate, { confirmed: false, why: "declined" });
+  assert.ok(chunks.join("").includes(`\n      this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by ${packageCommand(SRC, "upgrade")}\n`), chunks.join(""));
+  assert.deepEqual(host.log(), []);
+});
+
 test("install: the command prose invokes the verb and never writes the block or the settings itself", () => {
   for (const f of ["commands/agents.md", "commands/bind.md", "commands/statusline.md", "commands/doctor.md"]) {
     const src = read(join(ROOT, f));
@@ -988,6 +1057,13 @@ test("install: the command prose invokes the verb and never writes the block or 
   assert.ok(!/agents-block[^\n]*\n[^\n]*Edit after approval/.test(doctor), "doctor.md no longer repairs the block with Edit");
   const agents = read(join(ROOT, "commands", "agents.md")).replace(/\s+/g, " ");
   assert.ok(agents.includes("Never write the block with the Write or Edit tool"));
+  // The converge story's rule 3: a channel switch is per checkout, so the
+  // binding a worktree inherits (step 0a, written by the model) drops its mark.
+  const bind = read(join(ROOT, "commands", "bind.md"));
+  const step0a = bind.slice(bind.indexOf("\n0a. "), bind.indexOf("\n1. "));
+  assert.ok(step0a.length > 100, "step 0a found");
+  assert.match(step0a, /Write that JSON verbatim, without `channel_switch`, to/);
+  assert.match(step0a, /\*\*Never copy `channel_switch`\.\*\*/);
 });
 
 // ─── The stamp itself ───────────────────────────────────────────────────

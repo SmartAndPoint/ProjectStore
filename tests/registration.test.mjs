@@ -18,10 +18,11 @@ import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { fakeInstall, fakePackageRoot, fakeClaude, noHostEnv, writeRegistry, installEnv } from "./fixtures/install.mjs";
-import { plan, renderPreview, apply, runVerb, publicItem, renderDone } from "../scripts/install-harness.mjs";
+import { fakeInstall, fakePackageRoot, fakeClaude, noHostEnv, writeRegistry, installEnv, legacyProject } from "./fixtures/install.mjs";
+import { plan, renderPreview, apply, runVerb, publicItem, renderDone, applyReporter } from "../scripts/install-harness.mjs";
 import { analyseRegistration, registrationPaths, surfaceStates } from "../scripts/surfaces.mjs";
-import { sourceHarness, loadHarness } from "../scripts/harness.mjs";
+import { sourceHarness, loadHarness, packageCommand } from "../scripts/harness.mjs";
+import { PLAIN } from "../scripts/term.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
 import { fakeNpmSpawn, registryFetch, instantTimers, FAKE_REGISTRY } from "./fixtures/fetch.mjs";
 import { statusLineLauncherPath, whichOnPath, treeFiles, installedPluginEntries, installedPluginRoot, layoutPaths, cmpPrecedence, cmpVersion } from "../scripts/lib.mjs";
@@ -682,7 +683,7 @@ test("registration contract 2/5: a directory that appears at our path between pl
 // One upgrade through runVerb from `root`, its registry read injected. Text
 // mode answers "n" at the terminal double and records whether it was asked;
 // `json` is the named run without a terminal.
-async function convergeRun(sb, root, { latest = "0.31.0", mode = null, json = false, extra = {}, timers, harnesses = [SRC.id] } = {}) {
+async function convergeRun(sb, root, { latest = "0.31.0", mode = null, json = false, extra = {}, timers, harnesses = [SRC.id], channel = null } = {}) {
   const env = sb.host.env({ PROJECTSTORE_NO_UPDATE_CHECK: "", CI: "", XDG_CACHE_HOME: join(tmp("ps-reg-xdg-"), "cache"), ...extra });
   for (const k of ["FORCE_COLOR", "TERM", "NO_COLOR", "PROJECTSTORE_ASCII"]) delete env[k];
   const reg = registryFetch(mode ?? { latest });
@@ -690,7 +691,7 @@ async function convergeRun(sb, root, { latest = "0.31.0", mode = null, json = fa
   const chunks = [];
   let asked = false;
   const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
-  const r = await runVerb("upgrade", sb.proj, { harnesses, home: sb.home, root, env, fetch: reg.fetch, timers, fetchSpawn: npm.spawn, ...(json ? { json: true } : { out, ask: async () => { asked = true; return "n"; } }) });
+  const r = await runVerb("upgrade", sb.proj, { harnesses, home: sb.home, root, env, fetch: reg.fetch, timers, fetchSpawn: npm.spawn, channel, ...(json ? { json: true } : { out, ask: async () => { asked = true; return "n"; } }) });
   return { r, text: chunks.join(""), asked, reg, npm, env };
 }
 
@@ -773,6 +774,19 @@ test("converge criterion 'The stop (Claude Code)': a git copy at 0.31.0 enabled 
   assert.equal(s.r.plan.ok, false);
   assert.match(s.r.plan.refusals[0], /^this project runs projectstore 0\.31\.0 \(projectstore@SmartAndPoint\), newer than this package \(0\.30\.0\), and 0\.31\.0 is published/);
   assert.equal(s.asked, false);
+  // The channel "npm" alike: the answer to the channel question does not
+  // make the older package's run over a published newer copy a choice.
+  const npm = await convergeRun(sb, sb.root, { channel: "npm" });
+  assert.equal(npm.r.plan.ok, false);
+  assert.equal(npm.r.plan.refusals[0], s.r.plan.refusals[0], "the same stop, word for word");
+  assert.equal(npm.asked, false);
+  assert.deepEqual(npm.r.plan.items, []);
+  // …and never the channel "git": its run renders nothing for Claude Code, so
+  // no host plugin copy counts and rule 6 reads nothing (--json: no notice).
+  const kept = await convergeRun(sb, sb.root, { channel: "git", json: true });
+  assert.ok(!kept.r.plan.stop, "not the stop");
+  assert.ok(!/is published/.test(kept.r.plan.refusals.join("\n")), kept.r.plan.refusals.join("\n"));
+  assert.equal(kept.reg.calls.length, 0, "no registry read");
   // A bare upgrade at a terminal that would fetch Codex's shell: the stop comes first.
   mkdirSync(join(proj, CODEX.runtime.harness_dir), { recursive: true });
   writeFileSync(join(host.dir, CODEX.surfaces.plugin.cli.bin), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
@@ -829,6 +843,19 @@ test("converge criterion 'A newer git copy is not switched off for an older pack
   assert.ok(!/\bsetup\b/.test(t.text), t.text);
   // plan reads nothing; the deferral says what install and upgrade do first.
   assert.match(sb.item(plan(proj, { harnesses: [SRC.id], home, root: sb.root, env: sb.env }), "plugin").reason, /install and upgrade read the registry first, and stop when 0\.31\.0 is published/);
+  // The channel "npm" is the answer to the channel question: the switch
+  // proceeds, and its row names both versions, the case, and that the project
+  // will run the older one — in the default view, beneath the consequence.
+  const n = await convergeRun(sb, sb.root, { latest: "0.30.0", channel: "npm" });
+  assert.equal(sb.item(n.r.plan, "plugin").action, "create");
+  const sw = sb.item(n.r.plan, "plugin_others");
+  assert.equal(sw.action, "disable");
+  assert.equal(sw.reason, "projectstore@SmartAndPoint 0.31.0 is newer than this package (0.30.0) — the registry's latest (0.30.0) does not reach 0.31.0; turning it off runs this project on the older 0.30.0");
+  assert.equal(n.r.plan.incomplete, false);
+  assert.equal(n.asked, true, "asked at the terminal double, as any change");
+  const at = n.text.indexOf("⇄ switch");
+  assert.ok(at > 0 && n.text.indexOf("from now on it is updated by") > at && n.text.indexOf(sw.reason) > n.text.indexOf("from now on it is updated by"), n.text);
+  assert.deepEqual(host.log(), [], "declined: nothing ran");
 });
 
 // F3 of the PR1 review: the Claude Code counterpart of Codex's damaged newer
@@ -906,4 +933,263 @@ test("converge rule 7: an upgrade from checkout A that rewrites the shared direc
   const bPlan = sb.item(plan(b, { home, root: newer, env, harnesses: [SRC.id] }), "plugin");
   assert.equal(bPlan.state, "stale");
   assert.match(bPlan.reason, /plugin updated \(installed 0\.28\.0, directory 0\.29\.0\)/);
+});
+
+// ─── The channel switch (the converge story) ────────────────────────────
+//
+// PS-HARNESS: "Setup and upgrade converge this project onto the running
+// version: the channel switch, no downgrade, and the update notice", rules 1
+// to 4. No verb passes a channel yet — the setup story does — so these drive
+// plan() and apply() with one, against the logging fake host.
+
+const GIT = "projectstore@SmartAndPoint";
+// The git marketplace's copy, enabled at user scope (the registry's only row).
+function withGitCopy(sb, version = "0.27.1") {
+  const git = fakeInstall(sb.home, version);
+  writeRegistry(sb.home, [{ scope: "user", installPath: git, version, lastUpdated: "2026-09-01T00:00:00Z" }]);
+  return git;
+}
+const bindingOf = (proj) => JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8"));
+const ISO_TIME = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
+const writesOf = (p) => p.items.filter((i) => !["skip", "refuse"].includes(i.action));
+// Contract 13's info for a copy the registration turned off, read as doctor
+// reads it, given the binding.
+const ignoreThis = (sb, cfg) => checkPluginRegistration(sb.proj, surfaceStates(sb.proj, { home: sb.home, root: sb.root }).states, { home: sb.home, cfg }).filter((f) => /If moving to npm was meant, ignore this\.$/.test(f.message));
+const CONSEQUENCE = `this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by ${packageCommand(SRC, "upgrade")}`;
+
+test("converge criterion 'The switch': channel npm plans the registration, the switch with its consequence line and the mark last; apply turns the copy off and records the switch, doctor drops its info, a second plan is zero-change; channel null plans no mark", () => {
+  const sb = sandbox({ vault: true });
+  const { home, proj, root, env, item, local } = sb;
+  withGitCopy(sb);
+  const p = plan(proj, { home, root, env, channel: "npm" });
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  assert.equal(item(p, "plugin").action, "create");
+  const sw = item(p, "plugin_others");
+  assert.equal(sw.action, "disable");
+  // The consequence is a note step after the host step: a plain note in the envelope.
+  assert.deepEqual(sw.steps.map((s) => s.kind === "host" ? s.name : s.kind), ["disable", "note"]);
+  assert.deepEqual(publicItem(sw).steps[1], { kind: "note", why: CONSEQUENCE });
+  assert.ok(!("reason" in sw), "a bound project's switch over an older copy adds no words");
+  // The mark: one item of kind binding, Claude Code's last.
+  const mark = p.items.filter((i) => i.harness === SRC.id).at(-1);
+  assert.deepEqual([mark.kind, mark.surface, mark.entry, mark.action, mark.path], ["binding", "channel_switch", "channel_switch", "add", layoutPaths(proj).binding]);
+  assert.equal(p.items.filter((i) => i.kind === "binding").length, 1);
+  // PLAN: the consequence is the first line beneath the switch row, before
+  // its $ line; the summary counts the switch; the mark names its edit.
+  const text = renderPreview(p);
+  const lines = text.split("\n");
+  const row = lines.findIndex((l) => new RegExp(`^ {2}⇄ switch +${GIT}`).test(l));
+  assert.ok(row > 0, text);
+  assert.equal(lines[row + 1], `      ${CONSEQUENCE}`);
+  assert.equal(lines[row + 2], `      $ ${S.cli.bin} plugin disable ${GIT} --scope local`);
+  assert.match(text, /\nPlan — [^\n]*1 to switch/);
+  assert.ok(text.includes(`edit .projectstore/projectstore.json  [channel_switch] → by "setup", at the time of apply`), text);
+  assert.ok(!text.includes("note: this project stops"), "drawn as the consequence, never as a note step");
+  // Apply: the copy off for this checkout, the switch recorded, every other key kept.
+  const before = bindingOf(proj);
+  const done = apply(p, { env, home });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  assert.equal(local().enabledPlugins[GIT], false);
+  assert.equal(local().enabledPlugins[ID], true);
+  const after = bindingOf(proj);
+  assert.equal(after.channel_switch.by, "setup");
+  assert.match(after.channel_switch.at, ISO_TIME);
+  assert.deepEqual(Object.keys(after), [...Object.keys(before), "channel_switch"]);
+  for (const k of Object.keys(before)) assert.deepEqual(after[k], before[k], k);
+  assert.deepEqual(done.find((d) => d.surface === "channel_switch").steps, [{ kind: "mark", path: layoutPaths(proj).binding, ok: true }]);
+  // Doctor, given the binding: the "ignore this" info is gone for the marked checkout only.
+  assert.deepEqual(ignoreThis(sb, after), []);
+  assert.equal(ignoreThis(sb, before).length, 1, "without the mark it stays");
+  // …and doctor --install itself reads the binding it was run for.
+  const doctor = (s) => JSON.parse(spawnSync(process.execPath, [join(s.root, "bin", "projectstore.mjs"), "doctor", "--install", "--json", "--project", s.proj], { encoding: "utf8", cwd: s.proj, env: s.host.env({ HOME: s.home }), timeout: 60000, maxBuffer: 1 << 24 }).stdout).result;
+  const found = doctor(sb);
+  assert.ok(found.some((f) => f.check === "plugin-registration"), JSON.stringify(found, null, 2));
+  assert.ok(!found.some((f) => /If moving to npm was meant, ignore this\./.test(f.message)), JSON.stringify(found, null, 2));
+  // A re-run is zero-change: the copy is off and the mark is there.
+  assert.deepEqual(writesOf(plan(proj, { home, root, env, channel: "npm" })).map(publicItem), []);
+  // channel null, the same fixture: the registration and the switch with its note, no mark.
+  const sb2 = sandbox({ vault: true });
+  withGitCopy(sb2);
+  const q = plan(sb2.proj, { home: sb2.home, root: sb2.root, env: sb2.env });
+  assert.equal(sb2.item(q, "plugin").action, "create");
+  assert.deepEqual(publicItem(sb2.item(q, "plugin_others")).steps.map((s) => s.kind), ["host", "note"]);
+  assert.ok(renderPreview(q).includes(`\n      ${CONSEQUENCE}\n`), "in the default view");
+  assert.ok(!q.items.some((i) => i.kind === "binding"), "no mark under null");
+  assert.equal(apply(q, { env: sb2.env, home: sb2.home }).failed, undefined);
+  assert.equal(bindingOf(sb2.proj).channel_switch, undefined);
+  assert.equal(ignoreThis(sb2, bindingOf(sb2.proj)).length, 1, "doctor names the info, as today");
+  assert.equal(doctor(sb2).filter((f) => /If moving to npm was meant, ignore this\./.test(f.message)).length, 1, "and so does doctor --install");
+});
+
+test("converge criterion 'The order': after a failed registration the switch is skipped and APPLY says why, the copy stays on, no mark is written, and DONE is STOPPED — under channel npm and channel null", () => {
+  for (const channel of ["npm", null]) {
+    const sb = sandbox();
+    const { home, proj, root, host, local } = sb;
+    withGitCopy(sb);
+    const failing = host.env({ FAKE_CLAUDE_FAIL: "install" });
+    const p = plan(proj, { home, root, env: failing, channel });
+    const chunks = [];
+    const rep = applyReporter({ isTTY: false, write: (s) => { chunks.push(String(s)); return true; } }, PLAIN, p, { home });
+    const done = apply(p, { env: failing, home, spawn: rep.spawn(spawnSync), onItem: rep.onItem, onStep: rep.onStep });
+    assert.equal(done.failed.step, "install", String(channel));
+    const sw = done.find((d) => d.surface === "plugin_others");
+    assert.equal(sw.action, "skipped");
+    assert.equal(sw.reason, `the npm registration did not complete; ${GIT} stays on for this checkout`);
+    assert.ok(!host.log().some((c) => c.argv[1] === "disable"), "the disable never ran");
+    assert.notEqual(local()?.enabledPlugins?.[GIT], false, "the copy stays on: the checkout still loads a copy");
+    const text = chunks.join("");
+    assert.ok(text.includes(`⇄ switching ${GIT}\n      · skipped: ${sw.reason}\n`), text);
+    if (channel === "npm") {
+      const mark = done.find((d) => d.surface === "channel_switch");
+      assert.deepEqual([mark.action, mark.reason], ["skipped", "the switch did not complete; nothing is recorded"]);
+    }
+    assert.equal(bindingOf(proj).channel_switch, undefined, "no mark");
+    assert.match(renderDone({ verb: "upgrade", plan: p, applied: done, failed: done.failed, elapsed: 0 }), /^Stopped — \d+ changes? applied, then a host command failed$/m);
+  }
+});
+
+test("converge criterion 'The adoption, and an unbound project': an earlier switch is recorded by the mark alone; no other copy plans neither; an unbound project plans both, skips the mark at apply and creates no binding; a binding written before apply takes the mark", () => {
+  // Switched by a plain upgrade (channel null): the copy off, no mark — this checkout's own history.
+  const sb = sandbox();
+  const { home, proj, root, env } = sb;
+  withGitCopy(sb);
+  assert.equal(apply(plan(proj, { home, root, env }), { env, home }).failed, undefined);
+  assert.equal(bindingOf(proj).channel_switch, undefined);
+  assert.ok(!plan(proj, { home, root, env }).items.some((i) => i.kind === "binding"), "channel null never adopts");
+  const p = plan(proj, { home, root, env, channel: "npm" });
+  assert.deepEqual(writesOf(p).map((i) => [i.kind, i.surface]), [["binding", "channel_switch"]], "the mark alone");
+  assert.equal(sb.item(p, "channel_switch").reason, `this checkout already holds ${GIT} off for the npm registration; the switch is recorded`);
+  sb.host.reset();
+  assert.equal(apply(p, { env, home }).failed, undefined);
+  assert.equal(sb.host.log().length, 0, "recording it runs nothing of the host's");
+  assert.match(bindingOf(proj).channel_switch.at, ISO_TIME);
+  assert.deepEqual(writesOf(plan(proj, { home, root, env, channel: "npm" })), [], "then zero-change");
+
+  // No copy from another marketplace: neither a switch nor a mark.
+  const plain = sandbox();
+  assert.equal(apply(plan(plain.proj, { home: plain.home, root: plain.root, env: plain.env }), { env: plain.env, home: plain.home }).failed, undefined);
+  const none = plan(plain.proj, { home: plain.home, root: plain.root, env: plain.env, channel: "npm" });
+  assert.ok(!none.items.some((i) => i.kind === "binding" || i.surface === "plugin_others"), JSON.stringify(none.items.map(publicItem)));
+
+  // Unbound: the switch and the mark are both planned; the switch row says
+  // when it is recorded; at apply the mark is skipped and no binding appears.
+  const ub = sandbox();
+  withGitCopy(ub);
+  rmSync(layoutPaths(ub.proj).binding);
+  const u = plan(ub.proj, { home: ub.home, root: ub.root, env: ub.env, channel: "npm" });
+  const sw = ub.item(u, "plugin_others");
+  assert.equal(sw.action, "disable");
+  assert.equal(sw.reason, "the project is not bound yet: the switch is recorded in its binding once it is");
+  const mark = ub.item(u, "channel_switch");
+  assert.deepEqual([mark.action, mark.state, mark.path], ["add", "unbound", layoutPaths(ub.proj).binding]);
+  assert.ok(renderPreview(u).includes(`\n      ${sw.reason}\n`), "in the default view");
+  const done = apply(u, { env: ub.env, home: ub.home });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  assert.deepEqual([done.at(-1).surface, done.at(-1).action, done.at(-1).reason], ["channel_switch", "skipped", "the project is not bound; the switch is recorded once it is"]);
+  assert.ok(!existsSync(layoutPaths(ub.proj).binding), "no binding is created");
+  assert.equal(ub.local().enabledPlugins[GIT], false, "the switch itself applied");
+  assert.deepEqual(writesOf(plan(ub.proj, { home: ub.home, root: ub.root, env: ub.env, channel: "npm" })), [], "a second plan is zero-change");
+
+  // A binding written between plan and apply (the bind row's place): the mark merges into it.
+  const late = sandbox();
+  withGitCopy(late);
+  rmSync(layoutPaths(late.proj).binding);
+  const l = plan(late.proj, { home: late.home, root: late.root, env: late.env, channel: "npm" });
+  writeBinding(late.proj, { vault_path: "/tmp/nowhere", layout: "engineering", language: "en" });
+  assert.equal(apply(l, { env: late.env, home: late.home }).failed, undefined);
+  const merged = bindingOf(late.proj);
+  assert.deepEqual(Object.keys(merged), ["vault_path", "layout", "language", "channel_switch"]);
+  assert.equal(merged.channel_switch.by, "setup");
+});
+
+test("converge criterion 'The mark on a legacy layout': the preview names the moved binding, and after apply the legacy binding is gone and the moved one carries the mark", () => {
+  const home = tmp("ps-reg-legacy-home-");
+  const { proj, lp } = legacyProject(home);
+  withGitCopy({ home }, "0.29.0");
+  const root = fakePackageRoot(join(tmp("ps-reg-legacy-npx-"), "node_modules", "projectstore"), "0.30.0");
+  const host = fakeClaude(tmp("ps-reg-legacy-bin-"));
+  const env = host.env();
+  const legacyBefore = JSON.parse(readFileSync(lp.legacy.binding, "utf8"));
+  const p = plan(proj, { home, root, env, channel: "npm" });
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  assert.equal(p.items[0].surface, "layout", "the move first");
+  assert.ok(p.items.some((i) => i.surface === "plugin_others" && i.action === "disable"));
+  const mark = p.items.find((i) => i.kind === "binding");
+  assert.equal(mark.path, lp.binding, "the binding where the move puts it");
+  assert.ok(renderPreview(p).includes(`edit .projectstore/projectstore.json  [channel_switch] → by "setup", at the time of apply`));
+  const done = apply(p, { env, home });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  assert.ok(!existsSync(lp.legacy.binding), "the legacy binding is not re-created");
+  const moved = JSON.parse(readFileSync(lp.binding, "utf8"));
+  assert.equal(moved.channel_switch.by, "setup");
+  assert.match(moved.channel_switch.at, ISO_TIME);
+  const { agents, ...rest } = legacyBefore;
+  assert.ok(agents, "the fixture's legacy binding carried an agents block");
+  assert.deepEqual(Object.keys(moved), [...Object.keys(rest), "channel_switch"], "every key the move kept, then the mark");
+});
+
+test("converge criterion 'No git copy': channel git with the git copy held off by this checkout and no npm row refuses before the question, plans nothing, and names /plugin enable and the way back, each command alone on its line", async () => {
+  const sb = sandbox({ version: "0.30.0", npx: true });
+  const { home, proj, host, paths } = sb;
+  withGitCopy(sb, "0.29.0");
+  writeFileSync(paths.projectSettings, JSON.stringify({ enabledPlugins: { [GIT]: false } }, null, 2) + "\n");
+  const back = `npx projectstore uninstall --harness ${SRC.id} --surface plugin`;
+  const p = plan(proj, { home, root: sb.root, env: sb.env, channel: "git" });
+  assert.equal(p.ok, false);
+  assert.deepEqual(p.items, [], "nothing is planned");
+  assert.equal(p.refusals[0], [
+    "no git-marketplace copy of projectstore is enabled for this project, so there is none to keep. Nothing is written.",
+    `This checkout's local settings hold ${GIT} off. To load it again, run this in ${SRC.display_name}:`,
+    `/plugin enable ${GIT}`,
+    "The way back from an earlier switch to the npm install is its uninstall, from a terminal in this project:",
+    back,
+  ].join("\n"));
+  assert.ok(!Object.keys(p).includes("refusalAdvice"), "the drawn form stays off the envelope");
+  // Through the verb: refused before the question; each command alone on its line.
+  const s = await convergeRun(sb, sb.root, { channel: "git" });
+  assert.deepEqual(s.r.gate, { confirmed: false, why: "refused" });
+  assert.equal(s.asked, false);
+  const lines = s.text.split("\n");
+  for (const cmd of [`/plugin enable ${GIT}`, back]) {
+    const at = lines.indexOf(`    ${cmd}`);
+    assert.ok(at > 0 && lines[at - 1] === "" && (lines[at + 1] ?? "") === "", `${cmd}:\n${s.text}`);
+  }
+  assert.ok(!/\bsetup\b/.test(s.text), "no verb this release lacks");
+  assert.deepEqual(host.log(), []);
+  // No copy of ours held off, and none installed: only the way back.
+  writeFileSync(paths.projectSettings, "{}\n");
+  writeRegistry(home, []);
+  assert.deepEqual(plan(proj, { home, root: sb.root, env: sb.env, channel: "git" }).refusals[0].split("\n").slice(1), ["The way back from an earlier switch to the npm install is its uninstall, from a terminal in this project:", back]);
+  // An unknown channel is a refusal too.
+  assert.match(plan(proj, { home, root: sb.root, env: sb.env, channel: "svn" }).refusals[0], /^unknown channel: svn/);
+});
+
+test("converge criterion 'The way back': uninstall --surface plugin on the switched fixture turns the copy back on and removes the mark, both in its preview, and keeps every other key of the binding", () => {
+  const sb = sandbox();
+  const { home, proj, root, env, local } = sb;
+  withGitCopy(sb);
+  assert.equal(apply(plan(proj, { home, root, env, channel: "npm" }), { env, home }).failed, undefined);
+  const before = bindingOf(proj);
+  assert.ok(before.channel_switch);
+  const un = plan(proj, { home, root, env, mode: "uninstall", surfaces: ["plugin"] });
+  const u = sb.item(un, "plugin");
+  assert.deepEqual(u.steps.map((s) => s.kind === "host" ? s.name : s.kind), ["uninstall", "marketplace_remove", "enable", "unmark", "remove"]);
+  assert.deepEqual(publicItem(u).steps[3], { kind: "unmark", path: layoutPaths(proj).binding, key: "channel_switch", why: u.steps[3].why });
+  const text = renderPreview(un);
+  assert.ok(text.includes(`$ ${S.cli.bin} plugin enable ${GIT} --scope local`), text);
+  assert.ok(text.includes("edit .projectstore/projectstore.json  [channel_switch] → removed"), text);
+  const done = apply(un, { env, home });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  assert.equal(local().enabledPlugins[GIT], true, "the copy is back on");
+  const after = bindingOf(proj);
+  assert.equal(after.channel_switch, undefined, "the mark goes with the registration");
+  const { channel_switch, ...rest } = before;
+  assert.ok(channel_switch);
+  assert.deepEqual(after, rest);
+  // A binding with no mark: no unmark step.
+  const plainSb = sandbox();
+  withGitCopy(plainSb);
+  assert.equal(apply(plan(plainSb.proj, { home: plainSb.home, root: plainSb.root, env: plainSb.env }), { env: plainSb.env, home: plainSb.home }).failed, undefined);
+  const plainUn = plan(plainSb.proj, { home: plainSb.home, root: plainSb.root, env: plainSb.env, mode: "uninstall", surfaces: ["plugin"] });
+  assert.ok(!plainSb.item(plainUn, "plugin").steps.some((s) => s.kind === "unmark"));
 });

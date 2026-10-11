@@ -69,6 +69,7 @@ import {
   statusLineLauncherPath,
   LAUNCHER_HEADER,
   installedPluginEntries, projectCopies, isMain,
+  channelMark,
   pickExisting,
   legacyStatusLineLauncherPath,
   stateDir,
@@ -711,8 +712,13 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
 // itself); a competing copy enabled beside ours → an issue (two enabled copies
 // of one plugin); a competitor alone → an info naming the npm path; foreign →
 // never repairable; the host CLI missing → an info.
-export function checkPluginRegistration(proj, states = [], { home = homedir(), speaker = speakingHarness() } = {}) {
+export function checkPluginRegistration(proj, states = [], { home = homedir(), speaker = speakingHarness(), cfg = null } = {}) {
   const out = [];
+  // A checkout whose binding records a channel switch (the converge story's
+  // rule 3) chose the npm install: the info that ends "If moving to npm was
+  // meant, ignore this" is the one thing it no longer needs. Doctor never
+  // reads who made the mark.
+  const marked = Boolean(channelMark(cfg));
   for (const s of states.filter((x) => x.kind === "registration")) {
     // The shell form when the manifest names a shell (contract 12): the
     // command a user can paste, built in one place.
@@ -739,6 +745,7 @@ export function checkPluginRegistration(proj, states = [], { home = homedir(), s
           push(finding("install", "info", "plugin-registration", `${key} is held off in this checkout's local settings, where the npm registration turned it off — and that copy is no longer installed, so the entry is stale.`, s.path));
           continue;
         }
+        if (marked) continue;
         // The release line, not the build: a 0.28 release candidate reads a
         // moved project; 0.27.x reads it as unbound. No version reads as old.
         const old = !row.version || cmpVersion(row.version, "0.28.0") < 0;
@@ -2055,7 +2062,7 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
   let read = null;
   try { read = await readSurfaceStates(proj, opts); } catch {} // reported as a warn by checkHarnessSurfaces
   out.push(...await checkHarnessSurfaces(cfg, proj, { ...opts, read }));
-  if (read) out.push(...checkPluginRegistration(proj, read.result.states, { home: opts.home }));
+  if (read) out.push(...checkPluginRegistration(proj, read.result.states, { home: opts.home, cfg }));
   if (read) out.push(...checkVersionDrift(opts.home, read.result.states, proj));
   return foldIntoMove(out);
 }

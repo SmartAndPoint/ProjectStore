@@ -19,7 +19,7 @@ import { spawnSync, spawn as spawnChild } from "node:child_process";
 import { createServer } from "node:http";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import { VERBS, PLANNED_VERBS, SCHEMA_VERSION, envelope, resolveProject, run, opt, doctorText } from "../scripts/cli.mjs";
-import { loadHarness, sourceHarness, harnessIds } from "../scripts/harness.mjs";
+import { loadHarness, loadHarnesses, sourceHarness, harnessIds, invocation } from "../scripts/harness.mjs";
 import { layoutPaths, commandForm, doctorSummaryLine, doctorFallbackText } from "../scripts/lib.mjs";
 import { textReport } from "../scripts/doctor.mjs";
 import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
@@ -154,8 +154,15 @@ test("cli: <verb> --help prints the verb's options and examples, a shell's name 
   // own harness, so its help has no such line.
   const uninstall = bin(["uninstall", "--help"]).stdout;
   assert.match(uninstall, /\nExamples\n\n {2}Every harness this project uses:\n\n {2}npx projectstore uninstall\n\n {2}npx projectstore uninstall --harness <id>\n/, uninstall);
+  // The way back from a channel switch (the converge story's rule 4): the
+  // registration's own uninstall, then the doctor of the harness that has the
+  // registration, in its own form from invocation() — never a literal.
+  const switching = [...loadHarnesses().values()].find((m) => Object.values(m.surfaces || {}).some((s) => s?.format === "host-plugin-registration"));
+  const surface = Object.entries(switching.surfaces).find(([, s]) => s?.format === "host-plugin-registration")[0];
+  assert.ok(uninstall.includes(`\n  Back to the git marketplace after a switch, then restart ${switching.display_name} and run ${invocation(switching, "doctor", { args: "--fix" })} in it:\n\n  npx projectstore uninstall --harness <id> --surface ${surface}\n`), uninstall);
   const shellUninstall = bin(["uninstall", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
   assert.ok(!/every harness this project uses/i.test(shellUninstall), shellUninstall);
+  assert.ok(!/after a switch/.test(shellUninstall), "the way back is the core's example");
   assert.match(shellUninstall, /\nExamples\n\n {2}npx projectstore-codex uninstall\n/);
   // The ids come from the manifests, never from the help's own text (a Codex user reads it too).
   assert.ok(install.includes(`\nHarnesses   ${harnessIds().join(", ")}\n`), install);
