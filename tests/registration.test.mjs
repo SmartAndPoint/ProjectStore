@@ -19,7 +19,8 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { fakeInstall, fakePackageRoot, fakeClaude, noHostEnv, writeRegistry, installEnv, legacyProject, stubCopy, stubCalls, preFlagInstall } from "./fixtures/install.mjs";
-import { plan, renderPreview, apply, runVerb, publicItem, renderDone, applyReporter } from "../scripts/install-harness.mjs";
+import { plan, renderPreview, apply, runVerb, publicItem, renderDone, applyReporter, gateText } from "../scripts/install-harness.mjs";
+import { planBind } from "../scripts/binding.mjs";
 import { analyseRegistration, registrationPaths, surfaceStates } from "../scripts/surfaces.mjs";
 import { sourceHarness, loadHarness, packageCommand } from "../scripts/harness.mjs";
 import { PLAIN } from "../scripts/term.mjs";
@@ -1525,4 +1526,217 @@ test("converge criterion 'The keep', the other cases: no bin or no --no-register
   const nn = await keepRun(none);
   assert.equal(nn.r.plan.ok, false);
   assert.match(nn.r.plan.refusals[0], /^no git-marketplace copy of projectstore is enabled for this project/);
+});
+
+// ─── Setup's engine: the keep's record, a later switch, the dry run ─────
+//
+// PS-HARNESS: "projectstore setup asks, shows one plan and installs every
+// harness it finds, with the vault", rules 6 and 12, through runVerb("setup",
+// …) and plan(), on the converge story's fixtures (the git copy enabled at
+// user scope; the stub copy for the keep) and the logging fake host.
+
+test("setup engine 'The keep's record': runVerb('setup') under the channel git plans a binding item adding channel_keep, last in Claude Code's group, after the keep step; apply stamps it and keeps every other key, and a re-run is zero-change; upgrade records no keep; an unbound project records one only with a vault item", async () => {
+  const sb = keepSandbox();
+  const { proj, home, root } = sb;
+  const env = sb.host.env({ HOME: home });
+  const run = async (verb, answer) => {
+    const chunks = [];
+    const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+    const r = await runVerb(verb, proj, { harnesses: [SRC.id], home, root, env, channel: "git", cwd: proj, out, ask: async () => answer });
+    return { r, text: chunks.join("") };
+  };
+  const up = await run("upgrade", "n");
+  assert.ok(!up.r.plan.items.some((i) => i.kind === "binding" || i.kind === "state"), "upgrade records no keep and plans no state directory");
+  const s = await run("setup", "n");
+  assert.equal(s.r.plan.ok, true, JSON.stringify(s.r.plan.refusals));
+  assert.ok(s.text.startsWith(`projectstore setup · ${SRC.display_name}\n`), s.text);
+  const mine = s.r.plan.items.filter((i) => i.harness === SRC.id);
+  assert.deepEqual(mine.map((i) => [i.kind, i.surface, i.action]), [["shared", "agents_block", "add"], ["channel", "channel", "update"], ["state", "harness_state", "create"], ["binding", "channel_keep", "add"]]);
+  const rec = mine.at(-1);
+  assert.deepEqual([rec.entry, rec.state, rec.path], ["channel_keep", "absent", layoutPaths(proj).binding]);
+  assert.deepEqual(publicItem(rec).steps.map(({ why, ...st }) => st), [{ kind: "mark", path: layoutPaths(proj).binding, key: "channel_keep" }]);
+  assert.ok(s.text.includes(`\n      edit .projectstore/projectstore.json  [channel_keep] → by "setup", at the time of apply\n`), s.text);
+  const before = bindingOf(proj);
+  const y = await run("setup", "y");
+  assert.equal(y.r.failed, null, JSON.stringify(y.r.failed));
+  const after = bindingOf(proj);
+  assert.deepEqual(Object.keys(after), [...Object.keys(before), "channel_keep"]);
+  for (const k of Object.keys(before)) assert.deepEqual(after[k], before[k], k);
+  assert.equal(after.channel_keep.by, "setup");
+  assert.match(after.channel_keep.at, ISO_TIME);
+  assert.ok(y.text.includes("✓ edited .projectstore/projectstore.json [channel_keep]"), y.text);
+  const order = y.r.applied.map((a) => a.surface);
+  assert.ok(order.indexOf("channel") >= 0 && order.indexOf("channel") < order.indexOf("channel_keep"), `the keep step first: ${order.join(", ")}`);
+  const again = await run("setup", "n");
+  assert.deepEqual(writesOf(again.r.plan).map(publicItem), [], "zero-change after a keep");
+  // Unbound, with no vault item: nothing to record it in. With one: recorded in the binding it writes.
+  const ub = keepSandbox();
+  rmSync(layoutPaths(ub.proj).binding);
+  const uenv = ub.host.env({ HOME: ub.home });
+  const bare = plan(ub.proj, { harnesses: [SRC.id], home: ub.home, root: ub.root, env: uenv, channel: "git", recordKeep: true });
+  assert.ok(!bare.items.some((i) => i.kind === "binding"), JSON.stringify(bare.items.map(publicItem)));
+  const vault = planBind(ub.proj, { vault: join(tmp("ps-reg-keep-vault-"), "v"), init: true, env: uenv, home: ub.home, root: ROOT });
+  assert.equal(vault.ok, true, JSON.stringify(vault.refusals));
+  const withVault = plan(ub.proj, { harnesses: [SRC.id], home: ub.home, root: ub.root, env: uenv, channel: "git", recordKeep: true, vault });
+  assert.deepEqual([withVault.items[0].kind, withVault.items.at(-1).surface, withVault.items.at(-1).path], ["vault", "channel_keep", vault.configPath]);
+});
+
+test("setup engine 'A later switch': channel npm on a binding that carries channel_keep plans the mark and the keep's removal in one binding item; apply records the switch, removes the keep and keeps every other key; a re-run is zero-change", () => {
+  const sb = sandbox({ vault: true });
+  const { home, proj, root, env } = sb;
+  withGitCopy(sb);
+  const kept = { ...bindingOf(proj), channel_keep: { by: "setup", at: "2026-10-01T00:00:00.000Z" } };
+  writeBinding(proj, kept);
+  const p = plan(proj, { home, root, env, channel: "npm" });
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  const mark = sb.item(p, "channel_switch");
+  assert.deepEqual(mark.steps.map((st) => [st.kind, st.key]), [["mark", "channel_switch"], ["unmark", "channel_keep"]]);
+  assert.equal(p.items.filter((i) => i.kind === "binding").length, 1, "one item");
+  assert.equal(p.items.filter((i) => i.harness === SRC.id).at(-1), mark, "the mark stays last");
+  const text = renderPreview(p);
+  for (const l of [`edit .projectstore/projectstore.json  [channel_switch] → by "setup", at the time of apply`, "edit .projectstore/projectstore.json  [channel_keep] → removed"]) assert.ok(text.includes(`\n      ${l}\n`), `${l}\n${text}`);
+  const done = apply(p, { env, home });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  assert.deepEqual(done.find((d) => d.surface === "channel_switch").steps, [{ kind: "mark", path: layoutPaths(proj).binding, ok: true }, { kind: "unmark", path: layoutPaths(proj).binding, ok: true }]);
+  const after = bindingOf(proj);
+  assert.equal(after.channel_keep, undefined, "the keep goes");
+  assert.equal(after.channel_switch.by, "setup");
+  assert.match(after.channel_switch.at, ISO_TIME);
+  const { channel_keep, ...rest } = kept;
+  assert.deepEqual(Object.keys(after), [...Object.keys(rest), "channel_switch"]);
+  for (const k of Object.keys(rest)) assert.deepEqual(after[k], rest[k], k);
+  assert.deepEqual(writesOf(plan(proj, { home, root, env, channel: "npm" })), []);
+});
+
+test("setup engine 'dryRun': runVerb('setup', { dryRun }) prints PLAN and stops there — no registry read, no stop, no notice, no fetch, no question, nothing written, and the newer row says the registry is read first; without it the same run stops and names setup; under the keep the copy's own plan is read once and its upgrade never runs", async () => {
+  const sb = sandbox({ version: "0.31.0", npx: true });
+  const { home, proj, host } = sb;
+  assert.equal(apply(plan(proj, { home, root: sb.root, env: sb.env }), { env: sb.env, home }).failed, undefined);
+  host.reset();
+  const older = fakePackageRoot(join(tmp("ps-reg-dry-"), "_npx", "0a1b", "node_modules", "projectstore"), "0.30.0");
+  const before = snapshot(sb);
+  const env = sb.host.env({ PROJECTSTORE_NO_UPDATE_CHECK: "", CI: "", XDG_CACHE_HOME: join(tmp("ps-reg-xdg-"), "cache") });
+  for (const k of ["FORCE_COLOR", "TERM", "NO_COLOR", "PROJECTSTORE_ASCII"]) delete env[k];
+  const go = async (extra) => {
+    const reg = registryFetch({ latest: "0.31.0" });
+    const npm = fakeNpmSpawn();
+    const chunks = [];
+    let asked = false;
+    const out = { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } };
+    const r = await runVerb("setup", proj, { harnesses: [SRC.id], home, root: older, env, fetch: reg.fetch, fetchSpawn: npm.spawn, out, ask: async () => { asked = true; return "y"; }, ...extra });
+    return { r, reg, npm, asked, text: chunks.join("") };
+  };
+  const d = await go({ dryRun: true });
+  assert.deepEqual(d.r.gate, { confirmed: false, why: "dry-run" });
+  assert.equal(d.r.plan.ok, true, JSON.stringify(d.r.plan.refusals));
+  assert.equal(d.asked, false, "nothing is asked");
+  assert.equal(d.reg.calls.length, 0, "no registry read");
+  assert.deepEqual(d.npm.calls, [], "no npm");
+  assert.deepEqual(d.r.applied, []);
+  assert.deepEqual(host.log(), []);
+  assert.deepEqual(snapshot(sb), before, "nothing written");
+  assert.match(sb.item(d.r.plan, "plugin").reason, /read the registry first, and stop when 0\.31\.0 is published/);
+  assert.ok(!d.text.includes("newer published"), "no notice");
+  assert.equal(gateText(d.r, { verb: "setup" }), "Nothing written: this was a dry run.\n");
+  // Without dryRun: the registry is read once and the run stops; its command names setup.
+  const real = await go({});
+  assert.equal(real.r.plan.ok, false);
+  assert.equal(real.reg.calls.length, 1);
+  assert.equal(real.asked, false);
+  assert.equal(real.r.plan.stop.commands[0], `npx projectstore@latest setup --harness ${SRC.id}`);
+  assert.deepEqual(snapshot(sb), before);
+  // Not named (a bare setup's pre-ticked set): the command names setup alone.
+  assert.equal((await go({ named: false })).r.plan.stop.commands[0], "npx projectstore@latest setup");
+  // Under the keep: the copy's own plan read once, never its upgrade, nothing written.
+  const k = keepSandbox();
+  const kenv = k.host.env({ HOME: k.home });
+  const claudeMd = readFileSync(join(k.proj, "CLAUDE.md"), "utf8");
+  const kr = await runVerb("setup", k.proj, { harnesses: [SRC.id], home: k.home, root: k.root, env: kenv, channel: "git", dryRun: true, out: { isTTY: false, write: () => true } });
+  assert.deepEqual(kr.gate, { confirmed: false, why: "dry-run" });
+  assert.deepEqual(stubCalls(k.copy).map((c) => c.argv[0]), ["plan"]);
+  assert.equal(keepItem(kr.plan).action, "update");
+  assert.deepEqual(keepItem(kr.plan).steps[0].touches.map((t) => t.surface), STUB_WRITES.map((w) => w.surface), "the copy's real writes");
+  assert.equal(readFileSync(join(k.proj, "CLAUDE.md"), "utf8"), claudeMd);
+  for (const w of STUB_WRITES) assert.ok(!existsSync(join(k.proj, w.file)), w.file);
+  assert.equal(bindingOf(k.proj).channel_keep, undefined);
+  assert.deepEqual(k.host.log(), []);
+});
+
+// The latest answer wins (the setup story, rule 6, as the maintainer decided
+// it at PR C's review): channel_switch and channel_keep never both stay.
+const OLD_MARK = Object.freeze({ by: "setup", at: "2026-09-01T00:00:00.000Z" });
+const OLD_KEEP = Object.freeze({ by: "setup", at: "2026-10-01T00:00:00.000Z" });
+const keyedSteps = (i) => i.steps.map((st) => [st.kind, st.key]);
+
+test("setup engine 'The latest answer wins: a switch': channel npm on a binding that carries the mark and channel_keep plans one binding item that only removes the keep — an update, last in Claude Code's group, no second mark; apply removes it and keeps the mark as it was; a re-run is zero-change; a channel_keep of any shape goes", () => {
+  const sb = sandbox({ vault: true });
+  const { home, proj, root, env } = sb;
+  withGitCopy(sb);
+  const both = { ...bindingOf(proj), channel_switch: OLD_MARK, channel_keep: OLD_KEEP };
+  writeBinding(proj, both);
+  const p = plan(proj, { home, root, env, channel: "npm" });
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  assert.equal(sb.item(p, "channel_switch"), undefined, "no second mark");
+  const gone = sb.item(p, "channel_keep");
+  assert.deepEqual([gone.harness, gone.kind, gone.action, gone.state, gone.entry, gone.path], [SRC.id, "binding", "update", "present", "channel_keep", layoutPaths(proj).binding]);
+  assert.deepEqual(publicItem(gone).steps.map(({ why, ...st }) => st), [{ kind: "unmark", path: layoutPaths(proj).binding, key: "channel_keep" }]);
+  assert.equal(p.items.filter((i) => i.kind === "binding").length, 1, "one item");
+  assert.equal(p.items.filter((i) => i.harness === SRC.id).at(-1), gone, "last in its group");
+  assert.ok(renderPreview(p).includes("\n      edit .projectstore/projectstore.json  [channel_keep] → removed\n"), renderPreview(p));
+  const done = apply(p, { env, home });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  assert.deepEqual(done.find((d) => d.surface === "channel_keep").steps, [{ kind: "unmark", path: layoutPaths(proj).binding, ok: true }]);
+  const { channel_keep, ...rest } = both;
+  assert.equal(JSON.stringify(bindingOf(proj)), JSON.stringify(rest), "the mark as it was; every other key, in its place");
+  assert.deepEqual(writesOf(plan(proj, { home, root, env, channel: "npm" })), []);
+  // Presence is what a removal reads: a malformed keep goes too.
+  const m = sandbox({ vault: true });
+  withGitCopy(m);
+  writeBinding(m.proj, { ...bindingOf(m.proj), channel_switch: OLD_MARK, channel_keep: true });
+  assert.deepEqual(keyedSteps(m.item(plan(m.proj, { home: m.home, root: m.root, env: m.env, channel: "npm" }), "channel_keep")), [["unmark", "channel_keep"]]);
+});
+
+test("setup engine 'The latest answer wins: a keep': the keep's record removes channel_switch — alone, as an update, when the keep is already recorded; beside the record when it is not — and keeps every other key; a channel_keep that is not lib's { by, at } is no record: it is stamped over; each re-run is zero-change", () => {
+  const opts = (k) => ({ harnesses: [SRC.id], home: k.home, root: k.root, env: k.env, channel: "git", recordKeep: true });
+  const bindingItems = (p) => p.items.filter((i) => i.kind === "binding");
+  // Both there: the switch goes alone, the record stays as it was.
+  const k = keepSandbox();
+  const both = { ...bindingOf(k.proj), channel_switch: OLD_MARK, channel_keep: OLD_KEEP };
+  writeBinding(k.proj, both);
+  const p = plan(k.proj, opts(k));
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  const [gone, ...more] = bindingItems(p);
+  assert.deepEqual(more, [], "one item");
+  assert.deepEqual([gone.harness, gone.surface, gone.action, gone.state, gone.entry], [SRC.id, "channel_keep", "update", "present", "channel_keep"]);
+  assert.deepEqual(keyedSteps(gone), [["unmark", "channel_switch"]]);
+  assert.equal(p.items.filter((i) => i.harness === SRC.id).at(-1), gone, "last in its group");
+  assert.ok(renderPreview(p).includes("\n      edit .projectstore/projectstore.json  [channel_switch] → removed\n"), renderPreview(p));
+  assert.equal(apply(p, { env: k.env, home: k.home }).failed, undefined);
+  const { channel_switch, ...rest } = both;
+  assert.equal(JSON.stringify(bindingOf(k.proj)), JSON.stringify(rest), "the keep as it was; every other key, in its place");
+  assert.deepEqual(bindingItems(plan(k.proj, opts(k))), [], "zero-change");
+  // The switch alone: the keep recorded and the switch removed, in one item.
+  const s = keepSandbox();
+  writeBinding(s.proj, { ...bindingOf(s.proj), channel_switch: OLD_MARK });
+  const sp = plan(s.proj, opts(s));
+  const [rec] = bindingItems(sp);
+  assert.deepEqual([rec.surface, rec.action, rec.state, keyedSteps(rec)], ["channel_keep", "add", "absent", [["mark", "channel_keep"], ["unmark", "channel_switch"]]]);
+  assert.equal(apply(sp, { env: s.env, home: s.home }).failed, undefined);
+  const after = bindingOf(s.proj);
+  assert.equal(after.channel_switch, undefined, "the switch goes");
+  assert.equal(after.channel_keep.by, "setup");
+  assert.match(after.channel_keep.at, ISO_TIME);
+  assert.deepEqual(bindingItems(plan(s.proj, opts(s))), [], "zero-change");
+  // A malformed keep is not a record (lib's channelKeep): stamped over, in its place.
+  const b = keepSandbox();
+  const bad = { ...bindingOf(b.proj), channel_keep: true, tags: ["x"] };
+  writeBinding(b.proj, bad);
+  const bp = plan(b.proj, opts(b));
+  const [stamp] = bindingItems(bp);
+  assert.deepEqual([stamp.action, stamp.state, keyedSteps(stamp)], ["add", "absent", [["mark", "channel_keep"]]]);
+  assert.equal(apply(bp, { env: b.env, home: b.home }).failed, undefined);
+  const fixed = bindingOf(b.proj);
+  assert.deepEqual(Object.keys(fixed), Object.keys(bad));
+  assert.deepEqual([fixed.channel_keep.by, ISO_TIME.test(fixed.channel_keep.at), fixed.tags], ["setup", true, ["x"]]);
+  assert.deepEqual(bindingItems(plan(b.proj, opts(b))), [], "zero-change");
 });

@@ -332,9 +332,10 @@ export function stepReporter(stream = process.stdout, c = caps(stream), { indent
   const paint = painter(c);
   let open = null;
   const line = rowFor(c, indent);
-  const finished = (ok, note, kept, label, ms, over) => {
-    // A step that ran and left its target in place is neither ✓ nor ✕.
-    const mark = !ok ? paint("error", icon(c, "fail")) : kept ? paint("explanation", icon(c, "skip")) : paint("done", icon(c, "ok"));
+  const finished = (ok, note, kept, label, ms, over, warn = false) => {
+    // A step that ran and left its target in place is neither ✓ nor ✕; one
+    // that failed without stopping the run (setup's git init) is ▲.
+    const mark = !ok ? paint("error", icon(c, "fail")) : warn ? paint("attention", icon(c, "warning")) : kept ? paint("explanation", icon(c, "skip")) : paint("done", icon(c, "ok"));
     const right = paint("explanation", [note, duration(ms)].filter(Boolean).join("  "));
     stream.write((over && c.live ? "\r\x1b[2K" : "") + line(mark, label, right) + "\n");
   };
@@ -346,9 +347,9 @@ export function stepReporter(stream = process.stdout, c = caps(stream), { indent
       open = { label, t0: now() };
       if (c.live) stream.write(line(paint("explanation", icon(c, "running")), label, "", { cut: true }));
     },
-    end(ok = true, note = "", { kept = false, label = null } = {}) {
+    end(ok = true, note = "", { kept = false, label = null, warn = false } = {}) {
       if (!open) return;
-      finished(ok, note, kept, label ?? open.label, now() - open.t0, true);
+      finished(ok, note, kept, label ?? open.label, now() - open.t0, true, warn);
       open = null;
     },
     finish(label, t0, { ok = true, note = "" } = {}) { finished(ok, note, false, label, now() - t0, false); },
