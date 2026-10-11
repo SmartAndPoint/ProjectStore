@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, realpa
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { readLatest, decide, proceedCase, updateNotice, runningCopies, isSemver, newerCopyDeferral, channelChoices, advised, repairAdvice, checksRoot, noticeRoot, hostCopyRoot, coreCommand, switchReason, DEFAULT_REGISTRY, ACCEPT, FRESH_MS, READ_TIMEOUT_MS, NO_CHECK_ENV } from "../scripts/convergence.mjs";
+import { readLatest, decide, proceedCase, updateNotice, runningCopies, isSemver, newerCopyDeferral, channelChoices, advised, repairAdvice, checksRoot, noticeRoot, hostCopyRoot, coreCommand, switchReason, readKeepPlan, DEFAULT_REGISTRY, ACCEPT, FRESH_MS, READ_TIMEOUT_MS, NO_CHECK_ENV } from "../scripts/convergence.mjs";
 import { registrationPaths, analyseRegistration } from "../scripts/surfaces.mjs";
 import { portableRegistrationPaths } from "../scripts/portable-registration.mjs";
 import { runVerb, plan } from "../scripts/install-harness.mjs";
@@ -418,6 +418,33 @@ test("converge rule 8: on the notice-only path the user's registry resolver and 
 });
 
 // ─── The module's place ─────────────────────────────────────────────────
+
+test("converge rule 5: readKeepPlan reads the kept copy's plan through its bin with the caller's runner — the result's ok, incomplete, refusals and writes, never the top-level ok — and says when no envelope came back", async () => {
+  const harness = sourceHarness();
+  const copy = { path: "/copies/git/0.29.0" };
+  const calls = [];
+  const runner = (answer) => async (bin, argv, o) => { calls.push({ bin, argv, o }); if (answer instanceof Error) throw answer; return answer; };
+  const envelope = (result, ok) => JSON.stringify({ schema_version: 1, verb: "plan", project: "/p", ok, result });
+  const items = [
+    { surface: "statusline", action: "create", path: "/p/a" },
+    { surface: "statusline_launcher", action: "skip", path: "/p/b" },
+    { surface: "layout", action: "refuse", reason: "two bindings", path: "/p/c" },
+  ];
+  // ok and incomplete: the top-level ok is false (plan's ok && !incomplete) and is not read.
+  const a = await readKeepPlan(copy, { harness, projectDir: "/p", env: { X: "1" }, run: runner({ status: 1, stdout: envelope({ ok: true, incomplete: true, refusals: [], items: items.slice(0, 2) }, false), stderr: "" }), budget: 5 });
+  assert.deepEqual(a, { argv: [process.execPath, join(copy.path, "bin", "projectstore.mjs"), "plan", "--harness", harness.id, "--no-register", "--json", "--project", "/p"], envelope: true, ok: true, incomplete: true, refusals: [], writes: [{ surface: "statusline", action: "create", path: "/p/a" }], deferred: [], status: 1 });
+  // A row it left for later is read with its reason.
+  const d = await readKeepPlan(copy, { harness, projectDir: "/p", run: runner({ status: 1, stdout: envelope({ ok: true, incomplete: true, refusals: [], items: [{ surface: "layout", action: "skip", deferred: true, reason: "run it outside the session" }] }, false) }) });
+  assert.deepEqual([d.writes, d.deferred], [[], [{ surface: "layout", reason: "run it outside the session" }]]);
+  assert.deepEqual([calls[0].bin, calls[0].argv, calls[0].o], [process.execPath, a.argv.slice(1), { env: { X: "1" }, cwd: "/p", budget: 5 }]);
+  // A refusal: the plan's own, then each refused row's reason.
+  const b = await readKeepPlan(copy, { harness, projectDir: "/p", run: runner({ status: 1, stdout: envelope({ ok: false, incomplete: false, refusals: ["unknown harness"], items }, false) }) });
+  assert.deepEqual([b.ok, b.refusals], [false, ["unknown harness", "two bindings"]]);
+  // No envelope: what ran says why; a runner that throws never throws here.
+  assert.deepEqual(await readKeepPlan(copy, { harness, projectDir: "/p", run: runner({ status: 2, stdout: "usage: …\n", stderr: "bad flag\n" }) }), { argv: a.argv, envelope: false, status: 2, stderr: "bad flag", error: null });
+  const c = await readKeepPlan(copy, { harness, projectDir: "/p", run: runner(new Error("spawn failed")) });
+  assert.deepEqual([c.envelope, c.status, c.error], [false, null, "spawn failed"]);
+});
 
 test("converge: convergence.mjs imports lib, harness, portable-registration and surfaces only; doctor, lib, the hooks and the SessionStart graph never load it", () => {
   const src = readFileSync(join(ROOT, "scripts", "convergence.mjs"), "utf8");

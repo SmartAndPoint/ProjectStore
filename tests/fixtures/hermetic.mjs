@@ -9,8 +9,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { loadHarnesses } from "../../scripts/harness.mjs";
 
 for (const k of ["PROJECTSTORE_HARNESS", "PROJECTSTORE_IDENTIFIED", "PROJECTSTORE_SHELL"]) delete process.env[k];
+// Every harness's home variable, named by its manifest (Claude Code's config
+// directory, Codex's home): a developer's exported one would point a test's
+// host reads, and every child it spawns, at the developer's own home. A test
+// that needs a home passes it.
+for (const m of loadHarnesses().values()) if (m.runtime?.home_env) delete process.env[m.runtime.home_env];
 // A shell's named root would stand in for every fetch, and the animation
 // switch would change every live line a test reads (the shell-fetch story).
 for (const k of ["PROJECTSTORE_DISTRIBUTION_ROOT", "PROJECTSTORE_NO_ANIMATION"]) delete process.env[k];

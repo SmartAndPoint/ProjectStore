@@ -83,6 +83,6 @@ test("run-host: a child that cannot start is an error with no status, and startF
 test("run-host: the installer's host commands take their bound from HOST_BUDGET_MS, never a literal", () => {
   const src = readFileSync(join(ROOT, "scripts", "install-harness.mjs"), "utf8");
   assert.ok(!/timeout:\s*120000/.test(src), "no literal 120000 timeout is left");
-  assert.equal((src.match(/timeout: HOST_BUDGET_MS/g) || []).length, 3, "the list read, the compensation and the planned step");
+  assert.equal((src.match(/timeout: HOST_BUDGET_MS/g) || []).length, 4, "the list read, the compensation, the planned step and the keep step (the converge story's rule 5)");
   assert.ok(!/^function startFailure/m.test(src), "startFailure lives in run-host.mjs");
 });

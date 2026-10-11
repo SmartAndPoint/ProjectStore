@@ -530,6 +530,55 @@ export function projectCopiesByKey(home = homedir(), projectDir) {
   return projectCopies(home, projectDir).filter((e) => !seen.has(e.key) && seen.add(e.key));
 }
 
+// Whether a registry copy can run the command named for it. `--no-register`
+// arrived in 0.28.0-rc.3, and rc.1 and rc.2 parse strictly, so the command
+// exits 2 on the flag and writes nothing (the layout spec, contract 12 as
+// amended after the rc.3 tag). Read from the copy's own parse table, never
+// from its version: a never-published 0.28.0 build ranks above rc.3 and lacks
+// the flag, while a copy labelled rc.2 taken from main at 418448e has it. A
+// file read, because this runs in the SessionStart subset: never an import()
+// of the copy, never a spawn. Add files to the read, never drop cli.mjs:
+// released copies keep their parse there. Moved here from doctor.mjs (the
+// converge story's rule 5), which re-exports it: doctor's layout remedy and
+// the installer's keep read one function.
+export function takesNoRegister(copy) {
+  try { return readFileSync(join(copy, "scripts", "cli.mjs"), "utf8").includes('"no-register"'); } catch { return false; }
+}
+// …and whether its CLI takes --verbose, the same way: the flag arrived in
+// 0.29.0, after --no-register, and a copy between them (rc.3 to 0.28.x)
+// parses strictly, so a command naming it would exit 2. Read before DONE names
+// a kept copy's own `plan --verbose`.
+export function takesVerbose(copy) {
+  try { return /\bverbose\b/.test(readFileSync(join(copy, "scripts", "cli.mjs"), "utf8")); } catch { return false; }
+}
+
+// Contract 12's selection with its capability read (the layout spec, contract
+// 12 as amended 2026-10-03; the converge story's rule 5): the first of
+// projectCopies — this checkout's own row, then user-scope rows by recency,
+// never another checkout's — and whether its own bin can run the remedy form
+// (`missing`: "bin" for a copy with no bin/projectstore.mjs, 0.27.x;
+// "no-register" for one whose CLI predates the flag, rc.1 and rc.2; null when
+// it can). `only` limits the rows to one install channel before the first is
+// taken: the keep takes "marketplace", so the npm registration's copy is never
+// the kept one. Doctor's layout remedy and the installer's keep call this one
+// function, so the two never disagree about which copy a project runs.
+export function selectCopy(home = homedir(), projectDir, { harness = sourceHarness(), only = null } = {}) {
+  const copy = projectCopies(home, projectDir).find((e) => !only || installChannel(e.path, { home, harness }) === only);
+  if (!copy) return null;
+  const bin = join(copy.path, "bin", "projectstore.mjs");
+  const missing = !existsSync(bin) ? "bin" : !takesNoRegister(copy.path) ? "no-register" : null;
+  return { ...copy, bin, missing, channel: installChannel(copy.path, { home, harness }) };
+}
+
+// The advice for a marketplace copy that cannot run what is named for it, in
+// that copy's own channel: the host's update, then a restart. `cannot` says
+// what it cannot do, `then` what follows the update. One text for doctor's
+// layout remedy and the keep's skip row and DONE line.
+export function copyUpdateAdvice(copy, { cannot, then }) {
+  const v = copy?.version ? ` (${copy.version})` : "";
+  return `This project's projectstore plugin${v} ${cannot}: update it first (in Claude Code: /plugin marketplace update, then /plugin update, then restart), ${then}`;
+}
+
 // The mark a channel switch leaves in this checkout's machine-local binding
 // (the converge story's rules 2–4): `channel_switch: { by, at }`, two strings.
 // It says this checkout chose the npm install; it lists no copies — the

@@ -68,7 +68,7 @@ import {
   findAgentsBlock,
   statusLineLauncherPath,
   LAUNCHER_HEADER,
-  installedPluginEntries, projectCopies, isMain,
+  installedPluginEntries, selectCopy, takesNoRegister, copyUpdateAdvice, isMain,
   channelMark,
   pickExisting,
   legacyStatusLineLauncherPath,
@@ -948,20 +948,13 @@ export function checkLayout(proj, harness = sourceHarness(), { level = "warn", r
 // the move never needs the registration, so a misread channel can cost a
 // launcher stamp but never a channel switch. A copy that predates the move
 // (no bin/projectstore.mjs — 0.27.x) cannot run it: update that copy first.
-// Nor can one whose CLI predates --no-register (takesNoRegister).
+// Nor can one whose CLI predates --no-register (lib's takesNoRegister).
 //
-// Whether a registry copy can run the command named for it. `--no-register`
-// arrived in 0.28.0-rc.3, and rc.1 and rc.2 parse strictly, so the command
-// exits 2 on the flag and writes nothing (the layout spec, contract 12 as
-// amended after the rc.3 tag). Read from the copy's own parse table, never
-// from its version: a never-published 0.28.0 build ranks above rc.3 and lacks
-// the flag, while a copy labelled rc.2 taken from main at 418448e has it. A
-// file read, because this runs in the SessionStart subset: never an import()
-// of the copy, never a spawn. Add files to the read, never drop cli.mjs:
-// released copies keep their parse there.
-export function takesNoRegister(copy) {
-  try { return readFileSync(join(copy, "scripts", "cli.mjs"), "utf8").includes('"no-register"'); } catch { return false; }
-}
+// The selection, the capability read and the copy advice are lib's
+// (selectCopy, takesNoRegister, copyUpdateAdvice), shared with the
+// installer's keep (the converge story's rule 5). takesNoRegister is
+// re-exported here, where its callers already import it.
+export { takesNoRegister };
 
 export function layoutRemedy(proj, { root = pluginRoot(), home = homedir(), harness = sourceHarness(), env = process.env } = {}) {
   // A session under a relocated host home hands it on: a terminal without it
@@ -974,24 +967,23 @@ export function layoutRemedy(proj, { root = pluginRoot(), home = homedir(), harn
   const channel = installChannel(root, { home, harness });
   if (channel === "registration") return shell(pluginVersion(root));
   if (channel === "marketplace") return own(root);
-  // The selection is lib's projectCopies: this checkout's row first, then
+  // The selection is lib's selectCopy: this checkout's row first, then
   // user-scope rows by recency, never another checkout's.
-  const copy = projectCopies(home, proj)[0];
+  const copy = selectCopy(home, proj, { harness });
   if (copy) {
     const v = copy.version ? ` (${copy.version})` : "";
-    if (!existsSync(join(copy.path, "bin", "projectstore.mjs"))) {
-      return { advice: `This project's projectstore plugin${v} predates the move and cannot run it: update it first (in Claude Code: /plugin marketplace update, then /plugin update, then restart), and the startup line names the command` };
-    }
+    const then = "and the startup line names the command";
+    if (copy.missing === "bin") return { advice: copyUpdateAdvice(copy, { cannot: "predates the move and cannot run it", then }) };
     // Chosen first, gated after: the copy is what the project runs, so an
     // incapable one gets advice even beside a capable user-scope copy.
-    const viaRegistration = installChannel(copy.path, { home, harness }) === "registration";
-    if (!takesNoRegister(copy.path)) {
+    const viaRegistration = copy.channel === "registration";
+    if (copy.missing === "no-register") {
       return { advice: viaRegistration
         // Its channel's ordinary refresh, at the running version: the plain
         // upgrade re-registers from npm — not a switch for an npm project — and
         // moves the project in the same run.
         ? `This project's projectstore plugin${v} is the npm registration's copy and predates --no-register, so it cannot run the move as named: refresh that registration, which moves the project too, from a terminal outside the session: ${prefix}${packageCommand(harness, "upgrade", { version: pluginVersion(root) || "latest", args: `--project "${proj}"` })}`
-        : `This project's projectstore plugin${v} predates --no-register and cannot run the move as named: update it first (in Claude Code: /plugin marketplace update, then /plugin update, then restart), and the startup line names the command` };
+        : copyUpdateAdvice(copy, { cannot: "predates --no-register and cannot run the move as named", then }) };
     }
     return viaRegistration ? shell(copy.version) : own(copy.path);
   }

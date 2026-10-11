@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { PassThrough } from "node:stream";
-import { fakeInstall, writeRegistry, noHostEnv, fakeClaude } from "./fixtures/install.mjs";
+import { fakeInstall, writeRegistry, noHostEnv, fakeClaude, stubCopy, stubCalls } from "./fixtures/install.mjs";
 import { codexHost, fakeNpmSpawn } from "./fixtures/fetch.mjs";
 import { plan, renderPreview, confirm, apply, runVerb, isInteractive, renderDone } from "../scripts/install-harness.mjs";
 import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses, loadHarness, identifiedHarnessId, packageCommand } from "../scripts/harness.mjs";
@@ -1752,6 +1752,109 @@ test("one block per run, the keep seam: the block's items are contiguous and pre
     const later = p.items.map((i, k) => (i.harness !== order[0].id ? k : -1)).filter((k) => k >= 0);
     assert.ok(later.length && later.every((k) => k > at.at(-1)), JSON.stringify(p.items.map((i) => [i.harness, i.surface])));
   }
+});
+
+// The converge story's keep (rule 5) beside Codex: a git copy enabled for the
+// project, kept (the channel "git"), its bin a stub (stubCopy) that lists its
+// writes only while their files are missing; Codex through the shell fetch's
+// fake npm (layShellTree) and its in-process host (codexHost). The keep step
+// spawns the stub through the real spawnSync; every other host command goes to
+// codexHost.
+const KEEP_GIT = "projectstore@SmartAndPoint";
+function keepBeside(proj, writes, spec = {}, { copy: withCopy = true, extraEnv = {} } = {}) {
+  const h = hostSandbox();
+  const copy = withCopy ? stubCopy(h.home, "0.29.0", { writes, ...spec }) : null;
+  if (copy) writeRegistry(h.home, [{ scope: "user", installPath: copy, version: "0.29.0", lastUpdated: "2026-10-01T00:00:00Z" }]);
+  const env = { ...h.env, HOME: h.home, ...extraEnv };
+  const codex = codexHost(h.home);
+  const spawn = (bin, argv, o) => (bin === process.execPath ? spawnSync(bin, argv, o) : codex(bin, argv, o));
+  // Each run's fake npm rides on its result, so a test can read what it fetched.
+  const run = async (answer) => {
+    const npm = fakeNpmSpawn();
+    const r = await runVerb("upgrade", proj, { harnesses: BOTH.map((m) => m.id), root: ROOT, home: h.home, env, channel: "git", ask: async () => answer, fetchSpawn: npm.spawn, spawn });
+    return Object.assign(r, { npm });
+  };
+  return { h, copy, env, run };
+}
+const STUB_LAUNCHER = { surface: "statusline_launcher", kind: "exclusive", action: "create", file: join(".projectstore", "stub-launcher.mjs"), body: "// the stub copy's\n" };
+
+test("converge criterion 'The keep', two harnesses: on a fixture whose block sits only in CLAUDE.md, the run's one block item comes before the keep step and moves it to AGENTS.md with CLAUDE.md importing it; Codex is planned as under no channel; a second run is zero-change", async () => {
+  const proj = project({ bound: false, claude: "# Mine\n\n" + BLOCK + "\n" });
+  // The caller's environment points at Codex: its home is set, and so is its plugin root.
+  const elsewhere = join(tmp("codex-plugin-root"), "projectstore");
+  const k = keepBeside(proj, [STUB_LAUNCHER], {}, { extraEnv: { [CODEX.runtime.plugin_root_env]: elsewhere } });
+  const r = await k.run("y");
+  assert.equal(r.failed, null, JSON.stringify(r.failed));
+  assert.equal(r.npm.installs().length, 1, "Codex's shell is fetched, as under no channel");
+  const at = (pred) => r.plan.items.findIndex(pred);
+  const keep = at((i) => i.kind === "channel");
+  assert.ok(keep > 0, JSON.stringify(r.plan.items.map((i) => [i.harness, i.surface, i.action])));
+  assert.equal(r.plan.items[keep].entry, KEEP_GIT);
+  const blocks = r.plan.items.map((i, n) => (i.surface.startsWith("agents_block") ? n : -1)).filter((n) => n >= 0);
+  assert.deepEqual(rowsOf(proj, blockRows(r.plan)), [[SRC.id, "agents_block", "remove", "CLAUDE.md"], [SRC.id, "agents_block", "create", "AGENTS.md"]], "one block, the whole run's, Claude Code included");
+  assert.ok(blocks.every((n) => n < keep), "the block comes before the keep step");
+  assert.ok(!r.plan.items.some((i) => i.harness === SRC.id && ["registration", "exclusive"].includes(i.kind)), "no Claude Code row of its own");
+  assert.equal(read(join(proj, "AGENTS.md")), BLOCK + "\n");
+  assert.equal(read(join(proj, "CLAUDE.md")), "@AGENTS.md\n\n# Mine\n");
+  assert.equal(read(join(proj, STUB_LAUNCHER.file)), STUB_LAUNCHER.body, "the kept copy wrote its own");
+  // Codex's rows are what they are under no channel.
+  const codexRows = (channel) => plan(proj, { harnesses: BOTH.map((m) => m.id), root: ROOT, home: k.h.home, env: k.env, channel }).items.filter((i) => i.harness === CODEX.id).map((i) => [i.surface, i.kind, i.action, i.state, i.reason]);
+  assert.deepEqual(codexRows("git"), codexRows(null));
+  // The child's environment names the KEPT harness's runtime variables, from
+  // its manifest, whatever harness the caller's environment points at: the
+  // copy's root as its plugin root, the project, its home pinned — and no
+  // other manifest's plugin root.
+  const calls = stubCalls(k.copy);
+  assert.deepEqual(calls.map((c) => c.argv[0]), ["plan", "upgrade"]);
+  for (const c of calls) {
+    assert.equal(c.pluginRoot, k.copy, c.argv[0]);
+    assert.equal(c.env[SRC.runtime.project_dir_env], proj, c.argv[0]);
+    assert.equal(c.home, join(k.h.home, SRC.runtime.home_default), c.argv[0]);
+    assert.equal(c.env[CODEX.runtime.plugin_root_env], null, `${c.argv[0]}: Codex's plugin root is dropped`);
+  }
+  const again = await k.run("n");
+  assert.deepEqual(writesOf(again.plan).map((i) => [i.harness, i.surface, i.action]), [], "the second run is zero-change");
+  assert.equal(stubCalls(k.copy).filter((c) => c.argv[0] === "upgrade").length, 1);
+});
+
+test("one block per run, under keep: on an empty project with a git copy kept beside Codex, the run's one agents_block item comes before the keep step, the keep's touches drop the copy's block row, AGENTS.md holds one block and CLAUDE.md the import, and a second run plans zero changes", async () => {
+  const proj = tmp("keep");
+  // The copy's own plan, on its own, lists `create CLAUDE.md` for the block —
+  // what claude-code alone plans on an empty project — so the drop is proven.
+  const blockRow = { surface: "agents_block", kind: "shared", action: "create", file: "CLAUDE.md", body: BLOCK + "\n" };
+  const k = keepBeside(proj, [blockRow, STUB_LAUNCHER]);
+  const own = spawnSync(process.execPath, [join(k.copy, "bin", "projectstore.mjs"), "plan", "--harness", SRC.id, "--no-register", "--json", "--project", proj], { encoding: "utf8", cwd: proj, env: k.env });
+  assert.deepEqual(JSON.parse(own.stdout).result.items.map((i) => [i.surface, i.action, relative(proj, i.path)]), [["agents_block", "create", "CLAUDE.md"], ["statusline_launcher", "create", STUB_LAUNCHER.file]]);
+  const r = await k.run("y");
+  assert.equal(r.failed, null, JSON.stringify(r.failed));
+  const keep = r.plan.items.findIndex((i) => i.kind === "channel");
+  const block = r.plan.items.findIndex((i) => i.surface === "agents_block");
+  assert.ok(block >= 0 && keep > block, "the run's agents_block item comes before the keep step");
+  assert.deepEqual(rowsOf(proj, blockRows(r.plan)), [[SRC.id, "agents_block", "create", "AGENTS.md"], [SRC.id, "agents_block_import", "create", "CLAUDE.md"]]);
+  const touches = r.plan.items[keep].steps[0].touches;
+  assert.deepEqual(touches.map((t) => [t.surface, t.action, relative(proj, t.path)]), [["statusline_launcher", "create", STUB_LAUNCHER.file]], "no agents_block or agents_block_import row");
+  assert.equal(read(join(proj, "AGENTS.md")), BLOCK + "\n", "AGENTS.md holds one block");
+  assert.equal(read(join(proj, "CLAUDE.md")), "@AGENTS.md\n", "CLAUDE.md holds the import: the copy's own apply found it there and wrote nothing");
+  assert.equal(stubCalls(k.copy).filter((c) => c.argv[0] === "upgrade").length, 1);
+  const again = await k.run("n");
+  assert.deepEqual(writesOf(again.plan).map((i) => [i.harness, i.surface, i.action]), [], "a second run plans zero changes");
+  assert.equal(again.plan.items.find((i) => i.kind === "channel"), undefined, "the copy lists nothing: no keep step");
+});
+
+test("converge rules 1 and 5: under the channel git, a run plan() will refuse fetches no shell first — no copy to keep, or the kept copy's own plan refused — and writes nothing", async () => {
+  const none = keepBeside(tmp("keep-none"), [], {}, { copy: false });
+  const r = await none.run("y");
+  assert.equal(r.plan.ok, false);
+  assert.match(r.plan.refusals[0], /^no git-marketplace copy of projectstore is enabled for this project/);
+  assert.deepEqual(r.npm.calls, [], "no shell fetched, no registry resolved");
+  const proj = tmp("keep-refused");
+  const refused = keepBeside(proj, [STUB_LAUNCHER], { plan: { refusals: ["two bindings: keep one"] } });
+  const s = await refused.run("y");
+  assert.equal(s.plan.ok, false);
+  assert.ok(s.plan.refusals.includes(`${KEEP_GIT} 0.29.0: two bindings: keep one`), JSON.stringify(s.plan.refusals));
+  assert.deepEqual(s.gate, { confirmed: false, why: "refused" });
+  assert.deepEqual(s.npm.calls, [], "the copy's plan refused before the fetch");
+  assert.deepEqual(readdirSync(proj), [], "nothing written");
 });
 
 test("one block per run, the roster: plan(…, { layout }) renders that layout's roster, and a bound install with no layout renders the binding's", () => {
