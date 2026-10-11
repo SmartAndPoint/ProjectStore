@@ -275,7 +275,9 @@ test("presentation criterion 3: every path a real plan writes and every host arg
 
 // ─── Criterion 5: --help in named groups ──────────────────────────────
 
-const HELP_GROUPS = { START: ["install", "bind", "uninstall"], VAULT: ["status", "search", "show", "graph", "codemap"], "CHECK AND REPAIR": ["doctor", "reconcile", "upgrade"] };
+// START is setup and uninstall once setup exists (contract 10); install and
+// bind are ADVANCED's (the setup story, rule 1).
+const HELP_GROUPS = { START: ["setup", "uninstall"], VAULT: ["status", "search", "show", "graph", "codemap"], "CHECK AND REPAIR": ["doctor", "reconcile", "upgrade"] };
 
 // A stream for run(): a terminal (isTTY, 80 columns) or a pipe.
 class Sink {
@@ -285,7 +287,7 @@ class Sink {
   get columns() { return 80; }
 }
 
-test("presentation criterion 5: top-level --help lists the verbs in named groups, install first, each summary on one line within 80 columns; ADVANCED is one line; options, examples, tips, the harnesses and exit code 130 follow; painted at a terminal, plain on a pipe", async () => {
+test("presentation criterion 5: top-level --help lists the verbs in named groups, setup first, each summary on one line within 80 columns; ADVANCED is one line; options, examples, tips, the harnesses and exit code 130 follow; painted at a terminal, plain on a pipe", async () => {
   // Every summary fits its column, in ASCII: it heads <verb> --help too.
   for (const v of VERBS) assert.ok(v.summary.length <= SUMMARY_MAX && !/[^\x20-\x7e]/.test(v.summary), `${v.verb}: ${v.summary.length} columns`);
   assert.equal(SUMMARY_MAX, 65);
@@ -313,15 +315,21 @@ test("presentation criterion 5: top-level --help lists the verbs in named groups
         assert.deepEqual(block.map((l) => l.trim().split(" ")[0]), verbs, `${name} ${g}`);
         block.forEach((l, k) => assert.equal(l, `  ${verbs[k].padEnd(12)} ${VERBS.find((v) => v.verb === verbs[k]).summary}`, `${name} ${g}`));
       }
-      assert.equal(lines[lines.indexOf("START") + 1].trim().split(" ")[0], "install", "install first");
-      // ADVANCED: the remaining verbs, in table order, on one line.
+      assert.equal(lines[lines.indexOf("START") + 1].trim().split(" ")[0], "setup", "setup first");
+      // ADVANCED: the remaining verbs, in table order, one line broken at 80
+      // columns in every mode (with install and bind among them it no longer
+      // fits one row; the setup story, rule 1).
       const rest = VERBS.map((v) => v.verb).filter((v) => !Object.values(HELP_GROUPS).flat().includes(v));
-      assert.deepEqual(lines.slice(lines.indexOf("ADVANCED") + 1, lines.indexOf("", lines.indexOf("ADVANCED"))), [`  ${rest.join(mode === "ascii" ? " . " : " · ")}`], name);
-      assert.ok(rest.includes("init") && rest.includes("scaffold"), "init and scaffold are ADVANCED's");
+      const adv = lines.slice(lines.indexOf("ADVANCED") + 1, lines.indexOf("", lines.indexOf("ADVANCED")));
+      assert.equal(adv.map((l) => l.trim()).join(" "), rest.join(mode === "ascii" ? " . " : " · "), name);
+      assert.ok(adv.every((l) => l.startsWith("  ") && l.length <= 80), name);
+      assert.ok(["init", "scaffold", "install", "bind"].every((v) => rest.includes(v)), "init, scaffold, install and bind are ADVANCED's");
       // Examples and the tips' plan command: each alone on its line, after a blank one.
       const ex = lines.indexOf("Examples");
       assert.equal(lines[ex + 1], "", name);
-      for (const l of lines.slice(ex + 2, lines.indexOf("", ex + 2))) assert.match(l, /^ {2}npx projectstore\S* (install|status|doctor)( --harness <id>)?$/, name);
+      for (const l of lines.slice(ex + 2, lines.indexOf("", ex + 2))) assert.match(l, /^ {2}npx projectstore\S* (setup|status|doctor)$/, name);
+      assert.equal(lines[ex + 2].trim().split(" ")[2], "setup", "setup is the first example");
+      assert.match(lines[lines.indexOf("Tips") + 1], /^ {2}setup, install, upgrade and uninstall show a plan, then ask at a terminal\.$/, name);
       // The tips: the confirmation rule and the unattended path; then the harnesses and the exit codes, 130 among them.
       assert.ok(lines.some((l) => /^ {2}Without a terminal, .* there is no --yes\.$/.test(l)), name);
       assert.ok(lines.some((l) => /^ {2}Unattended in a terminal: .*--json.*CI=1.*<\/dev\/null\.$/.test(l)), name);

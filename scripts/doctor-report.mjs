@@ -133,6 +133,17 @@ export function report(findings, groups, { caps: c = PLAIN, verbose = false, ver
     const grouped = matched.length >= 2 ? matched : [];
     const out = [];
     for (const f of these) {
+      // A message whose further lines are commands (the silenced copy's
+      // `setup --channel npm`): its prose and path as one entry, then each
+      // command alone on its line after a blank one (contract 6). The path
+      // goes before the prose's closing colon, so the colon introduces the
+      // command, not the path.
+      const [said, ...commands] = String(f.message).split("\n");
+      if (!grouped.includes(f) && commands.length) {
+        const colon = said.endsWith(":") ? ":" : "";
+        out.push(...prose(2, withPath(`${lead} ${colon ? said.slice(0, -1) : said}`, f) + colon), ...commandBlock(c, commands, { indent: 6 }), "");
+        continue;
+      }
       if (!grouped.includes(f)) { out.push(...prose(2, withPath(`${lead} ${f.message}`, f))); continue; }
       if (f !== grouped[0]) continue;
       out.push(...prose(2, `${lead} ${paint("emphasis", r.title)} (${grouped.length})`));

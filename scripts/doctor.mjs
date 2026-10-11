@@ -712,11 +712,17 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
 // itself); a competing copy enabled beside ours → an issue (two enabled copies
 // of one plugin); a competitor alone → an info naming the npm path; foreign →
 // never repairable; the host CLI missing → an info.
+//
+// The silenced copy's info ends with how to record the switch (the setup
+// story, rule 17): setup's `--channel npm`, in the core form, on a line of its
+// own inside the message — the report draws it alone, after a blank line, as
+// any command (doctor-report.mjs), and --json carries it one part per line.
+const SETUP_NPM = "npx projectstore setup --channel npm";
 export function checkPluginRegistration(proj, states = [], { home = homedir(), speaker = speakingHarness(), cfg = null } = {}) {
   const out = [];
   // A checkout whose binding records a channel switch (the converge story's
   // rule 3) chose the npm install: the info that ends "If moving to npm was
-  // meant, ignore this" is the one thing it no longer needs. Doctor never
+  // meant, record it…" is the one thing it no longer needs. Doctor never
   // reads who made the mark.
   const marked = Boolean(channelMark(cfg));
   for (const s of states.filter((x) => x.kind === "registration")) {
@@ -750,7 +756,7 @@ export function checkPluginRegistration(proj, states = [], { home = homedir(), s
         // moved project; 0.27.x reads it as unbound. No version reads as old.
         const old = !row.version || cmpVersion(row.version, "0.28.0") < 0;
         push(finding("install", "info", "plugin-registration",
-          `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and a /plugin update no longer reaches the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it: from a terminal outside the session, ${packageCommand(h, "uninstall", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` })}, restart, then ${invocation(loadHarness(h.id) || speaker, "doctor", { args: "--fix" })}. If moving to npm was meant, ignore this.`, s.path));
+          `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and a /plugin update no longer reaches the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it: from a terminal outside the session, ${packageCommand(h, "uninstall", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` })}, restart, then ${invocation(loadHarness(h.id) || speaker, "doctor", { args: "--fix" })}. If moving to npm was meant, record it from a terminal in this project:\n${SETUP_NPM}`, s.path));
       }
     }
     const others = (s.others || []).map((o) => `${o.key} (${o.version || "?"})`).join(", ");

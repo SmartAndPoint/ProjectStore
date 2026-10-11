@@ -124,7 +124,9 @@ export function doctorSummaryLine(findings, { env = process.env } = {}) {
 // What a reader gets when the renderer cannot draw the findings: each one
 // per line, `level check message — file`, then the Summary line, still last.
 export function doctorFallbackText(findings, { env = process.env } = {}) {
-  const lines = findings.map((f) => `${f.level} ${f.check} ${f.message}${f.file ? ` — ${f.file}` : ""}`);
+  // A message's further lines are commands (doctor's silenced-copy info): the
+  // file stays with its words, and each command keeps a line of its own.
+  const lines = findings.map((f) => { const [said, ...commands] = String(f.message).split("\n"); return [`${f.level} ${f.check} ${said}${f.file ? ` — ${f.file}` : ""}`, ...commands].join("\n"); });
   return [...lines, ...(lines.length ? [""] : []), doctorSummaryLine(findings, { env })].join("\n") + "\n";
 }
 

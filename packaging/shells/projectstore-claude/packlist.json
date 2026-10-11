@@ -82,6 +82,7 @@
   "node_modules/projectstore/scripts/reconcile.mjs",
   "node_modules/projectstore/scripts/run-host.mjs",
   "node_modules/projectstore/scripts/scaffold.mjs",
+  "node_modules/projectstore/scripts/setup.mjs",
   "node_modules/projectstore/scripts/stages.mjs",
   "node_modules/projectstore/scripts/statusline-launcher.mjs",
   "node_modules/projectstore/scripts/statusline.mjs",

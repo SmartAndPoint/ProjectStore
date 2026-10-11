@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, realpa
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { readLatest, decide, proceedCase, updateNotice, runningCopies, isSemver, newerCopyDeferral, channelChoices, advised, repairAdvice, checksRoot, noticeRoot, hostCopyRoot, coreCommand, switchReason, readKeepPlan, DEFAULT_REGISTRY, ACCEPT, FRESH_MS, READ_TIMEOUT_MS, NO_CHECK_ENV } from "../scripts/convergence.mjs";
+import { readLatest, decide, proceedCase, updateNotice, runningCopies, isSemver, newerCopyDeferral, channelChoices, advised, repairAdvice, checksRoot, noticeRoot, hostCopyRoot, coreCommand, switchReason, switchConsequence, pinFor, readKeepPlan, DEFAULT_REGISTRY, ACCEPT, FRESH_MS, READ_TIMEOUT_MS, NO_CHECK_ENV } from "../scripts/convergence.mjs";
 import { registrationPaths, analyseRegistration } from "../scripts/surfaces.mjs";
 import { portableRegistrationPaths } from "../scripts/portable-registration.mjs";
 import { runVerb, plan } from "../scripts/install-harness.mjs";
@@ -160,28 +160,32 @@ test("converge rule 6: the stop names the newest published copy, both versions a
   assert.equal(coreCommand("upgrade", { version: "latest" }), "npx projectstore@latest upgrade");
 });
 
-test("converge rule 6, the deferral: one helper names the ways this release offers — the newer copy's own bin in the layout remedy's form, then the host's own disable from the manifest — each command alone on its line, no backticks, and no verb that does not exist", () => {
-  const S = SRC.surfaces.plugin;
-  const copyDir = tmp("ps-conv-copy-");
-  mkdirSync(join(copyDir, "bin"), { recursive: true });
-  writeFileSync(join(copyDir, "bin", "projectstore.mjs"), "");
-  const copy = { key: "projectstore@SmartAndPoint", version: "0.31.0", path: copyDir };
-  const blocks = channelChoices({ harness: SRC, s: S, copy, running: "0.30.0" });
+test("converge rule 6, the deferral (as the setup story's rule 17 words it): one helper names setup — the terminal run, then --channel git and --channel npm without one — each command alone on its line, no backticks, pinned to the running version on a package root", () => {
+  const copy = { key: "projectstore@SmartAndPoint", version: "0.31.0", path: tmp("ps-conv-copy-") };
+  const blocks = channelChoices({ harness: SRC, copy, running: "0.30.0" });
   assert.deepEqual(blocks, [
-    { lead: "Run the newer copy instead, from a terminal in this project:", command: `node "${join(copyDir, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register` },
-    { lead: "Or move this project to this package's registration, the older 0.30.0: turn that copy off for this project, then repeat this run:", command: [S.cli.bin, ...S.cli.commands.disable.map((t) => t.replace("{other}", copy.key))].join(" ") },
+    { lead: "Choose at a terminal in this project; setup asks whether to keep that copy or switch:", command: `npx projectstore setup --harness ${SRC.id}` },
+    { lead: "Without a terminal, keep projectstore@SmartAndPoint, which then writes this project's surfaces itself:", command: `npx projectstore setup --harness ${SRC.id} --channel git` },
+    { lead: "Or move this project to this package's npm install, the older 0.30.0:", command: `npx projectstore setup --harness ${SRC.id} --channel npm` },
   ]);
-  assert.equal(blocks[1].command, `${S.cli.bin} plugin disable projectstore@SmartAndPoint --scope local`);
-  const d = newerCopyDeferral({ copy, running: "0.30.0", decision: decide({ copies: [], version: "0.30.0", read: { latest: "0.30.0" } }), harness: SRC, s: S });
+  const d = newerCopyDeferral({ copy, running: "0.30.0", decision: decide({ copies: [], version: "0.30.0", read: { latest: "0.30.0" } }), harness: SRC });
   assert.equal(d.advice.text, "this project runs a newer copy (projectstore@SmartAndPoint 0.31.0) than this package (0.30.0), so it is not switched off — the registry's latest (0.30.0) does not reach 0.31.0.");
   assert.deepEqual(d.advice.blocks, blocks);
-  assert.equal(d.reason, [d.advice.text, blocks[0].lead, blocks[0].command, blocks[1].lead, blocks[1].command].join("\n"), "the envelope's reason: every part on its own line");
+  assert.equal(d.reason, [d.advice.text, ...blocks.flatMap((b) => [b.lead, b.command])].join("\n"), "the envelope's reason: every part on its own line");
   for (const line of d.reason.split("\n")) assert.ok(!/`/.test(line), line);
-  assert.ok(!/\bsetup\b/.test(d.reason), "no verb this release lacks");
-  // A copy without its own bin (0.27.x) is not told to run it.
-  const old = channelChoices({ harness: SRC, s: S, copy: { ...copy, path: tmp("ps-conv-nobin-") }, running: "0.30.0" });
-  assert.deepEqual(old.map((b) => b.command), [blocks[1].command]);
+  // Pinned on a package root, and only there.
+  const pinned = newerCopyDeferral({ copy, running: "0.30.0", decision: null, harness: SRC, pin: pinFor(join(tmp("ps-conv-npx-"), "node_modules", "projectstore"), "0.30.0") });
+  assert.deepEqual(pinned.advice.blocks.map((b) => b.command), blocks.map((b) => b.command.replace("npx projectstore ", "npx projectstore@0.30.0 ")));
+  assert.equal(pinFor(ROOT, "0.30.0"), null, "a checkout names no version");
+  assert.equal(pinFor(join(tmp("ps-conv-npx-"), "node_modules", "projectstore"), null), null);
+  // The gate: the run's own --harness in each command, the terminal run first, a lead-less block last.
+  const gate = channelChoices({ gate: { args: { harnesses: [SRC.id] }, keys: [copy.key], version: "0.30.0" } });
+  assert.deepEqual(gate.map((b) => b.command), ["", " --channel npm", " --channel git"].map((x) => `npx projectstore@0.30.0 setup --harness ${SRC.id}${x}`));
+  assert.deepEqual(gate.map((b) => b.lead), [`Nothing written: this project loads projectstore from the git marketplace (${copy.key}), and moving it to the npm install is a choice made at a terminal in this project:`, "Without a terminal, name the channel:", null]);
+  assert.deepEqual(channelChoices({ gate: { keys: [] } }).map((b) => b.command), ["npx projectstore setup", "npx projectstore setup --channel npm", "npx projectstore setup --channel git"], "a bare run's gate: the story's three commands");
+  assert.equal(switchConsequence(), "this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by npx projectstore setup");
   assert.deepEqual(advised("prose", []), { reason: "prose", advice: { text: "prose", blocks: [] } });
+  assert.equal(advised("prose", [{ lead: null, command: "x" }]).reason, "prose\nx", "a lead-less block adds its command alone");
 });
 
 test("converge rule 6: the copies a project runs are contract 12's rows of any marketplace — never another checkout's, never one disabled for it — and none for Claude Code under the git channel", () => {
@@ -446,7 +450,7 @@ test("converge rule 5: readKeepPlan reads the kept copy's plan through its bin w
   assert.deepEqual([c.envelope, c.status, c.error], [false, null, "spawn failed"]);
 });
 
-test("converge: convergence.mjs imports lib, harness, portable-registration and surfaces only; doctor, lib, the hooks and the SessionStart graph never load it", () => {
+test("converge: convergence.mjs imports lib, harness, portable-registration and surfaces only; doctor, lib, the hooks and the SessionStart graph never load it; the installer and setup's front-end are its only importers", () => {
   const src = readFileSync(join(ROOT, "scripts", "convergence.mjs"), "utf8");
   const local = [...src.matchAll(/^import .* from "(\.\/[^"]+)";$/gm)].map((m) => m[1]);
   for (const s of local) assert.ok(["./lib.mjs", "./harness.mjs", "./portable-registration.mjs", "./surfaces.mjs"].includes(s), `convergence.mjs imports ${s}`);
@@ -456,7 +460,9 @@ test("converge: convergence.mjs imports lib, harness, portable-registration and 
   }
   for (const n of readdirSync(join(ROOT, "hooks")).filter((f) => f.endsWith(".mjs"))) assert.ok(!readFileSync(join(ROOT, "hooks", n), "utf8").includes("convergence.mjs"), `hooks/${n}`);
   const importers = readdirSync(join(ROOT, "scripts")).filter((n) => n.endsWith(".mjs") && readFileSync(join(ROOT, "scripts", n), "utf8").includes('"./convergence.mjs"'));
-  assert.deepEqual(importers, ["install-harness.mjs"]);
+  // setup.mjs reads the running copies before its questions (the setup
+  // story, rule 3); it is loaded lazily by the bin, never by a hook.
+  assert.deepEqual(importers, ["install-harness.mjs", "setup.mjs"]);
 });
 
 // A switch row under the channel "npm" speaks of a downgrade only when there

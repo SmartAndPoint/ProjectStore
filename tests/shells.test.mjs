@@ -45,18 +45,18 @@ writeFileSync(process.env.PS_FAKE_LOG, JSON.stringify({ argv: process.argv.slice
 process.stdout.write("fake-core\\n");
 process.exitCode = process.env.PS_FAKE_EXIT ? Number(process.env.PS_FAKE_EXIT) : 0;
 `;
-function fakeShell({ bundled = true, vendored = false } = {}) {
+function fakeShell({ bundled = true, vendored = false, shell = CLAUDE } = {}) {
   const dir = mkdtempSync(join(TMP, "fake-"));
   mkdirSync(join(dir, "bin"), { recursive: true });
-  copyFileSync(join(shellDir(CLAUDE.name), "bin", `${CLAUDE.name}.mjs`), join(dir, "bin", `${CLAUDE.name}.mjs`));
+  copyFileSync(join(shellDir(shell.name), "bin", `${shell.name}.mjs`), join(dir, "bin", `${shell.name}.mjs`));
   if (bundled) { mkdirSync(join(dir, "node_modules", CORE, "bin"), { recursive: true }); writeFileSync(join(dir, "node_modules", CORE, "bin", "projectstore.mjs"), FAKE_CORE); }
   if (vendored) { mkdirSync(join(dir, "core", "bin"), { recursive: true }); writeFileSync(join(dir, "core", "bin", "projectstore.mjs"), FAKE_CORE.replace('"bundled"', '"vendored"')); }
   return dir;
 }
 let n = 0;
-function runShell(dir, args, env = {}) {
+function runShell(dir, args, env = {}, shell = CLAUDE) {
   const log = join(dir, `argv-${n++}.json`);
-  const r = spawnSync(process.execPath, [join(dir, "bin", `${CLAUDE.name}.mjs`), ...args], { encoding: "utf8", env: { ...process.env, PS_FAKE_LOG: log, ...env }, timeout: 30000 });
+  const r = spawnSync(process.execPath, [join(dir, "bin", `${shell.name}.mjs`), ...args], { encoding: "utf8", env: { ...process.env, PS_FAKE_LOG: log, ...env }, timeout: 30000 });
   return { ...r, core: existsSync(log) ? readJson(log) : null };
 }
 
@@ -156,6 +156,21 @@ test("shells contract 10: the bin execs the bundled core with --harness fixed af
   // A core that dies of a signal exits the shell way: 128 + the signal's number (Ctrl-C at the preview is 130).
   writeFileSync(join(dir, "node_modules", CORE, "bin", "projectstore.mjs"), FAKE_CORE + "if (process.env.PS_FAKE_SIGNAL) process.kill(process.pid, process.env.PS_FAKE_SIGNAL);\n");
   assert.equal(runShell(dir, ["install"], { PS_FAKE_SIGNAL: "SIGTERM" }).status, 143);
+});
+
+// The setup story, rule 1 and its criterion "The row": setup declares
+// --harness, so every rendered bin's verb set carries it, and a shell's
+// `setup` is the core's `setup --harness <its harness>`.
+test("setup 'The row': every committed bin's HARNESS_VERBS holds setup, and the Codex shell's bin, over a stub core, turns `setup --vault x` into `setup --harness codex --vault x`", () => {
+  for (const s of SHELLS) assert.match(read(join(shellDir(s.name), "bin", `${s.name}.mjs`)), /const HARNESS_VERBS = new Set\(\[[^\]]*"setup"[^\]]*\]\);/, s.name);
+  const codex = SHELLS.find((s) => s.harness !== SRC.id && !s.private);
+  assert.ok(codex, "a published shell for the other harness");
+  const dir = fakeShell({ shell: codex });
+  const r = runShell(dir, ["setup", "--vault", "x"], {}, codex);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.core?.argv, ["setup", "--harness", codex.harness, "--vault", "x"]);
+  const dry = runShell(dir, ["setup", "--dry-run"], {}, codex);
+  assert.deepEqual(dry.core?.argv, ["setup", "--harness", codex.harness, "--dry-run"]);
 });
 
 test("shells AC 2: another --harness is refused with one line and exit 2, and the core is never spawned", () => {

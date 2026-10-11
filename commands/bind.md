@@ -3,7 +3,7 @@ description: Bind this project to an Obsidian vault (or any markdown directory) 
 argument-hint: <vault-path> | --inherit [--layout engineering] [--lang en|ru|es|de|fr|zh]
 ---
 
-You are binding the current project to a markdown vault for projectstore. The config is written by the core's `bind` / `init` verbs (roadmap A8); this interview decides the values, previews them, and asks — it never writes `projectstore.json` itself, except on the inherit path (step 0a), which copies the parent's file verbatim, and the two later stamps in steps 11–12 (`autoupdate_asked`, `statusline`), which `Edit` the file the verb wrote. The interview's `--lang` is the verb's `--language`.
+You are binding the current project to a markdown vault for projectstore. The config is written by the core's `bind` / `init` verbs (roadmap A8); this interview decides the values, previews them, and asks — it never writes `projectstore.json` itself, except on the inherit path (step 0a), which copies the parent's file verbatim, and the one later stamp in step 11 (`statusline`), which `Edit`s the file the verb wrote. The interview's `--lang` is the verb's `--language`.
 
 Parse `$ARGUMENTS`:
 - First positional arg: vault path. Expand `~` if present.
@@ -48,10 +48,10 @@ Steps:
 
    It prints `{state, worktree, mainCheckout, vaultPath}` and writes nothing.
    - `state` is **not** `inheritable` → say why in one line (not a worktree, its parent is unbound too, or git could not answer) and fall through to step 1, which needs a vault path; if none was given, ask for one.
-   - `state` is `inheritable` → read the parent's `<mainCheckout>/.projectstore/projectstore.json` (or, in a checkout not yet migrated, the legacy `<mainCheckout>/.claude/projectstore.json`), show it **verbatim as a code block** — but for a `channel_switch` key, which is left out (below) — and ask via AskUserQuestion: "Adopt the binding of `<mainCheckout>` (vault `<vaultPath>`)?" — Yes / No.
-   - On **Yes**: Write that JSON verbatim, without `channel_switch`, to `<project>/.projectstore/projectstore.json`, **and write `<project>/.projectstore/.gitignore` beside it** with the two lines `projectstore.json` and `state/` under a comment saying they are machine-local (the verb writes them itself on every other path; this one bypasses the verb, and without them the worktree commits an absolute vault path into the index it shares with its parent). If that file already exists, add any missing line and leave the rest — it is line-merged. Then **jump straight to step 10** (the summary). Steps 1–9 and 11–12 are decisions the parent already made and the copied config already carries — layout, language, statusline, agent models, auto-update. Do not re-ask them, and do not scaffold: the vault exists and is shared.
+   - `state` is `inheritable` → read the parent's `<mainCheckout>/.projectstore/projectstore.json` (or, in a checkout not yet migrated, the legacy `<mainCheckout>/.claude/projectstore.json`), show it **verbatim as a code block** — but for the `channel_switch` and `channel_keep` keys, which are left out (below) — and ask via AskUserQuestion: "Adopt the binding of `<mainCheckout>` (vault `<vaultPath>`)?" — Yes / No.
+   - On **Yes**: Write that JSON verbatim, without `channel_switch` and `channel_keep`, to `<project>/.projectstore/projectstore.json`, **and write `<project>/.projectstore/.gitignore` beside it** with the two lines `projectstore.json` and `state/` under a comment saying they are machine-local (the verb writes them itself on every other path; this one bypasses the verb, and without them the worktree commits an absolute vault path into the index it shares with its parent). If that file already exists, add any missing line and leave the rest — it is line-merged. Then **jump straight to step 10** (the summary). Steps 1–9 and 11 are decisions the parent already made and the copied config already carries — layout, language, statusline, agent models. Do not re-ask them, and do not scaffold: the vault exists and is shared.
    - Copy the **binding only** (`projectstore.json`). Never copy `.projectstore/state/` — per-session state belonging to the other checkout — and never `harness/`: the overlays are committed and arrive from git.
-   - **Never copy `channel_switch`.** It records that the parent checkout was switched to the npm install — a machine-local fact of that checkout, not of the binding it shares. Every other key is copied verbatim.
+   - **Never copy `channel_switch` or `channel_keep`.** They record which channel the parent checkout chose — switched to the npm install, or kept on the git marketplace — a machine-local fact of that checkout's own registry rows, not of the binding it shares. Every other key is copied verbatim.
    - Do not add a provenance key to the config. The parent is resolvable from git at any time; a key would be a second source of truth for the same fact.
 
 1. **Validate the vault path** read-only first: `ls -A "<path>"` (the verb has no dry run — running it on a fresh project would write the config before step 4's approval). If it does not exist, or exists and is empty, ask the user (via AskUserQuestion) whether to create the vault there; on Yes, step 5 runs `init` instead of `bind`. `init` creates the whole vault and binds: the directory (unless it is there and empty), its git repository with no commit, and the layout's folders and READMEs. Never `mkdir` it yourself. A directory that already holds files is bound with `bind`; `init` would bind it too, but never scaffolds or `git init`s inside it.
@@ -81,7 +81,7 @@ Steps:
    node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" bind "<vault-path>" [--layout <name>] [--language <code>] [--rebind]
    ```
 
-   `init "<vault-path>" …` instead when step 1 chose to create the vault — it creates the whole vault, so step 7 has nothing to offer after it; `--rebind` only when step 0 ended on **Replace bind**. Naming the vault is the verb's confirmation (there is no `--yes`); the interview's AskUserQuestion in step 4 is the in-session gate. Print the verb's output. A non-zero exit is a refusal or a usage error — relay it and stop — except an `init` whose output reports `git init failed` or `Scaffold failed`: the binding is written, so relay the remedy line it prints and continue. Steps 11 and 12 below `Edit` the file this step wrote; keep them after it.
+   `init "<vault-path>" …` instead when step 1 chose to create the vault — it creates the whole vault, so step 7 has nothing to offer after it; `--rebind` only when step 0 ended on **Replace bind**. Naming the vault is the verb's confirmation (there is no `--yes`); the interview's AskUserQuestion in step 4 is the in-session gate. Print the verb's output. A non-zero exit is a refusal or a usage error — relay it and stop — except an `init` whose output reports `git init failed` or `Scaffold failed`: the binding is written, so relay the remedy line it prints and continue. Step 11 below `Edit`s the file this step wrote; keep it after it.
 
 6. **Check `.gitignore`**: read `<project>/.gitignore` if it exists. Our own files are self-ignored inside `.projectstore/` — the verb writes that `.gitignore` itself, carrying `projectstore.json` and `state/`, with `harness/` committed on purpose (the layout ADR); on the inherit path of step 0a, which bypasses the verb, you wrote both by hand. Unless `.claude/` is ignored wholesale, the one machine-specific entry left is the host's `.claude/settings.local.json`. If it is missing, offer (AskUserQuestion) to append it. If the user declines, skip silently.
 
@@ -115,18 +115,7 @@ Steps:
 
 10. **Print summary**: confirm the bind, list the layout's folders, suggest next commands (`/projectstore:status`, `/projectstore:adr "<first decision>"`, `/projectstore:epic <ID> "<title>"`).
 
-11. **Auto-update reminder** (v0.7+, only on first successful bind in this project): After Step 5 (config write), check whether the newly-written config has `autoupdate_asked: true`. If not, ask the user via AskUserQuestion:
-
-   > "Claude Code does not auto-update third-party marketplaces by default. Want to enable auto-update for the SmartAndPoint marketplace so you'll be notified about future projectstore releases?"
-
-   Options:
-   - **Yes, show me how** (Recommended) — respond with: "Open `/plugin` → **Marketplaces** tab → **SmartAndPoint** → toggle **auto-update** on. New releases (v0.7+) will be detected at Claude Code startup; you'll need to run `/reload-plugins` after the notification to activate them."
-   - **No, I'll handle it manually** — respond with: "OK. To pull the latest version at any time, run `/plugin marketplace update SmartAndPoint`, then `/reload-plugins`."
-   - **Already enabled** — respond with: "Great. New releases will be detected at the next Claude Code startup."
-
-   After the question is answered (regardless of choice), Edit `<project>/.projectstore/projectstore.json` to add `"autoupdate_asked": true` to the JSON object. This guarantees we ask only once per project.
-
-12. **Status line offer** (v0.13, ADR-006 — the final step, language is known by now): read `${CLAUDE_PLUGIN_ROOT}/templates/<lang>/strings.json` (fall back to `en`) and the plugin version, then show the fully rendered example:
+11. **Status line offer** (v0.13, ADR-006 — the final step, language is known by now): read `${CLAUDE_PLUGIN_ROOT}/templates/<lang>/strings.json` (fall back to `en`) and the plugin version, then show the fully rendered example:
 
     > `[PS#<version>] 📚 <statusline_example_epic> › <statusline_example_story> (in-progress)`
 

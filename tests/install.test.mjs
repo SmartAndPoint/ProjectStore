@@ -90,6 +90,11 @@ test("install contract 8: a project is detected by its harness directory, and an
   assert.equal(p.items.length, 0);
   assert.match(p.refusals[0], new RegExp(`--harness ${SRC.id}`));
   assert.match(harnessRefusal(empty), /detected by its project directory/);
+  // One row per harness, the ids padded to one width so the reasons line up
+  // (harnessNameLines, which setup's refusal shares).
+  const rows = harnessRefusal(empty).split("\n").slice(1);
+  assert.equal(rows.length, loadHarnesses().size);
+  assert.equal(new Set(rows.map((l) => l.indexOf("("))).size, 1, rows.join("\n"));
   // Named, it proceeds even though nothing is detected.
   const named = plan(empty, { home, root, harnesses: [SRC.id] });
   assert.equal(named.ok, true);
@@ -1075,10 +1080,19 @@ test("converge criterion 'The channel gate': a switch planned under no channel a
   const snap = () => files.map((f) => (existsSync(f) ? read(f) : null));
   const before = snap();
   const captures = JSON.parse(read(join(ROOT, "tests", "fixtures", "json-captures.json")));
+  // Setup's commands, now that it exists (the setup story, rule 17): the
+  // terminal run, then the two --channel runs, each alone on its line; from a
+  // checkout, no version is pinned.
   const gate = [
     "Nothing written: this project loads projectstore from the git marketplace (projectstore@SmartAndPoint), and moving it to the npm install is a choice made at a terminal in this project:",
     "",
-    `    npx projectstore upgrade --harness ${SRC.id}`,
+    `    npx projectstore setup --harness ${SRC.id}`,
+    "",
+    "Without a terminal, name the channel:",
+    "",
+    `    npx projectstore setup --harness ${SRC.id} --channel npm`,
+    "",
+    `    npx projectstore setup --harness ${SRC.id} --channel git`,
   ].join("\n");
   for (const [entry, script] of [["the bin", join(ROOT, "bin", "projectstore.mjs")], ["main()", join(ROOT, "scripts", "install-harness.mjs")]]) {
     const j = run(script, ["upgrade", "--harness", SRC.id, "--json"]);
@@ -1099,10 +1113,10 @@ test("converge criterion 'The channel gate': a switch planned under no channel a
     assert.equal(t.status, 1, `${entry}: ${t.stdout}${t.stderr}`);
     assert.ok(t.stdout.endsWith(`\n${gate}\n`), `${entry}:\n${t.stdout}`);
     assert.ok(t.stdout.includes("⇄ switch"), "the plan was shown first");
-    assert.ok(!/\bsetup\b/.test(t.stdout), "no verb this release lacks");
-    // A --surface the run named is repeated; --project never is.
+    // setup takes no --surface, so a narrowed run's is not repeated; --project never is.
     const s = run(script, ["upgrade", "--harness", SRC.id, "--surface", "plugin"]);
-    assert.ok(s.stdout.endsWith(`\n    npx projectstore upgrade --harness ${SRC.id} --surface plugin\n`), `${entry}:\n${s.stdout}`);
+    assert.ok(s.stdout.endsWith(`\n${gate}\n`), `${entry}:\n${s.stdout}`);
+    assert.ok(!/--project|--surface plugin\n/.test(s.stdout.slice(s.stdout.indexOf("Nothing written"))), s.stdout);
   }
   assert.deepEqual(host.log(), [], "the logging fake host recorded no call");
   assert.deepEqual(snap(), before, "nothing written");
@@ -1122,7 +1136,7 @@ test("converge criterion 'The channel gate': a switch planned under no channel a
   const writes = r.plan.items.filter((i) => !["skip", "refuse"].includes(i.action)).length;
   assert.equal(question, `◆ Apply ${writes} changes? [Y/n] `);
   assert.deepEqual(r.gate, { confirmed: false, why: "declined" });
-  assert.ok(chunks.join("").includes(`\n      this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by ${packageCommand(SRC, "upgrade")}\n`), chunks.join(""));
+  assert.ok(chunks.join("").includes("\n      this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by npx projectstore setup\n"), chunks.join(""));
   assert.deepEqual(host.log(), []);
 });
 
@@ -1135,13 +1149,14 @@ test("install: the command prose invokes the verb and never writes the block or 
   assert.ok(!/agents-block[^\n]*\n[^\n]*Edit after approval/.test(doctor), "doctor.md no longer repairs the block with Edit");
   const agents = read(join(ROOT, "commands", "agents.md")).replace(/\s+/g, " ");
   assert.ok(agents.includes("Never write the block with the Write or Edit tool"));
-  // The converge story's rule 3: a channel switch is per checkout, so the
-  // binding a worktree inherits (step 0a, written by the model) drops its mark.
+  // The converge story's rule 3 and the setup story's rule 17: a channel
+  // choice is per checkout, so the binding a worktree inherits (step 0a,
+  // written by the model) drops the mark and the keep, as planInherit does.
   const bind = read(join(ROOT, "commands", "bind.md"));
   const step0a = bind.slice(bind.indexOf("\n0a. "), bind.indexOf("\n1. "));
   assert.ok(step0a.length > 100, "step 0a found");
-  assert.match(step0a, /Write that JSON verbatim, without `channel_switch`, to/);
-  assert.match(step0a, /\*\*Never copy `channel_switch`\.\*\*/);
+  assert.match(step0a, /Write that JSON verbatim, without `channel_switch` and `channel_keep`, to/);
+  assert.match(step0a, /\*\*Never copy `channel_switch` or `channel_keep`\.\*\*/);
 });
 
 // ─── The stamp itself ───────────────────────────────────────────────────

@@ -123,6 +123,10 @@ export function uiExemptions() {
     // — so no other harness's run ever prints them.
     { phrase: "and /plugin update no longer reaches it", file: "scripts/convergence.mjs", why: "a channel switch's consequence line, planned only on a host-plugin-registration surface's competing copies" },
     { phrase: "command: `/plugin enable ${key}`", file: "scripts/convergence.mjs", why: "the channel git refusal's way out, planned only for a harness with a host-plugin-registration surface" },
+    // The setup story's channel question (rule 6): asked only when the harness
+    // with a host plugin registration is in the run and a copy of ours from
+    // another marketplace is enabled for this project.
+    ...["(updated by /plugin)", "/plugin keeps updating it", "; /plugin update no longer reaches this project"].map((phrase) => ({ phrase, file: "scripts/setup.mjs", why: "setup's channel question and its choices, asked only for a harness with a host-plugin-registration surface whose git-marketplace copy is enabled here" })),
   ];
 }
 
@@ -263,7 +267,13 @@ export function aboutMessages(doctorJson, speakerId) {
 
 export function withoutAboutFindings(text, speakerId, about = []) {
   const t = String(text);
-  const cut = (v) => about.reduce((acc, msg) => acc.split(msg).join(""), v);
+  // A message whose further lines are commands is drawn a line at a time by
+  // the text report (the silenced copy's `setup --channel npm`): each line is
+  // cut on its own, the whole message first, as JSON carries it. The report
+  // puts the path before a line's closing colon, so such a line is cut
+  // without its colon too.
+  const parts = (msg) => [msg, ...String(msg).split("\n").flatMap((l) => (l.endsWith(":") ? [l, l.slice(0, -1)] : [l]))];
+  const cut = (v) => about.reduce((acc, msg) => parts(msg).reduce((a, part) => (part ? a.split(part).join("") : a), acc), v);
   let parsed;
   try { parsed = JSON.parse(t); } catch { return cut(t); }
   if (parsed && Array.isArray(parsed.result)) return JSON.stringify({ ...parsed, result: parsed.result.filter((f) => !f.about || f.about === speakerId) }, null, 2);

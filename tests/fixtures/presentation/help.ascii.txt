@@ -5,8 +5,7 @@ Usage
   npx projectstore <verb> --help     one verb's options and examples
 
 START
-  install      Install projectstore's surfaces for a harness, behind a preview.
-  bind         Bind this project to an existing vault; naming it confirms.
+  setup        Set up this project: every harness it uses, and a vault.
   uninstall    Remove what install wrote, and only that.
 
 VAULT
@@ -22,7 +21,8 @@ CHECK AND REPAIR
   upgrade      After an update, refresh what install wrote and leave the rest.
 
 ADVANCED
-  plan . orientation . agents . band . init . scaffold . mcp . version
+  plan . install . orientation . agents . band . bind . init . scaffold . mcp .
+  version
 
 Options
   --project <dir>  the project (default: the session's, else this directory)
@@ -31,12 +31,12 @@ Options
 
 Examples
 
-  npx projectstore install --harness <id>
+  npx projectstore setup
   npx projectstore status
   npx projectstore doctor
 
 Tips
-  install, upgrade and uninstall show their plan, then ask at a terminal.
+  setup, install, upgrade and uninstall show a plan, then ask at a terminal.
   Without a terminal, --harness is the confirmation - there is no --yes.
   Unattended in a terminal: pass --json, set CI=1, or give stdin </dev/null.
   --verbose on those verbs adds every row's reasoning and the host's notes.
