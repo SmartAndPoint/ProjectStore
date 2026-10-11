@@ -16,6 +16,14 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # package.json promises node >=20, so the suite runs on every line that
+    # promise covers: 20 (the floor), 22 and 24. The site check does not
+    # depend on Node and runs once.
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20", "22", "24"]
+    name: test (node ${{ matrix.node }})
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,7 +31,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: ${{ matrix.node }}
 
       - name: Manifest versions agree
         run: node scripts/version-guard.mjs
@@ -35,10 +43,12 @@ jobs:
       # Python is pinned because html.parser's output has changed between
       # versions; the committed pages are 3.12's (site/README.md).
       - uses: actions/setup-python@v7
+        if: matrix.node == '24'
         with:
           python-version: "3.12"
 
       - name: The site's committed pages are the build's
+        if: matrix.node == '24'
         run: |
           python3 site/tools/i18n.py check
           python3 site/tools/i18n.py extract
