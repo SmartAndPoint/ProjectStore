@@ -590,9 +590,24 @@ export function copyUpdateAdvice(copy, { cannot, then }) {
 // for a marked checkout, the installer plans no second mark, and uninstall
 // removes the key with the registration. `bind --inherit` never copies it.
 export const CHANNEL_SWITCH_KEY = "channel_switch";
-export function channelMark(cfg) {
-  const m = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg[CHANNEL_SWITCH_KEY] : null;
+const stampAt = (cfg, key) => {
+  const m = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg[key] : null;
   return m && typeof m === "object" && !Array.isArray(m) && typeof m.by === "string" && typeof m.at === "string" ? m : null;
+};
+export function channelMark(cfg) {
+  return stampAt(cfg, CHANNEL_SWITCH_KEY);
+}
+
+// Its counterpart for the other answer (the setup story, rule 6): the keep of
+// the git marketplace, `channel_keep: { by, at }`, recorded when setup's
+// channel question was answered keep. Setup's question then defaults to keep,
+// and a run without a terminal reads it as `--channel git`. Per checkout, as
+// the mark is: `bind --inherit` never copies it. The latest answer wins: a
+// later switch removes it, and recording it removes the mark, so the two
+// never both stay after a run.
+export const CHANNEL_KEEP_KEY = "channel_keep";
+export function channelKeep(cfg) {
+  return stampAt(cfg, CHANNEL_KEEP_KEY);
 }
 
 // A switch read from the environment the way contract 9 reads CI: set, and

@@ -70,6 +70,15 @@
 // read there too, through its bin; plan() is handed it, and plans that
 // harness as one host-style step that runs the copy's own upgrade.
 //
+// Setup's items (the story "projectstore setup asks, shows one plan and
+// installs every harness it finds, with the vault", rule 10), planned only
+// from plan()'s setup inputs, so install, upgrade and plan keep their plans:
+// the `vault` item, first and under no harness (PLAN's VAULT group), applied
+// through binding.mjs's applyBind; a `state` item per harness, the empty
+// .projectstore/state/<id>/ that detection reads; and `binding` items — the
+// status-line flag, the keep's record and the mark — each a set of keys
+// merged into the binding at apply time, after the layout item.
+//
 // Direction: installer → surfaces ← doctor; installer → provenance ← doctor.
 // Doctor never imports this file.
 //
@@ -93,7 +102,8 @@ import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs
 import { rootVersion, rootName, fetchDecision, fetchArgv, npmRegistry, npmUserRegistry, REGISTRY_BUDGET_MS, fetchShell, fetchRefusal, fetchRunId, sweepFetchRuns } from "./fetch-shell.mjs";
 import { HOST_BUDGET_MS, startFailure, runHost } from "./run-host.mjs";
 import { runningCopies, newerCopies, lowestVersion, readLatest, decide, proceedCase, newerCopyDeferral, repairAdvice, advised, updateNotice, checksRoot, noticeRoot, updateCheckOff, channelChoices, switchConsequence, switchReason, noCopyToKeep, keepArgv, keepResult, readKeepPlan, ownUpgrade, npmRowBeside, DEFAULT_REGISTRY, NOTICE_BUDGET_MS, READ_TIMEOUT_MS } from "./convergence.mjs";
-import { pluginRoot, channelMark, CHANNEL_SWITCH_KEY, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal, registrationProvenance, envFlag, selectCopy, copyUpdateAdvice, takesVerbose } from "./lib.mjs";
+import { applyBind, bindPlanSteps, recheckBind, bindResult } from "./binding.mjs";
+import { pluginRoot, channelMark, channelKeep, CHANNEL_SWITCH_KEY, CHANNEL_KEEP_KEY, writeFileAtomic, writeExclusiveMetadata, ensureStateDir, ensureStateRoot, ensureRuntimeDir, removeAgentsBlock, replaceAgentsBlock, readConfigAt, isPluginCacheRoot, isEphemeralRoot, statusLineIsOurWiring, claudeHome, packageDigest, writeOwnTree, removeOwnTree, cmpPrecedence, importsLine, whichOnPath as whichOnPathFromLib, moveStateDir, mergeEntryLog, movePath, removeInside, statusLineScriptPath, layoutPaths, stagePortableMarketplace, finishPortableMarketplace, rollbackPortableMarketplace, removeTreeUnder, projectDirRefusal, registrationProvenance, envFlag, selectCopy, copyUpdateAdvice, takesVerbose } from "./lib.mjs";
 
 import { GENERATOR } from "./surfaces.mjs";
 export { GENERATOR };
@@ -831,17 +841,138 @@ function planKeep(ctx, target, read) {
 // already there: a re-run after a switch is zero-change. The file is the one
 // configPath resolves at apply time, after the layout item moved it; the
 // preview names the new path when the plan moves the binding.
+//
+// The latest answer wins (the setup story, rule 6): `channel_switch` and
+// `channel_keep` never both stay after a run. A keep this checkout recorded
+// earlier goes in the same item as the mark — removed whatever its shape —
+// and, with the mark already there, alone: an item of kind `binding` that
+// only removes it, for the harness whose registration the switch reads.
+const KEEP_GOES = "the keep this checkout recorded earlier goes: the switch is its later answer, and setup's channel question defaults to switch again";
 function planMark(ctx, facts) {
   const b = ctx.binding;
-  if (!b || b.hasMark || !facts) return null;
+  if (!b || !facts) return null;
+  if (b.hasMark) {
+    if (!b.hasKeep) return null;
+    return bindingItem({ harness: ctx.harness.id, surface: CHANNEL_KEEP_KEY, entry: CHANNEL_KEEP_KEY, path: b.path, bound: b.bound, action: "update", state: "present",
+      reason: "the switch is already recorded, and this run answers switch again: the keep recorded beside it goes",
+      unset: [CHANNEL_KEEP_KEY], why: { [CHANNEL_KEEP_KEY]: KEEP_GOES },
+      said: { unbound: "the project is not bound; nothing is removed", done: "the keep is already gone", object: "the keep is not removed" } });
+  }
   const switching = facts.switches.length > 0;
   const adopting = !switching && facts.silenced.length > 0 && b.bound;
   if (!switching && !adopting) return null;
   const reason = !b.bound ? "the project is not bound yet: the switch is recorded only if a binding exists by the time of apply"
     : adopting ? `this checkout already holds ${facts.silenced.join(", ")} off for the npm registration; the switch is recorded`
     : null;
-  return { surface: CHANNEL_SWITCH_KEY, kind: "binding", path: b.path, entry: CHANNEL_SWITCH_KEY, state: b.bound ? "absent" : "unbound", action: "add", reason,
-    steps: [{ kind: "mark", path: b.path, key: CHANNEL_SWITCH_KEY, why: "this checkout chose the npm install; doctor stops naming the copy it turned off, and the registration's uninstall removes the record with it" }] };
+  return bindingItem({ harness: ctx.harness.id, surface: CHANNEL_SWITCH_KEY, entry: CHANNEL_SWITCH_KEY, path: b.path, bound: b.bound, reason,
+    set: { [CHANNEL_SWITCH_KEY]: STAMP }, unset: b.hasKeep ? [CHANNEL_KEEP_KEY] : [],
+    why: {
+      [CHANNEL_SWITCH_KEY]: "this checkout chose the npm install; doctor stops naming the copy it turned off, and the registration's uninstall removes the record with it",
+      [CHANNEL_KEEP_KEY]: KEEP_GOES,
+    },
+    said: { unbound: "the project is not bound; the switch is recorded once it is", done: "the switch is already recorded", object: "the switch is not recorded" } });
+}
+
+// The keep's record (the setup story, rule 6): a keep answered at setup's
+// channel question — or `--channel git` — adds `channel_keep: { by: "setup",
+// at: <the time of apply> }`, so the question defaults to keep from then on
+// and a run without a terminal reads it as `--channel git`. Planned under
+// plan()'s `recordKeep` input, for the harness the copy is kept for, last in
+// its group; only when a binding exists or the plan's vault item writes one,
+// and never over a keep already recorded — one read as lib's channelKeep
+// reads it, so a `channel_keep` of another shape is stamped over. The latest
+// answer wins, as for the mark: a `channel_switch` this checkout recorded
+// earlier, of any shape, goes in the same item — alone, when the keep is
+// already recorded.
+function planKeepRecord(ctx) {
+  const b = ctx.binding;
+  if (!b || !b.bound) return null;
+  const record = !b.hasKeepRecord;
+  if (!record && !b.hasKey) return null;
+  return bindingItem({ harness: ctx.harness.id, surface: CHANNEL_KEEP_KEY, entry: CHANNEL_KEEP_KEY, path: b.path, bound: true,
+    ...(record ? {} : { action: "update", state: "present", reason: "the keep is already recorded, and this run answers keep again: the switch recorded beside it goes" }),
+    set: record ? { [CHANNEL_KEEP_KEY]: STAMP } : {}, unset: b.hasKey ? [CHANNEL_SWITCH_KEY] : [],
+    why: {
+      [CHANNEL_KEEP_KEY]: "this checkout chose to keep the git marketplace: setup's channel question defaults to keep from now on, and a run without a terminal reads it as --channel git",
+      [CHANNEL_SWITCH_KEY]: "the switch this checkout recorded earlier goes: the keep is its later answer, and doctor names a copy held off here again",
+    },
+    said: { unbound: "the project is not bound; the keep is recorded once it is", done: "the keep is already recorded", object: "the keep is not recorded" } });
+}
+
+// The status line's flag (the setup story, rule 9): setup's answer stored as
+// `statusline.enabled`, the key bind's interview writes; every other key of
+// a `statusline` object is kept. Planned for the run's harness that has the
+// status-line surface, when the binding the run leaves does not already say
+// the same; only when there is a binding to record it in.
+const STATUSLINE_FLAG = "statusline.enabled";
+function planStatuslineFlag(ctx, value) {
+  const b = ctx.binding;
+  if (!b || !b.bound || typeof value !== "boolean" || b.statusline === value) return null;
+  return bindingItem({ harness: ctx.harness.id, surface: "statusline_flag", entry: STATUSLINE_FLAG, path: b.path, bound: true,
+    set: { [STATUSLINE_FLAG]: value },
+    why: { [STATUSLINE_FLAG]: value ? "the status line is wired in this run, and the SessionStart hook keeps it current" : "the status line stays off, and setup does not ask again" },
+    said: { unbound: "the project is not bound; the status line's flag is recorded once it is", done: "the status line's flag is already recorded", object: "the status line's flag is not recorded" } });
+}
+
+// Setup's vault item (the story's rule 10; the front-door ADR's decision 7):
+// one item of kind `vault`, first in the plan and under no harness — PLAN's
+// VAULT group. Its steps are the binding plan's own (binding.mjs
+// bindPlanSteps): the mkdir, the binding, `git init`, the scaffold. `create`
+// for a vault this run makes (missing, or there and empty); `add` for a
+// binding of one that exists, scaffolded or not, and for a worktree's
+// inherited binding. The binding plan rides along off the envelope, for
+// apply; with nothing to write there is no item.
+function planVault(bp) {
+  const steps = bindPlanSteps(bp);
+  if (!steps.length) return null;
+  const reason = bp.inherit ? `the vault of ${bp.inherit.from}, with its settings`
+    : bp.buildsVault || !bp.vaultExists ? null
+    : bp.scaffoldsExisting ? "it already exists; it is bound as it is, and the layout's missing folders and indexes are added"
+    : "it already exists; it is bound as it is";
+  const item = { harness: null, surface: "vault", kind: "vault", path: bp.vault, entry: null, state: !bp.vaultExists ? "absent" : bp.buildsVault ? "empty" : "present", action: bp.buildsVault ? "create" : "add", reason, steps };
+  Object.defineProperty(item, "bind", { value: bp, enumerable: false });
+  return item;
+}
+
+// Setup's state directory (the story's rule 10): an empty
+// .projectstore/state/<id>/, the signal detection reads (detectHarnesses'
+// `state`), so a harness setup installed with no directory of its own is used
+// here before its first session. Never the welcome marker: that file means
+// the welcome was shown, and the first session writes it into this
+// directory. The first such item names state/ and its .gitignore when they
+// are still to be made.
+function planStateDir(projectDir, harness, { first = false } = {}) {
+  const P = layoutPaths(projectDir);
+  const path = P.harnessState(harness.id);
+  if (existsSync(path)) return null;
+  const steps = first && !existsSync(P.stateGitignore) ? [{ kind: "ensure", path: P.state, why: "state/ with its .gitignore, which keeps everything under it out of git" }] : [];
+  return { harness: harness.id, surface: "harness_state", kind: "state", path, entry: null, state: "absent", action: "create", reason: null, ...(steps.length ? { steps } : {}) };
+}
+
+// A key a `binding` item stamps at apply: `{ by: "setup", at: <the time of
+// apply> }`, the mark's shape and the keep's.
+const STAMP = Object.freeze({ stamp: "setup" });
+const stamped = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v) && typeof v.by === "string" && typeof v.at === "string";
+
+// A `binding` item (the converge story's kind, made generic by the setup
+// story's rule 10): keys merged into the binding at apply time, after the
+// layout item, every other key kept. `set` maps a key — dotted for a nested
+// one — to its value, or to STAMP; `unset` lists the keys it removes. Both
+// are apply's data, kept off the envelope, as `said` is: the item's own
+// words for a binding that is not there, not an object, or already says it.
+// The steps are what PLAN shows and the envelope carries, in that order:
+// `mark` for a stamped key, `set` for a value, `unmark` for a removal. An
+// item that only removes a key is an `update` of a binding whose key is
+// `present`.
+function bindingItem({ harness, surface, entry, path, bound, reason = null, set = {}, unset = [], why = {}, said = {}, action = "add", state = "absent" }) {
+  const step = (fields, key) => (why[key] ? { ...fields, why: why[key] } : fields);
+  const steps = [
+    ...Object.entries(set).map(([key, value]) => step(value === STAMP ? { kind: "mark", path, key } : { kind: "set", path, key, value }, key)),
+    ...unset.map((key) => step({ kind: "unmark", path, key }, key)),
+  ];
+  const item = { harness, surface, kind: "binding", path, entry, state: bound ? state : "unbound", action, reason, steps };
+  for (const [k, v] of Object.entries({ set, unset, said })) Object.defineProperty(item, k, { value: v, enumerable: false });
+  return item;
 }
 
 function planJsonEntry(ctx, key, s) {
@@ -962,12 +1093,28 @@ function surfaceExcluded(key, s, { surfaces = null, register = true } = {}) {
 // it without one. `keep` is the prepare step's read of the kept copy's own
 // plan under the channel "git" ({ copy, read }, rule 5); without it the keep's
 // row says that copy's plan was not read.
-export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null, layout = null, convergence = null, fetchedFrom = null, channel = null, keep = null } = {}) {
+//
+// Setup's inputs (the story "projectstore setup asks…", rules 6, 9, 10 and
+// 12), plain data; install, upgrade and plan pass none, so their plans keep
+// their items and keys:
+//   vault       a binding plan as setup decided it (binding.mjs planBind,
+//               with `init` or `scaffoldExisting`, or planInherit): the
+//               `vault` item, first; its refusals refuse the plan
+//   statusline  setup's status-line answer, true or false: a `binding` item
+//               storing it, and true opts the status line in, as the flag
+//               on disk would; null asks nothing of the binding
+//   named       whether the harnesses were named — the gate's confirmation —
+//               when that is not what `harnesses` says: a bare setup plans
+//               its pre-ticked set and is still not named
+//   ensureState a `state` item per harness whose registration is not
+//               unavailable and whose state directory is absent
+//   recordKeep  under the channel "git", the keep's `binding` item
+export function plan(projectDir, { harnesses = [], mode = "install", env = process.env, home = homedir(), root = pluginRoot(), surfaces = null, globalRemoval = false, register = true, state = false, version = null, payloadRoots = null, layout = null, convergence = null, fetchedFrom = null, channel = null, keep = null, vault = null, statusline = null, named: namedOverride = null, ensureState = false, recordKeep = false } = {}) {
   projectDir = resolve(projectDir);
   const detected = detectHarnesses(projectDir, { state });
   const named = harnesses.filter(Boolean);
   const ids = named.length ? named : detected.map((d) => d.id);
-  const out = { projectDir, mode, named: named.length > 0, detected, harnesses: [], reports: [], items: [], refusals: [], ok: true, incomplete: false, root, plannedAgainst: {} };
+  const out = { projectDir, mode, named: typeof namedOverride === "boolean" ? namedOverride : named.length > 0, detected, harnesses: [], reports: [], items: [], refusals: [], ok: true, incomplete: false, root, plannedAgainst: {} };
   // Not enumerable, like hostManaged: plan --json keeps the shape it had.
   Object.defineProperty(out, "version", { value: version, enumerable: false });
   Object.defineProperty(out, "payloadRoots", { value: { ...(payloadRoots || {}) }, enumerable: false });
@@ -1032,9 +1179,29 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   // What the newer rows say: the prepare step's decision; for a dry run, the
   // note that install and upgrade read first — only from a root that checks.
   const decision = convergence ?? (mode === "install" && !checksRoot(root, { home, env }) ? { checks: false } : null);
-  const cfg = readConfigAt(projectDir);
+  // Setup's vault (rule 10): a binding plan that refuses refuses this plan,
+  // with nothing planned — setup decides it before plan() and stops on it, so
+  // this is the guard for a caller that did not. One for another project is
+  // a refusal too — compared realpath'd, so two spellings of one directory
+  // (macOS's /var and /private/var) are the same project.
+  if (vault && mode !== "uninstall") {
+    const real = (x) => { try { return realpathSync(resolve(x)); } catch { return resolve(x); } };
+    const why = !vault.ok ? (vault.refusals || []).map((r) => r.message) : real(vault.projectDir) !== real(projectDir) ? [`the vault plan is for ${vault.projectDir}, not ${projectDir}`] : [];
+    if (why.length) {
+      out.harnesses = ids;
+      out.refusals.push(...why);
+      out.ok = false;
+      return out;
+    }
+  }
+  const vaultItem = vault && mode !== "uninstall" ? planVault(vault) : null;
+  if (vaultItem) out.items.push(vaultItem);
+  // The binding the run leaves: the vault item's, when it writes one, else
+  // the one on disk. Its status-line flag opts the status line in, as does
+  // setup's answer (rule 9).
+  const leaves = vaultItem ? vault.after : readConfigAt(projectDir);
   const optIn = new Set(surfaces || []);
-  if (cfg?.statusline?.enabled === true) optIn.add("statusline");
+  if (typeof statusline === "boolean" ? statusline : leaves?.statusline?.enabled === true) optIn.add("statusline");
   // The project-level layout (the layout ADR): one harness-neutral item, planned
   // once whatever --surface names — planned first, so every surface below is
   // planned against the new paths; its cleanup is planned last (below).
@@ -1050,15 +1217,45 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
   // and 4): the file configPath resolves now, whether it exists, and whether it
   // carries the mark. Apply resolves it again, after the layout item; when the
   // plan moves the binding, the preview names where the move puts it.
+  // Setup's vault item writes a binding first (rule 10): the project counts as
+  // bound, its keys are the ones that item writes, at the path it writes.
+  // Each channel key twice: whether it is there at all (`hasKey`, `hasKeep`:
+  // what a removal names) and whether it is a record of the shape lib reads
+  // (`hasMark`, `hasKeepRecord`: what a record is not planned over).
   const binding = (() => {
     const at = configPath(projectDir, env);
-    const bound = existsSync(at);
+    const exists = existsSync(at);
     let cfg = null;
-    if (bound) { try { cfg = JSON.parse(readFileSync(at, "utf8")); } catch { cfg = null; } }
+    if (exists) { try { cfg = JSON.parse(readFileSync(at, "utf8")); } catch { cfg = null; } }
     const movesIt = moved.first.some((i) => i.action === "migrate");
-    return { path: movesIt ? layoutPaths(projectDir).binding : at, bound, hasMark: Boolean(channelMark(cfg)), hasKey: Boolean(cfg && typeof cfg === "object" && Object.hasOwn(cfg, CHANNEL_SWITCH_KEY)) };
+    const keys = vaultItem ? vault.after : cfg;
+    const has = (k) => Boolean(keys && typeof keys === "object" && Object.hasOwn(keys, k));
+    return { path: vaultItem ? vault.configPath : movesIt ? layoutPaths(projectDir).binding : at, bound: exists || Boolean(vaultItem), hasMark: Boolean(channelMark(keys)), hasKey: has(CHANNEL_SWITCH_KEY), hasKeep: has(CHANNEL_KEEP_KEY), hasKeepRecord: Boolean(channelKeep(keys)), statusline: keys?.statusline?.enabled ?? null };
   })();
+  // The `binding` items, applied last of all — after the layout item moved
+  // the binding and the vault item wrote it — each the last rows of its
+  // harness's group: the status-line flag, the keep's record, the mark.
   const marks = [];
+  const flagHarness = ids.find((id) => { const s = loadHarness(id).surfaces?.statusline; return Boolean(s) && s.supported !== false; }) || null;
+  const recordFor = (ctx) => {
+    if (mode === "uninstall") return;
+    if (ctx.harness.id === flagHarness) { const flag = planStatuslineFlag(ctx, statusline); if (flag) marks.push(flag); }
+    if (recordKeep && keeping && ctx.harness.id === keeping.harness.id) { const kept = planKeepRecord(ctx); if (kept) marks.push(kept); }
+  };
+  // Setup's state directories (rule 10): one per harness whose registration
+  // is not unavailable, the first naming state/ and its .gitignore — none
+  // where a write this run plans lands inside it (the status-line launcher
+  // makes it).
+  let stateFirst = true;
+  const stateFor = (id, harness) => {
+    if (!ensureState || mode === "uninstall") return;
+    const reg = out.items.find((i) => i.harness === id && i.kind === "registration" && !String(i.surface).endsWith("_others"));
+    if (reg && reg.state === "unavailable") return;
+    const item = planStateDir(projectDir, harness, { first: stateFirst });
+    if (!item || out.items.some((i) => isWrite(i) && typeof i.path === "string" && inside(i.path, item.path))) return;
+    stateFirst = false;
+    out.items.push(item);
+  };
   // The agents block is the PROJECT's, not a harness's (the story "One run
   // plans the agents block once, and a bare uninstall selects every harness
   // the project uses", rule 1): planned once for the run, before the loop and
@@ -1115,6 +1312,8 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
       for (const item of planKeep(ctx, keeping, keepRead)) out.items.push(item);
       out.refusals.push(...ctx.refusals);
       if (ctx.incomplete) out.incomplete = true;
+      stateFor(id, harness);
+      recordFor(ctx);
       continue;
     }
     const hostRows = [];
@@ -1199,9 +1398,11 @@ export function plan(projectDir, { harnesses = [], mode = "install", env = proce
     // The mark, for the channel "npm" only: placed last of all (below), so it
     // is the last row of this harness's group and applies after the layout
     // item has moved the binding it is recorded in.
+    stateFor(id, harness);
+    recordFor(ctx);
     if (mode !== "uninstall" && channel === "npm") {
       const mark = planMark(ctx, ctx.channelFacts);
-      if (mark) marks.push({ harness: id, ...mark });
+      if (mark) marks.push(mark);
     }
     // Last for this harness: its state directory, which a project uninstall
     // empties of the welcome marker and removes once empty. A narrowed
@@ -1507,12 +1708,19 @@ const glyphName = (i) => ACTION_ICON[i.action] || (isWrite(i) ? "update" : "skip
 const surfaceWords = (key) => String(key).replace(/_/g, " ");
 // What a row names: a registration by its plugin id — its paths are the
 // consent lines beneath it — anything else by its path, project-relative.
-function rowTarget(p, i) {
+function rowTarget(p, i, home = homedir()) {
   // …and the keep (kind `channel`) by the key of the copy it keeps.
   if ((i.kind === "registration" || i.kind === "channel") && i.entry) return i.entry;
   if (i.path === null) return `${i.surface} [${i.harness}, no filesystem path]`;
+  // Setup's vault and state directories, as directories; a vault outside the
+  // project — beside it, usually — by its path from home, as the project's.
+  if (i.kind === "vault") { const r = rel(p.projectDir, i.path); return `${r === i.path ? tilde(i.path, home) : r}/`; }
+  if (i.kind === "state") return `${rel(p.projectDir, i.path)}/`;
   return rel(p.projectDir, i.path);
 }
+// The heading of the group of rows that belong to no harness: setup's vault
+// (presentation spec contract 7's VAULT group, first when present).
+const VAULT_GROUP = "Vault";
 function rowNote(i, { verbose, glyph }) {
   const words = writtenElsewhere(i) ? `last written by ${i.writtenBy}` : surfaceWords(i.surface);
   if (!verbose) return words;
@@ -1533,8 +1741,11 @@ function transitionText(i, glyph) {
 
 // One step of an item as the lines it shows: always the action and its target,
 // then — under --verbose — why it runs.
-function stepLines(p, st, { verbose, paint, width = 0, glyph = unicodeGlyph }) {
+function stepLines(p, st, { verbose, paint, width = 0, glyph = unicodeGlyph, home = homedir() }) {
   const r = (x) => rel(p.projectDir, x);
+  // A path outside the project — setup's vault, beside it usually — from
+  // home, as its row and its APPLY lines name it.
+  const t = (x) => tilde(r(x), home);
   const to = ` ${glyph("transition")} `;
   const lead = "      ";
   const sub = "          ";
@@ -1565,6 +1776,15 @@ function stepLines(p, st, { verbose, paint, width = 0, glyph = unicodeGlyph }) {
     // 2 and 4): its time is the apply's, unknown to a preview.
     case "mark": return [said(`edit ${r(st.path)}  [${st.key}]${to}by "setup", at the time of apply`), ...why];
     case "unmark": return [said(`edit ${r(st.path)}  [${st.key}]${to}removed`), ...why];
+    // A `binding` item's value (the setup story's status-line flag).
+    case "set": return [said(`edit ${r(st.path)}  [${st.key}]${to}${JSON.stringify(st.value)}`), ...why];
+    // Setup's vault (rule 10), the binding plan's own steps: every path is in
+    // the default view. A scaffold step's paths are the vault's, beneath the
+    // row that names it.
+    case "mkdir": return [said(`create ${t(st.path)}/`), ...why];
+    case "bind": return [said(`write ${r(st.path)}  (${st.from ? `the binding of ${st.from}${st.drop?.length ? `, without ${st.drop.join(" and ")}` : ""}` : `vault_path, layout ${st.layout}, language ${st.language}`})`), ...why];
+    case "git-init": return [said(`$ ${st.argv.join(" ")}`), `${sub}${paint("explanation", `in ${t(st.path)}, with no commit`)}`, ...why];
+    case "scaffold": return [said(`create ${st.rels.join(" and ")}`), ...why];
     case "ensure": return [said(`ensure ${r(st.path)}/`), ...why];
     case "move-state": return [said(`move ${r(st.from)}/${to}${r(st.to)}/ (${st.files} entries)`), ...why];
     case "merge-log": return [said(`merge ${r(st.from)}${to}${r(st.to)}`), ...why];
@@ -1658,7 +1878,7 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
     // run's own environment (`npx --registry`), and either reads the same.
     const from = fetchedFor(p, i);
     if (from) out.push(...prose("      ", `fetched from ${from.registry}`), ...prose("      ", `your npm's own registry is ${from.user}`));
-    for (const st of (i.steps || []).filter((x) => !isConsequence(x))) out.push(...stepLines(p, st, { verbose, paint, width, glyph }));
+    for (const st of (i.steps || []).filter((x) => !isConsequence(x))) out.push(...stepLines(p, st, { verbose, paint, width, glyph, home }));
     if (i.kind === "registration" && i.home && i.surface && !i.surface.endsWith("_others")) out.push(`      ${paint("explanation", `(harness home ${i.home}${i.scope ? `, scope ${i.scope}` : ""})`)}`);
     if (i.deleteIfEmpty && typeof i.after === "string" && !i.after.trim()) out.push(`      ${paint("explanation", "(the file would hold nothing else and is removed)")}`);
     if (!pruneSaid && i.action === "remove" && i.kind === "exclusive") { pruneSaid = true; out.push(`      ${paint("explanation", `(an emptied ${rel(p.projectDir, dirname(i.path))}/ is pruned)`)}`); }
@@ -1674,7 +1894,8 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
     const from = h.entry ? `from the registration ${h.entry}` : "from the host's own plugin system";
     return wrap(`${h.display} installs ${h.rows.join(", ")} itself, ${from}`, width, "    ").split("\n").map((l, k) => (k ? `    ${paint("explanation", l.slice(4))}` : `  ${paint("explanation", glyph("skip"))} ${paint("explanation", l)}`));
   };
-  const ids = [...p.harnesses, ...new Set(p.items.map((i) => i.harness).filter((h) => !p.harnesses.includes(h)))];
+  // The VAULT group first, when setup plans one: the rows of no harness.
+  const ids = [...(p.items.some((i) => i.harness === null) ? [null] : []), ...p.harnesses, ...new Set(p.items.map((i) => i.harness).filter((h) => h !== null && !p.harnesses.includes(h)))];
   for (const id of ids) {
     const entries = p.items.map((i, at) => ({ i, at })).filter((e) => e.i.harness === id);
     const others = (p.sharedBlock?.others || []).filter((o) => o.harness === id).sort((a, b) => a.at - b.at);
@@ -1685,14 +1906,14 @@ export function renderPreview(p, { verbose = false, verb = null, caps: c = PLAIN
     // the registry lines beneath it show on every run, not only on a change.
     const quiet = verbose ? [] : entries.filter((e) => isQuiet(e.i) && !fetchedFor(p, e.i));
     const shown = entries.filter((e) => !folded.includes(e) && !quiet.includes(e));
-    const specs = shown.map(({ i }) => ({ glyph: glyphName(i), role: WORD_ROLE[actionWord(i)], action: actionWord(i), target: rowTarget(p, i), note: rowNote(i, { verbose, glyph }) }));
+    const specs = shown.map(({ i }) => ({ glyph: glyphName(i), role: WORD_ROLE[actionWord(i)], action: actionWord(i), target: rowTarget(p, i, home), note: rowNote(i, { verbose, glyph }) }));
     if (quiet.length) specs.push({ glyph: "unchanged", role: "explanation", action: "unchanged", target: paint("explanation", quiet.map((e) => surfaceWords(e.i.surface)).join(", ")) });
     // Unsupported rows keep one line per harness (contract 18), named in
     // words as the unchanged line names its rows; --verbose lists each with
     // the manifest's reason.
     if (folded.length) specs.push({ glyph: "unchanged", role: "explanation", action: "skipped", target: paint("explanation", `not on ${displayName(id)}: ${folded.map((e) => surfaceWords(e.i.surface)).join(", ")}`), note: "--verbose says why" });
     const drawn = rowLines(c, specs);
-    lines.push("", paint("emphasis", displayName(id)));
+    lines.push("", paint("emphasis", id === null ? VAULT_GROUP : displayName(id)));
     const pending = [...others];
     shown.forEach(({ i, at }, k) => {
       while (pending.length && pending[0].at <= at) { pending.shift(); lines.push(sameBlock()); }
@@ -1834,9 +2055,24 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
       return r;
     }
     if (i.kind === "binding") {
-      const r = applyMark(p, i, { env, onStep, switched: switched.get(i.harness) || [] });
+      const r = applyBinding(p, i, { env, onStep, switched: switched.get(i.harness) || [] });
       if (r.failed) done.failed = r.failed;
       return r;
+    }
+    if (i.kind === "vault") {
+      // Setup's vault (rule 10): its git runs through the caller's own spawn,
+      // never the APPLY reporter's wrapper — the vault reports its $ line as
+      // its own step, and a failed git init as ▲, not as a stop.
+      const r = applyVault(p, i, { env, spawn: spawn.unwrapped || spawn, onStep });
+      if (r.failed) done.failed = r.failed;
+      if (r.warning) (done.warnings ||= []).push(r.warning);
+      return r;
+    }
+    if (i.kind === "state") {
+      // Setup's state directory: state/ with its .gitignore, then <id>/, empty.
+      ensureStateRoot(p.projectDir);
+      mkdirSync(i.path, { recursive: true });
+      return { path: i.path, action: i.action, surface: i.surface };
     }
     if (i.kind === "channel") {
       // The keep (the converge story's rule 5): the kept copy's own upgrade.
@@ -1881,8 +2117,40 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
     catch (e) { if (onItem) onItem(i, "abort"); throw e; }
     done.push(r);
     if (onItem) onItem(i, "end", r);
+    // A vault item that failed stops the run (the setup story, rule 10):
+    // every item after it was planned for a project with that binding.
+    if (i.kind === "vault" && r.failed) break;
   }
   return done;
+}
+
+// Setup's vault item, at apply (the story's rule 10): the binding plan
+// re-checked against the files as they stand — a binding that appeared, or a
+// vault that is no longer missing or empty, fails the item with nothing
+// written — then binding.mjs's applyBind once, which makes the directory,
+// writes the binding, runs `git init` and the scaffold, and reports each step
+// through `onStep`. A failed git init is a warning on the record, never a
+// stop; a failed write or scaffold is the item's failure, and STOPPED names
+// the scaffold's remedy. The record carries bindResult for the envelope.
+function applyVault(p, i, { env, spawn, onStep = null }) {
+  const out = { path: i.path, action: i.action, surface: i.surface, steps: [] };
+  const bp = i.bind;
+  if (!bp) { out.failed = { step: "vault", status: null, stderr: "this vault row carries no binding plan, so nothing is written" }; return out; }
+  const changed = recheckBind(bp, { env });
+  if (changed) { out.failed = { step: "vault", status: null, stderr: `${changed}; nothing is written. Run setup again: its plan starts from what is on disk now` }; return out; }
+  const watch = (st, phase, r) => {
+    if (phase === "end") out.steps.push({ kind: st.kind, path: st.path, ok: Boolean(r && r.ok), ...(r && r.kept ? { kept: true } : {}), ...(r && r.warn ? { warn: r.warn } : {}) });
+    if (onStep) onStep(st, phase, r);
+  };
+  let done;
+  try { done = applyBind(bp, { spawn, env, onStep: watch }); }
+  catch (e) { out.failed = { step: "vault", status: null, stderr: e && e.message ? e.message : String(e) }; return out; }
+  out.bind = bindResult(bp, done);
+  const g = done.git;
+  if (g && g.failed) out.warning = { step: "git-init", path: bp.vault, message: g.failed, remedy: g.remedy };
+  const s = done.scaffold;
+  if (s && s.failed) out.failed = { step: "scaffold", status: null, stderr: `${s.failed}\n${s.remedy}` };
+  return out;
 }
 
 // The mark (the converge story's rule 2), at apply: the binding is the one
@@ -1892,27 +2160,57 @@ export function apply(p, { env = process.env, spawn = spawnSync, home = homedir(
 // with the reason, when no binding exists, when a switch it records was
 // skipped or failed in this run, or when a mark is already there. Every other
 // key of the binding is kept.
-function applyMark(p, i, { env, onStep = null, switched = [] }) {
+//
+// The same for every `binding` item (the setup story, rule 10): its keys
+// merged into the binding as it stands at that moment, in one write — a
+// stamped key set unless a stamp is already there, a value set at its dotted
+// path (a `statusline` object keeps its other keys), a key removed — and
+// skipped with the item's own words when no binding exists (a vault item that
+// failed), when it is not where the preview named it, or when it already says
+// all of it. Only the mark waits on the switches of its harness. The steps
+// are reported one by one, the write under the first.
+function applyBinding(p, i, { env, onStep = null, switched = [] }) {
   const out = { path: i.path, action: i.action, surface: i.surface };
+  const said = i.said || {};
   const skipped = (reason) => ({ ...out, action: "skipped", reason });
-  if (switched.some((ok) => !ok)) return skipped("the switch did not complete; nothing is recorded");
+  if (i.surface === CHANNEL_SWITCH_KEY && switched.some((ok) => !ok)) return skipped("the switch did not complete; nothing is recorded");
   const at = configPath(p.projectDir, env);
-  if (!existsSync(at)) return skipped("the project is not bound; the switch is recorded once it is");
+  if (!existsSync(at)) return skipped(said.unbound || "the project is not bound; nothing is recorded");
   if (resolve(at) !== resolve(i.path)) return skipped(`the binding is at ${at}, not where the plan named it; nothing is recorded`);
   let cfg;
   try { cfg = JSON.parse(readFileSync(at, "utf8")); } catch { cfg = null; }
-  if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) return skipped(`${at} is not a JSON object; the switch is not recorded`);
-  if (channelMark(cfg)) return { ...out, action: "skip", reason: "the switch is already recorded" };
-  const st = (i.steps || []).find((x) => x.kind === "mark") || { kind: "mark", path: at, key: CHANNEL_SWITCH_KEY };
-  if (onStep) onStep(st, "start");
-  try {
-    writeFileAtomic(at, JSON.stringify({ ...cfg, [CHANNEL_SWITCH_KEY]: { by: "setup", at: new Date().toISOString() } }, null, 2) + "\n", { sweep: false });
-  } catch (e) {
-    if (onStep) onStep(st, "end", { ok: false });
-    return { ...out, failed: { step: "mark", status: null, stderr: e && e.message ? e.message : String(e) } };
+  if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) return skipped(`${at} is not a JSON object; ${said.object || "nothing is recorded"}`);
+  const steps = i.steps || [];
+  // A plan whose items were copied lost the data kept off the envelope: the
+  // steps say the same.
+  const set = i.set || Object.fromEntries(steps.filter((st) => st.kind === "mark" || st.kind === "set").map((st) => [st.key, st.kind === "mark" ? STAMP : st.value]));
+  const unset = i.unset || steps.filter((st) => st.kind === "unmark").map((st) => st.key);
+  const next = JSON.parse(JSON.stringify(cfg));
+  const now = new Date().toISOString();
+  for (const [key, value] of Object.entries(set)) {
+    if (value === STAMP) { if (!stamped(next[key])) next[key] = { by: "setup", at: now }; continue; }
+    const parts = key.split(".");
+    let node = next;
+    for (const k of parts.slice(0, -1)) { if (!node[k] || typeof node[k] !== "object" || Array.isArray(node[k])) node[k] = {}; node = node[k]; }
+    node[parts[parts.length - 1]] = value;
   }
-  if (onStep) onStep(st, "end", { ok: true });
-  return { ...out, steps: [{ kind: "mark", path: at, ok: true }] };
+  for (const key of unset) {
+    const parts = key.split(".");
+    let node = next;
+    for (const k of parts.slice(0, -1)) node = node && typeof node === "object" ? node[k] : null;
+    if (node && typeof node === "object") delete node[parts[parts.length - 1]];
+  }
+  if (JSON.stringify(next) === JSON.stringify(cfg)) return { ...out, action: "skip", reason: said.done || "the binding already says so" };
+  const shown = steps.length ? steps : [{ kind: "mark", path: at, key: i.entry }];
+  if (onStep) onStep(shown[0], "start");
+  try {
+    writeFileAtomic(at, JSON.stringify(next, null, 2) + "\n", { sweep: false });
+  } catch (e) {
+    if (onStep) onStep(shown[0], "end", { ok: false });
+    return { ...out, failed: { step: shown[0].kind, status: null, stderr: e && e.message ? e.message : String(e) } };
+  }
+  if (onStep) shown.forEach((st, k) => { if (k) onStep(st, "start"); onStep(st, "end", { ok: true }); });
+  return { ...out, steps: shown.map((st) => ({ kind: st.kind, path: at, ok: true })) };
 }
 
 // The keep step (the converge story's rule 5), at apply: the kept copy's own
@@ -2427,19 +2725,31 @@ export function planOptions(opts = {}) {
 // share one 2 s bound.
 //   opts.notice → the caller prints text (runVerb's `out`): the notice may show
 //   opts.fetch, opts.now, opts.timers → the tests' registry read and clock
+//
+// `setup` prepares as install and upgrade do, its notice and its stop naming
+// `setup` (the setup story, rule 3 step 7), with three inputs of its own:
+//   opts.named  → whether the harnesses were named, when `harnesses` is
+//                 setup's pre-ticked set and nobody named it: the fetch and
+//                 the stop's command then read it as a bare run
+//   opts.dryRun → --dry-run (rule 12): no registry read, so no stop and no
+//                 notice, and no fetch; the kept copy's own plan, read-only,
+//                 is still read, so the keep's row shows its real writes
 async function prepareRun(verb, projectDir, opts = {}) {
   const env = opts.env || process.env;
   const home = opts.home || homedir();
   const root = opts.root || pluginRoot();
   const version = rootVersion(root);
   const none = { version, payloadRoots: {}, fetched: [], refused: null, convergence: null, notice: null, cleanup: () => {} };
-  if (!["install", "upgrade"].includes(verb)) return none;
+  if (!["install", "upgrade", "setup"].includes(verb)) return none;
   projectDir = resolve(projectDir);
-  const state = verb === "upgrade";
-  const named = (opts.harnesses || []).filter(Boolean);
-  if (named.some((id) => !harnessIds().includes(id)) || projectDirRefusal(projectDir)) return none;
+  // setup reads the state directory too, as upgrade does (its rule 5).
+  const state = verb === "upgrade" || verb === "setup";
+  const given = (opts.harnesses || []).filter(Boolean);
+  const named = typeof opts.named === "boolean" ? opts.named : given.length > 0;
+  const dry = Boolean(opts.dryRun);
+  if (given.some((id) => !harnessIds().includes(id)) || projectDirRefusal(projectDir)) return none;
   const detected = detectHarnesses(projectDir, { state });
-  const ids = named.length ? named : detected.map((d) => d.id);
+  const ids = given.length ? given : detected.map((d) => d.id);
   if (!ids.length) return none;
   // One version-only analysis per shell-rooted registration, shared by the
   // running copies and the fetch's decision.
@@ -2474,17 +2784,19 @@ async function prepareRun(verb, projectDir, opts = {}) {
   const newer = newerCopies(copies, version);
   const off = updateCheckOff(env);
   // The notice: text mode, from a package root, never under CI or the switch.
-  const wantNotice = Boolean(opts.notice) && !opts.json && Boolean(version) && noticeRoot(root, { home, env }) && !envFlag(env, "CI") && !off;
+  const wantNotice = !dry && Boolean(opts.notice) && !opts.json && Boolean(version) && noticeRoot(root, { home, env }) && !envFlag(env, "CI") && !off;
   // 3. The read: one request per run at most, shared by rule 6 and the notice.
   // --json and CI do not switch rule 6's read off: it decides what is written.
+  // A dry run reads nothing, as plan does.
   let answer = null, pending = null;
-  if (newer.length && !off) answer = await read(REGISTRY_BUDGET_MS, { atLeast: lowestVersion(newer) });
+  if (!dry && newer.length && !off) answer = await read(REGISTRY_BUDGET_MS, { atLeast: lowestVersion(newer) });
   else if (wantNotice) pending = read(NOTICE_BUDGET_MS, { shared: true });
-  // 4. The stop: nothing after it runs.
-  const convergence = checks
-    ? decide({ copies, version, read: answer, skipped: off && newer.length > 0, verb, args: { harnesses: named, surfaces: opts.surfaces || null, register: opts.register !== false } })
+  // 4. The stop: nothing after it runs. A dry run decides nothing: its newer
+  // rows say, as plan's do, that the registry is read first.
+  const convergence = dry ? null : checks
+    ? decide({ copies, version, read: answer, skipped: off && newer.length > 0, verb, args: { harnesses: named ? given : [], surfaces: opts.surfaces || null, register: opts.register !== false } })
     : { checks: false };
-  if (convergence.stop) return { ...none, convergence };
+  if (convergence?.stop) return { ...none, convergence };
   // 5. The keep (rule 5), for the channel "git": the copy kept, and its own
   // plan read through its bin — before the fetch, so a run plan() will refuse
   // fetches nothing: no copy to keep (rule 1), or the copy's plan refused. A
@@ -2501,8 +2813,8 @@ async function prepareRun(verb, projectDir, opts = {}) {
       if (read.envelope && !read.ok) refuses = true;
     }
   }
-  // 6. The fetch.
-  const fetchedPart = refuses ? { ...none, fetchedFrom: null } : await fetchShells(verb, projectDir, { ...opts, env, home, root, version, named, detected, ids, analyse, userRegistryOf });
+  // 6. The fetch — never in a dry run.
+  const fetchedPart = refuses || dry ? { ...none, fetchedFrom: null } : await fetchShells(verb, projectDir, { ...opts, env, home, root, version, named, detected, ids, analyse, userRegistryOf });
   const latest = pending ? (await pending).latest : answer?.latest;
   const notice = wantNotice ? updateNotice({ latest, version, root, verb }) : null;
   return { ...fetchedPart, convergence, notice, keep };
@@ -2519,12 +2831,12 @@ async function fetchShells(verb, projectDir, { env, home, root, version, named, 
       if (key.startsWith("_") || s.format !== "portable-plugin-registration") continue;
       const excluded = surfaceExcluded(key, s, { surfaces: opts.surfaces || null, register: opts.register });
       const analysis = excluded ? null : analyse(harness, s);
-      const decision = fetchDecision({ verb, harness, s, excluded, named: named.length > 0, interactive, analysis, ownShell: ownShell === id, env });
+      const decision = fetchDecision({ verb, harness, s, excluded, named, interactive, analysis, ownShell: ownShell === id, env });
       if (decision.fetch) jobs.push({ harness, s });
     }
   }
   if (!jobs.length) return none;
-  const refuse = (message, cleanup = () => {}) => ({ ...none, cleanup, refused: { projectDir, mode: "install", named: named.length > 0, detected, harnesses: ids, reports: [], items: [], refusals: [message], ok: false, incomplete: false, root, plannedAgainst: {} } });
+  const refuse = (message, cleanup = () => {}) => ({ ...none, cleanup, refused: { projectDir, mode: "install", named, detected, harnesses: ids, reports: [], items: [], refusals: [message], ok: false, incomplete: false, root, plannedAgainst: {} } });
   const cache = cachePaths({ env, home });
   if (!cache.root) return refuse(fetchRefusal("ENOCACHE", { variable: cache.variable }));
   sweepFetchRuns(cache.fetch);
@@ -2578,8 +2890,20 @@ async function fetchShells(verb, projectDir, { env, home, root, version, named, 
   }
 }
 
+// `setup` runs as install does (the setup story, rule 3 steps 7 and 8), with
+// its own inputs: plan()'s setup inputs pass through `opts` (vault,
+// statusline, named), and its state directories and the keep's record are
+// planned unless `opts.ensureState` / `opts.recordKeep` say otherwise.
+//   opts.badged → the caller printed its own head (setup's rail, `┌
+//                 projectstore setup`): no badge is printed — not over the
+//                 fetch line, not over the notice, not over PLAN
+//   opts.dryRun → --dry-run (rule 12): PLAN, then nothing — no question, no
+//                 apply; the gate reads { confirmed: false, why: "dry-run" },
+//                 or confirm's "refused" for a plan that refuses
+// The result carries `warnings`: what failed without stopping the run (a
+// vault's git init).
 export async function runVerb(verb, projectDir, opts = {}) {
-  const mode = verb === "uninstall" ? "uninstall" : "install"; // upgrade is install re-run (contract 14)
+  const mode = verb === "uninstall" ? "uninstall" : "install"; // upgrade is install re-run (contract 14); so is setup
   const env = opts.env || process.env;
   const home = opts.home || homedir();
   // `out` is the text-mode caller's stdout. With it, this prints: the plan
@@ -2588,7 +2912,7 @@ export async function runVerb(verb, projectDir, opts = {}) {
   // the preview without the badge (presentation spec contract 7's slot).
   const out = opts.out || null;
   const c = out ? termCaps(out, env) : null;
-  let badged = false;
+  let badged = Boolean(opts.badged);
   const onFetch = out ? (label, ids) => {
     if (!badged) { out.write(badgeLine({ harnesses: ids, mode }, { verb, caps: c }) + "\n"); badged = true; }
     return liveLine(out, c, label, { env });
@@ -2601,7 +2925,9 @@ export async function runVerb(verb, projectDir, opts = {}) {
     // rule 5). `uninstall --global` keeps contract 8 — a state directory is a
     // project fact. install and plan keep contract 8, so a bare plan and a
     // bare install still agree.
-    const p = prep.refused || plan(projectDir, { ...opts, mode, state: verb === "upgrade" || (verb === "uninstall" && !opts.globalRemoval), version: prep.version, payloadRoots: prep.payloadRoots, convergence: prep.convergence, fetchedFrom: prep.fetchedFrom || null, keep: prep.keep || null });
+    // setup selects by it too, and plans its own items (its rules 5 and 10).
+    const setup = verb === "setup";
+    const p = prep.refused || plan(projectDir, { ...opts, mode, state: verb === "upgrade" || setup || (verb === "uninstall" && !opts.globalRemoval), version: prep.version, payloadRoots: prep.payloadRoots, convergence: prep.convergence, fetchedFrom: prep.fetchedFrom || null, keep: prep.keep || null, ensureState: opts.ensureState ?? setup, recordKeep: opts.recordKeep ?? setup });
     const view = { verbose: Boolean(opts.verbose), verb, caps: c || PLAIN, home };
     const preview = renderPreview(p, view);
     // The update notice (the converge story's rule 8): in the header slot,
@@ -2612,8 +2938,11 @@ export async function runVerb(verb, projectDir, opts = {}) {
       out.write(noticeText(prep.notice, c));
     }
     if (out) out.write((badged ? renderPreview(p, { ...view, badge: false }) : preview) + "\n");
+    // A dry run ends at PLAN: nothing is asked and nothing is written. A
+    // refused plan stays refused — its gate is confirm's, never the dry run's.
+    if (opts.dryRun) return { verb, plan: p, preview, gate: { confirmed: false, why: p.ok ? "dry-run" : "refused" }, applied: [], failed: null, warnings: [], elapsed: 0, fetched: prep.fetched };
     const gate = await confirm(p, { ...opts, env, ...(c ? { caps: c } : {}) });
-    const result = { verb, plan: p, preview, gate, applied: [], failed: null, elapsed: 0, fetched: prep.fetched };
+    const result = { verb, plan: p, preview, gate, applied: [], failed: null, warnings: [], elapsed: 0, fetched: prep.fetched };
     if (gate.confirmed) {
       // DONE's time leaves the fetch out: it wrote nothing of the project's.
       const t0 = Date.now();
@@ -2621,6 +2950,7 @@ export async function runVerb(verb, projectDir, opts = {}) {
       const spawn = opts.spawn || spawnSync;
       result.applied = apply(p, { env, spawn: reporter ? reporter.spawn(spawn) : spawn, home, onItem: reporter ? reporter.onItem : null, onStep: reporter ? reporter.onStep : null });
       result.failed = result.applied.failed || null;
+      result.warnings = result.applied.warnings || [];
       // A kept copy's run left incomplete (the converge story's rule 5) leaves
       // this one incomplete: both entries read the plan's flag for the exit.
       if (result.applied.incomplete) p.incomplete = true;
@@ -2651,13 +2981,14 @@ export function applyReporter(out, c, p, { now = Date.now, home = homedir() } = 
   const said = (i) => {
     const word = actionWord(i);
     const [running, done] = WORD_TENSES[word] || [word, word];
-    const target = rowTarget(p, i);
+    const target = rowTarget(p, i, home);
     return { word, running: `${running} ${target}`, done: `${done} ${target}` };
   };
   // The mark too: a skip prints its reason (the project not bound, the switch
   // not done) beneath the line it started.
   // …and the keep, whose $ line and the kept copy's own items print beneath it.
-  const stepped = (i) => i.kind === "registration" || i.kind === "layout" || i.kind === "binding" || i.kind === "channel";
+  // …and setup's vault, whose binding, git and scaffold steps print beneath it.
+  const stepped = (i) => i.kind === "registration" || i.kind === "layout" || i.kind === "binding" || i.kind === "channel" || i.kind === "vault";
   const began = new Map();
   return {
     onItem(i, phase, r) {
@@ -2686,11 +3017,19 @@ export function applyReporter(out, c, p, { now = Date.now, home = homedir() } = 
       if (phase === "start") { step.start(l.running); return; }
       const ok = r ? r.ok : true;
       const kept = Boolean(r && r.kept);
-      // A step that left its target in place did not do its verb.
-      step.end(ok, kept ? "kept" : "", ok ? { kept, label: kept ? l.base : l.done } : {});
+      // A step that failed without stopping the run (setup's git init) is ▲,
+      // in its own words.
+      if (r && r.warn) { step.end(true, "", { warn: true, label: r.warn }); return; }
+      // A step that left its target in place did not do its verb; one that
+      // says why in its own words (a git init skipped) needs no note.
+      const own = r && r.label ? r.label : null;
+      step.end(ok, kept && !own ? "kept" : "", ok ? { kept, label: own || (kept ? l.base : l.done) } : {});
     },
+    // The wrapped spawn prints each host command as a step. Its `unwrapped`
+    // is the caller's own spawn, for an item that reports its commands as its
+    // own steps (setup's vault: `$ git init --quiet`).
     spawn(inner) {
-      return (bin, argv, o) => {
+      const wrapped = (bin, argv, o) => {
         step.start(`$ ${basename(String(bin))} ${argv.join(" ")}`);
         let r;
         try { r = inner(bin, argv, o); }
@@ -2698,6 +3037,8 @@ export function applyReporter(out, c, p, { now = Date.now, home = homedir() } = 
         step.end(!r.error && r.status === 0);
         return r;
       };
+      Object.defineProperty(wrapped, "unwrapped", { value: inner });
+      return wrapped;
     },
   };
 }
@@ -2705,7 +3046,7 @@ export function applyReporter(out, c, p, { now = Date.now, home = homedir() } = 
 // A step as its APPLY line names it: the verb and the target, short — the
 // full form, file counts and entry pointers, was in PLAN. `base` is the plain
 // verb, for a step that left its target in place.
-const STEP_TENSES = { stage: ["staging", "staged"], lift: ["lifting", "lifted"], write: ["writing", "wrote"], edit: ["editing", "edited"], ensure: ["ensuring", "ensured"], move: ["moving", "moved"], merge: ["merging", "merged"], remove: ["removing", "removed"] };
+const STEP_TENSES = { stage: ["staging", "staged"], lift: ["lifting", "lifted"], write: ["writing", "wrote"], edit: ["editing", "edited"], ensure: ["ensuring", "ensured"], move: ["moving", "moved"], merge: ["merging", "merged"], remove: ["removing", "removed"], create: ["creating", "created"] };
 function stepLabel(p, st, { home = homedir(), glyph = unicodeGlyph } = {}) {
   const r = (x) => tilde(rel(p.projectDir, x), home);
   const to = ` ${glyph("transition")} `;
@@ -2716,8 +3057,15 @@ function stepLabel(p, st, { home = homedir(), glyph = unicodeGlyph } = {}) {
     case "write": return said("write", r(st.path));
     case "unregister": return said("edit", `${r(st.path)} [${st.pointer}.${st.name}]`);
     case "mark":
-    case "unmark": return said("edit", `${r(st.path)} [${st.key}]`);
+    case "unmark":
+    case "set": return said("edit", `${r(st.path)} [${st.key}]`);
     case "ensure": return said("ensure", `${r(st.path)}/`);
+    // Setup's vault (rule 10): the directory, the binding, git, the scaffold
+    // — a scaffold step's paths are the vault's, beneath the vault's line.
+    case "mkdir": return said("create", `${r(st.path)}/`);
+    case "bind": return said("write", r(st.path));
+    case "git-init": { const line = `$ ${st.argv.join(" ")}`; return { base: line, running: line, done: line }; }
+    case "scaffold": return said("create", st.rels.join(" and "));
     case "move-state": return said("move", `${r(st.from)}/${to}${r(st.to)}/`);
     case "merge-log": return said("merge", `${r(st.from)}${to}${r(st.to)}`);
     case "move-marker":
@@ -2860,6 +3208,8 @@ export function gateText(r, { verb, harnesses = [], surfaces = null, caps: c = P
   const why = r.gate?.why;
   if (why === "non-tty") return `Nothing written: without a terminal, a bare ${verb} refuses. Name the harness to confirm: --harness ${r.plan.detected.map((d) => d.id).join(" | ") || harnessIds().join(" | ")}\n`;
   if (why === "declined") return "Nothing written.\n";
+  // runVerb's dry run (setup's --dry-run, its rule 12).
+  if (why === "dry-run") return "Nothing written: this was a dry run.\n";
   if (why === "channel") {
     const keys = [...new Set(r.plan.items.filter(isSwitch).map((i) => i.entry))];
     return channelChoices({ gate: { verb, args: { harnesses, surfaces }, keys } }).map((b) => [b.lead, ...commandBlock(c, [b.command], { indent: 4 })].join("\n")).join("\n\n") + "\n";

@@ -13,7 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, copyFileSync, rmSync, readdirSync, chmodSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, copyFileSync, rmSync, readdirSync, chmodSync, statSync, symlinkSync, realpathSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -21,7 +21,8 @@ import { spawnSync } from "node:child_process";
 import { PassThrough } from "node:stream";
 import { fakeInstall, writeRegistry, noHostEnv, fakeClaude, stubCopy, stubCalls } from "./fixtures/install.mjs";
 import { codexHost, fakeNpmSpawn } from "./fixtures/fetch.mjs";
-import { plan, renderPreview, confirm, apply, runVerb, isInteractive, renderDone } from "../scripts/install-harness.mjs";
+import { plan, renderPreview, confirm, apply, runVerb, isInteractive, renderDone, applyReporter, publicItem, gateText } from "../scripts/install-harness.mjs";
+import { planBind, planInherit, applyBind, gitTop, INHERIT_DROPS } from "../scripts/binding.mjs";
 import { detectHarnesses, harnessRefusal, sourceHarness, loadHarnesses, loadHarness, identifiedHarnessId, packageCommand, hostPresence, whichOnPath, registrationDeferred, insideHostSession } from "../scripts/harness.mjs";
 import { writeBinding, seedCliVault } from "./fixtures/vault.mjs";
 import { PLAIN } from "../scripts/term.mjs";
@@ -2124,4 +2125,492 @@ test("one block per run, rule 5: a state directory makes Codex used — doctor -
   assert.deepEqual(up.plan.harnesses, [SRC.id, CODEX.id]);
   assert.deepEqual(rowsOf(proj, blockRows(up.plan)), [[SRC.id, "agents_block", "remove", "CLAUDE.md"], [SRC.id, "agents_block", "create", "AGENTS.md"]]);
   assert.equal(up.plan.items.find((i) => i.surface === "agents_block" && i.action === "create").reason, "in CLAUDE.md, which Codex does not read; install moves it to AGENTS.md");
+});
+
+// ─── Setup's engine (PR C of the setup story) ───────────────────────────
+//
+// PS-HARNESS: "projectstore setup asks, shows one plan and installs every
+// harness it finds, with the vault", rules 7, 9, 10 and 12. No verb drives
+// these yet — the setup verb does, in its own change — so they run through
+// plan() and apply() with setup's inputs, and through runVerb("setup", …).
+// Git is the real one, alone on PATH through a symlink, with no user or
+// system configuration; a failing git is a stub.
+
+const REAL_GIT = whichOnPath("git", process.env);
+// A project <home>/src/acme with its harness directory, the folder beside it
+// <home>/src/acme-vault named but not made, and an environment whose PATH is
+// git alone — no host CLI.
+function setupSandbox({ git = REAL_GIT } = {}) {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "ps-setup-home-")));
+  const proj = join(home, "src", "acme");
+  mkdirSync(join(proj, CFG_DIR), { recursive: true });
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  if (git) symlinkSync(git, join(bin, "git"));
+  const env = noHostEnv({ HOME: home, PATH: bin, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" });
+  return { home, proj, bin, env, vault: join(home, "src", "acme-vault") };
+}
+// A git whose init fails as a read-only parent makes it fail (tests/cli.test.mjs's stub).
+function failingGit() {
+  const dir = mkdtempSync(join(tmpdir(), "ps-setup-fakegit-"));
+  writeFileSync(join(dir, "git"), "#!/bin/sh\nif [ \"$1\" = init ]; then echo \"fatal: cannot mkdir .git: Read-only file system\" >&2; exit 128; fi\necho \"fatal: not a git repository\" >&2\nexit 128\n", { mode: 0o755 });
+  return join(dir, "git");
+}
+// Every file and folder under `dir`, `.git` left out, with each file's bytes.
+function treeOf(dir) {
+  const out = {};
+  const walk = (at) => {
+    for (const n of readdirSync(join(dir, at)).sort()) {
+      if (!at && n === ".git") continue;
+      const rel = at ? join(at, n) : n;
+      if (statSync(join(dir, rel)).isDirectory()) { out[`${rel}/`] = null; walk(rel); } else out[rel] = readFileSync(join(dir, rel), "utf8");
+    }
+  };
+  walk("");
+  return out;
+}
+// The scaffold lines a vault's default view lists, from its scaffold plan: one
+// per folder with its README, then the vault's README.
+const scaffoldLines = (sp) => sp.rows.filter((r) => r.type === "folder").map((r) => {
+  const readme = sp.rows.find((x) => x.rel === `${r.rel}/README.md`);
+  return `      create ${r.rel}/${readme ? ` and ${readme.rel}` : ""}`;
+}).concat(["      create README.md"]);
+const textSink = () => {
+  const chunks = [];
+  return { out: { isTTY: false, write: (s) => { chunks.push(String(s)); return true; } }, text: () => chunks.join("") };
+};
+
+test("setup engine 'The vault: create': the vault item is first, under no harness, in the Vault group before every harness's; its default view lists the mkdir, the binding, $ git init --quiet and every scaffold path; apply makes a vault whose tree outside .git is byte-identical to init's; an empty folder is created into with no mkdir", () => {
+  const s = setupSandbox();
+  const vp = planBind(s.proj, { vault: s.vault, init: true, env: s.env, home: s.home, root: ROOT });
+  assert.equal(vp.ok, true, JSON.stringify(vp.refusals));
+  const p = plan(s.proj, { harnesses: [SRC.id], vault: vp, env: s.env, home: s.home, root: ROOT });
+  const v = p.items[0];
+  assert.deepEqual([v.harness, v.kind, v.surface, v.action, v.state, v.path, v.reason], [null, "vault", "vault", "create", "absent", s.vault, null]);
+  assert.deepEqual(v.steps.map((st) => st.kind), ["mkdir", "bind", "git-init", ...scaffoldLines(vp.scaffold).map(() => "scaffold")]);
+  assert.equal(p.items.filter((i) => i.kind === "vault").length, 1);
+  // Off the envelope: the binding plan rides along for apply, and the plan gains no key.
+  assert.ok(!("bind" in publicItem(v)) && v.bind === vp);
+  assert.deepEqual(Object.keys(p), ["projectDir", "mode", "named", "detected", "harnesses", "reports", "items", "refusals", "ok", "incomplete", "root", "plannedAgainst"]);
+  // PLAN: the Vault group first, its row by the path from home, and every path written beneath it.
+  const lines = renderPreview(p, { home: s.home }).split("\n");
+  const at = lines.indexOf("Vault");
+  assert.ok(at > 0 && at < lines.indexOf(SRC.display_name), lines.join("\n"));
+  assert.equal(lines[at - 1], "");
+  assert.deepEqual(lines.slice(at + 1, at + 6), [
+    "  + add  ~/src/acme-vault/  vault",
+    "      create ~/src/acme-vault/",
+    "      write .projectstore/projectstore.json  (vault_path, layout engineering, language en)",
+    "      $ git init --quiet",
+    "          in ~/src/acme-vault, with no commit",
+  ]);
+  assert.deepEqual(lines.slice(at + 6, at + 6 + scaffoldLines(vp.scaffold).length), scaffoldLines(vp.scaffold));
+  assert.match(lines.join("\n"), /\nPlan — \d+ to add/);
+  // APPLY: the vault's steps beneath its line; git through the caller's own
+  // spawn, never the reporter's $ wrapper (no rev-parse line).
+  const sink = textSink();
+  const rep = applyReporter(sink.out, PLAIN, p, { home: s.home });
+  const done = apply(p, { env: s.env, home: s.home, spawn: rep.spawn(spawnSync), onItem: rep.onItem, onStep: rep.onStep });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  assert.equal(done.warnings, undefined);
+  const text = sink.text();
+  for (const l of ["  + adding ~/src/acme-vault/", "      ✓ created ~/src/acme-vault/", "      ✓ wrote .projectstore/projectstore.json", "      ✓ $ git init --quiet", "      ✓ created README.md", "  ✓ added ~/src/acme-vault/"]) assert.ok(text.includes(l), `${l}\n${text}`);
+  assert.ok(!text.includes("rev-parse"), text);
+  const rec = done[0];
+  assert.deepEqual([rec.surface, rec.bind.git, rec.bind.created_vault, rec.bind.wrote], ["vault", { done: true }, true, true]);
+  assert.equal(rec.bind.scaffold.created.length, vp.scaffold.creates);
+  assert.ok(rec.steps.every((st) => st.ok), JSON.stringify(rec.steps));
+  assert.ok(existsSync(join(s.vault, ".git", "HEAD")), "its own repository");
+  assert.equal(JSON.parse(read(layoutPaths(s.proj).binding)).vault_path, s.vault);
+  assert.ok(read(layoutPaths(s.proj).gitignore).split("\n").includes("projectstore.json"), "the binding stays machine-local");
+  // Byte-identical to init's, for the same name, layout and language.
+  const other = setupSandbox();
+  const ip = planBind(other.proj, { vault: other.vault, init: true, env: other.env, home: other.home, root: ROOT });
+  assert.equal(applyBind(ip, { env: other.env }).git.done, true);
+  assert.deepEqual(treeOf(s.vault), treeOf(other.vault));
+  assert.ok(Object.keys(treeOf(s.vault)).length > 2);
+
+  // An empty folder: created into, with no mkdir step.
+  const e = setupSandbox();
+  mkdirSync(e.vault);
+  const ep = planBind(e.proj, { vault: e.vault, init: true, env: e.env, home: e.home, root: ROOT });
+  const ev = plan(e.proj, { harnesses: [SRC.id], vault: ep, env: e.env, home: e.home, root: ROOT }).items[0];
+  assert.deepEqual([ev.action, ev.state, ev.steps[0].kind], ["create", "empty", "bind"]);
+  assert.ok(!ev.steps.some((st) => st.kind === "mkdir"));
+});
+
+test("setup engine 'The vault: a failing git init': the APPLY line is ▲ git init failed with git's first line, the run goes on — the scaffold and every later item apply — and the warning rides on apply's result and on runVerb's, never as a failure", async () => {
+  const s = setupSandbox({ git: failingGit() });
+  const vp = planBind(s.proj, { vault: s.vault, init: true, env: s.env, home: s.home, root: ROOT });
+  const sink = textSink();
+  const r = await runVerb("setup", s.proj, { harnesses: [SRC.id], vault: vp, env: s.env, home: s.home, root: ROOT, out: sink.out, ask: async () => "y" });
+  assert.equal(r.gate.confirmed, true, JSON.stringify(r.gate));
+  assert.equal(r.failed, null, JSON.stringify(r.failed));
+  const message = "fatal: cannot mkdir .git: Read-only file system";
+  assert.equal(r.warnings.length, 1);
+  assert.deepEqual([r.warnings[0].step, r.warnings[0].path, r.warnings[0].message], ["git-init", s.vault, message]);
+  assert.match(r.warnings[0].remedy, /^Run `git init` in \S+, or \S+doctor --fix, which offers it\.$/);
+  const text = sink.text();
+  assert.ok(text.includes(`      ▲ git init failed: ${message}`), text);
+  assert.ok(!text.includes("✕"), "nothing failed");
+  assert.equal(r.applied[0].bind.git.failed, message);
+  assert.ok(existsSync(join(s.vault, "README.md")), "the scaffold still runs");
+  assert.ok(!existsSync(join(s.vault, ".git")));
+  assert.ok(r.applied.length > 1 && existsSync(join(s.proj, "CLAUDE.md")), "every later item applies");
+  assert.ok(!Array.isArray(JSON.parse(JSON.stringify(r.applied)).warnings), "the envelope's applied list keeps its shape");
+});
+
+test("setup engine 'The vault: the binding changed after the preview': a binding written between plan and apply fails the vault item with nothing written, and the run stops there — STOPPED names it; a vault folder filled meanwhile does the same", () => {
+  const s = setupSandbox();
+  const vp = planBind(s.proj, { vault: s.vault, init: true, env: s.env, home: s.home, root: ROOT });
+  const p = plan(s.proj, { harnesses: [SRC.id], vault: vp, env: s.env, home: s.home, root: ROOT });
+  writeBinding(s.proj, { vault_path: "/tmp/elsewhere", layout: "engineering" });
+  const done = apply(p, { env: s.env, home: s.home });
+  assert.equal(done.length, 1, "the run stops at the vault");
+  assert.equal(done.failed.step, "vault");
+  assert.match(done.failed.stderr, /^the binding changed after the preview; nothing is written/);
+  assert.ok(!existsSync(s.vault) && !existsSync(join(s.proj, "CLAUDE.md")), "nothing is written");
+  assert.equal(JSON.parse(read(layoutPaths(s.proj).binding)).vault_path, "/tmp/elsewhere");
+  const stopped = renderDone({ verb: "setup", plan: p, applied: done, failed: done.failed, elapsed: 0 });
+  assert.match(stopped, /^Stopped — 0 changes applied, then vault failed$/m);
+  assert.ok(stopped.includes("the binding changed after the preview"), stopped);
+
+  const f = setupSandbox();
+  const fp = plan(f.proj, { harnesses: [SRC.id], vault: planBind(f.proj, { vault: f.vault, init: true, env: f.env, home: f.home, root: ROOT }), env: f.env, home: f.home, root: ROOT });
+  mkdirSync(f.vault);
+  writeFileSync(join(f.vault, "notes.md"), "mine\n");
+  const fd = apply(fp, { env: f.env, home: f.home });
+  assert.match(fd.failed.stderr, /changed after the preview: it is no longer missing or empty/);
+  assert.deepEqual(readdirSync(f.vault), ["notes.md"]);
+  assert.ok(!existsSync(layoutPaths(f.proj).binding));
+});
+
+test("setup engine 'The vault: bind existing + scaffold': an existing non-empty vault is bound only by default, not one byte written inside it; with scaffoldExisting it is bound and gets the layout's missing folders and indexes — no mkdir, no git init — and a folder already there plans only its README", () => {
+  const s = setupSandbox();
+  mkdirSync(join(s.vault, "adr"), { recursive: true });
+  writeFileSync(join(s.vault, "notes.md"), "mine\n");
+  // Bound only.
+  const plain = planBind(s.proj, { vault: s.vault, init: true, env: s.env, home: s.home, root: ROOT });
+  assert.deepEqual([plain.ok, plain.buildsVault, plain.scaffoldsExisting], [true, false, false]);
+  const pp = plan(s.proj, { harnesses: [SRC.id], vault: plain, env: s.env, home: s.home, root: ROOT });
+  const pv = pp.items[0];
+  assert.deepEqual([pv.action, pv.state, pv.reason, pv.steps.map((st) => st.kind)], ["add", "present", "it already exists; it is bound as it is", ["bind"]]);
+  // Bound and scaffolded.
+  const sp = planBind(s.proj, { vault: s.vault, scaffoldExisting: true, env: s.env, home: s.home, root: ROOT });
+  assert.deepEqual([sp.ok, sp.buildsVault, sp.createsVault, sp.scaffoldsExisting], [true, false, false, true]);
+  const p = plan(s.proj, { harnesses: [SRC.id], vault: sp, env: s.env, home: s.home, root: ROOT });
+  const v = p.items[0];
+  assert.deepEqual([v.action, v.reason], ["add", "it already exists; it is bound as it is, and the layout's missing folders and indexes are added"]);
+  assert.deepEqual(v.steps.map((st) => st.kind), ["bind", ...scaffoldLines(sp.scaffold).map(() => "scaffold")]);
+  assert.deepEqual(v.steps[1].rels, ["adr/README.md"], "adr/ is there: only its README is created");
+  const text = renderPreview(p, { home: s.home });
+  assert.ok(text.includes("\n      create adr/README.md\n"), text);
+  assert.ok(!text.includes("$ git init"), text);
+  const done = apply(p, { env: s.env, home: s.home });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  assert.equal(read(join(s.vault, "notes.md")), "mine\n");
+  assert.ok(!existsSync(join(s.vault, ".git")), "no git init inside someone's files");
+  for (const r of sp.scaffold.rows) assert.ok(existsSync(r.abs), r.rel);
+  assert.equal(done[0].bind.scaffold.created.length, sp.scaffold.creates);
+  // A vault with nothing to add is bound only, whatever the flag says.
+  const next = setupSandbox();
+  const full = planBind(next.proj, { vault: s.vault, scaffoldExisting: true, env: next.env, home: next.home, root: ROOT });
+  assert.deepEqual([full.ok, full.state, full.scaffold.creates, full.scaffoldsExisting], [true, "unbound", 0, false]);
+  assert.deepEqual(plan(next.proj, { harnesses: [SRC.id], vault: full, env: next.env, home: next.home, root: ROOT }).items[0].steps.map((st) => st.kind), ["bind"]);
+  // Without the flag, nothing is written inside the vault.
+  const o = setupSandbox();
+  mkdirSync(o.vault);
+  writeFileSync(join(o.vault, "notes.md"), "mine\n");
+  apply(plan(o.proj, { harnesses: [SRC.id], vault: planBind(o.proj, { vault: o.vault, init: true, env: o.env, home: o.home, root: ROOT }), env: o.env, home: o.home, root: ROOT }), { env: o.env, home: o.home });
+  assert.deepEqual(readdirSync(o.vault), ["notes.md"]);
+  assert.equal(JSON.parse(read(layoutPaths(o.proj).binding)).vault_path, o.vault);
+});
+
+test("setup engine 'The vault: inherit': planInherit copies the main checkout's binding but channel_switch and channel_keep, as one bind step naming the checkout and the two keys; the inherited status-line flag opts the status line in; apply writes it with its .gitignore and touches the shared vault not at all; refusals refuse the plan", () => {
+  const s = setupSandbox();
+  mkdirSync(s.vault, { recursive: true });
+  writeFileSync(join(s.vault, "notes.md"), "shared\n");
+  const parent = { vault_path: s.vault, layout: "engineering", language: "en", auto_inject: true, tags: ["x"], default_author: "Ada", active_skills: true, approval_mode: "always", statusline: { enabled: true }, channel_switch: { by: "setup", at: "2026-10-01T00:00:00.000Z" }, autoupdate_asked: true, channel_keep: { by: "setup", at: "2026-10-02T00:00:00.000Z" } };
+  writeBinding(s.proj, parent);
+  const wt = join(s.home, "src", "acme-wt");
+  mkdirSync(join(wt, CFG_DIR), { recursive: true });
+  const ip = planInherit(wt, { from: s.proj, env: s.env, home: s.home, root: ROOT });
+  assert.equal(ip.ok, true, JSON.stringify(ip.refusals));
+  assert.deepEqual(INHERIT_DROPS, ["channel_switch", "channel_keep"]);
+  assert.deepEqual(ip.inherit, { from: s.proj, drop: ["channel_switch", "channel_keep"], dropped: ["channel_switch", "channel_keep"] });
+  const { channel_switch, channel_keep, ...kept } = parent;
+  assert.deepEqual(ip.after, kept);
+  assert.deepEqual(Object.keys(ip.after), Object.keys(kept), "in the parent's order");
+  const p = plan(wt, { harnesses: [SRC.id], vault: ip, env: s.env, home: s.home, root: ROOT });
+  const v = p.items[0];
+  assert.deepEqual([v.kind, v.action, v.state, v.reason, v.steps.map((st) => st.kind)], ["vault", "add", "present", `the vault of ${s.proj}, with its settings`, ["bind"]]);
+  const text = renderPreview(p, { home: s.home });
+  assert.ok(text.includes(`\n      write .projectstore/projectstore.json  (the binding of ${s.proj}, without channel_switch and channel_keep)\n`), text);
+  assert.notEqual(item(p, "statusline").state, "opt-out", "the binding the run leaves opts the status line in");
+  const done = apply(p, { env: s.env, home: s.home });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  assert.equal(read(layoutPaths(wt).binding), JSON.stringify(kept, null, 2) + "\n");
+  assert.ok(read(layoutPaths(wt).gitignore).split("\n").includes("projectstore.json"));
+  assert.deepEqual(readdirSync(s.vault), ["notes.md"], "the shared vault is not touched");
+  assert.equal(done[0].bind.state, "unbound");
+  // A relative vault_path is the parent's: it travels resolved there.
+  writeBinding(s.proj, { ...parent, vault_path: "../acme-vault" });
+  const rel2 = join(s.home, "src", "acme-wt2");
+  mkdirSync(rel2);
+  assert.equal(planInherit(rel2, { from: s.proj, env: s.env, home: s.home, root: ROOT }).after.vault_path, s.vault);
+  // Refusals: an unbound checkout, a vault gone, a project bound elsewhere; and plan() refuses with them.
+  const nobody = join(s.home, "src", "nobody");
+  mkdirSync(nobody);
+  const none = planInherit(rel2, { from: nobody, env: s.env, home: s.home, root: ROOT });
+  assert.deepEqual(none.refusals.map((r) => r.code), ["NOT_BOUND"]);
+  writeBinding(nobody, { vault_path: join(s.home, "gone"), layout: "engineering" });
+  assert.deepEqual(planInherit(rel2, { from: nobody, env: s.env, home: s.home, root: ROOT }).refusals.map((r) => r.code), ["MISSING"]);
+  writeBinding(rel2, { vault_path: join(s.home, "other"), layout: "engineering" });
+  assert.deepEqual(planInherit(rel2, { from: s.proj, env: s.env, home: s.home, root: ROOT }).refusals.map((r) => r.code), ["REBIND"]);
+  const refused = plan(rel2, { harnesses: [SRC.id], vault: none, env: s.env, home: s.home, root: ROOT });
+  assert.equal(refused.ok, false);
+  assert.deepEqual(refused.items, [], "nothing is planned");
+  assert.deepEqual(refused.refusals, [none.refusals[0].message]);
+});
+
+test("setup engine 'State directories': ensureState plans an empty state/<id>/ per harness whose registration is not unavailable, the first naming state/; apply makes them with state/.gitignore and no welcome marker, and detection then reads both; none for a missing host CLI, none where the launcher makes it, none on a re-run; install plans none, setup does", async () => {
+  const h = hostSandbox();
+  const fc = fakeClaude(mkdtempSync(join(tmpdir(), "ps-setup-claude-")));
+  const env = { ...h.env, PATH: [dirname(fc.bin), dirname(process.execPath), h.env.PATH].join(":") };
+  const proj = mkdtempSync(join(tmpdir(), "ps-setup-state-"));
+  mkdirSync(join(proj, CFG_DIR), { recursive: true });
+  const lp = layoutPaths(proj);
+  const ids = [SRC.id, CODEX.id];
+  const run = (extra = {}) => plan(proj, { harnesses: ids, env, home: h.home, root: ROOT, version: "0.30.0", ensureState: true, ...extra });
+  const p = run();
+  const states = p.items.filter((i) => i.kind === "state");
+  assert.deepEqual(states.map((i) => [i.harness, i.surface, i.action, i.path]), ids.map((id) => [id, "harness_state", "create", lp.harnessState(id)]));
+  assert.deepEqual(states[0].steps, [{ kind: "ensure", path: lp.state, why: states[0].steps[0].why }]);
+  assert.equal(states[1].steps, undefined);
+  // Each is its harness's own row, after the harness's other rows.
+  for (const st of states) assert.equal(p.items.filter((i) => i.harness === st.harness && i.kind !== "binding").at(-1), st);
+  const text = renderPreview(p, { home: h.home });
+  for (const id of ids) assert.match(text, new RegExp(`\\n  \\+ add +\\.projectstore/state/${id}/ +harness state\\n`));
+  assert.ok(text.includes("\n      ensure .projectstore/state/\n"), text);
+  assert.ok(!existsSync(lp.state), "nothing is written by plan");
+  // Applied: empty directories, the state .gitignore with its header, no marker.
+  const done = apply({ ...p, items: states }, { env, home: h.home });
+  assert.equal(done.failed, undefined);
+  for (const id of ids) assert.deepEqual(readdirSync(lp.harnessState(id)), [], id);
+  assert.deepEqual(read(lp.stateGitignore).split("\n").filter(Boolean).slice(-1), ["*"]);
+  assert.ok(read(lp.stateGitignore).includes(RUNTIME_GITIGNORE_HEADER));
+  assert.equal(existsSync(lp.sessions), false, "no session state");
+  assert.deepEqual(detectHarnesses(proj, { state: true }).map((d) => [d.id, d.why]), [[SRC.id, "directory"], [CODEX.id, "state"]]);
+  assert.deepEqual(run().items.filter((i) => i.kind === "state"), [], "a re-run plans none");
+  // A host CLI that is missing: its registration is unavailable, and it gets no directory.
+  const bare = mkdtempSync(join(tmpdir(), "ps-setup-state-"));
+  mkdirSync(join(bare, CFG_DIR), { recursive: true });
+  const noCodex = plan(bare, { harnesses: ids, env: { ...env, PATH: [dirname(fc.bin), dirname(process.execPath)].join(":") }, home: h.home, root: ROOT, version: "0.30.0", ensureState: true });
+  assert.equal(noCodex.items.find((i) => i.harness === CODEX.id && i.kind === "registration").state, "unavailable");
+  assert.deepEqual(noCodex.items.filter((i) => i.kind === "state").map((i) => i.harness), [SRC.id]);
+  // install plans none; setup does, without being asked to.
+  assert.deepEqual(plan(bare, { harnesses: ids, env, home: h.home, root: ROOT, version: "0.30.0" }).items.filter((i) => i.kind === "state"), []);
+  const viaInstall = await runVerb("install", bare, { harnesses: ids, env, home: h.home, root: ROOT, dryRun: true });
+  assert.deepEqual(viaInstall.plan.items.filter((i) => i.kind === "state"), []);
+  const viaSetup = await runVerb("setup", bare, { harnesses: ids, env, home: h.home, root: ROOT, dryRun: true });
+  assert.deepEqual(viaSetup.plan.items.filter((i) => i.kind === "state").map((i) => i.harness), ids);
+  // The status-line launcher makes Claude Code's directory: no item for it.
+  const { home, root } = fixture();
+  const lit = project();
+  const hostEnv = { ...noHostEnv(), PATH: [dirname(fc.bin), dirname(process.execPath)].join(":") };
+  const withLauncher = plan(lit, { harnesses: [SRC.id], env: hostEnv, home, root, ensureState: true });
+  assert.equal(item(withLauncher, "statusline_launcher").action, "create");
+  assert.equal(dirname(item(withLauncher, "statusline_launcher").path), layoutPaths(lit).harnessState(SRC.id));
+  assert.deepEqual(withLauncher.items.filter((i) => i.kind === "state"), []);
+  // …where the same fixture with the status line off gets it: only the launcher decided.
+  const unlit = project({ statusline: false });
+  assert.deepEqual(plan(unlit, { harnesses: [SRC.id], env: hostEnv, home, root, ensureState: true }).items.filter((i) => i.kind === "state").map((i) => i.path), [layoutPaths(unlit).harnessState(SRC.id)]);
+});
+
+test("setup engine 'The status-line flag': true plans a binding item, last in Claude Code's group, storing statusline.enabled and opting the status line in — its entry and launcher in the same plan; apply merges it keeping every other key, a statusline object's included; false stores false and wires nothing; no item when the binding already says it or there is none", () => {
+  const { home, root } = fixture();
+  const env = noHostEnv();
+  const proj = project({ bound: false });
+  const bp = layoutPaths(proj).binding;
+  writeBinding(proj, { vault_path: "/tmp/nowhere", layout: "engineering", statusline: { refresh: 5 }, tags: ["a"], approval_mode: "always" });
+  const before = JSON.parse(read(bp));
+  const p = plan(proj, { harnesses: [SRC.id], home, root, env, statusline: true });
+  const flag = p.items.find((i) => i.surface === "statusline_flag");
+  assert.deepEqual([flag.harness, flag.kind, flag.action, flag.state, flag.entry, flag.path], [SRC.id, "binding", "add", "absent", "statusline.enabled", bp]);
+  assert.deepEqual(publicItem(flag).steps.map(({ why, ...st }) => st), [{ kind: "set", path: bp, key: "statusline.enabled", value: true }]);
+  assert.ok(!("set" in publicItem(flag)) && !("unset" in publicItem(flag)), "apply's data stays off the envelope");
+  assert.equal(p.items.filter((i) => i.harness === SRC.id).at(-1), flag, "last in its group");
+  assert.notEqual(item(p, "statusline").state, "opt-out");
+  assert.equal(item(p, "statusline_launcher").action, "create");
+  assert.ok(renderPreview(p).includes("\n      edit .projectstore/projectstore.json  [statusline.enabled] → true\n"));
+  const sink = textSink();
+  const rep = applyReporter(sink.out, PLAIN, p, { home });
+  const done = apply(p, { env, home, onItem: rep.onItem, onStep: rep.onStep });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  assert.ok(sink.text().includes("      ✓ edited .projectstore/projectstore.json [statusline.enabled]"), sink.text());
+  const after = JSON.parse(read(bp));
+  assert.deepEqual(Object.keys(after), Object.keys(before), "every key, in its place");
+  assert.deepEqual(after.statusline, { refresh: 5, enabled: true });
+  for (const k of ["vault_path", "layout", "tags", "approval_mode"]) assert.deepEqual(after[k], before[k], k);
+  assert.ok(JSON.parse(read(join(proj, CFG_DIR, "settings.local.json"))).statusLine, "our entry is wired");
+  assert.deepEqual(done.find((d) => d.surface === "statusline_flag").steps, [{ kind: "set", path: bp, ok: true }]);
+  assert.equal(plan(proj, { harnesses: [SRC.id], home, root, env, statusline: true }).items.find((i) => i.surface === "statusline_flag"), undefined, "the binding says it now");
+
+  // No: false stored, nothing wired.
+  const no = project({ bound: true, statusline: false });
+  const q = plan(no, { harnesses: [SRC.id], home, root, env, statusline: false });
+  assert.equal(q.items.find((i) => i.surface === "statusline_flag").steps[0].value, false);
+  assert.equal(item(q, "statusline").state, "opt-out");
+  apply(q, { env, home });
+  assert.equal(JSON.parse(read(layoutPaths(no).binding)).statusline.enabled, false);
+
+  // At apply: a binding that says it meanwhile is a skip; one that went is skipped with the item's words.
+  const twice = project({ bound: true, statusline: false });
+  const t1 = plan(twice, { harnesses: [SRC.id], home, root, env, statusline: true });
+  writeBinding(twice, { ...JSON.parse(read(layoutPaths(twice).binding)), statusline: { enabled: true } });
+  assert.deepEqual(((r) => [r.action, r.reason])(apply(t1, { env, home }).find((d) => d.surface === "statusline_flag")), ["skip", "the status line's flag is already recorded"]);
+  const gone = project({ bound: true, statusline: false });
+  const g1 = plan(gone, { harnesses: [SRC.id], home, root, env, statusline: true });
+  rmSync(layoutPaths(gone).binding);
+  assert.deepEqual(((r) => [r.action, r.reason])(apply(g1, { env, home }).find((d) => d.surface === "statusline_flag")), ["skipped", "the project is not bound; the status line's flag is recorded once it is"]);
+  assert.ok(!existsSync(layoutPaths(gone).binding), "no binding is created");
+
+  // No binding and no vault item: nothing to record it in. A vault item: recorded in the binding it writes.
+  const unbound = project({ bound: false });
+  assert.equal(plan(unbound, { harnesses: [SRC.id], home, root, env, statusline: true }).items.find((i) => i.surface === "statusline_flag"), undefined);
+  const s = setupSandbox();
+  const vp = planBind(s.proj, { vault: s.vault, init: true, env: s.env, home: s.home, root: ROOT });
+  const vflag = plan(s.proj, { harnesses: [SRC.id], vault: vp, env: s.env, home: s.home, root: ROOT, statusline: true });
+  assert.equal(vflag.items[0].kind, "vault");
+  assert.equal(vflag.items.at(-1).surface, "statusline_flag", "applied after the vault item wrote the binding");
+  assert.equal(vflag.items.at(-1).state, "absent", "the vault item's binding counts as there");
+  assert.equal(apply(vflag, { env: s.env, home: s.home }).failed, undefined);
+  assert.deepEqual(JSON.parse(read(layoutPaths(s.proj).binding)).statusline, { enabled: true });
+});
+
+test("setup engine 'named': named: false keeps a plan of given harnesses unconfirmed without a terminal — the gate refuses non-tty and runVerb('setup') fetches no shell; named, setup fetches the shell-rooted harness as install does; a dry run's gate text", async () => {
+  const proj = project({ bound: false });
+  const home = mkdtempSync(join(tmpdir(), "ps-setup-named-home-"));
+  const p = plan(proj, { harnesses: [SRC.id], named: false, env: noHostEnv(), home, root: ROOT });
+  assert.equal(p.named, false);
+  assert.deepEqual(await confirm(p, { env: noHostEnv() }), { confirmed: false, why: "non-tty" });
+  assert.deepEqual(await confirm(plan(proj, { harnesses: [SRC.id], env: noHostEnv(), home, root: ROOT }), { env: noHostEnv() }), { confirmed: true, why: "named" });
+  // A Codex harness given but not named fetches nothing; named, it is fetched.
+  const h = hostSandbox();
+  const cx = mkdtempSync(join(tmpdir(), "ps-setup-named-"));
+  const quiet = fakeNpmSpawn();
+  const r = await runVerb("setup", cx, { harnesses: [CODEX.id], named: false, json: true, env: h.env, home: h.home, root: ROOT, fetchSpawn: quiet.spawn, spawn: codexHost(h.home) });
+  assert.deepEqual(r.gate, { confirmed: false, why: "non-tty" });
+  assert.deepEqual(quiet.calls, [], "nothing fetched for a run that will refuse");
+  assert.equal(gateText({ gate: { why: "dry-run" }, plan: r.plan }, { verb: "setup" }), "Nothing written: this was a dry run.\n");
+  const npm = fakeNpmSpawn();
+  const n = await runVerb("setup", cx, { harnesses: [CODEX.id], json: true, env: h.env, home: h.home, root: ROOT, fetchSpawn: npm.spawn, spawn: codexHost(h.home) });
+  assert.equal(n.gate.why, "named");
+  assert.equal(npm.installs().length, 1, "setup fetches the shell-rooted harness it is named for");
+  assert.deepEqual(n.fetched.map((f) => f.harness), [CODEX.id]);
+});
+
+test("setup engine: gitTop answers the realpath'd top of the work tree from a subfolder, null outside one or without git, and is not misled by an inherited GIT_DIR", () => {
+  const env = noHostEnv({ PATH: dirname(REAL_GIT), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" });
+  const top = mkdtempSync(join(tmpdir(), "ps-setup-top-"));
+  assert.equal(spawnSync("git", ["init", "--quiet"], { cwd: top, env, encoding: "utf8" }).status, 0);
+  const sub = join(top, "packages", "app");
+  mkdirSync(sub, { recursive: true });
+  assert.equal(gitTop(sub, { env }), realpathSync(top));
+  assert.equal(gitTop(top, { env }), realpathSync(top));
+  const outside = mkdtempSync(join(tmpdir(), "ps-setup-outside-"));
+  assert.equal(gitTop(outside, { env }), null);
+  assert.equal(gitTop(sub, { env: { ...env, PATH: "" } }), null, "git not on PATH");
+  const decoy = mkdtempSync(join(tmpdir(), "ps-setup-decoy-"));
+  spawnSync("git", ["init", "--quiet"], { cwd: decoy, env, encoding: "utf8" });
+  assert.equal(gitTop(sub, { env: { ...env, GIT_DIR: join(decoy, ".git"), GIT_WORK_TREE: decoy } }), realpathSync(top));
+});
+
+test("setup engine 'The vault: a failed scaffold; git not on PATH': git missing is the git init step skipped in its own words — never ▲, never ✕ — and the vault is made without .git; a scaffold that cannot write fails the vault item, the run stops there, and STOPPED names `projectstore scaffold --write` beside the binding already written", { skip: process.getuid?.() === 0 ? "root writes into a read-only folder" : false }, async () => {
+  // Git not on PATH: skipped, said so on the step's own line.
+  const s = setupSandbox({ git: null });
+  const vp = planBind(s.proj, { vault: s.vault, init: true, env: s.env, home: s.home, root: ROOT });
+  const p = plan(s.proj, { harnesses: [SRC.id], vault: vp, env: s.env, home: s.home, root: ROOT });
+  const sink = textSink();
+  const rep = applyReporter(sink.out, PLAIN, p, { home: s.home });
+  const done = apply(p, { env: s.env, home: s.home, onItem: rep.onItem, onStep: rep.onStep });
+  assert.equal(done.failed, undefined, JSON.stringify(done.failed));
+  assert.equal(done.warnings, undefined, "a skip is not a warning");
+  const text = sink.text();
+  assert.match(text, /\n {6}· skipped git init: git is not on PATH(?: +\S+)?\n/);
+  assert.ok(!text.includes("▲") && !text.includes("✕") && !text.includes("$ git init"), text);
+  assert.deepEqual(done[0].bind.git, { skipped: "git is not on PATH" });
+  assert.deepEqual(done[0].steps.find((st) => st.kind === "git-init"), { kind: "git-init", path: s.vault, ok: true, kept: true });
+  assert.ok(existsSync(join(s.vault, "README.md")) && !existsSync(join(s.vault, ".git")), "made, scaffolded, no repository");
+
+  // A vault folder that cannot be written: the scaffold fails and the run stops.
+  const f = setupSandbox();
+  mkdirSync(f.vault);
+  chmodSync(f.vault, 0o555);
+  try {
+    const fp = planBind(f.proj, { vault: f.vault, init: true, env: f.env, home: f.home, root: ROOT });
+    assert.deepEqual([fp.ok, fp.buildsVault, fp.createsVault], [true, true, false], JSON.stringify(fp.refusals));
+    const fsink = textSink();
+    const r = await runVerb("setup", f.proj, { harnesses: [SRC.id], vault: fp, env: f.env, home: f.home, root: ROOT, out: fsink.out, ask: async () => "y" });
+    assert.equal(r.gate.confirmed, true, JSON.stringify(r.gate));
+    assert.equal(r.failed.step, "scaffold");
+    assert.ok(r.failed.stderr.endsWith("\nThe binding is written; `projectstore scaffold --write` finishes the vault."), r.failed.stderr);
+    assert.equal(r.applied.length, 1, "the run stops at the vault");
+    assert.equal(r.applied[0].bind.wrote, true);
+    assert.equal(JSON.parse(read(layoutPaths(f.proj).binding)).vault_path, f.vault, "the binding is written");
+    assert.ok(!existsSync(join(f.proj, "CLAUDE.md")), "no later item applies");
+    assert.deepEqual(readdirSync(f.vault), [], "nothing inside the vault");
+    assert.match(fsink.text(), /\n {6}✓ wrote \.projectstore\/projectstore\.json[^\n]*\n {6}▲ git init failed: [^\n]+\n {6}✕ creating [^\n]+\n/);
+    const stopped = renderDone(r);
+    assert.match(stopped, /^Stopped — 0 changes applied, then scaffold failed$/m);
+    assert.ok(stopped.includes("      The binding is written; `projectstore scaffold --write` finishes the vault.\n"), stopped);
+  } finally {
+    chmodSync(f.vault, 0o755);
+  }
+});
+
+test("setup engine 'The vault: the guards': plan() reads a vault plan made for another spelling of the project — a symlink, or /var for /private/var — as the same project, and still refuses one for another; planInherit refuses a vault that is not a directory, as planBind does; a dry run of a refused plan ends on the refusal, never on 'this was a dry run'", async () => {
+  // Two spellings of one project.
+  const s = setupSandbox();
+  const link = join(s.home, "acme-link");
+  symlinkSync(s.proj, link);
+  const viaLink = planBind(link, { vault: s.vault, init: true, env: s.env, home: s.home, root: ROOT });
+  assert.equal(viaLink.ok, true, JSON.stringify(viaLink.refusals));
+  const p = plan(s.proj, { harnesses: [SRC.id], vault: viaLink, env: s.env, home: s.home, root: ROOT });
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  assert.equal(p.items[0].kind, "vault");
+  const back = plan(link, { harnesses: [SRC.id], vault: planBind(s.proj, { vault: s.vault, init: true, env: s.env, home: s.home, root: ROOT }), env: s.env, home: s.home, root: ROOT });
+  assert.equal(back.ok, true, JSON.stringify(back.refusals));
+  const raw = mkdtempSync(join(tmpdir(), "ps-setup-spelling-"));
+  if (raw !== realpathSync(raw)) {
+    const spelt = plan(raw, { harnesses: [SRC.id], vault: planBind(realpathSync(raw), { vault: join(raw, "v"), init: true, env: s.env, home: s.home, root: ROOT }), env: s.env, home: s.home, root: ROOT });
+    assert.equal(spelt.ok, true, JSON.stringify(spelt.refusals));
+  }
+  const other = setupSandbox();
+  const elsewhere = plan(other.proj, { harnesses: [SRC.id], vault: viaLink, env: other.env, home: other.home, root: ROOT });
+  assert.equal(elsewhere.ok, false);
+  assert.deepEqual(elsewhere.refusals, [`the vault plan is for ${link}, not ${other.proj}`]);
+
+  // An inherited vault that is a file.
+  const parent = setupSandbox();
+  mkdirSync(dirname(parent.vault), { recursive: true });
+  writeFileSync(parent.vault, "not a vault\n");
+  writeBinding(parent.proj, { vault_path: parent.vault, layout: "engineering", language: "en" });
+  const wt = join(parent.home, "src", "acme-wt");
+  mkdirSync(wt);
+  const ip = planInherit(wt, { from: parent.proj, env: parent.env, home: parent.home, root: ROOT });
+  assert.equal(ip.ok, false);
+  assert.deepEqual(ip.refusals.map((r) => [r.code, r.message]), [["USAGE", `${parent.vault}, the vault ${parent.proj} is bound to, is not a directory`]]);
+  assert.equal(ip.scaffold, null);
+  assert.deepEqual(planBind(wt, { vault: parent.vault, env: parent.env, home: parent.home, root: ROOT }).refusals.map((r) => r.code), ["USAGE"], "planBind's own refusal of it");
+
+  // A dry run of that refused plan: the refusal stands.
+  const sink = textSink();
+  const r = await runVerb("setup", wt, { harnesses: [SRC.id], vault: ip, env: parent.env, home: parent.home, root: ROOT, out: sink.out, dryRun: true, ask: async () => { throw new Error("a dry run asks nothing"); } });
+  assert.equal(r.plan.ok, false);
+  assert.deepEqual(r.gate, { confirmed: false, why: "refused" });
+  assert.equal(gateText(r, { verb: "setup" }), "");
+  assert.ok(sink.text().includes("is not a directory"), sink.text());
+  assert.ok(!sink.text().includes("dry run"), sink.text());
+  assert.ok(!existsSync(layoutPaths(wt).binding), "nothing written");
 });
