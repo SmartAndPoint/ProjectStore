@@ -8,13 +8,13 @@ From a terminal in your project:
 npx projectstore setup
 ```
 
-Setup finds the coding agents the project uses (Claude Code, Codex or both), asks a few questions — among them where the vault lives — then shows one plan and asks once before it writes. It binds the vault, or creates one when the folder is missing or empty. The README's [Install](../README.md#install) section has the details, the global form and the registry-mirror form.
+Setup finds the coding agents the project uses (Claude Code, Codex or both), asks a few questions — among them where the vault lives — then shows one plan and asks once before it writes. It binds the vault, or creates one when the folder is missing or empty. The README's [Install](../README.md#install) section has what setup needs (Node.js 20 or later; npm only for Codex), the other package runners, the global form and the registry-mirror form. Setup binds the vault itself, so after it the project is ready: restart the agent and go on to the daily flow.
 
-The next two sections are the other ways in: a checkout, and the git marketplace inside a Claude Code session. After either of them, the first-time setup below binds the vault.
+The next two sections are the other ways in: a checkout, for contributors, and the git marketplace inside a Claude Code session. After either of them, the first-time setup below binds the vault from inside a session.
 
-## Install (local dev)
+## From a checkout
 
-Until projectstore is published to a public marketplace, install it from a local clone.
+For contributors working on projectstore itself. Clone it; [Running a checkout's build](../packaging/README.md#running-a-checkouts-build) covers the packed form.
 
 ```bash
 git clone https://github.com/SmartAndPoint/ProjectStore.git ~/Projects/SmartAndPoint/ProjectStore
@@ -40,7 +40,7 @@ Verify the plugin appears:
 
 You should see `projectstore` (displayName) with prefix `projectstore`.
 
-## Install (via marketplace)
+## In a Claude Code session, from the git marketplace
 
 ```
 /plugin marketplace add SmartAndPoint/ProjectStore
@@ -48,6 +48,8 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
 ```
 
 ## First-time setup
+
+`npx projectstore setup` binds a vault or creates one, adds the agents block, and offers the status line, in one plan. The steps below do that from inside a Claude Code session, for the two ways in above, and also ask for the vault's policy and the agents' models; after setup, those two are [Configure](#configure)'s.
 
 1. **Pick a vault directory** — any folder where you want your project artifacts to live. Obsidian opens it natively. Git tracks it cleanly. There is nothing to create by hand: step 2 creates the vault when the folder does not exist yet or is empty.
 

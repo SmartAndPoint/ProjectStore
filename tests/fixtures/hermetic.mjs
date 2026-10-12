@@ -17,6 +17,10 @@ for (const k of ["PROJECTSTORE_HARNESS", "PROJECTSTORE_IDENTIFIED", "PROJECTSTOR
 // host reads, and every child it spawns, at the developer's own home. A test
 // that needs a home passes it.
 for (const m of loadHarnesses().values()) if (m.runtime?.home_env) delete process.env[m.runtime.home_env];
+// Every harness's plugin-root variable (runtime.plugin_root_env): a host session
+// that runs the suite exports its own, and the welcome reads which channel that
+// copy came from. CI never sets it; a test that needs one passes it.
+for (const m of loadHarnesses().values()) if (m.runtime?.plugin_root_env) delete process.env[m.runtime.plugin_root_env];
 // Every harness's registration deferral marker (runtime.registration_defer_env):
 // a host session that runs the suite carries its own, and every registration
 // of that harness a test plans would defer. A test of the deferral sets it on

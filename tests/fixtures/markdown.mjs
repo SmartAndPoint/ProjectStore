@@ -64,12 +64,18 @@ const NPX_VALUE_OPTIONS = new Set([
   "--node-options",
   "--script-shell",
 ]);
+// The package runners the install runbook observed running setup: npx, bunx,
+// `pnpm dlx`, and deno's `npm:` specifier. Each is read as npx is: its own
+// options skipped, then the package and its verb.
 export function npxCommand(line) {
   const toks = unprompt(line).split(/\s+/);
   while (toks.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[0])) toks.shift();
-  if (toks[0] !== "npx") return null;
+  let i;
+  if (toks[0] === "npx" || toks[0] === "bunx") i = 1;
+  else if ((toks[0] === "pnpm" && toks[1] === "dlx") || (toks[0] === "deno" && toks[1] === "run")) i = 2;
+  else return null;
+  const deno = toks[0] === "deno";
   const packages = [];
-  let i = 1;
   for (; i < toks.length && toks[i].startsWith("-"); i++) {
     const eq = toks[i].indexOf("=");
     const name = eq === -1 ? toks[i] : toks[i].slice(0, eq);
@@ -78,5 +84,7 @@ export function npxCommand(line) {
     if (name === "-p" || name === "--package") packages.push((value || "").replace(/^["']|["']$/g, ""));
   }
   if (i >= toks.length) return null;
-  return { command: toks[i], verb: toks[i + 1] ?? null, packages };
+  // deno runs a package only through its npm: specifier; anything else is a script.
+  if (deno && !toks[i].startsWith("npm:")) return null;
+  return { command: deno ? toks[i].slice(4) : toks[i], verb: toks[i + 1] ?? null, packages };
 }

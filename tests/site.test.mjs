@@ -270,7 +270,7 @@ const packageName = (spec) => spec.replace(/^(@?[^@]+)@.*$/, "$1");
 // command (AC 4). `## Install` leads with `npx projectstore setup` (the story
 // "User-facing text says where to run and names no project path and no
 // shell", rule 7), and each of the three fences its commands.
-const INSTALL_HEADINGS = ["Install", "Upgrading", "Uninstalling"];
+const INSTALL_HEADINGS = ["Install", "Configure", "Upgrading", "Uninstalling"];
 
 // The frontmatter keys and "## " headings of a template, as the product writes it.
 function templateShape(md) {
@@ -472,7 +472,7 @@ function checkNpx(file, texts, repo) {
   const out = [];
   const ours = (name) => /^projectstore(-[a-z0-9]+)*$/.test(name);
   for (const text of texts) {
-    for (const m of text.matchAll(/(?<![\w-])npx[ \t][^\n]*/g)) {
+    for (const m of text.matchAll(/(?<![\w-])(?:npx|bunx|pnpm[ \t]+dlx|deno[ \t]+run)[ \t][^\n]*/g)) {
       const cmd = npxCommand(m[0]);
       if (!cmd) continue;
       const name = packageName(cmd.command);
@@ -511,7 +511,7 @@ function installForm(line, repo) {
   if (
     cmd &&
     /^projectstore(-[a-z0-9]+)?(@\S+)?$/.test(cmd.command) &&
-    ["install", "upgrade", "uninstall", "plan", "setup"].includes(cmd.verb)
+    ["install", "upgrade", "uninstall", "plan", "setup", "configure"].includes(cmd.verb)
   )
     return true;
   if (/^npm[ \t]+(?:install|i)[ \t]+(?:-g|--global)[ \t]+projectstore\b/.test(l)) return true;
@@ -1385,7 +1385,11 @@ test("site: the slugger gives GitHub's anchors — the ones README's own links u
   // amended) made it #upgrading.
   const repo = `${install.origin}${install.pathname}#`;
   const hintLinks = [...loadHarnesses().values()].flatMap((m) =>
-    [m.update_hint?.line || "", ...(m.update_hint?.welcome || [])].flatMap((t) =>
+    [
+      m.update_hint?.line || "",
+      ...(m.update_hint?.welcome || []),
+      ...Object.values(m.update_hint?.by_channel || {}).flatMap((h) => [h.line || "", ...(h.welcome || [])]),
+    ].flatMap((t) =>
       String(t)
         .split(/\s+/)
         .filter((w) => w.startsWith(repo))
@@ -1425,6 +1429,26 @@ test("site: a command line is read past a shell prompt, the shell's NAME=value a
     packages: [],
   });
   assert.equal(installForm("% npx -y projectstore uninstall --harness codex", REPO), true);
+  // The other runners the install runbook observed are read as npx is.
+  for (const [line, command] of [
+    ["bunx projectstore@latest setup", "projectstore@latest"],
+    ["pnpm dlx projectstore@latest setup", "projectstore@latest"],
+    ["deno run -A npm:projectstore@latest setup", "projectstore@latest"],
+  ]) {
+    assert.deepEqual(npxCommand(line), { command, verb: "setup", packages: [] }, line);
+    assert.equal(installForm(line, REPO), true, line);
+  }
+  assert.equal(
+    installForm("npx projectstore configure --set statusline=on", REPO),
+    true,
+    "configure is an install form",
+  );
+  assert.equal(npxCommand("deno run main.ts"), null, "a deno script is no package");
+  assert.equal(npxCommand("pnpm install"), null, "pnpm install runs no package");
+  assert.equal(npxCommand("bun run build"), null, "bun run is a script");
+  assert.equal(npxCommand("deno run -A jsr:@std/x"), null, "a jsr: module is no npm package");
+  assert.equal(installForm("deno run -A npm:cowsay hi", REPO), false, "another package's command is no install form");
+  assert.equal(installForm("pnpm dlx create-vite", REPO), false);
   assert.equal(installForm("/plugin", REPO), false, "the plugin manager installs nothing");
   assert.equal(installForm("/reload-plugins", REPO), true);
 });
@@ -1818,6 +1842,67 @@ const PLANTED = [
       [
         "or the MCP server.</p>",
         "or the MCP server. To upgrade Codex: <code>$ npx projectstore@latest upgrade --harness codex</code> in your project.</p>",
+      ],
+    ],
+  },
+  {
+    ac: "4",
+    what: "a bunx upgrade after a code block, outside a marked block",
+    ...onPage("de", (p) => checkInstall(p, REPO)),
+    fact: "install",
+    message: /"bunx projectstore@latest upgrade" is an install.* outside a block marked/,
+    edits: [["</code></pre>", "</code></pre><p><code>bunx projectstore@latest upgrade</code></p>"]],
+  },
+  {
+    ac: "4",
+    what: "npx projectstore configure outside a marked block",
+    ...onPage("fr", (p) => checkInstall(p, REPO)),
+    fact: "install",
+    message: /"npx projectstore configure --set x=y" is an install.* outside a block marked/,
+    edits: [["</code></pre>", "</code></pre><p><code>npx projectstore configure --set x=y</code></p>"]],
+  },
+  {
+    ac: "4",
+    what: "a deno upgrade after a code block, outside a marked block",
+    ...onPage("zh", (p) => checkInstall(p, REPO)),
+    fact: "install",
+    message: /"deno run -A npm:projectstore@latest upgrade" is an install.* outside a block marked/,
+    edits: [["</code></pre>", "</code></pre><p><code>deno run -A npm:projectstore@latest upgrade</code></p>"]],
+  },
+  {
+    ac: "4",
+    what: "deno run -A npm:projectstore frobnicate",
+    ...onPage("en", (p) => checkNpx(p.file, readable(p), REPO)),
+    fact: "npx",
+    message: /no verb "frobnicate"/,
+    edits: [["<code>npx projectstore doctor --json</code>", "<code>deno run -A npm:projectstore frobnicate</code>"]],
+  },
+  {
+    ac: "4",
+    what: "pnpm dlx projectstore frobnicate",
+    ...onPage("en", (p) => checkNpx(p.file, readable(p), REPO)),
+    fact: "npx",
+    message: /no verb "frobnicate"/,
+    edits: [["<code>npx projectstore doctor --json</code>", "<code>pnpm dlx projectstore frobnicate</code>"]],
+  },
+  {
+    ac: "4",
+    what: "bunx projectstore frobnicate",
+    ...onPage("en", (p) => checkNpx(p.file, readable(p), REPO)),
+    fact: "npx",
+    message: /no verb "frobnicate"/,
+    edits: [["<code>npx projectstore doctor --json</code>", "<code>bunx projectstore frobnicate</code>"]],
+  },
+  {
+    ac: "4",
+    what: "a pnpm dlx uninstall in llms.txt that README does not fence",
+    ...onText(LLMS_TXT, (f, t) => checkInstallLines(f, markdownCode(t), REPO)),
+    fact: "install",
+    message: /pnpm dlx projectstore@latest uninstall --global/,
+    edits: [
+      [
+        "/plugin install projectstore@SmartAndPoint\n",
+        "/plugin install projectstore@SmartAndPoint\npnpm dlx projectstore@latest uninstall --global\n",
       ],
     ],
   },

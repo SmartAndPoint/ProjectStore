@@ -1700,14 +1700,19 @@ test("SessionStart: delivers on additionalContext, and the welcome renders once 
   // became `#upgrading` (the story "User-facing text says where to run and
   // names no project path and no shell", rule 7 as amended): 1,079 unbound,
   // 1,095 + the path bound, 1,295 worst case.
-  const WELCOME_BOUND_BASE = 1095,
-    WELCOME_UNBOUND = 1079;
+  // 2026-10-13: the update block follows the copy's channel (the docs story's
+  // rule for the welcome). This hook runs from the checkout, which gets the npm
+  // form: 937 + the path bound, 921 unbound. A git-marketplace copy keeps the
+  // toggle text and the sizes above, so 1,295 stays contract 3's worst case.
+  const WELCOME_BOUND_BASE = 937,
+    WELCOME_UNBOUND = 921,
+    WELCOME_WORST = 1295;
   const vaultPath = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path;
   const delta = withWelcome.length - without.length;
   assert.equal(
     delta,
     WELCOME_BOUND_BASE + Math.min(vaultPath.length, 200),
-    `the welcome is ${WELCOME_BOUND_BASE} + the capped vault path; the skeleton spec's contract 3 quotes ${WELCOME_UNBOUND} unbound and ${WELCOME_BOUND_BASE + 200} worst case — update it in the same change`,
+    `the welcome is ${WELCOME_BOUND_BASE} + the capped vault path (${WELCOME_UNBOUND} unbound) from a checkout; the skeleton spec's contract 3 quotes the git-marketplace variant's ${WELCOME_WORST} as the worst case — update it in the same change`,
   );
 });
 

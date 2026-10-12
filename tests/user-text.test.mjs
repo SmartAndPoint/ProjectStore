@@ -264,8 +264,33 @@ test("user text: updateHint under every identity fills {upgrade} with the core's
   const codex = updateHint({ env: { PROJECTSTORE_HARNESS: CODEX.id } });
   assert.equal(codex.line, "Update from a terminal in this project:\nnpx projectstore@latest upgrade --harness codex");
   assert.ok(codex.welcome.includes("npx projectstore@latest upgrade --harness codex"), codex.welcome.join("\n"));
-  // Claude Code's hint holds no {upgrade}: its output does not change.
-  assert.equal(updateHint({ env: { PROJECTSTORE_HARNESS: SRC.id } }).line, SRC.update_hint.line);
+  // Claude Code's hint follows the copy's channel (the docs story's rule for
+  // the welcome): a checkout, the npm registration's cache and its in-place
+  // directory get the npm form; a git-marketplace copy keeps the host's toggle.
+  const home = mkdtempSync(join(tmpdir(), "ps-ut-hint-"));
+  const cc = (root) => updateHint({ env: { PROJECTSTORE_HARNESS: SRC.id }, root, home }).line;
+  const npmForm = `Update from a terminal in this project:\n${packageCommand(SRC, "upgrade", { version: "latest" })}`;
+  const cache = (mp) => join(home, ".claude", "plugins", "cache", mp, "projectstore", "0.30.0");
+  assert.equal(cc(ROOT), npmForm, "a checkout");
+  assert.equal(cc(cache(SRC.surfaces.plugin.marketplace_name)), npmForm, "the npm registration's cache copy");
+  assert.equal(
+    cc(join(home, ".claude", "projectstore", "marketplace", "projectstore")),
+    npmForm,
+    "the npm directory, in place",
+  );
+  assert.equal(
+    cc(cache("SmartAndPoint")),
+    SRC.update_hint.by_channel.marketplace.line,
+    "the git marketplace keeps the toggle",
+  );
+  const welcome = (root) => updateHint({ env: { PROJECTSTORE_HARNESS: SRC.id }, root, home }).welcome;
+  assert.deepEqual(welcome(cache("SmartAndPoint")), SRC.update_hint.by_channel.marketplace.welcome);
+  assert.ok(!welcome(ROOT).join("\n").includes("auto-update"), "the npm welcome names no host toggle");
+  assert.ok(
+    welcome(ROOT).includes(packageCommand(SRC, "upgrade", { version: "latest" })),
+    "its command alone on its line",
+  );
+  rmSync(home, { recursive: true, force: true });
 });
 
 // ─── DONE's tips, the deferred reasons ─────────────────────────────────
@@ -866,7 +891,8 @@ function isCommand(text) {
   if (IN_SESSION.test(toks[0])) return true;
   if (toks.length < 2) return false;
   const first = toks[0].replace(/@\S*$/, "");
-  return ["npx", "npm", "node", "projectstore", ...SHELL_NAMES].includes(first);
+  // The other package runners the install runbook observed (bunx, pnpm dlx, deno's npm: specifier).
+  return ["npx", "npm", "node", "bunx", "pnpm", "deno", "projectstore", ...SHELL_NAMES].includes(first);
 }
 
 // Rule (c)'s punctuation: ASCII, and the full-width forms the Chinese page writes.
@@ -962,6 +988,10 @@ function manifestTexts([rel, raw]) {
   add("install.docs", inst.docs);
   add("update_hint.line", m.update_hint?.line);
   list("update_hint.welcome", m.update_hint?.welcome);
+  for (const [ch, h] of Object.entries(m.update_hint?.by_channel || {})) {
+    add(`update_hint.by_channel.${ch}.line`, h.line);
+    list(`update_hint.by_channel.${ch}.welcome`, h.welcome);
+  }
   list("update_instructions", m.update_instructions);
   return out;
 }
@@ -1068,6 +1098,14 @@ test("user text, the file half: each rule fails on one planted case, naming the 
     only({ documents: [["docs/x.md", "Run `/projectstore:doctor --fix` in the session. See `projectstore`.\n"]] }),
     [],
   );
+  for (const cmd of [
+    "bunx projectstore@latest setup",
+    "pnpm dlx projectstore@latest setup",
+    "deno run -A npm:projectstore@latest setup",
+  ])
+    assert.deepEqual(only({ documents: [["docs/x.md", `Or \`${cmd}\`.\n`]] }), [
+      `docs/x.md:1: (c) a command span followed by ".": \`${cmd}\``,
+    ]);
   const dict =
     '{\n  "a.p.1": "x",\n  "a.p.2": "Skills such as <code>$projectstore-critic</code>, which start a role."\n}\n';
   assert.deepEqual(only({ dictionaries: [["site/locales/xx.json", dict]] }), [

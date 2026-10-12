@@ -1431,6 +1431,14 @@ test("contract 18: the manifests' message fields have their shape and their reas
         `${m.id}: update_hint { line, welcome, reason }`,
       );
     }
+    // A channel's own text has the same shape, keyed by an installChannel answer.
+    for (const [ch, h] of Object.entries(m.update_hint?.by_channel || {}))
+      assert.ok(
+        ["registration", "marketplace", "package", "checkout"].includes(ch) &&
+          typeof h.line === "string" &&
+          Array.isArray(h.welcome),
+        `${m.id}: update_hint.by_channel.${ch} { line, welcome }`,
+      );
     for (const key of ["session_rename", "bind_inherit"]) {
       assert.ok(key in (m.capabilities || {}), `${m.id}: capabilities.${key} is stated, even as null or false`);
       assert.ok(m.capabilities[`${key}_reason`], `${m.id}: capabilities.${key}_reason`);
