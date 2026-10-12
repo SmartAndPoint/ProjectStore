@@ -49,12 +49,17 @@ vault-side layout or template override):
 4. **Checklist entry** — `scaffold/checklists.json`, consumed by
    `/projectstore:review` and the `projectstore-peer-reviewer` skill. English-only by design.
 
-5. **Command prompt** — `commands/<kind>.md`, a prompt (not code) that calls
-   `node "${CLAUDE_PLUGIN_ROOT}/scripts/draft.mjs" <kind> "$ARGUMENTS"`, previews,
-   and gates every write behind AskUserQuestion. Copy `commands/research.md`
-   for a plain kind, `commands/adr.md` for one that renders the draft's
-   `collision`/`warnings` fields and updates an index, `commands/spec.md`
-   for one with status transitions.
+5. **Command prompt** — `commands/<kind>.md`, a prompt (not code). It renders
+   the draft with the line below, previews it, and gates every write behind
+   AskUserQuestion:
+
+   ```
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/draft.mjs" <kind> "$ARGUMENTS"
+   ```
+
+   Copy `commands/research.md` for a plain kind, `commands/adr.md` for one
+   that renders the draft's `collision`/`warnings` fields and updates an
+   index, `commands/spec.md` for one with status transitions.
 
 6. **Folder strings** — `templates/<lang>/strings.json` → `folders.<kind>`,
    a `name` and a one-line `description`, in **every** bundled language's

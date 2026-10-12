@@ -4,7 +4,7 @@
 
 [![release](https://img.shields.io/github/v/release/SmartAndPoint/ProjectStore?label=release)](https://github.com/SmartAndPoint/ProjectStore/releases) [![license](https://img.shields.io/github/license/SmartAndPoint/ProjectStore?label=license)](./LICENSE) [![Star on GitHub](https://img.shields.io/badge/%E2%AD%90-star_us-yellow?logo=github)](https://github.com/SmartAndPoint/ProjectStore/stargazers)
 
-A project workflow plugin for [Claude Code](https://claude.com/claude-code) and [OpenAI Codex](https://developers.openai.com/codex/) (experimental). Both are released together at one version, and each installs with one command.
+A project workflow plugin for [Claude Code](https://claude.com/claude-code) and [OpenAI Codex](https://developers.openai.com/codex/) (experimental). Both are released together at one version, and one command sets a project up for either or both: see [Install](#install).
 
 ---
 
@@ -75,24 +75,40 @@ In Claude Code a band above the prompt goes further (experimental): the session'
 
 Open the vault in [Obsidian](https://obsidian.md) and you get the graph view and the board for free. Don't use Obsidian? Everything renders on GitHub and in any editor.
 
-## Install — one message
+## Install
+
+From a terminal in your project:
+
+```
+npx projectstore setup
+```
+
+Setup finds the coding agents the project uses — Claude Code, Codex or both — and installs ProjectStore for each, with a vault for the project's notes. At a terminal it asks a few questions: which folder is the project, which agents to install for, where the vault lives (an existing folder is bound; a missing or empty one becomes a new vault, with its own git repository and the layout's folders) and whether to show ProjectStore in the status line. Then it prints one plan — every file it writes and every host command, verbatim — and asks once before it writes anything. Restart the agent afterwards; Codex asks you to approve the ProjectStore hooks once.
+
+`npx projectstore setup --dry-run` shows the questions and the plan and writes nothing. Without a terminal (a script, CI, an agent's tool) nothing is asked: `--harness <id>` names an agent and is the confirmation, and `--vault <path>` names the vault. `npx projectstore setup --help` lists the rest.
+
+If you prefer a global command:
+
+```
+npm install -g projectstore
+projectstore setup
+```
+
+Behind a registry mirror (often a company's), `npx` runs the newest `projectstore` the mirror knows. That can be a release older than setup, which answers that `setup` is an unknown verb, or no release at all. Name the version, and if that is not enough, the public registry:
+
+```
+npm_config_registry=https://registry.npmjs.org npx projectstore@<version> setup
+```
+
+npm reads that variable wherever it runs, so the Codex plugin setup fetches comes from the same registry.
+
+### In a Claude Code session
 
 Open Claude Code in your project and say:
 
 > Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.
 
-That's the whole setup. Claude adds the marketplace, installs the plugin, and walks you through binding a vault, scaffolding it and wiring the status line — every step previewed, nothing written without your Yes.
-
-**On Codex**, run one command from a terminal in your project:
-
-```
-npx projectstore-codex install --project "$PWD"
-```
-
-Then restart Codex, approve the ProjectStore hooks when it asks, and run `$projectstore-bind ~/Documents/my-project-vault`. Codex support is newer and still labelled experimental: [`docs/harnesses.md`](./docs/harnesses.md#codex) says what has been verified and what has not. A project can be worked from both agents: they share the binding in `.projectstore/`, and each keeps its own overlay and session state beside it ([running both over one project](./docs/harnesses.md#running-both-over-one-project)).
-
-<details>
-<summary>Prefer to type it yourself?</summary>
+Claude adds the git marketplace, installs the plugin, and walks you through binding a vault, scaffolding it and wiring the status line — every step previewed, nothing written without your Yes. Or type it yourself:
 
 ```
 /plugin marketplace add SmartAndPoint/ProjectStore
@@ -103,49 +119,31 @@ Then restart Codex, approve the ProjectStore hooks when it asks, and run `$proje
 
 One switch worth flipping: Claude Code does **not** auto-update third-party plugins by default — `/plugin` → **Marketplaces** → **SmartAndPoint** → toggle **auto-update** on. If you skip it, `/projectstore:doctor` will remind you later with the exact setting.
 
-Contributors: `git clone` this repo, then `claude --plugin-dir ./ProjectStore`.
-
-**Or from npm, in one command** — from a terminal, not inside a Claude Code session:
+Contributors: `git clone` this repo, then run Claude Code from the clone's parent folder:
 
 ```
-npx projectstore-claude install --project "$PWD"
+claude --plugin-dir ./ProjectStore
 ```
 
-The same tree is published to npm as [`projectstore`](https://www.npmjs.com/package/projectstore) — one source package carrying every harness's manifest — and `projectstore-claude` is its Claude Code shell: the core pinned at the same version and bundled inside, the harness fixed, so the one command has the same shape on every harness. It registers the plugin with Claude Code: it writes a small local marketplace of its own under your Claude home, then drives `claude plugin marketplace add` / `plugin install` **at local scope**, so the registration lands in this checkout's `.claude/settings.local.json` and nowhere else. It prints its plan first — every file it writes and every host command, verbatim — and at a terminal asks `◆ Apply N changes? [Y/n]`; then it shows each step as it runs and what to do next. Without a terminal (a script, CI, an agent's tool) naming the harness is the confirmation. `plan` prints the same plan and writes nothing; `--verbose` adds every row's reasoning; `npx projectstore-claude <verb> --help` lists a verb's options with examples. Restart Claude Code afterwards. A git-marketplace copy already enabled for the checkout is silenced there (not globally) so the plugin does not load twice; `uninstall` turns it back on. Pin or upgrade with `npx projectstore-claude@<version> upgrade --project "$PWD"` — the version you name is the version you run. The core's low-level form, `npx projectstore <verb> --harness claude-code …`, is exactly what the shell runs. bun works the same on the packed bin.
+<details>
+<summary>What setup does for each agent, the low-level verbs, the CLI and MCP</summary>
 
-**Codex has its own shell with the same one-command shape:**
-`npx projectstore-codex install --project "$PWD"`. It carries a Codex
-plugin manifest, namespaced workflow and role skills, lifecycle hooks, and
-the exact bundled core. It stages a stable marketplace under `CODEX_HOME`,
-drives `codex plugin marketplace add` and `codex plugin add`, then reads the
-installation back and verifies its version and payload digest. Before it
-changes anything it asks Codex for that read-back (`codex plugin list --json`),
-so a Codex too old to answer stops the registration before it changes anything
-and tells you to upgrade Codex. Restart Codex,
-approve the hooks, and run `$projectstore-bind <vault-path>`. For later
-releases, `npx projectstore-codex@<version> upgrade --project "$PWD"`. Because
-Codex's plugin registry is user-global, ordinary uninstall removes only the
-project's agents block; `uninstall --global` is the explicit machine-wide
-removal. If `npx` answers `could not determine executable to run`, your
-registry (often a company mirror) serves a stale index that knows only the
-reserved `0.0.1` placeholder: name the version, and if that is not enough, the
-public registry: `npx --registry https://registry.npmjs.org
-projectstore-codex@<version> install --project "$PWD"` (the same holds for
-`projectstore-claude`). Codex is **experimental** until a live session has exercised every
-surface it installs; [`docs/harnesses.md`](./docs/harnesses.md) says what has
-been measured and what has not. From a checkout, the same npx path runs against
-a built tarball:
+**Claude Code.** Setup registers the plugin from the npm package [`projectstore`](https://www.npmjs.com/package/projectstore) — one source package carrying every harness's manifest. It writes a small local marketplace of its own under your Claude home, then drives `claude plugin marketplace add` / `plugin install` **at local scope**, so the registration lands in this checkout's `.claude/settings.local.json` and nowhere else. The host CLI and a live session both rewrite the same settings files, so inside a Claude Code session the registration is deferred, and the plan says so: run setup from a terminal outside the session. When the checkout already loads ProjectStore from the git marketplace, setup asks whether to switch this project to the npm install or keep the git marketplace. A switch silences the git-marketplace copy for this checkout only (not globally), so the plugin does not load twice; `uninstall` turns it back on.
 
-```sh
-npm run shells:build -- --only projectstore-codex --dev --out dist
-npx --package "./dist/projectstore-codex-$(node -p 'require("./package.json").version').tgz" projectstore-codex install --project "$PWD"
+**Codex.** The Codex plugin ships in a package of its own; setup fetches it at setup's own version and plans Codex in the same plan as everything else. It stages a stable marketplace under `CODEX_HOME`, drives `codex plugin marketplace add` and `codex plugin add`, then reads the installation back and verifies its version and payload digest. Before it changes anything it asks Codex for that read-back (`codex plugin list --json`), so a Codex too old to answer stops the registration before it changes anything and tells you to upgrade Codex. Codex's plugin registry is user-global; the agents block in `AGENTS.md` stays project-local. Codex is **experimental** until a live session has exercised every surface it installs: [`docs/harnesses.md`](./docs/harnesses.md#codex) says what has been verified and what has not. A project can be worked from both agents: they share the binding in `.projectstore/`, and each keeps its own overlay and session state beside it ([running both over one project](./docs/harnesses.md#running-both-over-one-project)).
+
+**The low-level verbs.** Setup composes verbs that also run on their own. One agent's install, with no questions about the project or the vault:
+
+```
+npx projectstore install --harness claude-code   # shows the plan, asks at a terminal, then writes; without a terminal naming the harness is the confirmation — there is no --yes
 ```
 
-The package also carries a `bin`. Without a session — in CI, or in a shell — the same core answers token-free, with a `--json` envelope on every verb:
+`plan` prints the same plan and writes nothing; `--verbose` adds every row's reasoning; `npx projectstore <verb> --help` lists a verb's options with examples. bun works the same on the packed bin.
+
+Without a session — in CI, or in a shell — the same core answers token-free, with a `--json` envelope on every verb:
 
 ```
 npx projectstore doctor --json
-npx projectstore install --harness claude-code   # the low-level form the shell runs: shows the plan, asks at a terminal, then writes; without a terminal naming the harness is the confirmation — there is no --yes
 npx projectstore reconcile --write --only kanban
 ```
 
@@ -175,43 +173,76 @@ npx projectstore init ~/vaults/new-project --language ru
 npx projectstore scaffold --write
 ```
 
-`projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are this package's per-harness shells — the core pinned and bundled, the harness fixed. The Claude Code and Codex shells are published at the core's version; Codex stays labelled experimental until a live run has exercised every surface it installs ([`docs/harnesses.md`](./docs/harnesses.md)). The opencode shell publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs.
+`projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are release artifacts: per-harness packages that carry the core, pinned at the same version and bundled, with the harness fixed. Nobody needs to type their names. Setup fetches the Codex one, which carries the Codex plugin; the Claude Code one is published at the core's version too; the opencode one publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs. How a release builds and publishes them, and how to run a checkout's own build: [`packaging/README.md`](./packaging/README.md).
 </details>
 
 ## Upgrading
 
-`/plugin update` (or auto-update) and a restart, then one command per project
-bound before 0.28. What an existing project sees afterwards, and why:
+Installed with setup or from npm: from a terminal in your project, name the version you want to run (`latest` is the newest):
+
+```
+npx projectstore@<version> upgrade
+```
+
+It upgrades every agent the project uses — each one whose own directory (`.claude/`, `.codex/`) or `.projectstore/state/<id>/` is there — in one plan, and fetches the Codex plugin at the same version. `npx projectstore setup` converges a project the same way and asks its questions again. Installed from the git marketplace in a Claude Code session: `/plugin update` (or auto-update) and a restart.
+
+A bare upgrade selects agents by those directories, so on Codex name it, which upgrades Codex even in a project where no Codex session has run yet:
+
+```
+npx projectstore@<version> upgrade --harness codex
+```
+
+With the global command, update it first, then run it in the project:
+
+```
+npm install -g projectstore@latest
+projectstore upgrade
+```
+
+A project bound before 0.28 needs one more command. What an existing project sees afterwards, and why:
 
 - **The project's files move to `.projectstore/`.** `.claude/projectstore.json`
   and `.claude/.projectstore/` become `.projectstore/projectstore.json`,
   `.projectstore/harness/claude-code.json` and `.projectstore/state/`. Nothing
   breaks before you move them: every reader falls back to the old paths through
-  0.29, and the startup line names the command until the move is done. Close
-  every Claude Code session in the project, run that command from a terminal,
-  then restart. The command depends on how you installed:
-  - **From the git marketplace** (every 0.27.x install): the installed copy's
-    own `bin/projectstore.mjs`, with its path spelled out in the startup line —
-    `node "<plugin cache>/bin/projectstore.mjs" upgrade --harness claude-code --no-register --project "$PWD"`.
-    `--no-register` leaves your plugin registration as it is.
-  - **From npm**: `npx projectstore-claude@<version> upgrade --no-register --project "$PWD"`.
+  0.30, and the startup line names the command until the move is done. Close
+  every Claude Code session in the project, run that command from a terminal in
+  the project, then restart. The command depends on how you installed. From the
+  git marketplace (every 0.27.x install), it is the installed copy's own
+  `bin/projectstore.mjs`, with its path spelled out in the startup line:
 
-  Both forms move only the project's files, so neither touches your plugin
-  registration. The same run re-stamps the status-line launcher at its new path
-  and re-registers the agents block, whose template is now v4. A plain
-  `npx projectstore-claude upgrade` on a git-marketplace install does more: it
+  ```
+  node "<plugin cache>/bin/projectstore.mjs" upgrade --harness claude-code --no-register
+  ```
+
+  From npm:
+
+  ```
+  npx projectstore@<version> upgrade --harness claude-code --no-register
+  ```
+
+  `--no-register` leaves your plugin registration as it is: both forms move
+  only the project's files. The same run re-stamps the status-line launcher at
+  its new path and re-registers the agents block, whose template is now v4. An
+  upgrade without `--no-register` on a git-marketplace install does more: it
   also registers the plugin from npm for this checkout and turns the
   git-marketplace copy off here, so `/plugin update` stops reaching the
-  checkout. The 0.28.0-rc.1 and rc.2 startup lines named that shell form
-  (`npx projectstore-claude@<version> upgrade`, without `--no-register`), so on
-  those, update first and run what the new startup line names. If it already
-  happened,
-  `npx projectstore-claude@<version> uninstall --surface plugin --project "$PWD"`
-  (0.28.0 or later) turns the git-marketplace copy back on. That copy must be 0.28 or later — an
-  older one reads a moved project as unbound — so update it first if it is not.
-  Restart, then run
-  `/projectstore:doctor --fix` in the new session, which re-stamps the status
-  line against that copy.
+  checkout. The 0.28.0-rc.1 and rc.2 startup lines named that form, without
+  `--no-register`, so on those, update first and run what the new startup line
+  names. If it already happened, this turns the git-marketplace copy back on
+  (0.28.0 or later), from a terminal in the project:
+
+  ```
+  npx projectstore@<version> uninstall --harness claude-code --surface plugin
+  ```
+
+  That copy must be 0.28 or later — an older one reads a moved project as
+  unbound — so update it first if it is not. Restart, then in the new session,
+  to re-stamp the status line against that copy:
+
+  ```
+  /projectstore:doctor --fix
+  ```
 - **The status line keeps rendering.** A launcher written by an earlier version
   still works, but it carries no file stamp and its embedded fallback root is
   frozen at the old version; the move above re-stamps it. Nothing rewrites that
@@ -242,9 +273,9 @@ bound before 0.28. What an existing project sees afterwards, and why:
   move once more, and the move re-stamps the launcher. If a session already
   re-stamped the status line or re-registered the agents block before the move
   (rc.2's `/projectstore:doctor --fix` did both), 0.27.x reports a foreign
-  status line and a v4 block and leaves both alone — unless you run its
-  `/projectstore:agents register`, which rewrites the block; the status line
-  still renders, and the move settles both.
+  status line and a v4 block and leaves both alone — unless you run
+  `/projectstore:agents register` in it, which rewrites the block; the status
+  line still renders, and the move settles both.
 - **Rolling back** to 0.27.x after the move: 0.27.x looks for its binding under
   `.claude/`, finds none and offers `bind`. Do not accept. A re-bind writes
   `.claude/projectstore.json` again, and 0.28's `install` and `upgrade` refuse
@@ -252,11 +283,11 @@ bound before 0.28. What an existing project sees afterwards, and why:
   `.claude/projectstore.json`, then run the command the startup line names
   once more: a 0.27.x session writes its welcome marker back under `.claude/`.
 - **Installed from npm?** Then `/plugin update` has nothing to fetch: the
-  registration is refreshed by the package itself — from a terminal outside
-  the session, `npx projectstore-claude@<version> upgrade --project "$PWD"`
-  rewrites the local marketplace and runs the host's
-  `plugin update` for this checkout. `/projectstore:doctor` says when the
-  registration is behind the package, and names that command.
+  package itself refreshes the registration. The upgrade at the top of this
+  section, run from a terminal outside the session, rewrites the local
+  marketplace and runs the host's `plugin update` for this checkout.
+  `/projectstore:doctor` says when the registration is behind the package, and
+  names the command.
 
 ## When an agent starts a task, it can find its way
 
@@ -297,7 +328,25 @@ The deep dive — real session files, measured payloads, how every mechanism wor
 
 ## Uninstalling
 
-`/plugin uninstall projectstore@SmartAndPoint` for a Claude git-marketplace install; `npx projectstore-claude uninstall --project "$PWD"` for its npm registration. For Codex, `npx projectstore-codex uninstall --project "$PWD"` removes only project-owned wiring; add `--global` only to remove the user-global Codex plugin and marketplace. Your vault is yours — plain markdown, untouched. One leftover of a host-managed plugin path can be the agents block in `CLAUDE.md`/`AGENTS.md`; remove it with the harness's agents unregister skill, or delete everything between `<!-- projectstore:agents … -->` and `<!-- /projectstore:agents -->` by hand. A one-harness `uninstall` leaves a block that lives in `AGENTS.md`, because that file is read by other coding agents too. Claude Code's then removes the `CLAUDE.md` import when that file holds nothing else; Codex's keeps it, so Claude Code still sees the block. `uninstall --surface agents_block` removes the block as well. A bare core `npx projectstore uninstall --project "$PWD"`, with no `--harness`, covers every harness the project uses — each one whose own directory (`.claude/`, `.codex/`) or `.projectstore/state/<id>/` is there. Once every harness that can read the block's file is among them (for `AGENTS.md`, Claude Code and Codex), the block goes too, and the `CLAUDE.md` import with it unless your own text keeps both files.
+From a terminal in your project:
+
+```
+npx projectstore uninstall
+```
+
+With no `--harness` it covers every agent the project uses — each one whose own directory (`.claude/`, `.codex/`) or `.projectstore/state/<id>/` is there — and removes what install wrote, and only that. For Codex that is the project-owned wiring: its plugin and marketplace are user-global, and removing them for every project is explicit:
+
+```
+npx projectstore uninstall --harness codex --global
+```
+
+A Claude Code install from the git marketplace is removed in the session:
+
+```
+/plugin uninstall projectstore@SmartAndPoint
+```
+
+Your vault is yours — plain markdown, untouched. One leftover of a host-managed plugin path can be the agents block in `CLAUDE.md`/`AGENTS.md`; remove it with the harness's agents unregister skill, or delete everything between `<!-- projectstore:agents … -->` and `<!-- /projectstore:agents -->` by hand. A one-harness `uninstall`, with `--harness <id>`, leaves a block that lives in `AGENTS.md`, because that file is read by other coding agents too. Claude Code's then removes the `CLAUDE.md` import when that file holds nothing else; Codex's keeps it, so Claude Code still sees the block. `uninstall --surface agents_block` removes the block as well. Once every harness that can read the block's file is among those uninstalled (for `AGENTS.md`, Claude Code and Codex), the block goes too, and the `CLAUDE.md` import with it unless your own text keeps both files.
 
 ## Extending
 
@@ -322,7 +371,17 @@ One formatting-only commit is listed in `.git-blame-ignore-revs`. GitHub skips i
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
-A branch opened before that commit rebases in two steps, so that the lint fixes before it are kept: `git rebase <the commit before it>` (real conflicts, resolved as usual), then `git rebase --onto <it> <the commit before it>`, where every conflict is formatting only: take your side, run `npx prettier --write <file>`, `git add` it and continue.
+A branch opened before that commit rebases in two steps, so that the lint fixes before it are kept. First onto the commit before it, resolving real conflicts as usual:
+
+```sh
+git rebase <the commit before it>
+```
+
+Then onto the formatting commit itself, where every conflict is formatting only: take your side, format the file with `npx prettier --write <file>` and `git add` it, then continue.
+
+```sh
+git rebase --onto <it> <the commit before it>
+```
 
 ## License
 

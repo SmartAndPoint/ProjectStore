@@ -5050,10 +5050,11 @@ async function fetchShells(
     }
   }
   if (!jobs.length) return none;
-  const refuse = (message, cleanup = () => {}) => ({
-    ...none,
-    cleanup,
-    refused: {
+  // `advice`: the refusal as PLAN draws it, its commands in their own blocks
+  // (fetchRefusalAdvice) — kept off the envelope, as the channel "git"
+  // refusal's is, so `--json` keeps the one string.
+  const refuse = (message, cleanup = () => {}, advice = null) => {
+    const refused = {
       projectDir,
       mode: "install",
       named,
@@ -5066,8 +5067,10 @@ async function fetchShells(
       incomplete: false,
       root,
       plannedAgainst: {},
-    },
-  });
+    };
+    if (advice?.blocks?.length) Object.defineProperty(refused, "refusalAdvice", { value: advice, enumerable: false });
+    return { ...none, cleanup, refused };
+  };
   const cache = cachePaths({ env, home });
   if (!cache.root) return refuse(fetchRefusal("ENOCACHE", { variable: cache.variable }));
   sweepFetchRuns(cache.fetch);
@@ -5104,6 +5107,19 @@ async function fetchShells(
     const differs = Boolean(registry) && bare(registry) !== bare(mine);
     const payloadRoots = {},
       fetched = [];
+    // The run, for the missing shell's public-registry form: its verb, its
+    // project, and its selection as given, in the shape the stop repeats a
+    // run with — each named --harness (setup's answered set is named too),
+    // each --surface, --no-register.
+    const run = {
+      verb,
+      project: projectDir,
+      args: {
+        harnesses: named ? (opts.harnesses || []).filter(Boolean) : [],
+        surfaces: opts.surfaces || null,
+        register: opts.register !== false,
+      },
+    };
     for (const job of jobs) {
       const { harness } = job;
       const pkg = `${harness.install.shell}@${version}`;
@@ -5112,10 +5128,13 @@ async function fetchShells(
       const dir = jobs.length === 1 ? runDir : join(runDir, harness.id);
       if (dir !== runDir) mkdirSync(dir, { recursive: true });
       line = opts.onFetch ? opts.onFetch(`fetching ${pkg} for ${harness.display_name}`, ids) : null;
-      const r = await fetchShell({ ...job, version, coreName }, { dir, registry, env, spawn: opts.fetchSpawn, budget });
+      const r = await fetchShell(
+        { ...job, version, coreName },
+        { dir, registry, env, spawn: opts.fetchSpawn, budget, run },
+      );
       if (!r.ok) {
         if (line) line.end(false, `fetch failed ${pkg}`, r.code);
-        return refuse(r.refusal, cleanup);
+        return refuse(r.refusal, cleanup, r.advice);
       }
       if (line) line.end(true, `fetched ${pkg} for ${harness.display_name}`);
       line = null;

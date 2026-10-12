@@ -191,7 +191,7 @@ resistance. v0.13 makes that safe instead of forbidden:
   sees Bash-mediated writes, which bypass hook path extraction entirely.
 
 The division of labor: deterministic checks catch the mechanical 90% for free;
-the LLM critic (`/projectstore:review`) is saved for the judgment calls.
+the LLM critic that `/projectstore:review` runs is saved for the judgment calls.
 
 ## Naming a session after the work it settled on
 

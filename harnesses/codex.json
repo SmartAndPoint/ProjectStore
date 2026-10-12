@@ -311,32 +311,32 @@
   },
   "rewrites": [],
   "install": {
-    "mechanism": "the package's portable plugin root, registered through its distribution shell and Codex's own marketplace CLI",
+    "mechanism": "the package's portable plugin root, fetched in its distribution shell and registered through Codex's own marketplace CLI",
     "shell": "projectstore-codex",
     "shell_reason": "The built `projectstore-codex` shell carries the rendered Codex skills and hooks plus an exact bundled core, fixes --harness codex, stages a stable marketplace under CODEX_HOME, and asks Codex itself to install it. It is published from 0.28.1, by the maintainer's decision of 2026-10-04. Until then this key was absent, so generated guidance could not send users to the reserved 0.0.1 placeholder; the core alone is not Codex's plugin root and cannot register it.",
-    "why_not_scripted": "The shell does not edit Codex's registry or cache. It atomically stages the plugin source, previews the host commands, then runs `codex plugin marketplace add` and `codex plugin add`; a read-back verifies the installed version and payload digest. The global plugin survives ordinary project uninstall; `uninstall --global` is the explicit destructive form.",
+    "why_not_scripted": "The installer does not edit Codex's registry or cache. It atomically stages the plugin source from the shell it fetched, previews the host commands, then runs `codex plugin marketplace add` and `codex plugin add`; a read-back verifies the installed version and payload digest. The global plugin survives ordinary project uninstall; `uninstall --global` is the explicit destructive form.",
     "steps": [
-      "npx projectstore-codex install --project \"$PWD\"",
+      "from a terminal in the project (the core fetches the Codex shell at its own version): npx projectstore install --harness codex",
       "restart Codex and approve the ProjectStore hooks when prompted",
-      "run `$projectstore-bind <vault-path>` in Codex"
+      "in Codex, bind a vault: $projectstore-bind <vault-path>"
     ],
     "next": [
       "restart Codex from a terminal and approve the ProjectStore hooks when it asks"
     ],
     "notes": [
       "The installation is user-global because Codex's marketplace, plugin row and cache live in CODEX_HOME; the AGENTS.md block is project-local.",
-      "Upgrade with `npx projectstore-codex@<version> upgrade --project \"$PWD\"`; the named package version is also the plugin version.",
+      "Upgrade with `npx projectstore@<version> upgrade --harness codex` from a terminal in the project; the version it names is also the plugin version.",
       "A second enabled ProjectStore plugin from another marketplace is a refusal, not silently disabled globally. Remove or disable that older registration explicitly, then retry.",
-      "Ordinary uninstall removes only project-owned surfaces. `npx projectstore-codex uninstall --global --project \"$PWD\"` also removes the user-global plugin registration after a preview."
+      "Ordinary uninstall removes only project-owned surfaces. `npx projectstore uninstall --harness codex --global` also removes the user-global plugin registration after a preview."
     ],
-    "docs": "https://github.com/SmartAndPoint/ProjectStore#install--one-message"
+    "docs": "https://github.com/SmartAndPoint/ProjectStore#install"
   },
   "update_hint": {
     "line": "Update from a terminal in this project:\n{upgrade}",
     "welcome": ["**About future updates**: from a terminal in this project, run:", "", "```", "{upgrade}", "```", "", "Then restart Codex and approve any hook it asks about. See https://github.com/SmartAndPoint/ProjectStore#upgrading for details."],
     "reason": "What the first-run welcome and its one-line notice say about updates (generation spec, contract 18): `line` ends the notice, `welcome` is the welcome's update block, and `{upgrade}` is filled with the core's upgrade for this harness at latest (`--harness codex`, no `--project`), so what is printed runs as printed. Each says where to run it and puts the command alone on its line (the story \"User-facing text says where to run and names no project path and no shell\", rules 4 and 5). update_instructions is the long-form guidance; this is the part a session prints, kept here so no hook names a harness's update path."
   },
-  "update_instructions": "Run `npx projectstore-codex@<version> upgrade --project <dir>`. The installer atomically replaces its stable source and `codex plugin add projectstore@projectstore-npx` materialises the new version; this was measured across two dev builds on codex-cli 0.153.4. Restart Codex afterwards so the new skills and hooks are loaded.",
+  "update_instructions": "From a terminal in the project, run `npx projectstore@<version> upgrade --harness codex` and restart Codex afterwards, so the new skills and hooks are loaded. The run fetches the shell at that version, atomically replaces its stable source, and `codex plugin add projectstore@projectstore-npx` materialises the new version; this was measured across two dev builds on codex-cli 0.153.4.",
   "agent_translation": {
     "carries_model": false,
     "carries_model_reason": "The surface projectstore ships — a plugin's agents/ entry — carries no model on Codex: surfaces.agents is supported:false because no route from a plugin's agents/ directory to collaborationspawn_agent has been found (measured). Codex DOES have a definition file that carries model and effort, recorded below, but it is project- or user-scoped and not plugin-shippable, so contract 12 holds as written: what we ship cannot carry a model. Was true here until 2026-09-08, which contradicted both contract 12 and this file's own agents row.",

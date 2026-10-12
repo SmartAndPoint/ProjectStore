@@ -603,7 +603,7 @@
     <div class="git-playbook"><h3 data-i18n="teams.h3.4">团队配置，分步说明</h3>
       <div class="git-steps">
         <article><span>01</span><h4 data-i18n="teams.h4.1">独立的 vault 仓库</h4><p data-i18n="teams.p.8">每个项目一个项目文档仓库，而不是每人一个。它与代码仓库并列存放。</p></article>
-        <article><span>02</span><h4 data-i18n="teams.h4.2">各自检出并绑定</h4><p data-i18n="teams.p.9">每个人在自己的代码副本里运行 <code>/projectstore:bind</code>。这项设置只保存在本机，不会被提交。</p></article>
+        <article><span>02</span><h4 data-i18n="teams.h4.2">各自检出并绑定</h4><p data-i18n="teams.p.9">每个人在自己的代码副本里运行 <code>/projectstore:bind</code> 命令。这项设置只保存在本机，不会被提交。</p></article>
         <article><span>03</span><h4 data-i18n="teams.h4.3">分支加合并请求</h4><p data-i18n="teams.p.10">每项决策在被接受之前，都要经过人工评审。critic 在合并请求之前审视它，你的团队在合并请求中评审它。</p></article>
         <article><span>04</span><h4 data-i18n="teams.h4.4">在 CI 中运行 doctor</h4><p data-i18n="teams.p.11"><code>npx projectstore doctor --json</code> 在 CI 中运行，不需要智能体，也不消耗 token。发现问题时，它会让这一步失败。<code>reconcile --write</code> 也可以在 CI 中重建看板。</p></article>
       </div>
@@ -661,7 +661,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
           <tr class="sep"><td><code>clerk</code><br><span class="tag w" data-i18n="agents.span.9">写入 · 在你说“是”之后</span></td><td data-i18n="agents.td.16">只在命令流程内，只在你说“是”之后</td><td data-i18n="agents.td.17">原样保存你批准的内容，不多一字。然后重建看板并运行检查。不自行撰写任何内容，也不提任何问题。</td><td class="model" data-i18n="agents.td.18">sonnet · max</td></tr>
         </tbody>
       </table>
-      <p class="roster-note" data-i18n="agents.p.10">默认模型针对的是 Claude Code。在 Codex 中，每个角色都是一个同名 skill，例如 <code>$projectstore-critic</code>，它会请求 Codex 启动该角色；除非你另行设置，它使用会话的模型。</p>
+      <p class="roster-note" data-i18n="agents.p.10">默认模型针对的是 Claude Code。在 Codex 中，每个角色都是一个同名 skill，它会请求 Codex 启动该角色，例如 <code>$projectstore-critic</code> 对应 critic 角色；除非你另行设置，它使用会话的模型。</p>
     </div>
 
     <div class="agents-grid">
@@ -682,7 +682,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
     <div class="support-heading"><span data-i18n="agents.span.12">现已可用</span><span class="version-badge" data-fact="version">v0.29.4</span></div>
     <div class="support-grid">
       <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.14">原生插件</span> · <span data-fact="harness-status:claude-code">supported</span></span><h3 data-i18n="agents.h3.4">Claude Code</h3><p data-i18n="agents.p.6">全部命令和智能体、自动提醒、状态栏和 vault 配置。进入循环的现成入口。</p></article>
-      <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.17">原生插件</span> · <span data-fact="harness-status:codex">experimental</span></span><h3>Codex</h3><p data-i18n="agents.p.11">以 skill 形式提供命令和角色，例如 <code>$projectstore-doctor</code> 和 <code>$projectstore-critic</code>，另有生命周期钩子和智能体指令块。<a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> 说明了目前已验证的内容。</p></article>
+      <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.17">原生插件</span> · <span data-fact="harness-status:codex">experimental</span></span><h3>Codex</h3><p data-i18n="agents.p.11">以 skill 形式提供命令和角色，另有生命周期钩子和智能体指令块：<code>$projectstore-doctor</code> 和 <code>$projectstore-critic</code> 就是其中两个 skill。<a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> 说明了目前已验证的内容。</p></article>
       <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.15">编程访问</span></span><h3 data-i18n="agents.h3.5">CLI + MCP</h3><p data-i18n="agents.p.7">CLI 读取 vault，只执行你要求的写入，并输出 JSON。MCP 服务器为任何智能体提供这些只读工具。</p><div class="cmd"><pre id="cmd-mcp">npx projectstore mcp --project "$PWD"</pre><button class="copy" type="button" data-copy-from="cmd-mcp" data-done="已复制" data-i18n="agents.button.1" data-i18n-attr="data-done:agents.data-done.1">复制</button></div></article>
       <article><span class="support-state neutral"><svg class="icon sm"><use href="#i-up-right"/></svg> <span data-i18n="agents.span.16">可移植性</span></span><h3 data-i18n="agents.h3.6">其他 harness</h3><p data-i18n="agents.p.8">Gemini CLI、OpenCode 等其他工具：Markdown 文件在哪里都能用，CLI 和 MCP 读取的是同一个 vault。目前还没有为它们提供原生适配器。</p></article>
     </div>
@@ -713,7 +713,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
       <h2 id="start-title" data-i18n="start.h2.1">从一个<br>重要的决策开始。</h2>
       <p data-i18n="start.p.1">在 Claude Code 或 Codex 中安装它，为 vault 选一个文件夹，然后让智能体写第一份 ADR。不必在一个晚上迁移整个项目的历史。之后可以让 archaeologist 智能体帮忙。</p>
       <div class="say-it"><span class="who" data-i18n="start.span.2">或者直接告诉 Claude Code</span><p data-i18n="start.p.2">从 https://github.com/SmartAndPoint/ProjectStore 安装 projectstore 插件，并为这个项目完成配置。</p></div>
-      <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#install--one-message" target="_blank" rel="noopener noreferrer" style="margin-top:22px"><span data-i18n="start.span.3">完整安装指南</span> <svg class="icon"><use href="#i-up-right"/></svg></a>
+      <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#install" target="_blank" rel="noopener noreferrer" style="margin-top:22px"><span data-i18n="start.span.3">完整安装指南</span> <svg class="icon"><use href="#i-up-right"/></svg></a>
       <!-- Counts are data-fact digits from the repository; only the nouns beside them are translated.
        A noun's form depends on the number in ru and uk (1 команда, 6 команд, 20 команд), and on
        one-or-many in the other languages: when a count changes, re-check start.span.4-7,
@@ -722,8 +722,14 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
     </div>
 
     <div class="install-terminal">
-      <div data-tabs data-initial="claude" class="install-root">
-        <div class="terminal-tabs-header"><div class="install-tabs" role="tablist" aria-label="安装方式" data-i18n-attr="aria-label:start.aria-label.1"><button class="install-trigger" role="tab" data-tab="claude" id="in-t1" aria-controls="in-p1" data-i18n="start.button.1">在 Claude Code 中</button><button class="install-trigger" role="tab" data-tab="npm" id="in-t2" aria-controls="in-p2" data-i18n="start.button.2">Claude Code（npm）</button><button class="install-trigger" role="tab" data-tab="codex" id="in-t4" aria-controls="in-p4" data-i18n="start.button.4">Codex</button><button class="install-trigger" role="tab" data-tab="day" id="in-t3" aria-controls="in-p3" data-i18n="start.button.3">一个工作日</button></div><svg class="icon"><use href="#i-terminal"/></svg></div>
+      <div data-tabs data-initial="terminal" class="install-root">
+        <div class="terminal-tabs-header"><div class="install-tabs" role="tablist" aria-label="安装方式" data-i18n-attr="aria-label:start.aria-label.1"><button class="install-trigger" role="tab" data-tab="terminal" id="in-t2" aria-controls="in-p2" data-i18n="start.button.2">在终端中</button><button class="install-trigger" role="tab" data-tab="claude" id="in-t1" aria-controls="in-p1" data-i18n="start.button.1">在 Claude Code 中</button><button class="install-trigger" role="tab" data-tab="day" id="in-t3" aria-controls="in-p3" data-i18n="start.button.3">一个工作日</button></div><svg class="icon"><use href="#i-terminal"/></svg></div>
+        <div class="tab-panel install-panel block" role="tabpanel" data-panel="terminal" id="in-p2" aria-labelledby="in-t2">
+          <span class="terminal-context"><span data-i18n="start.span.16">终端 · Node.js 20+ · 在项目文件夹中</span> · Codex <span data-fact="harness-status:codex">experimental</span></span>
+<pre id="install-setup" data-fact="install"><code>npx projectstore setup</code></pre>
+          <button class="copy-button" type="button" data-copy-from="install-setup" data-done="已复制" data-i18n-attr="data-done:start.data-done.2"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.11">复制</span></button>
+          <p class="install-note" data-i18n="start.p.4">它会检测项目中的 Claude Code 和 Codex，询问 vault 应放在哪里，然后在写入之前展示一份计划，列出每个文件和每条命令。完成后重启智能体；Codex 会请你批准一次 ProjectStore 的钩子。<a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> 说明了目前针对 Codex 已验证的内容。</p>
+        </div>
         <div class="tab-panel install-panel block" role="tabpanel" data-panel="claude" id="in-p1" aria-labelledby="in-t1">
           <span class="terminal-context" data-i18n="start.span.8">在 Claude Code 中输入以下命令</span>
 <pre id="install-claude" data-fact="install"><code>/plugin marketplace add SmartAndPoint/ProjectStore
@@ -732,18 +738,6 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
 /projectstore:bind ~/Documents/my-project-vault<span data-i18n="start.bind-lang"> --lang zh</span></code></pre>
           <button class="copy-button" type="button" data-copy-from="install-claude" data-done="已复制" data-i18n-attr="data-done:start.data-done.1"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.9">复制</span></button>
           <p class="install-note" data-i18n="start.p.3">vault 路径只是示例。随后 bind 会问几个配置问题，并显示每一步将写入什么。开启自动更新：<code>/plugin</code> → Marketplaces → SmartAndPoint。</p>
-        </div>
-        <div class="tab-panel install-panel block" role="tabpanel" data-panel="npm" id="in-p2" aria-labelledby="in-t2">
-          <span class="terminal-context" data-i18n="start.span.10">终端 · Node.js 20+ · 在会话之外</span>
-<pre id="install-npm" data-fact="install"><code>npx projectstore-claude install --project "$PWD"</code></pre>
-          <button class="copy-button" type="button" data-copy-from="install-npm" data-done="已复制" data-i18n-attr="data-done:start.data-done.2"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.11">复制</span></button>
-          <p class="install-note" data-i18n="start.p.4">在项目文件夹中运行。它只为当前检出目录把插件添加到 Claude Code，并在执行每条命令前先把它打印出来。然后重启 Claude Code，绑定一个 vault。</p>
-        </div>
-        <div class="tab-panel install-panel block" role="tabpanel" data-panel="codex" id="in-p4" aria-labelledby="in-t4">
-          <span class="terminal-context"><span data-i18n="start.span.16">终端 · Node.js 20+ · 在项目文件夹中</span> · <span data-fact="harness-status:codex">experimental</span></span>
-<pre id="install-codex" data-fact="install"><code>npx projectstore-codex install --project "$PWD"</code></pre>
-          <button class="copy-button" type="button" data-copy-from="install-codex" data-done="已复制" data-i18n-attr="data-done:start.data-done.4"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.17">复制</span></button>
-          <p class="install-note" data-i18n="start.p.5">然后重启 Codex，在它询问时批准 ProjectStore 的钩子，再运行 <code>$projectstore-bind ~/Documents/my-project-vault</code>。<a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> 说明了目前已验证的内容。</p>
         </div>
         <div class="tab-panel install-panel block" role="tabpanel" data-panel="day" id="in-p3" aria-labelledby="in-t3">
           <span class="terminal-context" data-i18n="start.span.12">一个工作日</span>

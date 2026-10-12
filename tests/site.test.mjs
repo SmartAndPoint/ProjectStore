@@ -30,8 +30,9 @@
 // wrong without changing a word is checked here instead: asset hashes,
 // alternates and canonicals, a page per dictionary, the en/ stub.
 //
-// The helpers live in this file, not in scripts/: a file there ships, and the
-// runtime vocabulary lint would read their command literals.
+// The helpers live in this file and in tests/fixtures/markdown.mjs, not in
+// scripts/: a file there ships, and the runtime vocabulary lint would read
+// their command literals.
 //
 //   node --test tests/site.test.mjs
 
@@ -42,6 +43,7 @@ import { resolve, dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { sourceNames, invocationPatterns, stripComments } from "./fixtures/vocabulary.mjs";
+import { markdownLines, cut, unprompt, npxCommand } from "./fixtures/markdown.mjs";
 import { VERBS } from "../scripts/cli.mjs";
 import { languageNames } from "../scripts/binding.mjs";
 import { TOOLS } from "../scripts/mcp.mjs";
@@ -200,27 +202,9 @@ function copyBlocks(page) {
 }
 
 // ─── Markdown: headings, fences, anchors ───────────────────────────────
-
-// Each line with the heading it is, or whether a fence holds it. A fence
-// opens with three backticks or tildes and closes with a bare run of the same
-// character at least as long; a line inside one is never a heading.
-function* markdownLines(md) {
-  let fence = null;
-  for (const line of md.split("\n")) {
-    const f = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    if (fence) {
-      if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !f[2].trim()) fence = null;
-      else yield { line, fenced: true, heading: null };
-      continue;
-    }
-    if (f) {
-      fence = f[1];
-      continue;
-    }
-    const h = /^\s{0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/.exec(line);
-    yield { line, fenced: false, heading: h ? { level: h[1].length, text: h[2] } : null };
-  }
-}
+//
+// markdownLines, cut, unprompt and npxCommand are tests/fixtures/markdown.mjs's,
+// shared with the lint of user-facing text (tests/user-text.test.mjs).
 
 // GitHub's anchor for a heading, hand-rolled rather than a dependency:
 // inline markup dropped (a link keeps its text), lower-cased, every character
@@ -247,14 +231,6 @@ function anchors(md) {
   }
   return out;
 }
-
-// A command line as README and the site are compared: trimmed, and cut at
-// the first " #" (README's comments on a fenced line).
-const cut = (line) => {
-  const t = line.trim();
-  const i = t.indexOf(" #");
-  return (i === -1 ? t : t.slice(0, i)).trim();
-};
 
 // README's fenced lines, per heading. A line belongs to every heading open
 // above it, so a subsection's fence is also its parent's.
@@ -285,47 +261,16 @@ function markdownCode(md) {
 
 // ─── Command lines ─────────────────────────────────────────────────────
 
-// A shell prompt in front of a command is not part of it.
-const unprompt = (line) => line.trim().replace(/^[$%>]\s+/, "");
-
-// npx's own options come before the command: `npx -y …`, `npx --yes -p
-// <pkg>@<v> <bin> …`. Returns the command (a package or bin name, an
-// @<version> allowed), its first argument, and the packages -p names.
-const NPX_VALUE_OPTIONS = new Set([
-  "-p",
-  "--package",
-  "--registry",
-  "--cache",
-  "--userconfig",
-  "-c",
-  "--call",
-  "-w",
-  "--workspace",
-  "--node-options",
-  "--script-shell",
-]);
-function npxCommand(line) {
-  const toks = unprompt(line).split(/\s+/);
-  if (toks[0] !== "npx") return null;
-  const packages = [];
-  let i = 1;
-  for (; i < toks.length && toks[i].startsWith("-"); i++) {
-    const eq = toks[i].indexOf("=");
-    const name = eq === -1 ? toks[i] : toks[i].slice(0, eq);
-    if (!NPX_VALUE_OPTIONS.has(name)) continue;
-    const value = eq === -1 ? toks[++i] : toks[i].slice(eq + 1);
-    if (name === "-p" || name === "--package") packages.push((value || "").replace(/^["']|["']$/g, ""));
-  }
-  if (i >= toks.length) return null;
-  return { command: toks[i], verb: toks[i + 1] ?? null, packages };
-}
+// The package an npx command names, without its @<version>.
 const packageName = (spec) => spec.replace(/^(@?[^@]+)@.*$/, "$1");
 
 // ─── The repository's side ─────────────────────────────────────────────
 
 // The headings under which README may fence an install, upgrade or uninstall
-// command (AC 4). README fences commands only under the first today.
-const INSTALL_HEADINGS = ["Install — one message", "Upgrading", "Uninstalling"];
+// command (AC 4). `## Install` leads with `npx projectstore setup` (the story
+// "User-facing text says where to run and names no project path and no
+// shell", rule 7), and each of the three fences its commands.
+const INSTALL_HEADINGS = ["Install", "Upgrading", "Uninstalling"];
 
 // The frontmatter keys and "## " headings of a template, as the product writes it.
 function templateShape(md) {
@@ -1406,7 +1351,8 @@ const eachPage = (check) => PAGES.filter((p) => p.page).flatMap((p) => check(p.p
 test("site: the sources the checks read are there — README's three headings and its install lines, the published harnesses' manifests, LANGS as i18n.py has it", () => {
   for (const h of INSTALL_HEADINGS)
     assert.ok(REPO.readme.has(h), `README has no "${h}" heading, and the install check reads the lines under it`);
-  assert.ok(REPO.readme.get(INSTALL_HEADINGS[0]).length > 0, "README fences its install lines");
+  for (const h of INSTALL_HEADINGS) assert.ok(REPO.readme.get(h).length > 0, `README fences lines under "${h}"`);
+  assert.ok(REPO.readme.get(INSTALL_HEADINGS[0]).includes("npx projectstore setup"), "the install leads with setup");
   assert.ok(REPO.harnesses.length > 0, "at least one shell is published");
   for (const h of REPO.harnesses) assert.ok(REPO.status(h.id), `${h.id}: a published shell's harness has a manifest`);
   assert.ok(
@@ -1456,7 +1402,13 @@ test("site: the slugger gives GitHub's anchors — the ones README's own links u
   assert.deepEqual(anchors("# A\n## A\n```\n# A\n```\n~~~sh\n## A\n~~~\n## A b"), ["a", "a-1", "a-b"]);
 });
 
-test("site: a command line is read past a shell prompt and npx's own options", () => {
+test("site: a command line is read past a shell prompt, the shell's NAME=value assignments and npx's own options", () => {
+  // README's registry-mirror line (the story "User-facing text says where to
+  // run and names no project path and no shell", rule 7) is an install form.
+  const mirror = "npm_config_registry=https://registry.npmjs.org npx projectstore@<version> setup";
+  assert.deepEqual(npxCommand(mirror), { command: "projectstore@<version>", verb: "setup", packages: [] });
+  assert.equal(installForm(mirror, REPO), true);
+  assert.ok(readmeInstallLines(REPO).has(mirror), "README fences the mirror line under its install headings");
   assert.deepEqual(npxCommand('$ npx -y projectstore-codex@0.29.2 upgrade --project "$PWD"'), {
     command: "projectstore-codex@0.29.2",
     verb: "upgrade",
@@ -1858,14 +1810,14 @@ const PLANTED = [
   // AC 4: install — README's lines, the --lang rule, nothing outside a marked block.
   {
     ac: "4",
-    what: '$ npx projectstore-codex upgrade --project "$PWD" in the FAQ, outside a marked block',
+    what: "$ npx projectstore@latest upgrade --harness codex in the FAQ, outside a marked block",
     ...onPage("en", (p) => checkInstall(p, REPO)),
     fact: "install",
-    message: /projectstore-codex upgrade .* outside a block marked/,
+    message: /projectstore@latest upgrade --harness codex" is an install.* outside a block marked/,
     edits: [
       [
         "or the MCP server.</p>",
-        'or the MCP server. To upgrade Codex: <code>$ npx projectstore-codex upgrade --project "$PWD"</code>.</p>',
+        "or the MCP server. To upgrade Codex: <code>$ npx projectstore@latest upgrade --harness codex</code> in your project.</p>",
       ],
     ],
   },
@@ -1874,21 +1826,16 @@ const PLANTED = [
     what: "a marked install line README does not fence",
     ...onPage("pt", (p) => checkInstall(p, REPO)),
     fact: "install",
-    message: /is no line README fences/,
-    edits: [
-      [
-        'npx projectstore-claude install --project "$PWD"</code></pre>',
-        "npx projectstore-claude install --project .</code></pre>",
-      ],
-    ],
+    message: /"npx projectstore setup --channel npm" is no line README fences/,
+    edits: [["npx projectstore setup</code></pre>", "npx projectstore setup --channel npm</code></pre>"]],
   },
   {
     ac: "4",
     what: "an install block that loses its marker",
     ...onPage("ru", (p) => checkInstall(p, REPO)),
     fact: "install",
-    message: /npx projectstore-codex install .* outside a block marked/,
-    edits: [['<pre id="install-codex" data-fact="install">', '<pre id="install-codex">']],
+    message: /"npx projectstore setup" is an install.* outside a block marked/,
+    edits: [['<pre id="install-setup" data-fact="install">', '<pre id="install-setup">']],
   },
   {
     ac: "4",

@@ -75,23 +75,26 @@ not started from a terminal can miss a `node` that only `.zprofile` puts on
 `PATH`.
 
 The shell is published as `projectstore-codex` from 0.28.1, ahead of that live
-run, by the maintainer's decision:
+run, by the maintainer's decision. Nobody types its name: setup, install and
+upgrade fetch it at their own version and plan Codex from it. From a terminal
+in your project:
 
 ```sh
-npx projectstore-codex install --project "$PWD"
+npx projectstore setup
 ```
 
-For later releases, `npx projectstore-codex@<version> upgrade --project "$PWD"`.
+To upgrade Codex alone, naming the version you want to run:
+
+```sh
+npx projectstore@<version> upgrade --harness codex
+```
+
 Installation is user-global because Codex stores marketplace registrations and
 plugin caches in `CODEX_HOME`; the agents block in `AGENTS.md` remains
 project-local. Ordinary uninstall leaves the global plugin in place; add
-`--global` only when you mean to remove it for every project. From this
-checkout, the same flow runs against a built tarball:
-
-```sh
-npm run shells:build -- --only projectstore-codex --dev --out dist
-npx --package "./dist/projectstore-codex-$(node -p 'require("./package.json").version').tgz" projectstore-codex install --project "$PWD"
-```
+`--global` only when you mean to remove it for every project. A checkout's own
+build runs through the same flow: [`packaging/README.md`](../packaging/README.md#running-a-checkouts-build)
+has the tarball loop.
 
 What is known, and how:
 

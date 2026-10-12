@@ -662,7 +662,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
           <tr class="sep"><td><code>clerk</code><br><span class="tag w" data-i18n="agents.span.9">schreibt · nach deinem Ja</span></td><td data-i18n="agents.td.16">Nur innerhalb eines Befehlsablaufs, nur nach deinem Ja</td><td data-i18n="agents.td.17">Speichert genau das, was du freigegeben hast, nicht mehr. Baut danach das Board neu auf und führt die Prüfungen aus. Schreibt nichts Eigenes und fragt nichts.</td><td class="model" data-i18n="agents.td.18">sonnet · max</td></tr>
         </tbody>
       </table>
-      <p class="roster-note" data-i18n="agents.p.10">Die Standardmodelle gelten für Claude Code. In Codex ist jede Rolle ein gleichnamiger Skill, etwa <code>$projectstore-critic</code>, der Codex bittet, die Rolle zu starten; er nutzt das Modell der Sitzung, solange du keines festlegst.</p>
+      <p class="roster-note" data-i18n="agents.p.10">Die Standardmodelle gelten für Claude Code. In Codex ist jede Rolle ein gleichnamiger Skill, der Codex bittet, die Rolle zu starten, etwa <code>$projectstore-critic</code> für den Critic; er nutzt das Modell der Sitzung, solange du keines festlegst.</p>
     </div>
 
     <div class="agents-grid">
@@ -683,7 +683,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
     <div class="support-heading"><span data-i18n="agents.span.12">Heute verfügbar</span><span class="version-badge" data-fact="version">v0.29.4</span></div>
     <div class="support-grid">
       <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.14">Natives Plugin</span> · <span data-fact="harness-status:claude-code">supported</span></span><h3 data-i18n="agents.h3.4">Claude Code</h3><p data-i18n="agents.p.6">Alle Befehle und Agenten, automatische Erinnerungen, die Statuszeile und die Vault-Einrichtung. Der fertige Einstieg in den Zyklus.</p></article>
-      <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.17">Natives Plugin</span> · <span data-fact="harness-status:codex">experimental</span></span><h3>Codex</h3><p data-i18n="agents.p.11">Die Befehle und Rollen als Skills, etwa <code>$projectstore-doctor</code> und <code>$projectstore-critic</code>, mit Lifecycle-Hooks und dem Agents-Block. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> beschreibt, was bisher geprüft wurde.</p></article>
+      <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.17">Natives Plugin</span> · <span data-fact="harness-status:codex">experimental</span></span><h3>Codex</h3><p data-i18n="agents.p.11">Die Befehle und Rollen als Skills, mit Lifecycle-Hooks und dem Agents-Block: <code>$projectstore-doctor</code> und <code>$projectstore-critic</code> sind zwei dieser Skills. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> beschreibt, was bisher geprüft wurde.</p></article>
       <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.15">Programmatischer Zugriff</span></span><h3 data-i18n="agents.h3.5">CLI + MCP</h3><p data-i18n="agents.p.7">Die CLI liest den Vault, schreibt nur, worum du sie bittest, und gibt JSON aus. Der MCP-Server gibt jedem Agenten die Nur-Lese-Tools.</p><div class="cmd"><pre id="cmd-mcp">npx projectstore mcp --project "$PWD"</pre><button class="copy" type="button" data-copy-from="cmd-mcp" data-done="ok" data-i18n="agents.button.1" data-i18n-attr="data-done:agents.data-done.1">kopieren</button></div></article>
       <article><span class="support-state neutral"><svg class="icon sm"><use href="#i-up-right"/></svg> <span data-i18n="agents.span.16">Portabilität</span></span><h3 data-i18n="agents.h3.6">Andere Harnesses</h3><p data-i18n="agents.p.8">Gemini CLI, OpenCode und alle anderen: Die Markdown-Dateien funktionieren überall, und CLI und MCP lesen denselben Vault. Native Adapter für sie gibt es noch nicht.</p></article>
     </div>
@@ -714,7 +714,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
       <h2 id="start-title" data-i18n="start.h2.1">Fang mit einer<br>Entscheidung an, die zählt.</h2>
       <p data-i18n="start.p.1">Installiere es in Claude Code oder Codex, wähle einen Ordner für den Vault und bitte den Agenten, das erste ADR zu schreiben. Du musst nicht die ganze Projektgeschichte an einem Abend übertragen. Dabei hilft später der Archaeologist-Agent.</p>
       <div class="say-it"><span class="who" data-i18n="start.span.2">oder sag es einfach Claude Code</span><p data-i18n="start.p.2">Installiere das projectstore-Plugin von https://github.com/SmartAndPoint/ProjectStore und richte es für dieses Projekt ein.</p></div>
-      <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#install--one-message" target="_blank" rel="noopener noreferrer" style="margin-top:22px"><span data-i18n="start.span.3">Die vollständige Installationsanleitung</span> <svg class="icon"><use href="#i-up-right"/></svg></a>
+      <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#install" target="_blank" rel="noopener noreferrer" style="margin-top:22px"><span data-i18n="start.span.3">Die vollständige Installationsanleitung</span> <svg class="icon"><use href="#i-up-right"/></svg></a>
       <!-- Counts are data-fact digits from the repository; only the nouns beside them are translated.
        A noun's form depends on the number in ru and uk (1 команда, 6 команд, 20 команд), and on
        one-or-many in the other languages: when a count changes, re-check start.span.4-7,
@@ -723,8 +723,14 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
     </div>
 
     <div class="install-terminal">
-      <div data-tabs data-initial="claude" class="install-root">
-        <div class="terminal-tabs-header"><div class="install-tabs" role="tablist" aria-label="Installationsmethode" data-i18n-attr="aria-label:start.aria-label.1"><button class="install-trigger" role="tab" data-tab="claude" id="in-t1" aria-controls="in-p1" data-i18n="start.button.1">In Claude Code</button><button class="install-trigger" role="tab" data-tab="npm" id="in-t2" aria-controls="in-p2" data-i18n="start.button.2">Claude Code über npm</button><button class="install-trigger" role="tab" data-tab="codex" id="in-t4" aria-controls="in-p4" data-i18n="start.button.4">Codex</button><button class="install-trigger" role="tab" data-tab="day" id="in-t3" aria-controls="in-p3" data-i18n="start.button.3">Ein Arbeitstag</button></div><svg class="icon"><use href="#i-terminal"/></svg></div>
+      <div data-tabs data-initial="terminal" class="install-root">
+        <div class="terminal-tabs-header"><div class="install-tabs" role="tablist" aria-label="Installationsmethode" data-i18n-attr="aria-label:start.aria-label.1"><button class="install-trigger" role="tab" data-tab="terminal" id="in-t2" aria-controls="in-p2" data-i18n="start.button.2">Im Terminal</button><button class="install-trigger" role="tab" data-tab="claude" id="in-t1" aria-controls="in-p1" data-i18n="start.button.1">In Claude Code</button><button class="install-trigger" role="tab" data-tab="day" id="in-t3" aria-controls="in-p3" data-i18n="start.button.3">Ein Arbeitstag</button></div><svg class="icon"><use href="#i-terminal"/></svg></div>
+        <div class="tab-panel install-panel block" role="tabpanel" data-panel="terminal" id="in-p2" aria-labelledby="in-t2">
+          <span class="terminal-context"><span data-i18n="start.span.16">Terminal · Node.js 20+ · im Projektordner</span> · Codex <span data-fact="harness-status:codex">experimental</span></span>
+<pre id="install-setup" data-fact="install"><code>npx projectstore setup</code></pre>
+          <button class="copy-button" type="button" data-copy-from="install-setup" data-done="Kopiert" data-i18n-attr="data-done:start.data-done.2"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.11">Kopieren</span></button>
+          <p class="install-note" data-i18n="start.p.4">Der Installer findet Claude Code und Codex im Projekt, fragt, wo der Vault liegen soll, und zeigt dann einen einzigen Plan mit allen Dateien und Befehlen, bevor er etwas schreibt. Starte den Agenten danach neu; Codex bittet dich einmalig, die ProjectStore-Hooks freizugeben. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> beschreibt, was für Codex bisher geprüft wurde.</p>
+        </div>
         <div class="tab-panel install-panel block" role="tabpanel" data-panel="claude" id="in-p1" aria-labelledby="in-t1">
           <span class="terminal-context" data-i18n="start.span.8">Gib die Befehle in Claude Code ein</span>
 <pre id="install-claude" data-fact="install"><code>/plugin marketplace add SmartAndPoint/ProjectStore
@@ -733,18 +739,6 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
 /projectstore:bind ~/Documents/my-project-vault<span data-i18n="start.bind-lang"> --lang de</span></code></pre>
           <button class="copy-button" type="button" data-copy-from="install-claude" data-done="Kopiert" data-i18n-attr="data-done:start.data-done.1"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.9">Kopieren</span></button>
           <p class="install-note" data-i18n="start.p.3">Der Vault-Pfad ist ein Beispiel; <code>--lang de</code> wählt die deutschen Vorlagen. Danach stellt Bind ein paar Fragen zur Einrichtung und zeigt bei jedem Schritt, was geschrieben wird. Schalte das automatische Update ein: <code>/plugin</code> → Marketplaces → SmartAndPoint.</p>
-        </div>
-        <div class="tab-panel install-panel block" role="tabpanel" data-panel="npm" id="in-p2" aria-labelledby="in-t2">
-          <span class="terminal-context" data-i18n="start.span.10">Terminal · Node.js 20+ · außerhalb einer Sitzung</span>
-<pre id="install-npm" data-fact="install"><code>npx projectstore-claude install --project "$PWD"</code></pre>
-          <button class="copy-button" type="button" data-copy-from="install-npm" data-done="Kopiert" data-i18n-attr="data-done:start.data-done.2"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.11">Kopieren</span></button>
-          <p class="install-note" data-i18n="start.p.4">Führ ihn im Projektordner aus. Der Installer fügt das Plugin nur für diesen Checkout zu Claude Code hinzu und zeigt jeden Befehl, bevor er ihn ausführt. Starte danach Claude Code neu und binde einen Vault.</p>
-        </div>
-        <div class="tab-panel install-panel block" role="tabpanel" data-panel="codex" id="in-p4" aria-labelledby="in-t4">
-          <span class="terminal-context"><span data-i18n="start.span.16">Terminal · Node.js 20+ · im Projektordner</span> · <span data-fact="harness-status:codex">experimental</span></span>
-<pre id="install-codex" data-fact="install"><code>npx projectstore-codex install --project "$PWD"</code></pre>
-          <button class="copy-button" type="button" data-copy-from="install-codex" data-done="Kopiert" data-i18n-attr="data-done:start.data-done.4"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.17">Kopieren</span></button>
-          <p class="install-note" data-i18n="start.p.5">Starte danach Codex neu, gib die ProjectStore-Hooks frei, wenn Codex danach fragt, und führe <code>$projectstore-bind ~/Documents/my-project-vault</code> aus. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> beschreibt, was bisher geprüft wurde.</p>
         </div>
         <div class="tab-panel install-panel block" role="tabpanel" data-panel="day" id="in-p3" aria-labelledby="in-t3">
           <span class="terminal-context" data-i18n="start.span.12">Ein Arbeitstag</span>

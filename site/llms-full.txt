@@ -107,7 +107,15 @@ Six steps. Every *verify* step is a separate agent with a fresh context and no s
 
 ### 5.1 A new project, on your own
 
-In Claude Code:
+From a terminal in the project, outside a session:
+
+```
+npx projectstore setup
+```
+
+Setup finds the coding agents the project uses — Claude Code, Codex or both — and installs ProjectStore for each. At a terminal it asks a few questions: the project folder, the agents to install for, where the vault lives and whether to show ProjectStore in the status line. It binds the vault, or creates it when the folder is missing or empty (its own git repository, the layout's folders and their README indexes). Then it prints one plan, every file it writes and every host command, and asks once before it writes. Afterwards, restart the agent; Codex asks to approve the ProjectStore hooks once. Codex's support is experimental; the harnesses page linked above says what has been verified.
+
+Inside a Claude Code session, the git marketplace is the other way in:
 
 ```
 /plugin marketplace add SmartAndPoint/ProjectStore
@@ -117,20 +125,6 @@ In Claude Code:
 ```
 
 `bind` writes `.projectstore/projectstore.json` in the project root — machine-local and gitignored — then runs a short interview: gitignore entries, a scaffold offer when the vault lacks the layout's folders (a directory that is missing or empty is created whole instead — its own git repository, the folders and their README indexes), registration of the agents block in `CLAUDE.md` / `AGENTS.md`, the model preset for the review agents, and the status-line offer. Every step shows what it will write and waits.
-
-From a terminal in the project, outside a session, the npm package registers the plugin with Claude Code for this checkout only:
-
-```
-npx projectstore-claude install --project "$PWD"
-```
-
-In Codex, run one command from a terminal in the project:
-
-```
-npx projectstore-codex install --project "$PWD"
-```
-
-Then restart Codex, approve the ProjectStore hooks when it asks, and run `$projectstore-bind ~/Documents/my-project-vault`. Codex's support is experimental; the harnesses page linked above says what has been verified.
 
 Then capture one real decision rather than migrating everything:
 
@@ -153,7 +147,7 @@ git clone git@github.com:acme/shop-vault.git ~/vaults/shop-vault
 /projectstore:bind ~/vaults/shop-vault
 ```
 
-In Codex the second step is `$projectstore-bind ~/vaults/shop-vault`. Because the vault already has content, bind skips the scaffold offer; it still offers the gitignore entries, the agents block, the model preset and the status line. Then, step 3:
+In Codex the second step is the skill `$projectstore-bind ~/vaults/shop-vault` instead. Because the vault already has content, bind skips the scaffold offer; it still offers the gitignore entries, the agents block, the model preset and the status line. Then, step 3:
 
 ```
 # 3. Ask
@@ -224,7 +218,7 @@ Because the shared state is files plus a read-only API, roles can sit on differe
 
 Five of the six are read-only. The clerk is the only write-capable one, it never composes content, never decides whether or where to write, and never interacts with the user. Content and the approval gate never delegate: the session's main agent — the one holding the conversation — composes every artifact and answers for it at the gate.
 
-The default models are Claude Code's. In Codex each role is a skill of the same name, such as `$projectstore-critic`, that asks Codex to start the role; it uses the session's model unless one is configured.
+The default models are Claude Code's. In Codex each role is a skill of the same name that asks Codex to start the role, such as `$projectstore-critic` for the critic; it uses the session's model unless one is configured.
 
 ## 7. Command reference
 

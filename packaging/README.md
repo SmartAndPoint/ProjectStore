@@ -57,7 +57,15 @@ omitted and a bare `npx <shell>` would then serve a candidate to everyone.
 Install one by naming it:
 
 ```sh
-npx --yes -p projectstore-claude@0.28.0-rc.1 projectstore-claude install --project "$PWD"
+npx --yes -p projectstore-claude@0.28.0-rc.1 projectstore-claude install
+```
+
+From 0.29.4, which shipped `setup`, setup is the way in, and a candidate is
+named the same way, from a terminal in the project; for a project that uses
+Codex it fetches the Codex shell at the same candidate:
+
+```sh
+npx --yes projectstore@<version>-rc.<n> setup
 ```
 
 A shell whose only other published version is its 0.0.1 placeholder keeps that
@@ -121,9 +129,12 @@ ADR, amended 2026-09-06 by the layout ADR): a package that pins the core at
 exactly its own version, **bundles** it (the tarball carries
 `node_modules/projectstore/`, so neither a host that installs no dependencies
 nor a registry race can pair the shell with another core) and fixes
-`--harness` in its bin. `npx projectstore-claude install --project "$PWD"` is
-`npx projectstore install --harness claude-code --project "$PWD"`, byte for
-byte in what it previews and writes. A shell is a bin and a pin, never logic.
+`--harness` in its bin. `npx projectstore-claude install` is
+`npx projectstore install --harness claude-code`, byte for byte in what it
+previews and writes. A shell is a bin and a pin, never logic. Since the
+front-door ADR the shells are release artifacts: the documents tell a person
+to run `npx projectstore setup`, and the core fetches `projectstore-codex`,
+which carries Codex's plugin root, at its own version.
 
 The roster lives in `packaging/shells.mjs` (`SHELLS`); `package.json` and
 `bin/<name>.mjs` are **rendered and committed** from it, the README is
@@ -169,12 +180,14 @@ the package was never installed (measured 2026-09-06, npm 11.19.0). Two forms
 work from anywhere:
 
 ```sh
-npx --yes -p /abs/path/projectstore-claude-<v>.tgz projectstore-claude install --project "$PWD"
-npx --yes file:/abs/path/projectstore-claude-<v>.tgz install --project "$PWD"
+npx --yes -p /abs/path/projectstore-claude-<v>.tgz projectstore-claude install
+npx --yes file:/abs/path/projectstore-claude-<v>.tgz install
 ```
 
 The `-p` form needs the bin name; the `file:` form does not. Either way the
-path must be shell-expanded — a quoted `'~/…'` is ENOENT.
+path must be shell-expanded — a quoted `'~/…'` is ENOENT. Both run in the
+current directory, so run them from a terminal in the project they install
+for.
 
 **First publish of a shell name, by hand — once.** The names exist on the
 registry as deprecated 0.0.1 placeholders owned by the maintainer, which is
@@ -192,6 +205,62 @@ opencode name:
 npm login
 npm deprecate opencode-projectstore 'Renamed — install `projectstore-opencode` instead.'
 ```
+
+## Running a checkout's build
+
+Between a version bump and its publish, the registry has no shell at the
+checkout's version, so a Codex `setup`, `install` or `upgrade` run from the
+checkout refuses its fetch (`ETARGET`) and says so. Build the shell instead;
+`--dev` stamps a version the Codex cache cannot confuse with a release:
+
+```sh
+npm run shells:build -- --only projectstore-codex --dev --out dist
+```
+
+Then run the same npx path a user's fetch ends in, against the built tarball,
+from a terminal in the project it installs for (the `./` makes it a file, as
+above; from another directory, use the `-p` form with an absolute path):
+
+```sh
+npx --package "./dist/projectstore-codex-$(node -p 'require("./package.json").version').tgz" projectstore-codex install
+```
+
+Or point the checkout's own core at the built directory, which is what the
+fetch's refusal names; a set `PROJECTSTORE_DISTRIBUTION_ROOT` is used as is and
+nothing is fetched:
+
+```sh
+PROJECTSTORE_DISTRIBUTION_ROOT="$PWD/dist/build/projectstore-codex" node bin/projectstore.mjs install --harness codex
+```
+
+## Retiring projectstore-claude (0.31)
+
+The maintainer's decision of 2026-10-08, timed on 2026-10-12 (the story "User-facing
+text says where to run and names no project path and no shell", rule 8):
+
+1. `setup` shipped in 0.29.4. Every release up to 0.31 publishes
+   `projectstore-claude` as usual; from the first one cut after the documents
+   moved to setup, its npm page points to `npx projectstore setup`. 0.31
+   publishes it for the last time.
+2. After the 0.31 release, by hand and once — it covers every version. It is by
+   hand because trusted publishing over OIDC covers `npm publish` and
+   `npm dist-tag`, not `npm deprecate`, and a CI token would undo the tokenless
+   release path:
+
+   ```sh
+   npm login
+   npm deprecate projectstore-claude 'Replaced by npx projectstore setup'
+   ```
+
+3. Then the next commit sets `private: true` on `projectstore-claude` in
+   `SHELLS` (`packaging/shells.mjs`), so the release no longer builds or
+   publishes it. The version guard and `--check` still cover it, as they cover
+   `projectstore-opencode`, and `harnesses/claude-code.json` keeps its
+   `install.shell`.
+
+`projectstore-codex` is never deprecated: it is the Codex payload the core
+fetches on every Codex `setup`, `install` and `upgrade`, and a deprecated
+payload would mark a live package abandoned and make npm warn on every fetch.
 
 ## Reserved names
 

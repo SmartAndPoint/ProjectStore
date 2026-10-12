@@ -1,7 +1,7 @@
 {
   "name": "projectstore-codex",
   "version": "0.29.4",
-  "description": "ProjectStore for Codex: portable project memory, rendered workflow skills and lifecycle hooks, with the core pinned and bundled.",
+  "description": "ProjectStore for Codex: portable project memory, rendered workflow skills and lifecycle hooks, with the core pinned and bundled. Setup fetches it; the way in is npx projectstore setup",
   "keywords": [
     "projectstore",
     "installer",
