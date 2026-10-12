@@ -3391,12 +3391,21 @@ export function renderPreview(
   const glyph = (name) => termIcon(c, name);
   const width = c.live ? c.width : 0;
   const writes = p.items.filter(isWrite);
+  // A text's lines, each of its own lines wrapped on its own, returned without
+  // the indent for the caller to lay out. wrap indents only the lines it
+  // breaks, so a line the text carried itself must never lose the indent's
+  // width of characters (a refusal's "--harness claude-code" read "laude-code").
+  const textLines = (text, indent) =>
+    String(text)
+      .split("\n")
+      .flatMap((para) =>
+        wrap(para, width, indent)
+          .split("\n")
+          .map((l, k) => (k ? l.slice(indent.length) : l)),
+      );
   // Prose, wrapped to the terminal with every line indented; a path or a
   // command inside it is one word and never broken (term.mjs wrap).
-  const prose = (indent, text, role = "explanation") =>
-    wrap(text, width, indent)
-      .split("\n")
-      .map((l, k) => indent + paint(role, k ? l.slice(indent.length) : l));
+  const prose = (indent, text, role = "explanation") => textLines(text, indent).map((l) => indent + paint(role, l));
   const lines = [
     ...(badge ? [badgeLine(p, { verb, caps: c })] : []),
     `  ${paint("explanation", tilde(p.projectDir, home))}`,
@@ -3553,8 +3562,8 @@ export function renderPreview(
     // The same for a refusal that names its ways out (the channel "git" with
     // nothing to keep): its prose, then each lead and its command alone.
     const advice = k === 0 && !stop && p.refusalAdvice ? p.refusalAdvice : null;
-    const [first, ...rest] = wrap(stop ? stop.lead : advice ? advice.text : r, width, pad).split("\n");
-    lines.push(lead + paint("attention", first), ...rest.map((l) => pad + paint("attention", l.slice(pad.length))));
+    const [first, ...rest] = textLines(stop ? stop.lead : advice ? advice.text : r, pad);
+    lines.push(lead + paint("attention", first), ...rest.map((l) => pad + paint("attention", l)));
     if (stop)
       lines.push(
         ...commandBlock(c, [stop.commands[0]], { indent: 4 }),
