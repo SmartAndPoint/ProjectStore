@@ -58,7 +58,7 @@ import { findStories, statusToColumn } from "./kanban.mjs";
 // has no side effect at import, so the MCP server's graph gains nothing it
 // could trip on (cli.mjs imports it already).
 import { PLAIN, painter, icon, heading, kv, rows, wrap, commandBlock } from "./term.mjs";
-import { invokedAs } from "./harness.mjs";
+import { packageCommand } from "./harness.mjs";
 
 export const SEARCH_DEFAULT_LIMIT = 20;
 export const SEARCH_HARD_CAP = 100;
@@ -299,8 +299,10 @@ export function startDate(at) {
 // family's and doctor's. `caps` is the stream's (term.mjs; plain by default):
 // prose wraps, a long title wraps under itself and a row's note moves on a
 // live terminal only, so a pipe gets one line per row. `env` names the
-// commands when nothing is bound: the session's form for the listening
-// harness, and the terminal's as this run was invoked (a shell's own name).
+// session's command when nothing is bound, in the listening harness's form;
+// the terminal's is the core through npx, through a shell too (the story
+// "User-facing text says where to run and names no project path and no
+// shell", rule 6).
 export function renderStatus(r, { caps: c = PLAIN, env = process.env } = {}) {
   const paint = painter(c);
   const dash = icon(c, "dash"),
@@ -323,7 +325,10 @@ export function renderStatus(r, { caps: c = PLAIN, env = process.env } = {}) {
         prose(`Not bound${r.project ? ` ${dash} ${r.project}` : ""}`),
         "",
         prose("Next: bind it to a vault, in a session or from a terminal:"),
-        ...commandBlock(c, [commandForm("bind", { args: "<vault>", env }), `${invokedAs(env).cmd} bind <vault>`]),
+        ...commandBlock(c, [
+          commandForm("bind", { args: "<vault>", env }),
+          packageCommand([], "bind", { args: "<vault>" }),
+        ]),
       ].join("\n") + "\n"
     );
   }

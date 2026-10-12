@@ -332,9 +332,9 @@
     "docs": "https://github.com/SmartAndPoint/ProjectStore#install--one-message"
   },
   "update_hint": {
-    "line": "Update with `{upgrade}`.",
-    "welcome": ["**About future updates**: run `{upgrade}` from a terminal, then restart Codex and approve any hook it asks about.", "", "See https://github.com/SmartAndPoint/ProjectStore#updates for details."],
-    "reason": "What the first-run welcome and its one-line notice say about updates (generation spec, contract 18): `line` ends the notice, `welcome` is the welcome's update block, and `{upgrade}` is filled with this harness's shell command at latest, so what is printed runs as printed. update_instructions is the long-form guidance; this is the part a session prints, kept here so no hook names a harness's update path."
+    "line": "Update from a terminal in this project:\n{upgrade}",
+    "welcome": ["**About future updates**: from a terminal in this project, run:", "", "```", "{upgrade}", "```", "", "Then restart Codex and approve any hook it asks about. See https://github.com/SmartAndPoint/ProjectStore#upgrading for details."],
+    "reason": "What the first-run welcome and its one-line notice say about updates (generation spec, contract 18): `line` ends the notice, `welcome` is the welcome's update block, and `{upgrade}` is filled with the core's upgrade for this harness at latest (`--harness codex`, no `--project`), so what is printed runs as printed. Each says where to run it and puts the command alone on its line (the story \"User-facing text says where to run and names no project path and no shell\", rules 4 and 5). update_instructions is the long-form guidance; this is the part a session prints, kept here so no hook names a harness's update path."
   },
   "update_instructions": "Run `npx projectstore-codex@<version> upgrade --project <dir>`. The installer atomically replaces its stable source and `codex plugin add projectstore@projectstore-npx` materialises the new version; this was measured across two dev builds on codex-cli 0.153.4. Restart Codex afterwards so the new skills and hooks are loaded.",
   "agent_translation": {

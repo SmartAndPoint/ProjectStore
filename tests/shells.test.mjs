@@ -826,12 +826,16 @@ test("shells: a shell is publishable only if its harness owns the source tree or
     "exactly one shell targets the source-layout harness",
   );
 
-  // The mirror direction, and the half that faces a USER rather than a
-  // release: `packageCommand` turns `install.shell` into the command doctor
-  // and the install prose tell people to run. A manifest that names an
-  // unpublished shell sends them to `npx <name>`, which 404s — so a manifest
-  // may name a shell only when that shell is actually publishable. Without the
-  // key the command falls back to the core with `--harness <id>`, which works.
+  // The mirror direction, and the half that faced a USER rather than a
+  // release: `packageCommand` turned `install.shell` into the command doctor
+  // and the install prose told people to run. Since the story "User-facing
+  // text says where to run and names no project path and no shell" (rule 2)
+  // it names the core with `--harness <id>` for every manifest; the key still
+  // names the package the core fetches for a shell-rooted harness and the
+  // shell a bundled core belongs to, and README's install names the shells
+  // until the release's documents. So a manifest may name a shell only when
+  // that shell is publishable — narrowed to "in the roster" with the private
+  // flag (that story's rule 8).
   for (const m of manifests()) {
     const named = m.install?.shell;
     if (!named) continue;
@@ -913,7 +917,11 @@ test("shells AC 4: the release matrix is the publishable list, computed — neve
   assert.equal(JSON.parse(check.stdout).ok, true);
 });
 
-test("shells contract 12: the documented install is the shell — README, the manifest, the findings' data — and the command prose names it without an npx literal", () => {
+test("shells contract 12: README still documents the shell (until the release's documents), while the remedies, the findings' data and the command prose name the core with --harness, no shell and no --project", () => {
+  // README's install is PR B's, which merges with the release that carries
+  // setup (the story "User-facing text says where to run and names no project
+  // path and no shell", Technical Notes, landing order): until then it keeps
+  // the shells' commands.
   const readme = read(join(ROOT, "README.md"));
   assert.ok(readme.includes(`npx ${CLAUDE.name} install --project "$PWD"`), "the one-message install is the shell");
   assert.ok(readme.includes(`npx ${CLAUDE.name}@<version> upgrade --project "$PWD"`), "so is the upgrade");
@@ -923,17 +931,18 @@ test("shells contract 12: the documented install is the shell — README, the ma
   );
   assert.equal((readme.match(/npx projectstore install --harness claude-code/g) || []).length, 1);
   assert.ok(!readme.includes("there is only one package"), "the shells ADR's invalidation of that sentence");
-  // Data strings are built by one helper from the manifest's install.shell.
+  // Data strings are built by one helper, in the core's form for every
+  // manifest — a shell named in install.shell or not (the story above, rule 2).
   const h = loadHarness(SRC.id);
-  assert.equal(packageCommand(h, "install", { args: '--project "/p"' }), `npx ${CLAUDE.name} install --project "/p"`);
+  assert.equal(packageCommand(h, "install"), `npx projectstore install --harness ${SRC.id}`);
   assert.equal(
     packageCommand(h, "upgrade", { version: "0.28.0", args: "--surface plugin" }),
-    `npx ${CLAUDE.name}@0.28.0 upgrade --surface plugin`,
+    `npx projectstore@0.28.0 upgrade --harness ${SRC.id} --surface plugin`,
   );
   assert.equal(
-    packageCommand({ id: "opencode" }, "install", { args: '--project "/p"' }),
-    'npx projectstore install --harness opencode --project "/p"',
-    "a manifest without a shell names the core with --harness",
+    packageCommand({ id: "opencode" }, "install"),
+    "npx projectstore install --harness opencode",
+    "a manifest without a shell names the core with --harness too",
   );
   const stale = checkPluginRegistration("/p", [
     {
@@ -947,18 +956,20 @@ test("shells contract 12: the documented install is the shell — README, the ma
       path: "x",
     },
   ]);
-  assert.match(stale[0].message, new RegExp(`npx ${CLAUDE.name}@0\\.28\\.0 upgrade --surface plugin --project "/p"`));
-  assert.ok(!stale[0].message.includes("--harness"), "the shell fixes the harness");
-  // Every published shell, read from the real manifests: Codex's remedies name
-  // projectstore-codex from 0.28.1, which is what that release exists for. The
-  // README documents each one's install.
+  assert.equal(
+    stale[0].message,
+    `e — stale: r. Refresh it from a terminal in "/p":\nnpx projectstore@0.28.0 upgrade --harness ${SRC.id} --surface plugin`,
+  );
+  // Every published shell's harness, read from the real manifests: its remedy
+  // is the core's with its --harness, never the shell. The README documents
+  // each one's install until the release's documents.
   for (const s of SHELLS.filter((x) => !x.private)) {
     assert.ok(readme.includes(`npx ${s.name} install --project "$PWD"`), `the README documents ${s.name}'s install`);
     const m = loadHarness(s.harness);
     assert.equal(
       packageCommand(m, "upgrade", { version: "0.28.1", args: "--surface plugin" }),
-      `npx ${s.name}@0.28.1 upgrade --surface plugin`,
-      `${s.harness}: a remedy names ${s.name}`,
+      `npx projectstore@0.28.1 upgrade --harness ${s.harness} --surface plugin`,
+      `${s.harness}: a remedy names the core with --harness ${s.harness}`,
     );
     const row = checkPluginRegistration("/p", [
       {
@@ -972,19 +983,19 @@ test("shells contract 12: the documented install is the shell — README, the ma
         path: "x",
       },
     ]);
-    assert.match(
-      row[0].message,
-      new RegExp(`npx ${s.name}@0\\.28\\.1 upgrade --surface plugin --project "/p"`),
-      `${s.harness}: the stale-registration finding names its shell`,
+    assert.ok(
+      row[0].message.endsWith(`\nnpx projectstore@0.28.1 upgrade --harness ${s.harness} --surface plugin`),
+      `${s.harness}: the stale-registration finding ends with the core's form: ${row[0].message}`,
     );
-    assert.ok(!row[0].message.includes("--harness"), `${s.harness}: the shell fixes the harness`);
+    assert.ok(!row[0].message.includes(s.name) && !row[0].message.includes("--project"), row[0].message);
   }
   const legacy = mkdtempSync(join(TMP, "legacy-"));
   mkdirSync(join(legacy, SRC.runtime.harness_dir));
   writeFileSync(join(legacy, SRC.runtime.harness_dir, "projectstore.json"), "{}");
-  // The shell form is the remedy where the session runs the package's own
-  // registration; a git-marketplace copy names its own bin instead (the layout
-  // spec, contract 12 as amended 2026-10-03 — tests/layout.test.mjs pins both).
+  // The core's npm form is the remedy where the session runs the package's
+  // own registration (the front-door ADR, decision 5); a git-marketplace copy
+  // names its own bin instead (the layout spec, contract 12 as amended
+  // 2026-10-03 — tests/layout.test.mjs pins both).
   const regHome = mkdtempSync(join(TMP, "reg-home-"));
   const regRoot = join(
     claudeHome(regHome),
@@ -999,13 +1010,15 @@ test("shells contract 12: the documented install is the shell — README, the ma
     lay.some(
       (f) =>
         f.check === "layout-legacy" &&
-        new RegExp(`npx ${CLAUDE.name}@[^ ]+ upgrade --no-register --project`).test(f.message),
+        new RegExp(`\\nnpx projectstore@[^ ]+ upgrade --harness ${SRC.id} --no-register$`).test(f.message),
     ),
     JSON.stringify(lay),
   );
-  // The prompt surface: the shell by name, never `npx` (the A8 lint keeps the literal out; contract 12).
+  // The prompt surface names no shell and no `npx` (the A8 lint keeps the
+  // literal out): the npm registration's refresh is the package's `upgrade`.
   const doctorMd = read(join(ROOT, "commands", "doctor.md"));
-  assert.ok(doctorMd.includes(`\`${CLAUDE.name}\` shell's \`upgrade\``), "doctor.md routes the refresh to the shell");
+  assert.ok(doctorMd.includes("the package's `upgrade`"), "doctor.md routes the refresh to the package");
+  for (const x of SHELLS) assert.ok(!doctorMd.includes(x.name), `doctor.md names no shell: ${x.name}`);
   assert.ok(!/npx /.test(doctorMd));
   // The reserved stubs no longer hold the shell names; the old opencode name points at the new one.
   const reserved = readdirSync(join(ROOT, "packaging", "reserved"));

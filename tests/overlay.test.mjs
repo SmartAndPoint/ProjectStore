@@ -119,9 +119,16 @@ test("overlay contract 2: the allowlist is two keys — everything else is ignor
   // With its own root and an empty home, never the developer's ~/.claude: the
   // command is the layout move's, in the running copy's own form.
   const g = checkOverlays(readConfigAt(proj), proj, { root: ROOT, home: mkdtempSync(join(TMP, "ps-overlay-home-")) });
-  const move = `node "${join(ROOT, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj}"`;
+  // The directory in prose, the command alone on the last line, no --project
+  // (the story "User-facing text says where to run…", rules 1 and 4).
+  const move = `node "${join(ROOT, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register`;
   assert.ok(
-    g.some((x) => x.check === "agents-in-binding" && x.level === "warn" && x.message.includes(move)),
+    g.some(
+      (x) =>
+        x.check === "agents-in-binding" &&
+        x.level === "warn" &&
+        x.message.endsWith(`Move it from a terminal in ${JSON.stringify(proj)}, outside the session:\n${move}`),
+    ),
     JSON.stringify(g.map((x) => x.message)),
   );
   // A configured name outside the roster is a warn naming the roster: nothing runs under it.

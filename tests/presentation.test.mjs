@@ -49,7 +49,7 @@ import { report, CHECKS } from "../scripts/doctor-report.mjs";
 import { run, usage, verbHelp, VERBS, SUMMARY_MAX } from "../scripts/cli.mjs";
 import { renderStatus, startDate } from "../scripts/query.mjs";
 import { OFFER_CHECKS } from "../scripts/doctor.mjs";
-import { commandForm, doctorSummaryLine } from "../scripts/lib.mjs";
+import { commandForm, doctorSummaryLine, doctorFallbackText } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
@@ -162,10 +162,18 @@ test("presentation equivalence: SGR-stripped rich equals rich-no-colour, and pla
   const squeezed = donePiped.replace(":\n\n  npx ", ":\n  npx ");
   assert.notEqual(squeezed, donePiped, "the mutation applies");
   assert.notEqual(transform(squeezed), transform(doneBare), "a missing blank line before the command block");
+  // DONE's tip is one command since the story "User-facing text says where
+  // to run and names no project path and no shell" (rule 5); bind's Next has
+  // two, the session's and the terminal's.
+  const bind = SCREENS.find(([s]) => s === "bind")[1];
+  const [bindPiped, bindBare] = [await bind(MODES.plain), await bind(MODES["rich-no-colour"])];
+  const joined = bindPiped.replace("scaffold\n  npx", "scaffold  npx");
+  assert.notEqual(joined, bindPiped, "the mutation applies");
+  assert.notEqual(transform(joined), transform(bindBare), "two commands run together on one line");
   assert.notEqual(
-    transform(donePiped.replace("--verbose\n  npx", "--verbose  npx")),
+    transform(donePiped.replace("--verbose\n", "--verbose — a note\n")),
     transform(doneBare),
-    "two commands run together on one line",
+    "text after a command on its line",
   );
 });
 
@@ -509,9 +517,14 @@ test("presentation criterion 5: top-level --help lists the verbs in named groups
       // Examples and the tips' plan command: each alone on its line, after a blank one.
       const ex = lines.indexOf("Examples");
       assert.equal(lines[ex + 1], "", name);
+      // The core's form through a shell too; setup, which the shell runs with
+      // its own --harness, names that harness there (the story "User-facing
+      // text says where to run and names no project path and no shell", rule 6).
       for (const l of lines.slice(ex + 2, lines.indexOf("", ex + 2)))
-        assert.match(l, /^ {2}npx projectstore\S* (setup|status|doctor)$/, name);
+        assert.match(l, /^ {2}npx projectstore (setup|status|doctor)( --harness \S+)?$/, name);
       assert.equal(lines[ex + 2].trim().split(" ")[2], "setup", "setup is the first example");
+      const own = harnessIds().find((id) => loadHarness(id).install?.shell === env.PROJECTSTORE_SHELL);
+      assert.equal(lines[ex + 2], `  npx projectstore setup${env.PROJECTSTORE_SHELL ? ` --harness ${own}` : ""}`, name);
       assert.match(
         lines[lines.indexOf("Tips") + 1],
         /^ {2}setup, install, upgrade and uninstall show a plan, then ask at a terminal\.$/,
@@ -686,7 +699,7 @@ test("presentation criterion 7: a synchronous APPLY step shows … while it runs
 
 // ─── The rest of contract 7 and 8 ─────────────────────────────────────
 
-test("presentation: the same-block line sits in the other harness's group, two spaces in; DONE's Next is one line per display name, and its one tip is each shell's plan command with --verbose, alone on its line after a blank one", () => {
+test("presentation: the same-block line sits in the other harness's group, two spaces in; DONE's Next is one line per display name, and its one tip is the core's plan command naming every planned harness, with --verbose, alone on its line after a blank one", () => {
   const text = renderPreview(installPlan(), { verb: "install", caps: PLAIN, home: HOME });
   const codex = text.slice(text.indexOf("\nCodex\n"));
   assert.ok(codex.includes("\n  · AGENTS.md — the same block as Claude Code, above\n"), text);
@@ -701,33 +714,42 @@ test("presentation: the same-block line sits in the other harness's group, two s
     ["Claude Code", "Codex"],
   );
   // After the settled facts, one tip — the --verbose tip is merged into it —
-  // then its commands, each alone on its line, nothing after the flag.
+  // then one core command naming every planned harness, alone on its line,
+  // nothing after the flag, no --project (the story "User-facing text says
+  // where to run and names no project path and no shell", rule 5).
   assert.deepEqual(done.slice(done.indexOf("\n  version  0.30.0\n") + 1).split("\n\n"), [
     "  version  0.30.0",
     "  To preview without writing, with every row's reasoning:",
-    '  npx projectstore-claude plan --project "$PWD" --verbose\n  npx projectstore-codex plan --project "$PWD" --verbose\n',
+    "  npx projectstore plan --harness claude-code --harness codex --verbose\n",
   ]);
   // No prose line carries a command or puts punctuation after one.
   for (const l of done.split("\n").filter((x) => x.includes("--verbose") || x.includes(" plan ")))
-    assert.match(l, /^ {2}npx \S+ plan --project \S+ --verbose$/, l);
-  // A project that is not the current directory gets its real path; once
-  // --verbose was given, the commands leave it out and the tip says less.
+    assert.match(l, /^ {2}npx projectstore plan( --harness \S+)+ --verbose$/, l);
+  // A project that is not the current directory is named in the lead, quoted;
+  // the command stays the same. Once --verbose was given, the commands leave
+  // it out and the tip says less.
   const elsewhere = renderDone(
     { verb: "install", plan: installPlan(), applied: [], failed: null, elapsed: 0 },
     { caps: PLAIN, cwd: "/somewhere/else" },
   );
-  assert.ok(elsewhere.includes(`\n  npx projectstore-claude plan --project "${PROJECT}" --verbose\n`), elsewhere);
+  assert.ok(
+    elsewhere.endsWith(
+      `\n  To preview without writing, from a terminal in ${JSON.stringify(PROJECT)}:\n\n  npx projectstore plan --harness claude-code --harness codex --verbose\n`,
+    ),
+    elsewhere,
+  );
   const verbose = renderDone(
     { verb: "install", plan: installPlan(), applied: [], failed: null, elapsed: 0 },
     { caps: PLAIN, cwd: PROJECT, verbose: true },
   );
   assert.ok(
     verbose.endsWith(
-      '\n  To preview without writing:\n\n  npx projectstore-claude plan --project "$PWD"\n  npx projectstore-codex plan --project "$PWD"\n',
+      "\n  To preview without writing:\n\n  npx projectstore plan --harness claude-code --harness codex\n",
     ),
     verbose,
   );
   assert.ok(!verbose.includes("--verbose"), verbose);
+  assert.ok(![done, elsewhere, verbose].some((t) => t.includes("--project")), "no tip names --project");
   // After an uninstall a plan would preview the opposite of what ran: no tip.
   const gone = renderDone(
     { verb: "uninstall", plan: installPlan(), applied: [], failed: null, elapsed: 0 },
@@ -802,17 +824,17 @@ test("presentation bind: the binding as key–value lines, then each command alo
     caps: PLAIN,
   });
   assert.equal(same, "Already bound to /v.\n\nNext: see where the project stands:\n\n  npx projectstore status\n");
-  // The terminal's form is the package the run was invoked as: a shell's own name through it.
+  // The terminal's form is the core's, through a shell too: what a person
+  // runs next names no shell (the story "User-facing text says where to run
+  // and names no project path and no shell", rule 6).
   const shells = harnessIds()
     .map((id) => loadHarness(id).install?.shell)
     .filter(Boolean);
-  for (const s of shells)
-    assert.ok(
-      renderBindPlan(p, {}, { env: { PROJECTSTORE_SHELL: s }, caps: PLAIN }).endsWith(
-        `\n  npx ${s} scaffold --write\n`,
-      ),
-      s,
-    );
+  for (const s of shells) {
+    const through = renderBindPlan(p, {}, { env: { PROJECTSTORE_SHELL: s }, caps: PLAIN });
+    assert.ok(through.endsWith("\n  npx projectstore scaffold --write\n"), through);
+    assert.ok(!through.includes(s), through);
+  }
   // On a live terminal the prose wraps with a hanging indent of two; on a
   // pipe it stays one line; the commands stand alone in both.
   const live = renderBindPlan(bindPlan(), {}, { env: {}, caps: MODES["rich-no-colour"] });
@@ -1256,6 +1278,88 @@ test("presentation doctor criterion 6: the last line is the Summary line, verbat
   assert.ok(report([], ["vault"], { env: NO_ENV }).startsWith("projectstore doctor\n\nVAULT"));
 });
 
+// A finding's message with leads (the story "User-facing text says where to
+// run and names no project path and no shell", rule 4 as amended): the first
+// line is prose, the path before its closing colon; a further line ending in
+// `:` is a lead, drawn as prose after a blank line at the entry's text
+// indent; any other is a command, alone after a blank line, six spaces in.
+// The fallback keeps the message's lines as they are.
+test("presentation doctor: a message's leads are drawn as prose after a blank line, its commands alone after a blank line six spaces in, the path on the first line; the fallback keeps the lines", () => {
+  const lines = [
+    `x (0.29.0) is off for this checkout. To go back to it, from a terminal in ${JSON.stringify(PROJECT)}, outside the session:`,
+    "npx projectstore@0.30.0 uninstall --harness claude-code --surface plugin",
+    "Restart, then in the session:",
+    "/projectstore:doctor --fix",
+    "If moving to npm was meant, record it from a terminal in this project:",
+    "npx projectstore setup --channel npm",
+  ];
+  const f = {
+    group: "install",
+    level: "info",
+    check: "plugin-registration",
+    file: "reg/marketplace.json",
+    message: lines.join("\n"),
+  };
+  const plainText = report([f], ["install"], { caps: MODES.plain, env: NO_ENV });
+  const at = plainText.indexOf("[plugin-registration]");
+  assert.ok(
+    plainText
+      .slice(at)
+      .startsWith(
+        [
+          `[plugin-registration] ${lines[0].slice(0, -1)} — reg/marketplace.json:`,
+          "",
+          `      ${lines[1]}`,
+          "",
+          `  ${lines[2]}`,
+          "",
+          `      ${lines[3]}`,
+          "",
+          `  ${lines[4]}`,
+          "",
+          `      ${lines[5]}`,
+          "",
+        ].join("\n"),
+      ),
+    plainText,
+  );
+  // On a terminal the first line wraps; every lead and command stays whole on its line.
+  for (const mode of ["rich-no-colour", "ascii"]) {
+    const t = report([f], ["install"], { caps: MODES[mode], env: NO_ENV });
+    for (const k of [2, 4]) assert.ok(t.includes(`\n\n  ${lines[k]}\n\n`), `${mode}: lead ${k}\n${t}`);
+    for (const k of [1, 3, 5]) assert.ok(t.includes(`\n\n      ${lines[k]}\n`), `${mode}: command ${k}\n${t}`);
+    assert.ok(!t.includes(`${lines[5]} —`) && !t.includes(`${lines[1]} —`), "no path after a command");
+  }
+  assert.ok(
+    doctorFallbackText([f], { env: NO_ENV }).startsWith(
+      `info plugin-registration ${lines[0]} — reg/marketplace.json\n${lines.slice(1).join("\n")}\n`,
+    ),
+  );
+});
+
+// An instance row draws a message whole with its path after it; a message
+// with further lines is never grouped, so its path is never drawn after one
+// of its commands.
+test("presentation doctor: a multi-line message matching a check's instance pattern is drawn as its own entry, never grouped", () => {
+  const cmd = commandForm("codemap", { args: "--for PS-A", env: NO_ENV });
+  const multi = (p) => ({
+    group: "vault",
+    level: "issue",
+    check: "code-refs",
+    file: `epics/PS-A/stories/${p}.md`,
+    message: `code_refs path "${p}" does not resolve inside the project. Check it, in the session:\n${cmd}`,
+  });
+  const one = (p) => ({ ...multi(p), message: `code_refs path "${p}" does not resolve inside the project.` });
+  for (const mode of ["plain", "rich-no-colour"]) {
+    const t = report([multi("a"), multi("b"), one("c"), one("d")], ["vault"], { caps: MODES[mode], env: NO_ENV });
+    // The two single-line findings still group under the title.
+    assert.ok(t.includes(`${CHECKS["code-refs"].title} (2)`), t);
+    // Each multi-line one is its own entry: its command alone, no path after it.
+    assert.equal(t.split(`\n      ${cmd}\n`).length - 1, 2, t);
+    assert.ok(!t.includes(`${cmd} —`) && !t.includes(`${cmd} -`), t);
+  }
+});
+
 test("presentation doctor: wrapped on a terminal at any width, a finding's path keeps its dash on its line; a note draws the info glyph", () => {
   const withFile = [...DOCTOR_FINDINGS, ...CAPTURED_VAULT].filter((f) => f.file);
   let moved = 0;
@@ -1338,16 +1442,16 @@ test("presentation status: +N more is the stories counted less those listed, and
     unbound,
     `Not bound — ${PROJECT}\n\nNext: bind it to a vault, in a session or from a terminal:\n\n  ${commandForm("bind", { args: "<vault>", env: {} })}\n  npx projectstore bind <vault>\n`,
   );
-  // The terminal's form is the package the run was invoked as: a shell's own name through it.
+  // The terminal's form is the core's, through a shell too (rule 6 of the
+  // story "User-facing text says where to run and names no project path and
+  // no shell").
   for (const s of harnessIds()
     .map((id) => loadHarness(id).install?.shell)
-    .filter(Boolean))
-    assert.ok(
-      renderStatus({ bound: false, project: PROJECT }, { caps: PLAIN, env: { PROJECTSTORE_SHELL: s } }).endsWith(
-        `\n  npx ${s} bind <vault>\n`,
-      ),
-      s,
-    );
+    .filter(Boolean)) {
+    const through = renderStatus({ bound: false, project: PROJECT }, { caps: PLAIN, env: { PROJECTSTORE_SHELL: s } });
+    assert.ok(through.endsWith("\n  npx projectstore bind <vault>\n"), through);
+    assert.ok(!through.includes(s), through);
+  }
   // A view stale or missing wants a reconcile: both in the attention role; fresh is done's.
   const rich = renderStatus(r, { caps: MODES.rich, env: {} });
   assert.ok(

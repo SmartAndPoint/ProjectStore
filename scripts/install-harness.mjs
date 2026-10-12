@@ -234,6 +234,7 @@ import {
   rollbackPortableMarketplace,
   removeTreeUnder,
   projectDirRefusal,
+  fromTerminalIn,
   registrationProvenance,
   envFlag,
   selectCopy,
@@ -1055,7 +1056,12 @@ function planRegistration(ctx, key, s) {
 
   // install / upgrade
   if (!a.produced) {
-    // A cache install never registers a second copy of itself (condition npm_package_root).
+    // A cache install never registers a second copy of itself (condition
+    // npm_package_root). Each reason names the npm package's command in the
+    // core form, alone after its lead, the directory in the lead's words and
+    // never as --project (the story "User-facing text says where to run…",
+    // rules 1, 2 and 4): PLAN draws the command on its own line, and the
+    // envelope's reason carries it one part per line (advised).
     if (a.state === "absent" || a.state === "unavailable")
       return named
         ? [
@@ -1063,7 +1069,15 @@ function planRegistration(ctx, key, s) {
               ...base,
               action: "skip",
               deferred: true,
-              reason: `this root is the host's own install of the plugin; it does not register a second copy of itself — the npm package does, from a terminal: ${packageCommand(harness, "install", { args: `--project "${projectDir}"` })}`,
+              ...advised(
+                "this root is the host's own install of the plugin; it does not register a second copy of itself",
+                [
+                  {
+                    lead: `The npm package does, ${fromTerminalIn(projectDir)}:`,
+                    command: packageCommand(harness, "install"),
+                  },
+                ],
+              ),
             },
           ]
         : [];
@@ -1073,7 +1087,12 @@ function planRegistration(ctx, key, s) {
         ...base,
         action: "skip",
         deferred: true,
-        reason: `${a.reason} — this root is the host's own install; refresh the registration from the package, outside a session: ${packageCommand(harness, "upgrade", { version: "<version>", args: `--surface ${key} --project "${projectDir}"` })}`,
+        ...advised(`${a.reason} — this root is the host's own install`, [
+          {
+            lead: `Refresh the registration with the npm package, ${fromTerminalIn(projectDir)}, outside a session:`,
+            command: packageCommand(harness, "upgrade", { version: "<version>", args: `--surface ${key}` }),
+          },
+        ]),
       },
     ];
   }
@@ -5572,14 +5591,18 @@ export function renderDone(r, { caps: c = PLAIN, verbose = false, cwd = process.
     ]),
   ];
   if (facts.length) lines.push("", ...kv(c, facts));
-  // The tip: each shell's `plan` command, carrying --verbose unless it was
+  // The tip: one core `plan` command naming every harness the run planned
+  // (packageCommand, one --harness each), carrying --verbose unless it was
   // given, so the --verbose tip is this one and DONE has one tip, never
   // more than contract 18's two. Each command stands alone on its line, the
   // flag last (contract 6). `plan` previews an install: after an uninstall
   // it would preview the opposite of what just ran, so there is no tip.
-  // A kept harness's tip is the kept copy's own plan, from its bin with
-  // --no-register — this package's plan previews the other channel — and
-  // none when that copy cannot run it; --verbose only where its CLI takes it.
+  // A kept harness is not in the core tip: its tip is the kept copy's own
+  // plan, from its bin with --no-register — this package's plan previews the
+  // other channel — and none when that copy cannot run it; --verbose only
+  // where its CLI takes it. Neither carries --project (the story "User-facing
+  // text says where to run…", rules 1 and 5): a project that is not the
+  // current directory is named in the lead.
   const here = (() => {
     try {
       return realpathSync(p.projectDir) === realpathSync(cwd);
@@ -5590,23 +5613,25 @@ export function renderDone(r, { caps: c = PLAIN, verbose = false, cwd = process.
   const previews = [];
   let reasoned = true;
   if (r.verb !== "uninstall") {
+    const kept = (id) => keeps.find((i) => i.harness === id);
+    const core = p.harnesses
+      .filter((id) => !kept(id))
+      .map((id) => loadHarness(id))
+      .filter(Boolean);
+    if (core.length) previews.push(packageCommand(core, "plan", { args: verbose ? "" : "--verbose" }));
     for (const id of p.harnesses) {
-      const m = loadHarness(id);
-      const k = keeps.find((i) => i.harness === id);
-      if (k && k.kept.bin && !verbose && !k.kept.verbose) reasoned = false;
-      const project = `--project ${here ? '"$PWD"' : `"${p.projectDir}"`}`;
-      const cmd = k
-        ? k.kept.bin
-          ? `node "${k.kept.bin}" plan --harness ${id} --no-register ${project}${verbose || !k.kept.verbose ? "" : " --verbose"}`
-          : null
-        : m
-          ? packageCommand(m, "plan", { args: `${project}${verbose ? "" : " --verbose"}` })
-          : null;
-      if (cmd && !previews.includes(cmd)) previews.push(cmd);
+      const k = kept(id);
+      if (!k?.kept.bin) continue;
+      if (!verbose && !k.kept.verbose) reasoned = false;
+      const cmd = `node "${k.kept.bin}" plan --harness ${id} --no-register${verbose || !k.kept.verbose ? "" : " --verbose"}`;
+      if (!previews.includes(cmd)) previews.push(cmd);
     }
   }
-  const lead =
-    verbose || !reasoned ? "To preview without writing:" : "To preview without writing, with every row's reasoning:";
+  const lead = !here
+    ? `To preview without writing, ${fromTerminalIn(p.projectDir)}:`
+    : verbose || !reasoned
+      ? "To preview without writing:"
+      : "To preview without writing, with every row's reasoning:";
   if (extra?.tip) lines.push("", `  ${paint("explanation", extra.tip.lead)}`, ...commandBlock(c, extra.tip.commands));
   else if (previews.length) lines.push("", `  ${paint("explanation", lead)}`, ...commandBlock(c, previews));
   return lines.join("\n") + "\n";

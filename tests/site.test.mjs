@@ -45,7 +45,7 @@ import { sourceNames, invocationPatterns, stripComments } from "./fixtures/vocab
 import { VERBS } from "../scripts/cli.mjs";
 import { languageNames } from "../scripts/binding.mjs";
 import { TOOLS } from "../scripts/mcp.mjs";
-import { loadHarness, sourceHarness, uiWordPatterns } from "../scripts/harness.mjs";
+import { loadHarness, loadHarnesses, sourceHarness, uiWordPatterns } from "../scripts/harness.mjs";
 import {
   slugify,
   anchorKeyOf,
@@ -1433,6 +1433,21 @@ test("site: the slugger gives GitHub's anchors — the ones README's own links u
   for (const [rel, a] of links) assert.ok(anchors(read(rel)).includes(a), `${rel}#${a}`);
   const install = new URL(sourceHarness().install.docs);
   assert.ok(anchors(read("README.md")).includes(install.hash.slice(1)), `the manifest's ${install.href}`);
+  // Every README link in every manifest's update_hint lands on a heading too:
+  // both welcomes linked a dead #updates until the story "User-facing text
+  // says where to run and names no project path and no shell" (rule 7 as
+  // amended) made it #upgrading.
+  const repo = `${install.origin}${install.pathname}#`;
+  const hintLinks = [...loadHarnesses().values()].flatMap((m) =>
+    [m.update_hint?.line || "", ...(m.update_hint?.welcome || [])].flatMap((t) =>
+      String(t)
+        .split(/\s+/)
+        .filter((w) => w.startsWith(repo))
+        .map((w) => [m.id, w.slice(repo.length).replace(/[^\w-]+$/, "")]),
+    ),
+  );
+  assert.ok(hintLinks.length >= 2, `the update hints link README: ${JSON.stringify(hintLinks)}`);
+  for (const [id, a] of hintLinks) assert.ok(anchors(read("README.md")).includes(a), `${id}'s update_hint: #${a}`);
   for (const h of INSTALL_HEADINGS) assert.ok(anchors(read("README.md")).includes(slug(h)), h);
   assert.equal(slug("What it costs — measured, not promised"), "what-it-costs--measured-not-promised");
   assert.equal(slug("Surviving `/compact`"), "surviving-compact");

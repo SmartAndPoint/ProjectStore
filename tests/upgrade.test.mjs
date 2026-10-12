@@ -186,16 +186,30 @@ test("upgrade: the first 0.28 session touches nothing of ours, names the one pen
   // re-stamps the launcher, so the line does not also offer `doctor --fix`;
   // and the move runs this copy's own bin, because the copy came from the git
   // marketplace (contract 12, amended the same day).
-  const ownBin = `node "${join(root, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj}"`;
+  // The command carries no --project and stands alone on its line, the
+  // re-stamp sentence before it, and each part of the line on lines of its
+  // own (the story "User-facing text says where to run and names no project
+  // path and no shell", rules 1, 4 and 5).
+  const ownBin = `node "${join(root, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register`;
   assert.match(
     sys,
     /layout moved to \.projectstore\//,
     "the startup line names the layout move (the layout ADR, 2026-09-06)",
   );
-  assert.ok(sys.includes(ownBin), "in the copy's own channel: " + sys);
-  assert.match(sys, /The same run re-stamps the status line launcher\./, "and says it covers the re-stamp");
+  // The relocated home's prefix (`<home variable>="…" `) may lead it.
+  const lines = (out.systemMessage || "").split("\n");
+  const at = lines.findIndex((l) => l === ownBin || (/^[A-Z_]+="[^"]*" /.test(l) && l.endsWith(` ${ownBin}`)));
+  assert.ok(at > 0, "in the copy's own channel, alone on its line: " + out.systemMessage);
+  assert.equal(at, lines.length - 1, "the offer ends the line: " + out.systemMessage);
+  assert.ok(
+    lines[at - 1].endsWith(
+      `The same run re-stamps the status line launcher. Migrate it from a terminal in ${JSON.stringify(proj)}, outside the session:`,
+    ),
+    "the re-stamp sentence goes before the command, and the lead names the directory: " + out.systemMessage,
+  );
+  assert.ok(!sys.includes("--project"), sys);
   assert.doesNotMatch(sys, /doctor --fix/, "not a second step");
-  assert.doesNotMatch(sys, /npx /, "not the shell, which would switch the channel");
+  assert.doesNotMatch(sys, /npx /, "not the npm form, which would switch the channel");
   assert.deepEqual(
     snapshot(proj, vault),
     before,

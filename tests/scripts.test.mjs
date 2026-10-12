@@ -1538,8 +1538,12 @@ test("SessionStart: delivers on additionalContext, and the welcome renders once 
   // unbound variant — the one contract 3 quotes as 1,077 — is pinned by the
   // buildWelcome arithmetic below rather than by this delta, because this
   // fixture is bound. Edit the copy and this fails with the number to update.
-  const WELCOME_BOUND_BASE = 1093,
-    WELCOME_UNBOUND = 1077;
+  // 2026-10-12: +2 in both variants — the update block's dead `#updates` link
+  // became `#upgrading` (the story "User-facing text says where to run and
+  // names no project path and no shell", rule 7 as amended): 1,079 unbound,
+  // 1,095 + the path bound, 1,295 worst case.
+  const WELCOME_BOUND_BASE = 1095,
+    WELCOME_UNBOUND = 1079;
   const vaultPath = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path;
   const delta = withWelcome.length - without.length;
   assert.equal(

@@ -148,23 +148,30 @@ export function report(
   function entries(level, check, r, these) {
     const [, glyph, role] = LEVELS.find(([l]) => l === level);
     const lead = `${paint(role, icon(c, glyph))} [${check}]`;
-    const matched = r.instance ? these.filter((f) => !f.about && r.instance.test(f.message)) : [];
+    // A message with further lines (leads, commands) is never grouped: an
+    // instance row draws the message whole with its path after it, which
+    // would put the path after a command.
+    const matched = r.instance
+      ? these.filter((f) => !f.about && !String(f.message).includes("\n") && r.instance.test(f.message))
+      : [];
     const grouped = matched.length >= 2 ? matched : [];
     const out = [];
     for (const f of these) {
-      // A message whose further lines are commands (the silenced copy's
-      // `setup --channel npm`): its prose and path as one entry, then each
-      // command alone on its line after a blank one (contract 6). The path
-      // goes before the prose's closing colon, so the colon introduces the
-      // command, not the path.
-      const [said, ...commands] = String(f.message).split("\n");
-      if (!grouped.includes(f) && commands.length) {
+      // A message with further lines (a remedy, the silenced copy's way back
+      // and `setup --channel npm`): its first line is prose, drawn with the
+      // path as one entry; the path goes before that line's closing colon, so
+      // the colon introduces what follows, not the path. After it, a line
+      // ending in `:` is a lead, drawn as prose after a blank line at the
+      // entry's text indent; any other line is a command, drawn alone after a
+      // blank line, six spaces in (contract 6; the story "User-facing text
+      // says where to run…", rule 4 as amended).
+      const [said, ...further] = String(f.message).split("\n");
+      if (!grouped.includes(f) && further.length) {
         const colon = said.endsWith(":") ? ":" : "";
-        out.push(
-          ...prose(2, withPath(`${lead} ${colon ? said.slice(0, -1) : said}`, f) + colon),
-          ...commandBlock(c, commands, { indent: 6 }),
-          "",
-        );
+        out.push(...prose(2, withPath(`${lead} ${colon ? said.slice(0, -1) : said}`, f) + colon));
+        for (const l of further)
+          out.push(...(l.endsWith(":") ? ["", ...prose(2, l)] : commandBlock(c, [l], { indent: 6 })));
+        out.push("");
         continue;
       }
       if (!grouped.includes(f)) {

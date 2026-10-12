@@ -495,12 +495,13 @@ test("layout contract 6: the layout item is planned whatever --surface names, an
 test("layout contract 7 / 12: doctor's layout-legacy names the upgrade in the channel of the copy the project runs, and the startup line offers it; inside a live session the migration is deferred", () => {
   const { home, root } = home028(); // a git-marketplace cache copy, enabled for the project in the registry
   const { proj, lp } = legacyProject(home);
-  const ownBin = (r) =>
-    `node "${join(r, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj}"`;
-  const shell = /npx projectstore-claude@[^ ]+ upgrade --no-register --project/; // both forms leave the registration alone
-  // A git-marketplace copy runs its own bin, registration left out: the shell
-  // would register the npm copy here and turn this one off (contract 12,
-  // amended 2026-10-03).
+  const ownBin = (r) => `node "${join(r, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register`;
+  // The npm form is the core's with --harness (the front-door ADR, decision
+  // 5); both forms leave the registration alone, and neither names --project.
+  const shell = /\nnpx projectstore@[^ ]+ upgrade --harness claude-code --no-register$/;
+  // A git-marketplace copy runs its own bin, registration left out: the npm
+  // package's plain upgrade would register the npm copy here and turn this
+  // one off (contract 12, amended 2026-10-03).
   const f = checkLayout(proj, undefined, { root, home });
   assert.equal(f.length, 1);
   assert.equal(f[0].check, "layout-legacy");
@@ -508,7 +509,16 @@ test("layout contract 7 / 12: doctor's layout-legacy names the upgrade in the ch
   assert.ok(f[0].message.includes(ownBin(root)), f[0].message);
   assert.doesNotMatch(f[0].message, /npx /);
   assert.match(f[0].message, /through 0\.29/);
-  // The package's own registration: the shell form (A13).
+  // The directory in prose, then the command alone on the last line (the
+  // story "User-facing text says where to run…", rules 1 and 4).
+  assert.ok(
+    f[0].message.endsWith(
+      `. Migrate it from a terminal in ${JSON.stringify(proj)}, outside the session:\n${ownBin(root)}`,
+    ),
+    f[0].message,
+  );
+  assert.ok(!f[0].message.includes("--project"), f[0].message);
+  // The package's own registration: the core's npm form (A13).
   const npm = fakeInstall(home, VERSION, { marketplace: SRC.surfaces.plugin.marketplace_name });
   assert.match(checkLayout(proj, undefined, { root: npm, home })[0].message, shell);
   // Not a host copy — a terminal npx run, a checkout: the copy the project has
@@ -528,7 +538,7 @@ test("layout contract 7 / 12: doctor's layout-legacy names the upgrade in the ch
   assert.match(checkLayout(proj2, undefined, { root: npx, home: bare })[0].message, shell);
   assert.ok(
     checkLayout(proj2, undefined, { root: ROOT, home: bare })[0].message.includes(
-      `node "${join(ROOT, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj2}"`,
+      `node "${join(ROOT, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register`,
     ),
   );
   // A local-scope row that belongs to ANOTHER checkout never counts, however
@@ -548,7 +558,7 @@ test("layout contract 7 / 12: doctor's layout-legacy names the upgrade in the ch
   ]);
   assert.ok(
     checkLayout(proj2, undefined, { root: npx, home: bare })[0].message.includes(
-      `node "${join(gitBare, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj2}"`,
+      `node "${join(gitBare, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register`,
     ),
     "another checkout's newer npm row is ignored",
   );
@@ -583,8 +593,7 @@ test("layout contract 12: the copy a terminal or checkout run names is this proj
   const home = mkdtempSync(join(TMP, "ps-layout-reg-"));
   const { proj } = legacyProject(home);
   const npx = join(home, ".npm", "_npx", "x", "node_modules", "projectstore");
-  const ownBin = (r) =>
-    `node "${join(r, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj}"`;
+  const ownBin = (r) => `node "${join(r, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register`;
   const msg = () => checkLayout(proj, undefined, { root: npx, home })[0].message;
   const gitA = fakeInstall(home, "0.28.0-a", { full: true });
   const gitB = fakeInstall(home, "0.28.0-b", { full: true });
@@ -612,7 +621,7 @@ test("layout contract 12: the copy a terminal or checkout run names is this proj
   ]);
   assert.match(
     msg(),
-    /npx projectstore-claude@[^ ]+ upgrade --no-register --project/,
+    /\nnpx projectstore@[^ ]+ upgrade --harness claude-code --no-register$/,
     "nothing present: the package root's own form",
   );
   // A copy this project disabled does not count.
@@ -624,7 +633,7 @@ test("layout contract 12: the copy a terminal or checkout run names is this proj
   writeFileSync(sp, JSON.stringify({ ...s0, enabledPlugins: { "projectstore@SmartAndPoint": false } }, null, 2) + "\n");
   assert.match(
     msg(),
-    /npx projectstore-claude@[^ ]+ upgrade --no-register --project/,
+    /\nnpx projectstore@[^ ]+ upgrade --harness claude-code --no-register$/,
     "disabled here: not this project's copy",
   );
   writeFileSync(sp, JSON.stringify(s0, null, 2) + "\n");
@@ -655,7 +664,7 @@ test("layout contract 12: the copy a terminal or checkout run names is this proj
   ]);
   assert.match(
     msg(),
-    /npx projectstore-claude@0\.28\.0-npm upgrade --no-register --project/,
+    /\nnpx projectstore@0\.28\.0-npm upgrade --harness claude-code --no-register$/,
     "the npm copy: the shell, at its own version",
   );
 });
@@ -722,10 +731,12 @@ test("layout contract 12: a copy whose CLI does not declare --no-register gets a
   const reg = msg();
   assert.match(reg, /npm registration's copy and predates --no-register/);
   assert.ok(
-    reg.includes(`npx projectstore-claude@0.28.1 upgrade --project "${proj}"`),
-    "the running version refreshes it: " + reg,
+    reg.endsWith(
+      `Refresh that registration, which moves the project too, from a terminal in ${JSON.stringify(proj)}, outside the session:\nnpx projectstore@0.28.1 upgrade --harness ${SRC.id}`,
+    ),
+    "the running version refreshes it, the core's form alone on the last line: " + reg,
   );
-  assert.doesNotMatch(reg, /--no-register --project/, "the refresh registers: npm is this project's channel");
+  assert.doesNotMatch(reg.split("\n").at(-1), /--no-register/, "the refresh registers: npm is this project's channel");
   assert.doesNotMatch(reg, /@0\.28\.0-rc\.2 /, "never at the copy's own version: that refresh would change nothing");
   // Chosen first, gated after: the project's own copy is what it runs, so a capable user-scope copy does not stand in.
   const capable = fakeInstall(home, "0.28.0-b", { full: true });
@@ -812,9 +823,7 @@ test("layout contract 12: doctor's install report threads its root and home into
   const f = (await runInstallChecks(cfg, proj, { root, home })).find((x) => x.check === "layout-legacy");
   assert.ok(
     f &&
-      f.message.includes(
-        `node "${join(root, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register --project "${proj}"`,
-      ),
+      f.message.includes(`node "${join(root, "bin", "projectstore.mjs")}" upgrade --harness ${SRC.id} --no-register`),
     f && f.message,
   );
 });

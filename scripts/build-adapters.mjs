@@ -158,11 +158,12 @@ hand.
    --project "$PWD"\` and offer \`$projectstore-scaffold\` only when a row
    reads \`create\`.
 
-Codex plugin updates are performed with the \`projectstore-codex upgrade\`
-installer command; this skill never sends the user to another harness's plugin
-UI. Codex has no ProjectStore status-line surface, so binding does not offer or
-write one. Model choices, when requested, go through \`$projectstore-agents
-configure\` and the Codex overlay.`,
+Codex plugin updates are the core's \`upgrade\` with \`--harness codex\`, which
+the person runs from a terminal in this project; this skill never sends the
+user to another harness's plugin UI.
+Codex has no ProjectStore status-line surface, so binding does not offer or
+write one. Model choices, when requested, go through
+\`$projectstore-agents configure\` and the Codex overlay.`,
   },
   doctor: {
     description:

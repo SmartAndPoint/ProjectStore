@@ -92,8 +92,11 @@ export function updateHint({ env = process.env } = {}) {
   const m = speakingHarness(env) || {};
   // A harness that declares no hint gets none — never another harness's advice.
   const hint = m.update_hint || { line: "", welcome: [] };
-  // `{upgrade}` is the harness's own shell command, pinned to latest so it runs as printed.
-  const upgrade = m.install?.shell ? packageCommand(m, "upgrade", { version: "latest", args: '--project "$PWD"' }) : "";
+  // `{upgrade}` is the core's upgrade for this harness, pinned to latest so it
+  // runs as printed, with no --project: the hint says where to run it (the
+  // story "User-facing text says where to run…", rule 2). Any hint that holds
+  // the placeholder gets it; one that holds none prints as written.
+  const upgrade = m.id ? packageCommand(m, "upgrade", { version: "latest" }) : "";
   const fill = (t) => String(t).split("{upgrade}").join(upgrade);
   return { line: fill(hint.line || ""), welcome: (hint.welcome || []).map(fill) };
 }
@@ -146,8 +149,10 @@ export function doctorSummaryLine(findings, { env = process.env } = {}) {
 // What a reader gets when the renderer cannot draw the findings: each one
 // per line, `level check message — file`, then the Summary line, still last.
 export function doctorFallbackText(findings, { env = process.env } = {}) {
-  // A message's further lines are commands (doctor's silenced-copy info): the
-  // file stays with its words, and each command keeps a line of its own.
+  // A message's first line is prose; each further line is a lead ending with
+  // `:` or a command (the story "User-facing text says where to run…", rule 4
+  // as amended): the file stays with the first line's words, and every
+  // further line keeps a line of its own, as the message has it.
   const lines = findings.map((f) => {
     const [said, ...commands] = String(f.message).split("\n");
     return [`${f.level} ${f.check} ${said}${f.file ? ` — ${f.file}` : ""}`, ...commands].join("\n");
@@ -1027,10 +1032,13 @@ export function isEphemeralRoot(root) {
 }
 
 // Which channel the copy at `root` came through. A remedy that re-runs the
-// installer has to ask this first, because the package's shell registers the
-// plugin through its OWN channel: run for a git-marketplace user, it adds a
-// second copy and turns the installed one off for the checkout (the layout
-// spec, contract 12 as amended 2026-10-03). The answers:
+// installer has to ask this first, because the npm package's upgrade
+// registers the plugin through the npm channel: run for a git-marketplace
+// user without --no-register, it adds a second copy and turns the installed
+// one off for the checkout (the layout spec, contract 12 as amended
+// 2026-10-03). So the remedy names the copy's own bin for a host copy of
+// another channel, and the core's form only for the npm registration's. The
+// answers:
 // - "registration": the host's cache copy of the registration marketplace the
 //   manifest names, i.e. the package's own channel;
 // - "marketplace": any other host cache copy (the git marketplace, a fork);
@@ -1060,6 +1068,14 @@ export function projectDirRefusal(dir) {
     if (statSync(dir).isDirectory()) return null;
   } catch {}
   return `no such project directory: ${JSON.stringify(String(dir))} — nothing is written`;
+}
+
+// Where a printed command runs, named in prose (the story "User-facing text
+// says where to run and names no project path and no shell", rule 1): the
+// command carries no --project, so a run's own output names the directory,
+// quoted as the refusal above quotes it — a trailing comma or space shows.
+export function fromTerminalIn(dir) {
+  return `from a terminal in ${JSON.stringify(String(dir))}`;
 }
 
 // ─── Status line wiring (SessionStart-managed) ─────────────────────────

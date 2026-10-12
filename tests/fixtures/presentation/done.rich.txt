@@ -10,5 +10,4 @@
 
   [90mTo preview without writing, with every row's reasoning:[39m
 
-  [36mnpx projectstore-claude plan --project "$PWD" --verbose[39m
-  [36mnpx projectstore-codex plan --project "$PWD" --verbose[39m
+  [36mnpx projectstore plan --harness claude-code --harness codex --verbose[39m

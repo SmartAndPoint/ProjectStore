@@ -77,6 +77,7 @@ import {
   layoutPaths,
   RUNTIME_GITIGNORE_HEADER,
   whichOnPath as libWhichOnPath,
+  commandForm,
 } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -1169,10 +1170,21 @@ test("install contract 18: --verbose restores the prose the default folds, and D
   assert.match(done, /\nDone — 3 changes in 1\.2s\n/);
   // Next: one line for the harness — its display name, then its manifest's steps (presentation spec contract 8).
   assert.ok(done.includes(`\nNext\n  Claude Code  ${loadHarness(SRC.id).install.next.join("; ")}\n`), done);
-  // The --verbose tip is the preview tip: the plan command carries the flag, last on its line.
+  // The --verbose tip is the preview tip: the core's plan command carries the
+  // flag, last on its line, and no --project; a project that is not the
+  // current directory is named in the lead (the story "User-facing text says
+  // where to run…", rule 5).
   assert.match(
     done,
-    /\n {2}To preview without writing, with every row's reasoning:\n\n {2}npx \S+ plan --project "[^"]+" --verbose\n$/,
+    new RegExp(
+      `\\n {2}To preview without writing, from a terminal in "[^"]+":\\n\\n {2}npx projectstore plan --harness ${SRC.id} --verbose\\n$`,
+    ),
+  );
+  assert.match(
+    renderDone({ verb: "install", plan: p, applied: [], failed: null, elapsed: 0 }, { cwd: p.projectDir }),
+    new RegExp(
+      `\\n {2}To preview without writing, with every row's reasoning:\\n\\n {2}npx projectstore plan --harness ${SRC.id} --verbose\\n$`,
+    ),
   );
   assert.ok(
     !renderDone({ verb: "install", plan: p, applied: [], failed: null, elapsed: 0 }, { verbose: true }).includes(
@@ -1935,9 +1947,11 @@ test("install contract 6 (doctor half): a block a used harness cannot see is nam
   assert.equal(inSession.length, 1, JSON.stringify(inSession));
   assert.equal(inSession[0].level, "issue");
   assert.match(inSession[0].message, /in AGENTS\.md, which Claude Code does not see: CLAUDE\.md does not import it/);
+  // The directory in prose, the command alone on the last line, no --project
+  // (the story "User-facing text says where to run…", rules 1, 4 and 5).
   assert.ok(
-    inSession[0].message.includes(
-      `node "${join(root, "bin", "projectstore.mjs")}" install --harness ${SRC.id} --surface agents_block --project "${only}"`,
+    inSession[0].message.endsWith(
+      ` from a terminal in ${JSON.stringify(only)}:\nnode "${join(root, "bin", "projectstore.mjs")}" install --harness ${SRC.id} --surface agents_block`,
     ),
     inSession[0].message,
   );
@@ -2312,17 +2326,22 @@ test("install rule 5: a bare upgrade at a terminal selects Codex by its state di
   assert.equal(r.failed, null, JSON.stringify(r.failed));
   const text = chunks.join("");
   assert.match(text, /\nDone — /);
-  // The tip names every harness the upgrade planned, Codex included — each
-  // command alone on its line, --verbose last (presentation spec contract 6).
+  // The tip names every harness the upgrade planned, Codex included, in one
+  // core command alone on its line, --verbose last (presentation spec
+  // contract 6); the run is not in the project, so the lead names it (the
+  // story "User-facing text says where to run…", rules 1 and 5).
   assert.ok(
-    text.includes("\n  To preview without writing, with every row's reasoning:\n\n"),
+    text.includes(`\n  To preview without writing, from a terminal in ${JSON.stringify(resolve(proj))}:\n\n`),
     text.slice(text.indexOf("Done")),
   );
-  for (const m of [SRC, CODEX])
-    assert.ok(
-      text.includes(`\n  ${packageCommand(m, "plan", { args: `--project "${resolve(proj)}" --verbose` })}\n`),
-      `${m.id}: ${text.slice(text.indexOf("Done"))}`,
-    );
+  assert.ok(
+    text.includes(`\n  ${packageCommand([SRC, CODEX], "plan", { args: "--verbose" })}\n`),
+    text.slice(text.indexOf("Done")),
+  );
+  assert.ok(
+    text.endsWith(`\n  npx projectstore plan --harness ${SRC.id} --harness ${CODEX.id} --verbose\n`),
+    text.slice(text.indexOf("Done")),
+  );
   // A registration of ours for the whole machine, and no state directory: not a signal.
   const machine = project({ statusline: false });
   writeFileSync(
@@ -3487,7 +3506,10 @@ test("setup engine 'The vault: a failing git init': the APPLY line is ▲ git in
   const message = "fatal: cannot mkdir .git: Read-only file system";
   assert.equal(r.warnings.length, 1);
   assert.deepEqual([r.warnings[0].step, r.warnings[0].path, r.warnings[0].message], ["git-init", s.vault, message]);
-  assert.match(r.warnings[0].remedy, /^Run `git init` in \S+, or \S+doctor --fix, which offers it\.$/);
+  assert.match(
+    r.warnings[0].remedy,
+    /^Run git init in "[^"]+" from a terminal, or doctor's fix in a session, which offers it:\ngit -C \S+ init\n\S+doctor --fix$/,
+  );
   const text = sink.text();
   assert.ok(text.includes(`      ▲ git init failed: ${message}`), text);
   assert.ok(!text.includes("✕"), "nothing failed");
@@ -3947,7 +3969,7 @@ test("setup engine: gitTop answers the realpath'd top of the work tree from a su
 });
 
 test(
-  "setup engine 'The vault: a failed scaffold; git not on PATH': git missing is the git init step skipped in its own words — never ▲, never ✕ — and the vault is made without .git; a scaffold that cannot write fails the vault item, the run stops there, and STOPPED names `projectstore scaffold --write` beside the binding already written",
+  "setup engine 'The vault: a failed scaffold; git not on PATH': git missing is the git init step skipped in its own words — never ▲, never ✕ — and the vault is made without .git; a scaffold that cannot write fails the vault item, the run stops there, and STOPPED names `npx projectstore scaffold --write`, alone on its line, beside the binding already written",
   { skip: process.getuid?.() === 0 ? "root writes into a read-only folder" : false },
   async () => {
     // Git not on PATH: skipped, said so on the step's own line.
@@ -3991,10 +4013,14 @@ test(
       });
       assert.equal(r.gate.confirmed, true, JSON.stringify(r.gate));
       assert.equal(r.failed.step, "scaffold");
-      assert.ok(
-        r.failed.stderr.endsWith("\nThe binding is written; `projectstore scaffold --write` finishes the vault."),
-        r.failed.stderr,
-      );
+      // What finishes the vault: its lead naming the project, then each form
+      // alone on its line (the story "User-facing text says where to run…").
+      const finish = [
+        `The binding is written. Finish the vault in a session, or from a terminal in ${JSON.stringify(f.proj)}:`,
+        commandForm("scaffold", { env: f.env }),
+        "npx projectstore scaffold --write",
+      ];
+      assert.ok(r.failed.stderr.endsWith(`\n${finish.join("\n")}`), r.failed.stderr);
       assert.equal(r.applied.length, 1, "the run stops at the vault");
       assert.equal(r.applied[0].bind.wrote, true);
       assert.equal(JSON.parse(read(layoutPaths(f.proj).binding)).vault_path, f.vault, "the binding is written");
@@ -4006,10 +4032,7 @@ test(
       );
       const stopped = renderDone(r);
       assert.match(stopped, /^Stopped — 0 changes applied, then scaffold failed$/m);
-      assert.ok(
-        stopped.includes("      The binding is written; `projectstore scaffold --write` finishes the vault.\n"),
-        stopped,
-      );
+      assert.ok(stopped.includes(`\n${finish.map((l) => `      ${l}`).join("\n")}\n`), stopped);
     } finally {
       chmodSync(f.vault, 0o755);
     }
