@@ -1,6 +1,6 @@
 {
   "name": "projectstore-claude",
-  "version": "0.29.4",
+  "version": "0.30.0",
   "description": "projectstore for Claude Code: the core pinned and bundled, the harness fixed. A release artifact; the way in is npx projectstore setup",
   "keywords": [
     "projectstore",
@@ -37,7 +37,7 @@
     "README.md"
   ],
   "dependencies": {
-    "projectstore": "=0.29.4"
+    "projectstore": "=0.30.0"
   },
   "bundleDependencies": [
     "projectstore"
