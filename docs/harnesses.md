@@ -96,6 +96,12 @@ project-local. Ordinary uninstall leaves the global plugin in place; add
 build runs through the same flow: [`packaging/README.md`](../packaging/README.md#running-a-checkouts-build)
 has the tarball loop.
 
+`npx projectstore configure` changes Codex's settings as it does Claude Code's.
+In a project that uses only Codex, it offers no status line and no band: Codex
+has neither surface. An agent's model goes to `.projectstore/harness/codex.json`:
+name it in Codex's own vocabulary with `--set agents.<name>=<model>`. The
+terminal's model presets are Claude Code's, so they are not offered for Codex.
+
 What is known, and how:
 
 - **Hooks load from Codex's default file, so the shell carries no root

@@ -85,6 +85,30 @@ npx projectstore setup
 
 Setup finds the coding agents the project uses — Claude Code, Codex or both — and installs ProjectStore for each, with a vault for the project's notes. At a terminal it asks a few questions: which folder is the project, which agents to install for, where the vault lives (an existing folder is bound; a missing or empty one becomes a new vault, with its own git repository and the layout's folders) and whether to show ProjectStore in the status line. Then it prints one plan — every file it writes and every host command, verbatim — and asks once before it writes anything. Restart the agent afterwards; Codex asks you to approve the ProjectStore hooks once.
 
+**What it needs:**
+
+- Node.js 20 or later, always. The plugin's hooks, its MCP server and the status line run as `node` inside the agent session.
+- npm, for Codex only: setup fetches the Codex plugin through npm. Claude Code alone needs no npm.
+- The agent's own CLI on PATH (`claude`, `codex`), and git for a new vault.
+- A terminal outside every Claude Code and Codex session: inside one, the registration waits and the plan says so.
+- macOS or Linux. Windows is not verified yet.
+
+Other package runners start setup the same way. Each was observed running it with Claude Code and Codex:
+
+```
+bunx projectstore@latest setup
+```
+
+```
+pnpm dlx projectstore@latest setup
+```
+
+```
+deno run -A npm:projectstore@latest setup
+```
+
+`pnpm dlx` needs pnpm 6.13 or later. Without npm on PATH, a runner sets up Claude Code and refuses Codex, naming npm. The runner only fetches the package: setup copies the plugin into the agents' own directories, so clearing the runner's cache later breaks nothing.
+
 `npx projectstore setup --dry-run` shows the questions and the plan and writes nothing. Without a terminal (a script, CI, an agent's tool) nothing is asked: `--harness <id>` names an agent and is the confirmation, and `--vault <path>` names the vault. `npx projectstore setup --help` lists the rest.
 
 If you prefer a global command:
@@ -377,7 +401,44 @@ A Claude Code install from the git marketplace is removed in the session:
 /plugin uninstall projectstore@SmartAndPoint
 ```
 
+**What a removal keeps:**
+
+- the vault;
+- the binding `.projectstore/projectstore.json`, with the status-line choice, so a later setup wires the line again;
+- the agents' models in `.projectstore/harness/`, which is committed team configuration;
+- Codex's user-wide registration, until `--global` removes it.
+
+`--global` removes the Codex plugin for every other project on this machine too. Their `AGENTS.md` blocks stay and name agents that no longer load: uninstall Codex in each of them as well, or set them up again.
+
 Your vault is yours — plain markdown, untouched. One leftover of a host-managed plugin path can be the agents block in `CLAUDE.md`/`AGENTS.md`; remove it with the harness's agents unregister skill, or delete everything between `<!-- projectstore:agents … -->` and `<!-- /projectstore:agents -->` by hand. A one-harness `uninstall`, with `--harness <id>`, leaves a block that lives in `AGENTS.md`, because that file is read by other coding agents too. Claude Code's then removes the `CLAUDE.md` import when that file holds nothing else; Codex's keeps it, so Claude Code still sees the block. `uninstall --surface agents_block` removes the block as well. Once every harness that can read the block's file is among those uninstalled (for `AGENTS.md`, Claude Code and Codex), the block goes too, and the `CLAUDE.md` import with it unless your own text keeps both files.
+
+### Reinstalling clean
+
+Keeping the vault and the binding, uninstall and set up again. The second setup finds both:
+
+```
+npx projectstore uninstall
+```
+
+```
+npx projectstore setup
+```
+
+To start as if the project was never bound, remove only the machine-local half after the uninstall. `.projectstore/harness/` and `.projectstore/.gitignore` are committed; keep them. The binding also carries the template language, the default author and tags, the skills switch, the band and the status-line choice, and removing it drops them. Setup then asks for the vault again.
+
+```
+rm -f .projectstore/projectstore.json
+```
+
+```
+rm -rf .projectstore/state
+```
+
+To point the project at another vault, no reinstall is needed. From a terminal in your project:
+
+```
+npx projectstore bind ~/vaults/other --rebind
+```
 
 ## Extending
 

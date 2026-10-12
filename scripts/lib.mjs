@@ -90,10 +90,15 @@ export function sharedRoleForm(name) {
   return invocation(sourceHarness(), name, { kind: "agents" });
 }
 // What a welcome says about updates, and the product name a message uses.
-export function updateHint({ env = process.env } = {}) {
+export function updateHint({ env = process.env, root = pluginRoot(), home = homedir() } = {}) {
   const m = speakingHarness(env) || {};
   // A harness that declares no hint gets none — never another harness's advice.
-  const hint = m.update_hint || { line: "", welcome: [] };
+  // A copy loaded from another channel than the hint's own says that
+  // channel's way to update (installChannel: string tests, no file read, so
+  // the SessionStart budget holds): a git-marketplace copy keeps the host's
+  // auto-update toggle, the npm registration and a checkout get the npm form.
+  const channel = m.update_hint?.by_channel ? installChannel(root, { home, harness: m }) : null;
+  const hint = (channel && m.update_hint.by_channel[channel]) || m.update_hint || { line: "", welcome: [] };
   // `{upgrade}` is the core's upgrade for this harness, pinned to latest so it
   // runs as printed, with no --project: the hint says where to run it (the
   // story "User-facing text says where to run…", rule 2). Any hint that holds

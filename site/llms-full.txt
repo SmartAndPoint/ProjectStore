@@ -115,6 +115,14 @@ npx projectstore setup
 
 Setup finds the coding agents the project uses — Claude Code, Codex or both — and installs ProjectStore for each. At a terminal it asks a few questions: the project folder, the agents to install for, where the vault lives and whether to show ProjectStore in the status line. It binds the vault, or creates it when the folder is missing or empty (its own git repository, the layout's folders and their README indexes). Then it prints one plan, every file it writes and every host command, and asks once before it writes. Afterwards, restart the agent; Codex asks to approve the ProjectStore hooks once. Codex's support is experimental; the harnesses page linked above says what has been verified.
 
+Node.js 20 or newer is needed always: the hooks, the MCP server and the status line run as `node` inside the session. npm is needed only for Codex, whose plugin setup fetches through it. Other package runners start setup the same way:
+
+```
+bunx projectstore@latest setup
+pnpm dlx projectstore@latest setup
+deno run -A npm:projectstore@latest setup
+```
+
 Inside a Claude Code session, the git marketplace is the other way in:
 
 ```
@@ -168,6 +176,34 @@ A teammate with no agent at all needs nothing installed: the vault is Markdown, 
 ### 5.3 An existing codebase with no vault
 
 Bind first, then run the `archaeologist` agent once. It scans manifests, git history and the shape of the code for decisions that were made but never written down — stack choices, architectural shapes, conventions, migration inflection points — and proposes backfill ADRs and concepts with evidence (`file:line`, commit hashes), naming the command to run for each. It writes nothing itself, and it deduplicates against whatever the vault already holds. The vault starts seeded instead of empty.
+
+### 5.4 Configuring, upgrading and removing
+
+Setup asks only what a first install needs. Afterwards, `configure` shows every setting with its value and the file it lives in: each agent's model per harness, the status line and the band, the template language, and the vault's spec policy and lifecycle gates. At a terminal it asks which to change and shows one plan. Without a terminal it prints the view; a change named with `--set` applies, and naming it is the confirmation.
+
+```
+npx projectstore configure
+```
+
+```
+npx projectstore configure --set agents.critic=fable --set statusline=on
+```
+
+An upgrade names the version that runs, and converges every agent the project uses in one plan:
+
+```
+npx projectstore@<version> upgrade
+```
+
+A removal takes back what install wrote, and only that. The vault, the binding `.projectstore/projectstore.json` and the committed agent models in `.projectstore/harness/` stay, so a later setup finds them. Codex's plugin is registered for every project on the machine, so its removal is explicit:
+
+```
+npx projectstore uninstall
+```
+
+```
+npx projectstore uninstall --harness codex --global
+```
 
 ## 6. Multi-human, multi-agent
 

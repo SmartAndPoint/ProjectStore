@@ -28,6 +28,7 @@ import {
   writeVaultConfig,
   vaultConfigPath,
   fromTerminalIn,
+  commandForm,
 } from "./lib.mjs";
 import { planBindingKeys, applyBindingKeys, languageNames } from "./binding.mjs";
 import { bandKeys, epicIds, planBand, applyBand } from "./band.mjs";
@@ -530,7 +531,13 @@ export function planChanges(f, changes, { env = process.env, home = homedir(), r
     if (sl.value && row && row.action === "skip" && row.state !== "ours-current")
       return refuse(
         [
-          `the status line cannot be wired from this copy: ${String(row.reason).replace(/ \(see the registration above\)$/, "")}. Register the package ${fromTerminalIn(f.project)} first:`,
+          // A copy run from a package manager's cache has no install path of its
+          // own to wire the line against. The copy a session runs has one: the
+          // in-session command reaches this same writer from it, whichever
+          // channel installed it; the package's registration is the other way.
+          `the status line cannot be wired from this copy: ${String(row.reason).replace(/ \(see the registration above\)$/, "")}. In a session in this project:`,
+          commandForm("statusline", { args: "on", env }),
+          `Or register the package ${fromTerminalIn(f.project)}:`,
           packageCommand([], "setup"),
         ].join("\n"),
       );
@@ -710,7 +717,10 @@ const railChoices = (s, f) => {
   if (s.rail === "policy") return ["optional", "required"];
   if (s.rail === "epic") return [...f.epics, { value: CLEAR, label: "release the pin" }];
   if (s.rail === "model") {
-    const list = [...MODEL_PRESETS];
+    // The presets are Claude Code's model names: offered only for a harness
+    // whose agents carry a model (agent_translation.carries_model). Any other
+    // harness's model is named with --set, in its own vocabulary.
+    const list = loadHarness(s.harness)?.agent_translation?.carries_model === true ? [...MODEL_PRESETS] : [];
     if (s.value && !list.includes(s.value)) list.unshift(s.value);
     return [...list, { value: CLEAR, label: s.key === "agents.default" ? "clear" : "clear (the default decides)" }];
   }

@@ -339,7 +339,7 @@ test("configure contract 11: the refusals decided at PLAN write nothing — an u
     project(),
     { set: ["statusline=on"] },
     1,
-    /cannot be wired from this copy[^\n]*:\nnpx projectstore setup$/,
+    /cannot be wired from this copy[^\n]*In a session in this project:\n\/projectstore:statusline on\nOr register the package[^\n]*:\nnpx projectstore setup$/,
     { root: npx },
   );
   await check(project({ harnesses: [CODEX] }), { set: ["statusline=on"] }, 2, /a surface of Claude Code/);
