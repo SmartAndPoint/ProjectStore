@@ -2016,7 +2016,7 @@ const PLANTED = [
     ...onPage("pt", (p) => checkVersion(p, REPO)),
     fact: "version",
     message: /package\.json is/,
-    edits: [['data-fact="version">v0.30.0</span></div>', 'data-fact="version">v0.28.0</span></div>']],
+    edits: [['data-fact="version">v0.30.1</span></div>', 'data-fact="version">v0.28.0</span></div>']],
   },
   {
     ac: "4",
@@ -2024,7 +2024,7 @@ const PLANTED = [
     ...onPage("ru", (p) => checkVersion(p, REPO)),
     fact: "version",
     message: /outside a data-fact="version"/,
-    edits: [['<title data-i18n="meta.title">ProjectStore —', '<title data-i18n="meta.title">ProjectStore v0.30.0 —']],
+    edits: [['<title data-i18n="meta.title">ProjectStore —', '<title data-i18n="meta.title">ProjectStore v0.30.1 —']],
   },
   {
     ac: "4",
@@ -2039,8 +2039,8 @@ const PLANTED = [
     what: "llms-full.txt's closing line names another release",
     ...onText(LLMS_FULL, (f, t) => checkVersionText(f, t, REPO)),
     fact: "version",
-    message: /Version 0\.29\.4/,
-    edits: [["Version 0.30.0. Facts and figures", "Version 0.29.4. Facts and figures"]],
+    message: /Version 0\.30\.0/,
+    edits: [["Version 0.30.1. Facts and figures", "Version 0.30.0. Facts and figures"]],
   },
   {
     ac: "4",
@@ -2169,8 +2169,8 @@ const PLANTED = [
     message: /a value fact is a leaf/,
     edits: [
       [
-        '<span class="version-badge" data-fact="version">v0.30.0</span>',
-        '<span class="version-badge" data-fact="version"><b>v0.30.0</b></span>',
+        '<span class="version-badge" data-fact="version">v0.30.1</span>',
+        '<span class="version-badge" data-fact="version"><b>v0.30.1</b></span>',
       ],
     ],
   },
@@ -2280,7 +2280,7 @@ const PLANTED = [
     what: "llms.txt's facts heading names another release",
     ...onText(LLMS_TXT, (f, t) => checkLlmsFacts(f, t, REPO)),
     fact: "version",
-    edits: [["**Facts about version 0.30.0.**", "**Facts about version 0.29.4.**"]],
+    edits: [["**Facts about version 0.30.1.**", "**Facts about version 0.30.0.**"]],
   },
   {
     ac: "4",
