@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { hostname, homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { parseFrontmatter } from "./stages.mjs";
+import { storyKeyOf } from "./band-shared.mjs";
 import {
   projectRoot as harnessProjectRoot,
   pluginRoot as harnessPluginRoot,
@@ -50,6 +51,7 @@ import {
   speakingHarness,
   packageCommand,
   whichOnPath,
+  hostSessionId,
 } from "./harness.mjs";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
@@ -2981,11 +2983,135 @@ export function writeSessionState(projectDir, sessionId, patch) {
   // readSessionState answers null, so the next write keeps only its own patch
   // and the rest of the pointer is gone for good. The rename also hides the
   // empty instant after the truncate. The
-  // default sweep stays on: this writer runs only on vault-file tool calls, so
+  // default sweep stays on: this writer runs only on vault-file tool calls,
+  // story-close refreshes and once at SessionStart, so
   // it can afford the readdir that reaps orphan temps here (the status line's
   // breadcrumb, written beside it, opts out because it renders every refresh).
   writeFileAtomic(sessionStatePath(projectDir, sessionId), JSON.stringify(next, null, 2));
   return next;
+}
+
+// ─── The pointer's epic and story (ADR-006 decision 1, amended 2026-10-12) ──
+// What touching one vault file says about this session's work: the epic it
+// sits under and, for a story, the story's key, title and status as the file
+// says them NOW — callers run after a write, never before it. The merge in
+// writeSessionState cannot delete a key, so a story field with no value is
+// written as null (every reader treats it as absent): a touch of another
+// epic clears the previous epic's story, and an unreadable story names no
+// stale title. Null when the file is not under an epic.
+export function pointerPatchFor(vaultPath, filePath, cur, read = (p) => readFileSync(p, "utf8")) {
+  const m = filePath.slice(vaultPath.length + 1).match(/^epics\/([^/]+)\/(.+)$/);
+  if (!m) return null;
+  const [, epicId, inEpic] = m;
+  const patch = { active_epic: epicId };
+  try {
+    const { data } = parseFrontmatter(read(join(vaultPath, "epics", epicId, "epic.md")));
+    if (data.title) patch.epic_title = String(data.title);
+  } catch {}
+  const key = storyKeyOf(inEpic);
+  if (key) {
+    let data = null;
+    try {
+      data = parseFrontmatter(read(filePath)).data;
+    } catch {}
+    patch.active_story = key;
+    patch.story_title = data && data.title ? String(data.title) : null;
+    patch.story_status = data && data.status ? String(data.status) : null;
+  } else if (!cur || cur.active_epic !== epicId) {
+    Object.assign(patch, { active_story: null, story_title: null, story_status: null });
+  }
+  return patch;
+}
+
+// The file a pointer's story key names, by the three shapes the board lists
+// (storyKeyOf); null when none exists. existsSync is a stat, which does not
+// download an evicted iCloud file.
+export function storyFileFor(vaultPath, epicId, key) {
+  if (!epicId || !key || /[/\\\0]/.test(epicId) || /[/\\\0]/.test(key)) return null;
+  const epicDir = join(vaultPath, "epics", epicId);
+  const candidates = [join(epicDir, "stories", `${key}.md`), join(epicDir, "stories", key, "README.md")];
+  if (key.startsWith("story-")) candidates.push(join(epicDir, `${key}.md`));
+  return candidates.find((p) => existsSync(p)) || null;
+}
+
+// `projectstore session refresh <path>` — ADR-006 decision 1's "projectstore
+// commands on approved epic/story writes". The close ceremony copies the
+// story through Bash, which no hook sees, so the story command calls this
+// after the copy: this session's pointer is patched from the file as it is
+// now, as a touch of that file would be. The session is the host's
+// (session_id_env); a harness that names none gets nothing written and no
+// failure, so a close there is never broken by it. `path` is vault-relative
+// or absolute inside the vault.
+export function refreshSessionPointer(projectDir, cfg, path, { env = process.env } = {}) {
+  const vault = cfg.vault_path;
+  const abs = isAbsolute(path) ? resolve(path) : join(vault, path);
+  const rel = abs.startsWith(`${vault}/`) ? abs.slice(vault.length + 1) : null;
+  if (!rel) return { refusal: { code: "NOT_IN_VAULT", message: `${path} is not inside the bound vault (${vault})` } };
+  if (!existsSync(abs)) return { refusal: { code: "NOT_FOUND", message: `${rel} does not exist in the vault` } };
+  const sessionId = hostSessionId(env);
+  const cur = sessionId ? readSessionState(projectDir, sessionId) : null;
+  const patch = pointerPatchFor(vault, abs, cur);
+  if (!patch || !patch.active_story)
+    return { refusal: { code: "NOT_A_STORY", message: `${rel} is not a story file under an epic` } };
+  if (!sessionId) return { session: null, refreshed: false, reason: "no-session", path: rel };
+  const next = writeSessionState(projectDir, sessionId, patch);
+  return {
+    session: sessionId,
+    refreshed: true,
+    path: rel,
+    pointer: {
+      active_epic: next.active_epic ?? null,
+      active_story: next.active_story ?? null,
+      story_title: next.story_title ?? null,
+      story_status: next.story_status ?? null,
+    },
+  };
+}
+
+// SessionStart's refresh of this session's story fields from the story file:
+// a pointer written before a close (0.29.3 patched it before the write, and
+// never on the close ceremony's copy), or a story closed in another session
+// or by hand since. The read races a budget, as resolveOpenStory's does — an
+// evicted file blocks — and a lost race writes nothing. A story the epic no
+// longer has clears the fields; a vault or epic folder that is not there (an
+// unmounted drive) proves nothing and writes nothing.
+// "refreshed" | "unchanged" | "unknown".
+export async function refreshStoryPointer(projectDir, vaultPath, sessionId, opts = {}) {
+  const cur = readSessionState(projectDir, sessionId);
+  if (!cur || !cur.active_epic || !cur.active_story) return "unchanged";
+  const file = storyFileFor(vaultPath, cur.active_epic, cur.active_story);
+  if (!file && !existsSync(join(vaultPath, "epics", cur.active_epic, "epic.md"))) return "unknown";
+  let title = null;
+  let status = null;
+  if (file) {
+    const readFile = opts.readFile || ((p) => readFileAsync(p, "utf8"));
+    let timer = null;
+    const deadline = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), opts.budgetMs ?? 200);
+    });
+    let text;
+    try {
+      text = await Promise.race([
+        Promise.resolve()
+          .then(() => readFile(file))
+          .then(String, () => null),
+        deadline,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (text === null) return "unknown";
+    const { data } = parseFrontmatter(text);
+    title = data.title ? String(data.title) : null;
+    status = data.status ? String(data.status) : null;
+  }
+  const patch = file
+    ? { story_title: title, story_status: status }
+    : { active_story: null, story_title: null, story_status: null };
+  const same = Object.entries(patch).every(([k, v]) => (cur[k] ?? null) === v);
+  if (same) return "unchanged";
+  writeSessionState(projectDir, sessionId, patch);
+  return "refreshed";
 }
 
 export function cleanupStaleSessionState(projectDir, maxAgeHours = 24) {

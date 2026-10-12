@@ -30,6 +30,7 @@ import {
   ensureStateRoot,
   syncStatusLine,
   cleanupStaleSessionState,
+  refreshStoryPointer,
   armReminder,
   truncEnd,
   truncFront,
@@ -234,6 +235,15 @@ async function main() {
   try {
     cleanupStaleSessionState(proj);
   } catch {}
+  // This session's story fields from the story file, once (ADR-006, amended
+  // 2026-10-12): a pointer written before a close, or a story closed elsewhere
+  // since, stops naming finished work. A bounded read; a lost race writes
+  // nothing.
+  if (sid) {
+    try {
+      await refreshStoryPointer(proj, cfg.vault_path, sid);
+    } catch {}
+  }
 
   // Arm BEFORE the auto_inject gate. The entry reminder's markers must be
   // re-armed after a compaction whether or not this session injects context —

@@ -4,7 +4,9 @@
 // Called by BOTH the PreToolUse and PostToolUse hooks, and gated on which:
 // a write inside the vault fires both events, so without the gate the pointer
 // patch below would run twice per call — and that patch is the unguarded
-// read-modify-write the entry-rule state deliberately avoids.
+// read-modify-write the entry-rule state deliberately avoids. A write's
+// pointer patch (and the raw-edit nudge) runs on PostToolUse, from the file as
+// written; any other tool's on PreToolUse (ADR-006, amended 2026-10-12).
 //
 // Responsibilities:
 // 1. Liveness — touches this session's registration file (mtime) so other
@@ -30,8 +32,7 @@
 // session_id, or on any error — a PreToolUse hook must never crash the
 // user's tool call.
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
 import {
   readConfig,
   readStdinJson,
@@ -43,7 +44,7 @@ import {
   projectRoot,
   appendActivity,
   isInsideVault,
-  parseFrontmatter,
+  pointerPatchFor,
   readSessionState,
   writeSessionState,
   isSourcePath,
@@ -77,8 +78,9 @@ import {
 const NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 
 // Per-session active pointer (ADR-006) — denormalized titles/status captured
-// at write time so the statusline renders with zero vault reads — plus the
-// raw-edit nudge (PS-IMPROVE story-003): throttled, never blocking.
+// after the write so the statusline renders with zero vault reads — plus the
+// raw-edit nudge (PS-IMPROVE story-003): throttled, never blocking. Both in
+// patchPointer below.
 // The session-name offer (ADR: the settled-anchor offer). Returns a line or
 // null. Separate from the pointer patch because the two answer different
 // questions — the pointer is "what is current", this is "has the session
@@ -90,7 +92,7 @@ function layoutOnce(cfg) {
 }
 
 function anchorOffer(cfg, proj, sid, filePath, toolName, isSubagent, sessionsDir = null) {
-  // The two gates. The pointer patch above deliberately has neither: it answers
+  // The two gates. The pointer patch below deliberately has neither: it answers
   // "what am I looking at", for which a Read is a fine answer. A NAME is a
   // claim about what the session is DOING, so a review session that greps
   // thirty files must not be named after them, and a subagent — which shares
@@ -171,33 +173,25 @@ function anchorOffer(cfg, proj, sid, filePath, toolName, isSubagent, sessionsDir
   return sessionNameOfferText(chosen);
 }
 
-function updatePointerAndNudge(cfg, proj, sid, filePath, toolName) {
-  const rel = filePath.slice(cfg.vault_path.length + 1);
+// The pointer for one call: what its vault files say about this session's epic
+// and story (pointerPatchFor), merged in path order, plus the raw-edit
+// nudge's throttle for a write. One writeSessionState per call — it is an
+// unlocked read-modify-write. A write tool's patch is made on PostToolUse,
+// from the files as written: made before the write, it recorded the story's
+// old status, and a close is the last touch a story gets (ADR-006 decision 1,
+// amended 2026-10-12). Any other tool's (a Read) is made on PreToolUse.
+// Returns the nudge's line, or null.
+function patchPointer(cfg, proj, sid, vaultPaths, toolName) {
+  const cur = readSessionState(proj, sid) || {};
   let patch = null;
-
-  const m = rel.match(/^epics\/([^/]+)\//);
-  if (m) {
-    const epicId = m[1];
-    patch = { active_epic: epicId };
-    try {
-      const { data } = parseFrontmatter(readFileSync(join(cfg.vault_path, "epics", epicId, "epic.md"), "utf8"));
-      if (data.title) patch.epic_title = String(data.title);
-    } catch {}
-    const sm = rel.match(/^epics\/[^/]+\/stories\/([^/]+\.md)$/);
-    if (sm) {
-      patch.active_story = sm[1].replace(/\.md$/, "");
-      try {
-        const { data } = parseFrontmatter(readFileSync(filePath, "utf8"));
-        if (data.title) patch.story_title = String(data.title);
-        if (data.status) patch.story_status = String(data.status);
-      } catch {}
-    }
+  for (const filePath of vaultPaths) {
+    const p = pointerPatchFor(cfg.vault_path, filePath, { ...cur, ...patch });
+    if (p) patch = { ...(patch || {}), ...p };
   }
 
   let nudge = null;
   if (isWriteTool(toolName || "") && cfg.guard !== "off") {
-    const st = readSessionState(proj, sid);
-    const last = st && st.nudged_at ? Date.parse(st.nudged_at) : 0;
+    const last = cur.nudged_at ? Date.parse(cur.nudged_at) : 0;
     if (Date.now() - last > NUDGE_INTERVAL_MS) {
       nudge = `projectstore: vault file edited directly — if this bypassed a ${commandForm("*")} command, run ${commandForm("reconcile")} (or doctor) afterwards so the board/indexes stay in sync.`;
       patch = { ...(patch || {}), nudged_at: new Date().toISOString() };
@@ -208,8 +202,13 @@ function updatePointerAndNudge(cfg, proj, sid, filePath, toolName) {
   return nudge;
 }
 
+// entryBranch's answer when the open-story sweep ran out of time: the caller
+// exits once its own output is flushed (see there).
+const UNKNOWN = Symbol("unknown");
+
 // The source-side branch (PostToolUse). Never throws: every failure here must
-// leave the user's tool call untouched.
+// leave the user's tool call untouched. Returns the reminder's text, UNKNOWN,
+// or nothing; the caller emits, so the reminder and the nudge share one line.
 async function entryBranch(cfg, proj, sid, filePath, input) {
   // Writes only. extractToolPath happily yields a path for Read, Grep, Glob and
   // LS — all of which carry file_path or path — so without this gate three
@@ -250,27 +249,28 @@ async function entryBranch(cfg, proj, sid, filePath, input) {
     verdict = await resolveOpenStory(cfg.vault_path);
     writeOpenStoryCache(proj, sid, verdict);
   }
-  if (verdict === "unknown") {
-    // Reached either from a fresh sweep that hit its budget with reads still
-    // outstanding (the event loop would keep this hook alive until they settle)
-    // or from a cached unknown, where nothing is outstanding and the exit is
-    // merely redundant. Exiting is safe here and only here: an unknown verdict suppresses the reminder, so stdout is
-    // untouched — process.exit does not flush pending pipe writes, and exiting
-    // after emitting would truncate the reminder.
-    process.exit(0);
-  }
+  // Reached either from a fresh sweep that hit its budget with reads still
+  // outstanding (the event loop would keep this hook alive until they settle)
+  // or from a cached unknown, where nothing is outstanding and the exit is
+  // merely redundant. The caller exits — after flushing anything it has to say,
+  // since process.exit does not flush pending pipe writes. An unknown verdict
+  // suppresses the reminder.
+  if (verdict === "unknown") return UNKNOWN;
   if (verdict !== false) return;
 
   if (!electEmitter(proj, sid)) return;
   appendEntryLog(proj, { at: new Date().toISOString(), session_id: sid, score });
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "PostToolUse",
-        additionalContext: entryReminderText(score),
-      },
-    }) + "\n",
-  );
+  return entryReminderText(score);
+}
+
+// PostToolUse's one line: the nudge as a systemMessage, the entry reminder as
+// the event's additionalContext. Null when there is nothing to say.
+function postToolUseLine(messages, context) {
+  if (!messages.length && !context) return null;
+  const out = {};
+  if (messages.length) out.systemMessage = [...new Set(messages)].join("\n");
+  if (context) out.hookSpecificOutput = { hookEventName: "PostToolUse", additionalContext: context };
+  return JSON.stringify(out) + "\n";
 }
 
 async function main() {
@@ -312,41 +312,63 @@ async function main() {
   const filePaths = toolPaths(input);
   if (!filePaths.length) return;
 
+  const vaultPaths = filePaths.filter((p) => isInsideVault(p, cfg.vault_path));
+  const writes = isWriteTool(input.tool_name || "");
+
   if (event === "PostToolUse") {
-    for (const filePath of filePaths) await entryBranch(cfg, proj, sid, filePath, input);
+    const messages = [];
+    // The same narrowing as entryBranch's: only "an object with success ===
+    // false" is a failed call; every other shape passes.
+    const response = input.tool_response;
+    const failed = response && typeof response === "object" && response.success === false;
+    if (writes && !failed && vaultPaths.length) {
+      try {
+        const nudge = patchPointer(cfg, proj, sid, vaultPaths, input.tool_name);
+        if (nudge) messages.push(nudge);
+      } catch {}
+    }
+    let context = null;
+    let unknown = false;
+    for (const filePath of filePaths) {
+      const said = await entryBranch(cfg, proj, sid, filePath, input);
+      if (said === UNKNOWN) {
+        unknown = true;
+        break;
+      }
+      if (said) context = said;
+    }
+    const line = postToolUseLine(messages, context);
+    if (line) process.stdout.write(line, () => unknown && process.exit(0));
+    else if (unknown) process.exit(0);
     return;
   }
 
   const messages = [];
-  for (const filePath of filePaths)
-    if (isInsideVault(filePath, cfg.vault_path)) {
+  // A Read's pointer patch; a write's waits for PostToolUse (patchPointer).
+  if (!writes && vaultPaths.length) {
+    try {
+      patchPointer(cfg, proj, sid, vaultPaths, input.tool_name);
+    } catch {}
+  }
+  for (const filePath of vaultPaths) {
+    try {
+      appendActivity(cfg.vault_path, sid, filePath, input.tool_name);
+    } catch {}
+    if (cfg.guard !== "off") {
       try {
-        appendActivity(cfg.vault_path, sid, filePath, input.tool_name);
+        const offer = anchorOffer(
+          cfg,
+          proj,
+          sid,
+          filePath,
+          input.tool_name,
+          Boolean(input.agent_id || input.agent_type),
+          process.env.PROJECTSTORE_SESSIONS_DIR || null,
+        );
+        if (offer) messages.push(offer);
       } catch {}
-      let nudge = null,
-        offer = null;
-      try {
-        nudge = updatePointerAndNudge(cfg, proj, sid, filePath, input.tool_name);
-      } catch {}
-      if (cfg.guard !== "off") {
-        try {
-          offer = anchorOffer(
-            cfg,
-            proj,
-            sid,
-            filePath,
-            input.tool_name,
-            Boolean(input.agent_id || input.agent_type),
-            process.env.PROJECTSTORE_SESSIONS_DIR || null,
-          );
-        } catch {}
-      }
-      // One invocation carries one systemMessage, so the two compose rather than
-      // race: emitting twice would silently drop whichever went second, and the
-      // offer fires once or twice a session against a nudge that fires every ten
-      // minutes — the rare one would be the one lost.
-      messages.push(...[nudge, offer].filter(Boolean));
     }
+  }
   if (messages.length) {
     process.stdout.write(JSON.stringify({ systemMessage: [...new Set(messages)].join("\n") }) + "\n");
   }

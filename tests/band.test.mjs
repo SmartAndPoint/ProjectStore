@@ -243,3 +243,78 @@ test("contract 1: the module ships; the host-laid declarations and tsconfig do n
   const ignore = readFileSync(join(ROOT, ".gitignore"), "utf8").split("\n");
   assert.ok(ignore.includes(".claude-plugin/types/") && ignore.includes("/tsconfig.json"));
 });
+
+// ─── The story command's refresh (ADR-006, amended 2026-10-12) ─────────
+// The close ceremony copies the story through Bash, which no hook sees; the
+// story command then runs `session refresh`, so the session's band and status
+// line stop naming a closed story.
+
+async function session(proj, args, { env = envFor() } = {}) {
+  const stdout = sink();
+  const stderr = sink();
+  const code = await run(["session", ...args, "--project", proj], {
+    env,
+    cwd: proj,
+    stdout,
+    stderr,
+    stdin: { isTTY: false },
+  });
+  let json = null;
+  try {
+    json = JSON.parse(stdout.text);
+  } catch {}
+  return { code, out: stdout.text, err: stderr.text, json };
+}
+
+test("session refresh: this session's pointer takes the closed story's status from the file", async () => {
+  const { proj, vault } = project();
+  mkdirSync(join(vault, "epics", "PS-Y", "stories"), { recursive: true });
+  const rel = "epics/PS-Y/stories/story-closed.md";
+  writeFileSync(join(vault, rel), '---\ntype: story\ntitle: "Closed one"\nstatus: done\n---\n', "utf8");
+  const pointer = join(layoutPaths(proj).sessions, `${SID}.json`);
+  mkdirSync(dirname(pointer), { recursive: true });
+  writeFileSync(
+    pointer,
+    JSON.stringify({
+      active_epic: "PS-Y",
+      active_story: "story-closed",
+      story_title: "Closed one",
+      story_status: "in-progress",
+    }),
+  );
+  const r = await session(proj, ["refresh", rel, "--json"]);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.json.ok, true);
+  assert.equal(r.json.result.refreshed, true);
+  assert.equal(JSON.parse(readFileSync(pointer, "utf8")).story_status, "done");
+  // An absolute path inside the vault is the same file.
+  assert.equal((await session(proj, ["refresh", join(vault, rel), "--json"])).code, 0);
+});
+
+test("session refresh: with no session from the host it writes nothing and exits 0", async () => {
+  const { proj, vault } = project();
+  mkdirSync(join(vault, "epics", "PS-Y", "stories"), { recursive: true });
+  const rel = "epics/PS-Y/stories/story-closed.md";
+  writeFileSync(join(vault, rel), "---\ntype: story\nstatus: done\n---\n", "utf8");
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME };
+  const r = await session(proj, ["refresh", rel, "--json"], { env });
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.json.result.refreshed, false);
+  assert.equal(r.json.result.reason, "no-session");
+  assert.throws(() => statSync(join(layoutPaths(proj).sessions, `${SID}.json`)), "no pointer appears");
+});
+
+test("session refresh: a path that is not a story, or not in the vault, is refused", async () => {
+  const { proj, vault } = project();
+  writeFileSync(join(vault, "epics", "PS-Y", "epic.md"), "---\ntype: epic\n---\n", "utf8");
+  for (const [path, code] of [
+    ["epics/PS-Y/epic.md", "NOT_A_STORY"],
+    ["epics/PS-Y/stories/missing.md", "NOT_FOUND"],
+    ["/etc/hosts", "NOT_IN_VAULT"],
+  ]) {
+    const r = await session(proj, ["refresh", path, "--json"]);
+    assert.equal(r.code, 1, path);
+    assert.equal(r.json.result.code, code, path);
+  }
+  assert.equal((await session(proj, ["refresh"])).code, 2, "a missing path is a usage error");
+});

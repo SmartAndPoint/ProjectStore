@@ -67,8 +67,10 @@ sessions can't silently overwrite each other's new artifact.
 
 **The status line is stricter still**: it renders from a *per-session* pointer
 (`<project>/.projectstore/state/sessions/<session_id>.json`, written by the
-PreToolUse hook with denormalized titles) and performs **zero cross-session and
-zero vault reads**. 2–6 parallel sessions each see exactly their own epic/story;
+tool hooks with denormalized titles — after a write, from the file as written —
+by `story close` through the core, and refreshed at session start) and performs
+**zero cross-session and zero vault reads**. A story that is done, closed or
+parked leaves the line: it shows the epic alone, as the band does. 2–6 parallel sessions each see exactly their own epic/story;
 a fresh session gets a localized "no epic or story in this session yet" line; a
 corrupt pointer shows an error marker, never a false "no work". The renderer also
 drops a `.last-render.json` breadcrumb so `doctor` can detect session-id
@@ -162,7 +164,7 @@ resistance. v0.13 makes that safe instead of forbidden:
   (`--write`): each approved target is recomputed from the vault state at
   write time and replaced atomically, so a stale preview is never what lands;
   `--write` is also a sanctioned headless entry point (cron/CI repair job).
-- A throttled PreToolUse **nudge** fires when vault files are edited directly:
+- A throttled PostToolUse **nudge** fires when vault files are edited directly:
   "run reconcile afterwards so the derived views stay in sync" (disable with
   `"guard": "off"` in `projectstore.json`).
 - A once-per-session **entry reminder** fires on PostToolUse when a session has

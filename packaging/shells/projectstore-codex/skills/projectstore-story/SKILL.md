@@ -111,11 +111,11 @@ the two cannot collide).
      <baseline-path>`), the derived targets (`kanban`, plus `indexes=<epic
      folder>` when status changed), and the doctor pre-state line. On a clean
      report (`verbatim: true`, `stopped_at: null`, doctor no worse than the
-     pre-state) skip steps 6-6b — the clerk's report is the write evidence. On a
+     pre-state) skip steps 6-6b and run step 6c — the clerk's report is the write evidence. On a
      stopped report: fix what diverged, then re-delegate (the resume rule: after
      the copy, the ceremony restarts at reconcile, not at the race gate) or
      finish the remaining steps yourself (the copy is idempotent).
-   - No clerk available → perform steps 6-6b yourself. There is no fallback
+   - No clerk available → perform steps 6-6c yourself. There is no fallback
      agent: a general-purpose writer is an unpinned procedure.
 
 6. **On Yes** (undelegated path): Write the full file. On a `plan`, finish by
@@ -130,3 +130,16 @@ the two cannot collide).
    — a close is not done while doctor got worse. Then suggest the reviewer's
    proposed `code_refs` via `$projectstore-codemap set` (the reviewer computes it
    from `scripts/diff-refs.mjs --since <started_at>`).
+
+6c. **(close only, both paths) Refresh this session's story**, here in the
+   main thread, after the clerk's clean report or after 6b:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" session refresh "<story-path>" --json --project "$PWD"
+   ```
+
+   `<story-path>` is the absolute `path` the compute script returned in
+   step 2. The copy went through Bash, which no hook sees, so without this the
+   session's band and status line keep naming the closed story. The core finds
+   the session itself; with none it writes nothing and exits 0. A non-zero
+   exit is reported and never undoes the close.

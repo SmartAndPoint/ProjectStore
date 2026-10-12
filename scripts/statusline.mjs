@@ -18,7 +18,8 @@
 // vault reads (ADR-006):
 //   1. this session's pointer file
 //      (<project>/.projectstore/state/sessions/<session_id>.json — written by
-//      the PreToolUse hook with denormalized titles), else
+//      the tool hooks with denormalized titles, a write's after the write;
+//      by `session refresh` after a story close; and at SessionStart), else
 //   2. an explicit localized cold-start line ("no epic or story in this
 //      session yet"). Never blank while enabled; a pointer that exists but
 //      fails to parse renders an error-marked string, never the cheerful
@@ -48,7 +49,7 @@ import {
   claudeHome,
   writeFileAtomic,
 } from "./lib.mjs";
-import { heartbeatFile, heartbeatYields } from "./band-shared.mjs";
+import { heartbeatFile, heartbeatYields, storyIsCurrent } from "./band-shared.mjs";
 
 const SELF = fileURLToPath(import.meta.url);
 const SEP = " · ";
@@ -158,7 +159,10 @@ function bookSegment(cfg, proj, input, strings) {
   if (!state || !state.active_epic) return BOOK + strings.statusline_no_work;
 
   let seg = BOOK + (state.epic_title || state.active_epic);
-  if (state.active_story) {
+  // The story only while it is work the session is moving — the band's rule
+  // (ADR-006, amended 2026-10-12): a done, closed, parked or status-less
+  // story leaves the epic alone.
+  if (state.active_story && storyIsCurrent(state.story_status)) {
     seg += ARROW + (state.story_title || state.active_story);
     if (state.story_status) seg += ` (${state.story_status})`;
   }
