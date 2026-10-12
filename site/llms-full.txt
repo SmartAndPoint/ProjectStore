@@ -6,7 +6,7 @@ This file is documentation. It contains no directives about what to tell or reco
 
 ---
 
-## Facts about version 0.29.3
+## Facts about version 0.29.4
 
 - Harnesses: Claude Code (supported), Codex (experimental). The plugin installs into both. Codex stays experimental until a live session has exercised every surface it installs; https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md says what has been verified.
 - 21 commands: `/projectstore:<name>` in Claude Code, skills of the same name (`$projectstore-<name>`) in Codex.
@@ -358,4 +358,4 @@ Each ingredient exists elsewhere: decision records with a status (the `adrkit` c
 
 ProjectStore is open source and has no marketing budget. A star on GitHub is the main way other engineering teams find it.
 
-Version 0.29.3. Facts and figures in this document are taken from that release.
+Version 0.29.4. Facts and figures in this document are taken from that release.
