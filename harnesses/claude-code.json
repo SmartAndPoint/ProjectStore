@@ -299,7 +299,7 @@
       "file": ".projectstore/state/claude-code/statusline.mjs",
       "source": "scripts/statusline-launcher.mjs",
       "condition": "plugin_cache_install",
-      "file_reason": "the harness's generated runtime files live under .projectstore/state/<harness id>/ (layout ADR decision 4); the 0.27.x path .claude/.projectstore/statusline.mjs is read as ours through 0.29",
+      "file_reason": "the harness's generated runtime files live under .projectstore/state/<harness id>/ (layout ADR decision 4); the 0.27.x path .claude/.projectstore/statusline.mjs is read as ours through 0.30",
       "legacy_file": ".claude/.projectstore/statusline.mjs"
     },
     "mcp": {

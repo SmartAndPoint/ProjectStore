@@ -508,7 +508,7 @@ test("layout contract 7 / 12: doctor's layout-legacy names the upgrade in the ch
   assert.equal(f[0].level, "warn");
   assert.ok(f[0].message.includes(ownBin(root)), f[0].message);
   assert.doesNotMatch(f[0].message, /npx /);
-  assert.match(f[0].message, /through 0\.29/);
+  assert.match(f[0].message, /through 0\.30/);
   // The directory in prose, then the command alone on the last line (the
   // story "User-facing text says where to run…", rules 1 and 4).
   assert.ok(
@@ -856,14 +856,17 @@ test("installer: its own entry point honours --no-register (driven through plan)
   assert.ok(!run("--no-register").items.some((i) => i.kind === "registration"), "--no-register leaves it out");
 });
 
-test("layout contract 7: the fallback window closes at 0.30 — this test is the sunset", () => {
-  if (cmpVersion(VERSION, "0.30.0") < 0) {
-    assert.ok(layoutPaths("/p").legacy, "below 0.30 the legacy resolver exists and the cases above exercise it");
+// The window was to close at 0.30; the maintainer moved it to 0.31 on
+// 2026-10-12, so 0.30.0 ships setup with no breaking change and users get one
+// more release to make the move through setup or upgrade.
+test("layout contract 7: the fallback window closes at 0.31 — this test is the sunset", () => {
+  if (cmpVersion(VERSION, "0.31.0") < 0) {
+    assert.ok(layoutPaths("/p").legacy, "below 0.31 the legacy resolver exists and the cases above exercise it");
   } else {
     assert.equal(
       layoutPaths("/p").legacy,
       undefined,
-      "0.30: delete the legacy resolver, the fallback readers and the migration's legacy reads; layout-legacy becomes an issue naming the manual move",
+      "0.31: delete the legacy resolver, the fallback readers and the migration's legacy reads; layout-legacy becomes an issue naming the manual move",
     );
   }
 });

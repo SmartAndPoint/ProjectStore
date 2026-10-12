@@ -1380,7 +1380,7 @@ export function checkLayout(
         "install",
         level,
         "layout-legacy",
-        `The project layout moved to .projectstore/ (the layout ADR, 0.28); this project still holds ${held}. Readers fall back to the old paths through 0.29.${restamp ? " The same run re-stamps the status line launcher." : ""} ${remedyWords(remedy, proj, "Migrate it")}`,
+        `The project layout moved to .projectstore/ (the layout ADR, 0.28); this project still holds ${held}. Readers fall back to the old paths through 0.30.${restamp ? " The same run re-stamps the status line launcher." : ""} ${remedyWords(remedy, proj, "Migrate it")}`,
         relative(
           proj,
           [
