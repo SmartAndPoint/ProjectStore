@@ -1604,6 +1604,40 @@ test("site AC 4: the status-line screenshot is the repository's own", () => {
   assert.deepEqual(found, [], show(found));
 });
 
+// The prose keys the story "Install, first run, configure, daily work and
+// removal read the same in the README, docs, the site in eight languages and
+// the in-session texts" (PS-HARNESS) added: each in every dictionary, and
+// translated, not the English copied. Per change, not a blanket rule: brand
+// names and code legitimately equal the English in many other keys.
+const TRANSLATED = ["start.span.17", "start.span.18", "start.p.5", "questions.summary.10", "questions.p.11"];
+function checkTranslated(keys, en, dicts) {
+  const out = [];
+  for (const [lang, dict] of Object.entries(dicts))
+    for (const k of keys) {
+      const file = `site/locales/${lang}.json`;
+      if (!(k in dict)) out.push(finding(file, `translation:${k}`, `${k} is missing`));
+      else if (dict[k] === en[k]) out.push(finding(file, `translation:${k}`, `${k} is the English text`));
+    }
+  return out;
+}
+const dictionaries = () =>
+  Object.fromEntries(
+    readdirSync(join(SITE, "locales"))
+      .filter((n) => n.endsWith(".json") && n !== "en.json")
+      .map((n) => [n.replace(/\.json$/, ""), JSON.parse(read(join(SITE, "locales", n)))]),
+  );
+
+test("site: the instructions story's keys are translated in all seven other dictionaries; a key set back to English is one finding", () => {
+  const en = JSON.parse(read(join(SITE, "locales", "en.json")));
+  const dicts = dictionaries();
+  assert.equal(Object.keys(dicts).length, 7);
+  assert.deepEqual(checkTranslated(TRANSLATED, en, dicts), []);
+  const planted = { ...dicts, ru: { ...dicts.ru, "start.p.5": en["start.p.5"] } };
+  const found = checkTranslated(TRANSLATED, en, planted);
+  assert.equal(found.length, 1);
+  assert.match(JSON.stringify(found[0]), /site\/locales\/ru\.json.*translation:start\.p\.5/);
+});
+
 test("site AC 4: the llms files state the facts in their fixed shape, link every page, and resolve every link on the site", () => {
   const found = LLMS.flatMap((f) => [...checkLlmsFacts(f, read(f), REPO), ...checkLlmsLinks(f, read(f), LANGS)]);
   assert.deepEqual(found, [], show(found));
