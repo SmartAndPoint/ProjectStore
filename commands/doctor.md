@@ -71,7 +71,7 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      not ours.
    - `layout-legacy` (warn; the startup line carries it as an offer) → the project
      still holds the pre-0.28 layout (`.claude/projectstore.json`,
-     `.claude/.projectstore/` — legacy, read through 0.29). The migration is one
+     `.claude/.projectstore/` — legacy, read through 0.30). The migration is one
      previewed `layout` item of `upgrade`, run **from a terminal outside this
      session** (it moves files this session reads and writes; the verb defers
      inside one). The finding names the form for the channel this plugin was

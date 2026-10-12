@@ -2908,7 +2908,7 @@ export function isInsideVault(filePath, vaultPath) {
 // so per-session ids/titles never reach the user's git history.
 
 // The WRITER's view: <project>/.projectstore/state/sessions. Readers fall back
-// to the legacy .claude/.projectstore/state through 0.29 (readSessionState).
+// to the legacy .claude/.projectstore/state through 0.30 (readSessionState).
 export function stateDir(projectDir) {
   return layoutPaths(projectDir).sessions;
 }

@@ -625,7 +625,7 @@ export function agentHome(env = process.env, home = homedir()) {
 // path is spelled — every reader and writer goes through layoutPaths(), and a
 // test greps the rest of scripts/, hooks/ and bin/ for the literals. The
 // legacy shape (.claude/projectstore.json, .claude/.projectstore/…) is named
-// here too, for the readers' fallback through 0.29 (layout spec, contracts
+// here too, for the readers' fallback through 0.30 (layout spec, contracts
 // 0, 1 and 7); its harness directory is the source harness's own.
 export const LAYOUT = Object.freeze({
   root: ".projectstore",
