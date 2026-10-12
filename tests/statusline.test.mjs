@@ -177,3 +177,24 @@ test("the session-state sweep reaps an aged heartbeat", () => {
   cleanupStaleSessionState(proj, 24);
   assert.equal(existsSync(p), false);
 });
+
+// ADR-006, amended 2026-10-12: the 📚 segment names the story only while it
+// stages as in work or backlog — the band's rule — so a closed story leaves
+// the line showing the epic alone.
+test("the 📚 segment drops a story that is done, closed, parked or has no status", () => {
+  const proj = project({ base: false });
+  const dir = layoutPaths(proj).sessions;
+  mkdirSync(dir, { recursive: true });
+  const line = (story_status) => {
+    const p = { active_epic: "PS-Y", epic_title: "Epic Y", active_story: "story-a", story_title: "Story A" };
+    writeFileSync(join(dir, `${SID}.json`), JSON.stringify(story_status === undefined ? p : { ...p, story_status }));
+    return render(proj);
+  };
+  for (const s of ["done", "closed", "parked", null, undefined]) {
+    const out = line(s);
+    assert.match(out, /📚 Epic Y/, String(s));
+    assert.doesNotMatch(out, /Story A/, `${s}: a finished story is not this session's work`);
+  }
+  for (const s of ["in-progress", "review", "planned"])
+    assert.match(line(s), new RegExp(`📚 Epic Y › Story A \\(${s}\\)`), s);
+});

@@ -29,7 +29,7 @@ const SHIPPED: Record<string, string> = {
   'scaffold/layouts/engineering.json': JSON.stringify({ folders: [{ kind: 'adr', path: 'adr' }, { kind: 'spec', path: 'specs' }, { kind: 'epic', path: 'epics' }] }),
 }
 
-const story = (status: string | null, title = 'A story') => `---\ntype: story\ntitle: "${title}"\n${status === null ? '' : `status: ${status}\n`}---\n\n# ${title}\n`
+export const story = (status: string | null, title = 'A story') => `---\ntype: story\ntitle: "${title}"\n${status === null ? '' : `status: ${status}\n`}---\n\n# ${title}\n`
 
 // Two epics: PS-HARNESS (a done, b in_progress, c in-progress, d planned,
 // e superseded — counts nowhere, f with no status — nowhere) and PS-WT.
@@ -46,7 +46,10 @@ export const VAULT_FILES: Record<string, string> = {
 }
 
 export const binding = (extra: Record<string, unknown> = {}) => JSON.stringify({ vault_path: VAULT, layout: 'engineering', language: 'en', ...extra })
-export const pointer = (epic: string, title = 'A story', status = 'in_progress') => JSON.stringify({ active_epic: epic, story_title: title, story_status: status })
+// A session pointer naming story `key` of `epic`. Its own title and status
+// are deliberately stale: the band reads the story's from the file (contract 8).
+export const pointer = (epic: string, key = 'c', title = 'stale pointer title', status = 'planned') =>
+  JSON.stringify({ active_epic: epic, active_story: key, story_title: title, story_status: status })
 
 export const BINDING_PATH = `${ROOT}/.projectstore/projectstore.json`
 export const SESSIONS = `${ROOT}/.projectstore/state/sessions`
@@ -54,6 +57,10 @@ export const SESSIONS = `${ROOT}/.projectstore/state/sessions`
 export function world(on: On, files: Record<string, string>, { sid = 's1' }: { sid?: string } = {}) {
   const clock = mock.clock(on, { now: 1_000_000 })
   const all = new Map(Object.entries({ ...VAULT_FILES, ...files }))
+  // Each path's mtime moves when the test rewrites it, as a real file's does:
+  // the band re-reads a story only when a listing's names or mtimes change.
+  const version = new Map<string, number>()
+  const mtimeOf = (path: string) => 999_000 + (version.get(path) ?? 0)
   const writes = new Map<string, string>()
   const session = { id: sid }
   // Paths whose read throws (an evicted file), paths whose read waits until
@@ -87,10 +94,11 @@ export function world(on: On, files: Record<string, string>, { sid = 's1' }: { s
   on('fs.list', (_$, e) => {
     const names = children(e.path)
     if (!names.size) throw new Error(`ENOENT: ${e.path}`)
-    return { value: [...names].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: 999_000, isLink: false })) }
+    const dir = e.path.replace(/\/+$/, '')
+    return { value: [...names].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: mtimeOf(`${dir}/${name}`), isLink: false })) }
   })
   on('fs.stat', (_$, e) => {
-    if (fileAt(e.path) !== undefined) return { value: { kind: 'file' as const, size: 0, mtimeMs: 999_000, isLink: false } }
+    if (fileAt(e.path) !== undefined) return { value: { kind: 'file' as const, size: 0, mtimeMs: mtimeOf(e.path), isLink: false } }
     if (children(e.path).size) return { value: { kind: 'dir' as const, size: 0, mtimeMs: 999_000, isLink: false } }
     throw new Error(`ENOENT: ${e.path}`)
   })
@@ -107,7 +115,10 @@ export function world(on: On, files: Record<string, string>, { sid = 's1' }: { s
     clock,
     writes,
     // What the files say now, for a test that changes one mid-session.
-    put: (path: string, text: string) => all.set(path, text),
+    put: (path: string, text: string) => {
+      version.set(path, (version.get(path) ?? 0) + 1)
+      all.set(path, text)
+    },
     drop: (path: string) => all.delete(path),
     // A /clear: the session gets a new id.
     renew: (id: string) => { session.id = id },

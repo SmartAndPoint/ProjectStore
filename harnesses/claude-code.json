@@ -134,16 +134,16 @@
       "system_message": true,
       "decision": "permissionDecision",
       "evidence": "measured",
-      "note": "systemMessage measured — scripts/touch-session.mjs uses it for the pointer nudge and the name offer. additionalContext and permissionDecision (allow|deny|ask) are documented; projectstore never emits them. A separate PermissionRequest event carries its own decision object."
+      "note": "systemMessage measured — scripts/touch-session.mjs used it for the raw-edit nudge and uses it for the name offer (the nudge moved to PostToolUse with the write's pointer patch, ADR-006 amended 2026-10-12). additionalContext and permissionDecision (allow|deny|ask) are documented; projectstore never emits them. A separate PermissionRequest event carries its own decision object."
     },
     "PostToolUse": {
       "fields": [
         "additionalContext"
       ],
-      "system_message": null,
+      "system_message": true,
       "decision": null,
       "evidence": "measured",
-      "note": "scripts/touch-session.mjs — the entry-rule reminder's primary carrier (entry-rule spec, contract 14)."
+      "note": "scripts/touch-session.mjs — the entry-rule reminder's primary carrier (entry-rule spec, contract 14). The measurement covers additionalContext only. systemMessage carries the raw-edit nudge since the pointer patch moved after the write (ADR-006, amended 2026-10-12): documented for every event, not yet observed on this one — the closed-story story's live check records it."
     },
     "PostToolUseFailure": {
       "fields": [

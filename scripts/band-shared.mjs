@@ -11,6 +11,8 @@
 // Spec: the band above the prompt — rows, heartbeat, command and the status
 // line's yield (the contract numbers below are that spec's).
 
+import { stageOf } from "./stages.mjs";
+
 // ─── The heartbeat (contracts 10, 11) ──────────────────────────────────
 // While a session's band draws, the module keeps a small file fresh in the
 // session-state directory; the status line yields its own line only while
@@ -184,6 +186,31 @@ export async function storyFiles(fs, epicDir) {
   return out;
 }
 
+// ─── This session's story (contract 8) ─────────────────────────────────
+// The session pointer names its story by a key; the band finds that key among
+// the epic's story files. One function for both, so a folder story and a
+// story beside epic.md are named the way they are found.
+
+// The key of a story file from its path below the epic folder:
+// `stories/<x>.md` and `stories/<x>/README.md` are `<x>`, `story-<x>.md`
+// beside epic.md is `story-<x>`; anything else is not a story (null).
+export function storyKeyOf(relToEpic) {
+  const rel = String(relToEpic || "");
+  let m = rel.match(/^stories\/([^/]+)\.md$/);
+  if (m) return m[1];
+  m = rel.match(/^stories\/([^/]+)\/README\.md$/);
+  if (m) return m[1];
+  m = rel.match(/^(story-[^/]+)\.md$/);
+  return m ? m[1] : null;
+}
+
+// Whether a story with this status is work the session is moving: in work or
+// backlog. Done, closed, parked, superseded, deferred or no status — not.
+export function storyIsCurrent(status) {
+  const stage = stageOf(status);
+  return stage === "active" || stage === "backlog";
+}
+
 // An epic id the band may put in a path: one segment the board would list
 // (not hidden, not a `_templates`-style folder).
 export function isEpicName(id) {
@@ -270,6 +297,38 @@ export function progressLayout(counts, hint, bodyColumns) {
   const hintCells = hint ? cellWidth(`  ${hint}`) : 0;
   if (hint && room - hintCells >= BAR_MIN) return { bar: Math.min(BAR_MAX, room - hintCells), hint: true };
   return { bar: room >= BAR_MIN ? Math.min(BAR_MAX, room) : 0, hint: false };
+}
+
+// The first characters of `text` that fit `cells`, with `…` when it was cut.
+export function cutCells(text, cells) {
+  const s = String(text);
+  if (cellWidth(s) <= cells) return s;
+  let out = "";
+  let w = 0;
+  for (const ch of s) {
+    const cw = cellWidth(ch);
+    if (w + cw > cells - 1) break;
+    out += ch;
+    w += cw;
+  }
+  return `${out}…`;
+}
+
+// ` · <status>`, `_` and `-` shown as spaces; "" with no status.
+export function storyTail(status) {
+  return status ? ` · ${String(status).replace(/[_-]/g, " ")}` : "";
+}
+
+// The story row: `   <label> <title> · <status>`, at most bodyColumns − 3
+// cells — the room the progress row's formula leaves (the box's padding, then
+// the strict fit). The status is never cut: when the row is longer, the title
+// is cut with `…` (to `…` alone at worst).
+export function storyLayout(label, title, status, bodyColumns) {
+  const tail = storyTail(status);
+  // No width from the host: draw the title whole and let the host truncate.
+  if (!Number.isFinite(bodyColumns)) return { title: String(title), tail };
+  const room = bodyColumns - 2 - 3 - cellWidth(`${label} `) - cellWidth(tail) - 1;
+  return { title: cutCells(title, Math.max(1, room)), tail };
 }
 
 // ─── The agent row (contract 12) ───────────────────────────────────────

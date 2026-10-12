@@ -33,6 +33,7 @@ import {
   entryLogPath,
   writeSessionState,
   writeAnchorOffer,
+  refreshStoryPointer,
 } from "../scripts/lib.mjs";
 import { sourceHarness, loadHarnesses } from "../scripts/harness.mjs";
 import { fileURLToPath } from "node:url";
@@ -1033,7 +1034,10 @@ test("entry hook: vault writes are not source, and the event gate holds (contrac
   const inVault = join(vault, "adr", "x.md");
   mkdirSync(dirname(inVault), { recursive: true });
   writeFileSync(inVault, "# x", "utf8");
-  for (let i = 0; i < 4; i++) assert.equal(post(proj, inVault), null, "vault work is not source work");
+  // A vault write may carry the raw-edit nudge (it moved after the write,
+  // ADR-006 amended 2026-10-12) — never the entry reminder.
+  for (let i = 0; i < 4; i++)
+    assert.equal(post(proj, inVault)?.hookSpecificOutput, undefined, "vault work is not source work");
 
   // The same script on PreToolUse must not run the source branch at all.
   const pre = fireHook(proj, {
@@ -1064,6 +1068,160 @@ test("entry hook: guard off silences it (contract 20)", () => {
   for (const f of ["a.mjs", "b.mjs", "c.mjs", "d.mjs"]) {
     assert.equal(post(proj, join(proj, f)), null);
   }
+});
+
+// ─── The session pointer's story (ADR-006 decision 1, amended 2026-10-12) ──
+//
+// A closed story stops showing as this session's story: the pointer is
+// patched from the file AFTER a write, keys all three story shapes, and drops
+// a previous epic's story.
+
+const pointerOf = (proj, sid = "s1") => {
+  try {
+    return JSON.parse(readFileSync(sessionStatePath(proj, sid), "utf8"));
+  } catch {
+    return null;
+  }
+};
+const storyText = (title, status) => `---\ntype: story\ntitle: "${title}"\nstatus: ${status}\n---\n\n# ${title}\n`;
+const touch = (proj, file, tool = "Read", event = "PreToolUse", extra = {}) =>
+  fireHook(proj, {
+    hook_event_name: event,
+    session_id: "s1",
+    tool_name: tool,
+    tool_input: { file_path: file },
+    ...(event === "PostToolUse" ? { tool_response: { success: true } } : {}),
+    ...extra,
+  });
+
+test("pointer: a write's patch follows the write — the post-write title and status, one pointer write for the call", () => {
+  const { proj, vault } = seedHookProject();
+  const file = join(vault, "epics", "PS-A", "stories", "story-a.md");
+  writeFileSync(file, storyText("Before", "in-progress"), "utf8");
+  touch(proj, file); // a Read: the pointer now names the story
+  assert.equal(pointerOf(proj).story_status, "in-progress");
+  const ino = statSync(sessionStatePath(proj, "s1")).ino;
+
+  // The close, as a host makes it: PreToolUse, the write, PostToolUse.
+  assert.equal(touch(proj, file, "Write"), null, "PreToolUse of a write says nothing and patches nothing");
+  assert.equal(statSync(sessionStatePath(proj, "s1")).ino, ino, "the pointer is not rewritten before the write");
+  writeFileSync(file, storyText("After", "done"), "utf8");
+  const out = touch(proj, file, "Write", "PostToolUse");
+  const p = pointerOf(proj);
+  assert.equal(p.story_status, "done", "the status the file has after the write");
+  assert.equal(p.story_title, "After");
+  assert.ok(p.nudged_at, "the nudge's stamp rides in the same write");
+  assert.notEqual(statSync(sessionStatePath(proj, "s1")).ino, ino, "written once, after the write");
+  assert.match(
+    out?.systemMessage || "",
+    /run \/projectstore:reconcile/,
+    "the nudge reaches the session after the write",
+  );
+  assert.equal(out.hookSpecificOutput, undefined, "a vault write is not source work");
+});
+
+test("pointer: a declined or failed write patches nothing", () => {
+  const { proj, vault } = seedHookProject();
+  const file = join(vault, "epics", "PS-A", "stories", "story-a.md");
+  writeFileSync(file, storyText("A", "in-progress"), "utf8");
+  touch(proj, file);
+  const before = readFileSync(sessionStatePath(proj, "s1"), "utf8");
+  writeFileSync(file, storyText("A", "done"), "utf8");
+  touch(proj, file, "Edit"); // declined: PreToolUse fires, PostToolUse never does
+  touch(proj, file, "Edit", "PostToolUse", { tool_response: { success: false } });
+  assert.equal(readFileSync(sessionStatePath(proj, "s1"), "utf8"), before);
+});
+
+test("pointer: every story shape is keyed as the band keys it, and another epic clears the story", () => {
+  const { proj, vault } = seedHookProject();
+  const epic = join(vault, "epics", "PS-A");
+  mkdirSync(join(epic, "stories", "folder-story"), { recursive: true });
+  writeFileSync(join(epic, "epic.md"), '---\ntype: epic\ntitle: "A"\n---\n', "utf8");
+  writeFileSync(join(epic, "stories", "folder-story", "README.md"), storyText("Folder", "planned"), "utf8");
+  writeFileSync(join(epic, "story-beside.md"), storyText("Beside", "review"), "utf8");
+  touch(proj, join(epic, "stories", "folder-story", "README.md"));
+  assert.deepEqual(
+    (({ active_story, story_title, story_status }) => ({ active_story, story_title, story_status }))(pointerOf(proj)),
+    { active_story: "folder-story", story_title: "Folder", story_status: "planned" },
+  );
+  touch(proj, join(epic, "story-beside.md"));
+  assert.equal(pointerOf(proj).active_story, "story-beside");
+  // The epic itself keeps the story; another epic drops it.
+  touch(proj, join(epic, "epic.md"));
+  assert.equal(pointerOf(proj).active_story, "story-beside");
+  mkdirSync(join(vault, "epics", "PS-B"), { recursive: true });
+  writeFileSync(join(vault, "epics", "PS-B", "epic.md"), '---\ntype: epic\ntitle: "B"\n---\n', "utf8");
+  touch(proj, join(vault, "epics", "PS-B", "epic.md"));
+  const p = pointerOf(proj);
+  assert.equal(p.active_epic, "PS-B");
+  assert.equal(p.active_story, null);
+  assert.equal(p.story_title, null);
+  assert.equal(p.story_status, null);
+});
+
+test("pointer: PostToolUse's nudge and entry reminder share one line", () => {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  post(proj, join(proj, "a.mjs"));
+  post(proj, join(proj, "b.mjs"));
+  // One call naming a vault file and a third source file.
+  const out = post(proj, join(vault, "epics", "PS-A", "stories", "story-a.md"), {
+    tool_input: {
+      file_path: join(vault, "epics", "PS-A", "stories", "story-a.md"),
+      notebook_path: join(proj, "c.mjs"),
+    },
+  });
+  assert.match(out?.systemMessage || "", /run \/projectstore:reconcile/, "the nudge");
+  assert.equal(out?.hookSpecificOutput?.hookEventName, "PostToolUse");
+  assert.match(out.hookSpecificOutput.additionalContext, /3 source files/, "the reminder");
+});
+
+test("pointer: SessionStart's refresh takes the story's status from the file, and a lost race writes nothing", async () => {
+  const { proj, vault } = seedHookProject();
+  const file = join(vault, "epics", "PS-A", "stories", "story-a.md");
+  writeFileSync(file, storyText("A", "done"), "utf8");
+  writeSessionState(proj, "s1", {
+    active_epic: "PS-A",
+    active_story: "story-a",
+    story_title: "A",
+    story_status: "in-progress",
+  });
+  const hang = { readFile: () => new Promise(() => {}), budgetMs: 20 };
+  assert.equal(await refreshStoryPointer(proj, vault, "s1", hang), "unknown");
+  assert.equal(pointerOf(proj).story_status, "in-progress", "a read that never returns writes nothing");
+  assert.equal(await refreshStoryPointer(proj, vault, "s1"), "refreshed");
+  assert.equal(pointerOf(proj).story_status, "done");
+  assert.equal(await refreshStoryPointer(proj, vault, "s1"), "unchanged");
+  // A vault that is not there (an unmounted drive) proves nothing: no write.
+  writeSessionState(proj, "s1", { active_story: "story-gone", story_title: "Gone", story_status: "review" });
+  assert.equal(await refreshStoryPointer(proj, join(vault, "not-mounted"), "s1"), "unknown");
+  assert.equal(pointerOf(proj).active_story, "story-gone");
+  // A story the epic no longer has clears the fields.
+  writeFileSync(join(vault, "epics", "PS-A", "epic.md"), '---\ntype: epic\ntitle: "A"\n---\n', "utf8");
+  assert.equal(await refreshStoryPointer(proj, vault, "s1"), "refreshed");
+  assert.equal(pointerOf(proj).active_story, null);
+});
+
+test("pointer: a session that starts on a pointer written before a close carries the closed status", () => {
+  const { proj, vault } = seedHookProject();
+  writeFileSync(join(vault, "epics", "PS-A", "stories", "story-a.md"), storyText("A", "done"), "utf8");
+  writeSessionState(proj, "s1", {
+    active_epic: "PS-A",
+    active_story: "story-a",
+    story_title: "A",
+    story_status: "in-progress",
+  });
+  fireSessionStart(proj, { session_id: "s1", source: "resume" });
+  assert.equal(pointerOf(proj).story_status, "done");
+});
+
+test("pointer: the story command's close runs the core's refresh on both paths, from the main thread", () => {
+  const md = readFileSync(join(REPO, "commands", "story.md"), "utf8");
+  const call = /bin\/projectstore\.mjs" session refresh "<story-path>"/;
+  assert.match(md, call, "step 6c names the call");
+  assert.match(md, /skip steps 6-6b and run step 6c/, "the clerk path runs it");
+  assert.match(md, /No clerk available → perform steps 6-6c yourself/, "the undelegated path runs it");
+  assert.match(md.slice(md.indexOf("6c.")), /never undoes the close/, "a failure is reported, never undone");
 });
 
 // ─── Hook output shape guard ───────────────────────────────────────────
@@ -2237,19 +2395,26 @@ test("PreCompact contract 19: a >200 path renders in the same cell the skeleton 
 // read or a subagent write is excluded. Those two gates are the difference
 // between the measured rule and the wired one.
 
+// One tool call as the host makes it: PreToolUse, then — for a write that
+// succeeded — PostToolUse. Returns PreToolUse's output (the offer's channel),
+// with PostToolUse's (the nudge's, since ADR-006's 2026-10-12 amendment) on
+// `.post`.
 function vaultWrite(proj, vault, rel, extra = {}) {
   const { sessionsDir, ...rest } = extra;
-  return fireHook(
+  const payload = {
+    session_id: extra.sid || "n1",
+    tool_name: extra.tool || "Edit",
+    tool_input: { file_path: join(vault, rel) },
+    ...rest,
+  };
+  const pre = fireHook(proj, { hook_event_name: "PreToolUse", ...payload }, sessionsDir);
+  if (!/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(payload.tool_name)) return pre;
+  const post = fireHook(
     proj,
-    {
-      hook_event_name: "PreToolUse",
-      session_id: extra.sid || "n1",
-      tool_name: extra.tool || "Edit",
-      tool_input: { file_path: join(vault, rel) },
-      ...rest,
-    },
+    { hook_event_name: "PostToolUse", tool_response: { success: true }, ...payload },
     sessionsDir,
   );
+  return pre || post ? { ...(pre || {}), post } : null;
 }
 
 // A registry of live sessions, as the harness maintains it. Every wired drive
@@ -2334,21 +2499,21 @@ test("name offer: the anchor moves only on a decisive lead, and renames when it 
   assert.match(later[14], /ps-a-alpha-beta/, later[14]);
 });
 
-test("name offer: it composes with the raw-edit nudge instead of racing it", () => {
+test("name offer: it and the raw-edit nudge both reach the session — the offer before the write, the nudge after", () => {
   const { proj, vault } = seedAnchorVault();
   const rel = join("epics", "PS-A", "stories", "story-alpha-beta.md");
   // The nudge fires on the first vault write of a ten-minute window; the offer
-  // on the fifth. Force both onto one invocation by clearing the nudge stamp.
+  // on the fifth. Force both onto one call by clearing the nudge stamp.
   for (let i = 0; i < 4; i++) vaultWrite(proj, vault, rel);
   const statePath = sessionStatePath(proj, "n1");
   const st = JSON.parse(readFileSync(statePath, "utf8"));
   delete st.nudged_at;
   writeFileSync(statePath, JSON.stringify(st), "utf8");
   const out = vaultWrite(proj, vault, rel);
-  assert.ok(out && out.systemMessage, "both mechanisms had something to say");
-  assert.match(out.systemMessage, /run \/projectstore:reconcile/, "the nudge survived");
+  assert.ok(out && out.systemMessage, "the offer had something to say");
   assert.match(out.systemMessage, /looks like/, "the offer survived");
-  assert.equal(out.systemMessage.split("\n").length, 2, "one message, two lines — neither dropped");
+  assert.doesNotMatch(out.systemMessage, /run \/projectstore:reconcile/, "the nudge waits for the write");
+  assert.match(out.post?.systemMessage || "", /run \/projectstore:reconcile/, "the nudge survived");
 });
 
 test("name offer: state never touches the statusline pointer's file", () => {
@@ -2555,10 +2720,12 @@ test("name offer: concurrent writers keep the tally exact and the ADR-006 pointe
       await new Promise((r) => setImmediate(r));
     }
   })();
+  // Each call's two events, all at once: PreToolUse tallies the anchor,
+  // PostToolUse patches the pointer (a write's patch follows the write).
   await Promise.all(
     Array.from(
-      { length: N },
-      () =>
+      { length: 2 * N },
+      (_, i) =>
         new Promise((resolve) => {
           const c = spawn(process.execPath, [join(REPO, "scripts", "touch-session.mjs")], {
             env: { ...process.env, CLAUDE_PROJECT_DIR: proj, PROJECTSTORE_SESSIONS_DIR: dir },
@@ -2566,10 +2733,11 @@ test("name offer: concurrent writers keep the tally exact and the ADR-006 pointe
           });
           c.stdin.end(
             JSON.stringify({
-              hook_event_name: "PreToolUse",
+              hook_event_name: i < N ? "PreToolUse" : "PostToolUse",
               session_id: "c1",
               tool_name: "Edit",
               tool_input: { file_path: join(vault, rel) },
+              ...(i < N ? {} : { tool_response: { success: true } }),
             }),
           );
           c.on("close", resolve);

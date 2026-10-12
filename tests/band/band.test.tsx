@@ -9,7 +9,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { BINDING_PATH, SESSIONS, VAULT, band, binding, pointer, spawn, world } from './world'
+import { BINDING_PATH, SESSIONS, VAULT, band, binding, pointer, spawn, story, world } from './world'
 
 type W = ReturnType<typeof world>
 
@@ -97,13 +97,14 @@ test('contract 3: rows by priority within maxRows; a row without content frees i
     [`${SESSIONS}/s1.json`]: pointer('PS-NOGOAL'),
     [`${VAULT}/epics/PS-NOGOAL/epic.md`]: '---\ntype: epic\ntitle: "No goal here"\n---\n\n## Stories\n',
     [`${VAULT}/epics/PS-NOGOAL/stories/a.md`]: '---\nstatus: done\n---\n',
+    [`${VAULT}/epics/PS-NOGOAL/stories/c.md`]: '---\ntitle: "C"\nstatus: in-progress\n---\n',
   })
   await start($, w)
   const rows = async (maxRows: number) => {
     const ui = await mount($, 'terminal', maxRows)
     const seen = {
       head: Boolean(await ui.find({ type: 'Text', text: /📚 PS-NOGOAL/ })),
-      progress: Boolean(await ui.find({ type: 'Text', text: /100%/ })),
+      progress: Boolean(await ui.find({ type: 'Text', text: /50%/ })),
       goal: Boolean(await ui.find({ type: 'Text', text: /^\s+goal\s/ })),
       story: Boolean(await ui.find({ type: 'Text', text: /^\s+story\s/ })),
     }
@@ -261,7 +262,7 @@ test("contract 12: the model and effort come from the agent's own request over t
 })
 
 test("contract 2: two sessions, two epics — each band shows only its own", async ($, on) => {
-  const w = world(on, { [BINDING_PATH]: binding(), [`${SESSIONS}/s1.json`]: pointer('PS-HARNESS'), [`${SESSIONS}/s2.json`]: pointer('PS-WT', 'W story') })
+  const w = world(on, { [BINDING_PATH]: binding(), [`${SESSIONS}/s1.json`]: pointer('PS-HARNESS'), [`${SESSIONS}/s2.json`]: pointer('PS-WT', 'w'), [`${VAULT}/epics/PS-WT/stories/w.md`]: story('in-progress', 'W story') })
   await start($, w)
   let ui = await mount($, 'terminal')
   expect(await ui.find({ type: 'Text', text: /📚 PS-HARNESS .* · this session/ })).toBeDefined()
@@ -393,4 +394,65 @@ test("contract 14: a render that throws draws nothing of its own — the host's 
   await w.clock.advance(6_000)
   expect(JSON.parse(w.writes.get(`${SESSIONS}/.band-s1.json`) ?? '{}').drawn).toBe(false)
   await ui.unmount()
+})
+
+// ── Contract 8 as amended 2026-10-12: the story row is the file's ─────
+
+// Whether the terminal band, at `bodyColumns`, has a Text matching `re`.
+const shows = async ($: Engine, re: RegExp, bodyColumns = 120) => {
+  const ui = await mount($, 'terminal', 20, bodyColumns)
+  const hit = Boolean(await ui.find({ type: 'Text', text: re }))
+  await ui.unmount()
+  return hit
+}
+const STORY_ROW = /^\s+story\s/
+
+test("contract 8: the story row is the file's title and status, whatever the pointer holds; a finished story has none", async ($, on) => {
+  const w = world(on, { [BINDING_PATH]: binding(), [`${SESSIONS}/s1.json`]: pointer('PS-HARNESS', 'c', 'stale pointer title', 'in-progress') })
+  await start($, w)
+  expect(await shows($, /story A story · in progress/)).toBe(true)
+  expect(await shows($, /stale pointer title/)).toBe(false)
+
+  const c = `${VAULT}/epics/PS-HARNESS/stories/c.md`
+  w.put(c, story('review', 'C renamed'))
+  await w.clock.advance(6_000)
+  expect(await shows($, /story C renamed · review/)).toBe(true)
+
+  // Closed while the pointer still says in progress: the row goes.
+  for (const status of ['done', 'closed', 'parked', null]) {
+    w.put(c, story(status, 'C renamed'))
+    await w.clock.advance(6_000)
+    expect(await shows($, STORY_ROW)).toBe(false)
+  }
+
+  // Back in work, then a pointer naming a story the epic does not have.
+  w.put(c, story('planned', 'C renamed'))
+  await w.clock.advance(6_000)
+  expect(await shows($, /story C renamed · planned/)).toBe(true)
+  w.put(`${SESSIONS}/s1.json`, pointer('PS-HARNESS', 'no-such-story', 'A ghost', 'in-progress'))
+  await w.clock.advance(6_000)
+  expect(await shows($, STORY_ROW)).toBe(false)
+})
+
+test('contract 8: a folder story and a story beside epic.md are found by their key', async ($, on) => {
+  const w = world(on, {
+    [BINDING_PATH]: binding(),
+    [`${SESSIONS}/s1.json`]: pointer('PS-WT', 'fold'),
+    [`${VAULT}/epics/PS-WT/stories/fold/README.md`]: story('planned', 'Folder story'),
+    [`${VAULT}/epics/PS-WT/story-beside.md`]: story('review', 'Beside story'),
+  })
+  await start($, w)
+  expect(await shows($, /story Folder story · planned/)).toBe(true)
+  w.put(`${SESSIONS}/s1.json`, pointer('PS-WT', 'story-beside'))
+  await w.clock.advance(6_000)
+  expect(await shows($, /story Beside story · review/)).toBe(true)
+})
+
+test('contract 8: a narrow row cuts the title, never the status', async ($, on) => {
+  const w = world(on, { [BINDING_PATH]: binding(), [`${SESSIONS}/s1.json`]: pointer('PS-HARNESS', 'b') })
+  await start($, w)
+  expect(await shows($, /story B story · in progress$/, 120)).toBe(true)
+  // 30 columns hold 27 cells: 3 + "story " + title + " · in progress", so the
+  // title keeps three characters and the ellipsis.
+  expect(await shows($, /story B s… · in progress$/, 30)).toBe(true)
 })

@@ -40,6 +40,9 @@ import {
   segments,
   stepOf,
   storyFiles,
+  storyIsCurrent,
+  storyKeyOf,
+  storyLayout,
   subjectLabel,
   subjectPath,
   totalOf,
@@ -80,6 +83,9 @@ const steps = atom({ plugin: 'projectstore', key: 'steps' } as const, {} as Reco
 
 type Json = Record<string, any>
 type Rendered = 'drew' | 'survey' | 'nothing' | 'unknown'
+// One story file as the scan read it: its key (storyKeyOf), title and status.
+type StoryItem = { key: string; title: string | null; status: string | null }
+type Stories = { counts: BandCounts; items: StoryItem[] }
 
 // What one load of the module remembers between events.
 type Band = {
@@ -90,7 +96,7 @@ type Band = {
   gen: number
   scan: { gen: number; startedAt: number } | null
   shownKey: string
-  stories: Map<string, { sig: string; counts: BandCounts }>
+  stories: Map<string, { sig: string } & Stories>
   shipped: Map<string, Json>
   place: { vault: string | null; kinds: string[] }
 }
@@ -180,10 +186,11 @@ async function layoutOf($: EngineInterface, b: Band, name: string) {
 
 // ── The scan (contracts 2, 4–9, 14) ───────────────────────────────────
 
-// The epic's stories by stage, re-read only when a listing changed. A story
-// that cannot be read keeps the last good counts (none yet: no progress row),
-// never a partial fold — the band draws less, never wrong.
-async function countsOf($: EngineInterface, b: Band, epicDir: string): Promise<BandCounts | null> {
+// The epic's stories by stage, and each one's key, title and status (the
+// story row's, contract 8), re-read only when a listing changed. A story that
+// cannot be read keeps the last good result (none yet: no progress row and no
+// story row), never a partial fold — the band draws less, never wrong.
+async function storiesOf($: EngineInterface, b: Band, epicDir: string): Promise<Stories | null> {
   const seen: string[] = []
   const fs = {
     list: async (dir: string) => {
@@ -213,18 +220,38 @@ async function countsOf($: EngineInterface, b: Band, epicDir: string): Promise<B
   const files: string[] = await storyFiles(fs, epicDir)
   const sig = seen.sort().join('|')
   const hit = b.stories.get(epicDir)
-  if (hit && hit.sig === sig) return hit.counts
+  if (hit && hit.sig === sig) return hit
   const statuses: unknown[] = []
+  const items: StoryItem[] = []
   for (const f of files) {
     const text = await readText($, f)
-    // An unreadable story (an evicted iCloud file): the last good counts, and
+    // An unreadable story (an evicted iCloud file): the last good result, and
     // nothing cached, so the next scan tries again.
-    if (text === null) return hit?.counts ?? null
-    statuses.push((parseFrontmatter(text).data as Json).status)
+    if (text === null) return hit ?? null
+    const data = parseFrontmatter(text).data as Json
+    statuses.push(data.status)
+    const key = storyKeyOf(f.slice(epicDir.length + 1))
+    if (key) {
+      items.push({
+        key,
+        title: typeof data.title === 'string' && data.title ? data.title : null,
+        status: data.status === null || data.status === undefined || data.status === '' ? null : String(data.status),
+      })
+    }
   }
-  const counts = foldStages(statuses) as BandCounts
-  b.stories.set(epicDir, { sig, counts })
-  return counts
+  const next = { sig, counts: foldStages(statuses) as BandCounts, items }
+  b.stories.set(epicDir, next)
+  return next
+}
+
+// This session's story, from its file (contract 8): the item the pointer's
+// key names, while it is work the session is moving. Never the pointer's own
+// title or status — the pointer can be older than the file.
+function storyOf(pointer: Json | null, stories: Stories | null) {
+  const key = pointer && typeof pointer.active_story === 'string' ? (pointer.active_story as string) : null
+  const item = key && stories ? stories.items.find(i => i.key === key) : null
+  if (!item || !storyIsCurrent(item.status)) return null
+  return { title: item.title || item.key, status: item.status }
 }
 
 async function scan($: EngineInterface, b: Band, root: string, sid: string | null): Promise<BandView | null> {
@@ -258,16 +285,14 @@ async function scan($: EngineInterface, b: Band, root: string, sid: string | nul
   if (text === null) return null
   const fm = parseFrontmatter(text).data as Json
   const registry = await shippedJson($, b, 'scaffold/headings.json')
-  const story = focus.why === 'this' && pointer && typeof pointer.story_title === 'string' && pointer.story_title
-    ? { title: pointer.story_title as string, status: typeof pointer.story_status === 'string' ? (pointer.story_status as string) : null }
-    : null
+  const stories = await storiesOf($, b, epicDir)
   return {
     id: typeof fm.id === 'string' && fm.id ? fm.id : focus.id,
     title: typeof fm.title === 'string' && fm.title ? fm.title : focus.id,
     goal: goalOf(text, goalForms(registry, lang)),
-    counts: await countsOf($, b, epicDir),
+    counts: stories ? stories.counts : null,
     why: focus.why,
-    story,
+    story: focus.why === 'this' ? storyOf(pointer as Json | null, stories) : null,
     version: binding.statusline?.show_version === false ? null : await versionOf($, b),
     hint: band.hint_seen !== true,
     words,
@@ -466,11 +491,14 @@ export const register: Register = on => {
         }
       }
 
-      const story = rows.includes('story') && v.story ? (
+      // The title is cut here so the status is never the part the host's
+      // truncation takes (contract 8); truncate-end stays as a backstop.
+      const sl = v.story ? storyLayout(w.band_story, v.story.title, v.story.status, e.props.bodyColumns) : null
+      const story = rows.includes('story') && sl ? (
         <Text wrap="truncate-end">
           <Text dimColor>   {w.band_story} </Text>
-          <Text color="cyan">{v.story.title}</Text>
-          <Text dimColor>{v.story.status ? ` · ${v.story.status.replace(/[_-]/g, ' ')}` : ''}</Text>
+          <Text color="cyan">{sl.title}</Text>
+          <Text dimColor>{sl.tail}</Text>
         </Text>
       ) : null
 

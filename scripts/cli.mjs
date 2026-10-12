@@ -79,6 +79,7 @@ import {
   projectDirRefusal,
   fromTerminalIn,
   doctorFallbackText,
+  refreshSessionPointer,
 } from "./lib.mjs";
 import {
   READ_OPERATIONS,
@@ -482,6 +483,20 @@ export const VERBS = Object.freeze([
     run: runBand,
   }),
   Object.freeze({
+    verb: "session",
+    summary: "Refresh this session's current story from its file.",
+    usage: Object.freeze(["refresh <path>"]),
+    module: "./lib.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [JSON_OPT],
+    run: runSession,
+  }),
+  Object.freeze({
     verb: "bind",
     summary: "Bind this project to an existing vault; naming it confirms.",
     usage: Object.freeze(["<vault>"]),
@@ -648,6 +663,7 @@ const EXAMPLES = {
     "{cmd} band off",
     "{cmd} band epic PS-CORE  # a session with no epic of its own shows this one",
   ],
+  session: ["{cmd} session refresh epics/PS-CORE/stories/story-x.md --json  # after a write no hook saw"],
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
 
@@ -1633,6 +1649,34 @@ async function runBand(ctx) {
     { path: plan.path, wrote: done.wrote, band: plan.after },
     preview + `  wrote ${plan.path}. The band follows within a few seconds; no restart.\n`,
   );
+}
+
+// `session refresh <path>`: this session's pointer from a story file, after a
+// write no hook saw (the close ceremony's copy). Machine-local state, like the
+// hooks' own writes — no confirmation. No session: nothing written, exit 0.
+async function runSession(ctx) {
+  const { row, values, positionals, cfg, project, env, stdout, stderr } = ctx;
+  if (positionals[0] !== "refresh" || !positionals[1] || positionals.length > 2)
+    return usageFail(
+      Object.assign(new Error("session takes refresh <path> (a story file in the vault)"), { code: "USAGE" }),
+      {
+        verb: row.verb,
+        ...ctx,
+      },
+    );
+  const r = refreshSessionPointer(project, cfg, positionals[1], { env });
+  const ok = !r.refusal;
+  const result = ok ? r : { error: r.refusal.message, code: r.refusal.code };
+  if (values.json) stdout.write(JSON.stringify(envelope("session refresh", project, ok, result), null, 2) + "\n");
+  else if (!ok) stderr.write(`${r.refusal.message}\n`);
+  else if (!r.refreshed) stdout.write("No session id from the host: nothing written.\n");
+  else {
+    const p = r.pointer;
+    stdout.write(
+      `This session's story: ${p.story_title || p.active_story}${p.story_status ? ` (${p.story_status})` : ""}.\n`,
+    );
+  }
+  return ok ? 0 : 1;
 }
 
 async function runGraph(ctx) {

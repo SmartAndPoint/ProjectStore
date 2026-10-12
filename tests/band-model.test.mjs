@@ -25,7 +25,7 @@ import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { findStories, statusToColumn } from "../scripts/kanban.mjs";
-import { listEpicStories, layoutPaths } from "../scripts/lib.mjs";
+import { listEpicStories, layoutPaths, pointerPatchFor, storyFileFor } from "../scripts/lib.mjs";
 import { invocation, sourceHarness } from "../scripts/harness.mjs";
 import { foldStages, stageOf, parseFrontmatter, NOT_ACTIONABLE } from "../scripts/stages.mjs";
 import {
@@ -40,6 +40,9 @@ import {
   countsText,
   segments,
   progressLayout,
+  storyLayout,
+  storyKeyOf,
+  storyIsCurrent,
   BAR_MIN,
   BAR_MAX,
   modelLabel,
@@ -193,6 +196,69 @@ test("contract 5: the counts are never cut — the hint goes first, then the bar
   const zc = countsText(c, zh);
   assert.ok(cellWidth(zc) > zc.length);
   assert.equal(progressLayout(zc, null, 80).bar, Math.min(BAR_MAX, 80 - 2 - 3 - 2 - cellWidth(zc) - 1));
+});
+
+test("contract 8: the story row cuts its title with an ellipsis and never its status, in en and zh", () => {
+  const zh = mergeWords(EN, JSON.parse(readFileSync(join(ROOT, "templates", "zh", "strings.json"), "utf8")));
+  const cases = [
+    [W.band_story, "A closed story stops showing as this session's story on the band", "in-progress"],
+    [zh.band_story, "关闭的故事不再显示为本会话的故事", "review"],
+  ];
+  for (const [label, title, status] of cases) {
+    const tail = ` · ${status.replace(/[_-]/g, " ")}`;
+    const row = (lay) => 3 + cellWidth(`${label} `) + cellWidth(lay.title) + cellWidth(lay.tail);
+    for (let cols = 20; cols <= 200; cols++) {
+      const lay = storyLayout(label, title, status, cols);
+      assert.equal(lay.tail, tail, `${cols}: the status is whole`);
+      if (lay.title === title) {
+        assert.ok(row(lay) <= cols - 3, `${cols}: an uncut row fits bodyColumns − 3`);
+        continue;
+      }
+      assert.ok(lay.title.endsWith("…"), `${cols}: a cut title ends in an ellipsis`);
+      assert.ok(title.startsWith(lay.title.slice(0, -1)), `${cols}: the cut keeps the title's start`);
+      if (lay.title !== "…") assert.ok(row(lay) <= cols - 3, `${cols}: a cut row fits bodyColumns − 3`);
+      // The longest prefix that fits: one more character would not.
+      const more = [...title].slice(0, [...lay.title].length).join("") + "…";
+      assert.ok(row({ ...lay, title: more }) > cols - 3, `${cols}: ${JSON.stringify(more)} would not fit`);
+    }
+  }
+  assert.deepEqual(storyLayout("story", "B story", "in_progress", 30), { title: "B s…", tail: " · in progress" });
+  assert.deepEqual(storyLayout("story", "B story", "in_progress", 120), { title: "B story", tail: " · in progress" });
+  assert.deepEqual(
+    storyLayout("story", "B story", "in_progress", undefined),
+    { title: "B story", tail: " · in progress" },
+    "no width from the host: the title whole, the host truncates",
+  );
+});
+
+test("contract 8: the pointer's writer and the band key every story shape alike", () => {
+  const vault = tmp("ps-band-keys-");
+  const epic = join(vault, "epics", "PS-X");
+  mkdirSync(join(epic, "stories", "folder-story"), { recursive: true });
+  const fm = (title) => `---\ntype: story\ntitle: "${title}"\nstatus: planned\n---\n`;
+  writeFileSync(join(epic, "epic.md"), '---\ntype: epic\ntitle: "X"\n---\n');
+  writeFileSync(join(epic, "stories", "story-flat.md"), fm("Flat"));
+  writeFileSync(join(epic, "stories", "folder-story", "README.md"), fm("Folder"));
+  writeFileSync(join(epic, "story-beside.md"), fm("Beside"));
+  const shapes = {
+    "stories/story-flat.md": "story-flat",
+    "stories/folder-story/README.md": "folder-story",
+    "story-beside.md": "story-beside",
+  };
+  for (const [rel, key] of Object.entries(shapes)) {
+    assert.equal(storyKeyOf(rel), key, `the band's key for ${rel}`);
+    const patch = pointerPatchFor(vault, join(epic, rel), null);
+    assert.equal(patch.active_story, key, `the writer's key for ${rel}`);
+    assert.equal(storyFileFor(vault, "PS-X", key), join(epic, rel), `the key finds ${rel} again`);
+  }
+  for (const rel of ["epic.md", "stories/notes/other.md", "README.md"]) assert.equal(storyKeyOf(rel), null, rel);
+});
+
+test("contract 8: a story is this session's only while it stages as in work or backlog", () => {
+  for (const s of ["in-progress", "in_progress", "review", "planned", "todo", "blocked"])
+    assert.equal(storyIsCurrent(s), true, s);
+  for (const s of ["done", "Closed", "superseded", "deferred", "parked", null, ""])
+    assert.equal(storyIsCurrent(s), false, String(s));
 });
 
 test("contract 5: segments split the bar by stage", () => {

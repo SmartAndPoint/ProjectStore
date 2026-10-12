@@ -21,8 +21,8 @@
   [36mupgrade[39m      After an update, refresh what install wrote and leave the rest.
 
 [1mADVANCED[22m
-  [36mplan[39m · [36minstall[39m · [36morientation[39m · [36magents[39m · [36mband[39m · [36mbind[39m · [36minit[39m · [36mscaffold[39m · [36mmcp[39m ·
-  [36mversion[39m
+  [36mplan[39m · [36minstall[39m · [36morientation[39m · [36magents[39m · [36mband[39m · [36msession[39m · [36mbind[39m · [36minit[39m ·
+  [36mscaffold[39m · [36mmcp[39m · [36mversion[39m
 
 [1mOptions[22m
   --project <dir>  the project (default: the session's, else this directory)
