@@ -143,6 +143,18 @@ test("install contract 8: a project is detected by its harness directory, and an
   const rows = harnessRefusal(empty).split("\n").slice(1);
   assert.equal(rows.length, loadHarnesses().size);
   assert.equal(new Set(rows.map((l) => l.indexOf("("))).size, 1, rows.join("\n"));
+  // PLAN prints every row whole, on a pipe and at a terminal: wrap indents only
+  // the lines it breaks, and the refusal's own lines once lost the indent's
+  // width ("laude-code", "odex").
+  // A terminal also wraps a long row's reason, at a space, under the same pad.
+  for (const caps of [PLAIN, { ...PLAIN, live: true, width: 80 }]) {
+    const out = renderPreview(p, { caps, home });
+    for (const row of rows) {
+      const want = caps.live ? row.trim().split("(")[0].trim() : row.trim();
+      assert.ok(out.includes(want), `${caps.live ? "terminal" : "pipe"}: ${want}\n${out}`);
+    }
+    assert.ok(!/^\s*(laude-code|odex)\b/m.test(out), out);
+  }
   // Named, it proceeds even though nothing is detected.
   const named = plan(empty, { home, root, harnesses: [SRC.id] });
   assert.equal(named.ok, true);
