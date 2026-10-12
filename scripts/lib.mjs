@@ -1723,8 +1723,9 @@ export function listOf(fm, key) {
 // the policy survives clones and second machines), Obsidian hides it, and it
 // is intentionally NOT inside <vault>/.projectstore/, whose .gitignore ("*")
 // would defeat the whole point. Keys: spec_policy ("required"|"optional"),
-// lifecycle_gates ("on"|"off"), spec_policy_since (ISO-8601, stamped when
-// spec_policy first becomes "required").
+// lifecycle_gates ("on"|"off"), spec_policy_since (ISO-8601, stamped whenever
+// spec_policy becomes "required" from anything else; kept otherwise — the
+// configure spec, contract 7).
 export function vaultConfigPath(vault) {
   return join(vault, LAYOUT.vaultConfig);
 }
@@ -1740,8 +1741,38 @@ export function readVaultConfig(vault) {
   }
 }
 
+// The strict read a writer needs: a file that exists and is not a JSON
+// object is `corrupt`, never an empty config a write would then replace.
+export function readVaultConfigStrict(vault) {
+  const path = vaultConfigPath(vault);
+  if (!existsSync(path)) return { path, present: false, corrupt: false, cfg: {} };
+  try {
+    const v = JSON.parse(readFileSync(path, "utf8"));
+    if (v && typeof v === "object" && !Array.isArray(v)) return { path, present: true, corrupt: false, cfg: v };
+  } catch {}
+  return { path, present: true, corrupt: true, cfg: null };
+}
+
+// The config a change leaves, pure. A return to "required" re-stamps
+// spec_policy_since: a story done before the policy (re)took effect is exempt
+// (ADR-007 decision 6), and since every story the old stamp exempted closed
+// before the new one, no exemption is lost.
+export function nextVaultConfig(before, patch, now = new Date().toISOString()) {
+  const next = { ...before, ...patch };
+  if (patch.spec_policy === "required" && before.spec_policy !== "required") {
+    // Never earlier than the stamp it replaces: one written ahead of this
+    // clock (a hand edit, a machine whose clock ran fast) would otherwise
+    // shrink the exemption the old stamp gave.
+    const prev = before.spec_policy_since;
+    next.spec_policy_since = prev && String(prev) > now ? prev : now;
+  }
+  return next;
+}
+
+// The one writer of the vault config: atomic, and every key it was not asked
+// to change is kept as it was.
 export function writeVaultConfig(vault, cfg) {
-  writeFileSync(vaultConfigPath(vault), JSON.stringify(cfg, null, 2) + "\n", "utf8");
+  writeFileAtomic(vaultConfigPath(vault), JSON.stringify(cfg, null, 2) + "\n");
 }
 
 // Legacy exemption (ADR-007 Decision 6): a story is exempt from spec-first

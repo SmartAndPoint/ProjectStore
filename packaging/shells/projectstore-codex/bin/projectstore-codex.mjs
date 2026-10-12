@@ -24,7 +24,7 @@ const HARNESS = "codex";
 // scripts/cli.mjs; the packaging test pins it). Any other verb — doctor,
 // status, search, --version — passes through untouched: the core refuses an
 // option a verb does not declare, so a blanket insert would break `doctor`.
-const HARNESS_VERBS = new Set(["setup","plan","install","uninstall","upgrade","agents"]);
+const HARNESS_VERBS = new Set(["setup","configure","plan","install","uninstall","upgrade","agents"]);
 
 // The bundled core, by path — never by package resolution: a hoisted or global
 // copy at another version is exactly the pairing the pin exists to prevent,

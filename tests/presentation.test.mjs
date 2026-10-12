@@ -423,7 +423,7 @@ test("presentation criterion 3: every path a real plan writes and every host arg
 // START is setup and uninstall once setup exists (contract 10); install and
 // bind are ADVANCED's (the setup story, rule 1).
 const HELP_GROUPS = {
-  START: ["setup", "uninstall"],
+  START: ["setup", "configure", "uninstall"],
   VAULT: ["status", "search", "show", "graph", "codemap"],
   "CHECK AND REPAIR": ["doctor", "reconcile", "upgrade"],
 };
@@ -527,7 +527,7 @@ test("presentation criterion 5: top-level --help lists the verbs in named groups
       assert.equal(lines[ex + 2], `  npx projectstore setup${env.PROJECTSTORE_SHELL ? ` --harness ${own}` : ""}`, name);
       assert.match(
         lines[lines.indexOf("Tips") + 1],
-        /^ {2}setup, install, upgrade and uninstall show a plan, then ask at a terminal\.$/,
+        /^ {2}setup, configure, install, upgrade and uninstall show a plan, then ask\.$/,
         name,
       );
       // The tips: the confirmation rule and the unattended path; then the harnesses and the exit codes, 130 among them.

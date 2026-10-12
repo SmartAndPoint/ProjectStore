@@ -135,6 +135,46 @@ function readExisting(configPath) {
   }
 }
 
+// The binding's plain settings and their one writer (the configure spec,
+// contract 5). Every other key of the binding has a writer of its own: the
+// vault path is rebind's, the band the band verb's, the status line's flag
+// install's.
+export const BINDING_SETTING_KEYS = Object.freeze([
+  "language",
+  "active_skills",
+  "auto_inject",
+  "default_author",
+  "tags",
+]);
+
+// What a change to named plain keys would write: never a binding that does
+// not exist (a bare file of settings would read as bound), never over one
+// that does not parse.
+export function planBindingKeys(projectDir, changes, { env = process.env } = {}) {
+  const path = harnessConfigPath(projectDir, env);
+  const unknown = Object.keys(changes).filter((k) => !BINDING_SETTING_KEYS.includes(k));
+  if (unknown.length) throw new Error(`planBindingKeys: not a binding setting: ${unknown.join(", ")}`);
+  const { cfg, corrupt } = readExisting(path);
+  if (corrupt || (cfg && (typeof cfg !== "object" || Array.isArray(cfg))))
+    return { path, refusal: { code: "UNREADABLE", message: `${path} is not valid JSON — fix or remove it first` } };
+  if (!cfg) return { path, refusal: { code: "UNBOUND", message: `${projectDir} is not bound to a vault` } };
+  const keys = Object.keys(changes).filter((k) => JSON.stringify(cfg[k]) !== JSON.stringify(changes[k]));
+  const before = Object.fromEntries(keys.map((k) => [k, cfg[k]]));
+  const after = Object.fromEntries(keys.map((k) => [k, changes[k]]));
+  return { path, keys, before, after, changed: keys.length > 0 };
+}
+
+// Applies a plan: reads the binding again and sets only the planned keys, so
+// a write another writer made since the plan (the band, the flag) is kept.
+export function applyBindingKeys(plan) {
+  if (plan.refusal || !plan.changed) return { wrote: false };
+  const { cfg, corrupt } = readExisting(plan.path);
+  if (corrupt || !cfg || typeof cfg !== "object" || Array.isArray(cfg))
+    throw new Error(`${plan.path} changed since the plan and no longer reads as a binding`);
+  writeFileAtomic(plan.path, JSON.stringify({ ...cfg, ...plan.after }, null, 2) + "\n", { sweep: false });
+  return { wrote: true };
+}
+
 export const shellQuote = (s) => (/^[A-Za-z0-9_/.~-]+$/.test(s) ? s : `'${String(s).replace(/'/g, `'\\''`)}'`);
 
 // A directory with no entries at all. A `.DS_Store` makes it not empty: that

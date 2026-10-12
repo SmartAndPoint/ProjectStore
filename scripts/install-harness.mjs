@@ -1678,15 +1678,21 @@ function planKeepRecord(ctx) {
   });
 }
 
-// The status line's flag (the setup story, rule 9): setup's answer stored as
-// `statusline.enabled`, the key bind's interview writes; every other key of
-// a `statusline` object is kept. Planned for the run's harness that has the
-// status-line surface, when the binding the run leaves does not already say
-// the same; only when there is a binding to record it in.
+// The status line's flag (the setup story, rule 9; the configure spec,
+// contract 6): `statusline.enabled`, from setup's answer or from a run that
+// names the surface — install records on, uninstall off. This item is the
+// flag's one writer; every other key of a `statusline` object is kept.
+// Planned for the run's harness that has the status-line surface, when the
+// binding the run leaves does not already say the same; only when there is a
+// binding to record it in.
 const STATUSLINE_FLAG = "statusline.enabled";
-function planStatuslineFlag(ctx, value) {
+function planStatuslineFlag(ctx, value, mode = "install") {
   const b = ctx.binding;
   if (!b || !b.bound || typeof value !== "boolean" || b.statusline === value) return null;
+  const off =
+    mode === "uninstall"
+      ? "the status line is removed in this run, and the SessionStart hook keeps it off"
+      : "the status line stays off, and setup does not ask again";
   return bindingItem({
     harness: ctx.harness.id,
     surface: "statusline_flag",
@@ -1697,7 +1703,7 @@ function planStatuslineFlag(ctx, value) {
     why: {
       [STATUSLINE_FLAG]: value
         ? "the status line is wired in this run, and the SessionStart hook keeps it current"
-        : "the status line stays off, and setup does not ask again",
+        : off,
     },
     said: {
       unbound: "the project is not bound; the status line's flag is recorded once it is",
@@ -2342,12 +2348,24 @@ export function plan(
       const s = loadHarness(id).surfaces?.statusline;
       return Boolean(s) && s.supported !== false;
     }) || null;
-  const recordFor = (ctx) => {
-    if (mode === "uninstall") return;
+  // The flag's value: setup's answer when it gave one; else, when the run
+  // names the status-line surface, what the run does to it — on for install,
+  // off for uninstall. Never on for a line this run neither wires nor finds
+  // ours: a foreign slot, the keep's branch, a root that is never wired.
+  const flagValue = (ctx, keep) => {
+    if (typeof statusline === "boolean") return statusline;
+    if (!(surfaces || []).includes("statusline")) return null;
+    if (mode === "uninstall") return false;
+    if (keep || ctx.slotForeign.has("statusline")) return null;
+    const row = out.items.find((i) => i.harness === ctx.harness.id && i.surface === "statusline");
+    return row && (row.action !== "skip" || row.state === "ours-current") ? true : null;
+  };
+  const recordFor = (ctx, { keep = false } = {}) => {
     if (ctx.harness.id === flagHarness) {
-      const flag = planStatuslineFlag(ctx, statusline);
+      const flag = planStatuslineFlag(ctx, flagValue(ctx, keep), mode);
       if (flag) marks.push(flag);
     }
+    if (mode === "uninstall") return;
     if (recordKeep && keeping && ctx.harness.id === keeping.harness.id) {
       const kept = planKeepRecord(ctx);
       if (kept) marks.push(kept);
@@ -2464,7 +2482,7 @@ export function plan(
       out.refusals.push(...ctx.refusals);
       if (ctx.incomplete) out.incomplete = true;
       stateFor(id, harness);
-      recordFor(ctx);
+      recordFor(ctx, { keep: true });
       continue;
     }
     const hostRows = [];

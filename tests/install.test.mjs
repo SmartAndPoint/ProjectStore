@@ -1233,6 +1233,54 @@ test("install: the status line is opt-in — no flag means skip, naming the surf
   assert.equal(item(named, "agents_block"), undefined, "--surface narrows");
 });
 
+test("install: naming the status line records its flag, so later plans keep it; uninstall naming it records off (configure spec, contract 6)", () => {
+  const { home, root } = fixture();
+  const proj = project({ statusline: false });
+  const flag = () => JSON.parse(read(layoutPaths(proj).binding)).statusline?.enabled;
+  assert.equal(flag(), undefined, "the fixture's binding has no flag");
+  const named = plan(proj, { home, root, surfaces: ["statusline"] });
+  assert.equal(item(named, "statusline_flag").set["statusline.enabled"], true);
+  apply(named);
+  assert.equal(flag(), true, "wiring the surface by name recorded the flag");
+  const later = plan(proj, { home, root });
+  assert.notEqual(item(later, "statusline").state, "opt-out", "a later bare plan keeps the line, not an opt-out skip");
+  assert.notEqual(item(later, "statusline_launcher").state, "opt-out");
+  assert.equal(item(later, "statusline_flag"), undefined, "nothing to record twice");
+  writeFileSync(join(root, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.29.0" }));
+  const up = plan(proj, { home, root });
+  assert.equal(
+    item(up, "statusline_launcher").action,
+    "update",
+    "an upgrade re-stamps the launcher the named run wired",
+  );
+  apply(up);
+  const un = plan(proj, { home, root, mode: "uninstall", surfaces: ["statusline"] });
+  assert.equal(item(un, "statusline").action, "remove");
+  assert.equal(item(un, "statusline_flag").set["statusline.enabled"], false);
+  apply(un);
+  assert.equal(flag(), false, "removing the surface by name recorded off");
+  assert.equal(item(plan(proj, { home, root }), "statusline").state, "opt-out", "off stays off for a bare run");
+  const bare = plan(proj, { home, root, mode: "uninstall" });
+  assert.equal(item(bare, "statusline_flag"), undefined, "a bare uninstall leaves the flag alone");
+});
+
+test("install: the flag is never recorded on for a line the run does not wire (configure spec, contract 6)", () => {
+  const { home, root } = fixture();
+  const foreign = project({
+    statusline: false,
+    settings: JSON.stringify({ statusLine: { type: "command", command: "node /x/hud.mjs" } }),
+  });
+  const p = plan(foreign, { home, root, surfaces: ["statusline"] });
+  assert.equal(item(p, "statusline").state, "theirs");
+  assert.equal(item(p, "statusline_flag"), undefined, "a foreign slot: the flag would claim a line nobody wired");
+  const answered = plan(project({ statusline: false }), { home, root, statusline: false, surfaces: ["statusline"] });
+  assert.equal(
+    item(answered, "statusline_flag").set["statusline.enabled"],
+    false,
+    "setup's own answer still decides when it gives one",
+  );
+});
+
 test("install: a foreign status line slot means no launcher is written either", () => {
   const { home, root } = fixture();
   const proj = project({ settings: JSON.stringify({ statusLine: { type: "command", command: "node /x/hud.mjs" } }) });
@@ -1696,8 +1744,8 @@ test("install: the command prose invokes the verb and never writes the block or 
     const src = read(join(ROOT, f));
     assert.match(
       src,
-      /bin\/projectstore\.mjs" (install|uninstall|plan) /,
-      `${f} invokes the verb through the bin (roadmap A8)`,
+      /bin\/projectstore\.mjs" (install|uninstall|plan|configure) /,
+      `${f} invokes the verb through the bin (roadmap A8; the status line through configure, its spec's contract 9)`,
     );
   }
   const doctor = read(join(ROOT, "commands", "doctor.md"));

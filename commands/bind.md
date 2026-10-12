@@ -3,7 +3,7 @@ description: Bind this project to an Obsidian vault (or any markdown directory) 
 argument-hint: <vault-path> | --inherit [--layout engineering] [--lang en|ru|es|de|fr|zh]
 ---
 
-You are binding the current project to a markdown vault for projectstore. The config is written by the core's `bind` / `init` verbs (roadmap A8); this interview decides the values, previews them, and asks — it never writes `projectstore.json` itself, except on the inherit path (step 0a), which copies the parent's file verbatim, and the one later stamp in step 11 (`statusline`), which `Edit`s the file the verb wrote. The interview's `--lang` is the verb's `--language`.
+You are binding the current project to a markdown vault for projectstore. The config is written by the core's `bind` / `init` verbs (roadmap A8); this interview decides the values, previews them, and asks — it never writes `projectstore.json` itself, except on the inherit path (step 0a), which copies the parent's file verbatim. The settings later steps change — the vault policy (step 7.5) and the status line (step 11) — go through `configure --set`, each key's one writer. The interview's `--lang` is the verb's `--language`.
 
 Parse `$ARGUMENTS`:
 - First positional arg: vault path. Expand `~` if present.
@@ -81,7 +81,7 @@ Steps:
    node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" bind "<vault-path>" [--layout <name>] [--language <code>] [--rebind]
    ```
 
-   `init "<vault-path>" …` instead when step 1 chose to create the vault — it creates the whole vault, so step 7 has nothing to offer after it; `--rebind` only when step 0 ended on **Replace bind**. Naming the vault is the verb's confirmation (there is no `--yes`); the interview's AskUserQuestion in step 4 is the in-session gate. Print the verb's output. A non-zero exit is a refusal or a usage error — relay it and stop — except an `init` whose output reports `git init failed` or `Scaffold failed`: the binding is written, so relay the remedy line it prints and continue. Step 11 below `Edit`s the file this step wrote; keep it after it.
+   `init "<vault-path>" …` instead when step 1 chose to create the vault — it creates the whole vault, so step 7 has nothing to offer after it; `--rebind` only when step 0 ended on **Replace bind**. Naming the vault is the verb's confirmation (there is no `--yes`); the interview's AskUserQuestion in step 4 is the in-session gate. Print the verb's output. A non-zero exit is a refusal or a usage error — relay it and stop — except an `init` whose output reports `git init failed` or `Scaffold failed`: the binding is written, so relay the remedy line it prints and continue.
 
 6. **Check `.gitignore`**: read `<project>/.gitignore` if it exists. Our own files are self-ignored inside `.projectstore/` — the verb writes that `.gitignore` itself, carrying `projectstore.json` and `state/`, with `harness/` committed on purpose (the layout ADR); on the inherit path of step 0a, which bypasses the verb, you wrote both by hand. Unless `.claude/` is ignored wholesale, the one machine-specific entry left is the host's `.claude/settings.local.json`. If it is missing, offer (AskUserQuestion) to append it. If the user declines, skip silently.
 
@@ -97,7 +97,7 @@ Steps:
    - If it already exists with a `spec_policy` key — respect it, print the current policy, do not re-ask.
    - **New bind into a vault with no artifacts** (a vault `init` just made counts: its folders and README indexes are not artifacts): ask via AskUserQuestion — "Enable spec-first policy for this vault (every story must be covered by a spec; doctor enforces it)?" with options **Yes, `spec_policy: required` (Recommended)** / **Not yet, `optional`**. Second question: "Enable lifecycle gates (plan/close sections + evidence checks on stories)?" — **Yes, `lifecycle_gates: on` (Recommended)** / **Off for now**.
    - **Bind to an existing vault with artifacts**: default to `spec_policy: optional`, `lifecycle_gates: off` and say doctor will suggest enabling once specs appear. Do not impose the gate on an existing backlog.
-   - On any choice, write `<vault>/.projectstore.json` (vault ROOT — deliberately not inside `<vault>/.projectstore/`, whose .gitignore would keep the policy out of git):
+   - On any choice, run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" configure --set spec_policy=<required|optional> --set lifecycle_gates=<on|off> --dry-run --project "${CLAUDE_PROJECT_DIR}"` and show its PLAN, then ask via AskUserQuestion: "Record this policy in the vault? [Yes / No]". On **Yes**, run the same command without `--dry-run`; a non-zero exit is a refusal — relay it and go on to step 8 (the binding is already written). It writes `<vault>/.projectstore.json` — vault ROOT, deliberately not inside `<vault>/.projectstore/`, whose .gitignore would keep the policy out of git — and keeps any other key in it:
 
    ```json
    {
@@ -107,7 +107,7 @@ Steps:
    }
    ```
 
-   `spec_policy_since` is stamped ONLY when spec_policy is set to `required` — it anchors the legacy exemption (stories done before it stay exempt; stories in progress/review at enable time are in scope).
+   configure stamps `spec_policy_since` whenever spec_policy becomes `required` — it anchors the legacy exemption (stories done before it stay exempt; stories in progress/review at enable time are in scope).
 
 8. **Agent registration** (v0.13, ADR-002): ask via AskUserQuestion — "Register projectstore's agents in CLAUDE.md/AGENTS.md so every session routes to them (critic after authoring artifacts, planner before implementing, reviewer before commit)? [Yes (Recommended) / No]". On Yes, run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" install --harness claude-code --surface agents_block --project "${CLAUDE_PROJECT_DIR}"` and print its output (it renders from the layout's roster, migrates rather than duplicates, previews every write, and applies because the harness is named). On a rebind where a block already exists the verb reports it current or replaces it in place — do not re-ask blindly.
 
@@ -121,4 +121,4 @@ Steps:
 
     (for `ru`: `[PS#<version>] 📚 Супер-фича в супер-продукте › Ручка для туалетной бумаги (in-progress)`; every bundled language ships its own example pair)
 
-    Ask via AskUserQuestion: "Show your current epic/story in the status line, composed above any existing HUD? [Yes / No]". On Yes: Edit `projectstore.json` → `"statusline": { "enabled": true }` (approval-gated), then run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" install --harness claude-code --surface statusline --project "${CLAUDE_PROJECT_DIR}"` and print its output (it writes the `settings.local.json` entry and the launcher, previewed), and report: "Enabled — restart Claude Code in this project to apply. A fresh session shows: `[PS#<version>] 📚 <statusline_no_work>`."
+    First run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" configure --set statusline=on --dry-run --project "${CLAUDE_PROJECT_DIR}"` and show its PLAN; a non-zero exit is a refusal (a foreign status line, an unparseable settings file) — relay it and skip this step. Then ask via AskUserQuestion: "Show your current epic/story in the status line, composed above any existing HUD? [Yes / No]". On Yes, run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" configure --set statusline=on --project "${CLAUDE_PROJECT_DIR}"` and print its output — a non-zero exit is a refusal to relay (it records `statusline.enabled: true` and writes the `settings.local.json` entry and the launcher, in one plan), and report: "Enabled — restart Claude Code in this project to apply. A fresh session shows: `[PS#<version>] 📚 <statusline_no_work>`."
