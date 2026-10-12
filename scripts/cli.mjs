@@ -62,6 +62,9 @@ import {
   harnessForOverlay,
   pinPluginRoot,
   invokedAs,
+  shellHarnessId,
+  CORE_NPX,
+  packageCommand,
   loadHarnesses,
   invocation,
 } from "./harness.mjs";
@@ -74,6 +77,7 @@ import {
   layoutRoster,
   commandForm,
   projectDirRefusal,
+  fromTerminalIn,
   doctorFallbackText,
 } from "./lib.mjs";
 import {
@@ -591,20 +595,28 @@ const HELP_GROUPS = [
 const VERB_COLUMN = 12;
 export const SUMMARY_MAX = 80 - (2 + VERB_COLUMN + 1);
 
-// Examples per verb. `{cmd}` is how this run was invoked (a shell's own name
-// when PROJECTSTORE_SHELL says so, else the core — a shell passes the read
-// verbs through, so its name serves them too), `{h}` the harness argument the
-// core needs and a shell fixes. A `{core}` example is the core's alone: under
-// a shell `{h}` is empty, so it would repeat the line above it and say what
-// the shell's own run does not. `{switch.surface}`, `{switch.host}` and
-// `{switch.doctor}` name the harness whose project can switch channels — the
-// one with a host plugin registration — from its manifest: its surface key,
-// its display name and its doctor form (switchHarness, below); an example
-// naming them is left out when no manifest has one.
+// Examples per verb. They are what to run next, so they are the core's form
+// through a shell too (the story "User-facing text says where to run and
+// names no project path and no shell", rule 6): `{cmd}` is the core through
+// npx, and `{h}` the harness argument — ` --harness <id>` from the core, and
+// through a shell ` --harness <the shell's own harness>` (shellHarnessId),
+// never a session's identity. `{fixed}` is that argument through a shell
+// only: the shell inserts --harness for every verb that declares it
+// (packaging/shells.mjs, HARNESS_VERBS), so an example the core runs bare —
+// setup, which asks; agents show, which reads the session's overlay — names
+// the shell's harness through it and stays bare from the core. A `{core}`
+// example is the core's alone: a shell's help leaves it out, since it says
+// what the shell's own harness does not (every harness, the way back from a
+// switch). `{switch.surface}`,
+// `{switch.host}` and `{switch.doctor}` name the harness whose project can
+// switch channels — the one with a host plugin registration — from its
+// manifest: its surface key, its display name and its doctor form
+// (switchHarness, below); an example naming them is left out when no
+// manifest has one.
 const EXAMPLES = {
   setup: [
-    "{cmd} setup",
-    "{cmd} setup --dry-run  # the questions and the plan; nothing is written or fetched",
+    "{cmd} setup{fixed}",
+    "{cmd} setup{fixed} --dry-run  # the questions and the plan; nothing is written or fetched",
     "{cmd} setup{h} --vault ~/vaults/my-project  # without a terminal: --harness confirms, --vault names the vault",
   ],
   install: ["{cmd} install{h}", "{cmd} plan{h}  # the same plan; nothing is written"],
@@ -630,7 +642,7 @@ const EXAMPLES = {
   bind: ["{cmd} bind ~/vaults/my-project", "{cmd} bind ~/vaults/other --rebind"],
   init: ["{cmd} init ~/vaults/new-project --language ru"],
   scaffold: ["{cmd} scaffold  # what would be created; nothing is written", "{cmd} scaffold --write"],
-  agents: ["{cmd} agents show", "{cmd} agents configure{h} --default opus --agent clerk=sonnet"],
+  agents: ["{cmd} agents show{fixed}", "{cmd} agents configure{h} --default opus --agent clerk=sonnet"],
   band: [
     "{cmd} band status",
     "{cmd} band off",
@@ -639,8 +651,10 @@ const EXAMPLES = {
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
 
-// How this run was invoked is invokedAs (harness.mjs), the one spelling,
-// which status's and bind's next commands print too.
+// How this run was invoked is invokedAs (harness.mjs), the one spelling of
+// the binary that ran: the help's first line, its Usage lines, the
+// fixed-harness line and the usage errors. What a person runs next is the
+// core's (CORE_NPX, packageCommand), as status's and bind's Next lines are.
 
 // The harness whose project can switch channels (the converge story's rule
 // 4): the one whose manifest declares a host plugin registration. Its surface
@@ -743,13 +757,17 @@ export function usage(env = process.env, verbs = VERBS, { caps: c = term.PLAIN, 
       "  " + term.wrap(advanced.map((v) => paint("action", v.verb)).join(` ${term.icon(c, "dot")} `), 80, "  "),
     );
   if (PLANNED_VERBS.length) lines.push("", `Planned: ${PLANNED_VERBS.map((v) => `${v.verb} (${v.lands})`).join(", ")}`);
-  // A command is offered only for a verb this table has.
-  const h = shell ? "" : " --harness <id>";
+  // A command is offered only for a verb this table has. The examples and the
+  // tips' plan are what to run next: the core's form, through a shell with
+  // the shell's own harness (rule 6 of the story "User-facing text says
+  // where to run…"); setup names it only through a shell, as EXAMPLES'
+  // `{fixed}` does.
+  const h = ` --harness ${(shell && shellHarnessId(env)) || "<id>"}`;
   const has = (verb) => verbs.some((v) => v.verb === verb);
   const examples = [
-    ["setup", `${cmd} setup`],
-    ["status", `${cmd} status`],
-    ["doctor", `${cmd} doctor`],
+    ["setup", `${CORE_NPX} setup${shell ? h : ""}`],
+    ["status", `${CORE_NPX} status`],
+    ["doctor", `${CORE_NPX} doctor`],
   ]
     .filter(([v]) => has(v))
     .map(([, x]) => x);
@@ -766,7 +784,10 @@ export function usage(env = process.env, verbs = VERBS, { caps: c = term.PLAIN, 
     prose("--verbose on those verbs adds every row's reasoning and the host's notes."),
   );
   if (has("plan"))
-    lines.push(prose("plan prints the same plan and writes nothing:"), ...term.commandBlock(c, [`${cmd} plan${h}`]));
+    lines.push(
+      prose("plan prints the same plan and writes nothing:"),
+      ...term.commandBlock(c, [`${CORE_NPX} plan${h}`]),
+    );
   lines.push("", fact(c, "Harnesses", harnessIds().join(", ")), fact(c, "Exit codes", EXIT_CODES));
   return lines.join("\n");
 }
@@ -802,7 +823,8 @@ export function verbHelp(row, env = process.env, { caps: c = term.PLAIN } = {}) 
   const ex = (EXAMPLES[row.verb] || [])
     .filter((e) => !(fixed && e.startsWith("{core}")) && (sw || !e.includes("{switch.")))
     .map((e) => e.replace(/^\{core\}/, "").replace(/\{(switch\.\w+)\}/g, (_, k) => sw[k]));
-  const h = fixed ? "" : " --harness <id>";
+  // What to run next is the core's form: through a shell, its own harness.
+  const h = ` --harness ${(fixed && shellHarnessId(env)) || "<id>"}`;
   // Each example command stands alone on its line, after a blank one
   // (contract 6): nothing after it, so a paste takes exactly the command — a
   // trailing `# note` broke a paste into a shell that reads no comments. A
@@ -810,7 +832,15 @@ export function verbHelp(row, env = process.env, { caps: c = term.PLAIN } = {}) 
   // introduced command does (DONE's tip, doctor's fix, bind's Next);
   // commands with no note share one block.
   const blocks = [];
-  for (const [x, note] of ex.map((e) => e.split("{cmd}").join(cmd).split("{h}").join(h).split("  # "))) {
+  const render = (e) =>
+    e
+      .split("{cmd}")
+      .join(CORE_NPX)
+      .split("{h}")
+      .join(h)
+      .split("{fixed}")
+      .join(fixed ? h : "");
+  for (const [x, note] of ex.map((e) => render(e).split("  # "))) {
     const last = blocks.at(-1);
     if (!note && last && !last.note) last.cmds.push(x);
     else blocks.push({ note: note ? `${note[0].toUpperCase()}${note.slice(1)}:` : null, cmds: [x] });
@@ -1119,9 +1149,17 @@ export async function run(
   }
   const project = resolveProject({ project: values.project, env, cwd });
   const cfg = readConfigAt(project);
+  // Each form alone on its line after the lead, the terminal's in the core's
+  // form, the directory in the lead (the story "User-facing text says where to
+  // run and names no project path and no shell", rules 1, 4 and 6).
   if (row.requiresBinding && !cfg)
     return fail(
-      `${project} is not bound to a vault — run ${commandForm("bind", { args: "<vault>", env })} in a session, or \`projectstore bind <vault>\` (\`projectstore init <vault>\` also creates the vault).`,
+      [
+        `${project} is not bound to a vault. Bind it in a session, or ${fromTerminalIn(project)}, where init creates the vault too:`,
+        commandForm("bind", { args: "<vault>", env }),
+        packageCommand([], "bind", { args: "<vault>" }),
+        packageCommand([], "init", { args: "<vault>" }),
+      ].join("\n"),
       3,
       { project },
     );
@@ -1294,12 +1332,22 @@ async function runScaffold(ctx) {
   // readConfigAt hands back the stored path raw: `~`, relative, a trailing slash.
   const norm = normaliseVaultPath(cfg.vault_path, project);
   const vault = typeof norm === "string" ? norm : null;
+  // Each refusal ends with its command alone on its line, in the core's form,
+  // the directory in the lead (the story "User-facing text says where to
+  // run…", rules 1, 4 and 6). In a session, bind asks before a rebind.
   if (!vault) {
-    const why = `the binding names no usable vault path${norm && norm.error ? ` (${norm.error})` : ""} — rebind with \`projectstore bind <vault> --rebind\``;
+    const why = [
+      `the binding names no usable vault path${norm && norm.error ? ` (${norm.error})` : ""}. Rebind it in a session, or ${fromTerminalIn(project)}:`,
+      commandForm("bind", { args: "<vault>", env }),
+      packageCommand([], "bind", { args: "<vault> --rebind" }),
+    ].join("\n");
     return emit(false, { error: why }, why + "\n", 1);
   }
   if (!existsSync(vault)) {
-    const why = `${vault} does not exist — the binding names a vault directory that is not there. \`projectstore init ${shellQuote(vault)}\` creates it under this binding: the directory, its git repository and the layout's folders.`;
+    const why = [
+      `${vault} does not exist: the binding names a vault directory that is not there. init creates it under this binding — the directory, its git repository and the layout's folders — ${fromTerminalIn(project)}:`,
+      packageCommand([], "init", { args: shellQuote(vault) }),
+    ].join("\n");
     return emit(false, { error: why, vault_path: vault }, why + "\n", 1);
   }
   const plan = planScaffold(vault, {
@@ -1309,7 +1357,7 @@ async function runScaffold(ctx) {
   });
   if (!plan.ok) return emit(false, scaffoldResult(plan), renderScaffoldPlan(plan, null, { env }), 1);
   if (!values.write || plan.creates === 0)
-    return emit(true, scaffoldResult(plan), renderScaffoldPlan(plan, null, { env }), 0);
+    return emit(true, scaffoldResult(plan), renderScaffoldPlan(plan, null, { env, project }), 0);
   // An injected `ask` is a terminal, as for install. Otherwise the installer's
   // definition of one (TTYs, CI, a host session's markers) is the one
   // contract 9 names — imported lazily, as runInstallVerb imports it.

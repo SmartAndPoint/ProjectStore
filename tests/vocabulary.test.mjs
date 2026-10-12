@@ -476,7 +476,12 @@ test("contract 18: another harness's registration speaks that harness's forms, n
   assert.ok(own, "the silenced copy is named");
   assert.equal(own.about, undefined, "its own harness: no mark");
   assert.ok(!own.message.startsWith(`${SRC.display_name}: `), "and no prefix");
-  assert.ok(own.message.includes(`then ${invocation(SRC, "doctor", { args: "--fix" })}.`), own.message);
+  // The doctor form alone on its line, after its lead (the story "User-facing
+  // text says where to run…", rule 5).
+  assert.ok(
+    own.message.includes(`\nRestart, then in the session:\n${invocation(SRC, "doctor", { args: "--fix" })}\n`),
+    own.message,
+  );
   for (const m of MANIFESTS.filter((x) => x.id !== SRC.id)) {
     const f = checkPluginRegistration(proj, [state], { home, speaker: m }).find((x) =>
       /is off for this checkout/.test(x.message),
@@ -689,11 +694,14 @@ test("contract 18: another harness's surface is its fact — named, marked, its 
           f.about === h.id && f.message.startsWith(`${h.display_name}: `),
           `${speaker.id} listening: ${f.message}`,
         );
+      // The status line's step is a paragraph of its own, its command alone
+      // on the message's last line (the story "User-facing text says where to
+      // run…", rule 4).
       if (h.surfaces?.statusline?.supported === false)
-        assert.ok(!/for the status line/.test(f.message), `${h.id} has no status line: ${f.message}`);
+        assert.ok(!/for the status line/i.test(f.message), `${h.id} has no status line: ${f.message}`);
       else
         assert.ok(
-          f.message.includes(`(for the status line, ${invocation(h, "statusline", { args: "on" })})`),
+          f.message.endsWith(`\nFor the status line, in the session:\n${invocation(h, "statusline", { args: "on" })}`),
           f.message,
         );
     }
@@ -764,7 +772,12 @@ test("contract 18: a shared surface is every harness's — never marked, its ste
     assert.equal(out.length, MANIFESTS.length, "one line per harness's state, as before");
     for (const f of out) {
       assert.equal(f.about, undefined, `${speaker.id} listening: ${f.message}`);
-      assert.ok(f.message.endsWith(`Run ${invocation(speaker, "agents", { args: "register" })}.`), f.message);
+      // The listener's form, alone on the message's last line (the story
+      // "User-facing text says where to run…", rule 4).
+      assert.ok(
+        f.message.endsWith(`, in the session:\n${invocation(speaker, "agents", { args: "register" })}`),
+        f.message,
+      );
     }
   }
 });

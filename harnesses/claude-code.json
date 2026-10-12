@@ -494,7 +494,7 @@
   "ui_vocabulary_reason": "This harness's UI affordances and tool names: words that mean nothing on another harness. The generator refuses them in another harness's rendered tree, and the runtime vocabulary lint refuses them in what the core prints for another harness (generation spec, contracts 6 and 18). A word here must be followed by a non-word character to count, so `/plugins/` in a path is not `/plugin`.",
   "update_hint": {
     "line": "See /plugin → Marketplaces to enable auto-update.",
-    "welcome": ["**About future updates**: Claude Code does NOT auto-update third-party marketplaces by default. To get notified of new releases (v0.7+):", "1. Open `/plugin` → **Marketplaces** tab.", "2. Find **SmartAndPoint**.", "3. Toggle **auto-update** on.", "", "Without it, you'd run `/plugin marketplace update SmartAndPoint` manually. See https://github.com/SmartAndPoint/ProjectStore#updates for details."],
+    "welcome": ["**About future updates**: Claude Code does NOT auto-update third-party marketplaces by default. To get notified of new releases (v0.7+):", "1. Open `/plugin` → **Marketplaces** tab.", "2. Find **SmartAndPoint**.", "3. Toggle **auto-update** on.", "", "Without it, you'd run `/plugin marketplace update SmartAndPoint` manually. See https://github.com/SmartAndPoint/ProjectStore#upgrading for details."],
     "reason": "What the first-run welcome and its one-line notice say about updates (generation spec, contract 18): `line` ends the notice, `welcome` is the welcome's update block. update_instructions is the long-form guidance; this is the part a session prints, kept here so no hook names a harness's update path."
   },
   "update_instructions": [

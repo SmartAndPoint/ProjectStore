@@ -186,7 +186,7 @@ test("cli: --version equals package.json, help lists every verb, an unknown verb
   assert.equal(badOpt.status, 2);
 });
 
-test("cli: <verb> --help prints the verb's options and examples, a shell's name replaces the core's, and a near miss is named", () => {
+test("cli: <verb> --help prints the verb's options and examples — through a shell, its name on the first and Usage lines and the core's form with its harness in the examples — and a near miss is named", () => {
   for (const v of VERBS) {
     const h = bin([v.verb, "--help"]);
     assert.equal(h.status, 0, v.verb);
@@ -221,26 +221,55 @@ test("cli: <verb> --help prints the verb's options and examples, a shell's name 
     ),
     uninstall,
   );
+  // Through a shell, the examples are what to run next: the core's form with
+  // the shell's own harness (the story "User-facing text says where to run
+  // and names no project path and no shell", rule 6). The core's own
+  // examples (every harness, the way back) stay out of a shell's help.
   const shellUninstall = bin(["uninstall", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
   assert.ok(!/every harness this project uses/i.test(shellUninstall), shellUninstall);
   assert.ok(!/after a switch/.test(shellUninstall), "the way back is the core's example");
-  assert.match(shellUninstall, /\nExamples\n\n {2}npx projectstore-codex uninstall\n/);
+  assert.match(shellUninstall, /\nExamples\n\n {2}npx projectstore uninstall --harness codex\n/);
   // The ids come from the manifests, never from the help's own text (a Codex user reads it too).
   assert.ok(install.includes(`\nHarnesses   ${harnessIds().join(", ")}\n`), install);
   const core = bin(["--help"]).stdout;
   assert.match(core, /Unattended in a terminal: .*--json.*CI=1.*<\/dev\/null/);
-  // Through a shell, agents --help offers no --harness either: the shell inserts it.
+  // Through a shell, agents --help offers no --harness option: the shell
+  // inserts it. Its examples name the core and the shell's harness.
   const agents = bin(["agents", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
-  assert.ok(!agents.includes("--harness"), agents);
-  assert.match(agents, /npx projectstore-codex agents show/, "the read examples use the shell's name too");
-  // Through a shell the harness is fixed: the examples drop it, and so does the option list.
+  assert.ok(!agents.includes("--harness <id>"), agents);
+  assert.ok(!agents.slice(agents.indexOf("\nOptions\n"), agents.indexOf("\nExamples\n")).includes("--harness"), agents);
+  // The shell inserts --harness for every verb that declares it, agents show
+  // included: the example names that harness, whose overlay it reads.
+  assert.match(agents, /\n {2}npx projectstore agents show --harness codex\n/, agents);
+  assert.match(agents, /\n {2}npx projectstore agents configure --harness codex --default opus/, agents);
+  // From the core, agents show and setup stay bare: they read the session's
+  // overlay, and ask.
+  assert.match(bin(["agents", "--help"]).stdout, /\n {2}npx projectstore agents show\n/);
+  const coreSetup = bin(["setup", "--help"]).stdout;
+  assert.match(coreSetup, /\nExamples\n\n {2}npx projectstore setup\n/, coreSetup);
+  assert.match(coreSetup, /\n {2}npx projectstore setup --dry-run\n/, coreSetup);
+  const shellSetup = bin(["setup", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
+  assert.match(shellSetup, /\nExamples\n\n {2}npx projectstore setup --harness codex\n/, shellSetup);
+  assert.match(shellSetup, /\n {2}npx projectstore setup --harness codex --dry-run\n/, shellSetup);
+  assert.match(shellSetup, /\n {2}npx projectstore setup --harness codex --vault ~\/vaults\/my-project\n/, shellSetup);
+  assert.ok(!/npx projectstore-codex /.test(agents.slice(agents.indexOf("\nExamples\n"))), agents);
+  // Through a shell the harness is fixed: the option list drops it, and the
+  // examples name it as the core takes it — the shell's own harness.
   const shell = bin(["upgrade", "--help"], { env: { PROJECTSTORE_SHELL: "projectstore-codex" } }).stdout;
   assert.ok(shell.startsWith("npx projectstore-codex upgrade — "), shell);
-  assert.ok(!shell.includes("--harness"), "a shell's harness is not an option");
+  assert.ok(!shell.includes("--harness <id>"), "a shell's harness is not an option");
   assert.match(
     shell,
-    /\n {2}The version you name is the version that runs:\n\n {2}npx projectstore-codex@<version> upgrade\n/,
+    /\n {2}The version you name is the version that runs:\n\n {2}npx projectstore@<version> upgrade --harness codex\n/,
   );
+  assert.ok(!shell.slice(shell.indexOf("\nExamples\n")).includes("projectstore-codex"), shell);
+  // The shell's own harness, never a session's identity: the Codex shell run
+  // inside a Claude Code session still installs Codex.
+  const inClaude = bin(["upgrade", "--help"], {
+    env: { PROJECTSTORE_SHELL: "projectstore-codex", [SRC.runtime.session_env[0]]: "1" },
+  }).stdout;
+  assert.match(inClaude, /\n {2}npx projectstore@<version> upgrade --harness codex\n/, inClaude);
+  assert.ok(!inClaude.includes(`--harness ${SRC.id}`), inClaude);
   // mcp's help says how it is told its project, which its summary has no room for.
   assert.match(
     bin(["mcp", "--help"]).stdout,
@@ -250,10 +279,17 @@ test("cli: <verb> --help prints the verb's options and examples, a shell's name 
   assert.match(top, /Usage\n {2}npx projectstore-claude <verb> \[options\]/);
   for (const g of ["START", "VAULT", "CHECK AND REPAIR", "ADVANCED", "Options", "Examples", "Tips"])
     assert.ok(top.includes(`\n${g}\n`), g);
-  // Through a shell the harness is the shell's: no --harness in the examples or the tips, and the verb confirms.
-  assert.ok(!top.includes("--harness"), top);
+  // Through a shell the harness is the shell's: the verb confirms, and the
+  // examples and the tips' plan are the core's form naming that harness —
+  // the shell's name only on the Usage lines (rule 6 of the story above).
+  assert.ok(!top.includes("--harness <id>"), top);
   assert.ok(top.includes("\n  Without a terminal, the verb is its own confirmation — there is no --yes.\n"), top);
-  assert.ok(top.includes("\n\n  npx projectstore-claude plan\n"), top);
+  assert.ok(top.includes(`\n\n  npx projectstore plan --harness ${SRC.id}\n`), top);
+  assert.ok(
+    top.includes(`\nExamples\n\n  npx projectstore setup --harness ${SRC.id}\n  npx projectstore status\n`),
+    top,
+  );
+  assert.ok(!top.slice(top.indexOf("\nOptions\n")).includes("projectstore-claude"), top);
   // Near misses: a verb, an option of the verb, an option before any verb.
   const verb = bin(["instal"]);
   assert.equal(verb.status, 2);
@@ -1744,15 +1780,18 @@ test("cli bind: naming the vault is the confirmation — a headless bind writes 
   assert.equal(bin(["bind", "--project", project({ bound: false })]).status, 2);
   assert.equal(bin(["bind", vault, "--layout", "nope", "--project", project({ bound: false })]).status, 2);
   assert.equal(bin(["bind", vault, "--language", "xx", "--project", project({ bound: false })]).status, 2);
-  const missing = bin([
-    "bind",
-    join(tmpdir(), "ps-none-" + Date.now()),
-    "--json",
-    "--project",
-    project({ bound: false }),
-  ]);
+  const none = join(tmpdir(), "ps-none-" + Date.now());
+  const unboundProj = project({ bound: false });
+  const missing = bin(["bind", none, "--json", "--project", unboundProj]);
   assert.equal(missing.status, 1);
-  assert.match(envOf(missing).result.refusals[0].message, /projectstore init/);
+  // init in the core's form, alone on the last line, the directory in the
+  // lead (the story "User-facing text says where to run…", rules 1 and 4).
+  assert.ok(
+    envOf(missing).result.refusals[0].message.endsWith(
+      `in one step from a terminal in ${JSON.stringify(unboundProj)}:\nnpx projectstore init ${none}`,
+    ),
+    envOf(missing).result.refusals[0].message,
+  );
 });
 
 test("cli init: refuses when already bound to a vault that is there, and rebuilds one that went missing; a project bound elsewhere needs --rebind; nothing is created on a refusal", () => {
@@ -1865,8 +1904,15 @@ test("cli scaffold: on a bound vault with no layout folders the bare verb lists 
   for (const p of SKELETON)
     assert.ok(r.stdout.includes(`\n  create  ${p}\n`), `${p} is planned as create:\n${r.stdout}`);
   assert.match(r.stdout, new RegExp(`${SKELETON.length} to create\\.\\n`));
-  // The bare plan's text ends with the command that writes it, in both forms.
-  assert.match(r.stdout, /\nTo write them: \S+scaffold in a session, or `projectstore scaffold --write`\.\n$/);
+  // The bare plan's text ends with the command that writes it, in both forms,
+  // each alone on its line after a blank one; the lead names the project (the
+  // story "User-facing text says where to run…", rules 1, 4 and 6).
+  assert.ok(
+    r.stdout.endsWith(
+      `\nTo write them, in a session or from a terminal in ${JSON.stringify(proj)}:\n\n  ${commandForm("scaffold", { env: {} })}\n  npx projectstore scaffold --write\n`,
+    ),
+    r.stdout,
+  );
   assert.deepEqual(readdirSync(vault), [], "nothing written");
   const j = bin(["scaffold", "--json", "--project", proj]);
   assert.equal(j.status, 0, j.stderr);
@@ -2087,7 +2133,33 @@ test("scaffold plan: a kind with no string in the language, or a missing vault-r
   writeBinding(gone, JSON.stringify({ vault_path: goneVault, layout: "engineering" }));
   const g = bin(["scaffold", "--write", "--project", gone]);
   assert.equal(g.status, 1);
-  assert.match(g.stderr, /does not exist .*`projectstore init /);
+  assert.ok(
+    g.stderr.endsWith(
+      `layout's folders — from a terminal in ${JSON.stringify(gone)}:\nnpx projectstore init ${goneVault}\n`,
+    ),
+    g.stderr,
+  );
+  // Unbound: bind in a session, or bind or init at a terminal, each alone on its line.
+  const unbound = project({ bound: false });
+  const u = bin(["scaffold", "--project", unbound]);
+  assert.equal(u.status, 3);
+  assert.ok(
+    u.stderr.endsWith(
+      `is not bound to a vault. Bind it in a session, or from a terminal in ${JSON.stringify(unbound)}, where init creates the vault too:\n${commandForm("bind", { args: "<vault>", env: {} })}\nnpx projectstore bind <vault>\nnpx projectstore init <vault>\n`,
+    ),
+    u.stderr,
+  );
+  // A binding with no usable vault path: rebind, each form alone on its line.
+  const blank = project({ bound: false });
+  writeBinding(blank, JSON.stringify({ vault_path: "", layout: "engineering" }));
+  const n = bin(["scaffold", "--project", blank]);
+  assert.equal(n.status, 1);
+  assert.ok(
+    n.stderr.endsWith(
+      `Rebind it in a session, or from a terminal in ${JSON.stringify(blank)}:\n${commandForm("bind", { args: "<vault>", env: {} })}\nnpx projectstore bind <vault> --rebind\n`,
+    ),
+    n.stderr,
+  );
   assert.ok(!existsSync(goneVault), "scaffold never creates the vault itself");
   assert.equal(envOf(bin(["scaffold", "--json", "--project", gone])).ok, false);
   assert.equal(bin(["scaffold", "--project", project({ bound: false })]).status, 3);
@@ -2194,9 +2266,11 @@ test('cli init: git absent (PATH "") skips with git.skipped and exits 0; inside 
   const fe = envOf(f);
   assert.equal(fe.ok, false);
   assert.equal(fe.result.git.failed, "fatal: cannot mkdir .git: Read-only file system");
+  // The lead names the vault; git's command and doctor's fix follow, each
+  // alone on its line (the story "User-facing text says where to run…", rule 4).
   assert.match(
     fe.result.git.remedy,
-    /^Run `git init` in \S+, or \S+doctor --fix, which offers it\.$/,
+    /^Run git init in "[^"]+" from a terminal, or doctor's fix in a session, which offers it:\ngit -C \S+ init\n\S+doctor --fix$/,
     "the --json result carries the remedy the text prints",
   );
   assert.equal(fe.result.wrote, true, "the binding is written");
@@ -2209,7 +2283,7 @@ test('cli init: git absent (PATH "") skips with git.skipped and exits 0; inside 
   assert.equal(ft.status, 1);
   assert.match(
     ft.stdout,
-    /\ngit init failed: fatal: cannot mkdir \.git: Read-only file system\n {2}Run `git init` in \S+, or \S+doctor --fix, which offers it\.\n/,
+    /\ngit init failed: fatal: cannot mkdir \.git: Read-only file system\n {2}Run git init in "[^"]+" from a terminal, or doctor's fix in a session, which offers it:\n\n {4}git -C \S+ init\n {4}\S+doctor --fix\n/,
   );
   assert.match(ft.stdout, /\nScaffolded the engineering layout/);
   assert.ok(!/Next:/.test(ft.stdout), "the remedy is the next step");
@@ -2240,12 +2314,14 @@ test("cli bind/init on an existing non-empty vault: binds, no git init, no scaff
   assert.equal(i.status, 0, i.stderr);
   assert.deepEqual(readdirSync(vault), ["notes.md"], "no git init and no scaffold inside someone's files");
   assert.match(i.stdout, both);
-  // init again on that binding: BOUND, and its hint gives both forms too.
+  // init again on that binding: BOUND, and its hint gives both forms too,
+  // each alone on its line after the prose, the terminal's last (the story
+  // "User-facing text says where to run…", rules 4 and 6).
   const bound = bin(["init", vault, "--project", proj]);
   assert.equal(bound.status, 1);
   assert.match(
     bound.stderr,
-    /already bound to .* — \S+scaffold in a session, or `projectstore scaffold --write`, creates the layout's missing folders and READMEs\n$/,
+    /already bound to .*\. Create the layout's missing folders and READMEs, in a session or from a terminal:\n\S+scaffold\nnpx projectstore scaffold --write\n$/,
   );
   const ij = envOf(bin(["init", vault, "--json", "--project", project({ bound: false })])).result;
   assert.equal(ij.git, null);
@@ -2261,11 +2337,12 @@ test("cli bind/init on an existing non-empty vault: binds, no git init, no scaff
   const fresh = bin(["bind", vault, "--project", project({ bound: false })]);
   assert.match(fresh.stdout, status);
   assert.ok(!/scaffold/.test(fresh.stdout), fresh.stdout);
-  // Through a shell, the shell's own name: it passes bind and status through.
+  // Through a shell, the core's form: what a person runs next names no shell
+  // (rule 6 of the story "User-facing text says where to run…").
   const shell = bin(["bind", vault, "--project", project({ bound: false })], {
     env: { PROJECTSTORE_SHELL: "projectstore-codex" },
   });
-  assert.match(shell.stdout, /\n\n {2}npx projectstore-codex status\n$/, shell.stdout);
+  assert.match(shell.stdout, /\n\n {2}npx projectstore status\n$/, shell.stdout);
   // A folder present without its README is a create row too.
   rmSync(join(vault, "ops", "README.md"));
   assert.match(bin(["bind", vault, "--project", project({ bound: false })]).stdout, both);

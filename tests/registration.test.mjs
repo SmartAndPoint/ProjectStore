@@ -428,7 +428,23 @@ test("registration contract 4′/13: a competing enabled copy is silenced for th
   assert.ok(off, JSON.stringify(doc));
   assert.match(off.message, /\(0\.27\.1\) is off for this checkout/);
   assert.match(off.message, /Update that copy first/, "0.27.x reads a moved project as unbound");
-  assert.match(off.message, /npx projectstore-claude@\S+ uninstall --surface plugin --project/);
+  // The way back in the core's form, alone on its line after a lead naming
+  // the directory; the doctor step and setup's after it, each after its own
+  // lead (the story "User-facing text says where to run…", rule 5).
+  assert.ok(
+    off.message.includes(
+      `To go back to it, from a terminal in ${JSON.stringify(proj)}, outside the session:\nnpx projectstore@0.28.0 uninstall --harness ${SRC.id} --surface plugin\nRestart, then in the session:\n`,
+    ),
+    off.message,
+  );
+  assert.ok(!off.message.includes("--project"), off.message);
+  assert.ok(
+    off.message
+      .split("\n")
+      .slice(1)
+      .every((l) => l.endsWith(":") || /^(npx |\/|\$)/.test(l)),
+    "every further line is a lead or a command",
+  );
   assert.deepEqual(
     checkAutoUpdate(home).filter((f) => f.level !== "info"),
     [],
@@ -669,6 +685,14 @@ test("registration contract 4′: a checkout that never registered is absent eve
   assert.equal(f.length, 1);
   assert.equal(f[0].level, "issue");
   assert.match(f[0].message, /two enabled copies/);
+  // install's silencing in the core's form, alone on the last line, after a
+  // lead naming the directory; the host's own disable is said before it.
+  assert.ok(
+    f[0].message.endsWith(
+      `install silences it for this project, from a terminal in ${JSON.stringify(sb.proj)}:\nnpx projectstore install --harness ${SRC.id} --surface plugin`,
+    ),
+    f[0].message,
+  );
   assert.equal(
     checkVersionDrift(home, states, sb.proj).length,
     1,
@@ -684,7 +708,16 @@ test("registration contract 4′: a checkout that never registered is absent eve
   const fromCache = plan(sb.proj, { home, root: cacheRoot, env });
   const i = sb.item(fromCache, "plugin");
   assert.equal(i.action, "skip");
-  assert.match(i.reason, /npx projectstore-claude@<version> upgrade --surface/); // the shell form (contract 12); the harness is the shell's
+  // The core's form with --harness, no --project: the lead names the
+  // directory, and the command is the reason's last part, alone on its line
+  // (the story "User-facing text says where to run…", rules 1, 2 and 4).
+  assert.ok(
+    i.reason.endsWith(
+      `\nRefresh the registration with the npm package, from a terminal in ${JSON.stringify(sb.proj)}, outside a session:\nnpx projectstore@<version> upgrade --harness ${SRC.id} --surface plugin`,
+    ),
+    i.reason,
+  );
+  assert.equal(i.advice.blocks.length, 1, "PLAN draws the command alone on its line");
   assert.equal(host.log().filter((c) => c.argv[1] === "disable").length, 0);
 });
 
@@ -1540,9 +1573,13 @@ test("converge criterion 'The switch': channel npm plans the registration, the s
     [join(sb2.root, "bin", "projectstore.mjs"), "doctor", "--install", "--project", sb2.proj],
     { encoding: "utf8", cwd: sb2.proj, env: sb2.host.env({ HOME: sb2.home }), timeout: 60000, maxBuffer: 1 << 24 },
   ).stdout;
+  // The file goes before the first line's colon; each later lead is prose at
+  // the entry's text indent after a blank line, and each command stands alone
+  // after a blank one, six spaces in (the story "User-facing text says where
+  // to run…", rule 4 as amended).
   assert.match(
     report,
-    /record it from a terminal in this project — [^\n:]+:\n\n {6}npx projectstore setup --channel npm\n/,
+    /, outside the session — [^\n:]+:\n\n {6}npx projectstore@\S+ uninstall --harness claude-code --surface plugin\n\n {2}Restart, then in the session:\n\n {6}\/projectstore:doctor --fix\n\n {2}If moving to npm was meant, record it from a terminal in this project:\n\n {6}npx projectstore setup --channel npm\n/,
     report,
   );
 });
@@ -1952,14 +1989,17 @@ test("converge criterion 'The keep': channel git plans one channel item for Clau
   // package's, which previews the other channel.
   const done = y.text.slice(y.text.indexOf("\nDone"));
   assert.ok(done.includes(`\n  version  0.30.0\n  kept     ${SRC.display_name}: ${GIT} 0.29.0\n`), done);
-  // It names the project as every other tip on the screen does: "$PWD" from
-  // the project, its path from anywhere else.
-  const tipHead = `  node "${join(copy, "bin", "projectstore.mjs")}" plan --harness ${SRC.id} --no-register --project "`;
+  // It carries no --project, as no tip on the screen does: the run is in the
+  // project, so the lead is today's; from anywhere else the lead names the
+  // directory (the story "User-facing text says where to run…", rule 5 as
+  // amended). The core tip leaves the kept harness out, so none is left.
+  const tip = `  node "${join(copy, "bin", "projectstore.mjs")}" plan --harness ${SRC.id} --no-register --verbose`;
   const tl = done.split("\n");
-  const ti = tl.findIndex((l) => l.startsWith(tipHead) && l.endsWith('" --verbose'));
+  const ti = tl.indexOf(tip);
   assert.ok(ti > 0 && tl[ti - 1] === "" && tl.slice(ti + 1).every((l) => l === ""), done);
   assert.ok(done.includes("\n  To preview without writing, with every row's reasoning:\n"), done);
-  assert.ok(!/ plan --project /.test(done), `never this package's plan:\n${done}`);
+  assert.ok(!done.includes("--project"), done);
+  assert.ok(!/npx projectstore plan/.test(done), `never this package's plan:\n${done}`);
   // A re-run after a keep is zero-change: the copy's plan lists no writes, so no item.
   const again = await keepRun(sb);
   assert.equal(keepItem(again.r.plan), undefined);

@@ -36,7 +36,9 @@ import {
   renderTemplate,
   writeFileAtomic,
   commandForm,
+  fromTerminalIn,
 } from "./lib.mjs";
+import { packageCommand } from "./harness.mjs";
 
 const README = "README.md";
 
@@ -203,12 +205,14 @@ export function scaffoldResult(plan, done = null) {
 const shown = (r) => (r.type === "folder" ? `${r.rel}/` : r.rel);
 
 // The plan as text. A bare plan ends with the command that writes it, in both
-// forms — the session's and the bin's, since a git-marketplace install has no
-// bin on PATH — and with `--write`, because at a terminal that form shows this
-// plan again and asks. `asking`: the question follows on the same stream, so
-// the closing line is left out. After an apply, what was created and what was
-// already there.
-export function renderScaffoldPlan(plan, done = null, { env = process.env, asking = false } = {}) {
+// forms — the session's and the core's through npx, since a git-marketplace
+// install has no bin on PATH — and with `--write`, because at a terminal that
+// form shows this plan again and asks. Each stands alone on its line after a
+// blank one, and the lead names `project`, where the terminal's form runs
+// (the story "User-facing text says where to run…", rules 1, 4 and 6).
+// `asking`: the question follows on the same stream, so the closing lines are
+// left out. After an apply, what was created and what was already there.
+export function renderScaffoldPlan(plan, done = null, { env = process.env, asking = false, project = null } = {}) {
   if (!plan.ok) return [...plan.refusals.map((r) => r.message), "Nothing written."].join("\n") + "\n";
   const where = `${plan.vault} (layout ${plan.layout}, language ${plan.language})`;
   if (done) {
@@ -230,7 +234,10 @@ export function renderScaffoldPlan(plan, done = null, { env = process.env, askin
     lines.push(`${plan.creates} to create${there ? `; ${there} already there, never rewritten` : ""}.`);
     if (!asking)
       lines.push(
-        `To write them: ${commandForm("scaffold", { env })} in a session, or \`projectstore scaffold --write\`.`,
+        `To write them, in a session or ${project ? fromTerminalIn(project) : "from a terminal in this project"}:`,
+        "",
+        `  ${commandForm("scaffold", { env })}`,
+        `  ${packageCommand([], "scaffold", { args: "--write" })}`,
       );
   }
   return lines.join("\n") + "\n";

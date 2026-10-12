@@ -485,10 +485,8 @@ function speaker(env, dir) {
   if (identified) return identified;
   const bundled = bundlingShellHarnessId({ dir });
   if (bundled) return bundled;
-  if (env.PROJECTSTORE_SHELL) {
-    const named = [...loadHarnesses(dir).values()].find((m) => m.install?.shell === env.PROJECTSTORE_SHELL);
-    if (named) return named.id;
-  }
+  const named = shellHarnessId(env, dir);
+  if (named) return named;
   return sourceHarness(dir)?.id ?? null;
 }
 
@@ -710,30 +708,47 @@ export function cachePaths({ env = process.env, home = homedir() } = {}) {
   };
 }
 
-// The command a user types from a terminal for this harness (the layout ADR
-// decision 6; layout spec contract 12): the harness's distribution shell when
-// the manifest names one — `npx projectstore-claude install --project "…"`,
-// the harness fixed by the shell — else the core with --harness. Finding
-// messages and deferred reasons are built here, so the installer names no
-// harness id and no shell name of its own. The shell's name is data
-// (install.shell), not `projectstore-<id>`: the id is claude-code, the
-// published name is projectstore-claude.
-export function packageCommand(harness, verb, { version = null, args = "" } = {}) {
-  const shell = harness?.install?.shell || null;
-  const pkg = `${shell || "projectstore"}${version ? `@${version}` : ""}`;
-  const fixed = shell ? "" : ` --harness ${harness?.id || "<id>"}`;
-  return `npx ${pkg} ${verb}${fixed}${args ? ` ${args}` : ""}`;
+// The core through npx: how every command a person is told to type next
+// begins (the story "User-facing text says where to run and names no project
+// path and no shell", rules 2 and 6). `npx` runs it with no bin on PATH.
+export const CORE_NPX = "npx projectstore";
+
+// The command a person types from a terminal (the front-door ADR, decision 5;
+// the story above, rule 2): always the core, with one --harness per manifest
+// in the order given — `npx projectstore[@<v>] <verb> --harness a [--harness
+// b] [args]`. It names no shell, whatever the manifest's install.shell says,
+// and its callers pass no --project: where to run it is their prose, `from a
+// terminal in "<dir>"` (lib.mjs fromTerminalIn). The id stays because a bare
+// upgrade or uninstall plans every harness the project uses. An empty array
+// names none, for a verb that takes no --harness (bind, status, scaffold,
+// reconcile). Finding messages, deferred reasons and DONE's tip are built
+// here, so the installer spells no command of its own. The string is built
+// here, not by the converge story's coreCommand, whose module imports this one.
+export function packageCommand(harnesses, verb, { version = null, args = "" } = {}) {
+  const list = Array.isArray(harnesses) ? harnesses : [harnesses];
+  const ids = list.map((h) => ` --harness ${h?.id || "<id>"}`).join("");
+  return `${CORE_NPX}${version ? `@${version}` : ""} ${verb}${ids}${args ? ` ${args}` : ""}`;
 }
 
-// The package this run was invoked as, for a command it prints to be typed
-// next: the shell it came through (the shell's bin sets PROJECTSTORE_SHELL,
-// and fixes the harness, so a verb that takes --harness needs none), else the
-// core. packageCommand() above is the install family's, per harness; this one
-// is for the verbs that name no harness (bind, status, scaffold, reconcile),
-// which every shell passes through. `npx` runs it with no bin on PATH.
+// The package this run was invoked as: the shell it came through (the shell's
+// bin sets PROJECTSTORE_SHELL, and fixes the harness), else the core. Only
+// what describes the binary that ran uses it — the help's first line, its
+// Usage lines, the fixed-harness line and the usage errors (the story above,
+// rule 6). A command printed for a person to type next is the core's
+// (packageCommand, CORE_NPX), through a shell too.
 export function invokedAs(env = process.env) {
   const shell = env.PROJECTSTORE_SHELL || null;
-  return { shell, cmd: shell ? `npx ${shell}` : "npx projectstore" };
+  return { shell, cmd: shell ? `npx ${shell}` : CORE_NPX };
+}
+
+// The harness a shell fixes: the manifest whose install.shell is the name the
+// shell's bin exports (PROJECTSTORE_SHELL), or null. Never speakingHarnessId,
+// which a session's identity overrides: the Codex shell run inside a Claude
+// Code session still installs Codex, so its help's examples name codex.
+export function shellHarnessId(env = process.env, dir = MANIFEST_DIR) {
+  const shell = env.PROJECTSTORE_SHELL;
+  if (!shell) return null;
+  return [...loadHarnesses(dir).values()].find((m) => m.install?.shell === shell)?.id ?? null;
 }
 
 // The overlay a harness reads: <project>/.projectstore/harness/<overlay>.json —

@@ -66,8 +66,8 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      The verbs refuse it in code; this clause is the belt.
    - `version-drift` → report only: name both versions and where each was
      read; the fix is the host's update path (`/plugin update` for a git-marketplace
-     copy; for the npm registration, the `projectstore-claude` shell's `upgrade`
-     from a terminal — the `plugin-registration` finding spells the command),
+     copy; for the npm registration, the package's `upgrade` from a terminal
+     in the project — the `plugin-registration` finding spells the command),
      not ours.
    - `layout-legacy` (warn; the startup line carries it as an offer) → the project
      still holds the pre-0.28 layout (`.claude/projectstore.json`,
@@ -76,10 +76,15 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      session** (it moves files this session reads and writes; the verb defers
      inside one). The finding names the form for the channel this plugin was
      installed through: the installed copy's own `bin/projectstore.mjs` for a
-     git-marketplace install or a checkout, the `projectstore-claude` shell for
-     the npm registration. Relay the finding's command verbatim and never
-     substitute the other form — the shell, run for a git-marketplace install,
-     would also move this checkout to the npm channel. When the finding carries
+     git-marketplace install or a checkout, the package's `upgrade` for the npm
+     registration. Relay the finding's command verbatim, with the directory its
+     words name, and never substitute the other form or drop its
+     `--no-register`. Both forms carry that flag, so neither changes the
+     channel: the named form runs the copy this project loads, so the move
+     re-stamps the launcher that copy renders, while the other form runs a
+     different copy. The package's `upgrade` without `--no-register` would
+     register the npm copy and turn a git-marketplace copy off for this
+     checkout. When the finding carries
      advice instead of a command — the installed copy predates the move, or
      predates `--no-register` — relay the advice and never compose a command
      yourself. Never move the files yourself. While this finding is in the report, its command is also the one

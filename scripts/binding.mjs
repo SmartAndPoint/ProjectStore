@@ -56,10 +56,11 @@ import {
   layoutPaths,
   commandForm,
   readConfigAt,
+  fromTerminalIn,
   CHANNEL_SWITCH_KEY,
   CHANNEL_KEEP_KEY,
 } from "./lib.mjs";
-import { configPath as harnessConfigPath, invokedAs } from "./harness.mjs";
+import { configPath as harnessConfigPath, packageCommand } from "./harness.mjs";
 import { planScaffold, applyScaffold } from "./scaffold.mjs";
 import { icon, kv, commandBlock, wrap, PLAIN } from "./term.mjs";
 
@@ -225,10 +226,12 @@ export function planBind(
   const vaultExists = vaultPath ? existsSync(vaultPath) : false;
   if (vaultPath && vaultExists && !statSync(vaultPath).isDirectory())
     refusals.push({ code: "USAGE", message: `${vaultPath} is not a directory` });
+  // init in the core's form, alone on the last line, the directory in the
+  // lead (the story "User-facing text says where to run…", rules 1, 4 and 6).
   if (vaultPath && !vaultExists && !init)
     refusals.push({
       code: "MISSING",
-      message: `${vaultPath} does not exist — create it first, or run \`projectstore init ${shellQuote(String(vault))}${rebind ? " --rebind" : ""}\` to create and bind in one step`,
+      message: `${vaultPath} does not exist. Create it first, or create and bind it in one step ${fromTerminalIn(projectDir)}:\n${packageCommand([], "init", { args: `${shellQuote(String(vault))}${rebind ? " --rebind" : ""}` })}`,
     });
   if (state === "different" && !rebind)
     refusals.push({
@@ -241,10 +244,19 @@ export function planBind(
   // made `init` refuse as BOUND, so "run init" — the scaffold verb's own
   // advice for a missing vault — led nowhere; such an `init` rebuilds it
   // under the binding it already has, writing no config.
+  // The scaffold that completes it: prose, then each form alone on its line,
+  // the terminal's last (the story "User-facing text says where to run and
+  // names no project path and no shell", rules 4 and 6).
   if (state === "same" && init && vaultExists)
     refusals.push({
       code: "BOUND",
-      message: `${projectDir} is already bound to ${vaultPath}${missingFolders ? ` — ${commandForm("scaffold", { env })} in a session, or \`projectstore scaffold --write\`, creates the layout's missing folders and READMEs` : ""}`,
+      message: missingFolders
+        ? [
+            `${projectDir} is already bound to ${vaultPath}. Create the layout's missing folders and READMEs, in a session or from a terminal:`,
+            commandForm("scaffold", { env }),
+            packageCommand([], "scaffold", { args: "--write" }),
+          ].join("\n")
+        : `${projectDir} is already bound to ${vaultPath}`,
     });
   const buildable = Boolean(init && vaultPath && refusals.length === 0 && (!vaultExists || isEmptyDir(vaultPath)));
   // The whole-vault path is refused as one plan: a missing template or folder
@@ -552,9 +564,17 @@ export function gitTop(cwd, { env = process.env, spawn = spawnSync, timeout = 20
 function runGit(vault, { spawn = spawnSync, env = process.env } = {}) {
   const opts = { cwd: vault, env: gitEnv(env), encoding: "utf8", timeout: 15000, stdio: ["ignore", "pipe", "pipe"] };
   const absent = (r) => r.error && r.error.code === "ENOENT";
+  // The remedy: its lead names the vault, then git's command and doctor's fix
+  // in the session, each alone on its line — the commands setup's ▲ row
+  // names for the same failure (the story "User-facing text says where to
+  // run and names no project path and no shell", rule 4).
   const failed = (message) => ({
     failed: message,
-    remedy: `Run \`git init\` in ${vault}, or ${commandForm("doctor", { args: "--fix", env })}, which offers it.`,
+    remedy: [
+      `Run git init in ${JSON.stringify(String(vault))} from a terminal, or doctor's fix in a session, which offers it:`,
+      `git -C ${shellQuote(String(vault))} init`,
+      commandForm("doctor", { args: "--fix", env }),
+    ].join("\n"),
   });
   const top = spawn("git", ["rev-parse", "--show-toplevel"], opts);
   if (absent(top)) return { skipped: "git is not on PATH" };
@@ -566,7 +586,17 @@ function runGit(vault, { spawn = spawnSync, env = process.env } = {}) {
   return inside && realOr(inside) !== realOr(vault) ? { done: true, inside } : { done: true };
 }
 
-const SCAFFOLD_REMEDY = "The binding is written; `projectstore scaffold --write` finishes the vault.";
+// What finishes the vault once the binding is written: its lead, then the
+// session's form and the core's through npx, each alone on its line, the
+// directory in the lead (the story "User-facing text says where to run and
+// names no project path and no shell", rules 1, 4 and 6). --json carries it
+// one part per line.
+const scaffoldRemedy = (projectDir, env) =>
+  [
+    `The binding is written. Finish the vault in a session, or ${fromTerminalIn(projectDir)}:`,
+    commandForm("scaffold", { env }),
+    packageCommand([], "scaffold", { args: "--write" }),
+  ].join("\n");
 
 // Writes what the plan says, in the story's order: the vault directory when
 // init asked for it (not when it is there and empty), the config through
@@ -648,7 +678,7 @@ export function applyBind(plan, { spawn = spawnSync, env = process.env, onStep =
     try {
       done.scaffold = applyScaffold(plan.scaffold);
     } catch (e) {
-      done.scaffold = { failed: e && e.message ? e.message : String(e), remedy: SCAFFOLD_REMEDY };
+      done.scaffold = { failed: e && e.message ? e.message : String(e), remedy: scaffoldRemedy(plan.projectDir, env) };
     }
     const made = new Set(done.scaffold.failed ? [] : done.scaffold.created.map((r) => r.replace(/\/$/, "")));
     for (const st of steps.filter((s) => s.kind === "scaffold")) {
@@ -700,26 +730,34 @@ const prose = (c, text, lead = "") => lead + wrap(text, c.live ? c.width : 0, le
 // The bind Next lines, one decision: the scaffold plan has a `create` row.
 // Both forms — the session's and the bin's — because the bind interview
 // relays this to a person who runs slash commands, and a git-marketplace
-// install has no bin on PATH: the terminal's form is the package this run was
-// invoked as, through npx (harness.mjs invokedAs — a shell's own name when it
-// came through one). `--write`: at a terminal that form shows the plan and
-// asks anyway. Each command stands on its own line, after a blank one
-// (presentation spec contract 6), so a copy takes exactly the command.
+// install has no bin on PATH: the terminal's form is the core through npx
+// (harness.mjs packageCommand), through a shell too — what a person runs next
+// names no shell (the story "User-facing text says where to run and names no
+// project path and no shell", rule 6). `--write`: at a terminal that form
+// shows the plan and asks anyway. Each command stands on its own line, after
+// a blank one (presentation spec contract 6), so a copy takes exactly the
+// command.
 function nextLines(p, env, c) {
-  const { cmd } = invokedAs(env);
   return p.scaffold && p.scaffold.ok && p.scaffold.creates > 0
     ? [
         "",
         prose(c, "Next: create the layout's missing folders and READMEs, in a session or from a terminal:"),
-        ...commandBlock(c, [commandForm("scaffold", { env }), `${cmd} scaffold --write`]),
+        ...commandBlock(c, [commandForm("scaffold", { env }), packageCommand([], "scaffold", { args: "--write" })]),
       ]
-    : ["", prose(c, "Next: see where the project stands:"), ...commandBlock(c, [`${cmd} status`])];
+    : ["", prose(c, "Next: see where the project stands:"), ...commandBlock(c, [packageCommand([], "status")])];
 }
 
 // One line per step that ran. The whole-vault path's own Next lines: the
 // derived views are reconcile's, offered rather than run.
-function vaultSteps(p, done, c, env) {
+function vaultSteps(p, done, c) {
   const lines = [];
+  // A step's remedy: its lead as prose, then each command after it alone on
+  // its line, after a blank one (the story "User-facing text says where to
+  // run…", rule 4). A remedy of one line is prose alone.
+  const remedy = (text) => {
+    const [lead, ...commands] = String(text).split("\n");
+    return [prose(c, lead, "  "), ...(commands.length ? commandBlock(c, commands, { indent: 4 }) : [])];
+  };
   const g = done.git;
   if (g && g.done) lines.push(prose(c, `Initialised a git repository in ${p.vault} (no commit).`));
   if (g && g.inside)
@@ -736,9 +774,9 @@ function vaultSteps(p, done, c, env) {
         `Skipped git init: ${g.skipped}. The vault works without one; doctor's vault-git finding stays until it is a repository.`,
       ),
     );
-  if (g && g.failed) lines.push(prose(c, `git init failed: ${g.failed}`), prose(c, g.remedy, "  "));
+  if (g && g.failed) lines.push(prose(c, `git init failed: ${g.failed}`), ...remedy(g.remedy));
   const s = done.scaffold;
-  if (s && s.failed) lines.push(prose(c, `Scaffold failed: ${s.failed}`), prose(c, s.remedy, "  "));
+  if (s && s.failed) lines.push(prose(c, `Scaffold failed: ${s.failed}`), ...remedy(s.remedy));
   else if (s)
     lines.push(
       prose(
@@ -750,7 +788,7 @@ function vaultSteps(p, done, c, env) {
     lines.push(
       "",
       prose(c, `Next, optional: generate the derived views ${icon(c, "dash")} kanban.md, graph.md and code-map.md:`),
-      ...commandBlock(c, [`${invokedAs(env).cmd} reconcile --write`]),
+      ...commandBlock(c, [packageCommand([], "reconcile", { args: "--write" })]),
     );
   return lines;
 }
@@ -792,7 +830,7 @@ export function renderBindPlan(p, done = null, { env = process.env, caps: c = PL
       ]),
     );
   }
-  if (done && p.buildsVault) lines.push(...vaultSteps(p, done, c, env));
+  if (done && p.buildsVault) lines.push(...vaultSteps(p, done, c));
   else if (done) lines.push(...nextLines(p, env, c));
   return lines.join("\n") + "\n";
 }

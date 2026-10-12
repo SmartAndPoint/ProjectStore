@@ -10,5 +10,4 @@ Next
 
   To preview without writing, with every row's reasoning:
 
-  npx projectstore-claude plan --project "$PWD" --verbose
-  npx projectstore-codex plan --project "$PWD" --verbose
+  npx projectstore plan --harness claude-code --harness codex --verbose

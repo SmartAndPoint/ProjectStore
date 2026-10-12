@@ -86,6 +86,7 @@ import {
   inheritForm,
   bindInherits,
   doctorFallbackText,
+  fromTerminalIn,
 } from "./lib.mjs";
 import {
   agentOverrides,
@@ -204,13 +205,16 @@ export function checkConfig(cfg, proj = projectRoot()) {
     try {
       b = resolveBinding(proj);
     } catch {}
+    // What binding does first, then the command alone on its line: an
+    // in-session form that can carry the parent's vault path (the story
+    // "User-facing text says where to run…", rule 4).
     if (b && b.state === "inheritable") {
       return [
         finding(
           "install",
           "issue",
           "worktree-unbound",
-          `This worktree is unbound while the checkout it was forked from (${b.mainCheckout}) is bound to ${b.vaultPath}. Run ${inheritForm(b.vaultPath, { layout: b.layout, language: b.language })} ${bindInherits() ? "to adopt that binding" : "to bind it to the same vault, layout and language"}.`,
+          `This worktree is unbound while the checkout it was forked from (${b.mainCheckout}) is bound to ${b.vaultPath}. ${bindInherits() ? "Adopt that binding" : "Bind it to the same vault, layout and language"}, in the session:\n${inheritForm(b.vaultPath, { layout: b.layout, language: b.language })}`,
         ),
       ];
     }
@@ -536,7 +540,7 @@ export function checkPendingUpgrade(proj, home = homedir(), root = pluginRoot(),
       "install",
       "info",
       "upgrade",
-      `The status line launcher predates this plugin's file stamps (plugin updated) — it keeps rendering; run ${commandForm("doctor", { args: "--fix" })} once to re-stamp it.`,
+      `The status line launcher predates this plugin's file stamps (plugin updated) — it keeps rendering. Re-stamp it once, in the session:\n${commandForm("doctor", { args: "--fix" })}`,
       relative(proj, lp),
     ),
   ];
@@ -581,7 +585,7 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
           "install",
           "issue",
           "agents-block",
-          `${name}:${f.line}: the projectstore:agents open marker does not close on its own line — put \`-->\` back on the marker's line, then run ${commandForm("agents", { args: "register" })} (install and uninstall refuse until it does).`,
+          `${name}:${f.line}: the projectstore:agents open marker does not close on its own line, and install and uninstall refuse until it does. Put \`-->\` back on the marker's line, then in the session:\n${commandForm("agents", { args: "register" })}`,
           name,
         ),
       );
@@ -596,7 +600,7 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
           "install",
           "issue",
           "agents-block",
-          `${name}: the projectstore:agents block opens and never closes — close it with \`${AGENTS_BLOCK_CLOSE}\` or delete the half block, then run ${commandForm("agents", { args: "register" })} (install and uninstall refuse until then).`,
+          `${name}: the projectstore:agents block opens and never closes, and install and uninstall refuse until then. Close it with \`${AGENTS_BLOCK_CLOSE}\` or delete the half block, then in the session:\n${commandForm("agents", { args: "register" })}`,
           name,
         ),
       );
@@ -612,7 +616,7 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
         "install",
         "info",
         "agents-block",
-        `Agent routing block not registered — optional; ships with ${commandForm("agents")} (v0.13).`,
+        `Agent routing block not registered — optional (v0.13). It comes with the agents command, in the session:\n${commandForm("agents")}`,
       ),
     );
   }
@@ -640,7 +644,7 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
           "install",
           "warn",
           "agents-block",
-          `The projectstore:agents block is in both CLAUDE.md and AGENTS.md — run ${commandForm("agents", { args: "register" })}: install keeps the one in ${(sourceHarness()?.surfaces?.agents_block?.files || ["AGENTS.md"])[0]} and removes the other.`,
+          `The projectstore:agents block is in both CLAUDE.md and AGENTS.md. Registering it again keeps the one in ${(sourceHarness()?.surfaces?.agents_block?.files || ["AGENTS.md"])[0]} and removes the other, in the session:\n${commandForm("agents", { args: "register" })}`,
         ),
       );
     }
@@ -655,7 +659,7 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
       "install",
       "issue",
       "agents-block",
-      `${fact} — re-run ${commandForm("agents", { args: "register" })}.`,
+      `${fact}. Register it again, in the session:\n${commandForm("agents", { args: "register" })}`,
       s.file,
     );
     out.push(refuses ? f : moveRepairs(f, fact));
@@ -686,13 +690,14 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
         ? `${ab.reads_natively} does not import it (\`@${blockFile}\`)`
         : `it reads ${(ab.files || []).join(" and ")} only`;
       const fact = `The projectstore:agents block is in ${blockFile}, which ${m.display_name} does not see: ${why}`;
-      // The resolved-root form the surface remedy uses: the running copy's own bin.
-      const remedy = `install the block for ${m.display_name}: node "${join(root, "bin", "projectstore.mjs")}" install --harness ${id} --surface agents_block --project "${proj}"`;
+      // The resolved-root form the surface remedy uses: the running copy's own
+      // bin, the directory in prose and the command alone on the last line.
+      const remedy = `Install the block for ${m.display_name} ${fromTerminalIn(proj)}:\nnode "${join(root, "bin", "projectstore.mjs")}" install --harness ${id} --surface agents_block`;
       const f = finding(
         "install",
         id === identified ? "issue" : "warn",
         "agents-block",
-        `${fact} — ${remedy}.`,
+        `${fact}. ${remedy}`,
         blockFile,
       );
       // The layout's harness is the one the move's command installs for, so the
@@ -812,16 +817,18 @@ export async function checkHarnessSurfaces(
           ),
         );
       } else if (s.state === "stale" && s.produced) {
+        // Two commands, two paragraphs, each ending with its command alone on
+        // its line (the story "User-facing text says where to run…", rule 4).
         const status =
           sh?.surfaces?.statusline?.supported === false
             ? ""
-            : ` (for the status line, ${invocation(sh, "statusline", { args: "on" })})`;
+            : `\nFor the status line, in the session:\n${invocation(sh, "statusline", { args: "on" })}`;
         push(
           finding(
             "install",
             "issue",
             "surface",
-            `${where} — stale: ${s.reason}. Reinstall it: node "${join(root, "bin", "projectstore.mjs")}" install --harness ${s.harness} --surface ${s.surface} --project "${proj}"${status}.`,
+            `${where} — stale: ${s.reason}. Reinstall it ${fromTerminalIn(proj)}:\nnode "${join(root, "bin", "projectstore.mjs")}" install --harness ${s.harness} --surface ${s.surface}${status}`,
             where,
           ),
         );
@@ -844,7 +851,7 @@ export async function checkHarnessSurfaces(
             "install",
             "warn",
             "surface",
-            `${where} [projectstore:agents] — ${s.reason}. Run ${invocation(sh, "agents", { args: "register" })}.`,
+            `${where} [projectstore:agents] — ${s.reason}. Register it again, in the session:\n${invocation(sh, "agents", { args: "register" })}`,
             where,
           ),
         );
@@ -905,7 +912,7 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
           "install",
           "warn",
           "agents-in-binding",
-          `${b} still carries an agents block — since 0.28 the models live in ${where} (the layout ADR); nothing reads it there. ${remedy.command ? `Move it from a terminal outside the session: ${remedy.command}` : remedy.advice}.`,
+          `${b} still carries an agents block — since 0.28 the models live in ${where} (the layout ADR); nothing reads it there. ${remedyWords(remedy, proj, "Move it")}`,
           b,
         ),
         sourceHarness(),
@@ -970,15 +977,19 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
 // Contract 4′ (2026-09-05): the registration the package made through the
 // host's CLI — one row per registration surface the manifest declares. Current
 // → one info; stale → an issue naming the refresh in the form that can make
-// it (the package's own bin via npx: a cache install never re-registers
-// itself); a competing copy enabled beside ours → an issue (two enabled copies
-// of one plugin); a competitor alone → an info naming the npm path; foreign →
-// never repairable; the host CLI missing → an info.
+// it (the npm package's core via npx, `--harness <id>`: a cache install never
+// re-registers itself); a competing copy enabled beside ours → an issue (two
+// enabled copies of one plugin); a competitor alone → an info naming the npm
+// path; foreign → never repairable; the host CLI missing → an info.
 //
-// The silenced copy's info ends with how to record the switch (the setup
-// story, rule 17): setup's `--channel npm`, in the core form, on a line of its
-// own inside the message — the report draws it alone, after a blank line, as
-// any command (doctor-report.mjs), and --json carries it one part per line.
+// Every command here ends its message, alone on its line after a lead ending
+// with `:`, and carries no --project: the lead names the directory (the story
+// "User-facing text says where to run and names no project path and no
+// shell", rules 1, 4 and 5). The report draws each lead as prose and each
+// command alone after a blank line (doctor-report.mjs); --json carries the
+// message one part per line. The silenced copy's info ends with how to record
+// the switch (the setup story, rule 17): setup's `--channel npm`, in the core
+// form, the last of its three paragraphs.
 const SETUP_NPM = "npx projectstore setup --channel npm";
 export function checkPluginRegistration(
   proj,
@@ -992,16 +1003,13 @@ export function checkPluginRegistration(
   // reads who made the mark.
   const marked = Boolean(channelMark(cfg));
   for (const s of states.filter((x) => x.kind === "registration")) {
-    // The shell form when the manifest names a shell (contract 12): the
-    // command a user can paste, built in one place.
+    // The core's form with this registration's --harness (packageCommand):
+    // the command a person can paste, built in one place.
     const h = loadHarness(s.harness) || { id: s.harness };
     // A registration of ANOTHER harness in the same project is that
     // harness's fact: named, marked, its steps in its own forms (aboutHarness).
     const push = (f) => out.push(aboutHarness(f, h, speaker));
-    const refresh = packageCommand(h, "upgrade", {
-      version: s.pkg || "latest",
-      args: `--surface ${s.surface} --project "${proj}"`,
-    });
+    const refresh = packageCommand(h, "upgrade", { version: s.pkg || "latest", args: `--surface ${s.surface}` });
     // A copy this registration silenced for the checkout and the checkout
     // still holds off, one per key (the install spec, contract 13 as amended
     // after the rc.3 tag): rc.1 and rc.2's startup offer left exactly this on
@@ -1047,7 +1055,14 @@ export function checkPluginRegistration(
             "install",
             "info",
             "plugin-registration",
-            `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and a /plugin update no longer reaches the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it: from a terminal outside the session, ${packageCommand(h, "uninstall", { version: s.pkg || "latest", args: `--surface ${s.surface} --project "${proj}"` })}, restart, then ${invocation(loadHarness(h.id) || speaker, "doctor", { args: "--fix" })}. If moving to npm was meant, record it from a terminal in this project:\n${SETUP_NPM}`,
+            [
+              `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and a /plugin update no longer reaches the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it, ${fromTerminalIn(proj)}, outside the session:`,
+              packageCommand(h, "uninstall", { version: s.pkg || "latest", args: `--surface ${s.surface}` }),
+              "Restart, then in the session:",
+              invocation(loadHarness(h.id) || speaker, "doctor", { args: "--fix" }),
+              "If moving to npm was meant, record it from a terminal in this project:",
+              SETUP_NPM,
+            ].join("\n"),
             s.path,
           ),
         );
@@ -1082,7 +1097,7 @@ export function checkPluginRegistration(
           "install",
           "issue",
           "plugin-registration",
-          `${s.entry} — stale: ${s.reason}. Refresh it: ${refresh}`,
+          `${s.entry} — stale: ${s.reason}. Refresh it ${fromTerminalIn(proj)}:\n${refresh}`,
           s.path,
         ),
       );
@@ -1102,7 +1117,7 @@ export function checkPluginRegistration(
             "install",
             "issue",
             "plugin-registration",
-            `${s.entry} is current, and ${others} is enabled for this project too — two enabled copies of one plugin load twice. install silences the other for this project: ${packageCommand(h, "install", { args: `--surface ${s.surface} --project "${proj}"` })} (or the host's own disable at the scope the manifest names — never the committed project scope).`,
+            `${s.entry} is current, and ${others} is enabled for this project too — two enabled copies of one plugin load twice. The host's own disable turns the other off, at the scope the manifest names — never the committed project scope. Or install silences it for this project, ${fromTerminalIn(proj)}:\n${packageCommand(h, "install", { args: `--surface ${s.surface}` })}`,
             s.path,
           ),
         );
@@ -1112,7 +1127,7 @@ export function checkPluginRegistration(
             "install",
             "info",
             "plugin-registration",
-            `${s.entry} ${s.installedVersion} registered from the npm package for this project (${loaded}); refresh with ${refresh}.`,
+            `${s.entry} ${s.installedVersion} registered from the npm package for this project (${loaded}). Refresh it ${fromTerminalIn(proj)}:\n${refresh}`,
           ),
         );
     }
@@ -1306,10 +1321,13 @@ export function checkEnvModel() {
 // or .projectstore/state/ is one warn naming the upgrade; two bindings is an
 // issue. Cheap — a handful of existsSync — so the startup line carries the
 // warn as an offer (OFFER_CHECKS).
+// `restamp`: the startup line's pending re-stamp, which the move covers — its
+// sentence goes before the move's command, never after it (the story
+// "User-facing text says where to run…", rule 4).
 export function checkLayout(
   proj,
   harness = sourceHarness(),
-  { level = "warn", root = pluginRoot(), home = homedir(), speaker = speakingHarness() } = {},
+  { level = "warn", root = pluginRoot(), home = homedir(), speaker = speakingHarness(), restamp = false } = {},
 ) {
   const p = layoutPaths(proj, { harnessDir: harness?.runtime?.harness_dir || null });
   const legacyBinding = existsSync(p.legacy.binding),
@@ -1335,13 +1353,16 @@ export function checkLayout(
   if (!legacyBinding && !legacyRuntime && !existsSync(p.legacy.welcomed) && !existsSync(p.legacy.sessionId)) return [];
   // The command in the channel of the copy the project runs (the layout spec,
   // contract 12 as amended 2026-10-03; maintainer decision the same day). The
-  // package's shell registers the plugin through its own channel: run for a
-  // git-marketplace user it added projectstore@projectstore-npm at local scope
-  // and turned the git copy off for the checkout (reproduced with the suite's
-  // fake host), and without the host CLI on PATH it stopped part-way with
-  // exit 1. Any other copy runs its own bin with --no-register, which leaves
-  // the registration out of the plan — no host command by construction, not by
-  // recognising the root (a checkout, a symlinked or relocated home).
+  // npm package's plain upgrade registers the plugin through the npm channel:
+  // run for a git-marketplace user it added projectstore@projectstore-npm at
+  // local scope and turned the git copy off for the checkout (reproduced with
+  // the suite's fake host), and without the host CLI on PATH it stopped
+  // part-way with exit 1. So the npm form is named only for the npm
+  // registration's copy; any other copy runs its own bin, and both carry
+  // --no-register, which leaves the registration out of the plan — no host
+  // command by construction, not by recognising the root (a checkout, a
+  // symlinked or relocated home). Neither carries --project: the message names
+  // the directory in prose, the command alone on its last line (remedyWords).
   const remedy = layoutRemedy(proj, { root, home, harness });
   const held = [
     legacyBinding && relative(proj, p.legacy.binding),
@@ -1359,7 +1380,7 @@ export function checkLayout(
         "install",
         level,
         "layout-legacy",
-        `The project layout moved to .projectstore/ (the layout ADR, 0.28); this project still holds ${held}. ${remedy.command ? `Migrate it from a terminal outside the session: ${remedy.command}` : remedy.advice} (readers fall back to the old paths through 0.29).`,
+        `The project layout moved to .projectstore/ (the layout ADR, 0.28); this project still holds ${held}. Readers fall back to the old paths through 0.29.${restamp ? " The same run re-stamps the status line launcher." : ""} ${remedyWords(remedy, proj, "Migrate it")}`,
         relative(
           proj,
           [
@@ -1379,21 +1400,39 @@ export function checkLayout(
 // The one command that moves this project's files (the layout spec, contract
 // 12 as amended 2026-10-03), in the channel of the copy the project runs. A
 // session runs that copy, so its root answers: the package's own registration
-// takes the shell, any other host copy its own bin. A run from anywhere else —
-// a terminal `npx projectstore doctor`, a checkout — asks the host's registry,
-// counting only rows this project loads: its own local-scope row first, then
-// user-scope rows, never another checkout's. With none enabled, a package root
-// takes the shell and a checkout its own bin. BOTH forms carry --no-register:
-// the move never needs the registration, so a misread channel can cost a
-// launcher stamp but never a channel switch. A copy that predates the move
-// (no bin/projectstore.mjs — 0.27.x) cannot run it: update that copy first.
-// Nor can one whose CLI predates --no-register (lib's takesNoRegister).
+// takes the core's npm form, `npx projectstore@<v> upgrade --harness <id>
+// --no-register` (the front-door ADR, decision 5), any other host copy its own
+// bin. A run from anywhere else — a terminal `npx projectstore doctor`, a
+// checkout — asks the host's registry, counting only rows this project loads:
+// its own local-scope row first, then user-scope rows, never another
+// checkout's. With none enabled, a package root takes the npm form and a
+// checkout its own bin. BOTH forms carry --no-register: the move never needs
+// the registration, so a misread channel can cost a launcher stamp but never a
+// channel switch. Neither carries --project: the finding names the directory
+// in prose (remedyWords). A copy that predates the move (no
+// bin/projectstore.mjs — 0.27.x) cannot run it: update that copy first. Nor
+// can one whose CLI predates --no-register (lib's takesNoRegister).
+//
+// It answers { command } (a form above), { advice } (words with no command of
+// ours), or { advice, refresh } (the npm registration's incapable copy: words,
+// then the refresh that moves the project too).
 //
 // The selection, the capability read and the copy advice are lib's
 // (selectCopy, takesNoRegister, copyUpdateAdvice), shared with the
 // installer's keep (the converge story's rule 5). takesNoRegister is
 // re-exported here, where its callers already import it.
 export { takesNoRegister };
+
+// The layout remedy's closing words (the story "User-facing text says where to
+// run and names no project path and no shell", rules 1, 4 and 5): the
+// directory in prose, then the command alone on the message's last line.
+// Advice that names no command of ours ends the message with its own period.
+export function remedyWords(remedy, proj, verb) {
+  const where = `${fromTerminalIn(proj)}, outside the session:`;
+  if (remedy.command) return `${verb} ${where}\n${remedy.command}`;
+  if (remedy.refresh) return `${remedy.advice}, ${where}\n${remedy.refresh}`;
+  return `${remedy.advice}.`;
+}
 
 export function layoutRemedy(
   proj,
@@ -1404,16 +1443,14 @@ export function layoutRemedy(
   // the offer (the second review of the 2026-10-03 fixes, S2).
   const homeVar = harness?.runtime?.home_env;
   const prefix = homeVar && env[homeVar] ? `${homeVar}="${env[homeVar]}" ` : "";
-  const shell = (version) => ({
-    command:
-      prefix +
-      packageCommand(harness, "upgrade", { version: version || "latest", args: `--no-register --project "${proj}"` }),
+  const npm = (version) => ({
+    command: prefix + packageCommand(harness, "upgrade", { version: version || "latest", args: "--no-register" }),
   });
   const own = (copy) => ({
-    command: `${prefix}node "${join(copy, "bin", "projectstore.mjs")}" upgrade --harness ${harness?.id || "<id>"} --no-register --project "${proj}"`,
+    command: `${prefix}node "${join(copy, "bin", "projectstore.mjs")}" upgrade --harness ${harness?.id || "<id>"} --no-register`,
   });
   const channel = installChannel(root, { home, harness });
-  if (channel === "registration") return shell(pluginVersion(root));
+  if (channel === "registration") return npm(pluginVersion(root));
   if (channel === "marketplace") return own(root);
   // The selection is lib's selectCopy: this checkout's row first, then
   // user-scope rows by recency, never another checkout's.
@@ -1427,18 +1464,21 @@ export function layoutRemedy(
     // incapable one gets advice even beside a capable user-scope copy.
     const viaRegistration = copy.channel === "registration";
     if (copy.missing === "no-register") {
-      return {
-        advice: viaRegistration
-          ? // Its channel's ordinary refresh, at the running version: the plain
-            // upgrade re-registers from npm — not a switch for an npm project — and
-            // moves the project in the same run.
-            `This project's projectstore plugin${v} is the npm registration's copy and predates --no-register, so it cannot run the move as named: refresh that registration, which moves the project too, from a terminal outside the session: ${prefix}${packageCommand(harness, "upgrade", { version: pluginVersion(root) || "latest", args: `--project "${proj}"` })}`
-          : copyUpdateAdvice(copy, { cannot: "predates --no-register and cannot run the move as named", then }),
-      };
+      return viaRegistration
+        ? // Its channel's ordinary refresh, at the running version: the plain
+          // upgrade re-registers from npm — not a switch for an npm project — and
+          // moves the project in the same run.
+          {
+            advice: `This project's projectstore plugin${v} is the npm registration's copy and predates --no-register, so it cannot run the move as named. Refresh that registration, which moves the project too`,
+            refresh: prefix + packageCommand(harness, "upgrade", { version: pluginVersion(root) || "latest" }),
+          }
+        : {
+            advice: copyUpdateAdvice(copy, { cannot: "predates --no-register and cannot run the move as named", then }),
+          };
     }
-    return viaRegistration ? shell(copy.version) : own(copy.path);
+    return viaRegistration ? npm(copy.version) : own(copy.path);
   }
-  return channel === "package" ? shell(pluginVersion(root)) : own(root);
+  return channel === "package" ? npm(pluginVersion(root)) : own(root);
 }
 
 export function checkGitignore(proj) {
@@ -2984,6 +3024,7 @@ export function runVaultChecks(cfg) {
 // Decision 4). Aborts past the budget rather than reporting a false "clean".
 export function runStartupChecks(cfg, proj, budgetMs = 150) {
   const started = Date.now();
+  const findings = [];
   const steps = [
     () => checkConfig(cfg, proj),
     () => (cfg && cfg.vault_path ? checkVaultPath(cfg) : []),
@@ -2992,12 +3033,17 @@ export function runStartupChecks(cfg, proj, budgetMs = 150) {
     () => checkAgentsBlock(proj),
     () => checkGitignore(proj),
     // The layout move is offered from the startup line (info here, warn in the
-    // report) — a user who never runs doctor still learns to migrate.
-    () => checkLayout(proj, undefined, { level: "info" }),
+    // report) — a user who never runs doctor still learns to migrate. A
+    // pending re-stamp, found by the step above, is covered by the move: its
+    // sentence goes before the move's command (below).
+    () =>
+      checkLayout(proj, undefined, {
+        level: "info",
+        restamp: findings.some((f) => f.level === "info" && f.check === "upgrade"),
+      }),
     () => checkEnvModel(),
     () => checkEnvEffort(),
   ];
-  const findings = [];
   for (const step of steps) {
     if (Date.now() - started > budgetMs) return { skipped: true, count: 0, findings: foldIntoMove(findings) };
     try {
@@ -3010,16 +3056,13 @@ export function runStartupChecks(cfg, proj, budgetMs = 150) {
   // re-stamps the launcher at its new path (the layout spec, contract 7 as
   // amended 2026-10-03), and an in-session `doctor --fix` would write that
   // launcher and then stop at the deferred move with exit 1. So the line names
-  // one step, and says what it covers when the dropped offer would have fired.
+  // one step, and says what it covers when the dropped offer would have fired:
+  // checkLayout's `restamp`, a sentence before the move's command, so the
+  // command still ends the offer, alone on its line.
   const movePending = settled.some((f) => f.check === "layout-legacy" || f.check === "layout-two-configs");
-  const restamp = settled.some((f) => f.level === "info" && f.check === "upgrade");
   const offers = settled
     .filter((f) => f.level === "info" && OFFER_CHECKS.has(f.check) && !(movePending && f.check === "upgrade"))
-    .map((f) =>
-      movePending && restamp && f.check === "layout-legacy"
-        ? `${f.message} The same run re-stamps the status line launcher.`
-        : f.message,
-    );
+    .map((f) => f.message);
   return {
     skipped: false,
     count: settled.filter((f) => f.level === "issue").length,

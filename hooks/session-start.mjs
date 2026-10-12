@@ -185,11 +185,19 @@ async function main() {
   }
   const welcome = showWelcomeOnce(proj, cfg);
   // The person's channel carries one instruction, and it has to be the right
-  // one: a bound project is told what it is bound to, not to bind again.
+  // one: a bound project is told what it is bound to, not to bind again. A
+  // command stands alone on its line, the update hint on lines of its own
+  // after it (the story "User-facing text says where to run…", rules 4 and 5).
   const welcomeSystemMessage = welcome
     ? cfg && cfg.vault_path
       ? `👋 projectstore: first-run welcome shown. Bound to ${cfg.vault_path}. ${updateHint().line}`
-      : `👋 projectstore: first-run welcome shown. Start with ${commandForm("bind", { args: "<vault-path>" })}. ${updateHint().line}`
+      : [
+          "👋 projectstore: first-run welcome shown. Start with:",
+          commandForm("bind", { args: "<vault-path>" }),
+          updateHint().line,
+        ]
+          .filter(Boolean)
+          .join("\n")
     : null;
 
   if (!cfg) {
@@ -199,8 +207,10 @@ async function main() {
     // whose parent is already bound. Ordering is the cheap fix; the small
     // redundancy is accepted rather than papered over with copy that will rot.
     const offer = binding && binding.state === "inheritable" ? bindingOfferText(binding) : "";
+    // What binding does first, then the command alone on its line: an
+    // in-session form that can carry the parent's vault path (rule 4).
     const offerSystemMessage = offer
-      ? `projectstore: this worktree is unbound — ${inheritForm(binding.vaultPath, { layout: binding.layout, language: binding.language })} ${bindInherits() ? "adopts the binding of" : "binds it to the vault, layout and language of"} the checkout it was forked from.`
+      ? `projectstore: this worktree is unbound. ${bindInherits() ? "Adopt the binding of" : "Bind it to the vault, layout and language of"} the checkout it was forked from, in the session:\n${inheritForm(binding.vaultPath, { layout: binding.layout, language: binding.language })}`
       : null;
     const body = offer + (welcome || "");
     if (body) {
@@ -281,22 +291,26 @@ async function main() {
     }
   }
 
-  // Cheap install-only doctor subset (ADR-005): one line, only when N > 0;
-  // aborted past its budget rather than reporting a false "clean".
+  // Cheap install-only doctor subset (ADR-005): one part, only when N > 0;
+  // aborted past its budget rather than reporting a false "clean". Its doctor
+  // form stands alone on its line, as every command of this line does.
   let doctorMsg = null;
   let offers = [];
   try {
     const r = runStartupChecks(cfg, proj);
     if (r.skipped) {
-      doctorMsg = `projectstore doctor: startup checks skipped — run ${commandForm("doctor")}`;
+      doctorMsg = `projectstore doctor: startup checks skipped. Run them in the session:\n${commandForm("doctor")}`;
     } else if (r.count > 0) {
-      doctorMsg = `projectstore doctor: ${r.count} install issue(s) — run ${commandForm("doctor")}`;
+      doctorMsg = `projectstore doctor: ${r.count} install issue(s). See them in the session:\n${commandForm("doctor")}`;
     }
     // Offers (doctor's OFFER_CHECKS): one-time steps a user should see once,
     // e.g. the re-stamp after a plugin update — not issues, not silent.
     offers = (r.offers || []).map((m) => `projectstore: ${m}`);
   } catch {}
-  const systemMessage = [welcomeSystemMessage, doctorMsg, ...offers].filter(Boolean).join(" · ") || null;
+  // Each part on lines of its own: an offer ends with its command alone on
+  // its line, and a part joined after it with ` · ` would put text after the
+  // command (the story "User-facing text says where to run…", rule 4).
+  const systemMessage = [welcomeSystemMessage, doctorMsg, ...offers].filter(Boolean).join("\n") || null;
 
   if (gatherError) {
     emit(
