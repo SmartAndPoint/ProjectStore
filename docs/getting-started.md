@@ -1,5 +1,17 @@
 # Getting started with projectstore
 
+## Install
+
+From a terminal in your project:
+
+```
+npx projectstore setup
+```
+
+Setup finds the coding agents the project uses (Claude Code, Codex or both), asks a few questions — among them where the vault lives — then shows one plan and asks once before it writes. It binds the vault, or creates one when the folder is missing or empty. The README's [Install](../README.md#install) section has the details, the global form and the registry-mirror form.
+
+The next two sections are the other ways in: a checkout, and the git marketplace inside a Claude Code session. After either of them, the first-time setup below binds the vault.
+
 ## Install (local dev)
 
 Until projectstore is published to a public marketplace, install it from a local clone.
@@ -132,6 +144,14 @@ What the language does and does not change: section headings, table labels and p
 
 ## Updating to a new version
 
+Installed with setup or from npm: from a terminal in your project, name the version you want to run:
+
+```
+npx projectstore@<version> upgrade
+```
+
+Installed from the git marketplace, in a Claude Code session:
+
 ```
 /plugin marketplace update SmartAndPoint
 /reload-plugins
@@ -139,4 +159,4 @@ What the language does and does not change: section headings, table labels and p
 
 Or enable auto-update once (`/plugin` → **Marketplaces** → **SmartAndPoint** → toggle **auto-update**) and Claude Code will detect new releases at startup.
 
-**After any update, run `/projectstore:doctor`.** It compares your project's wiring against what the new version expects and names each fix with the command to run — stale agents block in `CLAUDE.md` (`/projectstore:agents register`), leftover agent copies that override nothing (`/projectstore:agents configure`), auto-update still off (the exact setting and file), a newer release than the one running. `doctor --fix` applies the install-side repairs interactively; `/projectstore:reconcile` rebuilds the board/indexes/code-map if content drifted. Silence at session start means healthy — the cheap checks run automatically and only speak up when something is wrong.
+**After any update, run `/projectstore:doctor` in a session.** It compares your project's wiring against what the new version expects and names each fix with the command to run: a stale agents block in `CLAUDE.md` gets `/projectstore:agents register` as its fix and leftover agent copies that override nothing get `/projectstore:agents configure` as theirs. It also names auto-update still off (the exact setting and file) and a newer release than the one running. `doctor --fix` applies the install-side repairs interactively; `/projectstore:reconcile` rebuilds the board/indexes/code-map if content drifted. Silence at session start means healthy — the cheap checks run automatically and only speak up when something is wrong.

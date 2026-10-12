@@ -4,10 +4,10 @@ The opencode installer for [projectstore](https://www.npmjs.com/package/projects
 
 Its shape is the same as `projectstore-claude`'s: the core, pinned at exactly this version and bundled inside the tarball, with the harness fixed by the bin. The earlier working name `opencode-projectstore` is deprecated with a pointer here — one `projectstore-<harness>` name per harness.
 
-When it ships, from a terminal:
+When it ships, setup installs ProjectStore for opencode as it does for the other harnesses, from a terminal in your project:
 
 ```sh
-npx projectstore-opencode install --project "$PWD"
+npx projectstore setup
 ```
 
 Until then, the name on the registry is a deprecated 0.0.1 placeholder pointing at `projectstore`.

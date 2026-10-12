@@ -57,7 +57,7 @@ function fixHarness(argv) {
     }
   }
   const other = given.find((g) => g !== HARNESS);
-  if (other !== undefined) return { error: `installs for ${HARNESS} only — \`--harness ${other}\` names another harness. Run that harness's shell, or the core: npx projectstore <verb> --harness ${other} …` };
+  if (other !== undefined) return { error: `installs for ${HARNESS} only — \`--harness ${other}\` names another harness. Run the core: npx projectstore <verb> --harness ${other} …` };
   if (given.length) return { argv }; // named already: pass through, never twice (the core's option repeats)
   const at = scan.findIndex((a) => !a.startsWith("-"));
   if (at === -1 || !HARNESS_VERBS.has(scan[at])) return { argv };

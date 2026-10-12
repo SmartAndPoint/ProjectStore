@@ -10,15 +10,21 @@
 //                                                pack the core, install it into a scratch copy of each shell, pack the shell,
 //                                                compare with packaging/shells/<name>/packlist.json; --out keeps the tarballs
 //
-// The layout ADR's decision 6 and the shells ADR: every harness installs
-// through `npx projectstore-<shell> install --project <dir>` — a shell that
+// The layout ADR's decision 6 and the shells ADR: a shell per harness, which
 // pins the core at exactly its own version, BUNDLES it (the tarball carries
 // node_modules/projectstore/, so no host and no registry ever pairs the shell
 // with another core) and fixes --harness. A shell is a bin and a pin, never
 // logic (the layout spec, contract 10): the bin locates the bundled core and
 // execs it. The shell's name is data, not `projectstore-<harness id>` — the
 // id is `claude-code` and the reserved, published name is `projectstore-claude`
-// — so the mapping lives here and in the manifest's `install.shell`.
+// — so the mapping lives here and in the manifest's `install.shell`. Since the
+// front-door ADR ("One front door: projectstore setup installs every harness
+// it finds; shells are release artifacts, not user commands") the shells are
+// release artifacts: a person is told to type `npx projectstore setup`, and
+// the core fetches a shell whose harness's plugin root only the shell carries
+// (Codex). Each description below ends with that command (the story
+// "User-facing text says where to run and names no project path and no
+// shell", rule 4; tests/user-text.test.mjs).
 //
 // Rendered, then committed: package.json and the bin are written by --write
 // and --check fails when a hand edit drifts from the render (the pin, the
@@ -63,7 +69,7 @@ export const SHELLS = Object.freeze([
     private: false,
     plugin_root: null, // the core IS Claude Code's plugin root; this shell is the installer only
     description:
-      'Installs projectstore for Claude Code from npm: the core pinned and bundled, the harness fixed — npx projectstore-claude install --project "$PWD".',
+      "projectstore for Claude Code: the core pinned and bundled, the harness fixed. A release artifact; the way in is npx projectstore setup",
   }),
   Object.freeze({
     name: "projectstore-codex",
@@ -72,7 +78,7 @@ export const SHELLS = Object.freeze([
     private: false,
     plugin_root: "adapters/codex",
     description:
-      "ProjectStore for Codex: portable project memory, rendered workflow skills and lifecycle hooks, with the core pinned and bundled.",
+      "ProjectStore for Codex: portable project memory, rendered workflow skills and lifecycle hooks, with the core pinned and bundled. Setup fetches it; the way in is npx projectstore setup",
   }),
   Object.freeze({
     name: "projectstore-opencode",
@@ -82,7 +88,7 @@ export const SHELLS = Object.freeze([
     plugin_root:
       "rendered by roadmap C4 (the opencode plugin entry point and the rendered adapters/opencode/ surfaces)",
     description:
-      "Installs projectstore for opencode from npm: the core pinned and bundled, the harness fixed. Not published until its plugin root is rendered.",
+      "projectstore for opencode: the core pinned and bundled, the harness fixed. Not published until its plugin root is rendered; then the way in is npx projectstore setup",
   }),
 ]);
 
@@ -250,7 +256,7 @@ function fixHarness(argv) {
     }
   }
   const other = given.find((g) => g !== HARNESS);
-  if (other !== undefined) return { error: \`installs for \${HARNESS} only — \\\`--harness \${other}\\\` names another harness. Run that harness's shell, or the core: npx projectstore <verb> --harness \${other} …\` };
+  if (other !== undefined) return { error: \`installs for \${HARNESS} only — \\\`--harness \${other}\\\` names another harness. Run the core: npx projectstore <verb> --harness \${other} …\` };
   if (given.length) return { argv }; // named already: pass through, never twice (the core's option repeats)
   const at = scan.findIndex((a) => !a.startsWith("-"));
   if (at === -1 || !HARNESS_VERBS.has(scan[at])) return { argv };

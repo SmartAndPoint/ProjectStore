@@ -18,7 +18,8 @@
 //   npmUserRegistry({ home, env })    → the user's own registry, read from home, or null
 //   fetchShell(job, { dir, registry }) → { ok, root, ms } or { ok: false, code, refusal }
 //   verifyFetched(root, { … })        → null, or the refusal naming file and values
-//   fetchRefusal(code, ctx)           → rule 4's texts
+//   fetchRefusal(code, ctx)           → rule 4's texts, the envelope's string
+//   fetchRefusalAdvice(code, ctx)     → the same, as PLAN draws it: { text, blocks }
 //   sweepFetchRuns(fetchDir)          → the leftovers of dead runs, removed
 //   fetchRunId()                      → <pid>-<epoch ms>
 //
@@ -29,8 +30,8 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { registrationDeferred } from "./harness.mjs";
-import { removeTreeUnder, pidAlive, whichOnPath } from "./lib.mjs";
+import { registrationDeferred, packageCommand } from "./harness.mjs";
+import { removeTreeUnder, pidAlive, whichOnPath, fromTerminalIn } from "./lib.mjs";
 import {
   isPortablePluginRoot,
   payloadManifest,
@@ -213,12 +214,45 @@ export function npmError(stdout, stderr) {
 
 const seconds = (ms) => `${Number((ms / 1000).toFixed(ms % 1000 ? 1 : 0))} s`;
 
-// Rule 4's refusals, by npm's code or ours. `ctx`: pkg ("<shell>@<v>"),
-// shell, registry (null: npm's own), display (the harness's display name),
-// budget, summary (npm's), cause (a start failure's), path/from/variable (the
-// cache). Every way out is a terminal command or a variable; none names a
-// version but the one this run is at.
-export function fetchRefusal(code, ctx = {}) {
+// npm's own registry: the one README's registry-mirror advice names.
+export const PUBLIC_REGISTRY = "https://registry.npmjs.org";
+
+// A registry that has no such shell may be a mirror that has not synced it:
+// the run once more, from npm's public registry, in README's form — the
+// variable, not `npx --registry`, because `npm config get registry`, which
+// the fetch's resolver reads, honours it (the story "User-facing text says
+// where to run and names no project path and no shell", rule 7). It is the
+// run the person just saw: its verb and version, and its selection as given —
+// each named --harness, each --surface, and --no-register — never --project
+// (the front-door ADR, decision 5); the directory goes in the lead, and the
+// command stands alone after it (rule 4). `args` is the shape the converge
+// story's stop repeats a run with. Null when the run is unknown, or when the
+// registry is already the public one; a null registry is npm's own
+// resolution, which can be a mirror, so it gets the line.
+function mirrorBlock({ registry = null, verb = null, version = null, args = {}, project = null } = {}) {
+  if (!verb || !version || String(registry || "").replace(/\/+$/, "") === PUBLIC_REGISTRY) return null;
+  const { harnesses = [], surfaces = null, register = true } = args || {};
+  const narrowing = [
+    ...(surfaces || []).map((s) => `--surface ${s}`),
+    ...(register === false ? ["--no-register"] : []),
+  ];
+  const command = packageCommand(
+    harnesses.map((id) => ({ id })),
+    verb,
+    { version, args: narrowing.join(" ") },
+  );
+  const where = project ? fromTerminalIn(project) : "from a terminal in this project";
+  return {
+    lead: `A mirror that has not synced it? Run this again from npm's public registry, ${where}:`,
+    command: `npm_config_registry=${PUBLIC_REGISTRY} ${command}`,
+  };
+}
+
+// Rule 4's refusals, as PLAN draws them: `{ text, blocks }`, the prose, then
+// each lead and its command (presentation spec contract 6), so PLAN prints a
+// command whole, unwrapped, alone on its line. Only the missing shell has a
+// block today; every other refusal is its text alone.
+export function fetchRefusalAdvice(code, ctx = {}) {
   const {
     pkg = "the shell",
     shell = "the shell",
@@ -233,27 +267,59 @@ export function fetchRefusal(code, ctx = {}) {
   } = ctx;
   const where = registry || "the registry npm resolves";
   const without = `name --harness without ${display}`;
+  const said = (text, blocks = []) => ({ text, blocks });
   switch (code) {
     case "ETARGET":
-    case "E404":
-      return `${pkg} is not on ${where} (npm ${code}); ${display} is registered from that shell at this exact version, and no other version is tried. Just released? The shell is published after the core, so retry in a few minutes. From a checkout at an unpublished version, point PROJECTSTORE_DISTRIBUTION_ROOT at the output of \`npm run shells:build -- --dev\` (dist/build/${shell}). Or ${without}.`;
+    case "E404": {
+      const mirror = mirrorBlock(ctx);
+      return said(
+        `${pkg} is not on ${where} (npm ${code}); ${display} is registered from that shell at this exact version, and no other version is tried. Just released? The shell is published after the core, so retry in a few minutes. From a checkout at an unpublished version, point PROJECTSTORE_DISTRIBUTION_ROOT at the output of \`npm run shells:build -- --dev\` (dist/build/${shell}). Or ${without}.`,
+        mirror ? [mirror] : [],
+      );
+    }
     // Our budget, not npm's: npm's own ETIMEDOUT (a socket) is any other code.
     case "EBUDGET":
-      return `fetching ${pkg} from ${where} took longer than ${seconds(budget)} and was stopped. Retry, or ${without}.`;
+      return said(
+        `fetching ${pkg} from ${where} took longer than ${seconds(budget)} and was stopped. Retry, or ${without}.`,
+      );
     case "FETCH_TIMEOUT":
-      return `npm gave up on ${ctx.url || where} (network timeout) while fetching ${pkg}. Retry, or ${without}.`;
+      return said(`npm gave up on ${ctx.url || where} (network timeout) while fetching ${pkg}. Retry, or ${without}.`);
     case "E401":
     case "E403":
-      return `${where} refused the credentials for ${pkg} (npm ${code}). A project .npmrc's token does not reach this fetch — only its registry does — so the registry's token must be in user config: ~/.npmrc, or an NPM_CONFIG_… variable. Or point PROJECTSTORE_DISTRIBUTION_ROOT at a ${shell} root obtained another way.`;
+      return said(
+        `${where} refused the credentials for ${pkg} (npm ${code}). A project .npmrc's token does not reach this fetch — only its registry does — so the registry's token must be in user config: ~/.npmrc, or an NPM_CONFIG_… variable. Or point PROJECTSTORE_DISTRIBUTION_ROOT at a ${shell} root obtained another way.`,
+      );
     case "ESTART":
-      return `${cause}; ${display} is registered from its shell, which npm fetches. Put npm on PATH, or ${without}.`;
+      return said(
+        `${cause}; ${display} is registered from its shell, which npm fetches. Put npm on PATH, or ${without}.`,
+      );
     case "ENOCACHE":
-      return `the shell fetch has no cache directory: ${variable} is not an absolute path and the home directory is unknown. Set ${variable} to a writable directory, then run this again.`;
+      return said(
+        `the shell fetch has no cache directory: ${variable} is not an absolute path and the home directory is unknown. Set ${variable} to a writable directory, then run this again.`,
+      );
     case "ECACHE":
-      return `the cache directory ${path} cannot be written (${ctx.errno || "error"}); it comes from ${from}. Set ${variable} to a writable directory, then run this again.`;
+      return said(
+        `the cache directory ${path} cannot be written (${ctx.errno || "error"}); it comes from ${from}. Set ${variable} to a writable directory, then run this again.`,
+      );
     default:
-      return `npm could not fetch ${pkg} from ${where}: ${code || "an unknown error"}${summary ? ` — ${summary.split(/\r?\n/)[0]}` : ""}. ${display} is registered from its shell, which needs the network: retry once the registry is reachable, or ${without}.`;
+      return said(
+        `npm could not fetch ${pkg} from ${where}: ${code || "an unknown error"}${summary ? ` — ${summary.split(/\r?\n/)[0]}` : ""}. ${display} is registered from its shell, which needs the network: retry once the registry is reachable, or ${without}.`,
+      );
   }
+}
+
+// Rule 4's refusals, by npm's code or ours: the envelope's string, every part
+// on its own line — the prose, then each lead and its command — which an agent
+// relays as it is. `ctx`: pkg ("<shell>@<v>"), shell, registry (null: npm's
+// own), display (the harness's display name), budget, summary (npm's), cause
+// (a start failure's), path/from/variable (the cache), and the run — its verb,
+// version, project and `args` (the selection as given) — which the missing
+// shell's refusal repeats from the public registry. Every way out is a
+// terminal command or a variable; none names a version but the one this run
+// is at.
+export function fetchRefusal(code, ctx = {}) {
+  const { text, blocks } = fetchRefusalAdvice(code, ctx);
+  return [text, ...blocks.flatMap((b) => [b.lead, b.command])].join("\n");
 }
 
 // Rule 3: the fetched tree is what this run plans, before it is planned —
@@ -294,26 +360,29 @@ export function verifyFetched(root, { shell, version, pluginName, coreName }) {
 // as *** (measured). A failure is a refusal before the plan, never a fallback.
 export async function fetchShell(
   { harness, s, version, coreName },
-  { dir, registry = null, env = process.env, spawn, budget = HOST_BUDGET_MS } = {},
+  { dir, registry = null, env = process.env, spawn, budget = HOST_BUDGET_MS, run = {} } = {},
 ) {
   const shell = harness.install.shell;
   const pkg = `${shell}@${version}`;
-  const ctx = { pkg, shell, registry, display: harness.display_name, budget };
+  // `run`: the verb, selection (`args`) and project of the run that fetches,
+  // for the missing shell's public-registry form; the version is this one.
+  const ctx = { pkg, shell, registry, display: harness.display_name, budget, ...run, version };
+  // A refusal in both forms: the envelope's string, and what PLAN draws.
+  const refused = (code, extra = {}) => ({
+    refusal: fetchRefusal(code, { ...ctx, ...extra }),
+    advice: fetchRefusalAdvice(code, { ...ctx, ...extra }),
+  });
   const call = npmCall(fetchArgv({ prefix: dir, registry, shell, version }), env);
   const t0 = Date.now();
   const r = await runHost(call.bin, call.argv, { env, cwd: dir, budget, spawn, shell: call.shell });
   const ms = Date.now() - t0;
   if (r.error) {
-    if (r.error.code === "ETIMEDOUT")
-      return { ok: false, ms, code: "ETIMEDOUT", refusal: fetchRefusal("EBUDGET", ctx) };
+    if (r.error.code === "ETIMEDOUT") return { ok: false, ms, code: "ETIMEDOUT", ...refused("EBUDGET") };
     return {
       ok: false,
       ms,
       code: r.error.code || "ESTART",
-      refusal: fetchRefusal("ESTART", {
-        ...ctx,
-        cause: startFailure(r.error, { bin: "npm", resolved: call.resolved, cwd: dir }),
-      }),
+      ...refused("ESTART", { cause: startFailure(r.error, { bin: "npm", resolved: call.resolved, cwd: dir }) }),
     };
   }
   if (r.status !== 0) {
@@ -321,14 +390,8 @@ export async function fetchShell(
     // npm reports a request it gave up on as FETCH_ERROR, "network timeout
     // at: <url>" (measured in review, 2026-10-08), not as ETIMEDOUT.
     const timeout = e.code === "FETCH_ERROR" && /network timeout at:\s*(\S+)/.exec(e.summary);
-    if (timeout)
-      return { ok: false, ms, code: e.code, refusal: fetchRefusal("FETCH_TIMEOUT", { ...ctx, url: timeout[1] }) };
-    return {
-      ok: false,
-      ms,
-      code: e.code || `exit ${r.status}`,
-      refusal: fetchRefusal(e.code, { ...ctx, summary: e.summary }),
-    };
+    if (timeout) return { ok: false, ms, code: e.code, ...refused("FETCH_TIMEOUT", { url: timeout[1] }) };
+    return { ok: false, ms, code: e.code || `exit ${r.status}`, ...refused(e.code, { summary: e.summary }) };
   }
   const root = join(dir, "node_modules", shell);
   const wrong = verifyFetched(root, { shell, version, pluginName: s.plugin_name, coreName });

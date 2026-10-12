@@ -136,10 +136,18 @@ test("shells contract 10: the roster is rendered and committed — package.json 
       read(join(dir, `bin/${s.name}.mjs`)).startsWith("#!/usr/bin/env node\n"),
       `${s.name}: the bin has its shebang`,
     );
+    // A shell is a release artifact (the front-door ADR): its README gives the
+    // way in, `npx projectstore setup`, and never its own name as a command
+    // (the story "User-facing text says where to run and names no project
+    // path and no shell", rule 7).
+    assert.ok(existsSync(join(dir, "README.md")), `${s.name}: the README is there`);
+    const readme = read(join(dir, "README.md"));
     assert.ok(
-      existsSync(join(dir, "README.md")) && read(join(dir, "README.md")).includes(`npx ${s.name} install --project`),
-      `${s.name}: the README names the one command`,
+      readme.includes("\nnpx projectstore setup\n"),
+      `${s.name}: the README gives npx projectstore setup in a block`,
     );
+    assert.ok(!readme.includes(`npx ${s.name}`) && !readme.includes("--project"), `${s.name}: no shell command`);
+    assert.ok(s.description.endsWith(" npx projectstore setup"), `${s.name}: the npm description ends with the way in`);
     assert.ok(existsSync(resolve(ROOT, shellPacklistPath(s.name))), `${s.name}: the packlist fixture exists`);
     if (s.harness === "codex") {
       // No root plugin.json: Codex picks a root Agent Plugins manifest first
@@ -185,8 +193,8 @@ test("shells contract 10: the roster is rendered and committed — package.json 
   assert.equal(m.install.shell, CLAUDE.name);
   assert.equal(shellFor(SRC.id), CLAUDE);
   assert.ok(
-    m.install.steps[0].startsWith(`npx ${CLAUDE.name} install --project`),
-    "the first install step is the shell",
+    m.install.steps[0].endsWith(packageCommand(m, "install")),
+    "the first install step ends with the core's install, not the shell",
   );
   // DONE's next steps are manifest data (install spec, contract 18): every
   // manifest with a shell says what its user does after an install.
@@ -315,6 +323,11 @@ test("shells AC 2: another --harness is refused with one line and exit 2, and th
     assert.equal(r.core, null, "the core did not run");
     assert.match(r.stderr, new RegExp(`${CLAUDE.name}: installs for ${SRC.id} only`));
     assert.match(r.stderr, /codex/);
+    // The way out is the core's form, never another shell (the story
+    // "User-facing text says where to run and names no project path and no
+    // shell", rule 2), and it ends the line.
+    assert.ok(r.stderr.trimEnd().endsWith("Run the core: npx projectstore <verb> --harness codex …"), r.stderr);
+    assert.ok(!r.stderr.includes("shell, or"), r.stderr);
     assert.equal(r.stderr.trim().split("\n").length, 1, "one line");
     assert.equal(r.stdout, "");
   }
@@ -917,14 +930,18 @@ test("shells AC 4: the release matrix is the publishable list, computed — neve
   assert.equal(JSON.parse(check.stdout).ok, true);
 });
 
-test("shells contract 12: README still documents the shell (until the release's documents), while the remedies, the findings' data and the command prose name the core with --harness, no shell and no --project", () => {
-  // README's install is PR B's, which merges with the release that carries
-  // setup (the story "User-facing text says where to run and names no project
-  // path and no shell", Technical Notes, landing order): until then it keeps
-  // the shells' commands.
+test("shells contract 12: the documented install is setup — README holds npx projectstore setup and no shell command — and the remedies, the findings' data and the command prose name the core with --harness, no shell and no --project", () => {
+  // README's `## Install` leads with setup, in its own block, and names no
+  // shell as a command (the story "User-facing text says where to run and
+  // names no project path and no shell", rule 7; its documents merge with
+  // the release that carries setup).
   const readme = read(join(ROOT, "README.md"));
-  assert.ok(readme.includes(`npx ${CLAUDE.name} install --project "$PWD"`), "the one-message install is the shell");
-  assert.ok(readme.includes(`npx ${CLAUDE.name}@<version> upgrade --project "$PWD"`), "so is the upgrade");
+  const install = readme.slice(readme.indexOf("\n## Install\n"), readme.indexOf("\n## Upgrading\n"));
+  assert.ok(install.startsWith("\n## Install\n"), "README has `## Install`, anchor #install");
+  assert.ok(install.includes("\n```\nnpx projectstore setup\n```\n"), "setup stands in its own block");
+  assert.ok(readme.includes("\n```\nnpx projectstore@<version> upgrade\n```\n"), "the upgrade is the core's");
+  assert.ok(readme.includes("\n```\nnpx projectstore uninstall\n```\n"), "so is the uninstall");
+  assert.ok(!readme.includes("#install--one-message"), "no link to the old anchor is left");
   assert.ok(
     readme.includes("npx projectstore install --harness claude-code"),
     "the core's low-level form stays documented once",
@@ -960,11 +977,11 @@ test("shells contract 12: README still documents the shell (until the release's 
     stale[0].message,
     `e — stale: r. Refresh it from a terminal in "/p":\nnpx projectstore@0.28.0 upgrade --harness ${SRC.id} --surface plugin`,
   );
-  // Every published shell's harness, read from the real manifests: its remedy
-  // is the core's with its --harness, never the shell. The README documents
-  // each one's install until the release's documents.
+  // Every shell's harness, read from the real manifests: its remedy is the
+  // core's with its --harness, never the shell, and README never runs a shell.
   for (const s of SHELLS.filter((x) => !x.private)) {
-    assert.ok(readme.includes(`npx ${s.name} install --project "$PWD"`), `the README documents ${s.name}'s install`);
+    for (const form of [`npx ${s.name}`, `${s.name}@<version> `, `npm install -g ${s.name}`])
+      assert.ok(!readme.includes(form), `README names ${s.name} as a command: ${form}`);
     const m = loadHarness(s.harness);
     assert.equal(
       packageCommand(m, "upgrade", { version: "0.28.1", args: "--surface plugin" }),
@@ -1031,15 +1048,21 @@ test("shells contract 12: README still documents the shell (until the release's 
   // the Codex instructions named rc.2's until 2026-10-03. Documents read the
   // version at the moment they are run instead.
   // Every shipped document, read from where it lives: a renamed one fails here
-  // rather than dropping out of the check.
+  // rather than dropping out of the check. The runbook too: the tarball loop
+  // moved there from README, docs/harnesses.md and the Codex shell's README.
   const docs = [
     "README.md",
     ...readdirSync(join(ROOT, "docs"))
       .filter((n) => n.endsWith(".md"))
       .map((n) => `docs/${n}`),
     ...SHELLS.map((s) => `${SHELLS_DIR}/${s.name}/README.md`),
+    "packaging/README.md",
   ];
   assert.ok(docs.includes("docs/harnesses.md"), "the harness page is among the documents read");
+  assert.ok(
+    read(join(ROOT, "packaging", "README.md")).includes("npm run shells:build -- --only projectstore-codex --dev"),
+    "the runbook holds the tarball loop",
+  );
   for (const rel of docs) {
     assert.doesNotMatch(
       read(join(ROOT, rel)),

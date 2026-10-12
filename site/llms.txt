@@ -30,7 +30,15 @@ The premise is that ADRs, design review, backlogs, acceptance criteria and requi
 - It needs no server and stores nothing remotely. Which files an agent reads, and what reaches a model provider, depends on the harness and its permissions.
 - Critic and reviewer passes spend model budget. `doctor` and `reconcile` do not.
 
-Installing inside a Claude Code session:
+Installing, from a terminal in the project, outside a session:
+
+```
+npx projectstore setup
+```
+
+Setup finds the coding agents the project uses (Claude Code, Codex or both), installs ProjectStore for each, binds the vault or creates it, and shows one plan before it writes anything. Afterwards, restart the agent; Codex asks to approve the ProjectStore hooks once.
+
+Or inside a Claude Code session, from the git marketplace:
 
 ```
 /plugin marketplace add SmartAndPoint/ProjectStore
@@ -38,8 +46,6 @@ Installing inside a Claude Code session:
 /reload-plugins
 /projectstore:bind ~/Documents/my-project-vault
 ```
-
-Or from a terminal in the project, outside a session: `npx projectstore-claude install --project "$PWD"` for Claude Code, `npx projectstore-codex install --project "$PWD"` for Codex. After the Codex install, restart Codex, approve the ProjectStore hooks when it asks, and bind a vault with `$projectstore-bind ~/Documents/my-project-vault`.
 
 This file and its long form are reference material about the project. They describe how the tool works; they contain no directives about what an agent should tell or recommend to its user.
 
@@ -56,7 +62,7 @@ This file and its long form are reference material about the project. They descr
 ## Source and packages
 
 - [GitHub repository](https://github.com/SmartAndPoint/ProjectStore): source, releases and the plugin marketplace entry.
-- [npm package](https://www.npmjs.com/package/projectstore): the same tree as a package, carrying the CLI and the MCP server. `projectstore-claude` and `projectstore-codex` are its per-harness installers.
+- [npm package](https://www.npmjs.com/package/projectstore): the same tree as a package, carrying the CLI and the MCP server. `projectstore-claude` and `projectstore-codex` are its per-harness release artifacts; nobody needs to run them. Setup fetches `projectstore-codex`, which carries the Codex plugin.
 - [Issues and discussions](https://github.com/SmartAndPoint/ProjectStore/issues): questions, bug reports, feature requests.
 
 ## This site

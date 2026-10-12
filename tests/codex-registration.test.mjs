@@ -27,9 +27,11 @@ import {
 import { surfaceStates } from "../scripts/surfaces.mjs";
 import { checkHarnessSurfaces, checkPluginRegistration } from "../scripts/doctor.mjs";
 import { loadHarness, cachePaths } from "../scripts/harness.mjs";
+import { fromTerminalIn } from "../scripts/lib.mjs";
 import {
   fetchDecision,
   fetchRefusal,
+  fetchRefusalAdvice,
   sweepFetchRuns,
   rootVersion,
   REGISTRY_BUDGET_MS,
@@ -1037,7 +1039,7 @@ test("shell fetch: a payload changed between plan and apply fails the recheck be
   assert.deepEqual(leftovers(f), []);
 });
 
-test("shell fetch: a version the registry lacks (ETARGET, E404) is a refusal before the plan, naming the package and the registry, no other version, and three ways out", async () => {
+test("shell fetch: a version the registry lacks (ETARGET, E404) is a refusal before the plan, naming the package and the registry, no other version, three ways out, and the run again from npm's public registry", async () => {
   for (const mode of ["ETARGET", "E404"]) {
     const f = coreFixture();
     const npm = fakeNpmSpawn({ mode });
@@ -1066,12 +1068,104 @@ test("shell fetch: a version the registry lacks (ETARGET, E404) is a refusal bef
       refusal,
     );
     assert.ok(refusal.includes(`name --harness without ${CODEX.display_name}`), refusal);
+    // A mirror that has not synced the shell: the run once more, from npm's
+    // public registry, in README's form — the lead names the project, and the
+    // command stands alone on the last line (the story "User-facing text says
+    // where to run and names no project path and no shell", rules 4 and 7).
+    const lines = refusal.split("\n");
+    assert.equal(lines.length, 3, refusal);
+    assert.equal(
+      lines[1],
+      `A mirror that has not synced it? Run this again from npm's public registry, ${fromTerminalIn(f.project)}:`,
+    );
+    const mirror = `npm_config_registry=https://registry.npmjs.org npx projectstore@${V} upgrade --harness codex`;
+    assert.equal(lines[2], mirror);
+    // PLAN draws that command whole, alone on its line, at an 80-column
+    // terminal and on a pipe — never wrapped as prose — while the envelope
+    // keeps the one string (the drawn form is off it).
+    assert.ok(!Object.keys(r.plan).includes("refusalAdvice"), "the drawn form stays off the envelope");
+    for (const caps of [PLAIN, { ...PLAIN, live: true, width: 80 }]) {
+      const out = renderPreview(r.plan, { caps, home: f.home });
+      const at = out.split("\n").filter((l) => l.includes("npm_config_registry="));
+      assert.deepEqual(
+        at.map((l) => l.trim()),
+        [mirror],
+        `${caps.live ? "80 columns" : "pipe"}: the command on one line\n${out}`,
+      );
+      assert.ok(
+        out.includes(`\n\n${at[0]}\n`),
+        `${caps.live ? "80 columns" : "pipe"}: alone after a blank line\n${out}`,
+      );
+    }
     assert.equal(npm.installs().length, 1);
     assert.deepEqual(host, [], `${mode}: nothing spawned after npm`);
     assert.equal(existsSync(join(f.home, "projectstore")), false, `${mode}: nothing staged or locked`);
     assert.deepEqual(leftovers(f), [], `${mode}: no fetch directory remains`);
     assert.ok(!/npm error|_logs/.test(refusal), "npm's raw stderr is never shown");
   }
+  // The run's narrowing repeats: doctor's stale remedy, an upgrade narrowed by
+  // --surface plugin, gets back that upgrade, not a whole one. (--no-register
+  // leaves the registration out, so such a run fetches nothing; the unit test
+  // below covers its flag.)
+  const f = coreFixture();
+  const narrowed = await runVerb("upgrade", f.project, {
+    ...coreOpts(f, { surfaces: ["plugin"] }),
+    json: true,
+    fetchSpawn: fakeNpmSpawn({ mode: "E404" }).spawn,
+  });
+  assert.equal(narrowed.gate.why, "refused", JSON.stringify(narrowed.plan));
+  assert.equal(
+    narrowed.plan.refusals[0].split("\n").at(-1),
+    `npm_config_registry=https://registry.npmjs.org npx projectstore@${V} upgrade --harness codex --surface plugin`,
+  );
+});
+
+test("shell fetch: the missing shell's public-registry form repeats the run, and is left out when the registry is already npm's", () => {
+  const base = { pkg: `${SHELL}@${V}`, shell: SHELL, display: CODEX.display_name, version: V, project: "/p" };
+  const lead = `A mirror that has not synced it? Run this again from npm's public registry, ${fromTerminalIn("/p")}:`;
+  const last = (ctx) => fetchRefusal("E404", ctx).split("\n");
+  // The public registry, with or without its trailing slash: no mirror to name.
+  for (const registry of ["https://registry.npmjs.org", "https://registry.npmjs.org/"]) {
+    const text = fetchRefusal("E404", { ...base, registry, verb: "upgrade", args: { harnesses: ["codex"] } });
+    assert.equal(text.split("\n").length, 1, `${registry}: ${text}`);
+    assert.ok(!text.includes("npm_config_registry"), text);
+    assert.deepEqual(fetchRefusalAdvice("E404", { ...base, registry, verb: "upgrade" }).blocks, []);
+  }
+  // A null registry is npm's own resolution, which can be a mirror: the line is there.
+  const nul = last({ ...base, registry: null, verb: "upgrade", args: { harnesses: ["codex"] } });
+  assert.ok(nul[0].includes(`is not on the registry npm resolves (npm E404)`), nul[0]);
+  assert.deepEqual(nul.slice(1), [
+    lead,
+    `npm_config_registry=https://registry.npmjs.org npx projectstore@${V} upgrade --harness codex`,
+  ]);
+  // The selection as given: each --harness, each --surface, --no-register.
+  assert.equal(
+    last({
+      ...base,
+      registry: FAKE_REGISTRY,
+      verb: "upgrade",
+      args: { harnesses: ["codex"], surfaces: ["plugin", "hooks"], register: false },
+    }).at(-1),
+    `npm_config_registry=https://registry.npmjs.org npx projectstore@${V} upgrade --harness codex --surface plugin --surface hooks --no-register`,
+  );
+  // setup: its named harnesses, and nothing it does not take.
+  const setup = { ...base, registry: FAKE_REGISTRY, verb: "setup" };
+  assert.equal(
+    last({ ...setup, args: { harnesses: ["claude-code", "codex"] } }).at(-1),
+    `npm_config_registry=https://registry.npmjs.org npx projectstore@${V} setup --harness claude-code --harness codex`,
+  );
+  assert.equal(
+    last({ ...setup, args: {} }).at(-1),
+    `npm_config_registry=https://registry.npmjs.org npx projectstore@${V} setup`,
+  );
+  // The drawn form and the envelope's string are one text.
+  const advice = fetchRefusalAdvice("E404", { ...setup, args: {} });
+  assert.equal(
+    [advice.text, ...advice.blocks.flatMap((b) => [b.lead, b.command])].join("\n"),
+    fetchRefusal("E404", { ...setup, args: {} }),
+  );
+  // Without the run (a caller that names none), no line is guessed.
+  assert.equal(fetchRefusal("E404", { ...base, registry: FAKE_REGISTRY, verb: null }).split("\n").length, 1);
 });
 
 test("shell fetch: a hang past the budget is stopped with SIGTERM and names the bound; npm's request timeout names its URL", async () => {

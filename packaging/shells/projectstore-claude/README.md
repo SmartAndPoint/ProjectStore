@@ -1,25 +1,26 @@
 # projectstore-claude
 
-The Claude Code installer for [projectstore](https://www.npmjs.com/package/projectstore): the core, pinned at exactly this version and bundled inside this tarball, with the harness fixed. One command, from a terminal **outside** a Claude Code session:
+> **To install ProjectStore, run `npx projectstore setup` from a terminal in your project.** This package is a release artifact; you do not need it.
+
+The Claude Code distribution shell of [projectstore](https://www.npmjs.com/package/projectstore): the core, pinned at exactly this version and bundled inside this tarball, with the harness fixed to Claude Code.
+
+From a terminal in your project:
 
 ```sh
-npx projectstore-claude install --project "$PWD"
+npx projectstore setup
 ```
 
-It registers the plugin for that checkout at the host's local scope. It prints its plan first — every write and every host command, verbatim — and at a terminal asks `◆ Apply N changes? [Y/n]` before anything runs; then each step as it runs, and what to do next. Without a terminal (a script, CI, an agent's tool) naming the shell is the confirmation; `--json` never asks. Restart Claude Code afterwards.
+Setup finds the coding agents the project uses, Claude Code among them, and installs ProjectStore for each, with a vault for the project's notes. It asks a few questions, prints one plan — every write and every host command, verbatim — and asks once before anything runs. For Claude Code it registers the plugin for that checkout at the host's local scope, through a small local marketplace under your Claude home. Restart Claude Code afterwards.
 
-- See before you write: `npx projectstore-claude plan --project "$PWD"` prints the same plan and writes nothing; `--verbose` adds every row's reasoning; `npx projectstore-claude <verb> --help` lists a verb's options with examples.
+Upgrade, or pin, from the same place; the version you name is the version you run:
 
-- Upgrade, or pin: `npx projectstore-claude@<version> upgrade --project "$PWD"` — the version you name is the version you run.
-- Behind a registry mirror: if `npx` answers `could not determine executable to run`, the mirror's index knows only the reserved `0.0.1` placeholder — name the version, and if needed the public registry: `npx --registry https://registry.npmjs.org projectstore-claude@<version> install --project "$PWD"`.
-- Uninstall: `npx projectstore-claude uninstall --project "$PWD"` — forgets the registration for that checkout and nothing else; your vault is plain markdown and stays yours.
-- `doctor`, `status`, `search` and the other read verbs pass through unchanged: `npx projectstore-claude doctor --json`.
+```sh
+npx projectstore@<version> upgrade
+```
 
-This shell is `projectstore <verb> --harness claude-code` and nothing more. `bin/projectstore-claude.mjs` locates the bundled core under `node_modules/projectstore/` and execs it; the core's low-level form — `npx projectstore install --harness claude-code --project "$PWD"` — is exactly what runs. A different `--harness` is refused (exit 2). The shell carries no plugin of its own: the plugin Claude Code loads is the bundled core, registered through a small local marketplace under your Claude home.
+This shell's bin is `projectstore <verb> --harness claude-code` and nothing more. `bin/projectstore-claude.mjs` locates the bundled core under `node_modules/projectstore/` and execs it; a different `--harness` is refused (exit 2). The shell carries no plugin of its own: the plugin Claude Code loads is the bundled core.
 
-Why from a terminal: the host CLI and a live session both rewrite the same settings files, so the core defers the registration inside a session and says so.
-
-- Docs: https://github.com/SmartAndPoint/ProjectStore#install--one-message
+- Docs: https://github.com/SmartAndPoint/ProjectStore#install
 - Source: https://github.com/SmartAndPoint/ProjectStore
 - Issues: https://github.com/SmartAndPoint/ProjectStore/issues
 

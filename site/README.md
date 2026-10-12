@@ -112,7 +112,7 @@ without a marker fails rather than goes unread. The markers:
 | | `commands`, `agents`, `languages`, `mcp-tools` | the count, as digits: files in `commands/` and `agents/`, `templates/<lang>/` folders, `TOOLS` in `scripts/mcp.mjs` |
 | | `mcp-tool` | one per `<li>`; each list names every tool in `TOOLS` once |
 | | `harness-status:<id>` | `experimental` while `harnesses/<id>.json` has `verified: null`, else `supported` |
-| | `install` | on the `<pre>` of an install block: each line is one README fences under "Install — one message", "Upgrading" or "Uninstalling", the bind line's `start.bind-lang` aside. No `data-copy`: the copy button copies what the block shows. An install, upgrade or uninstall command anywhere else fails. |
+| | `install` | on the `<pre>` of an install block: each line is one README fences under "Install", "Upgrading" or "Uninstalling", the bind line's `start.bind-lang` aside. No `data-copy`: the copy button copies what the block shows. An install, upgrade or uninstall command anywhere else fails. |
 | `data-source` | `README.md#<anchor>` or `docs/<page>.md#<anchor>` | on every measured figure; the file and the heading exist |
 | `data-title` | `adr`, `spec`, `epic`, `story` | an example's title, the same everywhere on the page |
 | `data-slug` | `<kind>:<form>`: `adr:` and `spec:` with `slug`, `file` or `path`; `story:` with `id`, `file`, `path`, `link`, `ref` or `session` | the name the product makes of that kind's `data-title`; an example path without one fails |
@@ -225,7 +225,7 @@ Name, and under the OFL a subset made by a third party is a Modified Version tha
 
 ## Sources and honesty
 
-Content is derived from ProjectStore v0.29.2 as of 2026-10-08: `README.md`, `docs/how-it-works.md`,
+Content is derived from ProjectStore v0.29.4 as of 2026-10-12: `README.md`, `docs/how-it-works.md`,
 `docs/getting-started.md`, `docs/harnesses.md`, the command and agent definitions, the harness
 manifests, `scaffold/layouts/engineering.json`, the templates, and the core's `slugify()` and
 `composeAnchorName()`. Every measured figure (22.5 %, 10–15 %, 2–6 parallel sessions, 12

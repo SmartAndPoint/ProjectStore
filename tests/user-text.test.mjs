@@ -2,11 +2,11 @@
 // story "User-facing text says where to run and names no project path and no
 // shell", PS-HARNESS; its Technical Notes, "The lint").
 //
-// This file holds the lint's output half — what a run prints for a person to
-// type next, built with the code's own helpers on the suites' fixtures — and
-// rule (b) over both Codex trees. The file half (README, docs/, the shells'
-// READMEs, the site, the manifests' install text) and rule (c), command spans
-// in Markdown and site text, land with the release's documents.
+// It has two halves. The output half reads what a run prints for a person to
+// type next, built with the code's own helpers on the suites' fixtures, and
+// holds both Codex trees to rule (b). The file half reads what a person reads
+// before any run: README, docs/, the shells' READMEs, the site's sources and
+// dictionaries, the shells' npm descriptions and the manifests' install text.
 //
 // A command is a line, or a span, whose first token — after its indentation
 // and any leading NAME=value assignments — is npx, npm, node, projectstore, a
@@ -16,11 +16,15 @@
 //   (a) no --project, except on a `projectstore mcp` line;
 //   (b) no shell name as a command: `npx <shell>`, `<shell>@<v> <verb>`,
 //       `<shell> <verb>`, `npm install -g <shell>`, `npm i <shell>`;
+//   (c) in Markdown and site text, no command span followed directly by
+//       `,` `.` `;` `:` or `)` (or their full-width forms on the Chinese page):
+//       a copied comma broke the 0.29.1 upgrade;
 //   (d) nothing after the command on its line. A finding's, an offer's and
 //       the welcome's command stands alone on its line, after indentation; a
-//       plan reason's and a DONE tip's ends its line. Every line after a
-//       rule-5 finding's first is a command the test builds with the code's
-//       own helpers, or a lead ending with `:`, and carries no indentation.
+//       plan reason's, a DONE tip's, a manifest step's and an npm
+//       description's ends its line. Every line after a rule-5 finding's
+//       first is a command the test builds with the code's own helpers, or a
+//       lead ending with `:`, and carries no indentation.
 // Each failure names the output (or file) and its line.
 
 import { test } from "node:test";
@@ -76,6 +80,7 @@ import {
 } from "./fixtures/install.mjs";
 import { installPlan, PROJECT, MODES } from "./fixtures/presentation.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
+import { markdownLines } from "./fixtures/markdown.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
@@ -814,4 +819,250 @@ test("user text, rule (b): neither Codex tree names a shell as a command", () =>
   assert.ok(files.length > 20, `both trees are read: ${files.length} files`);
   const bad = files.flatMap((f) => rulesB(relative(ROOT, f), readFileSync(f, "utf8")));
   assert.deepEqual(bad, []);
+});
+
+// ─── The file half: what a person reads before any run ──────────────────
+//
+// README, every docs/*.md and every shell's README, read from where they live
+// (a renamed one fails rather than drops out); the site's three sources and
+// its translated dictionaries; the shells' npm descriptions; and the
+// manifests' person-facing install text. `*_reason` keys have no reader and
+// stay out. The runbook (packaging/README.md), packaging/reserved/,
+// commands/, agents/ and skills/ are other lints' (the story's Technical
+// Notes, "Out of it, by class").
+
+// The lint's command, by its first token after any NAME=value assignments. A
+// single-token span is a name (a package's, a tool's) unless it is an
+// in-session form, which runs as typed.
+const IN_SESSION = /^(?:\/projectstore:[a-z][\w-]*|\$projectstore-[a-z][\w-]*)$/;
+function isCommand(text) {
+  const toks = String(text).trim().split(/\s+/).filter(Boolean);
+  while (toks.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[0])) toks.shift();
+  if (!toks.length) return false;
+  if (IN_SESSION.test(toks[0])) return true;
+  if (toks.length < 2) return false;
+  const first = toks[0].replace(/@\S*$/, "");
+  return ["npx", "npm", "node", "projectstore", ...SHELL_NAMES].includes(first);
+}
+
+// Rule (c)'s punctuation: ASCII, and the full-width forms the Chinese page writes.
+const AFTER_SPAN = /^[,.;:)，。；：）]/;
+const spanFinding = (name, n, code, ch) => `${name}:${n}: (c) a command span followed by "${ch}": ${code}`;
+
+// Rule (c) over Markdown: inline code spans outside fences (a run of N
+// backticks closes on the next run of N).
+function lintSpans(name, md) {
+  const out = [];
+  for (const { line, n, fenced } of markdownLines(String(md))) {
+    if (fenced) continue;
+    for (const m of line.matchAll(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g)) {
+      const after = line.slice(m.index + m[0].length);
+      if (AFTER_SPAN.test(after) && isCommand(m[2])) out.push(spanFinding(name, n, m[0], after[0]));
+    }
+  }
+  return out;
+}
+
+// Rule (c) over HTML: a <code> element's text, entities decoded, followed by
+// punctuation after its closing tag. `lineOf` maps an offset to a file line.
+const HTML_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+const htmlText = (s) =>
+  s
+    .replace(/<[^>]*>/g, "")
+    .replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (m, e) =>
+      e[0] === "#"
+        ? String.fromCodePoint(/^#x/i.test(e) ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10))
+        : (HTML_ENTITIES[e.toLowerCase()] ?? m),
+    );
+function lintCodeElements(name, html, lineOf = () => 1) {
+  const out = [];
+  for (const m of String(html).matchAll(/<code\b[^>]*>([\s\S]*?)<\/code>/g)) {
+    const after = html.slice(m.index + m[0].length);
+    const text = htmlText(m[1]);
+    if (AFTER_SPAN.test(after) && isCommand(text)) out.push(spanFinding(name, lineOf(m.index), m[0], after[0]));
+  }
+  return out;
+}
+const lineAt = (text) => (offset) => text.slice(0, offset).split("\n").length;
+
+// A line of data whose command does not end it: the text from the command's
+// first token on holds prose, a span, a comment or closing punctuation (rule
+// (d) for a manifest step and an npm description).
+const COMMAND_START =
+  /(?:^|[\s:(])((?:[A-Za-z_][A-Za-z0-9_]*=\S+ )*(?:npx |node "|\/projectstore:[a-z]|\$projectstore-[a-z]))/;
+function commandEnds(text) {
+  return String(text)
+    .split("\n")
+    .every((l) => {
+      const m = COMMAND_START.exec(l);
+      if (!m) return true;
+      const rest = l.slice(m.index + m[0].length - m[1].length);
+      return !/`|\s\(|\s—\s|;\s|[.,;:)]$/.test(rest);
+    });
+}
+
+// The documents, from the filesystem.
+const DOCUMENTS = () => [
+  "README.md",
+  ...readdirSync(join(ROOT, "docs"))
+    .filter((n) => n.endsWith(".md"))
+    .sort()
+    .map((n) => `docs/${n}`),
+  ...SHELLS.map((s) => `packaging/shells/${s.name}/README.md`),
+];
+const SITE_MARKDOWN = ["site/llms.txt", "site/llms-full.txt"];
+const SITE_TEMPLATE = "site/src/index.html";
+// The translated dictionaries: the English one is the template's extract.
+const DICTIONARIES = () =>
+  readdirSync(join(ROOT, "site", "locales"))
+    .filter((n) => n.endsWith(".json") && n !== "en.json")
+    .sort()
+    .map((n) => `site/locales/${n}`);
+
+// A manifest's person-facing install text, each string with its key path and
+// the file line that holds it, read from the manifest's text `raw`.
+const manifestFile = (m) => [`harnesses/${m.id}.json`, readFileSync(join(ROOT, "harnesses", `${m.id}.json`), "utf8")];
+function manifestTexts([rel, raw]) {
+  const m = JSON.parse(raw);
+  const lines = raw.split("\n");
+  const out = [];
+  const add = (path, value) => {
+    if (typeof value !== "string") return;
+    const k = lines.findIndex((l) => l.includes(JSON.stringify(value)));
+    out.push({ where: `${rel}:${k + 1} (${path})`, path, value });
+  };
+  const list = (path, v) => (Array.isArray(v) ? v.forEach((s, i) => add(`${path}[${i}]`, s)) : add(path, v));
+  const inst = m.install || {};
+  for (const key of ["steps", "next", "notes"]) list(`install.${key}`, inst[key]);
+  add("install.why_not_scripted", inst.why_not_scripted);
+  add("install.docs", inst.docs);
+  add("update_hint.line", m.update_hint?.line);
+  list("update_hint.welcome", m.update_hint?.welcome);
+  list("update_instructions", m.update_instructions);
+  return out;
+}
+
+// The commands a manifest step may end with, built with the code's own helpers.
+const stepCommands = (m) => [
+  ...["setup", "install", "upgrade", "uninstall", "plan"].map((v) => packageCommand(m, v)),
+  packageCommand([], "setup"),
+  invocation(m, "bind", { args: "<vault-path>" }),
+];
+
+const readRel = (rel) => [rel, readFileSync(join(ROOT, rel), "utf8")];
+
+// Every finding of the file half, over the given files and data.
+function lintFiles({
+  documents = DOCUMENTS().map(readRel),
+  siteMarkdown = SITE_MARKDOWN.map(readRel),
+  template = readRel(SITE_TEMPLATE),
+  dictionaries = DICTIONARIES().map(readRel),
+  shells = SHELLS,
+  manifests = MANIFESTS.map(manifestFile),
+} = {}) {
+  const out = [];
+  for (const [rel, md] of [...documents, ...siteMarkdown]) out.push(...lintLines(rel, md), ...lintSpans(rel, md));
+  const [tpl, html] = template;
+  out.push(...lintLines(tpl, html), ...lintCodeElements(tpl, html, lineAt(html)));
+  for (const [rel, raw] of dictionaries) {
+    out.push(...lintLines(rel, raw));
+    const lines = raw.split("\n");
+    for (const [key, value] of Object.entries(JSON.parse(raw))) {
+      const k = lines.findIndex((l) => l.startsWith(`  ${JSON.stringify(key)}:`));
+      out.push(...lintCodeElements(`${rel} (${key})`, String(value), () => k + 1));
+    }
+  }
+  const setup = packageCommand([], "setup");
+  for (const s of shells) {
+    const name = `packaging/shells.mjs SHELLS ${s.name}.description`;
+    out.push(...lintLines(name, s.description), ...lintSpans(name, s.description));
+    if (!commandEnds(s.description) || !s.description.endsWith(setup))
+      out.push(`${name}: (d) does not end with ${setup}: ${s.description}`);
+  }
+  for (const file of manifests) {
+    const m = JSON.parse(file[1]);
+    for (const { where, path, value } of manifestTexts(file)) {
+      out.push(...lintLines(where, value), ...lintSpans(where, value));
+      if (!path.startsWith("install.steps") || !COMMAND_START.test(value)) continue;
+      if (!commandEnds(value) || !stepCommands(m).some((c) => value.endsWith(c)))
+        out.push(`${where}: (d) the step's command does not end it: ${value}`);
+    }
+  }
+  return out;
+}
+
+test("user text, the file half: README, docs/, the shells' READMEs, the site, the npm descriptions and the manifests' install text pass every rule", () => {
+  const docs = DOCUMENTS();
+  assert.ok(docs.includes("docs/harnesses.md") && docs.length >= 8, `the documents are read: ${docs.join(", ")}`);
+  assert.ok(DICTIONARIES().length >= 7, "every translated dictionary is read");
+  const bad = lintFiles();
+  assert.deepEqual(bad, [], bad.join("\n"));
+  // Not vacuous: each manifest's first step is the core's install, last on its
+  // line, and each npm description ends with the way in.
+  for (const m of MANIFESTS) assert.ok(m.install.steps[0].endsWith(packageCommand(m, "install")), m.install.steps[0]);
+  for (const s of SHELLS) assert.ok(s.description.endsWith(` ${packageCommand([], "setup")}`), s.description);
+});
+
+test("user text, the file half: each rule fails on one planted case, naming the file and line; the near misses pass", () => {
+  const only = (o) =>
+    lintFiles({
+      documents: [],
+      siteMarkdown: [],
+      template: [SITE_TEMPLATE, "<p></p>"],
+      dictionaries: [],
+      shells: [],
+      manifests: [],
+      ...o,
+    });
+  // (a): --project in a README copy fails, on its line; mcp's own line keeps it.
+  const readme = readFileSync(join(ROOT, "README.md"), "utf8");
+  const a = readme.replace("\n```\n", '\n```\nnpx projectstore upgrade --project "$PWD"\n');
+  assert.notEqual(a, readme, "the plant applies");
+  const aLine = a.split("\n").indexOf('npx projectstore upgrade --project "$PWD"') + 1;
+  assert.deepEqual(only({ documents: [["README.md", a]] }), [
+    `README.md:${aLine}: (a) --project: npx projectstore upgrade --project "$PWD"`,
+  ]);
+  assert.deepEqual(only({ documents: [["README.md", 'x\n```\nnpx projectstore mcp --project "$PWD"\n```\n']] }), []);
+  // (b): an npm install of a shell in a docs copy fails; the shell's name alone in prose passes.
+  const harnesses = readFileSync(join(ROOT, "docs", "harnesses.md"), "utf8");
+  const b = harnesses.replace("## Codex\n", "## Codex\n\nInstall it: npm install -g projectstore-claude\n");
+  assert.notEqual(b, harnesses, "the plant applies");
+  const bLine = b.split("\n").indexOf("Install it: npm install -g projectstore-claude") + 1;
+  assert.deepEqual(only({ documents: [["docs/harnesses.md", b]] }), [
+    `docs/harnesses.md:${bLine}: (b) a shell as a command: Install it: npm install -g projectstore-claude`,
+  ]);
+  assert.deepEqual(
+    only({ documents: [["docs/x.md", "`projectstore-claude` is a release artifact; setup runs it.\n"]] }),
+    [],
+  );
+  // (c): a command span directly before a period fails, in Markdown and in a
+  // dictionary's HTML; a span before a space, and a name before a period, pass.
+  assert.deepEqual(only({ documents: [["docs/x.md", "Then\nrun `/projectstore:doctor --fix`.\n"]] }), [
+    'docs/x.md:2: (c) a command span followed by ".": `/projectstore:doctor --fix`',
+  ]);
+  assert.deepEqual(
+    only({ documents: [["docs/x.md", "Run `/projectstore:doctor --fix` in the session. See `projectstore`.\n"]] }),
+    [],
+  );
+  const dict =
+    '{\n  "a.p.1": "x",\n  "a.p.2": "Skills such as <code>$projectstore-critic</code>, which start a role."\n}\n';
+  assert.deepEqual(only({ dictionaries: [["site/locales/xx.json", dict]] }), [
+    'site/locales/xx.json (a.p.2):3: (c) a command span followed by ",": <code>$projectstore-critic</code>',
+  ]);
+  // (d): a manifest step whose comment follows its command fails, on the
+  // manifest's line; the comment before it passes.
+  const [rel, raw] = manifestFile(SRC);
+  const first = JSON.stringify(SRC.install.steps[0]);
+  const step = (s) => [[rel, raw.replace(first, JSON.stringify(s))]];
+  const lateStep = `${packageCommand(SRC, "install")}   (npm; registers the plugin here)`;
+  const dLine = raw.split("\n").findIndex((l) => l.includes(first)) + 1;
+  assert.ok(dLine > 0, "the plant's anchor is the manifest's first step");
+  assert.deepEqual(only({ manifests: step(lateStep) }), [
+    `${rel}:${dLine} (install.steps[0]): (d) the step's command does not end it: ${lateStep}`,
+  ]);
+  assert.deepEqual(only({ manifests: step(`npm, for this checkout: ${packageCommand(SRC, "install")}`) }), []);
+  // An npm description that does not end with the way in fails.
+  const desc = only({ shells: [{ name: "projectstore-x", description: "Run npx projectstore setup, then restart." }] });
+  assert.equal(desc.length, 1, desc.join("\n"));
+  assert.match(desc[0], /^packaging\/shells\.mjs SHELLS projectstore-x\.description: \(d\) /);
 });
