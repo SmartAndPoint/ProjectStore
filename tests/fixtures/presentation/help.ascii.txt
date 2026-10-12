@@ -6,6 +6,7 @@ Usage
 
 START
   setup        Set up this project: every harness it uses, and a vault.
+  configure    Change this project's settings after setup, behind one plan.
   uninstall    Remove what install wrote, and only that.
 
 VAULT
@@ -36,7 +37,7 @@ Examples
   npx projectstore doctor
 
 Tips
-  setup, install, upgrade and uninstall show a plan, then ask at a terminal.
+  setup, configure, install, upgrade and uninstall show a plan, then ask.
   Without a terminal, --harness is the confirmation - there is no --yes.
   Unattended in a terminal: pass --json, set CI=1, or give stdin </dev/null.
   --verbose on those verbs adds every row's reasoning and the host's notes.

@@ -801,6 +801,30 @@ test("user text: scaffold's plan and refusals, the not-bound refusal and the vau
 
 // ─── Rule (b) over both Codex trees ────────────────────────────────────
 
+test("user text: configure's view and its rebind refusal put each command alone on its line, the directory in the lead, no --project", async () => {
+  const { runConfigure } = await import("../scripts/configure.mjs");
+  const proj = realpathSync(mkdtempSync(join(tmpdir(), "ps-ut-cfg-")));
+  const vault = realpathSync(mkdtempSync(join(tmpdir(), "ps-ut-cfg-v-")));
+  writeBinding(proj, { vault_path: vault, layout: "engineering" });
+  const chunks = [];
+  const stdout = { isTTY: false, write: (x) => (chunks.push(String(x)), true) };
+  const run = (values) => runConfigure({ values, project: proj, env: {}, stdin: null, stdout, root: ROOT });
+  await run({});
+  const view = chunks.join("");
+  const commands = [
+    packageCommand([], "configure"),
+    packageCommand([], "configure", { args: "--set <key>=<value>" }),
+    packageCommand([], "bind", { args: "<vault> --rebind" }),
+    packageCommand([], "init", { args: "<vault> --rebind" }),
+  ];
+  assert.deepEqual(lintOutput("configure view", view, { alone: commands }), []);
+  assert.ok(view.includes(fromTerminalIn(proj)), "the view's lead names the directory");
+  const r = await run({ set: ["vault=/x"] });
+  assert.equal(r.code, 2);
+  assert.deepEqual(lintOutput("configure rebind refusal", r.usage, { alone: [commands[2]] }), []);
+  assert.ok(r.usage.split("\n")[0].includes(fromTerminalIn(proj)));
+});
+
 test("user text, rule (b): neither Codex tree names a shell as a command", () => {
   const trees = [
     join(ROOT, "adapters", "codex"),

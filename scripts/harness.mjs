@@ -779,6 +779,14 @@ export function hasBand(manifest) {
   return manifest?.surfaces?.band?.supported === true;
 }
 
+// Whether a harness has the status-line surface: the one predicate for "a
+// harness without a status line", read by configure (its spec, contract 2).
+// Install's own test is the same: a surface declared and not unsupported.
+export function hasStatusLine(manifest) {
+  const s = manifest?.surfaces?.statusline;
+  return Boolean(s) && s.supported !== false;
+}
+
 // The session id the host hands a tool process, by the manifest's name for
 // it (runtime.session_id_env), or null where the harness names none or the
 // process got none.

@@ -428,8 +428,8 @@ test("setup 'The row': setup --help prints its usage and the seven options; setu
   await run(["--help"], { env: {}, stdout: top, stderr: sink() });
   const lines = top.text.split("\n");
   assert.deepEqual(
-    lines.slice(lines.indexOf("START") + 1, lines.indexOf("START") + 3).map((l) => l.trim().split(" ")[0]),
-    ["setup", "uninstall"],
+    lines.slice(lines.indexOf("START") + 1, lines.indexOf("START") + 4).map((l) => l.trim().split(" ")[0]),
+    ["setup", "configure", "uninstall"],
   );
 });
 

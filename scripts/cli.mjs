@@ -59,7 +59,6 @@ import {
   projectRootDeclared,
   childEnv,
   harnessIds,
-  harnessForOverlay,
   pinPluginRoot,
   invokedAs,
   shellHarnessId,
@@ -72,7 +71,6 @@ import {
   readConfigAt,
   readOverlayAt,
   resolveAgentModel,
-  writeOverlayAt,
   overlayId,
   layoutRoster,
   commandForm,
@@ -105,6 +103,7 @@ import {
   DEFAULT_LANGUAGE,
 } from "./binding.mjs";
 import { planScaffold, applyScaffold, scaffoldResult, renderScaffoldPlan } from "./scaffold.mjs";
+import { planAgentsChange, applyAgentsChange } from "./agents-change.mjs";
 import {
   planBand,
   applyBand,
@@ -201,6 +200,14 @@ const UNINSTALL_OPTS = [
   JSON_OPT,
 ];
 
+// configure's own --harness: it names the overlay agents.* keys write, and
+// is no confirmation — naming a change is (its spec, contracts 1 and 8).
+const CONFIGURE_OPTS = [
+  opt("set", "<key>=<value>", "change one setting; without a terminal, naming it is the confirmation", true),
+  opt("harness", "<id>", "the overlay agents.* keys write; other keys ignore it", true),
+  opt("dry-run", false, "the plan; nothing is written"),
+];
+
 // setup's own options (the setup story, rule 1): seven, beside the globals.
 // `--vault <path>` takes a value here where doctor's `--vault` is a flag —
 // the per-verb parse's own case.
@@ -236,6 +243,20 @@ export const VERBS = Object.freeze([
     mcp: Object.freeze([]),
     options: [...SETUP_OPTS, JSON_OPT],
     run: runSetupVerb,
+  }),
+  Object.freeze({
+    verb: "configure",
+    summary: "Change this project's settings after setup, behind one plan.",
+    usage: NO_FORMS,
+    module: "./configure.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: false,
+    mcp: Object.freeze([]),
+    options: [...CONFIGURE_OPTS, JSON_OPT],
+    run: runConfigureVerb,
   }),
   Object.freeze({
     verb: "doctor",
@@ -599,7 +620,7 @@ export const PLANNED_VERBS = Object.freeze([]);
 // setup, START is setup and uninstall, and install and bind are ADVANCED's
 // (contract 10; the setup story, rule 1).
 const HELP_GROUPS = [
-  ["START", ["setup", "uninstall"]],
+  ["START", ["setup", "configure", "uninstall"]],
   ["VAULT", ["status", "search", "show", "graph", "codemap"]],
   ["CHECK AND REPAIR", ["doctor", "reconcile", "upgrade"]],
 ];
@@ -633,6 +654,12 @@ const EXAMPLES = {
     "{cmd} setup{fixed}",
     "{cmd} setup{fixed} --dry-run  # the questions and the plan; nothing is written or fetched",
     "{cmd} setup{h} --vault ~/vaults/my-project  # without a terminal: --harness confirms, --vault names the vault",
+  ],
+  configure: [
+    "{cmd} configure  # at a terminal: the settings, then what to change",
+    "{cmd} configure --set statusline=on",
+    "{cmd} configure --set agents.critic=fable{h}  # an agent's model, in that harness's overlay",
+    "{cmd} configure --json  # the settings, for scripts and agents",
   ],
   install: ["{cmd} install{h}", "{cmd} plan{h}  # the same plan; nothing is written"],
   upgrade: [
@@ -792,7 +819,7 @@ export function usage(env = process.env, verbs = VERBS, { caps: c = term.PLAIN, 
   lines.push(
     "",
     term.heading(c, "Tips"),
-    prose("setup, install, upgrade and uninstall show a plan, then ask at a terminal."),
+    prose("setup, configure, install, upgrade and uninstall show a plan, then ask."),
     prose(
       `Without a terminal, ${shell ? "the verb is its own" : "--harness is the"} confirmation ${term.icon(c, "dash")} there is no --yes.`,
     ),
@@ -829,7 +856,9 @@ export function verbHelp(row, env = process.env, { caps: c = term.PLAIN } = {}) 
     lines.push(
       "",
       term.wrap(
-        `${shell} names the harness itself: without a terminal, the verb is its own confirmation.`,
+        row.verb === "configure"
+          ? `${shell} names the harness itself: its overlay is the one agents.* keys write.`
+          : `${shell} names the harness itself: without a terminal, the verb is its own confirmation.`,
         c.live ? c.width : 0,
         "  ",
       ),
@@ -1165,20 +1194,7 @@ export async function run(
   }
   const project = resolveProject({ project: values.project, env, cwd });
   const cfg = readConfigAt(project);
-  // Each form alone on its line after the lead, the terminal's in the core's
-  // form, the directory in the lead (the story "User-facing text says where to
-  // run and names no project path and no shell", rules 1, 4 and 6).
-  if (row.requiresBinding && !cfg)
-    return fail(
-      [
-        `${project} is not bound to a vault. Bind it in a session, or ${fromTerminalIn(project)}, where init creates the vault too:`,
-        commandForm("bind", { args: "<vault>", env }),
-        packageCommand([], "bind", { args: "<vault>" }),
-        packageCommand([], "init", { args: "<vault>" }),
-      ].join("\n"),
-      3,
-      { project },
-    );
+  if (row.requiresBinding && !cfg) return fail(notBoundText(project, env), 3, { project });
   try {
     return await row.run({
       row,
@@ -1486,70 +1502,17 @@ async function runAgents(ctx) {
     );
   if (!values.reset && values.default === undefined && !(values.agent || []).length)
     return usage("agents configure takes --default <model>, --agent <name>=<model> (repeatable) or --reset");
-  // --reset empties the block first; --default and --agent then apply on top of
-  // the emptied block — "reset, then set" is one call, and nothing given is
-  // silently dropped.
-  const base = values.reset ? { default: null, per_agent: {} } : before.agents;
-  const next = {
-    default: values.default !== undefined ? values.default || null : base.default,
-    per_agent: { ...base.per_agent },
-  };
-  for (const spec of values.agent || []) {
-    const m = /^([a-z][a-z0-9-]*)=(.*)$/.exec(spec);
-    if (!m) return usage(`--agent takes <name>=<model>, got ${spec}`);
-    // A name outside the roster would be written, listed, and never run.
-    if (roster && !roster.includes(m[1]))
-      return usage(`no agent named ${m[1]} in the ${cfg.layout} roster — known: ${roster.join(", ")}`);
-    if (m[2]) next.per_agent[m[1]] = m[2];
-    else delete next.per_agent[m[1]];
-  }
-  // The clerk transcribes; a strong default must not lift it (commands/agents.md,
-  // ADR-008). WHICH model it is pinned to is the harness's vocabulary, so the
-  // manifest names it and this file does not: pinning every harness to
-  // "sonnet" wrote an Anthropic model name into a Codex overlay, which is a
-  // model that does not exist there. A manifest with no cheap model declared
-  // does not pin, and the preview says so rather than inventing one.
-  // No fallback model here, deliberately, and it is not the same call as
-  // SOURCE_WRITE_TOOLS_FALLBACK: a missing manifest cannot reach this line.
-  // harnessIds() derives from the manifests, so with none loadable `--harness`
-  // is refused as unknown and `overlayId(env)` is null, and configure has
-  // already returned "no harness detected and none named". A literal here would
-  // be the deleted `"sonnet"` restored for a case that cannot happen.
-  let pinnedClerk = false;
-  let clerkPinUnavailable = false;
-  const clerkAsked = (values.agent || []).some((s) => s.startsWith("clerk="));
-  if (next.default && !next.per_agent.clerk && !clerkAsked) {
-    const cheap = harnessForOverlay(harness)?.agent_translation?.cheap_model || null;
-    if (cheap) {
-      next.per_agent.clerk = cheap;
-      pinnedClerk = true;
-    } else clerkPinUnavailable = true;
-  }
-  // Keys inside the agents block that the allowlist rejected (an `effort`, a
-  // stray shape) are rewritten out by the write and announced here; keys
-  // outside the block are kept, and stay doctor's to name.
-  const dropped = before.rejected.filter((k) => k.startsWith("agents."));
-  const same =
-    !dropped.length &&
-    JSON.stringify({ d: before.agents.default, p: before.agents.per_agent }) ===
-      JSON.stringify({ d: next.default, p: next.per_agent });
-  const preview = [
-    `agents configure — ${harness} — ${before.path}`,
-    `  default: ${before.agents.default || "—"} → ${next.default || "—"}`,
-  ];
-  const names = new Set([...Object.keys(before.agents.per_agent), ...Object.keys(next.per_agent)]);
-  for (const n of [...names].sort())
-    preview.push(
-      `  ${n}: ${before.agents.per_agent[n] || "—"} → ${next.per_agent[n] || "—"}${pinnedClerk && n === "clerk" ? " (pinned: the clerk stays cheap under a strong default)" : ""}`,
-    );
-  // Silence here would read as "the clerk is fine", and it is not: it takes the
-  // strong default, which is the one thing ADR-008 says must not happen to it.
-  if (clerkPinUnavailable)
-    preview.push(
-      `  clerk: takes the default — ${harness} declares no cheap model to pin it to, so name one with --agent clerk=<model>`,
-    );
-  if (dropped.length)
-    preview.push(`  drops from the agents block (an overlay carries only models): ${dropped.join(", ")}`);
+  const change = planAgentsChange({
+    before,
+    harness,
+    layout: cfg && cfg.layout,
+    roster,
+    defaultModel: values.default,
+    agents: values.agent || [],
+    reset: Boolean(values.reset),
+  });
+  if (change.usage) return usage(change.usage);
+  const { next, pinnedClerk, clerkPinUnavailable, dropped, same, preview } = change;
   if (same)
     return emit(
       "agents configure",
@@ -1572,8 +1535,7 @@ async function runAgents(ctx) {
       { harness, path: before.path, wrote: false, declined: true, agents: next, dropped },
       preview.join("\n") + "\n  nothing written.\n",
     );
-  const path = writeOverlayAt(project, harness, next);
-  const after = readOverlayAt(project, harness);
+  const { path, after } = applyAgentsChange(project, harness, next);
   return emit(
     "agents configure",
     true,
@@ -1849,6 +1811,45 @@ async function runReconcile({ values, project, env, stdin, stdout, stderr, ask }
   const failed = write && out.summary && out.summary.failed > 0;
   stdout.write(JSON.stringify(values.json ? envelope("reconcile", project, !failed, out) : out, null, 2) + "\n");
   return failed ? 1 : 0;
+}
+
+// The not-bound refusal, for every verb that needs a binding and for configure.
+// Each form alone on its line after the lead, the terminal's in the core's
+// form, the directory in the lead (the story "User-facing text says where to
+// run and names no project path and no shell", rules 1, 4 and 6).
+export function notBoundText(project, env = process.env) {
+  return [
+    `${project} is not bound to a vault. Bind it in a session, or ${fromTerminalIn(project)}, where init creates the vault too:`,
+    commandForm("bind", { args: "<vault>", env }),
+    packageCommand([], "bind", { args: "<vault>" }),
+    packageCommand([], "init", { args: "<vault>" }),
+  ].join("\n");
+}
+
+// configure (its spec): loaded on first use, like setup. The module returns a
+// usage error, an unbound project, a refusal's message, or a result; the bin
+// writes the line, the envelope and the exit code.
+async function runConfigureVerb(ctx) {
+  const { runConfigure } = await import("./configure.mjs");
+  const { values, env, stdout, stderr, project } = ctx;
+  const r = await runConfigure({
+    ...ctx,
+    root: PACKAGE_ROOT,
+    ownEnv: (p) => ownEnv(env, p),
+    nearest,
+  });
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: "configure", ...ctx });
+  if (r.unbound) {
+    const text = notBoundText(project, env);
+    if (values.json)
+      stdout.write(JSON.stringify(envelope("configure", project, false, { error: text, exit: 3 }), null, 2) + "\n");
+    else stderr.write(text + "\n");
+    return 3;
+  }
+  if (r.message && !values.json) stderr.write(r.message + "\n");
+  if (values.json && r.result)
+    stdout.write(JSON.stringify(envelope("configure", project, r.ok, r.result), null, 2) + "\n");
+  return r.code;
 }
 
 // setup (the setup story): its own module, imported lazily as the install

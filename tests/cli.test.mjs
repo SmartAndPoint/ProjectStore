@@ -2786,6 +2786,7 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
   // 0.29.2's Usage lines, verb by verb; search's placeholder gains its variadic mark.
   const GOLDEN = {
     setup: ["setup [options]"],
+    configure: ["configure [options]"],
     doctor: ["doctor [options]"],
     reconcile: ["reconcile [options]"],
     plan: ["plan [options]"],

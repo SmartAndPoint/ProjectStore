@@ -87,6 +87,22 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
    npx projectstore scaffold --write
    ```
 
+## Configure
+
+After setup, every setting is one command away, from a terminal in your project:
+
+```
+npx projectstore configure
+```
+
+It shows each agent's model, the status line and the band, the template language, and the vault's spec policy and lifecycle gates — with their values and the file each one lives in. Then it asks which to change, shows one plan and asks once. From a script or an agent, name the change; naming it is the confirmation:
+
+```
+npx projectstore configure --set language=de --set lifecycle_gates=on
+```
+
+The README's [Configure](../README.md#configure) section lists what each setting writes and which files are committed.
+
 ## Daily flow
 
 ```
@@ -122,12 +138,10 @@ Skills (`projectstore-decision-detector`, `projectstore-story-completion`) are p
 
 ## Disabling skills
 
-Edit `.projectstore/projectstore.json`:
+From a terminal in your project:
 
-```jsonc
-{
-  "active_skills": false
-}
+```
+npx projectstore configure --set active_skills=off
 ```
 
 ## Multi-language templates
@@ -138,7 +152,13 @@ Default is English (`en`). Also bundled: Russian (`ru`), Spanish (`es`), German 
 /projectstore:bind <path> --lang de
 ```
 
-Or edit `language: "de"` in `.projectstore/projectstore.json` (templates must exist at `templates/de/`). The language also localizes the status line strings (e.g. the "no epic or story in this session yet" line).
+A bound project changes it with `configure` (the value must be a bundled language). From a terminal in your project:
+
+```
+npx projectstore configure --set language=de
+```
+
+New artifacts take the new language's templates. The language also localizes the status line strings (e.g. the "no epic or story in this session yet" line).
 
 What the language does and does not change: section headings, table labels and prose are translated; frontmatter keys and their values (`status: planned`, `priority: p2`) stay English, because they are machine-read. Section headings are registered in `scaffold/headings.json`, so doctor, reconcile and the story lifecycle gates recognize every bundled language — a Russian-headed file lints in a French-bound vault, and mixed-language vaults reconcile.
 

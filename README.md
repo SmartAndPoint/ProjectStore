@@ -176,6 +176,37 @@ npx projectstore scaffold --write
 `projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are release artifacts: per-harness packages that carry the core, pinned at the same version and bundled, with the harness fixed. Nobody needs to type their names. Setup fetches the Codex one, which carries the Codex plugin; the Claude Code one is published at the core's version too; the opencode one publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs. How a release builds and publishes them, and how to run a checkout's own build: [`packaging/README.md`](./packaging/README.md).
 </details>
 
+## Configure
+
+Setup asks only what a first install needs. Everything after it is one command, from a terminal in your project:
+
+```
+npx projectstore configure
+```
+
+At a terminal it shows every setting with its current value and where it lives:
+
+- each agent's model, per harness;
+- the status line and the band above the prompt (Claude Code);
+- the vault's template language, the default author and tags;
+- the vault's spec policy and lifecycle gates.
+
+It asks which to change, then shows one plan and asks once. Without a terminal it prints the same view and writes nothing. To change a setting there, name it with `--set`; naming it is the confirmation:
+
+```
+npx projectstore configure --set agents.critic=fable --set statusline=on
+```
+
+`--dry-run` shows the plan and writes nothing, and `--json` returns the settings as one envelope. In a project that uses two harnesses, an agent's model names its overlay with `--harness <id>`.
+
+Each setting has exactly one writer, and the plan says which file it changes:
+
+- **The agents' models** live in `.projectstore/harness/<harness>.json`. That file is committed, so a change there is a team change.
+- **The status line, the band, the language and the other binding keys** live in `.projectstore/projectstore.json`, which stays on this machine.
+- **The spec policy and the lifecycle gates** live in the vault's `.projectstore.json`, which commits with the vault. Setting `spec_policy=required` records when it took effect; stories closed before then are exempt.
+
+The vault itself is changed by `bind --rebind`, which configure names when asked. In a Claude Code session, `/projectstore:statusline` and `/projectstore:agents configure` run the same writers.
+
 ## Upgrading
 
 Installed with setup or from npm: from a terminal in your project, name the version you want to run (`latest` is the newest):
