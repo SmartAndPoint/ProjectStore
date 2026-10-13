@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=7b7afa47">
+<link rel="stylesheet" href="../assets/style.css?v=39d93fb1">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
@@ -72,6 +72,12 @@
     <h1 id="hero-title" data-i18n="hero.h1">Dein Agent schreibt den Code. <span class="acc">ProjectStore führt die Akte.</span></h1>
     <p class="lead" data-i18n="hero.lead">Was entschieden wurde, was in Arbeit ist, was geprüft wurde — als <b class="hl">reviewtes Markdown in git</b>, lesbar für jeden Agenten und jeden mit Zugriff auf das Repo.</p>
 
+    <div class="ask ask-top">
+      <div class="ask-head"><span data-i18n="hero.ask">Frag einfach deinen Agenten:</span> <b>Claude Code</b> <span class="dim">·</span> <b>Codex</b> <span class="dim">·</span> <span class="others" data-i18n="hero.others">OpenCode, Cursor und andere Agenten</span></div>
+      <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Prompt kopieren" data-done="Kopiert" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+      <p class="note" data-i18n="hero.note">In Claude Code fügt dieser Prompt den Git-Marketplace hinzu und installiert daraus; schalte dessen automatisches Update in <code>/plugin</code> ein. In Codex führst du stattdessen den Befehl unten aus: Innerhalb einer Sitzung wartet die Installation auf ein Terminal. Andere Agenten bekommen noch kein Plugin; sie lesen denselben Vault über seine Dateien, die CLI und MCP.</p>
+    </div>
+
     <div class="term">
       <div class="term-head"><span data-i18n="hero.term">ein Terminal in deinem Projekt, außerhalb des Agenten</span><span class="chips"><span class="chip">Claude Code · <span data-fact="harness-status:claude-code">supported</span></span><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span></span></div>
       <div class="cmdline">
@@ -83,12 +89,6 @@
         <li data-i18n="hero.n.2">Starte den Agenten danach neu; Codex bittet dich einmal, seine Hooks freizugeben.</li>
         <li class="reqs" data-i18n="hero.reqs">Node.js 20+ · npm für Codex · macOS oder Linux</li>
       </ul>
-    </div>
-
-    <div class="ask">
-      <div class="ask-head"><span data-i18n="hero.ask">oder frag deinen Agenten:</span> <b>Claude Code</b> <span class="dim">·</span> <b>Codex</b> <span class="dim">·</span> <span class="others" data-i18n="hero.others">OpenCode, Cursor und andere Agenten</span></div>
-      <p class="note" data-i18n="hero.note">In Claude Code fügt dieser Prompt den Git-Marketplace hinzu und installiert daraus; schalte dessen automatisches Update in <code>/plugin</code> ein. In Codex führst du stattdessen den Befehl oben aus: Innerhalb einer Sitzung wartet die Installation auf ein Terminal. Andere Agenten bekommen noch kein Plugin; sie lesen denselben Vault über seine Dateien, die CLI und MCP.</p>
-      <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Prompt kopieren" data-done="Kopiert" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
     </div>
   </div>
 

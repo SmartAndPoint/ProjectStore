@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=7b7afa47">
+<link rel="stylesheet" href="../assets/style.css?v=39d93fb1">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
@@ -72,6 +72,12 @@
     <h1 id="hero-title" data-i18n="hero.h1">Votre agent écrit le code. <span class="acc">ProjectStore garde le registre.</span></h1>
     <p class="lead" data-i18n="hero.lead">Ce qui a été décidé, ce qui est en cours, ce qui a été vérifié — en <b class="hl">Markdown relu, dans git</b>, lisible par n'importe quel agent et par quiconque a accès au dépôt.</p>
 
+    <div class="ask ask-top">
+      <div class="ask-head"><span data-i18n="hero.ask">Demandez simplement à votre agent :</span> <b>Claude Code</b> <span class="dim">·</span> <b>Codex</b> <span class="dim">·</span> <span class="others" data-i18n="hero.others">OpenCode, Cursor et d'autres agents</span></div>
+      <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Copier le prompt" data-done="Copié" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+      <p class="note" data-i18n="hero.note">Dans Claude Code, ce prompt ajoute la marketplace git et installe le plugin depuis celle-ci ; activez sa mise à jour automatique dans <code>/plugin</code>. Dans Codex, lancez plutôt la commande ci-dessous : dans une session, l'installation attend un terminal. Les autres agents n'ont pas encore de plugin ; ils lisent le même vault via ses fichiers, la CLI et MCP.</p>
+    </div>
+
     <div class="term">
       <div class="term-head"><span data-i18n="hero.term">un terminal dans votre projet, hors de l'agent</span><span class="chips"><span class="chip">Claude Code · <span data-fact="harness-status:claude-code">supported</span></span><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span></span></div>
       <div class="cmdline">
@@ -83,12 +89,6 @@
         <li data-i18n="hero.n.2">Redémarrez ensuite l'agent ; Codex vous demande d'approuver ses hooks une fois.</li>
         <li class="reqs" data-i18n="hero.reqs">Node.js 20+ · npm pour Codex · macOS ou Linux</li>
       </ul>
-    </div>
-
-    <div class="ask">
-      <div class="ask-head"><span data-i18n="hero.ask">ou demandez à votre agent :</span> <b>Claude Code</b> <span class="dim">·</span> <b>Codex</b> <span class="dim">·</span> <span class="others" data-i18n="hero.others">OpenCode, Cursor et d'autres agents</span></div>
-      <p class="note" data-i18n="hero.note">Dans Claude Code, ce prompt ajoute la marketplace git et installe le plugin depuis celle-ci ; activez sa mise à jour automatique dans <code>/plugin</code>. Dans Codex, lancez plutôt la commande ci-dessus : dans une session, l'installation attend un terminal. Les autres agents n'ont pas encore de plugin ; ils lisent le même vault via ses fichiers, la CLI et MCP.</p>
-      <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Copier le prompt" data-done="Copié" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
     </div>
   </div>
 

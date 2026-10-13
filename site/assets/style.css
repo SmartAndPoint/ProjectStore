@@ -526,6 +526,26 @@ body[data-page="why-it-works"] [data-nav="why-it-works"],
 body[data-page="one-vault"] [data-nav="one-vault"],
 body[data-page="main"] .mobile-nav [data-nav="main"] { color: var(--ink-hi); box-shadow: inset 0 -2px 0 var(--accent); }
 
+/* ---------- the prompt as the first call to action, in the hero ---------- */
+
+.ask-top { gap: 8px; }
+.ask-top .ask-head { font-size: 13.5px; }
+.ask-top blockquote { font-size: clamp(17px, 1.5vw, 19px); line-height: 1.45; color: var(--ink); }
+.ask-top .note { font-size: 12.5px; line-height: 1.5; }
+/* the prompt leads now; the terminal still has to show its whole line on the first screen */
+.hero { padding-top: clamp(14px, 2.4vw, 30px); }
+.hero-text { gap: 14px; }
+.hero h1 { font-size: clamp(32px, 4vw, 50px); }
+.hero .term-head { padding: 6px 12px; }
+@media (max-width: 600px) {
+  .hero .problem { display: none; }
+  .hero .chip { font-size: 10.5px; padding: 1px 6px; }
+  .hero .cmdtext { font-size: 16px; }
+  .hero .cmdtext pre { white-space: pre; }
+  .hero .cmdline { padding: 12px; }
+  .ask-top .note { font-size: 12px; }
+}
+
 /* ---------- the quiet close: the prompt to paste into Claude Code ---------- */
 
 .ask-end { margin-top: 8px; padding-top: 24px; border-top: 1px solid var(--line-2); max-width: 760px; }
