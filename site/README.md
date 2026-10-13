@@ -5,8 +5,9 @@ method pages, in eight languages, served by GitHub Pages at <https://projectstor
 folder (`.github/workflows/pages.yml`). It is not part of the npm package: `site` is in
 `NOT_SHIPPED` (`scripts/version-guard.mjs`), and `tests/site.test.mjs` holds it to the repository.
 
-**The main page leads with install and shows the work as prompts.** Its seven numbered sections:
-install (the hero: `npx projectstore setup`, or one prompt in Claude Code); then just talk (four
+**The main page leads with the problem and install, and shows the work as prompts.** Three posters
+across the top name the problem; then the seven numbered sections: install (the hero: one prompt to
+your agent, or `npx projectstore setup` in a terminal); then just talk (four
 scenes, each a prompt and the Claude Code result, and the settings as sentences); the rails (the
 two-row loop); where it fits (agent memory, instruction files, spec-driven tools, ProjectStore);
 what lands on disk; solo or a team; the method, proof and questions. **The method has pages of its
@@ -191,7 +192,7 @@ accent and the roles 4.5:1, `--ink-5` the ratio it had on black, the text on the
 it); that every page ships in midnight, with the switch and the early script, its `theme-color` the
 `:root` `--bg`; and that the early script, run in `node:vm`, sets each tone the switch offers and
 midnight for anything else. It also holds that the page links and the header's second row switch
-under one media query.
+under one media query, and that every main page opens with the three posters before the headline.
 
 ## Freshness
 

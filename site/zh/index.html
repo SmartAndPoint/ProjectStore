@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#080d19">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=fb8704f6">
+<link rel="stylesheet" href="../assets/style.css?v=9e2ac046">
 <script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="light")t=s;}catch(e){}d.setAttribute("data-tone",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
@@ -68,8 +68,12 @@
 <main id="main" class="wrap">
 
 <section class="hero" id="start" aria-labelledby="hero-title">
+  <ul class="problem" role="list" tabindex="0" aria-label="问题所在" data-i18n-attr="aria-label:hero.post.label">
+    <li class="poster p-1"><b data-i18n="hero.post.1">今天 vibe coding。<em>明天就是遗留代码。</em></b></li>
+    <li class="poster p-2"><b data-i18n="hero.post.2">我们进行到哪了？</b><span data-i18n="hero.post.2.s">每个新会话都要再问一遍。</span></li>
+    <li class="poster p-3"><b data-i18n="hero.post.3">编程智能体会遗忘。</b><span data-i18n="hero.post.3.s">关闭、压缩、换工具，“为什么”就丢了。</span></li>
+  </ul>
   <div class="hero-text">
-    <p class="problem"><span data-i18n="hero.prob.1"># 今天 vibe coding。明天就是遗留代码。</span><span data-i18n="hero.prob.2"># <b>我们进行到哪了？</b>——每个新会话都要再问一遍。</span><span data-i18n="hero.prob.3"># <b>编程智能体会遗忘</b>——关闭、压缩、换工具，“为什么”就丢了。</span></p>
     <h1 id="hero-title" data-i18n="hero.h1">智能体写代码，<span class="acc">ProjectStore 留记录。</span></h1>
     <p class="lead" data-i18n="hero.lead">决定了什么、进行中的是什么、检查过什么——以 <b class="hl">git 中经过评审的 Markdown</b> 保存，任何智能体和任何能访问仓库的人都能读。</p>
 

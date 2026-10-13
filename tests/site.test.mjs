@@ -1973,6 +1973,43 @@ function checkHeaderRows(file, css) {
   return broken.length ? [finding(file, "header", broken.join("; "))] : [];
 }
 
+// AC "Install first": the hero opens with the problem — one list of exactly
+// three posters before the headline, in the tints' order, each with a large
+// line on its key; the second and third with a small line, the first with its
+// second sentence in <em>. The # is drawn by the stylesheet, never written.
+// The list is a named list that takes focus, so a keyboard can scroll it
+// where it swipes. What this cannot see: the posters spanning both columns,
+// the swipe itself, and a translation long enough to push the prompt below
+// the fold; those are the browser check's.
+const POSTER_KEYS = ["hero.post.1", "hero.post.2", "hero.post.3"];
+function checkPosters(page) {
+  const hero = page.els.find((el) => el.name === "section" && hasClass(el, "hero"));
+  const lists = hero ? page.els.filter((el) => within(hero, el) && hasClass(el, "problem")) : [];
+  if (lists.length !== 1) return [finding(page.file, "posters", `${lists.length} problem lists in the hero; one`)];
+  const [list] = lists;
+  const h1 = page.els.find((el) => el.name === "h1" && within(hero, el));
+  const posters = page.els.filter((el) => within(list, el) && hasClass(el, "poster"));
+  const first = (p, name) => page.els.find((el) => el.name === name && within(p, el));
+  const lines = posters.map((p) => first(p, "b"));
+  const broken = [];
+  if (!h1 || list.start > h1.start) broken.push("the problem comes after the headline");
+  if (list.name !== "ul" || posters.some((el) => el.name !== "li")) broken.push("the posters are not a ul of li");
+  if (list.attrs.role !== "list" || list.attrs.tabindex !== "0" || !(list.attrs["aria-label"] ?? "").trim())
+    broken.push('the list is not role="list", tabindex="0" and named');
+  if (posters.length !== POSTER_KEYS.length) broken.push(`${posters.length} posters; ${POSTER_KEYS.length}`);
+  else if (lines.some((b) => !b?.text.trim())) broken.push("a poster has no large line");
+  else {
+    const keys = lines.map((b) => b.attrs["data-i18n"] ?? "none");
+    if (keys.join() !== POSTER_KEYS.join()) broken.push(`the posters' keys are ${keys.join(", ")}`);
+    if (posters.some((el, i) => !hasClass(el, `p-${i + 1}`))) broken.push("the posters' tints are out of order");
+    if (lines.some((b) => b.text.trim().startsWith("#"))) broken.push("a large line writes the # the stylesheet draws");
+    if (!first(posters[0], "em")?.text.trim()) broken.push("the first poster has no second sentence in <em>");
+    if (posters.slice(1).some((el) => !first(el, "span")?.text.trim()))
+      broken.push("the second or third poster has no small line");
+  }
+  return broken.length ? [finding(page.file, "posters", broken.join("; "))] : [];
+}
+
 // AC "Codex is never overclaimed": a page whose text names an experimental
 // harness carries that harness's status marker, so "experimental" stands
 // wherever the name does and the status check reads it.
@@ -2479,6 +2516,13 @@ test("site: every page ships in midnight — no data-tone, theme-color the :root
 
 test("site: the header's page links move to the second row under the same media query that shows it", () => {
   const found = checkHeaderRows(`${SITE}/assets/style.css`, read(`${SITE}/assets/style.css`));
+  assert.deepEqual(found, [], show(found));
+});
+
+test("site: every main page opens its hero with the problem — three posters before the headline, each with a large line, on the same keys", () => {
+  const mains = PAGES.filter((p) => p.page && p.kind === "main");
+  assert.equal(mains.length, 8, "eight main pages");
+  const found = mains.flatMap((p) => checkPosters(p.page));
   assert.deepEqual(found, [], show(found));
 });
 
@@ -3378,7 +3422,8 @@ const PLANTED = [
   },
 
   // The light tone: color-scheme, the tokens it may set, its text colours; the
-  // switch's third position; the early script; the header's second row.
+  // switch's third position; the early script; the header's second row; the
+  // posters.
   {
     ac: "A light tone may recolour text; a dark one may not",
     what: "the light rule without color-scheme: light",
@@ -3500,6 +3545,58 @@ const PLANTED = [
     fact: "header",
     message: /^a header link may wrap the row$/,
     edits: [["text-decoration: none; white-space: nowrap; }", "text-decoration: none; }"]],
+  },
+  {
+    ac: "Install first",
+    what: "a main page with two posters",
+    ...onPage("es", checkPosters),
+    fact: "posters",
+    message: /^2 posters; 3$/,
+    edits: [[/<li class="poster p-3">[\s\S]*?<\/li>\n?/, ""]],
+  },
+  {
+    ac: "Install first",
+    what: "a poster with no large line",
+    ...onPage("fr", checkPosters),
+    fact: "posters",
+    message: /^a poster has no large line$/,
+    edits: [[/(<b data-i18n="hero\.post\.2">)[^<]*/, "$1"]],
+  },
+  {
+    ac: "Install first",
+    what: "a large line that writes the #",
+    ...onPage("de", checkPosters),
+    fact: "posters",
+    message: /^a large line writes the # the stylesheet draws$/,
+    edits: [[/(<b data-i18n="hero\.post\.3">)/, "$1# "]],
+  },
+  {
+    ac: "Install first",
+    what: "the blue and red posters swapped",
+    ...onPage("pt", checkPosters),
+    fact: "posters",
+    message: /^the posters' tints are out of order$/,
+    edits: [
+      ['<li class="poster p-2">', '<li class="poster p-x">'],
+      ['<li class="poster p-3">', '<li class="poster p-2">'],
+      ['<li class="poster p-x">', '<li class="poster p-3">'],
+    ],
+  },
+  {
+    ac: "Install first",
+    what: "a poster list that takes no focus",
+    ...onPage("zh", checkPosters),
+    fact: "posters",
+    message: /^the list is not role="list", tabindex="0" and named$/,
+    edits: [[' tabindex="0"', ""]],
+  },
+  {
+    ac: "Install first",
+    what: "the problem after the headline",
+    ...onPage("ru", checkPosters),
+    fact: "posters",
+    message: /^the problem comes after the headline$/,
+    edits: [[/(<ul class="problem"[^>]*>[\s\S]*?<\/ul>\n)([\s\S]*?<\/h1>\n)/, "$2$1"]],
   },
 
   // AC 4: loads — another origin, a link off the site, a file that is not there.

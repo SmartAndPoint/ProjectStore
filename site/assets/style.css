@@ -307,11 +307,28 @@ h3 { font-size: clamp(22px, 2.4vw, 28px); line-height: 1.15; font-weight: 600; l
 /* ---------- hero ---------- */
 
 .hero { padding: clamp(20px, 3.4vw, 44px) 0 64px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; align-items: start; }
-@media (min-width: 1000px) { .hero { grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr); gap: 48px; } .hero .rail { margin-top: 44px; } }
+@media (min-width: 1000px) { .hero { grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr); gap: 36px 48px; } .hero .rail { margin-top: 6px; } }
 .hero-text { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .hero h1 { font-size: clamp(34px, 4.3vw, 54px); }
-.problem { display: flex; flex-direction: column; gap: 0; font-family: var(--font-mono); font-size: 13.5px; line-height: 1.55; color: var(--ink-4); }
-.problem b { font-weight: 400; color: var(--ink-2); }
+/* the problem, the page's first words: three posters taped across both columns, above the promise */
+.problem { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin: 0; padding: 10px 0 0; list-style: none; }
+.poster { --p-ink: var(--accent); --p-bg: var(--accent-bg); --p-tape: var(--accent-soft); --tilt: -1deg; position: relative; display: flex; flex-direction: column; gap: 8px; padding: 22px 20px 20px; border: 1px solid var(--line-2); border-radius: 4px; background: var(--p-bg); box-shadow: 0 14px 28px -18px var(--shade); transform: rotate(var(--tilt)); }
+.poster.p-2 { --p-ink: var(--plan); --p-bg: var(--plan-bg); --p-tape: var(--plan-glow); --tilt: 0.8deg; }
+.poster.p-3 { --p-ink: var(--check); --p-bg: var(--check-bg); --p-tape: var(--check-glow); --tilt: -0.6deg; }
+.poster::before { content: ""; position: absolute; top: -9px; left: 50%; width: 72px; height: 18px; margin-left: -36px; border-radius: 2px; background: var(--p-tape); transform: rotate(-4deg); }
+.poster b { font-size: clamp(19px, 1.85vw, 24px); font-weight: 600; line-height: 1.22; letter-spacing: -0.015em; color: var(--ink-hi); text-wrap: balance; }
+.poster b::before { content: "# "; content: "# " / ""; font-family: var(--font-mono); font-weight: 400; color: var(--p-ink); }
+.poster em { display: block; font-style: normal; color: var(--p-ink); }
+.poster span { font-family: var(--font-mono); font-size: 13.5px; line-height: 1.5; color: var(--ink-3); }
+/* narrow screens: one row that swipes, the next poster peeking in. The list takes focus (index.html),
+   so a keyboard can scroll it where a browser does not focus a scroller itself; print keeps the grid. */
+@media screen and (max-width: 760px) {
+  .problem { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(250px, 80%); gap: 14px; margin: 0 calc(-1 * var(--gutter)); padding: 12px var(--gutter) 14px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gutter); scrollbar-width: none; }
+  .problem::-webkit-scrollbar { display: none; }
+  .poster { scroll-snap-align: start; padding: 20px 16px 16px; }
+  .poster b { font-size: 19px; }
+  .poster span { font-size: 12.5px; }
+}
 .hero .lead { max-width: 60ch; font-size: clamp(16px, 1.5vw, 18px); line-height: 1.55; color: var(--ink-2); }
 .hero .section-label { margin: 6px 0 -6px; }
 
@@ -598,7 +615,7 @@ svg.dg { font-family: var(--font-mono); font-size: 13px; }
 
 /* ---------- small pieces ---------- */
 
-.problem > span, .tty-body > span { display: block; }
+.tty-body > span { display: block; }
 .file pre.code-lines { padding: 14px 0; font-size: 13px; line-height: 1.7; overflow-x: auto; color: var(--ink-2); white-space: normal; }
 .code-lines code { background: none; border: 0; padding: 0; font-size: 1em; color: inherit; }
 .code-line { display: block; padding-right: 14px; white-space: pre-wrap; }
@@ -643,7 +660,6 @@ body[data-page="main"] .mobile-nav [data-nav="main"] { color: var(--ink-hi); box
 .hero-text { gap: 14px; }
 .hero h1 { font-size: clamp(32px, 4vw, 50px); }
 @media (max-width: 600px) {
-  .hero .problem { display: none; }
   .cta-block { gap: 18px; }
   .cta-label { font-size: 18px; }
   .cta-sub { font-size: 13px; }
@@ -799,6 +815,7 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
   .site-header, .mobile-nav, .copy, .cursor, .lang-switch, .tone-switch, .star, .tabs, .skip-link { display: none !important; }
   .mode-panel { display: flex !important; }
   .term { box-shadow: none; }
+  .poster { box-shadow: none; transform: none; }
   .sec, .scene, .card, .stat, .file, .diagram, .tty { break-inside: avoid; }
   a { text-decoration: underline; }
 }
