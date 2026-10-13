@@ -302,9 +302,7 @@ export function hostPresence(manifest, { env = process.env, home = homedir() } =
         x.cli.bin,
     )?.[1] || null;
   const bin = s ? s.cli.bin : null;
-  const r = manifest?.runtime || {};
-  const fromEnv = r.home_env && env ? env[r.home_env] : null;
-  const homeDir = fromEnv || (home && r.home_default ? join(home, r.home_default) : null);
+  const homeDir = harnessHome(manifest, { env, home });
   let present = false;
   if (homeDir) {
     try {
@@ -312,6 +310,15 @@ export function hostPresence(manifest, { env = process.env, home = homedir() } =
     } catch {}
   }
   return { cli: bin ? whichOnPath(bin, env || {}) : null, home: present ? homeDir : null, bin, homeDir };
+}
+
+// A harness's own home directory, as the harness resolves it: its home
+// variable (runtime.home_env) when set, else home_default under the home
+// directory, else null. Whether it exists is the caller's question.
+export function harnessHome(manifest, { env = process.env, home = homedir() } = {}) {
+  const r = manifest?.runtime || {};
+  const fromEnv = r.home_env && env ? env[r.home_env] : null;
+  return fromEnv || (home && r.home_default ? join(home, r.home_default) : null);
 }
 
 // The agents block of a RUN (the story "One run plans the agents block once,
@@ -703,6 +710,9 @@ export function cachePaths({ env = process.env, home = homedir() } = {}) {
     fetch: root ? join(root, "fetch") : null,
     fetchRun: (id) => (root ? join(root, "fetch", id) : null),
     registry: root ? join(root, "registry.json") : null,
+    // A harness's model list, as its last live read answered (the ADR "Agent
+    // model lists are read from each harness's own catalog…", decision 4).
+    models: (id) => (root && id ? join(root, "models", `${id}.json`) : null),
     from: fromEnv ? variable : "the home directory",
     variable,
   };

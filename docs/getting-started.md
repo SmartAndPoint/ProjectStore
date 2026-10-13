@@ -97,7 +97,7 @@ After setup, every setting is one command away, from a terminal in your project:
 npx projectstore configure
 ```
 
-It shows each agent's model, the status line and the band, the template language, and the vault's spec policy and lifecycle gates — with their values and the file each one lives in. Then it asks which to change, shows one plan and asks once. From a script or an agent, name the change; naming it is the confirmation:
+At a terminal it opens a settings menu: each agent's model, the status line and the band, the template language, and the vault's spec policy and lifecycle gates. ↑ and ↓ move, → opens, space chooses, ← goes back, and Enter shows one plan; a second Enter writes it. A model is chosen from its harness's list: Claude Code's aliases, or Codex's own models. Without a terminal it prints the settings with their values and the file each one lives in. From a script or an agent, name the change; naming it is the confirmation:
 
 ```
 npx projectstore configure --set language=de --set lifecycle_gates=on

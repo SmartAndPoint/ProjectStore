@@ -34,6 +34,10 @@ import {
   openRail,
   CANCELLED,
   BACK,
+  openScreen,
+  ALT_ON,
+  ALT_OFF,
+  PLAIN,
 } from "../scripts/term.mjs";
 import { runtimeFiles, stripComments } from "./fixtures/vocabulary.mjs";
 
@@ -438,6 +442,14 @@ test("term: the glyph table is the spec's contract 4, both columns; every ASCII 
     dash: ["—", "-"],
     dot: ["·", "."],
     transition: ["→", "->"],
+    // The settings menu's frames and marks (contract 14, amended 2026-10-13).
+    frameTopLeft: ["╭", "+"],
+    frameTopRight: ["╮", "+"],
+    frameBottomLeft: ["╰", "+"],
+    frameBottomRight: ["╯", "+"],
+    cursor: ["›", ">"],
+    moreAbove: ["↑", "^"],
+    moreBelow: ["↓", "v"],
   });
   for (const [name, [uni, ascii]] of Object.entries(GLYPHS)) {
     assert.match(ascii, /^[\x20-\x7e]+$/, `${name}: the ASCII column is ASCII`);
@@ -1560,4 +1572,95 @@ test("rail: one question at a time", RAIL, async () => {
     /no choices/,
   );
   rail.close();
+});
+
+// ─── The settings menu's screen (contract 14, amended 2026-10-13) ───────
+
+function screenTerm({ columns = 100, rows = 30 } = {}) {
+  const stdin = new PassThrough();
+  stdin.isTTY = true;
+  stdin.setRawMode = (on) => ((stdin.isRaw = on), stdin);
+  const chunks = [];
+  const stdout = Object.assign(new EventEmitter(), {
+    isTTY: true,
+    columns,
+    rows,
+    write: (s) => (chunks.push(String(s)), true),
+  });
+  const kills = [];
+  const proc = Object.assign(new EventEmitter(), { pid: 4242, kill: (pid, sig) => (kills.push(sig), true) });
+  return { stdin, stdout, proc, kills, text: () => chunks.join("") };
+}
+const LIVE = { color: false, live: true, width: 100, columns: 100, ascii: false };
+
+test("screen: the alternate screen and raw mode for its whole life; keys by name, resize, wake and drain in one queue; close restores", async () => {
+  assert.throws(
+    () => openScreen({ stdin: new PassThrough(), stdout: { isTTY: false, write() {} }, caps: PLAIN }),
+    /no screen/,
+  );
+  const t = screenTerm({ rows: 3 });
+  const s = openScreen({ stdin: t.stdin, stdout: t.stdout, caps: LIVE, proc: t.proc, escapeMs: 5 });
+  assert.equal(t.stdin.isRaw, true);
+  assert.ok(t.text().startsWith(`${ALT_ON}\x1b[?25l`), "the alternate screen, the cursor hidden");
+  t.stdin.write("\x1b[A\x1b[B\x1b[C\x1b[D \rq\x7f\x03");
+  const keys = [];
+  for (let k = 0; k < 9; k++) keys.push(await s.next());
+  assert.deepEqual(keys, ["up", "down", "right", "left", "space", "enter", { char: "q" }, "backspace", "cancel"]);
+  t.stdout.emit("resize");
+  s.wake("models");
+  assert.deepEqual([await s.next(), await s.next()], ["resize", "models"]);
+  t.stdin.write("\r\r");
+  await new Promise(setImmediate);
+  s.drain();
+  s.wake("after");
+  assert.equal(await s.next(), "after", "the queued Enters were dropped");
+  s.draw(["one", "two", "three", "four"]);
+  const frame = t.text().split("\x1b[H").at(-1);
+  assert.equal(
+    frame,
+    "\x1b[2Kone\r\n\x1b[2Ktwo\r\n\x1b[2Kthree\x1b[J",
+    "at most `rows` lines, each after an erase, no newline after the last",
+  );
+  assert.equal(t.proc.listenerCount("SIGINT"), 1);
+  s.close();
+  assert.equal(t.stdin.isRaw, false);
+  assert.ok(t.text().endsWith(`\x1b[?25h${ALT_OFF}`), "the cursor shown and the alternate screen left");
+  assert.equal(t.proc.listenerCount("SIGINT"), 0);
+  assert.equal(t.proc.listenerCount("exit"), 0);
+  assert.equal(t.stdin.listenerCount("keypress"), 0);
+  s.close();
+  assert.equal(t.text().split(ALT_OFF).length - 1, 1, "a second close does nothing");
+});
+
+test("screen: a lone Esc is escape, after the escape timeout; drain drops what is queued and what arrives in the next turns, but never Ctrl+C", async () => {
+  const t = screenTerm();
+  const s = openScreen({ stdin: t.stdin, stdout: t.stdout, caps: LIVE, proc: t.proc, escapeMs: 5 });
+  t.stdin.write("\x1b");
+  assert.equal(await s.next(), "escape");
+  t.stdin.write("\r\r");
+  await new Promise(setImmediate);
+  s.drain(2);
+  t.stdin.write("\r\x03");
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+  t.stdin.write("q");
+  assert.equal(await s.next(), "cancel", "Ctrl+C survives the drain");
+  assert.deepEqual(await s.next(), { char: "q" }, "a key after the drain's turns arrives");
+  s.close();
+});
+
+test("screen: a signal restores the terminal, removes its handlers and raises itself again; exit restores", () => {
+  const t = screenTerm();
+  openScreen({ stdin: t.stdin, stdout: t.stdout, caps: LIVE, proc: t.proc });
+  t.proc.emit("SIGTERM");
+  assert.equal(t.stdin.isRaw, false);
+  assert.ok(t.text().endsWith(`\x1b[?25h${ALT_OFF}`));
+  assert.deepEqual(t.kills, ["SIGTERM"]);
+  assert.equal(t.proc.listenerCount("SIGTERM"), 0);
+  const u = screenTerm();
+  openScreen({ stdin: u.stdin, stdout: u.stdout, caps: LIVE, proc: u.proc });
+  u.proc.emit("exit");
+  assert.equal(u.stdin.isRaw, false);
+  assert.ok(u.text().endsWith(ALT_OFF));
 });

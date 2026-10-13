@@ -47,6 +47,7 @@ import {
   blockTargetProblem,
 } from "../scripts/harness.mjs";
 import { WRITE_TOOLS, isWriteTool, layoutPaths } from "../scripts/lib.mjs";
+import { modelsProblem } from "../scripts/models.mjs";
 import { checkCodexAdapter, renderCodexAdapter } from "../scripts/build-adapters.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -246,6 +247,13 @@ test("generation contract 1: every manifest parses strictly and declares what th
 // the run names (the story "One run plans the agents block once, and a bare
 // uninstall selects every harness the project uses", rule 2). Lists that
 // share no file leave a run of every harness with nowhere to write it.
+// The model list's block (the ADR "Agent model lists are read from each
+// harness's own catalog, declared in its manifest and cached for a day",
+// decision 2): checked with the rest of the manifest's shape.
+test("generation contract 1: every manifest's agent_translation.models has its shape — kinds, field paths, reasons, https", () => {
+  for (const m of manifests()) assert.equal(modelsProblem(m), null, `${m.id}: ${modelsProblem(m)}`);
+});
+
 test("one block per run, rule 2: every manifest's agents_block.files share a file; disjoint lists fail, naming them", () => {
   assert.equal(blockTargetProblem(manifests()), null, "the shipped manifests share a block file");
   assert.ok(commonBlockFiles(manifests()).length > 0);
@@ -408,6 +416,10 @@ test("generation acceptance: no file under scripts/ reads a branded environment 
       r.home_env,
       ...(r.detect_env || []),
       ...(r.agent_overrides || []).map((o) => o.env),
+      // A model catalog's key and base (the ADR "Agent model lists are read
+      // from each harness's own catalog…"): models.mjs reads them by the
+      // manifest's name for them, never a literal.
+      ...(m.agent_translation?.models?.catalogs || []).flatMap((c) => [c.key_env, c.base_env]),
     ]) {
       if (k) declared.add(k);
     }

@@ -14,6 +14,7 @@ import {
   statSync,
   existsSync,
   realpathSync,
+  rmSync,
 } from "node:fs";
 import { join, dirname, resolve, relative } from "node:path";
 import { tmpdir } from "node:os";
@@ -21,6 +22,9 @@ import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import { runConfigure, settingsOf, readFacts } from "../scripts/configure.mjs";
+import { menuGroups, runMenu } from "../scripts/configure-menu.mjs";
+import { knownModels } from "../scripts/models.mjs";
+import { ALT_ON, ALT_OFF } from "../scripts/term.mjs";
 import { nextVaultConfig, layoutPaths } from "../scripts/lib.mjs";
 import { sourceHarness, loadHarness } from "../scripts/harness.mjs";
 import { run } from "../scripts/cli.mjs";
@@ -30,7 +34,7 @@ import { fakePackageRoot } from "./fixtures/install.mjs";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
 const CODEX = loadHarness("codex");
-const KEYS = { DOWN: "\x1b[B", ENTER: "\r", SPACE: " ", CTRL_C: "\x03" };
+const KEYS = { DOWN: "\x1b[B", RIGHT: "\x1b[C", LEFT: "\x1b[D", ENTER: "\r", SPACE: " ", CTRL_C: "\x03" };
 const tmp = (p) => realpathSync(mkdtempSync(join(tmpdir(), p)));
 const read = (p) => readFileSync(p, "utf8");
 const json = (p) => JSON.parse(read(p));
@@ -71,14 +75,18 @@ const sink = () => {
 };
 
 // One run in process, without a terminal unless `term` is given.
-async function configure(p, values = {}, { term = null, answer = "y", root = ROOT } = {}) {
+async function configure(
+  p,
+  values = {},
+  { term = null, answer = "y", root = ROOT, env = {}, fetch = null, spawn = null } = {},
+) {
   const out = term ? term.stdout : sink();
   const err = sink();
   const asked = [];
   const r = await runConfigure({
     values,
     project: p.proj,
-    env: {},
+    env,
     stdin: term ? term.stdin : null,
     stdout: out,
     stderr: err,
@@ -92,6 +100,8 @@ async function configure(p, values = {}, { term = null, answer = "y", root = ROO
     home: p.home,
     proc: term ? term.proc : new EventEmitter(),
     escapeMs: 20,
+    ...(fetch ? { fetch } : {}),
+    ...(spawn ? { spawn } : {}),
     nearest: (w, names) => names.find((n) => n.startsWith(w.slice(0, 4))) || null,
   });
   return { r, text: term ? term.text() : out.text(), err: err.text(), asked };
@@ -396,21 +406,506 @@ test("configure: --dry-run shows the PLAN and writes nothing; the bin's --json e
   assert.deepEqual(env.result.wrote, [".projectstore/projectstore.json"]);
 });
 
-// ─── Contract 4: at a terminal ─────────────────────────────────────────
+// ─── Contract 4: at a terminal, the settings menu (amended 2026-10-13) ──
 
-test("configure contract 4: at a terminal the view, a checklist, one select per ticked key, one PLAN and one confirmation", async () => {
-  // No harness in the project: the checklist is language, active_skills,
-  // auto_inject, spec_policy, lifecycle_gates. Tick the first, then pick ru
-  // from de, en, es, fr, ru, zh, starting at en.
+// A terminal that types in stages: the first stage at once, each later one
+// when the screen has drawn what it waits for since the stage before — so a
+// key meant for the review is typed after the review is on screen, as a
+// person types it.
+function screenTty(stages, { columns = 100, rows = 30 } = {}) {
+  const stdin = new PassThrough();
+  stdin.isTTY = true;
+  stdin.setRawMode = (on) => ((stdin.isRaw = on), stdin);
+  const chunks = [];
+  let since = "";
+  const queue = stages.slice();
+  // A later stage is typed 30 ms after its screen, as a person types: the
+  // review drops what reaches the terminal in the turns right after its draw.
+  let first = true;
+  const feed = () => {
+    const s = queue.shift();
+    since = "";
+    if (!s) return;
+    const type = () => stdin.write(s.keys.join(""));
+    if (first) setImmediate(type);
+    else setTimeout(type, 30);
+    first = false;
+  };
+  const stdout = Object.assign(new EventEmitter(), {
+    isTTY: true,
+    columns,
+    rows,
+    write: (x) => {
+      chunks.push(String(x));
+      since += String(x);
+      if (queue.length && queue[0].after && queue[0].after.test(since.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ""))) feed();
+      return true;
+    },
+  });
+  const proc = Object.assign(new EventEmitter(), { pid: 4242, kill: () => true });
+  feed();
+  const text = () => chunks.join("");
+  // What stays in the scrollback: everything after the alternate screen is left.
+  const after = () =>
+    text()
+      .split(ALT_OFF)
+      .at(-1)
+      .replace(/\x1b\[[0-9;]*m/g, "");
+  return { stdin, stdout, proc, text, after };
+}
+
+const agentsIndex = (p, name) =>
+  settingsOf(readFacts(p.proj, { root: ROOT, home: p.home }))
+    .filter((s) => s.group.startsWith("agents:"))
+    .findIndex((s) => s.key === `agents.${name}`);
+
+test("configure contract 4 (amended 2026-10-13): the menu changes an agent's model behind the review's second Enter; the scrollback holds the PLAN and DONE, no frame", async () => {
+  const p = project();
+  const down = Array(agentsIndex(p, "critic")).fill(KEYS.DOWN);
+  const t = screenTty([
+    { keys: [KEYS.RIGHT, ...down, KEYS.RIGHT, "o", KEYS.SPACE, KEYS.ENTER] },
+    { after: /Plan — 1 change/, keys: [KEYS.ENTER] },
+  ]);
+  const { r, asked } = await configure(p, {}, { term: t });
+  assert.equal(r.code, 0, t.after());
+  assert.equal(json(layoutPaths(p.proj).overlay(SRC.id)).agents.per_agent.critic.model, "opus");
+  assert.equal(asked.length, 0, "the review's Enter is the confirmation: no line-mode question");
+  assert.equal(t.text().split(ALT_ON).length - 1, 1, "the alternate screen is entered once");
+  assert.equal(t.text().split(ALT_OFF).length - 1, 1, "and left once");
+  assert.match(t.after(), /Plan — 1 change[\s\S]*agents\.critic[\s\S]*Done — 1 change/);
+  assert.doesNotMatch(t.after(), /[╭╮╰╯]/, "no frame is left in the scrollback");
+  assert.doesNotMatch(t.text(), /To change a setting/, "no view is printed first");
+  assert.equal(t.stdin.isRaw, false);
+});
+
+test("configure contract 4 (amended 2026-10-13): an Enter queued with the one that opens the review is not the second", async () => {
   const p = project({ harnesses: [] });
-  const t = tty([KEYS.SPACE, KEYS.ENTER, KEYS.DOWN, KEYS.DOWN, KEYS.DOWN, KEYS.ENTER]);
-  const { r, asked, text } = await configure(p, {}, { term: t });
-  assert.equal(r.code, 0, text);
+  const before = tree(p.proj, p.vault);
+  const t = screenTty([
+    { keys: [KEYS.RIGHT, "l", "l", KEYS.RIGHT, "r", KEYS.ENTER, KEYS.ENTER] },
+    { after: /Plan — 1 change/, keys: [KEYS.CTRL_C] },
+  ]);
+  const { r } = await configure(p, {}, { term: t });
+  assert.equal(r.code, 130);
+  assert.match(t.after(), /Cancelled — nothing was written/);
+  assert.deepEqual(tree(p.proj, p.vault), before);
+});
+
+test("configure contract 4 (amended 2026-10-13): ← back from the review keeps the change, and the next review writes it", async () => {
+  const p = project({ harnesses: [] });
+  const t = screenTty([
+    { keys: [KEYS.RIGHT, "l", "l", KEYS.RIGHT, "r", KEYS.ENTER] },
+    { after: /Plan — 1 change/, keys: [KEYS.LEFT] },
+    { after: /1 change waiting/, keys: [KEYS.ENTER] },
+    { after: /Plan — 1 change/, keys: [KEYS.ENTER] },
+  ]);
+  const { r } = await configure(p, {}, { term: t });
+  assert.equal(r.code, 0, t.after());
   assert.equal(json(layoutPaths(p.proj).binding).language, "ru");
-  assert.equal(asked.length, 1, "one confirmation");
-  assert.match(asked[0], /Apply 1 change\?/);
-  assert.match(text, /What do you want to change\?/);
-  assert.doesNotMatch(text, /restart/, "nothing to restart for a language");
+});
+
+test("configure contract 4 (amended 2026-10-13): ← at the groups with nothing changed leaves; Ctrl+C cancels; both write nothing and restore the terminal", async () => {
+  const p = project();
+  const before = tree(p.proj, p.vault);
+  const a = screenTty([{ keys: [KEYS.LEFT] }]);
+  const ra = await configure(p, {}, { term: a });
+  assert.equal(ra.r.code, 0);
+  assert.match(a.after(), /No change — nothing was written/);
+  const b = screenTty([{ keys: [KEYS.RIGHT, KEYS.DOWN, KEYS.CTRL_C] }]);
+  const rb = await configure(p, {}, { term: b });
+  assert.equal(rb.r.code, 130);
+  assert.match(b.after(), /Cancelled — nothing was written/);
+  for (const t of [a, b]) {
+    assert.equal(t.stdin.isRaw, false);
+    assert.match(t.text(), /\x1b\[\?25h\x1b\[\?1049l/, "the cursor shown and the alternate screen left");
+  }
+  assert.deepEqual(tree(p.proj, p.vault), before);
+});
+
+test("configure contract 4 (amended 2026-10-13): --dry-run stops at the first Enter, prints the PLAN and writes nothing", async () => {
+  const p = project({ harnesses: [] });
+  const before = tree(p.proj, p.vault);
+  const t = screenTty([{ keys: [KEYS.RIGHT, "l", "l", KEYS.RIGHT, "r", KEYS.ENTER] }]);
+  const { r } = await configure(p, { "dry-run": true }, { term: t });
+  assert.equal(r.code, 0);
+  assert.match(t.after(), /Plan — 1 change[\s\S]*language[\s\S]*Nothing written: this was a dry run/);
+  assert.deepEqual(tree(p.proj, p.vault), before);
+});
+
+test("configure contract 4 (amended 2026-10-13): a terminal below 40×16 prints the view, as without one", async () => {
+  const p = project();
+  const t = screenTty([], { columns: 30, rows: 30 });
+  const { r } = await configure(p, {}, { term: t });
+  assert.equal(r.code, 0);
+  assert.doesNotMatch(t.text(), /\x1b\[\?1049h/, "no alternate screen");
+  assert.match(t.text(), /To change a setting/);
+});
+
+test("configure contract 2 (amended 2026-10-13): Claude Code's model list is its four aliases with no free text; Codex's is its own catalog", async () => {
+  const p = project({ harnesses: [SRC, CODEX] });
+  const codexHome = tmp("ps-cfg-codex-");
+  writeFileSync(
+    join(codexHome, "models_cache.json"),
+    JSON.stringify({
+      fetched_at: "2026-10-13T06:32:57Z",
+      models: [
+        { slug: "gpt-6-astra", display_name: "GPT-6-Astra", description: "Frontier.", visibility: "list", priority: 2 },
+        {
+          slug: "gpt-6.1-sol",
+          display_name: "GPT-6.1-Sol",
+          description: "Workhorse.",
+          visibility: "list",
+          priority: 1,
+        },
+        { slug: "gpt-reserve", display_name: "GPT-Reserve", description: "Hidden.", visibility: "hide", priority: 3 },
+      ],
+    }),
+  );
+  const f = readFacts(p.proj, { root: ROOT, home: p.home, env: { CODEX_HOME: codexHome } });
+  const settings = settingsOf(f);
+  const catalogs = Object.fromEntries(
+    f.used.map((h) => [h.id, { known: knownModels(h, { env: { CODEX_HOME: codexHome }, home: p.home }) }]),
+  );
+  const groups = menuGroups(f, settings, catalogs);
+  const optionsOf = (title, key) =>
+    groups
+      .find((g) => g.title === title)
+      .items.find((i) => i.key === key)
+      .options();
+  const cc = optionsOf("Agents · Claude Code", "agents.critic");
+  assert.deepEqual(
+    cc.filter((o) => o.kind === "value" && o.value).map((o) => o.value),
+    ["fable", "opus", "sonnet", "haiku"],
+  );
+  assert.equal(
+    cc.some((o) => o.kind === "text"),
+    false,
+    "no free text where the spawn takes aliases",
+  );
+  const cx = optionsOf("Agents · Codex", "agents.critic");
+  assert.deepEqual(
+    cx.filter((o) => o.kind === "value" && o.value).map((o) => o.value),
+    ["gpt-6.1-sol", "gpt-6-astra"],
+  );
+  assert.equal(cx.find((o) => o.value === "gpt-6.1-sol").description, "GPT-6.1-Sol. Workhorse.");
+  assert.ok(
+    cx.some((o) => o.kind === "text"),
+    "Codex takes a typed name",
+  );
+  const caption = groups.find((g) => g.title === "Agents · Codex").items[0].caption();
+  assert.match(caption.text, /^Codex · checked /);
+});
+
+test("configure contract 4 (amended 2026-10-13): opening a stale model list starts one read, in the background, that names what each alias follows", async () => {
+  const p = project();
+  const calls = [];
+  const fetch = async (url, init) => {
+    calls.push({ url, key: init?.headers?.["x-api-key"] });
+    return {
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: "claude-fable-5-1",
+            display_name: "Claude Fable 5.1",
+            created_at: "2026-08-28T00:00:00Z",
+            line: "fable",
+            lifecycle: "active",
+          },
+        ],
+      }),
+    };
+  };
+  const t = screenTty([{ keys: [KEYS.RIGHT, KEYS.RIGHT] }, { after: /→ claude-fable-5-1/, keys: [KEYS.CTRL_C] }]);
+  const env = { ANTHROPIC_API_KEY: "sk-test", XDG_CACHE_HOME: join(p.home, "cache") };
+  const { r } = await configure(p, {}, { term: t, env, fetch });
+  assert.equal(r.code, 130);
+  assert.equal(calls.length, 1, "one read");
+  assert.equal(calls[0].key, "sk-test");
+  const cache = read(join(p.home, "cache", "projectstore", "models", `${SRC.id}.json`));
+  assert.doesNotMatch(cache, /sk-test/);
+});
+
+// A terminal a test drives step by step: it waits for what the screen draws,
+// types 30 ms later as a person would, and resizes. setRawMode is recorded.
+function driver({ columns = 100, rows = 30 } = {}) {
+  const stdin = new PassThrough();
+  stdin.isTTY = true;
+  const raw = [];
+  stdin.setRawMode = (on) => (raw.push(on), (stdin.isRaw = on), stdin);
+  const chunks = [];
+  const waiters = new Set();
+  const stdout = Object.assign(new EventEmitter(), {
+    isTTY: true,
+    columns,
+    rows,
+    write: (x) => {
+      chunks.push(String(x));
+      for (const w of [...waiters]) w();
+      return true;
+    },
+  });
+  const proc = Object.assign(new EventEmitter(), { pid: 4242, kill: () => true });
+  const text = () => chunks.join("");
+  let mark = 0;
+  const waitFor = (re) =>
+    new Promise((ok, fail) => {
+      const timer = setTimeout(() => {
+        waiters.delete(check);
+        const screen = text()
+          .split("\x1b[H")
+          .at(-1)
+          .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+        fail(new Error(`no ${re} on the screen:\n${screen}`));
+      }, 5000);
+      const check = () => {
+        const since = text()
+          .slice(mark)
+          .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+        if (!re.test(since)) return;
+        waiters.delete(check);
+        clearTimeout(timer);
+        mark = text().length;
+        ok();
+      };
+      waiters.add(check);
+      check();
+    });
+  const type = (...keys) =>
+    new Promise((ok) =>
+      setTimeout(() => {
+        stdin.write(keys.join(""));
+        ok();
+      }, 30),
+    );
+  const resize = (c, r) => {
+    stdout.columns = c;
+    stdout.rows = r;
+    stdout.emit("resize");
+  };
+  const after = () =>
+    text()
+      .split(ALT_OFF)
+      .at(-1)
+      .replace(/\x1b\[[0-9;]*m/g, "");
+  return { stdin, stdout, proc, raw, text, waitFor, type, resize, after };
+}
+
+test("configure contract 4 (amended 2026-10-13): raw mode is held from the menu's open to its close, once", async () => {
+  const p = project({ harnesses: [] });
+  const t = driver();
+  const run = configure(p, {}, { term: t });
+  await t.waitFor(/What do you want to change/);
+  await t.type(KEYS.RIGHT, "l", "l", KEYS.RIGHT, "r", KEYS.ENTER);
+  await t.waitFor(/Plan — 1 change/);
+  await t.type(KEYS.ENTER);
+  const { r } = await run;
+  assert.equal(r.code, 0);
+  assert.deepEqual(t.raw, [true, false], "on at open, off at close, and nothing between");
+});
+
+test("configure contract 8 (amended 2026-10-13): a name typed in the menu off Codex's list carries the note in the review, the PLAN and --json", async () => {
+  const p = project({ harnesses: [CODEX] });
+  const codexHome = tmp("ps-cfg-codex-");
+  writeFileSync(
+    join(codexHome, "models_cache.json"),
+    JSON.stringify({
+      fetched_at: new Date().toISOString(),
+      models: [
+        {
+          slug: "gpt-6.1-sol",
+          display_name: "GPT-6.1-Sol",
+          description: "Workhorse.",
+          visibility: "list",
+          priority: 1,
+        },
+      ],
+    }),
+  );
+  const down = Array(agentsIndex(p, "critic")).fill(KEYS.DOWN);
+  const t = driver();
+  const run = configure(p, { json: false }, { term: t, env: { CODEX_HOME: codexHome } });
+  await t.waitFor(/What do you want to change/);
+  await t.type(KEYS.RIGHT, ...down, KEYS.RIGHT, "t", KEYS.RIGHT);
+  await t.waitFor(/typing/);
+  await t.type("gpt-x", KEYS.ENTER, KEYS.ENTER);
+  await t.waitFor(/not in Codex's list as of/);
+  await t.type(KEYS.ENTER);
+  const { r } = await run;
+  assert.equal(r.code, 0, t.after());
+  assert.match(t.after(), /agents\.critic[\s\S]*not in Codex's list as of \d{4}-\d\d-\d\d; written as typed/);
+  assert.match(r.result.plan[0].note, /^not in Codex's list as of/);
+  assert.equal(json(layoutPaths(p.proj).overlay(CODEX.id)).agents.per_agent.critic.model, "gpt-x");
+});
+
+test("configure contract 4 (amended 2026-10-13): a refusal at the review is drawn there, has no Enter, and Ctrl+C leaves with nothing written", async () => {
+  const p = project({ harnesses: [] });
+  rmSync(p.vault, { recursive: true, force: true });
+  const before = tree(p.proj);
+  const t = driver();
+  const run = configure(p, {}, { term: t });
+  await t.waitFor(/What do you want to change/);
+  await t.type(KEYS.DOWN, KEYS.RIGHT, KEYS.RIGHT, KEYS.DOWN, KEYS.ENTER);
+  await t.waitFor(/the vault [\s\S]*not exist[\s\S]*← back to the menu/);
+  assert.doesNotMatch(t.text().split("\x1b[H").at(-1), /enter writes it/);
+  await t.type(KEYS.ENTER, KEYS.CTRL_C);
+  const { r } = await run;
+  assert.equal(r.code, 130);
+  assert.deepEqual(tree(p.proj), before);
+});
+
+test("configure contract 4 (amended 2026-10-13): a resize redraws at the new width — the staircase, then one frame — and a terminal made too small takes no key but Ctrl+C", async () => {
+  const p = project({ harnesses: [] });
+  const before = tree(p.proj, p.vault);
+  const t = driver();
+  const run = configure(p, {}, { term: t });
+  await t.waitFor(/What do you want to change/);
+  await t.type(KEYS.RIGHT);
+  await t.waitFor(/╭─ Settings[\s\S]*╭─ Vault and templates/);
+  t.resize(80, 30);
+  await t.waitFor(/Settings › Vault and templates/);
+  assert.doesNotMatch(t.text().split("\x1b[H").at(-1), /╭─ Settings/, "one frame below 100 columns");
+  await t.type("l", "l", KEYS.RIGHT, "r", KEYS.SPACE);
+  await t.waitFor(/1 change waiting/);
+  t.resize(30, 10);
+  await t.waitFor(/The menu needs 40 columns/);
+  await t.type(KEYS.ENTER, KEYS.ENTER);
+  await new Promise((ok) => setTimeout(ok, 50));
+  await t.type(KEYS.CTRL_C);
+  const { r } = await run;
+  assert.equal(r.code, 130, "Enter did nothing while the terminal was too small");
+  assert.deepEqual(tree(p.proj, p.vault), before);
+});
+
+test("configure contract 4 (amended 2026-10-13): a throw in the menu restores the terminal and goes on as the error", async () => {
+  const p = project({ harnesses: [] });
+  const t = driver();
+  const f = readFacts(p.proj, { root: ROOT, home: p.home });
+  const run = runMenu({
+    f,
+    settings: settingsOf(f),
+    stdin: t.stdin,
+    stdout: t.stdout,
+    caps: { color: false, live: true, width: 100, columns: 100, ascii: false },
+    proc: t.proc,
+    env: {},
+    home: p.home,
+    review: () => {
+      throw new Error("boom");
+    },
+  });
+  await t.waitFor(/What do you want to change/);
+  await t.type(KEYS.RIGHT, "l", "l", KEYS.RIGHT, "r", KEYS.ENTER);
+  await assert.rejects(run, /boom/);
+  assert.equal(t.stdin.isRaw, false);
+  assert.ok(t.text().endsWith(`\x1b[?25h${ALT_OFF}`));
+  assert.equal(t.proc.listenerCount("SIGINT"), 0);
+});
+
+test("configure contract 4 (amended 2026-10-13): no read at open; a fresh list is not read again; refresh reads once; a failed read keeps the list and caches nothing", async () => {
+  const p = project();
+  const calls = [];
+  const spawned = [];
+  let status = 200;
+  const fetch = async (url) => {
+    calls.push(url);
+    return status === 200
+      ? {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: "claude-opus-5-5",
+                display_name: "Claude Opus 5.5",
+                created_at: "2026-09-21T00:00:00Z",
+                line: "opus",
+                lifecycle: "active",
+              },
+            ],
+          }),
+        }
+      : { ok: false, status, body: { cancel: async () => {} } };
+  };
+  const spawn = () => {
+    spawned.push(1);
+    throw new Error("no spawn in this test");
+  };
+  const env = { ANTHROPIC_API_KEY: "k", XDG_CACHE_HOME: join(p.home, "cache") };
+  const cache = join(p.home, "cache", "projectstore", "models", `${SRC.id}.json`);
+  // Open to the settings level: nothing is read.
+  let t = driver();
+  let run = configure(p, {}, { term: t, env, fetch, spawn });
+  await t.waitFor(/What do you want to change/);
+  await t.type(KEYS.RIGHT, KEYS.DOWN);
+  await t.waitFor(/critic/);
+  await t.type(KEYS.CTRL_C);
+  await run;
+  assert.deepEqual([calls.length, spawned.length], [0, 0], "no request and no subprocess before a model list opens");
+  // A failed read: the list stays, the caption says why, nothing is cached.
+  status = 401;
+  t = driver();
+  run = configure(p, {}, { term: t, env, fetch, spawn });
+  await t.waitFor(/What do you want to change/);
+  await t.type(KEYS.RIGHT, KEYS.RIGHT);
+  await t.waitFor(/the key was refused \(HTTP 401\)/);
+  assert.match(t.text().split("\x1b[H").at(-1), /fable[\s\S]*opus[\s\S]*sonnet[\s\S]*haiku/);
+  await t.type(KEYS.CTRL_C);
+  await run;
+  assert.equal(existsSync(cache), false);
+  // A good read is cached; opening the list again does not read.
+  status = 200;
+  t = driver();
+  run = configure(p, {}, { term: t, env, fetch, spawn });
+  await t.waitFor(/What do you want to change/);
+  await t.type(KEYS.RIGHT, KEYS.RIGHT);
+  await t.waitFor(/Anthropic API · checked today/);
+  await t.type(KEYS.LEFT, KEYS.RIGHT);
+  await t.waitFor(/↻ refresh the list/);
+  const before = calls.length;
+  // refresh the list reads, fresh or not.
+  await t.type("r", KEYS.RIGHT);
+  await t.waitFor(/asking api\.anthropic\.com/);
+  await t.waitFor(/Anthropic API · checked today/);
+  await t.type(KEYS.CTRL_C);
+  await run;
+  assert.equal(before, 2, "the 401 and the first good read; reopening a fresh list read nothing");
+  assert.equal(calls.length, 3, "refresh read once");
+  assert.equal(spawned.length, 0);
+});
+
+test("configure contract 4 (amended 2026-10-13): every group, setting and value has a description", () => {
+  const p = project({ harnesses: [SRC, CODEX], epics: ["PS-ONE"] });
+  const f = readFacts(p.proj, { root: ROOT, home: p.home });
+  const catalogs = Object.fromEntries(f.used.map((h) => [h.id, { known: knownModels(h, { env: {}, home: p.home }) }]));
+  const groups = menuGroups(f, settingsOf(f), catalogs);
+  const missing = [];
+  for (const g of groups) {
+    if (!g.description) missing.push(g.title);
+    for (const it of g.items) {
+      if (!it.describe || !it.describe(it.value, false)) missing.push(`${g.title} › ${it.label}`);
+      if (it.kind === "choice")
+        for (const o of it.options()) if (!o.description) missing.push(`${g.title} › ${it.label} › ${o.label}`);
+    }
+  }
+  assert.deepEqual(missing, []);
+});
+
+test("configure contract 8 (amended 2026-10-13): a model off the list is written with the PLAN's note, and --json carries it as note", async () => {
+  const p = project();
+  const text = await configure(p, { set: ["agents.critic=claude-opus-5-5"] });
+  assert.equal(text.r.code, 0, text.text);
+  assert.match(
+    text.text,
+    /claude-opus-5-5 is not one of Claude Code's aliases \(fable, opus, sonnet, haiku\); written as typed, and Claude Code refuses it at spawn/,
+  );
+  const q = project();
+  const env = await configure(q, { set: ["agents.critic=claude-opus-5-5"], json: true });
+  assert.match(env.r.result.plan[0].note, /not one of Claude Code's aliases/);
+  const ok = await configure(project(), { set: ["agents.critic=opus", "language=ru"], json: true });
+  assert.ok(
+    ok.r.result.plan.every((i) => !("note" in i)),
+    "no note where none applies: every other item reads as before",
+  );
 });
 
 test("configure contract 4: a cancel exits 130 with nothing written; a declined confirmation writes nothing", async () => {

@@ -357,6 +357,37 @@
     "effort_key": "model_reasoning_effort",
     "effort_evidence": "documented",
     "effort_precedence": "explicit spawn value, then the [agents] default from config, then the parent agent's value. A model chosen without an effort uses that model's default effort.",
-    "effort_reason": "Recorded, not yet consumed: the overlay's allowlist rejects an effort key and rewrites it out, deliberately, until the story Per-agent effort returns decides whether a role's effort travels in a rendered definition or at spawn. Documented 2026-09-08; the `ultra` level is Codex's and is not a level Claude Code accepts."
+    "effort_reason": "Recorded, not yet consumed: the overlay's allowlist rejects an effort key and rewrites it out, deliberately, until the story Per-agent effort returns decides whether a role's effort travels in a rendered definition or at spawn. Documented 2026-09-08; the `ultra` level is Codex's and is not a level Claude Code accepts.",
+    "models": {
+      "spawn_takes": "id",
+      "spawn_takes_evidence": "documented",
+      "spawn_takes_reason": "A Codex agent's model is passed at spawn by its slug: Codex's subagents documentation (learn.chatgpt.com/docs/agent-configuration/subagents, read 2026-10-13) says explicit spawn values override agents.default_subagent_model, and a wrong slug fails at spawn time, on the harness (cheap_model_reason above). So the list is Codex's own catalog, the slugs it shows in its picker.",
+      "static": [],
+      "fields": {
+        "list": "models",
+        "id": "slug",
+        "label": "display_name",
+        "description": "description",
+        "order": "priority",
+        "shown_when": { "visibility": "list" }
+      },
+      "catalogs": [
+        {
+          "kind": "file",
+          "source": "Codex",
+          "caption": "Codex",
+          "path": "models_cache.json",
+          "fields": { "at": "fetched_at" },
+          "reason": "Codex's own catalog under its home ($CODEX_HOME, else ~/.codex), which Codex refreshes itself. Measured 2026-10-13 on codex-cli 0.162.1: fetched_at, client_version and models[] with slug, display_name, description, visibility (list or hide), priority and upgrade."
+        },
+        {
+          "kind": "command",
+          "source": "Codex",
+          "caption": "Codex",
+          "argv": ["codex", "debug", "models"],
+          "reason": "Prints the same catalog as JSON after Codex refreshes it with its own login: 88–103 ms on codex-cli 0.162.1, measured 2026-10-13. A debug subcommand: if a release drops it, the file above keeps the list, and this argv is where it changes (app-server's model/list is the experimental alternative)."
+        }
+      ]
+    }
   }
 }
