@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=39d93fb1">
+<link rel="stylesheet" href="../assets/style.css?v=cb072b3e">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
@@ -72,23 +72,29 @@
     <h1 id="hero-title" data-i18n="hero.h1">智能体写代码，<span class="acc">ProjectStore 留记录。</span></h1>
     <p class="lead" data-i18n="hero.lead">决定了什么、进行中的是什么、检查过什么——以 <b class="hl">git 中经过评审的 Markdown</b> 保存，任何智能体和任何能访问仓库的人都能读。</p>
 
-    <div class="ask ask-top">
-      <div class="ask-head"><span data-i18n="hero.ask">直接告诉你的智能体：</span> <b>Claude Code</b> <span class="dim">·</span> <b>Codex</b> <span class="dim">·</span> <span class="others" data-i18n="hero.others">OpenCode、Cursor 和其他智能体</span></div>
-      <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="复制提示词" data-done="已复制" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
-      <p class="note" data-i18n="hero.note">在 Claude Code 中，这条提示词会添加 git marketplace 并从中安装；请在 <code>/plugin</code> 中开启它的自动更新。在 Codex 中请改用下面的命令：在会话内安装会等待终端。其他智能体暂时没有插件；它们通过文件、CLI 和 MCP 读取同一个 vault。</p>
-    </div>
-
-    <div class="term">
-      <div class="term-head"><span data-i18n="hero.term">在你的项目里开一个终端，在智能体之外</span><span class="chips"><span class="chip">Claude Code · <span data-fact="harness-status:claude-code">supported</span></span><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span></span></div>
-      <div class="cmdline">
-        <div class="cmdtext"><span class="ps1">~/your-project $</span><pre id="install-cmd" data-fact="install">npx projectstore setup</pre><span class="cursor" aria-hidden="true">▍</span></div>
-        <button class="copy" type="button" data-copy-from="install-cmd" aria-label="复制命令" data-done="已复制" data-i18n-attr="aria-label:hero.copy;data-done:hero.copied"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+    <div class="cta-block">
+      <div class="cta-opt">
+        <p class="cta-label"><span data-i18n="hero.ask">直接告诉你的智能体：</span> <span class="cta-sub"><b>Claude Code</b> · <b>Codex</b> · <span data-i18n="hero.others">OpenCode、Cursor 和其他智能体</span></span></p>
+        <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="复制提示词" data-done="已复制" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+        <p class="note" data-i18n="hero.note">在 Claude Code 中，这条提示词会添加 git marketplace 并从中安装；请在 <code>/plugin</code> 中开启它的自动更新。在 Codex 中请改用下面的命令：在会话内安装会等待终端。其他智能体暂时没有插件；它们通过文件、CLI 和 MCP 读取同一个 vault。</p>
       </div>
-      <ul class="term-notes">
-        <li data-i18n="hero.n.1">它会询问 vault 放在哪里，给出一份方案，只确认一次。</li>
-        <li data-i18n="hero.n.2">之后重启智能体；Codex 会请你批准一次它的 hooks。</li>
-        <li class="reqs" data-i18n="hero.reqs">Node.js 20+ · Codex 需要 npm · macOS 或 Linux</li>
-      </ul>
+      <div class="cta-opt">
+        <p class="cta-label"><span data-i18n="hero.or">或者在终端里运行：</span> <span class="cta-sub" data-i18n="hero.term">在你的项目中，在智能体之外</span></p>
+        <div class="term">
+          <div class="cmdline">
+            <div class="cmdtext"><span class="ps1">~/your-project $</span><pre id="install-cmd" data-fact="install">npx projectstore setup</pre><span class="cursor" aria-hidden="true">▍</span></div>
+            <button class="copy" type="button" data-copy-from="install-cmd" aria-label="复制命令" data-done="已复制" data-i18n-attr="aria-label:hero.copy;data-done:hero.copied"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+          </div>
+          <div class="term-foot">
+            <span class="chips"><span class="chip">Claude Code · <span data-fact="harness-status:claude-code">supported</span></span><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span></span>
+            <ul class="term-notes">
+              <li data-i18n="hero.n.1">它会询问 vault 放在哪里，给出一份方案，只确认一次。</li>
+              <li data-i18n="hero.n.2">之后重启智能体；Codex 会请你批准一次它的 hooks。</li>
+              <li class="reqs" data-i18n="hero.reqs">Node.js 20+ · Codex 需要 npm · macOS 或 Linux</li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

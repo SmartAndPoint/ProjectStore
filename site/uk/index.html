@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=39d93fb1">
+<link rel="stylesheet" href="../assets/style.css?v=cb072b3e">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
@@ -72,23 +72,29 @@
     <h1 id="hero-title" data-i18n="hero.h1">Ваш агент пише код. <span class="acc">ProjectStore веде записи.</span></h1>
     <p class="lead" data-i18n="hero.lead">Що вирішено, що в роботі, що перевірено — як <b class="hl">рецензований Markdown у git</b>, який може прочитати будь-який агент і будь-хто з доступом до репозиторію.</p>
 
-    <div class="ask ask-top">
-      <div class="ask-head"><span data-i18n="hero.ask">Просто попросіть агента:</span> <b>Claude Code</b> <span class="dim">·</span> <b>Codex</b> <span class="dim">·</span> <span class="others" data-i18n="hero.others">OpenCode, Cursor та інші агенти</span></div>
-      <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Скопіювати промпт" data-done="Скопійовано" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
-      <p class="note" data-i18n="hero.note">У Claude Code цей промпт додає git-маркетплейс і встановлює з нього; увімкніть його автооновлення в <code>/plugin</code>. У Codex натомість запустіть команду нижче: усередині сесії встановлення чекає на термінал. Для інших агентів плагіна поки немає; вони читають той самий vault через його файли, CLI та MCP.</p>
-    </div>
-
-    <div class="term">
-      <div class="term-head"><span data-i18n="hero.term">термінал у вашому проєкті, поза агентом</span><span class="chips"><span class="chip">Claude Code · <span data-fact="harness-status:claude-code">supported</span></span><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span></span></div>
-      <div class="cmdline">
-        <div class="cmdtext"><span class="ps1">~/your-project $</span><pre id="install-cmd" data-fact="install">npx projectstore setup</pre><span class="cursor" aria-hidden="true">▍</span></div>
-        <button class="copy" type="button" data-copy-from="install-cmd" aria-label="Скопіювати команду" data-done="Скопійовано" data-i18n-attr="aria-label:hero.copy;data-done:hero.copied"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+    <div class="cta-block">
+      <div class="cta-opt">
+        <p class="cta-label"><span data-i18n="hero.ask">Просто попросіть агента:</span> <span class="cta-sub"><b>Claude Code</b> · <b>Codex</b> · <span data-i18n="hero.others">OpenCode, Cursor та інші агенти</span></span></p>
+        <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Скопіювати промпт" data-done="Скопійовано" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+        <p class="note" data-i18n="hero.note">У Claude Code цей промпт додає git-маркетплейс і встановлює з нього; увімкніть його автооновлення в <code>/plugin</code>. У Codex натомість запустіть команду нижче: усередині сесії встановлення чекає на термінал. Для інших агентів плагіна поки немає; вони читають той самий vault через його файли, CLI та MCP.</p>
       </div>
-      <ul class="term-notes">
-        <li data-i18n="hero.n.1">Питає, де лежить vault, показує один план і один раз просить згоди.</li>
-        <li data-i18n="hero.n.2">Потім перезапустіть агента; Codex попросить схвалити його хуки один раз.</li>
-        <li class="reqs" data-i18n="hero.reqs">Node.js 20+ · npm для Codex · macOS або Linux</li>
-      </ul>
+      <div class="cta-opt">
+        <p class="cta-label"><span data-i18n="hero.or">Або запустіть у терміналі:</span> <span class="cta-sub" data-i18n="hero.term">у вашому проєкті, поза агентом</span></p>
+        <div class="term">
+          <div class="cmdline">
+            <div class="cmdtext"><span class="ps1">~/your-project $</span><pre id="install-cmd" data-fact="install">npx projectstore setup</pre><span class="cursor" aria-hidden="true">▍</span></div>
+            <button class="copy" type="button" data-copy-from="install-cmd" aria-label="Скопіювати команду" data-done="Скопійовано" data-i18n-attr="aria-label:hero.copy;data-done:hero.copied"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+          </div>
+          <div class="term-foot">
+            <span class="chips"><span class="chip">Claude Code · <span data-fact="harness-status:claude-code">supported</span></span><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span></span>
+            <ul class="term-notes">
+              <li data-i18n="hero.n.1">Питає, де лежить vault, показує один план і один раз просить згоди.</li>
+              <li data-i18n="hero.n.2">Потім перезапустіть агента; Codex попросить схвалити його хуки один раз.</li>
+              <li class="reqs" data-i18n="hero.reqs">Node.js 20+ · npm для Codex · macOS або Linux</li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
