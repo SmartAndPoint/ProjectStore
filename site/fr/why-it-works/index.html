@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../../assets/icon-180.png">
-<link rel="stylesheet" href="../../assets/style.css?v=7b9a5390">
+<link rel="stylesheet" href="../../assets/style.css?v=7b7afa47">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/why-it-works/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/why-it-works/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/why-it-works/">
@@ -85,11 +85,21 @@
   </ol>
 </section>
 
+<section class="sec" id="artifacts" aria-labelledby="why-art-title">
+  <div class="section-label" data-i18n="why.art.label">Ce que font les artefacts</div>
+  <h2 id="why-art-title" data-i18n="why.art.h2">Un projet, beaucoup de mains. <span class="acc">Le même socle pour toutes.</span></h2>
+  <div class="prose">
+    <p data-i18n="why.art.p.1">Un ADR dit ce qui a été décidé et ce qui a été écarté. Une spec dit comment cela doit fonctionner. Un epic et ses stories disent ce qui se construit et quand chaque partie est terminée. Le tableau montre ce qui est en cours.</p>
+    <p data-i18n="why.art.p.2">Avec eux, un ingénieur qui arrive demain, un relecteur d'une autre équipe et un agent dans une session neuve partent tous de ce que savait la première personne. C'est pourquoi les équipes qui bâtissent de gros systèmes tiennent ces documents depuis des décennies.</p>
+  </div>
+</section>
+
 <section class="sec" id="cost" aria-labelledby="why-cost-title">
   <div class="section-label" data-i18n="why.cost.label">Ce qui coûtait cher</div>
   <h2 id="why-cost-title" data-i18n="why.p.4">Le processus a toujours eu de la valeur. Ce qui coûtait cher, c'était <b>que des humains en assurent chaque étape.</b></h2>
   <div class="prose">
     <p data-i18n="why.p.3">Le processus fonctionne. Ses documents sont ce qu'une entreprise conserve de plus précieux après un projet : pourquoi le système est construit ainsi, ce qui comptait comme terminé, où se trouve chaque fonctionnalité dans le code. Mais quand des humains l'appliquent à la main, il est lent. Un ADR demande un après-midi d'écriture et une semaine pour être relu. Les documents prennent du retard sur le code. Le tableau ne correspond plus à la réalité. Alors les équipes prennent des raccourcis, et « agile » devient une excuse pour ne rien écrire.</p>
+    <p data-i18n="why.miss">Quand les artefacts manquent, c'est pareil avec les personnes et avec les agents : des questions réglées reviennent, personne ne sait dire pourquoi le code est comme il est, et chaque nouvel arrivant commence par deviner.</p>
     <p data-i18n="why.p.5">Les agents, c'est l'inverse. Rédiger un ADR, découper un epic en stories ou vérifier un diff au regard des critères demande à un agent quelques minutes, pas des jours. Ce qui manque à un agent, c'est ce que les humains ont naturellement : la mémoire d'une session à l'autre, un contexte partagé avec les collègues, le lien entre un objectif et le code. Chaque nouvelle session part de zéro et tranche à nouveau ce qui était déjà réglé.</p>
   </div>
   <p class="equation"><span class="term-pill" data-i18n="why.eq.1">le processus des humains</span><span>+</span><span class="term-pill" data-i18n="why.eq.2">la vitesse des agents</span><span>=</span><span class="term-pill acc">ProjectStore</span></p>
@@ -126,6 +136,10 @@
     <li class="ok"><span class="ch-k" data-i18n="why.span.23">preuve</span><span class="ch-c"><b data-i18n="why.strong.6">Preuves</b><span data-i18n="why.span.24">tests/cards.test.ts:58 · par critère</span></span></li>
   </ol>
   <div class="prose"><p data-i18n="why.p.7">Les liens figurent dans l'en-tête de chaque fichier, et la preuve est une ligne sous chaque critère d'acceptation. L'agent remplit tout cela au fil du travail. La carte des liens montre à quoi chaque document est relié. La carte du code indique où vit le code de chaque epic. Une nouvelle session, un nouveau modèle ou un nouveau collègue part de cette chaîne, pas de zéro.</p></div>
+  <div class="ask ask-end">
+    <div class="ask-head"><span data-i18n="method.ask">Demandez simplement à Claude Code :</span></div>
+    <div class="quote-row"><blockquote id="ask-prompt-why" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt-why" aria-label="Copier le prompt" data-done="Copié" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+  </div>
   <p class="next-pages"><a href="../how-it-works/" data-i18n="why.next.1">Comment ça marche →</a><a href="../one-vault/" data-i18n="why.next.2">Un vault, plusieurs personnes →</a><a href="../#start" data-i18n="why.next.3">Installer →</a></p>
 </section>
 

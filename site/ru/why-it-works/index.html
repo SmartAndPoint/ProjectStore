@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../../assets/icon-180.png">
-<link rel="stylesheet" href="../../assets/style.css?v=7b9a5390">
+<link rel="stylesheet" href="../../assets/style.css?v=7b7afa47">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/why-it-works/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/why-it-works/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/why-it-works/">
@@ -85,11 +85,21 @@
   </ol>
 </section>
 
+<section class="sec" id="artifacts" aria-labelledby="why-art-title">
+  <div class="section-label" data-i18n="why.art.label">Что делают артефакты</div>
+  <h2 id="why-art-title" data-i18n="why.art.h2">Один проект, много рук. <span class="acc">Общая основа для всех.</span></h2>
+  <div class="prose">
+    <p data-i18n="why.art.p.1">ADR говорит, что решили и что отвергли. Спека говорит, как это должно работать. Эпик и его стори говорят, что строится и когда готова каждая часть. Доска показывает, что в работе.</p>
+    <p data-i18n="why.art.p.2">Благодаря им инженер, который придёт завтра, ревьюер из другой команды и агент в новой сессии начинают с того, что знал первый человек. Поэтому команды, строящие большие системы, десятилетиями ведут эти документы.</p>
+  </div>
+</section>
+
 <section class="sec" id="cost" aria-labelledby="why-cost-title">
   <div class="section-label" data-i18n="why.cost.label">Дорогая часть</div>
   <h2 id="why-cost-title" data-i18n="why.p.4">Процесс всегда был ценным. Дорого было другое: <b>каждый его шаг делали люди.</b></h2>
   <div class="prose">
     <p data-i18n="why.p.3">Процесс работает. Его документы — самое ценное, что остаётся у компании после проекта: почему система устроена именно так, что считалось готовым, где в коде живёт каждая фича. Но когда всё делают люди вручную, это медленно. ADR пишут полдня и неделю ждут ревью. Документы отстают от кода. Доска перестаёт совпадать с реальностью. Поэтому команды срезают углы, а «agile» становится оправданием ничего не записывать.</p>
+    <p data-i18n="why.miss">Где артефактов нет, с людьми и с агентами выходит одно и то же: решённые вопросы возвращаются, никто не может сказать, почему код такой, и каждый новичок начинает с догадок.</p>
     <p data-i18n="why.p.5">С агентами всё наоборот. Написать ADR, разбить эпик на стори или сверить диф с критериями — для агента это минуты, а не дни. Зато у агента нет того, что у людей есть бесплатно: памяти между сессиями, общего контекста с коллегами, связи от цели до кода. Каждая новая сессия начинает с нуля и заново решает то, что уже решено.</p>
   </div>
   <p class="equation"><span class="term-pill" data-i18n="why.eq.1">процесс людей</span><span>+</span><span class="term-pill" data-i18n="why.eq.2">скорость агентов</span><span>=</span><span class="term-pill acc">ProjectStore</span></p>
@@ -126,6 +136,10 @@
     <li class="ok"><span class="ch-k" data-i18n="why.span.23">доказательство</span><span class="ch-c"><b data-i18n="why.strong.6">Подтверждение</b><span data-i18n="why.span.24">tests/cards.test.ts:58 · по каждому критерию</span></span></li>
   </ol>
   <div class="prose"><p data-i18n="why.p.7">Связи хранятся в шапке каждого файла, а подтверждение — это строка под каждым критерием приёмки. Агент заполняет всё это по ходу работы. Карта связей показывает, с чем связан каждый документ. Карта кода — где живёт код каждого эпика. Новая сессия, новая модель или новый коллега начинают с этой цепочки, а не с нуля.</p></div>
+  <div class="ask ask-end">
+    <div class="ask-head"><span data-i18n="method.ask">Просто попросите Claude Code:</span></div>
+    <div class="quote-row"><blockquote id="ask-prompt-why" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt-why" aria-label="Скопировать промпт" data-done="Скопировано" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+  </div>
   <p class="next-pages"><a href="../how-it-works/" data-i18n="why.next.1">Как это работает →</a><a href="../one-vault/" data-i18n="why.next.2">Один vault, много людей →</a><a href="../#start" data-i18n="why.next.3">Установка →</a></p>
 </section>
 

@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icon-180.png">
-<link rel="stylesheet" href="assets/style.css?v=7b9a5390">
+<link rel="stylesheet" href="assets/style.css?v=7b7afa47">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
@@ -245,7 +245,7 @@
 
 <section class="sec" id="fits" aria-labelledby="fits-title">
   <div class="section-label" data-i18n="fits.span.1">04 / Where it fits</div>
-  <h2 id="fits-title" data-i18n="fits.h2.1">Not agent memory. Not a spec pipeline.<br><span class="acc">The project's record.</span></h2>
+  <h2 id="fits-title" data-i18n="fits.h2.1">Not agent memory. Not a spec pipeline.<br><span class="acc">Project artifacts.</span></h2>
   <p class="lede" data-i18n="fits.p.1">Three kinds of tools sit next to a coding agent. <b>Each answers a different question.</b></p>
   <div class="table-wrap">
     <table class="grid-table">
@@ -254,7 +254,7 @@
         <tr><td data-i18n="fits.span.2">Agent memory</td><td data-i18n="fits.h3.1">What does this agent recall?</td><td class="ex" data-i18n="fits.p.3">Mem0, Zep, Codex and Claude Code memory</td></tr>
         <tr><td data-i18n="fits.span.3">Instruction files</td><td data-i18n="fits.h3.2">How should an agent behave here?</td><td class="ex" data-i18n="fits.p.5"><code>CLAUDE.md</code>, <code>AGENTS.md</code>, rules, steering files</td></tr>
         <tr><td data-i18n="fits.span.4">Spec-driven tools</td><td data-i18n="fits.h3.3">How do we build this change?</td><td class="ex" data-i18n="fits.p.7">Spec Kit, Kiro, OpenSpec, BMAD</td></tr>
-        <tr class="us"><td>ProjectStore</td><td data-i18n="fits.h3.4">What has the project decided, what is in flight, and was it checked?</td><td class="ex" data-i18n="fits.p.8">Decisions, specs and work items with a status, a date and links, in git. A person approves each before ProjectStore writes it; a fresh-context critic reviews it by rule.</td></tr>
+        <tr class="us"><td>ProjectStore</td><td data-i18n="fits.h3.4">What has the project decided, what is in flight, and was it checked?</td><td class="ex" data-i18n="fits.p.8">Project artifacts — ADRs, specs, epics, stories, the board — with a status, a date and links, in git. A person approves each before ProjectStore writes it; a fresh-context critic reviews it by rule.</td></tr>
       </tbody>
     </table>
   </div>
@@ -346,11 +346,22 @@
 
 <section class="sec" id="method" aria-labelledby="method-title">
   <div class="section-label" data-i18n="method.label">07 / The method, proof and questions</div>
-  <h2 id="method-title" data-i18n="method.h2">Old engineering practice. <span class="acc">Agents made it cheap.</span></h2>
+  <h2 id="method-title" data-i18n="why.h2.1">The industry invented this long ago.<br><span class="acc">Agents made it cheap.</span></h2>
+  <p class="lede" data-i18n="why.p.1">ADRs, reviews, a backlog, acceptance criteria, links from goal to code. Mature engineering teams have worked this way for twenty years. <b>ProjectStore invents none of it.</b></p>
+  <ol class="timeline">
+    <li><span class="yr">1969</span><span data-i18n="why.tl.1">RFCs: decisions written down and numbered, then discussed in the open.</span></li>
+    <li><span class="yr">1992</span><span data-i18n="why.tl.2">DO-178B: in avionics, every requirement must trace to code and to a test.</span></li>
+    <li><span class="yr">1995</span><span data-i18n="why.tl.3">Scrum: the work as a backlog, ordered and visible.</span></li>
+    <li><span class="yr">1999</span><span data-i18n="why.tl.4">XP: user stories, and acceptance criteria that say when one is done.</span></li>
+    <li><span class="yr">2007</span><span data-i18n="why.tl.5">Kanban for software: a board that shows what is in flight.</span></li>
+    <li><span class="yr">2011</span><span data-i18n="why.tl.6">ADRs, Michael Nygard: one short file per architectural decision.</span></li>
+    <li class="now"><span class="yr" data-i18n="why.tl.now.y">now</span><span data-i18n="why.tl.now">Coding agents: every step takes minutes. Without the artifacts, every session starts empty.</span></li>
+  </ol>
+  <a class="more" href="why-it-works/" data-i18n="method.why">The full story, from the industry's history →</a>
   <div class="cards3">
     <a class="card" href="how-it-works/"><span class="card-k" data-i18n="method.k.1">method / 1</span><span class="card-t" data-i18n="method.t.1">How it works →</span><span class="card-d" data-i18n="method.d.1">The loop step by step, the six agents, and the mechanisms that hold it together instead of discipline.</span></a>
     <a class="card" href="why-it-works/"><span class="card-k" data-i18n="method.k.2">method / 2</span><span class="card-t" data-i18n="method.t.2">Why it works →</span><span class="card-d" data-i18n="method.d.2">ADRs, backlogs, acceptance criteria, traceability: decades of practice, and what was always expensive about it.</span></a>
-    <a class="card" href="one-vault/"><span class="card-k" data-i18n="method.k.3">method / 3</span><span class="card-t" data-i18n="method.t.3">One vault, many people →</span><span class="card-d" data-i18n="method.d.3">Many sessions, two agents and a whole team on one record, and the why reviewed like code.</span></a>
+    <a class="card" href="one-vault/"><span class="card-k" data-i18n="method.k.3">method / 3</span><span class="card-t" data-i18n="method.t.3">One vault, many people →</span><span class="card-d" data-i18n="method.d.3">Many sessions, two agents and a whole team on one vault, and the why reviewed like code.</span></a>
   </div>
   <p class="facts"><span><span data-fact="commands">21</span> <span data-i18n="method.f.1">commands the agent runs for you</span></span><span><span data-fact="agents">6</span> <span data-i18n="method.f.2">agents</span></span><span><span data-fact="languages">6</span> <span data-i18n="method.f.3">template languages</span></span><span><span data-fact="mcp-tools">8</span> <span data-i18n="method.f.4">read-only MCP tools</span></span><span>MIT</span></p>
   <div class="stats">
@@ -364,6 +375,10 @@
     <details class="qa"><summary data-i18n="questions.summary.3">Do I need Obsidian?</summary><p data-i18n="questions.p.4">No. The vault is an ordinary folder of Markdown files. Open it in an editor, browse it on GitHub, or use Obsidian if you like its graph and board. Without the plugin, the files stay just as readable.</p></details>
     <details class="qa"><summary data-i18n="questions.summary.4">Does it ever write without asking?</summary><p data-i18n="questions.p.5">No. Every new file or edit is shown to you first, with its path and full text. Then it waits for Yes, Edit before saving, or No. The helpers that watch the conversation only suggest a command. The only agent that can write, the clerk, runs after your Yes and saves exactly what you approved.</p></details>
     <details class="qa"><summary data-i18n="questions.summary.10">What stays if I remove it?</summary><p data-i18n="questions.p.11">Your vault, untouched: it is plain Markdown in its own git repository. The project's binding and the team's agent models stay too, so setting it up again finds them. Codex's plugin is registered for every project on the machine, so removing it there is a step of its own. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#uninstalling" target="_blank" rel="noopener noreferrer">How to remove it</a></p></details>
+  </div>
+  <div class="ask ask-end">
+    <div class="ask-head"><span data-i18n="method.ask">Just ask Claude Code:</span></div>
+    <div class="quote-row"><blockquote id="ask-prompt-end" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt-end" aria-label="Copy the prompt" data-done="Copied" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
   </div>
 </section>
 

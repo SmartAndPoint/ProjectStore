@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=7b9a5390">
+<link rel="stylesheet" href="../assets/style.css?v=7b7afa47">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
@@ -245,7 +245,7 @@
 
 <section class="sec" id="fits" aria-labelledby="fits-title">
   <div class="section-label" data-i18n="fits.span.1">04 / Sa place</div>
-  <h2 id="fits-title" data-i18n="fits.h2.1">Pas une mémoire d'agent. Pas un pipeline de specs.<br><span class="acc">Le registre du projet.</span></h2>
+  <h2 id="fits-title" data-i18n="fits.h2.1">Ni mémoire d'agent, ni pipeline de specs.<br><span class="acc">Des artefacts de projet.</span></h2>
   <p class="lede" data-i18n="fits.p.1">On trouve trois types d'outils aux côtés d'un agent de codage. <b>Chacun répond à une question différente.</b></p>
   <div class="table-wrap">
     <table class="grid-table">
@@ -254,7 +254,7 @@
         <tr><td data-i18n="fits.span.2">Mémoire d'agent</td><td data-i18n="fits.h3.1">De quoi cet agent se souvient-il ?</td><td class="ex" data-i18n="fits.p.3">Mem0, Zep, la mémoire de Codex et de Claude Code</td></tr>
         <tr><td data-i18n="fits.span.3">Fichiers d'instructions</td><td data-i18n="fits.h3.2">Comment un agent doit-il se comporter ici ?</td><td class="ex" data-i18n="fits.p.5"><code>CLAUDE.md</code>, <code>AGENTS.md</code>, règles, fichiers de steering</td></tr>
         <tr><td data-i18n="fits.span.4">Outils pilotés par les specs</td><td data-i18n="fits.h3.3">Comment réaliser ce changement ?</td><td class="ex" data-i18n="fits.p.7">Spec Kit, Kiro, OpenSpec, BMAD</td></tr>
-        <tr class="us"><td>ProjectStore</td><td data-i18n="fits.h3.4">Qu'a décidé le projet, qu'est-ce qui est en cours, et cela a-t-il été vérifié ?</td><td class="ex" data-i18n="fits.p.8">Des décisions, des specs et des éléments de travail, avec un statut, une date et des liens, dans git. Une personne valide chacun d'eux avant que ProjectStore ne l'enregistre ; la règle veut qu'un critic qui n'a pas écrit le brouillon le relise.</td></tr>
+        <tr class="us"><td>ProjectStore</td><td data-i18n="fits.h3.4">Qu'a décidé le projet, qu'est-ce qui est en cours, et cela a-t-il été vérifié ?</td><td class="ex" data-i18n="fits.p.8">Des artefacts de projet — ADR, specs, epics, stories, le tableau — avec un statut, une date et des liens, dans git. Une personne valide chacun avant que ProjectStore l'écrive ; un critic au contexte neuf le relit, comme le veut la règle.</td></tr>
       </tbody>
     </table>
   </div>
@@ -346,11 +346,22 @@
 
 <section class="sec" id="method" aria-labelledby="method-title">
   <div class="section-label" data-i18n="method.label">07 / La méthode, les preuves et les questions</div>
-  <h2 id="method-title" data-i18n="method.h2">Une vieille pratique d'ingénierie. <span class="acc">Les agents l'ont rendue bon marché.</span></h2>
+  <h2 id="method-title" data-i18n="why.h2.1">L'industrie a inventé cela il y a longtemps.<br><span class="acc">Les agents l'ont rendu bon marché.</span></h2>
+  <p class="lede" data-i18n="why.p.1">Des ADR, des revues, un backlog, des critères d'acceptation, des liens de l'objectif jusqu'au code. Les équipes d'ingénierie matures travaillent ainsi depuis vingt ans. <b>ProjectStore n'en invente rien.</b></p>
+  <ol class="timeline">
+    <li><span class="yr">1969</span><span data-i18n="why.tl.1">RFC : des décisions écrites et numérotées, puis discutées au grand jour.</span></li>
+    <li><span class="yr">1992</span><span data-i18n="why.tl.2">DO-178B : en avionique, chaque exigence doit être reliée au code et à un test.</span></li>
+    <li><span class="yr">1995</span><span data-i18n="why.tl.3">Scrum : le travail sous forme de backlog, ordonné et visible.</span></li>
+    <li><span class="yr">1999</span><span data-i18n="why.tl.4">XP : les user stories, et des critères d'acceptation qui disent quand une story est terminée.</span></li>
+    <li><span class="yr">2007</span><span data-i18n="why.tl.5">Kanban pour le logiciel : un tableau qui montre ce qui est en cours.</span></li>
+    <li><span class="yr">2011</span><span data-i18n="why.tl.6">ADR, Michael Nygard : un court fichier par décision d'architecture.</span></li>
+    <li class="now"><span class="yr" data-i18n="why.tl.now.y">présent</span><span data-i18n="why.tl.now">Les agents de codage : chaque étape prend quelques minutes. Sans les artefacts, chaque session repart de zéro.</span></li>
+  </ol>
+  <a class="more" href="why-it-works/" data-i18n="method.why">En détail, avec l'histoire de l'industrie →</a>
   <div class="cards3">
     <a class="card" href="how-it-works/"><span class="card-k" data-i18n="method.k.1">méthode / 1</span><span class="card-t" data-i18n="method.t.1">Comment ça marche →</span><span class="card-d" data-i18n="method.d.1">La boucle étape par étape, les six agents et les mécanismes qui la font tenir, plutôt que la discipline.</span></a>
     <a class="card" href="why-it-works/"><span class="card-k" data-i18n="method.k.2">méthode / 2</span><span class="card-t" data-i18n="method.t.2">Pourquoi ça marche →</span><span class="card-d" data-i18n="method.d.2">ADR, backlogs, critères d'acceptation, traçabilité : des décennies de pratique, et ce qui en a toujours été coûteux.</span></a>
-    <a class="card" href="one-vault/"><span class="card-k" data-i18n="method.k.3">méthode / 3</span><span class="card-t" data-i18n="method.t.3">Un vault, plusieurs personnes →</span><span class="card-d" data-i18n="method.d.3">Plusieurs sessions, deux agents et toute une équipe sur un seul registre, et le pourquoi relu comme du code.</span></a>
+    <a class="card" href="one-vault/"><span class="card-k" data-i18n="method.k.3">méthode / 3</span><span class="card-t" data-i18n="method.t.3">Un vault, plusieurs personnes →</span><span class="card-d" data-i18n="method.d.3">Plusieurs sessions, deux agents et toute une équipe sur un seul vault, et le pourquoi relu comme du code.</span></a>
   </div>
   <p class="facts"><span><span data-fact="commands">21</span> <span data-i18n="method.f.1">commandes que l'agent exécute pour vous</span></span><span><span data-fact="agents">6</span> <span data-i18n="method.f.2">agents</span></span><span><span data-fact="languages">6</span> <span data-i18n="method.f.3">langues de templates</span></span><span><span data-fact="mcp-tools">8</span> <span data-i18n="method.f.4">outils MCP en lecture seule</span></span><span>MIT</span></p>
   <div class="stats">
@@ -364,6 +375,10 @@
     <details class="qa"><summary data-i18n="questions.summary.3">Obsidian est-il nécessaire ?</summary><p data-i18n="questions.p.4">Non. Le vault est un dossier ordinaire de fichiers Markdown. Ouvrez-le dans un éditeur, parcourez-le sur GitHub, ou utilisez Obsidian si vous aimez son graphe et son tableau. Sans le plugin, les fichiers restent tout aussi lisibles.</p></details>
     <details class="qa"><summary data-i18n="questions.summary.4">Lui arrive-t-il d'écrire sans demander ?</summary><p data-i18n="questions.p.5">Non. Chaque nouveau fichier et chaque modification vous sont d'abord montrés, avec leur chemin et leur texte complet. Puis ProjectStore attend Oui, Modifier avant d'enregistrer, ou Non. Les assistants qui observent la conversation ne font que suggérer une commande. Le seul agent capable d'écrire, le clerk, intervient après votre Oui et enregistre exactement ce que vous avez validé.</p></details>
     <details class="qa"><summary data-i18n="questions.summary.10">Que reste-t-il si je le désinstalle ?</summary><p data-i18n="questions.p.11">Votre vault, intact : c'est du Markdown dans son propre dépôt git. La liaison du projet et les modèles d'agents de l'équipe restent aussi, si bien qu'une nouvelle installation les retrouve. Le plugin Codex est enregistré pour tous les projets de la machine : le retirer est une étape à part. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#uninstalling" target="_blank" rel="noopener noreferrer">Comment le désinstaller</a></p></details>
+  </div>
+  <div class="ask ask-end">
+    <div class="ask-head"><span data-i18n="method.ask">Demandez simplement à Claude Code :</span></div>
+    <div class="quote-row"><blockquote id="ask-prompt-end" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt-end" aria-label="Copier le prompt" data-done="Copié" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
   </div>
 </section>
 

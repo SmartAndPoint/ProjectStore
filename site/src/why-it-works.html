@@ -38,11 +38,21 @@
   </ol>
 </section>
 
+<section class="sec" id="artifacts" aria-labelledby="why-art-title">
+  <div class="section-label" data-i18n="why.art.label">What the artifacts do</div>
+  <h2 id="why-art-title" data-i18n="why.art.h2">One project, many hands. <span class="acc">The same ground for all of them.</span></h2>
+  <div class="prose">
+    <p data-i18n="why.art.p.1">An ADR says what was decided and what was rejected. A spec says how it must work. An epic and its stories say what is being built and when each part is done. The board shows what is in flight.</p>
+    <p data-i18n="why.art.p.2">With them, an engineer who joins tomorrow, a reviewer from another team and an agent in a fresh session all start from what the first person knew. That is why teams that build large systems have kept these documents for decades.</p>
+  </div>
+</section>
+
 <section class="sec" id="cost" aria-labelledby="why-cost-title">
   <div class="section-label" data-i18n="why.cost.label">The expensive part</div>
   <h2 id="why-cost-title" data-i18n="why.p.4">The process was always valuable. What was expensive was <b>people running every step of it.</b></h2>
   <div class="prose">
     <p data-i18n="why.p.3">The process works. Its documents are the most valuable thing a company keeps after a project: why the system is built this way, what counted as done, where each feature lives in the code. But when people run it by hand, it is slow. An ADR takes an afternoon to write and a week to get reviewed. Documents fall behind the code. The board stops matching reality. So teams cut corners, and "agile" becomes an excuse to write nothing down.</p>
+    <p data-i18n="why.miss">Where the artifacts are missing, it looks the same with people and with agents: settled questions come back, nobody can say why the code is the way it is, and every newcomer starts by guessing.</p>
     <p data-i18n="why.p.5">Agents are the opposite. Writing an ADR, splitting an epic into stories or checking a diff against criteria takes an agent minutes, not days. What an agent lacks is what people get for free: memory between sessions, context shared with colleagues, the link from a goal to the code. Every new session starts empty and decides again what was already settled.</p>
   </div>
   <p class="equation"><span class="term-pill" data-i18n="why.eq.1">people's process</span><span>+</span><span class="term-pill" data-i18n="why.eq.2">agents' speed</span><span>=</span><span class="term-pill acc">ProjectStore</span></p>
@@ -79,6 +89,10 @@
     <li class="ok"><span class="ch-k" data-i18n="why.span.23">proof</span><span class="ch-c"><b data-i18n="why.strong.6">Evidence</b><span data-i18n="why.span.24">tests/cards.test.ts:58 · per criterion</span></span></li>
   </ol>
   <div class="prose"><p data-i18n="why.p.7">The links live in the header of each file, and the proof is a line under each acceptance criterion. The agent fills all of it in as it works. The link map shows what each document connects to. The code map shows where each epic's code lives. A new session, a new model or a new colleague starts from this chain, not from nothing.</p></div>
+  <div class="ask ask-end">
+    <div class="ask-head"><span data-i18n="method.ask">Just ask Claude Code:</span></div>
+    <div class="quote-row"><blockquote id="ask-prompt-why" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt-why" aria-label="Copy the prompt" data-done="Copied" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+  </div>
   <p class="next-pages"><a href="how-it-works/" data-i18n="why.next.1">How it works →</a><a href="one-vault/" data-i18n="why.next.2">One vault, many people →</a><a href="./#start" data-i18n="why.next.3">Install →</a></p>
 </section>
 

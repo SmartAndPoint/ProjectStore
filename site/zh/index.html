@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=7b9a5390">
+<link rel="stylesheet" href="../assets/style.css?v=7b7afa47">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
@@ -245,7 +245,7 @@
 
 <section class="sec" id="fits" aria-labelledby="fits-title">
   <div class="section-label" data-i18n="fits.span.1">04 / 它的定位</div>
-  <h2 id="fits-title" data-i18n="fits.h2.1">不是智能体记忆，也不是 spec 流水线。<br><span class="acc">而是项目的记录。</span></h2>
+  <h2 id="fits-title" data-i18n="fits.h2.1">不是智能体记忆，也不是 spec 流水线。<br><span class="acc">项目工件。</span></h2>
   <p class="lede" data-i18n="fits.p.1">编程智能体身边有三类工具。<b>每一类回答的是不同的问题。</b></p>
   <div class="table-wrap">
     <table class="grid-table">
@@ -254,7 +254,7 @@
         <tr><td data-i18n="fits.span.2">智能体记忆</td><td data-i18n="fits.h3.1">这个智能体记得什么？</td><td class="ex" data-i18n="fits.p.3">Mem0、Zep，以及 Codex 和 Claude Code 的记忆功能</td></tr>
         <tr><td data-i18n="fits.span.3">指令文件</td><td data-i18n="fits.h3.2">智能体在这里应当如何行事？</td><td class="ex" data-i18n="fits.p.5"><code>CLAUDE.md</code>、<code>AGENTS.md</code>、规则、steering 文件</td></tr>
         <tr><td data-i18n="fits.span.4">Spec 驱动的工具</td><td data-i18n="fits.h3.3">这项改动怎么实现？</td><td class="ex" data-i18n="fits.p.7">Spec Kit、Kiro、OpenSpec、BMAD</td></tr>
-        <tr class="us"><td>ProjectStore</td><td data-i18n="fits.h3.4">项目决定了什么，哪些工作正在进行，又是否经过检查？</td><td class="ex" data-i18n="fits.p.8">决策、spec 和工作项，带有状态、日期和链接，存放在 git 中。每一项都要先经人批准，ProjectStore 才会写入；按规则，每一项还会由一个没有参与撰写草稿的 critic 评审。</td></tr>
+        <tr class="us"><td>ProjectStore</td><td data-i18n="fits.h3.4">项目决定了什么，哪些工作正在进行，又是否经过检查？</td><td class="ex" data-i18n="fits.p.8">项目工件——ADR、spec、epic、story、看板——带着状态、日期和链接，存放在 git 中。每一份在 ProjectStore 写入之前都由人批准；上下文全新的 critic 按规则评审它。</td></tr>
       </tbody>
     </table>
   </div>
@@ -346,11 +346,22 @@
 
 <section class="sec" id="method" aria-labelledby="method-title">
   <div class="section-label" data-i18n="method.label">07 / 方法、证据与问题</div>
-  <h2 id="method-title" data-i18n="method.h2">由来已久的工程实践。<span class="acc">智能体让它不再昂贵。</span></h2>
+  <h2 id="method-title" data-i18n="why.h2.1">这一套，行业早就发明了。<br><span class="acc">智能体让它不再昂贵。</span></h2>
+  <p class="lede" data-i18n="why.p.1">ADR、评审、待办池、验收标准、从目标到代码的关联。成熟的工程团队这样工作已有二十年。<b>这些都不是 ProjectStore 发明的。</b></p>
+  <ol class="timeline">
+    <li><span class="yr">1969</span><span data-i18n="why.tl.1">RFC：决策被写下来并编号，然后公开讨论。</span></li>
+    <li><span class="yr">1992</span><span data-i18n="why.tl.2">DO-178B：在航空电子领域，每条需求都必须关联到代码和测试。</span></li>
+    <li><span class="yr">1995</span><span data-i18n="why.tl.3">Scrum：工作成为待办列表，有序且可见。</span></li>
+    <li><span class="yr">1999</span><span data-i18n="why.tl.4">XP：用户故事，以及说明何时算完成的验收标准。</span></li>
+    <li><span class="yr">2007</span><span data-i18n="why.tl.5">用于软件开发的看板：显示哪些工作正在进行。</span></li>
+    <li><span class="yr">2011</span><span data-i18n="why.tl.6">ADR，Michael Nygard：每个架构决策一个简短的文件。</span></li>
+    <li class="now"><span class="yr" data-i18n="why.tl.now.y">现在</span><span data-i18n="why.tl.now">编程智能体：每一步只需几分钟。没有这些工件，每个会话都从空白开始。</span></li>
+  </ol>
+  <a class="more" href="why-it-works/" data-i18n="method.why">完整的来龙去脉，从行业历史说起 →</a>
   <div class="cards3">
     <a class="card" href="how-it-works/"><span class="card-k" data-i18n="method.k.1">方法 / 1</span><span class="card-t" data-i18n="method.t.1">工作原理 →</span><span class="card-d" data-i18n="method.d.1">逐步拆解的循环、六个智能体，以及代替自觉、把这一切维系在一起的机制。</span></a>
     <a class="card" href="why-it-works/"><span class="card-k" data-i18n="method.k.2">方法 / 2</span><span class="card-t" data-i18n="method.t.2">为何有效 →</span><span class="card-d" data-i18n="method.d.2">ADR、待办池、验收标准、可追溯性：几十年的实践，以及其中一直很昂贵的部分。</span></a>
-    <a class="card" href="one-vault/"><span class="card-k" data-i18n="method.k.3">方法 / 3</span><span class="card-t" data-i18n="method.t.3">一个 vault，多人协作 →</span><span class="card-d" data-i18n="method.d.3">多个会话、两个智能体和整个团队共用一份记录，“为什么”像代码一样被评审。</span></a>
+    <a class="card" href="one-vault/"><span class="card-k" data-i18n="method.k.3">方法 / 3</span><span class="card-t" data-i18n="method.t.3">一个 vault，多人协作 →</span><span class="card-d" data-i18n="method.d.3">多个会话、两个智能体和整个团队共用一个 vault，“为什么”像代码一样被评审。</span></a>
   </div>
   <p class="facts"><span><span data-fact="commands">21</span> <span data-i18n="method.f.1">条由智能体替你运行的命令</span></span><span><span data-fact="agents">6</span> <span data-i18n="method.f.2">个智能体</span></span><span><span data-fact="languages">6</span> <span data-i18n="method.f.3">种语言的模板</span></span><span><span data-fact="mcp-tools">8</span> <span data-i18n="method.f.4">个只读 MCP 工具</span></span><span>MIT</span></p>
   <div class="stats">
@@ -364,6 +375,10 @@
     <details class="qa"><summary data-i18n="questions.summary.3">需要 Obsidian 吗？</summary><p data-i18n="questions.p.4">不需要。vault 就是一个装着 Markdown 文件的普通文件夹。可以在编辑器里打开、在 GitHub 上浏览；如果喜欢 Obsidian 的关系图谱和看板，也可以用它。没有插件，这些文件照样可读。</p></details>
     <details class="qa"><summary data-i18n="questions.summary.4">它会不经询问就写入吗？</summary><p data-i18n="questions.p.5">不会。每个新文件或每次编辑都会先展示给你，附上路径和完整内容，然后等待“是”“保存前编辑”或“否”。在一旁观察对话的辅助程序只会建议命令。唯一能写入的智能体 clerk 在你说“是”之后运行，一字不差地保存你批准的内容。</p></details>
     <details class="qa"><summary data-i18n="questions.summary.10">卸载之后还剩下什么？</summary><p data-i18n="questions.p.11">你的 vault 原封不动：它是独立 git 仓库里的纯 Markdown。项目的绑定和团队的智能体模型也会保留，重新安装时会找到它们。Codex 插件是为本机所有项目注册的，所以移除它是单独的一步。<a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#uninstalling" target="_blank" rel="noopener noreferrer">如何卸载</a></p></details>
+  </div>
+  <div class="ask ask-end">
+    <div class="ask-head"><span data-i18n="method.ask">直接对 Claude Code 说：</span></div>
+    <div class="quote-row"><blockquote id="ask-prompt-end" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt-end" aria-label="复制提示词" data-done="已复制" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
   </div>
 </section>
 

@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../../assets/icon-180.png">
-<link rel="stylesheet" href="../../assets/style.css?v=7b9a5390">
+<link rel="stylesheet" href="../../assets/style.css?v=7b7afa47">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/why-it-works/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/why-it-works/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/why-it-works/">
@@ -85,11 +85,21 @@
   </ol>
 </section>
 
+<section class="sec" id="artifacts" aria-labelledby="why-art-title">
+  <div class="section-label" data-i18n="why.art.label">O que os artefatos fazem</div>
+  <h2 id="why-art-title" data-i18n="why.art.h2">Um projeto, muitas mãos. <span class="acc">A mesma base para todas.</span></h2>
+  <div class="prose">
+    <p data-i18n="why.art.p.1">Um ADR diz o que foi decidido e o que foi descartado. Uma spec diz como deve funcionar. Um épico e suas histórias dizem o que está sendo construído e quando cada parte está pronta. O quadro mostra o que está em andamento.</p>
+    <p data-i18n="why.art.p.2">Com eles, um engenheiro que entra amanhã, um revisor de outra equipe e um agente em uma sessão nova partem todos do que a primeira pessoa sabia. Por isso as equipes que constroem sistemas grandes mantêm esses documentos há décadas.</p>
+  </div>
+</section>
+
 <section class="sec" id="cost" aria-labelledby="why-cost-title">
   <div class="section-label" data-i18n="why.cost.label">A parte cara</div>
   <h2 id="why-cost-title" data-i18n="why.p.4">O processo sempre foi valioso. O que custava caro era <b>ter pessoas executando cada passo.</b></h2>
   <div class="prose">
     <p data-i18n="why.p.3">O processo funciona. Os documentos que ele produz são o que uma empresa guarda de mais valioso depois de um projeto: por que o sistema foi construído assim, o que contava como pronto, onde cada funcionalidade está no código. Mas, feito à mão, por pessoas, ele é lento. Um ADR leva uma tarde para ser escrito e uma semana para ser revisado. Os documentos ficam defasados em relação ao código. O quadro deixa de refletir a realidade. Então as equipes pulam etapas, e o “ágil” vira desculpa para não registrar nada.</p>
+    <p data-i18n="why.miss">Onde os artefatos faltam, é igual com pessoas e com agentes: questões já resolvidas voltam, ninguém sabe dizer por que o código é como é, e todo recém-chegado começa adivinhando.</p>
     <p data-i18n="why.p.5">Com agentes, é o contrário. Escrever um ADR, dividir um épico em histórias ou conferir um diff com os critérios: um agente faz isso em minutos, não em dias. O que falta a um agente é o que as pessoas têm de graça: memória entre sessões, contexto compartilhado com os colegas, o vínculo entre o objetivo e o código. Cada nova sessão começa vazia e decide de novo o que já estava resolvido.</p>
   </div>
   <p class="equation"><span class="term-pill" data-i18n="why.eq.1">o processo das pessoas</span><span>+</span><span class="term-pill" data-i18n="why.eq.2">a velocidade dos agentes</span><span>=</span><span class="term-pill acc">ProjectStore</span></p>
@@ -126,6 +136,10 @@
     <li class="ok"><span class="ch-k" data-i18n="why.span.23">prova</span><span class="ch-c"><b data-i18n="why.strong.6">Evidência</b><span data-i18n="why.span.24">tests/cards.test.ts:58 · por critério</span></span></li>
   </ol>
   <div class="prose"><p data-i18n="why.p.7">Os vínculos ficam no cabeçalho de cada arquivo, e a evidência é uma linha abaixo de cada critério de aceitação. O agente preenche tudo isso enquanto trabalha. O mapa de vínculos mostra a que cada documento está ligado. O mapa de código mostra onde está o código de cada épico. Uma nova sessão, um novo modelo ou um novo colega começa por essa cadeia, não do zero.</p></div>
+  <div class="ask ask-end">
+    <div class="ask-head"><span data-i18n="method.ask">É só pedir ao Claude Code:</span></div>
+    <div class="quote-row"><blockquote id="ask-prompt-why" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt-why" aria-label="Copiar o prompt" data-done="Copiado" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+  </div>
   <p class="next-pages"><a href="../how-it-works/" data-i18n="why.next.1">Como funciona →</a><a href="../one-vault/" data-i18n="why.next.2">Um vault, muitas pessoas →</a><a href="../#start" data-i18n="why.next.3">Instalar →</a></p>
 </section>
 

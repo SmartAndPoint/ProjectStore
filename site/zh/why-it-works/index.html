@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../../assets/icon-180.png">
-<link rel="stylesheet" href="../../assets/style.css?v=7b9a5390">
+<link rel="stylesheet" href="../../assets/style.css?v=7b7afa47">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/why-it-works/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/why-it-works/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/why-it-works/">
@@ -85,11 +85,21 @@
   </ol>
 </section>
 
+<section class="sec" id="artifacts" aria-labelledby="why-art-title">
+  <div class="section-label" data-i18n="why.art.label">工件的作用</div>
+  <h2 id="why-art-title" data-i18n="why.art.h2">一个项目，许多双手。<span class="acc">所有人站在同一块地基上。</span></h2>
+  <div class="prose">
+    <p data-i18n="why.art.p.1">ADR 说明决定了什么、否决了什么。spec 说明它必须如何工作。epic 及其 story 说明在构建什么，每一部分何时算完成。看板显示正在进行的事。</p>
+    <p data-i18n="why.art.p.2">有了这些，明天加入的工程师、另一个团队的评审者、全新会话里的智能体，都从第一个人所知道的出发。这就是构建大型系统的团队数十年来一直维护这些文档的原因。</p>
+  </div>
+</section>
+
 <section class="sec" id="cost" aria-labelledby="why-cost-title">
   <div class="section-label" data-i18n="why.cost.label">昂贵的部分</div>
   <h2 id="why-cost-title" data-i18n="why.p.4">流程一直都有价值。昂贵的是<b>每一步都要由人来执行。</b></h2>
   <div class="prose">
     <p data-i18n="why.p.3">这套流程是有效的。项目结束后，它留下的文档是公司最有价值的资产：系统为什么这样构建，什么才算完成，每个功能在代码的什么位置。但靠人手工推进时，它很慢。写一份 ADR 要一个下午，等评审要一周。文档跟不上代码。看板和实际情况对不上。于是团队在流程上能省就省，“敏捷”成了什么都不写的借口。</p>
+    <p data-i18n="why.miss">缺少这些工件时，人和智能体的情形一样：已定的问题重新冒出来，没人说得清代码为什么是这样，每个新人都从猜测开始。</p>
     <p data-i18n="why.p.5">智能体正好相反。写一份 ADR、把 epic 拆成 story、对照标准检查 diff，智能体只需几分钟，而不是几天。智能体缺的，恰恰是人天然就有的东西：会话之间的记忆、与同事共享的上下文、从目标到代码的关联。每个新会话都从空白开始，把早已定下的事再决定一遍。</p>
   </div>
   <p class="equation"><span class="term-pill" data-i18n="why.eq.1">人的流程</span><span>+</span><span class="term-pill" data-i18n="why.eq.2">智能体的速度</span><span>=</span><span class="term-pill acc">ProjectStore</span></p>
@@ -126,6 +136,10 @@
     <li class="ok"><span class="ch-k" data-i18n="why.span.23">证明</span><span class="ch-c"><b data-i18n="why.strong.6">证据</b><span data-i18n="why.span.24">tests/cards.test.ts:58 · 每条标准一份</span></span></li>
   </ol>
   <div class="prose"><p data-i18n="why.p.7">关联写在每个文件的文件头里，证据则是每条验收标准下方的一行。这些都由智能体边工作边填写。关系图展示每份文档与哪些内容相连。代码地图说明每个 epic 的代码在哪里。新的会话、新的模型或新的同事，都从这条链开始，而不是从零开始。</p></div>
+  <div class="ask ask-end">
+    <div class="ask-head"><span data-i18n="method.ask">直接对 Claude Code 说：</span></div>
+    <div class="quote-row"><blockquote id="ask-prompt-why" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt-why" aria-label="复制提示词" data-done="已复制" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+  </div>
   <p class="next-pages"><a href="../how-it-works/" data-i18n="why.next.1">工作原理 →</a><a href="../one-vault/" data-i18n="why.next.2">一个 vault，多人协作 →</a><a href="../#start" data-i18n="why.next.3">安装 →</a></p>
 </section>
 

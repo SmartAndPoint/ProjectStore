@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=7b9a5390">
+<link rel="stylesheet" href="../assets/style.css?v=7b7afa47">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
@@ -245,7 +245,7 @@
 
 <section class="sec" id="fits" aria-labelledby="fits-title">
   <div class="section-label" data-i18n="fits.span.1">04 / Где его место</div>
-  <h2 id="fits-title" data-i18n="fits.h2.1">Не память агента. Не конвейер спек.<br><span class="acc">Записи проекта.</span></h2>
+  <h2 id="fits-title" data-i18n="fits.h2.1">Не память агента. Не конвейер спек.<br><span class="acc">Проектные артефакты.</span></h2>
   <p class="lede" data-i18n="fits.p.1">Рядом с агентом, который пишет код, работают инструменты трёх видов. <b>Каждый отвечает на свой вопрос.</b></p>
   <div class="table-wrap">
     <table class="grid-table">
@@ -254,7 +254,7 @@
         <tr><td data-i18n="fits.span.2">Память агента</td><td data-i18n="fits.h3.1">Что помнит этот агент?</td><td class="ex" data-i18n="fits.p.3">Mem0, Zep, память Codex и Claude Code</td></tr>
         <tr><td data-i18n="fits.span.3">Файлы инструкций</td><td data-i18n="fits.h3.2">Как здесь должен вести себя агент?</td><td class="ex" data-i18n="fits.p.5"><code>CLAUDE.md</code>, <code>AGENTS.md</code>, правила, steering-файлы</td></tr>
         <tr><td data-i18n="fits.span.4">Разработка по спекам</td><td data-i18n="fits.h3.3">Как нам сделать это изменение?</td><td class="ex" data-i18n="fits.p.7">Spec Kit, Kiro, OpenSpec, BMAD</td></tr>
-        <tr class="us"><td>ProjectStore</td><td data-i18n="fits.h3.4">Что проект решил, что сейчас в работе и проверено ли это?</td><td class="ex" data-i18n="fits.p.8">Решения, спеки и задачи со статусом, датой и связями — в git. Каждый документ одобряет человек, прежде чем ProjectStore его запишет; по правилу его проверяет критик, который не писал черновик.</td></tr>
+        <tr class="us"><td>ProjectStore</td><td data-i18n="fits.h3.4">Что проект решил, что сейчас в работе и проверено ли это?</td><td class="ex" data-i18n="fits.p.8">Проектные артефакты — ADR, спеки, эпики, стори, доска — со статусом, датой и связями, в git. Человек одобряет каждый, прежде чем ProjectStore его запишет; критик с чистым контекстом проверяет его по правилу.</td></tr>
       </tbody>
     </table>
   </div>
@@ -346,11 +346,22 @@
 
 <section class="sec" id="method" aria-labelledby="method-title">
   <div class="section-label" data-i18n="method.label">07 / Метод, доказательства и вопросы</div>
-  <h2 id="method-title" data-i18n="method.h2">Старая инженерная практика. <span class="acc">Агенты сделали её дешёвой.</span></h2>
+  <h2 id="method-title" data-i18n="why.h2.1">Индустрия придумала это давно.<br><span class="acc">Агенты сделали это дешёвым.</span></h2>
+  <p class="lede" data-i18n="why.p.1">ADR, ревью, бэклог, критерии приёмки, связь от цели до кода. Зрелые инженерные команды работают так уже двадцать лет. <b>ProjectStore здесь ничего не изобретает.</b></p>
+  <ol class="timeline">
+    <li><span class="yr">1969</span><span data-i18n="why.tl.1">RFC: решения записаны, пронумерованы и обсуждаются открыто.</span></li>
+    <li><span class="yr">1992</span><span data-i18n="why.tl.2">DO-178B: в авионике каждое требование должно прослеживаться до кода и до теста.</span></li>
+    <li><span class="yr">1995</span><span data-i18n="why.tl.3">Scrum: работа как упорядоченный и видимый бэклог.</span></li>
+    <li><span class="yr">1999</span><span data-i18n="why.tl.4">XP: пользовательские истории и критерии приёмки, по которым видно, что история готова.</span></li>
+    <li><span class="yr">2007</span><span data-i18n="why.tl.5">Kanban для разработки: доска, которая показывает, что в работе.</span></li>
+    <li><span class="yr">2011</span><span data-i18n="why.tl.6">ADR, Майкл Найгард: один короткий файл на каждое архитектурное решение.</span></li>
+    <li class="now"><span class="yr" data-i18n="why.tl.now.y">сейчас</span><span data-i18n="why.tl.now">Агенты для кода: каждый шаг занимает минуты. Без артефактов каждая сессия начинается с нуля.</span></li>
+  </ol>
+  <a class="more" href="why-it-works/" data-i18n="method.why">Подробнее — с историей отрасли →</a>
   <div class="cards3">
     <a class="card" href="how-it-works/"><span class="card-k" data-i18n="method.k.1">метод / 1</span><span class="card-t" data-i18n="method.t.1">Как это работает →</span><span class="card-d" data-i18n="method.d.1">Цикл шаг за шагом, шесть агентов и механизмы, на которых всё держится вместо дисциплины.</span></a>
     <a class="card" href="why-it-works/"><span class="card-k" data-i18n="method.k.2">метод / 2</span><span class="card-t" data-i18n="method.t.2">Почему это работает →</span><span class="card-d" data-i18n="method.d.2">ADR, бэклоги, критерии приёмки, трассируемость: десятилетия практики и то, что в ней всегда было дорогим.</span></a>
-    <a class="card" href="one-vault/"><span class="card-k" data-i18n="method.k.3">метод / 3</span><span class="card-t" data-i18n="method.t.3">Один vault, много людей →</span><span class="card-d" data-i18n="method.d.3">Много сессий, два агента и целая команда над одними записями, а «почему» проходит ревью, как код.</span></a>
+    <a class="card" href="one-vault/"><span class="card-k" data-i18n="method.k.3">метод / 3</span><span class="card-t" data-i18n="method.t.3">Один vault, много людей →</span><span class="card-d" data-i18n="method.d.3">Много сессий, два агента и целая команда на одном vault, а «почему» проходит ревью, как код.</span></a>
   </div>
   <p class="facts"><span><span data-fact="commands">21</span> <span data-i18n="method.f.1">команда, которую агент запускает за вас</span></span><span><span data-fact="agents">6</span> <span data-i18n="method.f.2">агентов</span></span><span><span data-fact="languages">6</span> <span data-i18n="method.f.3">языков шаблонов</span></span><span><span data-fact="mcp-tools">8</span> <span data-i18n="method.f.4">MCP-инструментов только для чтения</span></span><span>MIT</span></p>
   <div class="stats">
@@ -364,6 +375,10 @@
     <details class="qa"><summary data-i18n="questions.summary.3">Нужен ли Obsidian?</summary><p data-i18n="questions.p.4">Нет. Vault — обычная папка с файлами Markdown. Открывайте её в редакторе, смотрите на GitHub или используйте Obsidian, если вам нравятся его граф и доска. Без плагина файлы читаются так же хорошо.</p></details>
     <details class="qa"><summary data-i18n="questions.summary.4">Он когда-нибудь пишет без спроса?</summary><p data-i18n="questions.p.5">Нет. Каждый новый файл или правку вам сначала показывают: путь и весь текст. Затем ждут ответа: «Да», «Править перед сохранением» или «Нет». Помощники, которые следят за разговором, только предлагают команду. Писать может только один агент — клерк. Он запускается после вашего «да» и сохраняет ровно то, что вы одобрили.</p></details>
     <details class="qa"><summary data-i18n="questions.summary.10">Что останется, если его удалить?</summary><p data-i18n="questions.p.11">Ваш vault остаётся нетронутым: это обычный Markdown в собственном git-репозитории. Привязка проекта и модели агентов команды тоже остаются, поэтому повторная установка их найдёт. Плагин Codex зарегистрирован для всех проектов на машине, поэтому его удаление — отдельный шаг. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#uninstalling" target="_blank" rel="noopener noreferrer">Как удалить</a></p></details>
+  </div>
+  <div class="ask ask-end">
+    <div class="ask-head"><span data-i18n="method.ask">Просто попросите Claude Code:</span></div>
+    <div class="quote-row"><blockquote id="ask-prompt-end" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt-end" aria-label="Скопировать промпт" data-done="Скопировано" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
   </div>
 </section>
 

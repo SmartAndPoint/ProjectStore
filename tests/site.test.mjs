@@ -2797,10 +2797,10 @@ const PLANTED = [
   },
   {
     ac: "4",
-    what: "the prompt loses its marker",
+    what: "every prompt on the page loses its marker",
     ...onPage("en", (p) => checkRequired(p, REPO)),
     fact: "prompt",
-    edits: [[' data-fact="prompt"', ""]],
+    edits: [[' data-fact="prompt"', "", "all"]],
   },
   {
     ac: "4",
