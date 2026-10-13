@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""ProjectStore site i18n: one template, one dictionary per language, one static page per language.
+"""ProjectStore site i18n: a few templates, one dictionary per language, one static page per template
+and language.
 
     python3 tools/i18n.py build [--base-url https://projectstore.dev] [--strict]
-        Render src/index.html with every locales/<lang>.json into index.html (English, the default)
-        and <lang>/index.html for every other language. The base URL defaults to the site's own
-        address, so hreflang and canonical links are absolute; --base-url "" renders them relative.
+        Render every template in PAGES with every locales/<lang>.json. English, the default, lives at
+        the root (index.html, <slug>/index.html); every other language under <lang>/. The base URL
+        defaults to the site's own address, so hreflang, canonical and og:url links are absolute;
+        --base-url "" renders them relative. The link-preview image is always absolute.
 
     python3 tools/i18n.py extract
-        Refresh locales/en.json from the English text in the template. Run it after editing English.
+        Refresh locales/en.json from the English text in the templates. Run it after editing English.
+        A key is unique across the site: the same key in two templates must carry the same English
+        (the shared partials do, by construction).
 
     python3 tools/i18n.py check
         Report, per language: missing keys, unknown keys, markup that differs from the English,
@@ -22,7 +26,9 @@ How the template marks text:
     data-i18n-attr="name:key;name:key"  attribute values are translated (aria-label, alt, ...)
     <!--i18n:alternates-->              replaced with hreflang alternates and the canonical link
     <!--i18n:switcher-->                replaced with the language switcher
-    <!--i18n:redirect-->                replaced, on the English page only, with the root redirect
+    <!--i18n:redirect-->                replaced, on English pages only, with the language redirect
+    <!--i18n:include _name.html-->      replaced, before anything else, with src/_name.html (the
+                                        header, the footer and the icon sprite every page shares)
 
 Stdlib only, no dependencies.
 """
@@ -36,8 +42,13 @@ from collections import Counter
 from html.parser import HTMLParser
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATE = os.path.join(ROOT, "src", "index.html")
+SRC = os.path.join(ROOT, "src")
 LOCALES = os.path.join(ROOT, "locales")
+# The pages, in a fixed order (the order of locales/en.json): each template in src/ and the folder its
+# pages live in, under the root for English and under <lang>/ for the others. "" is the language root.
+PAGES = [
+    {"kind": "main", "src": "index.html", "slug": ""},
+]
 # The site's own address: hreflang and canonical links are rendered under it by default.
 BASE_URL = "https://projectstore.dev"
 # The repository's template languages (scripts/binding.mjs languageNames reads the same
@@ -211,7 +222,22 @@ def collect(src, tree):
     return inner_keys, attr_keys
 
 
-def extract_dict(src):
+INCLUDE = re.compile(r"<!--i18n:include (_[a-z0-9-]+\.html)-->\n?")
+
+
+def load_template(name):
+    """A template with its partials spliced in: the parser and every offset see one document."""
+    with open(os.path.join(SRC, name), encoding="utf-8") as f:
+        src = f.read()
+
+    def part(m):
+        with open(os.path.join(SRC, m.group(1)), encoding="utf-8") as f:
+            return f.read()
+
+    return INCLUDE.sub(part, src)
+
+
+def page_dict(src):
     tree = parse(src)
     inner_keys, attr_keys = collect(src, tree)
     d = {}
@@ -220,8 +246,23 @@ def extract_dict(src):
     for el, pairs in attr_keys:
         for name, key in pairs:
             d[key] = el.attrs.get(name, "")
+    return d
+
+
+def extract_dict(sources):
+    """The English dictionary of the whole site: every page's keys, in PAGES order."""
+    d = {}
+    for name, src in sources:
+        for k, v in page_dict(src).items():
+            if k in d and d[k] != v:
+                raise SystemExit(f"key {k} has different English in {name} and an earlier template")
+            d.setdefault(k, v)
     d.update(SPECIAL)
     return d
+
+
+def templates():
+    return [(p["src"], load_template(p["src"])) for p in PAGES]
 
 
 # --------------------------------------------------------------------------------------------
@@ -275,20 +316,28 @@ def load_locale(code):
         return json.load(f)
 
 
-def page_url(code, from_code, base_url):
+def page_path(code, slug):
+    """A page's folder under the site root: "", "de/", "how-it-works/", "de/how-it-works/"."""
+    return ("" if code == DEFAULT else f"{code}/") + (f"{slug}/" if slug else "")
+
+
+def depth(code, slug):
+    return page_path(code, slug).count("/")
+
+
+def page_url(code, from_code, slug, base_url):
+    """The address of the page `slug` in language `code`, as seen from that page in `from_code`."""
     if base_url:
-        base = base_url.rstrip("/") + "/"
-        return base if code == DEFAULT else f"{base}{code}/"
-    up = "" if from_code == DEFAULT else "../"
-    return (up or "./") if code == DEFAULT else f"{up}{code}/"
+        return base_url.rstrip("/") + "/" + page_path(code, slug)
+    return "../" * depth(from_code, slug) + page_path(code, slug) or "./"
 
 
-def alternates(code, base_url):
+def alternates(code, slug, base_url):
     lines = []
     for c, _, tag in LANGS:
-        lines.append(f'<link rel="alternate" hreflang="{tag}" href="{page_url(c, code, base_url)}">')
-    lines.append(f'<link rel="alternate" hreflang="x-default" href="{page_url(DEFAULT, code, base_url)}">')
-    lines.append(f'<link rel="canonical" href="{page_url(code, code, base_url)}">')
+        lines.append(f'<link rel="alternate" hreflang="{tag}" href="{page_url(c, code, slug, base_url)}">')
+    lines.append(f'<link rel="alternate" hreflang="x-default" href="{page_url(DEFAULT, code, slug, base_url)}">')
+    lines.append(f'<link rel="canonical" href="{page_url(code, code, slug, base_url)}">')
     return "\n".join(lines)
 
 
@@ -298,14 +347,14 @@ def alternates(code, base_url):
 LABEL_SEPARATOR = {"fr": "\u202f: ", "zh": "："}
 
 
-def switcher(code, label):
+def switcher(code, slug, label):
     native = dict((c, n) for c, n, _ in LANGS)[code]
     sep = LABEL_SEPARATOR.get(code, ": ")
     items = []
     for c, name, tag in LANGS:
         cur = ' aria-current="true"' if c == code else ""
         items.append(
-            f'<li><a href="{page_url(c, code, None)}" hreflang="{tag}" lang="{tag}" data-lang="{c}"{cur}>{name}</a></li>'
+            f'<li><a href="{page_url(c, code, slug, None)}" hreflang="{tag}" lang="{tag}" data-lang="{c}"{cur}>{name}</a></li>'
         )
     return (
         '<div class="lang-switch">'
@@ -319,8 +368,11 @@ def switcher(code, label):
     )
 
 
-def redirect_script():
+def redirect_script(slug):
+    """On an English page: go to the same page in the visitor's language, if they have a reason to want one."""
     others = ",".join(f'"{c}":1' for c, _, _ in LANGS if c != DEFAULT)
+    up = "../" * depth(DEFAULT, slug)
+    target = (f"'{up}'+t+'/{slug}/'" if slug else "t+'/'")
     return (
         "<script>(function(){"
         f"var L={{{others}}};"
@@ -329,7 +381,7 @@ def redirect_script():
         "var a=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language||''];"
         "for(var i=0;i<a.length;i++){var p=String(a[i]).toLowerCase().split('-')[0];"
         f"if(p==='{DEFAULT}')break;if(L[p]){{t=p;break;}}}}}}"
-        "if(t){location.replace(t+'/'+(location.protocol==='file:'?'index.html':'')+location.search+location.hash);}"
+        f"if(t){{location.replace({target}+(location.protocol==='file:'?'index.html':'')+location.search+location.hash);}}"
         "})();</script>"
     )
 
@@ -346,10 +398,13 @@ def asset_versions():
     return out
 
 
-REL_URL = re.compile(r"""(\s(?:href|src)=)(["'])(?!#|[a-zA-Z][a-zA-Z0-9+.-]*:|/|\.\./)""")
+# A relative href or src in a template is written from the language root (where the English main page
+# is). On a page deeper than that, it is prefixed with one "../" per level; "./" alone, the main page,
+# becomes the prefix itself.
+REL_URL = re.compile(r"""(\s(?:href|src)=)(["'])(?!#|[a-zA-Z][a-zA-Z0-9+.-]*:|/|\.\./)(\./(?=["'#?]))?""")
 
 
-def render(src, inner_keys, attr_keys, code, d, en, base_url, warn):
+def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn):
     reps = []
     for key, el in inner_keys.items():
         val = d.get(key)
@@ -374,33 +429,37 @@ def render(src, inner_keys, attr_keys, code, d, en, base_url, warn):
         out = out.replace(f'"{rel}"', f'"{rel}?v={v}"')
     tag = dict((c, t) for c, _, t in LANGS)[code]
     out = re.sub(r'<html lang="[^"]*"', f'<html lang="{tag}"', out, count=1)
-    if code != DEFAULT:
-        out = REL_URL.sub(lambda m: f"{m.group(1)}{m.group(2)}../", out)
-    out = out.replace("<!--i18n:alternates-->", alternates(code, base_url))
-    out = out.replace("<!--i18n:switcher-->", switcher(code, d.get("_lang.label") or SPECIAL["_lang.label"]))
-    out = out.replace("<!--i18n:redirect-->", redirect_script() if code == DEFAULT else "")
+    up = "../" * depth(code, slug)
+    if up:
+        out = REL_URL.sub(lambda m: f"{m.group(1)}{m.group(2)}{up}", out)
+    out = out.replace("<!--i18n:alternates-->", alternates(code, slug, base_url))
+    out = out.replace("<!--i18n:switcher-->", switcher(code, slug, d.get("_lang.label") or SPECIAL["_lang.label"]))
+    out = out.replace("<!--i18n:redirect-->", redirect_script(slug) if code == DEFAULT else "")
     return out
 
 
 def cmd_build(args):
-    with open(TEMPLATE, encoding="utf-8") as f:
-        src = f.read()
-    tree = parse(src)
-    inner_keys, attr_keys = collect(src, tree)
-    en = extract_dict(src)
+    sources = templates()
+    en = extract_dict(sources)
+    dicts = {code: (en if code == DEFAULT else load_locale(code)) for code, _, _ in LANGS}
     warn, written = [], []
-    for code, _, _ in LANGS:
-        d = en if code == DEFAULT else load_locale(code)
+    for code, d in dicts.items():
         if d is None:
             warn.append(f"{code}: no locales/{code}.json, page not built")
-            continue
-        out = render(src, inner_keys, attr_keys, code, d, en, args.base_url, warn)
-        rel = "index.html" if code == DEFAULT else os.path.join(code, "index.html")
-        path = os.path.join(ROOT, rel)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(out)
-        written.append(rel)
+    for page, (_, src) in zip(PAGES, sources):
+        tree = parse(src)
+        inner_keys, attr_keys = collect(src, tree)
+        for code, _, _ in LANGS:
+            d = dicts[code]
+            if d is None:
+                continue
+            out = render(src, inner_keys, attr_keys, code, page["slug"], d, en, args.base_url, warn)
+            rel = page_path(code, page["slug"]) + "index.html"
+            path = os.path.join(ROOT, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(out)
+            written.append(rel)
     # The old /en/ address now points at the root, where English lives.
     stub = os.path.join(ROOT, "en", "index.html")
     os.makedirs(os.path.dirname(stub), exist_ok=True)
@@ -417,8 +476,7 @@ def cmd_build(args):
 
 
 def cmd_extract(args):
-    with open(TEMPLATE, encoding="utf-8") as f:
-        d = extract_dict(f.read())
+    d = extract_dict(templates())
     os.makedirs(LOCALES, exist_ok=True)
     with open(os.path.join(LOCALES, "en.json"), "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False, indent=2)
@@ -439,8 +497,7 @@ def bind_lang_problem(code, value):
 
 
 def cmd_check(args):
-    with open(TEMPLATE, encoding="utf-8") as f:
-        en = extract_dict(f.read())
+    en = extract_dict(templates())
     snapshot = load_locale("en") or {}
     problems = 0
     bad = bind_lang_problem(DEFAULT, en.get(BIND_LANG))
