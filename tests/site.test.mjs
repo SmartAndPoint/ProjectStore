@@ -1604,6 +1604,40 @@ test("site AC 4: the status-line screenshot is the repository's own", () => {
   assert.deepEqual(found, [], show(found));
 });
 
+// The prose keys the story "Install, first run, configure, daily work and
+// removal read the same in the README, docs, the site in eight languages and
+// the in-session texts" (PS-HARNESS) added: each in every dictionary, and
+// translated, not the English copied. Per change, not a blanket rule: brand
+// names and code legitimately equal the English in many other keys.
+const TRANSLATED = ["start.span.17", "start.span.18", "start.p.5", "questions.summary.10", "questions.p.11"];
+function checkTranslated(keys, en, dicts) {
+  const out = [];
+  for (const [lang, dict] of Object.entries(dicts))
+    for (const k of keys) {
+      const file = `site/locales/${lang}.json`;
+      if (!(k in dict)) out.push(finding(file, `translation:${k}`, `${k} is missing`));
+      else if (dict[k] === en[k]) out.push(finding(file, `translation:${k}`, `${k} is the English text`));
+    }
+  return out;
+}
+const dictionaries = () =>
+  Object.fromEntries(
+    readdirSync(join(SITE, "locales"))
+      .filter((n) => n.endsWith(".json") && n !== "en.json")
+      .map((n) => [n.replace(/\.json$/, ""), JSON.parse(read(join(SITE, "locales", n)))]),
+  );
+
+test("site: the instructions story's keys are translated in all seven other dictionaries; a key set back to English is one finding", () => {
+  const en = JSON.parse(read(join(SITE, "locales", "en.json")));
+  const dicts = dictionaries();
+  assert.equal(Object.keys(dicts).length, 7);
+  assert.deepEqual(checkTranslated(TRANSLATED, en, dicts), []);
+  const planted = { ...dicts, ru: { ...dicts.ru, "start.p.5": en["start.p.5"] } };
+  const found = checkTranslated(TRANSLATED, en, planted);
+  assert.equal(found.length, 1);
+  assert.match(JSON.stringify(found[0]), /site\/locales\/ru\.json.*translation:start\.p\.5/);
+});
+
 test("site AC 4: the llms files state the facts in their fixed shape, link every page, and resolve every link on the site", () => {
   const found = LLMS.flatMap((f) => [...checkLlmsFacts(f, read(f), REPO), ...checkLlmsLinks(f, read(f), LANGS)]);
   assert.deepEqual(found, [], show(found));
@@ -1982,7 +2016,7 @@ const PLANTED = [
     ...onPage("pt", (p) => checkVersion(p, REPO)),
     fact: "version",
     message: /package\.json is/,
-    edits: [['data-fact="version">v0.30.0</span></div>', 'data-fact="version">v0.28.0</span></div>']],
+    edits: [['data-fact="version">v0.30.1</span></div>', 'data-fact="version">v0.28.0</span></div>']],
   },
   {
     ac: "4",
@@ -1990,7 +2024,7 @@ const PLANTED = [
     ...onPage("ru", (p) => checkVersion(p, REPO)),
     fact: "version",
     message: /outside a data-fact="version"/,
-    edits: [['<title data-i18n="meta.title">ProjectStore —', '<title data-i18n="meta.title">ProjectStore v0.30.0 —']],
+    edits: [['<title data-i18n="meta.title">ProjectStore —', '<title data-i18n="meta.title">ProjectStore v0.30.1 —']],
   },
   {
     ac: "4",
@@ -2005,8 +2039,8 @@ const PLANTED = [
     what: "llms-full.txt's closing line names another release",
     ...onText(LLMS_FULL, (f, t) => checkVersionText(f, t, REPO)),
     fact: "version",
-    message: /Version 0\.29\.4/,
-    edits: [["Version 0.30.0. Facts and figures", "Version 0.29.4. Facts and figures"]],
+    message: /Version 0\.30\.0/,
+    edits: [["Version 0.30.1. Facts and figures", "Version 0.30.0. Facts and figures"]],
   },
   {
     ac: "4",
@@ -2135,8 +2169,8 @@ const PLANTED = [
     message: /a value fact is a leaf/,
     edits: [
       [
-        '<span class="version-badge" data-fact="version">v0.30.0</span>',
-        '<span class="version-badge" data-fact="version"><b>v0.30.0</b></span>',
+        '<span class="version-badge" data-fact="version">v0.30.1</span>',
+        '<span class="version-badge" data-fact="version"><b>v0.30.1</b></span>',
       ],
     ],
   },
@@ -2246,7 +2280,7 @@ const PLANTED = [
     what: "llms.txt's facts heading names another release",
     ...onText(LLMS_TXT, (f, t) => checkLlmsFacts(f, t, REPO)),
     fact: "version",
-    edits: [["**Facts about version 0.30.0.**", "**Facts about version 0.29.4.**"]],
+    edits: [["**Facts about version 0.30.1.**", "**Facts about version 0.30.0.**"]],
   },
   {
     ac: "4",

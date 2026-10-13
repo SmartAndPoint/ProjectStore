@@ -651,7 +651,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
     </div>
 
     <div class="roster-wrap">
-      <div class="roster-head"><span><span data-i18n="agents.span.2">Rôles livrés avec le plugin</span> · <span data-fact="version">v0.30.0</span></span><span data-i18n="agents.span.3">le modèle se règle par agent</span></div>
+      <div class="roster-head"><span><span data-i18n="agents.span.2">Rôles livrés avec le plugin</span> · <span data-fact="version">v0.30.1</span></span><span data-i18n="agents.span.3">le modèle se règle par agent</span></div>
       <table class="roster">
         <thead><tr><th data-i18n="agents.th.1">Agent</th><th data-i18n="agents.th.2">Quand il intervient</th><th data-i18n="agents.th.3">Ce qu'il fait</th><th data-i18n="agents.th.4">Modèle par défaut</th></tr></thead>
         <tbody>
@@ -681,7 +681,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
       </div>
     </div>
 
-    <div class="support-heading"><span data-i18n="agents.span.12">Disponible aujourd'hui</span><span class="version-badge" data-fact="version">v0.30.0</span></div>
+    <div class="support-heading"><span data-i18n="agents.span.12">Disponible aujourd'hui</span><span class="version-badge" data-fact="version">v0.30.1</span></div>
     <div class="support-grid">
       <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.14">Plugin natif</span> · <span data-fact="harness-status:claude-code">supported</span></span><h3 data-i18n="agents.h3.4">Claude Code</h3><p data-i18n="agents.p.6">Toutes les commandes et tous les agents, des rappels automatiques, la ligne de statut et la configuration du vault. Le point d'entrée tout prêt dans la boucle.</p></article>
       <article><span class="support-state"><svg class="icon sm"><use href="#i-check"/></svg> <span data-i18n="agents.span.17">Plugin natif</span> · <span data-fact="harness-status:codex">experimental</span></span><h3>Codex</h3><p data-i18n="agents.p.11">Les commandes et les rôles sous forme de skills, avec des hooks de cycle de vie et le bloc des agents : <code>$projectstore-doctor</code> et <code>$projectstore-critic</code> sont deux de ces skills. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> indique ce qui a été vérifié jusqu'ici.</p></article>
@@ -731,6 +731,13 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
 <pre id="install-setup" data-fact="install"><code>npx projectstore setup</code></pre>
           <button class="copy-button" type="button" data-copy-from="install-setup" data-done="Copié" data-i18n-attr="data-done:start.data-done.2"><svg class="icon sm"><use href="#i-copy"/></svg> <span data-i18n="start.span.11">Copier</span></button>
           <p class="install-note" data-i18n="start.p.4">Elle repère Claude Code et Codex dans le projet, demande où placer le vault, puis affiche, avant toute écriture, un seul plan listant chaque fichier et chaque commande. Redémarrez ensuite l'agent ; Codex vous demande une seule fois d'approuver les hooks de ProjectStore. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md#codex" target="_blank" rel="noopener noreferrer">docs/harnesses.md</a> indique ce qui a été vérifié pour Codex jusqu'ici.</p>
+          <span class="terminal-context" data-i18n="start.span.17">Ou avec un autre exécuteur de paquets</span>
+<pre id="install-runners" data-fact="install"><code>bunx projectstore@latest setup
+pnpm dlx projectstore@latest setup
+deno run -A npm:projectstore@latest setup</code></pre>
+          <span class="terminal-context" data-i18n="start.span.18">Après l'installation, pour changer un réglage</span>
+<pre id="install-configure" data-fact="install"><code>npx projectstore configure</code></pre>
+          <p class="install-note" data-i18n="start.p.5">Pour mettre à jour ou désinstaller, voyez <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#upgrading" target="_blank" rel="noopener noreferrer">Upgrading</a> et <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#uninstalling" target="_blank" rel="noopener noreferrer">Uninstalling</a> dans le README. La désinstallation conserve le vault.</p>
         </div>
         <div class="tab-panel install-panel block" role="tabpanel" data-panel="claude" id="in-p1" aria-labelledby="in-t1">
           <span class="terminal-context" data-i18n="start.span.8">Tapez les commandes dans Claude Code</span>
@@ -784,6 +791,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
     <details class="faq-item"><summary data-i18n="questions.summary.7">Où va le contexte du projet ?</summary><div class="faq-content"><p data-i18n="questions.p.8">ProjectStore n'a besoin d'aucun serveur : le vault vit là où vous le mettez. Les fichiers que lit l'agent et ce qui parvient au fournisseur du modèle dépendent de votre harness et de ses permissions. Gardez les secrets hors des documents du projet et vérifiez les règles d'accès de votre équipe.</p></div></details>
     <details class="faq-item"><summary data-i18n="questions.summary.8">Les vérifications sont-elles gratuites ?</summary><div class="faq-content"><p data-i18n="questions.p.9">Non. Les passages du critic et du reviewer consomment le budget de votre modèle : <span data-source="README.md#what-it-costs--measured-not-promised">22,5 %</span> des dépenses sur le dépôt ProjectStore lui-même, en général <span data-source="README.md#what-it-costs--measured-not-promised">10–15 %</span> d'une limite hebdomadaire. Les vérifications de routine, <code>doctor</code> et <code>reconcile</code>, n'utilisent pas d'IA. Adaptez la profondeur du processus au risque du changement.</p></div></details>
     <details class="faq-item"><summary data-i18n="questions.summary.9">Et si nous passions de Claude Code à un autre agent ?</summary><div class="faq-content"><p data-i18n="questions.p.10">Rien n'est perdu : le vault est du simple Markdown dans git. La partie automatique, à savoir les commandes, les rôles et les rappels, s'installe dans Claude Code et dans Codex, et les deux peuvent travailler côte à côte sur un même projet. Tout autre agent lit les mêmes faits via la CLI ou le serveur MCP.</p></div></details>
+    <details class="faq-item"><summary data-i18n="questions.summary.10">Que reste-t-il si je le désinstalle ?</summary><div class="faq-content"><p data-i18n="questions.p.11">Votre vault, intact : c'est du Markdown dans son propre dépôt git. La liaison du projet et les modèles d'agents de l'équipe restent aussi, si bien qu'une nouvelle installation les retrouve. Le plugin Codex est enregistré pour tous les projets de la machine : le retirer est une étape à part. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#uninstalling" target="_blank" rel="noopener noreferrer">Comment le désinstaller</a></p></div></details>
   </div>
 </section>
 
@@ -791,7 +799,7 @@ projectstore: this session looks like <span class="a">"<span data-slug="story:se
 
 <footer class="site-footer">
   <div class="wrap footer-top"><a class="footer-wordmark" href="#main"><svg class="icon lg"><use href="#i-layers"/></svg> <span data-i18n="footer.span.1">projectstore.</span></a><span data-i18n="footer.span.2">Le bon code laisse du contexte derrière lui.</span><a href="https://github.com/SmartAndPoint/ProjectStore" target="_blank" rel="noopener noreferrer"><span data-i18n="footer.span.3">GitHub</span> <svg class="icon"><use href="#i-up-right"/></svg></a></div>
-  <div class="wrap footer-bottom"><span data-i18n="footer.span.4">Open source · MIT · Evgenii Konev, SmartAndPoint</span><span><span data-fact="version">v0.30.0</span> · <span data-i18n="footer.span.5">chaque chiffre mesuré cite le passage du README ou de la documentation dont il provient ; les exemples sont donnés à titre d'illustration</span></span><a href="../llms.txt" data-i18n="footer.a.1">llms.txt</a><a href="../llms-full.txt" data-i18n="footer.a.2">llms-full.txt</a><a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" target="_blank" rel="noopener noreferrer"><svg class="icon sm"><use href="#i-book"/></svg> <span data-i18n="footer.span.6">Documentation</span></a></div>
+  <div class="wrap footer-bottom"><span data-i18n="footer.span.4">Open source · MIT · Evgenii Konev, SmartAndPoint</span><span><span data-fact="version">v0.30.1</span> · <span data-i18n="footer.span.5">chaque chiffre mesuré cite le passage du README ou de la documentation dont il provient ; les exemples sont donnés à titre d'illustration</span></span><a href="../llms.txt" data-i18n="footer.a.1">llms.txt</a><a href="../llms-full.txt" data-i18n="footer.a.2">llms-full.txt</a><a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" target="_blank" rel="noopener noreferrer"><svg class="icon sm"><use href="#i-book"/></svg> <span data-i18n="footer.span.6">Documentation</span></a></div>
 </footer>
 
 <script src="../assets/site.js?v=090fc6ec"></script>
