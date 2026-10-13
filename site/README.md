@@ -16,12 +16,15 @@ goal to proof) and *One vault, many people* (sessions, teams and agents on one v
 git, a team setup).
 
 **The look** is a translucent terminal window in midnight blue: a soft glow fixed behind the page
-shows through panels in a translucent tint. Graphite is the second tone, chosen in the header. One
+shows through panels in a translucent tint. Graphite and a light tone in cream paper are the second
+and third, chosen in the header. One
 amber accent; mono for labels, code and the terminal box; Onest for headlines and body; diagrams with real connectors in the colours of the narrated film (amber for
 what lands and for you, red for an independent check, blue for the planner and for participants,
 green for done). Every colour is a token on `:root` in `assets/style.css`: midnight's values, and
-graphite's under their own names, which `:root[data-tone="graphite"]` points the surface tokens at,
-inside `@media screen`. `--bg` is the opaque base, `--bg-1` to `--bg-4` are the translucent panels,
+graphite's and light's under their own names (`--graphite-*`, `--light-*`), which
+`:root[data-tone="graphite"]` and `:root[data-tone="light"]` point tokens at, inside `@media screen`.
+A dark tone changes the surfaces only; light also recolours the text, the accent and the roles, and
+sets `color-scheme: light`. `--bg` is the opaque base, `--bg-1` to `--bg-4` are the translucent panels,
 `--bg-0` a well inside one, and `--bg-pop` the opaque surface of a menu. Print gets light tokens and
 no glow, and `prefers-reduced-motion` stops every animation. The brand is the repository's social-preview
 mark and the wordmark `.projectstore`.
@@ -83,9 +86,11 @@ switcher, the page stays English. Agents and crawlers run no JavaScript and alwa
 
 The tone switch in the header keeps the visitor's choice in `localStorage` under `ps_tone`. The
 early script, `src/_tone.html`, reads it before the first paint, sets `data-tone` on `<html>` and
-the `theme-color` from the computed `--bg`, so a page in graphite never shows midnight first.
-Without JavaScript, or without storage, a page is midnight, and without JavaScript the switch is
-not shown.
+the `theme-color` from the computed `--bg`, so a page in graphite or light never shows midnight
+first. Without JavaScript, or without storage, a page is midnight, and without JavaScript the switch
+is not shown. Below 1200 px the page links leave the header row for a second row under it, so the
+row with the switch, the language and the star never wraps in any language; below 400 px that row
+tightens, so it fits from 360 px.
 
 How the templates mark text:
 
@@ -178,11 +183,15 @@ The test also holds, on the English pages, a word budget (the main page at most 
 a method page at most 1,100); on every page, the link-preview tags; in `assets/style.css`, colours
 only as tokens on `:root` (print aside); and in the templates, no colour literal in a `fill`,
 `stroke`, `stop-color` or `style` attribute (`<meta name="theme-color">` aside). For the tones it
-holds that a tone rule sits inside `@media screen` and points only surface tokens at tokens `:root`
-declares; that the base and the menus are opaque in every tone; that `--ink` to `--ink-4` keep
-4.5:1, and `--ink-5` the ratio it had on black, over each tone's lightest panel on its glow; and
-that every page ships in midnight, with the switch and the early script, its `theme-color` the
-`:root` `--bg`.
+holds that a tone rule sits inside `@media screen` and points tokens at tokens `:root` declares: a
+dark tone surface tokens only, a light one (its `--bg` above 0.5 luminance) the text and roles too,
+with `color-scheme: light`; that the base and the menus are opaque in every tone; that every text
+colour keeps its floor at its lowest over the surfaces text sits on (`--ink` to `--ink-4`, the
+accent and the roles 4.5:1, `--ink-5` the ratio it had on black, the text on the accent 4.5:1 on
+it); that every page ships in midnight, with the switch and the early script, its `theme-color` the
+`:root` `--bg`; and that the early script, run in `node:vm`, sets each tone the switch offers and
+midnight for anything else. It also holds that the page links and the header's second row switch
+under one media query.
 
 ## Freshness
 

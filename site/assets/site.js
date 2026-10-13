@@ -162,7 +162,7 @@
     });
   }
 
-  /* ---------- tone switch: midnight or graphite, remembered in localStorage ----------
+  /* ---------- tone switch: midnight, graphite or light, remembered in localStorage ----------
      The early script in <head> applies the saved tone before the first paint; this keeps the
      buttons and theme-color in step, and re-reads the choice when the page returns from the
      back-forward cache. theme-color is read from the computed --bg, never written here. */
@@ -176,8 +176,10 @@
       toneBtns.forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-tone-set") === tone ? "true" : "false"); });
       if (themeMeta) themeMeta.setAttribute("content", getComputedStyle(docEl).getPropertyValue("--bg").trim());
     };
+    // a stored tone counts only if a button offers it, so this script keeps no list of tones
+    var offered = function (tone) { return toneBtns.some(function (b) { return b.getAttribute("data-tone-set") === tone; }); };
     var savedTone = function () {
-      try { return localStorage.getItem("ps_tone") === "graphite" ? "graphite" : "midnight"; } catch (e) { return docEl.getAttribute("data-tone") || "midnight"; }
+      try { var s = localStorage.getItem("ps_tone"); return offered(s) ? s : "midnight"; } catch (e) { return docEl.getAttribute("data-tone") || "midnight"; }
     };
     applyTone(savedTone());
     toneBtns.forEach(function (b) {

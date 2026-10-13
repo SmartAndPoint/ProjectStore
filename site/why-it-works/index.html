@@ -9,8 +9,8 @@
 <meta name="theme-color" content="#080d19">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=1b045985">
-<script>(function(){var d=document.documentElement,t="midnight";try{if(localStorage.getItem("ps_tone")==="graphite")t="graphite";}catch(e){}d.setAttribute("data-tone",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
+<link rel="stylesheet" href="../assets/style.css?v=fb8704f6">
+<script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="light")t=s;}catch(e){}d.setAttribute("data-tone",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/why-it-works/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/why-it-works/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/why-it-works/">
@@ -57,7 +57,7 @@
       <a class="page-link" data-nav="how-it-works" href="../how-it-works/" data-i18n="nav.how">How it works</a>
       <a class="page-link" data-nav="why-it-works" href="../why-it-works/" data-i18n="nav.why">Why it works</a>
       <a class="page-link" data-nav="one-vault" href="../one-vault/" data-i18n="nav.vault">One vault, many people</a>
-      <div class="tone-switch" role="group" aria-label="Background tone" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="true" aria-label="Midnight" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="Graphite" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button></div>
+      <div class="tone-switch" role="group" aria-label="Background tone" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="true" aria-label="Midnight" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="Graphite" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="light" aria-pressed="false" aria-label="Light" data-i18n-attr="aria-label:nav.tone.light"><span class="sw sw-light" aria-hidden="true"></span></button></div>
       <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="Language: English"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>EN</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../why-it-works/" hreflang="en" lang="en" data-lang="en" aria-current="true">English</a></li><li><a href="../de/why-it-works/" hreflang="de" lang="de" data-lang="de">Deutsch</a></li><li><a href="../es/why-it-works/" hreflang="es" lang="es" data-lang="es">Español</a></li><li><a href="../fr/why-it-works/" hreflang="fr" lang="fr" data-lang="fr">Français</a></li><li><a href="../pt/why-it-works/" hreflang="pt-BR" lang="pt-BR" data-lang="pt">Português</a></li><li><a href="../ru/why-it-works/" hreflang="ru" lang="ru" data-lang="ru">Русский</a></li><li><a href="../uk/why-it-works/" hreflang="uk" lang="uk" data-lang="uk">Українська</a></li><li><a href="../zh/why-it-works/" hreflang="zh-CN" lang="zh-CN" data-lang="zh">中文</a></li></ul></div>
       <a class="star" href="https://github.com/SmartAndPoint/ProjectStore"><span aria-hidden="true">★</span> <span data-i18n="nav.star">Star</span></a>
     </nav>
@@ -155,6 +155,6 @@
   </div>
 </footer>
 
-<script src="../assets/site.js?v=c853f03b"></script>
+<script src="../assets/site.js?v=f52bc9e4"></script>
 </body>
 </html>

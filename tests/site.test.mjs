@@ -48,6 +48,7 @@ import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { runInNewContext } from "node:vm";
 import { sourceNames, invocationPatterns, stripComments } from "./fixtures/vocabulary.mjs";
 import { markdownLines, cut, unprompt, npxCommand } from "./fixtures/markdown.mjs";
 import { VERBS } from "../scripts/cli.mjs";
@@ -1521,7 +1522,7 @@ function checkPreviewImage(file, buf) {
       ];
 }
 
-// AC "Dark on tokens": a colour is a token. A hex, rgb(), hsl() (or another
+// AC "On tokens": a colour is a token. A hex, rgb(), hsl() (or another
 // colour function) or a named CSS colour is a literal; transparent and
 // currentColor name no colour of the palette.
 const NAMED_COLOURS = new Set(
@@ -1667,14 +1668,20 @@ function toneRules(blocks, media = null) {
   return blocks.flatMap((b) => {
     if (b.head.startsWith("@")) return toneRules(b.blocks, b.head.startsWith("@media") ? b.head : media);
     const tone = /\[data-tone="([a-z]+)"\]/.exec(b.head)?.[1];
-    return tone ? [{ tone, head: b.head, media, tokens: declarations(b.body) }] : [];
+    const scheme = /(?:^|;)\s*color-scheme\s*:\s*([^;]+)/.exec(b.body)?.[1].trim() ?? null;
+    return tone ? [{ tone, head: b.head, media, scheme, tokens: declarations(b.body) }] : [];
   });
 }
 const DEFAULT_TONE = "midnight";
 const TONE_KEY = "ps_tone";
 // What a tone may change: the surfaces (a role's tint on a panel among them),
-// the lines, the header tint and the glow.
+// the lines, the header tint and the glow. A light tone may also recolour what
+// midnight's values would leave unreadable on its ground: the inks, the accent
+// family and the text on the accent, the roles with their lines and glows, the
+// experimental and epic marks, the menu shadow and the wordmark's dot.
 const TONE_TOKENS = /^--(?:bg(?:-[0-4]|-pop)?|dot|line-[1-5]|glow-[1-3]|head-bg|(?:accent|check|plan|done)-bg)$/;
+const LIGHT_TOKENS =
+  /^--(?:ink(?:-hi|-[2-5])?|on-accent|accent(?:-soft|-glow|-row)?|check(?:-glow)?|(?:plan|done)(?:-line|-glow)?|exp(?:-line)?|epic|shade|brand)$/;
 const WASHES = ["--accent-bg", "--check-bg", "--plan-bg", "--done-bg"];
 // Each tone's tokens, resolved: the palette, with the tone's rule over it.
 const toneSets = (css) => {
@@ -1697,11 +1704,19 @@ function rgba(value) {
   const at = (i) => parseInt(m[1].slice(i, i + 2), 16);
   return { r: at(0), g: at(2), b: at(4), a: m[2] ? parseInt(m[2], 16) / 255 : 1 };
 }
+// A tone is light when its resolved base is: a luminance above 0.5.
+const isLight = (tokens) => {
+  const bg = rgba(resolveToken(tokens, "--bg"));
+  return !!bg && luminance(bg) > 0.5;
+};
 
-// AC "Still on tokens" and "A translucent terminal window": a tone rule sits
-// inside @media screen (in print, :root[data-tone] would out-rank the white
-// palette), sets only surface tokens, and points each at a token :root
-// declares. In every tone the surfaces that cover the page — the base, the
+// AC "Still on tokens", "A translucent terminal window" and "A light tone may
+// recolour text; a dark one may not": a tone rule sits inside @media screen
+// (in print, :root[data-tone] would out-rank the white palette) and points
+// each token it sets at a token :root declares. A dark tone sets surface
+// tokens only and does not declare color-scheme: light; a light tone declares
+// it and may set the light tokens too. One finding per rule, naming all it
+// breaks. In every tone the surfaces that cover the page — the base, the
 // menus — are opaque, and the header's tint is at least as dense as d1. The
 // switch is hidden until the early script has set data-tone, so a page
 // without the script shows none.
@@ -1710,17 +1725,24 @@ function checkTones(file, css) {
   const root = rootTokens(blocks);
   const out = [];
   for (const r of toneRules(blocks)) {
+    const light = isLight({ ...root, ...r.tokens });
+    const broken = [];
     if (!/^@media\s+screen\b/i.test(r.media ?? ""))
-      out.push(finding(file, "tone", `${r.head} sits outside @media screen; in print it would beat the white palette`));
+      broken.push("sits outside @media screen; in print it would beat the white palette");
+    if (light && r.scheme !== "light") broken.push("is a light tone and declares no color-scheme: light");
+    if (!light && r.scheme === "light") broken.push("is a dark tone and declares color-scheme: light");
     for (const [name, value] of Object.entries(r.tokens)) {
       const ref = /^var\((--[\w-]+)\)$/.exec(value)?.[1];
-      if (!TONE_TOKENS.test(name))
-        out.push(
-          finding(file, "tone", `${r.head} sets ${name}; a tone changes surfaces, lines, the header tint and the glow`),
+      if (!TONE_TOKENS.test(name) && !(light && LIGHT_TOKENS.test(name)))
+        broken.push(
+          light
+            ? `sets ${name}; a light tone changes surfaces, lines, the header tint, the glow, the text and the roles`
+            : `sets ${name}; a dark tone changes surfaces, lines, the header tint and the glow`,
         );
       else if (!(name in root) || !ref || !(ref in root))
-        out.push(finding(file, "tone", `${r.head} sets ${name}: ${value}; a tone points a declared token at another`));
+        broken.push(`sets ${name}: ${value}; a tone points a declared token at another`);
     }
+    if (broken.length) out.push(finding(file, "tone", `${r.head} ${broken.join("; and it ")}`));
   }
   for (const [tone, tokens] of toneSets(css)) {
     for (const name of ["--bg", "--bg-pop"]) {
@@ -1745,12 +1767,17 @@ function checkTones(file, css) {
   return out;
 }
 
-// AC "Still readable": WCAG contrast against each tone's worst case — every
-// glow colour at full strength over the base, the lightest panel over that
-// (a chip on the terminal, and a node, plain or in a role's tint, inside a
-// diagram, included). --ink to --ink-4 keep 4.5:1; --ink-5, the fine print,
-// keeps the ratio it had on black's --bg-4 (#171a15) when black was the
-// site's palette. One finding per tone: its worst ink.
+// AC "Still readable" and "Readable in every tone": WCAG contrast of each text
+// colour at its lowest over the surfaces text sits on, composed from each
+// tone's tokens — the base, plain and under each glow on its own (the glows
+// sit in different corners and never overlap at full strength); every panel,
+// menu and role tint over all the glows stacked; a well on the page and inside
+// a card; a chip on the terminal; a node, plain or in a role's tint, inside a
+// diagram. --ink to --ink-4 and the colours of small text keep 4.5:1; --ink-5,
+// the fine print, keeps the ratio it had on black's --bg-4 (#171a15) when
+// black was the site's palette; the wordmark's dot, a 19 px bold glyph,
+// keeps 3:1; the text on the accent keeps 4.5:1 on it.
+// One finding per tone: its worst colour against its floor.
 const INK5_FLOOR = 3.69;
 const luminance = ({ r, g, b }) =>
   [r, g, b]
@@ -1767,29 +1794,43 @@ const over = (top, under) => ({
   b: top.b * top.a + under.b * (1 - top.a),
   a: 1,
 });
+const TEXT_FLOORS = [
+  ...["--ink", "--ink-2", "--ink-3", "--ink-4"].map((n) => [n, 4.5]),
+  ["--ink-5", INK5_FLOOR],
+  ...["--accent", "--check", "--plan", "--done", "--exp", "--epic"].map((n) => [n, 4.5]),
+  ["--brand", 3],
+];
 function checkToneContrast(file, css) {
   const out = [];
   for (const [tone, tokens] of toneSets(css)) {
     const colour = (name) => rgba(resolveToken(tokens, name));
-    const glows = Object.keys(tokens).filter((n) => /^--glow-\d$/.test(n));
-    const lit = glows.map(colour).reduce((under, g) => (g ? over(g, under) : under), colour("--bg"));
-    const surfaces = ["--bg-1", "--bg-2", "--bg-3", "--bg-4", "--bg-pop", ...WASHES].map((n) => over(colour(n), lit));
-    // a chip on the terminal; a node, plain or in a role's tint, in a diagram or on the rail
+    const base = colour("--bg");
+    const glows = Object.keys(tokens)
+      .filter((n) => /^--glow-\d$/.test(n))
+      .map(colour)
+      .filter(Boolean);
+    const lit = glows.reduce((under, g) => over(g, under), base);
     const inPanel = over(colour("--bg-1"), lit);
-    surfaces.push(over(colour("--bg-4"), over(colour("--bg-3"), lit)));
-    surfaces.push(...["--bg-3", ...WASHES].map((n) => over(colour(n), inPanel)));
-    const worst = surfaces.reduce((a, s) => (luminance(s) > luminance(a) ? s : a));
+    const inCard = over(colour("--bg-2"), lit);
+    const surfaces = [
+      base,
+      ...glows.map((g) => over(g, base)),
+      ...["--bg-1", "--bg-2", "--bg-3", "--bg-4", "--bg-pop", ...WASHES].map((n) => over(colour(n), lit)),
+      over(colour("--bg-0"), lit),
+      over(colour("--bg-0"), inCard),
+      over(colour("--bg-4"), over(colour("--bg-3"), lit)),
+      ...["--bg-3", ...WASHES].map((n) => over(colour(n), inPanel)),
+    ];
+    const lowest = (c) => Math.min(...surfaces.map((s) => contrast(c, s)));
     const short = [
-      ...["--ink", "--ink-2", "--ink-3", "--ink-4"].map((n) => [n, contrast(colour(n), worst), 4.5]),
-      ["--ink-5", contrast(colour("--ink-5"), worst), INK5_FLOOR],
+      ...TEXT_FLOORS.map(([n, floor]) => [n, lowest(colour(n)), floor, "at its lowest"]),
+      ["--on-accent", contrast(colour("--on-accent"), colour("--accent")), 4.5, "on --accent"],
     ]
       .filter(([, r, floor]) => r < floor)
       .sort((a, b) => a[1] / a[2] - b[1] / b[2]);
     if (short.length) {
-      const [name, r, floor] = short[0];
-      out.push(
-        finding(file, "contrast", `${tone}: ${name} is ${r.toFixed(2)}:1 on its lightest surface; at least ${floor}`),
-      );
+      const [name, r, floor, where] = short[0];
+      out.push(finding(file, "contrast", `${tone}: ${name} is ${r.toFixed(2)}:1 ${where}; at least ${floor}`));
     }
   }
   return out;
@@ -1825,6 +1866,14 @@ function checkTonePage(page, tones, bg) {
       else if (!named(p) || !("aria-pressed" in p.attrs))
         out.push(finding(page.file, "tone-switch", `the ${tone} position has no aria-label or no aria-pressed`));
     }
+    for (const p of positions.filter((el) => !tones.includes(el.attrs["data-tone-set"])))
+      out.push(
+        finding(
+          page.file,
+          "tone-switch",
+          `the switch offers ${p.attrs["data-tone-set"]}, which the stylesheet does not declare`,
+        ),
+      );
   }
   const headEnd = page.html.indexOf("</head>");
   const sheet = page.html.search(/<link rel="stylesheet"/);
@@ -1853,6 +1902,75 @@ function checkToneKey(file, js, early) {
       .filter((k) => !read.includes(k))
       .map((k) => finding(file, "tone-key", `site.js keeps the tone under "${k}"; the early script reads ${read}`)),
   );
+}
+
+// AC "Three positions": the early script, run as a browser runs it, sets
+// data-tone to a stored tone the switch offers, and the default for nothing
+// stored, an unknown id, or storage that throws.
+function checkToneScript(file, partial, tones) {
+  const code = /<script>([\s\S]*?)<\/script>/.exec(partial)?.[1];
+  if (!code) return [finding(file, "tone-script", "the partial holds no script")];
+  const run = (stored) => {
+    const attrs = {};
+    const storage = {
+      getItem: (key) => {
+        if (stored instanceof Error) throw stored;
+        return key === TONE_KEY ? stored : null;
+      },
+    };
+    const sandbox = {
+      document: { documentElement: { setAttribute: (k, v) => (attrs[k] = v) }, querySelector: () => null },
+      localStorage: storage,
+      getComputedStyle: () => ({ getPropertyValue: () => "" }),
+    };
+    try {
+      runInNewContext(code, sandbox);
+    } catch (e) {
+      return `an error (${e.message})`;
+    }
+    return attrs["data-tone"] ?? "none";
+  };
+  const cases = [
+    ...tones.map((t) => [`"${t}" stored`, t, t]),
+    ["nothing stored", null, DEFAULT_TONE],
+    ['"sepia" stored', "sepia", DEFAULT_TONE],
+    ["storage that throws", new Error("storage is off"), DEFAULT_TONE],
+  ];
+  return cases.flatMap(([label, stored, want]) => {
+    const got = run(stored);
+    return got === want ? [] : [finding(file, "tone-script", `${label}: data-tone is ${got}; ${want} is expected`)];
+  });
+}
+
+// AC "Three positions": the page links leave the header row exactly where the
+// second row appears, one below .wrap's 1200 px, where the de and fr links
+// need the page's full width. One media query, (max-width: 1199px), hides the
+// links, shows the row and gives anchors the taller header's clearance; the
+// row is hidden outside it; no other rule hides the links; and a link never
+// wraps the row.
+const HEADER_ROWS = "@media (max-width: 1199px)";
+function checkHeaderRows(file, css) {
+  const blocks = cssBlocks(css);
+  const under = (selector, test) =>
+    blocks.flatMap((b) =>
+      b.head.startsWith("@media")
+        ? b.blocks.filter((r) => r.head === selector && test.test(r.body)).map(() => b.head)
+        : [],
+    );
+  const hide = under(".head-nav > a.page-link", /display:\s*none/);
+  const show = under(".mobile-nav", /display:\s*flex/);
+  const clear = under("html", /scroll-padding-top:/);
+  const broken = [];
+  if (hide.join() !== HEADER_ROWS || show.join() !== HEADER_ROWS)
+    broken.push(
+      `the page links hide under ${hide.join(", ") || "no media query"} and the second row shows under ${show.join(", ") || "no media query"}; ${HEADER_ROWS} does both`,
+    );
+  if (!clear.includes(HEADER_ROWS)) broken.push(`${HEADER_ROWS} sets no scroll-padding-top for the taller header`);
+  if (!blocks.some((b) => b.head === ".mobile-nav" && /display:\s*none/.test(b.body)))
+    broken.push(".mobile-nav is not hidden outside the media query");
+  if (!blocks.some((b) => b.head === ".head-nav > a" && /white-space:\s*nowrap/.test(b.body)))
+    broken.push("a header link may wrap the row");
+  return broken.length ? [finding(file, "header", broken.join("; "))] : [];
 }
 
 // AC "Codex is never overclaimed": a page whose text names an experimental
@@ -2336,12 +2454,12 @@ test("site: every colour is a token — none outside :root and the print rules i
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: the tones — midnight on :root, graphite a screen-only rule over surface tokens, the covering surfaces opaque, and the text readable over each tone's brightest panel and glow", () => {
+test("site: the tones — midnight on :root, graphite and light screen-only rules (graphite over surface tokens, light over the text too, with color-scheme: light), the covering surfaces opaque, and every text colour readable at its lowest", () => {
   const css = read(`${SITE}/assets/style.css`);
   assert.deepEqual(
     toneSets(css).map(([tone]) => tone),
-    [DEFAULT_TONE, "graphite"],
-    "midnight is the palette, graphite the one tone rule",
+    [DEFAULT_TONE, "graphite", "light"],
+    "midnight is the palette, graphite and light the tone rules",
   );
   const found = [...checkTones(`${SITE}/assets/style.css`, css), ...checkToneContrast(`${SITE}/assets/style.css`, css)];
   assert.deepEqual(found, [], show(found));
@@ -2354,7 +2472,13 @@ test("site: every page ships in midnight — no data-tone, theme-color the :root
   const found = [
     ...eachPage((page) => checkTonePage(page, tones, bg)),
     ...checkToneKey(`${SITE}/assets/site.js`, read(`${SITE}/assets/site.js`), read(`${SITE}/src/_tone.html`)),
+    ...checkToneScript(`${SITE}/src/_tone.html`, read(`${SITE}/src/_tone.html`), tones),
   ];
+  assert.deepEqual(found, [], show(found));
+});
+
+test("site: the header's page links move to the second row under the same media query that shows it", () => {
+  const found = checkHeaderRows(`${SITE}/assets/style.css`, read(`${SITE}/assets/style.css`));
   assert.deepEqual(found, [], show(found));
 });
 
@@ -3120,9 +3244,9 @@ const PLANTED = [
     edits: overBudget("how-it-works"),
   },
 
-  // AC "Dark on tokens": a literal in a rule, a named colour, a fill, a style.
+  // AC "On tokens": a literal in a rule, a named colour, a fill, a style.
   {
-    ac: "Dark on tokens",
+    ac: "On tokens",
     what: "a hex colour in a rule outside :root",
     ...onText(STYLE, checkColourCss),
     fact: "colour",
@@ -3130,7 +3254,7 @@ const PLANTED = [
     edits: [[/$/, "\n.planted { color: #ff0000; }\n"]],
   },
   {
-    ac: "Dark on tokens",
+    ac: "On tokens",
     what: "a named colour in a rule inside a media query that is not print",
     ...onText(STYLE, checkColourCss),
     fact: "colour",
@@ -3138,7 +3262,7 @@ const PLANTED = [
     edits: [[/$/, "\n@media (max-width: 760px) {\n  .planted { border: 1px solid white; }\n}\n"]],
   },
   {
-    ac: "Dark on tokens",
+    ac: "On tokens",
     what: "a hex fill in the loop partial",
     ...onText(LOOP, checkColourAttrs),
     fact: "colour",
@@ -3146,7 +3270,7 @@ const PLANTED = [
     edits: [[/<rect class="nb"/, '<rect class="nb" fill="#ffb347"']],
   },
   {
-    ac: "Dark on tokens",
+    ac: "On tokens",
     what: "a colour in a style attribute of the sprite",
     ...onText(SPRITE, checkColourAttrs),
     fact: "colour",
@@ -3177,7 +3301,7 @@ const PLANTED = [
     what: "a tone rule changing the accent",
     ...onText(STYLE, checkTones),
     fact: "tone",
-    message: /sets --accent; a tone changes surfaces/,
+    message: /sets --accent; a dark tone changes surfaces/,
     edits: [["--head-bg: var(--graphite-head-bg);", "--head-bg: var(--graphite-head-bg); --accent: var(--plan);"]],
   },
   {
@@ -3223,7 +3347,7 @@ const PLANTED = [
   {
     ac: "Midnight by default",
     what: "a page whose theme-color is not the :root --bg",
-    ...onPage("pt", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite"], "#080d19"), "one-vault"),
+    ...onPage("pt", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#080d19"), "one-vault"),
     fact: "theme-color",
     message: /theme-color is #0b0c0a; :root --bg is #080d19/,
     edits: [[/(<meta name="theme-color" content=")[^"]*/, "$1#0b0c0a"]],
@@ -3231,7 +3355,7 @@ const PLANTED = [
   {
     ac: "One two-way switch",
     what: "a switch without its graphite position",
-    ...onPage("zh", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite"], "#080d19"), "why-it-works"),
+    ...onPage("zh", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#080d19"), "why-it-works"),
     fact: "tone-switch",
     message: /no position for graphite/,
     edits: [[/<button class="tone-opt" type="button" data-tone-set="graphite"[^>]*>.*?<\/button>/, ""]],
@@ -3239,7 +3363,7 @@ const PLANTED = [
   {
     ac: "Remembered, without a flash",
     what: "a page without the early script",
-    ...onPage("de", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite"], "#080d19"), "one-vault"),
+    ...onPage("de", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#080d19"), "one-vault"),
     fact: "tone-script",
     message: /0 scripts read ps_tone in <head>/,
     edits: [[/<script>\(function\(\)\{var d=document\.documentElement[\s\S]*?<\/script>\n?/, ""]],
@@ -3251,6 +3375,131 @@ const PLANTED = [
     fact: "tone-key",
     message: /site\.js keeps the tone under "ps_tones"/,
     edits: [['"ps_tone"', '"ps_tones"', true]],
+  },
+
+  // The light tone: color-scheme, the tokens it may set, its text colours; the
+  // switch's third position; the early script; the header's second row.
+  {
+    ac: "A light tone may recolour text; a dark one may not",
+    what: "the light rule without color-scheme: light",
+    ...onText(STYLE, checkTones),
+    fact: "tone",
+    message: /:root\[data-tone="light"\] is a light tone and declares no color-scheme: light/,
+    edits: [["    color-scheme: light;\n    --bg: var(--light-bg);", "    --bg: var(--light-bg);"]],
+  },
+  {
+    ac: "A light tone may recolour text; a dark one may not",
+    what: "graphite declaring color-scheme: light",
+    ...onText(STYLE, checkTones),
+    fact: "tone",
+    message: /:root\[data-tone="graphite"\] is a dark tone and declares color-scheme: light/,
+    edits: [["--head-bg: var(--graphite-head-bg);", "--head-bg: var(--graphite-head-bg); color-scheme: light;"]],
+  },
+  {
+    ac: "A light tone may recolour text; a dark one may not",
+    what: "the light rule setting a token outside surfaces, text and roles",
+    ...onText(STYLE, checkTones),
+    fact: "tone",
+    message: /:root\[data-tone="light"\] sets --gutter; a light tone changes/,
+    edits: [
+      ["    --shade: var(--light-shade);\n  }", "    --shade: var(--light-shade); --gutter: var(--light-bg);\n  }"],
+    ],
+  },
+  {
+    ac: "Readable in every tone",
+    what: "the light accent in the bright copper of the preview card",
+    ...onText(STYLE, checkToneContrast),
+    fact: "contrast",
+    message: /^light: --(?:on-)?accent is \d\.\d\d:1/,
+    edits: [["--light-accent: #a1491f;", "--light-accent: #c4643c;"]],
+  },
+  {
+    ac: "Readable in every tone",
+    what: "a light --ink-4 too pale for cream",
+    ...onText(STYLE, checkToneContrast),
+    fact: "contrast",
+    message: /^light: --ink-4 is \d\.\d\d:1 at its lowest; at least 4\.5/,
+    edits: [["--light-ink-4: #5c584e;", "--light-ink-4: #8a857a;"]],
+  },
+  {
+    ac: "Readable in every tone",
+    what: "a light done green too pale for small text",
+    ...onText(STYLE, checkToneContrast),
+    fact: "contrast",
+    message: /^light: --done is \d\.\d\d:1 at its lowest; at least 4\.5/,
+    edits: [["--light-done: #05683f;", "--light-done: #3a9a6a;"]],
+  },
+  {
+    ac: "Three positions",
+    what: "a page without its light position",
+    ...onPage("uk", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#080d19"), "how-it-works"),
+    fact: "tone-switch",
+    message: /no position for light/,
+    edits: [[/<button class="tone-opt" type="button" data-tone-set="light"[^>]*>.*?<\/button>/, ""]],
+  },
+  {
+    ac: "Three positions",
+    what: "a switch offering a tone the stylesheet does not declare",
+    ...onPage("fr", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#080d19"), "one-vault"),
+    fact: "tone-switch",
+    message: /^the switch offers sepia, which the stylesheet does not declare$/,
+    edits: [
+      [
+        /(<button class="tone-opt" type="button" data-tone-set="light"[^>]*>.*?<\/button>)/,
+        '$1<button class="tone-opt" type="button" data-tone-set="sepia" aria-pressed="false" aria-label="Sepia"></button>',
+      ],
+    ],
+  },
+  {
+    ac: "Three positions",
+    what: "an early script that takes any stored id",
+    ...onText(TONE_PARTIAL, (file, partial) => checkToneScript(file, partial, [DEFAULT_TONE, "graphite", "light"])),
+    fact: "tone-script",
+    message: /^"sepia" stored: data-tone is sepia; midnight is expected/,
+    edits: [['if(s==="graphite"||s==="light")t=s;', "t=s||t;"]],
+  },
+  {
+    ac: "Three positions",
+    what: "an early script that forgets light",
+    ...onText(TONE_PARTIAL, (file, partial) => checkToneScript(file, partial, [DEFAULT_TONE, "graphite", "light"])),
+    fact: "tone-script",
+    message: /^"light" stored: data-tone is midnight; light is expected/,
+    edits: [['||s==="light"', ""]],
+  },
+  {
+    ac: "Three positions",
+    what: "the page links hidden at a width where the second row is not shown",
+    ...onText(STYLE, checkHeaderRows),
+    fact: "header",
+    message:
+      /^the page links hide under @media \(max-width: 760px\) and the second row shows under @media \(max-width: 1199px\)/,
+    edits: [
+      [
+        "  .head-nav > a.page-link { display: none; }\n  .mobile-nav { display: flex;",
+        "  .mobile-nav { display: flex;",
+      ],
+      [
+        "@media (max-width: 760px) {\n  .head-nav { gap: 8px; }",
+        "@media (max-width: 760px) {\n  .head-nav > a.page-link { display: none; }\n  .head-nav { gap: 8px; }",
+      ],
+    ],
+  },
+  {
+    ac: "Three positions",
+    what: "the second row moved back to narrow screens only",
+    ...onText(STYLE, checkHeaderRows),
+    fact: "header",
+    message:
+      /under @media \(max-width: 900px\); @media \(max-width: 1199px\) does both; @media \(max-width: 1199px\) sets no scroll-padding-top/,
+    edits: [["@media (max-width: 1199px) {", "@media (max-width: 900px) {"]],
+  },
+  {
+    ac: "Three positions",
+    what: "a header link that may wrap",
+    ...onText(STYLE, checkHeaderRows),
+    fact: "header",
+    message: /^a header link may wrap the row$/,
+    edits: [["text-decoration: none; white-space: nowrap; }", "text-decoration: none; }"]],
   },
 
   // AC 4: loads — another origin, a link off the site, a file that is not there.
