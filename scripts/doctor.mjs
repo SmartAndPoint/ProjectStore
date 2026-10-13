@@ -60,6 +60,7 @@ import {
   statusLineLauncherPath,
   LAUNCHER_HEADER,
   installedPluginEntries,
+  projectCopies,
   selectCopy,
   takesNoRegister,
   copyUpdateAdvice,
@@ -1148,7 +1149,16 @@ export function checkVersionDrift(home = homedir(), states = [], proj = null, { 
   const seen = [];
   // The registry read here is the source harness's own.
   const registryOf = sourceHarness()?.id || null;
-  for (const e of installedPluginEntries(home, proj)) {
+  // The copies the host loads for this project (contract 17, amended
+  // 2026-10-14): this checkout's own row or a user-scope row, never another
+  // project's — the registry keeps every project's local rows, and another
+  // checkout's old copy is not a drift here. Every row, not one per key: this
+  // project's own row against a user-scope row is the drift contract 17 names.
+  // Without a project, the user-scope rows alone.
+  const rows = proj
+    ? projectCopies(home, proj)
+    : installedPluginEntries(home).filter((e) => e.present && e.enabled !== false && !e.projectPath);
+  for (const e of rows) {
     // A disabled registration is not a copy anyone runs (contract 17, amended 2026-09-05).
     if (e.version && e.present && e.enabled !== false)
       seen.push({
@@ -1538,28 +1548,48 @@ export function checkGitignore(proj) {
       }
     }
   }
-  if (!existsSync(join(proj, ".git"))) return out;
+  // The host's settings file is checkHostIgnored's (the layout spec, contract 9
+  // as amended 2026-10-14): only git knows every rule that ignores it, and this
+  // function runs in the SessionStart subset, whose budget forbids a subprocess.
+  return out;
+}
+
+// The line read the host-file check used before it asked git, and still uses
+// when git cannot answer: the project's own .gitignore, exact lines only.
+function hostIgnoreLineMissing(proj, env) {
   let lines = [];
   try {
     lines = readFileSync(join(proj, ".gitignore"), "utf8")
       .split("\n")
       .map((l) => l.trim());
   } catch {}
-  const coveredAll = lines.includes(".claude/") || lines.includes(".claude");
-  if (coveredAll) return out;
-  // Our own files are self-ignored inside .projectstore/; what is left is the host's.
-  const wanted = [relative(proj, hostSettingsPath(proj))];
-  const missing = wanted.filter((w) => !lines.includes(w));
-  if (!missing.length) return out;
-  out.push(
+  if (lines.includes(".claude/") || lines.includes(".claude")) return [];
+  return [relative(proj, hostSettingsPath(proj, env))].filter((w) => !lines.includes(w));
+}
+
+// Whether git ignores the host's machine-local settings file (the layout spec,
+// contract 9 as amended 2026-10-14). Our own files are self-ignored inside
+// .projectstore/; what is left is the host's. Git's answer covers every rule
+// it applies — nested .gitignore files, .git/info/exclude, core.excludesFile
+// and its XDG default — where the line read saw only the project's exact
+// lines. --no-index keeps this about rules: a tracked file with a matching rule
+// is quiet here (tracking is checkTrackedRuntime's). Exit 0 is ignored, 1 is
+// not; anything else — no git on PATH, an error, a timeout — falls back to the
+// line read. Full report only: a subprocess, like checkTrackedRuntime.
+export function checkHostIgnored(proj, { env = process.env } = {}) {
+  if (!existsSync(join(proj, ".git"))) return [];
+  const file = relative(proj, hostSettingsPath(proj, env));
+  const r = spawnSync("git", ["check-ignore", "-q", "--no-index", "--", file], { cwd: proj, env, timeout: 5000 });
+  const missing = r.status === 0 ? [] : r.status === 1 ? [file] : hostIgnoreLineMissing(proj, env);
+  if (!missing.length) return [];
+  return [
     finding(
       "install",
       "warn",
       "gitignore",
       `Machine-specific files not gitignored: ${missing.join(", ")} (or ignore ".claude/" wholesale).`,
     ),
-  );
-  return out;
+  ];
 }
 
 // An ignore line never untracks a file already in the index, so the project
@@ -2958,6 +2988,7 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
     ...checkEnvModel(),
     ...checkEnvEffort(),
     ...checkGitignore(proj),
+    ...checkHostIgnored(proj, { env: opts.env }),
     ...checkTrackedRuntime(proj),
     ...checkVaultGit(cfg),
     ...checkAutoUpdate(),

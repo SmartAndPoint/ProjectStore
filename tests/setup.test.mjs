@@ -1015,6 +1015,78 @@ test(
   },
 );
 
+// ─── One add per file (the presentation spec, contract 7 as amended 2026-10-14) ───
+
+test(
+  "setup 'One add per file': in a fresh project with the status line and a channel switch, the vault item adds the binding once and the flag and the mark update it — in PLAN, the envelope, the counts and APPLY; a bound project's flag keeps add",
+  RAIL,
+  async () => {
+    const sb = sandbox({ codex: false });
+    withGitCopy(sb);
+    const { r, text } = await setup(sb, { keys: [ENTER, ENTER, ENTER, ENTER] });
+    assert.equal(r.code, 0, text);
+    const binding = join(sb.proj, LAYOUT.root, "projectstore.json");
+    const vault = r.result.items.find((i) => i.kind === "vault");
+    assert.ok(
+      vault.steps.some((s) => s.path === binding),
+      "the vault item writes the binding",
+    );
+    assert.deepEqual(
+      r.result.items.filter((i) => i.kind === "binding").map((i) => [i.surface, i.action]),
+      [
+        ["statusline_flag", "update"],
+        ["channel_switch", "update"],
+      ],
+    );
+    const plain = text.replace(/\x1b\[[0-9;]*m/g, "");
+    const rel = `${LAYOUT.root}/projectstore.json`;
+    const esc = rel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.doesNotMatch(plain, new RegExp(`\\badd\\s+${esc}`), "PLAN never adds the binding as a row of its own");
+    assert.equal((plain.match(new RegExp(`update\\s+${esc}`, "g")) || []).length, 2, plain);
+    assert.match(
+      plain,
+      /Plan — 4 to add · 1 to register · 2 to update · 1 to switch/,
+      "the counts line counts them as updates",
+    );
+    assert.doesNotMatch(plain, new RegExp(`added ${esc}`), "APPLY never says the binding was added");
+    assert.equal((plain.match(new RegExp(`updated ${esc}`, "g")) || []).length, 2, "APPLY says updated, twice");
+    assert.match(plain, /Done — 8 changes/, "the run's N counts writes, unchanged");
+    assert.equal(bindingOf(sb.proj).statusline.enabled, true);
+    assert.equal(bindingOf(sb.proj).channel_switch.by, "setup");
+    // A project bound before the run: the flag adds our key to a file that is there.
+    const b = sandbox({ codex: false });
+    bind(b);
+    const br = await setup(b, { keys: [ENTER, ENTER], values: { "dry-run": true } });
+    const bf = br.r.result.items.find((i) => i.surface === "statusline_flag");
+    assert.deepEqual([bf.kind, bf.action], ["binding", "add"], br.text);
+    // A pre-0.28 layout: the move makes the binding, so no binding row is a
+    // creator — the flag must not turn the switch after it into an update.
+    const lg = sandbox({ codex: false });
+    withGitCopy(lg);
+    mkdirSync(lg.vault, { recursive: true });
+    writeFileSync(layoutPaths(lg.proj).legacy.binding, JSON.stringify({ vault_path: lg.vault, layout: "engineering" }));
+    const lr = await setup(lg, { keys: [ENTER, ENTER, ENTER, ENTER, ENTER], values: { "dry-run": true } });
+    assert.deepEqual(
+      lr.r.result.items.filter((i) => i.kind === "binding").map((i) => [i.surface, i.action]),
+      [
+        ["statusline_flag", "add"],
+        ["channel_switch", "add"],
+      ],
+      lr.text,
+    );
+    // Without a terminal: --json --channel npm --vault, the vault item writes
+    // the binding and the switch's mark updates it.
+    const j = sandbox({ codex: false });
+    withGitCopy(j);
+    const jr = await setup(j, { values: { json: true, channel: "npm", vault: j.vault, harness: [SRC.id] } });
+    assert.equal(jr.r.code, 0, jr.text);
+    assert.deepEqual(
+      jr.r.result.items.filter((i) => i.kind === "binding").map((i) => [i.surface, i.action]),
+      [["channel_switch", "update"]],
+    );
+  },
+);
+
 // ─── Question 3, the channel (rule 6) ───────────────────────────────────
 
 test(
@@ -1559,7 +1631,9 @@ test(
     const { r, text } = await setup(sb, { keys: [ENTER, ENTER, ENTER] });
     assert.equal(r.code, 0, text);
     const flag = r.result.items.find((i) => i.surface === "statusline_flag");
-    assert.deepEqual([flag.kind, flag.action], ["binding", "add"]);
+    // The vault item writes the binding in this run, so the flag changes it
+    // (the presentation spec, contract 7 as amended 2026-10-14: one add per file).
+    assert.deepEqual([flag.kind, flag.action], ["binding", "update"]);
     const reg = r.result.items.find((i) => i.surface === "plugin");
     for (const k of ["statusline", "statusline_launcher"])
       assert.equal(r.result.items.find((i) => i.surface === k).plannedAgainst, reg.root, k);

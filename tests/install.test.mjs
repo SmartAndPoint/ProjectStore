@@ -1755,6 +1755,21 @@ test("install: the command prose invokes the verb and never writes the block or 
   );
   const agents = read(join(ROOT, "commands", "agents.md")).replace(/\s+/g, " ");
   assert.ok(agents.includes("Never write the block with the Write or Edit tool"));
+  // The doctor story of 2026-10-14: the texts say what is true of an npm
+  // registration. The mcp remedy is gated by channel, as version-drift's is.
+  const mcp = doctor.slice(doctor.indexOf("- `mcp` →"), doctor.indexOf("- `override-copies`")).replace(/\s+/g, " ");
+  assert.ok(mcp.includes("`/plugin update` for a git-marketplace copy"), mcp);
+  assert.ok(
+    mcp.includes(
+      "for the npm registration, the package's `upgrade` from a terminal in the project, outside this session",
+    ),
+    mcp,
+  );
+  assert.ok(!/the host's update path \(`\/plugin update`\), never/.test(mcp), "no ungated /plugin update");
+  // A bare uninstall from a terminal removes the block; /plugin uninstall does not.
+  assert.ok(agents.includes("`/plugin uninstall` removes these commands but NOT the block"), agents);
+  assert.ok(agents.includes("the package's bare `uninstall` removes the block too"), agents);
+  assert.ok(agents.includes("`uninstall --surface agents_block` removes it outright"), agents);
   // The converge story's rule 3 and the setup story's rule 17: a channel
   // choice is per checkout, so the binding a worktree inherits (step 0a,
   // written by the model) drops the mark and the keep, as planInherit does.
@@ -2206,6 +2221,45 @@ test("install contract 17: registrations at different versions are one warning n
   const g = checkVersionDrift(home, [{ surface: "statusline_launcher", installedPkg: "0.28.0" }]);
   assert.equal(g.length, 1);
   assert.match(g[0].message, /0\.28\.0 \(pkg= of statusline_launcher\)/);
+});
+
+test("install contract 17 (amended 2026-10-14): drift counts this project's copies, never another project's rows", () => {
+  const home = mkdtempSync(join(tmpdir(), "ps-home-"));
+  const proj = mkdtempSync(join(tmpdir(), "ps-drift-"));
+  const other = mkdtempSync(join(tmpdir(), "ps-other-"));
+  const mine = fakeInstall(home, "0.30.2"),
+    old = fakeInstall(home, "0.28.0"),
+    user = fakeInstall(home, "0.29.3");
+  // Another project's local row at another version: not this project's copy.
+  writeRegistry(home, [
+    { scope: "local", projectPath: proj, installPath: mine, version: "0.30.2" },
+    { scope: "local", projectPath: other, installPath: old, version: "0.28.0" },
+  ]);
+  assert.deepEqual(checkVersionDrift(home, [], proj), [], "another project's row is no drift here");
+  // This project's own row against a user-scope row: the drift contract 17 names.
+  writeRegistry(home, [
+    { scope: "local", projectPath: proj, installPath: mine, version: "0.30.2" },
+    { scope: "user", installPath: user, version: "0.29.3" },
+    { scope: "local", projectPath: other, installPath: old, version: "0.28.0" },
+  ]);
+  const f = checkVersionDrift(home, [], proj);
+  assert.equal(f.length, 1);
+  assert.match(f[0].message, /0\.30\.2 \(registry projectstore@SmartAndPoint \(local\) at /);
+  assert.match(f[0].message, /0\.29\.3 \(registry projectstore@SmartAndPoint \(user\) at /);
+  assert.doesNotMatch(f[0].message, /0\.28\.0/, "never another project's row");
+  // A user-scope row alone, beside another project's local row: nothing to say.
+  writeRegistry(home, [
+    { scope: "user", installPath: user, version: "0.29.3" },
+    { scope: "local", projectPath: other, installPath: old, version: "0.28.0" },
+  ]);
+  assert.deepEqual(checkVersionDrift(home, [], proj), []);
+  // The host records the project's cwd as a real path: /private/var against the
+  // /var the project is named by is still this project.
+  writeRegistry(home, [
+    { scope: "local", projectPath: realpathSync(proj), installPath: mine, version: "0.30.2" },
+    { scope: "user", installPath: user, version: "0.29.3" },
+  ]);
+  assert.equal(checkVersionDrift(home, [], proj).length, 1, "this project's own row, under either spelling");
 });
 
 test("install: runInstallChecks carries the state findings, and the startup path never loads the leaf", async () => {
