@@ -35,10 +35,10 @@ import { bandKeys, epicIds, planBand, applyBand } from "./band.mjs";
 import { planAgentsChange, applyAgentsChange } from "./agents-change.mjs";
 import { plan as planInstall, apply as applyInstall, planOptions, isInteractive } from "./install-harness.mjs";
 import { analyseLayout } from "./surfaces.mjs";
+import { knownModels, offListNote } from "./models.mjs";
+import { runMenu } from "./configure-menu.mjs";
+import { SMALLEST } from "./menu.mjs";
 
-// The models the rail offers: the in-session `agents configure` presets
-// (commands/agents.md). Any other model is set with --set (contract 2).
-const MODEL_PRESETS = Object.freeze(["opus", "fable", "sonnet"]);
 const CLEAR = "-";
 
 const LANGUAGE_NOTE =
@@ -446,8 +446,17 @@ export function planChanges(f, changes, { env = process.env, home = homedir(), r
     if (change.usage) return { usage: change.usage };
     if (change.same) continue;
     const file = where(f, before.path);
-    const display = loadHarness(h).display_name || h;
-    if (before.agents.default !== change.next.default)
+    const manifest = loadHarness(h);
+    const display = manifest.display_name || h;
+    // A model no list of the harness holds is written, with a note (contract
+    // 8 as amended 2026-10-13): the model may be newer than the list.
+    // Only a model the run names gets the note: the clerk's pin does not.
+    const known = knownModels(manifest, { env, home });
+    const named = new Map(list.map((c) => [c.name, c.value]));
+    const offList = (name, model) => (model && named.get(name) === model ? offListNote(manifest, model, known) : null);
+    const notes = (...xs) => xs.filter(Boolean).join("; ") || null;
+    if (before.agents.default !== change.next.default) {
+      const listNote = offList("default", change.next.default);
       items.push({
         key: "agents.default",
         harness: h,
@@ -456,12 +465,16 @@ export function planChanges(f, changes, { env = process.env, home = homedir(), r
         before: shown(before.agents.default),
         after: shown(change.next.default),
         team: true,
+        note: listNote,
+        listNote,
       });
+    }
     const names = new Set([...Object.keys(before.agents.per_agent), ...Object.keys(change.next.per_agent)]);
     for (const n of [...names].sort()) {
       const a = before.agents.per_agent[n] || null;
       const b = change.next.per_agent[n] || null;
       if (a === b) continue;
+      const listNote = offList(n, b);
       items.push({
         key: `agents.${n}`,
         harness: h,
@@ -470,7 +483,11 @@ export function planChanges(f, changes, { env = process.env, home = homedir(), r
         before: shown(a),
         after: shown(b),
         team: true,
-        note: change.pinnedClerk && n === "clerk" ? "pinned: the clerk stays cheap under a strong default" : null,
+        note: notes(
+          change.pinnedClerk && n === "clerk" ? "pinned: the clerk stays cheap under a strong default" : null,
+          listNote,
+        ),
+        listNote,
       });
     }
     if (change.clerkPinUnavailable)
@@ -711,51 +728,6 @@ export function renderPlan(f, items, { caps: c = term.PLAIN } = {}) {
 
 // ─── The run ───────────────────────────────────────────────────────────
 
-const railChoices = (s, f) => {
-  if (s.rail === "bool") return ["on", "off"];
-  if (s.rail === "language") return f.languages;
-  if (s.rail === "policy") return ["optional", "required"];
-  if (s.rail === "epic") return [...f.epics, { value: CLEAR, label: "release the pin" }];
-  if (s.rail === "model") {
-    // The presets are Claude Code's model names: offered only for a harness
-    // whose agents carry a model (agent_translation.carries_model). Any other
-    // harness's model is named with --set, in its own vocabulary.
-    const list = loadHarness(s.harness)?.agent_translation?.carries_model === true ? [...MODEL_PRESETS] : [];
-    if (s.value && !list.includes(s.value)) list.unshift(s.value);
-    return [...list, { value: CLEAR, label: s.key === "agents.default" ? "clear" : "clear (the default decides)" }];
-  }
-  return [];
-};
-
-// The rail's answers as --set strings, so a terminal run and a named one
-// resolve through the same code.
-async function askRail(rail, f, settings) {
-  const answerable = settings.filter((s) => s.class === "changeable" && s.rail && railChoices(s, f).length);
-  const twoHarnesses = f.used.length > 1;
-  const label = (s) =>
-    twoHarnesses && s.harness
-      ? `${loadHarness(s.harness).display_name || s.harness} · ${s.key.replace(/^agents\./, "")}`
-      : s.key;
-  const ticked = await rail.multi(
-    "What do you want to change?",
-    answerable.map((s, k) => ({ value: k, label: label(s), reason: shown(s.value) })),
-    { min: 0, note: "space ticks a row; Enter with none ticked changes nothing" },
-  );
-  if (ticked === term.CANCELLED) return { cancelled: true };
-  const sets = [];
-  for (const k of ticked) {
-    const s = answerable[k];
-    const choices = railChoices(s, f);
-    const current = s.rail === "bool" ? s.value : s.value || undefined;
-    const v = await rail.select(label(s), choices, {
-      default: choices.some((x) => (typeof x === "object" ? x.value : x) === current) ? current : undefined,
-    });
-    if (v === term.CANCELLED) return { cancelled: true };
-    sets.push({ set: `${s.key}=${v}`, harness: s.harness || null });
-  }
-  return { sets };
-}
-
 // ctx: { values, project, env, stdin, stdout, ask, root, home, ownEnv,
 // nearest, proc, escapeMs, drainTicks, now }. Returns { code, ok, result }
 // or { code: 2, usage } or { code: 3, unbound: true }; the bin writes the
@@ -795,46 +767,83 @@ export async function runConfigure(ctx) {
   }));
   const interactive =
     !json && (ask ? true : isInteractive({ stdin, stdout, env, json })) && term.railAvailable(stdin, c);
+  // The menu needs a screen of its own size (contract 4 as amended
+  // 2026-10-13): smaller, the run is as without a terminal.
+  const fits =
+    (Number(stdout?.columns) || c.columns || 100) >= SMALLEST.columns && (Number(stdout?.rows) || 24) >= SMALLEST.rows;
 
   // Nothing named and no terminal: the view, and nothing written.
-  if (!sets.length && !interactive) {
+  if (!sets.length && (!interactive || !fits)) {
     write(renderView(f, settings, { caps: c }));
     return { code: 0, ok: true, result: { settings: publicSettings, plan: [], wrote: [], removed: [] } };
   }
 
   let resolved;
+  // The menu's review screen confirms; a --set run at a terminal asks once.
+  let confirmed = false,
+    reviewed = null;
   if (sets.length) {
     resolved = resolveSets(f, sets, { harness: named[0] || null, nearest: ctx.nearest });
     if (resolved.usage) return { code: 2, usage: resolved.usage };
     write(`${term.badge(c, "projectstore configure")}\n  ${tildeOf(f.project, f.home)}\n`);
   } else {
-    write(renderView(f, settings, { caps: c }));
-    let rail = null,
-      a = null;
-    try {
-      rail = term.openRail({
-        stdin,
-        stdout,
-        caps: c,
-        proc: ctx.proc || process,
-        head: "projectstore configure",
-        ...(ctx.escapeMs ? { escapeMs: ctx.escapeMs } : {}),
-      });
-      a = await askRail(rail, f, settings);
-    } finally {
-      if (rail) rail.close(a?.cancelled ? `Cancelled ${term.icon(c, "dash")} nothing was written` : "");
+    // The settings menu (contract 4 as amended 2026-10-13). Its changes come
+    // back as --set strings and go through the same resolve, plan and apply;
+    // its review screen's second Enter is the confirmation.
+    const resolveAll = (list) => {
+      const changes = [];
+      for (const x of list) {
+        const r = resolveSets(f, [x.set], { harness: x.harness, nearest: ctx.nearest });
+        if (r.usage) return { usage: r.usage };
+        changes.push(...r.changes);
+      }
+      return { changes };
+    };
+    const a = await runMenu({
+      f,
+      settings,
+      stdin,
+      stdout,
+      caps: c,
+      proc: ctx.proc || process,
+      escapeMs: ctx.escapeMs,
+      env,
+      home,
+      now,
+      path: tildeOf(f.project, f.home),
+      dryRun,
+      fetch: ctx.fetch,
+      spawn: ctx.spawn,
+      timers: ctx.timers,
+      review: (list) => {
+        const r = resolveAll(list);
+        if (r.usage) return { ok: false, message: r.usage };
+        const p = planChanges(f, r.changes, { env, home, root, ownEnv: ctx.ownEnv || (() => env) });
+        if (p.usage) return { ok: false, message: p.usage };
+        if (p.refusal !== undefined) return { ok: false, message: p.refusal };
+        return { ok: true, items: p.items, plan: p };
+      },
+    });
+    const head = `${term.badge(c, "projectstore configure")}\n  ${tildeOf(f.project, f.home)}\n`;
+    if (a.cancelled) {
+      write(`${head}\n  Cancelled ${term.icon(c, "dash")} nothing was written\n`);
+      return { code: 130, ok: false, result: null };
     }
-    if (a.cancelled) return { code: 130, ok: false, result: null };
-    const changes = [];
-    for (const x of a.sets) {
-      const r = resolveSets(f, [x.set], { harness: x.harness, nearest: ctx.nearest });
-      if (r.usage) return { code: 2, usage: r.usage };
-      changes.push(...r.changes);
+    if (a.nothing) {
+      write(`${head}\n  No change ${term.icon(c, "dash")} nothing was written\n`);
+      return { code: 0, ok: true, result: { settings: publicSettings, plan: [], wrote: [], removed: [] } };
     }
-    resolved = { changes };
+    write(head);
+    const r = resolveAll(a.sets);
+    if (r.usage) return { code: 2, usage: r.usage };
+    resolved = r;
+    confirmed = !a.dryRun;
+    // What the review showed is what APPLY runs: the plan is not made again
+    // after its confirmation.
+    reviewed = a.planned || null;
   }
 
-  const planned = planChanges(f, resolved.changes, { env, home, root, ownEnv: ctx.ownEnv || (() => env) });
+  const planned = reviewed || planChanges(f, resolved.changes, { env, home, root, ownEnv: ctx.ownEnv || (() => env) });
   if (planned.usage) return { code: 2, usage: planned.usage };
   const planOut = (items) =>
     items.map((i) => ({
@@ -844,6 +853,8 @@ export async function runConfigure(ctx) {
       before: i.before,
       after: i.after,
       team: i.team,
+      // Contract 3 as amended 2026-10-13: the off-list note only.
+      ...(i.listNote ? { note: i.listNote } : {}),
     }));
   if (planned.refusal !== undefined)
     return {
@@ -862,7 +873,7 @@ export async function runConfigure(ctx) {
     write("\n  Nothing written: this was a dry run.\n");
     return { code: 0, ok: true, result: { ...result, dry_run: true } };
   }
-  if (interactive) {
+  if (interactive && !confirmed) {
     if (stdin && !ask) await term.drainInput(stdin, { ticks: ctx.drainTicks ?? 2 });
     write("\n");
     const yes = await term.askApply(planned.items.length, { stdin, stdout, ask, caps: c });

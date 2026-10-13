@@ -208,14 +208,14 @@ Setup asks only what a first install needs. Everything after it is one command, 
 npx projectstore configure
 ```
 
-At a terminal it shows every setting with its current value and where it lives:
+At a terminal it opens a settings menu that works like a monitor's: ↑ and ↓ move, → opens a group or a setting in a frame beside it, space chooses, ← goes back, and Enter shows the plan. A second Enter writes it. Under the frames, a few lines say what the row under the cursor means. The settings:
 
-- each agent's model, per harness;
+- each agent's model, per harness. Claude Code offers its aliases: `fable`, `opus`, `sonnet` and `haiku`. Codex offers its own list of models, with its descriptions. With `ANTHROPIC_API_KEY` set, each alias also names the newest model of its line. A list is kept for a day in projectstore's user cache, and "refresh the list" asks again;
 - the status line and the band above the prompt (Claude Code);
 - the vault's template language, the default author and tags;
 - the vault's spec policy and lifecycle gates.
 
-It asks which to change, then shows one plan and asks once. Without a terminal it prints the same view and writes nothing. To change a setting there, name it with `--set`; naming it is the confirmation:
+Without a terminal it prints every setting with its current value and where it lives, and writes nothing. To change a setting there, name it with `--set`; naming it is the confirmation:
 
 ```
 npx projectstore configure --set agents.critic=fable --set statusline=on
