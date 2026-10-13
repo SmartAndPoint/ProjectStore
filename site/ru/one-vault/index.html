@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<title data-i18n="vault.meta.title">Один vault, много людей — ProjectStore для сессий, команд и агентов</title>
-<meta name="description" content="Несколько сессий, целая команда и несколько агентов на одном vault ProjectStore: правила, которые не дают им мешать друг другу, vault в собственном git-репозитории, ADR и спеки на ревью как pull request и командная настройка в четыре шага." data-i18n-attr="content:vault.meta.description">
+<title data-i18n="vault.meta.title">Один vault, много людей — ProjectStore для сессий, команд и агентов</title>
+<meta name="description" content="Несколько сессий, целая команда и несколько агентов на одном vault ProjectStore: правила, которые не дают им мешать друг другу, vault в собственном git-репозитории, ADR и спеки на ревью как pull request и командная настройка в четыре шага." data-i18n-attr="content:vault.meta.description">
 <meta name="theme-color" content="#0b0c0a">
 <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../../assets/icon-180.png">
-<link rel="stylesheet" href="../../assets/style.css?v=ad35ff5c">
+<link rel="stylesheet" href="../../assets/style.css?v=7b9a5390">
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/one-vault/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/one-vault/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/one-vault/">
@@ -23,8 +23,8 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="ProjectStore">
 <meta property="og:locale" content="ru">
-<meta property="og:title" content="Один vault, много людей — ProjectStore для сессий, команд и агентов">
-<meta property="og:description" content="Несколько сессий, целая команда и несколько агентов на одном vault ProjectStore: правила, которые не дают им мешать друг другу, vault в собственном git-репозитории, ADR и спеки на ревью как pull request и командная настройка в четыре шага.">
+<meta property="og:title" content="Один vault, много людей — ProjectStore для сессий, команд и агентов">
+<meta property="og:description" content="Несколько сессий, целая команда и несколько агентов на одном vault ProjectStore: правила, которые не дают им мешать друг другу, vault в собственном git-репозитории, ADR и спеки на ревью как pull request и командная настройка в четыре шага.">
 <meta property="og:url" content="https://projectstore.dev/ru/one-vault/">
 <meta property="og:image" content="https://projectstore.dev/assets/og.png">
 <meta property="og:image:width" content="1280">
@@ -47,7 +47,7 @@
     <marker id="m-ret" class="mk ret" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
   </defs>
 </svg>
-<a class="skip-link" href="#main" data-i18n="page.a.1">К содержанию</a>
+<a class="skip-link" href="#main" data-i18n="page.a.1">К содержанию</a>
 
 <header class="site-header">
   <div class="wrap head-row">
@@ -68,7 +68,7 @@
 <section class="page-hero" aria-labelledby="vault-title">
   <p class="crumb"><a href="../">.projectstore</a> / <span data-i18n="vault.crumb">метод / 3</span></p>
   <h1 id="vault-title" data-i18n="vault.h1">Много сессий. Много людей. <span class="acc">Один vault.</span></h1>
-  <p class="lead" data-i18n="teams.p.1">Контекст принадлежит команде. Не чату одного разработчика. ADR и спеки проходят через pull request, как код. <b>На ревью — ход рассуждений.</b></p>
+  <p class="lead" data-i18n="teams.p.1">Контекст принадлежит команде. Не чату одного разработчика. ADR и спеки проходят через pull request, как код. <b>На ревью — ход рассуждений.</b></p>
 </section>
 
 <section class="sec modes" id="modes" aria-labelledby="vault-modes-title" data-tabs data-initial="solo">
@@ -85,15 +85,15 @@
     <div class="cols">
       <div class="prose">
         <h3 data-i18n="teams.h3.5">Несколько сессий, один vault</h3>
-        <p data-i18n="teams.p.12">Два агента или два человека в одном vault одновременно — это нормально. Каждая сессия знает о других, а несколько простых правил не дают им мешать друг другу.</p>
+        <p data-i18n="teams.p.12">Два агента или два человека в одном vault одновременно — это нормально. Каждая сессия знает о других, а несколько простых правил не дают им мешать друг другу.</p>
         <ul class="rules-list">
-          <li data-i18n="teams.li.1"><strong>Никаких тихих перезаписей.</strong> Перед сохранением нового файла ProjectStore проверяет, что его ещё нет. Две сессии на одну тему получат конфликт, а не две копии.</li>
-          <li data-i18n="teams.li.2"><strong>Каждая строка статуса показывает свою работу.</strong> <span data-source="docs/how-it-works.md#sessions-how-parallel-claude-instances-coexist">2–6 сессий</span> рядом — и каждая видит ровно свой эпик и свою стори.</li>
-          <li data-i18n="teams.li.3"><strong>Имя сессии предлагается, а не навязывается.</strong> Когда сессия сосредоточилась на одной задаче, она предлагает для неё имя. Редко: <span data-source="docs/how-it-works.md#naming-a-session-after-the-work-it-settled-on">не больше двух раз за сессию, 12 предложений на девять записанных сессий</span>.</li>
+          <li data-i18n="teams.li.1"><strong>Никаких тихих перезаписей.</strong> Перед сохранением нового файла ProjectStore проверяет, что его ещё нет. Две сессии на одну тему получат конфликт, а не две копии.</li>
+          <li data-i18n="teams.li.2"><strong>Каждая строка статуса показывает свою работу.</strong> <span data-source="docs/how-it-works.md#sessions-how-parallel-claude-instances-coexist">2–6 сессий</span> рядом — и каждая видит ровно свой эпик и свою стори.</li>
+          <li data-i18n="teams.li.3"><strong>Имя сессии предлагается, а не навязывается.</strong> Когда сессия сосредоточилась на одной задаче, она предлагает для неё имя. Редко: <span data-source="docs/how-it-works.md#naming-a-session-after-the-work-it-settled-on">не больше двух раз за сессию, 12 предложений на девять записанных сессий</span>.</li>
         </ul>
       </div>
-      <figure class="tty"><figcaption><span data-i18n="vault.tty.cap">вторая сессия в your-project-vault</span><span class="c-ok">Claude Code</span></figcaption>
-<pre class="transcript" data-i18n="vault.tty"><span class="c-dim">разработчик A работает над CHECKOUT с 13:35. вы открываете вторую сессию:</span>
+      <figure class="tty"><figcaption><span data-i18n="vault.tty.cap">вторая сессия в your-project-vault</span><span class="c-ok">Claude Code</span></figcaption>
+<pre class="transcript" data-i18n="vault.tty"><span class="c-dim">разработчик A работает над CHECKOUT с 13:35. вы открываете вторую сессию:</span>
 
 <span class="c-epic">⚠ Multi-session warning</span> — 1 other projectstore session active.
   Run <span class="c-acc">/projectstore:search &lt;topic&gt;</span> before creating new artifacts.
@@ -104,18 +104,18 @@ projectstore: this session looks like <span class="c-acc">"<span data-slug="stor
       </figure>
     </div>
   </div>
-  <div class="mode-panel wide-panel" role="tabpanel" data-panel="team" id="vp-team" aria-labelledby="vt-team"><div class="prose"><h3 data-i18n="teams.h3.1">Каждый видит не только свою часть.</h3><p data-i18n="teams.p.2">Разработчик, техлид и QA работают с одними и теми же решениями и критериями. Человеку без агента достаточно GitHub или редактора Markdown: это всего лишь файлы.</p><p data-i18n="teams.p.3">Контекст доступен всей команде, а не только владельцу чата.</p></div></div>
-  <div class="mode-panel wide-panel" role="tabpanel" data-panel="teams" id="vp-teams" aria-labelledby="vt-teams"><div class="prose"><h3 data-i18n="teams.h3.2">Общие контракты. Свои зоны работы.</h3><p data-i18n="teams.p.4">В одном проекте API-, Web- и Platform-команды ведут свои эпики на основе общих ADR и спек. Изменение общего контракта обсуждают на ревью с командами, которые им пользуются. ProjectStore показывает, какие стори от него зависят.</p><p data-i18n="teams.p.5">Ответственных за артефакты и согласование контрактов определяет команда.</p></div></div>
-  <div class="mode-panel wide-panel" role="tabpanel" data-panel="agents" id="vp-agents" aria-labelledby="vt-agents"><div class="prose"><h3 data-i18n="teams.h3.3">Разные исполнители. Общие основания.</h3><p data-i18n="teams.p.6">Планировщик читает решения и карту кода. Исполнитель — стори и спеку. Ревьюер — диф и критерии. Каждый получает нужный ему контекст, а не всю историю чужой сессии. Сессии в одном vault предупреждают друг друга.</p><p data-i18n="teams.p.7">Запуск агентов и передача работы между ними — задача вашего harness или оркестратора.</p></div></div>
-  <p class="note" data-i18n="teams.span.8">Пример организации работы, а не оркестрация в реальном времени</p>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="team" id="vp-team" aria-labelledby="vt-team"><div class="prose"><h3 data-i18n="teams.h3.1">Каждый видит не только свою часть.</h3><p data-i18n="teams.p.2">Разработчик, техлид и QA работают с одними и теми же решениями и критериями. Человеку без агента достаточно GitHub или редактора Markdown: это всего лишь файлы.</p><p data-i18n="teams.p.3">Контекст доступен всей команде, а не только владельцу чата.</p></div></div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="teams" id="vp-teams" aria-labelledby="vt-teams"><div class="prose"><h3 data-i18n="teams.h3.2">Общие контракты. Свои зоны работы.</h3><p data-i18n="teams.p.4">В одном проекте API-, Web- и Platform-команды ведут свои эпики на основе общих ADR и спек. Изменение общего контракта обсуждают на ревью с командами, которые им пользуются. ProjectStore показывает, какие стори от него зависят.</p><p data-i18n="teams.p.5">Ответственных за артефакты и согласование контрактов определяет команда.</p></div></div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="agents" id="vp-agents" aria-labelledby="vt-agents"><div class="prose"><h3 data-i18n="teams.h3.3">Разные исполнители. Общие основания.</h3><p data-i18n="teams.p.6">Планировщик читает решения и карту кода. Исполнитель — стори и спеку. Ревьюер — диф и критерии. Каждый получает нужный ему контекст, а не всю историю чужой сессии. Сессии в одном vault предупреждают друг друга.</p><p data-i18n="teams.p.7">Запуск агентов и передача работы между ними — задача вашего harness или оркестратора.</p></div></div>
+  <p class="note" data-i18n="teams.span.8">Пример организации работы, а не оркестрация в реальном времени</p>
 </section>
 
 <section class="sec" id="git" aria-labelledby="vault-git-title">
-  <div class="section-label" data-i18n="teams.span.24">vault в отдельном репозитории</div>
-  <h2 id="vault-git-title" data-i18n="teams.span.23">Как это выглядит в git</h2>
+  <div class="section-label" data-i18n="teams.span.24">vault в отдельном репозитории</div>
+  <h2 id="vault-git-title" data-i18n="teams.span.23">Как это выглядит в git</h2>
   <figure class="diagram">
   <svg class="dg" viewBox="0 0 1104 392" width="1104" height="392" role="img" aria-labelledby="git-cap">
-    <title id="git-cap" data-i18n="teams.title.1">Разработчики со своими агентами привязаны к одному vault в отдельном git-репозитории. ADR и спеки проходят ревью через pull request. Коллега без агента смотрит их на GitHub или в Obsidian.</title>
+    <title id="git-cap" data-i18n="teams.title.1">Разработчики со своими агентами привязаны к одному vault в отдельном git-репозитории. ADR и спеки проходят ревью через pull request. Коллега без агента смотрит их на GitHub или в Obsidian.</title>
     <path class="edge pln" d="M260 56H372" marker-end="url(#m-pln)"/>
     <path class="edge pln" d="M260 188H372" marker-end="url(#m-pln)"/>
     <text class="elbl pln" x="316" y="46" text-anchor="middle" data-i18n="teams.text.28">настройка</text>
@@ -123,35 +123,35 @@ projectstore: this session looks like <span class="c-acc">"<span data-slug="stor
     <path class="edge" d="M822 200H718" marker-end="url(#m)"/>
     <text class="elbl" x="767" y="150" text-anchor="middle" data-i18n="teams.text.29">push / pull</text>
     <path class="edge chk" d="M260 320H966V292" marker-end="url(#m-chk)"/>
-    <text class="elbl chk" x="600" y="342" text-anchor="middle" data-i18n="teams.text.30">ревью и pull</text>
+    <text class="elbl chk" x="600" y="342" text-anchor="middle" data-i18n="teams.text.30">ревью и pull</text>
 
     <rect class="who" x="0" y="16" width="260" height="84" rx="6"/>
     <text class="t pln" x="16" y="46" data-i18n="teams.text.1">Разработчик A</text><text class="s" x="16" y="68" data-i18n="teams.text.2">Claude Code + projectstore</text><text class="tag" x="16" y="88" data-i18n="teams.text.3">агент</text>
     <rect class="who" x="0" y="148" width="260" height="84" rx="6"/>
     <text class="t pln" x="16" y="178" data-i18n="teams.text.4">Разработчик B</text><text class="s" x="16" y="200" data-i18n="teams.text.5">Codex + projectstore</text><text class="tag" x="16" y="220" data-i18n="teams.text.6">агент</text>
     <rect class="nb" x="0" y="280" width="260" height="84" rx="6"/>
-    <text class="t" x="16" y="310" data-i18n="teams.text.7">Разработчик C</text><text class="s" x="16" y="330" data-i18n="teams.text.8">без агента</text><text class="s" x="16" y="350" data-i18n="teams.text.9">ревью в GitHub или Obsidian</text>
+    <text class="t" x="16" y="310" data-i18n="teams.text.7">Разработчик C</text><text class="s" x="16" y="330" data-i18n="teams.text.8">без агента</text><text class="s" x="16" y="350" data-i18n="teams.text.9">ревью в GitHub или Obsidian</text>
 
     <g class="pulse"><rect class="nb acc" x="378" y="16" width="334" height="270" rx="6"/></g>
     <text class="t acc" x="396" y="46" data-i18n="teams.text.10">your-project-vault</text>
     <text class="s" x="396" y="68" data-i18n="teams.text.11">свой git-репо · обычный markdown</text>
-    <text class="s" x="396" y="104" data-i18n="teams.text.12"><tspan class="d">adr/</tspan> решения, с датами</text>
+    <text class="s" x="396" y="104" data-i18n="teams.text.12"><tspan class="d">adr/</tspan> решения, с датами</text>
     <text class="s" x="396" y="128" data-i18n="teams.text.13"><tspan class="d">specs/</tspan> как должно работать</text>
     <text class="s" x="396" y="152" data-i18n="teams.text.14"><tspan class="d">epics/ · stories/</tspan> бэклог</text>
     <text class="s" x="396" y="176" data-i18n="teams.text.15"><tspan class="d">kanban.md</tspan> доска</text>
     <text class="s" x="396" y="200" data-i18n="teams.text.16"><tspan class="d">graph.md</tspan> все связи</text>
     <text class="s" x="396" y="224" data-i18n="teams.text.17"><tspan class="d">code-map.md</tspan> эпик ↔ код</text>
-    <text class="elbl ok" x="396" y="262" data-i18n="teams.text.18">каждая запись показана и одобрена</text>
+    <text class="elbl ok" x="396" y="262" data-i18n="teams.text.18">каждая запись показана и одобрена</text>
 
     <rect class="nb" x="828" y="96" width="276" height="196" rx="6"/>
     <text class="t" x="846" y="126" data-i18n="teams.text.22">git remote</text>
     <text class="s" x="846" y="148" data-i18n="teams.text.23">GitHub · GitLab · что угодно</text>
-    <text class="s" x="846" y="184" data-i18n="teams.text.24">ADR и спеки ревьюятся</text>
+    <text class="s" x="846" y="184" data-i18n="teams.text.24">ADR и спеки ревьюятся</text>
     <text class="s" x="846" y="204" data-i18n="teams.text.25">как pull request:</text>
     <text class="elbl chk" x="846" y="236" data-i18n="teams.text.26"><tspan class="d">ревью проходит «почему»,</tspan></text>
-    <text class="elbl chk" x="846" y="256" data-i18n="teams.text.27"><tspan class="d">а не только код</tspan></text>
+    <text class="elbl chk" x="846" y="256" data-i18n="teams.text.27"><tspan class="d">а не только код</tspan></text>
   </svg>
-  <figcaption class="cap-after" data-i18n="teams.figcaption.1">Положите vault в отдельный репозиторий. Каждый ставит ProjectStore, привязывается к тому же vault и сохраняет изменения только после одобрения. Коллега без агента проводит ревью на GitHub или в Obsidian.</figcaption>
+  <figcaption class="cap-after" data-i18n="teams.figcaption.1">Положите vault в отдельный репозиторий. Каждый ставит ProjectStore, привязывается к тому же vault и сохраняет изменения только после одобрения. Коллега без агента проводит ревью на GitHub или в Obsidian.</figcaption>
   </figure>
 </section>
 
@@ -159,12 +159,12 @@ projectstore: this session looks like <span class="c-acc">"<span data-slug="stor
   <div class="section-label" data-i18n="vault.setup.label">Настройка</div>
   <h2 id="vault-setup-title" data-i18n="teams.h3.4">Командная настройка по шагам</h2>
   <ol class="setup">
-    <li><span class="n">01</span><h3 data-i18n="teams.h4.1">Отдельный репозиторий vault</h3><p data-i18n="teams.p.8">Один репозиторий проектных документов на проект, а не на человека. Он живёт рядом с репозиторием кода.</p></li>
-    <li><span class="n">02</span><h3 data-i18n="vault.h4.2">Свои копии кода, один vault</h3><p data-i18n="vault.p.9">Каждый клонирует репозиторий vault, затем запускает <code data-fact="install">npx projectstore setup</code> в своей копии кода и указывает этот клон как vault. Привязка остаётся на этой машине и не коммитится.</p></li>
-    <li><span class="n">03</span><h3 data-i18n="teams.h4.3">Ветка и pull request</h3><p data-i18n="teams.p.10">Прежде чем решение примут, его смотрит человек. Критик проверяет решение до pull request, ваша команда — уже в нём.</p></li>
-    <li><span class="n">04</span><h3 data-i18n="teams.h4.4">Doctor в CI</h3><p data-i18n="teams.p.11"><code>npx projectstore doctor --json</code> работает в CI без агента и без токенов. Если он находит проблемы, шаг падает. <code>reconcile --write</code> может там же пересобрать доску.</p></li>
+    <li><span class="n">01</span><h3 data-i18n="teams.h4.1">Отдельный репозиторий vault</h3><p data-i18n="teams.p.8">Один репозиторий проектных документов на проект, а не на человека. Он живёт рядом с репозиторием кода.</p></li>
+    <li><span class="n">02</span><h3 data-i18n="vault.h4.2">Свои копии кода, один vault</h3><p data-i18n="vault.p.9">Каждый клонирует репозиторий vault, затем запускает <code data-fact="install">npx projectstore setup</code> в своей копии кода и указывает этот клон как vault. Привязка остаётся на этой машине и не коммитится.</p></li>
+    <li><span class="n">03</span><h3 data-i18n="teams.h4.3">Ветка и pull request</h3><p data-i18n="teams.p.10">Прежде чем решение примут, его смотрит человек. Критик проверяет решение до pull request, ваша команда — уже в нём.</p></li>
+    <li><span class="n">04</span><h3 data-i18n="teams.h4.4">Doctor в CI</h3><p data-i18n="teams.p.11"><code>npx projectstore doctor --json</code> работает в CI без агента и без токенов. Если он находит проблемы, шаг падает. <code>reconcile --write</code> может там же пересобрать доску.</p></li>
   </ol>
-  <p class="note"><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span> <span data-i18n="vault.codex">Claude Code и Codex могут работать над одним проектом бок о бок: у них общая привязка, а модели агентов и состояние сессий у каждого свои.</span></p>
+  <p class="note"><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span> <span data-i18n="vault.codex">Claude Code и Codex могут работать над одним проектом бок о бок: у них общая привязка, а модели агентов и состояние сессий у каждого свои.</span></p>
   <p class="next-pages"><a href="../how-it-works/" data-i18n="vault.next.1">Как это работает →</a><a href="../why-it-works/" data-i18n="vault.next.2">Почему это работает →</a><a href="../#start" data-i18n="vault.next.3">Установка →</a></p>
 </section>
 

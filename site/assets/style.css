@@ -200,7 +200,6 @@ b, strong { font-weight: 600; color: var(--ink-hi); }
 h1 { font-size: clamp(38px, 5vw, 64px); line-height: 1.04; font-weight: 600; letter-spacing: -0.03em; text-wrap: balance; color: var(--ink-hi); }
 h2 { font-size: clamp(30px, 3.6vw, 46px); line-height: 1.1; font-weight: 600; letter-spacing: -0.02em; text-wrap: balance; color: var(--ink-hi); }
 h3 { font-size: clamp(22px, 2.4vw, 28px); line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; color: var(--ink-hi); }
-h2 .dim, h1 .dim { color: var(--ink-4); }
 .lede { max-width: 60ch; color: var(--ink-3); }
 .more { align-self: flex-start; font-family: var(--font-mono); font-size: 14px; color: var(--ink-3); }
 .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 24px 48px; align-items: center; }
@@ -502,7 +501,6 @@ svg.dg { font-family: var(--font-mono); font-size: 13px; }
 /* ---------- small pieces ---------- */
 
 .problem > span, .tty-body > span { display: block; }
-.muted-heading { color: var(--ink-4); }
 .file pre.code-lines { padding: 14px 0; font-size: 13px; line-height: 1.7; overflow-x: auto; color: var(--ink-2); white-space: normal; }
 .code-lines code { background: none; border: 0; padding: 0; font-size: 1em; color: inherit; }
 .code-line { display: block; padding-right: 14px; white-space: pre-wrap; }
