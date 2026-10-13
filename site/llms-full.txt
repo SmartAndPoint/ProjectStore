@@ -179,7 +179,7 @@ Bind first, then run the `archaeologist` agent once. It scans manifests, git his
 
 ### 5.4 Configuring, upgrading and removing
 
-Setup asks only what a first install needs. Afterwards, `configure` shows every setting with its value and the file it lives in: each agent's model per harness, the status line and the band, the template language, and the vault's spec policy and lifecycle gates. At a terminal it asks which to change and shows one plan. Without a terminal it prints the view; a change named with `--set` applies, and naming it is the confirmation.
+Setup asks only what a first install needs. Afterwards, `configure` changes every setting: each agent's model per harness, the status line and the band, the template language, and the vault's spec policy and lifecycle gates. At a terminal it opens a settings menu (arrow keys move and open, space chooses, Enter shows one plan and a second Enter writes it), with a line under it that says what each row means; a model is chosen from its harness's own list. Without a terminal it prints every setting with its value and the file it lives in; a change named with `--set` applies, and naming it is the confirmation.
 
 ```
 npx projectstore configure

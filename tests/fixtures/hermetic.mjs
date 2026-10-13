@@ -27,6 +27,14 @@ for (const m of loadHarnesses().values()) if (m.runtime?.plugin_root_env) delete
 // the environment it passes.
 for (const m of loadHarnesses().values())
   for (const k of m.runtime?.registration_defer_env || []) delete process.env[k];
+// Every model catalog's key and base variable (agent_translation.models): a
+// developer's exported ANTHROPIC_API_KEY would let a test that forgot its fake
+// fetch send a real key, and a base URL would move where it goes (the ADR
+// "Agent model lists are read from each harness's own catalog…"). A test of
+// the read passes its own environment.
+for (const m of loadHarnesses().values())
+  for (const c of m.agent_translation?.models?.catalogs || [])
+    for (const k of [c.key_env, c.base_env]) if (k) delete process.env[k];
 // A shell's named root would stand in for every fetch, and the animation
 // switch would change every live line a test reads (the shell-fetch story).
 for (const k of ["PROJECTSTORE_DISTRIBUTION_ROOT", "PROJECTSTORE_NO_ANIMATION"]) delete process.env[k];

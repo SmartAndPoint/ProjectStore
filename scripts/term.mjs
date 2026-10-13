@@ -137,6 +137,17 @@ export const GLYPHS = Object.freeze({
   // A move or a state change in a step's text: `a → b` (decided 2026-10-10,
   // added to the spec's table at the story's close-out).
   transition: Object.freeze(["→", "->"]),
+  // The settings menu's frames and marks (contract 14, added 2026-10-13): a
+  // frame's corners (its sides are the rail and the rule), the cursor on the
+  // row the keys act on, the rows a frame hides above and below, and the
+  // path line's separator.
+  frameTopLeft: Object.freeze(["╭", "+"]),
+  frameTopRight: Object.freeze(["╮", "+"]),
+  frameBottomLeft: Object.freeze(["╰", "+"]),
+  frameBottomRight: Object.freeze(["╯", "+"]),
+  cursor: Object.freeze(["›", ">"]),
+  moreAbove: Object.freeze(["↑", "^"]),
+  moreBelow: Object.freeze(["↓", "v"]),
 });
 
 // The other names a glyph answers to: the spec's shared rows (fail / issue,
@@ -160,6 +171,8 @@ export const GLYPH_ALIASES = Object.freeze({
   // The question rail's checklist cursor: the row it is on is marked by a
   // glyph, not by colour alone (contract 3).
   pointer: "transition",
+  // The menu's path line: Settings › Agents · Claude Code › critic.
+  pathSeparator: "cursor",
 });
 
 // The spinner (presentation spec contract 4): braille frames, one every 80 ms.
@@ -1086,6 +1099,160 @@ export function openRail({
       } catch {}
       release();
       if (woken) woken();
+    },
+  };
+}
+
+// A full screen for the settings menu (presentation spec contract 14): the
+// terminal's alternate screen, raw keys and a hidden cursor for the screen's
+// whole life, each draw from the top-left, and the terminal restored on
+// every path — close(), `exit`, SIGTERM / SIGHUP / SIGINT — as the rail
+// restores it. What the screen showed is gone from the scrollback when it
+// closes; the caller prints what should stay after that.
+//
+//   screen.size()        → { columns, rows }
+//   screen.draw(lines)   → the lines, each line's rest cleared, then the rest
+//   screen.next()        → the next event: a key name (up, down, left, right,
+//                          space, enter, escape, backspace, cancel), { char },
+//                          "resize", or what wake() was given
+//   screen.wake(event)   → an event for next(), from outside the keys (a
+//                          background read that answered)
+//   screen.drain(turns)  → the keys queued so far dropped, and those arriving in
+//                          the next `turns` turns of the loop (the review screen)
+//   screen.close()       → the terminal is the caller's again
+//
+// Ctrl+C and the end of input are "cancel": an answer, never process.exit.
+export const ALT_ON = "\x1b[?1049h";
+export const ALT_OFF = "\x1b[?1049l";
+export function openScreen({
+  stdin = process.stdin,
+  stdout = process.stdout,
+  caps: c = caps(stdout),
+  proc = process,
+  escapeMs = ESCAPE_MS,
+} = {}) {
+  if (!railAvailable(stdin, c))
+    throw new Error("no screen: stdin must be a terminal with setRawMode and stdout a live one (railAvailable)");
+  const write = (s) => stdout.write(s);
+  const queue = [];
+  let waiter = null;
+  const push = (e) => {
+    queue.push(e);
+    if (waiter) {
+      const w = waiter;
+      waiter = null;
+      w();
+    }
+  };
+  // A lone Esc is reported after the escape timeout as { name: "escape",
+  // meta: true }: it is ←, never a modifier (the rail reads it the same way).
+  const nameOf = (str, k = {}) => {
+    if (k.ctrl && k.name === "c") return "cancel";
+    if (k.name === "escape") return "escape";
+    if (k.ctrl || k.meta) return null;
+    if (["up", "down", "left", "right", "space", "escape", "backspace"].includes(k.name)) return k.name;
+    if (isEnter(k)) return "enter";
+    return printable({ ...k, str }) ? { char: str } : null;
+  };
+  // While a drain lasts, keys are dropped as they arrive (drain() below).
+  let dropping = false;
+  const onKey = (str, key) => {
+    const e = nameOf(str, key || {});
+    if (e && !(dropping && e !== "cancel")) push(e);
+  };
+  const onEnd = () => push("cancel");
+  const onResize = () => push("resize");
+  let open = true;
+  const restore = () => {
+    try {
+      stdin.setRawMode(false);
+    } catch {}
+    try {
+      write(`${SHOW_CURSOR}${ALT_OFF}`);
+    } catch {}
+  };
+  const onExit = () => restore();
+  const onSignal = {};
+  const release = () => {
+    proc.removeListener("exit", onExit);
+    for (const [sig, f] of Object.entries(onSignal)) proc.removeListener(sig, f);
+  };
+  for (const sig of ["SIGTERM", "SIGHUP", "SIGINT"]) {
+    onSignal[sig] = () => {
+      if (open) restore();
+      open = false;
+      release();
+      try {
+        proc.kill(proc.pid, sig);
+      } catch {}
+    };
+  }
+  proc.once("exit", onExit);
+  for (const [sig, f] of Object.entries(onSignal)) proc.on(sig, f);
+  emitKeypressEvents(stdin, { escapeCodeTimeout: escapeMs });
+  stdin.on("keypress", onKey);
+  stdin.on("end", onEnd);
+  stdin.on("error", onEnd);
+  if (typeof stdout.on === "function") stdout.on("resize", onResize);
+  if (stdin.readableEnded) queue.push("cancel");
+  try {
+    stdin.setRawMode(true);
+    write(`${ALT_ON}${HIDE_CURSOR}`);
+    stdin.resume();
+  } catch (e) {
+    restore();
+    release();
+    throw e;
+  }
+  return {
+    size: () => ({
+      columns: Number(stdout.columns) > 0 ? Number(stdout.columns) : c.columns || 100,
+      rows: Number(stdout.rows) > 0 ? Number(stdout.rows) : 24,
+    }),
+    // Each line after an erase of its row, at most `rows` of them, and no
+    // newline after the last, so the alternate screen never scrolls.
+    draw(lines) {
+      if (!open) return;
+      const rows = Number(stdout.rows) > 0 ? Number(stdout.rows) : 24;
+      write(
+        `\x1b[H${lines
+          .slice(0, rows)
+          .map((l) => `\x1b[2K${l}`)
+          .join("\r\n")}\x1b[J`,
+      );
+    },
+    // The keys queued so far dropped, and those that arrive in the next
+    // `turns` turns of the event loop too: what was in the terminal's buffer
+    // when the review was drawn was typed before it was seen, as drainInput
+    // reasons for the line-mode confirm. Ctrl+C is never dropped.
+    drain: (turns = 0) => {
+      for (let k = queue.length - 1; k >= 0; k--) if (queue[k] !== "cancel") queue.splice(k, 1);
+      if (!turns) return;
+      dropping = true;
+      let n = 0;
+      const step = () => (++n >= turns ? (dropping = false) : setImmediate(step));
+      setImmediate(step);
+    },
+    next: () =>
+      queue.length
+        ? Promise.resolve(queue.shift())
+        : new Promise((settle) => {
+            waiter = () => settle(queue.shift());
+          }),
+    wake: (e) => push(e),
+    close() {
+      if (!open) return;
+      open = false;
+      stdin.removeListener("keypress", onKey);
+      stdin.removeListener("end", onEnd);
+      stdin.removeListener("error", onEnd);
+      if (typeof stdout.removeListener === "function") stdout.removeListener("resize", onResize);
+      queue.length = 0;
+      try {
+        stdin.pause();
+      } catch {}
+      restore();
+      release();
     },
   };
 }
