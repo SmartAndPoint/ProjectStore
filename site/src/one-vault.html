@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--i18n:redirect-->
+<title data-i18n="vault.meta.title">One vault, many people — ProjectStore for sessions, teams and agents</title>
+<meta name="description" content="Several sessions, a whole team and several agents on one ProjectStore vault: the rules that keep them apart, the vault in its own git repository, ADRs and specs reviewed as pull requests, and a team setup in four steps." data-i18n-attr="content:vault.meta.description">
+<meta name="theme-color" content="#0b0c0a">
+<link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<link rel="stylesheet" href="assets/style.css">
+<!--i18n:alternates-->
+</head>
+<body data-page="one-vault">
+<!--i18n:include _sprite.html-->
+<!--i18n:include _header.html-->
+
+<main id="main" class="wrap page">
+
+<section class="page-hero" aria-labelledby="vault-title">
+  <p class="crumb"><a href="./">.projectstore</a> / <span data-i18n="vault.crumb">method / 3</span></p>
+  <h1 id="vault-title" data-i18n="vault.h1">Many sessions. Many people. <span class="acc">One vault.</span></h1>
+  <p class="lead" data-i18n="teams.p.1">The context belongs to the team, not to one developer's chat. ADRs and specs go through pull requests, like code. <b>What gets reviewed is the reasoning.</b></p>
+</section>
+
+<section class="sec modes" id="modes" aria-labelledby="vault-modes-title" data-tabs data-initial="solo">
+  <div class="section-label" data-i18n="vault.modes.label">Four ways to work</div>
+  <h2 id="vault-modes-title" class="visually-hidden" data-i18n="vault.modes.h2">Four ways to work</h2>
+  <div class="tabs" role="tablist" aria-label="Collaboration scenarios" data-i18n-attr="aria-label:teams.aria-label.1">
+    <button class="tab" type="button" role="tab" data-tab="solo" id="vt-solo" aria-controls="vp-solo" data-i18n="modes.tab.solo">One person, many sessions</button>
+    <button class="tab" type="button" role="tab" data-tab="team" id="vt-team" aria-controls="vp-team" data-i18n="teams.button.1">One team</button>
+    <button class="tab" type="button" role="tab" data-tab="teams" id="vt-teams" aria-controls="vp-teams" data-i18n="teams.button.2">Several teams</button>
+    <button class="tab" type="button" role="tab" data-tab="agents" id="vt-agents" aria-controls="vp-agents" data-i18n="teams.button.3">Several agents</button>
+  </div>
+
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="solo" id="vp-solo" aria-labelledby="vt-solo">
+    <div class="cols">
+      <div class="prose">
+        <h3 data-i18n="teams.h3.5">Several sessions, one vault</h3>
+        <p data-i18n="teams.p.12">Two agents or two people in one vault at the same time is normal. Each session knows about the others, and a few simple rules keep them out of each other's way.</p>
+        <ul class="rules-list">
+          <li data-i18n="teams.li.1"><strong>No silent overwrites.</strong> Before saving a new file, ProjectStore checks that it does not exist yet. Two sessions on the same topic get a clash, not two copies.</li>
+          <li data-i18n="teams.li.2"><strong>Each status line shows its own work.</strong> <span data-source="docs/how-it-works.md#sessions-how-parallel-claude-instances-coexist">2–6 sessions</span> side by side each see exactly their own epic and story.</li>
+          <li data-i18n="teams.li.3"><strong>Session names are offered, not imposed.</strong> Once a session settles on one piece of work, it suggests a name for it. Rarely: <span data-source="docs/how-it-works.md#naming-a-session-after-the-work-it-settled-on">at most twice a session, 12 offers across nine recorded sessions</span>.</li>
+        </ul>
+      </div>
+      <figure class="tty"><figcaption><span data-i18n="vault.tty.cap">a second session on your-project-vault</span><span class="c-ok">Claude Code</span></figcaption>
+<pre class="transcript" data-i18n="vault.tty"><span class="c-dim">developer A has worked on CHECKOUT since 13:35. you open a second session:</span>
+
+<span class="c-epic">⚠ Multi-session warning</span> — 1 other projectstore session active.
+  Run <span class="c-acc">/projectstore:search &lt;topic&gt;</span> before creating new artifacts.
+
+<span class="c-dim">later, once your work settles on “<span data-title="story">Saved cards are listed at checkout</span>”:</span>
+projectstore: this session looks like <span class="c-acc">"<span data-slug="story:session">checkout-saved-cards-are-listed-at-checkout</span>"</span>
+  → <span class="c-acc">/rename <span data-slug="story:session">checkout-saved-cards-are-listed-at-checkout</span></span></pre>
+      </figure>
+    </div>
+  </div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="team" id="vp-team" aria-labelledby="vt-team"><div class="prose"><h3 data-i18n="teams.h3.1">Everyone sees more than their own part.</h3><p data-i18n="teams.p.2">The developer, the tech lead and QA work from the same decisions and criteria. A person without an agent needs only GitHub or a Markdown editor: it is just files.</p><p data-i18n="teams.p.3">The context is available to the whole team, not only to the owner of the chat.</p></div></div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="teams" id="vp-teams" aria-labelledby="vt-teams"><div class="prose"><h3 data-i18n="teams.h3.2">Shared contracts. Separate areas of work.</h3><p data-i18n="teams.p.4">In one project, the API, Web and Platform teams run their own epics on top of shared ADRs and specs. A change to a shared contract is discussed in review with the teams that use it. ProjectStore shows which stories depend on it.</p><p data-i18n="teams.p.5">Who owns which artifacts and who signs off on contracts is the team's call.</p></div></div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="agents" id="vp-agents" aria-labelledby="vt-agents"><div class="prose"><h3 data-i18n="teams.h3.3">Different executors. Shared grounds.</h3><p data-i18n="teams.p.6">The planner reads the decisions and the code map. The implementer reads the story and the spec. The reviewer reads the diff and the criteria. Each gets the context it needs, not the whole history of someone else's session. Sessions on the same vault warn each other.</p><p data-i18n="teams.p.7">Launching agents and handing work between them is the job of your harness or orchestrator.</p></div></div>
+  <p class="note" data-i18n="teams.span.8">An example of organizing the work, not live orchestration</p>
+</section>
+
+<section class="sec" id="git" aria-labelledby="vault-git-title">
+  <div class="section-label" data-i18n="teams.span.24">the vault in its own repository</div>
+  <h2 id="vault-git-title" data-i18n="teams.span.23">What it looks like in git</h2>
+  <figure class="diagram">
+  <svg class="dg" viewBox="0 0 1104 392" width="1104" height="392" role="img" aria-labelledby="git-cap">
+    <title id="git-cap" data-i18n="teams.title.1">Developers with their own agents bind to one vault in its own git repository. ADRs and specs are reviewed as pull requests. A teammate without an agent reviews on GitHub or in Obsidian.</title>
+    <path class="edge pln" d="M260 56H372" marker-end="url(#m-pln)"/>
+    <path class="edge pln" d="M260 188H372" marker-end="url(#m-pln)"/>
+    <text class="elbl pln" x="316" y="46" text-anchor="middle" data-i18n="teams.text.28">setup</text>
+    <path class="edge" d="M712 160H822" marker-end="url(#m)"/>
+    <path class="edge" d="M822 200H718" marker-end="url(#m)"/>
+    <text class="elbl" x="767" y="150" text-anchor="middle" data-i18n="teams.text.29">push / pull</text>
+    <path class="edge chk" d="M260 320H966V292" marker-end="url(#m-chk)"/>
+    <text class="elbl chk" x="600" y="342" text-anchor="middle" data-i18n="teams.text.30">review &amp; pull</text>
+
+    <rect class="who" x="0" y="16" width="260" height="84" rx="6"/>
+    <text class="t pln" x="16" y="46" data-i18n="teams.text.1">Developer A</text><text class="s" x="16" y="68" data-i18n="teams.text.2">Claude Code + projectstore</text><text class="tag" x="16" y="88" data-i18n="teams.text.3">agent</text>
+    <rect class="who" x="0" y="148" width="260" height="84" rx="6"/>
+    <text class="t pln" x="16" y="178" data-i18n="teams.text.4">Developer B</text><text class="s" x="16" y="200" data-i18n="teams.text.5">Codex + projectstore</text><text class="tag" x="16" y="220" data-i18n="teams.text.6">agent</text>
+    <rect class="nb" x="0" y="280" width="260" height="84" rx="6"/>
+    <text class="t" x="16" y="310" data-i18n="teams.text.7">Developer C</text><text class="s" x="16" y="330" data-i18n="teams.text.8">no agent</text><text class="s" x="16" y="350" data-i18n="teams.text.9">reviews on GitHub/Obsidian</text>
+
+    <g class="pulse"><rect class="nb acc" x="378" y="16" width="334" height="270" rx="6"/></g>
+    <text class="t acc" x="396" y="46" data-i18n="teams.text.10">your-project-vault</text>
+    <text class="s" x="396" y="68" data-i18n="teams.text.11">its own git repo · plain markdown</text>
+    <text class="s" x="396" y="104" data-i18n="teams.text.12"><tspan class="d">adr/</tspan> decisions, with dates</text>
+    <text class="s" x="396" y="128" data-i18n="teams.text.13"><tspan class="d">specs/</tspan> how it must work</text>
+    <text class="s" x="396" y="152" data-i18n="teams.text.14"><tspan class="d">epics/ · stories/</tspan> the backlog</text>
+    <text class="s" x="396" y="176" data-i18n="teams.text.15"><tspan class="d">kanban.md</tspan> the board</text>
+    <text class="s" x="396" y="200" data-i18n="teams.text.16"><tspan class="d">graph.md</tspan> all the links</text>
+    <text class="s" x="396" y="224" data-i18n="teams.text.17"><tspan class="d">code-map.md</tspan> epic ↔ code</text>
+    <text class="elbl ok" x="396" y="262" data-i18n="teams.text.18">every write shown, then approved</text>
+
+    <rect class="nb" x="828" y="96" width="276" height="196" rx="6"/>
+    <text class="t" x="846" y="126" data-i18n="teams.text.22">git remote</text>
+    <text class="s" x="846" y="148" data-i18n="teams.text.23">GitHub · GitLab · anything</text>
+    <text class="s" x="846" y="184" data-i18n="teams.text.24">ADRs and specs reviewed</text>
+    <text class="s" x="846" y="204" data-i18n="teams.text.25">as pull requests:</text>
+    <text class="elbl chk" x="846" y="236" data-i18n="teams.text.26"><tspan class="d">the why gets reviewed,</tspan></text>
+    <text class="elbl chk" x="846" y="256" data-i18n="teams.text.27"><tspan class="d">not just the code</tspan></text>
+  </svg>
+  <figcaption class="cap-after" data-i18n="teams.figcaption.1">Put the vault in its own repository. Everyone installs ProjectStore, binds to the same vault and saves changes only after approval. A teammate without an agent reviews on GitHub or in Obsidian.</figcaption>
+  </figure>
+</section>
+
+<section class="sec" id="setup" aria-labelledby="vault-setup-title">
+  <div class="section-label" data-i18n="vault.setup.label">Setup</div>
+  <h2 id="vault-setup-title" data-i18n="teams.h3.4">A team setup, step by step</h2>
+  <ol class="setup">
+    <li><span class="n">01</span><h3 data-i18n="teams.h4.1">A separate vault repo</h3><p data-i18n="teams.p.8">One repository of project documents per project, not per person. It sits next to the code repository.</p></li>
+    <li><span class="n">02</span><h3 data-i18n="vault.h4.2">Own checkouts, one vault</h3><p data-i18n="vault.p.9">Each person clones the vault repository, then runs <code data-fact="install">npx projectstore setup</code> in their own copy of the code and names that clone as the vault. The binding stays on that machine and is not committed.</p></li>
+    <li><span class="n">03</span><h3 data-i18n="teams.h4.3">A branch and a pull request</h3><p data-i18n="teams.p.10">A person reviews each decision before it is accepted. The critic checks it before the pull request; your team reviews it inside.</p></li>
+    <li><span class="n">04</span><h3 data-i18n="teams.h4.4">Doctor in CI</h3><p data-i18n="teams.p.11"><code>npx projectstore doctor --json</code> runs in CI with no agent and no tokens. It fails the step when it finds problems. <code>reconcile --write</code> can rebuild the board there too.</p></li>
+  </ol>
+  <p class="note"><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span> <span data-i18n="vault.codex">Claude Code and Codex can work one project side by side: they share the binding, and each keeps its own agent models and session state.</span></p>
+  <p class="next-pages"><a href="how-it-works/" data-i18n="vault.next.1">How it works →</a><a href="why-it-works/" data-i18n="vault.next.2">Why it works →</a><a href="./#start" data-i18n="vault.next.3">Install →</a></p>
+</section>
+
+</main>
+
+<!--i18n:include _footer.html-->
+</body>
+</html>

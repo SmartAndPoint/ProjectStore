@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title data-i18n="vault.meta.title">Un vault, muchas personas — ProjectStore para sesiones, equipos y agentes</title>
+<meta name="description" content="Varias sesiones, un equipo entero y varios agentes sobre un mismo vault de ProjectStore: las reglas que los mantienen separados, el vault en su propio repositorio git, ADR y specs revisados como pull requests, y una configuración de equipo en cuatro pasos." data-i18n-attr="content:vault.meta.description">
+<meta name="theme-color" content="#0b0c0a">
+<link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../../assets/icon-180.png">
+<link rel="stylesheet" href="../../assets/style.css?v=ad35ff5c">
+<link rel="alternate" hreflang="en" href="https://projectstore.dev/one-vault/">
+<link rel="alternate" hreflang="de" href="https://projectstore.dev/de/one-vault/">
+<link rel="alternate" hreflang="es" href="https://projectstore.dev/es/one-vault/">
+<link rel="alternate" hreflang="fr" href="https://projectstore.dev/fr/one-vault/">
+<link rel="alternate" hreflang="pt-BR" href="https://projectstore.dev/pt/one-vault/">
+<link rel="alternate" hreflang="ru" href="https://projectstore.dev/ru/one-vault/">
+<link rel="alternate" hreflang="uk" href="https://projectstore.dev/uk/one-vault/">
+<link rel="alternate" hreflang="zh-CN" href="https://projectstore.dev/zh/one-vault/">
+<link rel="alternate" hreflang="x-default" href="https://projectstore.dev/one-vault/">
+<link rel="canonical" href="https://projectstore.dev/es/one-vault/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ProjectStore">
+<meta property="og:locale" content="es">
+<meta property="og:title" content="Un vault, muchas personas — ProjectStore para sesiones, equipos y agentes">
+<meta property="og:description" content="Varias sesiones, un equipo entero y varios agentes sobre un mismo vault de ProjectStore: las reglas que los mantienen separados, el vault en su propio repositorio git, ADR y specs revisados como pull requests, y una configuración de equipo en cuatro pasos.">
+<meta property="og:url" content="https://projectstore.dev/es/one-vault/">
+<meta property="og:image" content="https://projectstore.dev/assets/og.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://projectstore.dev/assets/og.png">
+</head>
+<body data-page="one-vault">
+<svg class="sprite" width="0" height="0" aria-hidden="true" focusable="false">
+  <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/><path d="M10.5 3.5V3A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.5 6.5 12 13 4.5"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol>
+  <defs>
+    <marker id="m" class="mk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+    <marker id="m-chk" class="mk chk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+    <marker id="m-ok" class="mk ok" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+    <marker id="m-pln" class="mk pln" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+    <marker id="m-ret" class="mk ret" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+  </defs>
+</svg>
+<a class="skip-link" href="#main" data-i18n="page.a.1">Saltar al contenido</a>
+
+<header class="site-header">
+  <div class="wrap head-row">
+    <a class="brand" href="../" aria-label="ProjectStore, inicio" data-i18n-attr="aria-label:nav.home"><img class="mark" src="../../assets/mark.svg" alt="" width="30" height="30"><span class="wordmark"><span class="dot">.</span>projectstore</span></a>
+    <nav class="head-nav" aria-label="Navegación principal" data-i18n-attr="aria-label:nav.aria-label.2">
+      <a class="page-link" data-nav="how-it-works" href="../how-it-works/" data-i18n="nav.how">Cómo funciona</a>
+      <a class="page-link" data-nav="why-it-works" href="../why-it-works/" data-i18n="nav.why">Por qué funciona</a>
+      <a class="page-link" data-nav="one-vault" href="../one-vault/" data-i18n="nav.vault">Un vault, muchas personas</a>
+      <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="Idioma: Español"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>ES</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../../one-vault/" hreflang="en" lang="en" data-lang="en">English</a></li><li><a href="../../de/one-vault/" hreflang="de" lang="de" data-lang="de">Deutsch</a></li><li><a href="../../es/one-vault/" hreflang="es" lang="es" data-lang="es" aria-current="true">Español</a></li><li><a href="../../fr/one-vault/" hreflang="fr" lang="fr" data-lang="fr">Français</a></li><li><a href="../../pt/one-vault/" hreflang="pt-BR" lang="pt-BR" data-lang="pt">Português</a></li><li><a href="../../ru/one-vault/" hreflang="ru" lang="ru" data-lang="ru">Русский</a></li><li><a href="../../uk/one-vault/" hreflang="uk" lang="uk" data-lang="uk">Українська</a></li><li><a href="../../zh/one-vault/" hreflang="zh-CN" lang="zh-CN" data-lang="zh">中文</a></li></ul></div>
+      <a class="star" href="https://github.com/SmartAndPoint/ProjectStore"><span aria-hidden="true">★</span> <span data-i18n="nav.star">Star</span></a>
+    </nav>
+  </div>
+  <nav class="mobile-nav" aria-label="Páginas" data-i18n-attr="aria-label:nav.pages"><a data-nav="main" href="../#start" data-i18n="nav.install">Instalar</a><a data-nav="how-it-works" href="../how-it-works/" data-i18n="nav.how.2">Cómo funciona</a><a data-nav="why-it-works" href="../why-it-works/" data-i18n="nav.why.2">Por qué funciona</a><a data-nav="one-vault" href="../one-vault/" data-i18n="nav.vault.2">Un vault, muchas personas</a></nav>
+</header>
+
+<main id="main" class="wrap page">
+
+<section class="page-hero" aria-labelledby="vault-title">
+  <p class="crumb"><a href="../">.projectstore</a> / <span data-i18n="vault.crumb">método / 3</span></p>
+  <h1 id="vault-title" data-i18n="vault.h1">Muchas sesiones. Muchas personas. <span class="acc">Un vault.</span></h1>
+  <p class="lead" data-i18n="teams.p.1">El contexto es del equipo, no del chat de un desarrollador. Los ADR y las specs pasan por pull requests, como el código. <b>Lo que se revisa es el razonamiento.</b></p>
+</section>
+
+<section class="sec modes" id="modes" aria-labelledby="vault-modes-title" data-tabs data-initial="solo">
+  <div class="section-label" data-i18n="vault.modes.label">Cuatro formas de trabajar</div>
+  <h2 id="vault-modes-title" class="visually-hidden" data-i18n="vault.modes.h2">Cuatro formas de trabajar</h2>
+  <div class="tabs" role="tablist" aria-label="Escenarios de colaboración" data-i18n-attr="aria-label:teams.aria-label.1">
+    <button class="tab" type="button" role="tab" data-tab="solo" id="vt-solo" aria-controls="vp-solo" data-i18n="modes.tab.solo">Una persona, muchas sesiones</button>
+    <button class="tab" type="button" role="tab" data-tab="team" id="vt-team" aria-controls="vp-team" data-i18n="teams.button.1">Un equipo</button>
+    <button class="tab" type="button" role="tab" data-tab="teams" id="vt-teams" aria-controls="vp-teams" data-i18n="teams.button.2">Varios equipos</button>
+    <button class="tab" type="button" role="tab" data-tab="agents" id="vt-agents" aria-controls="vp-agents" data-i18n="teams.button.3">Varios agentes</button>
+  </div>
+
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="solo" id="vp-solo" aria-labelledby="vt-solo">
+    <div class="cols">
+      <div class="prose">
+        <h3 data-i18n="teams.h3.5">Varias sesiones, un vault</h3>
+        <p data-i18n="teams.p.12">Dos agentes o dos personas en un mismo vault a la vez es lo normal. Cada sesión sabe de las demás, y unas pocas reglas sencillas evitan que se pisen.</p>
+        <ul class="rules-list">
+          <li data-i18n="teams.li.1"><strong>Nada se sobrescribe en silencio.</strong> Antes de guardar un archivo nuevo, ProjectStore comprueba que aún no existe. Dos sesiones sobre el mismo tema se topan con un conflicto, no con dos copias.</li>
+          <li data-i18n="teams.li.2"><strong>Cada línea de estado muestra su propio trabajo.</strong> <span data-source="docs/how-it-works.md#sessions-how-parallel-claude-instances-coexist">2–6 sesiones</span> en paralelo ven, cada una, exactamente su propia épica e historia.</li>
+          <li data-i18n="teams.li.3"><strong>Los nombres de sesión se proponen, no se imponen.</strong> Cuando una sesión se centra en un único trabajo, se le propone un nombre. Pocas veces: <span data-source="docs/how-it-works.md#naming-a-session-after-the-work-it-settled-on">como mucho dos por sesión, 12 propuestas en nueve sesiones registradas</span>.</li>
+        </ul>
+      </div>
+      <figure class="tty"><figcaption><span data-i18n="vault.tty.cap">una segunda sesión en your-project-vault</span><span class="c-ok">Claude Code</span></figcaption>
+<pre class="transcript" data-i18n="vault.tty"><span class="c-dim">dev A trabaja en CHECKOUT desde las 13:35. abres una segunda sesión:</span>
+
+<span class="c-epic">⚠ Multi-session warning</span> — 1 other projectstore session active.
+  Run <span class="c-acc">/projectstore:search &lt;topic&gt;</span> before creating new artifacts.
+
+<span class="c-dim">más tarde, cuando tu trabajo se centra en «<span data-title="story">Las tarjetas guardadas se listan al pagar</span>»:</span>
+projectstore: this session looks like <span class="c-acc">"<span data-slug="story:session">checkout-las-tarjetas-guardadas-se-listan-al</span>"</span>
+  → <span class="c-acc">/rename <span data-slug="story:session">checkout-las-tarjetas-guardadas-se-listan-al</span></span></pre>
+      </figure>
+    </div>
+  </div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="team" id="vp-team" aria-labelledby="vt-team"><div class="prose"><h3 data-i18n="teams.h3.1">Cada uno ve más que su propia parte.</h3><p data-i18n="teams.p.2">El desarrollador, el tech lead y QA trabajan con las mismas decisiones y los mismos criterios. Quien no usa agente solo necesita GitHub o un editor de Markdown: son simples archivos.</p><p data-i18n="teams.p.3">El contexto está disponible para todo el equipo, no solo para el dueño del chat.</p></div></div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="teams" id="vp-teams" aria-labelledby="vt-teams"><div class="prose"><h3 data-i18n="teams.h3.2">Contratos compartidos. Áreas de trabajo separadas.</h3><p data-i18n="teams.p.4">En un mismo proyecto, los equipos de API, Web y Plataforma llevan sus propias épicas sobre la base de ADR y specs compartidos. Un cambio en un contrato compartido se discute en la revisión con los equipos que lo usan. ProjectStore muestra qué historias dependen de él.</p><p data-i18n="teams.p.5">Quién es dueño de qué artefactos y quién da el visto bueno a los contratos lo decide el equipo.</p></div></div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="agents" id="vp-agents" aria-labelledby="vt-agents"><div class="prose"><h3 data-i18n="teams.h3.3">Distintos ejecutores. Bases compartidas.</h3><p data-i18n="teams.p.6">El planificador lee las decisiones y el mapa de código. El implementador lee la historia y la spec. El revisor lee el diff y los criterios. Cada uno recibe el contexto que necesita, no todo el historial de la sesión de otro. Las sesiones sobre un mismo vault se avisan entre sí.</p><p data-i18n="teams.p.7">Lanzar agentes y pasar el trabajo de uno a otro es tarea de tu harness u orquestador.</p></div></div>
+  <p class="note" data-i18n="teams.span.8">Un ejemplo de organización del trabajo, no de orquestación en vivo</p>
+</section>
+
+<section class="sec" id="git" aria-labelledby="vault-git-title">
+  <div class="section-label" data-i18n="teams.span.24">el vault en su propio repositorio</div>
+  <h2 id="vault-git-title" data-i18n="teams.span.23">Cómo se ve en git</h2>
+  <figure class="diagram">
+  <svg class="dg" viewBox="0 0 1104 392" width="1104" height="392" role="img" aria-labelledby="git-cap">
+    <title id="git-cap" data-i18n="teams.title.1">Varios desarrolladores, cada uno con su agente, se vinculan a un mismo vault, que vive en su propio repositorio git. Los ADR y las specs se revisan como pull requests. Un compañero sin agente revisa en GitHub o en Obsidian.</title>
+    <path class="edge pln" d="M260 56H372" marker-end="url(#m-pln)"/>
+    <path class="edge pln" d="M260 188H372" marker-end="url(#m-pln)"/>
+    <text class="elbl pln" x="316" y="46" text-anchor="middle" data-i18n="teams.text.28">setup</text>
+    <path class="edge" d="M712 160H822" marker-end="url(#m)"/>
+    <path class="edge" d="M822 200H718" marker-end="url(#m)"/>
+    <text class="elbl" x="767" y="150" text-anchor="middle" data-i18n="teams.text.29">push / pull</text>
+    <path class="edge chk" d="M260 320H966V292" marker-end="url(#m-chk)"/>
+    <text class="elbl chk" x="600" y="342" text-anchor="middle" data-i18n="teams.text.30">revisión y pull</text>
+
+    <rect class="who" x="0" y="16" width="260" height="84" rx="6"/>
+    <text class="t pln" x="16" y="46" data-i18n="teams.text.1">Dev A</text><text class="s" x="16" y="68" data-i18n="teams.text.2">Claude Code + projectstore</text><text class="tag" x="16" y="88" data-i18n="teams.text.3">agente</text>
+    <rect class="who" x="0" y="148" width="260" height="84" rx="6"/>
+    <text class="t pln" x="16" y="178" data-i18n="teams.text.4">Dev B</text><text class="s" x="16" y="200" data-i18n="teams.text.5">Codex + projectstore</text><text class="tag" x="16" y="220" data-i18n="teams.text.6">agente</text>
+    <rect class="nb" x="0" y="280" width="260" height="84" rx="6"/>
+    <text class="t" x="16" y="310" data-i18n="teams.text.7">Dev C</text><text class="s" x="16" y="330" data-i18n="teams.text.8">sin agente</text><text class="s" x="16" y="350" data-i18n="teams.text.9">revisa en GitHub u Obsidian</text>
+
+    <g class="pulse"><rect class="nb acc" x="378" y="16" width="334" height="270" rx="6"/></g>
+    <text class="t acc" x="396" y="46" data-i18n="teams.text.10">your-project-vault</text>
+    <text class="s" x="396" y="68" data-i18n="teams.text.11">su propio repo git · markdown plano</text>
+    <text class="s" x="396" y="104" data-i18n="teams.text.12"><tspan class="d">adr/</tspan> decisiones, con fecha</text>
+    <text class="s" x="396" y="128" data-i18n="teams.text.13"><tspan class="d">specs/</tspan> cómo debe funcionar</text>
+    <text class="s" x="396" y="152" data-i18n="teams.text.14"><tspan class="d">epics/ · stories/</tspan> el backlog</text>
+    <text class="s" x="396" y="176" data-i18n="teams.text.15"><tspan class="d">kanban.md</tspan> el tablero</text>
+    <text class="s" x="396" y="200" data-i18n="teams.text.16"><tspan class="d">graph.md</tspan> todos los enlaces</text>
+    <text class="s" x="396" y="224" data-i18n="teams.text.17"><tspan class="d">code-map.md</tspan> épica ↔ código</text>
+    <text class="elbl ok" x="396" y="262" data-i18n="teams.text.18">todo cambio se muestra y se aprueba</text>
+
+    <rect class="nb" x="828" y="96" width="276" height="196" rx="6"/>
+    <text class="t" x="846" y="126" data-i18n="teams.text.22">remoto de git</text>
+    <text class="s" x="846" y="148" data-i18n="teams.text.23">GitHub · GitLab · cualquiera</text>
+    <text class="s" x="846" y="184" data-i18n="teams.text.24">ADR y specs revisados</text>
+    <text class="s" x="846" y="204" data-i18n="teams.text.25">en pull requests:</text>
+    <text class="elbl chk" x="846" y="236" data-i18n="teams.text.26"><tspan class="d">se revisa el porqué,</tspan></text>
+    <text class="elbl chk" x="846" y="256" data-i18n="teams.text.27"><tspan class="d">no solo el código</tspan></text>
+  </svg>
+  <figcaption class="cap-after" data-i18n="teams.figcaption.1">Pon el vault en su propio repositorio. Cada persona instala ProjectStore, se vincula al mismo vault y solo guarda cambios tras la aprobación. Un compañero sin agente revisa en GitHub o en Obsidian.</figcaption>
+  </figure>
+</section>
+
+<section class="sec" id="setup" aria-labelledby="vault-setup-title">
+  <div class="section-label" data-i18n="vault.setup.label">Configuración</div>
+  <h2 id="vault-setup-title" data-i18n="teams.h3.4">Configuración de equipo, paso a paso</h2>
+  <ol class="setup">
+    <li><span class="n">01</span><h3 data-i18n="teams.h4.1">Un repo aparte para el vault</h3><p data-i18n="teams.p.8">Un repositorio de documentos de proyecto por proyecto, no por persona. Vive junto al repositorio de código.</p></li>
+    <li><span class="n">02</span><h3 data-i18n="vault.h4.2">Copias propias, un vault</h3><p data-i18n="vault.p.9">Cada persona clona el repositorio del vault, ejecuta <code data-fact="install">npx projectstore setup</code> en su propia copia del código e indica ese clon como vault. El vínculo se queda en esa máquina y no se incluye en ningún commit.</p></li>
+    <li><span class="n">03</span><h3 data-i18n="teams.h4.3">Una rama y un pull request</h3><p data-i18n="teams.p.10">Una persona revisa cada decisión antes de que se acepte. El critic la comprueba antes del pull request; tu equipo la revisa dentro de él.</p></li>
+    <li><span class="n">04</span><h3 data-i18n="teams.h4.4">Doctor en CI</h3><p data-i18n="teams.p.11"><code>npx projectstore doctor --json</code> se ejecuta en CI sin agente y sin tokens. Si encuentra problemas, hace fallar el paso. <code>reconcile --write</code> también puede reconstruir allí el tablero.</p></li>
+  </ol>
+  <p class="note"><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span> <span data-i18n="vault.codex">Claude Code y Codex pueden trabajar en un mismo proyecto a la vez: comparten el vínculo, y cada uno guarda sus propios modelos de agente y su estado de sesión.</span></p>
+  <p class="next-pages"><a href="../how-it-works/" data-i18n="vault.next.1">Cómo funciona →</a><a href="../why-it-works/" data-i18n="vault.next.2">Por qué funciona →</a><a href="../#start" data-i18n="vault.next.3">Instalar →</a></p>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap foot-row">
+    <span><span class="wordmark-sm"><span class="dot">.</span>projectstore</span> · <span data-i18n="footer.tag">El código cambia. El contexto se queda.</span> · <span data-i18n="footer.span.4">Código abierto · MIT · Evgenii Konev, SmartAndPoint</span></span>
+    <span><span data-fact="version">v0.30.1</span> · <span data-i18n="footer.span.5">cada cifra medida cita el pasaje del README o de docs del que procede; los ejemplos son ilustrativos</span></span>
+    <span class="foot-links"><a href="https://github.com/SmartAndPoint/ProjectStore" data-i18n="footer.span.3">GitHub</a> <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" data-i18n="footer.span.6">Documentación</a> <a href="../../llms.txt" data-i18n="footer.a.1">llms.txt</a></span>
+  </div>
+</footer>
+
+<script src="../../assets/site.js?v=ba4d6efb"></script>
+</body>
+</html>

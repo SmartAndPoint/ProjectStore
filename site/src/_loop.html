@@ -1,0 +1,45 @@
+<figure class="loop" aria-labelledby="loop-cap">
+  <figcaption id="loop-cap" class="visually-hidden" data-i18n="loop.cap">The ProjectStore loop. Decide: a task from you, an ADR, spec or story, an independent critic, your approval. Build: the planner, the implementation, an independent reviewer, done. Each artifact lands in the vault, and the next session sees it.</figcaption>
+  <div class="diagram">
+  <svg class="dg loop-svg" viewBox="0 0 1104 488" width="1104" height="488" role="group" aria-labelledby="loop-cap">
+    <text class="lbl" x="48" y="80" data-i18n="loop.decide">decide</text>
+    <text class="lbl" x="150" y="262" data-i18n="loop.build">build</text>
+    <path class="edge" d="M216 134H298" marker-end="url(#m)"/>
+    <path class="edge" d="M528 134H610" marker-end="url(#m)"/>
+    <path class="edge" d="M840 134H922" marker-end="url(#m)"/>
+    <path class="edge chk" d="M728 96V52H416V90" marker-end="url(#m-chk)"/>
+    <text class="elbl chk" x="572" y="44" text-anchor="middle" data-i18n="loop.revise">↺ revise</text>
+    <path class="edge" d="M1012 172V228H132V278" marker-end="url(#m)"/>
+    <text class="elbl" x="572" y="218" text-anchor="middle" data-i18n="loop.pickup">an agent picks it up</text>
+    <path class="edge" d="M216 322H298" marker-end="url(#m)"/>
+    <path class="edge" d="M528 322H610" marker-end="url(#m)"/>
+    <path class="edge ok" d="M840 322H922" marker-end="url(#m-ok)"/>
+    <path class="edge chk" d="M680 360V384H460V366" marker-end="url(#m-chk)"/>
+    <text class="elbl chk" x="570" y="404" text-anchor="middle" data-i18n="loop.fix">↺ fix</text>
+    <path class="edge ok" d="M1012 360V410" marker-end="url(#m-ok)"/>
+    <rect class="nb dash" x="304" y="416" width="792" height="44" rx="6"/>
+    <text class="elbl" x="320" y="443" data-i18n="loop.views">board, link graph and code map regenerate</text>
+    <path class="edge ret" d="M304 438H24V134H42" marker-end="url(#m-ret)"/>
+    <text class="elbl dim" x="40" y="478" data-i18n="loop.next">the next session sees it</text>
+
+    <g class="node" data-step="1"><rect class="nb" x="48" y="96" width="168" height="76" rx="6"/><text class="t" x="64" y="128" data-i18n="loop.task">Task</text><text class="s" x="64" y="150" data-i18n="loop.task.s">from you</text></g>
+    <g class="node" data-step="2"><rect class="nb acc" x="304" y="96" width="224" height="76" rx="6"/><text class="t acc" x="320" y="128" data-i18n="loop.art">ADR · spec · story</text><text class="s" x="320" y="150" data-i18n="loop.art.s">the why, on disk</text></g>
+    <g class="node" data-step="3"><rect class="nb chk" x="616" y="96" width="224" height="76" rx="6"/><text class="tag" x="632" y="118" data-i18n="loop.check">independent check</text><text class="t chk" x="632" y="142" data-i18n="loop.critic">critic</text><text class="s" x="632" y="162" data-i18n="loop.critic.s">fresh context</text></g>
+    <g class="node" data-step="4"><rect class="nb acc" x="928" y="96" width="168" height="76" rx="6"/><text class="t acc" x="944" y="128" data-i18n="loop.you">You</text><text class="s" x="944" y="150" data-i18n="loop.you.s">approve</text></g>
+    <g class="node" data-step="5"><rect class="nb pln" x="48" y="284" width="168" height="76" rx="6"/><text class="t pln" x="64" y="316" data-i18n="loop.planner">planner</text><text class="s" x="64" y="338" data-i18n="loop.planner.s">where in the code</text></g>
+    <g class="node" data-step="6"><rect class="nb" x="304" y="284" width="224" height="76" rx="6"/><text class="t" x="320" y="316" data-i18n="loop.impl">implement</text><text class="s" x="320" y="338" data-i18n="loop.impl.s">code + tests</text></g>
+    <g class="node" data-step="7"><rect class="nb chk" x="616" y="284" width="224" height="76" rx="6"/><text class="tag" x="632" y="306" data-i18n="loop.check.2">independent check</text><text class="t chk" x="632" y="330" data-i18n="loop.reviewer">reviewer</text><text class="s" x="632" y="350" data-i18n="loop.reviewer.s">per criterion</text></g>
+    <g class="node" data-step="8"><rect class="nb ok" x="928" y="284" width="168" height="76" rx="6"/><text class="t ok" x="944" y="316" data-i18n="loop.done">done ✓</text><text class="s" x="944" y="338" data-i18n="loop.done.s">criteria met</text></g>
+  </svg>
+  </div>
+  <ol class="step-lines">
+    <li data-line="1"><b>01</b><span data-i18n="loop.l.1">You say what you want. The agent opens an artifact before it opens an editor.</span></li>
+    <li data-line="2"><b>02</b><span data-i18n="loop.l.2">An ADR when something needs deciding, an epic and stories for the work, a spec when the "how" is not obvious. Previewed, and written on your yes.</span></li>
+    <li data-line="3"><b>03</b><span data-i18n="loop.l.3">A critic with a fresh context, and no stake in the draft, attacks it. Expect "revise".</span></li>
+    <li data-line="4"><b>04</b><span data-i18n="loop.l.4">You approve the fixes. The artifact is marked reviewed and lands in the backlog.</span></li>
+    <li data-line="5"><b>05</b><span data-i18n="loop.l.5">An agent picks up a story. The planner reads how earlier epics landed in the code and says where this change belongs.</span></li>
+    <li data-line="6"><b>06</b><span data-i18n="loop.l.6">Code and tests, following the story's plan.</span></li>
+    <li data-line="7"><b>07</b><span data-i18n="loop.l.7">A reviewer with a fresh context checks the diff against each acceptance criterion and asks for evidence.</span></li>
+    <li data-line="8"><b>08</b><span data-i18n="loop.l.8">Done, with evidence under each criterion. The board, the link graph and the code map regenerate.</span></li>
+  </ol>
+</figure>

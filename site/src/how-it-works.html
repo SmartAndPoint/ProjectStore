@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--i18n:redirect-->
+<title data-i18n="how.meta.title">How ProjectStore works — the loop, the agents, the guards</title>
+<meta name="description" content="The ProjectStore loop step by step: an artifact before code, an independent critic, a planner that knows where earlier work landed, a reviewer that asks for evidence. Six agents, five of them read-only. Claude Code, and Codex (experimental)." data-i18n-attr="content:how.meta.description">
+<meta name="theme-color" content="#0b0c0a">
+<link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<link rel="stylesheet" href="assets/style.css">
+<!--i18n:alternates-->
+</head>
+<body data-page="how-it-works">
+<!--i18n:include _sprite.html-->
+<!--i18n:include _header.html-->
+
+<main id="main" class="wrap page">
+
+<section class="page-hero" aria-labelledby="how-title">
+  <p class="crumb"><a href="./">.projectstore</a> / <span data-i18n="how.crumb">method / 1</span></p>
+  <h1 id="how-title" data-i18n="how.h1">A loop with <span class="acc">an independent check</span> in it.</h1>
+  <p class="lead" data-i18n="how.lead">Agents write code fast, and they re-decide settled questions just as fast: every fresh session arrives empty. The fix is not a smarter agent. It is gather context → act → verify, run over the project and not only over the code.</p>
+</section>
+
+<section class="sec" id="loop" aria-labelledby="how-loop-title">
+  <div class="section-label" data-i18n="how.loop.label">The loop</div>
+  <h2 id="how-loop-title" data-i18n="how.loop.h2">Eight steps. Two of them are checks by an agent that did not write the draft.</h2>
+<!--i18n:include _loop.html-->
+</section>
+
+<section class="sec" id="agents" aria-labelledby="how-agents-title">
+  <div class="section-label" data-i18n="how.agents.label">The agents</div>
+  <h2 id="how-agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">agents.</span> <span class="dim" data-i18n="agents.h2.2">All but one may only read.</span></h2>
+  <p class="lede" data-i18n="agents.p.1">The advisors check, plan and tidy up, and change nothing. <b>One clerk saves only what you approved, after your Yes.</b></p>
+  <div class="agents">
+    <article class="agent"><span class="role chk">critic</span><span class="rw" data-i18n="agents.span.4">read-only · independent</span><p data-i18n="agents.td.1">After an ADR, spec, epic, story or design is written or changed</p><p class="c-hi" data-i18n="agents.td.2">Looks for weak spots, checks every claim against the source and asks how the plan could fail. No flattery.</p><span class="rw" data-i18n="agents.td.3">opus · max</span></article>
+    <article class="agent"><span class="role pln">planner</span><span class="rw" data-i18n="agents.span.5">read-only · independent</span><p data-i18n="agents.td.4">Before work on a story starts (<code>story plan</code>)</p><p class="c-hi" data-i18n="agents.td.5">Looks at where earlier epics live in the code. Says where the change belongs, what to reuse, what to watch out for and in what order to work.</p><span class="rw" data-i18n="agents.td.6">opus · max</span></article>
+    <article class="agent"><span class="role chk">reviewer</span><span class="rw" data-i18n="agents.span.6">read-only · independent</span><p data-i18n="agents.td.7">After code, before commit or <code>story close</code></p><p class="c-hi" data-i18n="agents.td.8">Asks for proof on every acceptance criterion, including the spec's. Then checks correctness, regressions and tests.</p><span class="rw" data-i18n="agents.td.9">opus · max</span></article>
+    <article class="agent"><span class="role">librarian</span><span class="rw" data-i18n="agents.span.7">read-only · suggests</span><p data-i18n="agents.td.10">From time to time, before releases, after the vault grows fast</p><p class="c-hi" data-i18n="agents.td.11">Finds what no rule can catch: research notes that contradict an accepted ADR, duplicates, missing links, files ready to archive.</p><span class="rw" data-i18n="agents.td.12">opus · max</span></article>
+    <article class="agent"><span class="role">archaeologist</span><span class="rw" data-i18n="agents.span.8">read-only · suggests</span><p data-i18n="agents.td.13">Once, after binding an existing codebase</p><p class="c-hi" data-i18n="agents.td.14">Finds decisions nobody wrote down, in the code, config files and git history. Suggests ADRs for them, with evidence.</p><span class="rw" data-i18n="agents.td.15">opus · max</span></article>
+    <article class="agent"><span class="role acc">clerk</span><span class="rw" data-i18n="agents.span.9">writes · after your Yes</span><p data-i18n="agents.td.16">Only inside a command flow, only after your Yes</p><p class="c-hi" data-i18n="agents.td.17">Saves exactly what you approved, nothing more. Then rebuilds the board and runs the checks. Writes nothing of its own and asks nothing.</p><span class="rw" data-i18n="agents.td.18">sonnet · max</span></article>
+  </div>
+  <p class="note"><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span> <span data-i18n="agents.p.10">The default models are Claude Code's. In Codex each role is a skill of the same name that asks Codex to start the role, such as <code>$projectstore-critic</code> for the critic; it uses the session's model unless you set one.</span></p>
+</section>
+
+<section class="sec" id="mechanisms" aria-labelledby="how-mech-title">
+  <div class="section-label" data-i18n="how.mech.label">The guards</div>
+  <h2 id="how-mech-title" data-i18n="how.mech.h2">Mechanisms hold it together, <span class="dim">not discipline.</span></h2>
+  <div class="mechs">
+    <div class="mech"><h3 data-i18n="how.m.1.h">No story, a nudge</h3><p data-i18n="how.m.1.p">An agent that starts editing code with no story open is reminded to open one. A feature-sized change starts in the vault.</p></div>
+    <div class="mech"><h3 data-i18n="workflow.h4.2">Unreviewed stays marked</h3><p data-i18n="how.m.2.p">An artifact that needs review carries <code>review_status: pending</code> until a critic pass is applied. "Not yet reviewed" is a state the tools can read, not something someone must remember.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.3.h">A doctor with no AI in it</h3><p data-i18n="how.m.3.p"><code>doctor</code> checks the vault's mechanical consistency deterministically. In CI it runs with no agent and no tokens.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.4.h">Where to look, generated</h3><p data-i18n="how.m.4.p"><code>graph.md</code> holds every artifact's links in both directions; <code>code-map.md</code> says where each epic's code lives. Before an architectural choice, the agent is pointed at the ADR index first.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.5.h">After <code>/compact</code>, the vault comes back</h3><p data-i18n="how.m.5.p">In Claude Code, after a <code>/compact</code> you run, the session starts with the vault's orientation again, and with the vault files the conversation touched before it.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.6.h">A second session is warned</h3><p data-i18n="how.m.6.p">A session that starts while another one works on the same vault opens with a multi-session warning: search before creating anything new.</p></div>
+  </div>
+</section>
+
+<section class="sec" id="evidence" aria-labelledby="how-ev-title">
+  <div class="section-label" data-i18n="how.ev.label">Done means proven</div>
+  <h2 id="how-ev-title" data-i18n="how.ev.h2">A story closes with evidence <span class="dim">under each criterion.</span></h2>
+  <div class="files">
+    <figure class="file">
+      <figcaption><span data-i18n="how.story.path"><span data-slug="story:path">epics/CHECKOUT/stories/story-saved-cards-are-listed-at-checkout.md</span></span></figcaption>
+<pre class="plain-code" data-template="story" data-i18n="how.story"><span class="fm">---</span>
+<span class="k">type:</span> story
+<span class="k">epic:</span> "CHECKOUT"
+<span class="k">title:</span> "<span data-title="story">Saved cards are listed at checkout</span>"
+<span class="k">status:</span> <span class="c-ok">done</span>
+<span class="k">code_refs:</span> ["src/billing/cards/", "tests/cards.test.ts"]
+<span class="k">closed_at:</span> "2026-07-14T16:02:11Z"
+<span class="fm">---</span>
+
+<span class="h">## Acceptance Criteria</span>
+
+- [x] Saved cards are listed first — evidence: tests/cards.test.ts:21
+- [x] A declined card shows the bank's reason — evidence: tests/cards.test.ts:58
+- [x] No card number reaches the logs — evidence: tests/cards.test.ts:73</pre>
+    </figure>
+    <div class="prose">
+      <p data-i18n="how.ev.p.1">The planner said where the change belongs before the code, and the plan went into the story on your yes; the reviewer checked the diff against each criterion after it. Each line of proof is a test, a command that ran, or a line of code.</p>
+      <p data-i18n="how.ev.p.2">Any agent can read this record, with or without the plugin: through the CLI, which answers with JSON and needs no tokens, or through the MCP server's <span data-fact="mcp-tools">8</span> read-only tools.</p>
+      <ul class="tools" aria-label="MCP tools" data-i18n-attr="aria-label:agents.aria-label.1"><li data-fact="mcp-tool">orientation</li><li data-fact="mcp-tool">search</li><li data-fact="mcp-tool">status</li><li data-fact="mcp-tool">get_artifact</li><li data-fact="mcp-tool">lineage</li><li data-fact="mcp-tool">neighbors</li><li data-fact="mcp-tool">code_refs</li><li data-fact="mcp-tool">doctor</li></ul>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="fine-print" aria-labelledby="how-fine-title">
+  <div class="section-label" data-i18n="how.fine.label">Fine print</div>
+  <h2 id="how-fine-title" class="visually-hidden" data-i18n="how.fine.h2">Fine print</h2>
+  <ul class="fine">
+    <li data-i18n="how.fine.1">Running the loop costs tokens: the drafts, the critic and the reviewer run on the model you already pay for. The README measures it.</li>
+    <li data-i18n="how.fine.2">The critic and the reviewer are separate agents with a fresh context in Claude Code. In Codex the roles are skills, and that path is experimental.</li>
+    <li data-i18n="how.fine.3">ProjectStore is shared project context and a way of working. It is not an agent orchestrator: launching agents is your harness's job.</li>
+  </ul>
+  <p class="next-pages"><a href="why-it-works/" data-i18n="how.next.1">Why it works →</a><a href="one-vault/" data-i18n="how.next.2">One vault, many people →</a><a href="./#start" data-i18n="how.next.3">Install →</a></p>
+</section>
+
+</main>
+
+<!--i18n:include _footer.html-->
+</body>
+</html>

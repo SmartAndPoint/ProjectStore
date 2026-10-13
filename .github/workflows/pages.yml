@@ -11,7 +11,7 @@ name: pages
 
 # A site change is not a release: it merges with no version bump and no tag,
 # and nothing here publishes to npm. A release's merge does change site/ — its
-# bump edits the version in site/src/index.html, rebuilds the pages and
+# bump edits the version in site/src/_footer.html, rebuilds the pages and
 # updates the llms files — so it redeploys the site with the new version
 # before the tag publishes.
 

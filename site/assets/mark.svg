@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256">
+  <defs>
+    <linearGradient id="cu" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8946a"/>
+      <stop offset="1" stop-color="#c4643c"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#14161b"/>
+  <g fill="#3d434d">
+    <rect x="7" y="13" width="4.5" height="38" rx="1"/>
+    <rect x="13.5" y="13" width="2.5" height="38" rx="1" fill="#2c3139"/>
+    <rect x="7" y="13" width="12" height="3.5" rx="1"/>
+    <rect x="7" y="47.5" width="12" height="3.5" rx="1"/>
+    <rect x="52.5" y="13" width="4.5" height="38" rx="1"/>
+    <rect x="48" y="13" width="2.5" height="38" rx="1" fill="#2c3139"/>
+    <rect x="45" y="13" width="12" height="3.5" rx="1"/>
+    <rect x="45" y="47.5" width="12" height="3.5" rx="1"/>
+  </g>
+  <g stroke="url(#cu)" stroke-width="3" stroke-linecap="round" fill="none">
+    <path d="M29.6 26.8 23.4 37.6M34.4 26.8 40.6 37.6"/>
+    <circle cx="32" cy="22.5" r="5" fill="#14161b"/>
+  </g>
+  <g fill="url(#cu)">
+    <circle cx="22" cy="40.5" r="4.6"/>
+    <circle cx="42" cy="40.5" r="4.6"/>
+    <circle cx="32" cy="45" r="4.6"/>
+  </g>
+</svg>

@@ -48,6 +48,9 @@ LOCALES = os.path.join(ROOT, "locales")
 # pages live in, under the root for English and under <lang>/ for the others. "" is the language root.
 PAGES = [
     {"kind": "main", "src": "index.html", "slug": ""},
+    {"kind": "how-it-works", "src": "how-it-works.html", "slug": "how-it-works"},
+    {"kind": "why-it-works", "src": "why-it-works.html", "slug": "why-it-works"},
+    {"kind": "one-vault", "src": "one-vault.html", "slug": "one-vault"},
 ]
 # The site's own address: hreflang and canonical links are rendered under it by default.
 BASE_URL = "https://projectstore.dev"
@@ -332,6 +335,35 @@ def page_url(code, from_code, slug, base_url):
     return "../" * depth(from_code, slug) + page_path(code, slug) or "./"
 
 
+# The link-preview image: always absolute, whatever --base-url says, because the services that read
+# og:image and twitter:image fetch it from outside and never resolve a relative URL.
+PREVIEW_IMAGE = BASE_URL + "/assets/og.png"
+
+
+def preview_tags(out, code, slug, base_url):
+    """og: and twitter: tags from the page's own rendered title and description."""
+    m = re.search(r"<title\b[^>]*>(.*?)</title>", out, re.S)
+    title = html.unescape(m.group(1).strip()) if m else "ProjectStore"
+    m = re.search(r'<meta name="description" content="([^"]*)"', out)
+    desc = html.unescape(m.group(1)) if m else ""
+    url = page_url(code, code, slug, base_url)
+    tag = dict((c, t) for c, _, t in LANGS)[code].replace("-", "_")
+    attr = lambda v: html.escape(v, quote=True)  # noqa: E731
+    return "\n".join([
+        '<meta property="og:type" content="website">',
+        '<meta property="og:site_name" content="ProjectStore">',
+        f'<meta property="og:locale" content="{tag}">',
+        f'<meta property="og:title" content="{attr(title)}">',
+        f'<meta property="og:description" content="{attr(desc)}">',
+        f'<meta property="og:url" content="{attr(url)}">',
+        f'<meta property="og:image" content="{PREVIEW_IMAGE}">',
+        '<meta property="og:image:width" content="1280">',
+        '<meta property="og:image:height" content="640">',
+        '<meta name="twitter:card" content="summary_large_image">',
+        f'<meta name="twitter:image" content="{PREVIEW_IMAGE}">',
+    ])
+
+
 def alternates(code, slug, base_url):
     lines = []
     for c, _, tag in LANGS:
@@ -399,9 +431,13 @@ def asset_versions():
 
 
 # A relative href or src in a template is written from the language root (where the English main page
-# is). On a page deeper than that, it is prefixed with one "../" per level; "./" alone, the main page,
-# becomes the prefix itself.
-REL_URL = re.compile(r"""(\s(?:href|src)=)(["'])(?!#|[a-zA-Z][a-zA-Z0-9+.-]*:|/|\.\./)(\./(?=["'#?]))?""")
+# is). Two kinds, two prefixes:
+#   - a file every language shares (assets/…, llms.txt): one "../" per level below the *site* root, so
+#     /ru/how-it-works/ reaches /assets/;
+#   - a page (./, ./#start, how-it-works/ …): one "../" per level below the *language* root, so a link on
+#     a Russian page stays Russian.
+# "./" alone, the main page, becomes the prefix itself.
+REL_URL = re.compile(r"""(\s(?:href|src)=)(["'])(?!#|[a-zA-Z][a-zA-Z0-9+.-]*:|/|\.\./)(\./(?=["'#?]))?((?:assets/|llms)?)""")
 
 
 def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn):
@@ -429,10 +465,20 @@ def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn):
         out = out.replace(f'"{rel}"', f'"{rel}?v={v}"')
     tag = dict((c, t) for c, _, t in LANGS)[code]
     out = re.sub(r'<html lang="[^"]*"', f'<html lang="{tag}"', out, count=1)
-    up = "../" * depth(code, slug)
-    if up:
-        out = REL_URL.sub(lambda m: f"{m.group(1)}{m.group(2)}{up}", out)
-    out = out.replace("<!--i18n:alternates-->", alternates(code, slug, base_url))
+    to_site = "../" * depth(code, slug)
+    to_lang = "../" * depth(DEFAULT, slug)
+
+    def rel(m):
+        shared = m.group(4)
+        up = to_site if shared else to_lang
+        if m.group(3) and not up:
+            return m.group(0)  # "./" on the language root stays "./"
+        return f"{m.group(1)}{m.group(2)}{up}{shared}"
+
+    out = REL_URL.sub(rel, out)
+    out = out.replace(
+        "<!--i18n:alternates-->", alternates(code, slug, base_url) + "\n" + preview_tags(out, code, slug, base_url)
+    )
     out = out.replace("<!--i18n:switcher-->", switcher(code, slug, d.get("_lang.label") or SPECIAL["_lang.label"]))
     out = out.replace("<!--i18n:redirect-->", redirect_script(slug) if code == DEFAULT else "")
     return out

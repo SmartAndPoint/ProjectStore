@@ -961,7 +961,13 @@ const DOCUMENTS = () => [
   ...SHELLS.map((s) => `packaging/shells/${s.name}/README.md`),
 ];
 const SITE_MARKDOWN = ["site/llms.txt", "site/llms-full.txt"];
-const SITE_TEMPLATE = "site/src/index.html";
+// The site's templates and the partials they include (site/tools/i18n.py
+// PAGES and <!--i18n:include-->): every one holds English the pages show.
+const SITE_TEMPLATES = () =>
+  readdirSync(join(ROOT, "site", "src"))
+    .filter((n) => n.endsWith(".html"))
+    .sort()
+    .map((n) => `site/src/${n}`);
 // The translated dictionaries: the English one is the template's extract.
 const DICTIONARIES = () =>
   readdirSync(join(ROOT, "site", "locales"))
@@ -1009,15 +1015,14 @@ const readRel = (rel) => [rel, readFileSync(join(ROOT, rel), "utf8")];
 function lintFiles({
   documents = DOCUMENTS().map(readRel),
   siteMarkdown = SITE_MARKDOWN.map(readRel),
-  template = readRel(SITE_TEMPLATE),
+  templates = SITE_TEMPLATES().map(readRel),
   dictionaries = DICTIONARIES().map(readRel),
   shells = SHELLS,
   manifests = MANIFESTS.map(manifestFile),
 } = {}) {
   const out = [];
   for (const [rel, md] of [...documents, ...siteMarkdown]) out.push(...lintLines(rel, md), ...lintSpans(rel, md));
-  const [tpl, html] = template;
-  out.push(...lintLines(tpl, html), ...lintCodeElements(tpl, html, lineAt(html)));
+  for (const [tpl, html] of templates) out.push(...lintLines(tpl, html), ...lintCodeElements(tpl, html, lineAt(html)));
   for (const [rel, raw] of dictionaries) {
     out.push(...lintLines(rel, raw));
     const lines = raw.split("\n");
@@ -1049,6 +1054,12 @@ test("user text, the file half: README, docs/, the shells' READMEs, the site, th
   const docs = DOCUMENTS();
   assert.ok(docs.includes("docs/harnesses.md") && docs.length >= 8, `the documents are read: ${docs.join(", ")}`);
   assert.ok(DICTIONARIES().length >= 7, "every translated dictionary is read");
+  const templates = SITE_TEMPLATES();
+  assert.ok(
+    ["site/src/index.html", "site/src/_header.html", "site/src/_footer.html"].every((t) => templates.includes(t)) &&
+      templates.length >= 4,
+    `every template and partial is read: ${templates.join(", ")}`,
+  );
   const bad = lintFiles();
   assert.deepEqual(bad, [], bad.join("\n"));
   // Not vacuous: each manifest's first step is the core's install, last on its
@@ -1062,7 +1073,7 @@ test("user text, the file half: each rule fails on one planted case, naming the 
     lintFiles({
       documents: [],
       siteMarkdown: [],
-      template: [SITE_TEMPLATE, "<p></p>"],
+      templates: [],
       dictionaries: [],
       shells: [],
       manifests: [],
@@ -1111,6 +1122,11 @@ test("user text, the file half: each rule fails on one planted case, naming the 
   assert.deepEqual(only({ dictionaries: [["site/locales/xx.json", dict]] }), [
     'site/locales/xx.json (a.p.2):3: (c) a command span followed by ",": <code>$projectstore-critic</code>',
   ]);
+  // …and in a partial a template includes, on its line.
+  assert.deepEqual(
+    only({ templates: [["site/src/_footer.html", "<footer>\n<p>Run <code>/projectstore:doctor</code>.</p>\n"]] }),
+    ['site/src/_footer.html:2: (c) a command span followed by ".": <code>/projectstore:doctor</code>'],
+  );
   // (d): a manifest step whose comment follows its command fails, on the
   // manifest's line; the comment before it passes.
   const [rel, raw] = manifestFile(SRC);
