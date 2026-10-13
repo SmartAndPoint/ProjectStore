@@ -13,7 +13,7 @@ because an emergency should not depend on GitHub being up.
 | `node packaging/shells.mjs --check` | a shell's committed `package.json` or bin drifting from its render (the pin, the bin's verb set) | CI, and `npm run release:check` |
 | `tests/packaging.test.mjs`, `tests/shells.test.mjs` | a directory added to the tree but forgotten in `files[]`, a `files[]` entry that stopped shipping, `publishConfig.provenance` creeping back in; a shell whose built tarball differs from its packlist fixture, or whose bin does not exec the bundled core with the harness fixed | CI, and `npm test` |
 | `tests/site.test.mjs` | the public site (`site/`, never shipped: `NOT_SHIPPED`) — its eight pages and `llms.txt`/`llms-full.txt` — stating what the repository contradicts: a command or role with no file, an `npx` verb its bin refuses, an install command README does not fence, the version, a count, a harness's status, a dead link into `main`, an example artifact whose shape or slug the product would not write; a language page out of step with the English one; a load from another origin; committed pages a build would change (asset hashes, alternates, the `en/` stub); `site/` over its 2,621,440-byte budget | CI, `npm test`, and `.github/workflows/pages.yml` before every deploy |
-| `python3 site/tools/i18n.py check`, `extract`, `build --strict`, then `git diff --exit-code -- site/` and `if git status --porcelain -- site/ \| grep .; then echo "::error::the build left files not in the commit"; exit 1; fi` | committed pages, or `site/locales/en.json`, that are not what Python 3.12 renders from `site/src/index.html` and the dictionaries; a file the build writes that is not in the commit, named; a dictionary missing a key or changing a fact marker | CI (`test.yml` and `pages.yml`, Python pinned to 3.12) |
+| `python3 site/tools/i18n.py check`, `extract`, `build --strict`, then `git diff --exit-code -- site/` and `if git status --porcelain -- site/ \| grep .; then echo "::error::the build left files not in the commit"; exit 1; fi` | committed pages, or `site/locales/en.json`, that are not what Python 3.12 renders from the templates in `site/src/` and the dictionaries; a file the build writes that is not in the commit, named; a dictionary missing a key or changing a fact marker | CI (`test.yml` and `pages.yml`, Python pinned to 3.12) |
 
 Neither guard runs by itself on a local publish. `npm run release:check` runs
 both plus a pack dry-run — run it first, every time.
@@ -81,7 +81,8 @@ fixtures. `node scripts/version-guard.mjs --tag v0.28.0-rc.1` is what proves
 they agree.
 
 A release's bump also updates the public site. Edit the `data-fact="version"`
-elements in `site/src/index.html` (the template; never the generated pages), run
+element in `site/src/_footer.html` (the footer every page shares; never the
+generated pages), run
 `python3 site/tools/i18n.py build` with Python 3.12, and update the version in
 `site/llms.txt` and `site/llms-full.txt` ("Facts about version …", and the
 closing "Version …" line of the long form), along with any count, tool list or

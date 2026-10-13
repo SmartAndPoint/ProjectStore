@@ -54,7 +54,7 @@ A "vault" is an ordinary folder of Markdown with YAML frontmatter, kept in git. 
 The `engineering` layout, which ships in v1:
 
 ```
-shop-vault/                        its own git repository
+your-project-vault/                its own git repository
 ├── README.md
 ├── kanban.md                      derived · the board, computed from story frontmatter
 ├── graph.md                       derived · every link, typed, in both directions
@@ -149,13 +149,13 @@ This is the case that matters for teams, and it is three steps. There is no acco
 
 ```
 # 1. Clone the project's vault repository
-git clone git@github.com:acme/shop-vault.git ~/vaults/shop-vault
+git clone git@github.com:your-org/your-project-vault.git ~/vaults/your-project-vault
 
 # 2. In the code project, bind to it
-/projectstore:bind ~/vaults/shop-vault
+/projectstore:bind ~/vaults/your-project-vault
 ```
 
-In Codex the second step is the skill `$projectstore-bind ~/vaults/shop-vault` instead. Because the vault already has content, bind skips the scaffold offer; it still offers the gitignore entries, the agents block, the model preset and the status line. Then, step 3:
+In Codex the second step is the skill `$projectstore-bind ~/vaults/your-project-vault` instead. Because the vault already has content, bind skips the scaffold offer; it still offers the gitignore entries, the agents block, the model preset and the status line. Then, step 3:
 
 ```
 # 3. Ask
@@ -350,7 +350,7 @@ The deterministic half costs nothing: `doctor` and `reconcile` use no LLM. Match
 
 State these plainly rather than discovering them later:
 
-- The plugin installs into Claude Code and Codex. In Codex, commands and roles arrive as skills, and the MCP server is not registered for you. Gemini CLI, OpenCode and other harnesses read the vault through Markdown, the CLI or MCP; native adapters for them do not ship yet.
+- The plugin installs into Claude Code and Codex. In Codex, commands and roles arrive as skills, and the MCP server is not registered for you. OpenCode, Cursor and other agents read the vault through Markdown, the CLI or MCP; native adapters for them do not ship yet.
 - It is not an agent orchestrator. Launching agents and routing work between them belongs to your harness.
 - It does not replace a task tracker and does not sync with one. `external_refs` in frontmatter holds the link to a ticket.
 - It requires no server and stores nothing remotely. Which files an agent reads and what reaches a model provider depends on the harness and its permissions, so keep secrets out of project documents.
@@ -374,7 +374,7 @@ Each ingredient exists elsewhere: decision records with a status (the `adrkit` c
 
 ## 14. Links
 
-- This site: https://projectstore.dev/ (and https://projectstore.dev/llms.txt)
+- This site: https://projectstore.dev/ (and https://projectstore.dev/llms.txt), with three method pages: https://projectstore.dev/how-it-works/, https://projectstore.dev/why-it-works/ and https://projectstore.dev/one-vault/
 - Repository: https://github.com/SmartAndPoint/ProjectStore
 - README: https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md
 - How it works, in depth: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/how-it-works.md

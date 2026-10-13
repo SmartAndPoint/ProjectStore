@@ -1,84 +1,128 @@
 # ProjectStore — the public site
 
-A one-page explainer for [ProjectStore](https://github.com/SmartAndPoint/ProjectStore), in eight
-languages, served by GitHub Pages at <https://projectstore.dev> from this folder
-(`.github/workflows/pages.yml`). It is not part of the npm package: `site` is in `NOT_SHIPPED`
-(`scripts/version-guard.mjs`), and `tests/site.test.mjs` holds it to the repository.
+The site for [ProjectStore](https://github.com/SmartAndPoint/ProjectStore): a main page and three
+method pages, in eight languages, served by GitHub Pages at <https://projectstore.dev> from this
+folder (`.github/workflows/pages.yml`). It is not part of the npm package: `site` is in
+`NOT_SHIPPED` (`scripts/version-guard.mjs`), and `tests/site.test.mjs` holds it to the repository.
 
-The visual system comes from the Astra variant (white, ink, lime; Onest and IBM Plex Mono; numbered
-section labels; the vault window on the first screen; the lime-soft band of section 02 with its
-inverted ProjectStore card; the dark teams section; the lime install section), the process content
-and diagrams from the Fable variant (the loop with fresh-context verify nodes, the team-in-git
-figure, the frontmatter → board demo, the agent roster, measured cost). Section 02, *Where it fits*,
-sets ProjectStore beside agent memory, instruction files and spec-driven tools: each answers a
-different question, and the vault is the project's record rather than an agent's memory. Section 03,
-*Why it works*, argues that ADR, review, backlog, acceptance and traceability are decades-old
-practice whose artifacts were always valuable, that executing the process with humans was what made
-it expensive, and that agents make it cheap while the artifacts give agents memory across sessions
-and links from goals to code.
+**The main page leads with the problem and install, and shows the work as prompts.** Three posters
+across the top name the problem; then the seven numbered sections: install (the hero: one prompt to
+your agent, or `npx projectstore setup` in a terminal); then just talk (four
+scenes, each a prompt and the Claude Code result, and the settings as sentences); the rails (the
+two-row loop); where it fits (agent memory, instruction files, spec-driven tools, ProjectStore);
+what lands on disk; solo or a team; the method, proof and questions. **The method has pages of its
+own:** *How it works* (the loop step by step, the six agents, the guards, a story closed with
+evidence), *Why it works* (decades-old practice, what was always expensive about it, the chain from
+goal to proof) and *One vault, many people* (sessions, teams and agents on one vault, the vault in
+git, a team setup).
 
-Static HTML, CSS and vanilla JavaScript. One build step renders the languages from a single
-template, in stdlib Python with no dependencies.
+**The look** is a translucent terminal window in midnight blue: a soft glow fixed behind the page
+shows through panels in a translucent tint. Graphite and a light tone in cream paper are the second
+and third, chosen in the header. One
+amber accent; mono for labels, code and the terminal box; Onest for headlines and body; diagrams with real connectors in the colours of the narrated film (amber for
+what lands and for you, red for an independent check, blue for the planner and for participants,
+green for done). Every colour is a token on `:root` in `assets/style.css`: midnight's values, and
+graphite's and light's under their own names (`--graphite-*`, `--light-*`), which
+`:root[data-tone="graphite"]` and `:root[data-tone="light"]` point tokens at, inside `@media screen`.
+A dark tone changes the surfaces only; light also recolours the text, the accent and the roles, and
+sets `color-scheme: light`. `--bg` is the opaque base, `--bg-1` to `--bg-4` are the translucent panels,
+`--bg-0` a well inside one, and `--bg-pop` the opaque surface of a menu. Print gets light tokens and
+no glow, and `prefers-reduced-motion` stops every animation. The brand is the repository's social-preview
+mark and the wordmark `.projectstore`.
+
+Static HTML, CSS and vanilla JavaScript. One build step renders every page in every language from
+the templates, in stdlib Python with no dependencies.
 
 ## Files
 
 ```
-src/index.html             the template: English text, every translatable fragment keyed, every fact marked
-locales/<lang>.json        one dictionary per language: en (extracted), de, es, fr, pt, ru, uk, zh
-tools/i18n.py              build, extract and check (stdlib Python 3.12)
+src/index.html             the main page's template: English text, every translatable fragment keyed, every fact marked
+src/how-it-works.html      the method pages' templates, the same way
+src/why-it-works.html
+src/one-vault.html
+src/_header.html           partials every template splices in: the header and nav, the footer (where the
+src/_footer.html             version lives), the icon sprite and arrow markers, and the loop diagram
+src/_sprite.html             (the main page and How it works)
+src/_loop.html
+src/_tone.html             the early script every template's <head> includes after the stylesheet: the saved tone
+locales/<lang>.json        one dictionary per language for the whole site: en (extracted), de, es, fr, pt, ru, uk, zh
+tools/i18n.py              build, extract and check (stdlib Python 3.12); PAGES is the table of pages
 index.html                 generated: English, the default, at the site root
-<lang>/index.html          generated: one static page per language — /de/ /es/ /fr/ /pt/ /ru/ /uk/ /zh/
+<slug>/index.html          generated: the English method pages — /how-it-works/ /why-it-works/ /one-vault/
+<lang>/index.html          generated: every page per language — /de/ /de/how-it-works/ … /zh/one-vault/
+<lang>/<slug>/index.html
 en/index.html              generated: a redirect from the old /en/ address to the root
 llms.txt                   the project for agents, in the llmstxt.org format
 llms-full.txt              the long form: a technical reference written for agents
-assets/style.css           tokens, components, responsive rules, the @font-face rules, Chinese font stacks
-assets/site.js             tabs, diagram ↔ tabs, the loop's cartoon, board demo, copy buttons, language switcher
-assets/statusline-hud.png  the status-line screenshot, byte for byte docs/images/statusline-hud.png
+assets/style.css           tokens, components, diagrams, responsive rules, print, the @font-face rules, Chinese font stacks
+assets/site.js             tabs, the loop's lines and cartoon, copy buttons, language switcher, tone switch
+assets/mark.svg            the mark: the header logo and the favicon
+assets/icon-180.png        the mark for Safari's touch icon
+assets/og.png              the 1280×640 link preview every page names in og:image and twitter:image
 assets/fonts/              the self-hosted fonts and their licences (see Fonts)
 ```
 
-The generated pages are committed next to the template, so Pages serves plain files. Never edit them
-by hand: edit the template or a dictionary and rebuild. CI rebuilds them and fails when anything
-changes (see Freshness).
+The generated pages are committed next to the templates, so Pages serves plain files. Never edit them
+by hand: edit a template, a partial or a dictionary and rebuild. CI rebuilds them and fails when
+anything changes (see Freshness).
 
-Everything in this folder is served, the template, the dictionaries and this README included, and all
-of it counts toward the site's budget of 2,621,440 bytes, which `tests/site.test.mjs` enforces.
+Everything in this folder is served, the templates, the dictionaries and this README included, and
+all of it counts toward the site's budget of 2,621,440 bytes, which `tests/site.test.mjs` enforces.
 
 ## Languages
 
 English is the default and lives at the root. Every other language has its own address, so a link to
 `/de/` always shows German, and each page is complete static HTML: readable without JavaScript, by
-crawlers and by agents. Each page lists every page as an `hreflang` alternate (`x-default` is the
-English one) and itself as canonical, all absolute under `https://projectstore.dev/`.
+crawlers and by agents. Each page lists the same page in every language as an `hreflang` alternate
+(`x-default` is the English one) and itself as canonical, all absolute under
+`https://projectstore.dev/`, and carries `og:` and `twitter:` tags with its own title and
+description and the absolute address of `assets/og.png`. The language switcher on a page links the
+same page in the other languages.
 
-The root picks a language only when the visitor has a reason to want one: an explicit earlier choice
-stored in the `ps_lang` cookie by the language switcher, otherwise the browser's preferred languages.
-If English comes first in the browser, or the visitor picked English in the switcher, the root stays
-English. Agents and crawlers run no JavaScript and always get English at the root.
+An English page, of any kind, picks a language only when the visitor has a reason to want one: an
+explicit earlier choice stored in the `ps_lang` cookie by the language switcher, otherwise the
+browser's preferred languages. It then goes to the same page in that language (`/how-it-works/` to
+`/de/how-it-works/`). If English comes first in the browser, or the visitor picked English in the
+switcher, the page stays English. Agents and crawlers run no JavaScript and always get English.
 
-How the template marks text:
+The tone switch in the header keeps the visitor's choice in `localStorage` under `ps_tone`. The
+early script, `src/_tone.html`, reads it before the first paint, sets `data-tone` on `<html>` and
+the `theme-color` from the computed `--bg`, so a page in graphite or light never shows midnight
+first. Without JavaScript, or without storage, a page is midnight, and without JavaScript the switch
+is not shown. Below 1200 px the page links leave the header row for a second row under it, so the
+row with the switch, the language and the star never wraps in any language; below 400 px that row
+tightens, so it fits from 360 px.
+
+How the templates mark text:
 
 ```
 data-i18n="why.p.3"                          the element's inner HTML comes from the dictionary
 data-i18n-attr="aria-label:nav.aria-label.2"  attribute values come from the dictionary
 <!--i18n:alternates-->  <!--i18n:switcher-->  <!--i18n:redirect-->   filled in by the build
+<!--i18n:include _header.html-->            a partial, spliced in before anything else
 ```
+
+A key is unique across the whole site: the same key in two templates must carry the same English,
+which the shared partials do by construction. That is how a sentence the main page and a method page
+share, a tab's label say, is translated once.
 
 Day-to-day, from this folder, with Python 3.12:
 
 ```bash
 python3 tools/i18n.py check      # per language: missing, unknown, markup or markers that differ, stale
-python3 tools/i18n.py extract    # after editing English in src/index.html: refresh locales/en.json
-python3 tools/i18n.py build      # render every language; --base-url "" renders relative links
+python3 tools/i18n.py extract    # after editing English in a template: refresh locales/en.json
+python3 tools/i18n.py build      # render every page in every language; --base-url "" renders relative links
 ```
 
-To change English, edit `src/index.html`, run `check` to see which translations became stale, update
-them, then `extract` and `build`. To add a sentence, give the new element a new key (any unused name in
-the section's scheme, e.g. `why.p.20`), add it to every dictionary, then `extract` and `build`.
+To change English, edit the template or partial, run `check` to see which translations became stale,
+update them, then `extract` and `build`. To add a sentence, give the new element a new key (any unused
+name in the section's scheme, e.g. `how.m.7.p`), add it to every dictionary, then `extract` and
+`build`. A new page is a template in `src/` and a row in `PAGES`; its links are written from the
+language root, and the build adds the `../` its depth needs.
 
 What a translation may change and what it may not:
 
-- **Facts stay English and live in the template.** Flags, verbs, ids, command and role names, the
+- **Facts stay English and live in the templates.** Flags, verbs, ids, command and role names, the
   version, the counts and the install lines are the same on every page; only the nouns around them
   are translated. A translation cannot drop or change a fact marker: `check` compares each key's
   markers and their values with the English.
@@ -86,9 +130,12 @@ What a translation may change and what it may not:
   those pages use the product's real headings and frontmatter for that language. Portuguese and
   Ukrainian have no templates yet, so their example files show the English ones a real vault would
   have.
-- **The bind line's language.** The install block ends with the dictionary key `start.bind-lang`:
-  ` --lang <code>` for de, es, fr, ru and zh, and empty for en, pt and uk. `check` refuses any other
-  value, and any `--lang` for a language without `templates/<code>/`.
+- **The bind line's language.** No page shows a bind line today. If one does again, its block ends
+  with the dictionary key `start.bind-lang`: ` --lang <code>` for de, es, fr, ru and zh, and empty
+  for en, pt and uk. `check` refuses any other value, and any `--lang` for a language without
+  `templates/<code>/`.
+- **The band's words** in the main page's band card are the product's own for that language, from
+  `templates/<lang>/strings.json` where it exists.
 - **File names and session names.** Every path or session name made from an example title is what
   the product's own `slugify()` and `composeAnchorName()` make of that page's title (German keeps
   `ä`, French keeps `é`, Chinese keeps its characters). Artifacts are named by slug, as the product
@@ -112,7 +159,8 @@ without a marker fails rather than goes unread. The markers:
 | | `commands`, `agents`, `languages`, `mcp-tools` | the count, as digits: files in `commands/` and `agents/`, `templates/<lang>/` folders, `TOOLS` in `scripts/mcp.mjs` |
 | | `mcp-tool` | one per `<li>`; each list names every tool in `TOOLS` once |
 | | `harness-status:<id>` | `experimental` while `harnesses/<id>.json` has `verified: null`, else `supported` |
-| | `install` | on the `<pre>` of an install block: each line is one README fences under "Install", "Upgrading" or "Uninstalling", the bind line's `start.bind-lang` aside. No `data-copy`: the copy button copies what the block shows. An install, upgrade or uninstall command anywhere else fails. |
+| | `install` | on the element of an install or configure block: each line is one README fences under "Install", "Configure", "Upgrading" or "Uninstalling", the bind line's `start.bind-lang` aside. No `data-copy`: the copy button copies what the block shows. An install, configure, upgrade or uninstall command anywhere else fails. |
+| | `prompt` | README's prompt under "In a Claude Code session", word for word |
 | `data-source` | `README.md#<anchor>` or `docs/<page>.md#<anchor>` | on every measured figure; the file and the heading exist |
 | `data-title` | `adr`, `spec`, `epic`, `story` | an example's title, the same everywhere on the page |
 | `data-slug` | `<kind>:<form>`: `adr:` and `spec:` with `slug`, `file` or `path`; `story:` with `id`, `file`, `path`, `link`, `ref` or `session` | the name the product makes of that kind's `data-title`; an example path without one fails |
@@ -120,8 +168,31 @@ without a marker fails rather than goes unread. The markers:
 | `data-copy`, `data-copy-from` | | a copy button copies its target's `data-copy`, else the target's text; `data-copy` is the lines the block shows |
 
 A value fact (every `data-fact` but `install`) is a leaf: its text is the fact. Every page carries
-every fact a check reads, so removing a marker cannot switch a check off, and every language page has
-the English page's ids, markers, marker values and fact values.
+every fact its kind's rules read, so removing a marker cannot switch a check off, and every language
+page has its English page's ids, markers, marker values and fact values. The rules per kind:
+
+| Kind | Facts and markers it must carry |
+|---|---|
+| main | the version, the install and configure blocks, the prompt, every published harness's status, the counts, an ADR example (`data-template="adr"`), a `data-source`; the loop; numbered sections 01–07 |
+| How it works | the version, the agents count, the MCP tools listed, Codex's status, a story example (`data-template="story"`); the loop |
+| Why it works | the version |
+| One vault | the version, the setup line, Codex's status, a `data-source` |
+
+The version lives in one place, the footer partial `src/_footer.html`, so a release edits one file.
+
+The test also holds, on the English pages, a word budget (the main page at most 2,300 visible words,
+a method page at most 1,100); on every page, the link-preview tags; in `assets/style.css`, colours
+only as tokens on `:root` (print aside); and in the templates, no colour literal in a `fill`,
+`stroke`, `stop-color` or `style` attribute (`<meta name="theme-color">` aside). For the tones it
+holds that a tone rule sits inside `@media screen` and points tokens at tokens `:root` declares: a
+dark tone surface tokens only, a light one (its `--bg` above 0.5 luminance) the text and roles too,
+with `color-scheme: light`; that the base and the menus are opaque in every tone; that every text
+colour keeps its floor at its lowest over the surfaces text sits on (`--ink` to `--ink-4`, the
+accent and the roles 4.5:1, `--ink-5` the ratio it had on black, the text on the accent 4.5:1 on
+it); that every page ships in midnight, with the switch and the early script, its `theme-color` the
+`:root` `--bg`; and that the early script, run in `node:vm`, sets each tone the switch offers and
+midnight for anything else. It also holds that the page links and the header's second row switch
+under one media query, and that every main page opens with the three posters before the headline.
 
 ## Freshness
 
@@ -149,8 +220,8 @@ the same so far; 3.12 stays the reference.)
 A site change is not a release: it merges with no version bump and no tag, and `pages.yml` deploys it.
 A release's bump does change the site:
 
-1. edit the `data-fact="version"` elements in `src/index.html`, and any count, tool list or harness
-   status the release changed;
+1. edit the `data-fact="version"` element in `src/_footer.html`, and any count, tool list or harness
+   status the release changed, in whichever template carries it;
 2. `python3 tools/i18n.py build`;
 3. update `llms.txt` and `llms-full.txt`: "Facts about version …", the closing "Version …" line of the
    long form, and the facts beneath.

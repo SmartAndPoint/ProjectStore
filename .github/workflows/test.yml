@@ -36,7 +36,7 @@ jobs:
       - name: Manifest versions agree
         run: node scripts/version-guard.mjs
 
-      # The public site's pages are generated from site/src/index.html and
+      # The public site's pages are generated from the templates in site/src/ and
       # site/locales/*.json by site/tools/i18n.py and committed. Rebuilding
       # them here must change nothing: a page edited by hand, a template edit
       # never built, or an English change never extracted fails the merge.

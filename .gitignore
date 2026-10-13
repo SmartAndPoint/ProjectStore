@@ -12,3 +12,7 @@ dist/
 # band module's declarations and a tsconfig that extends them.
 .claude-plugin/types/
 /tsconfig.json
+
+# The site build imports nothing, but a script that imports site/tools/i18n.py leaves this beside it,
+# inside the folder Pages serves.
+__pycache__/
