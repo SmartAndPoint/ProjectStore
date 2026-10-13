@@ -75,48 +75,84 @@
 }
 
 /* ---------- tokens ----------
-   One palette. The film's colour semantics: the accent for what lands on disk and for you,
-   red for an independent check, blue for the planner and for participants, green for done.
-   A light theme, if it ever comes, is another set of these values. */
+   The film's colour semantics: the accent for what lands on disk and for you, red for an
+   independent check, blue for the planner and for participants, green for done.
+   Two tones of one translucent terminal window: midnight, the default, below, and graphite,
+   a second set of the same surface values that [data-tone="graphite"] points at (after the
+   motion rules). The text, accent and role colours are the same in both.
+   - --bg is the opaque base: the canvas, the colour the glow sits on, and theme-color.
+   - --bg-1 to --bg-4 are translucent panels, so the glow behind the page shows through.
+   - --bg-0 is a well inside a panel; --bg-pop is opaque, for menus that cover the page.
+   - --accent-bg, --check-bg, --plan-bg, --done-bg are a role's tint laid on a panel, so a
+     coloured node or step is as dense as a plain one.
+   - --glow-1 to --glow-3 colour the soft light behind the page (body::before). */
 
 :root {
-  --bg: #0b0c0a;
-  --bg-1: #0e100d;
-  --bg-2: #101210;
-  --bg-3: #121411;
-  --bg-4: #171a15;
-  --dot: #1d211b;
-  --line-1: #1d201b;
-  --line-2: #262a23;
-  --line-3: #3a4034;
-  --line-4: #4a5240;
-  --line-5: #5d6553;
+  --bg: #080d19;
+  --bg-0: #04070fb3;
+  --bg-1: #0f172ab8;
+  --bg-2: #111a2fc4;
+  --bg-3: #142036cc;
+  --bg-4: #17233ad9;
+  --bg-pop: #141f35;
+  --dot: #1b2742;
+  --line-1: #19233a;
+  --line-2: #222e4a;
+  --line-3: #34425f;
+  --line-4: #46546f;
+  --line-5: #5b6884;
+  --glow-1: #3d63dd30;
+  --glow-2: #7c5cff1a;
+  --glow-3: #1fa5a01e;
+  --swatch-midnight: #2b4aa8;
+  --swatch-graphite: #5d6470;
+  --graphite-bg: #111316;
+  --graphite-bg-0: #0a0b0db3;
+  --graphite-bg-1: #191c21b8;
+  --graphite-bg-2: #1b1f24c4;
+  --graphite-bg-3: #1c2025cc;
+  --graphite-bg-4: #212529d9;
+  --graphite-bg-pop: #1e2228;
+  --graphite-dot: #262a31;
+  --graphite-line-1: #22262c;
+  --graphite-line-2: #2b3037;
+  --graphite-line-3: #3d434c;
+  --graphite-line-4: #4f5660;
+  --graphite-line-5: #646b76;
+  --graphite-glow-1: #8fa6c81e;
+  --graphite-glow-2: #ffb34710;
+  --graphite-glow-3: #7bd88f10;
+  --graphite-head-bg: #111316d1;
+  --graphite-accent-bg: #252320db;
+  --graphite-check-bg: #282024db;
+  --graphite-plan-bg: #1d242bdb;
+  --graphite-done-bg: #1c2524db;
   --ink: #e6e3d8;
   --ink-hi: #ffffff;
   --ink-2: #c9c6bb;
   --ink-3: #a3a89a;
   --ink-4: #8d9285;
-  --ink-5: #6f7568;
+  --ink-5: #7f8578;
   --on-accent: #0b0c0a;
   --accent: #ffb347;
   --accent-soft: #ffb34738;
   --accent-glow: #ffb34766;
-  --accent-bg: #15130d;
-  --accent-row: #16140e;
+  --accent-bg: #1d232ddb;
+  --accent-row: #ffb3470f;
   --brand: #e07b4c;
   --brand-2: #e8946a;
   --brand-3: #c4643c;
   --mark-bar: #3d434d;
   --mark-bar-2: #2c3139;
   --check: #ff7a7a;
-  --check-bg: #170f0f;
+  --check-bg: #202031db;
   --check-glow: #ff7a7a66;
   --plan: #7cc4ff;
-  --plan-bg: #0f1418;
+  --plan-bg: #152439db;
   --plan-line: #4f7fa6;
   --plan-glow: #7cc4ff66;
   --done: #7bd88f;
-  --done-bg: #0f160f;
+  --done-bg: #152531db;
   --done-line: #2f5a38;
   --done-glow: #7bd88f66;
   --exp: #e9b86a;
@@ -124,7 +160,7 @@
   --epic: #e9c46a;
   --plain-glow: #e6e3d838;
   --shade: #00000099;
-  --head-bg: #0b0c0ad1;
+  --head-bg: #080d19d1;
   --font-sans: "Onest", "Inter", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
   --font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --gutter: clamp(16px, 4vw, 48px);
@@ -185,11 +221,26 @@ b, strong { font-weight: 600; color: var(--ink-hi); }
 .lang .icon { width: 13px; height: 13px; }
 .lang-chev { transition: transform 0.15s; }
 .lang[aria-expanded="true"] .lang-chev { transform: rotate(180deg); }
-.lang-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; min-width: 190px; padding: 6px; background: var(--bg-3); border: 1px solid var(--line-3); border-radius: 6px; box-shadow: 0 24px 48px -16px var(--shade); }
+.lang-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; min-width: 190px; padding: 6px; background: var(--bg-pop); border: 1px solid var(--line-3); border-radius: 6px; box-shadow: 0 24px 48px -16px var(--shade); }
 .lang-menu a { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 9px 12px; border-radius: 4px; font-size: 15px; color: var(--ink); text-decoration: none; }
 .lang-menu a::after { content: attr(data-lang); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-5); }
 .lang-menu a:hover, .lang-menu a:focus-visible { background: var(--bg-4); outline: none; }
 .lang-menu a[aria-current] { color: var(--accent); }
+
+/* the tone switch: two swatches, midnight and graphite. It needs the script, and the early
+   script in <head> sets data-tone before the first paint, so it never appears late. */
+.tone-switch { display: none; align-items: center; gap: 2px; padding: 3px; min-height: 40px; border: 1px solid var(--line-3); border-radius: 20px; }
+:root[data-tone] .tone-switch { display: inline-flex; }
+.tone-opt { position: relative; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: transparent; }
+.tone-opt .sw { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line-5); }
+.tone-opt .sw-midnight { background: var(--swatch-midnight); }
+.tone-opt .sw-graphite { background: var(--swatch-graphite); }
+.tone-opt[aria-pressed="true"] { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.tone-opt:hover .sw { border-color: var(--ink-3); }
+/* the tone's name: on keyboard focus, and on hover where there is one (a tap would leave it stuck) */
+.tone-opt:focus-visible::after { content: attr(aria-label); }
+@media (hover: hover) { .tone-opt:hover::after { content: attr(aria-label); } }
+.tone-opt::after { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 40; padding: 4px 8px; border: 1px solid var(--line-3); border-radius: 4px; background: var(--bg-pop); color: var(--ink); font-size: 12px; white-space: nowrap; pointer-events: none; }
 
 /* ---------- sections ---------- */
 
@@ -338,7 +389,7 @@ svg.dg { font-family: var(--font-mono); font-size: 13px; }
 .set-card.wide .set-prompt { font-size: 19px; }
 .set-card p { color: var(--ink-3); font-size: 15px; }
 .runs { font-family: var(--font-mono); font-size: 12px; color: var(--ink-4); overflow-wrap: anywhere; }
-.band { border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg); padding: 14px 16px; font-family: var(--font-mono); font-size: 12px; line-height: 1.75; white-space: pre; overflow-x: auto; color: var(--ink-5); }
+.band { border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg-0); padding: 14px 16px; font-family: var(--font-mono); font-size: 12px; line-height: 1.75; white-space: pre; overflow-x: auto; color: var(--ink-5); }
 .band b { font-weight: 500; }
 .band .prompt-box { display: block; margin-top: 8px; border: 1px solid var(--line-3); border-radius: 6px; padding: 4px 10px; color: var(--ink); white-space: pre; }
 .later { font-family: var(--font-mono); font-size: 12px; color: var(--ink-5); }
@@ -446,7 +497,7 @@ svg.dg { font-family: var(--font-mono); font-size: 13px; }
 .equation { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-family: var(--font-mono); font-size: clamp(16px, 2vw, 20px); color: var(--ink-3); }
 .equation .term-pill { border: 1px solid var(--line-3); border-radius: 999px; padding: 6px 14px; color: var(--ink); }
 .equation .term-pill.acc { border-color: var(--accent); color: var(--accent); }
-.transcript { border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg); padding: 14px 16px; font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; color: var(--ink-3); overflow-x: auto; }
+.transcript { border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg-0); padding: 14px 16px; font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; color: var(--ink-3); overflow-x: auto; }
 .setup { position: relative; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 16px; }
 .setup li { border: 1px solid var(--line-2); background: var(--bg-2); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 6px; color: var(--ink-3); font-size: 15px; }
 .setup .n { font-family: var(--font-mono); font-size: 12px; color: var(--accent); }
@@ -610,7 +661,9 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
 
 @media (max-width: 760px) {
   .head-nav > a.page-link { display: none; }
-  .head-nav { gap: 10px; }
+  .head-nav { gap: 8px; }
+  .tone-switch { padding: 2px; min-height: 36px; }
+  .tone-opt { width: 26px; height: 26px; }
   .star { padding: 0 12px; }
   .star span + span { display: none; }
   .head-row { min-height: 56px; }
@@ -633,11 +686,29 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
   .card:hover, .set-card:hover { transform: none; }
 }
 
+/* ---------- the window: the glow behind the page, and the graphite tone ----------
+   Screen only: in print the palette below is replaced, and there is no glow. The glow is
+   body::before at z-index -1; it paints above the canvas only because html has no
+   background of its own and body's background (--bg) propagates to the canvas. */
+
+@media screen {
+  body::before { content: ""; position: fixed; inset: 0; height: 100lvh; z-index: -1; pointer-events: none; background: radial-gradient(70vw 60vh at 8% 0%, var(--glow-1), transparent 70%), radial-gradient(55vw 50vh at 100% 40%, var(--glow-2), transparent 70%), radial-gradient(80vw 60vh at 40% 110%, var(--glow-3), transparent 70%); }
+  :root[data-tone="graphite"] {
+    --bg: var(--graphite-bg); --bg-0: var(--graphite-bg-0); --bg-1: var(--graphite-bg-1); --bg-2: var(--graphite-bg-2);
+    --bg-3: var(--graphite-bg-3); --bg-4: var(--graphite-bg-4); --bg-pop: var(--graphite-bg-pop); --dot: var(--graphite-dot);
+    --line-1: var(--graphite-line-1); --line-2: var(--graphite-line-2); --line-3: var(--graphite-line-3);
+    --line-4: var(--graphite-line-4); --line-5: var(--graphite-line-5);
+    --glow-1: var(--graphite-glow-1); --glow-2: var(--graphite-glow-2); --glow-3: var(--graphite-glow-3);
+    --head-bg: var(--graphite-head-bg);
+    --accent-bg: var(--graphite-accent-bg); --check-bg: var(--graphite-check-bg); --plan-bg: var(--graphite-plan-bg); --done-bg: var(--graphite-done-bg);
+  }
+}
+
 /* ---------- print: dark text on white ---------- */
 
 @media print {
   :root {
-    --bg: #ffffff; --bg-1: #ffffff; --bg-2: #ffffff; --bg-3: #ffffff; --bg-4: #ffffff; --dot: #ffffff;
+    --bg: #ffffff; --bg-0: #ffffff; --bg-pop: #ffffff; --bg-1: #ffffff; --bg-2: #ffffff; --bg-3: #ffffff; --bg-4: #ffffff; --dot: #ffffff;
     --line-1: #dddddd; --line-2: #cccccc; --line-3: #bbbbbb; --line-4: #999999; --line-5: #888888;
     --ink: #111111; --ink-hi: #000000; --ink-2: #222222; --ink-3: #333333; --ink-4: #555555; --ink-5: #666666;
     --accent: #9a5a00; --accent-soft: #f4e2c4; --accent-bg: #ffffff; --accent-row: #f6f1e8;
@@ -645,8 +716,9 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
     --done: #067647; --done-bg: #ffffff; --done-line: #067647; --exp: #8a5a00; --exp-line: #8a5a00; --epic: #8a5a00;
     color-scheme: light;
   }
-  .site-header, .mobile-nav, .copy, .cursor, .lang-switch, .star, .tabs, .skip-link { display: none !important; }
+  .site-header, .mobile-nav, .copy, .cursor, .lang-switch, .tone-switch, .star, .tabs, .skip-link { display: none !important; }
   .mode-panel { display: flex !important; }
+  .term { box-shadow: none; }
   .sec, .scene, .card, .stat, .file, .diagram, .tty { break-inside: avoid; }
   a { text-decoration: underline; }
 }

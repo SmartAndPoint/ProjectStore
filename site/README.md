@@ -15,11 +15,15 @@ evidence), *Why it works* (decades-old practice, what was always expensive about
 goal to proof) and *One vault, many people* (sessions, teams and agents on one vault, the vault in
 git, a team setup).
 
-**The look** is dark, with one amber accent; mono for labels, code and the terminal box; Onest for
-headlines and body; diagrams with real connectors in the colours of the narrated film (amber for
+**The look** is a translucent terminal window in midnight blue: a soft glow fixed behind the page
+shows through panels in a translucent tint. Graphite is the second tone, chosen in the header. One
+amber accent; mono for labels, code and the terminal box; Onest for headlines and body; diagrams with real connectors in the colours of the narrated film (amber for
 what lands and for you, red for an independent check, blue for the planner and for participants,
-green for done). Every colour is a token on `:root` in `assets/style.css`; print gets light tokens,
-and `prefers-reduced-motion` stops every animation. The brand is the repository's social-preview
+green for done). Every colour is a token on `:root` in `assets/style.css`: midnight's values, and
+graphite's under their own names, which `:root[data-tone="graphite"]` points the surface tokens at,
+inside `@media screen`. `--bg` is the opaque base, `--bg-1` to `--bg-4` are the translucent panels,
+`--bg-0` a well inside one, and `--bg-pop` the opaque surface of a menu. Print gets light tokens and
+no glow, and `prefers-reduced-motion` stops every animation. The brand is the repository's social-preview
 mark and the wordmark `.projectstore`.
 
 Static HTML, CSS and vanilla JavaScript. One build step renders every page in every language from
@@ -36,6 +40,7 @@ src/_header.html           partials every template splices in: the header and na
 src/_footer.html             version lives), the icon sprite and arrow markers, and the loop diagram
 src/_sprite.html             (the main page and How it works)
 src/_loop.html
+src/_tone.html             the early script every template's <head> includes after the stylesheet: the saved tone
 locales/<lang>.json        one dictionary per language for the whole site: en (extracted), de, es, fr, pt, ru, uk, zh
 tools/i18n.py              build, extract and check (stdlib Python 3.12); PAGES is the table of pages
 index.html                 generated: English, the default, at the site root
@@ -46,7 +51,7 @@ en/index.html              generated: a redirect from the old /en/ address to th
 llms.txt                   the project for agents, in the llmstxt.org format
 llms-full.txt              the long form: a technical reference written for agents
 assets/style.css           tokens, components, diagrams, responsive rules, print, the @font-face rules, Chinese font stacks
-assets/site.js             tabs, the loop's lines and cartoon, copy buttons, language switcher
+assets/site.js             tabs, the loop's lines and cartoon, copy buttons, language switcher, tone switch
 assets/mark.svg            the mark: the header logo and the favicon
 assets/icon-180.png        the mark for Safari's touch icon
 assets/og.png              the 1280×640 link preview every page names in og:image and twitter:image
@@ -75,6 +80,12 @@ explicit earlier choice stored in the `ps_lang` cookie by the language switcher,
 browser's preferred languages. It then goes to the same page in that language (`/how-it-works/` to
 `/de/how-it-works/`). If English comes first in the browser, or the visitor picked English in the
 switcher, the page stays English. Agents and crawlers run no JavaScript and always get English.
+
+The tone switch in the header keeps the visitor's choice in `localStorage` under `ps_tone`. The
+early script, `src/_tone.html`, reads it before the first paint, sets `data-tone` on `<html>` and
+the `theme-color` from the computed `--bg`, so a page in graphite never shows midnight first.
+Without JavaScript, or without storage, a page is midnight, and without JavaScript the switch is
+not shown.
 
 How the templates mark text:
 
@@ -166,7 +177,12 @@ The version lives in one place, the footer partial `src/_footer.html`, so a rele
 The test also holds, on the English pages, a word budget (the main page at most 2,300 visible words,
 a method page at most 1,100); on every page, the link-preview tags; in `assets/style.css`, colours
 only as tokens on `:root` (print aside); and in the templates, no colour literal in a `fill`,
-`stroke`, `stop-color` or `style` attribute (`<meta name="theme-color">` aside).
+`stroke`, `stop-color` or `style` attribute (`<meta name="theme-color">` aside). For the tones it
+holds that a tone rule sits inside `@media screen` and points only surface tokens at tokens `:root`
+declares; that the base and the menus are opaque in every tone; that `--ink` to `--ink-4` keep
+4.5:1, and `--ink-5` the ratio it had on black, over each tone's lightest panel on its glow; and
+that every page ships in midnight, with the switch and the early script, its `theme-color` the
+`:root` `--bg`.
 
 ## Freshness
 

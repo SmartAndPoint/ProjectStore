@@ -1624,6 +1624,237 @@ function checkColourAttrs(file, html) {
   return out;
 }
 
+// The tones. Midnight is the palette on :root; every other tone is a rule
+// :root[data-tone="…"] that points surface tokens at palette tokens :root
+// declares. The stylesheet's blocks, nested as written, with comments and
+// strings blanked for the brace count; a head keeps its quotes.
+function cssBlocks(css) {
+  const text = css
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/"[^"\n]*"|'[^'\n]*'/g, (m) => m.replace(/[^\n]/g, " "));
+  const walk = (from, to) => {
+    const out = [];
+    let i = from;
+    while (i < to) {
+      const open = text.indexOf("{", i);
+      if (open === -1 || open >= to) break;
+      let depth = 1;
+      let close = open + 1;
+      for (; close < to && depth; close++) {
+        if (text[close] === "{") depth++;
+        else if (text[close] === "}") depth--;
+      }
+      const head = css
+        .slice(i, open)
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .trim();
+      const body = text.slice(open + 1, close - 1);
+      out.push({ head, body, blocks: body.includes("{") ? walk(open + 1, close - 1) : [] });
+      i = close;
+    }
+    return out;
+  };
+  return walk(0, text.length);
+}
+const declarations = (body) =>
+  Object.fromEntries([...body.matchAll(/(--[\w-]+)\s*:([^;]*)/g)].map((m) => [m[1], m[2].trim()]));
+// The palette: every top-level block whose selector is exactly :root.
+const rootTokens = (blocks) =>
+  Object.assign({}, ...blocks.filter((b) => b.head === ":root").map((b) => declarations(b.body)));
+// Any at-rule is walked (a tone rule in @supports or @layer is still a tone
+// rule); only an @media sets the media the rule sits under.
+function toneRules(blocks, media = null) {
+  return blocks.flatMap((b) => {
+    if (b.head.startsWith("@")) return toneRules(b.blocks, b.head.startsWith("@media") ? b.head : media);
+    const tone = /\[data-tone="([a-z]+)"\]/.exec(b.head)?.[1];
+    return tone ? [{ tone, head: b.head, media, tokens: declarations(b.body) }] : [];
+  });
+}
+const DEFAULT_TONE = "midnight";
+const TONE_KEY = "ps_tone";
+// What a tone may change: the surfaces (a role's tint on a panel among them),
+// the lines, the header tint and the glow.
+const TONE_TOKENS = /^--(?:bg(?:-[0-4]|-pop)?|dot|line-[1-5]|glow-[1-3]|head-bg|(?:accent|check|plan|done)-bg)$/;
+const WASHES = ["--accent-bg", "--check-bg", "--plan-bg", "--done-bg"];
+// Each tone's tokens, resolved: the palette, with the tone's rule over it.
+const toneSets = (css) => {
+  const blocks = cssBlocks(css);
+  const root = rootTokens(blocks);
+  return [[DEFAULT_TONE, root], ...toneRules(blocks).map((r) => [r.tone, { ...root, ...r.tokens }])];
+};
+function resolveToken(tokens, name) {
+  let value = tokens[name];
+  for (let i = 0; i < 8 && value; i++) {
+    const ref = /^var\((--[\w-]+)\)$/.exec(value);
+    if (!ref) break;
+    value = tokens[ref[1]];
+  }
+  return value ?? null;
+}
+function rgba(value) {
+  const m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(value ?? "");
+  if (!m) return null;
+  const at = (i) => parseInt(m[1].slice(i, i + 2), 16);
+  return { r: at(0), g: at(2), b: at(4), a: m[2] ? parseInt(m[2], 16) / 255 : 1 };
+}
+
+// AC "Still on tokens" and "A translucent terminal window": a tone rule sits
+// inside @media screen (in print, :root[data-tone] would out-rank the white
+// palette), sets only surface tokens, and points each at a token :root
+// declares. In every tone the surfaces that cover the page — the base, the
+// menus — are opaque, and the header's tint is at least as dense as d1. The
+// switch is hidden until the early script has set data-tone, so a page
+// without the script shows none.
+function checkTones(file, css) {
+  const blocks = cssBlocks(css);
+  const root = rootTokens(blocks);
+  const out = [];
+  for (const r of toneRules(blocks)) {
+    if (!/^@media\s+screen\b/i.test(r.media ?? ""))
+      out.push(finding(file, "tone", `${r.head} sits outside @media screen; in print it would beat the white palette`));
+    for (const [name, value] of Object.entries(r.tokens)) {
+      const ref = /^var\((--[\w-]+)\)$/.exec(value)?.[1];
+      if (!TONE_TOKENS.test(name))
+        out.push(
+          finding(file, "tone", `${r.head} sets ${name}; a tone changes surfaces, lines, the header tint and the glow`),
+        );
+      else if (!(name in root) || !ref || !(ref in root))
+        out.push(finding(file, "tone", `${r.head} sets ${name}: ${value}; a tone points a declared token at another`));
+    }
+  }
+  for (const [tone, tokens] of toneSets(css)) {
+    for (const name of ["--bg", "--bg-pop"]) {
+      const c = rgba(resolveToken(tokens, name));
+      if (!c || c.a < 1)
+        out.push(finding(file, "tone", `${tone} ${name} is ${resolveToken(tokens, name)}; it covers the page: opaque`));
+    }
+    const head = rgba(resolveToken(tokens, "--head-bg"));
+    if (!head || head.a < 0xd1 / 255)
+      out.push(finding(file, "tone", `${tone} --head-bg is ${resolveToken(tokens, "--head-bg")}; at least d1 dense`));
+  }
+  const hides = blocks.some((b) => b.head === ".tone-switch" && /display:\s*none/.test(b.body));
+  const shows = blocks.some((b) => /^:root\[data-tone\] \.tone-switch$/.test(b.head) && /display:/.test(b.body));
+  if (!hides || !shows)
+    out.push(
+      finding(
+        file,
+        "tone",
+        ".tone-switch is not hidden until :root[data-tone] shows it; without the script it would show",
+      ),
+    );
+  return out;
+}
+
+// AC "Still readable": WCAG contrast against each tone's worst case — every
+// glow colour at full strength over the base, the lightest panel over that
+// (a chip on the terminal, and a node, plain or in a role's tint, inside a
+// diagram, included). --ink to --ink-4 keep 4.5:1; --ink-5, the fine print,
+// keeps the ratio it had on black's --bg-4 (#171a15) when black was the
+// site's palette. One finding per tone: its worst ink.
+const INK5_FLOOR = 3.69;
+const luminance = ({ r, g, b }) =>
+  [r, g, b]
+    .map((c) => c / 255)
+    .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+    .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+const contrast = (x, y) => {
+  const [hi, lo] = [luminance(x), luminance(y)].sort((p, q) => q - p);
+  return (hi + 0.05) / (lo + 0.05);
+};
+const over = (top, under) => ({
+  r: top.r * top.a + under.r * (1 - top.a),
+  g: top.g * top.a + under.g * (1 - top.a),
+  b: top.b * top.a + under.b * (1 - top.a),
+  a: 1,
+});
+function checkToneContrast(file, css) {
+  const out = [];
+  for (const [tone, tokens] of toneSets(css)) {
+    const colour = (name) => rgba(resolveToken(tokens, name));
+    const glows = Object.keys(tokens).filter((n) => /^--glow-\d$/.test(n));
+    const lit = glows.map(colour).reduce((under, g) => (g ? over(g, under) : under), colour("--bg"));
+    const surfaces = ["--bg-1", "--bg-2", "--bg-3", "--bg-4", "--bg-pop", ...WASHES].map((n) => over(colour(n), lit));
+    // a chip on the terminal; a node, plain or in a role's tint, in a diagram or on the rail
+    const inPanel = over(colour("--bg-1"), lit);
+    surfaces.push(over(colour("--bg-4"), over(colour("--bg-3"), lit)));
+    surfaces.push(...["--bg-3", ...WASHES].map((n) => over(colour(n), inPanel)));
+    const worst = surfaces.reduce((a, s) => (luminance(s) > luminance(a) ? s : a));
+    const short = [
+      ...["--ink", "--ink-2", "--ink-3", "--ink-4"].map((n) => [n, contrast(colour(n), worst), 4.5]),
+      ["--ink-5", contrast(colour("--ink-5"), worst), INK5_FLOOR],
+    ]
+      .filter(([, r, floor]) => r < floor)
+      .sort((a, b) => a[1] / a[2] - b[1] / b[2]);
+    if (short.length) {
+      const [name, r, floor] = short[0];
+      out.push(
+        finding(file, "contrast", `${tone}: ${name} is ${r.toFixed(2)}:1 on its lightest surface; at least ${floor}`),
+      );
+    }
+  }
+  return out;
+}
+
+// AC "Midnight by default", "One two-way switch" and "Remembered, without a
+// flash": a page ships in the default tone — no data-tone on <html>, its
+// theme-color the --bg :root declares — and carries the switch, a named
+// position per tone with aria-pressed, and in <head>, after the stylesheet,
+// the one early script that reads the tone's key and sets data-tone.
+function checkTonePage(page, tones, bg) {
+  const out = [];
+  const html = page.els.find((el) => el.name === "html");
+  if (html && "data-tone" in html.attrs)
+    out.push(
+      finding(page.file, "tone", `<html data-tone="${html.attrs["data-tone"]}">: a page ships in ${DEFAULT_TONE}`),
+    );
+  const meta = page.els.find((el) => el.name === "meta" && el.attrs.name === "theme-color");
+  if ((meta?.attrs.content ?? "").toLowerCase() !== bg.toLowerCase())
+    out.push(
+      finding(page.file, "theme-color", `theme-color is ${meta?.attrs.content ?? "missing"}; :root --bg is ${bg}`),
+    );
+  const switches = page.els.filter((el) => hasClass(el, "tone-switch"));
+  if (switches.length !== 1)
+    out.push(finding(page.file, "tone-switch", `${switches.length} tone switches; the header carries one`));
+  else {
+    const named = (el) => (el.attrs["aria-label"] ?? "").trim() !== "";
+    const positions = page.els.filter((el) => within(switches[0], el) && "data-tone-set" in el.attrs);
+    if (!named(switches[0])) out.push(finding(page.file, "tone-switch", "the tone switch has no aria-label"));
+    for (const tone of tones) {
+      const p = positions.find((el) => el.attrs["data-tone-set"] === tone);
+      if (!p) out.push(finding(page.file, "tone-switch", `the tone switch has no position for ${tone}`));
+      else if (!named(p) || !("aria-pressed" in p.attrs))
+        out.push(finding(page.file, "tone-switch", `the ${tone} position has no aria-label or no aria-pressed`));
+    }
+  }
+  const headEnd = page.html.indexOf("</head>");
+  const sheet = page.html.search(/<link rel="stylesheet"/);
+  const early = [...page.html.matchAll(/<script>([\s\S]*?)<\/script>/g)].filter((m) => m[1].includes(TONE_KEY));
+  if (early.length !== 1 || early[0].index > headEnd || early[0].index < sheet)
+    out.push(
+      finding(
+        page.file,
+        "tone-script",
+        `${early.length} scripts read ${TONE_KEY} in <head> after the stylesheet; one does`,
+      ),
+    );
+  else if (/location\.replace\(/.test(early[0][1]) || !/setAttribute\("data-tone"/.test(early[0][1]))
+    out.push(finding(page.file, "tone-script", "the early script redirects, or sets no data-tone"));
+  return out;
+}
+
+// The key site.js reads and writes is the key the early script reads.
+function checkToneKey(file, js, early) {
+  const keys = (src, op) => [...src.matchAll(new RegExp(`localStorage\\.${op}\\("([^"]+)"`, "g"))].map((m) => m[1]);
+  const read = keys(early, "getItem");
+  const used = [...keys(js, "setItem"), ...keys(js, "getItem")];
+  if (!used.length) return [finding(file, "tone-key", "site.js keeps no tone in localStorage")];
+  return unique(
+    used
+      .filter((k) => !read.includes(k))
+      .map((k) => finding(file, "tone-key", `site.js keeps the tone under "${k}"; the early script reads ${read}`)),
+  );
+}
+
 // AC "Codex is never overclaimed": a page whose text names an experimental
 // harness carries that harness's status marker, so "experimental" stands
 // wherever the name does and the status check reads it.
@@ -2105,6 +2336,28 @@ test("site: every colour is a token — none outside :root and the print rules i
   assert.deepEqual(found, [], show(found));
 });
 
+test("site: the tones — midnight on :root, graphite a screen-only rule over surface tokens, the covering surfaces opaque, and the text readable over each tone's brightest panel and glow", () => {
+  const css = read(`${SITE}/assets/style.css`);
+  assert.deepEqual(
+    toneSets(css).map(([tone]) => tone),
+    [DEFAULT_TONE, "graphite"],
+    "midnight is the palette, graphite the one tone rule",
+  );
+  const found = [...checkTones(`${SITE}/assets/style.css`, css), ...checkToneContrast(`${SITE}/assets/style.css`, css)];
+  assert.deepEqual(found, [], show(found));
+});
+
+test("site: every page ships in midnight — no data-tone, theme-color the :root --bg — with the tone switch in its header and the early script in its head, and site.js keeps the tone under the key that script reads", () => {
+  const css = read(`${SITE}/assets/style.css`);
+  const tones = toneSets(css).map(([tone]) => tone);
+  const bg = rootTokens(cssBlocks(css))["--bg"];
+  const found = [
+    ...eachPage((page) => checkTonePage(page, tones, bg)),
+    ...checkToneKey(`${SITE}/assets/site.js`, read(`${SITE}/assets/site.js`), read(`${SITE}/src/_tone.html`)),
+  ];
+  assert.deepEqual(found, [], show(found));
+});
+
 test("site AC 4: no page, stylesheet or script loads from another origin, and every load is a file under site/", () => {
   const files = siteFiles().filter((f) => /\.(html|css|js)$/.test(f.path) && !f.path.startsWith(`${SITE}/src/`));
   assert.ok(
@@ -2212,6 +2465,7 @@ const STYLE = `${SITE}/assets/style.css`;
 const SCRIPT = `${SITE}/assets/site.js`;
 const LOOP = `${SITE}/src/_loop.html`;
 const SPRITE = `${SITE}/src/_sprite.html`;
+const TONE_PARTIAL = `${SITE}/src/_tone.html`;
 const [LLMS_TXT, LLMS_FULL] = LLMS;
 const onPage = (lang, check, kind = "main") => {
   const p = pageOf(lang, kind);
@@ -2898,6 +3152,105 @@ const PLANTED = [
     fact: "colour",
     message: /holds red/,
     edits: [[/<svg class="sprite"/, '<svg class="sprite" style="fill: red"']],
+  },
+
+  // The tones: midnight on :root, graphite a screen-only rule; opaque covers;
+  // readable text; every page in midnight with the switch and the early script.
+  {
+    ac: "Still on tokens",
+    what: "a tone rule outside @media screen",
+    ...onText(STYLE, checkTones),
+    fact: "tone",
+    message: /:root\[data-tone="graphite"\] sits outside @media screen/,
+    edits: [[/$/, '\n:root[data-tone="graphite"] { --bg: var(--graphite-bg); }\n']],
+  },
+  {
+    ac: "Still on tokens",
+    what: "a tone rule pointing at a token :root does not declare",
+    ...onText(STYLE, checkTones),
+    fact: "tone",
+    message: /sets --line-3: var\(--graphite-line-9\)/,
+    edits: [["--line-3: var(--graphite-line-3);", "--line-3: var(--graphite-line-9);"]],
+  },
+  {
+    ac: "Still on tokens",
+    what: "a tone rule changing the accent",
+    ...onText(STYLE, checkTones),
+    fact: "tone",
+    message: /sets --accent; a tone changes surfaces/,
+    edits: [["--head-bg: var(--graphite-head-bg);", "--head-bg: var(--graphite-head-bg); --accent: var(--plan);"]],
+  },
+  {
+    ac: "A translucent terminal window",
+    what: "a menu surface made translucent in midnight",
+    ...onText(STYLE, checkTones),
+    fact: "tone",
+    message: /midnight --bg-pop is #141f3580; it covers the page/,
+    edits: [["--bg-pop: #141f35;", "--bg-pop: #141f3580;"]],
+  },
+  {
+    ac: "One two-way switch",
+    what: "the tone switch shown without the early script",
+    ...onText(STYLE, checkTones),
+    fact: "tone",
+    message: /\.tone-switch is not hidden until :root\[data-tone\] shows it/,
+    edits: [[".tone-switch { display: none;", ".tone-switch { display: inline-flex;"]],
+  },
+  {
+    ac: "Still readable",
+    what: "a midnight panel light enough to sink --ink-4",
+    ...onText(STYLE, checkToneContrast),
+    fact: "contrast",
+    message: /^midnight: --ink-4 is \d\.\d\d:1/,
+    edits: [["--bg-4: #17233ad9;", "--bg-4: #33415ad9;"]],
+  },
+  {
+    ac: "Still readable",
+    what: "a graphite role tint light enough to sink the text on a node in a diagram",
+    ...onText(STYLE, checkToneContrast),
+    fact: "contrast",
+    message: /^graphite: --ink-\d is \d\.\d\d:1/,
+    edits: [["--graphite-accent-bg: #252320db;", "--graphite-accent-bg: #4a4235db;"]],
+  },
+  {
+    ac: "Still on tokens",
+    what: "a tone rule inside @supports, outside @media screen",
+    ...onText(STYLE, checkTones),
+    fact: "tone",
+    message: /sits outside @media screen/,
+    edits: [[/$/, '\n@supports (color: red) {\n  :root[data-tone="graphite"] { --bg: var(--graphite-bg); }\n}\n']],
+  },
+  {
+    ac: "Midnight by default",
+    what: "a page whose theme-color is not the :root --bg",
+    ...onPage("pt", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite"], "#080d19"), "one-vault"),
+    fact: "theme-color",
+    message: /theme-color is #0b0c0a; :root --bg is #080d19/,
+    edits: [[/(<meta name="theme-color" content=")[^"]*/, "$1#0b0c0a"]],
+  },
+  {
+    ac: "One two-way switch",
+    what: "a switch without its graphite position",
+    ...onPage("zh", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite"], "#080d19"), "why-it-works"),
+    fact: "tone-switch",
+    message: /no position for graphite/,
+    edits: [[/<button class="tone-opt" type="button" data-tone-set="graphite"[^>]*>.*?<\/button>/, ""]],
+  },
+  {
+    ac: "Remembered, without a flash",
+    what: "a page without the early script",
+    ...onPage("de", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite"], "#080d19"), "one-vault"),
+    fact: "tone-script",
+    message: /0 scripts read ps_tone in <head>/,
+    edits: [[/<script>\(function\(\)\{var d=document\.documentElement[\s\S]*?<\/script>\n?/, ""]],
+  },
+  {
+    ac: "Remembered, without a flash",
+    what: "site.js keeping the tone under another key",
+    ...onText(SCRIPT, (file, js) => checkToneKey(file, js, read(TONE_PARTIAL))),
+    fact: "tone-key",
+    message: /site\.js keeps the tone under "ps_tones"/,
+    edits: [['"ps_tone"', '"ps_tones"', true]],
   },
 
   // AC 4: loads — another origin, a link off the site, a file that is not there.

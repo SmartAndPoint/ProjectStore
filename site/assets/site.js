@@ -1,4 +1,4 @@
-/* ProjectStore site — tabs, the loop's steps and cartoon, copy buttons, the language switcher.
+/* ProjectStore site — tabs, the loop's steps and cartoon, copy buttons, the language switcher, the tone switch.
    Vanilla, no dependencies, no build. */
 (function () {
   "use strict";
@@ -160,5 +160,33 @@
         try { document.cookie = "ps_lang=" + a.getAttribute("data-lang") + "; path=/; max-age=31536000; SameSite=Lax"; } catch (e) { /* cookies off */ }
       });
     });
+  }
+
+  /* ---------- tone switch: midnight or graphite, remembered in localStorage ----------
+     The early script in <head> applies the saved tone before the first paint; this keeps the
+     buttons and theme-color in step, and re-reads the choice when the page returns from the
+     back-forward cache. theme-color is read from the computed --bg, never written here. */
+  var toneSwitch = document.querySelector(".tone-switch");
+  if (toneSwitch) {
+    var docEl = document.documentElement;
+    var themeMeta = document.querySelector('meta[name="theme-color"]');
+    var toneBtns = Array.prototype.slice.call(toneSwitch.querySelectorAll("button[data-tone-set]"));
+    var applyTone = function (tone) {
+      docEl.setAttribute("data-tone", tone);
+      toneBtns.forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-tone-set") === tone ? "true" : "false"); });
+      if (themeMeta) themeMeta.setAttribute("content", getComputedStyle(docEl).getPropertyValue("--bg").trim());
+    };
+    var savedTone = function () {
+      try { return localStorage.getItem("ps_tone") === "graphite" ? "graphite" : "midnight"; } catch (e) { return docEl.getAttribute("data-tone") || "midnight"; }
+    };
+    applyTone(savedTone());
+    toneBtns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        var tone = b.getAttribute("data-tone-set");
+        try { localStorage.setItem("ps_tone", tone); } catch (e) { /* storage off: this page only */ }
+        applyTone(tone);
+      });
+    });
+    window.addEventListener("pageshow", function (ev) { if (ev.persisted) applyTone(savedTone()); });
   }
 })();
