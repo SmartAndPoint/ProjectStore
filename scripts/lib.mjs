@@ -554,7 +554,8 @@ export function pidAlive(pid) {
 // harness active in a directory with no harness folder, and every Claude Code
 // path used to follow it into the other home (the install spec, contract 6,
 // as amended 2026-10-14). The host this process runs in is harnessAgentHome's
-// question, asked by its own callers.
+// question, asked by its own callers; it stands in here only if a manifest
+// ever named no home at all.
 export function claudeHome(home = homedir()) {
   return harnessHome(sourceHarness(), { env: process.env, home }) || harnessAgentHome(process.env, home);
 }

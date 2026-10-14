@@ -1266,7 +1266,13 @@ test("setup 'The channel' without a terminal: no --channel is refused before the
   withStub(ses);
   const s = await setup(ses, { env: { ...ses.env, [sessionMarker(SRC)]: "1" }, values: { harness: [SRC.id] } });
   assert.equal(s.r.result.setup.channel, "git");
-  assert.equal(s.r.result.items.find((i) => i.kind === "channel").deferred, true);
+  const keepRow = s.r.result.items.find((i) => i.kind === "channel");
+  assert.equal(keepRow.deferred, true);
+  // The keep's deferral names the run as any deferral does (the install
+  // spec, contract 6, as amended 2026-10-14): the keep is a setup item.
+  const keepLines = keepRow.reason.split("\n");
+  assert.match(keepLines[1], /^From a terminal in ".+":$/, keepRow.reason);
+  assert.equal(keepLines[2], `npx projectstore@${V} setup --harness ${SRC.id}`, keepRow.reason);
   // Usage: exit 2.
   const only = await setup(sb, { values: { harness: [CODEX.id], channel: "npm" } });
   assert.equal(only.r.code, 2);

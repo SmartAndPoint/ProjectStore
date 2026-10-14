@@ -883,6 +883,34 @@ test("converge rule 5: readKeepPlan reads the kept copy's plan through its bin w
     }),
   });
   assert.deepEqual([d.writes, d.deferred], [[], [{ surface: "layout", reason: "run it outside the session" }]]);
+  // A deferral that carries its run on the lines after its prose (the install
+  // spec, contract 6, as amended 2026-10-14) is kept by its first line, so
+  // another copy's command is never quoted inside this run's row.
+  const e = await readKeepPlan(copy, {
+    harness,
+    projectDir: "/p",
+    run: runner({
+      status: 1,
+      stdout: envelope(
+        {
+          ok: true,
+          incomplete: true,
+          refusals: [],
+          items: [
+            {
+              surface: "plugin",
+              action: "skip",
+              deferred: true,
+              reason:
+                'run it from a terminal outside the session\nFrom a terminal in "/p":\nnpx projectstore@9.9.9 install --harness x',
+            },
+          ],
+        },
+        false,
+      ),
+    }),
+  });
+  assert.deepEqual(e.deferred, [{ surface: "plugin", reason: "run it from a terminal outside the session" }]);
   assert.deepEqual(
     [calls[0].bin, calls[0].argv, calls[0].o],
     [process.execPath, a.argv.slice(1), { env: { X: "1" }, cwd: "/p", budget: 5 }],

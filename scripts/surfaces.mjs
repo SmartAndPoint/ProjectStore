@@ -270,7 +270,7 @@ export function analyseJsonEntry(
   a.ours =
     statusLineIsOurWiring(a.curCmd, projectDir, home, root) ||
     statusLineIsOurWiring(a.curCmd, projectDir, home, renderRoot);
-  a.desired = desiredStatusLineCommand(projectDir, renderRoot, home, harness?.id ?? undefined).command;
+  a.desired = desiredStatusLineCommand(projectDir, renderRoot, home, harness?.id).command;
   if (!a.curEntry) return { ...a, state: "ours-absent" };
   if (!a.ours) return { ...a, state: "theirs", reason: "a status line we did not write owns the slot" };
   if (a.curCmd === a.desired) return { ...a, state: "ours-current" };
@@ -324,7 +324,7 @@ export function analyseStampedFile(
   const tpl = readText(src);
   if (!tpl.present || tpl.text === null)
     return { ...a, state: "unparseable", refusal: `the source ${s.source} is missing from the plugin at ${root}` };
-  const rendered = renderStatusLineLauncher(tpl.text, renderRoot, projectDir, process.env, harness || undefined);
+  const rendered = renderStatusLineLauncher(tpl.text, renderRoot, projectDir, process.env, harness);
   if (rendered === null)
     return { ...a, state: "unparseable", refusal: "the launcher template is not one this installer knows how to fill" };
   const pkg = pluginVersionAt(root, harness) || "0.0.0";

@@ -2896,7 +2896,10 @@ function homeSandbox() {
   const home = join(base, "home");
   const proj = join(base, "project");
   const other = join(base, "other-home");
-  for (const d of [home, proj, other]) mkdirSync(d);
+  // The runs' cwd: never the project, which gains a harness folder once
+  // installed — that folder would decide detection and hide the defect.
+  const cwd = join(base, "elsewhere");
+  for (const d of [home, proj, other, cwd]) mkdirSync(d);
   const root = fakePackageRoot(join(base, "_npx", "1a2b3c", "node_modules", "projectstore"), "0.30.3");
   const env = (extra = {}) =>
     noHostEnv({
@@ -2908,11 +2911,11 @@ function homeSandbox() {
     });
   const run = (args, extra) =>
     spawnSync(process.execPath, [join(root, "bin", "projectstore.mjs"), ...args, "--project", proj], {
-      cwd: proj,
+      cwd,
       env: env(extra),
       encoding: "utf8",
     });
-  return { base, host, home, proj, other, root, run };
+  return { base, host, home, proj, other, cwd, root, run };
 }
 
 const OTHER = [...loadHarnesses().values()].find((m) => m.id !== SRC.id && m.runtime?.home_env);
@@ -2928,7 +2931,7 @@ test("contract 6 (2026-10-14): with no harness folder in the cwd, another harnes
     [{ [SRC.runtime.home_env]: relocated }, relocated],
     [{ [SRC.runtime.home_env]: relocated, [OTHER.runtime.home_env]: b.other }, relocated],
   ];
-  assert.equal(existsSync(join(b.proj, SRC.runtime.harness_dir)), false, "no harness folder in the cwd");
+  assert.deepEqual(readdirSync(b.cwd), [], "no harness folder in the cwd");
   for (const [extra, expected] of cases) {
     const why = JSON.stringify(extra);
     const r = b.run(["plan", "--harness", SRC.id, "--json"], extra);
@@ -2979,4 +2982,53 @@ test("contract 6 (2026-10-14): install, upgrade and uninstall under CODEX_HOME w
     for (const c of b.host.log()) assert.equal(c.home, own, `${why}: ${c.argv.join(" ")}`);
     assert.deepEqual(readdirSync(b.other), [], why);
   }
+});
+
+test("contract 6 (2026-10-14): setup under CODEX_HOME, from a cwd with no harness folder, registers Claude Code in its own home and pins that home on every host call", () => {
+  for (const forced of [false, true]) {
+    const b = homeSandbox();
+    const own = join(b.home, SRC.runtime.home_default);
+    const vault = join(b.base, "vault");
+    const extra = forced ? { PROJECTSTORE_HARNESS: OTHER.id } : { [OTHER.runtime.home_env]: b.other };
+    const why = JSON.stringify(extra);
+    const r = b.run(["setup", "--harness", SRC.id, "--vault", vault, "--json"], extra);
+    assert.equal(r.status, 0, why + r.stdout + r.stderr);
+    const reg = JSON.parse(r.stdout).result.items.find((i) => i.kind === "registration" && i.harness === SRC.id);
+    assert.equal(reg.home, own, why);
+    assert.ok(b.host.log().length > 0, why);
+    for (const c of b.host.log()) assert.equal(c.home, own, `${why}: ${c.argv.join(" ")}`);
+    assert.deepEqual(readdirSync(b.other), [], `${why}: the other home stays empty`);
+  }
+});
+
+test("contract 6 (2026-10-14): doctor --install under CODEX_HOME, from a cwd with no harness folder, reads Claude Code's settings, registry and status line from Claude Code's places", () => {
+  const b = homeSandbox();
+  const own = join(b.home, SRC.runtime.home_default);
+  mkdirSync(own, { recursive: true });
+  writeFileSync(join(own, "settings.json"), JSON.stringify({ statusLine: { type: "command", command: "echo base" } }));
+  const vault = join(b.base, "vault");
+  mkdirSync(vault);
+  writeBinding(b.proj, { vault_path: vault, layout: "engineering", language: "en", statusline: { enabled: true } });
+  const extra = { [OTHER.runtime.home_env]: b.other };
+  const args = [
+    "--harness",
+    SRC.id,
+    "--surface",
+    "plugin",
+    "--surface",
+    "statusline",
+    "--surface",
+    "statusline_launcher",
+  ];
+  const i = b.run(["install", ...args, "--json"], extra);
+  assert.equal(i.status, 0, i.stdout + i.stderr);
+  const findings = JSON.parse(b.run(["doctor", "--install", "--json"], extra).stdout).result;
+  const say = JSON.stringify(findings, null, 1);
+  assert.ok(
+    findings.some((f) => /Base HUD present/.test(f.message)),
+    say,
+  );
+  assert.ok(!findings.some((f) => /no statusLine wired/.test(f.message)), say);
+  assert.ok(!findings.some((f) => f.check === "plugin-registration-foreign"), say);
+  assert.ok(!findings.some((f) => /not produced/.test(f.message)), say);
 });
