@@ -5,20 +5,20 @@
       <stop offset="1" stop-color="#c4643c"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="14" fill="#14161b"/>
-  <g fill="#3d434d">
+  <rect width="64" height="64" rx="14" fill="#0f172a"/>
+  <g fill="#3d4a66">
     <rect x="7" y="13" width="4.5" height="38" rx="1"/>
-    <rect x="13.5" y="13" width="2.5" height="38" rx="1" fill="#2c3139"/>
+    <rect x="13.5" y="13" width="2.5" height="38" rx="1" fill="#2c3650"/>
     <rect x="7" y="13" width="12" height="3.5" rx="1"/>
     <rect x="7" y="47.5" width="12" height="3.5" rx="1"/>
     <rect x="52.5" y="13" width="4.5" height="38" rx="1"/>
-    <rect x="48" y="13" width="2.5" height="38" rx="1" fill="#2c3139"/>
+    <rect x="48" y="13" width="2.5" height="38" rx="1" fill="#2c3650"/>
     <rect x="45" y="13" width="12" height="3.5" rx="1"/>
     <rect x="45" y="47.5" width="12" height="3.5" rx="1"/>
   </g>
   <g stroke="url(#cu)" stroke-width="3" stroke-linecap="round" fill="none">
     <path d="M29.6 26.8 23.4 37.6M34.4 26.8 40.6 37.6"/>
-    <circle cx="32" cy="22.5" r="5" fill="#14161b"/>
+    <circle cx="32" cy="22.5" r="5" fill="#0f172a"/>
   </g>
   <g fill="url(#cu)">
     <circle cx="22" cy="40.5" r="4.6"/>
