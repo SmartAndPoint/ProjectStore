@@ -2630,9 +2630,38 @@ export function plan(
   placeBlock();
   for (const item of moved.last) out.items.push({ harness: layoutHarness.id, ...item });
   out.items.push(...marks);
+  oneAddPerFile(out.items);
   if (out.items.some((i) => i.action === "refuse")) out.ok = false;
   if (out.refusals.length) out.ok = false;
   return out;
+}
+
+// One add per file (the presentation spec, contract 7 as amended 2026-10-14):
+// within one plan, a file an earlier item creates is added once. A later
+// `create` or `add` on that path changes the file the run has just made, so it
+// reads `update`; its state, steps and detail stay. Each item is planned
+// against the tree before the run, so the binding the vault item writes was
+// "absent" to the status-line flag and the channel mark, and all three read
+// "add". A creator is an earlier `create` or `add` item that is neither a
+// registration (its host-owned files are the host CLI's) nor a binding row (it
+// never makes the binding: apply skips it on an unbound project, and the vault
+// item or the layout move makes the file), counted for the paths absent at
+// plan time: its own and each step's `path` — never a move step's `to`, so a
+// migrating project's binding rows keep `add`. An entry row on a file that was
+// there keeps `add`.
+function oneAddPerFile(items) {
+  const created = new Set();
+  const writes = (i) => i.action === "create" || i.action === "add";
+  for (const item of items) {
+    if (!writes(item) || item.kind === "registration") continue;
+    if (item.path && created.has(resolve(item.path))) {
+      item.action = "update";
+      continue;
+    }
+    if (item.kind === "binding") continue;
+    for (const p of [item.path, ...(item.steps || []).map((s) => s.path)])
+      if (p && !existsSync(p)) created.add(resolve(p));
+  }
 }
 
 // ─── the layout migration (the layout ADR; layout spec contract 6) ──────

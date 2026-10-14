@@ -22,6 +22,7 @@ import {
   rmSync,
   utimesSync,
   symlinkSync,
+  chmodSync,
 } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
@@ -1118,4 +1119,169 @@ test("layout contract 9 (A14): doctor names an ignore file that is missing or sh
   assert.match(t[0].message, /git rm --cached \.projectstore\/projectstore\.json/);
   spawnSync("git", ["rm", "--cached", "-q", ".projectstore/projectstore.json"], { cwd: proj });
   assert.deepEqual(checkTrackedRuntime(proj), [], "and quiet once it is untracked");
+});
+
+// The layout spec, contract 9 as amended 2026-10-14: the host's settings file
+// is ignored when git says so — every rule git applies, not the project's
+// exact .gitignore lines. Each case runs git in a temp HOME and XDG config
+// with no system config, so the developer's own global ignore (which may well
+// ignore settings.local.json) never answers for the fixture.
+const REAL_GIT = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
+function gitSandbox() {
+  const home = mkdtempSync(join(TMP, "ps-gi-home-"));
+  mkdirSync(join(home, ".config", "git"), { recursive: true });
+  writeFileSync(join(home, "gitconfig"), "");
+  // No GIT_* from the developer's shell or a hook (GIT_DIR, GIT_CONFIG_PARAMETERS).
+  const base = Object.fromEntries(Object.entries(noHostEnv()).filter(([k]) => !k.startsWith("GIT_")));
+  const env = {
+    ...base,
+    PATH: dirname(REAL_GIT),
+    HOME: home,
+    XDG_CONFIG_HOME: join(home, ".config"),
+    GIT_CONFIG_GLOBAL: join(home, "gitconfig"),
+    GIT_CONFIG_NOSYSTEM: "1",
+  };
+  const git = (cwd, ...args) =>
+    spawnSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", ...args], { cwd, env, encoding: "utf8" });
+  const repo = () => {
+    const dir = mkdtempSync(join(TMP, "ps-gi-"));
+    git(dir, "init", "-q");
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(join(dir, ".claude", "settings.local.json"), "{}\n");
+    return dir;
+  };
+  return { home, env, git, repo };
+}
+const hostWarn = (f) => f.filter((x) => x.check === "gitignore" && /Machine-specific/.test(x.message));
+
+test("layout contract 9 (amended 2026-10-14): the host's settings file counts as ignored by any rule git applies", async () => {
+  const { checkHostIgnored } = await import("../scripts/doctor.mjs");
+  const { home, env, git, repo } = gitSandbox();
+  const quiet = (dir, why) => assert.deepEqual(hostWarn(checkHostIgnored(dir, { env })), [], why);
+  const warns = (dir, why) => {
+    const f = hostWarn(checkHostIgnored(dir, { env }));
+    assert.equal(f.length, 1, why);
+    assert.equal(
+      f[0].message,
+      'Machine-specific files not gitignored: .claude/settings.local.json (or ignore ".claude/" wholesale).',
+      "the message is today's, byte for byte",
+    );
+  };
+
+  warns(repo(), "no rule: the warning stands");
+  for (const rule of [
+    ".claude/",
+    ".claude",
+    ".claude/settings.local.json",
+    ".claude/*",
+    "**/.claude/settings.local.json",
+  ]) {
+    const dir = repo();
+    writeFileSync(join(dir, ".gitignore"), rule + "\n");
+    quiet(dir, `${rule} in the project's .gitignore`);
+  }
+  const nested = repo();
+  writeFileSync(join(nested, ".claude", ".gitignore"), "settings.local.json\n");
+  quiet(nested, "a nested .gitignore");
+  const exclude = repo();
+  writeFileSync(join(exclude, ".git", "info", "exclude"), ".claude/settings.local.json\n");
+  quiet(exclude, ".git/info/exclude");
+  const xdg = repo();
+  writeFileSync(join(home, ".config", "git", "ignore"), "**/.claude/settings.local.json\n");
+  quiet(xdg, "the XDG default global ignore");
+  writeFileSync(join(home, ".config", "git", "ignore"), "");
+  const excludesFile = join(home, "my-ignore");
+  writeFileSync(excludesFile, ".claude/\n");
+  writeFileSync(join(home, "gitconfig"), `[core]\n\texcludesFile = ${excludesFile}\n`);
+  quiet(repo(), "core.excludesFile");
+  writeFileSync(join(home, "gitconfig"), "");
+  const negated = repo();
+  writeFileSync(join(negated, ".gitignore"), ".claude/*\n!.claude/settings.local.json\n");
+  warns(negated, "a negation that re-includes the file");
+
+  // --no-index: a tracked file with a matching rule is quiet here; tracking is
+  // gitignore-tracked's business, and "add the line" could not help it.
+  const tracked = repo();
+  git(tracked, "add", "-f", ".claude/settings.local.json");
+  writeFileSync(join(tracked, ".gitignore"), ".claude/\n");
+  quiet(tracked, "a tracked file with a matching rule");
+
+  // A worktree checkout: .git is a file there.
+  const main = repo();
+  writeFileSync(join(main, "README.md"), "x\n");
+  git(main, "add", "README.md");
+  git(main, "commit", "-q", "-m", "x");
+  const wt = join(mkdtempSync(join(TMP, "ps-gi-wt-")), "wt");
+  git(main, "worktree", "add", "-q", wt);
+  mkdirSync(join(wt, ".claude"), { recursive: true });
+  warns(wt, "a worktree with no rule");
+  writeFileSync(join(wt, ".gitignore"), "**/.claude/settings.local.json\n");
+  quiet(wt, "a worktree whose rule git applies");
+
+  // Not a git repository: nothing to say, as before.
+  assert.deepEqual(hostWarn(checkHostIgnored(mkdtempSync(join(TMP, "ps-gi-none-")), { env })), []);
+});
+
+test("layout contract 9 (amended 2026-10-14): the full report carries the host-file check — a rule-less git project warns, one git ignores is quiet", async () => {
+  const { runInstallChecks } = await import("../scripts/doctor.mjs");
+  const { env, repo } = gitSandbox();
+  const bare = repo();
+  const cfg = { vault_path: bare, layout: "engineering" };
+  assert.equal(hostWarn(await runInstallChecks(cfg, bare, { env })).length, 1, "no rule: the report says it");
+  const ruled = repo();
+  writeFileSync(join(ruled, ".gitignore"), "**/.claude/settings.local.json\n");
+  assert.deepEqual(hostWarn(await runInstallChecks({ ...cfg, vault_path: ruled }, ruled, { env })), []);
+});
+
+test("layout contract 9 (amended 2026-10-14): when git cannot answer, the project's .gitignore lines decide, both ways", async () => {
+  const { checkHostIgnored } = await import("../scripts/doctor.mjs");
+  const { env, repo } = gitSandbox();
+  const bin = mkdtempSync(join(TMP, "ps-gi-bin-"));
+  writeFileSync(join(bin, "git"), "#!/bin/sh\nexit 128\n");
+  chmodSync(join(bin, "git"), 0o755);
+  const empty = mkdtempSync(join(TMP, "ps-gi-nopath-"));
+  for (const [PATH, label] of [
+    [empty, "no git on PATH"],
+    [bin, "a git that fails (128)"],
+  ]) {
+    const e = { ...env, PATH };
+    const a = repo();
+    writeFileSync(join(a, ".gitignore"), "**/.claude/settings.local.json\n");
+    assert.equal(
+      hostWarn(checkHostIgnored(a, { env: e })).length,
+      1,
+      `${label}: a pattern the line read cannot see warns`,
+    );
+    const b = repo();
+    writeFileSync(join(b, ".gitignore"), ".claude/\n");
+    assert.deepEqual(hostWarn(checkHostIgnored(b, { env: e })), [], `${label}: the exact line is quiet`);
+  }
+});
+
+test("layout contract 9 (amended 2026-10-14): the SessionStart subset carries no host-file half and never asks git check-ignore", async () => {
+  const { checkGitignore } = await import("../scripts/doctor.mjs");
+  const { repo } = gitSandbox();
+  const dir = repo();
+  writeFileSync(join(dir, ".gitignore"), "node_modules/\n");
+  // A git that logs every call and passes it on. The subset already asks git
+  // rev-parse for a worktree's binding; it must never ask check-ignore.
+  const bin = mkdtempSync(join(TMP, "ps-gi-spy-"));
+  const mark = join(bin, "calls");
+  writeFileSync(join(bin, "git"), `#!/bin/sh\necho "$@" >> "${mark}"\nexec "${REAL_GIT}" "$@"\n`);
+  chmodSync(join(bin, "git"), 0o755);
+  const before = process.env.PATH;
+  process.env.PATH = `${bin}:${before}`;
+  try {
+    assert.deepEqual(hostWarn(checkGitignore(dir)), [], "checkGitignore no longer says it");
+    const r = runStartupChecks(null, dir);
+    assert.deepEqual(hostWarn(r.findings || []), [], "nor does the startup subset");
+  } finally {
+    process.env.PATH = before;
+  }
+  const calls = existsSync(mark) ? readFileSync(mark, "utf8") : "";
+  assert.doesNotMatch(calls, /check-ignore/, "the subset never asks git about ignore rules");
+  const src = readFileSync(join(ROOT, "scripts", "doctor.mjs"), "utf8");
+  const at = src.indexOf("export function runStartupChecks");
+  const body = src.slice(at, src.indexOf("\n}\n", at));
+  assert.doesNotMatch(body, /checkHostIgnored|spawnSync/, "the subset's body names neither");
 });

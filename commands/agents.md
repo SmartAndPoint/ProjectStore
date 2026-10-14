@@ -174,7 +174,10 @@ path, at the cost of applying to every subagent on the machine.
 
 ## Notes
 
-- Uninstalling the plugin removes these commands but NOT the block — run
+- `/plugin uninstall` removes these commands but NOT the block — run
   `unregister` first, or delete everything between the
-  `<!-- projectstore:agents -->` markers by hand.
+  `<!-- projectstore:agents -->` markers by hand. From a terminal in the
+  project, the package's bare `uninstall` removes the block too. A one-harness
+  `--harness` run keeps a block in `AGENTS.md` that another harness still
+  reads; `uninstall --surface agents_block` removes it outright.
 - Never write any file without AskUserQuestion approval.
