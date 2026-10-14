@@ -223,8 +223,15 @@ export function analyseBlock(
 
 // `renderRoot` (contract 4′, two phases): the root the surface is planned
 // AGAINST — the host's install path a registration produces — when it differs
-// from the root the templates are read from. Defaults to `root`.
-export function analyseJsonEntry(projectDir, s, { root = pluginRoot(), home = homedir(), renderRoot = root } = {}) {
+// from the root the templates are read from. Defaults to `root`. `harness` is
+// the one the entry is FOR: its launcher lives under its own state directory,
+// whichever harness launched this process (the install spec, contract 6, as
+// amended 2026-10-14).
+export function analyseJsonEntry(
+  projectDir,
+  s,
+  { root = pluginRoot(), home = homedir(), renderRoot = root, harness = null } = {},
+) {
   const path = join(projectDir, s.file);
   const pointer = s.marker?.pointer || "statusLine.command";
   const entryKey = pointer.split(".")[0];
@@ -263,7 +270,7 @@ export function analyseJsonEntry(projectDir, s, { root = pluginRoot(), home = ho
   a.ours =
     statusLineIsOurWiring(a.curCmd, projectDir, home, root) ||
     statusLineIsOurWiring(a.curCmd, projectDir, home, renderRoot);
-  a.desired = desiredStatusLineCommand(projectDir, renderRoot, home).command;
+  a.desired = desiredStatusLineCommand(projectDir, renderRoot, home, harness?.id).command;
   if (!a.curEntry) return { ...a, state: "ours-absent" };
   if (!a.ours) return { ...a, state: "theirs", reason: "a status line we did not write owns the slot" };
   if (a.curCmd === a.desired) return { ...a, state: "ours-current" };
@@ -317,7 +324,7 @@ export function analyseStampedFile(
   const tpl = readText(src);
   if (!tpl.present || tpl.text === null)
     return { ...a, state: "unparseable", refusal: `the source ${s.source} is missing from the plugin at ${root}` };
-  const rendered = renderStatusLineLauncher(tpl.text, renderRoot, projectDir);
+  const rendered = renderStatusLineLauncher(tpl.text, renderRoot, projectDir, process.env, harness);
   if (rendered === null)
     return { ...a, state: "unparseable", refusal: "the launcher template is not one this installer knows how to fill" };
   const pkg = pluginVersionAt(root, harness) || "0.0.0";

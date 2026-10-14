@@ -128,6 +128,16 @@ function sandbox({ version = "0.28.0", statusline = true, npx = false, vault = f
 const sub = (argv) => (argv[1] === "marketplace" ? argv.slice(0, 3).join(" ") : argv.slice(0, 2).join(" "));
 const hostArgv = (i) => (i.steps || []).filter((s) => s.kind === "host").map((s) => sub(s.argv));
 
+// A deferral's reason (the install spec, contract 6, as amended 2026-10-14):
+// the prose, where to run it, then the run alone on its line. Returns the prose.
+function deferralParts(reason, project, run) {
+  const [prose, lead, command, ...rest] = reason.split("\n");
+  assert.deepEqual(rest, [], reason);
+  assert.equal(lead, `From a terminal in ${JSON.stringify(project)}:`, reason);
+  assert.match(command, new RegExp(`^npx projectstore(@\\S+)? ${run}$`), reason);
+  return prose;
+}
+
 test("registration contract 4′/9: from an npx root the plan registers first, previews every host argv, and the other surfaces are planned against the install path the host will produce", () => {
   const sb = sandbox();
   const { home, proj, root, host, env, item, paths } = sb;
@@ -559,7 +569,10 @@ test("setup rule 15: the host plugin registration proceeds under another host's 
     assert.equal(row.action, "skip");
     assert.equal(row.deferred, true);
     assert.equal(p.incomplete, true);
-    assert.ok(row.reason.endsWith(text), row.reason);
+    assert.ok(deferralParts(row.reason, sb.proj, `install --harness ${SRC.id}`).endsWith(text), row.reason);
+    // The run's own verb: an upgrade names upgrade.
+    const up = plan(sb.proj, { home: sb.home, root: sb.root, env: sb.host.env({ [variable]: "1" }), verb: "upgrade" });
+    assert.ok(deferralParts(sb.item(up, "plugin").reason, sb.proj, `upgrade --harness ${SRC.id}`).endsWith(text));
     assert.equal(sb.host.log().length, 0, "no host command ran");
     assert.equal(
       sb.item(plan(sb.proj, { home: sb.home, root: sb.root, env: sb.env }), "plugin").action,
@@ -573,7 +586,7 @@ test("setup rule 15: the host plugin registration proceeds under another host's 
     const calls = sb.host.log().length;
     const u = plan(sb.proj, { home: sb.home, root: sb.root, env: sb.host.env({ [variable]: "1" }), mode: "uninstall" });
     assert.equal(sb.item(u, "plugin").action, "skip");
-    assert.equal(sb.item(u, "plugin").reason, text);
+    assert.equal(deferralParts(sb.item(u, "plugin").reason, sb.proj, `uninstall --harness ${SRC.id}`), text);
     assert.equal(u.incomplete, true);
     assert.equal(
       sb.item(plan(sb.proj, { home: sb.home, root: sb.root, env: sb.env, mode: "uninstall" }), "plugin").action,

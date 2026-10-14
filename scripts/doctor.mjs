@@ -369,7 +369,7 @@ export function checkStatusline(cfg, proj, home = homedir(), harness = speakingH
   // A harness without a status line hears nothing about one, whatever the
   // shared binding asks for (generation spec, contract 18).
   if (harness?.surfaces?.statusline?.supported === false) return out;
-  const local = hostSettingsPath(proj);
+  const local = hostSettingsPath(proj, process.env, harness);
   let cur = null;
   if (existsSync(local)) {
     try {
@@ -527,10 +527,10 @@ export function checkPendingUpgrade(proj, home = homedir(), root = pluginRoot(),
   // spec's 2026-10-03 amendment, case S1).
   let wired = null;
   try {
-    wired = JSON.parse(readFileSync(hostSettingsPath(proj), "utf8"))?.statusLine?.command || null;
+    wired = JSON.parse(readFileSync(hostSettingsPath(proj, process.env, harness), "utf8"))?.statusLine?.command || null;
   } catch {}
   if (!wired || !statusLineIsOurWiring(wired, proj, home, root)) return [];
-  const lp = pickExisting(statusLineLauncherPath(proj), legacyStatusLineLauncherPath(proj));
+  const lp = pickExisting(statusLineLauncherPath(proj, harness?.id), legacyStatusLineLauncherPath(proj));
   let text;
   try {
     text = readFileSync(lp, "utf8");
@@ -1597,7 +1597,7 @@ function hostIgnoreLineMissing(proj, env) {
       .map((l) => l.trim());
   } catch {}
   if (lines.includes(".claude/") || lines.includes(".claude")) return [];
-  return [relative(proj, hostSettingsPath(proj, env))].filter((w) => !lines.includes(w));
+  return [relative(proj, hostSettingsPath(proj, env, sourceHarness()))].filter((w) => !lines.includes(w));
 }
 
 // Whether git ignores the host's machine-local settings file (the layout spec,
@@ -1611,7 +1611,7 @@ function hostIgnoreLineMissing(proj, env) {
 // line read. Full report only: a subprocess, like checkTrackedRuntime.
 export function checkHostIgnored(proj, { env = process.env } = {}) {
   if (!existsSync(join(proj, ".git"))) return [];
-  const file = relative(proj, hostSettingsPath(proj, env));
+  const file = relative(proj, hostSettingsPath(proj, env, sourceHarness()));
   const r = spawnSync("git", ["check-ignore", "-q", "--no-index", "--", file], { cwd: proj, env, timeout: 5000 });
   const missing = r.status === 0 ? [] : r.status === 1 ? [file] : hostIgnoreLineMissing(proj, env);
   if (!missing.length) return [];

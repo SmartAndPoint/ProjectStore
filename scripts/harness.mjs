@@ -503,10 +503,12 @@ export function speakingHarness(env = process.env, dir = MANIFEST_DIR) {
 
 // ─── Runtime names and paths ───────────────────────────────────────────
 
-// The three branded names the active harness uses, so a caller can say which
-// variable it is talking about without spelling it.
-export function runtimeEnvNames(env = process.env) {
-  const r = activeHarness(env)?.runtime || {};
+// The three branded names a harness uses — the active one unless the caller
+// names it — so a caller can say which variable it is talking about without
+// spelling it. A surface rendered FOR a harness (the status-line launcher is
+// Claude Code's) names that harness, whichever process renders it.
+export function runtimeEnvNames(env = process.env, harness = activeHarness(env)) {
+  const r = harness?.runtime || {};
   return { projectDir: r.project_dir_env || null, pluginRoot: r.plugin_root_env || null, home: r.home_env || null };
 }
 
@@ -816,17 +818,20 @@ export function pickExisting(current, legacy) {
 
 // The per-project directory the HARNESS discovers (".claude" for the source
 // layout) — how a harness is detected in a project and where its own settings
-// live. Not where our config is: that is layoutPaths() (2026-09-06).
-export function projectConfigDir(env = process.env) {
-  return activeHarness(env)?.runtime?.harness_dir || ".claude";
+// live. Not where our config is: that is layoutPaths() (2026-09-06). A
+// caller reading ONE harness's settings names it: which harness launched the
+// process is not whose directory that is (the install spec, contract 6, as
+// amended 2026-10-14).
+export function projectConfigDir(env = process.env, harness = activeHarness(env)) {
+  return harness?.runtime?.harness_dir || ".claude";
 }
 
 // The host's own machine-local settings file in a project (the statusline
 // surface's file in the manifest — `.claude/settings.local.json` for Claude
 // Code). A harness surface, not ours: the one `.claude` path the core may
 // build, and it builds it from the manifest (2026-09-06).
-export function hostSettingsPath(projectDir, env = process.env) {
-  const h = activeHarness(env);
+export function hostSettingsPath(projectDir, env = process.env, harness = activeHarness(env)) {
+  const h = harness;
   const file = h?.surfaces?.statusline?.file || join(h?.runtime?.harness_dir || ".claude", "settings.local.json");
   return join(projectDir, file);
 }

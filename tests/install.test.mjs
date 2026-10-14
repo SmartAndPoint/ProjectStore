@@ -2967,7 +2967,12 @@ test("converge criterion 'The keep', two harnesses: on a fixture whose block sit
   const proj = project({ bound: false, claude: "# Mine\n\n" + BLOCK + "\n" });
   // The caller's environment points at Codex: its home is set, and so is its plugin root.
   const elsewhere = join(tmp("codex-plugin-root"), "projectstore");
-  const k = keepBeside(proj, [STUB_LAUNCHER], {}, { extraEnv: { [CODEX.runtime.plugin_root_env]: elsewhere } });
+  const k = keepBeside(
+    proj,
+    [STUB_LAUNCHER],
+    {},
+    { extraEnv: { [CODEX.runtime.plugin_root_env]: elsewhere, PROJECTSTORE_HARNESS: CODEX.id } },
+  );
   const r = await k.run("y");
   assert.equal(r.failed, null, JSON.stringify(r.failed));
   assert.equal(r.npm.installs().length, 1, "Codex's shell is fetched, as under no channel");
@@ -3015,6 +3020,7 @@ test("converge criterion 'The keep', two harnesses: on a fixture whose block sit
     assert.equal(c.env[SRC.runtime.project_dir_env], proj, c.argv[0]);
     assert.equal(c.home, join(k.h.home, SRC.runtime.home_default), c.argv[0]);
     assert.equal(c.env[CODEX.runtime.plugin_root_env], null, `${c.argv[0]}: Codex's plugin root is dropped`);
+    assert.equal(c.env.PROJECTSTORE_HARNESS, null, `${c.argv[0]}: the caller's forced harness is dropped`);
   }
   const again = await k.run("n");
   assert.deepEqual(

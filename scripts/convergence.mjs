@@ -348,6 +348,34 @@ function runArgs({ harnesses = [], surfaces = null, register = true } = {}) {
   ].join(" ");
 }
 
+// The run a deferral sends to a terminal (the install spec, contract 6, as
+// amended 2026-10-14): the run's own verb for one harness, its --surface
+// selection, --global for a global removal, and setup's --channel npm when
+// that was the answer for the harness whose channel it is (setup's rule 13 —
+// a keep is never repeated). `plan` writes nothing, so it names install. One
+// builder for a deferred row's reason and setup's DONE, so the two agree.
+export function terminalRun({
+  verb = "install",
+  harness = null,
+  version = null,
+  surfaces = null,
+  globalRemoval = false,
+  channel = null,
+} = {}) {
+  const run = verb === "plan" ? "install" : verb;
+  const hostRegistration = Object.values(harness?.surfaces || {}).some(
+    (s) => s && typeof s === "object" && s.format === "host-plugin-registration",
+  );
+  const args = [
+    runArgs({ harnesses: harness ? [harness.id] : [], surfaces }),
+    globalRemoval ? "--global" : "",
+    run === "setup" && channel === "npm" && hostRegistration ? "--channel npm" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return coreCommand(run, { version, args });
+}
+
 // Stop when the registry's latest is at least a newer copy this project runs
 // — the newest such copy is named. A copy the latest does not reach, or no
 // answer, proceeds: the rows say which case it was (proceedCase). `read` is
@@ -577,9 +605,15 @@ export async function readKeepPlan(copy, { harness, projectDir, env, run, budget
     ...(Array.isArray(result.refusals) ? result.refusals : []),
     ...items.filter((i) => i.action === "refuse").map((i) => i.reason),
   ].filter((x) => typeof x === "string" && x);
+  // A deferred row's reason may carry its run on the lines after its prose
+  // (the install spec, contract 6, as amended 2026-10-14): only the prose is
+  // quoted inside our own sentence, never another copy's command.
   const deferred = items
     .filter((i) => i.deferred === true)
-    .map((i) => ({ surface: String(i.surface ?? ""), reason: typeof i.reason === "string" ? i.reason : null }));
+    .map((i) => ({
+      surface: String(i.surface ?? ""),
+      reason: typeof i.reason === "string" ? i.reason.split("\n")[0] : null,
+    }));
   return {
     argv,
     envelope: true,

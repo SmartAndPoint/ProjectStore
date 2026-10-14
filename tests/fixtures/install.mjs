@@ -156,6 +156,9 @@ export function stubCopy(home, version, spec = {}) {
         .flatMap((m) => [m.runtime?.plugin_root_env, m.runtime?.project_dir_env, m.runtime?.home_env])
         .filter(Boolean),
     ),
+    // Our own override: the copy must never inherit the caller's (the install
+    // spec, contract 21, as amended 2026-10-14).
+    "PROJECTSTORE_HARNESS",
   ];
   const names = { pluginRoot: SRC.runtime.plugin_root_env, home: SRC.runtime.home_env, watch };
   writeFileSync(
