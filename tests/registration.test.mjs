@@ -67,6 +67,7 @@ import {
 } from "../scripts/lib.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
 import { checkPluginRegistration, checkVersionDrift, checkAutoUpdate } from "../scripts/doctor.mjs";
+import { behindAdvice } from "../scripts/convergence.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = sourceHarness();
@@ -1916,6 +1917,9 @@ const stubArgv = (copy, proj, verb) => [
 const KEPT = (v) =>
   `this project keeps ${GIT} ${v} from the git marketplace, and that copy writes its own ${SRC.display_name} surfaces here — no registration changes`;
 const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// The keep's line for a copy behind the running package (the install spec,
+// contract 21, rule 9, as amended 2026-10-14): the sandbox runs 0.30.0.
+const BEHIND = (v, { step = true } = {}) => behindAdvice({ key: GIT, version: v }, "0.30.0", { step });
 
 test("converge criterion 'The keep': channel git plans one channel item for Claude Code — the copy's own upgrade, its argv exact and its touches the copy's planned writes — and no row of its own; apply spawns the copy once, as a host command, and a re-run is zero-change", async () => {
   const sb = keepSandbox();
@@ -1951,7 +1955,7 @@ test("converge criterion 'The keep': channel git plans one channel item for Clau
     keep.steps[0].touches,
     STUB_WRITES.map((w) => ({ surface: w.surface, action: w.action, path: join(proj, w.file) })),
   );
-  assert.equal(keep.reason, KEPT("0.29.0"));
+  assert.equal(keep.reason, [KEPT("0.29.0"), BEHIND("0.29.0")].join("\n"));
   // The copy's own plan was read once, through its bin, from the project, with
   // its root as the plugin root and the harness home pinned.
   const calls = stubCalls(copy);
@@ -2013,9 +2017,15 @@ test("converge criterion 'The keep': channel git plans one channel item for Clau
   assert.ok(done.includes("\n  To preview without writing, with every row's reasoning:\n"), done);
   assert.ok(!done.includes("--project"), done);
   assert.ok(!/npx projectstore plan/.test(done), `never this package's plan:\n${done}`);
-  // A re-run after a keep is zero-change: the copy's plan lists no writes, so no item.
+  // A re-run after a keep is zero-change: the copy's plan lists no writes, so
+  // no write — and the copy being behind, a skip whose reason is that line,
+  // neither deferred nor incomplete (contract 21, rule 9, as amended 2026-10-14).
   const again = await keepRun(sb);
-  assert.equal(keepItem(again.r.plan), undefined);
+  const behind = keepItem(again.r.plan);
+  assert.deepEqual(
+    [behind.action, behind.reason, behind.deferred, again.r.plan.incomplete],
+    ["skip", BEHIND("0.29.0", { step: false }), undefined, false],
+  );
   assert.deepEqual(writesOf(again.r.plan), []);
   assert.ok(again.text.includes("\n  Nothing to change.\n"), again.text);
   assert.equal(
@@ -2105,6 +2115,7 @@ test("converge criterion 'The keep': this checkout's npm row enabled beside the 
     keep.reason,
     [
       KEPT("0.29.0"),
+      BEHIND("0.29.0"),
       `This checkout's npm registration (${ID}) stays enabled beside the kept copy. To drop it, from a terminal in this project:`,
       back,
     ].join("\n"),
@@ -2643,4 +2654,16 @@ test("setup engine 'The latest answer wins: a keep': the keep's record removes c
   assert.deepEqual(Object.keys(fixed), Object.keys(bad));
   assert.deepEqual([fixed.channel_keep.by, ISO_TIME.test(fixed.channel_keep.at), fixed.tags], ["setup", true, ["x"]]);
   assert.deepEqual(bindingItems(plan(b.proj, opts(b))), [], "zero-change");
+});
+
+test("converge rule 9 (2026-10-14): a kept copy at the running version says nothing of being behind, and after its upgrade a re-run plans no keep item; an rc of that version is behind", async () => {
+  const sb = keepSandbox({ version: "0.30.0" });
+  const s = await keepRun(sb);
+  assert.equal(keepItem(s.r.plan).reason, KEPT("0.30.0"));
+  await keepRun(sb, { answer: "y" });
+  const again = await keepRun(sb);
+  assert.equal(keepItem(again.r.plan), undefined);
+  const rc = keepSandbox({ version: "0.30.0-rc.3" });
+  const r = await keepRun(rc);
+  assert.equal(keepItem(r.r.plan).reason, [KEPT("0.30.0-rc.3"), BEHIND("0.30.0-rc.3")].join("\n"));
 });

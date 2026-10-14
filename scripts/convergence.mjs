@@ -56,6 +56,7 @@ import {
   writeFileAtomic,
   envFlag,
   isEphemeralRoot,
+  COPY_UPDATE_STEPS,
 } from "./lib.mjs";
 import { loadHarness, loadHarnesses } from "./harness.mjs";
 import { analysePortableRegistration, portableRegistrationPaths } from "./portable-registration.mjs";
@@ -635,6 +636,26 @@ export function ownUpgrade(copy, harness) {
     lead: "Run that copy's own upgrade from a terminal in this project; it shows its own plan and asks:",
     command: `node "${join(copy.path, "bin", "projectstore.mjs")}" upgrade --harness ${harness.id} --no-register`,
   };
+}
+
+// Whether a kept copy is behind the running package (the install spec,
+// contract 21, rule 9, as amended 2026-10-14): semver precedence, rc
+// included. Never for a copy or a run with no semver version recorded — a
+// recorded "unknown" or a sha must not rank.
+export function copyBehind(copy, version) {
+  return isSemver(copy?.version) && isSemver(version) && cmpPrecedence(copy.version, version) < 0;
+}
+
+// What the keep says when its copy is behind: the project's surfaces are at
+// the running version until the copy updates, and the update in the copy's
+// channel. With a step, the copy's own upgrade runs after this run's agents
+// block, and a copy shipped before this rule plans the block back.
+export function behindAdvice(copy, version, { step = false } = {}) {
+  const head = `${copy.key} ${copy.version} is older than this package (${version})`;
+  const middle = step
+    ? `its own upgrade runs after this run's agents block, and a copy that old plans the block back to its own version; until it updates, its doctor may call the block stale and the next run plans the block again`
+    : `until it updates, the agents block and anything else this run writes for the project are at ${version}, and its own doctor may call the block stale`;
+  return `${head}: ${middle}. Update it (${COPY_UPDATE_STEPS}).`;
 }
 
 // This checkout's npm registration enabled beside the kept copy: the keep

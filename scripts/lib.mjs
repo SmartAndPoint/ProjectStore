@@ -771,9 +771,13 @@ export function selectCopy(home = homedir(), projectDir, { harness = sourceHarne
 // that copy's own channel: the host's update, then a restart. `cannot` says
 // what it cannot do, `then` what follows the update. One text for doctor's
 // layout remedy and the keep's skip row and DONE line.
+// How a git-marketplace copy is updated, in its own channel: the one phrase
+// every advice about a kept or older copy quotes.
+export const COPY_UPDATE_STEPS = "in Claude Code: /plugin marketplace update, then /plugin update, then restart";
+
 export function copyUpdateAdvice(copy, { cannot, then }) {
   const v = copy?.version ? ` (${copy.version})` : "";
-  return `This project's projectstore plugin${v} ${cannot}: update it first (in Claude Code: /plugin marketplace update, then /plugin update, then restart), ${then}`;
+  return `This project's projectstore plugin${v} ${cannot}: update it first (${COPY_UPDATE_STEPS}), ${then}`;
 }
 
 // The mark a channel switch leaves in this checkout's machine-local binding
@@ -1433,6 +1437,19 @@ export function agentsBlockVersion(tmpl = null) {
   const text = tmpl ?? readFileSync(agentsBlockTemplatePath(), "utf8");
   const m = new RegExp(AGENTS_BLOCK_OPEN_SRC).exec(text);
   return m ? Number(m[1]) : null;
+}
+
+// A block whose marker is above this copy's template (the install spec,
+// contract 6, as amended 2026-10-14): the words every surface says it with.
+// Never "written by a newer projectstore" — a hand-edited marker reads the same.
+export function newerBlockWords(v, version) {
+  return `marked v${v}, newer than this copy's v${version}`;
+}
+
+// Whether a marker ranks above the template's. A template with no marker
+// (or a marker that is not a number) is never outranked.
+export function isNewerBlock(v, version) {
+  return Number.isInteger(v) && Number.isInteger(version) && v > version;
 }
 
 // The first block in `text`: its version, its span, whether it closes, and how

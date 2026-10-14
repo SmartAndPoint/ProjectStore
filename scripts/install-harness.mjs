@@ -194,6 +194,8 @@ import {
   pinFor,
   coreCommand,
   terminalRun,
+  copyBehind,
+  behindAdvice,
   DEFAULT_REGISTRY,
   NOTICE_BUDGET_MS,
   READ_TIMEOUT_MS,
@@ -236,6 +238,7 @@ import {
   removeTreeUnder,
   projectDirRefusal,
   fromTerminalIn,
+  newerBlockWords,
   registrationProvenance,
   envFlag,
   selectCopy,
@@ -462,12 +465,27 @@ function planAgentsBlock(ctx, key, s) {
     return items;
   }
 
-  const entry = `projectstore:agents v${a.version}`;
   const current = a.current;
+  // A block marked above this copy's template is never rendered down (the
+  // install spec, contracts 4, 6 and 9, as amended 2026-10-14): a move, a
+  // migration or a dedupe carries its own bytes, stamped with its own marker.
+  const newer = a.newer || null;
+  const words = newer ? newerBlockWords(newer.block.v, a.version) : null;
+  const body = newer ? newer.block.block : a.desired;
+  const entry = `projectstore:agents v${newer ? newer.block.v : a.version}`;
   // Two files, one block each: resolve in favour of the preferred file —
   // register migrates, never duplicates (ADR-002 decision 3).
   for (const e of a.duplicates || [])
-    items.push(removal(e, { state: "ours-stale", reason: `duplicate of the block in ${current.file}` }));
+    items.push(
+      removal(e, {
+        state: "ours-stale",
+        reason:
+          newer === e
+            ? `carries v${e.block.v}, newer than this copy's v${a.version}; its text replaces the block in ${current.file}`
+            : `duplicate of the block in ${current.file}`,
+      }),
+    );
+  let newerInPlace = null;
 
   if (!current) {
     const target = preferred;
@@ -502,10 +520,43 @@ function planAgentsBlock(ctx, key, s) {
       entry,
       state: "ours-absent",
       action: preferred.present ? "add" : "create",
-      reason: ctx.readers && !current.own ? a.reason : `migrated from ${current.file}`,
+      reason:
+        ctx.readers && !current.own
+          ? a.reason
+          : `migrated from ${current.file}${newer ? ` with its own text (${words})` : ""}`,
       before: preferred.present ? preferred.text : null,
-      after: replaceAgentsBlock(preferred.present ? preferred.text : "", a.desired),
+      after: replaceAgentsBlock(preferred.present ? preferred.text : "", body),
     });
+  } else if (newer && newer !== current) {
+    // The duplicate carries the higher marker: its text replaces the stayer's.
+    items.push({
+      surface: key,
+      kind: "shared",
+      path: current.path,
+      entry,
+      state: "ours-stale",
+      action: "replace-entry",
+      reason: `its text is replaced by ${newer.file}'s, which carries v${newer.block.v}, newer than this copy's v${a.version}`,
+      before: current.text,
+      after: replaceAgentsBlock(current.text, body),
+    });
+  } else if (newer) {
+    // It stays as it is; a named run with nothing else to place overwrites it,
+    // decided once the imports are known (below).
+    newerInPlace = {
+      surface: key,
+      kind: "shared",
+      path: current.path,
+      entry,
+      state: "ours-newer",
+      action: "skip",
+      reason: `${words}: left as it is — ${
+        ctx.takesSurface === false
+          ? `to write this copy's v${a.version} over it: ${coreCommand("install", { args: `--harness ${ctx.harness.id} --surface ${key}` })}`
+          : `name --surface ${key} to write this copy's v${a.version} over it`
+      }`,
+    };
+    items.push(newerInPlace);
   } else if (current.block.v === a.version && current.block.block === a.desired) {
     items.push({
       surface: key,
@@ -591,6 +642,23 @@ function planAgentsBlock(ctx, key, s) {
         after,
       });
   }
+  // Naming the surface confirms the overwrite only when the run has nothing
+  // else to do for the block: it is the only block and every import it needs
+  // is in place. Doctor's placement remedies name the surface too, and they
+  // must never downgrade (contract 9 as amended 2026-10-14).
+  if (
+    newerInPlace &&
+    (ctx.surfaces || []).includes(key) &&
+    !(a.duplicates || []).length &&
+    !items.some((i) => i.surface === `${key}_import`)
+  )
+    Object.assign(newerInPlace, {
+      entry: `projectstore:agents v${a.version}`,
+      action: "replace-entry",
+      reason: `v${current.block.v} → v${a.version}: ${words}, and --surface ${key} names it`,
+      before: current.text,
+      after: replaceAgentsBlock(current.text, a.desired),
+    });
   return items;
 }
 
@@ -1446,7 +1514,9 @@ const KEEP_SURFACE = "channel";
 // (keepArgv), its touches the writes the copy's own plan listed (`read`, made
 // by the prepare step) less the agents block's rows, which this run's one
 // block item writes before it (the story "One run plans the agents block
-// once…", rule 1). No write left: no item. The other rows it can be:
+// once…", rule 1). No write left: no item — unless the copy is behind the
+// running package, when a skip carries that line (contract 21, rule 9, as
+// amended 2026-10-14), as the update row does. The other rows it can be:
 // - a copy that cannot run the form (lib's capability read): skip, with the
 //   update in its channel — in the row's reason, since DONE never prints when
 //   nothing else writes, and as DONE's next line;
@@ -1583,8 +1653,19 @@ function planKeep(ctx, target, read) {
       }),
     ];
   }
-  if (!writes.length)
+  // A copy behind the running package says so (the install spec, contract
+  // 21, rule 9, as amended 2026-10-14): with no write left, a skip whose
+  // reason is that line — neither deferred nor incomplete, so a re-run stays
+  // zero-change; with writes, a line on the update row and in DONE.
+  const behind = copyBehind(copy, ctx.version);
+  if (!writes.length) {
+    if (behind) {
+      const line = behindAdvice(copy, ctx.version);
+      return [item({ action: "skip", ...advised(line, besides) }, [{ lead: line }])];
+    }
     return beside ? [item({ action: "skip", ...advised(`${named} has nothing to change here`, besides) })] : [];
+  }
+  const note = behind ? [{ lead: behindAdvice(copy, ctx.version, { step: true }) }] : [];
   if (insideHostSession(env, harness)) {
     ctx.incomplete = true;
     const prose = `${kept}; ${inSessionReason(harness)}`;
@@ -1592,7 +1673,7 @@ function planKeep(ctx, target, read) {
       item({
         action: "skip",
         deferred: true,
-        ...advised(prose, [...deferredRun(ctx, prose).advice.blocks, ...besides]),
+        ...advised(prose, [...note, ...deferredRun(ctx, prose).advice.blocks, ...besides]),
       }),
     ];
   }
@@ -1603,7 +1684,7 @@ function planKeep(ctx, target, read) {
     why: `the kept copy's own upgrade, from its own bin without registering (the layout remedy's form), read back as JSON; it re-plans from the files as they stand then, after the agents block above`,
     touches: writes,
   };
-  return [item({ action: "update", ...advised(kept, besides), steps: [step] })];
+  return [item({ action: "update", ...advised(kept, [...note, ...besides]), steps: [step] }, note)];
 }
 
 // The mark (the converge story's rule 2), for the channel "npm" only: one
@@ -2453,7 +2534,17 @@ export function plan(
           ? blockRun.map((m) => ({ display: m.display_name, files: agentsBlockRow(m)[1].files || [] }))
           : null;
       blockItems = planAgentsBlock(
-        { projectDir, mode, root, harness: owner, run: blockRun, readers, layout, surfaces: surfaces || [] },
+        {
+          projectDir,
+          mode,
+          root,
+          harness: owner,
+          run: blockRun,
+          readers,
+          layout,
+          surfaces: surfaces || [],
+          takesSurface,
+        },
         key,
         { ...s, files: commonBlockFiles(blockRun) },
       );

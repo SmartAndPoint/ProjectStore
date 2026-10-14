@@ -56,6 +56,8 @@ import {
   AGENTS_BLOCK_OPEN_SRC,
   AGENTS_BLOCK_CLOSE,
   agentsBlockVersion,
+  newerBlockWords,
+  isNewerBlock,
   findAgentsBlock,
   statusLineLauncherPath,
   LAUNCHER_HEADER,
@@ -567,6 +569,7 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
   let unclosedFiles = 0;
   const perFile = {};
   const staleVersions = [];
+  const newerVersions = [];
   for (const name of ["CLAUDE.md", "AGENTS.md"]) {
     const p = join(proj, name);
     if (!existsSync(p)) continue;
@@ -610,7 +613,10 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
     }
     for (const m of text.matchAll(AGENT_BLOCK_MARKER)) {
       const v = parseInt(m[1], 10);
-      if (v !== AGENT_BLOCK_VERSION) staleVersions.push({ file: name, v });
+      // A marker above this copy's template is never stale: this copy writes
+      // no block down (the install spec, contract 6, as amended 2026-10-14).
+      if (isNewerBlock(v, AGENT_BLOCK_VERSION)) newerVersions.push({ file: name, v });
+      else if (v !== AGENT_BLOCK_VERSION) staleVersions.push({ file: name, v });
     }
   }
   if (blocks === 0) {
@@ -667,6 +673,22 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
     );
     out.push(refuses ? f : moveRepairs(f, fact));
   }
+  // A newer block: an info in the install report only — the startup line
+  // counts issues alone and offers none of this — and only for one
+  // well-formed block. Its way out is the running copy's own bin from a
+  // terminal, never the session's command, whose copy would write its own
+  // version. Not folded into the layout move, which leaves it as it is too.
+  if (blocks === 1 && !refuses)
+    for (const s of newerVersions)
+      out.push(
+        finding(
+          "install",
+          "info",
+          "agents-block",
+          `Agents block in ${s.file} is ${newerBlockWords(s.v, AGENT_BLOCK_VERSION)}: install, upgrade and setup leave it as it is. To write this copy's v${AGENT_BLOCK_VERSION} over it ${fromTerminalIn(proj)}:\nnode "${join(root, "bin", "projectstore.mjs")}" install --harness ${identifiedHarnessId(env) || sourceHarness()?.id} --surface agents_block`,
+          s.file,
+        ),
+      );
   // Placement, held to the predicate install plans from (the install spec,
   // contract 6 as amended after the rc.3 tag): one well-formed block, seen by
   // every harness the project uses. rc.1 and rc.2 left a block in an
