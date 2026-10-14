@@ -87,6 +87,16 @@ const opts = (f, extra = {}) => ({
   ...extra,
 });
 
+// A deferral's reason (the install spec, contract 6, as amended 2026-10-14):
+// the prose, where to run it, then the run alone on its line. Returns the prose.
+function deferralParts(reason, project, run) {
+  const [prose, lead, command, ...rest] = reason.split("\n");
+  assert.deepEqual(rest, [], reason);
+  assert.equal(lead, `From a terminal in ${JSON.stringify(project)}:`, reason);
+  assert.match(command, new RegExp(`^npx projectstore(@\\S+)? ${run}$`), reason);
+  return prose;
+}
+
 test("Codex portable registration: install is verified and the next plan is idempotent", () => {
   const f = fixture();
   const p = plan(f.project, opts(f));
@@ -1486,7 +1496,10 @@ test("setup rule 15: inside a Codex session the registration defers with the rea
     assert.equal(row.action, "skip", marker);
     assert.equal(row.deferred, true);
     assert.equal(p.incomplete, true);
-    assert.ok(row.reason.endsWith(deferralText(marker)), row.reason);
+    assert.ok(
+      deferralParts(row.reason, f.project, "install --harness codex --surface plugin").endsWith(deferralText(marker)),
+      row.reason,
+    );
     const calls = [];
     const r = await runVerb("install", f.project, { ...opts(f, { env }), spawn: recording(f, calls), json: true });
     assert.equal(r.plan.incomplete, true);
@@ -1514,7 +1527,10 @@ test("setup rule 15: from the core inside a Codex session, install fetches nothi
     const row = registration(r.plan);
     assert.equal(row.action, "skip");
     assert.equal(row.deferred, true);
-    assert.ok(row.reason.endsWith(deferralText(marker)), row.reason);
+    assert.ok(
+      deferralParts(row.reason, f.project, "install --harness codex").endsWith(deferralText(marker)),
+      row.reason,
+    );
     assert.equal(r.plan.incomplete, true);
     assert.deepEqual(calls, [], "no host command ran");
     assert.deepEqual(leftovers(f), [], "no fetch directory");
@@ -1568,7 +1584,10 @@ test("setup rule 15: uninstall --global defers its removal inside a Codex sessio
     const row = registration(p);
     assert.equal(row.action, "skip", marker);
     assert.equal(row.deferred, true);
-    assert.equal(row.reason, deferralText(marker));
+    assert.equal(
+      deferralParts(row.reason, f.project, "uninstall --harness codex --surface plugin --global"),
+      deferralText(marker),
+    );
     assert.equal(p.incomplete, true);
     const calls = [];
     const r = await runVerb("uninstall", f.project, {

@@ -1915,6 +1915,15 @@ test("setup 'Inside a Claude Code session' (its marker, no TTY): --harness claud
   assert.ok(read(join(sb.proj, "AGENTS.md")).includes("<!-- projectstore:agents"), "the agents block");
   const cc = r.result.items.find((i) => i.harness === SRC.id && i.surface === "plugin");
   assert.deepEqual([cc.action, cc.deferred], ["skip", true]);
+  // Its reason names the run (the install spec, contract 6, as amended
+  // 2026-10-14): the prose, where, then the command alone — in PLAN too.
+  const [, where, run, ...rest] = cc.reason.split("\n");
+  assert.match(where, /^From a terminal in ".+":$/, cc.reason);
+  assert.equal(run, `npx projectstore@${V} setup --harness ${SRC.id}`, cc.reason);
+  assert.deepEqual(rest, []);
+  const planned = text.slice(0, text.indexOf("\nDone — ")).split("\n");
+  const at = planned.findIndex((l) => l.trim() === run);
+  assert.ok(at > 0 && planned[at - 1].trim() === "" && planned[at] === planned[at].trimEnd(), text);
   assert.deepEqual(sb.fc.log(), [], "no claude call");
   assert.equal(npm.installs().length, 1, "Codex's shell is fetched");
   assert.ok(
@@ -2042,6 +2051,15 @@ test("setup inside a session, with Claude Code's channel answered: DONE repeats 
     values: { harness: [SRC.id], channel: "npm" },
   });
   assert.ok(alone(cr.text, `npx projectstore@${V} setup --harness ${SRC.id} --channel npm`), cr.text);
+  // The deferred row's reason names the same run, from the same builder.
+  const crow = cr.r.result.items.find((i) => i.harness === SRC.id && i.surface === "plugin");
+  assert.equal(
+    crow.reason.split("\n").at(-1),
+    `npx projectstore@${V} setup --harness ${SRC.id} --channel npm`,
+    crow.reason,
+  );
+  const krow = kr.r.result.items.find((i) => i.harness === CODEX.id && i.kind === "registration");
+  assert.equal(krow.reason.split("\n").at(-1), `npx projectstore@${V} setup --harness ${CODEX.id}`, krow.reason);
   // A Claude Code session running the git copy: the keep is recorded, not repeated.
   const s = sandbox({ codex: false });
   bind(s, { statusline: { enabled: true } });

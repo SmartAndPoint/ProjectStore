@@ -2884,3 +2884,99 @@ test("cli per-verb parse: codemap without --for keeps its hint; codemap --for X 
   assert.equal(envOf(json).result.exit, 2);
   assert.equal(bin(["codemap", "--for", "PS-X", "--json", "--project", proj]).status, 0, "the form itself still runs");
 });
+
+// ─── Claude Code's paths are Claude Code's (the install spec, contract 6, as amended 2026-10-14) ───
+
+// A child whose cwd holds no harness folder — where another harness's home
+// variable, or a forced harness, decides detection — run from an npx package
+// root against a fake host, with the variables as a shell exports them.
+function homeSandbox() {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "ps-cli-home-")));
+  const host = fakeClaude(join(base, "claude-bin"));
+  const home = join(base, "home");
+  const proj = join(base, "project");
+  const other = join(base, "other-home");
+  for (const d of [home, proj, other]) mkdirSync(d);
+  const root = fakePackageRoot(join(base, "_npx", "1a2b3c", "node_modules", "projectstore"), "0.30.3");
+  const env = (extra = {}) =>
+    noHostEnv({
+      HOME: home,
+      PATH: [host.dir, dirname(process.execPath)].join(delimiter),
+      XDG_CACHE_HOME: join(base, "xdg"),
+      PROJECTSTORE_NO_UPDATE_CHECK: "1",
+      ...extra,
+    });
+  const run = (args, extra) =>
+    spawnSync(process.execPath, [join(root, "bin", "projectstore.mjs"), ...args, "--project", proj], {
+      cwd: proj,
+      env: env(extra),
+      encoding: "utf8",
+    });
+  return { base, host, home, proj, other, root, run };
+}
+
+const OTHER = [...loadHarnesses().values()].find((m) => m.id !== SRC.id && m.runtime?.home_env);
+
+test("contract 6 (2026-10-14): with no harness folder in the cwd, another harness's home variable or a forced harness never moves Claude Code's paths, and its own home variable still does", () => {
+  const b = homeSandbox();
+  const own = join(b.home, SRC.runtime.home_default);
+  const relocated = join(b.base, "claude-config");
+  const cases = [
+    [{ [OTHER.runtime.home_env]: b.other }, own],
+    [{ PROJECTSTORE_HARNESS: OTHER.id }, own],
+    [{ PROJECTSTORE_HARNESS: OTHER.id, [OTHER.runtime.home_env]: b.other }, own],
+    [{ [SRC.runtime.home_env]: relocated }, relocated],
+    [{ [SRC.runtime.home_env]: relocated, [OTHER.runtime.home_env]: b.other }, relocated],
+  ];
+  assert.equal(existsSync(join(b.proj, SRC.runtime.harness_dir)), false, "no harness folder in the cwd");
+  for (const [extra, expected] of cases) {
+    const why = JSON.stringify(extra);
+    const r = b.run(["plan", "--harness", SRC.id, "--json"], extra);
+    assert.equal(r.status, 0, why + r.stdout + r.stderr);
+    const reg = JSON.parse(r.stdout).result.items.find((i) => i.kind === "registration" && i.harness === SRC.id);
+    assert.equal(reg.home, expected, why);
+    assert.ok(reg.path.startsWith(expected + "/"), `${why}: ${reg.path}`);
+    const text = b.run(["plan", "--harness", SRC.id], extra);
+    assert.ok(text.stdout.includes(`(harness home ${expected}, scope local)`), why + text.stdout);
+    assert.ok(!text.stdout.includes(b.other), `${why}: nothing under the other harness's home\n${text.stdout}`);
+  }
+});
+
+test("contract 6 (2026-10-14): install, upgrade and uninstall under CODEX_HOME write Claude Code's registry, marketplace, status line and launcher in Claude Code's home and names; the other home stays empty", () => {
+  const b = homeSandbox();
+  const own = join(b.home, SRC.runtime.home_default);
+  for (const extra of [{ [OTHER.runtime.home_env]: b.other }, { PROJECTSTORE_HARNESS: OTHER.id }]) {
+    const why = JSON.stringify(extra);
+    b.host.reset();
+    const args = [
+      "--harness",
+      SRC.id,
+      "--surface",
+      "plugin",
+      "--surface",
+      "statusline",
+      "--surface",
+      "statusline_launcher",
+    ];
+    const i = b.run(["install", ...args, "--json"], extra);
+    assert.equal(i.status, 0, why + i.stdout + i.stderr);
+    assert.ok(b.host.log().length > 0, "the host ran");
+    for (const c of b.host.log()) assert.equal(c.home, own, `${why}: ${c.argv.join(" ")}`);
+    for (const f of ["plugins/installed_plugins.json", "plugins/known_marketplaces.json", "projectstore/marketplace"])
+      assert.ok(existsSync(join(own, f)), `${why}: ${f}`);
+    assert.deepEqual(readdirSync(b.other), [], `${why}: the other home stays empty`);
+    const launcher = layoutPaths(b.proj).launcher(SRC.id);
+    const settings = JSON.parse(readFileSync(join(b.proj, SRC.surfaces.statusline.file), "utf8"));
+    assert.equal(settings.statusLine.command, `node "${launcher}"`, why);
+    const text = readFileSync(launcher, "utf8");
+    assert.ok(text.includes(JSON.stringify(SRC.runtime.home_env)), `${why}: the launcher carries Claude Code's names`);
+    assert.ok(!text.includes(JSON.stringify(OTHER.runtime.home_env)), why);
+    const again = b.run(["upgrade", ...args, "--json"], extra);
+    assert.equal(again.status, 0, why + again.stdout + again.stderr);
+    assert.deepEqual(JSON.parse(again.stdout).result.applied, [], `${why}: upgrade finds it current`);
+    const u = b.run(["uninstall", ...args, "--json"], extra);
+    assert.equal(u.status, 0, why + u.stdout + u.stderr);
+    for (const c of b.host.log()) assert.equal(c.home, own, `${why}: ${c.argv.join(" ")}`);
+    assert.deepEqual(readdirSync(b.other), [], why);
+  }
+});

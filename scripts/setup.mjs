@@ -64,7 +64,7 @@ import {
   languageNames,
 } from "./binding.mjs";
 import { analyseRegistration, analyseJsonEntry } from "./surfaces.mjs";
-import { runningCopies, coreCommand, channelChoices, pinFor } from "./convergence.mjs";
+import { runningCopies, coreCommand, channelChoices, pinFor, terminalRun } from "./convergence.mjs";
 import { runVerb, isInteractive, gateText, channelText, publicItem, planOptions } from "./install-harness.mjs";
 import { resolveBinding } from "./worktree.mjs";
 import * as term from "./term.mjs";
@@ -328,7 +328,9 @@ function factsOf(project, { env, home, root, version, interactive }) {
     sessionCopy = selectCopy(home, project, { harness: channelHarness });
   }
   const slotHarness = manifests.find((m) => statuslineOf(m)) || null;
-  const slot = slotHarness ? analyseJsonEntry(project, statuslineOf(slotHarness), { root, home }).state : null;
+  const slot = slotHarness
+    ? analyseJsonEntry(project, statuslineOf(slotHarness), { root, home, harness: slotHarness }).state
+    : null;
   // A worktree's main checkout (worktree.mjs): only where it can be offered —
   // at a terminal, unbound, in a linked worktree. Read for the project
   // answered, never from the git top, which --project leaves unread.
@@ -692,12 +694,12 @@ function doneLines(r, { project, runEnv, home, version, channel, vaultPlan, unde
     // Rule 13: `--channel npm` when that was the answer, and only for the
     // harness whose channel it is — setup refuses --channel in a run without
     // that harness (exit 2). A keep is not repeated: once recorded, it is the
-    // default already (rule 6).
-    const again = channel === "npm" && hostRegistrationOf(m) ? "--channel npm" : "";
+    // default already (rule 6). The deferred row's reason names the same
+    // command, from the same builder.
     if (left.length)
       blocks.push({
         lead: `Left for a terminal outside this ${m.display_name} session: ${left.join(", ")}. From a terminal in this project, run:`,
-        commands: [coreCommand("setup", { version, args: [`--harness ${id}`, again].filter(Boolean).join(" ") })],
+        commands: [terminalRun({ verb: "setup", harness: m, version, channel })],
         after: `then restart ${m.display_name}.`,
       });
   }

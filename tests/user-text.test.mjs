@@ -359,6 +359,18 @@ test("user text: the deferred registration reasons end with the core's form, alo
   bad.push(...lintOutput("reason (stale)", stale.reason, { alone: [upgrade], ends: [upgrade] }));
   assert.ok(stale.reason.includes(`${fromTerminalIn(proj)}, outside a session:\n${upgrade}`), stale.reason);
   bad.push(...lintOutput("PLAN (stale)", renderPreview(fromCache, { caps: MODES.plain }), { alone: [upgrade] }));
+  // Inside the host's own session the registration defers and names the run's
+  // own command (the install spec, contract 6, as amended 2026-10-14).
+  const other = tmp("proj-");
+  mkdirSync(join(other, SRC.runtime.harness_dir), { recursive: true });
+  writeBinding(other, { vault_path: "/tmp/nowhere", layout: "engineering" });
+  const inside = plan(other, { home, root: pkg, env: { ...env, [SRC.runtime.session_env[0]]: "1" } });
+  const deferred = item(inside);
+  assert.equal(deferred.deferred, true);
+  const run = `npx projectstore install --harness ${SRC.id}`;
+  bad.push(...lintOutput("reason (in session)", deferred.reason, { alone: [run], ends: [run] }));
+  assert.ok(deferred.reason.includes(`\nFrom a terminal in ${JSON.stringify(other)}:\n${run}`), deferred.reason);
+  bad.push(...lintOutput("PLAN (in session)", renderPreview(inside, { caps: MODES.plain }), { alone: [run] }));
   assert.deepEqual(bad, []);
 });
 

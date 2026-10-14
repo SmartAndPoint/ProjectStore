@@ -193,6 +193,7 @@ import {
   npmRowBeside,
   pinFor,
   coreCommand,
+  terminalRun,
   DEFAULT_REGISTRY,
   NOTICE_BUDGET_MS,
   READ_TIMEOUT_MS,
@@ -758,7 +759,7 @@ function planPortableRegistration(ctx, key, s) {
     // registration's removal decides them.
     if (registrationDeferred(env, harness)) {
       ctx.incomplete = true;
-      return [{ ...base, action: "skip", deferred: true, reason: deferralReason(harness, env) }];
+      return [{ ...base, action: "skip", deferred: true, ...deferredRun(ctx, deferralReason(harness, env)) }];
     }
     const steps = [];
     if (a.installed) steps.push(hostStep(a, s, "uninstall", fill, `explicit global removal forgets ${a.id}`));
@@ -827,7 +828,7 @@ function planPortableRegistration(ctx, key, s) {
         ...base,
         action: "skip",
         deferred: true,
-        reason: `${a.reason ? a.reason + "; " : ""}${deferralReason(harness, env)}`,
+        ...deferredRun(ctx, `${a.reason ? a.reason + "; " : ""}${deferralReason(harness, env)}`),
       },
     ];
   }
@@ -932,6 +933,29 @@ function deferralReason(harness, env) {
   return `this runs inside a ${harness.display_name} session (${variable} is set), and the host's CLI would change the configuration that session runs on — run it from a terminal outside the session`;
 }
 
+// A deferral names its run (the install spec, contract 6, as amended
+// 2026-10-14): the prose as before, byte for byte, then where to run it and
+// the run's own command alone on its line — a way out, as the presentation
+// spec's contract 6 gives them, so `--json` carries it in `reason` and an
+// agent relaying the envelope relays the command.
+function deferredRun(ctx, prose) {
+  // The prose already says "outside the session"; the lead adds only where.
+  const where = fromTerminalIn(ctx.projectDir);
+  return advised(prose, [
+    {
+      lead: `${where.charAt(0).toUpperCase()}${where.slice(1)}:`,
+      command: terminalRun({
+        verb: ctx.verb,
+        harness: ctx.harness,
+        version: ctx.version,
+        surfaces: ctx.surfaces,
+        globalRemoval: ctx.globalRemoval,
+        channel: ctx.channel,
+      }),
+    },
+  ]);
+}
+
 function planRegistration(ctx, key, s) {
   const { projectDir, mode, root, home, env, harness } = ctx;
   const a = analyseRegistration(projectDir, s, { root, home, harness, env });
@@ -977,7 +1001,7 @@ function planRegistration(ctx, key, s) {
     }
     if (deferred) {
       ctx.incomplete = true;
-      return [{ ...base, action: "skip", reason: inSession }];
+      return [{ ...base, action: "skip", ...deferredRun(ctx, inSession) }];
     }
     const steps = [];
     if (a.installed)
@@ -1109,7 +1133,14 @@ function planRegistration(ctx, key, s) {
   }
   if (needsHost && deferred) {
     ctx.incomplete = true;
-    return [{ ...base, action: "skip", deferred: true, reason: `${a.reason ? a.reason + "; " : ""}${inSession}` }];
+    return [
+      {
+        ...base,
+        action: "skip",
+        deferred: true,
+        ...deferredRun(ctx, `${a.reason ? a.reason + "; " : ""}${inSession}`),
+      },
+    ];
   }
   // Our directory newer than this package and damaged (the converge story's
   // rule 6): never rewritten from the older package — this checkout and every
@@ -1392,6 +1423,11 @@ function keepTarget(projectDir, ids, { root, home, env }) {
 function keepEnv(env, { harness, projectDir, copyRoot, harnessHome }) {
   const out = childEnv(env);
   for (const m of loadHarnesses().values()) if (m.runtime?.plugin_root_env) delete out[m.runtime.plugin_root_env];
+  // An override this run inherited names THIS process's harness; in the copy
+  // it would turn the copy's own home and directory reads to another harness.
+  // The copy knows itself by the project-dir variable written below (the
+  // install spec, contract 21, as amended 2026-10-14).
+  delete out.PROJECTSTORE_HARNESS;
   const r = harness.runtime || {};
   if (r.plugin_root_env) out[r.plugin_root_env] = copyRoot;
   if (r.project_dir_env) out[r.project_dir_env] = projectDir;
@@ -1551,7 +1587,14 @@ function planKeep(ctx, target, read) {
     return beside ? [item({ action: "skip", ...advised(`${named} has nothing to change here`, besides) })] : [];
   if (insideHostSession(env, harness)) {
     ctx.incomplete = true;
-    return [item({ action: "skip", deferred: true, ...advised(`${kept}; ${inSessionReason(harness)}`, besides) })];
+    const prose = `${kept}; ${inSessionReason(harness)}`;
+    return [
+      item({
+        action: "skip",
+        deferred: true,
+        ...advised(prose, [...deferredRun(ctx, prose).advice.blocks, ...besides]),
+      }),
+    ];
   }
   const step = {
     kind: "host",
@@ -1889,7 +1932,7 @@ function planJsonEntry(ctx, key, s) {
       },
     ];
   }
-  const a = analyseJsonEntry(projectDir, s, { root, home, renderRoot });
+  const a = analyseJsonEntry(projectDir, s, { root, home, renderRoot, harness: ctx.harness });
   if (a.state === "unparseable")
     return [
       { surface: key, kind: "shared", path, entry: entryKey, state: "unparseable", action: "refuse", reason: a.reason },
@@ -2165,6 +2208,7 @@ export function plan(
     ensureState = false,
     recordKeep = false,
     takesSurface = true,
+    verb = null,
   } = {},
 ) {
   projectDir = resolve(projectDir);
@@ -2469,6 +2513,9 @@ export function plan(
       channelFacts: null,
       refusals: [],
       takesSurface,
+      // The verb a deferral repeats (the install spec, contract 6, as amended
+      // 2026-10-14): the run's own — upgrade and setup plan in install mode.
+      verb: verb || mode,
     };
     // The keep (rule 5): the run's one block first — over the whole run set,
     // this harness included — then the keep's one item, and none of this
@@ -5258,6 +5305,7 @@ export async function runVerb(verb, projectDir, opts = {}) {
       plan(projectDir, {
         ...opts,
         mode,
+        verb,
         state: verb === "upgrade" || setup || (verb === "uninstall" && !opts.globalRemoval),
         version: prep.version,
         payloadRoots: prep.payloadRoots,

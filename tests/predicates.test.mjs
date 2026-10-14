@@ -1526,6 +1526,67 @@ test("both resolvers pick the same install (lib.installedPluginRoot vs the launc
   assert.equal(spawned, "rendered-by-0.16.1", "the launcher must land on the same install");
 });
 
+import {
+  resetDetection as resetForHome,
+  loadHarnesses as harnessesForHome,
+  sourceHarness as sourceForHome,
+} from "../scripts/harness.mjs";
+import { claudeHome, pluginEnabled, layoutPaths as layoutForHome } from "../scripts/lib.mjs";
+
+// The install spec, contract 6, as amended 2026-10-14: Claude Code's paths
+// are Claude Code's, whichever harness this process detects as running.
+test("contract 6 (2026-10-14): claudeHome, pluginEnabled and doctor's status-line reads stay Claude Code's under another harness's home variable or a forced harness", () => {
+  const CC = sourceForHome();
+  const other = [...harnessesForHome().values()].find((m) => m.id !== CC.id && m.runtime?.home_env);
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "ps-home-")));
+  const home = join(base, "home");
+  const elsewhere = join(base, "elsewhere");
+  const proj = join(base, "proj");
+  const own = join(home, CC.runtime.home_default);
+  for (const d of [own, elsewhere, join(proj, CC.runtime.harness_dir), join(proj, other.runtime.harness_dir)])
+    mkdirSync(d, { recursive: true });
+  const key = "probe@market";
+  writeFileSync(join(own, "settings.json"), JSON.stringify({ statusLine: { type: "command", command: "echo base" } }));
+  const launcher = layoutForHome(proj).launcher(CC.id);
+  writeFileSync(
+    join(proj, CC.runtime.harness_dir, "settings.local.json"),
+    JSON.stringify({
+      enabledPlugins: { [key]: false },
+      statusLine: { type: "command", command: `node "${launcher}"` },
+    }),
+  );
+  writeFileSync(
+    join(proj, other.runtime.harness_dir, "settings.local.json"),
+    JSON.stringify({ enabledPlugins: { [key]: true } }),
+  );
+  const names = [CC.runtime.home_env, other.runtime.home_env, "PROJECTSTORE_HARNESS"];
+  for (const extra of [{ [other.runtime.home_env]: elsewhere }, { PROJECTSTORE_HARNESS: other.id }]) {
+    const saved = Object.fromEntries(names.map((k) => [k, process.env[k]]));
+    for (const k of names) delete process.env[k];
+    Object.assign(process.env, extra);
+    resetForHome();
+    const cwd = process.cwd();
+    process.chdir(base); // no harness folder in the cwd: where the weak signal decides
+    try {
+      const why = JSON.stringify(extra);
+      assert.equal(claudeHome(home), own, why);
+      assert.equal(pluginEnabled(key, home, proj), false, `${why}: the project's own settings decide`);
+      const found = checkStatusline({ statusline: { enabled: true } }, proj, home, CC);
+      assert.ok(
+        found.some((f) => /Base HUD present/.test(f.message)),
+        `${why}: ${JSON.stringify(found)}`,
+      );
+      assert.ok(!found.some((f) => /no statusLine wired/.test(f.message)), `${why}: ${JSON.stringify(found)}`);
+    } finally {
+      process.chdir(cwd);
+      for (const k of names)
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      resetForHome();
+    }
+  }
+});
+
 test("installedPluginRoot honours CLAUDE_CONFIG_DIR over the home directory", () => {
   const base = mkdtempSync(join(tmpdir(), "ps-cfg-"));
   const cfg = join(base, "elsewhere");

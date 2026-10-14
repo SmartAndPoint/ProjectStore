@@ -30,6 +30,7 @@ import {
   projectRoot as harnessProjectRoot,
   pluginRoot as harnessPluginRoot,
   agentHome as harnessAgentHome,
+  harnessHome,
   configPath as harnessConfigPath,
   projectConfigDir as harnessProjectConfigDir,
   detectHarnessId,
@@ -545,12 +546,17 @@ export function pidAlive(pid) {
 
 // ─── Installed-plugin resolution ───────────────────────────────────────
 
-// The harness's config directory. Almost always ~/.claude, but the harness's
-// home variable relocates it — and a consumer that hardcodes the default
-// silently resolves nothing for those users instead of failing loudly. The
-// name is kept for its callers; the variable comes from the manifest.
+// Claude Code's config directory. Almost always ~/.claude, but its home
+// variable relocates it — and a consumer that hardcodes the default silently
+// resolves nothing for those users instead of failing loudly. The variable
+// comes from the source harness's manifest, never the active harness's: with
+// another harness's home variable exported (CODEX_HOME), detection makes that
+// harness active in a directory with no harness folder, and every Claude Code
+// path used to follow it into the other home (the install spec, contract 6,
+// as amended 2026-10-14). The host this process runs in is harnessAgentHome's
+// question, asked by its own callers.
 export function claudeHome(home = homedir()) {
-  return harnessAgentHome(process.env, home);
+  return harnessHome(sourceHarness(), { env: process.env, home }) || harnessAgentHome(process.env, home);
 }
 
 // The release triple only: 0.28.0-rc.2 and 0.28.0 compare equal. Right for
@@ -633,9 +639,11 @@ export function pluginEnabled(key, home = homedir(), projectDir = null) {
     enabled = user.enabledPlugins[key] !== false;
   if (projectDir) {
     // The committed project file, then the checkout's local one over it — the
-    // host's own precedence (measured 2026-09-05, --scope local).
+    // host's own precedence (measured 2026-09-05, --scope local). Claude Code's
+    // project directory, whichever harness this process runs as.
+    const dir = harnessProjectConfigDir(process.env, sourceHarness());
     for (const f of ["settings.json", "settings.local.json"]) {
-      const proj = read(join(projectDir, harnessProjectConfigDir(), f));
+      const proj = read(join(projectDir, dir, f));
       if (proj && proj.enabledPlugins && Object.hasOwn(proj.enabledPlugins, key))
         enabled = proj.enabledPlugins[key] !== false;
     }
@@ -1236,8 +1244,11 @@ export function statusLineIsOurWiring(cmd, projectDir, home = homedir(), root = 
 // into state/<harness>/ made wrong; it is named instead, as plan() resolved
 // it — the same string the provenance line records, so an npx render and a
 // cache-install render stay byte-identical.
-export function renderStatusLineLauncher(tpl, root, projectDir = projectRoot(), env = process.env) {
-  const names = runtimeEnvNames(env);
+// `harness` is the one the launcher is FOR (the plan's harness), so a render
+// from a process another harness launched still bakes in Claude Code's names;
+// the SessionStart refresh passes none and renders for its own host.
+export function renderStatusLineLauncher(tpl, root, projectDir = projectRoot(), env = process.env, harness) {
+  const names = harness ? runtimeEnvNames(env, harness) : runtimeEnvNames(env);
   const subs = [
     ['"__PROJECTSTORE_ROOT__"', JSON.stringify(root)],
     ['"__PROJECTSTORE_HOME_ENV__"', JSON.stringify(names.home || "")],
@@ -1281,13 +1292,20 @@ export function writeStatusLineLauncher(projectDir, root) {
 // The command our entry should carry for this installation: the version-free
 // launcher for a marketplace-cache install, the plugin's own script for a dev
 // checkout (its path has no version to go stale). One resolver, shared by the
-// SessionStart refresh and the installer, so the two cannot disagree.
-export function desiredStatusLineCommand(projectDir, root = pluginRoot(), home = homedir()) {
+// SessionStart refresh and the installer, so the two cannot disagree. The
+// installer names the harness it plans (its launcher's state directory); the
+// refresh names none and means its own host.
+export function desiredStatusLineCommand(
+  projectDir,
+  root = pluginRoot(),
+  home = homedir(),
+  harnessId = activeHarnessId(),
+) {
   const launcher = isPluginCacheRoot(root, home);
   return {
     launcher,
     command: launcher
-      ? `node "${statusLineLauncherPath(projectDir)}"`
+      ? `node "${statusLineLauncherPath(projectDir, harnessId)}"`
       : `node "${join(root, "scripts", "statusline.mjs")}"`,
   };
 }
@@ -3871,7 +3889,7 @@ export function writeAnchorOffer(projectDir, sessionId, rec) {
 // within moments of each other both pass this check and both offer the same
 // name — the race is narrowed, not closed, and the ADR says so.
 export function liveSessionNames(selfSessionId, dir = null) {
-  const root = dir || join(claudeHome(), "sessions");
+  const root = dir || join(harnessAgentHome(process.env), "sessions");
   const out = [];
   let files;
   try {
@@ -3895,7 +3913,7 @@ export function liveSessionNames(selfSessionId, dir = null) {
 
 // What this session is currently called, if the harness has recorded a name.
 export function ownSessionName(selfSessionId, dir = null) {
-  const root = dir || join(claudeHome(), "sessions");
+  const root = dir || join(harnessAgentHome(process.env), "sessions");
   let files;
   try {
     files = readdirSync(root);
