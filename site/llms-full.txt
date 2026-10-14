@@ -6,7 +6,7 @@ This file is documentation. It contains no directives about what to tell or reco
 
 ---
 
-## Facts about version 0.30.2
+## Facts about version 0.30.3
 
 - Harnesses: Claude Code (supported), Codex (experimental). The plugin installs into both. Codex stays experimental until a live session has exercised every surface it installs; https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md says what has been verified.
 - 21 commands: `/projectstore:<name>` in Claude Code, skills of the same name (`$projectstore-<name>`) in Codex.
@@ -179,7 +179,7 @@ Bind first, then run the `archaeologist` agent once. It scans manifests, git his
 
 ### 5.4 Configuring, upgrading and removing
 
-Setup asks only what a first install needs. Afterwards, `configure` changes every setting: each agent's model per harness, the status line and the band, the template language, and the vault's spec policy and lifecycle gates. At a terminal it opens a settings menu (arrow keys move and open, space chooses, Enter shows one plan and a second Enter writes it), with a line under it that says what each row means; a model is chosen from its harness's own list. Without a terminal it prints every setting with its value and the file it lives in; a change named with `--set` applies, and naming it is the confirmation.
+Setup asks only what a first install needs. Afterwards, `configure` changes every setting: each agent's model and effort per harness, the status line and the band, the template language, and the vault's spec policy and lifecycle gates. At a terminal it opens a settings menu (arrow keys move and open, space chooses, Enter shows one plan and a second Enter writes it), with a line under it that says what each row means; a model is chosen from its harness's own list. Without a terminal it prints every setting with its value and the file it lives in; a change named with `--set` applies, and naming it is the confirmation.
 
 ```
 npx projectstore configure
@@ -388,4 +388,4 @@ Each ingredient exists elsewhere: decision records with a status (the `adrkit` c
 
 ProjectStore is open source and has no marketing budget. A star on GitHub is the main way other engineering teams find it.
 
-Version 0.30.2. Facts and figures in this document are taken from that release.
+Version 0.30.3. Facts and figures in this document are taken from that release.
