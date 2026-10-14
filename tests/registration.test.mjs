@@ -2006,6 +2006,8 @@ test("converge criterion 'The keep': channel git plans one channel item for Clau
   // package's, which previews the other channel.
   const done = y.text.slice(y.text.indexOf("\nDone"));
   assert.ok(done.includes(`\n  version  0.30.0\n  kept     ${SRC.display_name}: ${GIT} 0.29.0\n`), done);
+  // DONE repeats the line saying the kept copy is behind (contract 21, rule 9, as amended 2026-10-14).
+  assert.ok(done.replace(/\s+/g, " ").includes(BEHIND("0.29.0")), done);
   // It carries no --project, as no tip on the screen does: the run is in the
   // project, so the lead is today's; from anywhere else the lead names the
   // directory (the story "User-facing text says where to run…", rule 5 as

@@ -15,7 +15,7 @@ subcommand (`.projectstore/projectstore.json`; else point to `/projectstore:bind
    [Yes / No]". On No, stop. When the block is already there marked newer
    than this copy's template (doctor's info, or `status` showing
    `ours-newer`), name both numbers in the question: registering writes this
-   copy's older block over the one a newer copy wrote.
+   copy's older block over the one marked vN.
 2. **Run the verb** and print its output verbatim:
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" install --harness claude-code --surface agents_block --project "${CLAUDE_PROJECT_DIR}"
@@ -56,7 +56,7 @@ subcommand (`.projectstore/projectstore.json`; else point to `/projectstore:bind
 
 Run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" plan --json --surface agents_block --project "${CLAUDE_PROJECT_DIR}"`
 and report each item's `state` from `result.items[]` — the bin wraps the plan in its envelope (`ours-current`, `ours-stale` with its reason,
-`ours-newer` — marked above this copy's template, left as it is — `ours-absent`, or a refusal). Then:
+`ours-newer` — marked above this copy's template: install, upgrade and setup leave it, and a named run such as `register` writes this copy's over it — `ours-absent`, or a refusal). Then:
 
 - Block: present in which file, marker version vs the installed template, agent
   names vs the layout roster.

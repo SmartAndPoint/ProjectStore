@@ -1008,6 +1008,6 @@ test("converge rule 9 (2026-10-14): copyBehind ranks by semver precedence, rc in
   );
   assert.match(
     behindAdvice(copy("0.29.0"), "0.30.3", { step: true }),
-    /its own upgrade runs after this run's agents block, and a copy that old plans the block back to its own version/,
+    /its own upgrade runs after this run's agents block and may plan the block back to its own version; until it updates, its doctor may call the block stale, and the next run may plan the block again/,
   );
 });

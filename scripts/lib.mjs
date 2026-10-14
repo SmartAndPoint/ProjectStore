@@ -767,14 +767,14 @@ export function selectCopy(home = homedir(), projectDir, { harness = sourceHarne
   return { ...copy, bin, missing, channel: installChannel(copy.path, { home, harness }) };
 }
 
-// The advice for a marketplace copy that cannot run what is named for it, in
-// that copy's own channel: the host's update, then a restart. `cannot` says
-// what it cannot do, `then` what follows the update. One text for doctor's
-// layout remedy and the keep's skip row and DONE line.
 // How a git-marketplace copy is updated, in its own channel: the one phrase
 // every advice about a kept or older copy quotes.
 export const COPY_UPDATE_STEPS = "in Claude Code: /plugin marketplace update, then /plugin update, then restart";
 
+// The advice for a marketplace copy that cannot run what is named for it, in
+// that copy's own channel: the host's update, then a restart. `cannot` says
+// what it cannot do, `then` what follows the update. One text for doctor's
+// layout remedy and the keep's skip row and DONE line.
 export function copyUpdateAdvice(copy, { cannot, then }) {
   const v = copy?.version ? ` (${copy.version})` : "";
   return `This project's projectstore plugin${v} ${cannot}: update it first (${COPY_UPDATE_STEPS}), ${then}`;

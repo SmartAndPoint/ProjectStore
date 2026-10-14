@@ -43,11 +43,9 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      `--harness`; relay that command. Never Edit or Write the block yourself —
      the verb is its only writer (install spec, contract 6).
    - `agents-block` **info** that the block is "marked vN, newer than this
-     copy's vM" → **report only.** A newer copy wrote it, and install, upgrade
-     and setup leave it as it is (install spec, contract 6 as amended
+     copy's vM" → **report only.** Install, upgrade and setup leave such a block as it is (install spec, contract 6 as amended
      2026-10-14). Relay the finding and its command verbatim; run it only if
-     the user asks, because it writes this copy's older block over the newer
-     one.
+     the user asks, because it writes this copy's older block over the one marked vN.
    - `statusline` issues → offer running `/projectstore:statusline on|off`,
      which installs or removes the entry and the launcher behind a preview
      (the SessionStart hook only refreshes an entry that already exists), and

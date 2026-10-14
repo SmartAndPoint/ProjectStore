@@ -494,6 +494,13 @@ test("newer block: one in place is left as it is — ours-newer, a skip naming t
   assert.ok(info && info.level === "info", JSON.stringify(found));
   assert.ok(info.message.endsWith(`install --harness ${SRC.id} --surface agents_block`), info.message);
   assert.ok(!info.message.includes("written by a newer"), info.message);
+  // The startup line counts issues alone and offers none of this.
+  const st = runStartupChecks({ vault_path: "/tmp/nowhere", layout: "engineering" }, proj);
+  assert.ok(
+    st.findings.filter((f) => f.check === "agents-block").every((f) => f.level === "info"),
+    JSON.stringify(st.findings),
+  );
+  assert.ok(!(st.offers || []).some((o) => /agents/.test(JSON.stringify(o))), JSON.stringify(st.offers));
 });
 
 test("newer block: the named surface writes this copy's render over one in place, and over a bogus v99; uninstall removes a newer block as any of ours", () => {
@@ -520,6 +527,7 @@ test("newer block: a Claude-only project gaining Codex moves it to AGENTS.md byt
   const p = plan(proj, run);
   const moved = p.items.find((x) => x.surface === "agents_block" && x.path === join(proj, "AGENTS.md"));
   assert.equal(moved.entry, `projectstore:agents v${VERSION + 1}`, "stamped with the carried marker");
+  assert.ok(moved.reason.endsWith(`with its own text (${NEWER_WORDS})`), moved.reason);
   apply(p);
   assert.ok(read(join(proj, "AGENTS.md")).includes(NEWER), "the newer text, byte for byte");
   assert.ok(read(join(proj, "CLAUDE.md")).startsWith("@AGENTS.md"), "CLAUDE.md imports it");
@@ -544,6 +552,19 @@ test("newer block: of two blocks the preferred file's stays, and the newer text 
   apply(p);
   assert.ok(read(join(proj, "AGENTS.md")).includes(NEWER));
   assert.ok(!read(join(proj, "CLAUDE.md")).includes("projectstore:agents v"));
+});
+
+test("newer block: of two blocks both marked above the template, the preferred file's stays as it is (ours-newer) and the other is removed", () => {
+  const { home, root } = fixture();
+  const other = NEWER.replace("- **A rule this copy does not have", "- **Another rule this copy does not have");
+  const proj = project({ claude: other, agents: NEWER });
+  const p = plan(proj, { home, root });
+  const stay = p.items.find((x) => x.surface === "agents_block" && x.path === join(proj, "AGENTS.md"));
+  const gone = p.items.find((x) => x.surface === "agents_block" && x.path === join(proj, "CLAUDE.md"));
+  assert.deepEqual([stay.state, stay.action], ["ours-newer", "skip"]);
+  assert.equal(gone.action, "remove");
+  apply(p);
+  assert.ok(read(join(proj, "AGENTS.md")).includes(NEWER), "the stayer's own text");
 });
 
 test("newer block: a named run that must add an import adds it and leaves the newer block's bytes; the next named run, with nothing left to place, writes the render", () => {
@@ -1912,7 +1933,13 @@ test("install: the launcher stamp names the installer as generator and doctor as
 // ─── Slice A3: doctor reads the states ──────────────────────────────────
 
 import { surfaceStates, analyseStampedFile } from "../scripts/surfaces.mjs";
-import { checkHarnessSurfaces, checkVersionDrift, checkAgentsBlock, runInstallChecks } from "../scripts/doctor.mjs";
+import {
+  checkHarnessSurfaces,
+  checkVersionDrift,
+  checkAgentsBlock,
+  runInstallChecks,
+  runStartupChecks,
+} from "../scripts/doctor.mjs";
 import { installedPluginEntries } from "../scripts/lib.mjs";
 
 const byCheck = (fs, id) => fs.filter((f) => f.check === id);

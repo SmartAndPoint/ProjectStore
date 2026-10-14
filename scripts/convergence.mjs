@@ -653,7 +653,7 @@ export function copyBehind(copy, version) {
 export function behindAdvice(copy, version, { step = false } = {}) {
   const head = `${copy.key} ${copy.version} is older than this package (${version})`;
   const middle = step
-    ? `its own upgrade runs after this run's agents block, and a copy that old plans the block back to its own version; until it updates, its doctor may call the block stale and the next run plans the block again`
+    ? `its own upgrade runs after this run's agents block and may plan the block back to its own version; until it updates, its doctor may call the block stale, and the next run may plan the block again`
     : `until it updates, the agents block and anything else this run writes for the project are at ${version}, and its own doctor may call the block stale`;
   return `${head}: ${middle}. Update it (${COPY_UPDATE_STEPS}).`;
 }

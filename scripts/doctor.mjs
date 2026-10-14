@@ -685,7 +685,7 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
           "install",
           "info",
           "agents-block",
-          `Agents block in ${s.file} is ${newerBlockWords(s.v, AGENT_BLOCK_VERSION)}: install, upgrade and setup leave it as it is. To write this copy's v${AGENT_BLOCK_VERSION} over it ${fromTerminalIn(proj)}:\nnode "${join(root, "bin", "projectstore.mjs")}" install --harness ${identifiedHarnessId(env) || sourceHarness()?.id} --surface agents_block`,
+          `Agents block in ${s.file} is ${newerBlockWords(s.v, AGENT_BLOCK_VERSION)}: install, upgrade and setup leave it as it is. To write this copy's v${AGENT_BLOCK_VERSION} over it ${fromTerminalIn(proj)}:\nnode "${join(root, "bin", "projectstore.mjs")}" install --harness ${newerReader(proj, s.file, env)} --surface agents_block`,
           s.file,
         ),
       );
@@ -731,6 +731,19 @@ export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() 
     }
   }
   return out;
+}
+
+// The harness a newer block's way out names: the one this run identified,
+// else one the project uses whose files hold the block, else the source
+// harness — never Claude Code's by default in a Codex-only project, whose
+// install would create CLAUDE.md and overwrite nothing.
+function newerReader(proj, file, env) {
+  const identified = identifiedHarnessId(env);
+  if (identified) return identified;
+  const used = detectHarnesses(proj, { state: true }).map((d) => d.id);
+  return (
+    used.find((id) => (loadHarness(id)?.surfaces?.agents_block?.files || []).includes(file)) || sourceHarness()?.id
+  );
 }
 
 // While the layout move is pending, the findings the move itself repairs fold
