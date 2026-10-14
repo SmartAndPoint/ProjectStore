@@ -253,7 +253,7 @@ function renderRole(file) {
   const name = renderedName("agents", role);
   const orchestration = `## Codex orchestration\n\nThis is a role-orchestration skill, not a native agent registration. Resolve the\nrole's model and effort by running:\n\n\`\`\`bash\nnode "\${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model ${role} --json --project "$PWD"\n\`\`\`\n\nSpawn a collaboration agent for the bounded task. If the result names a model,\npass that model and use an empty or bounded context fork; otherwise inherit the\ncurrent model. If the result names an effort, pass it as \`${effortParam()}\`,\nwith or without a model; otherwise pass none. Give the spawned agent the role\ncontract below and the exact artifact/diff it must inspect. Wait for its final\nresult.\n\n## Role contract\n\n`;
   const description = (data.description || `Run the ProjectStore ${role} role in a fresh collaboration agent.`).replace(
-    /^(?:Opus|Sonnet) \(max-effort\)\s+/,
+    /^(?:Opus|Sonnet) \([a-z]+-effort\)\s+/,
     "",
   );
   return [join("skills", name, "SKILL.md"), skill(name, description, orchestration + body)];

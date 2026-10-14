@@ -136,6 +136,7 @@ test("effort AC: each manifest declares its effort vocabulary, and the schema ch
   );
   assert.equal(effortSpec(CC).strict, true);
   assert.equal(effortSpec(CC).unset.model_default, false);
+  assert.equal(effortSpec(CC).cheap, "low", "the clerk's level on Claude Code, the maintainer's choice of 2026-10-14");
   assert.equal(effortSpec(CODEX).spawn_param, "reasoning_effort");
   assert.equal(effortSpec(CODEX).catalog.default, "default_reasoning_level");
   assert.equal(effortSpec(CODEX).unset.model_default, true);
@@ -150,7 +151,10 @@ test("effort AC: each manifest declares its effort vocabulary, and the schema ch
   assert.match(effortProblem(bad({ ...base, unset: { value: "x" } })), /unset/);
   assert.match(effortProblem(bad({ ...base, cheap: "turbo", cheap_reason: "x" })), /cheap/);
   assert.match(effortProblem(bad({ ...base, spawn_param_evidence: "guessed" })), /spawn_param_evidence/);
-  assert.match(effortProblem(bad({ ...base, cheap: "low", cheap_reason: "x" })), /cheap_evidence/);
+  assert.match(
+    effortProblem(bad({ ...base, cheap: "low", cheap_reason: "x", cheap_evidence: undefined })),
+    /cheap_evidence/,
+  );
   assert.match(effortProblem(bad({ ...base, catalog: { list: "l", id: "effort", reason: "r" } })), /models block/);
   assert.equal(effortProblem({ id: "y", agent_translation: {} }), null, "a harness without the block passes none");
 });
@@ -285,7 +289,10 @@ test("effort AC: agents configure keeps every effort it is not asked about; --re
   const a = await bin(["agents", "configure", "--harness", SRC.id, "--agent", "critic=sonnet", "--project", p.proj]);
   assert.equal(a.code, 0, a.err);
   const o = readOverlayAt(p.proj, SRC.id);
-  assert.deepEqual(o.efforts, { default: "medium", per_agent: { critic: "xhigh" } });
+  // The standing default effort pins the clerk on the way, as a standing
+  // default model pins its model; nothing else moves.
+  assert.deepEqual(o.efforts, { default: "medium", per_agent: { critic: "xhigh", clerk: "low" } });
+  assert.match(a.out, /\n {2}clerk effort: — → low \(pinned: the clerk stays cheap under a strong default\)\n/);
   assert.equal(o.agents.per_agent.critic, "sonnet");
   const b = await bin(["agents", "configure", "--harness", SRC.id, "--reset", "--project", p.proj]);
   assert.match(b.out, /\n {2}default effort: medium → —\n/);
@@ -295,7 +302,7 @@ test("effort AC: agents configure keeps every effort it is not asked about; --re
 
 // ─── configure: the keys, the plan, the notes (decisions 4–6) ──────────
 
-test("effort AC: the maintainer's Claude Code pins — four keys and the clerk's model pin; read back as fable/xhigh, opus/medium, sonnet/medium", async () => {
+test("effort AC: the maintainer's Claude Code pins — four keys and the clerk's pins; read back as fable/xhigh, opus/medium, sonnet/low", async () => {
   const p = project();
   const { r, text } = await configure(p, {
     set: ["agents.critic=fable", "agents.critic.effort=xhigh", "agents.default=opus", "agents.default.effort=medium"],
@@ -304,15 +311,19 @@ test("effort AC: the maintainer's Claude Code pins — four keys and the clerk's
   assert.equal(r.code, 0, text);
   assert.match(text, /agents\.default\.effort +— → medium/);
   assert.match(text, /agents\.critic\.effort +— → xhigh/);
-  assert.doesNotMatch(text, /agents\.clerk\.effort/, "Claude Code declares no cheap level: no effort pin");
+  assert.match(
+    text,
+    /agents\.clerk\.effort +— → low[^\n]*\n +pinned: the clerk stays cheap under a strong default/,
+    "a default effort pins the clerk to Claude Code's cheap level, as on Codex",
+  );
   assert.deepEqual(json(layoutPaths(p.proj).overlay(SRC.id)).agents, {
     default: { model: "opus", effort: "medium" },
-    per_agent: { clerk: { model: "sonnet" }, critic: { model: "fable", effort: "xhigh" } },
+    per_agent: { clerk: { model: "sonnet", effort: "low" }, critic: { model: "fable", effort: "xhigh" } },
   });
   for (const [n, model, effort] of [
     ["critic", "fable", "xhigh"],
     ["planner", "opus", "medium"],
-    ["clerk", "sonnet", "medium"],
+    ["clerk", "sonnet", "low"],
   ]) {
     const res = JSON.parse(
       (await bin(["agents", "model", n, "--json", "--harness", SRC.id, "--project", p.proj])).out,

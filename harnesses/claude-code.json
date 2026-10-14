@@ -557,7 +557,7 @@
         },
         {
           "id": "max",
-          "description": "The most thinking Claude Code allows: the level every bundled agent's frontmatter names."
+          "description": "The most thinking Claude Code allows: the level the bundled agents' frontmatter names, the clerk's excepted."
         }
       ],
       "levels_reason": "The Agent tool's enum, measured. Claude Code lowers a level a model does not support to the highest one it does (documented), so one list serves every alias and no catalog is read.",
@@ -567,8 +567,11 @@
         "value": "frontmatter",
         "row": "use frontmatter",
         "model_default": false,
-        "reason": "With no effort passed, the agent runs at its frontmatter's effort, max for every bundled agent, whatever model is passed (transcripts of 2026-10-11/12)."
-      }
+        "reason": "With no effort passed, the agent runs at its frontmatter's effort — max for every bundled agent but the clerk, which runs at low — whatever model is passed (transcripts of 2026-10-11/12)."
+      },
+      "cheap": "low",
+      "cheap_evidence": "chosen",
+      "cheap_reason": "The clerk's level, in its frontmatter and as its pin under a default effort (the effort ADR, decision 6): it copies an approved file and runs a pinned ceremony. Chosen by the maintainer on 2026-10-14 (\"клерка да на лоу\"), as on Codex."
     },
     "models": {
       "spawn_takes": "alias",

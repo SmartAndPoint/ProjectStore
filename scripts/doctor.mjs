@@ -1310,7 +1310,7 @@ export function checkOverrideCopies(proj, home = homedir(), harness = speakingHa
 }
 
 // The variable outranks every effort projectstore passes at spawn and the
-// bundled agents' `effort: max`: with it set, the spawn offers no effort
+// bundled agents' frontmatter effort: with it set, the spawn offers no effort
 // parameter at all (the effort ADR, decision 7). So a value set for cost or
 // latency silently replaces the efforts the overlay configures — exactly the
 // class of "the value configured is not the value that runs" doctor names.
@@ -1332,7 +1332,7 @@ export function checkEnvEffort(proj = null) {
         "install",
         "warn",
         "env-effort",
-        `${o.env}=${o.value} is set — it outranks every effort projectstore passes at spawn${where} and the bundled agents' "effort: max", so every projectstore agent runs at "${o.value}". Unset it for the configured efforts to run.`,
+        `${o.env}=${o.value} is set — it outranks every effort projectstore passes at spawn${where} and the bundled agents' frontmatter, so every projectstore agent runs at "${o.value}". Unset it for the configured efforts to run.`,
       );
     });
 }

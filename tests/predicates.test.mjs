@@ -3635,7 +3635,10 @@ test("clerk: definition carries the contract the ADR pinned", () => {
     /^model: sonnet$/m.test(fm),
     "cheap by default, but not the cheapest — decision 5 as amended: a procedure-following floor",
   );
-  assert.ok(/^effort: max$/m.test(fm), "effort is orthogonal to price and mitigates the cheap-model risk");
+  assert.ok(
+    /^effort: low$/m.test(fm),
+    "the maintainer's decision of 2026-10-14: the clerk transcribes, so it runs at the lowest level; a project whose ceremonies diverge raises agents.clerk.effort",
+  );
   assert.ok(/^tools: .*Write/m.test(fm), "the sole write-capable agent");
   assert.ok(!/^tools: .*Edit/m.test(fm), "no Edit: whole approved files only");
   const flat = src.replace(/\s+/g, " ");

@@ -210,7 +210,7 @@ npx projectstore configure
 
 At a terminal it opens a settings menu that works like a monitor's: ↑ and ↓ move, → opens a group or a setting in a frame beside it, space chooses, ← goes back, and Enter shows the plan. A second Enter writes it. Under the frames, a few lines say what the row under the cursor means. The settings:
 
-- each agent's model and effort, per harness. Claude Code offers its aliases: `fable`, `opus`, `sonnet` and `haiku`. Codex offers its own list of models, with its descriptions. With `ANTHROPIC_API_KEY` set, each alias also names the newest model of its line. A list is kept for a day in projectstore's user cache, and "refresh the list" asks again. Each agent's effort sits under its model: Claude Code's levels, `low` to `max`, or the levels that Codex model lists. With none set, a Claude Code agent runs at its frontmatter's `max` and a Codex one at its model's own default;
+- each agent's model and effort, per harness. Claude Code offers its aliases: `fable`, `opus`, `sonnet` and `haiku`. Codex offers its own list of models, with its descriptions. With `ANTHROPIC_API_KEY` set, each alias also names the newest model of its line. A list is kept for a day in projectstore's user cache, and "refresh the list" asks again. Each agent's effort sits under its model: Claude Code's levels, `low` to `max`, or the levels that Codex model lists. With none set, a Claude Code agent runs at its frontmatter's level (`max`, the clerk `low`) and a Codex one at its model's own default;
 - the status line and the band above the prompt (Claude Code);
 - the vault's template language, the default author and tags;
 - the vault's spec policy and lifecycle gates.

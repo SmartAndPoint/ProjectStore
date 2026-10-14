@@ -127,8 +127,8 @@ and report each item's `state` from `result.items[]` — the bin wraps the plan 
    with effort keys — preview first, then apply after the same approval:
    `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" configure --set agents.default.effort=<level> [--set agents.<name>.effort=<level> …] --harness claude-code --dry-run --project "${CLAUDE_PROJECT_DIR}"`,
    then the same command without `--dry-run`. `-` as the level clears one. A
-   default effort with no clerk effort named leaves the clerk at the default
-   on Claude Code (its frontmatter's `max` is already the most it runs at).
+   default effort with no clerk effort named pins the clerk's effort to `low`
+   and says so, as a default model pins its model: the clerk transcribes.
 4. **Migrate away from copies**: if `.claude/agents/` holds copies carrying
    `# source: projectstore v…`, they are pre-ADR-008 leftovers that override
    nothing. Offer to delete them **one approval per file** (matching `/projectstore:doctor --fix`), project scope only — a copy in `~/.claude/agents/` needs a manual removal, and you should say so rather than implying this command will handle it.
@@ -137,7 +137,7 @@ and report each item's `state` from `result.items[]` — the bin wraps the plan 
 5. **Effort rides the spawn, like the model.** The overlay's
    `agents.per_agent.<name>.effort ?? agents.default.effort` is passed as the
    spawn's effort parameter; with none, the bundled agents run at their
-   frontmatter's `effort: max`. A level outside `low`, `medium`, `high`,
+   frontmatter's `effort: max`, and the clerk at its `effort: low`. A level outside `low`, `medium`, `high`,
    `xhigh`, `max` is written with a warning and refused by the spawn. Do not
    write a copy to achieve an effort.
 6. **Honesty notes to print**: an org `availableModels` allowlist silently

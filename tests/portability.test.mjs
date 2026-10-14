@@ -339,7 +339,7 @@ test("Codex adapter: every command, role and passive skill is rendered determini
   )) {
     assert.doesNotMatch(
       rendered.get(path).split("---")[1],
-      /\b(?:Opus|Sonnet)\b|max-effort/,
+      /\b(?:Opus|Sonnet)\b|[a-z]+-effort/,
       `${path}: source-harness model branding must not leak into Codex discovery text`,
     );
   }
