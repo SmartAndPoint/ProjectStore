@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title data-i18n="how.meta.title">Як працює ProjectStore — цикл, агенти, запобіжники</title>
-<meta name="description" content="Цикл ProjectStore крок за кроком: артефакт перед кодом, незалежний critic, planner, що знає, куди лягла попередня робота, reviewer, що просить доказ. Шість агентів, п’ять із них лише для читання. Claude Code і Codex (експериментально)." data-i18n-attr="content:how.meta.description">
+<meta name="description" content="Цикл ProjectStore крок за кроком: артефакт перед кодом, незалежний critic, planner, що знає, куди лягла попередня робота, reviewer, що просить доказ. Шість агентів, п’ять із них лише для читання. Працює з Claude Code, Codex, Gemini CLI і Cursor." data-i18n-attr="content:how.meta.description">
 <meta name="theme-color" content="#080d19">
 <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../../assets/icon-180.png">
-<link rel="stylesheet" href="../../assets/style.css?v=9e2ac046">
+<link rel="stylesheet" href="../../assets/style.css?v=78de8ec9">
 <script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="light")t=s;}catch(e){}d.setAttribute("data-tone",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/how-it-works/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/how-it-works/">
@@ -25,7 +25,7 @@
 <meta property="og:site_name" content="ProjectStore">
 <meta property="og:locale" content="uk">
 <meta property="og:title" content="Як працює ProjectStore — цикл, агенти, запобіжники">
-<meta property="og:description" content="Цикл ProjectStore крок за кроком: артефакт перед кодом, незалежний critic, planner, що знає, куди лягла попередня робота, reviewer, що просить доказ. Шість агентів, п’ять із них лише для читання. Claude Code і Codex (експериментально).">
+<meta property="og:description" content="Цикл ProjectStore крок за кроком: артефакт перед кодом, незалежний critic, planner, що знає, куди лягла попередня робота, reviewer, що просить доказ. Шість агентів, п’ять із них лише для читання. Працює з Claude Code, Codex, Gemini CLI і Cursor.">
 <meta property="og:url" content="https://projectstore.dev/uk/how-it-works/">
 <meta property="og:image" content="https://projectstore.dev/assets/og.png">
 <meta property="og:image:width" content="1280">
@@ -135,7 +135,7 @@
     <article class="agent"><span class="role">archaeologist</span><span class="rw" data-i18n="agents.span.8">лише читання · пропонує</span><p data-i18n="agents.td.13">Один раз, після прив’язки наявної кодової бази</p><p class="c-hi" data-i18n="agents.td.14">Знаходить рішення, які ніхто не записав, — у коді, конфігураційних файлах та історії git. Пропонує для них ADR із доказами.</p><span class="rw" data-i18n="agents.td.15">opus · max</span></article>
     <article class="agent"><span class="role acc">clerk</span><span class="rw" data-i18n="agents.span.9">пише · після вашого «Так»</span><p data-i18n="agents.td.16">Лише під час виконання команди ProjectStore, лише після вашого «Так»</p><p class="c-hi" data-i18n="agents.td.17">Зберігає саме те, що ви схвалили, і нічого більше. Потім перебудовує дошку і запускає перевірки. Нічого не пише від себе і нічого не питає.</p><span class="rw" data-i18n="agents.td.18">sonnet · max</span></article>
   </div>
-  <p class="note"><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span> <span data-i18n="agents.p.10">Типові моделі — для Claude Code. У Codex кожна роль — це однойменний skill, що просить Codex запустити цю роль, наприклад <code>$projectstore-critic</code> для critic; він використовує модель сесії, якщо ви не задали іншу.</span></p>
+  <p class="note"><span data-i18n="agents.p.10">Типові моделі — для Claude Code. У Codex кожна роль — це однойменний skill, що просить Codex запустити цю роль, наприклад <code>$projectstore-critic</code> для critic; він використовує модель сесії, якщо ви не задали іншу.</span></p>
 </section>
 
 <section class="sec" id="mechanisms" aria-labelledby="how-mech-title">
@@ -185,7 +185,7 @@
   <h2 id="how-fine-title" class="visually-hidden" data-i18n="how.fine.h2">Дрібний шрифт</h2>
   <ul class="fine">
     <li data-i18n="how.fine.1">Цикл коштує токенів: чернетки, critic і reviewer працюють на моделі, за яку ви вже платите. Вимірювання — у README.</li>
-    <li data-i18n="how.fine.2">Critic і reviewer — окремі агенти з чистим контекстом у Claude Code. У Codex ролі — це skills, і цей шлях експериментальний.</li>
+    <li data-i18n="how.fine.2">Critic і reviewer — окремі агенти з чистим контекстом у Claude Code. У Codex ролі — це skills.</li>
     <li data-i18n="how.fine.3">ProjectStore — спільний контекст проєкту й спосіб роботи. Це не оркестратор агентів: запускати агентів — справа вашого середовища (harness).</li>
   </ul>
   <p class="next-pages"><a href="../why-it-works/" data-i18n="how.next.1">Чому це працює →</a><a href="../one-vault/" data-i18n="how.next.2">Один vault, багато людей →</a><a href="../#start" data-i18n="how.next.3">Встановити →</a></p>
@@ -201,6 +201,6 @@
   </div>
 </footer>
 
-<script src="../../assets/site.js?v=f52bc9e4"></script>
+<script src="../../assets/site.js?v=15226866"></script>
 </body>
 </html>

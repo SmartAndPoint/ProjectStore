@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title data-i18n="how.meta.title">Como o ProjectStore funciona — o ciclo, os agentes, as proteções</title>
-<meta name="description" content="O ciclo do ProjectStore passo a passo: um artefato antes do código, um critic independente, um planner que sabe onde o trabalho anterior entrou, um reviewer que pede evidência. Seis agentes, cinco deles somente leitura. Claude Code e Codex (experimental)." data-i18n-attr="content:how.meta.description">
+<meta name="description" content="O ciclo do ProjectStore passo a passo: um artefato antes do código, um critic independente, um planner que sabe onde o trabalho anterior entrou no código, um reviewer que pede evidência. Seis agentes, cinco deles somente leitura. Funciona com o Claude Code, o Codex, o Gemini CLI e o Cursor." data-i18n-attr="content:how.meta.description">
 <meta name="theme-color" content="#080d19">
 <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../../assets/icon-180.png">
-<link rel="stylesheet" href="../../assets/style.css?v=9e2ac046">
+<link rel="stylesheet" href="../../assets/style.css?v=78de8ec9">
 <script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="light")t=s;}catch(e){}d.setAttribute("data-tone",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/how-it-works/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/how-it-works/">
@@ -25,7 +25,7 @@
 <meta property="og:site_name" content="ProjectStore">
 <meta property="og:locale" content="pt_BR">
 <meta property="og:title" content="Como o ProjectStore funciona — o ciclo, os agentes, as proteções">
-<meta property="og:description" content="O ciclo do ProjectStore passo a passo: um artefato antes do código, um critic independente, um planner que sabe onde o trabalho anterior entrou, um reviewer que pede evidência. Seis agentes, cinco deles somente leitura. Claude Code e Codex (experimental).">
+<meta property="og:description" content="O ciclo do ProjectStore passo a passo: um artefato antes do código, um critic independente, um planner que sabe onde o trabalho anterior entrou no código, um reviewer que pede evidência. Seis agentes, cinco deles somente leitura. Funciona com o Claude Code, o Codex, o Gemini CLI e o Cursor.">
 <meta property="og:url" content="https://projectstore.dev/pt/how-it-works/">
 <meta property="og:image" content="https://projectstore.dev/assets/og.png">
 <meta property="og:image:width" content="1280">
@@ -135,7 +135,7 @@
     <article class="agent"><span class="role">archaeologist</span><span class="rw" data-i18n="agents.span.8">somente leitura · sugere</span><p data-i18n="agents.td.13">Uma vez, depois de vincular uma base de código existente</p><p class="c-hi" data-i18n="agents.td.14">Encontra decisões que ninguém registrou, no código, nos arquivos de configuração e no histórico do git. Sugere ADRs para elas, com evidência.</p><span class="rw" data-i18n="agents.td.15">opus · max</span></article>
     <article class="agent"><span class="role acc">clerk</span><span class="rw" data-i18n="agents.span.9">grava · depois do seu Sim</span><p data-i18n="agents.td.16">Só dentro do fluxo de um comando, só depois do seu Sim</p><p class="c-hi" data-i18n="agents.td.17">Salva exatamente o que você aprovou, nada mais. Depois reconstrói o quadro e roda as verificações. Não escreve nada por conta própria e não pergunta nada.</p><span class="rw" data-i18n="agents.td.18">sonnet · max</span></article>
   </div>
-  <p class="note"><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span> <span data-i18n="agents.p.10">Os modelos padrão são os do Claude Code. No Codex, cada papel é uma skill de mesmo nome que pede ao Codex para iniciar o papel, como <code>$projectstore-critic</code> para o critic; ele usa o modelo da sessão, a menos que você defina outro.</span></p>
+  <p class="note"><span data-i18n="agents.p.10">Os modelos padrão são os do Claude Code. No Codex, cada papel é uma skill de mesmo nome que pede ao Codex para iniciar o papel, como <code>$projectstore-critic</code> para o critic; ele usa o modelo da sessão, a menos que você defina outro.</span></p>
 </section>
 
 <section class="sec" id="mechanisms" aria-labelledby="how-mech-title">
@@ -185,7 +185,7 @@
   <h2 id="how-fine-title" class="visually-hidden" data-i18n="how.fine.h2">Letras miúdas</h2>
   <ul class="fine">
     <li data-i18n="how.fine.1">Rodar o ciclo gasta tokens: os rascunhos, o critic e o reviewer rodam no modelo que você já paga. O README mede isso.</li>
-    <li data-i18n="how.fine.2">No Claude Code, o critic e o reviewer são agentes separados, de contexto limpo. No Codex, os papéis são skills, e esse caminho é experimental.</li>
+    <li data-i18n="how.fine.2">No Claude Code, o critic e o reviewer são agentes separados, de contexto limpo. No Codex, os papéis são skills.</li>
     <li data-i18n="how.fine.3">O ProjectStore é contexto compartilhado do projeto e uma forma de trabalhar. Não é um orquestrador de agentes: iniciar agentes é tarefa do seu harness.</li>
   </ul>
   <p class="next-pages"><a href="../why-it-works/" data-i18n="how.next.1">Por que funciona →</a><a href="../one-vault/" data-i18n="how.next.2">Um vault, muitas pessoas →</a><a href="../#start" data-i18n="how.next.3">Instalar →</a></p>
@@ -201,6 +201,6 @@
   </div>
 </footer>
 
-<script src="../../assets/site.js?v=f52bc9e4"></script>
+<script src="../../assets/site.js?v=15226866"></script>
 </body>
 </html>

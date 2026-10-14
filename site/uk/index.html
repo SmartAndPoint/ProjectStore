@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title data-i18n="meta.title">ProjectStore — ваш агент пише код, ProjectStore веде записи</title>
-<meta name="description" content="ProjectStore веде записи вашого проєкту — що вирішено, що в роботі, що перевірено — як рецензований Markdown у git. Одна команда налаштовує його для Claude Code і Codex (експериментально); далі ви просто говорите з агентом." data-i18n-attr="content:meta.description">
+<meta name="description" content="ProjectStore веде записи вашого проєкту — що вирішено, що в роботі, що перевірено — як рецензований Markdown у git. Працює з Claude Code, Codex, Gemini CLI і Cursor; ви просто говорите з агентом." data-i18n-attr="content:meta.description">
 <meta name="theme-color" content="#080d19">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=9e2ac046">
+<link rel="stylesheet" href="../assets/style.css?v=78de8ec9">
 <script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="light")t=s;}catch(e){}d.setAttribute("data-tone",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
@@ -25,7 +25,7 @@
 <meta property="og:site_name" content="ProjectStore">
 <meta property="og:locale" content="uk">
 <meta property="og:title" content="ProjectStore — ваш агент пише код, ProjectStore веде записи">
-<meta property="og:description" content="ProjectStore веде записи вашого проєкту — що вирішено, що в роботі, що перевірено — як рецензований Markdown у git. Одна команда налаштовує його для Claude Code і Codex (експериментально); далі ви просто говорите з агентом.">
+<meta property="og:description" content="ProjectStore веде записи вашого проєкту — що вирішено, що в роботі, що перевірено — як рецензований Markdown у git. Працює з Claude Code, Codex, Gemini CLI і Cursor; ви просто говорите з агентом.">
 <meta property="og:url" content="https://projectstore.dev/uk/">
 <meta property="og:image" content="https://projectstore.dev/assets/og.png">
 <meta property="og:image:width" content="1280">
@@ -80,7 +80,7 @@
     <div class="section-label" data-i18n="hero.label">01 / Встановлення</div>
     <div class="cta-block">
       <div class="cta-opt">
-        <p class="cta-label"><span data-i18n="hero.ask">Просто попросіть агента:</span> <span class="cta-sub"><b>Claude Code</b> · <b>Codex</b> · <span data-i18n="hero.others">OpenCode, Cursor та інші агенти</span></span></p>
+        <p class="cta-label"><span data-i18n="hero.ask">Просто попросіть агента:</span> <span class="cta-sub"><b>Claude Code</b> · <b>Codex</b> · <b>Gemini CLI</b> · <b>Cursor</b></span></p>
         <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Скопіювати промпт" data-done="Скопійовано" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
         <p class="note" data-i18n="hero.note">У Claude Code цей промпт додає git-маркетплейс і встановлює з нього; увімкніть його автооновлення в <code>/plugin</code>. У Codex натомість запустіть команду нижче: усередині сесії встановлення чекає на термінал. Для інших агентів плагіна поки немає; вони читають той самий vault через його файли, CLI та MCP.</p>
       </div>
@@ -92,7 +92,7 @@
             <button class="copy" type="button" data-copy-from="install-cmd" aria-label="Скопіювати команду" data-done="Скопійовано" data-i18n-attr="aria-label:hero.copy;data-done:hero.copied"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
           </div>
           <div class="term-foot">
-            <span class="chips"><span class="chip">Claude Code · <span data-fact="harness-status:claude-code">supported</span></span><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span></span>
+            <span class="chips"><span class="chip">Claude Code</span><span class="chip">Codex</span><span class="chip">Gemini CLI</span><span class="chip">Cursor</span></span>
             <ul class="term-notes">
               <li data-i18n="hero.n.1">Питає, де лежить vault, показує один план і один раз просить згоди.</li>
               <li data-i18n="hero.n.2">Потім перезапустіть агента; Codex попросить схвалити його хуки один раз.</li>
@@ -124,7 +124,7 @@
   <div class="section-label" data-i18n="talk.label">02 / Далі просто говоріть</div>
   <div class="talk-head">
     <div><h2 id="talk-title" data-i18n="talk.h2">Жодних команд вчити не треба. <span class="acc">Просто говоріть.</span></h2></div>
-    <p class="lede" data-i18n="talk.lede">Скажіть, що вам потрібно. Агент веде робочий процес, показує кожну чернетку й <b class="hl">питає, перш ніж записати</b>. Сцени нижче — з Claude Code; у Codex той самий процес експериментальний.</p>
+    <p class="lede" data-i18n="talk.lede">Скажіть, що вам потрібно. Агент веде робочий процес, показує кожну чернетку й <b class="hl">питає, перш ніж записати</b>. Сцени нижче — з Claude Code.</p>
   </div>
 
   <div class="scenes">
@@ -189,13 +189,13 @@
 <span class="prompt-box">&gt; <span class="cursor">▍</span></span></figure>
     </article>
     <article class="set-card">
-      <div class="set-head"><span data-i18n="set.models.k">моделі</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.models.h">Codex, експериментально: лише моделі</span></span></div>
+      <div class="set-head"><span data-i18n="set.models.k">моделі</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.models.h">Codex: лише моделі</span></span></div>
       <p class="set-prompt" data-i18n="set.models.q">«Запусти critic на Fable і покажи ProjectStore у моєму рядку стану.»</p>
       <p class="runs"><span data-i18n="set.runs">агент виконує:</span></p>
       <pre class="runs" id="cfg-set" data-fact="install">npx projectstore configure --set agents.critic=fable --set statusline=on</pre>
     </article>
     <article class="set-card">
-      <div class="set-head"><span data-i18n="set.skill.k">ваш власний skill</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.skill.h">Codex (експериментально): файли та CLI</span></span></div>
+      <div class="set-head"><span data-i18n="set.skill.k">ваш власний skill</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.skill.h">Codex: файли та CLI</span></span></div>
       <p class="set-prompt" data-i18n="set.skill.q">«Напиши skill: перед релізом перелічувати незавершені сторі та ADR, які ще чекають на рев’ю.»</p>
       <p class="runs" data-i18n="set.skill.p">Звичайний skill, що читає записи проєкту: простий Markdown із frontmatter або <span data-fact="mcp-tools">8</span> MCP-інструментів лише для читання.</p>
     </article>
@@ -404,6 +404,6 @@
   </div>
 </footer>
 
-<script src="../assets/site.js?v=f52bc9e4"></script>
+<script src="../assets/site.js?v=15226866"></script>
 </body>
 </html>
