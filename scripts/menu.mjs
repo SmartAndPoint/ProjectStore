@@ -12,7 +12,11 @@
 //
 // A group is { title, footer, description, items }. An item is
 //   { id, label, kind: "choice" | "text" | "info", toggle, value,
-//     display(v), tag, describe(v, changed), options(), caption() }
+//     display(v), tag, describe(v, changed), options(), caption(),
+//     indent, path }
+// where `indent` draws the label that many columns in, under the row it
+// belongs to (an agent's effort under its model), and `path` names the item
+// where its label alone would not: a frame's title and the path line.
 // where options() answers the values, each
 //   { value, label, note, description, tag, section, kind: "value" | "text" | "refresh" }
 // and caption() the values frame's footer, { text, busy } or null. A value
@@ -390,13 +394,13 @@ function valueSegs(c, m, it, mode, room) {
 }
 
 function itemRows(c, m, g, cur, mode, w) {
-  const lw = Math.max(...g.items.map((it) => wlen(it.label))) + 1;
+  const lw = Math.max(...g.items.map((it) => (it.indent || 0) + wlen(it.label))) + 1;
   const room = w - 4 - 3 - lw - 1;
   return g.items.map((it, k) => [
     cursorSeg(c, k === cur, mode),
     S(m.changed(it) ? icon(c, "update") : " ", "action"),
     S(" "),
-    S(padTo(G(c, it.label), lw), labelRole(k === cur, mode)),
+    S(padTo(" ".repeat(it.indent || 0) + G(c, it.label), lw), labelRole(k === cur, mode)),
     S(" "),
     ...valueSegs(c, m, it, mode, room),
   ]);
@@ -488,7 +492,7 @@ function detailFrame(c, m, it, fr, w, h, focus) {
   }
   const cap = focus && it.caption ? it.caption() : null;
   return frame(c, {
-    title: it.label,
+    title: it.path || it.label,
     rows,
     w,
     h,
@@ -644,7 +648,7 @@ export function renderMenu(m, { caps: c, columns = 100, rows = 30, head = "proje
   const wideEnough = columns >= STAIRCASE.min;
   if (!wideEnough) {
     // One frame: the one the keys act on, under the whole path.
-    const names = ["Settings", ...(level >= 1 ? [g.title] : []), ...(level >= 2 ? [it.label] : [])];
+    const names = ["Settings", ...(level >= 1 ? [g.title] : []), ...(level >= 2 ? [it.path || it.label] : [])];
     out([
       S(`${icon(c, "ask")} `, "action"),
       S(names.slice(0, -1).join(sep) + (names.length > 1 ? sep : ""), "explanation"),

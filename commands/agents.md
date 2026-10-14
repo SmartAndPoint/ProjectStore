@@ -60,14 +60,14 @@ and report each item's `state` from `result.items[]` — the bin wraps the plan 
 - Model: run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" agents show --json --project "${CLAUDE_PROJECT_DIR}"`
   and report `result.resolved` — per roster agent, the model the verb would
   pass and its `source` (`per_agent`, `default`, or `null`: the agent's own
-  frontmatter), resolved by the verb over the active harness's overlay
+  frontmatter), and the effort with its `effort_source` the same way, resolved by the verb over the active harness's overlay
   (`result.path`) so nothing here re-derives it; `result.unknown` (configured
   names no roster agent carries — nothing runs under them), `result.rejected`
   (keys the overlay may not carry) and `result.agents_in_binding` (a pre-0.28
   leftover; point at `upgrade`), and
   whether `CLAUDE_CODE_SUBAGENT_MODEL` is set (it overrides everything) and
-  whether `CLAUDE_CODE_EFFORT_LEVEL` is set (ADR-008 makes it the only thing that
-  can move the agents off `effort: max`, and it beats frontmatter). **Warn when
+  whether `CLAUDE_CODE_EFFORT_LEVEL` is set (it outranks every configured effort
+  and the frontmatter: with it set, the spawn offers no effort parameter). **Warn when
   `result.resolved.clerk.model` is anything but `sonnet` or `haiku`** (that
   literal pair is the rule, so it is never re-derived; an unknown custom id also
   warns, with "verify it is cheap"): the clerk transcribes approved
@@ -97,14 +97,15 @@ and report each item's `state` from `result.items[]` — the bin wraps the plan 
    effort. The one exception is the clerk, which only transcribes approved
    content — it stays cheap regardless of the preset."* Options: keep bundled default (`opus`) / `fable` / `sonnet` /
    custom model ID (free-form). Offer the current session's model as a hint
-   option — you know what you are running on. **Do not ask about effort** — see
-   step 5. **`inherit` is no longer offered**: it meant "follow the session's
+   option — you know what you are running on. Then ask the effort for the
+   preset — `low` / `medium` / `high` / `xhigh` / `max`, or "leave it to the
+   frontmatter" (`max`) — see step 5. **`inherit` is no longer offered**: it meant "follow the session's
    model", and that cannot be expressed per invocation — passing nothing falls
    through to the bundled `model: opus`, not to the session. A user who wants
    session-follow behaviour should pick their session's model explicitly, or set
    `CLAUDE_CODE_SUBAGENT_MODEL=inherit`, which does mean exactly that.
-2. **Optional follow-up**: "configure individually?" → per-agent model for each
-   roster agent. Skippable.
+2. **Optional follow-up**: "configure individually?" → per-agent model and
+   effort for each roster agent. Skippable.
 3. **Apply**: after the AskUserQuestion, run the verb and print its output —
    `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" agents configure --harness claude-code --default <model> [--agent <name>=<model> …] --project "${CLAUDE_PROJECT_DIR}"`
    (naming the harness is the confirmation; the verb writes
@@ -120,24 +121,31 @@ and report each item's `state` from `result.items[]` — the bin wraps the plan 
    the emptied block. A name outside the layout's roster is a usage error
    naming the roster — a model written under a name no agent carries would
    never run. That file is the whole output of this command — **never write
-   an agent copy into `.claude/agents/`**. The verb never writes an `effort`
-   key; one already inside the agents block is dropped by the next `configure`
-   write and named in its preview, and until then doctor reports it as a key the
-   overlay may not carry — it has no effect (the effort you configured is not
-   the effort that runs).
+   an agent copy into `.claude/agents/`**. `agents configure` keeps every
+   effort the overlay holds; `--reset` drops them with the models.
+   **Efforts** chosen in steps 1–2 are written by `configure`, the one verb
+   with effort keys — preview first, then apply after the same approval:
+   `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" configure --set agents.default.effort=<level> [--set agents.<name>.effort=<level> …] --harness claude-code --dry-run --project "${CLAUDE_PROJECT_DIR}"`,
+   then the same command without `--dry-run`. `-` as the level clears one. A
+   default effort with no clerk effort named leaves the clerk at the default
+   on Claude Code (its frontmatter's `max` is already the most it runs at).
 4. **Migrate away from copies**: if `.claude/agents/` holds copies carrying
    `# source: projectstore v…`, they are pre-ADR-008 leftovers that override
    nothing. Offer to delete them **one approval per file** (matching `/projectstore:doctor --fix`), project scope only — a copy in `~/.claude/agents/` needs a manual removal, and you should say so rather than implying this command will handle it.
    Copies WITHOUT the provenance marker are user-authored — never touch them,
    never mention deleting them.
-5. **Effort is not configurable per project.** The bundled agents ship
-   `effort: max`, which is the recommended value, and there is no
-   per-invocation effort parameter — only frontmatter, settings, or
-   `CLAUDE_CODE_EFFORT_LEVEL`. If the user asks for a different effort, say
-   that plainly and point at the env var; do not write a copy to achieve it.
+5. **Effort rides the spawn, like the model.** The overlay's
+   `agents.per_agent.<name>.effort ?? agents.default.effort` is passed as the
+   spawn's effort parameter; with none, the bundled agents run at their
+   frontmatter's `effort: max`. A level outside `low`, `medium`, `high`,
+   `xhigh`, `max` is written with a warning and refused by the spawn. Do not
+   write a copy to achieve an effort.
 6. **Honesty notes to print**: an org `availableModels` allowlist silently
    downgrades excluded models; the `CLAUDE_CODE_SUBAGENT_MODEL` env var
-   overrides everything configured here, per-invocation parameter included.
+   overrides everything configured here, per-invocation parameter included;
+   `CLAUDE_CODE_EFFORT_LEVEL` overrides every configured effort, and a
+   `maxEffortLevel` setting or an organization's effort cap still limits the
+   level an agent runs at.
    `/projectstore:doctor` validates config shape and reports leftover copies —
    not entitlement, and not whether a given spawn actually passed the model.
 7. **No restart is needed** — nothing about the agent list changed. The model
@@ -154,16 +162,17 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" agents model <name> --json --p
 ```
 
 and passes `result.model` as the spawn's model parameter — `null` means pass
-nothing, the agent's own frontmatter decides. The verb applies
-`agents.per_agent.<name>.model ?? agents.default.model ?? null` over
+nothing, the agent's own frontmatter decides — and `result.effort` as its
+effort parameter when it is not `null` and the spawn offers one. The verb applies
+`agents.per_agent.<name>.model ?? agents.default.model ?? null` (and the same
+two terms for `effort`) over
 `<project>/.projectstore/harness/<harness>.json` (the active harness's
 overlay); besides the agents block itself (harness-neutral prose with no bin
 to call — it states the rule as a file read, deliberately), nothing else
 restates that rule. Never guess a model.
 
 `agents.default` is optional and often absent (a per-agent-only config is normal);
-the resolution must tolerate that. An `effort` key, if present, is a pre-ADR-008
-leftover: ignore it.
+the resolution must tolerate that, and so must an effort set without a model.
 
 **Coverage, stated honestly.** This reaches spawns made by this plugin's commands
 and spawns a session makes while following the registration block. It does *not*

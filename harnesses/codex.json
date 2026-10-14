@@ -339,25 +339,61 @@
   "update_instructions": "From a terminal in the project, run `npx projectstore@<version> upgrade --harness codex` and restart Codex afterwards, so the new skills and hooks are loaded. The run fetches the shell at that version, atomically replaces its stable source, and `codex plugin add projectstore@projectstore-npx` materialises the new version; this was measured across two dev builds on codex-cli 0.153.4.",
   "agent_translation": {
     "carries_model": false,
-    "carries_model_reason": "The surface projectstore ships — a plugin's agents/ entry — carries no model on Codex: surfaces.agents is supported:false because no route from a plugin's agents/ directory to collaborationspawn_agent has been found (measured). Codex DOES have a definition file that carries model and effort, recorded below, but it is project- or user-scoped and not plugin-shippable, so contract 12 holds as written: what we ship cannot carry a model. Was true here until 2026-09-08, which contradicted both contract 12 and this file's own agents row.",
+    "carries_model_reason": "The surface projectstore ships — a plugin's agents/ entry — carries no model on Codex: surfaces.agents is supported:false because no route from a plugin's agents/ directory to collaborationspawn_agent has been found (measured). Codex DOES have a definition file that carries model and effort, recorded below, but it is project- or user-scoped and not plugin-shippable, so contract 12 holds as written: what we ship cannot carry a model. Was true here until 2026-09-08, which contradicted both contract 12 and this file's own agents row. What the plugin's role skills pass instead is a value at spawn: `spawn_agent` takes `model` and `reasoning_effort` (measured 2026-10-14, effort block below).",
     "definition_file": ".codex/agents/<name>.toml",
     "definition_file_evidence": "documented",
-    "definition_file_reason": "Codex agent definitions are TOML under .codex/agents/ (project) or ~/.codex/agents/ (personal) and accept `model`, `model_reasoning_effort`, `sandbox_mode` and `mcp_servers`. Documented at learn.chatgpt.com/docs/agent-configuration/subagents, read 2026-09-08; NOT measured, and not reachable from a plugin today. This is the route the rendering story (Per-agent effort returns, PS-AGENTS) has to decide on, and B4 has to measure.",
+    "definition_file_reason": "Codex agent definitions are TOML under .codex/agents/ (project) or ~/.codex/agents/ (personal) and accept `model`, `model_reasoning_effort`, `sandbox_mode` and `mcp_servers`. Documented at learn.chatgpt.com/docs/agent-configuration/subagents, read 2026-09-08; NOT measured, and not reachable from a plugin. Not used: the spawn carries model and effort, so no definition is rendered (the ADR \"Agent effort is passed at spawn beside the model, from the overlay, in each harness's own levels\", alternative A).",
     "cheap_model": "gpt-5.6-luna",
     "cheap_model_evidence": "chosen",
     "cheap_model_reason": "CHOSEN, not measured: the verified plugin session exercised the rendered skill surface, not this optional model pin. It reaches a user's overlay — `agents configure --harness codex` writes it as the clerk's pin — so if the id is wrong the failure is at spawn time, on the harness, not here. The transcriber's model. gpt-5.6-luna at $0.20/$1.20 per Mtok is the cost tier gpt-5.6-sol ($4/$20) is twenty times above, and the clerk composes nothing: it copies an approved file and runs a pinned ceremony (ADR-008). Chosen 2026-09-08 from the published model list, by the same reasoning that pins the clerk to the cheap tier on Claude Code.",
-    "effort_levels": [
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max",
-      "ultra"
-    ],
-    "effort_key": "model_reasoning_effort",
-    "effort_evidence": "documented",
-    "effort_precedence": "explicit spawn value, then the [agents] default from config, then the parent agent's value. A model chosen without an effort uses that model's default effort.",
-    "effort_reason": "Recorded, not yet consumed: the overlay's allowlist rejects an effort key and rewrites it out, deliberately, until the story Per-agent effort returns decides whether a role's effort travels in a rendered definition or at spawn. Documented 2026-09-08; the `ultra` level is Codex's and is not a level Claude Code accepts.",
+    "effort": {
+      "spawn_param": "reasoning_effort",
+      "spawn_param_evidence": "measured",
+      "spawn_param_reason": "`collaboration.spawn_agent` takes `reasoning_effort` beside `model`. Measured on codex-cli 0.162.1, 2026-10-14: a parent on gpt-5.6-sol at xhigh spawned gpt-5.6-luna at low, and the child's first turn_context reads gpt-5.6-luna, low. An effort with no model ran the parent's model at that effort.",
+      "levels": [
+        {
+          "id": "low",
+          "description": "Fast responses with lighter reasoning."
+        },
+        {
+          "id": "medium",
+          "description": "Balances speed and reasoning depth for everyday tasks."
+        },
+        {
+          "id": "high",
+          "description": "Greater reasoning depth for complex problems."
+        },
+        {
+          "id": "xhigh",
+          "description": "Extra high reasoning depth for complex problems."
+        },
+        {
+          "id": "max",
+          "description": "Maximum reasoning depth for the hardest problems."
+        },
+        {
+          "id": "ultra",
+          "description": "Maximum reasoning with automatic task delegation; not every model takes it."
+        }
+      ],
+      "levels_reason": "The floor, offered when the agent's model is not in a list that names its own levels: every level Codex's catalog listed on 2026-10-14, in its own words. Not every model takes every level (gpt-5.6-luna stops at max), which is why a listed model's own levels win.",
+      "catalog": {
+        "list": "supported_reasoning_levels",
+        "id": "effort",
+        "description": "description",
+        "default": "default_reasoning_level",
+        "reason": "Fields of a model entry in Codex's own catalog (models_cache.json, `codex debug models`), measured 2026-10-14 on codex-cli 0.162.1: each model lists the levels it takes as { effort, description } and names its default."
+      },
+      "unset": {
+        "value": "Codex decides",
+        "row": "let Codex decide",
+        "model_default": true,
+        "reason": "With no effort passed and a model passed, the child runs at that model's own default level, not the parent's: gpt-5.6-sol ran at low under an xhigh parent (measured 2026-10-14; Codex's subagents documentation says the same). With no model passed either, Codex's [agents] default, then the parent's effort (documented)."
+      },
+      "cheap": "low",
+      "cheap_evidence": "chosen",
+      "cheap_reason": "The clerk's level under a default effort (the ADR \"Agent effort is passed at spawn beside the model, from the overlay, in each harness's own levels\", decision 6): it copies an approved file and runs a pinned ceremony. Chosen by the maintainer on 2026-09-08 with its model: gpt-5.6-luna at the lowest level."
+    },
     "models": {
       "spawn_takes": "id",
       "spawn_takes_evidence": "documented",

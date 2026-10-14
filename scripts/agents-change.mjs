@@ -7,9 +7,20 @@ import { harnessForOverlay } from "./harness.mjs";
 
 // What a change would write. `before` is readOverlayAt's read; `roster` the
 // layout's agent names (null when no layout loads); `agents` the
-// `<name>=<model>` specs. A malformed spec or a name outside the roster comes
-// back as `usage`, with nothing planned.
-export function planAgentsChange({ before, harness, layout, roster, defaultModel, agents = [], reset = false }) {
+// `<name>=<model>` specs; `defaultEffort` and `efforts` (`<name>=<level>`)
+// the same for effort (the effort ADR, decision 8). A malformed spec or a name
+// outside the roster comes back as `usage`, with nothing planned.
+export function planAgentsChange({
+  before,
+  harness,
+  layout,
+  roster,
+  defaultModel,
+  agents = [],
+  defaultEffort,
+  efforts = [],
+  reset = false,
+}) {
   // --reset empties the block first; --default and --agent then apply on top of
   // the emptied block — "reset, then set" is one call, and nothing given is
   // silently dropped.
@@ -26,6 +37,22 @@ export function planAgentsChange({ before, harness, layout, roster, defaultModel
       return { usage: `no agent named ${m[1]} in the ${layout} roster — known: ${roster.join(", ")}` };
     if (m[2]) next.per_agent[m[1]] = m[2];
     else delete next.per_agent[m[1]];
+  }
+  // Efforts, field by field beside the models: a run that names none keeps
+  // every effort the overlay holds, and --reset empties them with the models.
+  const beforeEfforts = before.efforts || { default: null, per_agent: {} };
+  const baseEfforts = reset ? { default: null, per_agent: {} } : beforeEfforts;
+  const nextEfforts = {
+    default: defaultEffort !== undefined ? defaultEffort || null : baseEfforts.default,
+    per_agent: { ...baseEfforts.per_agent },
+  };
+  for (const spec of efforts) {
+    const m = /^([a-z][a-z0-9-]*)=(.*)$/.exec(spec);
+    if (!m) return { usage: `an effort takes <name>=<level>, got ${spec}` };
+    if (roster && !roster.includes(m[1]))
+      return { usage: `no agent named ${m[1]} in the ${layout} roster — known: ${roster.join(", ")}` };
+    if (m[2]) nextEfforts.per_agent[m[1]] = m[2];
+    else delete nextEfforts.per_agent[m[1]];
   }
   // The clerk transcribes; a strong default must not lift it (commands/agents.md,
   // ADR-008). WHICH model it is pinned to is the harness's vocabulary, so the
@@ -49,12 +76,29 @@ export function planAgentsChange({ before, harness, layout, roster, defaultModel
       pinnedClerk = true;
     } else clerkPinUnavailable = true;
   }
-  // Keys inside the agents block that the allowlist rejected (an `effort`, a
-  // stray shape) are rewritten out by the write and announced here; keys
-  // outside the block are kept, and stay doctor's to name.
+  // The clerk's effort, pinned the same way while a default effort stands
+  // (the effort ADR, decision 6), where the harness names a cheap level; a
+  // harness that names none pins nothing and says nothing, because its clerk
+  // already runs at its frontmatter's level.
+  let pinnedClerkEffort = false;
+  const clerkEffortAsked = efforts.some((s) => s.startsWith("clerk="));
+  if (nextEfforts.default && !nextEfforts.per_agent.clerk && !clerkEffortAsked) {
+    const cheap = harnessForOverlay(harness)?.agent_translation?.effort?.cheap || null;
+    if (cheap) {
+      nextEfforts.per_agent.clerk = cheap;
+      pinnedClerkEffort = true;
+    }
+  }
+  // Keys inside the agents block that the allowlist rejected (a stray shape)
+  // are rewritten out by the write and announced here; keys outside the block
+  // are kept, and stay doctor's to name.
   const dropped = before.rejected.filter((k) => k.startsWith("agents."));
+  const sameEfforts =
+    JSON.stringify({ d: beforeEfforts.default, p: beforeEfforts.per_agent }) ===
+    JSON.stringify({ d: nextEfforts.default, p: nextEfforts.per_agent });
   const same =
     !dropped.length &&
+    sameEfforts &&
     JSON.stringify({ d: before.agents.default, p: before.agents.per_agent }) ===
       JSON.stringify({ d: next.default, p: next.per_agent });
   const preview = [
@@ -72,13 +116,23 @@ export function planAgentsChange({ before, harness, layout, roster, defaultModel
     preview.push(
       `  clerk: takes the default — ${harness} declares no cheap model to pin it to, so name one with --agent clerk=<model>`,
     );
+  // Effort lines only where an effort is held or asked for, so a run over an
+  // overlay of models alone previews exactly as it did before efforts.
+  if (beforeEfforts.default || nextEfforts.default)
+    preview.push(`  default effort: ${beforeEfforts.default || "—"} → ${nextEfforts.default || "—"}`);
+  const effortNames = new Set([...Object.keys(beforeEfforts.per_agent), ...Object.keys(nextEfforts.per_agent)]);
+  for (const n of [...effortNames].sort())
+    preview.push(
+      `  ${n} effort: ${beforeEfforts.per_agent[n] || "—"} → ${nextEfforts.per_agent[n] || "—"}${pinnedClerkEffort && n === "clerk" ? " (pinned: the clerk stays cheap under a strong default)" : ""}`,
+    );
   if (dropped.length)
-    preview.push(`  drops from the agents block (an overlay carries only models): ${dropped.join(", ")}`);
-  return { next, pinnedClerk, clerkPinUnavailable, dropped, same, preview };
+    preview.push(`  drops from the agents block (an overlay carries only models and efforts): ${dropped.join(", ")}`);
+  return { next, nextEfforts, pinnedClerk, pinnedClerkEffort, clerkPinUnavailable, dropped, same, preview };
 }
 
 // Writes a planned change through the overlay's one writer and reads it back.
-export function applyAgentsChange(projectDir, harness, next) {
-  const path = writeOverlayAt(projectDir, harness, next);
+// `nextEfforts` left out keeps the efforts the file holds.
+export function applyAgentsChange(projectDir, harness, next, nextEfforts) {
+  const path = writeOverlayAt(projectDir, harness, next, nextEfforts);
   return { path, after: readOverlayAt(projectDir, harness) };
 }

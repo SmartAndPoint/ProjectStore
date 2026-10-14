@@ -263,7 +263,7 @@ test("layout contract 6: one ordered `layout` item first, the launcher created a
   );
   const block = p.items.find((i) => i.surface === "agents_block");
   assert.equal(block.action, "replace-entry");
-  assert.match(block.reason, /v3 → v4/, "the block template's config path moved with the layout");
+  assert.match(block.reason, /v3 → v5/, "the block template moved its config path at v4 and passes the effort at v5");
   const preview = renderPreview(p);
   for (const s of first.steps)
     if (s.path || s.from)
@@ -316,7 +316,7 @@ test("layout contract 6: one ordered `layout` item first, the launcher created a
   const settings = JSON.parse(read(join(proj, SRC.runtime.harness_dir, "settings.local.json")));
   assert.equal(settings.statusLine.command, `node "${lp.launcher(SRC.id)}"`);
   assert.equal(settings.other.keep, true, "sibling keys survive");
-  assert.match(read(join(proj, "AGENTS.md")), /projectstore:agents v4 /);
+  assert.match(read(join(proj, "AGENTS.md")), /projectstore:agents v5 /);
   // .claude/ holds only the host's file.
   assert.deepEqual(readdirSync(join(proj, SRC.runtime.harness_dir)).sort(), ["settings.local.json"]);
   assert.ok(
@@ -966,7 +966,7 @@ test("layout contract 1: the SessionStart hook pays one existsSync per reader �
   assert.ok(diff < 25, `legacy ${a.toFixed(1)}/${a2.toFixed(1)} ms vs migrated ${b.toFixed(1)}/${b2.toFixed(1)} ms`);
 });
 
-test("layout contract 13: the prose moved in one pass — commands, agents, skills, docs and the block template name the new paths; the block is v4", () => {
+test("layout contract 13: the prose moved in one pass — commands, agents, skills, docs and the block template name the new paths; the block is v5", () => {
   const hits = [];
   const walk = (dir) => {
     for (const n of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
@@ -987,7 +987,11 @@ test("layout contract 13: the prose moved in one pass — commands, agents, skil
     if (/\.claude\/projectstore\.json|\.claude\/\.projectstore/.test(line)) hits.push(`AGENTS.md:${i + 1}`);
   assert.deepEqual(hits, [], "a line naming the legacy layout must say it is legacy");
   const tmpl = read(join(ROOT, "templates", "claude-md-block.md.tmpl"));
-  assert.match(tmpl, /projectstore:agents v4 /, "the block template is v4: its config path changed");
+  assert.match(
+    tmpl,
+    /projectstore:agents v5 /,
+    "the block template is v5: v4 moved its config path, v5 passes the effort",
+  );
   assert.ok(tmpl.includes(".projectstore/harness/<harness>.json"));
   // Messages that reach a user through the code name the new paths too.
   for (const f of ["scripts/worktree.mjs", "scripts/doctor.mjs", "hooks/session-start.mjs"]) {

@@ -513,7 +513,7 @@ test("checkOverrideCopies falls back to the filename when a marked copy has no n
   assert.match(out[0].message, /overrides nothing/);
 });
 
-test("checkEnvEffort reports the variable that now owns effort", () => {
+test("checkEnvEffort reports the variable that outranks every configured effort", () => {
   const had = "CLAUDE_CODE_EFFORT_LEVEL" in process.env;
   const prev = process.env.CLAUDE_CODE_EFFORT_LEVEL;
   try {

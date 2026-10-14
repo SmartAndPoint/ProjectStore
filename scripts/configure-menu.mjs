@@ -16,11 +16,14 @@
 
 import * as term from "./term.mjs";
 import { createMenu, renderMenu, seg, SMALLEST } from "./menu.mjs";
-import { knownModels, readLive } from "./models.mjs";
+import { knownModels, readLive, effortSpec, effortLevels } from "./models.mjs";
 import { loadHarness } from "./harness.mjs";
 import { readOverlayAt } from "./lib.mjs";
 
 const CLEAR = "-";
+
+// What an effort row sets: the settings panel's first sentence for it.
+const EFFORT = "How long the agent thinks before it answers: a higher level is slower and costs more.";
 
 // What each agent of the roster does: the settings panel's first sentence.
 const ROLE = Object.freeze({
@@ -264,20 +267,26 @@ function agentsGroup(f, id, list, catalogs, { menu, now, caps: c }) {
     return d ? (menu?.() ? menu().eff(d) : d.value) : null;
   };
   for (const s of list) {
-    const name = s.key.slice(7);
+    const isEffort = s.rail === "effort";
+    const name = isEffort ? s.key.slice(7, -7) : s.key.slice(7);
     const isDefault = name === "default";
     if (s.source === "unparseable") {
       items.push({
         id: `${id}:${s.key}`,
         key: s.key,
         harness: id,
-        label: name,
-        title: `${display} · ${name}`,
+        label: isEffort ? "effort" : name,
+        ...(isEffort ? { indent: 2, path: `${name} · effort` } : {}),
+        title: `${display} · ${name}${isEffort ? " · effort" : ""}`,
         kind: "info",
         value: null,
         tag: SOURCE.unparseable,
         describe: () => `${file} is not valid JSON: fix it to change the agents' models.`,
       });
+      continue;
+    }
+    if (isEffort) {
+      items.push(effortItem(h, display, id, s, name, isDefault, o, items, catalogs, { defaultNow, menu, now }));
       continue;
     }
     const item = {
@@ -314,9 +323,125 @@ function agentsGroup(f, id, list, catalogs, { menu, now, caps: c }) {
   return {
     title: `Agents · ${display}`,
     footer: file.split("/").pop(),
-    description: `Which model each projectstore agent runs on in ${display}${h?.agent_translation?.models?.spawn_takes === "id" ? `, in ${display}'s own model names` : ""}. A model set here goes to ${file}, which is committed, so it applies to everyone on this project. default covers every agent without a model of its own.`,
+    description: `Which model each projectstore agent runs on in ${display}${h?.agent_translation?.models?.spawn_takes === "id" ? `, in ${display}'s own model names` : ""}, and at what effort. A model or an effort set here goes to ${file}, which is committed, so it applies to everyone on this project. default covers every agent without one of its own.`,
     items,
   };
+}
+
+// An agent's effort row (the effort ADR, decision 4): under its model row,
+// its value its own level, else the default's, else what the harness does
+// with none; its values the levels of the model it will run on, a model
+// change waiting in the menu counted.
+function effortItem(h, display, id, s, name, isDefault, o, items, catalogs, { defaultNow, menu, now }) {
+  const es = effortSpec(h);
+  const own = isDefault ? o.efforts.default || null : o.efforts.per_agent[name] || null;
+  const eff = (it) => (it ? (menu?.() ? menu().eff(it) : it.value) : null);
+  const modelItem = items.find((x) => x.key === (isDefault ? "agents.default" : `agents.${name}`));
+  const defaultEffortItem = () => items.find((x) => x.key === "agents.default.effort");
+  // The model this agent will run on: its own, else the default's.
+  const runModel = () => eff(modelItem) || (isDefault ? null : defaultNow()) || null;
+  const defaultEffortNow = () => (isDefault ? null : eff(defaultEffortItem()));
+  const levelsNow = () => effortLevels(h, runModel(), catalogs[id]?.known || null);
+  // What runs when nothing is configured: the frontmatter's level, or, where
+  // a passed model's own default runs, that level when its list names it.
+  const unsetText = () => {
+    const m = runModel();
+    const d = es.unset.model_default && m ? levelsNow()?.default : null;
+    return d ? `${d} (${m}'s default)` : es.unset.value;
+  };
+  const unsetMeaning = es.unset.model_default
+    ? "each agent runs at its model's own default level"
+    : "each agent runs at its frontmatter's effort";
+  const item = {
+    id: `${id}:${s.key}`,
+    key: s.key,
+    harness: id,
+    label: "effort",
+    indent: 2,
+    path: `${name} · effort`,
+    title: `${display} · ${name} · effort`,
+    kind: "choice",
+    value: own,
+    tag: own ? (isDefault ? SOURCE.overlay : SOURCE.per_agent) : isDefault ? SOURCE.default : "",
+    display: (v) => {
+      if (v) return v;
+      const d = defaultEffortNow();
+      return d ? `${d} (default)` : unsetText();
+    },
+  };
+  item.describe = (v, changed) => {
+    if (changed) return `${EFFORT} In the file: ${item.display(item.value)}. After the change: ${item.display(v)}.`;
+    if (isDefault)
+      return `${EFFORT} ${v ? `Now: ${v}, for every agent without its own.` : `Now: not set, so ${unsetMeaning}.`}`;
+    if (v) return `${EFFORT} Now: ${v}, its own.`;
+    const d = defaultEffortNow();
+    return `${EFFORT} ${d ? `Now: ${d}, from default.` : `Now: ${item.display(null)}.`}`;
+  };
+  item.options = () =>
+    effortOptions(es, display, item, name, isDefault, levelsNow(), runModel(), defaultEffortNow(), menu);
+  item.caption = () => {
+    const l = levelsNow();
+    if (!l) return null;
+    if (l.from === "catalog")
+      return {
+        text: `levels of ${l.model}${l.source ? ` · ${l.source}` : ""}${l.at ? ` · checked ${checkedWhen(l.at, now())}` : ""}`,
+      };
+    return { text: `${display}'s levels` };
+  };
+  return item;
+}
+
+// An effort row's values: the levels, the value in the file when the list
+// lacks it, then the way back to the default. No free text and no refresh:
+// the levels come with the model list, whose frame refreshes it.
+function effortOptions(es, display, item, name, isDefault, levels, model, d, menu) {
+  const opts = (levels?.levels || []).map((l, i) => ({
+    value: l.id,
+    label: l.id,
+    kind: "value",
+    note: l.id === levels.default ? "default" : "",
+    section: i === 0 ? (levels.from === "catalog" ? `levels of ${model}` : `${display}'s levels`) : undefined,
+    description: [
+      l.description ? (/[.!?]$/.test(l.description) ? l.description : `${l.description}.`) : "",
+      l.id === levels.default ? `${model}'s own default.` : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  }));
+  const m = menu?.();
+  for (const v of [item.value, m ? m.eff(item) : null])
+    if (v && !opts.some((o) => o.value === v))
+      opts.push({
+        value: v,
+        label: v,
+        note: "not in the list",
+        kind: "value",
+        section: opts.length ? undefined : "",
+        description: model
+          ? `Not a level ${model} lists. It is kept as it is.`
+          : `Not one of ${display}'s levels. It is kept as it is.`,
+      });
+  const meaning = es.unset.model_default ? "its model's own default level" : "its frontmatter's effort";
+  opts.push(
+    isDefault
+      ? {
+          value: null,
+          label: es.unset.row,
+          kind: "value",
+          section: "",
+          description: `Drops the default effort: each agent without its own runs at ${meaning}.`,
+        }
+      : {
+          value: null,
+          label: "use the default",
+          kind: "value",
+          section: "",
+          description: d
+            ? `Drops ${name}'s own effort: it runs at the default, ${d}.`
+            : `Drops ${name}'s own effort: it runs at ${meaning}.`,
+        },
+  );
+  return opts;
 }
 
 // The values frame's footer: the list's source and age, the host being
@@ -502,8 +627,10 @@ export async function runMenu(ctx) {
   menu = createMenu({
     groups,
     onRefresh: (it) => it.harness && read(it.harness),
+    // A list is read from a model's frame only: an effort frame shows what is
+    // known, and its levels follow when a model's list is refreshed.
     onOpen: (it) => {
-      const cat = it.harness ? catalogs[it.harness] : null;
+      const cat = it.harness && !it.key?.endsWith(".effort") ? catalogs[it.harness] : null;
       if (cat?.known?.stale) read(it.harness);
     },
   });

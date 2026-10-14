@@ -64,7 +64,7 @@ You are running a peer review on a projectstore artifact.
 
    Set the agent description to: `Peer-review of {{kind}} artifact at {{path}}`. Pass it as a foreground task (you need the result to continue).
 
-   **Model (ADR-008)**: resolve it with `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" agents model critic --json --project "${CLAUDE_PROJECT_DIR}"` and pass `result.model` as the spawn's model parameter (`null` → pass nothing). Missing key, `inherit`, or unreadable config → pass nothing and let the agent's own frontmatter decide; never guess a model. This is the only way the configured model reaches the agent — there are no override copies (`/projectstore:agents configure`). When falling back to `oh-my-claudecode:critic` or `general-purpose`, pass the same model.
+   **Model and effort (ADR-008)**: resolve them with `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" agents model critic --json --project "${CLAUDE_PROJECT_DIR}"` and pass `result.model` as the spawn's model parameter (`null` → pass nothing), and `result.effort` as its effort parameter when it is not `null` and the spawn offers one. Missing key, `inherit`, or unreadable config → pass nothing and let the agent's own frontmatter decide; never guess a model. This is the only way the configured model and effort reach the agent — there are no override copies (`/projectstore:agents configure`). When falling back to `oh-my-claudecode:critic` or `general-purpose`, pass the same model and effort.
 
 7. **Show findings**: print the agent's report verbatim. Number is its number.
 

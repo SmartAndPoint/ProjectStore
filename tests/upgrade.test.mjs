@@ -561,7 +561,7 @@ test("upgrade O1: while the move is pending, the v3 block and Claude Code's view
   writeFileSync(join(proj, "AGENTS.md"), V3 + "\n");
   // The startup line: the v3 block is not counted beside the move, and says the move repairs it.
   const st = runStartupChecks(JSON.parse(read(lp.legacy.binding)), proj);
-  const v3 = st.findings.find((f) => /is v3, expected v4/.test(f.message));
+  const v3 = st.findings.find((f) => /is v3, expected v5/.test(f.message));
   assert.ok(v3 && v3.level === "info" && /layout move repairs this/.test(v3.message), JSON.stringify(v3));
   assert.ok(
     !st.findings.some((f) => f.check === "agents-block" && f.level === "issue"),
