@@ -594,7 +594,16 @@ test("effort AC: every text that spawns an agent passes the resolved effort; no 
   assert.equal(read(join(ROOT, "AGENTS.md")), tmpl, "this repository's block is the template's");
   for (const c of ["review", "story", "reconcile", "agents"])
     assert.match(read(join(ROOT, "commands", `${c}.md`)), /`result\.effort`/, `commands/${c}.md`);
+  // A session picks the command by its description: "set the critic's effort"
+  // must find the agents command on both harnesses.
+  const description = (text) => /^description: (.*)$/m.exec(text)?.[1] || "";
+  assert.match(description(read(join(ROOT, "commands", "agents.md"))), /effort/, "the agents command names effort");
   const rendered = renderCodexAdapter();
+  assert.match(
+    description(rendered.get("skills/projectstore-agents/SKILL.md")),
+    /efforts/,
+    "the Codex agents skill names effort",
+  );
   for (const role of ["critic", "planner", "reviewer", "librarian", "archaeologist", "clerk"])
     assert.match(rendered.get(`skills/projectstore-${role}/SKILL.md`), /pass it as `reasoning_effort`/, role);
   const stale = [

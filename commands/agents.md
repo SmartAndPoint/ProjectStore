@@ -1,5 +1,5 @@
 ---
-description: Manage bundled-agent integration in this project — register/unregister the routing block in CLAUDE.md/AGENTS.md, inspect state, or configure which model its agents run on.
+description: Manage bundled-agent integration in this project — register/unregister the routing block in CLAUDE.md/AGENTS.md, inspect state, or configure which model each of its agents runs on and at what effort.
 argument-hint: "<register | unregister | status | configure>"
 ---
 
@@ -79,7 +79,7 @@ and report each item's `state` from `result.items[]` — the bin wraps the plan 
   and point at `configure` to clean them up — do not present them as the active
   configuration, because they are not.
 
-## `configure` — model per invocation, recorded in config (ADR-008)
+## `configure` — model and effort per invocation, recorded in config (ADR-008; the effort ADR)
 
 > **Why there are no override copies here.** ADR-003 wrote
 > `<project>/.claude/agents/<name>.md` believing an equal `name:` shadows the
