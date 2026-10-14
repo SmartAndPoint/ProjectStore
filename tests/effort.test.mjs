@@ -165,7 +165,10 @@ test("effort AC: a Codex model's levels come from its catalog entry and survive 
   const home = codexHome();
   const env = { CODEX_HOME: home };
   const userHome = tmp("ps-eff-uh-");
-  const k = knownModels(CODEX, { env, home: userHome });
+  // The clock is the test's: a list dated after "now" is set aside, so a
+  // real clock would make the cache case below depend on the hour it runs.
+  const now = () => Date.parse("2026-10-14T13:00:00Z");
+  const k = knownModels(CODEX, { env, home: userHome, now });
   assert.deepEqual(
     effortLevels(CODEX, "gpt-5.6-luna", k).levels.map((l) => l.id),
     ["low", "medium", "high", "xhigh", "max"],
@@ -184,9 +187,9 @@ test("effort AC: a Codex model's levels come from its catalog entry and survive 
   mkdirSync(dirname(cache), { recursive: true });
   writeFileSync(
     cache,
-    JSON.stringify({ at: "2026-10-14T09:00:00Z", source: "Codex", models: [{ id: "gpt-5.6-luna", label: "L" }] }),
+    JSON.stringify({ at: "2026-10-14T12:30:00Z", source: "Codex", models: [{ id: "gpt-5.6-luna", label: "L" }] }),
   );
-  const k2 = knownModels(CODEX, { env: { ...env, XDG_CACHE_HOME: join(userHome, "c") }, home: userHome });
+  const k2 = knownModels(CODEX, { env: { ...env, XDG_CACHE_HOME: join(userHome, "c") }, home: userHome, now });
   assert.equal(effortLevels(CODEX, "gpt-5.6-luna", k2).from, "catalog");
   // A live read caches the levels it read.
   // The command catalog runs only when its bin is on PATH: a stub stands in,
