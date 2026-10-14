@@ -36,6 +36,8 @@ import {
   switchConsequence,
   pinFor,
   readKeepPlan,
+  copyBehind,
+  behindAdvice,
   DEFAULT_REGISTRY,
   ACCEPT,
   FRESH_MS,
@@ -986,5 +988,26 @@ test("converge rule 6, the switch row: a downgrade is named only against what th
   assert.equal(
     switchReason({ copy, running: "0.30.0", runs: "0.30.5", decision: null, unbound: true }),
     "the project is not bound yet: the switch is recorded in its binding once it is",
+  );
+});
+
+// The keep's line for a copy behind the running package (the install spec,
+// contract 21, rule 9, as amended 2026-10-14).
+test("converge rule 9 (2026-10-14): copyBehind ranks by semver precedence, rc included, and never for a copy or a run with no semver version; behindAdvice names the update in the copy's channel", () => {
+  const copy = (version) => ({ key: "projectstore@SmartAndPoint", version });
+  assert.equal(copyBehind(copy("0.29.0"), "0.30.3"), true);
+  assert.equal(copyBehind(copy("0.30.3-rc.1"), "0.30.3"), true, "an rc ranks below its release");
+  assert.equal(copyBehind(copy("0.30.3"), "0.30.3"), false, "equal: no line");
+  assert.equal(copyBehind(copy("0.31.0"), "0.30.3"), false, "above: no line");
+  for (const v of [null, "unknown", "4e1f3b0"]) assert.equal(copyBehind(copy(v), "0.30.3"), false, String(v));
+  assert.equal(copyBehind(copy("0.29.0"), null), false, "the run's own version unknown: no line");
+  const plain = behindAdvice(copy("0.29.0"), "0.30.3");
+  assert.equal(
+    plain,
+    "projectstore@SmartAndPoint 0.29.0 is older than this package (0.30.3): until it updates, the agents block and anything else this run writes for the project are at 0.30.3, and its own doctor may call the block stale. Update it (in Claude Code: /plugin marketplace update, then /plugin update, then restart).",
+  );
+  assert.match(
+    behindAdvice(copy("0.29.0"), "0.30.3", { step: true }),
+    /its own upgrade runs after this run's agents block and may plan the block back to its own version; until it updates, its doctor may call the block stale, and the next run may plan the block again/,
   );
 });

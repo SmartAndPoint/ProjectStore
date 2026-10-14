@@ -42,6 +42,10 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      the verb adds the import. For another harness the finding names its own
      `--harness`; relay that command. Never Edit or Write the block yourself —
      the verb is its only writer (install spec, contract 6).
+   - `agents-block` **info** that the block is "marked vN, newer than this
+     copy's vM" → **report only.** Install, upgrade and setup leave such a block as it is (install spec, contract 6 as amended
+     2026-10-14). Relay the finding and its command verbatim; run it only if
+     the user asks, because it writes this copy's older block over the one marked vN.
    - `statusline` issues → offer running `/projectstore:statusline on|off`,
      which installs or removes the entry and the launcher behind a preview
      (the SessionStart hook only refreshes an entry that already exists), and

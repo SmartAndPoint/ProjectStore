@@ -158,9 +158,9 @@ export function uiExemptions() {
       why: "a finding about the source harness's own registration; under another harness it is marked `about` it",
     },
     {
-      phrase: "(in Claude Code: /plugin marketplace update, then /plugin update, then restart)",
+      phrase: "in Claude Code: /plugin marketplace update, then /plugin update, then restart",
       file: "scripts/lib.mjs",
-      why: "an old marketplace copy's advice (copyUpdateAdvice), for the source harness's own copies only: doctor's layout move marks its finding `about` that harness under any other, and the installer's keep is planned only on a host-plugin-registration surface",
+      why: "an old marketplace copy's update steps (COPY_UPDATE_STEPS), quoted by copyUpdateAdvice and by the keep's behind line, for the source harness's own copies only: doctor's layout move marks its finding `about` that harness under any other, and the installer's keep is planned only on a host-plugin-registration surface",
     },
     { phrase: "Re-add it: /plugin marketplace add <owner/repo>.", file: "scripts/doctor.mjs", why: gated },
     { phrase: "(set via /plugin → Marketplaces → ", file: "scripts/doctor.mjs", why: gated },

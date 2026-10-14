@@ -454,6 +454,137 @@ test("install contract 6: a current block is skipped, a stale one is replaced in
   assert.equal(after, prose + BLOCK + tail, "only the block changed");
 });
 
+// ─── A newer block (the install spec, contracts 4, 6 and 9, as amended 2026-10-14) ───
+
+// A block a newer copy wrote: its marker above this copy's template, and a
+// rule this copy's render does not have — so a re-render would lose it.
+const NEWER = BLOCK.replace(`projectstore:agents v${VERSION}`, `projectstore:agents v${VERSION + 1}`).replace(
+  "- **Report instruction conflicts",
+  "- **A rule this copy does not have\n- **Report instruction conflicts",
+);
+const NEWER_WORDS = `marked v${VERSION + 1}, newer than this copy's v${VERSION}`;
+
+test("newer block: one in place is left as it is — ours-newer, a skip naming the way out, its bytes kept — and doctor reports an info, never an issue", () => {
+  const { home, root } = fixture();
+  const prose = "# Mine\n\n";
+  const proj = project({ claude: prose + NEWER });
+  const p = plan(proj, { home, root });
+  const i = item(p, "agents_block");
+  assert.deepEqual([i.state, i.action], ["ours-newer", "skip"]);
+  assert.equal(
+    i.reason,
+    `${NEWER_WORDS}: left as it is — name --surface agents_block to write this copy's v${VERSION} over it`,
+  );
+  apply(p);
+  assert.equal(read(join(proj, "CLAUDE.md")), prose + NEWER, "untouched, roster included");
+  // Setup takes no --surface: its way out is the core's install command.
+  const s = item(plan(proj, { home, root, takesSurface: false }), "agents_block");
+  assert.ok(
+    s.reason.endsWith(
+      `to write this copy's v${VERSION} over it: npx projectstore install --harness ${SRC.id} --surface agents_block`,
+    ),
+    s.reason,
+  );
+  const found = checkAgentsBlock(proj, { root });
+  assert.deepEqual(
+    found.filter((f) => f.level !== "info").map((f) => f.message),
+    [],
+  );
+  const info = found.find((f) => f.message.includes(NEWER_WORDS));
+  assert.ok(info && info.level === "info", JSON.stringify(found));
+  assert.ok(info.message.endsWith(`install --harness ${SRC.id} --surface agents_block`), info.message);
+  assert.ok(!info.message.includes("written by a newer"), info.message);
+  // The startup line counts issues alone and offers none of this.
+  const st = runStartupChecks({ vault_path: "/tmp/nowhere", layout: "engineering" }, proj);
+  assert.ok(
+    st.findings.filter((f) => f.check === "agents-block").every((f) => f.level === "info"),
+    JSON.stringify(st.findings),
+  );
+  assert.ok(!(st.offers || []).some((o) => /agents/.test(JSON.stringify(o))), JSON.stringify(st.offers));
+});
+
+test("newer block: the named surface writes this copy's render over one in place, and over a bogus v99; uninstall removes a newer block as any of ours", () => {
+  const { home, root } = fixture();
+  const prose = "# Mine\n\n";
+  for (const marked of [NEWER, BLOCK.replace(`projectstore:agents v${VERSION}`, "projectstore:agents v99")]) {
+    const proj = project({ claude: prose + marked });
+    const n = plan(proj, { home, root, surfaces: ["agents_block"] });
+    const i = item(n, "agents_block");
+    assert.deepEqual([i.state, i.action], ["ours-newer", "replace-entry"]);
+    assert.match(i.reason, /--surface agents_block names it$/);
+    apply(n);
+    assert.equal(read(join(proj, "CLAUDE.md")), prose + BLOCK);
+  }
+  const gone = project({ claude: prose + NEWER });
+  apply(plan(gone, { home, root, mode: "uninstall", surfaces: ["agents_block"] }));
+  assert.ok(!(existsSync(join(gone, "CLAUDE.md")) && read(join(gone, "CLAUDE.md")).includes("projectstore:agents")));
+});
+
+test("newer block: a Claude-only project gaining Codex moves it to AGENTS.md byte for byte, CLAUDE.md importing it; a re-run is a zero-write skip", () => {
+  const { home, root } = fixture();
+  const proj = project({ claude: NEWER });
+  const run = { home, root, harnesses: [SRC.id, "codex"], surfaces: ["agents_block"], env: noHostEnv() };
+  const p = plan(proj, run);
+  const moved = p.items.find((x) => x.surface === "agents_block" && x.path === join(proj, "AGENTS.md"));
+  assert.equal(moved.entry, `projectstore:agents v${VERSION + 1}`, "stamped with the carried marker");
+  assert.ok(moved.reason.endsWith(`with its own text (${NEWER_WORDS})`), moved.reason);
+  apply(p);
+  assert.ok(read(join(proj, "AGENTS.md")).includes(NEWER), "the newer text, byte for byte");
+  assert.ok(read(join(proj, "CLAUDE.md")).startsWith("@AGENTS.md"), "CLAUDE.md imports it");
+  const again = plan(proj, { ...run, surfaces: null });
+  assert.equal(again.items.find((x) => x.surface === "agents_block" && x.harness === SRC.id).state, "ours-newer");
+  assert.deepEqual(
+    again.items.filter((x) => x.surface.startsWith("agents_block") && x.action !== "skip").map((x) => x.action),
+    [],
+  );
+});
+
+test("newer block: of two blocks the preferred file's stays, and the newer text from CLAUDE.md replaces AGENTS.md's, both rows saying so", () => {
+  const { home, root } = fixture();
+  const proj = project({ claude: NEWER, agents: BLOCK });
+  const p = plan(proj, { home, root });
+  const stay = p.items.find((x) => x.surface === "agents_block" && x.path === join(proj, "AGENTS.md"));
+  const gone = p.items.find((x) => x.surface === "agents_block" && x.path === join(proj, "CLAUDE.md"));
+  assert.equal(stay.action, "replace-entry");
+  assert.match(stay.reason, /replaced by CLAUDE\.md's/);
+  assert.equal(gone.action, "remove");
+  assert.match(gone.reason, /its text replaces the block in AGENTS\.md/);
+  apply(p);
+  assert.ok(read(join(proj, "AGENTS.md")).includes(NEWER));
+  assert.ok(!read(join(proj, "CLAUDE.md")).includes("projectstore:agents v"));
+});
+
+test("newer block: of two blocks both marked above the template, the preferred file's stays as it is (ours-newer) and the other is removed", () => {
+  const { home, root } = fixture();
+  const other = NEWER.replace("- **A rule this copy does not have", "- **Another rule this copy does not have");
+  const proj = project({ claude: other, agents: NEWER });
+  const p = plan(proj, { home, root });
+  const stay = p.items.find((x) => x.surface === "agents_block" && x.path === join(proj, "AGENTS.md"));
+  const gone = p.items.find((x) => x.surface === "agents_block" && x.path === join(proj, "CLAUDE.md"));
+  assert.deepEqual([stay.state, stay.action], ["ours-newer", "skip"]);
+  assert.equal(gone.action, "remove");
+  apply(p);
+  assert.ok(read(join(proj, "AGENTS.md")).includes(NEWER), "the stayer's own text");
+});
+
+test("newer block: a named run that must add an import adds it and leaves the newer block's bytes; the next named run, with nothing left to place, writes the render", () => {
+  const { home, root } = fixture();
+  const proj = project({ agents: NEWER, claude: "# Mine\n" });
+  const p = plan(proj, { home, root, surfaces: ["agents_block"] });
+  assert.deepEqual(
+    [item(p, "agents_block").state, item(p, "agents_block").action],
+    ["ours-newer", "skip"],
+    "doctor's import remedy names the surface; it must not downgrade",
+  );
+  assert.equal(item(p, "agents_block_import").action, "add");
+  apply(p);
+  assert.ok(read(join(proj, "AGENTS.md")).includes(NEWER));
+  const next = plan(proj, { home, root, surfaces: ["agents_block"] });
+  assert.equal(item(next, "agents_block").action, "replace-entry");
+  apply(next);
+  assert.ok(read(join(proj, "AGENTS.md")).includes(BLOCK));
+});
+
 // The defect this pins, measured on the smoke stand 2026-09-07: a fresh install
 // on a project with neither file wrote CLAUDE.md — because the block's file list
 // was the source harness's, and analyseBlock takes the LAST entry when none of
@@ -1802,7 +1933,13 @@ test("install: the launcher stamp names the installer as generator and doctor as
 // ─── Slice A3: doctor reads the states ──────────────────────────────────
 
 import { surfaceStates, analyseStampedFile } from "../scripts/surfaces.mjs";
-import { checkHarnessSurfaces, checkVersionDrift, checkAgentsBlock, runInstallChecks } from "../scripts/doctor.mjs";
+import {
+  checkHarnessSurfaces,
+  checkVersionDrift,
+  checkAgentsBlock,
+  runInstallChecks,
+  runStartupChecks,
+} from "../scripts/doctor.mjs";
 import { installedPluginEntries } from "../scripts/lib.mjs";
 
 const byCheck = (fs, id) => fs.filter((f) => f.check === id);
@@ -3087,9 +3224,9 @@ test("one block per run, under keep: on an empty project with a git copy kept be
     "a second run plans zero changes",
   );
   assert.equal(
-    again.plan.items.find((i) => i.kind === "channel"),
-    undefined,
-    "the copy lists nothing: no keep step",
+    again.plan.items.find((i) => i.kind === "channel")?.action,
+    "skip",
+    "the copy lists nothing: no keep step — only the line saying the copy is behind",
   );
 });
 

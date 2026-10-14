@@ -19,7 +19,8 @@
 //
 // Normative: the install spec — contract 0 (exclusive vs shared), 3–4 (the
 // four states and the ladder, rungs 1′ and 1″ included), 6 (per-entry states
-// for shared files: ours-current, ours-stale, ours-absent, unparseable),
+// for shared files: ours-current, ours-stale, ours-newer — 2026-10-14 —, ours-absent,
+// unparseable),
 // 12 (current, last written by), 14 (host-managed surfaces have no state to
 // derive), 16 (a harness is in use when detected or when it has files of
 // ours). Pure node, no external deps.
@@ -37,6 +38,8 @@ import {
   desiredStatusLineCommand,
   findAgentsBlock,
   agentsBlockVersion,
+  newerBlockWords,
+  isNewerBlock,
   agentsBlockTemplatePath,
   renderAgentsBlock,
   loadLayout,
@@ -185,6 +188,15 @@ export function analyseBlock(
   a.current = withBlock.find((e) => e.file === preferred.file) || withBlock[0] || null;
   a.duplicates = withBlock.filter((e) => e !== a.current);
   if (!a.current) return { ...a, state: "ours-absent" };
+  // A marker above this copy's template is never rendered down (the install
+  // spec, contracts 4 and 6, as amended 2026-10-14). Placement still decides
+  // first (rungs B4–B6), and a block that moves, migrates or is deduplicated
+  // carries the newest block's own text; one that stays is `ours-newer`
+  // (B7), before the render is compared, so its roster is never re-rendered.
+  const newest = withBlock.reduce((n, e) => (e.block.v > n.block.v ? e : n), a.current);
+  a.newer = isNewerBlock(newest.block.v, a.version) ? newest : null;
+  const words = a.newer ? newerBlockWords(a.newer.block.v, a.version) : null;
+  const carried = a.newer ? ` with its own text (${words})` : "";
   // A block this harness CANNOT READ moves, and its target is created if it has
   // to be: that is the whole difference between a second harness arriving and a
   // preference. A block it can read moves only when the preferred file already
@@ -197,17 +209,25 @@ export function analyseBlock(
     return {
       ...a,
       state: "ours-stale",
-      reason: `in ${a.current.file}, which ${reader || s.harness_display || "this harness"} does not read; install moves it to ${preferred.file}`,
+      reason: `in ${a.current.file}, which ${reader || s.harness_display || "this harness"} does not read; install moves it to ${preferred.file}${carried}`,
     };
   }
   if (a.current.file !== preferred.file && preferred.present)
-    return { ...a, state: "ours-stale", reason: `in ${a.current.file}; install migrates it to ${preferred.file}` };
+    return {
+      ...a,
+      state: "ours-stale",
+      reason: `in ${a.current.file}; install migrates it to ${preferred.file}${carried}`,
+    };
   if (a.duplicates.length)
     return {
       ...a,
       state: "ours-stale",
-      reason: `also in ${a.duplicates.map((e) => e.file).join(", ")}; install keeps the one in ${a.current.file}`,
+      reason:
+        a.newer && a.newer !== a.current
+          ? `also in ${a.duplicates.map((e) => e.file).join(", ")}; install keeps the one in ${a.current.file}, and ${a.newer.file}'s carries v${a.newer.block.v}, newer than this copy's v${a.version}: its text replaces the block in ${a.current.file}`
+          : `also in ${a.duplicates.map((e) => e.file).join(", ")}; install keeps the one in ${a.current.file}${carried}`,
     };
+  if (a.newer) return { ...a, state: "ours-newer", reason: `${words}: left as it is` };
   if (a.current.block.v === a.version && a.current.block.block === a.desired) return { ...a, state: "ours-current" };
   return {
     ...a,
@@ -798,7 +818,7 @@ export function surfaceStates(
     const hasOurs = states.some(
       (x) =>
         (x.kind === "exclusive" && ["current", "stale"].includes(x.state)) ||
-        (x.kind === "shared" && ["ours-current", "ours-stale"].includes(x.state)),
+        (x.kind === "shared" && ["ours-current", "ours-stale", "ours-newer"].includes(x.state)),
     );
     if (detected.includes(m.id) || hasOurs) {
       out.used.push(m.id);

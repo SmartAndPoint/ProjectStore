@@ -1270,9 +1270,12 @@ test("setup 'The channel' without a terminal: no --channel is refused before the
   assert.equal(keepRow.deferred, true);
   // The keep's deferral names the run as any deferral does (the install
   // spec, contract 6, as amended 2026-10-14): the keep is a setup item.
+  // The copy (0.29.0) is behind: its line comes after the prose and before
+  // where to run (contract 21, rule 9, as amended 2026-10-14).
   const keepLines = keepRow.reason.split("\n");
-  assert.match(keepLines[1], /^From a terminal in ".+":$/, keepRow.reason);
-  assert.equal(keepLines[2], `npx projectstore@${V} setup --harness ${SRC.id}`, keepRow.reason);
+  assert.match(keepLines[1], /is older than this package/, keepRow.reason);
+  assert.match(keepLines[2], /^From a terminal in ".+":$/, keepRow.reason);
+  assert.equal(keepLines[3], `npx projectstore@${V} setup --harness ${SRC.id}`, keepRow.reason);
   // Usage: exit 2.
   const only = await setup(sb, { values: { harness: [CODEX.id], channel: "npm" } });
   assert.equal(only.r.code, 2);
