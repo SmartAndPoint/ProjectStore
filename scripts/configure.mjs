@@ -22,6 +22,7 @@ import {
 import {
   readOverlayAt,
   resolveAgentModel,
+  resolveAgentEffort,
   layoutRoster,
   readVaultConfigStrict,
   nextVaultConfig,
@@ -35,7 +36,15 @@ import { bandKeys, epicIds, planBand, applyBand } from "./band.mjs";
 import { planAgentsChange, applyAgentsChange } from "./agents-change.mjs";
 import { plan as planInstall, apply as applyInstall, planOptions, isInteractive } from "./install-harness.mjs";
 import { analyseLayout } from "./surfaces.mjs";
-import { knownModels, offListNote } from "./models.mjs";
+import {
+  knownModels,
+  offListNote,
+  effortSpec,
+  effortLevels,
+  offLevelNote,
+  standingLevelNote,
+  LEVEL,
+} from "./models.mjs";
 import { runMenu } from "./configure-menu.mjs";
 import { SMALLEST } from "./menu.mjs";
 
@@ -76,6 +85,7 @@ export function readFacts(project, { env = process.env, root, home = homedir() }
   return {
     project,
     home,
+    env,
     path,
     cfg,
     used,
@@ -108,6 +118,29 @@ export function settingsOf(f) {
     const o = readOverlayAt(f.project, h.id);
     const file = where(f, o.path);
     const base = { group: `agents:${h.id}`, harness: h.id, file, class: "changeable", team: true, writer: "overlay" };
+    // Each model setting is followed by its effort setting, where the harness
+    // passes one at spawn (the effort ADR, decisions 1 and 4). An effort that
+    // nothing configures reads as the harness says: the frontmatter's, or the
+    // model's own default level, named when its catalog entry is known.
+    const es = effortSpec(h);
+    const known = es?.unset?.model_default ? knownModels(h, { env: f.env, home: f.home }) : null;
+    // frontmatter: the agent's own; model_default: the passed model's own
+    // default, named; harness: the harness's own precedence (no model passed,
+    // or none whose default is known).
+    const unsetEffort = (model) => {
+      if (!es?.unset?.model_default) return { source: "frontmatter" };
+      const d = model ? effortLevels(h, model, known)?.default : null;
+      return d ? { source: "model_default", model_default: d } : { source: "harness" };
+    };
+    const effortRow = (key, effort, effortSource, model) =>
+      es &&
+      out.push({
+        ...base,
+        key,
+        value: effort || null,
+        ...(o.unparseable ? { source: "unparseable" } : effort ? { source: effortSource } : unsetEffort(model)),
+        rail: "effort",
+      });
     out.push({
       ...base,
       key: "agents.default",
@@ -115,7 +148,10 @@ export function settingsOf(f) {
       source: o.unparseable ? "unparseable" : o.agents.default ? "overlay" : "frontmatter",
       rail: "model",
     });
-    const names = [...new Set([...(f.roster || []), ...Object.keys(o.agents.per_agent)])];
+    effortRow("agents.default.effort", o.efforts.default, "overlay", o.agents.default);
+    const names = [
+      ...new Set([...(f.roster || []), ...Object.keys(o.agents.per_agent), ...Object.keys(o.efforts.per_agent)]),
+    ];
     for (const n of names) {
       const r = resolveAgentModel(f.project, n, { harness: h.id });
       out.push({
@@ -125,6 +161,8 @@ export function settingsOf(f) {
         source: o.unparseable ? "unparseable" : r.source || "frontmatter",
         rail: "model",
       });
+      const e = resolveAgentEffort(f.project, n, { harness: h.id });
+      effortRow(`agents.${n}.effort`, e.effort, e.source, r.model);
     }
   }
   if (f.slot)
@@ -239,11 +277,13 @@ function setForm(s, f) {
       ? "on|off"
       : s.key === "tags"
         ? "<a,b>"
-        : s.key.startsWith("agents.")
-          ? "<model>"
-          : s.key === "band.epic"
-            ? "<epic>"
-            : `<${s.key}>`;
+        : s.rail === "effort"
+          ? "<level>"
+          : s.key.startsWith("agents.")
+            ? "<model>"
+            : s.key === "band.epic"
+              ? "<epic>"
+              : `<${s.key}>`;
   const h = s.harness && f.used.length > 1 ? ` --harness ${s.harness}` : "";
   return `--set ${s.key}=${value}${h}`;
 }
@@ -266,8 +306,10 @@ export function resolveSets(f, sets, { harness = null, nearest = null } = {}) {
     const value = String(raw)
       .slice(at + 1)
       .trim();
-    const m = /^agents\.([a-z][a-z0-9-]*)(?:\.model)?$/.exec(key);
-    if (m) key = `agents.${m[1]}`;
+    // agents.<name> and agents.<name>.model are one key; agents.<name>.effort
+    // is a key of its own (the effort ADR, decision 4).
+    const m = /^agents\.([a-z][a-z0-9-]*)(?:\.(model|effort))?$/.exec(key);
+    if (m) key = m[2] === "effort" ? `agents.${m[1]}.effort` : `agents.${m[1]}`;
     if (seen.has(key)) return { usage: `${key} is named twice` };
     seen.add(key);
     if (m) {
@@ -280,6 +322,19 @@ export function resolveSets(f, sets, { harness = null, nearest = null } = {}) {
         else return { usage: `name the overlay: --harness <id> (this project uses ${harnessesNamed})` };
       }
       if (!harnessIds().includes(h)) return { usage: `unknown harness: ${h} — known: ${harnessIds().join(", ")}` };
+      if (m[2] === "effort") {
+        const manifest = loadHarness(h);
+        const es = effortSpec(manifest);
+        if (!es) return { usage: `${manifest?.display_name || h} takes no effort at spawn: ${key} has nothing to set` };
+        // A lowercase token, or - to clear; a level the harness does not list
+        // is written with a note, not refused (decision 5).
+        if (value !== CLEAR && !LEVEL.test(value))
+          return {
+            usage: `${key} takes a level (${es.levels.map((l) => l.id).join(", ")}), or ${CLEAR} to clear it, got ${value || "nothing"}`,
+          };
+        out.push({ key, writer: "overlay", harness: h, name, field: "effort", value: value === CLEAR ? null : value });
+        continue;
+      }
       if (!value) return { usage: `${key} takes a model, or ${CLEAR} to clear it` };
       out.push({ key, writer: "overlay", harness: h, name, value: value === CLEAR ? null : value });
       continue;
@@ -434,14 +489,19 @@ export function planChanges(f, changes, { env = process.env, home = homedir(), r
   for (const [h, list] of byHarness) {
     const before = readOverlayAt(f.project, h);
     if (before.unparseable) return refuse(`${before.path} is not valid JSON — fix or remove it first`);
-    const def = list.find((c) => c.name === "default");
+    const models = list.filter((c) => c.field !== "effort");
+    const efforts = list.filter((c) => c.field === "effort");
+    const def = models.find((c) => c.name === "default");
+    const defEffort = efforts.find((c) => c.name === "default");
     const change = planAgentsChange({
       before,
       harness: h,
       layout: f.cfg.layout,
       roster: f.roster,
       defaultModel: def ? def.value || "" : undefined,
-      agents: list.filter((c) => c.name !== "default").map((c) => `${c.name}=${c.value || ""}`),
+      agents: models.filter((c) => c.name !== "default").map((c) => `${c.name}=${c.value || ""}`),
+      defaultEffort: defEffort ? defEffort.value || "" : undefined,
+      efforts: efforts.filter((c) => c.name !== "default").map((c) => `${c.name}=${c.value || ""}`),
     });
     if (change.usage) return { usage: change.usage };
     if (change.same) continue;
@@ -452,11 +512,47 @@ export function planChanges(f, changes, { env = process.env, home = homedir(), r
     // 8 as amended 2026-10-13): the model may be newer than the list.
     // Only a model the run names gets the note: the clerk's pin does not.
     const known = knownModels(manifest, { env, home });
-    const named = new Map(list.map((c) => [c.name, c.value]));
+    const named = new Map(models.map((c) => [c.name, c.value]));
     const offList = (name, model) => (model && named.get(name) === model ? offListNote(manifest, model, known) : null);
     const notes = (...xs) => xs.filter(Boolean).join("; ") || null;
+    // Effort against the model each agent runs on after the run (the effort
+    // ADR, decision 5): a level the run names is checked on its own row; a
+    // model the run changes is checked against the level its agents keep, on
+    // the model's row; a default level the run names is checked against every
+    // agent that inherits it on a model of its own, on the default's row.
+    const ne = change.nextEfforts;
+    const namedEffort = new Map(efforts.map((c) => [c.name, c.value]));
+    const roster = [
+      ...new Set([...(f.roster || []), ...Object.keys(change.next.per_agent), ...Object.keys(ne.per_agent)]),
+    ];
+    const runModel = (n) => (n === "default" ? change.next.default : change.next.per_agent[n] || change.next.default);
+    const runEffort = (n) => (n === "default" ? ne.default : ne.per_agent[n] || ne.default) || null;
+    const levelNote = (n, level) =>
+      level && namedEffort.get(n) === level ? offLevelNote(manifest, level, runModel(n) || null, known) : null;
+    const inheritors = (level) =>
+      level && namedEffort.get("default") === level
+        ? roster
+            .filter(
+              (n) => !ne.per_agent[n] && change.next.per_agent[n] && change.next.per_agent[n] !== change.next.default,
+            )
+            .map((n) => standingLevelNote(manifest, n, level, runModel(n), known))
+            .filter(Boolean)
+            .join("; ") || null
+        : null;
+    // Agents a model change moves, and the level each keeps, when that level
+    // was not named by this run (a named one is checked on its own row).
+    const moved = (n) => {
+      const who = n === "default" ? ["default", ...roster.filter((r) => !change.next.per_agent[r])] : [n];
+      return (
+        who
+          .filter((a) => !namedEffort.has(a) && !(a !== "default" && !ne.per_agent[a] && namedEffort.has("default")))
+          .map((a) => standingLevelNote(manifest, a, runEffort(a), runModel(a) || null, known))
+          .filter(Boolean)
+          .join("; ") || null
+      );
+    };
     if (before.agents.default !== change.next.default) {
-      const listNote = offList("default", change.next.default);
+      const listNote = notes(offList("default", change.next.default), moved("default"));
       items.push({
         key: "agents.default",
         harness: h,
@@ -474,7 +570,7 @@ export function planChanges(f, changes, { env = process.env, home = homedir(), r
       const a = before.agents.per_agent[n] || null;
       const b = change.next.per_agent[n] || null;
       if (a === b) continue;
-      const listNote = offList(n, b);
+      const listNote = notes(offList(n, b), moved(n));
       items.push({
         key: `agents.${n}`,
         harness: h,
@@ -501,7 +597,43 @@ export function planChanges(f, changes, { env = process.env, home = homedir(), r
         team: true,
         note: `${display} declares no cheap model to pin the clerk to; set agents.clerk to name one`,
       });
-    steps.push({ writer: "overlay", harness: h, next: change.next });
+    const beforeEfforts = before.efforts;
+    if (beforeEfforts.default !== ne.default) {
+      const listNote = notes(levelNote("default", ne.default), inheritors(ne.default));
+      items.push({
+        key: "agents.default.effort",
+        harness: h,
+        display,
+        file,
+        before: shown(beforeEfforts.default),
+        after: shown(ne.default),
+        team: true,
+        note: listNote,
+        listNote,
+      });
+    }
+    const effortNames = new Set([...Object.keys(beforeEfforts.per_agent), ...Object.keys(ne.per_agent)]);
+    for (const n of [...effortNames].sort()) {
+      const a = beforeEfforts.per_agent[n] || null;
+      const b = ne.per_agent[n] || null;
+      if (a === b) continue;
+      const listNote = levelNote(n, b);
+      items.push({
+        key: `agents.${n}.effort`,
+        harness: h,
+        display,
+        file,
+        before: shown(a),
+        after: shown(b),
+        team: true,
+        note: notes(
+          change.pinnedClerkEffort && n === "clerk" ? "pinned: the clerk stays cheap under a strong default" : null,
+          listNote,
+        ),
+        listNote,
+      });
+    }
+    steps.push({ writer: "overlay", harness: h, next: change.next, nextEfforts: ne });
   }
 
   // The status line: install's own plan for the surface, with its flag item
@@ -602,7 +734,7 @@ export function applyChanges(f, steps, { env = process.env, home = homedir(), ro
         writeVaultConfig(f.vault, nextVaultConfig(now.cfg, s.patch, new Date().toISOString()));
         wrote.push(vaultConfigPath(f.vault));
       } else if (s.writer === "overlay") {
-        wrote.push(applyAgentsChange(f.project, s.harness, s.next).path);
+        wrote.push(applyAgentsChange(f.project, s.harness, s.next, s.nextEfforts).path);
       } else if (s.writer === "statusline") {
         const finished = [];
         try {
@@ -640,6 +772,8 @@ const SOURCE_TEXT = Object.freeze({
   per_agent: "per agent",
   default: "default",
   frontmatter: "its frontmatter",
+  model_default: "its model's own default",
+  harness: "the harness decides",
   binding: "binding",
   vault_config: "vault config",
   unparseable: "not valid JSON: fix the file to change it",
@@ -675,9 +809,11 @@ export function renderView(f, settings, { caps: c = term.PLAIN } = {}) {
           note:
             s.class === "other-verb"
               ? "changed by another command, below"
-              : s.class === "changeable" && !s.rail
-                ? `${SOURCE_TEXT[s.source] || s.source}; change it with ${s.set}`
-                : SOURCE_TEXT[s.source] || s.source,
+              : s.source === "model_default" && s.model_default
+                ? `${SOURCE_TEXT.model_default}, ${s.model_default}`
+                : s.class === "changeable" && !s.rail
+                  ? `${SOURCE_TEXT[s.source] || s.source}; change it with ${s.set}`
+                  : SOURCE_TEXT[s.source] || s.source,
         })),
       ),
     );
@@ -764,6 +900,7 @@ export async function runConfigure(ctx) {
     harness: s.harness || null,
     team: s.team,
     set: s.set,
+    ...(s.model_default ? { model_default: s.model_default } : {}),
   }));
   const interactive =
     !json && (ask ? true : isInteractive({ stdin, stdout, env, json })) && term.railAvailable(stdin, c);

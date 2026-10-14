@@ -448,7 +448,7 @@ export function legacyProject(
   // path the v3 template named (the v4 template names the overlay).
   const tmpl = readFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), "utf8");
   const v3 = renderAgentsBlock(tmpl, null)
-    .replace("projectstore:agents v4 ", "projectstore:agents v3 ")
+    .replace(/projectstore:agents v\d+ /, "projectstore:agents v3 ")
     .replace("`.projectstore/harness/<harness>.json`", "`.claude/projectstore.json`");
   writeFileSync(join(proj, "AGENTS.md"), v3 + "\n");
   writeFileSync(join(proj, "CLAUDE.md"), "# My project\n\n@AGENTS.md\n");

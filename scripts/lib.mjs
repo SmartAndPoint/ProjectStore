@@ -196,9 +196,11 @@ export { adoptHookInput, resetHookInput };
 // ─── Harness overlays (the layout ADR decision 3; layout spec contracts 2–4) ──
 //
 // <project>/.projectstore/harness/<id>.json carries ONE thing: the agents block
-// for that harness — agents.default.model and agents.per_agent.<name>.model.
-// Every other key is ignored on read and named for doctor (rejected). The
-// binding never carries agents: ADR-008's two-term chain is read from here.
+// for that harness — agents.default.model, agents.default.effort,
+// agents.per_agent.<name>.model and agents.per_agent.<name>.effort (the effort
+// ADR, decision 1). Every other key is ignored on read and named for doctor
+// (rejected). The binding never carries agents: ADR-008's two-term chain is
+// read from here, once per field.
 export function readOverlayAt(projectDir, id = overlayId()) {
   // No id (no manifest at all): nothing is read, and the writer below refuses
   // the same id rather than inventing a file name for it.
@@ -209,6 +211,7 @@ export function readOverlayAt(projectDir, id = overlayId()) {
     present: Boolean(path) && existsSync(path),
     unparseable: false,
     agents: { default: null, per_agent: {} },
+    efforts: { default: null, per_agent: {} },
     rejected: [],
     raw: null,
   };
@@ -235,8 +238,10 @@ export function readOverlayAt(projectDir, id = overlayId()) {
   for (const k of Object.keys(a)) if (k !== "default" && k !== "per_agent") out.rejected.push(`agents.${k}`);
   if (a.default !== undefined) {
     if (a.default && typeof a.default === "object") {
-      for (const k of Object.keys(a.default)) if (k !== "model") out.rejected.push(`agents.default.${k}`);
+      for (const k of Object.keys(a.default))
+        if (k !== "model" && k !== "effort") out.rejected.push(`agents.default.${k}`);
       if (typeof a.default.model === "string" && a.default.model) out.agents.default = a.default.model;
+      if (typeof a.default.effort === "string" && a.default.effort) out.efforts.default = a.default.effort;
     } else out.rejected.push("agents.default");
   }
   if (a.per_agent !== undefined) {
@@ -246,8 +251,10 @@ export function readOverlayAt(projectDir, id = overlayId()) {
           out.rejected.push(`agents.per_agent.${name}`);
           continue;
         }
-        for (const k of Object.keys(v)) if (k !== "model") out.rejected.push(`agents.per_agent.${name}.${k}`);
+        for (const k of Object.keys(v))
+          if (k !== "model" && k !== "effort") out.rejected.push(`agents.per_agent.${name}.${k}`);
         if (typeof v.model === "string" && v.model) out.agents.per_agent[name] = v.model;
+        if (typeof v.effort === "string" && v.effort) out.efforts.per_agent[name] = v.effort;
       }
     } else out.rejected.push("agents.per_agent");
   }
@@ -264,9 +271,22 @@ export function resolveAgentModel(projectDir, name, { harness = overlayId() } = 
   return { name, model: null, source: null, overlay: o.path, harness };
 }
 
+// The same two terms for effort, on their own (the effort ADR, decision 1): an
+// agent's own model does not stop it taking the default's effort. Null passes
+// nothing: the frontmatter's effort, or the harness's own default, runs.
+export function resolveAgentEffort(projectDir, name, { harness = overlayId() } = {}) {
+  const o = readOverlayAt(projectDir, harness);
+  const per = o.efforts.per_agent[name];
+  if (per) return { name, effort: per, source: "per_agent", overlay: o.path, harness };
+  if (o.efforts.default) return { name, effort: o.efforts.default, source: "default", overlay: o.path, harness };
+  return { name, effort: null, source: null, overlay: o.path, harness };
+}
+
 // The one writer of an overlay: rewrites its agents block, keeps any other key
 // as it found it (doctor names them; this never silently drops a user's key).
-export function writeOverlayAt(projectDir, id, agents) {
+// `efforts` left out keeps the efforts the file holds, so a caller that
+// changes models only never drops one.
+export function writeOverlayAt(projectDir, id, agents, efforts) {
   if (!id) throw new Error("writeOverlayAt: the overlay's harness id is required");
   const path = layoutPaths(projectDir).overlay(id);
   let raw = {};
@@ -274,10 +294,13 @@ export function writeOverlayAt(projectDir, id, agents) {
     raw = JSON.parse(readFileSync(path, "utf8"));
   } catch {}
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) raw = {};
+  const e = efforts === undefined ? readOverlayAt(projectDir, id).efforts : efforts;
+  const pair = (model, effort) => ({ ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
   const block = {};
-  if (agents.default) block.default = { model: agents.default };
-  const names = Object.keys(agents.per_agent || {}).sort();
-  if (names.length) block.per_agent = Object.fromEntries(names.map((n) => [n, { model: agents.per_agent[n] }]));
+  if (agents.default || e.default) block.default = pair(agents.default, e.default);
+  const names = [...new Set([...Object.keys(agents.per_agent || {}), ...Object.keys(e.per_agent || {})])].sort();
+  if (names.length)
+    block.per_agent = Object.fromEntries(names.map((n) => [n, pair(agents.per_agent?.[n], e.per_agent?.[n])]));
   const next = { ...raw };
   if (Object.keys(block).length) next.agents = block;
   else delete next.agents;

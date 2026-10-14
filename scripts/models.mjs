@@ -18,6 +18,18 @@
 //   modelsProblem(manifest)              → what is wrong with the block, or null:
 //                                          the manifest schema test's check
 //
+// Effort (the ADR "Agent effort is passed at spawn beside the model, from the
+// overlay, in each harness's own levels") reads the same entries: the
+// manifest's agent_translation.effort names the levels its spawn takes, and,
+// where a catalog lists a model's own levels, their field paths.
+//
+//   effortSpec(manifest)                 → the effort block, or null
+//   effortLevels(manifest, model, known) → the levels a model takes, from its
+//                                          catalog entry or the manifest's floor
+//   offLevelNote(manifest, level, model, known) → the PLAN's note for a level
+//                                          that list lacks, or null (decision 5)
+//   effortProblem(manifest)              → what is wrong with the block, or null
+//
 // Local reads are synchronous and cheap: the manifest, a `file` catalog, and
 // projectstore's own cache. A `command` or `http` catalog is read only by
 // readLive, which a menu starts in the background. env, home, now, fetch,
@@ -40,6 +52,15 @@ export function modelSpec(manifest) {
   const m = manifest?.agent_translation?.models;
   return m && typeof m === "object" ? m : null;
 }
+
+export function effortSpec(manifest) {
+  const e = manifest?.agent_translation?.effort;
+  return e && typeof e === "object" ? e : null;
+}
+
+// A level is a lowercase token: the shape --set accepts and a catalog's
+// level must have to be kept.
+export const LEVEL = /^[a-z][a-z0-9-]*$/;
 
 // One field path, dotted: "data", "models", "fetched_at".
 const at = (obj, path) =>
@@ -67,9 +88,10 @@ const clean = (s) =>
     .replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 
 // A catalog's answer as rows: { id, label, description, family, hidden },
-// in the catalog's order. Entries without an id, and entries `keep_when`
-// rejects, are dropped; `shown_when` only hides.
-export function entriesOf(body, fields) {
+// in the catalog's order, and `levels` and `default_level` when `levelFields`
+// (the effort block's catalog paths) finds them in an entry. Entries without
+// an id, and entries `keep_when` rejects, are dropped; `shown_when` only hides.
+export function entriesOf(body, fields, levelFields = null) {
   const list = at(body, fields.list);
   if (!Array.isArray(list)) return null;
   const rows = [];
@@ -89,6 +111,7 @@ export function entriesOf(body, fields) {
       description: text(fields.description),
       family: text(fields.family),
       hidden: fields.shown_when ? !matches(e, fields.shown_when) : false,
+      ...levelsOf(e, levelFields),
       order: fields.order ? at(e, fields.order) : k,
       k,
     });
@@ -100,7 +123,37 @@ export function entriesOf(body, fields) {
     if (x === y || x === undefined || y === undefined) return a.k - b.k;
     return (x < y ? -1 : 1) * (desc ? -1 : 1);
   });
-  return rows.map(({ id, label, description, family, hidden }) => ({ id, label, description, family, hidden }));
+  return rows.map(({ order: _order, k: _k, ...row }) => row);
+}
+
+// One entry's own levels, by the effort block's catalog paths: { levels:
+// [{ id, description }], default_level } or nothing at all, so an entry
+// without them reads exactly as it did before levels were read.
+function levelsOf(e, lf) {
+  if (!lf || !lf.list) return {};
+  const list = at(e, lf.list);
+  if (!Array.isArray(list)) return {};
+  const levels = [];
+  for (const x of list) {
+    const raw = x && typeof x === "object" ? at(x, lf.id || "id") : x;
+    const id = typeof raw === "string" ? clean(raw) : "";
+    if (!LEVEL.test(id) || levels.some((l) => l.id === id)) continue;
+    const d = x && typeof x === "object" && lf.description ? at(x, lf.description) : undefined;
+    levels.push({ id, description: typeof d === "string" ? clean(d) : "" });
+  }
+  if (!levels.length) return {};
+  const dRaw = lf.default ? at(e, lf.default) : undefined;
+  const d = typeof dRaw === "string" ? clean(dRaw) : "";
+  return { levels, ...(levels.some((l) => l.id === d) ? { default_level: d } : {}) };
+}
+
+// A cached row's levels, cleaned again: the cache is a file anyone can edit.
+function cachedLevels(x) {
+  if (!Array.isArray(x.levels)) return {};
+  return levelsOf(
+    { l: x.levels, d: x.default_level },
+    { list: "l", id: "id", description: "description", default: "d" },
+  );
 }
 
 const timeOf = (v) => {
@@ -129,6 +182,7 @@ function readCache(manifest, opts) {
         description: clean(x.description ?? ""),
         family: clean(x.family ?? ""),
         hidden: Boolean(x.hidden),
+        ...cachedLevels(x),
       }));
     const source = typeof c.source === "string" ? c.source : "";
     const from = (modelSpec(manifest)?.catalogs || []).find((x) => x.source === source);
@@ -147,7 +201,7 @@ function readFileCatalog(manifest, spec, catalog, opts) {
     const raw = readFileSync(p, "utf8");
     const fields = fieldsOf(spec, catalog);
     const body = JSON.parse(raw);
-    const entries = entriesOf(body, fields);
+    const entries = entriesOf(body, fields, effortSpec(manifest)?.catalog);
     if (!entries) return null;
     const t = timeOf(fields.at ? at(body, fields.at) : undefined) ?? statSync(p).mtimeMs;
     return { at: t, source: catalog.source || "", caption: catalog.caption || catalog.source || "", entries };
@@ -239,6 +293,14 @@ export function knownModels(manifest, { env = process.env, home = homedir(), now
       if (!offered.some((o) => o.id === s.id))
         offered.push({ id: s.id, label: s.label || "", description: s.description || "" });
   }
+  // A model's own levels, from the newest list whose entry for it names
+  // them: a cache written before levels were kept falls through to the
+  // harness's own file, so a refresh never loses what that file says.
+  const levels = new Map();
+  for (const c of [...(past.length ? past : candidates)].sort((a, b) => b.at - a.at))
+    for (const e of c.entries)
+      if (e.levels && !levels.has(e.id))
+        levels.set(e.id, { levels: e.levels, default: e.default_level || null, source: c.source, at: c.at });
   const t = t0;
   const live = liveCatalog(spec, env);
   return {
@@ -247,6 +309,7 @@ export function knownModels(manifest, { env = process.env, home = homedir(), now
     offered,
     known,
     hidden: new Set(entries.filter((e) => e.hidden).map((e) => e.id)),
+    levels,
     source: newest ? newest.source : "",
     caption: newest ? newest.caption || newest.source : "",
     at: newest ? newest.at : null,
@@ -288,6 +351,53 @@ const localDate = (t) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
+// The levels a model takes (the effort ADR, decisions 3 and 4): its own, when
+// a list names them, else the manifest's floor. `known` is knownModels'
+// answer, or null. Null when the manifest declares no effort block.
+//   { levels: [{ id, description }], default, from: "catalog" | "floor",
+//     model, source, at }
+export function effortLevels(manifest, model, known) {
+  const spec = effortSpec(manifest);
+  if (!spec) return null;
+  const own = model ? known?.levels?.get(model) : null;
+  if (own) return { levels: own.levels, default: own.default, from: "catalog", model, source: own.source, at: own.at };
+  const levels = (spec.levels || []).filter((l) => l && typeof l.id === "string" && l.id);
+  return { levels, default: null, from: "floor", model: model || null, source: "", at: null };
+}
+
+// The PLAN's note for a level the list lacks (the effort ADR, decision 5), or
+// null when it is listed, or when the harness declares no levels at all.
+//   the model's own list: "<model> does not list <level> in <source>'s list
+//                          as of <date>; written as typed"
+//   the floor:            "<level> is not one of <harness>'s effort levels
+//                          (<levels>); written as typed", and, where the
+//                          spawn takes those levels only, that it refuses it
+export function offLevelNote(manifest, level, model, known) {
+  if (!level) return null;
+  const l = effortLevels(manifest, model, known);
+  if (!l || l.levels.some((x) => x.id === level)) return null;
+  const display = manifest?.display_name || manifest?.id || "this harness";
+  if (l.from === "catalog")
+    return `${l.model} does not list ${level} in ${l.source || display}'s list${l.at ? ` as of ${localDate(l.at)}` : ""}; written as typed`;
+  const list = l.levels.map((x) => x.id).join(", ");
+  return effortSpec(manifest).strict
+    ? `${level} is not one of ${display}'s effort levels (${list}); written as typed, and ${display} refuses it at spawn`
+    : `${level} is not one of ${display}'s effort levels (${list}); written as typed`;
+}
+
+// The note for a level an agent keeps when the run moves it to a model that
+// does not take it (the effort ADR, decision 5), or null: "<agent> runs at
+// <level>, which <model> does not list in <source>'s list as of <date>".
+export function standingLevelNote(manifest, agent, level, model, known) {
+  if (!level) return null;
+  const l = effortLevels(manifest, model, known);
+  if (!l || l.levels.some((x) => x.id === level)) return null;
+  const display = manifest?.display_name || manifest?.id || "this harness";
+  return l.from === "catalog"
+    ? `${agent} runs at ${level}, which ${l.model} does not list in ${l.source || display}'s list${l.at ? ` as of ${localDate(l.at)}` : ""}`
+    : `${agent} runs at ${level}, which is not one of ${display}'s effort levels`;
+}
+
 // What is wrong with a manifest's models block, or null (the manifest schema
 // test, generation contract 1). A manifest without the block is fine: its
 // agents' models are typed by name.
@@ -317,6 +427,40 @@ export function modelsProblem(manifest) {
       if (c.base_env && !String(c.path || "").startsWith("/"))
         return `the ${c.source} http catalog's path is not absolute`;
     }
+  }
+  return null;
+}
+
+// What is wrong with a manifest's effort block, or null (the manifest schema
+// test). A manifest without the block passes no effort, and is fine.
+export function effortProblem(manifest) {
+  const spec = effortSpec(manifest);
+  if (!spec) return manifest?.agent_translation?.effort === undefined ? null : "effort is not an object";
+  const str = (v) => typeof v === "string" && v.length > 0;
+  const EVIDENCE = ["measured", "documented", "chosen"];
+  if (!str(spec.spawn_param) || !str(spec.spawn_param_reason)) return "spawn_param carries no name or no reason";
+  if (!EVIDENCE.includes(spec.spawn_param_evidence))
+    return `spawn_param_evidence is ${spec.spawn_param_evidence}, not ${EVIDENCE.join(", ")}`;
+  if (!Array.isArray(spec.levels) || !spec.levels.length) return "levels is not a non-empty list";
+  for (const l of spec.levels)
+    if (!l || !LEVEL.test(String(l.id)) || !str(l.description))
+      return `a level is not { id, description }: ${JSON.stringify(l)}`;
+  if (!str(spec.levels_reason)) return "levels carries no levels_reason";
+  if (spec.strict !== undefined && (typeof spec.strict !== "boolean" || !str(spec.strict_reason)))
+    return "strict is not a boolean with a strict_reason";
+  if (spec.catalog !== undefined) {
+    const c = spec.catalog;
+    if (!c || !str(c.list) || !str(c.id) || !str(c.reason)) return "the effort catalog names no list, id or reason";
+    if (!modelSpec(manifest)) return "an effort catalog without a models block has no entries to read";
+  }
+  const u = spec.unset;
+  if (!u || !str(u.value) || !str(u.row) || typeof u.model_default !== "boolean" || !str(u.reason))
+    return "unset is not { value, row, model_default, reason }";
+  if (spec.cheap !== undefined) {
+    if (!spec.levels.some((l) => l.id === spec.cheap)) return `cheap is ${spec.cheap}, not one of the levels`;
+    if (!str(spec.cheap_reason)) return "cheap carries no cheap_reason";
+    if (!EVIDENCE.includes(spec.cheap_evidence))
+      return `cheap_evidence is ${spec.cheap_evidence}, not ${EVIDENCE.join(", ")}`;
   }
   return null;
 }
@@ -487,7 +631,7 @@ export async function readLive(
   }
   if (r.error) return { error: r.error, source: catalog.source || "" };
   if (signal?.aborted) return { error: "stopped", source: catalog.source || "" };
-  const entries = entriesOf(r.body, fieldsOf(spec, catalog));
+  const entries = entriesOf(r.body, fieldsOf(spec, catalog), effortSpec(manifest)?.catalog);
   if (!entries) return { error: "the answer holds no list", source: catalog.source || "" };
   const t = now();
   const p = modelCachePath(manifest, { env, home });

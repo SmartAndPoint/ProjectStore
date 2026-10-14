@@ -57,8 +57,8 @@ You are reconciling the vault's derived views with their source of truth (frontm
    content is authored by the context-holder, the write ceremony by a clerk").
    When the approved set contains two or more targets, hand steps 6-7 to
    `$projectstore-clerk`: pass the exact selector list from step 4's preview and
-   the expectation that doctor ends clean. **Model (ADR-008)**: resolve
-   the model with `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model clerk --json --project "$PWD"` and pass `result.model` as the spawn's model parameter (`null` → pass nothing);
+   the expectation that doctor ends clean. **Model and effort (ADR-008)**: resolve
+   them with `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model clerk --json --project "$PWD"` and pass `result.model` as the spawn's model parameter (`null` → pass nothing), and `result.effort` as its effort parameter when it is not `null` and the spawn offers one;
    missing key, `inherit`, or unreadable config → pass nothing and let the
    agent's own frontmatter decide; never guess a model. The clerk applies
    through the core exactly as step 6 specifies and reports per target. A single

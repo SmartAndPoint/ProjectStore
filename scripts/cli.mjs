@@ -71,6 +71,7 @@ import {
   readConfigAt,
   readOverlayAt,
   resolveAgentModel,
+  resolveAgentEffort,
   overlayId,
   layoutRoster,
   commandForm,
@@ -1407,8 +1408,9 @@ async function runScaffold(ctx) {
   return emit(true, scaffoldResult(plan, done), renderScaffoldPlan(plan, done, { env }), 0);
 }
 
-// agents model <name> — the model a plugin surface passes for that agent, from
-// the active harness's overlay (ADR-008's two terms); agents show — the overlay
+// agents model <name> — the model and effort a plugin surface passes for that
+// agent, from the active harness's overlay (ADR-008's two terms, once per
+// field; the effort ADR, decision 2); agents show — the overlay
 // as read, with the keys the allowlist rejected; agents configure — the one
 // writer, behind the same gate as install: naming --harness is the
 // confirmation, a bare non-TTY call refuses (layout spec, contracts 2–4).
@@ -1439,11 +1441,15 @@ async function runAgents(ctx) {
     const name = positionals[1];
     if (!name) return usage("agents model takes the agent's bare name (critic, planner, …)");
     const r = resolveAgentModel(project, name, { harness });
+    const e = resolveAgentEffort(project, name, { harness });
+    // The effort clause only when one resolves, so the line reads as it did
+    // for an overlay of models alone.
+    const effortText = e.effort ? `; effort ${e.effort} (${e.source})` : "";
     return emit(
       "agents model",
       true,
-      r,
-      `${name}: ${r.model ? `${r.model} (${r.source}, ${r.overlay})` : "no model configured — the agent's frontmatter decides"}\n`,
+      { ...r, effort: e.effort, effort_source: e.source },
+      `${name}: ${r.model ? `${r.model} (${r.source}, ${r.overlay})` : "no model configured — the agent's frontmatter decides"}${effortText}\n`,
     );
   }
   const before = readOverlayAt(project, harness);
@@ -1451,22 +1457,28 @@ async function runAgents(ctx) {
   if (sub === "show") {
     // Resolved per roster agent (per configured name when no layout loads), so
     // a reader reports what would run without restating the two-term rule.
-    const names = [...new Set([...(roster || []), ...Object.keys(before.agents.per_agent)])].sort();
+    const configured = [
+      ...new Set([...Object.keys(before.agents.per_agent), ...Object.keys(before.efforts.per_agent)]),
+    ];
+    const names = [...new Set([...(roster || []), ...configured])].sort();
     const resolved = Object.fromEntries(
       names.map((n) => {
         const r = resolveAgentModel(project, n, { harness });
-        return [n, { model: r.model, source: r.source }];
+        const e = resolveAgentEffort(project, n, { harness });
+        return [n, { model: r.model, source: r.source, effort: e.effort, effort_source: e.source }];
       }),
     );
-    const unknown = roster ? Object.keys(before.agents.per_agent).filter((n) => !roster.includes(n)) : [];
+    const unknown = roster ? configured.filter((n) => !roster.includes(n)) : [];
     const lines = [
       `overlay: ${before.path || "(none: no harness detected and none named)"}${before.path && !before.present ? " (absent)" : ""}`,
     ];
     if (before.unparseable) lines.push("  not valid JSON");
     if (before.agents.default) lines.push(`  default: ${before.agents.default}`);
+    if (before.efforts.default) lines.push(`  default effort: ${before.efforts.default}`);
+    const effortOf = (n) => (resolved[n].effort ? `, effort ${resolved[n].effort} (${resolved[n].effort_source})` : "");
     for (const n of names)
       lines.push(
-        `  ${n}: ${resolved[n].model ? `${resolved[n].model} (${resolved[n].source})` : "— (the agent's frontmatter)"}${unknown.includes(n) ? " — not in the roster: nothing runs under this name" : ""}`,
+        `  ${n}: ${resolved[n].model ? `${resolved[n].model} (${resolved[n].source})` : "— (the agent's frontmatter)"}${effortOf(n)}${unknown.includes(n) ? " — not in the roster: nothing runs under this name" : ""}`,
       );
     if (before.rejected.length) lines.push(`  ignored (not an overlay key): ${before.rejected.join(", ")}`);
     if (inBinding) lines.push("  the binding still carries an agents block — a pre-0.28 leftover; run upgrade");
@@ -1479,6 +1491,7 @@ async function runAgents(ctx) {
         present: before.present,
         unparseable: before.unparseable,
         agents: before.agents,
+        efforts: before.efforts,
         resolved,
         roster,
         unknown,
@@ -1535,7 +1548,16 @@ async function runAgents(ctx) {
       { harness, path: before.path, wrote: false, declined: true, agents: next, dropped },
       preview.join("\n") + "\n  nothing written.\n",
     );
-  const { path, after } = applyAgentsChange(project, harness, next);
+  const { path, after } = applyAgentsChange(project, harness, next, change.nextEfforts);
+  // Efforts join the envelope only where the overlay holds one, so a run over
+  // models alone answers exactly as it did before efforts existed.
+  const withEfforts =
+    after.efforts.default ||
+    Object.keys(after.efforts.per_agent).length ||
+    before.efforts.default ||
+    Object.keys(before.efforts.per_agent).length
+      ? { efforts: after.efforts, pinnedClerkEffort: change.pinnedClerkEffort }
+      : {};
   return emit(
     "agents configure",
     true,
@@ -1544,6 +1566,7 @@ async function runAgents(ctx) {
       path,
       wrote: true,
       agents: after.agents,
+      ...withEfforts,
       pinnedClerk,
       clerkPinUnavailable,
       dropped,

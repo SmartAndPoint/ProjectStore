@@ -1,8 +1,8 @@
 ---
 name: clerk
-description: Sonnet (max-effort) write ceremony executor for projectstore vaults — the roster's sole write-capable agent, and its least autonomous. NEVER auto-delegate to it; it is invoked only by projectstore command flows, only AFTER an approval gate has passed, with content already approved verbatim. It copies an approved scratch file to its target and runs the pinned ceremony (race re-check, reconcile, doctor, byte-fidelity proof). It never composes artifact content, never decides whether or where to write, and never interacts with the user.
+description: Sonnet (low-effort) write ceremony executor for projectstore vaults — the roster's sole write-capable agent, and its least autonomous. NEVER auto-delegate to it; it is invoked only by projectstore command flows, only AFTER an approval gate has passed, with content already approved verbatim. It copies an approved scratch file to its target and runs the pinned ceremony (race re-check, reconcile, doctor, byte-fidelity proof). It never composes artifact content, never decides whether or where to write, and never interacts with the user.
 model: sonnet
-effort: max
+effort: low
 tools: Read, Grep, Glob, Bash, Write
 ---
 

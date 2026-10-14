@@ -210,7 +210,7 @@ npx projectstore configure
 
 At a terminal it opens a settings menu that works like a monitor's: ↑ and ↓ move, → opens a group or a setting in a frame beside it, space chooses, ← goes back, and Enter shows the plan. A second Enter writes it. Under the frames, a few lines say what the row under the cursor means. The settings:
 
-- each agent's model, per harness. Claude Code offers its aliases: `fable`, `opus`, `sonnet` and `haiku`. Codex offers its own list of models, with its descriptions. With `ANTHROPIC_API_KEY` set, each alias also names the newest model of its line. A list is kept for a day in projectstore's user cache, and "refresh the list" asks again;
+- each agent's model and effort, per harness. Claude Code offers its aliases: `fable`, `opus`, `sonnet` and `haiku`. Codex offers its own list of models, with its descriptions. With `ANTHROPIC_API_KEY` set, each alias also names the newest model of its line. A list is kept for a day in projectstore's user cache, and "refresh the list" asks again. Each agent's effort sits under its model: Claude Code's levels, `low` to `max`, or the levels that Codex model lists. With none set, a Claude Code agent runs at its frontmatter's level (`max`, the clerk `low`) and a Codex one at its model's own default;
 - the status line and the band above the prompt (Claude Code);
 - the vault's template language, the default author and tags;
 - the vault's spec policy and lifecycle gates.
@@ -221,11 +221,11 @@ Without a terminal it prints every setting with its current value and where it l
 npx projectstore configure --set agents.critic=fable --set statusline=on
 ```
 
-`--dry-run` shows the plan and writes nothing, and `--json` returns the settings as one envelope. In a project that uses two harnesses, an agent's model names its overlay with `--harness <id>`.
+An agent's effort is its own key: `--set agents.critic.effort=xhigh`. `--dry-run` shows the plan and writes nothing, and `--json` returns the settings as one envelope. In a project that uses two harnesses, an agent's model or effort names its overlay with `--harness <id>`.
 
 Each setting has exactly one writer, and the plan says which file it changes:
 
-- **The agents' models** live in `.projectstore/harness/<harness>.json`. That file is committed, so a change there is a team change.
+- **The agents' models and efforts** live in `.projectstore/harness/<harness>.json`. That file is committed, so a change there is a team change.
 - **The status line, the band, the language and the other binding keys** live in `.projectstore/projectstore.json`, which stays on this machine.
 - **The spec policy and the lifecycle gates** live in the vault's `.projectstore.json`, which commits with the vault. Setting `spec_policy=required` records when it took effect; stories closed before then are exempt.
 

@@ -339,7 +339,7 @@ test("Codex adapter: every command, role and passive skill is rendered determini
   )) {
     assert.doesNotMatch(
       rendered.get(path).split("---")[1],
-      /\b(?:Opus|Sonnet)\b|max-effort/,
+      /\b(?:Opus|Sonnet)\b|[a-z]+-effort/,
       `${path}: source-harness model branding must not leak into Codex discovery text`,
     );
   }
@@ -361,7 +361,12 @@ test("Codex command overrides are capability-aware, not token-rewritten Claude w
     joined,
     /CLAUDE_CODE_|\/reload-plugins\b|\/plugin(?:\s|\b)|harness\/codex-code\.json|\b(?:opus|sonnet|fable)\b/i,
   );
-  assert.match(get("agents"), /agents configure --harness codex/);
+  // The effort ADR, decision 8: the Codex agents skill writes models and
+  // efforts through configure --set, and its roles pass the effort Codex takes.
+  assert.match(get("agents"), /configure --set agents\.default=<model> --set agents\.default\.effort=<level>/);
+  assert.match(get("agents"), /--harness\s+codex --project "\$PWD"/);
+  assert.doesNotMatch(get("agents"), /effort is outside this integration/);
+  assert.match(get("critic"), /pass it as `reasoning_effort`/);
   assert.match(get("bind"), /Codex has no ProjectStore status-line surface/);
   assert.doesNotMatch(get("bind"), /--surface statusline|statusline\.enabled/);
   assert.match(get("doctor"), /upgrade --harness codex/);

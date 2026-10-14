@@ -306,7 +306,12 @@ test("configure contract 11: usage errors exit 2 and write nothing", async () =>
     [["band.epic=NOPE"], /band\.epic takes PS-ONE, got NOPE/],
     [["active_skills=maybe"], /active_skills takes on or off/],
     [["approval_mode=never"], /unknown setting approval_mode/],
-    [["agents.critic.effort=high"], /unknown setting agents\.critic\.effort/],
+    [
+      ["agents.critic.effort=XHigh"],
+      /agents\.critic\.effort takes a level \(low, medium, high, xhigh, max\), or - to clear it, got XHigh/,
+    ],
+    [["agents.critic.effort=x y"], /agents\.critic\.effort takes a level/],
+    [["agents.critic.effort=high", "agents.critic.effort=low"], /agents\.critic\.effort is named twice/],
     [["foo"], /--set takes <key>=<value>, got foo/],
   ];
   for (const [set, re] of cases) {

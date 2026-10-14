@@ -52,7 +52,7 @@
             "surface": "agents_block",
             "kind": "shared",
             "path": "<project>/CLAUDE.md",
-            "entry": "projectstore:agents v4",
+            "entry": "projectstore:agents v5",
             "state": "ours-current",
             "action": "skip",
             "reason": null
@@ -147,7 +147,7 @@
             "surface": "agents_block",
             "kind": "shared",
             "path": "<project>/CLAUDE.md",
-            "entry": "projectstore:agents v4",
+            "entry": "projectstore:agents v5",
             "state": "ours-current",
             "action": "skip",
             "reason": null
@@ -242,7 +242,7 @@
             "surface": "agents_block",
             "kind": "shared",
             "path": "<project>/CLAUDE.md",
-            "entry": "projectstore:agents v4",
+            "entry": "projectstore:agents v5",
             "state": "ours-current",
             "action": "skip",
             "reason": null
@@ -346,7 +346,7 @@
             "surface": "agents_block",
             "kind": "shared",
             "path": "<project>/CLAUDE.md",
-            "entry": "projectstore:agents v4",
+            "entry": "projectstore:agents v5",
             "state": "ours-current",
             "action": "remove",
             "reason": null,
@@ -444,7 +444,7 @@
             "surface": "agents_block",
             "kind": "shared",
             "path": "<project>/AGENTS.md",
-            "entry": "projectstore:agents v4",
+            "entry": "projectstore:agents v5",
             "state": "ours-absent",
             "action": "create",
             "reason": null

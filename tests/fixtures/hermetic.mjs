@@ -35,6 +35,12 @@ for (const m of loadHarnesses().values())
 for (const m of loadHarnesses().values())
   for (const c of m.agent_translation?.models?.catalogs || [])
     for (const k of [c.key_env, c.base_env]) if (k) delete process.env[k];
+// Every agent override a harness names (runtime.agent_overrides:
+// CLAUDE_CODE_EFFORT_LEVEL, CLAUDE_CODE_SUBAGENT_MODEL): a developer's exported
+// one adds a finding to every doctor run, and names the overlay a test wrote
+// (the effort ADR, decision 7). A test of the finding passes its own.
+for (const m of loadHarnesses().values())
+  for (const o of m.runtime?.agent_overrides || []) if (o?.env) delete process.env[o.env];
 // A shell's named root would stand in for every fetch, and the animation
 // switch would change every live line a test reads (the shell-fetch story).
 for (const k of ["PROJECTSTORE_DISTRIBUTION_ROOT", "PROJECTSTORE_NO_ANIMATION"]) delete process.env[k];

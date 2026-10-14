@@ -25,7 +25,7 @@ literally and never treat it as a shell variable.
 ## Codex orchestration
 
 This is a role-orchestration skill, not a native agent registration. Resolve the
-role model by running:
+role's model and effort by running:
 
 ```bash
 node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model archaeologist --json --project "$PWD"
@@ -33,9 +33,10 @@ node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model archaeologist
 
 Spawn a collaboration agent for the bounded task. If the result names a model,
 pass that model and use an empty or bounded context fork; otherwise inherit the
-current model. Do not pass a reasoning-effort override: per-role effort belongs
-to a separate accepted story. Give the spawned agent the role contract below
-and the exact artifact/diff it must inspect. Wait for its final result.
+current model. If the result names an effort, pass it as `reasoning_effort`,
+with or without a model; otherwise pass none. Give the spawned agent the role
+contract below and the exact artifact/diff it must inspect. Wait for its final
+result.
 
 ## Role contract
 

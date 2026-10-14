@@ -102,7 +102,7 @@ function skill(name, description, body, { runtime = true } = {}) {
 const COMMAND_OVERRIDES = {
   agents: {
     description:
-      "Register or remove ProjectStore's shared agents block, inspect its Codex model overlay, or configure per-role models. Arguments: <register | unregister | status | configure>.",
+      "Register or remove ProjectStore's shared agents block, inspect its Codex model overlay, or configure per-role models and efforts. Arguments: <register | unregister | status | configure>.",
     body: `You are managing ProjectStore's Codex agent integration. Require a bound project.
 
 ## register / unregister
@@ -117,19 +117,22 @@ report the envelope's result. Never edit the managed block by hand.
 
 Run \`plan --json --harness codex --surface agents_block --project "$PWD"\`,
 then \`agents show --json --project "$PWD"\`. Report the block state and each
-role's resolved model and source. The active overlay path returned by the core
-is authoritative.
+role's resolved model and effort, each with its source. The active overlay path
+returned by the core is authoritative.
 
 ## configure
 
-Ask for a default model and optional per-role model ids. Use actual Codex model
-ids supplied by the user or visible in the current host; do not translate model
-names from another harness. Preview the exact argv, ask for approval, then run
-\`agents configure --harness codex [--default <model>] [--agent
-<role>=<model> ...] --project "$PWD"\`. The core is the only writer. Do not pass
-an effort override: per-role effort is outside this integration's current
-contract. A configured model is consumed by the role-orchestration skills on
-their next spawn; no restart is needed.`,
+Ask for a default model and optional per-role model ids, then a default effort
+and optional per-role efforts. Use actual Codex model ids and levels supplied by
+the user or visible in the current host; do not translate model names from
+another harness. Preview the exact argv, ask for approval, then run
+\`configure --set agents.default=<model> --set agents.default.effort=<level>
+[--set agents.<role>=<model>] [--set agents.<role>.effort=<level>] ... --harness
+codex --project "$PWD"\`, after the same command with \`--dry-run\` showed its
+plan. \`-\` as a value clears one. The core is the only writer; a level the
+role's model does not list is written with a note in the plan. A configured
+model and effort are consumed by the role-orchestration skills on their next
+spawn; no restart is needed.`,
   },
   bind: {
     description:
@@ -232,13 +235,25 @@ function renderPassive(file) {
   return [join("skills", name, "SKILL.md"), skill(name, data.description || name, body)];
 }
 
+// The spawn's effort parameter is the target manifest's vocabulary: a
+// manifest without it cannot render a role that passes one, and says so
+// rather than guessing a name (as the clerk pin refuses a literal model).
+function effortParam() {
+  const p = TARGET.agent_translation?.effort?.spawn_param;
+  if (!p)
+    throw new Error(
+      `${TARGET.id}: agent_translation.effort.spawn_param is missing; a role skill cannot name the effort`,
+    );
+  return p;
+}
+
 function renderRole(file) {
   const { data, body } = frontmatter(read(file), file);
   const role = file.split("/").pop().replace(/\.md$/, "");
   const name = renderedName("agents", role);
-  const orchestration = `## Codex orchestration\n\nThis is a role-orchestration skill, not a native agent registration. Resolve the\nrole model by running:\n\n\`\`\`bash\nnode "\${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model ${role} --json --project "$PWD"\n\`\`\`\n\nSpawn a collaboration agent for the bounded task. If the result names a model,\npass that model and use an empty or bounded context fork; otherwise inherit the\ncurrent model. Do not pass a reasoning-effort override: per-role effort belongs\nto a separate accepted story. Give the spawned agent the role contract below\nand the exact artifact/diff it must inspect. Wait for its final result.\n\n## Role contract\n\n`;
+  const orchestration = `## Codex orchestration\n\nThis is a role-orchestration skill, not a native agent registration. Resolve the\nrole's model and effort by running:\n\n\`\`\`bash\nnode "\${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model ${role} --json --project "$PWD"\n\`\`\`\n\nSpawn a collaboration agent for the bounded task. If the result names a model,\npass that model and use an empty or bounded context fork; otherwise inherit the\ncurrent model. If the result names an effort, pass it as \`${effortParam()}\`,\nwith or without a model; otherwise pass none. Give the spawned agent the role\ncontract below and the exact artifact/diff it must inspect. Wait for its final\nresult.\n\n## Role contract\n\n`;
   const description = (data.description || `Run the ProjectStore ${role} role in a fresh collaboration agent.`).replace(
-    /^(?:Opus|Sonnet) \(max-effort\)\s+/,
+    /^(?:Opus|Sonnet) \([a-z]+-effort\)\s+/,
     "",
   );
   return [join("skills", name, "SKILL.md"), skill(name, description, orchestration + body)];

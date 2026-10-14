@@ -76,7 +76,7 @@ test("overlay contract 3: ADR-008's two terms, from the overlay — per-agent, e
   assert.ok(!("agents" in readConfigAt(proj)), "the binding never carries agents");
 });
 
-test("overlay contract 2: the allowlist is two keys — everything else is ignored on read and named for doctor; the binding's agents block is a leftover doctor names", () => {
+test("overlay contract 2 (amended 2026-10-14): the allowlist is four keys, a model and an effort for the default and per agent — everything else is ignored on read and named for doctor; the binding's agents block is a leftover doctor names", () => {
   const proj = project();
   const p = layoutPaths(proj).overlay(SRC.id);
   mkdirSync(dirname(p), { recursive: true });
@@ -94,25 +94,27 @@ test("overlay contract 2: the allowlist is two keys — everything else is ignor
   );
   const o = readOverlayAt(proj, SRC.id);
   assert.deepEqual(o.agents, { default: "opus", per_agent: { critic: "sonnet" } });
-  assert.deepEqual(
-    o.rejected.sort(),
-    [
-      "agents.default.effort",
-      "agents.per_agent.critic.effort",
-      "agents.per_agent.planner",
-      "agents.prompts",
-      "layout",
-      "vault_path",
-    ].sort(),
-  );
+  assert.deepEqual(o.efforts, { default: "max", per_agent: { critic: "low" } }, "the effort ADR, decision 1");
+  assert.deepEqual(o.rejected.sort(), ["agents.per_agent.planner", "agents.prompts", "layout", "vault_path"].sort());
   assert.equal(readConfigAt(proj).vault_path, "/tmp/nowhere", "an overlay never rebinds");
   const f = checkOverlays(readConfigAt(proj), proj);
-  assert.equal(f.filter((x) => x.check === "overlay-forbidden-key").length, 6);
+  assert.equal(f.filter((x) => x.check === "overlay-forbidden-key").length, 4);
   assert.ok(f.every((x) => x.level === "issue"));
+  assert.ok(
+    !f.some((x) => /carries `agents\.[a-z_.]*effort`/.test(x.message)),
+    "an effort key is read, never forbidden",
+  );
   assert.match(f[0].message, /vault_path|agents/);
   // The writer keeps a key it does not own (doctor keeps naming it) and rewrites only agents.
+  // A write that names no efforts keeps the ones the file holds; one that
+  // names them writes exactly those.
   writeOverlayAt(proj, SRC.id, { default: "haiku", per_agent: {} });
   assert.equal(JSON.parse(read(p)).vault_path, "/elsewhere");
+  assert.deepEqual(JSON.parse(read(p)).agents, {
+    default: { model: "haiku", effort: "max" },
+    per_agent: { critic: { effort: "low" } },
+  });
+  writeOverlayAt(proj, SRC.id, { default: "haiku", per_agent: {} }, { default: null, per_agent: {} });
   assert.deepEqual(JSON.parse(read(p)).agents, { default: { model: "haiku" } });
   // A binding that still carries agents (pre-0.28) is a warn naming the upgrade.
   writeBinding(proj, { ...readConfigAt(proj), agents: { default: { model: "opus" } } });
@@ -275,23 +277,29 @@ test("overlay contract 4: `agents configure` writes the active harness's overlay
     "planner",
     "reviewer",
   ]);
-  assert.deepEqual(s2.resolved.planner, { model: "sonnet", source: "default" });
-  assert.deepEqual(s2.resolved.critic, { model: "opus", source: "per_agent" });
+  assert.deepEqual(s2.resolved.planner, { model: "sonnet", source: "default", effort: null, effort_source: null });
+  assert.deepEqual(s2.resolved.critic, { model: "opus", source: "per_agent", effort: null, effort_source: null });
   assert.deepEqual(s2.unknown, []);
-  // A forbidden key INSIDE the agents block is a change the write drops and the preview names; a key outside it is kept.
+  // A forbidden key INSIDE the agents block is a change the write drops and the preview names; a key outside it is
+  // kept, and so is every effort (the effort ADR, decision 8: agents configure keeps what it is not asked about).
   writeFileSync(
     layoutPaths(proj).overlay(SRC.id),
     JSON.stringify({
-      agents: { default: { model: "opus", effort: "max" }, per_agent: { clerk: { model: "sonnet" } } },
+      agents: { default: { model: "opus", temperature: 1 }, per_agent: { clerk: { model: "sonnet", effort: "low" } } },
       note: "kept",
     }),
   );
   const r6 = bin(["agents", "configure", "--harness", SRC.id, "--default", "opus", "--json", "--project", proj]);
   const o6 = JSON.parse(r6.stdout).result;
   assert.equal(o6.wrote, true, "a forbidden key inside the block is a change");
-  assert.deepEqual(o6.dropped, ["agents.default.effort"]);
+  assert.deepEqual(o6.dropped, ["agents.default.temperature"]);
   assert.deepEqual(o6.rejected, ["note"]);
   assert.equal(JSON.parse(read(layoutPaths(proj).overlay(SRC.id))).note, "kept");
+  assert.equal(
+    JSON.parse(read(layoutPaths(proj).overlay(SRC.id))).agents.per_agent.clerk.effort,
+    "low",
+    "the effort is kept",
+  );
   const r7 = bin(["agents", "configure", "--harness", SRC.id, "--default", "opus", "--project", proj]);
   assert.match(r7.stdout, /Nothing to change/);
   // A refusal is on stderr, never stdout.

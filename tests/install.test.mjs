@@ -1052,7 +1052,7 @@ test("install contract 18: every reason is in the default view, writes wear writ
       row({
         surface: "agents_block",
         kind: "shared",
-        entry: "projectstore:agents v4",
+        entry: "projectstore:agents v5",
         state: "ours-current",
         reason: "AGENTS.md is read by another harness too",
       }),
@@ -1303,7 +1303,7 @@ test("install: the roster filter drops an agent line whose verb wraps onto the s
     onlyPlanner.includes("opens a vault artifact before it opens an editor"),
     "the entry rule stays though it names the critic in passing",
   );
-  assert.ok(onlyPlanner.includes("resolve its model from"), "the model-resolution line stays");
+  assert.ok(onlyPlanner.includes("resolve its model and its effort from"), "the model-resolution line stays");
 
   const { home, root } = fixture();
   writeFileSync(

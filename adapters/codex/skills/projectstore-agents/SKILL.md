@@ -1,6 +1,6 @@
 ---
 name: projectstore-agents
-description: "Register or remove ProjectStore's shared agents block, inspect its Codex model overlay, or configure per-role models. Arguments: <register | unregister | status | configure>."
+description: "Register or remove ProjectStore's shared agents block, inspect its Codex model overlay, or configure per-role models and efforts. Arguments: <register | unregister | status | configure>."
 ---
 
 ## Runtime path
@@ -36,16 +36,19 @@ report the envelope's result. Never edit the managed block by hand.
 
 Run `plan --json --harness codex --surface agents_block --project "$PWD"`,
 then `agents show --json --project "$PWD"`. Report the block state and each
-role's resolved model and source. The active overlay path returned by the core
-is authoritative.
+role's resolved model and effort, each with its source. The active overlay path
+returned by the core is authoritative.
 
 ## configure
 
-Ask for a default model and optional per-role model ids. Use actual Codex model
-ids supplied by the user or visible in the current host; do not translate model
-names from another harness. Preview the exact argv, ask for approval, then run
-`agents configure --harness codex [--default <model>] [--agent
-<role>=<model> ...] --project "$PWD"`. The core is the only writer. Do not pass
-an effort override: per-role effort is outside this integration's current
-contract. A configured model is consumed by the role-orchestration skills on
-their next spawn; no restart is needed.
+Ask for a default model and optional per-role model ids, then a default effort
+and optional per-role efforts. Use actual Codex model ids and levels supplied by
+the user or visible in the current host; do not translate model names from
+another harness. Preview the exact argv, ask for approval, then run
+`configure --set agents.default=<model> --set agents.default.effort=<level>
+[--set agents.<role>=<model>] [--set agents.<role>.effort=<level>] ... --harness
+codex --project "$PWD"`, after the same command with `--dry-run` showed its
+plan. `-` as a value clears one. The core is the only writer; a level the
+role's model does not list is written with a note in the plan. A configured
+model and effort are consumed by the role-orchestration skills on their next
+spawn; no restart is needed.

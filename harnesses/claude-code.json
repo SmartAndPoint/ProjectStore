@@ -49,7 +49,7 @@
       {
         "env": "CLAUDE_CODE_EFFORT_LEVEL",
         "kind": "effort",
-        "beats": "agent frontmatter"
+        "beats": "the spawn's effort parameter and agent frontmatter: with it set, the Agent tool offers no effort parameter at all (measured 2026-10-14, 2.1.296)"
       },
       {
         "env": "CLAUDE_CODE_SUBAGENT_MODEL",
@@ -534,6 +534,45 @@
     "cheap_model": "sonnet",
     "cheap_model_evidence": "measured",
     "cheap_model_reason": "The model the clerk is pinned to when a strong default would otherwise lift it (ADR-008). A literal here, in the one file allowed to name a harness's vocabulary; it used to be a literal in scripts/cli.mjs, which made `agents configure --harness codex` write an Anthropic model name into a Codex overlay. MEASURED in the sense that matters: this is the model the clerk has been running on since ADR-008, in this repository, and tests/overlay.test.mjs asserts the pin end to end.",
+    "effort": {
+      "spawn_param": "effort",
+      "spawn_param_evidence": "measured",
+      "spawn_param_reason": "The Agent tool's `effort` parameter, an enum of the five levels below, in the tool schema Claude Code 2.1.296 gave a session on 2026-10-14 (documented from 2.1.292). A plugin agent with `effort: max` in its frontmatter, spawned with `effort: \"xhigh\"`, ran every request at xhigh; spawned with none, at max (subagent transcripts). An off-enum level fails the tool's schema and no subagent starts. So the overlay's effort is passed here, as the model is (the ADR \"Agent effort is passed at spawn beside the model, from the overlay, in each harness's own levels\", decision 2).",
+      "levels": [
+        {
+          "id": "low",
+          "description": "The fastest and cheapest: little thinking before an answer."
+        },
+        {
+          "id": "medium",
+          "description": "Balances speed and depth: thinks where the task needs it."
+        },
+        {
+          "id": "high",
+          "description": "Thinks longer before answering, for harder work."
+        },
+        {
+          "id": "xhigh",
+          "description": "Extended thinking for hard reviews, plans and designs."
+        },
+        {
+          "id": "max",
+          "description": "The most thinking Claude Code allows: the level the bundled agents' frontmatter names, the clerk's excepted."
+        }
+      ],
+      "levels_reason": "The Agent tool's enum, measured. Claude Code lowers a level a model does not support to the highest one it does (documented), so one list serves every alias and no catalog is read.",
+      "strict": true,
+      "strict_reason": "The spawn takes these levels and nothing else: an off-enum level (ultra) failed the Agent tool's schema and no subagent started (measured 2026-10-14, 2.1.296). So a level off this list is written with a note that the spawn refuses it.",
+      "unset": {
+        "value": "frontmatter",
+        "row": "use frontmatter",
+        "model_default": false,
+        "reason": "With no effort passed, the agent runs at its frontmatter's effort — max for every bundled agent but the clerk, which runs at low — whatever model is passed (transcripts of 2026-10-11/12)."
+      },
+      "cheap": "low",
+      "cheap_evidence": "chosen",
+      "cheap_reason": "The clerk's level, in its frontmatter and as its pin under a default effort (the effort ADR, decision 6): it copies an approved file and runs a pinned ceremony. Chosen by the maintainer on 2026-10-14 (\"клерка да на лоу\"), as on Codex."
+    },
     "models": {
       "spawn_takes": "alias",
       "spawn_takes_evidence": "measured",

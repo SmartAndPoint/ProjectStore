@@ -106,13 +106,21 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      verbatim, run from a terminal outside this session.
    - `overlay-forbidden-key` / `overlay-unparseable` (issue) →
      `.projectstore/harness/<id>.json` carries a key an overlay may not (only
-     `agents.default.model` and `agents.per_agent.<name>.model` are read) or is
+     `agents.default.model`, `agents.default.effort`,
+     `agents.per_agent.<name>.model` and `agents.per_agent.<name>.effort` are
+     read) or is
      not JSON. Print the finding. A key inside the agents block goes away on the
      next `/projectstore:agents configure` write; a key outside it, and a parse
      error, are the user's to edit — never rewrite the file yourself.
    - `overlay-unknown-agent` (warn) → the overlay configures a name no roster
      agent carries (a typo, or a newer package's agent): nothing runs under it.
-     Point at `/projectstore:agents configure` with the roster's names.
+     Point at `/projectstore:agents configure` with the roster's names; a name
+     outside the roster is refused by both writers, so removing one is
+     `agents configure --reset` or the user's own edit of the file.
+   - `overlay-unknown-effort` (warn) → the overlay sets an effort the harness's
+     levels lack (a typo, or a leftover such as `Max`): a spawn may refuse it.
+     Point at `/projectstore:agents configure`, which writes efforts through
+     `configure --set agents.<name>.effort=<level>`; `-` clears one.
    - `plugin-registration` (info) → nothing to repair; it names where the npm
      registration loads from. As an **issue** — stale, or two enabled copies —
      print the finding and relay its command verbatim (the package runner's

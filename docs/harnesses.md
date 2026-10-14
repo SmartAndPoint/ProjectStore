@@ -138,8 +138,9 @@ What is known, and how:
 - **Roles are rendered as orchestration skills.** Codex spawns subagents through
   its collaboration tool, not by loading a plugin's `agents/` directory. The
   six ProjectStore roles therefore ship as namespaced skills that resolve their
-  configured model through the core and ask Codex to spawn the role. No effort
-  is forced: it inherits unless the user has configured a model policy.
+  configured model and effort through the core and ask Codex to spawn the role
+  with them. With no effort configured, a role spawned on a configured model
+  runs at that model's own default level.
 - **Multi-file edits reach the activity log and entry rule when their paths
   are absolute.** Codex's `apply_patch` carries paths inside
   `tool_input.command`; the shared extractor reads every `Add`, `Update`,

@@ -99,7 +99,9 @@ import {
   configPath as harnessConfigPath,
   packageCommand,
   invocation,
+  harnessForOverlay,
 } from "./harness.mjs";
+import { effortSpec } from "./models.mjs";
 
 // A remedy used to interpolate the surface's harness variable here. It cannot:
 // measured 2026-09-06, NO harness gives its Bash tool that variable, and a
@@ -892,7 +894,7 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
         "install",
         "issue",
         "overlay-forbidden-key",
-        `${where} carries \`${k}\`, which an overlay may not: only agents.default.model and agents.per_agent.<name>.model are read; the key is ignored.`,
+        `${where} carries \`${k}\`, which an overlay may not: only agents.default.model, agents.default.effort, agents.per_agent.<name>.model and agents.per_agent.<name>.effort are read; the key is ignored.`,
         where,
       ),
     );
@@ -954,19 +956,42 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
       }
     }
   }
-  // A configured name no roster agent carries runs nothing: the model never
-  // applies. A warn, not an issue — a newer package's agent is a legitimate
-  // reason for a committed overlay to name one this copy does not ship.
+  // A configured name no roster agent carries runs nothing: what it
+  // configures never applies. A warn, not an issue — a newer package's agent
+  // is a legitimate reason for a committed overlay to name one this copy does
+  // not ship.
+  // An effort the harness's levels lack fails at spawn on a harness whose
+  // spawn takes those levels only, and is the harness's to judge elsewhere:
+  // a warn names it either way (the effort ADR, decision 7). Read against the
+  // manifest's floor alone: doctor reads no model catalog.
+  const levels = effortSpec(harnessForOverlay(o.id))?.levels?.map((l) => l.id) || null;
+  if (levels) {
+    const set = [
+      ...(o.efforts.default ? [["agents.default.effort", o.efforts.default]] : []),
+      ...Object.entries(o.efforts.per_agent).map(([n, v]) => [`agents.per_agent.${n}.effort`, v]),
+    ];
+    for (const [k, v] of set)
+      if (!levels.includes(v))
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "overlay-unknown-effort",
+            `${where} sets \`${k}\` to ${v}, which is not one of ${harnessForOverlay(o.id)?.display_name || o.id}'s effort levels (${levels.join(", ")}) — a spawn may refuse it.`,
+            where,
+          ),
+        );
+  }
   const roster = layoutRoster(cfg);
   if (roster) {
-    for (const n of Object.keys(o.agents.per_agent)) {
+    for (const n of new Set([...Object.keys(o.agents.per_agent), ...Object.keys(o.efforts.per_agent)])) {
       if (!roster.includes(n))
         out.push(
           finding(
             "install",
             "warn",
             "overlay-unknown-agent",
-            `${where} configures \`${n}\`, which is not in the ${cfg.layout} roster (${roster.join(", ")}) — no agent by that name runs, so the model never applies. A typo, or an agent this package does not ship yet.`,
+            `${where} configures \`${n}\`, which is not in the ${cfg.layout} roster (${roster.join(", ")}) — no agent by that name runs, so what it configures never applies. A typo, or an agent this package does not ship yet.`,
             where,
           ),
         );
@@ -1294,24 +1319,32 @@ export function checkOverrideCopies(proj, home = homedir(), harness = speakingHa
   return out;
 }
 
-// ADR-008 made `effort` unconfigurable per project, which promotes this env var
-// from a curiosity to the ONLY thing that can move our agents off `effort: max`.
-// It beats frontmatter, so a value set for cost or latency silently drops all
-// five agents below the quality floor the plugin advertises — exactly the class
-// of silent downgrade doctor exists to name.
+// The variable outranks every effort projectstore passes at spawn and the
+// bundled agents' frontmatter effort: with it set, the spawn offers no effort
+// parameter at all (the effort ADR, decision 7). So a value set for cost or
+// latency silently replaces the efforts the overlay configures — exactly the
+// class of "the value configured is not the value that runs" doctor names.
 // The variable names come from the manifest (runtime.agent_overrides); the
-// wording is projectstore's, because the claim — ADR-008's quality floor — is.
-export function checkEnvEffort() {
+// overlay is read only when one is set, so a clean startup reads nothing.
+export function checkEnvEffort(proj = null) {
   return agentOverrides()
     .filter((o) => o.kind === "effort")
-    .map((o) =>
-      finding(
+    .map((o) => {
+      const ov = proj ? readOverlayAt(proj) : null;
+      const set = ov
+        ? [
+            ...(ov.efforts.default ? ["agents.default.effort"] : []),
+            ...Object.keys(ov.efforts.per_agent).map((n) => `agents.per_agent.${n}.effort`),
+          ]
+        : [];
+      const where = set.length ? ` (${relative(proj, ov.path) || ov.path} sets ${set.join(", ")})` : "";
+      return finding(
         "install",
         "warn",
         "env-effort",
-        `${o.env}=${o.value} is set — it overrides the bundled agents' "effort: max" frontmatter, so every projectstore agent runs at "${o.value}". Effort is not configurable per project (ADR-008); unset the variable to restore the quality floor.`,
-      ),
-    );
+        `${o.env}=${o.value} is set — it outranks every effort projectstore passes at spawn${where} and the bundled agents' frontmatter, so every projectstore agent runs at "${o.value}". Unset it for the configured efforts to run.`,
+      );
+    });
 }
 
 export function checkEnvModel() {
@@ -2986,7 +3019,7 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
     ...checkAgentsBlock(proj, { env: opts.env, root: opts.root }),
     ...checkOverrideCopies(proj),
     ...checkEnvModel(),
-    ...checkEnvEffort(),
+    ...checkEnvEffort(proj),
     ...checkGitignore(proj),
     ...checkHostIgnored(proj, { env: opts.env }),
     ...checkTrackedRuntime(proj),
@@ -3073,7 +3106,7 @@ export function runStartupChecks(cfg, proj, budgetMs = 150) {
         restamp: findings.some((f) => f.level === "info" && f.check === "upgrade"),
       }),
     () => checkEnvModel(),
-    () => checkEnvEffort(),
+    () => checkEnvEffort(proj),
   ];
   for (const step of steps) {
     if (Date.now() - started > budgetMs) return { skipped: true, count: 0, findings: foldIntoMove(findings) };
