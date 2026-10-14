@@ -835,6 +835,71 @@ function checkAgents(page) {
     );
   return out;
 }
+// AC "The link": the header's top row links to the source with GitHub's mark
+// and its name, a name no dictionary translates (the mark is decoration, the
+// name is the link's), and the Star button it replaced is gone from every page.
+const SOURCE_NAME = "GitHub";
+function checkSourceLink(page) {
+  const out = [];
+  const say = (message) => out.push(finding(page.file, "source-link", message));
+  const row = page.els.find((el) => hasClass(el, "head-row"));
+  const links = row ? page.els.filter((el) => el.name === "a" && within(row, el) && hasClass(el, "gh")) : [];
+  if (links.length !== 1) say(`the header's top row holds ${links.length} a.gh; it holds one`);
+  for (const a of links) {
+    if (a.attrs.href !== REPO_URL) say(`the GitHub link goes to ${a.attrs.href}; it goes to ${REPO_URL}`);
+    const inside = page.els.filter((el) => within(a, el));
+    const marks = inside.filter((el) => el.name === "svg");
+    if (marks.length !== 1 || marks[0].attrs["aria-hidden"] !== "true" || marks[0].attrs.focusable !== "false")
+      say('the GitHub link\'s mark is not one svg with aria-hidden="true" and focusable="false"');
+    const read = a.text.trim();
+    if (read !== SOURCE_NAME || a.attrs["aria-label"] !== SOURCE_NAME)
+      say(`the GitHub link reads "${read}" (aria-label "${a.attrs["aria-label"] ?? ""}"); it reads ${SOURCE_NAME}`);
+    if (inside.some((el) => "data-i18n" in el.attrs || "data-i18n-attr" in el.attrs))
+      say(`the GitHub link carries data-i18n or data-i18n-attr; ${SOURCE_NAME} is a name no dictionary translates`);
+  }
+  if (page.els.some((el) => hasClass(el, "star"))) say("a page still has the Star button (class star)");
+  return out;
+}
+// AC "Out of the way": at 760 px and narrower the name hides and the mark
+// stays, as the header's row is tight there; print hides the header, and the
+// link with it, so the print list names neither the link nor the old button.
+const SOURCE_NARROW = "@media (max-width: 760px)";
+function checkSourceLinkCss(file, css) {
+  const rules = cssRules(css);
+  const heads = (r) => r.head.split(",").map((h) => h.trim());
+  const out = [];
+  if (!rules.some((r) => r.media === SOURCE_NARROW && heads(r).includes(".gh span") && /display:\s*none/.test(r.body)))
+    out.push(
+      finding(
+        file,
+        "source-link",
+        `the GitHub link's word shows on a phone: no .gh span hidden under ${SOURCE_NARROW}`,
+      ),
+    );
+  const gone = rules.filter(
+    (r) =>
+      r.media !== "@media print" &&
+      heads(r).some((h) => /(?:^|[\s>])(?:a)?\.gh(?:\s*>?\s*svg)?$/.test(h)) &&
+      /display:\s*none/.test(r.body),
+  );
+  if (gone.length)
+    out.push(
+      finding(
+        file,
+        "source-link",
+        `the GitHub link's mark hides under ${gone.map((r) => r.media ?? "no media query").join(", ")}`,
+      ),
+    );
+  const print = rules.filter((r) => r.media === "@media print" && /display:\s*none/.test(r.body));
+  if (!print.some((r) => heads(r).includes(".site-header")))
+    out.push(
+      finding(file, "source-link", "print does not hide the header (.site-header), and the GitHub link with it"),
+    );
+  const named = print.flatMap(heads).filter((h) => h === ".gh" || h === ".star");
+  if (named.length)
+    out.push(finding(file, "source-link", `the print list names ${named.join(", ")}; the header hides the link`));
+  return out;
+}
 // AC "No harness status on the site": no page carries a harness-status marker,
 // and no translation unit (an element with data-i18n), chip or description
 // says Codex is experimental in the page's language.
@@ -2841,6 +2906,11 @@ test("site: every main page names the four agents in the hero and the terminal b
   assert.deepEqual(found, [], show(found));
 });
 
+test("site: every page's header links to the source on GitHub with its mark and its untranslated name, and no page keeps the Star button", () => {
+  const found = [...eachPage(checkSourceLink), ...checkSourceLinkCss(STYLE, read(STYLE))];
+  assert.deepEqual(found, [], show(found));
+});
+
 test("site AC 4: every command and role named, in any harness's form, is a file in commands/ or agents/", () => {
   const found = [
     ...eachPage((p) => checkInvocations(p.file, readable(p), REPO)),
@@ -4373,6 +4443,65 @@ const PLANTED = [
         '    svg.setAttribute("focusable", "false");\n    svg.setAttribute("stroke", "#19233a");\n',
       ],
     ],
+  },
+
+  // The GitHub link story: one link to the source, its mark hidden from a
+  // screen reader, its name untranslated; the word hides on a phone.
+  {
+    ac: "The link",
+    what: "the Star button put back beside the link",
+    ...onPage("en", checkSourceLink),
+    fact: "source-link",
+    message: /^a page still has the Star button/,
+    edits: [['<a class="gh" ', `<a class="star" href="${REPO_URL}">★ Star</a><a class="gh" `]],
+  },
+  {
+    ac: "The link",
+    what: "the mark without aria-hidden",
+    ...onPage("en", checkSourceLink),
+    fact: "source-link",
+    message: /mark is not one svg with aria-hidden/,
+    edits: [['viewBox="0 0 16 16" aria-hidden="true" focusable="false"', 'viewBox="0 0 16 16" focusable="false"']],
+  },
+  {
+    ac: "The link",
+    what: "the link to another repository",
+    ...onPage("en", checkSourceLink),
+    fact: "source-link",
+    message: /^the GitHub link goes to https:\/\/github\.com\/someone\/ProjectStore;/,
+    edits: [[`<a class="gh" href="${REPO_URL}"`, '<a class="gh" href="https://github.com/someone/ProjectStore"']],
+  },
+  {
+    ac: "The link",
+    what: "a ru page whose link reads ГитХаб",
+    ...onPage("ru", checkSourceLink),
+    fact: "source-link",
+    message: /reads "ГитХаб"/,
+    edits: [["<span>GitHub</span></a>", "<span>ГитХаб</span></a>"]],
+  },
+  {
+    ac: "Out of the way",
+    what: "the GitHub link's word left on a phone",
+    ...onText(STYLE, checkSourceLinkCss),
+    fact: "source-link",
+    message: /word shows on a phone/,
+    edits: [["  .gh span { display: none; }\n", ""]],
+  },
+  {
+    ac: "Out of the way",
+    what: "the GitHub link's mark hidden on a phone too",
+    ...onText(STYLE, checkSourceLinkCss),
+    fact: "source-link",
+    message: /mark hides under @media \(max-width: 760px\)/,
+    edits: [["  .gh span { display: none; }", "  .gh svg, .gh span { display: none; }"]],
+  },
+  {
+    ac: "Out of the way",
+    what: "print no longer hiding the header",
+    ...onText(STYLE, checkSourceLinkCss),
+    fact: "source-link",
+    message: /^print does not hide the header/,
+    edits: [["  .site-header, .mobile-nav,", "  .mobile-nav,"]],
   },
 
   // The four-agents story: the names, the chips, no status in any language.

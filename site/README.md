@@ -106,8 +106,10 @@ early script, `src/_tone.html`, reads it before the first paint, sets `data-tone
 the `theme-color` from the computed `--bg`, so a page in graphite or light never shows midnight
 first. Without JavaScript, or without storage, a page is midnight, and without JavaScript the switch
 is not shown. Below 1200 px the page links leave the header row for a second row under it, so the
-row with the switch, the language and the star never wraps in any language; below 400 px that row
-tightens, so it fits from 360 px.
+row with the switch, the language and the GitHub link never wraps in any language; below 400 px that
+row tightens, so it fits from 360 px. The GitHub link is GitHub's mark, inline in `currentColor`, and
+the name "GitHub", which no dictionary translates; at 760 px and narrower only the mark shows, and
+the link keeps its name in `aria-label`.
 
 How the templates mark text:
 
@@ -212,6 +214,9 @@ it); that every page ships in midnight, with the switch and the early script, it
 `:root` `--bg`; and that the early script, run in `node:vm`, sets each tone the switch offers and
 midnight for anything else. It also holds that the page links and the header's second row switch
 under one media query, and that every main page opens with the three posters before the headline.
+It holds the GitHub link on every page: one `a.gh` in the header's top row, to the repository, its
+mark hidden from a screen reader, its name "GitHub" untranslated, the word hidden at 760 px and
+narrower; and no page keeps the Star button it replaced.
 
 **The agents the site names** are positioning, not facts: every main page names Claude Code, Codex,
 Gemini CLI and Cursor, in that order, in the hero and as the terminal box's chips, and no page carries
