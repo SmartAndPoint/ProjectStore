@@ -28,7 +28,22 @@ A dark tone changes the surfaces only; light also recolours the text, the accent
 sets `color-scheme: light`. `--bg` is the opaque base, `--bg-1` to `--bg-4` are the translucent panels,
 `--bg-0` a well inside one, and `--bg-pop` the opaque surface of a menu. Print gets light tokens and
 no glow, and `prefers-reduced-motion` stops every animation. The brand is the repository's social-preview
-mark and the wordmark `.projectstore`.
+mark and the wordmark `.projectstore`, whose dot is a round brand-coloured dot with a slow pulse.
+
+**The graph behind the page.** `assets/site.js` builds a faint graph in a fixed layer with the glow,
+under the content: a slice of this project's own vault, 28 artifacts around ADR-010 and 34 of the
+links among them (the rest are left out to keep it sparse), as `tools/graph-slice.mjs` cut it from the
+vault's `graph.md`. Only accepted, done, active, final and in-progress artifacts are shown, never a
+draft or a proposal. Each node carries its number and slug (`ADR-010 slug-first-artifa…`,
+`epic PS-CORE`) in small mono, in its node's grey. On a smaller window `site.js` drops a label that
+would cover one shown before it or another node; at 900 px and narrower none shows, since every one
+would lie under the text. The lines are one colour per tone, `--graph`, as light
+as the readability floors allow, since the test counts it as a surface; the nodes are lit beyond it,
+within bounds the test reads. A reached node's ring breathes in a layer of HTML spans (`.graph-rings`),
+which costs no layout per frame; a line the scroll draws pulses once and its node pings. A few links
+show at the top; scrolling down draws the rest from nodes already there, and the graph is whole at the
+end of the page. Its data is one `GRAPH` literal the test reads. Without JavaScript there is none; under
+reduced motion it shows whole and still; print and forced colours hide it.
 
 Static HTML, CSS and vanilla JavaScript. One build step renders every page in every language from
 the templates, in stdlib Python with no dependencies.
@@ -47,6 +62,7 @@ src/_loop.html
 src/_tone.html             the early script every template's <head> includes after the stylesheet: the saved tone
 locales/<lang>.json        one dictionary per language for the whole site: en (extracted), de, es, fr, pt, ru, uk, zh
 tools/i18n.py              build, extract and check (stdlib Python 3.12); PAGES is the table of pages
+tools/graph-slice.mjs      the background graph's data: a slice of the vault's graph.md, laid out, into site.js
 index.html                 generated: English, the default, at the site root
 <slug>/index.html          generated: the English method pages — /how-it-works/ /why-it-works/ /one-vault/
 <lang>/index.html          generated: every page per language — /de/ /de/how-it-works/ … /zh/one-vault/
@@ -55,7 +71,7 @@ en/index.html              generated: a redirect from the old /en/ address to th
 llms.txt                   the project for agents, in the llmstxt.org format
 llms-full.txt              the long form: a technical reference written for agents
 assets/style.css           tokens, components, diagrams, responsive rules, print, the @font-face rules, Chinese font stacks
-assets/site.js             tabs, the loop's lines and cartoon, copy buttons, language switcher, tone switch
+assets/site.js             tabs, the loop's lines and cartoon, copy buttons, language switcher, tone switch, the graph
 assets/mark.svg            the mark: the header logo and the favicon
 assets/icon-180.png        the mark for Safari's touch icon
 assets/og.png              the 1280×640 link preview every page names in og:image and twitter:image
@@ -114,6 +130,10 @@ python3 tools/i18n.py extract    # after editing English in a template: refresh 
 python3 tools/i18n.py build      # render every page in every language; --base-url "" renders relative links
 ```
 
+To redraw the background graph from the vault as it is now, `node tools/graph-slice.mjs <vault>/graph.md`
+rewrites the `GRAPH` literal in `assets/site.js` (the same `graph.md` gives the same literal), then
+`build` renders the pages with the script's new hash.
+
 To change English, edit the template or partial, run `check` to see which translations became stale,
 update them, then `extract` and `build`. To add a sentence, give the new element a new key (any unused
 name in the section's scheme, e.g. `how.m.7.p`), add it to every dictionary, then `extract` and
@@ -158,7 +178,6 @@ without a marker fails rather than goes unread. The markers:
 | `data-fact` | `version` | `package.json`'s version (`v` optional). A version anywhere else in the text fails. |
 | | `commands`, `agents`, `languages`, `mcp-tools` | the count, as digits: files in `commands/` and `agents/`, `templates/<lang>/` folders, `TOOLS` in `scripts/mcp.mjs` |
 | | `mcp-tool` | one per `<li>`; each list names every tool in `TOOLS` once |
-| | `harness-status:<id>` | `experimental` while `harnesses/<id>.json` has `verified: null`, else `supported` |
 | | `install` | on the element of an install or configure block: each line is one README fences under "Install", "Configure", "Upgrading" or "Uninstalling", the bind line's `start.bind-lang` aside. No `data-copy`: the copy button copies what the block shows. An install, configure, upgrade or uninstall command anywhere else fails. |
 | | `prompt` | README's prompt under "In a Claude Code session", word for word |
 | `data-source` | `README.md#<anchor>` or `docs/<page>.md#<anchor>` | on every measured figure; the file and the heading exist |
@@ -173,10 +192,10 @@ page has its English page's ids, markers, marker values and fact values. The rul
 
 | Kind | Facts and markers it must carry |
 |---|---|
-| main | the version, the install and configure blocks, the prompt, every published harness's status, the counts, an ADR example (`data-template="adr"`), a `data-source`; the loop; numbered sections 01–07 |
-| How it works | the version, the agents count, the MCP tools listed, Codex's status, a story example (`data-template="story"`); the loop |
+| main | the version, the install and configure blocks, the prompt, the counts, an ADR example (`data-template="adr"`), a `data-source`; the loop; numbered sections 01–07 |
+| How it works | the version, the agents count, the MCP tools listed, a story example (`data-template="story"`); the loop |
 | Why it works | the version |
-| One vault | the version, the setup line, Codex's status, a `data-source` |
+| One vault | the version, the setup line, a `data-source` |
 
 The version lives in one place, the footer partial `src/_footer.html`, so a release edits one file.
 
@@ -193,6 +212,21 @@ it); that every page ships in midnight, with the switch and the early script, it
 `:root` `--bg`; and that the early script, run in `node:vm`, sets each tone the switch offers and
 midnight for anything else. It also holds that the page links and the header's second row switch
 under one media query, and that every main page opens with the three posters before the headline.
+
+**The agents the site names** are positioning, not facts: every main page names Claude Code, Codex,
+Gemini CLI and Cursor, in that order, in the hero and as the terminal box's chips, and no page carries
+a harness status or calls Codex experimental in its language (the test holds the four names in one
+constant). The product's measured statuses stay in README, `docs/harnesses.md`, the manifests and
+the llms files, which agents read as facts.
+
+For the graph, the test reads the `GRAPH` literal (every node is a kind the vault has, labelled with its
+number or kind and slug in 26 characters; every link joins two nodes, starts where an earlier one
+reached, and every node is reached), the layer's rules (fixed, under the content, no pointer, print,
+reduced motion, no labels at 900 px and narrower), and runs `site.js` in `node:vm` to see the graph
+drawn as the page scrolls: the open links at the top, all of it at the end, at most one draw per frame,
+and no shown label over another label or a node at 1024×640, 1280×600 and 1440×900. No string in `site.js` holds a
+colour. The wordmark's dot is a round `--brand` dot whose pulse has its keyframes, and reduced motion
+stops it.
 
 ## Freshness
 
@@ -220,8 +254,8 @@ the same so far; 3.12 stays the reference.)
 A site change is not a release: it merges with no version bump and no tag, and `pages.yml` deploys it.
 A release's bump does change the site:
 
-1. edit the `data-fact="version"` element in `src/_footer.html`, and any count, tool list or harness
-   status the release changed, in whichever template carries it;
+1. edit the `data-fact="version"` element in `src/_footer.html`, and any count or tool list the release
+   changed, in whichever template carries it; a harness status changes only in the llms files (step 3);
 2. `python3 tools/i18n.py build`;
 3. update `llms.txt` and `llms-full.txt`: "Facts about version …", the closing "Version …" line of the
    long form, and the facts beneath.

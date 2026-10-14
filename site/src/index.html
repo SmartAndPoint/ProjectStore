@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!--i18n:redirect-->
 <title data-i18n="meta.title">ProjectStore — your agent writes the code, ProjectStore keeps the record</title>
-<meta name="description" content="ProjectStore keeps your project's record — what was decided, what is in flight, what was checked — as reviewed Markdown in git. One command sets it up for Claude Code and Codex (experimental); then you just talk to your agent." data-i18n-attr="content:meta.description">
+<meta name="description" content="ProjectStore keeps your project's record — what was decided, what is in flight, what was checked — as reviewed Markdown in git. It works with Claude Code, Codex, Gemini CLI and Cursor; you just talk to your agent." data-i18n-attr="content:meta.description">
 <meta name="theme-color" content="#080d19">
 <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icon-180.png">
@@ -32,7 +32,7 @@
     <div class="section-label" data-i18n="hero.label">01 / Install</div>
     <div class="cta-block">
       <div class="cta-opt">
-        <p class="cta-label"><span data-i18n="hero.ask">Just ask your agent:</span> <span class="cta-sub"><b>Claude Code</b> · <b>Codex</b> · <span data-i18n="hero.others">OpenCode, Cursor and other agents</span></span></p>
+        <p class="cta-label"><span data-i18n="hero.ask">Just ask your agent:</span> <span class="cta-sub"><b>Claude Code</b> · <b>Codex</b> · <b>Gemini CLI</b> · <b>Cursor</b></span></p>
         <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Copy the prompt" data-done="Copied" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
         <p class="note" data-i18n="hero.note">In Claude Code, this prompt adds the git marketplace and installs from it; turn on its auto-update in <code>/plugin</code>. In Codex, run the command below instead: inside a session the install waits for a terminal. Other agents get no plugin yet; they read the same vault through its files, the CLI and MCP.</p>
       </div>
@@ -44,7 +44,7 @@
             <button class="copy" type="button" data-copy-from="install-cmd" aria-label="Copy the command" data-done="Copied" data-i18n-attr="aria-label:hero.copy;data-done:hero.copied"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
           </div>
           <div class="term-foot">
-            <span class="chips"><span class="chip">Claude Code · <span data-fact="harness-status:claude-code">supported</span></span><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span></span>
+            <span class="chips"><span class="chip">Claude Code</span><span class="chip">Codex</span><span class="chip">Gemini CLI</span><span class="chip">Cursor</span></span>
             <ul class="term-notes">
               <li data-i18n="hero.n.1">It asks where the vault lives, shows one plan, and asks once.</li>
               <li data-i18n="hero.n.2">Restart the agent afterwards; Codex asks you to approve its hooks once.</li>
@@ -76,7 +76,7 @@
   <div class="section-label" data-i18n="talk.label">02 / Then just talk</div>
   <div class="talk-head">
     <div><h2 id="talk-title" data-i18n="talk.h2">No commands to learn. <span class="acc">Just talk.</span></h2></div>
-    <p class="lede" data-i18n="talk.lede">Say what you want. The agent runs the workflow, shows each draft and <b class="hl">asks before it writes</b>. The scenes below are Claude Code; in Codex the same flow is experimental.</p>
+    <p class="lede" data-i18n="talk.lede">Say what you want. The agent runs the workflow, shows each draft and <b class="hl">asks before it writes</b>. The scenes below are Claude Code.</p>
   </div>
 
   <div class="scenes">
@@ -141,13 +141,13 @@
 <span class="prompt-box">&gt; <span class="cursor">▍</span></span></figure>
     </article>
     <article class="set-card">
-      <div class="set-head"><span data-i18n="set.models.k">models</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.models.h">Codex experimental, models only</span></span></div>
+      <div class="set-head"><span data-i18n="set.models.k">models</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.models.h">Codex: models only</span></span></div>
       <p class="set-prompt" data-i18n="set.models.q">“Run the critic on Fable, and show ProjectStore in my status line.”</p>
       <p class="runs"><span data-i18n="set.runs">the agent runs:</span></p>
       <pre class="runs" id="cfg-set" data-fact="install">npx projectstore configure --set agents.critic=fable --set statusline=on</pre>
     </article>
     <article class="set-card">
-      <div class="set-head"><span data-i18n="set.skill.k">your own skill</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.skill.h">Codex (experimental): files and the CLI</span></span></div>
+      <div class="set-head"><span data-i18n="set.skill.k">your own skill</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.skill.h">Codex: files and the CLI</span></span></div>
       <p class="set-prompt" data-i18n="set.skill.q">“Write a skill: before a release, list the stories that are not done and the ADRs still waiting for review.”</p>
       <p class="runs" data-i18n="set.skill.p">An ordinary skill that reads the record: plain Markdown with frontmatter, or the <span data-fact="mcp-tools">8</span> read-only MCP tools.</p>
     </article>

@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title data-i18n="how.meta.title">ProjectStore 如何工作 — 循环、智能体与防护</title>
-<meta name="description" content="ProjectStore 循环逐步展开：先有工件再写代码、独立的 critic、知道早先工作落在何处的 planner、要求证据的 reviewer。六个智能体，其中五个只读。支持 Claude Code，以及 Codex（实验性）。" data-i18n-attr="content:how.meta.description">
+<meta name="description" content="ProjectStore 循环逐步展开：先有工件再写代码、独立的 critic、知道早先工作落在何处的 planner、要求证据的 reviewer。六个智能体，其中五个只读。ProjectStore 适用于 Claude Code、Codex、Gemini CLI 和 Cursor。" data-i18n-attr="content:how.meta.description">
 <meta name="theme-color" content="#080d19">
 <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../../assets/icon-180.png">
-<link rel="stylesheet" href="../../assets/style.css?v=9e2ac046">
+<link rel="stylesheet" href="../../assets/style.css?v=78de8ec9">
 <script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="light")t=s;}catch(e){}d.setAttribute("data-tone",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/how-it-works/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/how-it-works/">
@@ -25,7 +25,7 @@
 <meta property="og:site_name" content="ProjectStore">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:title" content="ProjectStore 如何工作 — 循环、智能体与防护">
-<meta property="og:description" content="ProjectStore 循环逐步展开：先有工件再写代码、独立的 critic、知道早先工作落在何处的 planner、要求证据的 reviewer。六个智能体，其中五个只读。支持 Claude Code，以及 Codex（实验性）。">
+<meta property="og:description" content="ProjectStore 循环逐步展开：先有工件再写代码、独立的 critic、知道早先工作落在何处的 planner、要求证据的 reviewer。六个智能体，其中五个只读。ProjectStore 适用于 Claude Code、Codex、Gemini CLI 和 Cursor。">
 <meta property="og:url" content="https://projectstore.dev/zh/how-it-works/">
 <meta property="og:image" content="https://projectstore.dev/assets/og.png">
 <meta property="og:image:width" content="1280">
@@ -135,7 +135,7 @@
     <article class="agent"><span class="role">archaeologist</span><span class="rw" data-i18n="agents.span.8">只读 · 只提建议</span><p data-i18n="agents.td.13">绑定已有代码库之后运行一次</p><p class="c-hi" data-i18n="agents.td.14">从代码、配置文件和 git 历史中找出没人写下来的决策，并附上证据，建议为它们补写 ADR。</p><span class="rw" data-i18n="agents.td.15">opus · max</span></article>
     <article class="agent"><span class="role acc">clerk</span><span class="rw" data-i18n="agents.span.9">写入 · 在你说“是”之后</span><p data-i18n="agents.td.16">只在命令流程内，只在你说“是”之后</p><p class="c-hi" data-i18n="agents.td.17">原样保存你批准的内容，不多一字。然后重建看板并运行检查。不自行撰写任何内容，也不提任何问题。</p><span class="rw" data-i18n="agents.td.18">sonnet · max</span></article>
   </div>
-  <p class="note"><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span> <span data-i18n="agents.p.10">默认模型针对的是 Claude Code。在 Codex 中，每个角色都是一个同名 skill，它会请求 Codex 启动该角色，例如 <code>$projectstore-critic</code> 对应 critic 角色；除非你另行设置，它使用会话的模型。</span></p>
+  <p class="note"><span data-i18n="agents.p.10">默认模型针对的是 Claude Code。在 Codex 中，每个角色都是一个同名 skill，它会请求 Codex 启动该角色，例如 <code>$projectstore-critic</code> 对应 critic 角色；除非你另行设置，它使用会话的模型。</span></p>
 </section>
 
 <section class="sec" id="mechanisms" aria-labelledby="how-mech-title">
@@ -185,7 +185,7 @@
   <h2 id="how-fine-title" class="visually-hidden" data-i18n="how.fine.h2">细则</h2>
   <ul class="fine">
     <li data-i18n="how.fine.1">运行这个循环会消耗 token：草稿、critic 和 reviewer 都使用你已经在付费的模型。README 对此有实测数据。</li>
-    <li data-i18n="how.fine.2">在 Claude Code 中，critic 和 reviewer 是上下文全新的独立智能体。在 Codex 中，这些角色是 skill，这条路径是实验性的。</li>
+    <li data-i18n="how.fine.2">在 Claude Code 中，critic 和 reviewer 是上下文全新的独立智能体。在 Codex 中，这些角色是 skill。</li>
     <li data-i18n="how.fine.3">ProjectStore 是共享的项目上下文，也是一种工作方式。它不是智能体编排器：启动智能体是你的 harness 的职责。</li>
   </ul>
   <p class="next-pages"><a href="../why-it-works/" data-i18n="how.next.1">为何有效 →</a><a href="../one-vault/" data-i18n="how.next.2">一个 vault，多人协作 →</a><a href="../#start" data-i18n="how.next.3">安装 →</a></p>
@@ -201,6 +201,6 @@
   </div>
 </footer>
 
-<script src="../../assets/site.js?v=f52bc9e4"></script>
+<script src="../../assets/site.js?v=15226866"></script>
 </body>
 </html>

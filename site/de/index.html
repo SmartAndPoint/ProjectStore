@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title data-i18n="meta.title">ProjectStore — dein Agent schreibt den Code, ProjectStore führt die Akte</title>
-<meta name="description" content="ProjectStore führt die Akte deines Projekts — was entschieden wurde, was in Arbeit ist, was geprüft wurde — als reviewtes Markdown in git. Ein Befehl richtet es für Claude Code und Codex (experimentell) ein; danach redest du einfach mit deinem Agenten." data-i18n-attr="content:meta.description">
+<meta name="description" content="ProjectStore führt die Akte deines Projekts — was entschieden wurde, was in Arbeit ist, was geprüft wurde — als reviewtes Markdown in git. Es funktioniert mit Claude Code, Codex, Gemini CLI und Cursor; du redest einfach mit deinem Agenten." data-i18n-attr="content:meta.description">
 <meta name="theme-color" content="#080d19">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=9e2ac046">
+<link rel="stylesheet" href="../assets/style.css?v=78de8ec9">
 <script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="light")t=s;}catch(e){}d.setAttribute("data-tone",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
@@ -25,7 +25,7 @@
 <meta property="og:site_name" content="ProjectStore">
 <meta property="og:locale" content="de">
 <meta property="og:title" content="ProjectStore — dein Agent schreibt den Code, ProjectStore führt die Akte">
-<meta property="og:description" content="ProjectStore führt die Akte deines Projekts — was entschieden wurde, was in Arbeit ist, was geprüft wurde — als reviewtes Markdown in git. Ein Befehl richtet es für Claude Code und Codex (experimentell) ein; danach redest du einfach mit deinem Agenten.">
+<meta property="og:description" content="ProjectStore führt die Akte deines Projekts — was entschieden wurde, was in Arbeit ist, was geprüft wurde — als reviewtes Markdown in git. Es funktioniert mit Claude Code, Codex, Gemini CLI und Cursor; du redest einfach mit deinem Agenten.">
 <meta property="og:url" content="https://projectstore.dev/de/">
 <meta property="og:image" content="https://projectstore.dev/assets/og.png">
 <meta property="og:image:width" content="1280">
@@ -80,7 +80,7 @@
     <div class="section-label" data-i18n="hero.label">01 / Installieren</div>
     <div class="cta-block">
       <div class="cta-opt">
-        <p class="cta-label"><span data-i18n="hero.ask">Frag einfach deinen Agenten:</span> <span class="cta-sub"><b>Claude Code</b> · <b>Codex</b> · <span data-i18n="hero.others">OpenCode, Cursor und andere Agenten</span></span></p>
+        <p class="cta-label"><span data-i18n="hero.ask">Frag einfach deinen Agenten:</span> <span class="cta-sub"><b>Claude Code</b> · <b>Codex</b> · <b>Gemini CLI</b> · <b>Cursor</b></span></p>
         <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Prompt kopieren" data-done="Kopiert" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
         <p class="note" data-i18n="hero.note">In Claude Code fügt dieser Prompt den Git-Marketplace hinzu und installiert daraus; schalte dessen automatisches Update in <code>/plugin</code> ein. In Codex führst du stattdessen den Befehl unten aus: Innerhalb einer Sitzung wartet die Installation auf ein Terminal. Andere Agenten bekommen noch kein Plugin; sie lesen denselben Vault über seine Dateien, die CLI und MCP.</p>
       </div>
@@ -92,7 +92,7 @@
             <button class="copy" type="button" data-copy-from="install-cmd" aria-label="Befehl kopieren" data-done="Kopiert" data-i18n-attr="aria-label:hero.copy;data-done:hero.copied"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
           </div>
           <div class="term-foot">
-            <span class="chips"><span class="chip">Claude Code · <span data-fact="harness-status:claude-code">supported</span></span><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span></span>
+            <span class="chips"><span class="chip">Claude Code</span><span class="chip">Codex</span><span class="chip">Gemini CLI</span><span class="chip">Cursor</span></span>
             <ul class="term-notes">
               <li data-i18n="hero.n.1">Es fragt, wo der Vault liegt, zeigt einen Plan und fragt einmal nach.</li>
               <li data-i18n="hero.n.2">Starte den Agenten danach neu; Codex bittet dich einmal, seine Hooks freizugeben.</li>
@@ -124,7 +124,7 @@
   <div class="section-label" data-i18n="talk.label">02 / Dann einfach reden</div>
   <div class="talk-head">
     <div><h2 id="talk-title" data-i18n="talk.h2">Keine Befehle zu lernen. <span class="acc">Einfach reden.</span></h2></div>
-    <p class="lede" data-i18n="talk.lede">Sag, was du willst. Der Agent führt den Ablauf aus, zeigt jeden Entwurf und <b class="hl">fragt, bevor er schreibt</b>. Die Szenen unten zeigen Claude Code; in Codex ist derselbe Ablauf experimentell.</p>
+    <p class="lede" data-i18n="talk.lede">Sag, was du willst. Der Agent führt den Ablauf aus, zeigt jeden Entwurf und <b class="hl">fragt, bevor er schreibt</b>. Die Szenen unten zeigen Claude Code.</p>
   </div>
 
   <div class="scenes">
@@ -189,13 +189,13 @@
 <span class="prompt-box">&gt; <span class="cursor">▍</span></span></figure>
     </article>
     <article class="set-card">
-      <div class="set-head"><span data-i18n="set.models.k">Modelle</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.models.h">Codex experimentell, nur Modelle</span></span></div>
+      <div class="set-head"><span data-i18n="set.models.k">Modelle</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.models.h">Codex: nur Modelle</span></span></div>
       <p class="set-prompt" data-i18n="set.models.q">„Lass den Critic auf Fable laufen und zeig ProjectStore in meiner Statuszeile.“</p>
       <p class="runs"><span data-i18n="set.runs">der Agent führt aus:</span></p>
       <pre class="runs" id="cfg-set" data-fact="install">npx projectstore configure --set agents.critic=fable --set statusline=on</pre>
     </article>
     <article class="set-card">
-      <div class="set-head"><span data-i18n="set.skill.k">dein eigener Skill</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.skill.h">Codex (experimentell): Dateien und die CLI</span></span></div>
+      <div class="set-head"><span data-i18n="set.skill.k">dein eigener Skill</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.skill.h">Codex: Dateien und die CLI</span></span></div>
       <p class="set-prompt" data-i18n="set.skill.q">„Schreib einen Skill: Liste vor einem Release die Stories auf, die nicht fertig sind, und die ADRs, die noch auf Review warten.“</p>
       <p class="runs" data-i18n="set.skill.p">Ein gewöhnlicher Skill, der die Akte liest: reines Markdown mit Dateikopf oder die <span data-fact="mcp-tools">8</span> schreibgeschützten MCP-Tools.</p>
     </article>
@@ -404,6 +404,6 @@
   </div>
 </footer>
 
-<script src="../assets/site.js?v=f52bc9e4"></script>
+<script src="../assets/site.js?v=15226866"></script>
 </body>
 </html>

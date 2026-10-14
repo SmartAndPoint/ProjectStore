@@ -99,6 +99,7 @@
   --bg-pop: #141f35;
   --dot: #1b2742;
   --line-1: #19233a;
+  --graph: #1f2940;
   --line-2: #222e4a;
   --line-3: #34425f;
   --line-4: #46546f;
@@ -118,6 +119,7 @@
   --graphite-bg-pop: #1e2228;
   --graphite-dot: #262a31;
   --graphite-line-1: #22262c;
+  --graphite-graph: #252930;
   --graphite-line-2: #2b3037;
   --graphite-line-3: #3d434c;
   --graphite-line-4: #4f5660;
@@ -139,6 +141,7 @@
   --light-bg-pop: #fffdf8;
   --light-dot: #d6cebb;
   --light-line-1: #e7e1d3;
+  --light-graph: #e6e0d2;
   --light-line-2: #ddd5c4;
   --light-line-3: #cbc1ab;
   --light-line-4: #b2a78e;
@@ -254,7 +257,11 @@ b, strong { font-weight: 600; color: var(--ink-hi); }
 .brand:hover { color: var(--ink-hi); }
 .brand .mark { width: 30px; height: 30px; }
 .wordmark { font-weight: 650; font-size: 19px; letter-spacing: -0.02em; }
-.wordmark .dot { color: var(--brand); }
+/* the wordmark's dot: a round dot in the brand colour, larger than a full stop, with room after it, and a
+   slow ring pulsing out of it. overflow: hidden puts its baseline at its bottom edge, so it sits where a
+   full stop would; the "." stays in the text for copying. Reduced motion stops the ring. */
+.wordmark .dot { display: inline-block; width: 0.32em; height: 0.32em; margin-right: 0.16em; overflow: hidden; border-radius: 50%; background: var(--brand); color: transparent; vertical-align: baseline; animation: dot-ping 2.4s ease-out infinite; }
+@keyframes dot-ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 60%, transparent); } 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
 .head-nav { display: flex; align-items: center; gap: 22px; font-family: var(--font-mono); font-size: 14px; }
 .head-nav > a { color: var(--ink-3); text-decoration: none; white-space: nowrap; }
 .head-nav > a:hover, .head-nav > a[aria-current="page"] { color: var(--ink-hi); }
@@ -335,10 +342,8 @@ h3 { font-size: clamp(22px, 2.4vw, 28px); line-height: 1.15; font-weight: 600; l
 .term { border: 1px solid var(--line-3); background: var(--bg-3); border-radius: 6px; box-shadow: 0 24px 60px -30px var(--accent-glow); }
 .chip { font-size: 11.5px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 3px; border: 1px solid var(--done-line); color: var(--done); }
-.chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px var(--done-line); }
-.chip.exp { border-color: var(--exp-line); color: var(--exp); }
-.chip.exp::before { box-shadow: 0 0 0 3px var(--exp-line); }
+/* the agents the site names: neutral, no status colour and no status dot */
+.chip { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 3px; border: 1px solid var(--line-3); color: var(--ink-2); }
 .cmdline { display: flex; align-items: center; gap: 12px; padding: 14px 14px; }
 .cmdline .ps1 { font-family: var(--font-mono); font-size: 0.7em; color: var(--ink-4); white-space: nowrap; }
 .cmdtext { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.6em; font-size: clamp(17px, 2.2vw, 24px); min-width: 0; flex: 1 1 auto; }
@@ -687,7 +692,6 @@ body[data-page="main"] .mobile-nav [data-nav="main"] { color: var(--ink-hi); box
 .tools li { border: 1px solid var(--line-3); border-radius: 4px; padding: 3px 9px; color: var(--ink-2); }
 .agent p { color: var(--ink-3); }
 .agent p.c-hi { color: var(--ink); }
-.note .chip { margin-right: 8px; }
 .rules-list { display: flex; flex-direction: column; gap: 10px; }
 .rules-list li { border-left: 2px solid var(--plan-line); padding-left: 14px; color: var(--ink-3); }
 .rules-list strong { color: var(--ink-hi); }
@@ -760,7 +764,49 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
+  .graph line { stroke-dashoffset: 0 !important; }
+  .graph .node { opacity: 1 !important; transform: none !important; }
+  .graph .beacon { opacity: 0 !important; }
+  .graph-rings { display: none !important; }
   .card:hover, .set-card:hover { transform: none; }
+}
+
+/* the graph behind the page (site.js builds it): with the glow, fixed and under the content, taking no
+   pointer. The lines are one colour per tone, --graph, as light as the readability test allows: it counts
+   them as a surface text may sit on. A line draws over its length (--len) as its progress (--p) grows, and
+   pulses once (.fresh) when the scroll draws it.
+   The nodes are lit beyond those floors, by the maintainer's decision, within bounds the test reads: a
+   node (--node) with a soft halo; while a line heads for it, it shows at up to 2.2x and its beacon, a
+   --line-5 disc at up to 0.55, at up to 4.5x, both shrinking to the point as the line arrives; a ring
+   breathes out of each reached node (.graph-rings, HTML, so transform and opacity cost no layout per
+   frame, as they would in SVG); a node pings once when the scroll reaches it. The graph is a slice of
+   this project's own vault, each node labelled with its number and slug in small mono in its node's
+   grey, shown as its node shows; site.js drops a label that would cover one shown before it or another
+   node, and at 900 px and narrower none shows, since every label would lie under the text. Forced
+   colours would turn it to full contrast behind the text. */
+.graph { position: fixed; inset: 0; width: 100%; height: 100lvh; z-index: -1; pointer-events: none; color: var(--graph); --node: var(--line-4); }
+.graph line { stroke: currentColor; stroke-width: 1; stroke-dasharray: var(--len); stroke-dashoffset: calc(var(--len) * (1 - var(--p, 1))); }
+.graph line.fresh { animation: graph-pulse 1.4s ease-out; }
+.graph circle { transform-box: fill-box; transform-origin: center; }
+.graph .node { fill: var(--node); stroke: var(--line-5); stroke-width: 3; stroke-opacity: 0.3; opacity: min(calc(var(--p, 1) * 1000), 1); transform: scale(calc(1 + (1 - var(--p, 1)) * 1.2)); }
+.graph .node.ping { animation: graph-ping 1.6s ease-out; }
+.graph .label { fill: var(--node); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; opacity: min(calc(var(--p, 1) * 1000), 1); }
+.graph .label.off { display: none; } /* site.js: it would cover a label shown before it, or another node */
+@media (max-width: 900px) { .graph .label { display: none; } } /* on a narrow screen every label lies under the text */
+.graph .beacon { fill: var(--line-5); opacity: calc(min(var(--p, 0) * 1000, 1) * (1 - var(--p, 0)) * 0.55); transform: scale(calc(1 + (1 - var(--p, 0)) * 3.5)); }
+.graph-rings { position: fixed; inset: 0; height: 100lvh; z-index: -1; pointer-events: none; }
+.graph-rings .ring { display: none; position: absolute; left: var(--x); top: var(--y); width: 8px; height: 8px; margin: -4px 0 0 -4px; border: 1.5px solid var(--line-5); border-radius: 50%; opacity: 0; }
+.graph-rings .ring.on { display: block; animation: graph-ring 4.2s ease-out infinite; }
+.graph-rings .ring:nth-child(3n) { animation-delay: -1.4s; }
+.graph-rings .ring:nth-child(3n + 1) { animation-delay: -2.8s; }
+@keyframes graph-ring { 0% { transform: scale(1); opacity: 0.9; } 45%, 100% { transform: scale(4); opacity: 0; } }
+@keyframes graph-ping { 0% { stroke-width: 3; stroke-opacity: 1; } 100% { stroke-width: 34; stroke-opacity: 0; } }
+@keyframes graph-pulse { 0%, 30% { stroke: var(--line-5); stroke-width: 3; } 100% { stroke: currentColor; stroke-width: 1; } }
+/* forced colours: no graph; the wordmark's dot is its "." again, which a forced background would hide */
+@media (forced-colors: active) {
+  .graph { display: none; }
+  .graph-rings { display: none; }
+  .wordmark .dot { width: auto; height: auto; overflow: visible; margin-right: 0; border-radius: 0; background: none; color: inherit; animation: none; }
 }
 
 /* ---------- the window: the glow behind the page, and the graphite and light tones ----------
@@ -773,6 +819,7 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
   :root[data-tone="graphite"] {
     --bg: var(--graphite-bg); --bg-0: var(--graphite-bg-0); --bg-1: var(--graphite-bg-1); --bg-2: var(--graphite-bg-2);
     --bg-3: var(--graphite-bg-3); --bg-4: var(--graphite-bg-4); --bg-pop: var(--graphite-bg-pop); --dot: var(--graphite-dot);
+    --graph: var(--graphite-graph);
     --line-1: var(--graphite-line-1); --line-2: var(--graphite-line-2); --line-3: var(--graphite-line-3);
     --line-4: var(--graphite-line-4); --line-5: var(--graphite-line-5);
     --glow-1: var(--graphite-glow-1); --glow-2: var(--graphite-glow-2); --glow-3: var(--graphite-glow-3);
@@ -783,6 +830,7 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
     color-scheme: light;
     --bg: var(--light-bg); --bg-0: var(--light-bg-0); --bg-1: var(--light-bg-1); --bg-2: var(--light-bg-2);
     --bg-3: var(--light-bg-3); --bg-4: var(--light-bg-4); --bg-pop: var(--light-bg-pop); --dot: var(--light-dot);
+    --graph: var(--light-graph);
     --line-1: var(--light-line-1); --line-2: var(--light-line-2); --line-3: var(--light-line-3);
     --line-4: var(--light-line-4); --line-5: var(--light-line-5);
     --glow-1: var(--light-glow-1); --glow-2: var(--light-glow-2); --glow-3: var(--light-glow-3);
@@ -816,6 +864,8 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
   .mode-panel { display: flex !important; }
   .term { box-shadow: none; }
   .poster { box-shadow: none; transform: none; }
+  .graph { display: none; }
+  .graph-rings { display: none; }
   .sec, .scene, .card, .stat, .file, .diagram, .tty { break-inside: avoid; }
   a { text-decoration: underline; }
 }

@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title data-i18n="how.meta.title">Как работает ProjectStore — цикл, агенты, защитные механизмы</title>
-<meta name="description" content="Цикл ProjectStore шаг за шагом: артефакт раньше кода, независимый критик, планировщик, который знает, куда легла прошлая работа, ревьюер, который просит подтверждение. Шесть агентов, пять из них только читают. Claude Code и Codex (экспериментально)." data-i18n-attr="content:how.meta.description">
+<meta name="description" content="Цикл ProjectStore шаг за шагом: артефакт раньше кода, независимый критик, планировщик, который знает, куда легла прошлая работа, ревьюер, который просит подтверждение. Шесть агентов, пять из них только читают. Работает с Claude Code, Codex, Gemini CLI и Cursor." data-i18n-attr="content:how.meta.description">
 <meta name="theme-color" content="#080d19">
 <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../../assets/icon-180.png">
-<link rel="stylesheet" href="../../assets/style.css?v=9e2ac046">
+<link rel="stylesheet" href="../../assets/style.css?v=78de8ec9">
 <script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="light")t=s;}catch(e){}d.setAttribute("data-tone",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/how-it-works/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/how-it-works/">
@@ -25,7 +25,7 @@
 <meta property="og:site_name" content="ProjectStore">
 <meta property="og:locale" content="ru">
 <meta property="og:title" content="Как работает ProjectStore — цикл, агенты, защитные механизмы">
-<meta property="og:description" content="Цикл ProjectStore шаг за шагом: артефакт раньше кода, независимый критик, планировщик, который знает, куда легла прошлая работа, ревьюер, который просит подтверждение. Шесть агентов, пять из них только читают. Claude Code и Codex (экспериментально).">
+<meta property="og:description" content="Цикл ProjectStore шаг за шагом: артефакт раньше кода, независимый критик, планировщик, который знает, куда легла прошлая работа, ревьюер, который просит подтверждение. Шесть агентов, пять из них только читают. Работает с Claude Code, Codex, Gemini CLI и Cursor.">
 <meta property="og:url" content="https://projectstore.dev/ru/how-it-works/">
 <meta property="og:image" content="https://projectstore.dev/assets/og.png">
 <meta property="og:image:width" content="1280">
@@ -135,7 +135,7 @@
     <article class="agent"><span class="role">archaeologist</span><span class="rw" data-i18n="agents.span.8">только чтение · предлагает</span><p data-i18n="agents.td.13">Один раз, после привязки существующей кодовой базы</p><p class="c-hi" data-i18n="agents.td.14">Находит решения, которые никто не записал: в коде, конфигах и истории git. Предлагает оформить их в ADR, с доказательствами.</p><span class="rw" data-i18n="agents.td.15">opus · max</span></article>
     <article class="agent"><span class="role acc">clerk</span><span class="rw" data-i18n="agents.span.9">пишет · после вашего «да»</span><p data-i18n="agents.td.16">Только в рамках команды, только после вашего «да»</p><p class="c-hi" data-i18n="agents.td.17">Сохраняет ровно то, что вы одобрили, и ничего больше. Затем пересобирает доску и запускает проверки. Ничего не пишет от себя и ничего не спрашивает.</p><span class="rw" data-i18n="agents.td.18">sonnet · max</span></article>
   </div>
-  <p class="note"><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span> <span data-i18n="agents.p.10">Модели по умолчанию — для Claude Code. В Codex каждая роль — это одноимённый скилл, который просит Codex её запустить, например <code>$projectstore-critic</code> для критика; роль использует модель сессии, если вы не задали другую.</span></p>
+  <p class="note"><span data-i18n="agents.p.10">Модели по умолчанию — для Claude Code. В Codex каждая роль — это одноимённый скилл, который просит Codex её запустить, например <code>$projectstore-critic</code> для критика; роль использует модель сессии, если вы не задали другую.</span></p>
 </section>
 
 <section class="sec" id="mechanisms" aria-labelledby="how-mech-title">
@@ -185,7 +185,7 @@
   <h2 id="how-fine-title" class="visually-hidden" data-i18n="how.fine.h2">Оговорки</h2>
   <ul class="fine">
     <li data-i18n="how.fine.1">Цикл стоит токенов: черновики, критик и ревьюер работают на модели, за которую вы и так платите. Замеры — в README.</li>
-    <li data-i18n="how.fine.2">Критик и ревьюер в Claude Code — отдельные агенты с чистым контекстом. В Codex эти роли — скиллы, и этот путь экспериментальный.</li>
+    <li data-i18n="how.fine.2">Критик и ревьюер в Claude Code — отдельные агенты с чистым контекстом. В Codex эти роли — скиллы.</li>
     <li data-i18n="how.fine.3">ProjectStore — это общий контекст проекта и способ работы. Это не оркестратор агентов: запуск агентов — задача вашего harness.</li>
   </ul>
   <p class="next-pages"><a href="../why-it-works/" data-i18n="how.next.1">Почему это работает →</a><a href="../one-vault/" data-i18n="how.next.2">Один vault, много людей →</a><a href="../#start" data-i18n="how.next.3">Установка →</a></p>
@@ -201,6 +201,6 @@
   </div>
 </footer>
 
-<script src="../../assets/site.js?v=f52bc9e4"></script>
+<script src="../../assets/site.js?v=15226866"></script>
 </body>
 </html>

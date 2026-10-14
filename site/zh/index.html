@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title data-i18n="meta.title">ProjectStore — 智能体写代码，ProjectStore 留记录</title>
-<meta name="description" content="ProjectStore 把项目的记录——决定了什么、进行中的是什么、检查过什么——以经过评审的 Markdown 保存在 git 中。一条命令即可为 Claude Code 和 Codex（实验性）配置好；之后你只需和智能体对话。" data-i18n-attr="content:meta.description">
+<meta name="description" content="ProjectStore 把项目的记录——决定了什么、进行中的是什么、检查过什么——以经过评审的 Markdown 保存在 git 中。它适用于 Claude Code、Codex、Gemini CLI 和 Cursor；你只需和智能体对话。" data-i18n-attr="content:meta.description">
 <meta name="theme-color" content="#080d19">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=9e2ac046">
+<link rel="stylesheet" href="../assets/style.css?v=78de8ec9">
 <script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="light")t=s;}catch(e){}d.setAttribute("data-tone",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
@@ -25,7 +25,7 @@
 <meta property="og:site_name" content="ProjectStore">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:title" content="ProjectStore — 智能体写代码，ProjectStore 留记录">
-<meta property="og:description" content="ProjectStore 把项目的记录——决定了什么、进行中的是什么、检查过什么——以经过评审的 Markdown 保存在 git 中。一条命令即可为 Claude Code 和 Codex（实验性）配置好；之后你只需和智能体对话。">
+<meta property="og:description" content="ProjectStore 把项目的记录——决定了什么、进行中的是什么、检查过什么——以经过评审的 Markdown 保存在 git 中。它适用于 Claude Code、Codex、Gemini CLI 和 Cursor；你只需和智能体对话。">
 <meta property="og:url" content="https://projectstore.dev/zh/">
 <meta property="og:image" content="https://projectstore.dev/assets/og.png">
 <meta property="og:image:width" content="1280">
@@ -80,7 +80,7 @@
     <div class="section-label" data-i18n="hero.label">01 / 安装</div>
     <div class="cta-block">
       <div class="cta-opt">
-        <p class="cta-label"><span data-i18n="hero.ask">直接告诉你的智能体：</span> <span class="cta-sub"><b>Claude Code</b> · <b>Codex</b> · <span data-i18n="hero.others">OpenCode、Cursor 和其他智能体</span></span></p>
+        <p class="cta-label"><span data-i18n="hero.ask">直接告诉你的智能体：</span> <span class="cta-sub"><b>Claude Code</b> · <b>Codex</b> · <b>Gemini CLI</b> · <b>Cursor</b></span></p>
         <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="复制提示词" data-done="已复制" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
         <p class="note" data-i18n="hero.note">在 Claude Code 中，这条提示词会添加 git marketplace 并从中安装；请在 <code>/plugin</code> 中开启它的自动更新。在 Codex 中请改用下面的命令：在会话内安装会等待终端。其他智能体暂时没有插件；它们通过文件、CLI 和 MCP 读取同一个 vault。</p>
       </div>
@@ -92,7 +92,7 @@
             <button class="copy" type="button" data-copy-from="install-cmd" aria-label="复制命令" data-done="已复制" data-i18n-attr="aria-label:hero.copy;data-done:hero.copied"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
           </div>
           <div class="term-foot">
-            <span class="chips"><span class="chip">Claude Code · <span data-fact="harness-status:claude-code">supported</span></span><span class="chip exp">Codex · <span data-fact="harness-status:codex">experimental</span></span></span>
+            <span class="chips"><span class="chip">Claude Code</span><span class="chip">Codex</span><span class="chip">Gemini CLI</span><span class="chip">Cursor</span></span>
             <ul class="term-notes">
               <li data-i18n="hero.n.1">它会询问 vault 放在哪里，给出一份方案，只确认一次。</li>
               <li data-i18n="hero.n.2">之后重启智能体；Codex 会请你批准一次它的 hooks。</li>
@@ -124,7 +124,7 @@
   <div class="section-label" data-i18n="talk.label">02 / 直接说就行</div>
   <div class="talk-head">
     <div><h2 id="talk-title" data-i18n="talk.h2">无需学习命令。<span class="acc">直接说就行。</span></h2></div>
-    <p class="lede" data-i18n="talk.lede">说出你想要什么。智能体运行工作流，展示每份草稿，并<b class="hl">先问再写</b>。下面的场景来自 Claude Code；在 Codex 中，同样的流程是实验性的。</p>
+    <p class="lede" data-i18n="talk.lede">说出你想要什么。智能体运行工作流，展示每份草稿，并<b class="hl">先问再写</b>。下面的场景来自 Claude Code。</p>
   </div>
 
   <div class="scenes">
@@ -189,13 +189,13 @@
 <span class="prompt-box">&gt; <span class="cursor">▍</span></span></figure>
     </article>
     <article class="set-card">
-      <div class="set-head"><span data-i18n="set.models.k">模型</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.models.h">Codex 实验性，仅限模型</span></span></div>
+      <div class="set-head"><span data-i18n="set.models.k">模型</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.models.h">Codex：仅限模型</span></span></div>
       <p class="set-prompt" data-i18n="set.models.q">“让 critic 用 Fable 运行，并在我的状态栏里显示 ProjectStore。”</p>
       <p class="runs"><span data-i18n="set.runs">智能体运行：</span></p>
       <pre class="runs" id="cfg-set" data-fact="install">npx projectstore configure --set agents.critic=fable --set statusline=on</pre>
     </article>
     <article class="set-card">
-      <div class="set-head"><span data-i18n="set.skill.k">你自己的 skill</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.skill.h">Codex（实验性）：文件和 CLI</span></span></div>
+      <div class="set-head"><span data-i18n="set.skill.k">你自己的 skill</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.skill.h">Codex：文件和 CLI</span></span></div>
       <p class="set-prompt" data-i18n="set.skill.q">“写一个 skill：发布前，列出未完成的 story 和仍在等待评审的 ADR。”</p>
       <p class="runs" data-i18n="set.skill.p">一个读取记录的普通 skill：带文件头的纯 Markdown，或 <span data-fact="mcp-tools">8</span> 个只读 MCP 工具。</p>
     </article>
@@ -404,6 +404,6 @@
   </div>
 </footer>
 
-<script src="../assets/site.js?v=f52bc9e4"></script>
+<script src="../assets/site.js?v=15226866"></script>
 </body>
 </html>

@@ -788,24 +788,72 @@ function checkCounts(page, repo) {
   return out;
 }
 
-// AC 4: a harness's status is the one its manifest gives it.
-function checkHarnessStatus(page, repo) {
-  return marked(page, (f) => f.startsWith("harness-status:")).flatMap((el) => {
-    const fact = el.attrs["data-fact"];
-    const id = fact.slice("harness-status:".length);
-    const want = repo.status(id);
-    const said = el.text.trim();
-    if (want === null) return [finding(page.file, fact, `no manifest in harnesses/ has the id ${id}`)];
-    return said === want
-      ? []
-      : [
-          finding(
-            page.file,
-            fact,
-            `says ${JSON.stringify(said)}; ${id}'s manifest has verified ${want === "experimental" ? "null" : "set"}, so it is ${want}`,
-          ),
-        ];
-  });
+// The four-agents story: the site names four agents, in this order, as plain
+// names, and carries no harness status. The names live here alone, so a
+// rename is one edit (and one in the markup, and one re-render of the card).
+const AGENTS = ["Claude Code", "Codex", "Gemini CLI", "Cursor"];
+// Each language's stem for "experimental", as the dictionaries spell it.
+const EXPERIMENTAL = {
+  en: "experimental",
+  de: "experimentell",
+  es: "experimental",
+  fr: "expérimental",
+  pt: "experimental",
+  ru: "экспериментальн",
+  uk: "експериментальн",
+  zh: "实验性",
+};
+// AC "Four agents named": the hero's agent line is the four names alone, each
+// in a b with no data-i18n, between middle dots; the terminal box has the same
+// four chips, each with the class chip alone.
+function checkAgents(page) {
+  const out = [];
+  const line = page.els.find((el) => hasClass(el, "cta-sub") && page.els.some((b) => b.name === "b" && within(el, b)));
+  const names = line ? page.els.filter((el) => el.name === "b" && within(line, el)) : [];
+  const said = names.map((b) => b.text.trim());
+  if (said.join("|") !== AGENTS.join("|") || names.some((b) => "data-i18n" in b.attrs))
+    out.push(
+      finding(
+        page.file,
+        "agents-named",
+        `the hero names ${said.join(", ") || "no agent"}; it names ${AGENTS.join(", ")}`,
+      ),
+    );
+  const read = line ? line.text.replace(/\s+/g, " ").trim() : "";
+  if (line && said.join("|") === AGENTS.join("|") && read !== AGENTS.join(" · "))
+    out.push(finding(page.file, "agents-named", `the hero's agent line reads "${read}"; it is the four names alone`));
+  const box = page.els.find((el) => hasClass(el, "chips"));
+  const chips = box ? page.els.filter((el) => within(box, el) && hasClass(el, "chip")) : [];
+  const chipped = chips.map((c) => c.text.trim());
+  if (chipped.join("|") !== AGENTS.join("|") || chips.some((c) => c.attrs.class.trim() !== "chip"))
+    out.push(
+      finding(
+        page.file,
+        "agents-named",
+        `the chips are ${chips.map((c) => `${c.text.trim()} (class "${c.attrs.class}")`).join(", ") || "missing"}; they are the four names, class "chip"`,
+      ),
+    );
+  return out;
+}
+// AC "No harness status on the site": no page carries a harness-status marker,
+// and no translation unit (an element with data-i18n), chip or description
+// says Codex is experimental in the page's language.
+function checkNoStatus(page) {
+  const out = marked(page, (f) => f.startsWith("harness-status:")).map((el) =>
+    finding(page.file, "no-status", `data-fact="${el.attrs["data-fact"]}": the site carries no harness status`),
+  );
+  const stem = EXPERIMENTAL[page.lang ?? DEFAULT_LANG];
+  if (!stem) return [finding(page.file, "no-status", `the test has no stem for "experimental" in ${page.lang}`)];
+  const units = [
+    ...page.els.filter((el) => "data-i18n" in el.attrs || hasClass(el, "chip")).map((el) => el.text),
+    ...page.els
+      .filter((el) => el.name === "meta" && el.attrs.name === "description")
+      .map((el) => el.attrs.content ?? ""),
+  ];
+  for (const text of units)
+    if (text.includes("Codex") && text.toLowerCase().includes(stem))
+      out.push(finding(page.file, "no-status", `"${text.trim().slice(0, 90)}" calls Codex ${stem}`));
+  return out;
 }
 
 // AC 4: a language page is the English page in another language — the same
@@ -959,8 +1007,7 @@ const pageDirsByLang = (langs) =>
 
 // What each kind of page carries (the story's Technical Notes, "Facts per
 // page kind"), so that removing a marker cannot switch a check off:
-//   facts      the data-fact markers it holds ("harness-status:*" is every
-//              published harness's);
+//   facts      the data-fact markers it holds;
 //   templates  the example artifacts it shows (data-template);
 //   source     whether a measured figure on it is marked data-source;
 //   loop       whether it carries the loop diagram, whose arrow order is held;
@@ -973,7 +1020,7 @@ const pageDirsByLang = (langs) =>
 //   words      the English page's word budget.
 const KIND_RULES = {
   main: {
-    facts: ["version", "install", "prompt", "harness-status:*", "commands", "agents", "languages", "mcp-tools"],
+    facts: ["version", "install", "prompt", "commands", "agents", "languages", "mcp-tools"],
     templates: ["adr"],
     source: true,
     loop: true,
@@ -983,13 +1030,13 @@ const KIND_RULES = {
     words: 2300,
   },
   "how-it-works": {
-    facts: ["version", "agents", "mcp-tools", "mcp-tool", "harness-status:codex"],
+    facts: ["version", "agents", "mcp-tools", "mcp-tool"],
     templates: ["story"],
     loop: true,
     words: 1100,
   },
   "why-it-works": { facts: ["version"], words: 1100 },
-  "one-vault": { facts: ["version", "install", "harness-status:codex"], source: true, words: 1100 },
+  "one-vault": { facts: ["version", "install"], source: true, words: 1100 },
 };
 const rulesOf = (page) => KIND_RULES[page.kind] ?? {};
 
@@ -998,9 +1045,7 @@ const rulesOf = (page) => KIND_RULES[page.kind] ?? {};
 // the fact.
 function checkRequired(page, repo, rules = rulesOf(page)) {
   const have = new Set(marked(page).map((el) => el.attrs["data-fact"]));
-  const facts = (rules.facts ?? []).flatMap((f) =>
-    f === "harness-status:*" ? repo.harnesses.map((h) => `harness-status:${h.id}`) : [f],
-  );
+  const facts = rules.facts ?? [];
   const out = facts
     .filter((f) => !have.has(f))
     .map((f) => finding(page.file, f, `no element is marked data-fact="${f}", which a ${page.kind} page carries`));
@@ -1679,7 +1724,7 @@ const TONE_KEY = "ps_tone";
 // midnight's values would leave unreadable on its ground: the inks, the accent
 // family and the text on the accent, the roles with their lines and glows, the
 // experimental and epic marks, the menu shadow and the wordmark's dot.
-const TONE_TOKENS = /^--(?:bg(?:-[0-4]|-pop)?|dot|line-[1-5]|glow-[1-3]|head-bg|(?:accent|check|plan|done)-bg)$/;
+const TONE_TOKENS = /^--(?:bg(?:-[0-4]|-pop)?|dot|line-[1-5]|graph|glow-[1-3]|head-bg|(?:accent|check|plan|done)-bg)$/;
 const LIGHT_TOKENS =
   /^--(?:ink(?:-hi|-[2-5])?|on-accent|accent(?:-soft|-glow|-row)?|check(?:-glow)?|(?:plan|done)(?:-line|-glow)?|exp(?:-line)?|epic|shade|brand)$/;
 const WASHES = ["--accent-bg", "--check-bg", "--plan-bg", "--done-bg"];
@@ -1821,6 +1866,12 @@ function checkToneContrast(file, css) {
       over(colour("--bg-4"), over(colour("--bg-3"), lit)),
       ...["--bg-3", ...WASHES].map((n) => over(colour(n), inPanel)),
     ];
+    // the graph behind the page: its colour over the base, and under each glow
+    const paint = graphPaint(css);
+    if (paint) {
+      const line = { ...colour(paint.token), a: paint.alpha };
+      surfaces.push(over(line, base), ...glows.map((g) => over(line, over(g, base))));
+    }
     const lowest = (c) => Math.min(...surfaces.map((s) => contrast(c, s)));
     const short = [
       ...TEXT_FLOORS.map(([n, floor]) => [n, lowest(colour(n)), floor, "at its lowest"]),
@@ -2010,21 +2061,441 @@ function checkPosters(page) {
   return broken.length ? [finding(page.file, "posters", broken.join("; "))] : [];
 }
 
-// AC "Codex is never overclaimed": a page whose text names an experimental
-// harness carries that harness's status marker, so "experimental" stands
-// wherever the name does and the status check reads it.
-function checkStatusNamed(page, repo) {
-  const text = bodyText(page);
-  const have = new Set(marked(page).map((el) => el.attrs["data-fact"]));
-  return repo.harnesses
-    .filter((h) => repo.status(h.id) === "experimental" && text.includes(h.display))
-    .filter((h) => !have.has(`harness-status:${h.id}`))
-    .map((h) =>
-      finding(
-        page.file,
-        `harness-status:${h.id}`,
-        `the page names ${h.display} with no data-fact="harness-status:${h.id}": it is experimental`,
-      ),
+// The dot and graph story. The stylesheet's rules, flattened: every block
+// under any at-rule, with the at-rule it sits in.
+const cssRules = (css) => {
+  const walk = (blocks, media = null) =>
+    blocks.flatMap((b) => (b.head.startsWith("@") ? walk(b.blocks, b.head) : [{ ...b, media }]));
+  return walk(cssBlocks(css));
+};
+
+// AC "The dot": the wordmark's dot is a round dot in --brand whose animation
+// has its @keyframes, and reduced motion stops every animation with
+// !important (the dot's own rule outranks the universal selector).
+function checkWordmarkDot(file, css) {
+  const rules = cssRules(css);
+  const out = [];
+  const dot = rules.find((r) => r.head === ".wordmark .dot");
+  if (!dot || !/background:\s*var\(--brand\)/.test(dot.body) || !/border-radius:\s*50%/.test(dot.body))
+    out.push(finding(file, "dot", "the wordmark's dot is not a round dot in --brand"));
+  const anim = /animation:\s*([\w-]+)/.exec(dot?.body ?? "")?.[1];
+  if (!anim || !cssBlocks(css).some((b) => b.head === `@keyframes ${anim}`))
+    out.push(finding(file, "dot", `the dot's animation ${anim ?? "is missing"}: no @keyframes ${anim ?? ""}`.trim()));
+  const stops = rules.some(
+    (r) =>
+      /prefers-reduced-motion:\s*reduce/.test(r.media ?? "") &&
+      r.head === "*, *::before, *::after" &&
+      /animation:\s*none\s*!important/.test(r.body),
+  );
+  if (!stops)
+    out.push(
+      finding(file, "dot", "reduced motion does not stop every animation with !important; the dot would still pulse"),
+    );
+  return out;
+}
+
+// AC "The graph's shape": site.js holds the graph as one JSON literal — nodes
+// as [x, y] in a 1000 x 1000 box, lines as [from, to] node indexes in growth
+// order, the seeds, and "open", the lines drawn at the top.
+const graphOf = (js) => {
+  const m = /\bvar GRAPH = (\{[^\n]*\});/.exec(js);
+  try {
+    return m ? JSON.parse(m[1]) : null;
+  } catch {
+    return null;
+  }
+};
+// Each node is an artifact of the vault, labelled as the vault names it: its
+// kind or number, then its slug, short enough to sit in the background.
+const GRAPH_KINDS = ["adr", "spec", "epic", "story", "research"];
+const GRAPH_LABEL = 26;
+const GRAPH_LABEL_HEAD = {
+  adr: /^(ADR-\d+|adr) \S/,
+  spec: /^(SPEC-\d+|spec) \S/,
+  epic: /^epic PS-[A-Z]+$/,
+  story: /^story(-\d+)? \S/,
+  research: /^research \S/,
+};
+function checkGraphData(file, js) {
+  const g = graphOf(js);
+  if (!g) return [finding(file, "graph", "site.js holds no GRAPH literal the test can read")];
+  const out = [];
+  g.nodes.forEach(([, , kind, label], i) => {
+    if (!GRAPH_KINDS.includes(kind))
+      out.push(finding(file, "graph", `node ${i} is a ${kind}; a node is one of ${GRAPH_KINDS.join(", ")}`));
+    else if (typeof label !== "string" || label.length > GRAPH_LABEL || !GRAPH_LABEL_HEAD[kind].test(label))
+      out.push(
+        finding(
+          file,
+          "graph",
+          `node ${i}'s label is ${JSON.stringify(label)}; a ${kind}'s number or kind, then its slug, in ${GRAPH_LABEL} characters`,
+        ),
+      );
+  });
+  g.nodes.forEach(([x, y], i) => {
+    if (!(x >= 0 && x <= 1000 && y >= 0 && y <= 1000))
+      out.push(finding(file, "graph", `node ${i} at ${x},${y} lies outside the 1000 x 1000 drawing`));
+  });
+  const reached = new Set(g.seeds);
+  const seen = new Set();
+  g.lines.forEach(([a, b], i) => {
+    if (!(a in g.nodes) || !(b in g.nodes) || a === b) {
+      out.push(finding(file, "graph", `line ${i} [${a},${b}] does not join two nodes`));
+      return;
+    }
+    const key = [a, b].sort((m, n) => m - n).join();
+    if (seen.has(key)) out.push(finding(file, "graph", `line ${i} [${a},${b}] repeats a line`));
+    seen.add(key);
+    if (!reached.has(a))
+      out.push(finding(file, "graph", `line ${i} starts at node ${a}, which no seed or earlier line reached`));
+    reached.add(b);
+  });
+  const lost = g.nodes.map((_, i) => i).filter((i) => !reached.has(i));
+  if (lost.length) out.push(finding(file, "graph", `node ${lost.join(", ")} is never reached`));
+  if (!(g.open >= 1 && g.open < g.lines.length))
+    out.push(finding(file, "graph", `open is ${g.open}; between 1 and the number of lines`));
+  return out;
+}
+
+// AC "Out of the way": the layer is fixed with the glow, under the content,
+// takes no pointer; its lines stroke its colour, --graph, which every tone
+// sets; its nodes fill --node; print and forced colours hide it; reduced
+// motion draws it whole and still; a narrow screen shows no labels.
+function checkGraphCss(file, css) {
+  const rules = cssRules(css);
+  const out = [];
+  const top = (head) => rules.find((r) => r.head === head && r.media === null);
+  const layer = top(".graph");
+  if (
+    !layer ||
+    !/position:\s*fixed/.test(layer.body) ||
+    !/z-index:\s*-1\b/.test(layer.body) ||
+    !/pointer-events:\s*none/.test(layer.body) ||
+    !/(?:^|[;\s])color:\s*var\(--graph\)/.test(layer.body)
+  )
+    out.push(
+      finding(file, "graph-layer", ".graph is not fixed at z-index -1 with no pointer events and color: var(--graph)"),
+    );
+  const unset = toneRules(cssBlocks(css))
+    .filter((r) => !("--graph" in r.tokens))
+    .map((r) => r.tone);
+  if (unset.length) out.push(finding(file, "graph-layer", `the ${unset.join(", ")} tone sets no --graph`));
+  if (
+    !/stroke:\s*currentColor/.test(top(".graph line")?.body ?? "") ||
+    !/fill:\s*var\(--node\)/.test(top(".graph .node")?.body ?? "")
+  )
+    out.push(
+      finding(file, "graph-layer", "the graph's lines do not stroke its colour, or its nodes do not fill --node"),
+    );
+  const hidden = (media) =>
+    [".graph", ".graph-rings"].every((head) =>
+      rules.some((r) => media.test(r.media ?? "") && r.head === head && /display:\s*none/.test(r.body)),
+    );
+  if (!hidden(/^@media\s+print/)) out.push(finding(file, "graph-layer", "print does not hide .graph"));
+  if (!hidden(/forced-colors:\s*active/)) out.push(finding(file, "graph-layer", "forced colours do not hide .graph"));
+  const frames = new Set(
+    cssBlocks(css)
+      .filter((b) => b.head.startsWith("@keyframes "))
+      .map((b) => b.head.slice(11)),
+  );
+  for (const head of [".graph-rings .ring.on", ".graph .node.ping", ".graph line.fresh"]) {
+    const names = [...(top(head)?.body ?? "").matchAll(/(?:animation:|,)\s*([\w-]+)\s+[\d.]+s/g)].map((m) => m[1]);
+    if (!names.length || names.some((n) => !frames.has(n)))
+      out.push(finding(file, "graph-layer", `${head} has no animation with its @keyframes`));
+  }
+  const reduced = rules.filter((r) => /prefers-reduced-motion:\s*reduce/.test(r.media ?? ""));
+  if (
+    !reduced.some((r) => r.head === ".graph line" && /stroke-dashoffset:\s*0\s*!important/.test(r.body)) ||
+    !reduced.some((r) => r.head === ".graph .node" && /opacity:\s*1\s*!important/.test(r.body)) ||
+    !reduced.some((r) => r.head === ".graph .beacon" && /opacity:\s*0\s*!important/.test(r.body)) ||
+    !reduced.some((r) => r.head === ".graph-rings" && /display:\s*none\s*!important/.test(r.body))
+  )
+    out.push(finding(file, "graph-layer", "under reduced motion the graph is not drawn whole"));
+  if (
+    !rules.some(
+      (r) => /max-width:\s*900px/.test(r.media ?? "") && r.head === ".graph .label" && /display:\s*none/.test(r.body),
+    )
+  )
+    out.push(finding(file, "graph-layer", "the graph's labels show on a narrow screen, where they lie under the text"));
+  if (!rules.some((r) => r.media === null && r.head === ".graph .label.off" && /display:\s*none/.test(r.body)))
+    out.push(finding(file, "graph-layer", "a label site.js drops (.graph .label.off) is still drawn"));
+  return out;
+}
+// The nodes' exemption from the readability floors, held to the bounds the
+// story states: a node shows at up to 2.2x its size, its beacon at up to 4.5x
+// and 0.55; its breathing ring grows to 4x by transform and opacity alone (no
+// layout per frame); its ping to a 34 px stroke; and the graph paints only
+// its colour, --node and --line-5.
+const GRAPH_BOUNDS = { node: 1.2, beacon: 3.5, beaconAlpha: 0.55, ring: 4, ping: 34 };
+function checkGraphBounds(file, css) {
+  const rules = cssRules(css);
+  const top = (head) => rules.find((r) => r.head === head && r.media === null)?.body ?? "";
+  const grow = (body) =>
+    Number(/scale\(calc\(1 \+ \(1 - var\(--p, [01]\)\) \* ([\d.]+)\)\)/.exec(body)?.[1] ?? Infinity);
+  const frame = (name) => cssBlocks(css).find((b) => b.head === `@keyframes ${name}`)?.body ?? "";
+  const nums = (body, prop) => [...body.matchAll(new RegExp(`${prop}:\\s*([\\d.]+)`, "g"))].map((m) => Number(m[1]));
+  const out = [];
+  const say = (msg) => out.push(finding(file, "graph-bounds", msg));
+  if (grow(top(".graph .node")) > GRAPH_BOUNDS.node) say(`a node grows past ${1 + GRAPH_BOUNDS.node}x`);
+  const beacon = top(".graph .beacon");
+  const alpha = Number(/\* ([\d.]+)\);\s*transform/.exec(beacon)?.[1] ?? Infinity);
+  if (grow(beacon) > GRAPH_BOUNDS.beacon || alpha > GRAPH_BOUNDS.beaconAlpha)
+    say(`a beacon grows past ${1 + GRAPH_BOUNDS.beacon}x or ${GRAPH_BOUNDS.beaconAlpha} strong`);
+  const ring = frame("graph-ring");
+  const rings = [...ring.matchAll(/scale\(([\d.]+)\)/g)].map((m) => Number(m[1]));
+  if (/stroke-width|fill|\br:/.test(ring) || !rings.length || Math.max(...rings) > GRAPH_BOUNDS.ring)
+    say(`the breathing ring animates more than transform and opacity, or grows past ${GRAPH_BOUNDS.ring}x`);
+  if (Math.max(0, ...nums(frame("graph-ping"), "stroke-width")) > GRAPH_BOUNDS.ping)
+    say(`the ping grows past a ${GRAPH_BOUNDS.ping} px stroke`);
+  const graphCss = [
+    ...rules
+      .filter((r) => r.head.startsWith(".graph") && r.media === null)
+      .map((r) => r.body.replace(/border:\s*[\d.]+px solid/g, "stroke:")),
+    ...["graph-ring", "graph-ping", "graph-pulse"].map(frame),
+  ].join(";");
+  const paints = [...graphCss.matchAll(/(?:fill|stroke):\s*([^;]+)/g)].map((m) => m[1].trim());
+  const odd = paints.filter((v) => !["currentColor", "none", "var(--node)", "var(--line-5)"].includes(v));
+  if (odd.length) say(`the graph paints ${[...new Set(odd)].join(", ")}; only its colour, --node and --line-5`);
+  return out;
+}
+// The graph's paint for the readability test: the token .graph names, and
+// its opacity (1 when it names none). The lines carry it; the nodes are held
+// by checkGraphBounds instead.
+function graphPaint(css) {
+  const layer = cssRules(css).find((r) => r.head === ".graph" && r.media === null);
+  const token = /(?:^|[;\s])color:\s*var\((--[\w-]+)\)/.exec(layer?.body ?? "")?.[1];
+  const opacity = Number(/(?:^|[;\s])opacity:\s*([\d.]+)/.exec(layer?.body ?? "")?.[1] ?? 1);
+  return token ? { token, alpha: opacity } : null;
+}
+
+// AC "Drawn as you scroll", "Alive" and "Out of the way": site.js, run in
+// node:vm with a small stand-in for the page (which then fires load), builds
+// the layer as body's first child, hidden from assistive technology, with a
+// beacon, a node and a ring per node; listens to scroll passively and draws at
+// most once per frame; shows the open lines at the top, everything at the end,
+// no line less further down; marks what the scroll draws; shows the graph
+// whole under reduced motion and on a page with nothing to scroll; writes no
+// paint; and keeps every node's core a point.
+function runSite(js, { scrollHeight = 4800, innerWidth = 1280, innerHeight = 800, reduce = false } = {}) {
+  const made = [];
+  const createElementNS = (ns, name) => {
+    const el = {
+      ns,
+      name,
+      attrs: {},
+      props: {},
+      children: [],
+      setAttribute: (k, v) => (el.attrs[k] = String(v)),
+      appendChild: (c) => el.children.push(c),
+      getBoundingClientRect: () => ({ width: innerWidth, height: innerHeight }),
+    };
+    el.style = { setProperty: (k, v) => (el.props[k] = String(v)) };
+    made.push(el);
+    return el;
+  };
+  const body = {
+    children: [],
+    get firstChild() {
+      return this.children[0] ?? null;
+    },
+    insertBefore(node, ref) {
+      const i = ref ? this.children.indexOf(ref) : -1;
+      if (i < 0) this.children.push(node);
+      else this.children.splice(i, 0, node);
+    },
+  };
+  const listeners = {};
+  let frames = [];
+  const window = {
+    scrollY: 0,
+    innerWidth,
+    innerHeight,
+    matchMedia: (q) => ({ matches: reduce && /prefers-reduced-motion:\s*reduce/.test(q), addEventListener() {} }),
+    addEventListener: (type, fn, options) => (listeners[type] ??= []).push({ fn, options }),
+    requestAnimationFrame: (fn) => frames.push(fn),
+  };
+  const document = {
+    body,
+    documentElement: { scrollHeight },
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    createElementNS,
+    createElement: (name) => createElementNS(null, name),
+    addEventListener() {},
+  };
+  runInNewContext(js, { window, document });
+  (listeners.load ?? []).forEach((l) => l.fn());
+  const svg = body.children.find((c) => c.name === "svg");
+  const kids = () => (svg ? svg.children : []);
+  const of = (cls) => kids().filter((c) => c.name === "circle" && (c.attrs.class ?? "").split(" ")[0] === cls);
+  const ringBox = body.children.find((c) => c.attrs?.class === "graph-rings");
+  const rings = () => (ringBox ? ringBox.children : []);
+  return {
+    window,
+    listeners,
+    made,
+    body,
+    svg,
+    of,
+    ringBox,
+    rings,
+    frames: () => frames.length,
+    scroll(y) {
+      window.scrollY = y;
+      (listeners.scroll ?? []).forEach((l) => l.fn());
+      const run = frames;
+      frames = [];
+      run.forEach((fn) => fn());
+    },
+    state() {
+      const p = (els) => els.map((c) => Number(c.props["--p"]));
+      return {
+        lines: p(kids().filter((c) => c.name === "line")),
+        dots: p(of("node")),
+        beacons: p(of("beacon")),
+        rings: rings().map((r) => (r.attrs.class === "ring on" ? 1 : 0)),
+      };
+    },
+  };
+}
+function checkGraphScript(file, js) {
+  const g = graphOf(js);
+  if (!g) return [finding(file, "graph-script", "site.js holds no GRAPH literal")];
+  const out = [];
+  const say = (msg) => out.push(finding(file, "graph-script", msg));
+  let page;
+  try {
+    page = runSite(js);
+  } catch (e) {
+    return [finding(file, "graph-script", `site.js throws in a page: ${e.message}`)];
+  }
+  const svg = page.svg;
+  const kids = svg ? svg.children : [];
+  if (
+    !svg ||
+    page.body.children[0] !== svg ||
+    svg.ns !== "http://www.w3.org/2000/svg" ||
+    svg.attrs["aria-hidden"] !== "true" ||
+    svg.attrs.focusable !== "false" ||
+    "tabindex" in svg.attrs ||
+    kids.filter((c) => c.name === "line").length !== g.lines.length ||
+    ["beacon", "node"].some((cls) => page.of(cls).length !== g.nodes.length) ||
+    page.body.children[1] !== page.ringBox ||
+    page.ringBox?.attrs["aria-hidden"] !== "true" ||
+    page.rings().length !== g.nodes.length ||
+    kids
+      .filter((c) => c.name === "text" && (c.attrs.class ?? "").split(" ")[0] === "label")
+      .map((c) => c.textContent)
+      .join() !== g.nodes.map((n) => n[3]).join()
+  )
+    say(
+      "the layer is not an aria-hidden, unfocusable svg, body's first child, with a line per line and a beacon, node and ring per node",
+    );
+  const scroll = page.listeners.scroll ?? [];
+  if (scroll.length !== 1 || scroll[0].options?.passive !== true)
+    say("the scroll listener is not one passive listener");
+  page.window.scrollY = 1000;
+  for (let i = 0; i < 5; i++) scroll.forEach((l) => l.fn());
+  if (page.frames() !== 1) say(`five scroll events asked for ${page.frames()} frames; one`);
+  const drawn = (st) => st.lines.filter((q) => q >= 0.999).length;
+  page.scroll(0);
+  const top = page.state();
+  const openTo = new Set([...g.seeds, ...g.lines.slice(0, g.open).map((l) => l[1])]);
+  if (
+    drawn(top) !== g.open ||
+    top.lines.slice(g.open).some((q) => q > 0) ||
+    top.dots.some((q, i) => q >= 0.999 !== openTo.has(i))
+  )
+    say(`at the top ${drawn(top)} lines are drawn; the ${g.open} open lines and their nodes`);
+  let prev = top.lines;
+  let fell = false;
+  let strayed = false;
+  const range = 4800 - 800;
+  for (let k = 0; k <= 20; k++) {
+    page.scroll((range * k) / 20);
+    const now = page.state();
+    if (now.lines.some((q, i) => q + 1e-9 < prev[i])) fell = true;
+    if (now.beacons.join() !== now.dots.join() || now.rings.join() !== now.dots.map((q) => (q >= 0.999 ? 1 : 0)).join())
+      strayed = true;
+    prev = now.lines;
+  }
+  const end = page.state();
+  if (end.lines.some((q) => q < 0.999) || end.dots.some((q) => q < 0.999))
+    say("at the end of the page the graph is not whole");
+  if (strayed) say("a beacon or a ring does not follow its node's progress");
+  // a label shows only where it covers no label shown before it and no other
+  // node: a short laptop window drops a few, the layout's own 1440 x 900 none
+  // (1280 x 600 is short enough that a label's leftward flip matters)
+  const covered = [];
+  for (const [w, h] of [
+    [1024, 640],
+    [1280, 600],
+    [1440, 900],
+  ]) {
+    const at = runSite(js, { innerWidth: w, innerHeight: h });
+    const texts = at.svg.children.filter((c) => c.name === "text");
+    const dots = at.of("node").map((c) => [Number(c.attrs.cx), Number(c.attrs.cy)]);
+    const boxes = texts.map((t) => {
+      const x = Number(t.attrs.x),
+        y = Number(t.attrs.y) - 3.5,
+        len = t.textContent.length * 6.6;
+      return t.attrs["text-anchor"] === "end" ? [x - len, y - 6, x, y + 6] : [x, y - 6, x + len, y + 6];
+    });
+    const on = texts.map((t) => t.attrs.class === "label");
+    const clash = [];
+    boxes.forEach((b, i) => {
+      if (!on[i]) return;
+      boxes.forEach((o, j) => {
+        if (j > i && on[j] && b[0] < o[2] && o[0] < b[2] && b[1] < o[3] && o[1] < b[3]) clash.push(`${i}/${j}`);
+      });
+      dots.forEach(([x, y], j) => {
+        if (j !== i && x >= b[0] - 4 && x <= b[2] + 4 && y >= b[1] - 4 && y <= b[3] + 4) clash.push(`${i} on ${j}`);
+      });
+    });
+    if (clash.length) covered.push(`at ${w}x${h} ${clash.join(", ")}`);
+    if (w === 1440 && on.some((o) => !o)) say(`at 1440x900 a label is dropped; the layout leaves every one room there`);
+  }
+  if (covered.length) say(`labels cover labels or nodes: ${covered.join("; ")}`);
+  const later = new Set(g.nodes.map((_, i) => i).filter((i) => !openTo.has(i)));
+  const lineMarks = kids.filter((c) => c.name === "line").map((c) => c.attrs.class ?? "");
+  const nodeMarks = page.of("node").map((c) => c.attrs.class);
+  if (
+    lineMarks.some((m, i) => m !== (i < g.open ? "" : "fresh")) ||
+    nodeMarks.some((m, i) => m !== (later.has(i) ? "node ping" : "node"))
+  )
+    say("lines the scroll drew do not pulse, or their nodes do not ping (and the open ones must not)");
+  page.scroll(0);
+  if (fell || JSON.stringify(page.state()) !== JSON.stringify(top))
+    say("a line undraws as the page scrolls down, or scrolling back up does not return to the top");
+  for (const [what, options] of [
+    ["under reduced motion", { reduce: true }],
+    ["on a page with nothing to scroll", { scrollHeight: 800 }],
+  ]) {
+    const other = runSite(js, options);
+    other.scroll(0);
+    const st = other.state();
+    if (st.lines.some((q) => q < 0.999) || st.dots.some((q) => q < 0.999)) say(`${what} the graph is not whole`);
+  }
+  const paint = page.made.filter(
+    (el) =>
+      ["fill", "stroke", "color", "stop-color", "style", "font-size", "font-family"].some((a) => a in el.attrs) ||
+      Object.keys(el.props).some((k) => !["--len", "--p", "--x", "--y"].includes(k)),
+  );
+  if (paint.length) say(`site.js writes paint into the graph (${paint.length} elements); the stylesheet colours it`);
+  const big = kids.filter((c) => c.name === "circle" && !(Number(c.attrs.r) <= 4));
+  if (big.length) say(`${big.length} circles have a radius over 4 px; a node's core is a point`);
+  return out;
+}
+
+// AC "Out of the way": site.js writes no colour — no string literal in it
+// holds a hex, a colour function or a named colour.
+function checkScriptColours(file, js) {
+  const code = js.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+  return [...code.matchAll(/"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'/g)]
+    .map((m) => m[1] ?? m[2])
+    .filter((text) => colourLiteral(text))
+    .map((text) =>
+      finding(file, "script-colour", `site.js writes the colour "${text}"; colours are tokens in the stylesheet`),
     );
 }
 
@@ -2363,8 +2834,10 @@ test("site AC 3: the main pages name each published harness; no page or llms fil
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: every page that names an experimental harness marks its status", () => {
-  const found = eachPage((p) => checkStatusNamed(p, REPO));
+test("site: every main page names the four agents in the hero and the terminal box's chips, as plain names", () => {
+  const mains = PAGES.filter((p) => p.page && p.kind === "main");
+  assert.equal(mains.length, 8, "eight main pages");
+  const found = mains.flatMap((p) => checkAgents(p.page));
   assert.deepEqual(found, [], show(found));
 });
 
@@ -2434,8 +2907,8 @@ test("site AC 4: the counts of commands, agents, languages and MCP tools, and th
   assert.deepEqual(found, [], show(found));
 });
 
-test("site AC 4: each harness's status is the one its manifest gives it", () => {
-  const found = eachPage((p) => checkHarnessStatus(p, REPO));
+test("site: no page carries a harness status, and none calls Codex experimental in its language", () => {
+  const found = eachPage(checkNoStatus);
   assert.deepEqual(found, [], show(found));
 });
 
@@ -2514,6 +2987,23 @@ test("site: every page ships in midnight — no data-tone, theme-color the :root
   assert.deepEqual(found, [], show(found));
 });
 
+test("site: the wordmark's dot is a round dot in --brand that pulses, and reduced motion stops it", () => {
+  const found = checkWordmarkDot(STYLE, read(STYLE));
+  assert.deepEqual(found, [], show(found));
+});
+
+test("site: the graph behind the page is well formed, laid out of the way, drawn as the page scrolls, and painted by the stylesheet alone", () => {
+  const js = read(SCRIPT);
+  const found = [
+    ...checkGraphData(SCRIPT, js),
+    ...checkGraphCss(STYLE, read(STYLE)),
+    ...checkGraphBounds(STYLE, read(STYLE)),
+    ...checkGraphScript(SCRIPT, js),
+    ...checkScriptColours(SCRIPT, js),
+  ];
+  assert.deepEqual(found, [], show(found));
+});
+
 test("site: the header's page links move to the second row under the same media query that shows it", () => {
   const found = checkHeaderRows(`${SITE}/assets/style.css`, read(`${SITE}/assets/style.css`));
   assert.deepEqual(found, [], show(found));
@@ -2548,7 +3038,18 @@ test("site AC 4: site/ stays within its budget", () => {
 // a blanket rule: brand names and code legitimately equal the English in many
 // other keys. (start.span.17 and start.span.18 went with the old install
 // section's terminals.)
-const TRANSLATED = ["start.p.5", "questions.summary.10", "questions.p.11"];
+const TRANSLATED = [
+  "start.p.5",
+  "questions.summary.10",
+  "questions.p.11",
+  // the four-agents story's keys
+  "meta.description",
+  "talk.lede",
+  "set.models.h",
+  "set.skill.h",
+  "how.fine.2",
+  "how.meta.description",
+];
 function checkTranslated(keys, en, dicts) {
   const out = [];
   for (const [lang, dict] of Object.entries(dicts))
@@ -2566,7 +3067,7 @@ const dictionaries = () =>
       .map((n) => [n.replace(/\.json$/, ""), JSON.parse(read(join(SITE, "locales", n)))]),
   );
 
-test("site: the instructions story's keys are translated in all seven other dictionaries; a key set back to English is one finding", () => {
+test("site: the instructions and four-agents stories' keys are translated in all seven other dictionaries; a key set back to English is one finding", () => {
   const en = JSON.parse(read(join(SITE, "locales", "en.json")));
   const dicts = dictionaries();
   assert.equal(Object.keys(dicts).length, 7);
@@ -2839,14 +3340,6 @@ const PLANTED = [
     ...onText(LLMS_FULL, (f, t) => checkWording(f, [t])),
     fact: "wording",
     edits: [[/^/, "ProjectStore is a Claude Code plugin.\n\n"]],
-  },
-  {
-    ac: "Codex is never overclaimed",
-    what: "a method page names Codex with no status marker",
-    ...onPage("en", (p) => checkStatusNamed(p, REPO), "why-it-works"),
-    fact: "harness-status:codex",
-    message: /names Codex/,
-    edits: [beforeMain("<p>It works the same in Codex.</p>")],
   },
 
   // AC 4: invocations — every harness's form, a name with no file.
@@ -3138,20 +3631,6 @@ const PLANTED = [
     message: /missing lineage; not a tool, or twice: history/,
     edits: [['<li data-fact="mcp-tool">lineage</li>', '<li data-fact="mcp-tool">history</li>']],
   },
-  {
-    ac: "4",
-    what: "Codex called supported while its manifest's verified is null",
-    ...onPage("de", (p) => checkHarnessStatus(p, REPO), "one-vault"),
-    fact: "harness-status:codex",
-    edits: [['data-fact="harness-status:codex">experimental<', 'data-fact="harness-status:codex">supported<']],
-  },
-  {
-    ac: "4",
-    what: "a status for a harness with no manifest",
-    ...onPage("en", (p) => checkHarnessStatus(p, REPO)),
-    fact: "harness-status:cursor",
-    edits: [['data-fact="harness-status:claude-code"', 'data-fact="harness-status:cursor"']],
-  },
 
   // AC 4: a language page against the English page of its kind.
   {
@@ -3163,11 +3642,11 @@ const PLANTED = [
   },
   {
     ac: "4",
-    what: "a language page translates a status",
+    what: "a language page translates a count",
     ...parity("ru"),
     fact: "fact values",
-    message: /harness-status:codex=экспериментально/,
-    edits: [['data-fact="harness-status:codex">experimental<', 'data-fact="harness-status:codex">экспериментально<']],
+    message: /agents=шесть/,
+    edits: [['data-fact="agents">6<', 'data-fact="agents">шесть<']],
   },
   {
     ac: "4",
@@ -3209,13 +3688,6 @@ const PLANTED = [
     ...onPage("uk", (p) => checkRequired(p, REPO), "how-it-works"),
     fact: "mcp-tools",
     edits: [[' data-fact="mcp-tools"', "", "all"]],
-  },
-  {
-    ac: "4",
-    what: "Codex's status loses every marker on the main page",
-    ...onPage("de", (p) => checkRequired(p, REPO)),
-    fact: "harness-status:codex",
-    edits: [[' data-fact="harness-status:codex"', "", "all"]],
   },
   {
     ac: "4",
@@ -3597,6 +4069,388 @@ const PLANTED = [
     fact: "posters",
     message: /^the problem comes after the headline$/,
     edits: [[/(<ul class="problem"[^>]*>[\s\S]*?<\/ul>\n)([\s\S]*?<\/h1>\n)/, "$2$1"]],
+  },
+
+  // The dot and the graph.
+  {
+    ac: "The dot",
+    what: "the dot's keyframes renamed",
+    ...onText(STYLE, checkWordmarkDot),
+    fact: "dot",
+    message: /no @keyframes dot-ping/,
+    edits: [["@keyframes dot-ping {", "@keyframes dot-pong {"]],
+  },
+  {
+    ac: "The dot",
+    what: "reduced motion's animation rule without !important",
+    ...onText(STYLE, checkWordmarkDot),
+    fact: "dot",
+    message: /reduced motion does not stop every animation/,
+    edits: [["*, *::before, *::after { animation: none !important;", "*, *::before, *::after { animation: none;"]],
+  },
+  {
+    ac: "The dot",
+    what: "the dot in the accent, not the brand",
+    ...onText(STYLE, checkWordmarkDot),
+    fact: "dot",
+    message: /not a round dot in --brand/,
+    edits: [["background: var(--brand); color: transparent;", "background: var(--accent); color: transparent;"]],
+  },
+  {
+    ac: "The graph's shape",
+    what: "a line to a node that does not exist",
+    ...onText(SCRIPT, checkGraphData),
+    fact: "graph",
+    message: /\[0,99\] does not join two nodes/,
+    edits: [[/\]\]\};$/m, "],[0,99]]};"]],
+  },
+  {
+    ac: "The graph's shape",
+    what: "a node outside the drawing",
+    ...onText(SCRIPT, checkGraphData),
+    fact: "graph",
+    message: /node 0 at 1012,165 lies outside/,
+    edits: [['"nodes":[[905,165,', '"nodes":[[1012,165,']],
+  },
+  {
+    ac: "The graph's shape",
+    what: "a line that starts where no line has reached",
+    ...onText(SCRIPT, checkGraphData),
+    fact: "graph",
+    message: /line 0 starts at node 27/,
+    edits: [['"lines":[[0,1]', '"lines":[[27,0],[0,1]']],
+  },
+  {
+    ac: "The graph's shape",
+    what: "a node of a kind the vault has not",
+    ...onText(SCRIPT, checkGraphData),
+    fact: "graph",
+    message: /node 0 is a ticket/,
+    edits: [['"nodes":[[905,165,"adr"', '"nodes":[[905,165,"ticket"']],
+  },
+  {
+    ac: "The graph's shape",
+    what: "a label that names another kind",
+    ...onText(SCRIPT, checkGraphData),
+    fact: "graph",
+    message: /node 1's label is "story PS-CORE"; a epic's/,
+    edits: [['"epic PS-CORE"', '"story PS-CORE"']],
+  },
+  {
+    ac: "The graph's shape",
+    what: "a label too long for the background",
+    ...onText(SCRIPT, checkGraphData),
+    fact: "graph",
+    message: /node 0's label is "ADR-010 slug-first-artifact-identity"/,
+    edits: [["ADR-010 slug-first-artifa…", "ADR-010 slug-first-artifact-identity"]],
+  },
+  {
+    ac: "The graph's shape",
+    what: "a node no line reaches",
+    ...onText(SCRIPT, checkGraphData),
+    fact: "graph",
+    message: /node 28 is never reached/,
+    edits: [[/\]\],"lines"/, '],[500,500,"story","story x"]],"lines"']],
+  },
+  {
+    ac: "Out of the way",
+    what: "the graph taking pointer events",
+    ...onText(STYLE, checkGraphCss),
+    fact: "graph-layer",
+    message: /^\.graph is not fixed/,
+    edits: [["pointer-events: none; color: var(--graph);", "pointer-events: auto; color: var(--graph);"]],
+  },
+  {
+    ac: "Out of the way",
+    what: "the graph over the content",
+    ...onText(STYLE, checkGraphCss),
+    fact: "graph-layer",
+    message: /^\.graph is not fixed/,
+    edits: [
+      [
+        "height: 100lvh; z-index: -1; pointer-events: none; color",
+        "height: 100lvh; z-index: 1; pointer-events: none; color",
+      ],
+    ],
+  },
+  {
+    ac: "Out of the way",
+    what: "labels the script never drops",
+    ...onText(SCRIPT, checkGraphScript),
+    fact: "graph-script",
+    message: /^labels cover labels or nodes: at 1024x640/,
+    edits: [
+      ['labels[i].setAttribute("class", clear ? "label" : "label off");', 'labels[i].setAttribute("class", "label");'],
+    ],
+  },
+  {
+    ac: "Out of the way",
+    what: "a script that drops every label",
+    ...onText(SCRIPT, checkGraphScript),
+    fact: "graph-script",
+    message: /^at 1440x900 a label is dropped/,
+    edits: [
+      [
+        'labels[i].setAttribute("class", clear ? "label" : "label off");',
+        'labels[i].setAttribute("class", "label off");',
+      ],
+    ],
+  },
+  {
+    ac: "Out of the way",
+    what: "a dropped label still drawn",
+    ...onText(STYLE, checkGraphCss),
+    fact: "graph-layer",
+    message: /\.graph \.label\.off\) is still drawn/,
+    edits: [[".graph .label.off { display: none; }", ".graph .label.off { opacity: 0.5; }"]],
+  },
+  {
+    ac: "Out of the way",
+    what: "the graph's labels left on a phone",
+    ...onText(STYLE, checkGraphCss),
+    fact: "graph-layer",
+    message: /labels show on a narrow screen/,
+    edits: [
+      [
+        "@media (max-width: 900px) { .graph .label { display: none; } }",
+        "@media (max-width: 900px) { .graph .label { display: inline; } }",
+      ],
+    ],
+  },
+  {
+    ac: "Out of the way",
+    what: "the graph printed",
+    ...onText(STYLE, checkGraphCss),
+    fact: "graph-layer",
+    message: /print does not hide \.graph/,
+    edits: [
+      [
+        "  .poster { box-shadow: none; transform: none; }\n  .graph { display: none; }",
+        "  .poster { box-shadow: none; transform: none; }",
+      ],
+    ],
+  },
+  {
+    ac: "Out of the way",
+    what: "the graph left to the scroll under reduced motion",
+    ...onText(STYLE, checkGraphCss),
+    fact: "graph-layer",
+    message: /reduced motion the graph is not drawn whole/,
+    edits: [["  .graph line { stroke-dashoffset: 0 !important; }\n", ""]],
+  },
+  {
+    ac: "The lines keep the text readable; the nodes are exempt, within bounds",
+    what: "graphite's graph colour bright enough to sink the text",
+    ...onText(STYLE, checkToneContrast),
+    fact: "contrast",
+    message: /^graphite: --ink-\d is \d\.\d\d:1 at its lowest/,
+    edits: [["--graphite-graph: #252930;", "--graphite-graph: #3d434c;"]],
+  },
+  {
+    ac: "Drawn as you scroll",
+    what: "a layer a screen reader would announce",
+    ...onText(SCRIPT, checkGraphScript),
+    fact: "graph-script",
+    message: /not an aria-hidden/,
+    edits: [['    svg.setAttribute("aria-hidden", "true");\n', ""]],
+  },
+  {
+    ac: "Drawn as you scroll",
+    what: "a scroll listener that is not passive",
+    ...onText(SCRIPT, checkGraphScript),
+    fact: "graph-script",
+    message: /not one passive listener/,
+    edits: [
+      [
+        "frame = window.requestAnimationFrame(draw); }, { passive: true });",
+        "frame = window.requestAnimationFrame(draw); }, { passive: false });",
+      ],
+    ],
+  },
+  {
+    ac: "Drawn as you scroll",
+    what: "a draw on every scroll event, not once per frame",
+    ...onText(SCRIPT, checkGraphScript),
+    fact: "graph-script",
+    message: /asked for 0 frames; one/,
+    edits: [["function () { if (!frame) frame = window.requestAnimationFrame(draw); }", "function () { draw(); }"]],
+  },
+  {
+    ac: "Out of the way",
+    what: "the graph's reduced-motion query turned around",
+    ...onText(SCRIPT, checkGraphScript),
+    fact: "graph-script",
+    message: /under reduced motion the graph is not whole/,
+    edits: [
+      [
+        'var reduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;',
+        'var reduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: no-preference)") : null;',
+      ],
+    ],
+  },
+  {
+    ac: "Alive",
+    what: "the ping's keyframes renamed",
+    ...onText(STYLE, checkGraphCss),
+    fact: "graph-layer",
+    message: /^\.graph \.node\.ping has no animation with its @keyframes$/,
+    edits: [["@keyframes graph-ping {", "@keyframes graph-pong {"]],
+  },
+  {
+    ac: "Alive",
+    what: "the script no longer marking what the scroll draws",
+    ...onText(SCRIPT, checkGraphScript),
+    fact: "graph-script",
+    message: /do not pulse, or their nodes do not ping/,
+    edits: [
+      ['el.setAttribute("class", now && live ? (base + " " + name).trim() : base);', 'el.setAttribute("class", base);'],
+    ],
+  },
+  {
+    ac: "The lines keep the text readable; the nodes are exempt, within bounds",
+    what: "nodes grown past points",
+    ...onText(SCRIPT, checkGraphScript),
+    fact: "graph-script",
+    message: /28 circles have a radius over 4 px/,
+    edits: [
+      [
+        /c\.setAttribute\("r", "4"\);(\s*c\.setAttribute\("class", name\);)/,
+        'c.setAttribute("r", name === "node" ? "9" : "4");$1',
+      ],
+    ],
+  },
+  {
+    ac: "The lines keep the text readable; the nodes are exempt, within bounds",
+    what: "a beacon stronger than its bound",
+    ...onText(STYLE, checkGraphBounds),
+    fact: "graph-bounds",
+    message: /a beacon grows past 4\.5x or 0\.55 strong/,
+    edits: [["(1 - var(--p, 0)) * 0.55);", "(1 - var(--p, 0)) * 0.9);"]],
+  },
+  {
+    ac: "The lines keep the text readable; the nodes are exempt, within bounds",
+    what: "a breathing ring that animates its stroke, which costs a layout per frame",
+    ...onText(STYLE, checkGraphBounds),
+    fact: "graph-bounds",
+    message: /the breathing ring animates more than transform and opacity/,
+    edits: [
+      ["0% { transform: scale(1); opacity: 0.9; }", "0% { transform: scale(1); opacity: 0.9; stroke-width: 6; }"],
+    ],
+  },
+  {
+    ac: "The lines keep the text readable; the nodes are exempt, within bounds",
+    what: "a node painted in the accent",
+    ...onText(STYLE, checkGraphBounds),
+    fact: "graph-bounds",
+    message: /the graph paints var\(--accent\)/,
+    edits: [[".graph .beacon { fill: var(--line-5);", ".graph .beacon { fill: var(--accent);"]],
+  },
+  {
+    ac: "Out of the way",
+    what: "forced colours showing the graph",
+    ...onText(STYLE, checkGraphCss),
+    fact: "graph-layer",
+    message: /forced colours do not hide \.graph/,
+    edits: [["@media (forced-colors: active) {\n  .graph { display: none; }\n", "@media (forced-colors: active) {\n"]],
+  },
+  {
+    ac: "The lines keep the text readable; the nodes are exempt, within bounds",
+    what: "a tone that sets no --graph",
+    ...onText(STYLE, checkGraphCss),
+    fact: "graph-layer",
+    message: /the light tone sets no --graph/,
+    edits: [["    --graph: var(--light-graph);\n", ""]],
+  },
+  {
+    ac: "Out of the way",
+    what: "a colour written into the graph by the script",
+    ...onText(SCRIPT, checkScriptColours),
+    fact: "script-colour",
+    message: /writes the colour "#19233a"/,
+    edits: [
+      [
+        '    svg.setAttribute("focusable", "false");\n',
+        '    svg.setAttribute("focusable", "false");\n    svg.setAttribute("stroke", "#19233a");\n',
+      ],
+    ],
+  },
+
+  // The four-agents story: the names, the chips, no status in any language.
+  {
+    ac: "Four agents named",
+    what: "Cursor before Gemini CLI in the hero",
+    ...onPage("en", checkAgents),
+    fact: "agents-named",
+    message: /^the hero names Claude Code, Codex, Cursor, Gemini CLI;/,
+    edits: [["<b>Gemini CLI</b> · <b>Cursor</b>", "<b>Cursor</b> · <b>Gemini CLI</b>"]],
+  },
+  {
+    ac: "Four agents named",
+    what: "a word added to the hero's agent line",
+    ...onPage("en", checkAgents),
+    fact: "agents-named",
+    message: /^the hero's agent line reads "Claude Code · Codex \(beta\) · Gemini CLI · Cursor"/,
+    edits: [["<b>Codex</b> · <b>Gemini CLI</b>", "<b>Codex</b> (beta) · <b>Gemini CLI</b>"]],
+  },
+  {
+    ac: "Four agents named",
+    what: "a chip marked experimental by its class",
+    ...onPage("es", checkAgents),
+    fact: "agents-named",
+    message: /Codex \(class "chip exp"\)/,
+    edits: [['<span class="chip">Codex</span>', '<span class="chip exp">Codex</span>']],
+  },
+  {
+    ac: "Four agents named",
+    what: "a language page that translates a name",
+    ...onPage("ru", checkAgents),
+    fact: "agents-named",
+    message: /^the hero names Claude Code, Codex, Gemini CLI, Курсор;/,
+    edits: [["<b>Cursor</b>", "<b>Курсор</b>"]],
+  },
+  {
+    ac: "No harness status on the site",
+    what: "a status marker put back on the main page",
+    ...onPage("en", checkNoStatus),
+    fact: "no-status",
+    message: /data-fact="harness-status:codex"/,
+    edits: [
+      [
+        '<span class="chip">Codex</span>',
+        '<span class="chip">Codex · <span data-fact="harness-status:codex">ready</span></span>',
+      ],
+    ],
+  },
+  {
+    ac: "No harness status on the site",
+    what: "the English lede calling the Codex flow experimental",
+    ...onPage("en", checkNoStatus),
+    fact: "no-status",
+    message: /calls Codex experimental$/,
+    edits: [
+      [
+        "The scenes below are Claude Code.",
+        "The scenes below are Claude Code; in Codex the same flow is experimental.",
+      ],
+    ],
+  },
+  {
+    ac: "No harness status on the site",
+    what: "the German models card calling Codex experimental",
+    ...onPage("de", checkNoStatus),
+    fact: "no-status",
+    message: /calls Codex experimentell$/,
+    edits: [[/(data-i18n="set\.models\.h">)[^<]*/, "$1Codex experimentell, nur Modelle"]],
+  },
+  {
+    ac: "No harness status on the site",
+    what: "the Russian lede calling the Codex flow experimental",
+    ...onPage("ru", checkNoStatus),
+    fact: "no-status",
+    message: /calls Codex экспериментальн$/,
+    edits: [
+      [/(data-i18n="talk\.lede">[^<]*<b[^>]*>[^<]*<\/b>[^<]*)/, "$1 В Codex этот же сценарий экспериментальный."],
+    ],
   },
 
   // AC 4: loads — another origin, a link off the site, a file that is not there.
