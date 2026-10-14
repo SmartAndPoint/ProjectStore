@@ -266,8 +266,9 @@ b, strong { font-weight: 600; color: var(--ink-hi); }
 .head-nav > a { color: var(--ink-3); text-decoration: none; white-space: nowrap; }
 .head-nav > a:hover, .head-nav > a[aria-current="page"] { color: var(--ink-hi); }
 .head-nav > a[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--accent); }
-.star { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border-radius: 4px; background: var(--accent); color: var(--on-accent) !important; font-weight: 500; text-decoration: none; }
-.star:hover { box-shadow: 0 0 0 4px var(--accent-soft); }
+/* the source: GitHub's mark, then its name, a link like the others in the row; at 760 px and narrower the mark alone */
+.gh { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; }
+.gh svg { width: 16px; height: 16px; flex: none; }
 
 
 .lang-switch { position: relative; }
@@ -733,8 +734,8 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
   .tone-switch { gap: 0; padding: 2px; min-height: 36px; }
   .lang-chev { display: none; }
   .tone-opt { width: 26px; height: 26px; }
-  .star { padding: 0 12px; }
-  .star span + span { display: none; }
+  .gh { min-width: 32px; justify-content: center; }
+  .gh span { display: none; }
   .head-row { min-height: 56px; gap: 12px; }
   .sec { padding: 56px 0; }
   .hero { padding-top: 28px; gap: 32px; }
@@ -860,7 +861,7 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
     --done: #067647; --done-bg: #ffffff; --done-line: #067647; --exp: #8a5a00; --exp-line: #8a5a00; --epic: #8a5a00;
     color-scheme: light;
   }
-  .site-header, .mobile-nav, .copy, .cursor, .lang-switch, .tone-switch, .star, .tabs, .skip-link { display: none !important; }
+  .site-header, .mobile-nav, .copy, .cursor, .lang-switch, .tone-switch, .tabs, .skip-link { display: none !important; }
   .mode-panel { display: flex !important; }
   .term { box-shadow: none; }
   .poster { box-shadow: none; transform: none; }
