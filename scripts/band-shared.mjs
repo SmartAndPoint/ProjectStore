@@ -383,7 +383,21 @@ export function phraseOf(role, subject, description, w) {
 }
 
 const lastSegment = (p) => String(p).replace(/\/+$/, "").split("/").pop();
-const vaultRel = (vault, p) => (vault && p.startsWith(`${vault}/`) ? p.slice(vault.length + 1) : lastSegment(p));
+// A path inside one of the roots (a worktree's copy of the vault first, then
+// the vault) reads as its path in there; anything else as its last segment.
+const vaultRel = (roots, p) => {
+  for (const r of [].concat(roots || [])) if (r && p.startsWith(`${r}/`)) return p.slice(r.length + 1);
+  return lastSegment(p);
+};
+
+// The roots this session's paths are read against: the copy of the vault its
+// pointer's story lives in (story_root, a worktree — PS-PRESENCE, issue #87),
+// then the bound vault. The band never resolves git itself; it reads this.
+export function focusRoots(pointer, vault) {
+  const own = pointer && typeof pointer.story_root === "string" && pointer.story_root ? pointer.story_root : null;
+  if (!vault) return own ? [own] : [];
+  return own && own !== vault ? [own, vault] : [vault];
+}
 
 // `node /x/reconcile.mjs --a` reads `reconcile`, `git diff --stat` reads `git diff`.
 export function commandWord(command) {
@@ -401,7 +415,8 @@ export function commandWord(command) {
 const QUIET = /^(echo|printf|true|sleep|:)(\s|$)/;
 
 // An agent's last step from its latest tool call, or null when the call says
-// nothing worth a row (an echo, a tool the band does not name).
+// nothing worth a row (an echo, a tool the band does not name). `vault` is the
+// vault path or the roots focusRoots gives.
 export function stepOf(call, vault, w) {
   const tool = typeof call.tool === "string" ? call.tool : "";
   const path =

@@ -24,7 +24,7 @@ import { join, dirname, basename, resolve, relative, isAbsolute } from "node:pat
 import { fileURLToPath } from "node:url";
 import { hostname, homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
-import { parseFrontmatter } from "./stages.mjs";
+import { parseFrontmatter, stageOf } from "./stages.mjs";
 import { storyKeyOf } from "./band-shared.mjs";
 import {
   projectRoot as harnessProjectRoot,
@@ -2583,10 +2583,16 @@ export async function gatherVaultFacts(cfg, opts = {}) {
       return;
     }
     const entries = await readActivityAsync(vault, sessionId, readFile);
-    const rel = entries
-      .filter((e) => e && typeof e.path === "string" && isInsideVault(e.path, vault))
-      .map((e) => e.path.slice(vault.length + 1))
-      .filter(Boolean);
+    // Through the vault's worktrees too: a worktree's copy reads as its path
+    // inside the vault, once, newest first.
+    const rel = [
+      ...new Set(
+        entries
+          .filter((e) => e && typeof e.path === "string")
+          .map((e) => vaultLocation(e.path, vault)?.rel)
+          .filter(Boolean),
+      ),
+    ];
     continuity.paths = rel;
     continuity.total = rel.length;
     continuity.artifact = resolveInFlightArtifact(entries, layout, vault);
@@ -2985,8 +2991,10 @@ export function resolveInFlightArtifact(activity, layout, vaultPath) {
   // the newest one — no sort, and no second definition of "newest".
   for (const e of activity) {
     if (!e || !e.path || !isWriteTool(e.tool)) continue;
-    if (!isInsideVault(e.path, root)) continue;
-    const rel = e.path.slice(root.length + 1);
+    // A worktree's copy counts as the vault, by its path inside that copy.
+    const loc = vaultLocation(e.path, root);
+    if (!loc || !loc.rel) continue;
+    const rel = loc.rel;
     if (folders.some((p) => rel === p || rel.startsWith(p + "/"))) return rel;
   }
   return null;
@@ -2996,6 +3004,132 @@ export function isInsideVault(filePath, vaultPath) {
   if (!filePath || !vaultPath) return false;
   const norm = filePath.endsWith("/") ? filePath.slice(0, -1) : filePath;
   return norm === vaultPath || norm.startsWith(vaultPath + "/");
+}
+
+// ─── Where a path sits in the vault, worktrees included ────────────────
+//
+// (PS-PRESENCE: "A session working in a worktree of the vault gets its epic
+// and story on the band…", issue #87.) A vault edited only through git
+// worktrees — `<vault>/.worktrees/x/` or a checkout elsewhere — was invisible
+// to every check that matched a prefix on vault_path. vaultLocation answers
+// `{ root, rel }`: the copy of the vault that holds the file (the bound
+// checkout, or a worktree's copy) and the path inside it; null when the file
+// is not in the vault.
+//
+// The prefix still answers first and is never taken away: a path under
+// vault_path is in the vault as today, nested foreign repositories included.
+// The resolver only ADDS placements, by reading git's own files on disk — it
+// runs on every tool call, so it spawns nothing:
+//  * a `.git` directory is its own common dir;
+//  * a `.git` file says `gitdir: <path>` (relative to the file's directory for
+//    submodules and worktree.useRelativePaths); the gitdir's `commondir`
+//    (relative to the gitdir) names the common dir, and without one — a
+//    --separate-git-dir checkout, a submodule — the gitdir is the common dir;
+//  * both sides go through realpath: git writes /private/tmp where a vault may
+//    be bound as /tmp or through a symlink.
+// A worktree belongs to the vault when its common dir is the vault's AND the
+// file lies under the worktree's copy of the vault's place in its repository
+// (`vaultSub`): a vault kept as a folder of the project's repository shares
+// the project's common dir, and a project worktree's src/ is not the vault.
+// Anything unreadable answers with the prefix alone.
+
+const VAULT_REPO = new Map();
+export function resetVaultLocation() {
+  VAULT_REPO.clear();
+}
+
+function gitIdentity(entry) {
+  try {
+    if (statSync(entry).isDirectory()) {
+      const real = realpathSync(entry);
+      return { gitdir: real, common: real };
+    }
+    const m = readFileSync(entry, "utf8").match(/^gitdir:\s*(.+?)\s*$/m);
+    if (!m) return null;
+    const gitdir = resolve(dirname(entry), m[1]);
+    let common = gitdir;
+    try {
+      common = resolve(gitdir, readFileSync(join(gitdir, "commondir"), "utf8").trim());
+    } catch {}
+    return { gitdir: realpathSync(gitdir), common: realpathSync(common) };
+  } catch {
+    return null;
+  }
+}
+
+// The nearest directory at or above `start` holding a `.git` entry; with
+// `below`, only directories strictly inside it are considered.
+function nearestGit(start, below = null) {
+  let d = start;
+  for (;;) {
+    if (below !== null && !d.startsWith(below + "/")) return null;
+    if (existsSync(join(d, ".git"))) return d;
+    const up = dirname(d);
+    if (up === d) return null;
+    d = up;
+  }
+}
+
+function vaultRepo(vault) {
+  if (VAULT_REPO.has(vault)) return VAULT_REPO.get(vault);
+  let out = null;
+  try {
+    const real = realpathSync(vault);
+    const top = nearestGit(real);
+    const id = top ? gitIdentity(join(top, ".git")) : null;
+    if (id) out = { ...id, sub: real === top ? "" : real.slice(top.length + 1) };
+  } catch {}
+  VAULT_REPO.set(vault, out);
+  return out;
+}
+
+// The bound vault's path as the resolver compares it: no trailing slash (a
+// hand-edited binding may carry one).
+export function vaultRootOf(vaultPath) {
+  return vaultPath && vaultPath.length > 1 ? vaultPath.replace(/\/+$/, "") : vaultPath;
+}
+
+export function vaultLocation(filePath, vaultPath, { cwd } = {}) {
+  if (!filePath || !vaultPath) return null;
+  const vault = vaultRootOf(vaultPath);
+  // resolve() also folds `//` and `..`, so a root is always a clean path.
+  const norm = resolve(cwd || process.cwd(), filePath);
+  const under = (p, root) => p === root || p.startsWith(root + "/");
+  const relOf = (p, root) => (p === root ? "" : p.slice(root.length + 1));
+  const copyOf = (top, repo) => (repo.sub ? join(top, repo.sub) : top);
+
+  if (under(norm, vault)) {
+    // A worktree kept inside the vault folder answers for its own copy.
+    const top = nearestGit(dirname(norm), vault);
+    if (top) {
+      const repo = vaultRepo(vault);
+      const id = repo ? gitIdentity(join(top, ".git")) : null;
+      if (id && id.common === repo.common && id.gitdir !== repo.gitdir) {
+        const root = copyOf(top, repo);
+        if (under(norm, root)) return { root, rel: relOf(norm, root) };
+      }
+    }
+    return { root: vault, rel: relOf(norm, vault) };
+  }
+
+  // Outside the prefix: a new file's walk starts at its nearest existing parent.
+  let start = dirname(norm);
+  while (!existsSync(start)) {
+    const up = dirname(start);
+    if (up === start) return null;
+    start = up;
+  }
+  const top = nearestGit(start);
+  if (!top) return null;
+  const repo = vaultRepo(vault);
+  if (!repo) return null;
+  const id = gitIdentity(join(top, ".git"));
+  if (!id || id.common !== repo.common) return null;
+  const root = copyOf(top, repo);
+  if (!under(norm, root)) return null;
+  // The bound checkout spelled another way (/private/var for /var, a symlink).
+  if (id.gitdir === repo.gitdir) return { root: vault, rel: relOf(norm, root) };
+  return { root, rel: relOf(norm, root) };
 }
 
 // ─── Per-session project-side state (statusline pointer — ADR-006) ─────
@@ -3096,13 +3230,29 @@ export function writeSessionState(projectDir, sessionId, patch) {
 // written as null (every reader treats it as absent): a touch of another
 // epic clears the previous epic's story, and an unreadable story names no
 // stale title. Null when the file is not under an epic.
-export function pointerPatchFor(vaultPath, filePath, cur, read = (p) => readFileSync(p, "utf8")) {
-  const m = filePath.slice(vaultPath.length + 1).match(/^epics\/([^/]+)\/(.+)$/);
+//
+// The file may sit in a worktree of the vault (vaultLocation): the epic is
+// matched on its path inside that copy, epic.md is read from the same copy,
+// and `story_root` records the copy — null for the bound checkout — so the
+// band and SessionStart's refresh read the story where it lives. It is written
+// with the story fields: on a story touch, or when the epic changes. A touch
+// of the same epic's other files (reading the bound checkout's epic.md for
+// its goal) leaves it, or the band would look for the story where it is not.
+export function pointerPatchFor(
+  vaultPath,
+  filePath,
+  cur,
+  read = (p) => readFileSync(p, "utf8"),
+  { loc = vaultLocation(filePath, vaultPath) } = {},
+) {
+  if (!loc) return null;
+  const m = loc.rel.match(/^epics\/([^/]+)\/(.+)$/);
   if (!m) return null;
   const [, epicId, inEpic] = m;
+  const storyRoot = loc.root === vaultRootOf(vaultPath) ? null : loc.root;
   const patch = { active_epic: epicId };
   try {
-    const { data } = parseFrontmatter(read(join(vaultPath, "epics", epicId, "epic.md")));
+    const { data } = parseFrontmatter(read(join(loc.root, "epics", epicId, "epic.md")));
     if (data.title) patch.epic_title = String(data.title);
   } catch {}
   const key = storyKeyOf(inEpic);
@@ -3114,8 +3264,9 @@ export function pointerPatchFor(vaultPath, filePath, cur, read = (p) => readFile
     patch.active_story = key;
     patch.story_title = data && data.title ? String(data.title) : null;
     patch.story_status = data && data.status ? String(data.status) : null;
+    patch.story_root = storyRoot;
   } else if (!cur || cur.active_epic !== epicId) {
-    Object.assign(patch, { active_story: null, story_title: null, story_status: null });
+    Object.assign(patch, { active_story: null, story_title: null, story_status: null, story_root: storyRoot });
   }
   return patch;
 }
@@ -3142,12 +3293,14 @@ export function storyFileFor(vaultPath, epicId, key) {
 export function refreshSessionPointer(projectDir, cfg, path, { env = process.env } = {}) {
   const vault = cfg.vault_path;
   const abs = isAbsolute(path) ? resolve(path) : join(vault, path);
-  const rel = abs.startsWith(`${vault}/`) ? abs.slice(vault.length + 1) : null;
+  // A worktree of the vault is the vault too: a close made there refreshes.
+  const loc = vaultLocation(abs, vault);
+  const rel = loc && loc.rel ? loc.rel : null;
   if (!rel) return { refusal: { code: "NOT_IN_VAULT", message: `${path} is not inside the bound vault (${vault})` } };
   if (!existsSync(abs)) return { refusal: { code: "NOT_FOUND", message: `${rel} does not exist in the vault` } };
   const sessionId = hostSessionId(env);
   const cur = sessionId ? readSessionState(projectDir, sessionId) : null;
-  const patch = pointerPatchFor(vault, abs, cur);
+  const patch = pointerPatchFor(vault, abs, cur, undefined, { loc });
   if (!patch || !patch.active_story)
     return { refusal: { code: "NOT_A_STORY", message: `${rel} is not a story file under an epic` } };
   if (!sessionId) return { session: null, refreshed: false, reason: "no-session", path: rel };
@@ -3161,6 +3314,7 @@ export function refreshSessionPointer(projectDir, cfg, path, { env = process.env
       active_story: next.active_story ?? null,
       story_title: next.story_title ?? null,
       story_status: next.story_status ?? null,
+      story_root: next.story_root ?? null,
     },
   };
 }
@@ -3176,35 +3330,51 @@ export function refreshSessionPointer(projectDir, cfg, path, { env = process.env
 export async function refreshStoryPointer(projectDir, vaultPath, sessionId, opts = {}) {
   const cur = readSessionState(projectDir, sessionId);
   if (!cur || !cur.active_epic || !cur.active_story) return "unchanged";
-  const file = storyFileFor(vaultPath, cur.active_epic, cur.active_story);
-  if (!file && !existsSync(join(vaultPath, "epics", cur.active_epic, "epic.md"))) return "unknown";
-  let title = null;
-  let status = null;
-  if (file) {
+  // The copy the story was last touched in (a worktree of the vault), while it
+  // exists; a removed worktree falls back to the bound checkout.
+  const root =
+    typeof cur.story_root === "string" && cur.story_root && cur.story_root !== vaultRootOf(vaultPath)
+      ? cur.story_root
+      : null;
+  const rootLive = root ? existsSync(root) : false;
+  const mainFile = storyFileFor(vaultPath, cur.active_epic, cur.active_story);
+  const rootFile = rootLive ? storyFileFor(root, cur.active_epic, cur.active_story) : null;
+  let patch;
+  if (!mainFile && !rootFile) {
+    const epicIn = (r) => existsSync(join(r, "epics", cur.active_epic, "epic.md"));
+    if (!epicIn(vaultPath) && !(rootLive && epicIn(root))) return "unknown";
+    patch = { active_story: null, story_title: null, story_status: null, story_root: rootLive ? root : null };
+  } else {
     const readFile = opts.readFile || ((p) => readFileAsync(p, "utf8"));
     let timer = null;
     const deadline = new Promise((resolve) => {
       timer = setTimeout(() => resolve(null), opts.budgetMs ?? 200);
     });
-    let text;
+    const readOne = (f) =>
+      f
+        ? Promise.resolve()
+            .then(() => readFile(f))
+            .then(String, () => null)
+        : Promise.resolve("");
+    let texts;
     try {
-      text = await Promise.race([
-        Promise.resolve()
-          .then(() => readFile(file))
-          .then(String, () => null),
-        deadline,
-      ]);
+      texts = await Promise.race([Promise.all([readOne(mainFile), readOne(rootFile)]), deadline]);
     } finally {
       if (timer) clearTimeout(timer);
     }
-    if (text === null) return "unknown";
-    const { data } = parseFrontmatter(text);
-    title = data.title ? String(data.title) : null;
-    status = data.status ? String(data.status) : null;
+    if (texts === null || texts.some((t) => t === null)) return "unknown";
+    const fields = (text) => {
+      const { data } = parseFrontmatter(text);
+      return { title: data.title ? String(data.title) : null, status: data.status ? String(data.status) : null };
+    };
+    const main = mainFile ? fields(texts[0]) : null;
+    const copy = rootFile ? fields(texts[1]) : null;
+    // A story closed on the bound checkout wins over a stale worktree copy
+    // (the merge brought `done`); otherwise the copy being worked wins.
+    const useMain = main && (!copy || stageOf(main.status) === "done");
+    const pick = useMain ? main : copy;
+    patch = { story_title: pick.title, story_status: pick.status, story_root: useMain ? null : root };
   }
-  const patch = file
-    ? { story_title: title, story_status: status }
-    : { active_story: null, story_title: null, story_status: null };
   const same = Object.entries(patch).every(([k, v]) => (cur[k] ?? null) === v);
   if (same) return "unchanged";
   writeSessionState(projectDir, sessionId, patch);
@@ -3292,7 +3462,6 @@ export const ENTRY_IGNORE = [
 
 export function isSourcePath(absPath, projectDir, vaultPath) {
   if (!absPath || !projectDir) return false;
-  if (vaultPath && isInsideVault(absPath, vaultPath)) return false;
   const root = projectDir.endsWith("/") ? projectDir.slice(0, -1) : projectDir;
   if (!absPath.startsWith(root + "/")) return false;
   // Matched project-relative, never absolute: SOURCE_IGNORE is
@@ -3300,7 +3469,10 @@ export function isSourcePath(absPath, projectDir, vaultPath) {
   // project that merely lives under a directory called `build`.
   const rel = absPath.slice(root.length + 1);
   if (!rel) return false;
-  return !ENTRY_IGNORE.some((re) => re.test(rel));
+  if (ENTRY_IGNORE.some((re) => re.test(rel))) return false;
+  // Last, because it walks the disk: a file in the vault — a worktree's copy
+  // of it included (contract 1, as amended 2026-10-15) — is never source.
+  return !(vaultPath && vaultLocation(absPath, vaultPath));
 }
 
 export function scoreDir(projectDir, sessionId) {
@@ -3385,7 +3557,14 @@ export function listVaultStoryFiles(vaultPath) {
 export async function resolveOpenStory(vaultPath, opts = {}) {
   const budgetMs = opts.budgetMs ?? 200;
   const readFile = opts.readFile || ((p) => readFileAsync(p, "utf8"));
-  const files = listVaultStoryFiles(vaultPath);
+  // The session's own worktree copy first (its pointer's story_root), then the
+  // bound checkout: a story open where this session works it counts as open.
+  const storyRoot = opts.storyRoot;
+  const own =
+    typeof storyRoot === "string" && storyRoot && storyRoot !== vaultRootOf(vaultPath) && existsSync(storyRoot)
+      ? listVaultStoryFiles(storyRoot)
+      : [];
+  const files = [...own, ...listVaultStoryFiles(vaultPath)];
   if (!files.length) return false;
 
   let timer = null;

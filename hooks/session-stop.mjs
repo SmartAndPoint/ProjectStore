@@ -49,6 +49,7 @@ import {
   entryReminderText,
   ENTRY_THRESHOLD,
   stopCarrier,
+  readSessionState,
 } from "../scripts/lib.mjs";
 
 async function main() {
@@ -78,7 +79,8 @@ async function main() {
 
   let verdict = readOpenStoryCache(proj, sid);
   if (verdict === null) {
-    verdict = await resolveOpenStory(cfg.vault_path);
+    // The session's own worktree copy counts too (its pointer's story_root).
+    verdict = await resolveOpenStory(cfg.vault_path, { storyRoot: readSessionState(proj, sid)?.story_root });
     writeOpenStoryCache(proj, sid, verdict);
   }
   // Nothing written to stdout yet, so exiting here cannot truncate anything.

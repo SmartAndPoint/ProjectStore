@@ -51,6 +51,7 @@ import {
   phraseOf,
   commandWord,
   stepOf,
+  focusRoots,
   leadAgent,
   LINGER_MS,
   heartbeatNext,
@@ -292,6 +293,25 @@ test("contract 12: the model label, the subject, the phrase", () => {
   assert.equal(phraseOf("critic", "«T»", "d", W), "reviews «T»");
   assert.equal(phraseOf("unknown-role", "«T»", "d", W), "works on «T»");
   assert.equal(phraseOf("planner", null, "Plan story-058", W), "Plan story-058");
+});
+
+test("contract 12 (amended 2026-10-15): a step in a worktree's copy of the vault reads as its path there", () => {
+  assert.deepEqual(focusRoots({ story_root: "/wt" }, "/v"), ["/wt", "/v"]);
+  assert.deepEqual(focusRoots({ story_root: null }, "/v"), ["/v"]);
+  assert.deepEqual(focusRoots({ story_root: "/v" }, "/v"), ["/v"]);
+  assert.deepEqual(focusRoots(null, "/v"), ["/v"]);
+  const roots = focusRoots({ story_root: "/v/.worktrees/x" }, "/v");
+  assert.equal(
+    stepOf({ tool: "Edit", file_path: "/v/.worktrees/x/epics/A/stories/s.md" }, roots, W),
+    "edits epics/A/stories/s.md",
+    "the worktree's own root wins over the vault it sits in",
+  );
+  assert.equal(stepOf({ tool: "Read", file_path: "/v/adr/README.md" }, roots, W), "reads adr/README.md");
+  assert.equal(
+    stepOf({ tool: "Read", file_path: "/v/adr/README.md" }, "/v", W),
+    "reads adr/README.md",
+    "a string still works",
+  );
 });
 
 test("contract 12: an agent's last step, from its tool call", () => {

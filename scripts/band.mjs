@@ -116,6 +116,9 @@ export function applyBand(plan) {
   return { wrote: true };
 }
 
+const SESSION_HINT =
+  "a Read or an edit of a story file through a file tool sets this session's epic and story; edits made through the shell are not seen";
+
 const REASONS = Object.freeze({
   harness: "this harness has no band",
   off: "switched off (projectstore band on)",
@@ -135,11 +138,20 @@ export function bandStatus(projectDir, cfg, { env = process.env, now = Date.now(
   const keys = bandKeys(cfg);
   const sessionId = hostSessionId(env, harness);
   let sessionEpic = null;
+  let sessionStory = null;
+  let sessionRoot = null;
   let heartbeat = "none";
   if (sessionId) {
     try {
       const p = JSON.parse(readFileSync(sessionStatePath(projectDir, sessionId), "utf8"));
-      if (p && isEpicName(p.active_epic)) sessionEpic = p.active_epic;
+      if (p && isEpicName(p.active_epic)) {
+        sessionEpic = p.active_epic;
+        if (typeof p.active_story === "string" && p.active_story)
+          sessionStory = typeof p.story_title === "string" && p.story_title ? p.story_title : p.active_story;
+        // The copy of the vault the story lives in, when it is a worktree's.
+        // A removed worktree is not named: the band and the refresh fall back too.
+        if (typeof p.story_root === "string" && p.story_root && existsSync(p.story_root)) sessionRoot = p.story_root;
+      }
     } catch {}
     const name = heartbeatFile(sessionId);
     if (name) {
@@ -169,6 +181,11 @@ export function bandStatus(projectDir, cfg, { env = process.env, now = Date.now(
     pin_exists: pinExists,
     session_id: sessionId,
     session_epic: sessionEpic,
+    session_story: sessionStory,
+    session_root: sessionRoot,
+    // How a session gets its epic, whenever it has none — pinned or not
+    // (issue #87 had a pin and no word on how to set its own).
+    session_hint: sessionId && !sessionEpic ? SESSION_HINT : null,
     heartbeat,
     drawing,
     yielding: drawing,
@@ -180,7 +197,8 @@ export function bandStatus(projectDir, cfg, { env = process.env, now = Date.now(
 export function renderBandStatus(s) {
   const lines = [
     `band: ${s.enabled ? "on" : "off"}${s.pin ? ` · pinned ${s.pin}${s.pin_exists ? "" : " (missing)"}` : ""}`,
-    `session: ${s.session_id ? `${s.session_id.slice(0, 8)}… · ${s.session_epic ? `epic ${s.session_epic}` : "no epic of its own"}` : "session unknown"}`,
+    `session: ${s.session_id ? `${s.session_id.slice(0, 8)}… · ${s.session_epic ? `epic ${s.session_epic}${s.session_story ? ` · story ${s.session_story}` : ""}${s.session_root ? ` · in ${s.session_root}` : ""}` : "no epic of its own"}` : "session unknown"}`,
+    ...(s.session_hint ? [`  ${s.session_hint}`] : []),
     `heartbeat: ${s.heartbeat} · the status line ${s.yielding ? "is giving way to the band" : "shows its own line"}`,
   ];
   if (s.reason_text) lines.push(`not drawing: ${s.reason_text}`);
