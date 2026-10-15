@@ -448,11 +448,11 @@ See [`docs/extending.md`](./docs/extending.md) for adding layouts, templates, an
 
 Issues and discussions: https://github.com/SmartAndPoint/ProjectStore/issues. PRs welcome — adding a layout is a good first contribution (see `scaffold/layouts/engineering.json` for the format).
 
-The published package has no dependencies; the linter and the formatter are dev-only, pinned in `package-lock.json`. Every pull request runs the tests, ESLint and Prettier:
+The published package has no dependencies. The linter and the formatter are dev-only and live in a package of their own, `tools/lint/`, pinned in its `package-lock.json`. The repository root has no lockfile, because Claude Code installs whatever a lockfile at a plugin's root names into every user's copy. Every pull request runs the tests, ESLint and Prettier:
 
 ```sh
 npm test              # Node 20+, no install needed
-npm ci                # once, for the lint tools (Node 20.19+, 22.13+ or 24+)
+npm run lint:setup    # once per checkout, for the lint tools (Node 20.19+, 22.13+ or 24+)
 npm run lint
 npm run format        # rewrites; npm run format:check only reports
 ```

@@ -546,12 +546,7 @@ test("shells contract 11 / AC 3: the guard counts every shell — a version, a p
   );
   // A scratch tree with the version sites and the shells.
   const scratch = mkdtempSync(join(TMP, "guard-"));
-  for (const rel of [
-    "package.json",
-    ".claude-plugin/plugin.json",
-    ".claude-plugin/marketplace.json",
-    "package-lock.json",
-  ]) {
+  for (const rel of ["package.json", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"]) {
     mkdirSync(dirname(join(scratch, rel)), { recursive: true });
     copyFileSync(join(ROOT, rel), join(scratch, rel));
   }

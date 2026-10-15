@@ -1,9 +1,10 @@
 # Prettier formats what package.json's format scripts name: bin/, scripts/,
-# hooks/*.mjs, packaging/**/*.mjs, tests/**/*.mjs and eslint.config.mjs (the
-# lint ADR, decision 3). This list keeps the rest out, so an editor's
-# format-on-save agrees with the scripts.
+# hooks/*.mjs, packaging/**/*.mjs, tests/**/*.mjs, eslint.config.mjs and
+# tools/lint/eslint.config.mjs (the lint ADR, decision 3). This list keeps the
+# rest out, so an editor's format-on-save agrees with the scripts.
 
 # Not ours to format: worktrees, the local binding and state, build output.
+# node_modules/ matches at any depth, tools/lint/node_modules/ included.
 .claude/
 .projectstore/
 dist/

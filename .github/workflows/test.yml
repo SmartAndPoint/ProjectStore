@@ -59,9 +59,10 @@ jobs:
       - name: Test suite, including the packaging contracts
         run: node --test --import ./tests/fixtures/hermetic.mjs tests/*.test.mjs
 
-  # ESLint and Prettier (the lint ADR): pinned devDependencies, installed from
-  # the committed lockfile. The test job above installs nothing; this one runs
-  # once, on Node 24, since ESLint 10 needs ^20.19, ^22.13 or >=24.
+  # ESLint and Prettier (the lint ADR): pinned in tools/lint/, a package of
+  # their own with its own committed lockfile, so the plugin root carries none
+  # for Claude Code to install from. The test job above installs nothing; this
+  # one runs once, on Node 24, since ESLint 10 needs ^20.19, ^22.13 or >=24.
   lint:
     runs-on: ubuntu-latest
     name: lint (node 24)
@@ -74,7 +75,8 @@ jobs:
         with:
           node-version: "24"
 
-      - run: npm ci
+      - name: Install the lint tools (npm ci in tools/lint)
+        run: npm run lint:setup
 
       - name: Lint
         run: npm run lint

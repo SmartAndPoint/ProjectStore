@@ -40,7 +40,8 @@ export function fakeInstall(home, version, { full = false, marketplace = "SmartA
       filter: (src) => {
         const rel = relative(REPO, src);
         return (
-          rel === "" || !/^(\.git|node_modules|tests|docs|\.omc|\.claude|\.github|packaging|scratch)(\/|$)/.test(rel)
+          rel === "" ||
+          !/^(\.git|node_modules|tests|docs|\.omc|\.claude|\.github|packaging|scratch|tools)(\/|$)/.test(rel)
         );
       },
     });

@@ -9,7 +9,7 @@ because an emergency should not depend on GitHub being up.
 
 | Guard | What it catches | Where it runs |
 |---|---|---|
-| `node scripts/version-guard.mjs [--tag vX.Y.Z]` | `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `package-lock.json` (its `version` and `packages[""].version`) and every `packaging/shells/*/package.json` (its version and its exact `=<version>` pin on the core) disagreeing with each other or with the release tag; a shell that does not bundle the core or misnames its bin; a version with no release notes — `packaging/release-notes/v<version>.md` missing, its first line not `# v<version> — <title>`, or nothing under it | CI (`test.yml` on every PR, `release.yml` on the tag), `npm run release:check`, and by hand before a local publish |
+| `node scripts/version-guard.mjs [--tag vX.Y.Z]` | `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` and every `packaging/shells/*/package.json` (its version and its exact `=<version>` pin on the core) disagreeing with each other or with the release tag; a shell that does not bundle the core or misnames its bin; a version with no release notes — `packaging/release-notes/v<version>.md` missing, its first line not `# v<version> — <title>`, or nothing under it | CI (`test.yml` on every PR, `release.yml` on the tag), `npm run release:check`, and by hand before a local publish |
 | `node packaging/shells.mjs --check` | a shell's committed `package.json` or bin drifting from its render (the pin, the bin's verb set) | CI, and `npm run release:check` |
 | `tests/packaging.test.mjs`, `tests/shells.test.mjs`, `tests/release.test.mjs` | a directory added to the tree but forgotten in `files[]`, a `files[]` entry that stopped shipping, `publishConfig.provenance` creeping back in; a shell whose built tarball differs from its packlist fixture, or whose bin does not exec the bundled core with the harness fixed; a release workflow that would make the GitHub Release before a publish, without the notes, or with a guessed Latest, a site deploy a release cannot trigger, a surfaces workflow that writes or reads its tag inside `run`, and a surface judged ok, lagging or wrong on the wrong evidence | CI, and `npm test` |
 | `tests/site.test.mjs` | the public site (`site/`, never shipped: `NOT_SHIPPED`) — its eight pages and `llms.txt`/`llms-full.txt` — stating what the repository contradicts: a command or role with no file, an `npx` verb its bin refuses, an install command README does not fence, the version, a count, a harness's status, a dead link into `main`, an example artifact whose shape or slug the product would not write; a language page out of step with the English one; a load from another origin; committed pages a build would change (asset hashes, alternates, the `en/` stub); `site/` over its 2,621,440-byte budget | CI, `npm test`, and `.github/workflows/pages.yml` before every deploy |
@@ -26,7 +26,8 @@ lasts hours, so log in immediately before publishing rather than the day before.
 ```sh
 npm login                 # expect a browser round-trip; 2FA may prompt
 npm whoami                # must print your npm user
-npm run release:check     # version guard + tests + pack dry-run
+npm run lint:setup        # once per checkout: the lint tools, from tools/lint/
+npm run release:check     # version guard + lint + tests + pack dry-run
 npm publish               # NOT --provenance: that needs OIDC, i.e. CI
 ```
 
@@ -73,12 +74,17 @@ placeholder as `latest` for the duration of the candidate window. That is the
 intended shape: nothing installs a candidate by accident, and the first real
 release moves `latest` for the first time.
 
-Bumping to a candidate touches the three core version sites, then
-`npm install --package-lock-only` brings `package-lock.json`'s `version` and
-`packages[""].version` along (the guard checks both); `npm run shells`
+Bumping to a candidate touches the three core version sites; `npm run shells`
 re-renders the shells from them and `npm run packlist` regenerates the four
 fixtures. `node scripts/version-guard.mjs --tag v0.28.0-rc.1` is what proves
 they agree.
+
+There is no root lockfile to bring along, and none may appear: Claude Code
+installs the packages named by a lockfile at a plugin's root into every
+git-channel user's copy, so `tests/packaging.test.mjs` refuses one. The lint
+tools keep their lockfile in `tools/lint/`, which carries no version.
+`npm version <version> --no-git-tag-version` rewrites `package.json` alone and
+writes no lockfile; a bare `npm install` at the root writes one.
 
 Every bump, a candidate's too, also writes the release's notes:
 `packaging/release-notes/v<version>.md`, whose first line is the GitHub

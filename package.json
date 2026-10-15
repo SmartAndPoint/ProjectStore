@@ -67,14 +67,9 @@
     "shells:check": "node packaging/shells.mjs --check",
     "shells:build": "node packaging/shells.mjs --build --out dist",
     "release:check": "npm run adapters:check && npm run guard && npm run shells:check && npm run lint && npm run format:check && npm test && npm pack --dry-run",
-    "lint": "eslint --max-warnings 0 bin scripts \"hooks/*.mjs\" \"packaging/**/*.mjs\" \"tests/**/*.mjs\" eslint.config.mjs",
-    "format": "prettier --write bin scripts \"hooks/*.mjs\" \"packaging/**/*.mjs\" \"tests/**/*.mjs\" eslint.config.mjs",
-    "format:check": "prettier --check bin scripts \"hooks/*.mjs\" \"packaging/**/*.mjs\" \"tests/**/*.mjs\" eslint.config.mjs"
-  },
-  "devDependencies": {
-    "@eslint/js": "10.0.1",
-    "eslint": "10.12.0",
-    "eslint-plugin-n": "18.4.1",
-    "prettier": "3.9.10"
+    "lint:setup": "npm ci --prefix tools/lint",
+    "lint": "node tools/lint/node_modules/eslint/bin/eslint.js --max-warnings 0 bin scripts \"hooks/*.mjs\" \"packaging/**/*.mjs\" \"tests/**/*.mjs\" eslint.config.mjs tools/lint/eslint.config.mjs",
+    "format": "node tools/lint/node_modules/prettier/bin/prettier.cjs --write bin scripts \"hooks/*.mjs\" \"packaging/**/*.mjs\" \"tests/**/*.mjs\" eslint.config.mjs tools/lint/eslint.config.mjs",
+    "format:check": "node tools/lint/node_modules/prettier/bin/prettier.cjs --check bin scripts \"hooks/*.mjs\" \"packaging/**/*.mjs\" \"tests/**/*.mjs\" eslint.config.mjs tools/lint/eslint.config.mjs"
   }
 }

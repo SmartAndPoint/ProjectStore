@@ -1,0 +1,15 @@
+{
+  "name": "projectstore-lint",
+  "private": true,
+  "description": "The lint and format toolchain for this repository (the lint ADR). Its own folder, so the plugin root carries no lockfile for Claude Code to install from; npm run lint:setup installs it.",
+  "license": "MIT",
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.12.0",
+    "eslint-plugin-n": "18.4.1",
+    "prettier": "3.9.10"
+  }
+}
