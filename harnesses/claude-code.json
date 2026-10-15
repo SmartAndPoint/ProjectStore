@@ -115,7 +115,7 @@
     "_root_placeholder_literal_comment": "true = the harness passes the placeholder through as literal text and the installer must substitute an absolute path; false = the harness expands it. Claude Code expands ${CLAUDE_PLUGIN_ROOT}, so false. Measured value for Codex comes from the spike."
   },
   "output_channels": {
-    "_comment": "Per-event output channels (generation spec, contract 17). `fields` are the hookSpecificOutput keys the event honours; `system_message` is the top-level systemMessage; `decision` names the decision object where one exists. `evidence` is `measured` only where this repository's own hooks observe the fact, `documented` where the Claude Code hooks reference says so and we never emit it.",
+    "_comment": "Per-event output channels (generation spec, contract 17). `fields` are the hookSpecificOutput keys the event honours; `system_message` is the top-level systemMessage; `decision` names the decision object where one exists; an optional `input_fields` lists the stdin keys; Stop's `carrier` is the shape the entry reminder's Stop carrier prints (additionalContext | block | null) — our choice where both are honoured. `evidence` is `measured` only where this repository's own hooks observe the fact, `documented` where the Claude Code hooks reference says so and we never emit it.",
     "SessionStart": {
       "fields": [
         "additionalContext"
@@ -179,9 +179,10 @@
       ],
       "system_message": null,
       "decision": "block",
+      "carrier": "additionalContext",
       "evidence": "measured",
       "min_version": "2.1.163",
-      "note": "additionalContext on Stop CONTINUES the turn (2.1.163 changelog) — hooks/session-stop.mjs runs a create-then-emit election because of it. Below 2.1.163 only decision:block + reason exists."
+      "note": "additionalContext on Stop CONTINUES the turn (2.1.163 changelog) — hooks/session-stop.mjs runs a create-then-emit election because of it. Below 2.1.163 only decision:block + reason exists. Both shapes are honoured here; the carrier is context, so the reminder reads as context, not as a new turn."
     },
     "SubagentStop": {
       "fields": [

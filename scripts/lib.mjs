@@ -53,6 +53,7 @@ import {
   packageCommand,
   whichOnPath,
   hostSessionId,
+  stopCarrier,
 } from "./harness.mjs";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
@@ -184,6 +185,7 @@ export {
   overlayId,
   speakingHarness,
   whichOnPath,
+  stopCarrier,
 };
 
 // A hook's payload carries the `cwd` of the session that fired it, and on a
@@ -3581,12 +3583,12 @@ export const ENTRY_THRESHOLD = 3;
 // Normative text. Three properties it must keep, whatever the wording: it shows
 // the evidence (the count), it names the action, and it grants the exit — so a
 // false positive costs a glance rather than an argument.
-export function entryReminderText(n) {
+export function entryReminderText(n, { env = process.env } = {}) {
   return [
     `**projectstore**: this session has written to ${n} source files and no story`,
     "is in progress. If this is feature-sized work, open it in the vault before",
-    `going further — \`${commandForm("story", { args: '<EPIC> "<title>"' })}\`, or`,
-    `\`${commandForm("epic")}\` if it needs a new one. If it is a one-off fix, carry`,
+    `going further — \`${commandForm("story", { args: '<EPIC> "<title>"', env })}\`, or`,
+    `\`${commandForm("epic", { env })}\` if it needs a new one. If it is a one-off fix, carry`,
     "on — this fires once.",
   ].join("\n");
 }
