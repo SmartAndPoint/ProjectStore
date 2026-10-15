@@ -251,7 +251,38 @@ function renderRole(file) {
   const { data, body } = frontmatter(read(file), file);
   const role = file.split("/").pop().replace(/\.md$/, "");
   const name = renderedName("agents", role);
-  const orchestration = `## Codex orchestration\n\nThis is a role-orchestration skill, not a native agent registration. Resolve the\nrole's model and effort by running:\n\n\`\`\`bash\nnode "\${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model ${role} --json --project "$PWD"\n\`\`\`\n\nSpawn a collaboration agent for the bounded task. If the result names a model,\npass that model and use an empty or bounded context fork; otherwise inherit the\ncurrent model. If the result names an effort, pass it as \`${effortParam()}\`,\nwith or without a model; otherwise pass none. Give the spawned agent the role\ncontract below and the exact artifact/diff it must inspect. Wait for its final\nresult.\n\n## Role contract\n\n`;
+  // The spawn sentences name the fields and the value, verbatim: "if the
+  // result names a model, pass that model" let a parent read "that model" as
+  // its own, and pass it in 2 of 3 runs (the story "Codex role skills pass the
+  // model the core names, verbatim", PS-HARNESS). No example slug: the failure
+  // is a substituted model name, and an example is one more name to copy.
+  const orchestration = `## Codex orchestration
+
+This is a role-orchestration skill, not a native agent registration. Resolve the
+role's model and effort by running:
+
+\`\`\`bash
+node "\${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model ${role} --json --project "$PWD"
+\`\`\`
+
+Spawn a collaboration agent for the bounded task. Its model and effort are the
+two fields that command printed, \`result.model\` and \`result.effort\`, passed
+verbatim:
+
+- If \`result.model\` is a string, pass \`result.model\` exactly as \`model\`: the
+  string the command printed, never the model you are running on. Use an
+  empty or bounded context fork.
+- If \`result.model\` is \`null\`, pass no model at all, not even your own; the
+  agent inherits the current model.
+- If \`result.effort\` is a string, pass it as \`${effortParam()}\`, verbatim,
+  with or without a model. If \`result.effort\` is \`null\`, pass none.
+
+Give the spawned agent the role contract below and the exact artifact/diff it
+must inspect. Wait for its final result.
+
+## Role contract
+
+`;
   const description = (data.description || `Run the ProjectStore ${role} role in a fresh collaboration agent.`).replace(
     /^(?:Opus|Sonnet) \([a-z]+-effort\)\s+/,
     "",
