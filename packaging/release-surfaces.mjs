@@ -18,9 +18,15 @@
 // or the row's fix clears it) or `wrong` (it contradicts the release, and
 // waiting will not change it), with the command that clears it. A prerelease
 // is read for its own rows only: the badge, the readmes and the site follow
-// `latest`, which a prerelease never is. --wait re-reads every round until
-// every row is ok, no row is lagging any more, or the window is spent; the
-// surfaces workflow (.github/workflows/surfaces.yml) runs it with 900.
+// `latest`, which a prerelease never is, and the directory branch carries
+// stable releases only. The last row is that branch (PS-DIRECTORY: "The
+// maintainer submits ProjectStore through the developer portal…"): the tree
+// Anthropic's directory scans, whose plugin.json names the release once
+// release.yml's `directory` job has run. The listing's own published version
+// needs a claude.ai sign-in to read, so it is no row: packaging/README.md
+// reads it by hand. --wait re-reads every round until every row is ok, no
+// row is lagging any more, or the window is spent; the surfaces workflow
+// (.github/workflows/surfaces.yml) runs it with 900.
 //
 // Exit 0 when every row is ok, 1 when one is not, 2 on a usage error. With
 // GITHUB_TOKEN set, api.github.com is read with it (an unauthenticated runner
@@ -35,6 +41,10 @@ import { isSemver } from "../scripts/convergence.mjs";
 import { CORE, SHELLS_DIR, publishable, corePackage } from "./shells.mjs";
 
 export const SITE = "https://projectstore.dev";
+// The branch Anthropic's directory tracks, and the file it reads the version
+// from (packaging/directory-branch.mjs moves it).
+export const DIRECTORY_BRANCH = "directory";
+export const DIRECTORY_VERSION_FILE = ".claude-plugin/plugin.json";
 export const PAGES_FIX = "gh workflow run pages.yml --ref main";
 // After a release run that succeeded (the only kind surfaces.yml follows)
 // GitHub offers "Re-run all jobs": every publish skips a version the registry
@@ -79,6 +89,7 @@ export function urls({ repo, version, packages = packagesFor() }) {
     site: `${SITE}/`,
     llms: `${SITE}/llms.txt`,
     llmsFull: `${SITE}/llms-full.txt`,
+    directory: `https://raw.githubusercontent.com/${repo}/${DIRECTORY_BRANCH}/${DIRECTORY_VERSION_FILE}`,
   };
 }
 
@@ -206,6 +217,38 @@ export function judgeSite(read, surface, re, version) {
   return row(surface, "lagging", `names ${seen}`, PAGES_FIX);
 }
 
+// The directory branch's plugin.json. raw.githubusercontent.com keeps a
+// branch's file for minutes, so older is lagging; a branch that names no
+// version, or a newer one, is wrong.
+export function judgeDirectoryBranch(read, version) {
+  const s = "directory branch";
+  const fix = `${RERUN_FIX} — its ${DIRECTORY_BRANCH} job moves the branch; by hand, GH_TOKEN="$(gh auth token)" node packaging/directory-branch.mjs --version ${version}`;
+  if (read.status === 404)
+    return row(s, "lagging", `no ${DIRECTORY_VERSION_FILE} on the ${DIRECTORY_BRANCH} branch`, fix);
+  if (read.status !== 200) return noAnswer(s, read, "raw.githubusercontent.com", "re-run when it answers");
+  let seen = null;
+  try {
+    seen = JSON.parse(read.text ?? "")?.version ?? null;
+  } catch {}
+  const rel = relation(seen, version);
+  if (rel === null)
+    return row(
+      s,
+      "wrong",
+      `the ${DIRECTORY_BRANCH} branch's plugin.json names no version`,
+      "check the release run's directory job",
+    );
+  if (rel === "same") return row(s, "ok", `${DIRECTORY_BRANCH}'s plugin.json is ${seen}`);
+  if (rel === "newer")
+    return row(
+      s,
+      "wrong",
+      `${DIRECTORY_BRANCH}'s plugin.json is ${seen}, newer than ${version}`,
+      `check ${seen} instead`,
+    );
+  return row(s, "lagging", `${DIRECTORY_BRANCH}'s plugin.json is ${seen}`, fix);
+}
+
 // ─── Reading ────────────────────────────────────────────────────────────
 
 // One GET, never throwing: { status, text, json } or { status: 0, error }.
@@ -262,6 +305,7 @@ export async function readSurfaces({
     rows.push(judgeSite(await fresh(u.site), "site footer", FOOTER_RE, version));
     rows.push(judgeSite(await fresh(u.llms), "site llms.txt", LLMS_RE, version));
     rows.push(judgeSite(await fresh(u.llmsFull), "site llms-full.txt", LLMS_RE, version));
+    rows.push(judgeDirectoryBranch(await get(fetch, u.directory), version));
   }
   return rows;
 }

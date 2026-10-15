@@ -11,7 +11,8 @@ because an emergency should not depend on GitHub being up.
 |---|---|---|
 | `node scripts/version-guard.mjs [--tag vX.Y.Z]` | `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` and every `packaging/shells/*/package.json` (its version and its exact `=<version>` pin on the core) disagreeing with each other or with the release tag; a shell that does not bundle the core or misnames its bin; a version with no release notes — `packaging/release-notes/v<version>.md` missing, its first line not `# v<version> — <title>`, or nothing under it | CI (`test.yml` on every PR, `release.yml` on the tag), `npm run release:check`, and by hand before a local publish |
 | `node packaging/shells.mjs --check` | a shell's committed `package.json` or bin drifting from its render (the pin, the bin's verb set) | CI, and `npm run release:check` |
-| `tests/packaging.test.mjs`, `tests/shells.test.mjs`, `tests/release.test.mjs` | a directory added to the tree but forgotten in `files[]`, a `files[]` entry that stopped shipping, `publishConfig.provenance` creeping back in; a shell whose built tarball differs from its packlist fixture, or whose bin does not exec the bundled core with the harness fixed; a release workflow that would make the GitHub Release before a publish, without the notes, or with a guessed Latest, a site deploy a release cannot trigger, a surfaces workflow that writes or reads its tag inside `run`, and a surface judged ok, lagging or wrong on the wrong evidence | CI, and `npm test` |
+| `tests/packaging.test.mjs`, `tests/shells.test.mjs`, `tests/release.test.mjs` | a directory added to the tree but forgotten in `files[]`, a `files[]` entry that stopped shipping, `publishConfig.provenance` creeping back in; a shell whose built tarball differs from its packlist fixture, or whose bin does not exec the bundled core with the harness fixed; a release workflow that would make the GitHub Release before a publish, without the notes, or with a guessed Latest, a directory job that runs for a candidate or before the core publish, a write scope on any job but those two, a site deploy a release cannot trigger, a surfaces workflow that writes or reads its tag inside `run`, and a surface judged ok, lagging or wrong on the wrong evidence; a directory branch whose tree is not the packlist, loses its history, moves backwards, or commits one version twice | CI, and `npm test` |
+| `node packaging/directory-branch.mjs --version X.Y.Z` | the tree it would commit to the `directory` branch differing from npm pack's file list, from `tests/fixtures/packlist.json`, or from the unpacked tarball; a `.claude-plugin/plugin.json` in it that does not name the release; the branch carrying that version already with another tree | `release.yml`'s `directory` job, before it pushes |
 | `tests/site.test.mjs` | the public site (`site/`, never shipped: `NOT_SHIPPED`) — its eight pages and `llms.txt`/`llms-full.txt` — stating what the repository contradicts: a command or role with no file, an `npx` verb its bin refuses, an install command README does not fence, the version, a count, a harness's status, a dead link into `main`, an example artifact whose shape or slug the product would not write; a language page out of step with the English one; a load from another origin; committed pages a build would change (asset hashes, alternates, the `en/` stub); `site/` over its 2,621,440-byte budget | CI, `npm test`, and `.github/workflows/pages.yml` before every deploy |
 | `python3 site/tools/i18n.py check`, `extract`, `build --strict`, then `git diff --exit-code -- site/` and `if git status --porcelain -- site/ \| grep .; then echo "::error::the build left files not in the commit"; exit 1; fi` | committed pages, or `site/locales/en.json`, that are not what Python 3.12 renders from the templates in `site/src/` and the dictionaries; a file the build writes that is not in the commit, named; a dictionary missing a key or changing a fact marker | CI (`test.yml` and `pages.yml`, Python pinned to 3.12) |
 
@@ -117,7 +118,9 @@ shell whose plugin root is not rendered yet cannot reach the registry), builds
 each from the core's own pack tarball and publishes it the same way. Every
 publish step skips a `name@version` the registry already has, so a partial
 release — the core published, a shell not — is recovered by re-running the
-same tag, never by hand.
+same tag, never by hand. For a stable release, a fourth job moves the
+`directory` branch that Anthropic's directory tracks (see "The directory
+branch" below).
 
 The shell step publishes the built **tarball** (`npm publish dist/<name>-<v>.tgz
 --provenance`) so the file that ships is the file the fixture was compared
@@ -146,8 +149,8 @@ pieces see to it.
 
 - **The GitHub Release.** `release.yml`'s third job, `github-release`, runs
   after both publish jobs — when the shells' matrix passed or was skipped,
-  never after a failed publish — with `contents: write`, which no other job in
-  the workflow has. It makes the release from `packaging/release-notes/<tag>.md`:
+  never after a failed publish — with `contents: write`, which only it and the
+  `directory` job have. It makes the release from `packaging/release-notes/<tag>.md`:
   the heading is the title, the rest the body, `--verify-tag`, and `--latest`
   for a release or `--prerelease --latest=false` for a candidate — explicit
   every time, because GitHub makes each new release Latest by default. A
@@ -164,7 +167,8 @@ pieces see to it.
   of a stable tag succeeds, read-only, and runs `packaging/release-surfaces.mjs`:
   one row per surface — the tag on main, the GitHub Release, the README's
   badge, each package's dist-tag and readme, the site's footer and its llms
-  files — re-read once a minute for up to 15 minutes. It is a workflow of its
+  files, and the `directory` branch's `.claude-plugin/plugin.json` — re-read
+  once a minute for up to 15 minutes. It is a workflow of its
   own so that `release`'s colour keeps meaning "published": **a red `surfaces`
   run means published, not yet visible.** Run the fix its failing row names (for
   the site, `gh workflow run pages.yml --ref main`), then **Re-run failed jobs**
@@ -193,6 +197,113 @@ GITHUB_TOKEN="$(gh auth token)" node packaging/release-surfaces.mjs --version 0.
 ```
 
 Exit 0 means every surface names the version; `--json` prints the rows.
+
+## The directory branch
+
+Anthropic's directory (submitted through the developer portal, PS-DIRECTORY:
+"The maintainer submits ProjectStore through the developer portal, and the
+listing installs and runs from /plugin directory and from Desktop's
+Discover") tracks one branch of this repository, `directory`, and scans each
+new commit on it. Its tree is the core's npm packlist —
+`tests/fixtures/packlist.json`: no lockfile, no `tests/`, `site/` or
+`packaging/`, and the plugin at the root, so `.mcp.json`'s
+`${CLAUDE_PROJECT_DIR}` stays legal. Tracking `main` instead would make every
+merge a scanned version; tracking a tag would need a Settings edit in the
+portal at every release.
+
+`release.yml`'s fourth job, `directory`, moves it. It runs after the core
+publish, and only when the core job succeeded and the dist-tag is `latest`:
+a release candidate never reaches the directory's users. It has
+`contents: write`, the second job that does, and runs
+`packaging/directory-branch.mjs`, which:
+
+- packs the core from the tag's checkout (the core job's own pack, never the
+  registry's copy) and unpacks it with its modes;
+- refuses to go on unless npm pack's file list, `tests/fixtures/packlist.json`
+  and the unpacked tree are the same list, and the tree's
+  `.claude-plugin/plugin.json` names the release — the directory reads the
+  version there ("If your `plugin.json` sets `version`, raise it with every
+  release");
+- commits that tree as the next commit on `directory`, an orphan commit when
+  the branch is missing, so the branch keeps its history;
+- commits nothing when the tree equals the branch's head, so re-running the
+  tag recovers this job as it recovers the others; never moves the branch
+  back for an older tag; and refuses a version the branch carries already
+  with another tree;
+- pushes without force, with `GH_TOKEN` in the remote URL. The checkout keeps
+  `persist-credentials: false`, and the script never prints the token. The
+  tree carries no `.github/`, so the push starts no workflow.
+
+`--strip <path>` drops one packed file from the tree; the job strips nothing.
+Whether the branch keeps `.claude-plugin/marketplace.json` is the story's open
+question, which the first Validate in the portal answers; if it says strip,
+the job's step gains `--strip .claude-plugin/marketplace.json` and the
+workflow test changes with it.
+
+Whether a branch protection rule refuses the workflow's push is unverified;
+the first stable release after the job lands shows it. By hand — the first
+time, or when the job could not push — from a checkout of the release's tag,
+read the plan first, then move the branch:
+
+```sh
+node packaging/directory-branch.mjs --version 0.30.6 --dry-run
+```
+
+```sh
+GH_TOKEN="$(gh auth token)" node packaging/directory-branch.mjs --version 0.30.6
+```
+
+The surfaces check reads the branch's `.claude-plugin/plugin.json`
+(the `directory branch` row). That is the tree the directory scans, not what
+it serves: a reviewer publishes each version, so the listing lags the branch
+by the review time, which is not fixed.
+
+### The directory's published version, read by hand
+
+The listing's published version cannot be read without a claude.ai sign-in:
+the portal's **Versions** tab and the synced copy both sit behind one, and a
+plugin's public listing URL is unverified. So no surfaces row reads it; after
+each stable release, on a machine signed in to claude.ai with ProjectStore
+added from the directory, read the synced copy's own
+`.claude-plugin/plugin.json`:
+
+```sh
+grep -H '"version"' ~/.claude/plugins/synced/*/projectstore/.claude-plugin/plugin.json
+```
+
+or doctor's version line — the first line of `/projectstore:doctor`, in a
+session that loads the directory copy (an enabled git or npm copy of
+ProjectStore in the same project loads instead of it). Never read
+`manifest.json` beside the synced folders: its `version` is claude.ai's own
+string (`"0040"` for another plugin on this machine). Record what
+`claude plugin list` prints for the same copy beside it, and the lag from the
+tag to the version being live.
+
+### A bad published version
+
+The story's decision 8, as written:
+
+> **A bad published version goes forward only.**
+> - **The fix is a new version.** It is a hotfix release, moved onto
+>   `directory` by the workflow, then scanned and published by a reviewer.
+>   The lag is the review time, which is not fixed.
+> - **Delisting is not a rollback.** The portal says: "People who already
+>   installed the plugin stop getting updates, and their copy may be
+>   removed." Relisting "is a request, not an instant switch". So delisting
+>   is for a version that must not run at all.
+> - **Meanwhile, our own channels are faster.** Git-channel users get the fix
+>   at the merge to `main` and their next update. npm users get it at
+>   publish, through the package's own upgrade. Directory users keep the last
+>   published version until the hotfix is published.
+
+In practice: cut the hotfix as any release (bump, notes, merge, tag). The
+`directory` job moves the branch; the portal's **Versions** tab shows the new
+version scanned, then held for a reviewer or published. "If the security scan
+fails a new version, later versions also wait until an Anthropic reviewer
+clears the plugin." Delisting is the maintainer's act in the portal, for a
+version that must not run at all. The portal's plugin menu (**Get help**,
+**Contact Anthropic**) or `directory@anthropic.com` reaches Anthropic; replies
+can be delayed.
 
 ## Shells
 
