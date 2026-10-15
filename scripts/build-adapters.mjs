@@ -270,8 +270,9 @@ two fields that command printed, \`result.model\` and \`result.effort\`, passed
 verbatim:
 
 - If \`result.model\` is a string, pass \`result.model\` exactly as \`model\`: the
-  string the command printed, never the model you are running on. Use an
-  empty or bounded context fork.
+  string the command printed, even when it names the model you are running
+  on. Never substitute your own model for it. Use an empty or bounded context
+  fork.
 - If \`result.model\` is \`null\`, pass no model at all, not even your own; the
   agent inherits the current model.
 - If \`result.effort\` is a string, pass it as \`${effortParam()}\`, verbatim,

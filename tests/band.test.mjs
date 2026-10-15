@@ -224,7 +224,7 @@ test("contract 1: Claude Code declares the band, Codex states why it has none", 
   assert.equal(hasBand(loadHarness("codex")), false);
 });
 
-test("contract 1: the module rides hooks.json beside the classic hooks, which it leaves as they were", () => {
+test("contract 1: the module rides hooks.json beside the classic hooks, which stay as pinned", () => {
   const reg = JSON.parse(readFileSync(join(ROOT, "hooks", "hooks.json"), "utf8"));
   assert.deepEqual(reg.modules, ["./band.tsx"]);
   const classic = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "hooks-classic.json"), "utf8"));

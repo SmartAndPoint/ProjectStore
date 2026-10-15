@@ -679,7 +679,7 @@ test("Codex role skills pass `result.model` and `result.effort` verbatim, never 
       const spawn = text.slice(text.indexOf("## Codex orchestration"), text.indexOf("## Role contract"));
       assert.ok(spawn.length > 0, `${rel}: carries the orchestration section`);
       assert.ok(text.includes("pass `result.model` exactly as `model`"), `${rel}: names result.model`);
-      assert.ok(text.includes("never the model you are running on"), `${rel}: not the running model`);
+      assert.ok(text.includes("Never substitute your own model for it"), `${rel}: not the running model`);
       assert.ok(text.includes("If `result.model` is `null`, pass no model at all"), `${rel}: null model`);
       assert.ok(text.includes(`If \`result.effort\` is a string, pass it as \`${effort}\`, verbatim`), rel);
       assert.ok(text.includes("If `result.effort` is `null`, pass none"), `${rel}: null effort`);

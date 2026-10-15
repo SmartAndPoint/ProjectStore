@@ -164,7 +164,7 @@ export function planAgentsBlock(ctx, key, s) {
     // merely when the block left it. A user's own AGENTS.md keeps its prose and
     // survives, and importing it stays meaningful (install contract 13 /
     // ADR-002 decision 4). The condition is therefore apply's own: marked for
-    // deletion and left holding nothing (`install-harness.mjs:760`).
+    // deletion and left holding nothing (apply's `deleteIfEmpty` branch).
     const vanishing = new Set(
       items
         .filter((i) => i.action === "remove" && i.deleteIfEmpty && typeof i.after === "string" && !i.after.trim())

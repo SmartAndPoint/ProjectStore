@@ -457,6 +457,8 @@ npm run lint
 npm run format        # rewrites; npm run format:check only reports
 ```
 
+Editors find the config at the root; point their tool path at the pinned copies — in VS Code, `"eslint.nodePath": "tools/lint/node_modules"` and `"prettier.prettierPath": "tools/lint/node_modules/prettier"`.
+
 One formatting-only commit is listed in `.git-blame-ignore-revs`. GitHub skips it in blame by itself; a local clone needs this once:
 
 ```sh
@@ -469,7 +471,7 @@ A branch opened before that commit rebases in two steps, so that the lint fixes 
 git rebase <the commit before it>
 ```
 
-Then onto the formatting commit itself, where every conflict is formatting only: take your side, format the file with `npx prettier --write <file>` and `git add` it, then continue.
+Then onto the formatting commit itself, where every conflict is formatting only: take your side, format the file with `npm run format` and `git add` it, then continue.
 
 ```sh
 git rebase --onto <it> <the commit before it>

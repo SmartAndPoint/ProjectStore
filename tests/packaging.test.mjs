@@ -206,6 +206,30 @@ test("packaging: the plugin root holds package.json and no lockfile for Claude C
     );
 });
 
+// Before `npm run lint:setup`, the lint and format scripts would die on Node's
+// raw "Cannot find module" (the A review, 2026-10-15). Their pre-scripts run
+// tools/lint/setup-check.mjs, which names the one command that fixes it.
+test("packaging: lint and format first check that the lint tools are installed, and name lint:setup when not", () => {
+  const scripts = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts;
+  for (const s of ["lint", "format", "format:check"])
+    assert.equal(scripts[`pre${s}`], "node tools/lint/setup-check.mjs", `pre${s} runs the check`);
+  const dir = mkdtempSync(join(tmpdir(), "ps-lint-setup-"));
+  try {
+    copyFileSync(join(ROOT, "tools", "lint", "setup-check.mjs"), join(dir, "setup-check.mjs"));
+    const bare = spawnSync(process.execPath, [join(dir, "setup-check.mjs")], { encoding: "utf8" });
+    assert.equal(bare.status, 1, "no tools installed: the check fails");
+    assert.match(bare.stderr, /npm run lint:setup/);
+    for (const bin of ["eslint/bin/eslint.js", "prettier/bin/prettier.cjs"]) {
+      mkdirSync(dirname(join(dir, "node_modules", bin)), { recursive: true });
+      writeFileSync(join(dir, "node_modules", bin), "");
+    }
+    const ready = spawnSync(process.execPath, [join(dir, "setup-check.mjs")], { encoding: "utf8" });
+    assert.equal(ready.status, 0, ready.stderr);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // The lint ADR, decision 4: a Node-floor finding kept rather than replaced
 // carries a disable that says why the API is safe at the floor. Both forms
 // count, the line form and the block form. The planted directives are built

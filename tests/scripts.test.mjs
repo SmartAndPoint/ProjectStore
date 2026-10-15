@@ -19,6 +19,7 @@ import {
   statSync,
   existsSync,
   utimesSync,
+  rmSync,
 } from "node:fs";
 import { join, dirname, delimiter } from "node:path";
 import { tmpdir } from "node:os";
@@ -1323,9 +1324,15 @@ test("no hook emits a field its event does not carry (spec contract 22)", () => 
 test(
   "every hook command runs through a shell from a plugin copy whose path has a space in it",
   { timeout: 120000 },
-  () => {
+  (t) => {
     const H = sourceHarness();
     const home = join(mkdtempSync(join(tmpdir(), "ps-space-")), "First Last");
+    const cache = mkdtempSync(join(tmpdir(), "ps-space-cache-"));
+    // A full plugin copy is several megabytes: leave nothing behind.
+    t.after(() => {
+      rmSync(dirname(home), { recursive: true, force: true });
+      rmSync(cache, { recursive: true, force: true });
+    });
     mkdirSync(home);
     const root = fakeInstall(home, "0.0.0-space", { full: true });
     assert.ok(root.includes(" "), `the plugin copy's path carries the space: ${root}`);
@@ -1335,7 +1342,7 @@ test(
       [H.runtime.plugin_root_env]: root,
       [H.runtime.project_dir_env]: proj,
       HOME: home,
-      XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "ps-space-cache-")),
+      XDG_CACHE_HOME: cache,
       PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter),
     });
     for (const k of Object.keys(env)) if (k.startsWith("PROJECTSTORE_") || k === "NODE_OPTIONS") delete env[k];

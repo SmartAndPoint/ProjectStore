@@ -274,7 +274,8 @@ export const NOT_SHIPPED = new Set([
   "package-lock.json",
   // The lint and format tooling (the lint ADR): dev-only, never in the package.
   // tools/lint/ holds the tools' package.json, lockfile and config; the root's
-  // eslint.config.mjs re-exports that config.
+  // eslint.config.mjs re-exports that config. Dev-only: nothing under tools/
+  // ships, so a future tools/<x> meant to ship needs its own entry in `files`.
   "tools",
   "eslint.config.mjs",
   ".prettierrc.json",
