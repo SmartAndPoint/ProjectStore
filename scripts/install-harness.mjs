@@ -206,7 +206,7 @@ import {
   ensureStateDir,
   ensureStateRoot,
   readConfigAt,
-  isPluginCacheRoot,
+  isHostInstallRoot,
   isEphemeralRoot,
   claudeHome,
   packageDigest,
@@ -1836,7 +1836,7 @@ export function plan(
         // never an item: a --no-register run from a checkout re-pointed the
         // status line at the checkout (the second review of the 2026-10-03
         // fixes, S1).
-        if (s.kind === "registration" && !isPluginCacheRoot(root, home)) {
+        if (s.kind === "registration" && !isHostInstallRoot(root, home)) {
           const analyser =
             s.format === "portable-plugin-registration" ? analysePortableRegistration : analyseRegistration;
           const a = analyser(projectDir, s, { root, home, harness, env, version, fetched: ctx.fetched });

@@ -163,6 +163,16 @@ export function uiExemptions() {
       why: "an old marketplace copy's update steps (COPY_UPDATE_STEPS), quoted by copyUpdateAdvice and by the keep's behind line, for the source harness's own copies only: doctor's layout move marks its finding `about` that harness under any other, and the installer's keep is planned only on a host-plugin-registration surface",
     },
     { phrase: "Re-add it: /plugin marketplace add <owner/repo>.", file: "scripts/doctor.mjs", why: gated },
+    {
+      phrase: "Add it again from /plugin → Marketplaces, where claude.ai lists it.",
+      file: "scripts/doctor.mjs",
+      why: gated,
+    },
+    {
+      phrase: "in the session: /plugin → Installed, then disable ${loads.key}.",
+      file: "scripts/doctor.mjs",
+      why: "checkSyncedCopy's way back to a directory copy, gated on a host-plugin-registration surface that names a synced_dir, and marked `about` that harness under any other listener",
+    },
     { phrase: "(set via /plugin → Marketplaces → ", file: "scripts/doctor.mjs", why: gated },
     {
       phrase: "Manual path: /plugin marketplace update ${marketplace}, then /reload-plugins.",

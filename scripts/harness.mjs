@@ -321,6 +321,28 @@ export function harnessHome(manifest, { env = process.env, home = homedir() } = 
   return fromEnv || (home && r.home_default ? join(home, r.home_default) : null);
 }
 
+// The registry block of a manifest's host plugin registration, where it names
+// its host's own folders and files (cache_dir, synced_dir, the registry
+// files), or null for a harness whose registration is not the host's plugin
+// system.
+export function hostRegistry(manifest) {
+  const [surface, s] =
+    Object.entries(manifest?.surfaces || {}).find(
+      ([k, x]) => !k.startsWith("_") && x?.format === "host-plugin-registration" && x.registry,
+    ) || [];
+  return s ? { ...s.registry, plugin_name: s.plugin_name, surface } : null;
+}
+
+// Whether the host auto-updates `marketplace` when no settings entry and no
+// registry entry say (registry.auto_update: its names and name prefixes are on,
+// every other marketplace off). null when the manifest states no default.
+export function autoUpdateDefault(manifest, marketplace) {
+  const d = hostRegistry(manifest)?.auto_update;
+  if (!d) return null;
+  const name = String(marketplace || "");
+  return (d.on || []).includes(name) || (d.on_prefix || []).some((p) => name.startsWith(p));
+}
+
 // The agents block of a RUN (the story "One run plans the agents block once,
 // and a bare uninstall selects every harness the project uses", rules 1–2):
 // the files every manifest of the run names for it, in the FIRST manifest's

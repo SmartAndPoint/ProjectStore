@@ -1691,11 +1691,23 @@ test("contract 18: the manifests' message fields have their shape and their reas
     // A channel's own text has the same shape, keyed by an installChannel answer.
     for (const [ch, h] of Object.entries(m.update_hint?.by_channel || {}))
       assert.ok(
-        ["registration", "marketplace", "package", "checkout"].includes(ch) &&
+        ["registration", "marketplace", "synced", "package", "checkout"].includes(ch) &&
           typeof h.line === "string" &&
           Array.isArray(h.welcome),
         `${m.id}: update_hint.by_channel.${ch} { line, welcome }`,
       );
+    // A synced copy is the host plugin system's channel (PS-DIRECTORY, "A copy
+    // installed from Anthropic's directory…"): only a manifest whose
+    // registration is that system names its folder or speaks for it, and the
+    // folder comes with its reason.
+    const hostReg = Object.values(m.surfaces || {}).find((s) => s?.format === "host-plugin-registration");
+    if (!hostReg) {
+      assert.ok(!JSON.stringify(m.surfaces || {}).includes('"synced_dir"'), `${m.id}: no synced_dir`);
+      assert.equal(m.update_hint?.by_channel?.synced, undefined, `${m.id}: no by_channel.synced`);
+    } else if (hostReg.registry?.synced_dir) {
+      assert.ok(hostReg.registry.synced_reason && hostReg.registry.synced_origin, `${m.id}: synced_dir's reason`);
+      assert.ok(hostReg.registry.auto_update?.reason, `${m.id}: registry.auto_update's reason`);
+    }
     for (const key of ["session_rename", "bind_inherit"]) {
       assert.ok(key in (m.capabilities || {}), `${m.id}: capabilities.${key} is stated, even as null or false`);
       assert.ok(m.capabilities[`${key}_reason`], `${m.id}: capabilities.${key}_reason`);

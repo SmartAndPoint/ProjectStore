@@ -31,6 +31,7 @@ import {
   removeAgentsBlock,
   replaceAgentsBlock,
   isPluginCacheRoot,
+  isHostInstallRoot,
   isEphemeralRoot,
   importsLine,
   layoutPaths,
@@ -732,7 +733,7 @@ export function planStampedFile(ctx, key, s) {
   const { projectDir, mode, root, home, harness } = ctx;
   const renderRoot = ctx.renderRoot || root;
   const path = join(projectDir, s.file);
-  const produced = !(s.condition === "plugin_cache_install" && !isPluginCacheRoot(renderRoot, home));
+  const produced = !(s.condition === "plugin_cache_install" && !isHostInstallRoot(renderRoot, home));
   // The policy early-outs come before the render-and-hash, which they make
   // unnecessary.
   if (produced && mode === "install" && !ctx.optIn.has(s.condition ? "statusline" : key) && !ctx.optIn.has(key)) {

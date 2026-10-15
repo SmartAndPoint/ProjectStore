@@ -34,7 +34,7 @@ import {
   pluginRoot,
   renderStatusLineLauncher,
   statusLineIsOurWiring,
-  isPluginCacheRoot,
+  isHostInstallRoot,
   desiredStatusLineCommand,
   findAgentsBlock,
   agentsBlockVersion,
@@ -327,7 +327,7 @@ export function analyseStampedFile(
     renderRoot,
     legacyPath: atLegacy ? legacyPath : null,
   };
-  if (s.condition === "plugin_cache_install" && !isPluginCacheRoot(renderRoot, home)) {
+  if (s.condition === "plugin_cache_install" && !isHostInstallRoot(renderRoot, home)) {
     // Not produced for this installation (a dev checkout is wired directly).
     a.produced = false;
     if (!file.present) return { ...a, state: "absent" };
@@ -441,7 +441,7 @@ export function analyseRegistration(
     entryKey: id,
     pkg,
     bin: whichOnPath(s.cli?.bin || "claude", env),
-    produced: !(s.condition === "npm_package_root" && isPluginCacheRoot(root, home)),
+    produced: !(s.condition === "npm_package_root" && isHostInstallRoot(root, home)),
     dir: { present: existsSync(paths.dir), manifest: null, prov: null, pkg: null, disabled: [], digestOk: null },
     known: null,
     registeredHere: null,
@@ -503,8 +503,10 @@ export function analyseRegistration(
   // this checkout's own before a user-scope one. The convergence story's rule
   // 6 reads the same rows (lib's projectCopiesByKey), so the deferral of a
   // newer copy and the stop never disagree about its version.
+  // Never a synced copy (Anthropic's directory): Claude Code loads an enabled
+  // copy of ours over it, so it neither loads twice nor is ours to turn off.
   for (const e of projectCopiesByKey(home, projectDir)) {
-    if (e.key !== id) a.others.push({ key: e.key, path: e.path, version: e.version });
+    if (e.key !== id && !e.synced) a.others.push({ key: e.key, path: e.path, version: e.version });
   }
   a.newer = Boolean(a.dir.pkg) && cmpPrecedence(a.dir.pkg, pkg) > 0;
   // Same version, different payload: the directory's recorded digest against

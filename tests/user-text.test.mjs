@@ -278,13 +278,16 @@ test("user text: updateHint under every identity fills {upgrade} with the core's
     npmForm,
     "the npm directory, in place",
   );
+  // …named, with its default, from the copy's own path (PS-DIRECTORY, "A copy
+  // installed from Anthropic's directory…", decision 4).
+  const sap = (t) => t.split("{marketplace}").join("SmartAndPoint").split("{auto_update}").join("off");
   assert.equal(
     cc(cache("SmartAndPoint")),
-    SRC.update_hint.by_channel.marketplace.line,
+    sap(SRC.update_hint.by_channel.marketplace.line),
     "the git marketplace keeps the toggle",
   );
   const welcome = (root) => updateHint({ env: { PROJECTSTORE_HARNESS: SRC.id }, root, home }).welcome;
-  assert.deepEqual(welcome(cache("SmartAndPoint")), SRC.update_hint.by_channel.marketplace.welcome);
+  assert.deepEqual(welcome(cache("SmartAndPoint")), SRC.update_hint.by_channel.marketplace.welcome.map(sap));
   assert.ok(!welcome(ROOT).join("\n").includes("auto-update"), "the npm welcome names no host toggle");
   assert.ok(
     welcome(ROOT).includes(packageCommand(SRC, "upgrade", { version: "latest" })),

@@ -120,7 +120,9 @@ const within = (root, dir) => {
 // Doctor keeps installChannel's answers; only these two checks read this.
 export function hostCopyRoot(root, { home = homedir(), env = process.env } = {}) {
   if (!root) return false;
-  if (["registration", "marketplace"].includes(installChannel(root, { home }))) return true;
+  // A copy synced from claude.ai (Anthropic's directory) is one too: claude.ai
+  // updates it (the install spec, contract 21, rule 2).
+  if (["registration", "marketplace", "synced"].includes(installChannel(root, { home }))) return true;
   for (const m of loadHarnesses().values()) {
     for (const s of Object.values(m.surfaces || {})) {
       if (s?.kind !== "registration") continue;
@@ -171,6 +173,9 @@ export function runningCopies(
       if (s.format === "host-plugin-registration") {
         if (channel === "git") continue;
         for (const e of projectCopiesByKey(home, projectDir)) {
+          // B2 (PS-DIRECTORY, "Setup and install keep a directory copy…")
+          // removes this skip: until then a synced copy changes no plan.
+          if (e.synced) continue;
           if (typeof e.version === "string" && e.version)
             out.push({ harness: id, key: e.key, version: e.version, path: e.path, scope: e.scope, own: e.own });
         }

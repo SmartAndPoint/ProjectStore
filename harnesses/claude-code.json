@@ -297,7 +297,7 @@
       "kind": "exclusive",
       "format": "mjs",
       "scope": "project",
-      "scope_reason": "The launcher resolves the currently installed plugin on every render, so the wired command carries no version; it is written only when the plugin runs from the marketplace cache — a dev checkout is wired directly.",
+      "scope_reason": "The launcher resolves the currently installed plugin on every render, so the wired command carries no version; it is written only when the plugin runs from a host install — the marketplace cache, or the folder Claude Code syncs a claude.ai copy into (registry.synced_dir), whose path may change or vanish — a dev checkout is wired directly. The condition key keeps its name, plugin_cache_install.",
       "file": ".projectstore/state/claude-code/statusline.mjs",
       "source": "scripts/statusline-launcher.mjs",
       "condition": "plugin_cache_install",
@@ -383,7 +383,44 @@
         ],
         "enabled_pointer": "enabledPlugins",
         "known_pointer": "extraKnownMarketplaces",
-        "install_path_layout": "<cache_dir>/<marketplace>/<plugin>/<version>"
+        "install_path_layout": "<cache_dir>/<marketplace>/<plugin>/<version>",
+        "synced_dir": [
+          "plugins",
+          "synced"
+        ],
+        "synced_origin": "synced",
+        "sync_setting": "syncClaudeAiPlugins",
+        "trash_dir": [
+          "plugins",
+          ".trash"
+        ],
+        "synced_reason": "A plugin on the person's claude.ai account (added from Anthropic's directory, or turned on by their organization) loads as <plugin>@synced, with no marketplace and no install record, and its files sit in <synced_dir>/<bucket>/<plugin>/ (code.claude.com/docs/en/plugins/loading, \"Plugins synced from claude.ai\"; the bucket layout measured 2026-10-15, undocumented). installChannel answers \"synced\" for a root there from the path alone; the copy's version is read from its own .claude-plugin/plugin.json, never from the bucket's manifest.json, whose version is claude.ai's string. It is on unless a settings file sets <plugin>@synced to false, and an enabled copy of the same name from any other origin loads over it (the loading reference, \"Name conflicts\", item 5). With sync_setting false in the user's settings, Claude Code moves the synced copies to trash_dir at its next start and stops loading them. CLAUDE_CODE_PLUGIN_CACHE_DIR moves the whole plugins root and is not read: a known gap, as for cache_dir.",
+        "marketplaces_claudeai": [
+          "plugins",
+          "known_marketplaces_claudeai.json"
+        ],
+        "claudeai_prefix": "claudeai-",
+        "claudeai_reason": "A marketplace added from claude.ai is registered under a local name that starts with claudeai- and is recorded in known_marketplaces_claudeai.json instead of known_marketplaces.json (code.claude.com/docs/en/plugins/install, \"Add a marketplace from claude.ai\"; the loading reference, \"Find plugins on disk\"). It is added again from /plugin → Marketplaces, never by a source.",
+        "auto_update": {
+          "on": [
+            "claude-plugins-official",
+            "claude-code-marketplace",
+            "claude-code-plugins",
+            "anthropic-marketplace",
+            "anthropic-plugins",
+            "agent-skills",
+            "anthropic-agent-skills",
+            "life-sciences",
+            "claude-for-legal",
+            "claude-for-financial-services",
+            "financial-services-plugins",
+            "claude-tag-plugins"
+          ],
+          "on_prefix": [
+            "claudeai-"
+          ],
+          "reason": "Whether a marketplace auto-updates when neither its extraKnownMarketplaces entry in a settings file nor its registry entry sets autoUpdate (the loading reference, \"Which marketplaces and plugins auto-update\", read 2026-10-15): on for Anthropic's official marketplace names (code.claude.com/docs/en/plugins/security#official-marketplace-names) except knowledge-work-plugins and first-party-plugins, on for a marketplace added from claude.ai, off for every other marketplace."
+        }
       },
       "cli": {
         "bin": "claude",
@@ -507,18 +544,28 @@
     ],
     "by_channel": {
       "marketplace": {
-        "line": "See /plugin → Marketplaces to enable auto-update.",
+        "line": "Updates come through the {marketplace} marketplace, whose auto-update is {auto_update} by default: /plugin → Marketplaces → {marketplace} turns it on or off.",
         "welcome": [
-          "**About future updates**: Claude Code does NOT auto-update third-party marketplaces by default. To get notified of new releases (v0.7+):",
+          "**About future updates**: this copy comes from the **{marketplace}** marketplace. Claude Code updates it in the background while that marketplace's auto-update is on, and for {marketplace} auto-update is **{auto_update}** by default. To check it:",
           "1. Open `/plugin` → **Marketplaces** tab.",
-          "2. Find **SmartAndPoint**.",
-          "3. Toggle **auto-update** on.",
+          "2. Find **{marketplace}**.",
+          "3. Make sure **auto-update** is on.",
           "",
-          "Without it, you'd run `/plugin marketplace update SmartAndPoint` manually. See https://github.com/SmartAndPoint/ProjectStore#upgrading for details."
+          "Without it, you'd run `/plugin marketplace update {marketplace}` manually."
+        ]
+      },
+      "synced": {
+        "line": "Updates come from claude.ai: Claude Code downloads each new version at its next start, then asks for /reload-plugins. Off for your account on this machine: /plugin → Installed. Off for one project only: \"projectstore@synced\": false under enabledPlugins in that project's .claude/settings.local.json.",
+        "welcome": [
+          "**About future updates**: this copy comes from Anthropic's plugin directory, through your claude.ai account, and Claude Code loads it as `projectstore@synced`. Updates come from claude.ai: when a new version is published, Claude Code downloads it at its next start and asks you to run `/reload-plugins`.",
+          "",
+          "- **Off for your account on this machine**: `/plugin` → **Installed**, then turn off `projectstore@synced`.",
+          "- **Off for one project only**: set `\"projectstore@synced\": false` under `enabledPlugins` in that project's `.claude/settings.local.json`, or in its committed `.claude/settings.json` to keep it out for everyone who opens the project.",
+          "- **Removed**: on claude.ai, where it was added."
         ]
       }
     },
-    "reason": "What the first-run welcome and its one-line notice say about updates (generation spec, contract 18): `line` ends the notice, `welcome` is the welcome's update block, and `{upgrade}` is filled with the core's upgrade for this harness at latest, so what is printed runs as printed. `by_channel` holds the text for a copy that loads from another channel, by installChannel's answer: a copy from the git marketplace is updated by Claude Code itself, so its welcome keeps the auto-update toggle; the npm registration and a checkout get the npm form. update_instructions is the long-form guidance; this is the part a session prints, kept here so no hook names a harness's update path."
+    "reason": "What the first-run welcome and its one-line notice say about updates (generation spec, contract 18): `line` ends the notice, `welcome` is the welcome's update block, and `{upgrade}` is filled with the core's upgrade for this harness at latest, so what is printed runs as printed. `by_channel` holds the text for a copy that loads from another channel, by installChannel's answer: a marketplace copy is updated by Claude Code itself, so its welcome names that marketplace's auto-update toggle, with `{marketplace}` filled from the copy's own path and `{auto_update}` with its default (on or off, registry.auto_update); a copy synced from claude.ai (Anthropic's directory) is updated by claude.ai and names no npm, upgrade or marketplace command, only the two ways to turn it off (the story \"A copy installed from Anthropic's directory is a channel the core knows…\", PS-DIRECTORY); the npm registration and a checkout get the npm form. update_instructions is the long-form guidance; this is the part a session prints, kept here so no hook names a harness's update path."
   },
   "update_instructions": [
     "**About future updates**: installed from the git marketplace, Claude Code does NOT auto-update third-party marketplaces by default; an npm registration updates with `npx projectstore@<version> upgrade` from a terminal in the project. To get notified of new git-marketplace releases (v0.7+):",

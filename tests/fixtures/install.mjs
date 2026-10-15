@@ -11,7 +11,7 @@
 // repo. writeRegistry(home, entries) — installed_plugins.json in the shape
 // lib.installedPluginEntries reads.
 
-import { mkdirSync, writeFileSync, copyFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, copyFileSync, readFileSync, rmSync, renameSync } from "node:fs";
 // eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite runs on Node 20 in CI
 import { cpSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
@@ -33,7 +33,12 @@ export function cacheRoot(home, version, marketplace = "SmartAndPoint") {
 }
 
 export function fakeInstall(home, version, { full = false, marketplace = "SmartAndPoint" } = {}) {
-  const root = cacheRoot(home, version, marketplace);
+  return layCopy(cacheRoot(home, version, marketplace), version, { full });
+}
+
+// The copy's tree, at `root`: the runnable tree for `full`, else the four
+// files the in-process readers need.
+function layCopy(root, version, { full = false } = {}) {
   if (full) {
     cpSync(REPO, root, {
       recursive: true,
@@ -59,6 +64,67 @@ export function fakeInstall(home, version, { full = false, marketplace = "SmartA
     join(root, "scaffold", "layouts", "engineering.json"),
   );
   return root;
+}
+
+// fakeSynced(home, version, { bucket, full, marketplace }) — a copy Claude
+// Code synced from the person's claude.ai account (Anthropic's directory), as
+// measured on this machine 2026-10-15 (the layout is undocumented):
+//   <home>/.claude/plugins/synced/.bucket-<a>_<b>          an empty file
+//   synced/<a>_<b>/projectstore/                           the copy, with an
+//     .in_use/<pid> record (a JSON file, as the host writes it)
+//   synced/<a>_<b>/projectstore.meta.json                  the host's ids
+//   synced/<a>_<b>/manifest.json                           claude.ai's list;
+//     its version is claude.ai's string ("0040"), never the copy's — the
+//     readers take the copy's own plugin.json, and this proves it
+//   synced/<a>_<b>/.marketplaces.json, .last-complete-round
+// The copy is the four-file form, or with `full` exactly what npm pack ships
+// at `version` (fakePackageRoot), so its bin and hooks can be spawned. The
+// marketplace name in the host's files is unverified for a directory listing;
+// the core never reads it. Returns the copy's root.
+export const SYNCED_DIR = SRC.surfaces.plugin.registry?.synced_dir || ["plugins", "synced"];
+export function syncedRoot(home, bucket = "org-0001_user-0001") {
+  return join(home, SRC.runtime.home_default, ...SYNCED_DIR, bucket, "projectstore");
+}
+export function fakeSynced(
+  home,
+  version,
+  { bucket = "org-0001_user-0001", full = false, marketplace = "anthropic-plugin-directory" } = {},
+) {
+  const root = syncedRoot(home, bucket);
+  const dir = dirname(root);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dirname(dir), `.bucket-${bucket}`), "");
+  if (full) fakePackageRoot(root, version);
+  else layCopy(root, version);
+  mkdirSync(join(root, ".in_use"), { recursive: true });
+  writeFileSync(join(root, ".in_use", "4242"), JSON.stringify({ pid: 4242, procStart: "Thu Oct 15 12:00:00 2026" }));
+  const meta = { server_plugin_id: "plugin_test", marketplace_name: marketplace, installation_preference: "available" };
+  writeFileSync(join(dir, "projectstore.meta.json"), JSON.stringify(meta));
+  const entry = {
+    pluginId: "plugin_test",
+    name: "projectstore",
+    description: "test copy",
+    version: "0040",
+    updatedAt: "2026-10-15T00:00:00Z",
+    marketplaceName: marketplace,
+    installationPreference: "available",
+  };
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ lastUpdated: 1790952816833, plugins: [entry] }, null, 2));
+  const rows = [{ name: marketplace, scope: "default", source: { source: "claudeai" }, id: "marketplace_test" }];
+  writeFileSync(join(dir, ".marketplaces.json"), JSON.stringify({ etag: "W/test", rows, parserVersion: 1002 }));
+  writeFileSync(join(dir, ".last-complete-round"), "00000000-0000-0000-0000-000000000000 ");
+  return root;
+}
+
+// trashSynced(home, bucket) — what the host does at its next start with
+// syncing from claude.ai turned off: the bucket moves to plugins/.trash/.
+// Returns where it went.
+export function trashSynced(home, bucket = "org-0001_user-0001") {
+  const from = dirname(syncedRoot(home, bucket));
+  const to = join(home, SRC.runtime.home_default, "plugins", ".trash", bucket);
+  mkdirSync(dirname(to), { recursive: true });
+  renameSync(from, to);
+  return join(to, "projectstore");
 }
 
 // fakeMarketplace(home, version, { proj, dir }) — the npm registration's
@@ -140,8 +206,9 @@ export function preFlagInstall(home, version, { marketplace = "SmartAndPoint" } 
 //   spec.upgrade { print: false, exit, stderr } no envelope; { failed, ok,
 //                exit, stderr, incomplete, extra: [write…] } otherwise
 // stubCalls(copy) → the calls, in order.
-export function stubCopy(home, version, spec = {}) {
-  const root = fakeInstall(home, version);
+export function stubCopy(home, version, spec = {}, { synced = null } = {}) {
+  // `synced`: a bucket name lays the stub as a copy synced from claude.ai.
+  const root = synced ? fakeSynced(home, version, { bucket: synced }) : fakeInstall(home, version);
   mkdirSync(join(root, "bin"), { recursive: true });
   // The capability reads look for these two names in the copy's parse table;
   // spec.verbose === false leaves the second out (a copy from rc.3 to 0.28.x).
