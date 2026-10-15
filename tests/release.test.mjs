@@ -35,6 +35,7 @@ import { SHELLS, corePackage } from "../packaging/shells.mjs";
 import {
   moveDirectoryBranch,
   main as directoryMain,
+  pushArgs,
   remoteFor,
   redact,
   BRANCH,
@@ -763,3 +764,17 @@ test(
       assert.ok(!/^(tests|site|packaging|\.github)\//.test(f) && f !== "package-lock.json", `${f} is not shipped`);
   },
 );
+
+// The G review, 2026-10-15: no other test fails when the push is forced, so
+// this one pins the one push the script makes, and that it is never forced.
+test("directory branch: the one push is a plain fast-forward, never forced", () => {
+  const args = pushArgs("origin", "0123456789abcdef0123456789abcdef01234567");
+  assert.deepEqual(args, ["push", "-q", "origin", `0123456789abcdef0123456789abcdef01234567:refs/heads/${BRANCH}`]);
+  for (const a of args) {
+    assert.ok(!/^(?:--force|--force-with-lease|--force-if-includes|-f|--mirror|--delete|-d)(?:=|$)/.test(a), `no ${a}`);
+    assert.ok(!a.startsWith("+") && !a.includes(":+"), `no forcing refspec in ${a}`);
+  }
+  const src = readFileSync(resolve(ROOT, "packaging", "directory-branch.mjs"), "utf8");
+  assert.equal((src.match(/["']push["']/g) || []).length, 1, "pushArgs is the only push");
+  assert.ok(!/--force|"-f"|'-f'/.test(src), "the script names no force flag");
+});

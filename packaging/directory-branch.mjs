@@ -106,8 +106,10 @@ const describe = (d) =>
     .filter(Boolean)
     .join("; ");
 
+// `credential.helper=` empties the helper list for this run, so a by-hand push
+// (GH_TOKEN="$(gh auth token)") never leaves the token in a keychain helper.
 function git(gitDir, args, { env, index = null, input } = {}) {
-  const r = spawnSync("git", [...(gitDir ? [`--git-dir=${gitDir}`] : []), ...args], {
+  const r = spawnSync("git", ["-c", "credential.helper=", ...(gitDir ? [`--git-dir=${gitDir}`] : []), ...args], {
     encoding: "utf8",
     input,
     env: { ...env, GIT_TERMINAL_PROMPT: "0", ...(index && { GIT_INDEX_FILE: index }) },
@@ -138,6 +140,13 @@ function versionIn(text) {
 // or { error } — packCore by default; the tests inject a tarball of their
 // own. `fixture` is the packlist the pack must equal. Never throws for a
 // failure it can name: { ok: false, error } instead.
+// The one push this script makes: a fast-forward of the branch to the new
+// commit, never forced (no flag, no `+` refspec). A concurrent move makes the
+// push fail, and a re-run reads `unchanged` or `newer`.
+export function pushArgs(remote, commit) {
+  return ["push", "-q", remote, `${commit}:refs/heads/${BRANCH}`];
+}
+
 export function moveDirectoryBranch({
   version,
   remote,
@@ -265,7 +274,7 @@ function move({ version, remote, strip, dryRun, pack, fixture, env, scratch }) {
   if (made.status !== 0) return fail(`git commit-tree failed: ${made.err}`);
   const commit = made.out.trim();
   facts = { ...facts, commit };
-  const pushed = run(["push", "-q", remote, `${commit}:refs/heads/${BRANCH}`]);
+  const pushed = run(pushArgs(remote, commit));
   if (pushed.status !== 0) return fail(`pushing the ${BRANCH} branch failed: ${pushed.err}`);
   return { ok: true, action: parent ? "committed" : "created", ...facts };
 }
@@ -332,7 +341,12 @@ export function main(argv, { env = process.env, stdout = process.stdout, stderr 
   else if (r.ok) stdout.write(say(r));
   if (!r.ok) {
     if (!json) stderr.write(`directory-branch: ${r.error}\n`);
-    if (env.GITHUB_ACTIONS && !json) stdout.write(`::error title=${BRANCH} branch::${r.error}\n`);
+    if (env.GITHUB_ACTIONS && !json) {
+      // A workflow command's data escapes %, CR and LF, or a multi-line git
+      // error shows only its first line in the annotation.
+      const data = String(r.error).replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+      stdout.write(`::error title=${BRANCH} branch::${data}\n`);
+    }
   }
   return r.ok ? 0 : 1;
 }

@@ -17,7 +17,7 @@
 // Every run is hermetic: a fixture home, a fixture cache, no host CLI on PATH,
 // the harness forced by our own override.
 
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import {
   existsSync,
@@ -46,7 +46,15 @@ const SRC = sourceHarness();
 const MANIFESTS = [...loadHarnesses().values()];
 const CODEX = MANIFESTS.find((m) => m.id !== SRC.id) || null;
 const TMP = realpathSync(tmpdir());
-const tmp = (p) => mkdtempSync(join(TMP, p));
+const MADE = [];
+const tmp = (p) => {
+  const d = mkdtempSync(join(TMP, p));
+  MADE.push(d);
+  return d;
+};
+after(() => {
+  for (const d of MADE) rmSync(d, { recursive: true, force: true });
+});
 const WELCOME = /projectstore is loaded for the first time/;
 const PER_PROJECT = "_This message appears once per project._";
 const PER_MACHINE = "_This message appears once on this machine._";

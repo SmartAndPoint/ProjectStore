@@ -25,8 +25,8 @@ name: release
 # hand drifted three times — the last time seven tags, v0.29.3 to v0.30.4, went
 # out with none, and the repository page and the README's badge said v0.29.2
 # while npm served 0.30.4. What a user then sees on every surface is checked by
-# surfaces.yml, a workflow of its own, so this run's colour keeps meaning
-# "published".
+# surfaces.yml, a workflow of its own, so this run's colour means "published,
+# and the directory branch moved".
 
 # And, for a stable release, the `directory` branch Anthropic's directory
 # tracks: the core's packed tree as its next commit (PS-DIRECTORY: "The

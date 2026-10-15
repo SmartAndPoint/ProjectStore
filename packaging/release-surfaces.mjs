@@ -222,7 +222,7 @@ export function judgeSite(read, surface, re, version) {
 // version, or a newer one, is wrong.
 export function judgeDirectoryBranch(read, version) {
   const s = "directory branch";
-  const fix = `${RERUN_FIX} — its ${DIRECTORY_BRANCH} job moves the branch; by hand, GH_TOKEN="$(gh auth token)" node packaging/directory-branch.mjs --version ${version}`;
+  const fix = `${RERUN_FIX} — its ${DIRECTORY_BRANCH} job moves the branch; by hand from a checkout of the release's tag, GH_TOKEN="$(gh auth token)" node packaging/directory-branch.mjs --version ${version}`;
   if (read.status === 404)
     return row(s, "lagging", `no ${DIRECTORY_VERSION_FILE} on the ${DIRECTORY_BRANCH} branch`, fix);
   if (read.status !== 200) return noAnswer(s, read, "raw.githubusercontent.com", "re-run when it answers");

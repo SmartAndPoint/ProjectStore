@@ -86,7 +86,9 @@ function buildWelcome(cfg = null) {
       ? `**Already bound**: this project's vault is \`${truncFront(String(cfg.vault_path), PATH_CELL)}\`. Ask for what you want — the agent picks up commands like \`${commandForm("adr")}\` and \`${commandForm("epic")}\` from the conversation, and you approve every write. If the vault has no folders yet, \`${commandForm("scaffold")}\` lays them out.`
       : `**To start using it**: run \`${commandForm("bind", { args: "<vault-path>" })}\` and point it at an Obsidian vault (or any folder). After that, the agent will pick up commands like \`${commandForm("adr")}\` and \`${commandForm("epic")}\` from the conversation; you only approve the writes.`;
   return [
-    "# 👋 projectstore is loaded for the first time in this project",
+    cfg
+      ? "# 👋 projectstore is loaded for the first time in this project"
+      : "# 👋 projectstore is loaded for the first time on this machine",
     "",
     "**What it does**: turns the conversation's decisions into a structured Obsidian-friendly markdown vault — ADRs, epics, stories, runbooks, research. Agent-maintained, you approve every write.",
     "",

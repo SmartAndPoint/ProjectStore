@@ -3245,8 +3245,10 @@ export function ensureStateDir(projectDir) {
 }
 
 // state/ and its .gitignore, header included, without sessions/: what the
-// welcome marker's writer needs in a project that is not bound, where no
-// session state may appear. The header is how a project uninstall
+// welcome marker's writer needs in a bound project before its first session,
+// and what setup's `state` item lays in a project it has not bound yet. An
+// unbound session writes nothing into the project (its marker is the
+// machine's, cachePaths().welcomed). The header is how a project uninstall
 // recognises the marker as ours (install spec contract 13, as amended by the
 // shell-fetch story).
 export function ensureStateRoot(projectDir) {

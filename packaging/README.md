@@ -217,7 +217,7 @@ a release candidate never reaches the directory's users. It has
 `contents: write`, the second job that does, and runs
 `packaging/directory-branch.mjs`, which:
 
-- packs the core from the tag's checkout (the core job's own pack, never the
+- packs the core again from the tag's checkout, as the core job packs it (never the
   registry's copy) and unpacks it with its modes;
 - refuses to go on unless npm pack's file list, `tests/fixtures/packlist.json`
   and the unpacked tree are the same list, and the tree's
@@ -252,6 +252,11 @@ node packaging/directory-branch.mjs --version 0.30.6 --dry-run
 ```sh
 GH_TOKEN="$(gh auth token)" node packaging/directory-branch.mjs --version 0.30.6
 ```
+
+A failed `directory` job turns the release run red, and pages and surfaces run
+only after a green one. After the by-hand push, choose **Re-run failed jobs** on
+the release run: the job reads `unchanged`, the run turns green, and the site
+deploy and the surfaces check follow.
 
 The surfaces check reads the branch's `.claude-plugin/plugin.json`
 (the `directory branch` row). That is the tree the directory scans, not what
