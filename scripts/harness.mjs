@@ -765,9 +765,20 @@ export function shellHarnessId(env = process.env, dir = MANIFEST_DIR) {
 
 // The overlay a harness reads: <project>/.projectstore/harness/<overlay>.json —
 // the manifest's runtime.overlay, the harness id by convention (the layout ADR,
-// decision 3). Null only when no manifest at all can be found.
-export function overlayId(env = process.env, dir = MANIFEST_DIR) {
-  const h = activeHarness(env, dir);
+// decision 3). Whose (layout spec, contract 2, as amended 2026-10-15): the
+// harness that identifies itself; else the shell that bundles this core; else
+// the shell the environment names; else detectHarnessId's answer (the cwd's
+// harness folder, the weak ranking, the source harness). Contract 18's middle
+// rungs with detection's tail: a rendered skill's exec tool carries no variable
+// of its harness, and the cwd's folder would answer for it. --harness stays the
+// caller's (cli.mjs runAgents). Null only when no manifest at all can be found.
+export function overlayId(env = process.env, dir = MANIFEST_DIR, { core } = {}) {
+  const id =
+    identifiedHarnessId(env, dir) ||
+    bundlingShellHarnessId({ core, dir }) ||
+    shellHarnessId(env, dir) ||
+    detectHarnessId(env, dir);
+  const h = loadHarness(id, dir) || sourceHarness(dir);
   return h?.runtime?.overlay || h?.id || null;
 }
 

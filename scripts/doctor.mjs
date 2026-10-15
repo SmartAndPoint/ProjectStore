@@ -102,6 +102,7 @@ import {
   packageCommand,
   invocation,
   harnessForOverlay,
+  activeHarness,
 } from "./harness.mjs";
 import { effortSpec } from "./models.mjs";
 
@@ -943,17 +944,22 @@ export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir()
     // 2026-10-03 amendment, finding 7).
     const remedy = layoutRemedy(proj, { root, home });
     // The block and its move are the source harness's — a pre-0.28 binding
-    // and that harness's command — so its fact under any other listener.
+    // and that harness's command — so its fact under any other listener. The
+    // move writes the source harness's overlay, whoever listens: since the
+    // overlay follows the shell that bundles the core (layout spec, contract 2,
+    // as amended 2026-10-15), the listener's `where` would name another file.
+    const src = sourceHarness();
+    const dest = relative(proj, layoutPaths(proj).overlay(src?.runtime?.overlay || src?.id));
     out.push(
       aboutHarness(
         finding(
           "install",
           "warn",
           "agents-in-binding",
-          `${b} still carries an agents block — since 0.28 the models live in ${where} (the layout ADR); nothing reads it there. ${remedyWords(remedy, proj, "Move it")}`,
+          `${b} still carries an agents block — since 0.28 the models live in ${dest} (the layout ADR); nothing reads it there. ${remedyWords(remedy, proj, "Move it")}`,
           b,
         ),
-        sourceHarness(),
+        src,
         speaker,
       ),
     );
@@ -1362,10 +1368,15 @@ export function checkOverrideCopies(proj, home = homedir(), harness = speakingHa
 // The variable names come from the manifest (runtime.agent_overrides); the
 // overlay is read only when one is set, so a clean startup reads nothing.
 export function checkEnvEffort(proj = null) {
+  // The variable is the active harness's (agentOverrides keys on detection), so
+  // the overlay it outranks is that harness's too — not the listener's, which
+  // in a shell's tree can be another harness (layout spec, contract 2, as
+  // amended 2026-10-15).
+  const h = activeHarness();
   return agentOverrides()
     .filter((o) => o.kind === "effort")
     .map((o) => {
-      const ov = proj ? readOverlayAt(proj) : null;
+      const ov = proj ? readOverlayAt(proj, h?.runtime?.overlay || h?.id) : null;
       const set = ov
         ? [
             ...(ov.efforts.default ? ["agents.default.effort"] : []),
