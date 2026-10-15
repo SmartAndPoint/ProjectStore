@@ -41,22 +41,18 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { cachePaths, harnessHome, whichOnPath } from "./harness.mjs";
 import { writeFileAtomic } from "./lib.mjs";
+import { modelSpec, effortSpec } from "./model-spec.mjs";
+
+// The two block readers live in model-spec.mjs, which imports nothing, so a
+// hook's imports reach them without reaching this file's fetch. Re-exported:
+// every caller that reads the catalog too keeps one import.
+export { modelSpec, effortSpec };
 
 // A known list is fresh for a day (decision 3); a live read is bounded by 3 s.
 export const FRESH_MS = 24 * 60 * 60 * 1000;
 export const LIVE_TIMEOUT_MS = 3000;
 // A catalog's output beyond this is not a catalog: the read stops there.
 const MAX_BYTES = 16 * 1024 * 1024;
-
-export function modelSpec(manifest) {
-  const m = manifest?.agent_translation?.models;
-  return m && typeof m === "object" ? m : null;
-}
-
-export function effortSpec(manifest) {
-  const e = manifest?.agent_translation?.effort;
-  return e && typeof e === "object" ? e : null;
-}
 
 // A level is a lowercase token: the shape --set accepts and a catalog's
 // level must have to be kept.

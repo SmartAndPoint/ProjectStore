@@ -85,6 +85,7 @@
   "node_modules/projectstore/scripts/lib.mjs",
   "node_modules/projectstore/scripts/mcp.mjs",
   "node_modules/projectstore/scripts/menu.mjs",
+  "node_modules/projectstore/scripts/model-spec.mjs",
   "node_modules/projectstore/scripts/models.mjs",
   "node_modules/projectstore/scripts/portable-registration.mjs",
   "node_modules/projectstore/scripts/provenance.mjs",

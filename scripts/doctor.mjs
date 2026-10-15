@@ -104,7 +104,9 @@ import {
   harnessForOverlay,
   activeHarness,
 } from "./harness.mjs";
-import { effortSpec } from "./models.mjs";
+// The pure reader, never models.mjs: that file holds a fetch, and the
+// SessionStart hook imports this one (the portability suite's hook fence).
+import { effortSpec } from "./model-spec.mjs";
 
 // A remedy used to interpolate the surface's harness variable here. It cannot:
 // measured 2026-09-06, NO harness gives its Bash tool that variable, and a

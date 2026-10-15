@@ -81,6 +81,7 @@
   "scripts/lib.mjs",
   "scripts/mcp.mjs",
   "scripts/menu.mjs",
+  "scripts/model-spec.mjs",
   "scripts/models.mjs",
   "scripts/portable-registration.mjs",
   "scripts/provenance.mjs",

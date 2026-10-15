@@ -19,7 +19,15 @@ import { readFileSync, readdirSync, writeFileSync, mkdtempSync, mkdirSync, rmSyn
 import { tmpdir } from "node:os";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { importSpecifiers } from "./fixtures/imports.mjs";
+import {
+  importSpecifiers,
+  dynamicSpecifiers,
+  opaqueDynamicImports,
+  callsFetch,
+  closure,
+  hookEntries,
+  installFamily,
+} from "./fixtures/imports.mjs";
 import {
   MANIFEST_DIR,
   SOURCE_WRITE_TOOLS_FALLBACK,
@@ -630,6 +638,120 @@ test("generation modules: the import reader finds a wrapped import and a re-expo
     'import "./side-effect.mjs";',
   ].join("\n");
   assert.deepEqual(importSpecifiers(src), ["./a.mjs", "./b.mjs", "./d.mjs"]);
+});
+
+// ─── The hook fence (the story "The MCP server's entry reaches no install
+// verb through a read-verb runner that shares the CLI's verb table, and no
+// hook reaches a network call", PS-DIRECTORY, decisions 1 and 4) ────────────
+
+// The closure reader the fences share, on a tree built here: each import class
+// is an edge, a comment is not, and an edge it cannot follow fails loud.
+test("hook fence: the closure follows static imports, literal import() and verb-table module strings, never a comment", () => {
+  const root = mkdtempSync(join(tmpdir(), "ps-closure-"));
+  try {
+    const put = (rel, text) => {
+      mkdirSync(dirname(join(root, rel)), { recursive: true });
+      writeFileSync(join(root, rel), text);
+    };
+    put(
+      "hooks/hooks.json",
+      JSON.stringify({
+        modules: ["./mod.tsx"],
+        hooks: {
+          A: [{ hooks: [{ type: "command", command: 'node "${ROOT}/hooks/quoted.mjs"' }] }],
+          B: [{ hooks: [{ type: "command", command: "node ${ROOT}/scripts/bare.mjs" }] }],
+        },
+      }),
+    );
+    put("hooks/quoted.mjs", 'import { a } from "../scripts/a.mjs";\nimport "../scripts/side.mjs";\n');
+    put("scripts/side.mjs", "");
+    put("scripts/bare.mjs", "");
+    put(
+      "hooks/mod.tsx",
+      "import { s } from '../scripts/s.mjs'\nimport type { T } from './types'\nimport { host } from 'host'\n",
+    );
+    put("scripts/s.mjs", "");
+    put(
+      "scripts/a.mjs",
+      [
+        '// await import("./commented.mjs");',
+        "/* import('./blocked.mjs') */",
+        'const run = async () => (await import("./lazy.mjs")).go();',
+        'export const TABLE = [{ verb: "x", module: "./row.mjs" }, { verb: "y", module: null }];',
+      ].join("\n"),
+    );
+    put("scripts/lazy.mjs", "export const go = () => fetch(url);\n");
+    put("scripts/row.mjs", "");
+    assert.deepEqual(hookEntries(root, { placeholder: "${ROOT}" }), [
+      "hooks/quoted.mjs",
+      "scripts/bare.mjs",
+      "hooks/mod.tsx",
+    ]);
+    assert.deepEqual(dynamicSpecifiers(readFileSync(join(root, "scripts/a.mjs"), "utf8")), ["./lazy.mjs"]);
+    assert.deepEqual(closure("hooks/quoted.mjs", { root }), [
+      "hooks/quoted.mjs",
+      "scripts/a.mjs",
+      "scripts/lazy.mjs",
+      "scripts/row.mjs",
+      "scripts/side.mjs",
+    ]);
+    assert.deepEqual(closure("hooks/mod.tsx", { root }), ["hooks/mod.tsx", "scripts/s.mjs"]);
+    // A runner that dispatches another module's table names its own rows.
+    assert.deepEqual(closure("hooks/quoted.mjs", { root, dispatch: () => [] }), [
+      "hooks/quoted.mjs",
+      "scripts/a.mjs",
+      "scripts/lazy.mjs",
+      "scripts/side.mjs",
+    ]);
+    assert.ok(callsFetch(readFileSync(join(root, "scripts/lazy.mjs"), "utf8")));
+    assert.ok(!callsFetch("// the shell fetch (contract 19)\nconst prefetch = () => 1;"), "a comment is no call");
+    put("scripts/bare.mjs", 'export * from "./gone.mjs";\nimport { g } from "./gone.mjs";\n');
+    assert.throws(() => closure("scripts/bare.mjs", { root }), /scripts\/gone\.mjs is imported but does not exist/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// The disclosure story's "nothing is sent anywhere by a hook", true by
+// construction: no module a hook can load holds a fetch call, and none is the
+// installer or what it spawns (npm install, the host CLI, the release fetch).
+// The classes are decision 1's, because a fence over static imports alone
+// passed on 0.30.5, where SessionStart reached models.mjs's keyed fetch through
+// doctor.mjs. A spawn is not an import: doctor launches kanban, codemap and
+// graph through the bin's node, each a reader with no network code.
+test("hook fence: no hook's closure holds a module that calls fetch, or the install family", () => {
+  const entries = hookEntries(ROOT, { placeholder: sourceHarness().hooks.root_placeholder });
+  for (const f of ["hooks/session-start.mjs", "scripts/touch-session.mjs"])
+    assert.ok(entries.includes(f), `the entries read from hooks/hooks.json include ${f}`);
+  const family = installFamily(ROOT);
+  assert.ok(family.includes("scripts/install-harness.mjs") && family.includes("scripts/fetch-shell.mjs"));
+  for (const entry of entries) {
+    const files = closure(entry, { root: ROOT });
+    const src = (f) => readFileSync(join(ROOT, f), "utf8");
+    assert.deepEqual(
+      files.filter((f) => callsFetch(src(f))),
+      [],
+      `${entry} reaches a module that calls fetch — a hook would load network code`,
+    );
+    assert.deepEqual(
+      files.filter((f) => family.includes(f)),
+      [],
+      `${entry} reaches the install family`,
+    );
+    // The walk follows literal import() only; one it cannot read would be a
+    // hole in the fence, so none may be on a hook's path.
+    assert.deepEqual(
+      files.filter((f) => opaqueDynamicImports(src(f)) > 0),
+      [],
+      `${entry} reaches an import() whose target is not a literal`,
+    );
+  }
+  // Not vacuous: SessionStart's walk goes through doctor and its import()s.
+  const start = closure("hooks/session-start.mjs", { root: ROOT });
+  for (const f of ["scripts/doctor.mjs", "scripts/surfaces.mjs", "scripts/model-spec.mjs"])
+    assert.ok(start.includes(f), `the SessionStart closure reaches ${f}`);
+  assert.ok(!start.includes("scripts/models.mjs"), "the SessionStart closure reaches models.mjs");
+  assert.deepEqual(importSpecifiers(readFileSync(join(ROOT, "scripts", "model-spec.mjs"), "utf8")), []);
 });
 
 // ─── The resolvers lib.mjs re-exports ──────────────────────────────────
