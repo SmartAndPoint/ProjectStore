@@ -75,6 +75,7 @@ import {
   stateDir,
   sessionStatePath,
   layoutPaths,
+  ensureStateRoot,
   RUNTIME_GITIGNORE_HEADER,
   whichOnPath as libWhichOnPath,
   commandForm,
@@ -2481,38 +2482,36 @@ test("install contract 19: a project directory that does not exist is refused, q
 
 const CODEX = loadHarness("codex");
 
-// The SessionStart hook's first run in `proj` as harness `id`: it writes the
-// welcome marker, and the state directory's header beside it. A temporary
-// HOME, no host CLI, the harness forced by our own override.
-function welcomeBy(proj, id) {
-  const home = mkdtempSync(join(tmpdir(), "ps-inst-welcome-home-"));
-  const r = spawnSync(process.execPath, [join(ROOT, "hooks", "session-start.mjs")], {
-    input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "s-welcome", source: "startup", cwd: proj }),
-    env: noHostEnv({ HOME: home, PROJECTSTORE_HARNESS: id }),
-    cwd: proj,
-    encoding: "utf8",
-    timeout: 30000,
-  });
-  assert.equal(r.status, 0, r.stderr);
-  assert.ok(existsSync(layoutPaths(proj).welcomed(id)), `the hook welcomed ${id}`);
+// What a first SessionStart of 0.30.5 or earlier left in `proj` as harness
+// `id`, bound or not: the welcome marker, and the state directory's header
+// beside it, as ensureStateRoot writes them. Planted, not run: since the story
+// "Opening a project that is not bound writes nothing into it…" an unbound
+// session writes its marker on the machine, so the hook no longer makes this
+// state in an unbound project. The projects that hold it keep it (there is no
+// self-migration), and uninstall still recognises it (install spec contract 13).
+function welcomedBy0305(proj, id) {
+  ensureStateRoot(proj);
+  const marker = layoutPaths(proj).welcomed(id);
+  mkdirSync(dirname(marker), { recursive: true });
+  writeFileSync(marker, new Date().toISOString() + "\n", "utf8");
 }
 
-// An unbound Claude Code project a Codex session has run in: .claude/, no
-// .codex/, and .projectstore/state/codex/welcomed as the hook wrote it. The
-// variants break one recogniser each, after the hook.
+// An unbound Claude Code project a Codex session of 0.30.5 ran in: .claude/, no
+// .codex/, and .projectstore/state/codex/welcomed as that hook wrote it. The
+// variants break one recogniser each, after the plant.
 function stateProject({ marker = undefined, headed = true } = {}) {
   const proj = project({ bound: false });
   const lp = layoutPaths(proj);
-  welcomeBy(proj, CODEX.id);
+  welcomedBy0305(proj, CODEX.id);
   if (!headed) writeFileSync(lp.stateGitignore, "*\n");
   if (marker === null) rmSync(lp.welcomed(CODEX.id));
   else if (marker !== undefined) writeFileSync(lp.welcomed(CODEX.id), marker);
   return { proj, lp };
 }
 
-test("install rule 5: the hook's welcome in an unbound project is recognised — a project uninstall plans the marker's removal and the empty directory's", () => {
+test("install rule 5: the welcome 0.30.5's hook left in an unbound project is recognised — a project uninstall plans the marker's removal and the empty directory's", () => {
   const proj = project({ bound: false });
-  welcomeBy(proj, CODEX.id);
+  welcomedBy0305(proj, CODEX.id);
   const lp = layoutPaths(proj);
   assert.ok(read(lp.stateGitignore).includes(RUNTIME_GITIGNORE_HEADER), "the header comes with the marker");
   assert.equal(existsSync(lp.sessions), false, "and no session state in a project that is not bound");
@@ -2694,7 +2693,7 @@ test("install rule 5: a project uninstall removes the welcome marker and an empt
   // Claude Code: a launcher that is not ours is its surface item's, never this step's.
   const c = project({ bound: false });
   const lc = layoutPaths(c);
-  welcomeBy(c, SRC.id);
+  welcomedBy0305(c, SRC.id);
   writeFileSync(lc.launcher(SRC.id), "console.log('mine');\n");
   const pc = plan(c, { harnesses: [SRC.id], mode: "uninstall", root: ROOT, env });
   assert.equal(item(pc, "statusline_launcher").action, "skip", "not ours: left by its own item");

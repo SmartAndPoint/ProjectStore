@@ -681,6 +681,9 @@ test(
         ...roots,
         PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter),
         HOME: mkdtempSync(join(TMP, "hooks-home-")),
+        // A cache of its own, so no unbound run elsewhere in this process can
+        // have remembered the welcome session 1 asserts.
+        XDG_CACHE_HOME: mkdtempSync(join(TMP, "hooks-cache-")),
       });
       // Ours and node's: a forced harness, a sessions dir or a preloaded module
       // from the developer's shell would steer the hooks from inside the suite.

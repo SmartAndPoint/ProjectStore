@@ -628,7 +628,9 @@ test("user text: a startup with the welcome and an offer puts each part on lines
   const r = spawnSync(process.execPath, [join(root, "hooks", "session-start.mjs")], {
     encoding: "utf8",
     input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "ut-start", source: "startup", cwd: proj }),
-    env: installEnv(home, root, proj),
+    // A cache of its own: a machine marker another test's unbound run left in
+    // the shared one would silence this welcome.
+    env: installEnv(home, root, proj, { XDG_CACHE_HOME: tmp("start-cache-") }),
     cwd: proj,
     timeout: 30000,
   });
@@ -648,6 +650,11 @@ test("user text: a startup with the welcome and an offer puts each part on lines
   assert.ok(commandsAlone("joined", sys.split("\n").join(" · ")).length > 0);
 });
 
+// Each startup on a machine of its own (a fresh user-level cache): an unbound
+// project remembers its welcome on the machine (the story "Opening a project
+// that is not bound writes nothing into it…"), so through a shared cache the
+// first unbound run would silence every later welcome of that harness, and the
+// lints below would pass with nothing to check.
 function fireStartup(proj, env) {
   const clean = Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !/^(CLAUDE|CODEX|PROJECTSTORE_(HARNESS|IDENTIFIED|SHELL))/.test(k)),
@@ -655,7 +662,7 @@ function fireStartup(proj, env) {
   const r = spawnSync(process.execPath, [join(ROOT, "hooks", "session-start.mjs")], {
     encoding: "utf8",
     input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "ut-1", source: "startup", cwd: proj }),
-    env: { ...clean, [SRC.runtime.project_dir_env]: proj, ...env },
+    env: { ...clean, [SRC.runtime.project_dir_env]: proj, XDG_CACHE_HOME: tmp("ut-cache-"), ...env },
     cwd: proj,
     timeout: 30000,
   });

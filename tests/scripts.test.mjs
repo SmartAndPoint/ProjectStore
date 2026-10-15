@@ -1687,12 +1687,27 @@ function envWithoutProjectDir(extra = {}) {
 // "# Projectstore vault: <path>".
 const vaultNamedBy = (emitted) => emitted?.hookSpecificOutput?.additionalContext?.split("\n")[0] ?? "";
 
+// A user-level cache per project fired here, never the test process's shared
+// one. An unbound project remembers its welcome on the machine (the story
+// "Opening a project that is not bound writes nothing into it…"), so through
+// a shared cache one test's unbound run would silence the welcome a later
+// test asserts, depending on the order the file runs in. Per project, not per
+// spawn: a project fired twice still sees its own first welcome.
+const CACHES = new Map();
+function cacheFor(proj) {
+  if (!CACHES.has(proj)) CACHES.set(proj, mkdtempSync(join(tmpdir(), "ps-ss-cache-")));
+  return CACHES.get(proj);
+}
+
 function fireSessionStart(proj, payload = {}, { env = null, cwd = proj } = {}) {
+  const base = env || { ...process.env, CLAUDE_PROJECT_DIR: proj };
+  // A caller that set its own cache keeps it.
+  const own = base.XDG_CACHE_HOME && base.XDG_CACHE_HOME !== process.env.XDG_CACHE_HOME;
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-start.mjs")], {
     encoding: "utf8",
     input: JSON.stringify({ hook_event_name: "SessionStart", ...payload }),
     timeout: 15000,
-    env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj },
+    env: own ? base : { ...base, XDG_CACHE_HOME: cacheFor(proj) },
     cwd,
   });
   assert.equal(r.status, 0, `SessionStart hook must exit 0; stderr: ${r.stderr}`);
@@ -1885,8 +1900,14 @@ test("SessionStart: delivers on additionalContext, and the welcome renders once 
   // rule for the welcome). This hook runs from the checkout, which gets the npm
   // form: 937 + the path bound, 921 unbound. A git-marketplace copy keeps the
   // toggle text and the sizes above, so 1,295 stays contract 3's worst case.
+  // 2026-10-15: the footer follows the binding (the story "Opening a project
+  // that is not bound writes nothing into it…"): an unbound project's welcome
+  // appears "once on this machine", +4 in every unbound variant — 925 from a
+  // checkout, 1,083 from a git marketplace, Codex's 948. The bound variant
+  // keeps "once per project", so its base and the worst case do not move.
+  // The unbound size is asserted now, below, not only named.
   const WELCOME_BOUND_BASE = 937,
-    WELCOME_UNBOUND = 921,
+    WELCOME_UNBOUND = 925,
     WELCOME_WORST = 1295;
   const vaultPath = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path;
   const delta = withWelcome.length - without.length;
@@ -1894,6 +1915,17 @@ test("SessionStart: delivers on additionalContext, and the welcome renders once 
     delta,
     WELCOME_BOUND_BASE + Math.min(vaultPath.length, 200),
     `the welcome is ${WELCOME_BOUND_BASE} + the capped vault path (${WELCOME_UNBOUND} unbound) from a checkout; the skeleton spec's contract 3 quotes the git-marketplace variant's ${WELCOME_WORST} as the worst case — update it in the same change`,
+  );
+  assert.ok(withWelcome.includes("_This message appears once per project._"), "a bound project's footer");
+  // An unbound project that is no worktree carries the welcome alone, so its
+  // payload is the unbound welcome's size.
+  const unbound = mkdtempSync(join(tmpdir(), "ps-ss-unbound-"));
+  const alone = fireSessionStart(unbound, { session_id: "u1", source: "startup" }).hookSpecificOutput.additionalContext;
+  assert.ok(alone.includes("_This message appears once on this machine._"), "an unbound project's footer");
+  assert.equal(
+    alone.length,
+    WELCOME_UNBOUND,
+    `the unbound welcome is ${WELCOME_UNBOUND} from a checkout; the skeleton spec's contract 3 names it — update it in the same change`,
   );
 });
 
@@ -3039,17 +3071,20 @@ test("SessionStart: detecting an inheritable worktree writes nothing", () => {
     "detection did run and did speak — the assertions below are about what it did NOT do",
   );
 
-  // Scoped deliberately: the first-run welcome marker is a pre-existing write on
-  // this path and is not part of detection. What must not appear is a binding
-  // this session never approved, or per-session state for an unbound project.
+  // What must not appear is a binding this session never approved, or
+  // per-session state for an unbound project.
   assert.ok(
     !existsSync(layoutPaths(child).binding) && !existsSync(join(child, ".claude", "projectstore.json")),
     "no binding is adopted without the approval gate",
   );
   assert.ok(
     !existsSync(layoutPaths(child).sessions) && !existsSync(join(child, ".claude", ".projectstore")),
-    "no per-session state for a project that is not bound (the welcome marker under state/<harness>/ is not session state)",
+    "no per-session state for a project that is not bound",
   );
+  // …nor anything else: the first-run welcome it showed is remembered on the
+  // machine, not in the worktree (the story "Opening a project that is not
+  // bound writes nothing into it…").
+  assert.ok(!existsSync(layoutPaths(child).root), "no .projectstore/ in an unbound worktree");
 });
 
 test("SessionStart: no offer when there is no bound parent to inherit from", () => {

@@ -733,8 +733,10 @@ export function layoutPaths(projectDir, { harnessDir = null, dir = MANIFEST_DIR 
 //
 // What is ours on the machine but belongs to no project and no harness home:
 // the shell fetch's scratch (<root>/fetch/<pid>-<ms>/, removed when its run
-// ends) and the registry answer the update notice caches for a day
-// (<root>/registry.json, named now and read by no one yet). The XDG Base
+// ends), the registry answer the update notice caches for a day
+// (<root>/registry.json, named now and read by no one yet), the model lists
+// (<root>/models/<id>.json) and the welcome an unbound project has shown
+// (<root>/welcomed/<id>). The XDG Base
 // Directory spec puts a cache at $XDG_CACHE_HOME when that is an absolute
 // path and ignores a relative one; an empty one is ignored too. Otherwise it
 // is <home>/.cache. With neither, `root` is null and the fetch refuses. This
@@ -755,6 +757,12 @@ export function cachePaths({ env = process.env, home = homedir() } = {}) {
     // A harness's model list, as its last live read answered (the ADR "Agent
     // model lists are read from each harness's own catalog…", decision 4).
     models: (id) => (root && id ? join(root, "models", `${id}.json`) : null),
+    // A harness's first-run welcome, seen on this machine: the SessionStart
+    // hook writes it in place of the project's marker when the project is not
+    // bound, so an unbound project gets no writes (layout spec contract 5, as
+    // amended by the story "Opening a project that is not bound writes nothing
+    // into it…"). A lost marker costs one more welcome.
+    welcomed: (id) => (root && id ? join(root, "welcomed", id) : null),
     from: fromEnv ? variable : "the home directory",
     variable,
   };

@@ -172,7 +172,8 @@ export function doctorFallbackText(findings, { env = process.env } = {}) {
 // The layout resolver and its constants, re-exported so hooks and scripts
 // import one module (the layout ADR, 2026-09-06). The active harness's id,
 // for the paths keyed by it (state/<id>/…). cachePaths is the user-level
-// class beside it (layout spec contract 0): the shell fetch's scratch.
+// class beside it (layout spec contract 0): the shell fetch's scratch, and
+// the welcome marker of a project that is not bound.
 // whichOnPath, the PATH walk for a host binary, moved to harness.mjs beside
 // hostPresence (the setup story, rule 5); its importers keep this name.
 export {

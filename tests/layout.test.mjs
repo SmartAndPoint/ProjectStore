@@ -174,6 +174,14 @@ test("layout contract 0, the user-level class: cachePaths names <abs>/projectsto
     [null, null, null, null],
     "no absolute base: the fetch refuses",
   );
+  // The welcome an unbound project has shown, one per harness (the story
+  // "Opening a project that is not bound writes nothing into it…", decision 1).
+  assert.equal(xdg.welcomed("codex"), "/x/cache/projectstore/welcomed/codex", "under an absolute XDG_CACHE_HOME");
+  assert.equal(at({}).welcomed(SRC.id), `/h/.cache/projectstore/welcomed/${SRC.id}`, "under the home otherwise");
+  assert.equal(none.welcomed(SRC.id), null, "no root: no marker, and the hook writes none");
+  assert.equal(cachePaths({ env: {}, home: null }).welcomed(SRC.id), null, "no home at all");
+  assert.equal(xdg.welcomed(null), null, "no harness: no marker");
+  assert.equal(xdg.welcomed(""), null);
   assert.equal(libCachePaths, cachePaths, "lib.mjs re-exports the resolver, as it does layoutPaths");
 });
 
