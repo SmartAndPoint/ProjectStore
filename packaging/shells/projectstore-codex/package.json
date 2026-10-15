@@ -1,6 +1,6 @@
 {
   "name": "projectstore-codex",
-  "version": "0.30.4",
+  "version": "0.30.5",
   "description": "ProjectStore for Codex: portable project memory, rendered workflow skills and lifecycle hooks, with the core pinned and bundled. Setup fetches it; the way in is npx projectstore setup",
   "keywords": [
     "projectstore",
@@ -40,7 +40,7 @@
     "hooks/"
   ],
   "dependencies": {
-    "projectstore": "=0.30.4"
+    "projectstore": "=0.30.5"
   },
   "bundleDependencies": [
     "projectstore"
