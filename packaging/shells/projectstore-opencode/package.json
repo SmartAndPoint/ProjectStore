@@ -1,6 +1,6 @@
 {
   "name": "projectstore-opencode",
-  "version": "0.30.4",
+  "version": "0.30.5",
   "private": true,
   "description": "projectstore for opencode: the core pinned and bundled, the harness fixed. Not published until its plugin root is rendered; then the way in is npx projectstore setup",
   "keywords": [
@@ -38,7 +38,7 @@
     "README.md"
   ],
   "dependencies": {
-    "projectstore": "=0.30.4"
+    "projectstore": "=0.30.5"
   },
   "bundleDependencies": [
     "projectstore"

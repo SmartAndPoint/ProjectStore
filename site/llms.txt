@@ -10,7 +10,7 @@ The premise is that ADRs, design review, backlogs, acceptance criteria and requi
 
 **What ends up on disk.** `adr/` holds decisions with their rejected alternatives; `specs/` holds normative, numbered behavioural contracts; `epics/` and their `stories/` hold the backlog, with status, priority, `code_refs` and acceptance criteria in frontmatter; there are also `research/`, `concepts/`, `meetings/`, `ops/` and `diagrams/`. An artifact is named by its slug, the title made into a file name, and the slug is its id: `adr/use-postgres-for-primary-storage.md`, `epics/PAY-001/stories/story-transactional-order-writes.md`. Three views are derived and never hand-maintained: `kanban.md` (the board, computed from story frontmatter), `graph.md` (every link, typed, in both directions) and `code-map.md` (which code each epic owns).
 
-**Facts about version 0.30.4.**
+**Facts about version 0.30.5.**
 
 - Harnesses: Claude Code (supported), Codex (experimental). Codex stays experimental until a live session has exercised every surface it installs; `docs/harnesses.md` says what has been verified.
 - 21 commands, invoked as `/projectstore:<name>` in Claude Code and as skills of the same name, `$projectstore-<name>`, in Codex.
