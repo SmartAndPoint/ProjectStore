@@ -20,10 +20,11 @@ import {
   existsSync,
   utimesSync,
 } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, delimiter } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync, spawn } from "node:child_process";
-import { makeVaultProject, seedGraphFixture, writeBinding } from "./fixtures/vault.mjs";
+import { makeVaultProject, seedGraphFixture, seedCliVault, writeBinding } from "./fixtures/vault.mjs";
+import { fakeInstall } from "./fixtures/install.mjs";
 import {
   readAnchorState,
   layoutPaths,
@@ -1266,7 +1267,14 @@ test("no hook emits a field its event does not carry (spec contract 22)", () => 
     ...new Set(
       Object.values(reg.hooks).flatMap((entries) =>
         entries.flatMap((e) =>
-          (e.hooks || []).map((h) => (h.command || "").replace(/^.*\$\{CLAUDE_PLUGIN_ROOT\}\//, "").trim()),
+          // The quotes go first: the commands quote their plugin root, and a
+          // path read with its closing quote ends in `.mjs"`, not `.mjs`.
+          (e.hooks || []).map((h) =>
+            (h.command || "")
+              .replaceAll('"', "")
+              .replace(/^.*\$\{CLAUDE_PLUGIN_ROOT\}\//, "")
+              .trim(),
+          ),
         ),
       ),
     ),
@@ -1303,6 +1311,80 @@ test("no hook emits a field its event does not carry (spec contract 22)", () => 
     );
   }
 });
+
+// A hook command with no `args` runs through a shell, the way the host runs it:
+// an unquoted plugin root with a space in it splits into two words, node looks
+// for a module at the first, and every hook fails. On Windows every home such as
+// `C:\Users\First Last` puts the space there (the story "Every hook command
+// quotes its plugin root…", PS-DIRECTORY). So the commands are read from a full
+// plugin copy under such a home and run through /bin/sh, each with the payload
+// its event carries, in a bound project; each exits 0 and says what it says
+// anywhere else.
+test(
+  "every hook command runs through a shell from a plugin copy whose path has a space in it",
+  { timeout: 120000 },
+  () => {
+    const H = sourceHarness();
+    const home = join(mkdtempSync(join(tmpdir(), "ps-space-")), "First Last");
+    mkdirSync(home);
+    const root = fakeInstall(home, "0.0.0-space", { full: true });
+    assert.ok(root.includes(" "), `the plugin copy's path carries the space: ${root}`);
+    const { proj, vault } = seedCliVault();
+    const hooks = JSON.parse(readFileSync(join(root, H.hooks.config_file), "utf8")).hooks;
+    const env = hermeticEnv({
+      [H.runtime.plugin_root_env]: root,
+      [H.runtime.project_dir_env]: proj,
+      HOME: home,
+      XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "ps-space-cache-")),
+      PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter),
+    });
+    for (const k of Object.keys(env)) if (k.startsWith("PROJECTSTORE_") || k === "NODE_OPTIONS") delete env[k];
+    const story = join(vault, "epics", "PS-X", "stories", "story-in-flight.md");
+    const write = { tool_name: H.tools.write_tools[0], tool_input: { [H.tools.path_fields[0]]: story } };
+    const payloads = {
+      SessionStart: { source: "startup" },
+      PreToolUse: write,
+      PostToolUse: write,
+      PreCompact: { trigger: "manual" },
+      Stop: {},
+    };
+    assert.deepEqual(
+      Object.keys(hooks).sort(),
+      Object.keys(payloads).sort(),
+      "every registered event is fired here, so a new hook cannot escape the space",
+    );
+    const fire = (event) => {
+      const commands = hooks[event].flatMap((g) => (g.hooks || []).map((h) => h.command));
+      const input = JSON.stringify({ session_id: "space-root", cwd: proj, hook_event_name: event, ...payloads[event] });
+      return commands
+        .map((command) => {
+          const r = spawnSync("/bin/sh", ["-c", command], { input, cwd: home, env, encoding: "utf8", timeout: 30000 });
+          assert.equal(r.status, 0, `${event}: ${command}\n${r.stderr}`);
+          assert.doesNotMatch(
+            r.stdout + r.stderr,
+            /Cannot find module|ENOENT|vault load failed/,
+            `${event}: ${command}`,
+          );
+          return r.stdout;
+        })
+        .join("\n");
+    };
+    const start = fire("SessionStart");
+    assert.match(start, /loaded for the first time/, "the first session carries the welcome");
+    assert.ok(
+      start.includes("# Projectstore vault: "),
+      `the session orients on the bound vault\n${start.slice(0, 400)}`,
+    );
+    fire("PreToolUse");
+    fire("PostToolUse");
+    assert.match(
+      fire("PreCompact"),
+      /in flight: `epics\/PS-X\/stories\/story-in-flight\.md`/,
+      "the compaction names the story just written",
+    );
+    fire("Stop");
+  },
+);
 
 test("the block bump and the block content ship together (spec contract 24)", () => {
   const tmpl = readFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), "utf8");

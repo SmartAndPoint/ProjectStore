@@ -267,14 +267,23 @@ export function renderHooks(manifest, root = ROOT) {
   if (!hasBand(manifest)) delete source.modules;
   const post = source.hooks?.PostToolUse || [];
   for (const group of post) if (group.matcher) group.matcher = (manifest.tools?.write_tools || []).join("|");
+  const sourceRoot = "${" + SOURCE.runtime.plugin_root_env + "}";
+  const targetRoot = "${" + manifest.runtime.plugin_root_env + "}";
+  // The source may write its root bare, quote the whole path ("${ROOT}/x") or
+  // quote the variable alone ("${ROOT}"/x): the host's two documentation pages
+  // show the last two. Codex keys hook trust to the rendered command text, so
+  // all three render the one command, and a re-quoted source cannot ask every
+  // Codex user to trust the hooks again (the story "Every hook command quotes
+  // its plugin root…", PS-DIRECTORY, decision 2).
+  const r = escapeRe(sourceRoot);
+  const sourceCommand = new RegExp(`^node (?:"${r}/([^"\\s]+)"|"${r}"/([^"\\s]+)|${r}/([^"\\s]+))$`);
   const rewrite = (value) => {
     if (Array.isArray(value)) return value.map(rewrite);
     if (value && typeof value === "object")
       return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, rewrite(v)]));
     if (typeof value !== "string") return value;
-    const sourceRoot = "${" + SOURCE.runtime.plugin_root_env + "}";
-    const targetRoot = "${" + manifest.runtime.plugin_root_env + "}";
-    const command = value.startsWith(`node ${sourceRoot}/`) ? value.slice(`node ${sourceRoot}/`.length) : null;
+    const m = sourceCommand.exec(value);
+    const command = m ? m[1] || m[2] || m[3] : null;
     return command
       ? `node "${targetRoot}/node_modules/projectstore/${command}"`
       : value.replaceAll(sourceRoot, `${targetRoot}/node_modules/projectstore`);

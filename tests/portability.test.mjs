@@ -774,7 +774,11 @@ test("every registered hook adopts its payload before it can resolve a project",
   const files = [
     ...new Set(
       Object.values(reg.hooks).flatMap((entries) =>
-        entries.flatMap((e) => (e.hooks || []).map((h) => (h.command || "").split(`${placeholder}/`).pop().trim())),
+        entries.flatMap((e) =>
+          // Unquoted first: every command quotes its plugin root, and the
+          // closing quote would otherwise end the path.
+          (e.hooks || []).map((h) => (h.command || "").replaceAll('"', "").split(`${placeholder}/`).pop().trim()),
+        ),
       ),
     ),
   ].filter((f) => f.endsWith(".mjs"));
@@ -1348,6 +1352,25 @@ test("hooks.json's placeholder and write matcher are the manifest's", () => {
     "hooks/hooks.json IS the source harness's tree and uses its placeholder (contract 2)",
   );
   assert.equal(src.hooks.matchers.write.split("|").sort().join("|"), [...src.tools.write_tools].sort().join("|"));
+});
+
+// A hook command with no `args` runs through a shell, so a plugin root with a
+// space in it (any Windows home such as C:\Users\First Last) splits into two
+// words unless the expanded path is quoted; the host's validator warns once per
+// unquoted command (the story "Every hook command quotes its plugin root…",
+// PS-DIRECTORY, decision 1: the whole-path form).
+test('every hook command quotes its plugin root as one shell word: node "<placeholder>/<path>"', () => {
+  const placeholder = sourceHarness().hooks.root_placeholder;
+  const reg = JSON.parse(readFileSync(join(ROOT, "hooks", "hooks.json"), "utf8"));
+  const commands = Object.values(reg.hooks).flatMap((entries) =>
+    entries.flatMap((e) => (e.hooks || []).map((h) => h.command)),
+  );
+  assert.ok(commands.length > 0, "hooks.json registers no command, so this test would prove nothing");
+  const lead = `node "${placeholder}/`;
+  const offenders = commands.filter(
+    (c) => !(c.startsWith(lead) && c.endsWith('"') && /^[^"\s]+$/.test(c.slice(lead.length, -1))),
+  );
+  assert.deepEqual(offenders, [], `every command reads ${lead}<path>"`);
 });
 
 test(".mcp.json's placeholders are the manifest's, and it launches this package's bin (MCP ADR decision 6, measured)", () => {
