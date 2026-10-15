@@ -16,7 +16,10 @@
 //      a real publish fails — and the only real publish done by hand is the
 //      first one, which is exactly the one that must not fail.
 //   3. the version guard actually fails on a mismatch. A guard nobody has
-//      seen fail is a guard nobody knows works.
+//      seen fail is a guard nobody knows works. Since "A release tag shows on
+//      every surface…" (PS-HARNESS) it also fails a version without its
+//      release notes (contract 3d): the release workflow makes the GitHub
+//      Release from them.
 //
 //   node --test tests/*.test.mjs
 
@@ -25,8 +28,17 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, copyFileSync, rmSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { checkVersions, currentPacklist, unshippedTopLevel, PACKLIST } from "../scripts/version-guard.mjs";
+import {
+  checkVersions,
+  checkReleaseNotes,
+  runGuard,
+  releaseNotesPath,
+  currentPacklist,
+  unshippedTopLevel,
+  PACKLIST,
+} from "../scripts/version-guard.mjs";
 import { treeFiles } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -293,4 +305,82 @@ test("packaging contract 3c: a lockfile left behind by a bump fails the guard, a
   rmSync(lock);
   assert.match(checkVersions({ root: scratch }).error, /package-lock\.json: missing/);
   rmSync(scratch, { recursive: true, force: true });
+});
+
+test("packaging contract 3d: a version without its release notes fails the guard, with and without a tag", () => {
+  // The release workflow makes the GitHub Release from
+  // packaging/release-notes/v<version>.md; a version without one, or with a
+  // heading and nothing under it (0.28.0's "tagged without release notes"),
+  // is refused before the tag rather than on it.
+  const scratch = mkdtempSync(join(tmpdir(), "ps-guard-notes-"));
+  for (const rel of [
+    "package.json",
+    ".claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json",
+    "package-lock.json",
+  ]) {
+    mkdirSync(dirname(join(scratch, rel)), { recursive: true });
+    copyFileSync(join(ROOT, rel), join(scratch, rel));
+  }
+  const version = readRootJson("package.json").version;
+  const rel = releaseNotesPath(version);
+  assert.equal(rel, `packaging/release-notes/v${version}.md`);
+  const notes = join(scratch, rel);
+
+  for (const tag of [null, `v${version}`]) {
+    const missing = runGuard({ root: scratch, tag });
+    assert.equal(missing.ok, false, "no notes file fails the guard");
+    assert.equal(missing.notes, rel, "the refusal names the expected path");
+    assert.match(missing.error, new RegExp(`^${rel.replace(/\./g, "\\.")}: missing`));
+  }
+
+  mkdirSync(dirname(notes), { recursive: true });
+  const refused = (text) => {
+    writeFileSync(notes, text);
+    return runGuard({ root: scratch, tag: `v${version}` });
+  };
+  for (const [why, text, message] of [
+    ["another version's heading", `# v0.0.1 — Another release\n\nBody.\n`, /the heading names v0\.0\.1/],
+    ["an empty title", `# v${version} — \n\nBody.\n`, /the first line must be/],
+    ["no dash", `# v${version}\n\nBody.\n`, /the first line must be/],
+    ["no heading", `Body only.\n`, /the first line must be/],
+    ["a heading alone", `# v${version} — A title\n`, /no body under the heading/],
+    ["a heading and blank lines", `# v${version} — A title\n\n  \n\n`, /no body under the heading/],
+  ]) {
+    const r = refused(text);
+    assert.equal(r.ok, false, why);
+    assert.match(r.error, message, why);
+    assert.equal(r.notes, rel, why);
+  }
+
+  const good = `# v${version} — A title\r\n\r\nWhat the release says.\n`;
+  writeFileSync(notes, good);
+  for (const tag of [null, `v${version}`]) {
+    const r = runGuard({ root: scratch, tag });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.notes, rel);
+    assert.equal(r.version, version);
+  }
+  // The versions are still judged first: a mismatched tag is the versions'
+  // refusal, not the notes'.
+  assert.equal(runGuard({ root: scratch, tag: "v0.0.1" }).error, "version mismatch");
+  // checkVersions itself never asks for notes: contracts 3, 3b and 3c keep
+  // their scratch roots.
+  rmSync(notes);
+  assert.equal(checkVersions({ root: scratch }).ok, true);
+  rmSync(scratch, { recursive: true, force: true });
+
+  // The repository's own version has its notes, and the CLI says so, in both
+  // forms CI runs it.
+  assert.equal(checkReleaseNotes({ root: ROOT, version }).ok, true);
+  for (const args of [[], ["--tag", `v${version}`]]) {
+    const run = spawnSync(process.execPath, [join(ROOT, "scripts", "version-guard.mjs"), ...args], {
+      encoding: "utf8",
+      timeout: 30000,
+    });
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    const out = JSON.parse(run.stdout);
+    assert.equal(out.ok, true);
+    assert.equal(out.notes, rel);
+  }
 });

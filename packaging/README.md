@@ -9,9 +9,9 @@ because an emergency should not depend on GitHub being up.
 
 | Guard | What it catches | Where it runs |
 |---|---|---|
-| `node scripts/version-guard.mjs [--tag vX.Y.Z]` | `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `package-lock.json` (its `version` and `packages[""].version`) and every `packaging/shells/*/package.json` (its version and its exact `=<version>` pin on the core) disagreeing with each other or with the release tag; a shell that does not bundle the core or misnames its bin | CI, and by hand before a local publish |
+| `node scripts/version-guard.mjs [--tag vX.Y.Z]` | `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `package-lock.json` (its `version` and `packages[""].version`) and every `packaging/shells/*/package.json` (its version and its exact `=<version>` pin on the core) disagreeing with each other or with the release tag; a shell that does not bundle the core or misnames its bin; a version with no release notes — `packaging/release-notes/v<version>.md` missing, its first line not `# v<version> — <title>`, or nothing under it | CI (`test.yml` on every PR, `release.yml` on the tag), `npm run release:check`, and by hand before a local publish |
 | `node packaging/shells.mjs --check` | a shell's committed `package.json` or bin drifting from its render (the pin, the bin's verb set) | CI, and `npm run release:check` |
-| `tests/packaging.test.mjs`, `tests/shells.test.mjs` | a directory added to the tree but forgotten in `files[]`, a `files[]` entry that stopped shipping, `publishConfig.provenance` creeping back in; a shell whose built tarball differs from its packlist fixture, or whose bin does not exec the bundled core with the harness fixed | CI, and `npm test` |
+| `tests/packaging.test.mjs`, `tests/shells.test.mjs`, `tests/release.test.mjs` | a directory added to the tree but forgotten in `files[]`, a `files[]` entry that stopped shipping, `publishConfig.provenance` creeping back in; a shell whose built tarball differs from its packlist fixture, or whose bin does not exec the bundled core with the harness fixed; a release workflow that would make the GitHub Release before a publish, without the notes, or with a guessed Latest, a site deploy a release cannot trigger, a surfaces workflow that writes or reads its tag inside `run`, and a surface judged ok, lagging or wrong on the wrong evidence | CI, and `npm test` |
 | `tests/site.test.mjs` | the public site (`site/`, never shipped: `NOT_SHIPPED`) — its eight pages and `llms.txt`/`llms-full.txt` — stating what the repository contradicts: a command or role with no file, an `npx` verb its bin refuses, an install command README does not fence, the version, a count, a harness's status, a dead link into `main`, an example artifact whose shape or slug the product would not write; a language page out of step with the English one; a load from another origin; committed pages a build would change (asset hashes, alternates, the `en/` stub); `site/` over its 2,621,440-byte budget | CI, `npm test`, and `.github/workflows/pages.yml` before every deploy |
 | `python3 site/tools/i18n.py check`, `extract`, `build --strict`, then `git diff --exit-code -- site/` and `if git status --porcelain -- site/ \| grep .; then echo "::error::the build left files not in the commit"; exit 1; fi` | committed pages, or `site/locales/en.json`, that are not what Python 3.12 renders from the templates in `site/src/` and the dictionaries; a file the build writes that is not in the commit, named; a dictionary missing a key or changing a fact marker | CI (`test.yml` and `pages.yml`, Python pinned to 3.12) |
 
@@ -80,6 +80,14 @@ re-renders the shells from them and `npm run packlist` regenerates the four
 fixtures. `node scripts/version-guard.mjs --tag v0.28.0-rc.1` is what proves
 they agree.
 
+Every bump, a candidate's too, also writes the release's notes:
+`packaging/release-notes/v<version>.md`, whose first line is the GitHub
+Release's title — `# v0.30.5 — <what the release does, in plain words>` — and
+whose body is what the release says: what changes for someone using it, how to
+upgrade, and what to do about existing state. The release workflow makes the
+GitHub Release from this file, so it is reviewed in the release PR like any
+other change; the guard refuses the bump without it.
+
 A release's bump also updates the public site. Edit the `data-fact="version"`
 element in `site/src/_footer.html` (the footer every page shares; never the
 generated pages), run
@@ -122,6 +130,63 @@ that instead of adding a token.
 The version is never invented at release time: it is whatever
 `.claude-plugin/plugin.json` says, and the tag must match it. The guard fails
 the run before `npm publish` if they disagree.
+
+### The GitHub Release, the site and every surface
+
+A release is done when its version shows on every surface a user reads: the
+GitHub README (its `release` badge reads GitHub's Latest), GitHub Releases with
+this tag Latest, npm (each package's dist-tag and readme) and the site. Three
+pieces see to it.
+
+- **The GitHub Release.** `release.yml`'s third job, `github-release`, runs
+  after both publish jobs — when the shells' matrix passed or was skipped,
+  never after a failed publish — with `contents: write`, which no other job in
+  the workflow has. It makes the release from `packaging/release-notes/<tag>.md`:
+  the heading is the title, the rest the body, `--verify-tag`, and `--latest`
+  for a release or `--prerelease --latest=false` for a candidate — explicit
+  every time, because GitHub makes each new release Latest by default. A
+  release that exists already is left as it is, so re-running the tag
+  recovers this job as it recovers the publishes.
+- **The site.** `pages.yml` deploys on a push to main that changes `site/`,
+  and also when a `release` run succeeds. GitHub does not always deliver a
+  push: for 0.30.4's release merge it delivered none, and the site said v0.30.3
+  the next day. The second trigger is `workflow_run`, not a tag: the
+  github-pages environment admits deployments from main only, matched against
+  the run's `GITHUB_REF`, and a `workflow_run` run's is the default branch. It
+  deploys main's HEAD, never the tag's tree.
+- **The check.** `.github/workflows/surfaces.yml` runs after a `release` run
+  of a stable tag succeeds, read-only, and runs `packaging/release-surfaces.mjs`:
+  one row per surface — the tag on main, the GitHub Release, the README's
+  badge, each package's dist-tag and readme, the site's footer and its llms
+  files — re-read once a minute for up to 15 minutes. It is a workflow of its
+  own so that `release`'s colour keeps meaning "published": **a red `surfaces`
+  run means published, not yet visible.** Run the fix its failing row names (for
+  the site, `gh workflow run pages.yml --ref main`), then **Re-run failed jobs**
+  on that run. A candidate is checked by dispatching the workflow with its
+  version:
+
+  ```sh
+  gh workflow run surfaces.yml -f version=0.31.0-rc.1
+  ```
+
+By hand — a release made outside CI, or a check from a laptop — the same
+file makes the release; with `v0.30.5` for the tag, and `--prerelease
+--latest=false` in place of `--latest` for a candidate:
+
+```sh
+tail -n +2 packaging/release-notes/v0.30.5.md | tr -d '\r' | sed '/./,$!d' > /tmp/notes.md
+gh release create v0.30.5 --verify-tag --latest --title "$(sed -n '1s/^# //p' packaging/release-notes/v0.30.5.md | tr -d '\r')" --notes-file /tmp/notes.md
+```
+
+and the check runs from a checkout of main, reading the tag's files from
+GitHub. Without a token, api.github.com allows 60 reads an hour, and a
+15-minute wait can use most of them; `gh` lends its own:
+
+```sh
+GITHUB_TOKEN="$(gh auth token)" node packaging/release-surfaces.mjs --version 0.30.5 --wait 900
+```
+
+Exit 0 means every surface names the version; `--json` prints the rows.
 
 ## Shells
 

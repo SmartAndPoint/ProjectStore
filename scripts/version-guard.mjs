@@ -16,7 +16,15 @@
 // running it before a manual publish does not, because publish #1 is not
 // tag-triggered and nothing else covers it.
 //
-// Exit 0 when everything agrees, 1 on disagreement or a malformed manifest.
+// Then, with or without --tag, that the version has its release notes
+// (PS-HARNESS: "A release tag shows on every surface…"): the file
+// packaging/release-notes/v<version>.md, headed `# v<version> — <title>`, with
+// a body. The release workflow makes the GitHub Release from that file, so a
+// version without one is refused here — in the release PR, by test.yml and
+// `npm run release:check` — rather than on the tag.
+//
+// Exit 0 when everything agrees, 1 on disagreement, a malformed manifest or
+// missing notes.
 // Output is JSON on stdout, always, so a workflow step can quote it.
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
@@ -198,6 +206,44 @@ export function checkVersions({ root = ROOT, tag = null } = {}) {
   };
 }
 
+// The release notes (PS-HARNESS: "A release tag shows on every surface…").
+// Under packaging/, which never ships: the notes are the GitHub Release's
+// source, read from the repository by the release workflow.
+export const RELEASE_NOTES_DIR = "packaging/release-notes";
+export const releaseNotesPath = (version) => `${RELEASE_NOTES_DIR}/v${version}.md`;
+
+// The heading is the release's title as GitHub shows it, `v0.30.4 — <title>`
+// (an em dash, as every release title since v0.6.0 carries), and the body is
+// what the release says. Both must be there: a heading alone is the "tagged
+// without release notes" of 0.28.0 again.
+export function checkReleaseNotes({ root = ROOT, version }) {
+  const rel = releaseNotesPath(version);
+  const refuse = (what) => ({ ok: false, error: `${rel}: ${what}`, notes: rel });
+  if (!existsSync(resolve(root, rel))) return refuse("missing — the release workflow makes the GitHub Release from it");
+  const [first = "", ...rest] = readFileSync(resolve(root, rel), "utf8").split("\n");
+  const heading = first.replace(/\r$/, "");
+  // The version the heading names, up to a space or the dash: `# v0.30.4—x`
+  // names 0.30.4 and fails the shape, not the version.
+  const named = /^# v([^\s\u2014]+)/.exec(heading)?.[1];
+  if (named !== undefined && named !== version) return refuse(`the heading names v${named}, not v${version}`);
+  const prefix = `# v${version} — `;
+  if (!heading.startsWith(prefix) || !heading.slice(prefix.length).trim())
+    return refuse(`the first line must be "# v${version} — <title>"`);
+  if (!rest.join("\n").trim()) return refuse("no body under the heading — the notes are the release's text");
+  return { ok: true, notes: rel };
+}
+
+// The whole guard: the versions, then the notes for the version they agree
+// on. `checkVersions` stays as it was, so its callers (the packaging and
+// shells contracts) keep their scratch roots without notes.
+export function runGuard({ root = ROOT, tag = null } = {}) {
+  const v = checkVersions({ root, tag });
+  if (!v.ok) return v;
+  const n = checkReleaseNotes({ root, version: v.version });
+  if (!n.ok) return { ...n, version: v.version, checked: v.checked };
+  return { ...v, notes: n.notes };
+}
+
 // Everything at the repository root that is deliberately NOT in the tarball.
 // This list is the whole point of the tree check below: `npm pack` can only
 // report what `files[]` already allows, so comparing pack output against the
@@ -303,7 +349,7 @@ async function main(argv) {
     return;
   }
 
-  const result = checkVersions({ tag });
+  const result = runGuard({ tag });
   process.stdout.write(JSON.stringify(result) + "\n");
   if (!result.ok) process.exit(1);
 }

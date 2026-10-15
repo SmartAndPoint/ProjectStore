@@ -19,6 +19,14 @@ name: release
 # reach the registry by construction. Every publish step skips a
 # name@version the registry already has, so a partial release is recovered by
 # re-running the same tag, never by hand.
+
+# Then the GitHub Release, from the notes the release PR committed
+# (PS-HARNESS: "A release tag shows on every surface…"). Releases written by
+# hand drifted three times — the last time seven tags, v0.29.3 to v0.30.4, went
+# out with none, and the repository page and the README's badge said v0.29.2
+# while npm served 0.30.4. What a user then sees on every surface is checked by
+# surfaces.yml, a workflow of its own, so this run's colour keeps meaning
+# "published".
 on:
   push:
     tags: ["v*"]
@@ -141,3 +149,50 @@ jobs:
           else
             npm publish "./dist/${SHELL_NAME}-${VERSION}.tgz" --provenance --tag "${DIST_TAG}"
           fi
+
+  # The GitHub Release, after every publish and never before: a release that
+  # announces a version npm refused would be the drift this job exists to end.
+  # The `if` runs it when the shells' matrix was skipped (an empty publishable
+  # list) as well as when it passed; a bare `needs` would skip it then.
+  #
+  # The notes are packaging/release-notes/<tag>.md — "# <tag> — <title>", then
+  # the body — held to that shape by the version guard in the core job, so a
+  # tag without its notes stops before anything publishes.
+  #
+  # "Latest" is explicit on every create: GitHub makes each new release Latest
+  # by default, and a prerelease must never be. A release that exists already
+  # is left as it is, so re-running the tag recovers this job too. Reading it
+  # answers 200 (skip), 404 (create) or anything else, which fails the job
+  # rather than racing a create into a 422.
+  github-release:
+    needs: [core, shells]
+    if: ${{ !cancelled() && needs.core.result == 'success' && (needs.shells.result == 'success' || needs.shells.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # gh release create: the one contents: write in this workflow
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: The GitHub Release, from the committed notes, unless it exists already
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIST_TAG: ${{ needs.core.outputs.disttag }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          NOTES="packaging/release-notes/${TAG}.md"
+          STATUS="$(gh api -i "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>/dev/null | head -n 1 | cut -d' ' -f2 || true)"
+          case "$STATUS" in
+            200) echo "${TAG} has a GitHub Release already — skipping"; exit 0 ;;
+            404) ;;
+            *) echo "::error::reading the GitHub Release for ${TAG} answered ${STATUS:-nothing}"; exit 1 ;;
+          esac
+          # The guard reads a CRLF file too; the release gets no carriage returns.
+          TITLE="$(sed -n '1s/^# //p' "$NOTES" | tr -d '\r')"
+          tail -n +2 "$NOTES" | tr -d '\r' | sed '/./,$!d' > "$RUNNER_TEMP/notes.md"
+          case "$DIST_TAG" in
+            latest) gh release create "$TAG" --verify-tag --latest --title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md" ;;
+            next) gh release create "$TAG" --verify-tag --prerelease --latest=false --title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md" ;;
+            *) echo "::error::no dist-tag from the core job (\"${DIST_TAG}\"); a release would be guessed"; exit 1 ;;
+          esac
