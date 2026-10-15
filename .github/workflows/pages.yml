@@ -9,6 +9,19 @@ name: pages
 # dispatch, for the first deploy and for a redeploy after a Pages settings
 # change. A push to main that touches neither deploys nothing.
 
+# And a release run that succeeded (PS-HARNESS: "A release tag shows on every
+# surface…"). GitHub does not always deliver a push: for 0.30.4's release merge
+# (63e7bd5) it delivered none, so neither `test` nor this ran, and the site
+# said v0.30.3 the next day while npm and the tag said 0.30.4. The tag's own
+# push did fire. A `tags:` trigger here cannot use it: the github-pages
+# environment admits deployments from the branch main only, matched against
+# the run's GITHUB_REF, and a tag run's is refs/tags/v…. A workflow_run run's
+# GITHUB_REF is the default branch and its GITHUB_SHA main's last commit, so it
+# passes that rule unchanged and deploys main's HEAD — the tree a push deploy
+# ships, never the tag's, which would roll back a site-only change merged
+# after the release merge. It needs this file on main, so it starts with the
+# first release after the one that adds it.
+
 # A site change is not a release: it merges with no version bump and no tag,
 # and nothing here publishes to npm. A release's merge does change site/ — its
 # bump edits the version in site/src/_footer.html, rebuilds the pages and
@@ -28,6 +41,9 @@ on:
   push:
     branches: ["main"]
     paths: ["site/**", ".github/workflows/pages.yml"]
+  workflow_run:
+    workflows: [release]
+    types: [completed]
   workflow_dispatch:
 
 # Least privilege: read by default; each job names exactly what it uses, and
@@ -43,6 +59,8 @@ concurrency:
 
 jobs:
   build:
+    # A failed release deploys nothing new; deploy needs this job, so it skips too.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read # checkout

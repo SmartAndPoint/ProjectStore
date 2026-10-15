@@ -1,0 +1,62 @@
+name: surfaces
+
+# Reads what a user sees after a release (PS-HARNESS: "A release tag shows on
+# every surface…"): the tag on main, the GitHub Release as Latest, the README's
+# release badge, each package's npm dist-tag and readme, and the site's
+# version — packaging/release-surfaces.mjs, one row per surface.
+
+# A workflow of its own, not a job of `release`, so that run's colour keeps
+# meaning "published". A red run here means published, not yet visible: run
+# the fix the failing row names (for the site, `gh workflow run pages.yml
+# --ref main`), then "Re-run failed jobs" here.
+
+# Triggers: a `release` run that succeeded on a release tag, and a manual
+# dispatch with the version, which is how a prerelease is checked and how a
+# release is checked again. A release made with GITHUB_TOKEN fires no
+# workflow, so `on: release` would never start this; workflow_run does. It
+# needs this file on main, so it starts with the first release after the one
+# that adds it.
+
+# The window is 15 minutes (--wait 900), read once a minute: the registry
+# showed 0.30.2 about 7 minutes after its publish, other releases about 1,
+# and shields.io keeps the badge for minutes.
+on:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to check, without the v (a prerelease is checked only this way)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  surfaces:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v') && !contains(github.event.workflow_run.head_branch, '-')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # main's HEAD: the script reads the tag's own files over the network.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # The tag and the input reach the shell through env only, never as an
+      # expression inside `run`: a workflow_run's head_branch is text a pusher
+      # chose.
+      - name: Every surface names the version (re-read for up to 15 minutes)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="${INPUT_VERSION:-${RELEASE_TAG#v}}"
+          node packaging/release-surfaces.mjs --version "$VERSION" --wait 900
