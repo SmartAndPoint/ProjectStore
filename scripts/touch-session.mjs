@@ -33,6 +33,7 @@
 // user's tool call.
 
 import { existsSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import {
   readConfig,
   readStdinJson,
@@ -43,7 +44,8 @@ import {
   sessionFilePath,
   projectRoot,
   appendActivity,
-  isInsideVault,
+  vaultLocation,
+  vaultRootOf,
   pointerPatchFor,
   readSessionState,
   writeSessionState,
@@ -91,7 +93,7 @@ function layoutOnce(cfg) {
   return LAYOUT;
 }
 
-function anchorOffer(cfg, proj, sid, filePath, toolName, isSubagent, sessionsDir = null) {
+function anchorOffer(cfg, proj, sid, rel, toolName, isSubagent, sessionsDir = null) {
   // The two gates. The pointer patch below deliberately has neither: it answers
   // "what am I looking at", for which a Read is a fine answer. A NAME is a
   // claim about what the session is DOING, so a review session that greps
@@ -103,7 +105,6 @@ function anchorOffer(cfg, proj, sid, filePath, toolName, isSubagent, sessionsDir
   // tally and logs nothing for one (generation spec, contract 18).
   if (!speakingHarness()?.capabilities?.session_rename) return null;
 
-  const rel = filePath.slice(cfg.vault_path.length + 1);
   let hit;
   try {
     hit = anchorKeyOf(rel, layoutOnce(cfg));
@@ -181,11 +182,11 @@ function anchorOffer(cfg, proj, sid, filePath, toolName, isSubagent, sessionsDir
 // old status, and a close is the last touch a story gets (ADR-006 decision 1,
 // amended 2026-10-12). Any other tool's (a Read) is made on PreToolUse.
 // Returns the nudge's line, or null.
-function patchPointer(cfg, proj, sid, vaultPaths, toolName) {
+function patchPointer(cfg, proj, sid, placed, toolName) {
   const cur = readSessionState(proj, sid) || {};
   let patch = null;
-  for (const filePath of vaultPaths) {
-    const p = pointerPatchFor(cfg.vault_path, filePath, { ...cur, ...patch });
+  for (const { path, loc } of placed) {
+    const p = pointerPatchFor(cfg.vault_path, path, { ...cur, ...patch }, undefined, { loc });
     if (p) patch = { ...(patch || {}), ...p };
   }
 
@@ -193,7 +194,12 @@ function patchPointer(cfg, proj, sid, vaultPaths, toolName) {
   if (isWriteTool(toolName || "") && cfg.guard !== "off") {
     const last = cur.nudged_at ? Date.parse(cur.nudged_at) : 0;
     if (Date.now() - last > NUDGE_INTERVAL_MS) {
-      nudge = `projectstore: vault file edited directly — if this bypassed a ${commandForm("*")} command, run ${commandForm("reconcile")} (or doctor) afterwards so the board/indexes stay in sync.`;
+      // A reconcile acts on the bound vault, so an edit in a worktree's copy
+      // is reconciled there once it is merged, not now.
+      const inCopy = placed.some(({ loc }) => loc.root !== vaultRootOf(cfg.vault_path));
+      nudge = inCopy
+        ? `projectstore: vault file edited in a worktree of the vault — if this bypassed a ${commandForm("*")} command, run ${commandForm("reconcile")} in the bound vault after the merge so the board/indexes stay in sync.`
+        : `projectstore: vault file edited directly — if this bypassed a ${commandForm("*")} command, run ${commandForm("reconcile")} (or doctor) afterwards so the board/indexes stay in sync.`;
       patch = { ...(patch || {}), nudged_at: new Date().toISOString() };
     }
   }
@@ -246,7 +252,7 @@ async function entryBranch(cfg, proj, sid, filePath, input) {
 
   let verdict = readOpenStoryCache(proj, sid);
   if (verdict === null) {
-    verdict = await resolveOpenStory(cfg.vault_path);
+    verdict = await resolveOpenStory(cfg.vault_path, { storyRoot: readSessionState(proj, sid)?.story_root });
     writeOpenStoryCache(proj, sid, verdict);
   }
   // Reached either from a fresh sweep that hit its budget with reads still
@@ -312,7 +318,16 @@ async function main() {
   const filePaths = toolPaths(input);
   if (!filePaths.length) return;
 
-  const vaultPaths = filePaths.filter((p) => isInsideVault(p, cfg.vault_path));
+  // The vault side: any copy of the vault (a worktree included), with a
+  // relative tool path (Codex's apply_patch) taken against the payload's cwd.
+  // The entry rule below keeps the raw paths.
+  const cwd = input.cwd || proj;
+  const placed = [];
+  for (const p of filePaths) {
+    const abs = isAbsolute(p) ? p : resolve(cwd, p);
+    const loc = vaultLocation(abs, cfg.vault_path);
+    if (loc) placed.push({ path: abs, loc });
+  }
   const writes = isWriteTool(input.tool_name || "");
 
   if (event === "PostToolUse") {
@@ -321,9 +336,9 @@ async function main() {
     // false" is a failed call; every other shape passes.
     const response = input.tool_response;
     const failed = response && typeof response === "object" && response.success === false;
-    if (writes && !failed && vaultPaths.length) {
+    if (writes && !failed && placed.length) {
       try {
-        const nudge = patchPointer(cfg, proj, sid, vaultPaths, input.tool_name);
+        const nudge = patchPointer(cfg, proj, sid, placed, input.tool_name);
         if (nudge) messages.push(nudge);
       } catch {}
     }
@@ -345,12 +360,12 @@ async function main() {
 
   const messages = [];
   // A Read's pointer patch; a write's waits for PostToolUse (patchPointer).
-  if (!writes && vaultPaths.length) {
+  if (!writes && placed.length) {
     try {
-      patchPointer(cfg, proj, sid, vaultPaths, input.tool_name);
+      patchPointer(cfg, proj, sid, placed, input.tool_name);
     } catch {}
   }
-  for (const filePath of vaultPaths) {
+  for (const { path: filePath, loc } of placed) {
     try {
       appendActivity(cfg.vault_path, sid, filePath, input.tool_name);
     } catch {}
@@ -360,7 +375,7 @@ async function main() {
           cfg,
           proj,
           sid,
-          filePath,
+          loc.rel,
           input.tool_name,
           Boolean(input.agent_id || input.agent_type),
           process.env.PROJECTSTORE_SESSIONS_DIR || null,

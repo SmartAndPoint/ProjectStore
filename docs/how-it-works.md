@@ -76,6 +76,13 @@ corrupt pointer shows an error marker, never a false "no work". The renderer als
 drops a `.last-render.json` breadcrumb so `doctor` can detect session-id
 divergence between the status line process and the hooks.
 
+A session that works the vault through **git worktrees** — a `.worktrees/x/`
+folder inside it, or a checkout elsewhere — gets the same pointer: the hooks
+recognise any worktree of the vault's repository by reading git's own files, and
+the pointer remembers which copy the story lives in, so the band and the status
+line read the story there until it is merged and closed on the bound vault.
+Edits made through the shell are not seen; a Read of the story sets the pointer.
+
 ## Surviving `/compact`
 
 Continuity across a compaction is delivered by **SessionStart**, not by

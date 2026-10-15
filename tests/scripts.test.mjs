@@ -34,8 +34,11 @@ import {
   writeSessionState,
   writeAnchorOffer,
   refreshStoryPointer,
+  markerDir,
+  entryReminderText,
 } from "../scripts/lib.mjs";
-import { sourceHarness, loadHarnesses } from "../scripts/harness.mjs";
+import { sourceHarness, loadHarnesses, invocation } from "../scripts/harness.mjs";
+import { hermeticEnv } from "./fixtures/vocabulary.mjs";
 import { fileURLToPath } from "node:url";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -1365,7 +1368,7 @@ test("entry hook: read-only tool calls never count (spec contracts 2, 10)", () =
 
 // ── The Stop carrier (spec contract 14) ──
 
-function fireStop(proj, payload, { env = null, cwd = proj } = {}) {
+function fireStopRaw(proj, payload, { env = null, cwd = proj } = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-stop.mjs")], {
     encoding: "utf8",
     input: JSON.stringify({ hook_event_name: "Stop", ...payload }),
@@ -1374,7 +1377,10 @@ function fireStop(proj, payload, { env = null, cwd = proj } = {}) {
     cwd,
   });
   assert.equal(r.status, 0, `Stop hook must exit 0; stderr: ${r.stderr}`);
-  const out = r.stdout.trim();
+  return r.stdout;
+}
+function fireStop(proj, payload, opts) {
+  const out = fireStopRaw(proj, payload, opts).trim();
   return out ? JSON.parse(out) : null;
 }
 
@@ -1425,6 +1431,95 @@ test("Stop carrier: an open story suppresses it (contracts 5, 14)", () => {
   seedStory(vault, "story-a.md", "in-progress");
   for (const f of ["a.mjs", "b.mjs", "c.mjs"]) post(proj, join(proj, f), { sid: "s1" });
   assert.equal(fireStop(proj, { session_id: "s1" }), null);
+});
+
+// ── The Stop carrier per harness (contract 14, as amended 2026-10-15) ──
+//
+// What Stop may print is the identified harness's manifest's: context where it
+// is honoured, a block decision where only that is (Codex refuses
+// hookSpecificOutput on Stop, measured 2026-10-15), silence where nothing
+// identifies the harness. The environments are hermetic — a test run inside a
+// live session carries that session's marker — and built from the manifests.
+
+const SRC_H = sourceHarness();
+const BLOCK_H = [...loadHarnesses().values()].find((m) => m.output_channels?.Stop?.carrier === "block");
+const blockEnv = (extra = {}) => hermeticEnv({ [BLOCK_H.runtime.plugin_root_env]: REPO, ...extra });
+const contextEnv = (proj) =>
+  hermeticEnv({ [SRC_H.runtime.project_dir_env]: proj, [SRC_H.runtime.plugin_root_env]: REPO });
+const stopLog = (proj) =>
+  existsSync(entryLogPath(proj))
+    ? readFileSync(entryLogPath(proj), "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l))
+        .filter((e) => e.via === "Stop")
+    : [];
+// Over the threshold with no open story, through a subagent's writes, so the
+// main agent made none of its own and Stop is the carrier.
+function delegatedSession(sid = "s1") {
+  const { proj, vault } = seedHookProject();
+  seedStory(vault, "story-a.md", "planned");
+  const asAgent = { agent_id: "a1", agent_type: "general-purpose", sid };
+  for (const f of ["a.mjs", "b.mjs", "c.mjs"]) post(proj, join(proj, f), asAgent);
+  return { proj, vault };
+}
+
+test("Stop carrier on a block harness: exactly {decision, reason}, the reminder, one log line, no newline", () => {
+  assert.ok(BLOCK_H, "a manifest whose Stop honours only a block decision");
+  const { proj } = delegatedSession();
+  const env = blockEnv();
+  const raw = fireStopRaw(proj, { session_id: "s1", cwd: proj }, { env });
+  assert.ok(!raw.endsWith("\n"), "the bytes the host honoured: one object, no newline");
+  const out = JSON.parse(raw);
+  assert.deepEqual(Object.keys(out).sort(), ["decision", "reason"]);
+  assert.equal(out.decision, "block");
+  assert.equal(out.reason, entryReminderText(3, { env }), "the reminder, in the block harness's own forms");
+  assert.ok(out.reason.includes(invocation(BLOCK_H, "story", { args: '<EPIC> "<title>"' })), out.reason);
+  const log = stopLog(proj);
+  assert.equal(log.length, 1);
+  assert.equal(log[0].channel, "block");
+  assert.equal(fireStop(proj, { session_id: "s1", cwd: proj }, { env }), null, "the election still bounds the loop");
+  assert.equal(stopLog(proj).length, 1, "a silent second Stop logs nothing");
+});
+
+test("Stop carrier on a block harness that also sees the shared plugin-root names: still the block", () => {
+  const { proj } = delegatedSession();
+  const shared = Object.fromEntries((BLOCK_H.runtime.shared_env || []).map((k) => [k, REPO]));
+  const out = fireStop(proj, { session_id: "s1", cwd: proj }, { env: blockEnv(shared) });
+  assert.ok(out && out.decision === "block" && !("hookSpecificOutput" in out), JSON.stringify(out));
+});
+
+test("Stop carrier on the source harness: the bytes it always printed, logged as context", () => {
+  const { proj } = delegatedSession();
+  const env = contextEnv(proj);
+  const raw = fireStopRaw(proj, { session_id: "s1", cwd: proj }, { env });
+  assert.equal(
+    raw,
+    JSON.stringify({
+      hookSpecificOutput: { hookEventName: "Stop", additionalContext: entryReminderText(3, { env }) },
+    }) + "\n",
+  );
+  const log = stopLog(proj);
+  assert.equal(log.length, 1);
+  assert.equal(log[0].channel, "additionalContext");
+});
+
+test("Stop carrier with no harness identifying itself: silent, no election, no log, no vault read", () => {
+  const { proj } = delegatedSession();
+  assert.equal(fireStopRaw(proj, { session_id: "s1", cwd: proj }, { env: hermeticEnv() }), "");
+  assert.ok(!existsSync(markerDir(proj, "s1")), "no fired marker and no open-story verdict: nothing was read");
+  assert.deepEqual(stopLog(proj), []);
+  // Control: the same session under an identified harness speaks, so the
+  // silence came from identity, not from the score.
+  assert.ok(fireStop(proj, { session_id: "s1", cwd: proj }, { env: contextEnv(proj) }));
+});
+
+test("Stop carrier on a block harness: silent while stop_hook_active, then speaks", () => {
+  const { proj } = delegatedSession();
+  const env = blockEnv();
+  assert.equal(fireStop(proj, { session_id: "s1", cwd: proj, stop_hook_active: true }, { env }), null);
+  assert.ok(!existsSync(markerDir(proj, "s1")));
+  assert.equal(fireStop(proj, { session_id: "s1", cwd: proj }, { env }).decision, "block");
 });
 
 // ── The rule payload (spec contract 17) ──
@@ -1664,9 +1759,13 @@ test("Stop carrier: with no declared project dir, the config is read from the pa
 
   assert.ok(fireStop(b.proj, { session_id: "s1" }), "control: B is over threshold on its own env");
 
-  const out = fireStop(a.proj, { session_id: "s2", cwd: b.proj }, { env: envWithoutProjectDir(), cwd: a.proj });
+  // The harness that really has no project-dir variable is the block carrier's;
+  // it identifies itself by its plugin root (contract 14, as amended
+  // 2026-10-15: no identity, no carrier).
+  const env = envWithoutProjectDir({ [BLOCK_H.runtime.plugin_root_env]: REPO });
+  const out = fireStop(a.proj, { session_id: "s2", cwd: b.proj }, { env, cwd: a.proj });
   assert.ok(out, "the carrier speaks for the payload's project, which is over threshold");
-  assert.ok(out.hookSpecificOutput.additionalContext.includes("3 source files"));
+  assert.ok(out.reason.includes("3 source files"));
 });
 
 test("SessionStart: delivers on additionalContext, and the welcome renders once per project", () => {

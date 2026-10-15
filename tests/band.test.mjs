@@ -139,6 +139,7 @@ test("contract 13: status writes nothing and names one reason", async () => {
   let s = await status(envFor());
   assert.equal(s.reason, "no_epic");
   assert.equal(s.session_id, SID);
+  assert.match(s.session_hint, /a Read or an edit of a story file/, "the way to set it");
 
   const sessions = layoutPaths(proj).sessions;
   mkdirSync(sessions, { recursive: true });
@@ -146,6 +147,25 @@ test("contract 13: status writes nothing and names one reason", async () => {
   s = await status(envFor());
   assert.equal(s.session_epic, "PS-X");
   assert.equal(s.reason, "not_drawing");
+  assert.equal(s.session_hint, null, "a session with its own epic needs no hint");
+  assert.equal(s.session_story, null);
+  assert.equal(s.session_root, null);
+  // A story worked in a worktree of the vault (issue #87): status names it and
+  // the copy it lives in.
+  const copy = join(proj, "wt-copy");
+  mkdirSync(copy, { recursive: true });
+  writeFileSync(
+    join(sessions, `${SID}.json`),
+    JSON.stringify({ active_epic: "PS-X", active_story: "story-a", story_title: "Story A", story_root: copy }),
+  );
+  s = await status(envFor());
+  assert.equal(s.session_story, "Story A");
+  assert.equal(s.session_root, copy);
+  assert.ok((await band(proj, ["status"], { env: envFor() })).out.includes(`epic PS-X · story Story A · in ${copy}`));
+  rmSync(copy, { recursive: true });
+  s = await status(envFor());
+  assert.equal(s.session_root, null, "a removed worktree is not named");
+  writeFileSync(join(sessions, `${SID}.json`), JSON.stringify({ active_epic: "PS-X" }));
 
   writeFileSync(join(sessions, heartbeatFile(SID)), JSON.stringify(heartbeatBody(true, Date.now())));
   s = await status(envFor());
@@ -162,6 +182,11 @@ test("contract 13: status writes nothing and names one reason", async () => {
   rmSync(join(sessions, `${SID}.json`));
   s = await status(envFor());
   assert.equal(s.reason, "pin_missing");
+  assert.match(
+    s.session_hint,
+    /a Read or an edit of a story file/,
+    "pinned or not, an epic-less session hears how to set its own",
+  );
 
   s = await status(envFor({ PROJECTSTORE_HARNESS: "codex" }));
   assert.equal(s.reason, "harness");

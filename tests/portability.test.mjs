@@ -43,6 +43,9 @@ import {
   toolPaths,
   lintPatterns,
   harnessForOverlay,
+  stopCarrier,
+  stopCarrierProblem,
+  STOP_CARRIERS,
   commonBlockFiles,
   blockTargetProblem,
 } from "../scripts/harness.mjs";
@@ -163,7 +166,13 @@ test("generation contract 1: every manifest parses strictly and declares what th
       if (ch === null) continue; // unmeasured: the slot exists, the value does not
       assert.ok(Array.isArray(ch.fields), `${n}: output_channels.${ev}.fields`);
       assert.ok(["measured", "documented"].includes(ch.evidence), `${n}: output_channels.${ev}.evidence`);
+      if ("input_fields" in ch)
+        assert.ok(
+          Array.isArray(ch.input_fields) && ch.input_fields.every((k) => typeof k === "string"),
+          `${n}: output_channels.${ev}.input_fields is a list of stdin keys`,
+        );
     }
+    assert.equal(stopCarrierProblem(m), null, `${n}: its Stop carrier is one its row supports (contract 17)`);
     for (const [kind, s] of Object.entries(m.surfaces || {})) {
       if (kind.startsWith("_")) continue;
       assert.equal(typeof s.supported, "boolean", `${n}: surfaces.${kind}.supported`);
@@ -310,6 +319,35 @@ test("generation contract 16: the source harness is verified, so it is not exper
     "PreCompact has no model-facing hookSpecificOutput channel — measured negatively",
   );
   assert.equal(m.output_channels.Stop.evidence, "measured");
+});
+
+// The Stop carrier is our choice from what a row honours (contract 17, as
+// amended 2026-10-15): context needs additionalContext among the fields, a
+// block needs the block decision, and only a measured row may carry one.
+test("generation contract 17: Stop's carrier is one its row supports, and each refusal names why", () => {
+  const src = sourceHarness();
+  assert.equal(src.output_channels.Stop.carrier, "additionalContext", "the source harness's reminder stays context");
+  const block = manifests().find((m) => m.output_channels?.Stop?.carrier === "block");
+  assert.ok(block, "a harness whose Stop honours only a block decision carries the block");
+  assert.deepEqual(block.output_channels.Stop.fields, [], "a block carrier's row honours no Stop context");
+  assert.equal(block.output_channels.Stop.decision, "block");
+  assert.ok(Array.isArray(block.output_channels.Stop.input_fields), "its measured stdin keys live in input_fields");
+
+  const withStop = (row) => ({ output_channels: { Stop: row } });
+  const measured = { fields: ["additionalContext"], decision: "block", evidence: "measured" };
+  assert.equal(stopCarrierProblem(withStop(null)), null, "an unmeasured slot is no problem");
+  assert.equal(stopCarrierProblem({}), null);
+  const refusals = [
+    [{ ...measured }, /no carrier/],
+    [{ ...measured, carrier: "continue" }, /is not one of/],
+    [{ ...measured, fields: [], carrier: "additionalContext" }, /do not honour it/],
+    [{ ...measured, decision: null, carrier: "block" }, /decision is not "block"/],
+    [{ ...measured, decision: "permissionDecision", carrier: null }, /is not null or "block"/],
+    [{ ...measured, evidence: "documented", carrier: "block" }, /not measured/],
+  ];
+  for (const [row, why] of refusals) assert.match(stopCarrierProblem(withStop(row)) || "", why, JSON.stringify(row));
+  for (const carrier of [...STOP_CARRIERS, null])
+    assert.equal(stopCarrierProblem(withStop({ ...measured, carrier })), null, `${carrier} on a row that supports it`);
 });
 
 test("Codex adapter: every command, role and passive skill is rendered deterministically under the projectstore namespace", () => {
@@ -879,6 +917,63 @@ test("generation contract 1: the shipped manifests identify a Codex session by t
   } finally {
     process.chdir(cwd);
     rmSync(empty, { recursive: true, force: true });
+    resetManifests();
+    resetDetection();
+  }
+});
+
+// The Stop hook prints by the carrier of the harness that IDENTIFIES itself,
+// never by detection's fallbacks (entry spec, contract 14, as amended
+// 2026-10-15): a wrong shape is a refused hook that still spends the reminder.
+test("entry contract 14 (amended 2026-10-15): the Stop carrier is the identified harness's, else none", () => {
+  resetManifests();
+  resetDetection();
+  const src = sourceHarness();
+  const block = manifests().find((m) => m.output_channels?.Stop?.carrier === "block");
+  assert.ok(block);
+  assert.equal(stopCarrier(MEASURED_CODEX_HOOK_ENV, MANIFEST_DIR), "block", "the measured Codex hook environment");
+  assert.equal(stopCarrier({ [block.runtime.plugin_root_env]: "/p" }, MANIFEST_DIR), "block", "its plugin root alone");
+  assert.equal(
+    stopCarrier({ [src.runtime.project_dir_env]: "/p", [src.runtime.plugin_root_env]: "/p" }, MANIFEST_DIR),
+    "additionalContext",
+    "a source-harness hook",
+  );
+  assert.equal(stopCarrier({}, MANIFEST_DIR), null, "nothing identifies: silent");
+  for (const k of block.runtime.shared_env || [])
+    assert.equal(stopCarrier({ [k]: "/p" }, MANIFEST_DIR), null, `${k} alone is shared, so weak: silent`);
+  assert.equal(stopCarrier({ [block.runtime.home_env]: "/h" }, MANIFEST_DIR), null, "a home variable is weak: silent");
+  for (const m of manifests())
+    assert.equal(stopCarrier({ PROJECTSTORE_HARNESS: m.id }, MANIFEST_DIR), m.output_channels?.Stop?.carrier ?? null);
+  assert.equal(stopCarrier({ PROJECTSTORE_IDENTIFIED: "" }, MANIFEST_DIR), null, "a parent that decided nothing");
+
+  // A harness with no measured carrier, or one the hook does not know, is silence.
+  const dir = mkdtempSync(join(tmpdir(), "ps-manifests-"));
+  for (const m of manifests()) writeFileSync(join(dir, `${m.id}.json`), JSON.stringify(m), "utf8");
+  const third = (id, Stop) => ({
+    ...src,
+    id,
+    display_name: id,
+    emit: false,
+    source_layout: false,
+    output_channels: { Stop },
+  });
+  writeFileSync(join(dir, "zz-none.json"), JSON.stringify(third("zz-none", null)), "utf8");
+  writeFileSync(
+    join(dir, "zz-null.json"),
+    JSON.stringify(third("zz-null", { fields: [], decision: null, carrier: null, evidence: "measured" })),
+    "utf8",
+  );
+  writeFileSync(
+    join(dir, "zz-odd.json"),
+    JSON.stringify(third("zz-odd", { fields: [], decision: "block", carrier: "systemMessage", evidence: "measured" })),
+    "utf8",
+  );
+  try {
+    resetManifests();
+    for (const id of ["zz-none", "zz-null", "zz-odd"])
+      assert.equal(stopCarrier({ PROJECTSTORE_HARNESS: id }, dir), null, id);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
     resetManifests();
     resetDetection();
   }

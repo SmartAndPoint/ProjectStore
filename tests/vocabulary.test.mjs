@@ -13,7 +13,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, rmSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
@@ -25,8 +25,11 @@ import {
   identifiedHarnessId,
   resetDetection,
   uiWordPatterns,
+  overlayId,
+  detectHarnessId,
+  loadHarness,
 } from "../scripts/harness.mjs";
-import { sessionNameOfferText, inheritForm, sharedRoleForm } from "../scripts/lib.mjs";
+import { sessionNameOfferText, inheritForm, sharedRoleForm, writeOverlayAt, layoutPaths } from "../scripts/lib.mjs";
 import {
   checkStatusline,
   checkAutoUpdate,
@@ -214,6 +217,179 @@ test("contract 18: a core inside <shell>/node_modules/projectstore belongs to th
   });
   assert.ok((r.stdout + r.stderr).includes(invocation(shell, "bind", { args: "<vault>" })), r.stdout + r.stderr);
   assert.deepEqual(foreignHits(r.stdout + r.stderr, foreignPatterns(ROOT, shell.id)), []);
+});
+
+// ─── The overlay's resolver (layout spec, contract 2, as amended 2026-10-15) ─
+
+// A rendered skill's command runs with no variable of its harness (Codex's exec
+// tool carries none), so the overlay it reads must come from the shell that
+// bundles the core — the speaker's middle rungs — before the cwd's folder,
+// which answers for the source harness in a project that has one.
+const overlayOf = (id) => {
+  const h = loadHarness(id) || SRC;
+  return h.runtime?.overlay || h.id;
+};
+
+test("layout contract 2 (amended 2026-10-15): the overlay's harness — identified, the bundling shell, the named shell, else detection", () => {
+  for (const m of MANIFESTS.filter((x) => x.install?.shell)) {
+    const tree = tmp("ps-vocab-overlay-");
+    const core = join(tree, "node_modules", "projectstore");
+    mkdirSync(core, { recursive: true });
+    writeFileSync(join(tree, "package.json"), JSON.stringify({ name: m.install.shell }) + "\n");
+    const mine = overlayOf(m.id);
+    assert.equal(overlayId(cleanEnv(), undefined, { core }), mine, `${m.id}: nothing identifies — the bundling shell`);
+
+    // Identification decides first, for every other harness.
+    for (const o of MANIFESTS.filter((x) => x.id !== m.id)) {
+      const theirs = overlayOf(o.id);
+      assert.equal(overlayId(cleanEnv({ PROJECTSTORE_HARNESS: o.id }), undefined, { core }), theirs, "forced");
+      assert.equal(
+        overlayId(cleanEnv({ PROJECTSTORE_IDENTIFIED: o.id }), undefined, { core }),
+        theirs,
+        "a parent's decision",
+      );
+      assert.equal(overlayId(cleanEnv(hostEnv(o, "/p")), undefined, { core }), theirs, `${o.id}'s strong signal`);
+      for (const k of o.runtime.session_env || [])
+        assert.equal(overlayId(cleanEnv({ [k]: "1" }), undefined, { core }), theirs, `${o.id}'s session marker ${k}`);
+    }
+
+    // A parent that decided nothing, or named no harness we know, decides nothing.
+    assert.equal(
+      overlayId(cleanEnv({ PROJECTSTORE_IDENTIFIED: "" }), undefined, { core }),
+      mine,
+      "empty: falls through",
+    );
+    assert.equal(
+      overlayId(cleanEnv({ PROJECTSTORE_IDENTIFIED: "no-such-harness" }), undefined, { core }),
+      mine,
+      "unknown: falls through",
+    );
+    if (SRC.runtime.project_dir_env && m.id !== SRC.id)
+      assert.equal(
+        overlayId(cleanEnv({ PROJECTSTORE_IDENTIFIED: "", [SRC.runtime.project_dir_env]: "/p" }), undefined, { core }),
+        mine,
+        "a child's project variable, written after its parent decided nothing, is not an identity",
+      );
+
+    // The npx layout: the core hoisted beside the shell, which names itself.
+    assert.equal(overlayId(cleanEnv({ PROJECTSTORE_SHELL: m.install.shell }), undefined, { core: ROOT }), mine);
+
+    // Detection's other callers are pinned unchanged from a packed tree, in a
+    // subprocess (the test below): in-process they take no core to differ by.
+    // The bundle is the core's own; a shell the environment names is a fallback
+    // for a core outside any shell — another shell's name never outranks it.
+    for (const o of MANIFESTS.filter((x) => x.install?.shell && x.id !== m.id))
+      assert.equal(overlayId(cleanEnv({ PROJECTSTORE_SHELL: o.install.shell }), undefined, { core }), mine);
+  }
+
+  // Outside any shell, and with no shell named: detection's answer, unchanged.
+  const npx = tmp("ps-vocab-overlay-npx-");
+  const hoisted = join(npx, "node_modules", "projectstore");
+  mkdirSync(hoisted, { recursive: true });
+  writeFileSync(join(npx, "package.json"), JSON.stringify({ name: "someone-elses-package" }) + "\n");
+  const envs = [
+    cleanEnv(),
+    ...MANIFESTS.filter((m) => m.runtime.home_env).map((m) => cleanEnv({ [m.runtime.home_env]: "/h" })),
+  ];
+  for (const env of envs)
+    for (const core of [ROOT, hoisted])
+      assert.equal(overlayId(env, undefined, { core }), overlayOf(detectHarnessId(env)), JSON.stringify(env));
+});
+
+test("layout contract 2 (amended 2026-10-15): a core in a shell's tree reads that shell's overlay, in a project with the source harness's folder", () => {
+  for (const m of MANIFESTS.filter((x) => x.install?.shell && x.id !== SRC.id)) {
+    const core = packedShell(m);
+    const proj = tmp("ps-vocab-overlay-proj-");
+    mkdirSync(join(proj, SRC.runtime.harness_dir), { recursive: true });
+    writeBinding(proj, { vault_path: tmp("ps-vocab-overlay-vault-"), layout: "engineering" });
+    const src = overlayOf(SRC.id);
+    const mine = overlayOf(m.id);
+    writeOverlayAt(
+      proj,
+      src,
+      { default: null, per_agent: { critic: "src-model" } },
+      { default: null, per_agent: { critic: "high" } },
+    );
+    writeOverlayAt(
+      proj,
+      mine,
+      { default: null, per_agent: { critic: "shell-model" } },
+      { default: null, per_agent: { critic: "medium" } },
+    );
+    const cli = (args, env = cleanEnv()) => {
+      const r = spawnSync(
+        process.execPath,
+        [join(core, "bin", "projectstore.mjs"), ...args, "--json", "--project", proj],
+        {
+          cwd: proj,
+          env,
+          encoding: "utf8",
+          timeout: 60000,
+        },
+      );
+      assert.equal(r.status, 0, r.stdout + r.stderr);
+      return JSON.parse(r.stdout).result;
+    };
+    const suffix = (id) => relative(proj, layoutPaths(proj).overlay(id));
+
+    const model = cli(["agents", "model", "critic"]);
+    assert.equal(model.harness, mine, JSON.stringify(model));
+    assert.equal(model.model, "shell-model");
+    assert.equal(model.effort, "medium");
+    assert.ok(model.overlay.endsWith(suffix(mine)), model.overlay);
+
+    const show = cli(["agents", "show"]);
+    assert.equal(show.harness, mine);
+    assert.ok(show.path.endsWith(suffix(mine)), show.path);
+    assert.equal(show.resolved.critic.model, "shell-model");
+    assert.equal(show.resolved.critic.effort, "medium");
+
+    const named = cli(["agents", "model", "critic", "--harness", SRC.id]);
+    assert.equal(named.model, "src-model", "--harness names the overlay");
+    assert.equal(named.effort, "high");
+
+    // A session of the source harness that runs this tree's core is still that
+    // session — and a Codex launched inside it inherits the marker (the
+    // story's known limitation).
+    if ((SRC.runtime.session_env || []).length)
+      assert.equal(
+        cli(["agents", "model", "critic"], cleanEnv({ [SRC.runtime.session_env[0]]: "1" })).model,
+        "src-model",
+      );
+
+    // An override variable is the detected harness's, so doctor names the
+    // overlay that variable outranks — never the listener's.
+    const effortVar = (SRC.runtime.agent_overrides || []).find((o) => o.kind === "effort")?.env;
+    if (effortVar) {
+      const r = spawnSync(
+        process.execPath,
+        [join(core, "bin", "projectstore.mjs"), "doctor", "--install", "--json", "--project", proj],
+        { cwd: proj, env: cleanEnv({ [effortVar]: "low" }), encoding: "utf8", timeout: 60000 },
+      );
+      const f = JSON.parse(r.stdout).result.find((x) => x.check === "env-effort");
+      assert.ok(f, r.stdout + r.stderr);
+      assert.ok(f.message.includes(suffix(src)), f.message);
+      assert.ok(!f.message.includes(suffix(mine)), f.message);
+    }
+
+    // The scope: detection and activeHarness still answer by the cwd's folder.
+    const pin = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        "const h = await import(process.env.PS_MODULE); console.log(JSON.stringify({ detect: h.detectHarnessId(), active: h.activeHarness().id, overlay: h.overlayId(), speaking: h.speakingHarnessId() }));",
+      ],
+      {
+        cwd: proj,
+        env: cleanEnv({ PS_MODULE: join(core, "scripts", "harness.mjs") }),
+        encoding: "utf8",
+        timeout: 60000,
+      },
+    );
+    assert.equal(pin.status, 0, pin.stderr);
+    assert.deepEqual(JSON.parse(pin.stdout), { detect: SRC.id, active: SRC.id, overlay: mine, speaking: m.id });
+  }
 });
 
 // ─── The forms ──────────────────────────────────────────────────────────
@@ -631,7 +807,10 @@ test("contract 18, layer 3: a pre-0.28 project, run from another shell's tree, h
       `the advice branch ran: ${layout.message}`,
     );
     const agents = json.result.find((f) => f.check === "agents-in-binding");
-    if (agents) assert.equal(agents.about, SRC.id, agents.message);
+    assert.ok(agents, `${m.id}: the old binding's agents block is reported:\n${outs["doctor json"]}`);
+    assert.equal(agents.about, SRC.id, agents.message);
+    // The move writes the source harness's overlay, whoever listens.
+    assert.ok(agents.message.includes(relative(proj, layoutPaths(proj).overlay(overlayOf(SRC.id)))), agents.message);
     const pats = foreignPatterns(ROOT, m.id);
     const about = aboutMessages(outs["doctor json"], m.id);
     for (const [label, out] of Object.entries(outs))

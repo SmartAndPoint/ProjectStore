@@ -25,6 +25,7 @@ import {
   AGENT_PREFIX,
   LINGER_MS,
   countsText,
+  focusRoots,
   goalForms,
   goalOf,
   heartbeatFile,
@@ -98,7 +99,7 @@ type Band = {
   shownKey: string
   stories: Map<string, { sig: string } & Stories>
   shipped: Map<string, Json>
-  place: { vault: string | null; kinds: string[] }
+  place: { vault: string | null; kinds: string[]; roots: string[] }
 }
 
 function newBand(): Band {
@@ -112,7 +113,7 @@ function newBand(): Band {
     shownKey: '',
     stories: new Map(),
     shipped: new Map(),
-    place: { vault: null, kinds: [] },
+    place: { vault: null, kinds: [], roots: [] },
   }
 }
 
@@ -260,7 +261,7 @@ async function scan($: EngineInterface, b: Band, root: string, sid: string | nul
   const vault = typeof binding.vault_path === 'string' ? binding.vault_path : null
   if (!vault) return null
   const lay = await layoutOf($, b, typeof binding.layout === 'string' ? binding.layout : 'engineering')
-  b.place = { vault, kinds: lay.kinds }
+  b.place = { vault, kinds: lay.kinds, roots: [vault] }
   const band: Json = binding.band && typeof binding.band === 'object' ? binding.band : {}
   if (band.enabled === false || !lay.epics) return null
   const lang = typeof binding.language === 'string' ? binding.language : 'en'
@@ -273,14 +274,24 @@ async function scan($: EngineInterface, b: Band, root: string, sid: string | nul
   if (pointer === UNREADABLE) return null
   const own = pointer && isEpicName(pointer.active_epic) ? (pointer.active_epic as string) : null
   const pin = isEpicName(band.epic) ? (band.epic as string) : null
-  let focus: { id: string; why: 'this' | 'pinned' } | null = null
-  if (own && (await isDir($, `${vault}/${lay.epics}/${own}`))) focus = { id: own, why: 'this' }
-  else if (pin && (await isDir($, `${vault}/${lay.epics}/${pin}`))) focus = { id: pin, why: 'pinned' }
+  // This session's epic is read from the copy of the vault its story lives in
+  // (the pointer's story_root, a worktree) when that copy has the epic, else
+  // from the vault; the pin always from the vault (issue #87).
+  const roots = focusRoots(pointer as Json | null, vault)
+  b.place = { vault, kinds: lay.kinds, roots }
+  let focus: { id: string; why: 'this' | 'pinned'; base: string } | null = null
+  if (own)
+    for (const base of roots)
+      if (await isDir($, `${base}/${lay.epics}/${own}`)) {
+        focus = { id: own, why: 'this', base }
+        break
+      }
+  if (!focus && pin && (await isDir($, `${vault}/${lay.epics}/${pin}`))) focus = { id: pin, why: 'pinned', base: vault }
   if (!focus) return null
 
   // The focused epic's epic.md that cannot be read draws nothing: never the
   // pin in its place.
-  const epicDir = `${vault}/${lay.epics}/${focus.id}`
+  const epicDir = `${focus.base}/${lay.epics}/${focus.id}`
   const text = await readText($, `${epicDir}/epic.md`)
   if (text === null) return null
   const fm = parseFrontmatter(text).data as Json
@@ -594,7 +605,7 @@ export const register: Register = on => {
       try {
         const agent = (await read($, crew)).find(a => a.id === id)
         const v = agent?.status === 'running' ? await read($, view) : null
-        const step = agent?.status === 'running' && v ? stepOf(e as unknown as Json, b.place.vault, v.words) : null
+        const step = agent?.status === 'running' && v ? stepOf(e as unknown as Json, b.place.roots, v.words) : null
         if (step && (await read($, steps))[id] !== step) await update($, steps, d => ({ ...d, [id]: step }))
       } catch {
         // A step the band failed to note never holds up the tool.

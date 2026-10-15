@@ -80,6 +80,31 @@ test('contract 2: a pin fills a session with no epic, never one with its own', a
   await ui.unmount()
 })
 
+test("contract 2 (amended 2026-10-15): this session's epic is read from the worktree copy its story lives in; the pin from the vault", async ($, on) => {
+  hostBand(on)
+  const WT = '/wt/vault'
+  const w = world(on, {
+    [BINDING_PATH]: binding({ band: { epic: 'PS-WT' } }),
+    [`${WT}/epics/PS-NEW/epic.md`]: '---\ntype: epic\nid: "PS-NEW"\ntitle: "Born in a worktree"\nstatus: planned\n---\n\n## Goal\n\nOnly on a branch.\n',
+    [`${WT}/epics/PS-NEW/stories/n.md`]: story('in-progress', 'New story'),
+    [`${SESSIONS}/s1.json`]: JSON.stringify({ active_epic: 'PS-NEW', active_story: 'n', story_root: WT }),
+  })
+  await start($, w)
+  let ui = await mount($, 'terminal')
+  expect(await ui.find({ type: 'Text', text: /📚 PS-NEW Born in a worktree · this session/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /story New story · in progress/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /PS-WT/ })).toBeUndefined()
+  await ui.unmount()
+
+  // The worktree removed: the session's epic is nowhere, so the pin fills it, from the vault.
+  w.drop(`${WT}/epics/PS-NEW/stories/n.md`)
+  w.drop(`${WT}/epics/PS-NEW/epic.md`)
+  await w.clock.advance(6_000)
+  ui = await mount($, 'terminal')
+  expect(await ui.find({ type: 'Text', text: /📚 PS-WT Parallel sessions · pinned/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('contract 2: no epic of its own and no pin — the host draws its own band', async ($, on) => {
   hostBand(on)
   const w = world(on, { [BINDING_PATH]: binding(), [`${SESSIONS}/other.json`]: pointer('PS-HARNESS') })

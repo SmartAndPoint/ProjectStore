@@ -411,6 +411,46 @@ export function activeHarness(env = process.env, dir = MANIFEST_DIR) {
   return loadHarness(detectHarnessId(env, dir), dir) || sourceHarness(dir);
 }
 
+// ─── The Stop carrier (generation spec, contract 17; entry spec, contract 14,
+// as amended 2026-10-15) ────────────────────────────────────────────────
+//
+// The shape the entry reminder's Stop carrier prints, from the manifest of the
+// harness that IDENTIFIES itself — a forced harness, a parent's decision, a
+// strong signal or a session marker. Never detection's cwd folder, weak ranking or source
+// fallback: a wrong answer here is a hook the host refuses (Codex's Stop schema
+// denies hookSpecificOutput, measured 2026-10-15), and a refused print would
+// still spend the session's reminder. Nothing identified, or no carrier
+// measured, is null: the hook stays silent.
+export const STOP_CARRIERS = Object.freeze(["additionalContext", "block"]);
+export function stopCarrier(env = process.env, dir = MANIFEST_DIR) {
+  const id = identifiedHarnessId(env, dir);
+  const carrier = id ? loadHarness(id, dir)?.output_channels?.Stop?.carrier : null;
+  return STOP_CARRIERS.includes(carrier) ? carrier : null;
+}
+
+// What is wrong with a manifest's Stop row, or null. The carrier is our choice
+// and must be one its row supports: context needs `additionalContext` among the
+// honoured fields, a block needs the block decision, and a carrier is only
+// ever chosen from a measured row. Shared by the manifest check and its
+// planted fixtures.
+export function stopCarrierProblem(manifest) {
+  const row = manifest?.output_channels?.Stop;
+  if (row === null || row === undefined) return null;
+  if (typeof row !== "object") return "output_channels.Stop is not an object";
+  if (!("carrier" in row)) return "output_channels.Stop has no carrier (null when none is measured)";
+  if (![...STOP_CARRIERS, null].includes(row.carrier))
+    return `output_channels.Stop.carrier ${JSON.stringify(row.carrier)} is not one of ${STOP_CARRIERS.join(", ")} or null`;
+  if (![null, "block"].includes(row.decision))
+    return `output_channels.Stop.decision ${JSON.stringify(row.decision)} is not null or "block"`;
+  if (row.carrier === null) return null;
+  if (row.evidence !== "measured") return "output_channels.Stop.carrier is set on a row that is not measured";
+  if (row.carrier === "additionalContext" && !(row.fields || []).includes("additionalContext"))
+    return "output_channels.Stop.carrier is additionalContext, but its fields do not honour it";
+  if (row.carrier === "block" && row.decision !== "block")
+    return 'output_channels.Stop.carrier is block, but its decision is not "block"';
+  return null;
+}
+
 // ─── Who a message is for (generation spec, contract 18) ───────────────
 //
 // The core prints for ONE harness at a time, and a command it names must be
@@ -765,9 +805,20 @@ export function shellHarnessId(env = process.env, dir = MANIFEST_DIR) {
 
 // The overlay a harness reads: <project>/.projectstore/harness/<overlay>.json —
 // the manifest's runtime.overlay, the harness id by convention (the layout ADR,
-// decision 3). Null only when no manifest at all can be found.
-export function overlayId(env = process.env, dir = MANIFEST_DIR) {
-  const h = activeHarness(env, dir);
+// decision 3). Whose (layout spec, contract 2, as amended 2026-10-15): the
+// harness that identifies itself; else the shell that bundles this core; else
+// the shell the environment names; else detectHarnessId's answer (the cwd's
+// harness folder, the weak ranking, the source harness). Contract 18's middle
+// rungs with detection's tail: a rendered skill's exec tool carries no variable
+// of its harness, and the cwd's folder would answer for it. --harness stays the
+// caller's (cli.mjs runAgents). Null only when no manifest at all can be found.
+export function overlayId(env = process.env, dir = MANIFEST_DIR, { core } = {}) {
+  const id =
+    identifiedHarnessId(env, dir) ||
+    bundlingShellHarnessId({ core, dir }) ||
+    shellHarnessId(env, dir) ||
+    detectHarnessId(env, dir);
+  const h = loadHarness(id, dir) || sourceHarness(dir);
   return h?.runtime?.overlay || h?.id || null;
 }
 

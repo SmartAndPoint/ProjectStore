@@ -29,7 +29,7 @@
     ],
     "shared_env_reason": "Codex sets Claude Code's plugin-root names too, for compatibility — measured in every one of the 759 captured hook payloads. Without declaring them, a Codex session scores a strong detection hit for claude-code, ties with codex, and loses the tie to manifest filename order. A variable two harnesses both set identifies neither, so these are demoted to weak for every manifest (generation spec, contract 1, amended 2026-09-08).",
     "session_env": [],
-    "session_env_reason": "Deliberately empty, though measured. Codex's exec tool sets CODEX_THREAD_ID and CODEX_SESSION_ID in every command (measured 2026-10-05, codex-cli 0.160.0; CODEX_SANDBOX* depend on the sandbox mode), and CODEX_HOME never appeared in a hook environment. Declaring them would identify a session, but session_env also defers the registration and the layout move inside a session (insideHostSession), which would stop the doctor skill's upgrade --json fix from running there. Splitting identity from deferral is the question of *Codex hook contract measured in a live session* (PS-HARNESS); until then a core run from a rendered skill is identified by the shell that bundles it (generation spec, contract 18). The deferral half of that split is registration_defer_env below (the maintainer's decision of 2026-10-08).",
+    "session_env_reason": "Deliberately empty, though measured. Codex's exec tool sets CODEX_THREAD_ID and CODEX_SESSION_ID in every command (measured 2026-10-05, codex-cli 0.160.0; CODEX_SANDBOX* depend on the sandbox mode), and CODEX_HOME never appeared in a hook environment. Declaring them would identify a session, but session_env also defers the registration and the layout move inside a session (insideHostSession), which would stop the doctor skill's upgrade --json fix from running there. It stays empty, decided 2026-10-15 at the close of *Codex hook contract measured in a live session* (PS-HARNESS): a core run from a rendered skill is identified by the shell that bundles it — what it prints (generation spec, contract 18) and which overlay it reads (layout spec, contract 2, as amended 2026-10-15). The deferral half of that split is registration_defer_env below (the maintainer's decision of 2026-10-08).",
     "registration_defer_env": [
       "CODEX_THREAD_ID"
     ],
@@ -72,9 +72,9 @@
     "_root_placeholder_literal_comment": "true: Codex substitutes nothing in a hook command string. It does not need to — the hook process receives PLUGIN_ROOT in its environment (measured). The generator therefore renders an absolute interpreter and an absolute script path; a bare `node` is a PATH gamble."
   },
   "output_channels": {
-    "_comment": "Per-event payload fields, captured from live firings. `fields` here are the STDIN keys the event delivers — Codex's documented output channels (additionalContext and a decision object) are not yet measured, so `decision` stays null and `system_message` null rather than false.",
+    "_comment": "Per-event channels (generation spec, contract 17, as amended 2026-10-15). `fields` are the hookSpecificOutput keys the event honours — the output side, as on every manifest; `input_fields` are the stdin keys it delivers, captured from live firings (759 on 2026-09-07/08; Run 4 of *Codex hook contract measured in a live session*, codex-cli 0.162.1, 2026-10-15, traces t1–t7). `decision` names the decision object where one exists; Stop's `carrier` is the shape the entry reminder's Stop carrier prints (additionalContext | block | null). `system_message` stays null: documented, not measured. `evidence` is about the output side.",
     "SessionStart": {
-      "fields": [
+      "input_fields": [
         "session_id",
         "transcript_path",
         "cwd",
@@ -83,13 +83,16 @@
         "permission_mode",
         "source"
       ],
+      "fields": [
+        "additionalContext"
+      ],
       "system_message": null,
       "decision": null,
       "evidence": "measured",
-      "note": "additionalContext reaches the model: asked to name the vault and count its ADRs without reading files, the model answered from the skeleton and was right."
+      "note": "additionalContext reaches the model: asked to name the vault and count its ADRs without reading files, the model answered from the skeleton and was right; Run 4 saw it as a developer-role message at `startup` and again after `compact` (t1, t2:7)."
     },
     "UserPromptSubmit": {
-      "fields": [
+      "input_fields": [
         "session_id",
         "turn_id",
         "transcript_path",
@@ -99,12 +102,16 @@
         "permission_mode",
         "prompt"
       ],
+      "fields": [
+        "additionalContext"
+      ],
       "system_message": null,
       "decision": null,
-      "evidence": "measured"
+      "evidence": "measured",
+      "note": "additionalContext reaches the model (Run 4, t1). Not registered by projectstore."
     },
     "PreToolUse": {
-      "fields": [
+      "input_fields": [
         "session_id",
         "turn_id",
         "transcript_path",
@@ -116,13 +123,16 @@
         "tool_input",
         "tool_use_id"
       ],
+      "fields": [
+        "additionalContext"
+      ],
       "system_message": null,
       "decision": null,
-      "evidence": "measured",
-      "note": "372 firings. Codex has a dedicated PermissionRequest event, so whether a decision returned from PreToolUse is honoured is unmeasured and must not be assumed."
+      "evidence": "documented",
+      "note": "input_fields measured (372 firings; Run 4 t1:3); tool_name is `apply_patch` for edits and `Bash` for shell commands. Codex has a dedicated PermissionRequest event, so whether a decision returned from PreToolUse is honoured is unmeasured and must not be assumed."
     },
     "PostToolUse": {
-      "fields": [
+      "input_fields": [
         "session_id",
         "turn_id",
         "transcript_path",
@@ -135,13 +145,16 @@
         "tool_response",
         "tool_use_id"
       ],
+      "fields": [
+        "additionalContext"
+      ],
       "system_message": null,
       "decision": null,
       "evidence": "measured",
-      "note": "371 firings. tool_response is NOT one shape: 368 strings and 3 content-block arrays (all webrun). Claude Code sends an object. Nothing may depend on it."
+      "note": "371 firings. tool_response is NOT one shape: 368 strings and 3 content-block arrays (all webrun). Claude Code sends an object. Nothing may depend on it. additionalContext reaches the model (Run 4, t1); PostToolUse does not fire for a failed apply_patch (t1:5)."
     },
     "Stop": {
-      "fields": [
+      "input_fields": [
         "session_id",
         "turn_id",
         "transcript_path",
@@ -152,12 +165,29 @@
         "stop_hook_active",
         "last_assistant_message"
       ],
+      "fields": [],
+      "system_message": null,
+      "decision": "block",
+      "carrier": "block",
+      "evidence": "measured",
+      "note": "Codex's Stop output schema denies unknown fields: hookSpecificOutput is refused with `hook: Stop Failed` (Run 4, t3c). decision:block with a reason is honoured: the reason enters the same turn as a user-role <hook_prompt> (rollout item HookPrompt), and Stop fires again with stop_hook_active true (t4:3, t4:4). In a headless `codex exec` the model's answer to it becomes the run's last message; another hook's continue:false takes precedence. last_assistant_message has no Claude Code counterpart."
+    },
+    "PreCompact": {
+      "input_fields": [
+        "session_id",
+        "turn_id",
+        "transcript_path",
+        "cwd",
+        "hook_event_name",
+        "model",
+        "trigger"
+      ],
+      "fields": [],
       "system_message": null,
       "decision": null,
-      "evidence": "measured",
-      "note": "stop_hook_active is present, so hooks/session-stop.mjs's loop guard ports unchanged. last_assistant_message has no Claude Code counterpart."
-    },
-    "PreCompact": null
+      "evidence": "documented",
+      "note": "trigger is `auto` on an automatic compaction, and PostCompact follows (Run 4, t2:5–6). No permission_mode. Whether a systemMessage reaches anyone on Codex is unmeasured."
+    }
   },
   "surfaces": {
     "agents": {
