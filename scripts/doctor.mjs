@@ -92,6 +92,7 @@ import {
   bindInherits,
   doctorFallbackText,
   fromTerminalIn,
+  COPY_UPDATE_STEPS,
 } from "./lib.mjs";
 import {
   agentOverrides,
@@ -1166,7 +1167,7 @@ export function checkPluginRegistration(
             "info",
             "plugin-registration",
             [
-              `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and a /plugin update no longer reaches the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it, ${fromTerminalIn(proj)}, outside the session:`,
+              `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and its updates no longer reach the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it, ${fromTerminalIn(proj)}, outside the session:`,
               packageCommand(h, "uninstall", { version: s.pkg || "latest", args: `--surface ${s.surface}` }),
               "Restart, then in the session:",
               invocation(loadHarness(h.id) || speaker, "doctor", { args: "--fix" }),
@@ -1633,7 +1634,7 @@ export function layoutRemedy(
   const copy = selectCopy(home, proj, { harness });
   if (copy) {
     const v = copy.version ? ` (${copy.version})` : "";
-    const then = "and the startup line names the command";
+    const then = "and the next session's startup line names the command";
     if (copy.missing === "bin")
       return { advice: copyUpdateAdvice(copy, { cannot: "predates the move and cannot run it", then }) };
     // Chosen first, gated after: the copy is what the project runs, so an
@@ -1908,7 +1909,7 @@ export function checkAutoUpdate(home = homedir(), harness = speakingHarness(), {
         `Auto-update is OFF for marketplace "${marketplace}" (${why}) — new projectstore releases will not be noticed. ` +
           `Correct values: "autoUpdate": true on the "${marketplace}" entry in ${at(file)} ` +
           `(set via /plugin → Marketplaces → ${marketplace} → toggle auto-update), or in ${at(userSettings)} → ` +
-          `extraKnownMarketplaces.${marketplace}.autoUpdate: true, which wins where that entry exists. Manual path: /plugin marketplace update ${marketplace}, then /reload-plugins.`,
+          `extraKnownMarketplaces.${marketplace}.autoUpdate: true, which wins where that entry exists. Manual path, ${COPY_UPDATE_STEPS}.`,
       ),
     );
   }
@@ -1935,7 +1936,7 @@ export function checkAutoUpdate(home = homedir(), harness = speakingHarness(), {
           "install",
           "warn",
           "auto-update",
-          `A newer ${name} is available: v${latest} (running v${running}) — run /plugin marketplace update ${marketplace}, then /reload-plugins.`,
+          `A newer ${name} is available: v${latest} (running v${running}) — ${COPY_UPDATE_STEPS}.`,
         ),
       );
     }

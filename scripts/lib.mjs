@@ -832,8 +832,12 @@ export function selectCopy(home = homedir(), projectDir, { harness = sourceHarne
 }
 
 // How a git-marketplace copy is updated, in its own channel: the one phrase
-// every advice about a kept or older copy quotes.
-export const COPY_UPDATE_STEPS = "in Claude Code: /plugin marketplace update, then /plugin update, then restart";
+// every advice about a kept or older copy quotes. Claude Code has no session
+// form of `plugin update` (an unknown word after /plugin opens the Discover
+// tab); one plugin is updated from the Installed tab, which `/plugin manage`
+// opens.
+export const COPY_UPDATE_STEPS =
+  "in Claude Code: open /plugin manage and choose Update now on projectstore, then run /reload-plugins to load it";
 // …and a copy synced from claude.ai (Anthropic's directory): nobody runs its
 // update; claude.ai publishes it and the host downloads it (PS-DIRECTORY).
 export const SYNCED_UPDATE_STEPS =
@@ -1228,7 +1232,7 @@ export function fromTerminalIn(dir) {
 // startup — so a direct path always rendered the version installed at the
 // PREVIOUS session start, one restart behind every update. The launcher path
 // never changes, and it resolves the installed plugin at render time, so
-// `/plugin update` + `/reload-plugins` show up immediately. Dev checkouts and
+// an Update now from `/plugin manage` + `/reload-plugins` show up immediately. Dev checkouts and
 // --plugin-dir roots carry no version, so install wires those directly; a
 // session run from one keeps whatever launcher entry install wrote.
 //

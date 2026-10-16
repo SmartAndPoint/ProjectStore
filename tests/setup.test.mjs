@@ -1116,7 +1116,7 @@ test(
     assert.ok(drawn.includes(CHANNEL_TEXT), drawn);
     assert.ok(
       drawn.includes(
-        "● Switch to npm setup and upgrade update it from now on; /plugin update no longer reaches this project",
+        "● Switch to npm setup and upgrade update it from now on; the git-marketplace copy's updates no longer reach this project",
       ),
       drawn,
     );

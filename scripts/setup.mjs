@@ -247,7 +247,7 @@ export function decideChannel({
       : "/plugin keeps updating it; setup refreshes this project's files through that copy";
     const switchReason = newer
       ? `switching runs ${running} in place of ${selected.version}; if ${selected.version} is published, setup stops after these questions and names it`
-      : "setup and upgrade update it from now on; /plugin update no longer reaches this project";
+      : "setup and upgrade update it from now on; the git-marketplace copy's updates no longer reach this project";
     return {
       asked: true,
       default: newer || kept ? "git" : "npm",

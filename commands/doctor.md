@@ -69,9 +69,10 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      it if it is yours, or delete it yourself to let `install` take the name.
      The verbs refuse it in code; this clause is the belt.
    - `version-drift` → report only: name both versions and where each was
-     read; the fix is the host's update path (`/plugin update` for a git-marketplace
-     copy; for the npm registration, the package's `upgrade` from a terminal
-     in the project — the `plugin-registration` finding spells the command),
+     read; the fix is the host's update path (for a git-marketplace copy,
+     open `/plugin manage` and choose **Update now** on projectstore; for
+     the npm registration, the package's `upgrade` from a terminal in the
+     project — the `plugin-registration` finding spells the command),
      not ours.
    - `layout-legacy` (warn; the startup line carries it as an offer) → the project
      still holds the pre-0.28 layout (`.claude/projectstore.json`,
@@ -141,9 +142,10 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    - `mcp` → the plugin-bundled `.mcp.json` is missing, does not launch
      `scripts/mcp-server.mjs`, or launches it from a plugin root without the
      file: the install is incomplete — the fix is the
-     update for the channel this copy was installed through (`/plugin update`
-     for a git-marketplace copy; for the npm registration, the package's
-     `upgrade` from a terminal in the project, outside this session — the
+     update for the channel this copy was installed through (for a
+     git-marketplace copy, open `/plugin manage` and choose **Update now** on
+     projectstore; for the npm registration, the package's `upgrade` from a
+     terminal in the project, outside this session — the
      `plugin-registration` finding spells the command), never a hand-written
      file.
    - `override-copies` → a copy carrying the provenance marker overrides nothing
@@ -155,8 +157,8 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    - `auto-update` off → offer adding `extraKnownMarketplaces.<marketplace>.autoUpdate: true`
      to `~/.claude/settings.json` (Edit with diff preview + approval — this is the
      user's global settings file), or point at `/plugin` → Marketplaces → toggle.
-     For "newer version available" → tell the user to run
-     `/plugin marketplace update <marketplace>` and `/reload-plugins` themselves.
+     For "newer version available" → tell the user to open `/plugin manage` and
+     choose **Update now** on projectstore, then run `/reload-plugins` themselves.
 
    **Boundary (ADR-005)**: `--fix` never repairs vault-side findings. For those,
    point at `/projectstore:kanban` (board regen) and `/projectstore:reconcile`

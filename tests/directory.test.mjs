@@ -313,8 +313,8 @@ test("directory B: the welcome's size per channel is pinned — git marketplace,
     official: fakeInstall(home, VERSION, { full: true, marketplace: "claude-plugins-official" }),
     synced: fakeSynced(home, VERSION, { full: true }),
   };
-  const UNBOUND = { git: 1116, official: 1155, synced: 1394 };
-  const BOUND_BASE = { git: 1128, official: 1167, synced: 1406 };
+  const UNBOUND = { git: 1144, official: 1173, synced: 1394 };
+  const BOUND_BASE = { git: 1156, official: 1185, synced: 1406 };
   for (const [name, root] of Object.entries(roots)) {
     const alone = sessionStart(home, root, project()).welcome;
     assert.ok(alone.includes("_This message appears once on this machine._"), name);

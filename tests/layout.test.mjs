@@ -706,7 +706,7 @@ test("layout contract 12: a copy whose CLI does not declare --no-register gets a
   ]);
   const git = msg();
   assert.match(git, /\(0\.28\.0-rc\.2\) predates --no-register/);
-  assert.match(git, /\/plugin update/);
+  assert.match(git, /open \/plugin manage and choose Update now on projectstore/);
   assert.doesNotMatch(git, /npx |node "/, "no command the copy would reject");
   const ran = spawnSync(
     process.execPath,

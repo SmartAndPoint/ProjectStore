@@ -512,7 +512,7 @@ export function newerCopyDeferral({ copy, running, decision, harness, pin = null
 // setup's, in the core form and unpinned (the setup story, rule 17): what
 // updates the project from now on is whichever version runs it next.
 export function switchConsequence() {
-  return `this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by ${coreCommand("setup")}`;
+  return `this project stops loading the git-marketplace copy, and that copy's updates no longer reach it — from now on it is updated by ${coreCommand("setup")}`;
 }
 
 // Where a copy of ours from another channel comes from, in a person's words.

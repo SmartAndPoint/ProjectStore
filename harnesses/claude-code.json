@@ -553,7 +553,7 @@
           "2. Find **{marketplace}**.",
           "3. Make sure **auto-update** is on.",
           "",
-          "Without it, you'd run `/plugin marketplace update {marketplace}` manually."
+          "Without it, open `/plugin manage` and choose **Update now** on projectstore when a new version is out."
         ]
       },
       "synced": {
@@ -575,7 +575,7 @@
     "2. Find **SmartAndPoint**.",
     "3. Toggle **auto-update** on.",
     "",
-    "Without it, you would run `/plugin marketplace update SmartAndPoint` manually. See https://github.com/SmartAndPoint/ProjectStore#upgrading for details.",
+    "Without it, open `/plugin manage` and choose **Update now** on projectstore when a new version is out. See https://github.com/SmartAndPoint/ProjectStore#upgrading for details.",
     "",
     "**Upgrading from 0.27.x to 0.28**: restart after the update, then move the project's files to `.projectstore/` with the one command the first session names, run from a terminal in the project, outside the session. For a git-marketplace install it is the installed copy's own `bin/projectstore.mjs` with `upgrade --harness claude-code --no-register`, which leaves the registration as it is. For the npm registration it is `npx projectstore@<version> upgrade --harness claude-code --no-register` and nothing else. The same run re-stamps the status-line launcher, and until then every reader falls back to the old paths. `status` and `search` answer from artifact facts; `doctor` gains surface, version-drift and mcp lines and exits 1 on findings; the plugin registers an MCP server the host may ask you to approve once. On 0.28.0-rc.1 or rc.2, update first: their startup line named the form without `--no-register`, which also switches a git-marketplace install to npm for the checkout (the README's Upgrading section has the way back). Before the move, a rollback to 0.27.x keeps working and the move is the way forward again; after the move, 0.27.x reads the project as unbound."
   ],

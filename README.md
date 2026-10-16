@@ -252,7 +252,7 @@ Installed with setup or from npm: from a terminal in your project, name the vers
 npx projectstore@<version> upgrade
 ```
 
-It upgrades every agent the project uses — each one whose own directory (`.claude/`, `.codex/`) or `.projectstore/state/<id>/` is there — in one plan, and fetches the Codex plugin at the same version. `npx projectstore setup` converges a project the same way and asks its questions again. Installed from the git marketplace in a Claude Code session: `/plugin update` (or auto-update) and a restart.
+It upgrades every agent the project uses — each one whose own directory (`.claude/`, `.codex/`) or `.projectstore/state/<id>/` is there — in one plan, and fetches the Codex plugin at the same version. `npx projectstore setup` converges a project the same way and asks its questions again. Installed from the git marketplace: in a Claude Code session, open `/plugin manage` and choose **Update now** on projectstore (or let auto-update do it), then run `/reload-plugins` to load it; from a terminal, `claude plugin update projectstore@SmartAndPoint` and a restart do the same.
 
 A bare upgrade selects agents by those directories, so on Codex name it, which upgrades Codex even in a project where no Codex session has run yet:
 
@@ -294,7 +294,7 @@ A project bound before 0.28 needs one more command. What an existing project see
   its new path and re-registers the agents block, whose template is now v4. An
   upgrade without `--no-register` on a git-marketplace install does more: it
   also registers the plugin from npm for this checkout and turns the
-  git-marketplace copy off here, so `/plugin update` stops reaching the
+  git-marketplace copy off here, so that copy's updates stop reaching the
   checkout. The 0.28.0-rc.1 and rc.2 startup lines named that form, without
   `--no-register`, so on those, update first and run what the new startup line
   names. If it already happened, this turns the git-marketplace copy back on
@@ -350,8 +350,8 @@ A project bound before 0.28 needs one more command. What an existing project see
   while two bindings exist. To come forward again, delete
   `.claude/projectstore.json`, then run the command the startup line names
   once more: a 0.27.x session writes its welcome marker back under `.claude/`.
-- **Installed from npm?** Then `/plugin update` has nothing to fetch: the
-  package itself refreshes the registration. The upgrade at the top of this
+- **Installed from npm?** Then Claude Code's plugin update has nothing to
+  fetch: the package itself refreshes the registration. The upgrade at the top of this
   section, run from a terminal outside the session, rewrites the local
   marketplace and runs the host's `plugin update` for this checkout.
   `/projectstore:doctor` says when the registration is behind the package, and

@@ -172,11 +172,10 @@ Installed with setup or from npm: from a terminal in your project, name the vers
 npx projectstore@<version> upgrade
 ```
 
-Installed from the git marketplace, in a Claude Code session:
+Installed from the git marketplace: in a Claude Code session, open `/plugin manage` and choose **Update now** on projectstore, then run `/reload-plugins` to load it. Or, from a terminal, then restart Claude Code:
 
 ```
-/plugin marketplace update SmartAndPoint
-/reload-plugins
+claude plugin update projectstore@SmartAndPoint
 ```
 
 Or enable auto-update once (`/plugin` → **Marketplaces** → **SmartAndPoint** → toggle **auto-update**) and Claude Code will detect new releases at startup.

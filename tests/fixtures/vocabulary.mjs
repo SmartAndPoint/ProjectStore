@@ -153,12 +153,8 @@ export function uiExemptions() {
   const gated = "checkAutoUpdate, gated on a host-plugin-registration surface";
   return [
     {
-      phrase: "a /plugin update no longer reaches the project",
-      file: "scripts/doctor.mjs",
-      why: "a finding about the source harness's own registration; under another harness it is marked `about` it",
-    },
-    {
-      phrase: "in Claude Code: /plugin marketplace update, then /plugin update, then restart",
+      phrase:
+        "in Claude Code: open /plugin manage and choose Update now on projectstore, then run /reload-plugins to load it",
       file: "scripts/lib.mjs",
       why: "an old marketplace copy's update steps (COPY_UPDATE_STEPS), quoted by copyUpdateAdvice and by the keep's behind line, for the source harness's own copies only: doctor's layout move marks its finding `about` that harness under any other, and the installer's keep is planned only on a host-plugin-registration surface",
     },
@@ -174,24 +170,9 @@ export function uiExemptions() {
       why: "checkSyncedCopy's way back to a directory copy, gated on a host-plugin-registration surface that names a synced_dir, and marked `about` that harness under any other listener",
     },
     { phrase: "(set via /plugin → Marketplaces → ", file: "scripts/doctor.mjs", why: gated },
-    {
-      phrase: "Manual path: /plugin marketplace update ${marketplace}, then /reload-plugins.",
-      file: "scripts/doctor.mjs",
-      why: gated,
-    },
-    {
-      phrase: "run /plugin marketplace update ${marketplace}, then /reload-plugins.",
-      file: "scripts/doctor.mjs",
-      why: gated,
-    },
     // The converge story's channel (rules 1 and 2): planned only for a harness
     // whose registration is a host plugin registration — the source harness's
     // — so no other harness's run ever prints them.
-    {
-      phrase: "and /plugin update no longer reaches it",
-      file: "scripts/convergence.mjs",
-      why: "a channel switch's consequence line, planned only on a host-plugin-registration surface's competing copies",
-    },
     {
       phrase: "command: `/plugin enable ${key}`",
       file: "scripts/convergence.mjs",
@@ -200,13 +181,11 @@ export function uiExemptions() {
     // The setup story's channel question (rule 6): asked only when the harness
     // with a host plugin registration is in the run and a copy of ours from
     // another marketplace is enabled for this project.
-    ...["(updated by /plugin)", "/plugin keeps updating it", "; /plugin update no longer reaches this project"].map(
-      (phrase) => ({
-        phrase,
-        file: "scripts/setup.mjs",
-        why: "setup's channel question and its choices, asked only for a harness with a host-plugin-registration surface whose git-marketplace copy is enabled here",
-      }),
-    ),
+    ...["(updated by /plugin)", "/plugin keeps updating it"].map((phrase) => ({
+      phrase,
+      file: "scripts/setup.mjs",
+      why: "setup's channel question and its choices, asked only for a harness with a host-plugin-registration surface whose git-marketplace copy is enabled here",
+    })),
   ];
 }
 

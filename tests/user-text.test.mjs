@@ -1166,3 +1166,22 @@ test("user text, the file half: each rule fails on one planted case, naming the 
   assert.equal(desc.length, 1, desc.join("\n"));
   assert.match(desc[0], /^packaging\/shells\.mjs SHELLS projectstore-x\.description: \(d\) /);
 });
+
+// Claude Code has no `/plugin update` in a session: an unknown word after
+// /plugin opens the Discover tab; and `/plugin marketplace update <name>`
+// refreshes a marketplace's listing, which the docs never give as the way to
+// update an installed plugin (the story "The update step a message gives for a
+// git-marketplace copy names what Claude Code has…", PS-HARNESS). No shipped
+// text names either; only the status-line launcher's comment may, since the
+// launcher is a stamped surface and a changed byte would re-stamp every copy.
+test("user text: no shipped file names /plugin update or /plugin marketplace update, but the status-line launcher's comment", () => {
+  const packlist = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "packlist.json"), "utf8"));
+  const found = [];
+  for (const rel of packlist) {
+    if (/\.(?:png|svg|woff2?)$/.test(rel)) continue;
+    for (const [i, line] of readFileSync(join(ROOT, rel), "utf8").split("\n").entries())
+      if (/\/plugin (?:update(?!d)|marketplace update)/.test(line))
+        if (!(rel === "scripts/statusline-launcher.mjs" && /^\s*\/\//.test(line))) found.push(`${rel}:${i + 1}`);
+  }
+  assert.deepEqual(found, []);
+});

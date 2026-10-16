@@ -1864,7 +1864,7 @@ test("converge criterion 'The channel gate': a switch planned under no channel a
     chunks
       .join("")
       .includes(
-        "\n      this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by npx projectstore setup\n",
+        "\n      this project stops loading the git-marketplace copy, and that copy's updates no longer reach it — from now on it is updated by npx projectstore setup\n",
       ),
     chunks.join(""),
   );
@@ -1890,7 +1890,10 @@ test("install: the command prose invokes the verb and never writes the block or 
   // The doctor story of 2026-10-14: the texts say what is true of an npm
   // registration. The mcp remedy is gated by channel, as version-drift's is.
   const mcp = doctor.slice(doctor.indexOf("- `mcp` →"), doctor.indexOf("- `override-copies`")).replace(/\s+/g, " ");
-  assert.ok(mcp.includes("`/plugin update` for a git-marketplace copy"), mcp);
+  assert.ok(
+    mcp.includes("(for a git-marketplace copy, open `/plugin manage` and choose **Update now** on projectstore;"),
+    mcp,
+  );
   assert.ok(
     mcp.includes(
       "for the npm registration, the package's `upgrade` from a terminal in the project, outside this session",
