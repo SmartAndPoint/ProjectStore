@@ -20,7 +20,7 @@
 // project's decisions, not the vault's.
 //
 // Never reads ambient cwd or ambient env: the caller resolves the project
-// (cli.mjs's resolveProject) and supplies the author. Normative: the CLI
+// (verbs.mjs's resolveProject) and supplies the author. Normative: the CLI
 // story's slice-2 plan (PS-CORE); the fresh config's keys mirror
 // commands/bind.md step 3 (a test pins the two together).
 //

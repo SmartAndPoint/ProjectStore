@@ -1972,19 +1972,34 @@ export function checkMcpRegistration(root = pluginRoot(), harness = speakingHarn
       finding("install", "issue", "mcp", `.mcp.json at the plugin root is not valid JSON: ${e.message}`, ".mcp.json"),
     ];
   }
+  // What it must launch is the manifest's entry (scripts/mcp-server.mjs, the
+  // PS-DIRECTORY story "The MCP server's entry reaches no install verb…"),
+  // checked as a path and a file, never imported: mcp.mjs on SessionStart's
+  // path would load the server's whole graph into the hook.
+  const entry = mcp.entry || "scripts/mcp-server.mjs";
   const server = reg && reg.mcpServers && reg.mcpServers.projectstore;
   const args = server && Array.isArray(server.args) ? server.args : [];
-  if (!server || !args.some((a) => String(a).endsWith("/bin/projectstore.mjs")) || !args.includes("mcp")) {
+  if (!server || !args.some((a) => String(a).endsWith(`/${entry}`))) {
     return [
       finding(
         "install",
         "issue",
         "mcp",
-        ".mcp.json at the plugin root does not launch bin/projectstore.mjs mcp — the MCP read tools will not answer.",
+        `.mcp.json at the plugin root does not launch ${entry} — the MCP read tools will not answer.`,
         ".mcp.json",
       ),
     ];
   }
+  if (!existsSync(join(root, entry)))
+    return [
+      finding(
+        "install",
+        "issue",
+        "mcp",
+        `.mcp.json launches ${entry}, which is not in the plugin root — the MCP read tools will not answer; this install is incomplete.`,
+        ".mcp.json",
+      ),
+    ];
   return [
     finding(
       "install",

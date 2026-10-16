@@ -29,7 +29,9 @@ import {
   createServer,
 } from "../scripts/mcp.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
+import { checkMcpRegistration } from "../scripts/doctor.mjs";
 import { seedCliVault } from "./fixtures/vault.mjs";
+import { closure } from "./fixtures/imports.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BIN = join(ROOT, "bin", "projectstore.mjs");
@@ -55,9 +57,11 @@ function bin(args, { cwd = ROOT, env = {} } = {}) {
   });
 }
 
-// The conformance client.
-function client(args, { cwd = ROOT, env = {} } = {}) {
-  const child = spawn(process.execPath, [BIN, ...args], { cwd, env: cleanEnv(env), stdio: ["pipe", "pipe", "pipe"] });
+// The conformance client, over the bin (`mcp` first in args) or, with
+// `entry: null`, over the argv given whole (the entry .mcp.json runs).
+function client(args, { cwd = ROOT, env = {}, entry = BIN } = {}) {
+  const argv = entry ? [entry, ...args] : args;
+  const child = spawn(process.execPath, argv, { cwd, env: cleanEnv(env), stdio: ["pipe", "pipe", "pipe"] });
   const pending = new Map();
   const unmatched = [];
   let buf = "",
@@ -190,6 +194,132 @@ test("mcp: importing the server prints nothing — stdout is the protocol channe
   ])
     assert.ok(!src.includes(call), `mcp.mjs writes (${call})`);
   assert.ok(!/process\.exit\(/.test(src), "never process.exit on a piped stdout");
+});
+
+// ─── the entry (PS-DIRECTORY: "The MCP server's entry reaches no install
+// verb through a read-verb runner that shares the CLI's verb table…") ──────
+
+// What .mcp.json runs, expanded as the host expands it: its two placeholders,
+// the plugin root and the project, replaced in each argument.
+function registeredArgv(proj) {
+  const server = JSON.parse(readFileSync(join(ROOT, ".mcp.json"), "utf8")).mcpServers.projectstore;
+  const vars = { [SRC.runtime.plugin_root_env]: ROOT, [SRC.runtime.project_dir_env]: proj };
+  return {
+    server,
+    argv: server.args.map((a) => a.replace(/\$\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m))),
+  };
+}
+
+const TOOLS_0305 = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "mcp-tools-0.30.5.json"), "utf8"));
+
+test("mcp: tools/list equals 0.30.5's, through the entry .mcp.json runs and through projectstore mcp", async () => {
+  const proj = mkdtempSync(join(tmpdir(), "ps-mcp-list-"));
+  assert.deepEqual(toolList(), TOOLS_0305, "the table");
+  for (const [how, c] of [
+    ["the entry", client(registeredArgv(proj).argv, { cwd: tmpdir(), entry: null })],
+    ["projectstore mcp", client(["mcp", "--project", proj], { cwd: tmpdir() })],
+  ]) {
+    await c.handshake();
+    assert.deepEqual((await c.rpc("tools/list", {})).result.tools, TOOLS_0305, how);
+    c.end();
+    assert.equal((await c.exit()).code, 0, how);
+  }
+});
+
+test("mcp entry: .mcp.json runs scripts/mcp-server.mjs with plain arguments; it serves, its doctor tool answers as the CLI's doctor, and projectstore mcp still serves", async () => {
+  const { proj } = vaultProject();
+  const { server, argv } = registeredArgv(proj);
+  assert.equal(server.command, "node");
+  assert.deepEqual(server.args, [
+    `${"$"}{${SRC.runtime.plugin_root_env}}/scripts/mcp-server.mjs`,
+    "--project",
+    `${"$"}{${SRC.runtime.project_dir_env}}`,
+  ]);
+  // Plain: each argument one placeholder-led path or a flag — no shell, no
+  // quoting, no space, nothing a host would have to interpret.
+  for (const a of server.args) assert.match(a, /^(?:\$\{\w+\}[\w/.-]*|--[a-z]+)$/, a);
+  assert.equal(server.env, undefined);
+  const c = client(argv, { cwd: tmpdir(), entry: null });
+  const init = await c.handshake();
+  assert.equal(init.result.serverInfo.name, "projectstore");
+  const status = await c.rpc("tools/call", { name: "status", arguments: {} });
+  assert.equal(status.result.isError, false);
+  assert.equal(JSON.parse(status.result.content[0].text).result.bound, true);
+  const doc = await c.rpc("tools/call", { name: "doctor", arguments: { vault: true } });
+  assert.equal(doc.result.isError, false, "findings are an answer");
+  const fromTool = JSON.parse(doc.result.content[0].text);
+  const fromCli = JSON.parse(bin(["doctor", "--vault", "--json", "--project", proj]).stdout);
+  assert.equal(fromTool.verb, "doctor");
+  assert.equal(fromTool.schema_version, 1);
+  assert.equal(fromTool.ok, fromCli.ok);
+  assert.deepEqual(
+    fromTool.result.map((f) => [f.level, f.check]),
+    fromCli.result.map((f) => [f.level, f.check]),
+    "the CLI's findings",
+  );
+  c.end();
+  assert.equal((await c.exit()).code, 0);
+  // projectstore mcp: the same path, the same answers.
+  const m = client(["mcp", "--project", proj], { cwd: tmpdir() });
+  await m.handshake();
+  const viaVerb = await m.rpc("tools/call", { name: "status", arguments: {} });
+  assert.equal(JSON.parse(viaVerb.result.content[0].text).result.bound, true);
+  m.end();
+  assert.equal((await m.exit()).code, 0);
+  // The entry's refusals: no project, a placeholder left unexpanded, an argument it does not take.
+  const entry = join(ROOT, "scripts", "mcp-server.mjs");
+  const run = (args) =>
+    spawnSync(process.execPath, [entry, ...args], { encoding: "utf8", cwd: tmpdir(), env: cleanEnv(), input: "" });
+  for (const [args, why] of [
+    [[], /--project/],
+    [["--project", "${" + SRC.runtime.project_dir_env + "}"], /placeholder/],
+    [["--project", proj, "mcp"], /--project <dir> alone/],
+    [["--bogus"], /--project <dir> alone/],
+  ]) {
+    const r = run(args);
+    assert.equal(r.status, 2, `${JSON.stringify(args)}: ${r.stderr}`);
+    assert.match(r.stderr, why);
+    assert.equal(r.stdout, "", "nothing on the protocol channel");
+  }
+});
+
+// doctor checks the registration against the manifest's entry, as a path and
+// a file — never by importing the server, which would put its graph on
+// SessionStart's path.
+test("mcp entry: doctor's registration check names the manifest's entry, and never loads the server", () => {
+  const ok = checkMcpRegistration(ROOT, SRC);
+  assert.deepEqual(
+    ok.map((f) => f.level),
+    ["info"],
+    JSON.stringify(ok),
+  );
+  const root = (args, { entry = true } = {}) => {
+    const r = mkdtempSync(join(tmpdir(), "ps-mcp-reg-"));
+    writeFileSync(
+      join(r, ".mcp.json"),
+      JSON.stringify({ mcpServers: { projectstore: { type: "stdio", command: "node", args } } }),
+    );
+    if (entry) {
+      mkdirSync(join(r, "scripts"));
+      writeFileSync(join(r, "scripts", "mcp-server.mjs"), "");
+    }
+    return r;
+  };
+  const plugin = `${"$"}{${SRC.runtime.plugin_root_env}}`;
+  const project = `${"$"}{${SRC.runtime.project_dir_env}}`;
+  const old = checkMcpRegistration(root([`${plugin}/bin/projectstore.mjs`, "mcp", "--project", project]), SRC);
+  assert.equal(old[0].level, "issue");
+  assert.match(old[0].message, /does not launch scripts\/mcp-server\.mjs/);
+  const gone = checkMcpRegistration(
+    root([`${plugin}/scripts/mcp-server.mjs`, "--project", project], { entry: false }),
+    SRC,
+  );
+  assert.equal(gone[0].level, "issue");
+  assert.match(gone[0].message, /scripts\/mcp-server\.mjs, which is not in the plugin root/);
+  const start = closure("hooks/session-start.mjs", { root: ROOT });
+  assert.ok(start.includes("scripts/doctor.mjs"));
+  for (const f of ["scripts/mcp.mjs", "scripts/mcp-server.mjs", "scripts/read-verbs.mjs", "scripts/cli.mjs"])
+    assert.ok(!start.includes(f), `SessionStart's closure reaches ${f}`);
 });
 
 // ─── refusal ───────────────────────────────────────────────────────────

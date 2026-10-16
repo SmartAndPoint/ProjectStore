@@ -785,6 +785,41 @@ test("layout contract 6: a narrowed uninstall leaves the legacy runtime alone; o
   assert.equal(cleanup.path, lp.legacy.runtime);
 });
 
+// Since 0.30.6 a copy's parse table is scripts/verbs.mjs (the PS-DIRECTORY
+// story "The MCP server's entry reaches no install verb…"), and a released
+// copy keeps it in scripts/cli.mjs: the capability read takes either, so a
+// 0.30.6 copy never reads as predating --no-register or --verbose — which
+// would cost doctor's remedy its command and the installer's keep its copy.
+test("layout contract 12: the capability read takes the parse table from scripts/verbs.mjs as well as scripts/cli.mjs", async () => {
+  const { takesVerbose } = await import("../scripts/lib.mjs");
+  const copy = (files) => {
+    const root = mkdtempSync(join(tmpdir(), "ps-parse-table-"));
+    mkdirSync(join(root, "scripts"));
+    for (const [f, text] of Object.entries(files)) writeFileSync(join(root, "scripts", f), text);
+    return root;
+  };
+  // The table in verbs.mjs, beside a cli.mjs that names neither flag.
+  const split = copy({
+    "verbs.mjs": 'opt("no-register", false, "…"); opt("verbose", false, "…");\n',
+    "cli.mjs": "export {};\n",
+  });
+  assert.equal(takesNoRegister(split), true, "a 0.30.6 copy takes --no-register");
+  assert.equal(takesVerbose(split), true, "a 0.30.6 copy takes --verbose");
+  // …and this tree's own table, alone.
+  const own = copy({ "verbs.mjs": readFileSync(join(ROOT, "scripts", "verbs.mjs"), "utf8") });
+  assert.equal(takesNoRegister(own), true, "this tree's verbs.mjs declares --no-register");
+  assert.equal(takesVerbose(own), true, "this tree's verbs.mjs declares --verbose");
+  // A released copy: the table in cli.mjs.
+  const released = copy({ "cli.mjs": 'opt("no-register", false, "…"); opt("verbose", false, "…");\n' });
+  assert.equal(takesNoRegister(released), true);
+  assert.equal(takesVerbose(released), true);
+  // Neither file declares them: rc.2, or a copy with no CLI.
+  const none = copy({ "cli.mjs": "export {};\n", "verbs.mjs": "export {};\n" });
+  assert.equal(takesNoRegister(none), false);
+  assert.equal(takesVerbose(none), false);
+  assert.equal(takesNoRegister(copy({})), false);
+});
+
 test("layout contract 12: a host-cache copy reached through a symlinked home is still a host-cache copy", () => {
   const real = mkdtempSync(join(TMP, "ps-layout-realhome-"));
   const copy = join(real, SRC.runtime.home_default, "plugins", "cache", "SmartAndPoint", "projectstore", "0.28.0");

@@ -309,6 +309,8 @@
       "kind": "host",
       "dir": ".",
       "file": ".mcp.json",
+      "entry": "scripts/mcp-server.mjs",
+      "entry_reason": "The script .mcp.json runs, under the plugin root, with --project and the host's project directory as its only arguments. It lives under scripts/, never bin/ (a plugin's top-level bin/ is on the host's Bash PATH), and imports nothing from cli.mjs, so the server's imports reach no install verb (PS-DIRECTORY, the story \"The MCP server's entry reaches no install verb through a read-verb runner that shares the CLI's verb table…\"; the MCP ADR's decision 1 as amended). The CLI's `mcp` verb serves the same way, for a host without a plugin channel.",
       "scope": "plugin",
       "scope_reason": "Claude Code loads a plugin's .mcp.json from the plugin installation itself and expands ${CLAUDE_PLUGIN_ROOT} and ${CLAUDE_PROJECT_DIR} in it per session, so the one shipped file binds each server to one project (MCP ADR decision 6, amended 2026-09-05); nothing is installed and nothing is derived — the host kind install-harness skips, which the install spec's contract 0 does not yet name.",
       "launch": {

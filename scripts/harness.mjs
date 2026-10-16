@@ -625,7 +625,8 @@ export function projectRootDeclared(env = process.env) {
 // Where this projectstore's core lives on disk: its layouts, templates and
 // scripts. The bin runs ITS OWN copy of the core: a child gets that through childEnv's
 // pluginRoot, an in-process read (the query verbs' loadLayout, the headings
-// registry) through this pin. Set once by cli.mjs; nothing else may call it.
+// registry) through this pin. Set by verbs.mjs's dispatch, on every run of
+// the CLI and of the read runner; nothing else may call it.
 let _pinnedPluginRoot = null;
 export function pinPluginRoot(root) {
   _pinnedPluginRoot = root || null;

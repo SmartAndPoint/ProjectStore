@@ -2,13 +2,19 @@
 //
 // The MCP read surface: a hand-rolled JSON-RPC server over stdio, one tool
 // per CLI verb (MCP ADR decisions 2, 3, 4, 6). A front-end over the
-// front-end: every tool call runs the CLI's own `run()` in-process with
-// captured streams and returns the envelope it wrote, so a tool result equals
-// `projectstore <verb> --json` by construction, `doctor` stays spawned, and
-// the exit code maps onto `isError`. Nothing here reads an artifact's
-// frontmatter, walks the vault or names a branded environment variable —
-// cli.mjs, query.mjs and harness.mjs do, once each; the resources read the
-// three derived views and one artifact file whole, which is what a resource is.
+// front-end: every tool call runs the read-verb runner (read-verbs.mjs's
+// runRead, the CLI's own parse over the one verb table in verbs.mjs, with
+// the read verbs' handlers alone) in-process with captured streams and
+// returns the envelope it wrote, so a tool result equals `projectstore <verb>
+// --json` by construction; `doctor` stays spawned, and the exit code maps
+// onto `isError`. This module imports nothing from cli.mjs, whose write
+// handlers reach the installer: the PS-DIRECTORY story "The MCP server's
+// entry reaches no install verb through a read-verb runner that shares the
+// CLI's verb table…", and the fence in tests/portability.test.mjs. Nothing
+// here reads an artifact's frontmatter, walks the vault or names a branded
+// environment variable — verbs.mjs, query.mjs and harness.mjs do, once each;
+// the resources read the three derived views and one artifact file whole,
+// which is what a resource is.
 //
 // stdout is the protocol channel. This module writes to it only through
 // serve()'s frame writer; importing it prints nothing (a test asserts it),
@@ -30,66 +36,31 @@
 // exits non-zero naming what it needed. An UNBOUND project is different: the
 // server starts, `status` says bound:false, and every other tool answers
 // isError naming /projectstore:bind — refusing to start would put a red
-// entry in the host's plugin errors for every new user.
+// entry in the host's plugin errors for every new user. Two entries start
+// it, through one function (serveSupplied): scripts/mcp-server.mjs, which
+// the plugin's .mcp.json runs, and the CLI's `mcp` verb.
 //
 // Normative: the MCP ADR (accepted 2026-09-04, amended 2026-09-05); the
 // PS-CORE story "MCP read surface: hand-rolled stdio, one tool per CLI verb".
 
 import { existsSync, readFileSync, statSync, realpathSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { spawn } from "node:child_process";
-import { run, envelope, packageVersion, VERBS } from "./cli.mjs";
-
-const BIN = join(dirname(fileURLToPath(import.meta.url)), "..", "bin", "projectstore.mjs");
+import { envelope, packageVersion, resolveProject, VERBS } from "./verbs.mjs";
+import { runRead, doctorAsync, DOCTOR_TIMEOUT_MS } from "./read-verbs.mjs";
+import { projectRootDeclared } from "./harness.mjs";
+import { readConfigAt, isInsideVault, commandForm } from "./lib.mjs";
 
 // Exit codes → isError. 0 is ok; 1 is "findings or a refusal" — a doctor that
 // found issues has SUCCEEDED, and the envelope carries ok:false already; 2
 // (usage) and 3 (not bound) are the tool failing to answer at all.
 export const isErrorExit = (code) => code !== 0 && code !== 1;
 
-// doctor is the one verb the CLI spawns synchronously, which would hold this
-// server's loop for up to a minute — no ping answered, no other call served.
-// It runs as an asynchronous spawn of this same bin instead; stdout is still
-// the CLI's envelope, so parity holds.
-function spawnBin(argv, { env, cwd, timeoutMs = DOCTOR_TIMEOUT_MS, onChild = null }) {
-  return new Promise((done) => {
-    const child = spawn(process.execPath, [BIN, ...argv], {
-      env,
-      cwd: existsSync(cwd) ? cwd : undefined,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    if (onChild) onChild(child);
-    let out = "",
-      err = "";
-    child.stdout.on("data", (d) => {
-      out += d;
-    });
-    child.stderr.on("data", (d) => {
-      err += d;
-    });
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      err += `timed out after ${timeoutMs} ms`;
-    }, timeoutMs);
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      done({ code: 2, out, err: err + e.message });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      done({ code: code === null ? 2 : code, out, err });
-    });
-  });
-}
-import { readConfigAt, isInsideVault, commandForm } from "./lib.mjs";
-
 // Two revisions, not four: 2025-03-26 has JSON-RPC batching (removed again in
 // 2025-06-18), which this server answers with -32600 — advertising that
 // revision would be a lie the conformance test could not see.
 export const PROTOCOL_VERSIONS = Object.freeze(["2025-11-25", "2025-06-18"]);
-export const DOCTOR_TIMEOUT_MS = 60000;
+export { DOCTOR_TIMEOUT_MS };
 export const SERVER_NAME = "projectstore";
 export const TOOL_CEILING = 8;
 export const TOOL_LIST_TOKEN_CEILING = 3000; // ADR decision 7, chars/4
@@ -105,7 +76,7 @@ export const E_INTERNAL = -32603;
 // ─── The tool table ────────────────────────────────────────────────────
 //
 // One row per MCP tool: the verb it is the JSON form of, how its arguments
-// become argv, and the input schema a client sees. cli.mjs's VERBS rows name
+// become argv, and the input schema a client sees. verbs.mjs's VERBS rows name
 // these tools in their `mcp` field; a drift test pins the two tables to each
 // other in both directions.
 
@@ -322,7 +293,7 @@ export function createServer({
   env = process.env,
   cwd = project,
   version = packageVersion(),
-  runVerb = run,
+  runVerb = runRead,
 } = {}) {
   let initialized = false;
   const cfgOf = () => readConfigAt(project);
@@ -394,18 +365,21 @@ export function createServer({
     ];
     let code, outText, errText;
     if (t.verb === "doctor") {
-      ({
-        code,
-        out: outText,
-        err: errText,
-      } = await spawnBin(argv, {
+      // doctor is the one verb the CLI spawns synchronously, which would hold
+      // this server's loop for up to a minute — no ping answered, no other
+      // call served. Its child runs asynchronously here instead, read and
+      // wrapped by the read runner's own doctor code, so parity holds.
+      const answer = await doctorAsync(a, {
+        project,
         env,
-        cwd,
         onChild: (child) => {
           if (requestId !== null) inFlight.set(requestId, child);
         },
-      }));
+      });
       if (requestId !== null) inFlight.delete(requestId);
+      code = answer.code;
+      outText = JSON.stringify(answer.envelope, null, 2);
+      errText = "";
     } else {
       const out = new Sink(),
         err = new Sink();
@@ -668,5 +642,31 @@ export function serve({
         signals.once(sig, close);
       } catch {}
     }
+  });
+}
+
+// The one path both entries start the server through: scripts/mcp-server.mjs
+// (what the plugin's .mcp.json runs) and the CLI's `mcp` verb. A project must
+// have been SUPPLIED — `project` (their --project), the neutral variable or
+// the harness's declared directory; resolveProject's cwd fallback is exactly
+// what the MCP ADR's decision 6 forbids here, so without one the project is
+// null and serve() refuses to start.
+export function serveSupplied({
+  project = null,
+  env = process.env,
+  cwd = process.cwd(),
+  stdin = process.stdin,
+  stdout = process.stdout,
+  stderr = process.stderr,
+  signals = process,
+} = {}) {
+  const supplied = Boolean(project || env.PROJECTSTORE_PROJECT_DIR || projectRootDeclared(env));
+  return serve({
+    project: supplied ? resolveProject({ project, env, cwd }) : null,
+    env,
+    stdin,
+    stdout,
+    stderr,
+    signals,
   });
 }

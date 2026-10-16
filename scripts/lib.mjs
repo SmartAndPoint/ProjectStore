@@ -778,26 +778,30 @@ export function projectCopiesByKey(home = homedir(), projectDir) {
 // the flag, while a copy labelled rc.2 taken from main at 418448e has it. A
 // file read, because this runs in the SessionStart subset: never an import()
 // of the copy, never a spawn. Add files to the read, never drop cli.mjs:
-// released copies keep their parse there. Moved here from doctor.mjs (the
-// converge story's rule 5), which re-exports it: doctor's layout remedy and
-// the installer's keep read one function.
+// released copies keep their parse there, and since 0.30.6 the table is
+// verbs.mjs's (the PS-DIRECTORY story "The MCP server's entry reaches no
+// install verb…"), so both are read. Moved here from doctor.mjs (the converge
+// story's rule 5), which re-exports it: doctor's layout remedy and the
+// installer's keep read one function.
+const PARSE_TABLE_FILES = Object.freeze(["cli.mjs", "verbs.mjs"]);
+function parseTableText(copy) {
+  return PARSE_TABLE_FILES.map((f) => {
+    try {
+      return readFileSync(join(copy, "scripts", f), "utf8");
+    } catch {
+      return "";
+    }
+  }).join("\n");
+}
 export function takesNoRegister(copy) {
-  try {
-    return readFileSync(join(copy, "scripts", "cli.mjs"), "utf8").includes('"no-register"');
-  } catch {
-    return false;
-  }
+  return parseTableText(copy).includes('"no-register"');
 }
 // …and whether its CLI takes --verbose, the same way: the flag arrived in
 // 0.29.0, after --no-register, and a copy between them (rc.3 to 0.28.x)
 // parses strictly, so a command naming it would exit 2. Read before DONE names
 // a kept copy's own `plan --verbose`.
 export function takesVerbose(copy) {
-  try {
-    return /\bverbose\b/.test(readFileSync(join(copy, "scripts", "cli.mjs"), "utf8"));
-  } catch {
-    return false;
-  }
+  return /\bverbose\b/.test(parseTableText(copy));
 }
 
 // Contract 12's selection with its capability read (the layout spec, contract

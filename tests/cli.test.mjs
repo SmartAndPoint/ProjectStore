@@ -37,6 +37,7 @@ import {
   run,
   opt,
   doctorText,
+  HANDLERS,
 } from "../scripts/cli.mjs";
 import { loadHarness, loadHarnesses, sourceHarness, harnessIds, invocation } from "../scripts/harness.mjs";
 import { layoutPaths, commandForm, doctorSummaryLine, doctorFallbackText } from "../scripts/lib.mjs";
@@ -115,7 +116,9 @@ test("cli: the verb table is the contract — every shipped verb wraps a module 
     if (v.module)
       assert.ok(existsSync(join(ROOT, "scripts", v.module.replace(/^\.\//, ""))), `${v.verb} wraps ${v.module}`);
     else assert.equal(v.wraps, "new", `${v.verb} without a module is new code`);
-    assert.ok(typeof v.run === "function" && typeof v.summary === "string" && v.summary.length > 0);
+    // The table is data: the code that runs a verb is its runner's handler.
+    assert.ok(!("run" in v), `${v.verb}'s row carries no code`);
+    assert.ok(typeof HANDLERS[v.verb] === "function" && typeof v.summary === "string" && v.summary.length > 0);
     assert.ok(["script", "module", "new"].includes(v.wraps) && ["spawn", "import"].includes(v.how));
   }
   // MCP ADR decision 2's table: eight tools, each with a CLI verb.

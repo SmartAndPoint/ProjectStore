@@ -121,7 +121,7 @@ const surfaceOf = (m, test) =>
   Object.entries(m?.surfaces || {}).find(([k, s]) => !k.startsWith("_") && s && test(s)) || null;
 const registrationOf = (m) => surfaceOf(m, (s) => s.kind === "registration");
 // The harness whose project can switch channels: the one with a host plugin
-// registration (cli.mjs's switchHarness reads it the same way).
+// registration (verbs.mjs's switchHarness reads it the same way).
 const hostRegistrationOf = (m) => surfaceOf(m, (s) => s.format === "host-plugin-registration");
 // The harness with a status-line slot of ours (install-harness.mjs's flagHarness).
 const statuslineOf = (m) => {

@@ -138,8 +138,9 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      host registry naming our marketplace elsewhere. Print the finding verbatim;
      the user moves or removes it.
    - `harness` (info) → nothing to repair; it names what `install` can target.
-   - `mcp` → the plugin-bundled `.mcp.json` is missing or does not launch
-     `bin/projectstore.mjs mcp`: the install is incomplete — the fix is the
+   - `mcp` → the plugin-bundled `.mcp.json` is missing, does not launch
+     `scripts/mcp-server.mjs`, or launches it from a plugin root without the
+     file: the install is incomplete — the fix is the
      update for the channel this copy was installed through (`/plugin update`
      for a git-marketplace copy; for the npm registration, the package's
      `upgrade` from a terminal in the project, outside this session — the

@@ -21,23 +21,26 @@ export const importSpecifiers = (src) => [...String(src).matchAll(IMPORT_FROM)].
 // models.mjs statically, but the MCP server reaches the installer only through
 // cli.mjs's import() calls and its VERBS rows. So a closure here has three
 // import classes, followed transitively:
-//   - static imports and re-exports (importSpecifiers above, the
-//     single-quoted, semicolon-free form the band module is written in, and
-//     a side-effect `import "./x.mjs";`);
+//   - static imports and re-exports, in either quote, with or without the
+//     closing `;` (the band module is written single-quoted and
+//     semicolon-free), and a side-effect `import "./x.mjs";`;
 //   - literal import() calls (dynamicSpecifiers);
 //   - the module strings of a verb table (verbModuleSpecifiers): each row's
 //     `module: "./x.mjs"` counts as an import of the runner that dispatches
 //     through it. By default every module counts the strings in its own code,
-//     which on 0.30.5 is cli.mjs alone, the table and its runner in one file.
+//     which on 0.30.5 is cli.mjs alone, the table and its runner in one file;
+//     since the table moved to verbs.mjs, the MCP fence passes a `dispatch`
+//     that says which runner serves which rows.
 // All three read the code with its comments blanked, so a comment that names
 // an import() is not an edge. A string that spells one still is: the safe
-// direction for a fence.
+// direction for a fence. And the blanking is checked (hiddenByComments): a
+// `//` inside a string blanks the rest of its line, which could hide a call.
 
-// The band module (hooks/band.tsx) imports with single quotes and no `;`.
-// Neither a quote nor a `;` can sit inside the match, so it never runs from
-// one statement into a string of the next. `import type` is erased before the
-// module runs (its target is a .d.ts), so it is no edge.
-const IMPORT_FROM_SINGLE = /^(?:import|export)\s(?!type\s)[^;'"]*?\sfrom\s+'([^']+)'/gm;
+// Either quote, with or without the `;`. Neither a quote nor a `;` can sit
+// before `from`, so a match never runs from one statement into a string of
+// the next. `import type` is erased before the module runs (its target is a
+// .d.ts), so it is no edge.
+const IMPORT_FROM_ANY = /^(?:import|export)\s(?!type\s)[^;'"]*?\sfrom\s+(["'])([^"'\n]+)\1/gm;
 const IMPORT_BARE = /^import\s*(?:"([^"\n]+)"|'([^'\n]+)')/gm;
 
 // import("x"), import('x') or import(`x`) without an interpolation. A dotted
@@ -45,8 +48,9 @@ const IMPORT_BARE = /^import\s*(?:"([^"\n]+)"|'([^'\n]+)')/gm;
 const DYNAMIC_IMPORT = /(?<![\w$.])import\s*\(\s*(?:"([^"\n]+)"|'([^'\n]+)'|`([^`$\n]+)`)\s*[,)]/g;
 const ANY_DYNAMIC_IMPORT = /(?<![\w$.])import\s*\(/g;
 
-// A verb table row's `module: "./x.mjs"`; `module: null` names nothing.
-const VERB_MODULE = /(?<![\w$.])module:\s*"(\.{1,2}\/[^"]+)"/g;
+// A verb table row's `module: "./x.mjs"` or `module: './x.mjs'`; `module:
+// null` names nothing.
+const VERB_MODULE = /(?<![\w$.])module:\s*(["'])(\.{1,2}\/[^"'\n]+)\1/g;
 
 export const dynamicSpecifiers = (src) =>
   [...stripComments(String(src)).matchAll(DYNAMIC_IMPORT)].map((m) => m[1] ?? m[2] ?? m[3]);
@@ -56,19 +60,40 @@ export const dynamicSpecifiers = (src) =>
 export const opaqueDynamicImports = (src) =>
   [...stripComments(String(src)).matchAll(ANY_DYNAMIC_IMPORT)].length - dynamicSpecifiers(src).length;
 
-export const verbModuleSpecifiers = (src) => [...stripComments(String(src)).matchAll(VERB_MODULE)].map((m) => m[1]);
+export const verbModuleSpecifiers = (src) => [...stripComments(String(src)).matchAll(VERB_MODULE)].map((m) => m[2]);
 
-// Whether a module's code calls fetch: a comment that says "the shell fetch
-// (contract 19)" does not, a dotted `globalThis.fetch(` does.
-export const callsFetch = (src) => /\bfetch\s*\(/.test(stripComments(String(src)));
+// Whether a module's code reaches fetch: a call (`fetch(`, a dotted
+// `globalThis.fetch(`), the global taken as a value (`globalThis.fetch`), an
+// indirect call (`fetch.call(`, `.apply(`, `.bind(`) or a computed name
+// (`["fetch"]`). A comment that says "the shell fetch (contract 19)" does not.
+const FETCH =
+  /\bfetch\s*\(|\bglobalThis\s*\.\s*fetch\b|\bfetch\s*\.\s*(?:call|apply|bind)\s*\(|\[\s*(["'`])fetch\1\s*\]/;
+export const callsFetch = (src) => FETCH.test(stripComments(String(src)));
+
+// What the blanking might hide: a fetch( or an import( on a line that does not
+// open as a comment. hiddenByComments(src) is how many more of those the raw
+// text holds than the blanked code — 0 unless a `//` inside a string (or a
+// comment closed mid-line) blanked code that calls one.
+const HIDDEN = /\bfetch\s*\(|(?<![\w$.])import\s*\(/g;
+export function hiddenByComments(src) {
+  const raw = String(src)
+    .split("\n")
+    .filter((l) => !/^\s*(?:\/\/|\/\*|\*)/.test(l))
+    .join("\n");
+  return Math.max(0, [...raw.matchAll(HIDDEN)].length - [...stripComments(String(src)).matchAll(HIDDEN)].length);
+}
 
 const toPosix = (p) => p.split(sep).join("/");
 
 const staticSpecifiers = (code) => [
   ...importSpecifiers(code),
-  ...[...code.matchAll(IMPORT_FROM_SINGLE)].map((m) => m[1]),
+  ...[...code.matchAll(IMPORT_FROM_ANY)].map((m) => m[2]),
   ...[...code.matchAll(IMPORT_BARE)].map((m) => m[1] ?? m[2]),
 ];
+
+// Every specifier a module names, of the first two classes: what the walk
+// follows and what it skips (a builtin, a bare package).
+const specifiersOf = (src) => [...new Set([...staticSpecifiers(stripComments(src)), ...dynamicSpecifiers(src)])];
 
 // closure(entry, { root, dispatch }) → the repository files `entry` reaches,
 // sorted, as root-relative paths with `/` separators, the entry among them.
@@ -78,9 +103,10 @@ const staticSpecifiers = (code) => [
 //             that dispatches only some rows of a table another module holds
 //             passes those rows' strings for itself and none for the holder.
 // Only relative specifiers are followed: `node:` builtins and bare packages
-// (the band module's host import) are outside the repository. A relative one
-// that names no file throws: an edge the walk cannot follow would let a fence
-// pass by not looking.
+// (the band module's host import) are outside the repository, and
+// networkImports() below reads them. A relative one that names no file
+// throws, and so does a module whose comment blanking hid a call: an edge the
+// walk cannot see would let a fence pass by not looking.
 export function closure(entry, { root, dispatch = (rel, src) => verbModuleSpecifiers(src) } = {}) {
   if (!root) throw new Error("closure: root is required");
   const toRel = (abs) => toPosix(relative(root, abs));
@@ -91,12 +117,28 @@ export function closure(entry, { root, dispatch = (rel, src) => verbModuleSpecif
     if (!existsSync(abs)) throw new Error(`closure: ${rel} is imported but does not exist`);
     seen.add(rel);
     const src = readFileSync(abs, "utf8");
-    const code = stripComments(src);
-    const specs = [...staticSpecifiers(code), ...dynamicSpecifiers(src), ...dispatch(rel, src)];
+    if (hiddenByComments(src) > 0) throw new Error(`closure: comment stripping hid code in ${rel}`);
+    const specs = [...specifiersOf(src), ...dispatch(rel, src)];
     for (const s of specs) if (s.startsWith("./") || s.startsWith("../")) walk(resolve(dirname(abs), s));
   };
   walk(resolve(root, entry));
   return [...seen].sort();
+}
+
+// The network modules a fence refuses among the specifiers a closure skips:
+// node's sockets and HTTP clients, bare or `node:`-prefixed, and undici (the
+// package behind node's fetch).
+export const NETWORK_MODULE = /^(?:(?:node:)?(?:http|https|http2|net|tls|dgram)|undici)(?:\/.*)?$/;
+
+// networkImports(files, { root }) → `<file> imports <specifier>` for each
+// network module one of `files` (a closure) imports, statically or by a
+// literal import().
+export function networkImports(files, { root }) {
+  return files.flatMap((f) =>
+    specifiersOf(readFileSync(join(root, f), "utf8"))
+      .filter((s) => NETWORK_MODULE.test(s))
+      .map((s) => `${f} imports ${s}`),
+  );
 }
 
 // The entries a hooks.json registers, as root-relative paths: the file each

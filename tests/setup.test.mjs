@@ -48,7 +48,7 @@ import {
   TITLES,
   CHANNEL_TEXT,
 } from "../scripts/setup.mjs";
-import { run, VERBS } from "../scripts/cli.mjs";
+import { run, VERBS, HANDLERS } from "../scripts/cli.mjs";
 import { runVerb, plan, gateText } from "../scripts/install-harness.mjs";
 import { checkLayout } from "../scripts/doctor.mjs";
 import { planBind, applyBind, shellQuote } from "../scripts/binding.mjs";
@@ -311,11 +311,15 @@ async function setup(
 }
 // One run through the bin's own parse, in process: cli.mjs's run() over its
 // verb table, with no terminal. run() takes no home (homedir() would be the
-// developer's), so setup's row is handed the sandbox's, and the fake npm.
+// developer's), so setup's row carries its own run — cli.mjs's setup handler
+// handed the sandbox's home, and the fake npm.
 async function cli(sb, argv, { env = sb.env, cwd = sb.proj, npm = fakeNpmSpawn() } = {}) {
   const verbs = VERBS.map((v) =>
     v.verb === "setup"
-      ? { ...v, run: (ctx) => v.run({ ...ctx, home: sb.home, fetchSpawn: npm.spawn, proc: new EventEmitter() }) }
+      ? {
+          ...v,
+          run: (ctx) => HANDLERS.setup({ ...ctx, home: sb.home, fetchSpawn: npm.spawn, proc: new EventEmitter() }),
+        }
       : v,
   );
   const out = [];
