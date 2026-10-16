@@ -1,7 +1,7 @@
 # ProjectStore — the public site
 
 The site for [ProjectStore](https://github.com/SmartAndPoint/ProjectStore): a main page and three
-method pages, in eight languages, served by GitHub Pages at <https://projectstore.dev> from this
+method pages, in eight languages, and a privacy page in English, served by GitHub Pages at <https://projectstore.dev> from this
 folder (`.github/workflows/pages.yml`). It is not part of the npm package: `site` is in
 `NOT_SHIPPED` (`scripts/version-guard.mjs`), and `tests/site.test.mjs` holds it to the repository.
 
@@ -55,6 +55,8 @@ src/index.html             the main page's template: English text, every transla
 src/how-it-works.html      the method pages' templates, the same way
 src/why-it-works.html
 src/one-vault.html
+src/privacy.html           the privacy page (plugin.json's privacyPolicyUrl): English only, no keys of its own;
+                             PAGES builds it in "langs" alone, and every footer links it at the site root
 src/_header.html           partials every template splices in: the header and nav, the footer (where the
 src/_footer.html             version lives), the icon sprite and arrow markers, and the loop diagram
 src/_sprite.html             (the main page and How it works)
@@ -64,7 +66,7 @@ locales/<lang>.json        one dictionary per language for the whole site: en (e
 tools/i18n.py              build, extract and check (stdlib Python 3.12); PAGES is the table of pages
 tools/graph-slice.mjs      the background graph's data: a slice of the vault's graph.md, laid out, into site.js
 index.html                 generated: English, the default, at the site root
-<slug>/index.html          generated: the English method pages — /how-it-works/ /why-it-works/ /one-vault/
+<slug>/index.html          generated: the English method pages — /how-it-works/ /why-it-works/ /one-vault/ — and /privacy/
 <lang>/index.html          generated: every page per language — /de/ /de/how-it-works/ … /zh/one-vault/
 <lang>/<slug>/index.html
 en/index.html              generated: a redirect from the old /en/ address to the root

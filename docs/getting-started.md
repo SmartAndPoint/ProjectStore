@@ -14,7 +14,7 @@ The next two sections are the other ways in: a checkout, for contributors, and t
 
 ## From a checkout
 
-For contributors working on projectstore itself. Clone it; [Running a checkout's build](../packaging/README.md#running-a-checkouts-build) covers the packed form.
+For contributors working on projectstore itself. Clone it; [Running a checkout's build](https://github.com/SmartAndPoint/ProjectStore/blob/main/packaging/README.md#running-a-checkouts-build) covers the packed form.
 
 ```bash
 git clone https://github.com/SmartAndPoint/ProjectStore.git ~/Projects/SmartAndPoint/ProjectStore

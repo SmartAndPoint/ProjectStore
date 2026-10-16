@@ -91,13 +91,25 @@ const DEFAULT_LANG = "en";
 // and the folder its pages live in ("" is the language root). A test below
 // holds the copy to the original, so a page the build renders cannot go
 // unchecked: a new kind fails here until KIND_RULES says what it carries.
+// `langs`: a kind built in those languages only (the privacy page, English
+// for now, linked from every page at the site root).
 const KINDS = [
   { kind: "main", src: "index.html", slug: "" },
   { kind: "how-it-works", src: "how-it-works.html", slug: "how-it-works" },
   { kind: "why-it-works", src: "why-it-works.html", slug: "why-it-works" },
   { kind: "one-vault", src: "one-vault.html", slug: "one-vault" },
+  { kind: "privacy", src: "privacy.html", slug: "privacy", langs: ["en"] },
 ];
 const slugOf = (kind) => KINDS.find((k) => k.kind === kind)?.slug ?? null;
+// The languages a kind is built in, of the dictionaries `langs`; and whether
+// a kind is built in one language only, which lists itself as its only
+// alternate, shows no switcher and never redirects.
+const kindLangs = (k, langs) => (k.langs ? langs.filter((l) => k.langs.includes(l)) : langs);
+const kindOf = (kind) => KINDS.find((k) => k.kind === kind);
+const singleLanguage = (kind) => Boolean(kindOf(kind)?.langs && kindOf(kind).langs.length === 1);
+// The folders of the single-language kinds: shared by every language, at the
+// site root (tools/i18n.py SHARED_PAGES).
+const SHARED_PAGE_DIRS = KINDS.filter((k) => k.langs && k.slug).map((k) => `/${k.slug}/`);
 // A page's folder under the site root, its file and its address: English at
 // the root, every other language under <lang>/, a method page in <slug>/.
 const pagePath = (lang, slug) => `${lang === DEFAULT_LANG ? "" : `${lang}/`}${slug ? `${slug}/` : ""}`;
@@ -422,7 +434,7 @@ function sitePages(root = ROOT) {
     .map((n) => n.slice(0, -5))
     .sort();
   return langs.flatMap((lang) =>
-    KINDS.map(({ kind, slug }) => {
+    KINDS.filter((k) => kindLangs(k, langs).includes(lang)).map(({ kind, slug }) => {
       const file = pageFile(lang, slug);
       return { lang, kind, slug, file, html: existsSync(join(root, file)) ? read(file) : null };
     }),
@@ -1059,15 +1071,23 @@ function checkPageLinks(page, pageDirs) {
         out.push(finding(page.file, "page-link", `${href} names no file under site/`));
       continue;
     }
+    // A page built in one language only is every language's, at the site root.
+    if (SHARED_PAGE_DIRS.includes(path)) continue;
     if (!own.includes(path))
       out.push(finding(page.file, "page-link", `${href} lands on ${path}, which is not a ${page.lang} page`));
   }
   return unique(out);
 }
-// Every page folder per language, as the build writes them: "" or "de/" plus each kind's slug.
+// Every page folder per language, as the build writes them: "" or "de/" plus each kind's slug,
+// for each kind built in that language.
 const pageDirsByLang = (langs) =>
   Object.fromEntries(
-    langs.map((l) => [l, KINDS.map(({ slug }) => (l === DEFAULT_LANG ? "" : `${l}/`) + (slug ? `${slug}/` : ""))]),
+    langs.map((l) => [
+      l,
+      KINDS.filter((k) => kindLangs(k, langs).includes(l)).map(
+        ({ slug }) => (l === DEFAULT_LANG ? "" : `${l}/`) + (slug ? `${slug}/` : ""),
+      ),
+    ]),
   );
 
 // What each kind of page carries (the story's Technical Notes, "Facts per
@@ -1102,6 +1122,7 @@ const KIND_RULES = {
   },
   "why-it-works": { facts: ["version"], words: 1100 },
   "one-vault": { facts: ["version", "install"], source: true, words: 1100 },
+  privacy: { facts: ["version"], words: 900 },
 };
 const rulesOf = (page) => KIND_RULES[page.kind] ?? {};
 
@@ -1452,7 +1473,9 @@ function checkPageSet(langs, files, isFile) {
   for (const lang of langs) {
     if (!(lang in LANG_TAGS))
       out.push(finding(`${SITE}/locales/${lang}.json`, "page", `${lang} is not in tools/i18n.py LANGS`));
-    for (const { kind, slug } of KINDS) {
+    for (const k of KINDS) {
+      const { kind, slug } = k;
+      if (!kindLangs(k, langs).includes(lang)) continue;
       const file = pageFile(lang, slug);
       want.add(file);
       if (!isFile(file)) out.push(finding(file, "page", `site/locales/${lang}.json has no ${kind} page`));
@@ -1486,8 +1509,9 @@ function checkAlternates(page, langs) {
       .filter((el) => el.attrs.rel === "alternate" && el.attrs.hreflang)
       .map((el) => [el.attrs.hreflang, el.attrs.href]),
   );
+  const own = kindOf(page.kind) ? kindLangs(kindOf(page.kind), langs) : langs;
   const want = new Map([
-    ...langs.map((l) => [LANG_TAGS[l], pageUrl(l, page.slug)]),
+    ...own.map((l) => [LANG_TAGS[l], pageUrl(l, page.slug)]),
     ["x-default", pageUrl(DEFAULT_LANG, page.slug)],
   ]);
   for (const [tag, href] of want)
@@ -2575,6 +2599,11 @@ function checkRedirect(page, langs) {
     return scripts.length
       ? [finding(page.file, "redirect", "a page in another language carries the redirect; only English pages follow")]
       : [];
+  // A page in English only has no other page to send a visitor to.
+  if (singleLanguage(page.kind))
+    return scripts.length
+      ? [finding(page.file, "redirect", "a page built in one language carries the redirect; it has nowhere to go")]
+      : [];
   if (scripts.length !== 1)
     return [finding(page.file, "redirect", `${scripts.length} redirect scripts; an English page has one`)];
   const target = /location\.replace\(((?:'[^']*'|t)(?:\+(?:'[^']*'|t))*)\+\(location\.protocol/.exec(scripts[0]);
@@ -2737,8 +2766,15 @@ test("site: the sources the checks read are there — README's three headings, i
   ]);
   assert.deepEqual(Object.fromEntries(py), LANG_TAGS, "the test's copy of LANGS is tools/i18n.py's");
   const pages = [
-    ...read("site/tools/i18n.py").matchAll(/^\s+\{"kind": "([a-z-]+)", "src": "([\w.-]+)", "slug": "([a-z-]*)"\},$/gm),
-  ].map((m) => ({ kind: m[1], src: m[2], slug: m[3] }));
+    ...read("site/tools/i18n.py").matchAll(
+      /^\s+\{"kind": "([a-z-]+)", "src": "([\w.-]+)", "slug": "([a-z-]*)"(?:, "langs": \[((?:"[a-z]+"(?:, )?)+)\])?\},$/gm,
+    ),
+  ].map((m) => ({
+    kind: m[1],
+    src: m[2],
+    slug: m[3],
+    ...(m[4] ? { langs: [...m[4].matchAll(/"([a-z]+)"/g)].map((x) => x[1]) } : {}),
+  }));
   assert.deepEqual(pages, KINDS, "the test's copy of PAGES is tools/i18n.py's");
   assert.deepEqual(Object.keys(KIND_RULES).sort(), KINDS.map((k) => k.kind).sort(), "every page kind has its rules");
   for (const { src } of KINDS) assert.ok(TEMPLATES.includes(`${SITE}/src/${src}`), `${SITE}/src/${src}`);
@@ -2749,7 +2785,11 @@ test("site: the sources the checks read are there — README's three headings, i
       `${m} is a ui_vocabulary word`,
     );
   assert.ok(LANGS.length >= 2, "English and at least one other language");
-  assert.equal(PAGES.length, LANGS.length * KINDS.length, "a page per dictionary and kind");
+  assert.equal(
+    PAGES.length,
+    KINDS.reduce((n, k) => n + kindLangs(k, LANGS).length, 0),
+    "a page per dictionary and kind, a single-language kind in its languages",
+  );
 });
 
 test("site: the slugger gives GitHub's anchors — the ones README's own links use, the manifest's install link, repeats and fences", () => {
@@ -3094,6 +3134,61 @@ test("site AC 4: no page, stylesheet or script loads from another origin, and ev
   );
   const found = files.flatMap((f) => checkLoads(f.path, read(f.path)));
   assert.deepEqual(found, [], show(found));
+});
+
+// The privacy page (PS-DIRECTORY: "The README and the manifest say everything
+// the plugin runs, writes, sends and fetches, and the listing has its icon,
+// its links and a privacy page"): plugin.json's privacyPolicyUrl. It is in
+// English only for now, every page's footer links it at the site root, it
+// loads nothing from another origin, and the hosts its "sent" section names
+// are the ones README's "What it sends and fetches" names, no more and no
+// fewer — the two say the same thing to the person deciding.
+const README_SENT = "### What it sends and fetches";
+function readmeSentHosts(md) {
+  const at = md.indexOf(`\n${README_SENT}\n`);
+  if (at < 0) return null;
+  const rest = md.slice(at + README_SENT.length + 2);
+  const end = rest.search(/^#{1,3} /m);
+  const body = end < 0 ? rest : rest.slice(0, end);
+  return [...new Set([...body.matchAll(/https:\/\/([a-z0-9.-]+\.[a-z]{2,})/g)].map((m) => m[1]))].sort();
+}
+function privacySentHosts(html) {
+  const sec = /<section\b[^>]*\bid="sent"[^>]*>([\s\S]*?)<\/section>/.exec(html)?.[1];
+  if (!sec) return null;
+  return [...new Set([...sec.matchAll(/<code>([a-z0-9.-]+\.[a-z]{2,})<\/code>/g)].map((m) => m[1]))].sort();
+}
+
+test("site: /privacy/ is English, in every footer, loads nothing from another origin, and names the README's network destinations", () => {
+  const privacy = PAGES.filter((p) => p.kind === "privacy");
+  assert.deepEqual(
+    privacy.map((p) => [p.lang, p.file]),
+    [[DEFAULT_LANG, `${SITE}/privacy/index.html`]],
+    "one privacy page, in English, at /privacy/",
+  );
+  const page = privacy[0].page;
+  assert.ok(page, `${SITE}/privacy/index.html is built`);
+  assert.equal(page.els.find((el) => el.name === "html")?.attrs.lang, "en");
+  for (const lang of LANGS.filter((l) => l !== DEFAULT_LANG))
+    assert.ok(!existsSync(join(ROOT, SITE, lang, "privacy")), `no ${lang}/privacy/: the page is English only`);
+  // The manifest's link is this page.
+  const manifest = JSON.parse(read(".claude-plugin/plugin.json"));
+  assert.equal(manifest.privacyPolicyUrl, pageUrl(DEFAULT_LANG, "privacy"));
+  // Every page's footer links it, and the link lands on the root /privacy/.
+  for (const p of PAGES.filter((x) => x.page)) {
+    const footer = p.page.els.find((el) => el.name === "footer");
+    const links = p.page.els.filter((el) => el.name === "a" && footer && within(footer, el));
+    const lands = links.map((el) => new URL(el.attrs.href || "", pageUrl(p.lang, p.slug)).href);
+    assert.ok(lands.includes(pageUrl(DEFAULT_LANG, "privacy")), `${p.file}: the footer links ${ORIGIN}privacy/`);
+  }
+  // Nothing from another origin, and the walk is not vacuous: it loads the stylesheet.
+  assert.ok(/href="\.\.\/assets\/style\.css\?v=/.test(privacy[0].html), "the page loads the site's stylesheet");
+  assert.deepEqual(checkLoads(privacy[0].file, privacy[0].html), []);
+  // The same destinations as README's section.
+  const readme = readmeSentHosts(read("README.md"));
+  assert.ok(readme && readme.length >= 2, `README has "${README_SENT}" naming its hosts: ${JSON.stringify(readme)}`);
+  assert.deepEqual(privacySentHosts(privacy[0].html), readme, "the privacy page names README's network destinations");
+  // The helpers see a difference: a host dropped from either side is one.
+  assert.notDeepEqual(privacySentHosts(privacy[0].html.replace("<code>api.anthropic.com</code>", "Anthropic")), readme);
 });
 
 test("site AC 4: site/ stays within its budget", () => {

@@ -33,10 +33,7 @@ Decision logs, validators, session-start orientation and independent review each
 
 The thing that makes agentic coding work — the loop Claude Code's own creator keeps pointing at — is *gather context, act, verify, repeat*. ProjectStore runs that loop one level up: over the project, not just the code.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/loop.svg">
-  <img alt="The ProjectStore loop: task → artifact → critic (verify) → backlog → planner → implement → reviewer (verify) → done → views regenerate" src="docs/images/loop-light.svg">
-</picture>
+![The ProjectStore loop: task → artifact → critic (verify) → backlog → planner → implement → reviewer (verify) → done → views regenerate](docs/images/loop.svg)
 
 1. **You hand the agent a task.** It opens an artifact before it opens an editor: an ADR if something needs deciding, an epic and stories for the work, a spec when the "how" is non-trivial.
 2. **A fresh-context critic attacks the artifact.** Expect *revise* — on this repo it has yet to pass anything on the first try, and that is the point.
@@ -197,8 +194,24 @@ npx projectstore init ~/vaults/new-project --language ru
 npx projectstore scaffold --write
 ```
 
-`projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are release artifacts: per-harness packages that carry the core, pinned at the same version and bundled, with the harness fixed. Nobody needs to type their names. Setup fetches the Codex one, which carries the Codex plugin; the Claude Code one is published at the core's version too; the opencode one publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs. How a release builds and publishes them, and how to run a checkout's own build: [`packaging/README.md`](./packaging/README.md).
+`projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are release artifacts: per-harness packages that carry the core, pinned at the same version and bundled, with the harness fixed. Nobody needs to type their names. Setup fetches the Codex one, which carries the Codex plugin; the Claude Code one is published at the core's version too; the opencode one publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs. How a release builds and publishes them, and how to run a checkout's own build: [`packaging/README.md`](https://github.com/SmartAndPoint/ProjectStore/blob/main/packaging/README.md).
 </details>
+
+## Installed from Anthropic's directory
+
+If you added ProjectStore from Anthropic's plugin directory, it is already installed: it comes through your claude.ai account, Claude Code loads it as `projectstore@synced`, and no `npx` step is needed. Bind a vault in a Claude Code session in your project:
+
+```
+/projectstore:bind ~/Documents/my-project-vault
+```
+
+Updates come from claude.ai: when a new version is published, Claude Code downloads it at its next start and asks you to run `/reload-plugins`. The upgrade commands below are for the other ways to install, and this copy needs none of them. To turn it off or remove it:
+
+- **Off for your account on this machine**: `/plugin` → **Installed**, then turn off `projectstore@synced`.
+- **Off for one project only**: set `"projectstore@synced": false` under `enabledPlugins` in that project's `.claude/settings.local.json`, or in its committed `.claude/settings.json` to keep it out for everyone who opens the project.
+- **Removed**: on claude.ai, where it was added.
+
+What the directory itself reports about a copy installed this way: [What Anthropic's directory reports](#what-anthropics-directory-reports).
 
 ## Configure
 
@@ -350,10 +363,7 @@ Two generated views exist for exactly that moment. `graph.md` holds every artifa
 
 ## Teams: many humans, many agents
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/team.svg">
-  <img alt="Team setup: several developers, each with their own agent, bind to one vault in its own git repo; ADRs and specs are reviewed as merge requests" src="docs/images/team-light.svg">
-</picture>
+![Team setup: several developers, each with their own agent, bind to one vault in its own git repo; ADRs and specs are reviewed as merge requests](docs/images/team.svg)
 
 Put the vault in its own repository. Every teammate installs ProjectStore, binds to the same vault, and contributes through the same approval gates. ADRs and specs get reviewed like code — as merge requests, except what's under review is the *reasoning*. A teammate without an agent reviews on GitHub or in Obsidian: it is all just markdown.
 
@@ -380,6 +390,42 @@ The deep dive — real session files, measured payloads, how every mechanism wor
 3. **The agent is a methodologist, not a database.** Skills nudge, commands gate, humans approve.
 4. **Layouts are opinionated.** v1 ships `engineering`; community adds `data-analytics`, `product`, `chatbot`, `library`.
 5. **One brain per project, not per person.** The vault travels with the repo. Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) is its personal-research counterpart.
+
+## What ProjectStore runs, writes, sends and fetches
+
+ProjectStore has no server, no account and no telemetry. It collects nothing about you, your project or your vault. The only requests it makes are the three under "What it sends and fetches" below, and each one is made by a command you run, never by a hook. This list covers everything in the package, and a [test](https://github.com/SmartAndPoint/ProjectStore/blob/main/tests/disclosure.test.mjs) fails when a shipped module that starts a program or makes a request is not accounted for here.
+
+### What it runs
+
+- **Node.js.** The hooks, the MCP server, the status line and the `projectstore` command are Node.js scripts in the plugin. They start other scripts of the plugin through the same Node. When setup keeps a project on its git-marketplace copy, it runs that copy's own `bin/projectstore.mjs` to read the copy's plan.
+- **git**, on this machine only. ProjectStore never commits, pushes, pulls or fetches. The SessionStart hook runs `git rev-parse` in a project that is not bound, to see whether it is a worktree of a bound checkout; no other hook starts a program. Bind, init and setup run `git rev-parse --show-toplevel` to find the repository, `git init` to give a new vault its own repository, and `git config --get user.name` to propose the default author. Doctor runs `git check-ignore`, `git ls-files`, `git diff --name-only` and `git log` to check what git ignores, tracks and has changed, and the reviewer's list of the files a story touched comes from `git diff` and `git log` too.
+- **The agent CLIs, `claude` and `codex`.** Setup, install, upgrade and uninstall run their plugin commands to register ProjectStore, update it or remove it: `plugin marketplace add`, `plugin install`, `plugin update`, `plugin uninstall` and the like. Each one runs after you confirm the plan, which shows it verbatim. The model menu of `configure` also runs `codex debug models` to read Codex's model list, which Codex refreshes with its own login.
+- **npm**, from setup, install and upgrade only. They run `npm config get registry` to learn which registry your npm uses. When they set up Codex, they also run `npm install` with `--ignore-scripts` to fetch the `projectstore-codex` package at the running version into a folder in ProjectStore's cache, because the Codex plugin ships in that package. No install script of that package runs.
+- **Your own status line.** When ProjectStore's status line is on and your project's `.claude/settings.json` or your user `settings.json` already names a status line command, ProjectStore runs that command through your shell on every render, passes it the status data Claude Code gives a status line on its standard input, and shows what it prints under its own line.
+
+The package also ships `scripts/version-guard.mjs`, which runs `npm pack --dry-run` as the release's own check. The plugin never runs it.
+
+### What it writes
+
+Opening a project that is not bound writes nothing into it: the first-run welcome is remembered in the user cache below. Every other write in a project comes from a command you run, or from the hooks and the status line once the project is bound.
+
+- **In a bound project**: `.projectstore/`, with the binding (`projectstore.json`, machine-local and git-ignored), the agents' models (`harness/`, committed), `state/` (each session's state, the welcome marker and the status line's launcher, machine-local) and its own `.gitignore`; the agents block between the `projectstore:agents` markers in `AGENTS.md` and `CLAUDE.md`; and `.claude/settings.local.json`, which gets the status line only when you turn it on, and this checkout's plugin registration when setup or install registers the npm copy, or turns the git-marketplace copy off here, through Claude Code's own CLI.
+- **In the vault**: the artifacts, each one after you approve it; the views generated from them (the kanban, the folder indexes, the code map and the graph); `.projectstore.json`, the vault's own settings; and `.projectstore/sessions/`, one small git-ignored file per session with its id, start time, project path, host name, process id and the vault files it edited last. A new vault also gets its own git repository.
+- **In your home directory**: `~/.cache/projectstore/`, or `$XDG_CACHE_HOME/projectstore/` when that is set. It holds the newest version the npm registry named (`registry.json`, kept for 24 hours), the model lists (`models/`, kept for a day: model names, labels, descriptions and families, never a key), which agent has shown its first-run welcome in a project that is not bound (`welcomed/`, one marker per agent for the machine), and the Codex package while a run installs it (`fetch/`, removed when the run ends). Setup and install from npm also write a folder of their own, `projectstore/`, under Claude Code's home (`~/.claude`, or `$CLAUDE_CONFIG_DIR`) or Codex's (`~/.codex`, or `$CODEX_HOME`), holding the marketplace the agent installs ProjectStore from, and the agent's own CLI records the plugin in that agent's plugin registry.
+
+ProjectStore never changes Claude Code's or Codex's permission settings.
+
+### What it sends and fetches
+
+- **The npm registry**, `https://registry.npmjs.org/` or the registry your npm is set to. One `GET <registry>/projectstore`, with no credentials and a 2-second limit, asks for the newest release. Setup, install and upgrade make it when they run from npm (npx or a global install) or from a git checkout. They never make it from the copy that Claude Code or Codex loads, and never in a dry run. The answer is kept for 24 hours, and `PROJECTSTORE_NO_UPDATE_CHECK=1` turns the request off.
+- **The Codex package.** The `npm install` above fetches `projectstore-codex` from the registry your npm is set to, with npm's own settings, only when setup, install or upgrade sets up Codex.
+- **Anthropic's model list**, `https://api.anthropic.com/v1/models`, or the same path under `$ANTHROPIC_BASE_URL` when that is set. Only the model menu of `configure` at a terminal sends it, only when `ANTHROPIC_API_KEY` is set, and only when the model list is missing or older than a day, or you ask to refresh it. The request carries your key in its `x-api-key` header and nothing else of yours. Only the model names, labels and families of the answer are kept, for a day. Without the variable nothing is sent, and the menu offers Claude Code's aliases.
+
+Nothing else leaves your machine: the hooks, the MCP server and the status line open no connection of their own. The status line command you had before is yours, and it runs as you set it.
+
+### What Anthropic's directory reports
+
+For a copy added from Anthropic's plugin directory, Claude collects usage figures, not ProjectStore, and shows them to the maintainer on the directory's **Usage** tab ([Track published plugin usage](https://claude.com/docs/connectors/building/after-publishing#track-published-plugin-usage)): installs, active accounts and retention, with installs by surface and by where they came from; the share of accounts on each version; how often each skill, command, agent, hook and MCP server is used; load errors by Claude Code version, and the MCP server's tool calls, error rate and latency; and the listing's views, install clicks and installs. The maintainer sees these as totals across accounts, computed once a day. A copy installed with npx, npm or the git marketplace is not counted.
 
 ## Uninstalling
 

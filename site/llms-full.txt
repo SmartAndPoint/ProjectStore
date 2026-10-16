@@ -375,6 +375,7 @@ Each ingredient exists elsewhere: decision records with a status (the `adrkit` c
 ## 14. Links
 
 - This site: https://projectstore.dev/ (and https://projectstore.dev/llms.txt), with three method pages: https://projectstore.dev/how-it-works/, https://projectstore.dev/why-it-works/ and https://projectstore.dev/one-vault/
+- Privacy: https://projectstore.dev/privacy/ — no telemetry; what the plugin runs, writes, sends and fetches is in the README: https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md#what-projectstore-runs-writes-sends-and-fetches
 - Repository: https://github.com/SmartAndPoint/ProjectStore
 - README: https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md
 - How it works, in depth: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/how-it-works.md
