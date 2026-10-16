@@ -634,6 +634,8 @@ test("disclosure: the section's writes and the directory report, and no key-shap
   assert.ok(section().includes("no telemetry"), "no telemetry");
   // A key-shaped example value is a finding for the scan and a reviewer
   // alike, even in documentation.
+  // `sk-(?:ant-)` is spelled so to keep this source free of the guard's own key shape
+  // (packaging/directory-guard.mjs's credential row reads the test sources too).
   const KEY = /\b(?:sk-[A-Za-z0-9_-]{8,}|sk-(?:ant-)|ghp_[A-Za-z0-9]{6,}|github_pat_|xox[bp]-|AKIA[0-9A-Z]{12,})/;
   const visible = ["README.md", "site/src/privacy.html", ...PACKLIST.filter((f) => /^docs\/[^/]+\.md$/.test(f))];
   assert.deepEqual(

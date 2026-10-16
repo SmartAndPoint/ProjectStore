@@ -346,11 +346,12 @@ test("directory guard: a README that shows a bundled image through HTML <img> or
 });
 
 test("directory guard: an sk- string, a GitHub token or a private key block fails the credential row, by file and line, never by value", async () => {
-  const sk = "sk" + "-" + "abc123def456";
+  const sk = "sk" + "-" + "ant-api03-abc123def456ghi789";
   const ghp = "gh" + "p_" + "A1b2C3d4E5f6";
+  const ghs = "gh" + "s_" + "A1b2C3d4E5f6";
   const pat = "github" + "_pat_" + "11ABCDEFG0";
   const pem = "-".repeat(5) + "BEGIN OPENSSH " + "PRIVATE KEY" + "-".repeat(5);
-  const body = `# Setup\n\nexport ANTHROPIC_API_KEY=${sk}\n\nGITHUB_TOKEN=${ghp}\nGH=${pat}\n\n${pem}\n`;
+  const body = `# Setup\n\nexport ANTHROPIC_API_KEY=${sk}\n\nGITHUB_TOKEN=${ghp}\nGH=${pat}\nCI=${ghs}\n${pem}\n`;
   const findings = fails(
     await packed({ "docs/setup.md": body }),
     "credentials",
@@ -360,14 +361,16 @@ test("directory guard: an sk- string, a GitHub token or a private key block fail
     findings.map((f) => f.slice(0, f.indexOf(" — "))),
     [
       "docs/setup.md:3: an sk- key (Anthropic's prefix)",
-      "docs/setup.md:5: a ghp_ token (GitHub's prefix)",
+      "docs/setup.md:5: a GitHub token (ghp_, gho_, ghu_, ghs_ or ghr_)",
       "docs/setup.md:6: a github_pat_ token (GitHub's prefix)",
+      "docs/setup.md:7: a GitHub token (ghp_, gho_, ghu_, ghs_ or ghr_)",
       "docs/setup.md:8: a private key block",
     ],
   );
-  for (const v of [sk, ghp, pat, pem]) assert.ok(!JSON.stringify(findings).includes(v), "no finding carries the value");
+  for (const v of [sk, ghp, ghs, pat, pem])
+    assert.ok(!JSON.stringify(findings).includes(v), "no finding carries the value");
   // The renamed fixtures' values are no key's shape.
-  for (const v of ["test-anthropic-key", "test-github-token", "task-list", "disk-0"])
+  for (const v of ["test-anthropic-key", "test-github-token", "task-list", "disk-0", 'hreflang="sk-SK"', "sk-spinner"])
     assert.equal((await packed({ "docs/setup.md": `KEY=${v}\n` })).ok, true, v);
 });
 

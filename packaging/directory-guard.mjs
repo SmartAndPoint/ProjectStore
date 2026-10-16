@@ -41,8 +41,11 @@
 // SVG is text, so the 256 KiB limit holds for it; a symbolic link, a submodule
 // or an LFS pointer fails wherever it is, not only where the plugin loads it;
 // a package source in an .npmrc fails whether or not the plugin runs a
-// launcher; and the archive's size is bounded by the unpacked bytes plus a
-// 512-byte header per entry.
+// launcher; the attributes text, eol, crlf, ident and working-tree-encoding
+// count as rewriting contents, as filter does (so `* text=auto eol=lf` fails
+// here); JPEG and GIF completeness is a heuristic (the end marker), PNG and
+// WebP are walked; and the archive's size is bounded by the unpacked bytes
+// plus a 512-byte header per entry.
 //
 // Output is JSON on stdout, always: every row with its findings, and each
 // limit's headroom. Exit 0 when every row passes, 1 when one fails or the set
@@ -408,11 +411,14 @@ const PACKAGE_SOURCES = [
   [/^(?:uv\.toml|pip\.conf|pip\.ini)$/, /^\s*(index-url|extra-index-url|find-links|index|no-index|\[\[index\]\])/],
 ];
 
-// Key shapes: Anthropic's sk- prefix, GitHub's ghp_ and github_pat_, and a
-// private key block. The pattern sources hold none of them (a test checks).
+// Key shapes: Anthropic's sk- prefix with a key's length (20 or more key
+// characters, so a language tag such as sk-SK or a class such as sk-spinner
+// is not a key), GitHub's token prefixes (ghp_, gho_, ghu_, ghs_, ghr_ and
+// github_pat_), and a private key block. The pattern sources hold none of
+// them (a test checks).
 const CREDENTIALS = [
-  ["an sk- key (Anthropic's prefix)", /\bsk-[A-Za-z0-9]/],
-  ["a ghp_ token (GitHub's prefix)", /\bghp_[A-Za-z0-9]/],
+  ["an sk- key (Anthropic's prefix)", /\bsk-[A-Za-z0-9_-]{20,}/],
+  ["a GitHub token (ghp_, gho_, ghu_, ghs_ or ghr_)", /\bgh[pousr]_[A-Za-z0-9]/],
   ["a github_pat_ token (GitHub's prefix)", /\bgithub_pat_[A-Za-z0-9]/],
   ["a private key block", /-{5}BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-{5}/],
 ];
