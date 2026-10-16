@@ -3183,6 +3183,20 @@ test("site: /privacy/ is English, in every footer, loads nothing from another or
   // Nothing from another origin, and the walk is not vacuous: it loads the stylesheet.
   assert.ok(/href="\.\.\/assets\/style\.css\?v=/.test(privacy[0].html), "the page loads the site's stylesheet");
   assert.deepEqual(checkLoads(privacy[0].file, privacy[0].html), []);
+  // The short form names what README's writes name that a reader asks about
+  // first: the author git gives every artifact, the settings file and the
+  // marketplace folder in the agent's home, and what a session file records.
+  for (const m of [
+    "<code>user.name</code>",
+    "each new artifact names it as its author",
+    "<code>.claude/settings.local.json</code>",
+    "<code>projectstore/</code>",
+    "<code>~/.claude</code>",
+    "<code>~/.codex</code>",
+    "read or edited last, with the tool and the time",
+    "inactive for 24 hours",
+  ])
+    assert.ok(privacy[0].html.includes(m), `the privacy page names ${m}`);
   // The same destinations as README's section.
   const readme = readmeSentHosts(read("README.md"));
   assert.ok(readme && readme.length >= 2, `README has "${README_SENT}" naming its hosts: ${JSON.stringify(readme)}`);

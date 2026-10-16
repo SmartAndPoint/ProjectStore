@@ -32,7 +32,7 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
      binding, leaves the vault shared and unchanged, carries no session state.
      Do not offer a fresh `bind <vault-path>` here — binding a second vault by
      hand is exactly what this finding exists to prevent.
-   - `vault-git` → offer `git init` (+ optional first commit) inside the vault.
+   - `vault-git` → offer `git init` inside the vault.
    - `gitignore` → offer appending the missing entries via Edit.
    - `agents-block` duplicate or stale → show the finding, then (after approval)
      run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" install --harness claude-code --surface agents_block --project "${CLAUDE_PROJECT_DIR}"`

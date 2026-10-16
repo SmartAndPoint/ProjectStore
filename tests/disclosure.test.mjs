@@ -101,6 +101,8 @@ const ROWS = {
     says: () => [
       ["`bin/projectstore.mjs`", '"bin", "projectstore.mjs"', code("scripts/convergence.mjs")],
       ["the same Node", "process.execPath", code("scripts/convergence.mjs")],
+      ["to read the copy's plan", 'verb: "plan"', code("scripts/convergence.mjs")],
+      ["once you confirm, to apply it", 'verb: "upgrade"', code("scripts/install-harness.mjs")],
     ],
   },
   git: {
@@ -111,11 +113,15 @@ const ROWS = {
       ["`git rev-parse --show-toplevel`", '"rev-parse", "--show-toplevel"', code("scripts/binding.mjs")],
       ["`git init`", '"init"', code("scripts/binding.mjs")],
       ["`git config --get user.name`", '"config", "--get", "user.name"', code("scripts/cli.mjs")],
+      ["each new artifact names it as its author", "author: cfg.default_author", code("scripts/draft.mjs")],
       ["`git check-ignore`", '"check-ignore"', code("scripts/doctor.mjs")],
       ["`git ls-files`", '"ls-files"', code("scripts/doctor.mjs")],
       ["`git diff --name-only`", '"diff", "--name-only"', code("scripts/diff-refs.mjs")],
       ["`git log`", '"log"', code("scripts/diff-refs.mjs")],
       ["SessionStart hook", "resolveBinding(", code("hooks/session-start.mjs")],
+      // Agents read history with the agent's own tools, not through ProjectStore's code.
+      ["through the agent's own tools", "`git log`", read("agents/archaeologist.md")],
+      ["`git status`", "`git status`", read("agents/reviewer.md")],
     ],
   },
   hosts: {
@@ -142,6 +148,18 @@ const ROWS = {
       ["`npm install`", '"install"', npmArgv()],
       ["`--ignore-scripts`", '"--ignore-scripts"', npmArgv()],
       [`\`${codexShell()}\``, String(codexShell()), JSON.stringify(manifest("codex")?.install)],
+    ],
+  },
+  // The band is a hooks module: no spawn and no fetch in its reach (checked
+  // below), so it is no module's row; `quiet` names the file it describes.
+  band: {
+    sub: RUNS,
+    lead: "The band above the prompt",
+    quiet: "hooks/band.tsx",
+    says: () => [
+      ["inside Claude Code's own process, not in Node", "The module runs with no Node", read("hooks/band.tsx")],
+      ["`.projectstore/state/sessions/`", "const SESSIONS = '.projectstore/state/sessions'", read("hooks/band.tsx")],
+      ["starts no program and makes no request", "./band.tsx", read("hooks/hooks.json")],
     ],
   },
   statusline: {
@@ -266,6 +284,16 @@ function nonExecPathUses(src) {
   return out;
 }
 
+// The programs a module starts by a literal name: every spawn-shaped call
+// whose first argument is a string literal. process.execPath and a value (a
+// manifest's program, a caller's argv) are not literals, so a new literal
+// program inside a pinned module fails until its README row says it.
+const SPAWN_CALL = /(?<![\w$.])(?:spawn\w*|nodeSpawn|exec(?:File)?(?:Sync)?|fork)\s*\(\s*(["'`])([^"'`]*)\1/g;
+const literalPrograms = (src) => [...stripComments(src).matchAll(SPAWN_CALL)].map((m) => m[2]);
+// The literals each kind of module may start: git anywhere, npm only in the
+// named exemption.
+const allowedLiterals = (file) => (MODULES[file]?.exempt ? ["npm"] : ["git"]);
+
 const pinned = () =>
   SHIPPED_CODE.filter((f) => {
     const src = read(f);
@@ -311,12 +339,31 @@ test("disclosure: the shipped modules that spawn or fetch are the pinned map", (
     if (m.execPath && !m.rows.length)
       assert.deepEqual(nonExecPathUses(read(file)), [], `${file}: every spawn launches process.execPath`);
   }
-  // Every row discloses some module's work: a row no module needs is stale.
+  // Every row discloses some module's work, or a quiet file's: a row nothing needs is stale.
   assert.deepEqual(
-    [...new Set(Object.values(MODULES).flatMap((m) => m.rows || []))].sort(),
+    [
+      ...new Set([
+        ...Object.values(MODULES).flatMap((m) => m.rows || []),
+        ...Object.keys(ROWS).filter((id) => ROWS[id].quiet),
+      ]),
+    ].sort(),
     Object.keys(ROWS).sort(),
     "every README row is a module's",
   );
+  // Each spawn a pinned module makes by a literal name starts git (npm in the
+  // exemption); every other program is manifest data or a caller's argv.
+  for (const file of Object.keys(MODULES)) {
+    const beyond = literalPrograms(read(file)).filter((p) => !allowedLiterals(file).includes(p));
+    assert.deepEqual(beyond, [], `${file} starts a literal program its README row does not name`);
+  }
+  assert.ok(literalPrograms(read("scripts/binding.mjs")).includes("git"), "the literal reader sees binding's git");
+  // Planted: a literal curl inside a pinned module fails.
+  const planted = read("scripts/binding.mjs") + '\nspawnSync("curl", ["https://example.invalid"]);\n';
+  assert.deepEqual(
+    literalPrograms(planted).filter((p) => !allowedLiterals("scripts/binding.mjs").includes(p)),
+    ["curl"],
+  );
+  assert.deepEqual(literalPrograms("spawn(process.execPath, [x]); spawnSync(bin || s.cli.bin, a); re.exec(s);"), []);
   // Not vacuous: the execPath rule sees a launch of another program.
   assert.deepEqual(nonExecPathUses('import { spawn } from "node:child_process";\nspawn(process.execPath, [x]);\n'), []);
   assert.equal(nonExecPathUses('import { spawnSync as s } from "node:child_process";\ns("git", ["x"]);\n').length, 1);
@@ -356,11 +403,20 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   assert.ok(/never commits, pushes, pulls or fetches/.test(gitRow), "the git row says what git never does");
   for (const s of ["push", "pull", "fetch", "clone", "commit", "remote"])
     assert.ok(!subcommands.has(s), `no shipped code runs git ${s}`);
+  // Nor does any command, skill or agent text tell the agent to: "never commits" covers them too.
+  const told = PACKLIST.filter((f) => /^(?:commands|skills|agents)\//.test(f) && f.endsWith(".md")).filter((f) =>
+    /\bgit\s+(?:commit|push|pull|fetch|clone)\b|first commit/.test(read(f)),
+  );
+  assert.deepEqual(told, [], "no command, skill or agent has the agent commit, push, pull, fetch or clone");
   // Every harness's host CLI and every http catalog's host is named.
   const hostsRow = rowsOf(sub(RUNS)).get(ROWS.hosts.lead);
   for (const b of hostCli()) assert.ok(hostsRow.includes(`\`${b}\``), `the agent CLIs row names ${b}`);
   assert.equal(hostCli().length, 2, "both harnesses register through their own CLI");
   const sends = sub(SENDS);
+  // The one program that connects on its own is named where the sends are.
+  for (const c of catalogs("codex").filter((x) => x.kind === "command"))
+    assert.ok(sends.includes(`\`${c.argv.join(" ")}\``), `the sends section names ${c.argv.join(" ")}, which connects`);
+  assert.ok(section().includes("Its own code makes three requests"), "the intro counts ProjectStore's own requests");
   for (const c of httpCatalogs()) assert.ok(sends.includes(new URL(c.url).host), `the sends section names ${c.url}`);
   assert.ok(sends.includes(new URL(conv.DEFAULT_REGISTRY).host), "the sends section names the default registry");
 });
@@ -380,6 +436,18 @@ test("disclosure: the hooks start only git, from SessionStart, and fetch nothing
   assert.deepEqual(reach, want);
   for (const rows of Object.values(reach))
     for (const f of rows) assert.deepEqual(MODULES[f].rows, ["git"], `${f}, on a hook's path, runs git only`);
+  // The hooks modules (the band) run in the host's process: nothing they reach spawns or fetches.
+  const modules = readJson("hooks/hooks.json").modules || [];
+  assert.deepEqual(modules, ["./band.tsx"], "hooks.json loads the band module");
+  for (const m of modules) {
+    const reach = imports.closure(posix.join("hooks", m), { root: ROOT });
+    assert.deepEqual(
+      reach.filter((f) => f in MODULES || callsFetch(read(f))),
+      [],
+      `${m} reaches no module that spawns or fetches`,
+    );
+    assert.equal(ROWS.band.quiet, posix.join("hooks", m), "README's band row describes it");
+  }
   const runs = sub(RUNS);
   assert.ok(runs && runs.includes("The SessionStart hook runs `git rev-parse`"), "README says what SessionStart runs");
   assert.ok(runs.includes("no other hook starts a program"), "README says the other hooks start nothing");
@@ -489,6 +557,32 @@ test("disclosure: the listing fields and the icon", () => {
   assert.ok(existsSync(join(ROOT, rel)));
 });
 
+// A command copied with the comma after it fails (the 0.29.1 upgrade did):
+// no command span in the two sections is followed by punctuation.
+const PROGRAMS = ["git", "npm", "npx", "node", "codex", "claude", "bunx", "pnpm", "deno", "projectstore", "plugin"];
+const commandSpan = (t) =>
+  /^\/[a-z]/.test(t) || (PROGRAMS.includes(t.split(/\s+/)[0]) && t.trim().split(/\s+/).length > 1);
+function spansBeforePunctuation(text) {
+  const out = [];
+  for (const { line, n, fenced } of markdownLines(String(text || ""))) {
+    if (fenced) continue;
+    for (const m of line.matchAll(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g))
+      if (commandSpan(m[2]) && /^[,.;:)]/.test(line.slice(m.index + m[0].length))) out.push(`${n}: ${m[0]}`);
+  }
+  return out;
+}
+
+test("disclosure: no command span in the directory and disclosure sections is followed by punctuation", () => {
+  assert.ok(section() !== null && under(README, DIRECTORY) !== null, "both sections are there");
+  assert.deepEqual(spansBeforePunctuation(under(README, DIRECTORY)), []);
+  assert.deepEqual(spansBeforePunctuation(section()), []);
+  assert.deepEqual(spansBeforePunctuation("asks you to run `/reload-plugins`.\nrun `git ls-files`, then"), [
+    "1: `/reload-plugins`",
+    "2: `git ls-files`",
+  ]);
+  assert.deepEqual(spansBeforePunctuation("loads it as `projectstore@synced`, a path `.claude/x.json`."), []);
+});
+
 test("disclosure: one homepage — plugin.json, marketplace.json and package.json agree", () => {
   const want = "https://projectstore.dev";
   assert.equal(readJson(".claude-plugin/plugin.json").homepage, want, "plugin.json");
@@ -521,6 +615,14 @@ test("disclosure: the section's writes and the directory report, and no key-shap
   ])
     assert.ok(writes.includes(w), `the writes name ${w}`);
   assert.ok(writes.includes("permission settings"), "it says it never changes permission settings");
+  // The session file: reads count too (PreToolUse appends every vault path,
+  // with the tool and the time), and SessionStart deletes a file idle for a day.
+  assert.ok(writes.includes("the vault files it read or edited last, with the tool and the time"));
+  assert.ok(code("scripts/lib.mjs").includes("{ path: filePath, tool: toolName, at:"), "appendActivity's entry");
+  assert.ok(writes.includes("inactive for 24 hours"), "the session files' lifetime");
+  assert.ok(code("hooks/session-start.mjs").includes("cleanupStaleSessions(cfg.vault_path, 24,"));
+  assert.ok(writes.includes("`harness/`, meant to be committed"), "the overlays are meant to be committed");
+  assert.ok(writes.includes("the band's heartbeat"), "the band's heartbeat");
   const reports = sub(REPORTS);
   assert.ok(reports !== null, `README has "${REPORTS}"`);
   assert.ok(
