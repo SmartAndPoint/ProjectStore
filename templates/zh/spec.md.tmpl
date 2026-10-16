@@ -1,0 +1,64 @@
+---
+type: spec
+id: {{id_json}}
+title: {{title_json}}
+status: draft
+date: {{date}}
+updated: {{date}}
+authors: [{{author_json}}]
+tags: {{tags}}
+external_refs: {}
+adr: []
+stories: []
+review_status: pending
+reviewed_at: null
+---
+
+# {{title}}
+
+| 字段 | 值 |
+|---|---|
+| **状态** | draft |
+| **日期** | {{date}} |
+| **覆盖** | <!-- 由 stories 填充： --> |
+
+spec 的验收是所覆盖 story 自身验收标准的**追加项**，不是替代：两边都为绿，
+story 才算完成（ADR-007）。
+
+---
+
+## 解决方案
+
+<!-- 具体做法，并引用做出该决策的 ADR：[[../adr/ADR-XXX-...|ADR-XXX]]。 -->
+
+## 行为契约
+
+<!-- 编号列出，逐条可测。每条描述可观察的结果，而不是实现步骤。
+     若是研究性 spike：需要回答的问题 + 退出条件。 -->
+
+1.
+2.
+
+## 模块与文件
+
+<!-- 可选（spike 可省略）：本 spec 管辖的文件/模块树。 -->
+
+## 测试
+
+<!-- 可选：契约如何验证 —— 单元测试、集成测试、语料门禁。 -->
+
+## 验收
+
+<!-- 复选框。仅属于某个 story 的条目标注 "— stories: story-002"；
+     未标注的条目适用于所有被覆盖的 story。frontmatter 只用 inline flow。 -->
+
+- [ ]  — stories:
+- [ ]
+
+## 参考
+
+-
+
+---
+
+*最后更新：{{date}}*

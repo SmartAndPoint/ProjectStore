@@ -1,0 +1,79 @@
+{
+  "name": "projectstore",
+  "version": "0.30.6",
+  "description": "Your agent runs the project through a verified loop: task → artifact (ADR / spec / epic / story) → adversarial critic → backlog → planner → reviewer → done. Plain markdown in git — any model can pick the project up tomorrow.",
+  "keywords": [
+    "project-management",
+    "adr",
+    "epics",
+    "stories",
+    "kanban",
+    "obsidian",
+    "markdown",
+    "knowledge-base",
+    "engineering-process",
+    "claude-code",
+    "codex",
+    "agentic",
+    "ai-agents"
+  ],
+  "homepage": "https://projectstore.dev",
+  "bugs": {
+    "url": "https://github.com/SmartAndPoint/ProjectStore/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SmartAndPoint/ProjectStore.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Evgenii Konev",
+    "email": "ekonev@smartandpoint.com",
+    "url": "https://github.com/SmartAndPoint"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "projectstore": "bin/projectstore.mjs"
+  },
+  "files": [
+    "bin/",
+    ".claude-plugin/",
+    "!.claude-plugin/types/",
+    "agents/",
+    "commands/",
+    "harnesses/",
+    "hooks/",
+    "scripts/",
+    "skills/",
+    "scaffold/",
+    "templates/",
+    "docs/",
+    "AGENTS.md",
+    ".mcp.json"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test --import ./tests/fixtures/hermetic.mjs tests/*.test.mjs",
+    "guard": "node scripts/version-guard.mjs",
+    "directory:check": "node packaging/directory-guard.mjs",
+    "packlist": "node scripts/version-guard.mjs --write-packlist",
+    "adapters": "node scripts/build-adapters.mjs --write",
+    "adapters:check": "node scripts/build-adapters.mjs --check",
+    "shells": "node packaging/shells.mjs --write",
+    "shells:check": "node packaging/shells.mjs --check",
+    "shells:build": "node packaging/shells.mjs --build --out dist",
+    "release:check": "npm run adapters:check && npm run guard && npm run directory:check && npm run shells:check && npm run lint && npm run format:check && npm test && npm pack --dry-run",
+    "lint:setup": "npm ci --prefix tools/lint",
+    "prelint": "node tools/lint/setup-check.mjs",
+    "preformat": "node tools/lint/setup-check.mjs",
+    "preformat:check": "node tools/lint/setup-check.mjs",
+    "lint": "node tools/lint/node_modules/eslint/bin/eslint.js --max-warnings 0 bin scripts \"hooks/*.mjs\" \"packaging/**/*.mjs\" \"tests/**/*.mjs\" eslint.config.mjs tools/lint/eslint.config.mjs tools/lint/setup-check.mjs",
+    "format": "node tools/lint/node_modules/prettier/bin/prettier.cjs --write bin scripts \"hooks/*.mjs\" \"packaging/**/*.mjs\" \"tests/**/*.mjs\" eslint.config.mjs tools/lint/eslint.config.mjs tools/lint/setup-check.mjs",
+    "format:check": "node tools/lint/node_modules/prettier/bin/prettier.cjs --check bin scripts \"hooks/*.mjs\" \"packaging/**/*.mjs\" \"tests/**/*.mjs\" eslint.config.mjs tools/lint/eslint.config.mjs tools/lint/setup-check.mjs"
+  }
+}

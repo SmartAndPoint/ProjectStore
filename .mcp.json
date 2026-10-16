@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "projectstore": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs",
+        "--project",
+        "${CLAUDE_PROJECT_DIR}"
+      ]
+    }
+  }
+}

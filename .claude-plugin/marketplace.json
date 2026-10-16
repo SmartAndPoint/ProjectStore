@@ -1,0 +1,40 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "SmartAndPoint",
+  "description": "Claude Code plugins by SmartAndPoint.",
+  "owner": {
+    "name": "Evgenii Konev",
+    "email": "ekonev@smartandpoint.com",
+    "url": "https://github.com/SmartAndPoint"
+  },
+  "plugins": [
+    {
+      "name": "projectstore",
+      "displayName": "projectstore",
+      "description": "📚 Your agent runs the project through a verified loop: task → artifact (ADR · spec · epic · story) → adversarial critic → backlog → planner → reviewer → done. Plain markdown in an Obsidian-friendly vault, every write approved by you — and any model can pick the project up tomorrow.",
+      "version": "0.30.6",
+      "author": {
+        "name": "Evgenii Konev",
+        "email": "ekonev@smartandpoint.com",
+        "url": "https://github.com/SmartAndPoint"
+      },
+      "category": "productivity",
+      "homepage": "https://projectstore.dev",
+      "tags": [
+        "obsidian",
+        "markdown",
+        "adr",
+        "epics",
+        "stories",
+        "kanban",
+        "knowledge-base",
+        "engineering-process",
+        "llm-wiki"
+      ],
+      "source": {
+        "source": "github",
+        "repo": "SmartAndPoint/ProjectStore"
+      }
+    }
+  ]
+}

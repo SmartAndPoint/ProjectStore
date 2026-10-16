@@ -1,0 +1,68 @@
+{
+  "statusline_no_work": "Ni epic ni story dans cette session pour l'instant",
+  "statusline_state_error": "⚠ état de session illisible",
+  "statusline_example_epic": "Super fonctionnalité dans un super produit",
+  "statusline_example_story": "Poignée pour papier toilette",
+  "band_this_session": "cette session",
+  "band_pinned": "épinglé",
+  "band_goal": "objectif",
+  "band_story": "story",
+  "band_agent": "agent",
+  "band_done": "terminées",
+  "band_in_work": "en cours",
+  "band_backlog": "backlog",
+  "band_stories": "stories",
+  "band_no_stories": "pas encore de stories",
+  "band_more": "de plus",
+  "band_hint": "masquer :",
+  "band_ended_done": "terminé",
+  "band_ended_stopped": "arrêté",
+  "band_verb_critic": "relit",
+  "band_verb_reviewer": "confronte le diff à",
+  "band_verb_planner": "planifie",
+  "band_verb_clerk": "écrit",
+  "band_verb_librarian": "range",
+  "band_verb_archaeologist": "cherche des décisions dans",
+  "band_verb_other": "travaille sur",
+  "band_step_reads": "lit",
+  "band_step_writes": "écrit",
+  "band_step_edits": "modifie",
+  "band_step_searches": "cherche",
+  "band_step_runs": "exécute",
+  "band_step_web": "cherche sur le web",
+  "band_step_vault": "interroge le vault :",
+  "folders": {
+    "adr": {
+      "name": "ADR",
+      "description": "Architecture Decision Records — décisions techniques importantes, avec leur contexte, les options envisagées et leurs conséquences."
+    },
+    "spec": {
+      "name": "Spécifications",
+      "description": "Le « comment » normatif de chaque sous-système — références aux ADR, contrats de comportement numérotés, acceptation en plus de celle des stories couvertes."
+    },
+    "epic": {
+      "name": "Epics",
+      "description": "Grands ensembles de travail découpés en stories. Chaque epic a son propre sous-dossier avec un répertoire `stories/`."
+    },
+    "research": {
+      "name": "Recherche",
+      "description": "Notes de recherche — investigations, spikes, comparaisons et conclusions."
+    },
+    "concept": {
+      "name": "Concepts",
+      "description": "Notes de concepts — définitions, modèles mentaux et entrées de glossaire."
+    },
+    "meeting": {
+      "name": "Réunions",
+      "description": "Comptes rendus de réunion — notes préfixées par la date : discussions, décisions et actions à mener."
+    },
+    "runbook": {
+      "name": "Exploitation",
+      "description": "Runbooks d'exploitation — procédures pas à pas avec vérification et retour arrière."
+    },
+    "diagram": {
+      "name": "Diagrammes",
+      "description": "Diagrammes d'architecture et de flux — contexte du système, séquences et flux de données."
+    }
+  }
+}

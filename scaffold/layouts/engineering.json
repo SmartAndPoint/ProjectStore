@@ -1,0 +1,85 @@
+{
+  "name": "engineering",
+  "description": "Software engineering project: ADRs, epics, stories, kanban, retros, runbooks.",
+  "folders": [
+    {
+      "path": "adr",
+      "kind": "adr",
+      "readme": true,
+      "numbered": true,
+      "prefix": "ADR-",
+      "pad": 3
+    },
+    {
+      "path": "specs",
+      "kind": "spec",
+      "readme": true,
+      "numbered": true,
+      "prefix": "SPEC-",
+      "pad": 3
+    },
+    {
+      "path": "epics",
+      "kind": "epic",
+      "readme": true,
+      "subfolder_per_id": true,
+      "story_prefix": "story-"
+    },
+    {
+      "path": "research",
+      "kind": "research",
+      "readme": true
+    },
+    {
+      "path": "concepts",
+      "kind": "concept",
+      "readme": true
+    },
+    {
+      "path": "meetings",
+      "kind": "meeting",
+      "readme": true,
+      "date_prefix": true
+    },
+    {
+      "path": "ops",
+      "kind": "runbook",
+      "readme": true
+    },
+    {
+      "path": "diagrams",
+      "kind": "diagram",
+      "readme": true
+    }
+  ],
+  "commands": [
+    "adr",
+    "spec",
+    "epic",
+    "story",
+    "research",
+    "concept",
+    "meeting",
+    "runbook",
+    "kanban"
+  ],
+  "agents": [
+    "critic",
+    "planner",
+    "reviewer",
+    "librarian",
+    "archaeologist",
+    "clerk"
+  ],
+  "kanban": {
+    "file": "kanban.md",
+    "columns": [
+      "Backlog",
+      "ToDo",
+      "In Progress",
+      "Review",
+      "Done"
+    ],
+    "source": "epics/*/stories/*.md"
+  }
+}

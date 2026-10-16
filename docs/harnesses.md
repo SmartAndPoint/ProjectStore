@@ -1,0 +1,186 @@
+# Harnesses
+
+projectstore's engine is one package. What differs between coding agents —
+where a hook is declared, whether a subagent can be shipped, which environment
+variable names the project — lives in `harnesses/<id>.json`, one **capability
+manifest** per harness, and nowhere else. No script branches on a harness name;
+the portability suite greps for it.
+
+This page says which harnesses exist, how far each one is trusted, and what
+"experimental" means when you read it below.
+
+## Status
+
+| Harness | id | Status | Verified | Surfaces installed |
+|---|---|---|---|---|
+| Claude Code | `claude-code` | **supported** | 2026-08-30 | hooks, commands, agents, skills, MCP, status line, agents block; the band above the prompt (experimental until its own live run) |
+| Codex | `codex` | **experimental** | — | portable plugin, hooks, rendered workflow skills, agents block |
+
+**supported** means the manifest carries a `verified` block: a session id and a
+date on which this harness's surfaces were installed and exercised end to end,
+and the measurements in the manifest came from that run.
+
+**experimental** means `verified` is `null`. Every field that was not measured
+is absent or `null` rather than guessed. It is enough to run on; it is not enough
+to promise. An experimental harness is never the source layout. A generated
+adapter may exist while it is experimental. Its distribution shell may
+publish before the live run that sets `verified`, but only by the maintainer's
+decision (Codex's does, from 0.28.1); the label stays experimental until that
+run.
+
+The label is not prose. It is derived from the manifest, and
+`tests/portability.test.mjs` fails if this table and `verified` disagree.
+
+## Claude Code
+
+The **source layout**: the repository's own `hooks/`, `commands/`, `agents/`,
+`skills/` and `.mcp.json` are Claude Code's, written by hand and read directly.
+Every other harness is generated from them. Exactly one manifest may say
+`source_layout: true`, which is what keeps "the original" a single place.
+
+Config lives in `<project>/.projectstore/`, harness-neutral, shared by every
+harness in the project. The per-harness half — the agents block, which carries
+model names and those are harness-specific — is
+`<project>/.projectstore/harness/claude-code.json`.
+
+## Codex
+
+Experimental, measured on `codex-cli 0.153.4` and, for hook loading, 0.160.0.
+The initial spike captured 759
+hook firings. The 2026-09-30 gate then built the npm shell from a packed core,
+passed Codex's plugin validator, installed and upgraded it through an isolated
+`CODEX_HOME`, verified the materialised cache by version and digest, and loaded
+the `projectstore-status` skill in a fresh Codex session. The validator (the
+plugin-creator skill's `validate_plugin.py`) reads only
+`.codex-plugin/plugin.json`, which from 0.28.2 is the shell's only manifest
+(below).
+
+That run exercised one skill, not every installed surface, so `verified` stays
+`null`. The hooks are the reason it matters. On 2026-10-03 the first real
+install's cached hooks could not load the vault in any session. They were run
+by hand through `zsh -lc`; the failure did not depend on the shell form. In the
+first session the failure sat in the model's context under the welcome, which
+was all the user saw. The core had taken the shell's root for its own. That is
+fixed, and the suite now runs every rendered hook from the built shell. A live
+Codex session firing them from an installed release is still owed.
+
+How 0.153.4 starts a hook was read from its source; on 0.160.0 it was seen
+once, with the hook's `$0` reading `/bin/zsh` and `node` found. Under the
+session's shell as `<shell> -c`, with the environment the Codex process had when
+it built the session's hooks. `$SHELL -lc` (or `/bin/sh -lc`) is the fallback
+when the hooks are built without exactly one ready local environment. So a hook
+finds `node` on the Codex process's own `PATH`, plus whatever `.zshenv` adds:
+zsh reads `.zshenv` for a `-c` command, not `.zprofile` or `.zshrc`, so a Codex
+not started from a terminal can miss a `node` that only `.zprofile` puts on
+`PATH`.
+
+The shell is published as `projectstore-codex` from 0.28.1, ahead of that live
+run, by the maintainer's decision. Nobody types its name: setup, install and
+upgrade fetch it at their own version and plan Codex from it. From a terminal
+in your project:
+
+```sh
+npx projectstore setup
+```
+
+To upgrade Codex alone, naming the version you want to run:
+
+```sh
+npx projectstore@<version> upgrade --harness codex
+```
+
+Installation is user-global because Codex stores marketplace registrations and
+plugin caches in `CODEX_HOME`; the agents block in `AGENTS.md` remains
+project-local. Ordinary uninstall leaves the global plugin in place; add
+`--global` only when you mean to remove it for every project. A checkout's own
+build runs through the same flow: [`packaging/README.md`](https://github.com/SmartAndPoint/ProjectStore/blob/main/packaging/README.md#running-a-checkouts-build)
+has the tarball loop.
+
+`npx projectstore configure` changes Codex's settings as it does Claude Code's.
+In a project that uses only Codex, it offers no status line and no band: Codex
+has neither surface. An agent's model goes to `.projectstore/harness/codex.json`:
+name it in Codex's own vocabulary with `--set agents.<name>=<model>`. The
+terminal's model presets are Claude Code's, so they are not offered for Codex.
+
+What is known, and how:
+
+- **Hooks load from Codex's default file, so the shell carries no root
+  `plugin.json`.** `.codex-plugin/plugin.json` is its only manifest and names
+  no hooks, so Codex falls back to `hooks/hooks.json`. 0.28.1, and every
+  build from a checkout since rc.3, also carried a root Agent Plugins
+  `plugin.json`, with the hooks under `extensions.com.openai`. Codex picks
+  that manifest first, and since openai/codex#37027 (merged 2026-08-05; in
+  `codex-cli` 0.153.4 and 0.160.0 alike) it loads no hooks from that format.
+  So no hook of ours loaded from those builds on any Codex measured here
+  (0.153.4, 0.160.0). On the maintainer's machine
+  on 2026-10-04, `/hooks` listed none of ours; with that file renamed away in
+  the installed cache, it listed all six, and the app server's `hooks/list`
+  gives 0 for 0.28.1's root and 6 for 0.28.2's. Five
+  events: `SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`, `PreCompact`.
+  Of the 759 captured firings, 757 came from the earlier inline form, across
+  `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse` and `Stop`,
+  and 2 from a file-site `hooks/hooks.json` with an absolute `node` path.
+  That live `codex-cli` 0.160.0 session ran on a hand-edited 0.28.1 cache, not
+  an installed release. Our SessionStart and PreCompact were observed in it. A
+  throwaway recorder saw PreToolUse, PostToolUse and Stop fire, but ours on
+  PostToolUse, matched to `apply_patch`, still awaits a write. SessionStart ran
+  on the session's first message, not when the window opened. The hook process
+  receives `PLUGIN_ROOT` in its environment, naming the shell's root with the
+  core beneath it in `node_modules/projectstore/`, and **no project-directory
+  variable at all**. The project comes from the payload's `cwd`, which every
+  projectstore hook adopts before it resolves anything.
+- **Trust is granted per hook, machine-wide**, and it lags: a release that
+  changes hooks may not take effect until the session after next.
+- **Source commands are not shipped.** Codex has no registrable root slash command, and
+  shipping `commands/` is actively harmful — it rewrites them into skills itself
+  and leaves `${CLAUDE_PLUGIN_ROOT}` in the body, producing entry points that
+  exit 1. They are rendered as skills instead.
+- **Roles are rendered as orchestration skills.** Codex spawns subagents through
+  its collaboration tool, not by loading a plugin's `agents/` directory. The
+  six ProjectStore roles therefore ship as namespaced skills that resolve their
+  configured model and effort through the core and ask Codex to spawn the role
+  with them. With no effort configured, a role spawned on a configured model
+  runs at that model's own default level.
+- **Multi-file edits reach the activity log and entry rule when their paths
+  are absolute.** Codex's `apply_patch` carries paths inside
+  `tool_input.command`; the shared extractor reads every `Add`, `Update`,
+  `Delete` and `Move to` path from that measured envelope field. A relative
+  path is not yet resolved against the payload's `cwd`, so it is not recorded.
+  The field name remains manifest data, not a Codex branch.
+- **MCP does not ship.** Our `.mcp.json` is in Claude Code's dialect.
+
+Codex also sets Claude Code's `CLAUDE_PLUGIN_ROOT` for compatibility. A variable
+two harnesses both set identifies neither, so both manifests demote it: it stops
+being evidence for *either* harness rather than being evidence for the first file
+in alphabetical order.
+
+## Running both over one project
+
+Nothing is shared that could collide. The binding
+(`<project>/.projectstore/projectstore.json`) is harness-neutral and one file;
+the agents block is per harness; the session state is keyed by harness id. Two
+harnesses in one project write two overlays and neither disturbs the other.
+
+Within one machine, run them in separate **git worktrees** over the same
+checkout, as parallel Claude Code sessions already do. The vault itself is a git
+repository with its own remote — that is how it syncs between people and their
+agents.
+
+## Adding a harness
+
+A harness is a manifest plus measurements, not code:
+
+1. Write `harnesses/<id>.json`. Copy the field list from an existing one; leave
+   `verified: null` and omit or null every value you have not observed. A field
+   that is `null` with a reason is a decision on the record; an absent field is
+   one someone forgot.
+2. Measure. Install it, run a real task, capture the hook payloads. The values
+   that matter first: which environment variables the hook process receives,
+   where hooks are declared, which tool writes files and where that tool puts the
+   path.
+3. Declare any variable the harness sets that belongs to another harness under
+   `runtime.shared_env`, or detection will answer with someone else's id.
+4. Add a row to the table above. It stays **experimental** until the manifest
+   carries a `verified` block — the test enforces the pairing in both directions.
+
+See [`docs/extending.md`](./extending.md) for the surfaces themselves.

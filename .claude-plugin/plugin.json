@@ -1,0 +1,28 @@
+{
+  "name": "projectstore",
+  "displayName": "projectstore",
+  "version": "0.30.6",
+  "description": "Your agent runs the project through a verified loop: task → artifact (ADR / spec / epic / story) → adversarial critic → backlog → planner → reviewer → done. Plain markdown in git — any model can pick the project up tomorrow.",
+  "author": {
+    "name": "Evgenii Konev @ SmartAndPoint",
+    "email": "ekonev@smartandpoint.com",
+    "url": "https://github.com/SmartAndPoint"
+  },
+  "homepage": "https://projectstore.dev",
+  "repository": "https://github.com/SmartAndPoint/ProjectStore",
+  "icon": "./docs/images/icon.png",
+  "documentationUrl": "https://github.com/SmartAndPoint/ProjectStore#readme",
+  "supportUrl": "https://github.com/SmartAndPoint/ProjectStore/issues",
+  "privacyPolicyUrl": "https://projectstore.dev/privacy/",
+  "license": "MIT",
+  "types": "./hooks/band-state.d.ts",
+  "keywords": [
+    "project-management",
+    "adr",
+    "epics",
+    "kanban",
+    "obsidian",
+    "markdown",
+    "engineering-process"
+  ]
+}

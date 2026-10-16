@@ -1,0 +1,3405 @@
+#!/usr/bin/env node
+// projectstore — doctor.mjs
+// Deterministic, no-LLM diagnostics engine (ADR-005). Exports individual check
+// functions plus group runners; consumed by the /projectstore:doctor command,
+// the SessionStart hook (cheap --startup subset) and, later, reconcile.
+//
+// Read-only by contract: detection never mutates anything. Repairs live behind
+// the command's --fix flow (install side) and reconcile (vault side).
+//
+// Finding: { group: "install"|"vault", level: "issue"|"warn"|"info",
+//            check: "<id>", message: "...", file?: "<path>",
+//            about?: "<harness id>" }  (a fact about another harness: aboutHarness)
+// The SessionStart line counts level==="issue" only.
+//
+// CLI: node doctor.mjs [--install] [--vault] [--startup] [--json]
+//      default = --install --vault. Exit code is always 0 (reporting tool).
+//      Without --json the findings are drawn by doctor-report.mjs, the
+//      renderer the bin uses, in its plain layout.
+
+import { existsSync, readFileSync, readdirSync, statSync, accessSync, constants, realpathSync } from "node:fs";
+import { join, basename, resolve, dirname, relative } from "node:path";
+import { homedir } from "node:os";
+import { spawnSync } from "node:child_process";
+import {
+  readConfig,
+  loadLayout,
+  folderByKind,
+  parseFrontmatter,
+  pluginRoot,
+  projectRoot,
+  listOf,
+  readVaultConfig,
+  claudeHome,
+  installedPluginRoot,
+  isPluginCacheRoot,
+  statusLineIsOurs,
+  statusLineIsOurWiring,
+  isLegacyStory,
+  sectionOf,
+  indexHeaderRe,
+  evidenceSuffixRe,
+  storiesAttributionRe,
+  slugIdentity,
+  isLegacyNumberedId,
+  storyMatchesEntry,
+  legalArtifactName,
+  stripCodeSpans,
+  extractLinks,
+  buildNodeIndex,
+  resolveLinkTarget,
+  listVaultStoryFiles,
+  openStoryFrom,
+  readEntryLog,
+  lastVaultActivityMs,
+  ENTRY_IGNORE,
+  AGENTS_BLOCK_OPEN_SRC,
+  AGENTS_BLOCK_CLOSE,
+  agentsBlockVersion,
+  newerBlockWords,
+  isNewerBlock,
+  findAgentsBlock,
+  statusLineLauncherPath,
+  LAUNCHER_HEADER,
+  installedPluginEntries,
+  projectCopies,
+  selectCopy,
+  takesNoRegister,
+  copyUpdateAdvice,
+  isMain,
+  channelMark,
+  pickExisting,
+  legacyStatusLineLauncherPath,
+  stateDir,
+  legacyStateDir,
+  layoutPaths,
+  sessionsDir,
+  isLauncherPath,
+  LAYOUT,
+  hostSettingsPath,
+  readOverlayAt,
+  layoutRoster,
+  installChannel,
+  updateHint,
+  syncedPluginEntries,
+  cmpPrecedence,
+  cmpVersion,
+  blockVisibleTo,
+  commandForm,
+  sharedRoleForm,
+  speakingHarness,
+  inheritForm,
+  bindInherits,
+  doctorFallbackText,
+  fromTerminalIn,
+  COPY_UPDATE_STEPS,
+} from "./lib.mjs";
+import {
+  agentOverrides,
+  childEnv,
+  sourceHarness,
+  loadHarness,
+  detectHarnesses,
+  identifiedHarnessId,
+  configPath as harnessConfigPath,
+  packageCommand,
+  invocation,
+  harnessForOverlay,
+  activeHarness,
+  hostRegistry,
+  autoUpdateDefault,
+} from "./harness.mjs";
+// The pure reader, never models.mjs: that file holds a fetch, and the
+// SessionStart hook imports this one (the portability suite's hook fence).
+import { effortSpec } from "./model-spec.mjs";
+
+// A remedy used to interpolate the surface's harness variable here. It cannot:
+// measured 2026-09-06, NO harness gives its Bash tool that variable, and a
+// finding is runtime output, which nothing substitutes — braced or not, the
+// reader would get the literal and the shell would expand it to nothing
+// ("Cannot find module '/bin/projectstore.mjs'"). A remedy now names the
+// resolved root, which this installation knows. The prose asks the host for
+// the same path through ${CLAUDE_PLUGIN_ROOT}, which IS substituted in
+// command, skill and agent content — different text, one resolution. See the
+// story "The prompt surface asks the shell for a variable the host would have
+// substituted"; harness neutrality is unaffected, an absolute path carries no
+// brand, and --harness still carries the target.
+import { uncommittedProjectFiles, lastCommitMs } from "./diff-refs.mjs";
+import { resolveBinding } from "./worktree.mjs";
+import { missingScaffoldRequirements } from "./scaffold.mjs";
+
+const AGENT_BLOCK_MARKER = new RegExp(AGENTS_BLOCK_OPEN_SRC, "g");
+// The provenance grammar's prefix, duplicated here on purpose: the startup
+// path may not load the provenance leaf, and this is all it needs to tell a
+// stamped launcher from one written before stamps existed. A test in
+// tests/provenance.test.mjs keeps the literal equal to what the emitter writes.
+export const STAMP_PREFIX = "projectstore: v";
+// Startup findings that are offers, not issues: rendered by the SessionStart
+// hook as their own line, so an info a user should act on once is not lost
+// behind the issue count.
+export const OFFER_CHECKS = new Set(["upgrade", "layout-legacy"]);
+// checkAgentsBlock compares the marker version alone, so a bump in the
+// template IS the propagation mechanism: without it no bound project ever
+// learns the block changed. The cost is that every already-bound project
+// reports an install issue until it re-runs /projectstore:agents register —
+// intended, and disclosed in the release note. The version is read from the
+// template (lib.mjs agentsBlockVersion), never from a constant here.
+// The live roster. A copy carrying one of these names does NOT override the
+// bundled agent (ADR-008, verified 2026-08-05): plugin agents register under a
+// scoped id, project/user copies register bare, so the names never collide and
+// the documented scope-priority rule never fires. Such a copy is a sibling, and
+// /projectstore:agents configure no longer writes one.
+const CURRENT_AGENT_NAMES = ["critic", "planner", "reviewer", "librarian", "archaeologist", "clerk"];
+// Names bundled BEFORE v0.13 (ADR-001/004). Provenance checks need them to
+// recognise a copy as ours.
+//
+// `renamed` and `replaced` still carry different advice, but NOT the advice this
+// table originally held. It used to say a pure rename (projectstore-critic →
+// critic) "restores the override" — under ADR-008 nothing restores an override,
+// because a bare-named copy never overrode the scoped plugin agent to begin
+// with. What survives is the role question: critic was the same role under a new
+// name, whereas planner/reviewer were *transformed* into narrow vault-aware
+// roles that explicitly are not general-purpose, so renaming a general-purpose
+// copy onto them would silently swap its job.
+const LEGACY_AGENTS = {
+  "projectstore-critic": { now: "critic", renamed: true },
+  "code-planner": { now: "planner", renamed: false },
+  "code-reviewer": { now: "reviewer", renamed: false },
+};
+const BUNDLED_AGENT_NAMES = [...CURRENT_AGENT_NAMES, ...Object.keys(LEGACY_AGENTS)];
+
+function finding(group, level, check, message, file) {
+  const f = { group, level, check, message };
+  if (file) f.file = file;
+  return f;
+}
+
+// A finding whose subject is ANOTHER harness in the same project — its
+// registration, its surfaces, its legacy layout, its registry's versions — is
+// that harness's: it opens with that harness's name, carries `about`, and says
+// its steps in that harness's forms and words, because they happen there
+// (generation spec, contract 18). Under that harness itself, or with no
+// harness to name, the finding is unchanged.
+export function aboutHarness(f, h, speaker = speakingHarness()) {
+  return speaker && h?.id && h.id !== speaker.id && h.display_name
+    ? { ...f, message: `${h.display_name}: ${f.message}`, about: h.id }
+    : f;
+}
+
+function pluginVersion(root = pluginRoot()) {
+  try {
+    return JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).version;
+  } catch {
+    return null;
+  }
+}
+
+function listMd(dir) {
+  try {
+    return readdirSync(dir).filter((n) => n.endsWith(".md"));
+  } catch {
+    return [];
+  }
+}
+
+// ─── Install checks ────────────────────────────────────────────────────
+
+// `proj` is a parameter rather than a projectRoot() call so the worktree probe
+// is testable, and so a future refactor cannot make this spawn git for a project
+// it was not asked about. The probe runs only on the unbound branch: a bound
+// project never pays for it.
+export function checkConfig(cfg, proj = projectRoot()) {
+  if (!cfg) {
+    // An unbound worktree of a bound checkout needs the opposite advice from a
+    // project that was never bound — adopt the parent's vault, do not choose a
+    // new one. Assigned rather than appended: two instructions for one problem
+    // is how a person ends up binding a second vault by hand.
+    let b = null;
+    try {
+      b = resolveBinding(proj);
+    } catch {}
+    // What binding does first, then the command alone on its line: an
+    // in-session form that can carry the parent's vault path (the story
+    // "User-facing text says where to run…", rule 4).
+    if (b && b.state === "inheritable") {
+      return [
+        finding(
+          "install",
+          "issue",
+          "worktree-unbound",
+          `This worktree is unbound while the checkout it was forked from (${b.mainCheckout}) is bound to ${b.vaultPath}. ${bindInherits() ? "Adopt that binding" : "Bind it to the same vault, layout and language"}, in the session:\n${inheritForm(b.vaultPath, { layout: b.layout, language: b.language })}`,
+        ),
+      ];
+    }
+    const p = layoutPaths(proj);
+    const present = [p.binding, p.legacy.binding].find((f) => existsSync(f));
+    if (present) {
+      return [
+        finding(
+          "install",
+          "issue",
+          "config-unparseable",
+          `${relative(proj, present)} exists but is not valid JSON — the project reads as unbound until it is fixed; bind refuses to overwrite it.`,
+          relative(proj, present),
+        ),
+      ];
+    }
+    return [
+      finding(
+        "install",
+        "issue",
+        "config",
+        `No projectstore config (.projectstore/projectstore.json). Run ${commandForm("bind", { args: "<vault-path>" })}.`,
+      ),
+    ];
+  }
+  const out = [];
+  if (!cfg.vault_path) out.push(finding("install", "issue", "config", "Config has no vault_path."));
+  return out;
+}
+
+export function checkVaultPath(cfg) {
+  const out = [];
+  const vault = cfg.vault_path;
+  if (!existsSync(vault)) {
+    out.push(finding("install", "issue", "vault-path", `Vault path does not exist: ${vault}`));
+    return out;
+  }
+  try {
+    readdirSync(vault);
+  } catch {
+    out.push(finding("install", "issue", "vault-path", `Vault path is not readable/listable: ${vault}`));
+    return out;
+  }
+  try {
+    accessSync(vault, constants.W_OK);
+  } catch {
+    out.push(finding("install", "issue", "vault-path", `Vault path is not writable: ${vault}`));
+  }
+  return out;
+}
+
+export function checkLayoutTemplates(cfg) {
+  const out = [];
+  let layout;
+  try {
+    layout = loadLayout(cfg.layout);
+  } catch (e) {
+    out.push(finding("install", "issue", "layout", `Layout not loadable: ${e.message}`));
+    return out;
+  }
+  const lang = cfg.language || "en";
+  // Layout-driven (PS-SPEC story-001): a command needs a template iff it maps
+  // to a declared folder kind ("story" maps through the epic folder; "kanban"
+  // through the layout's kanban block). Folders WITHOUT a command (e.g.
+  // diagrams) require no template — no false findings for them.
+  const kinds = (layout.commands || []).filter((k) => {
+    if (k === "kanban") return Boolean(layout.kanban);
+    if (k === "story") return Boolean(folderByKind(layout, "epic"));
+    return Boolean(folderByKind(layout, k));
+  });
+  kinds.push("folder-readme");
+  for (const k of kinds) {
+    const p = join(pluginRoot(), "templates", lang, `${k}.md.tmpl`);
+    if (!existsSync(p)) {
+      out.push(finding("install", "issue", "templates", `Missing template for language "${lang}": ${k}.md.tmpl`));
+    }
+  }
+  // What `scaffold` (and `init`) refuse on, through the same check the plan
+  // makes: the vault README's template, and a name and a description for every
+  // folder kind the layout declares — `diagram` included. A warn, not an issue:
+  // a vault already scaffolded is not broken by a hand-added kind; only its
+  // next scaffold is refused. The folder README is the issue above.
+  for (const m of missingScaffoldRequirements(layout, lang, pluginRoot())) {
+    if (m.what === "template" && m.name === "folder-readme") continue;
+    out.push(finding("install", "warn", "templates", `${m.message} — scaffold and init refuse until it is there.`));
+  }
+  if (!existsSync(join(pluginRoot(), "scaffold", "headings.json"))) {
+    out.push(
+      finding(
+        "install",
+        "issue",
+        "templates",
+        "scaffold/headings.json is missing — heading-registry checks (index headers, acceptance, spec gates) cannot run. Stale/corrupt plugin install?",
+      ),
+    );
+  }
+  return out;
+}
+
+export function checkHooksAlive(cfg, maxAgeMinutes = 30) {
+  const dir = sessionsDir(cfg.vault_path);
+  if (!existsSync(dir)) {
+    return [
+      finding(
+        "install",
+        "warn",
+        "hooks",
+        "No session registry in the vault — SessionStart hook may not be firing (or no session started yet).",
+      ),
+    ];
+  }
+  const cutoff = Date.now() - maxAgeMinutes * 60 * 1000;
+  const fresh = readdirSync(dir).some((n) => {
+    if (!n.endsWith(".json")) return false;
+    try {
+      return statSync(join(dir, n)).mtimeMs >= cutoff;
+    } catch {
+      return false;
+    }
+  });
+  return fresh
+    ? []
+    : [
+        finding(
+          "install",
+          "warn",
+          "hooks",
+          `No session registration fresher than ${maxAgeMinutes} min — hooks may not be firing.`,
+        ),
+      ];
+}
+
+// Which plugin version a wired statusLine script belongs to. Null for our
+// launcher (<project>/.projectstore/state/claude-code/statusline.mjs), which has no
+// version of its own — it resolves the installed one at render time.
+export function statusLineScriptVersion(scriptPath) {
+  try {
+    const root = dirname(dirname(scriptPath)); // <root>/scripts/statusline.mjs
+    return JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).version || null;
+  } catch {
+    return null;
+  }
+}
+
+// Read-only probe of the statusline wiring (never calls syncStatusLine, which
+// is a mutating self-heal that SessionStart already ran — ADR-005).
+export function checkStatusline(cfg, proj, home = homedir(), harness = speakingHarness()) {
+  const out = [];
+  // A harness without a status line hears nothing about one, whatever the
+  // shared binding asks for (generation spec, contract 18).
+  if (harness?.surfaces?.statusline?.supported === false) return out;
+  const local = hostSettingsPath(proj, process.env, harness);
+  let cur = null;
+  if (existsSync(local)) {
+    try {
+      cur = JSON.parse(readFileSync(local, "utf8"))?.statusLine ?? null;
+    } catch {
+      out.push(finding("install", "warn", "statusline", `.claude/settings.local.json is not parseable JSON.`));
+      return out;
+    }
+  }
+  const curCmd = cur && typeof cur.command === "string" ? cur.command : null;
+  // Strict: only a wiring we could have written is ours to rewire or delete.
+  const isOurs = statusLineIsOurWiring(curCmd, proj, home);
+  const st = cfg.statusline;
+
+  if (st && st.enabled === true) {
+    if (!curCmd) {
+      out.push(
+        finding(
+          "install",
+          "issue",
+          "statusline",
+          `statusline.enabled=true but no statusLine wired in settings.local.json — run ${commandForm("statusline", { args: "on" })} (it installs the entry and the launcher behind a preview); the SessionStart hook only refreshes an entry that already exists.`,
+        ),
+      );
+    } else if (!isOurs) {
+      out.push(
+        finding(
+          "install",
+          "issue",
+          "statusline",
+          "statusline.enabled=true but a foreign statusLine occupies settings.local.json — the hook will not clobber it. Clear it or disable the flag.",
+        ),
+      );
+    } else {
+      const m = curCmd.match(/"([^"]+statusline\.mjs)"/) || curCmd.match(/(\S+statusline\.mjs)/);
+      const wiredRoot = m ? dirname(dirname(m[1])) : null;
+      const isLauncher = m ? isLauncherPath(m[1]) : false;
+      const gone = isLauncher ? vanishedSyncedRoot(m[1], proj, home) : null;
+      if (m && !existsSync(m[1])) {
+        out.push(
+          finding(
+            "install",
+            "issue",
+            "statusline",
+            isLauncher
+              ? `statusLine points at a generated launcher that no longer exists: ${m[1]} — run ${commandForm("statusline", { args: "on" })} to reinstall it; until then the next session start repoints the entry at the installed script.`
+              : `statusLine points at a missing script (stale plugin path?): ${m[1]}`,
+          ),
+        );
+      } else if (gone) {
+        // A launcher written from a copy synced from claude.ai renders that
+        // copy; with sync turned off the host moves it to its trash folder,
+        // and the launcher falls back to the person's own status line.
+        const src = sourceHarness();
+        const r = hostRegistry(src) || {};
+        const trash = `~/${src.runtime?.home_default}/${(r.trash_dir || []).join("/")}/`;
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "statusline",
+            `The status line launcher renders the copy from Anthropic's directory at ${gone}, and that copy is gone: the host moves a synced plugin to ${trash} when it is turned off on claude.ai, or when "${r.sync_setting}": false is in your user settings. Until a copy is back the launcher runs your own status line, or none. Two ways back: turn it on again (on claude.ai, or remove "${r.sync_setting}": false) and restart, or install projectstore through a channel of ours, ${fromTerminalIn(proj)}:\n${packageCommand([], "setup")}`,
+          ),
+        );
+      } else if (m && isPluginCacheRoot(wiredRoot, home)) {
+        // Only a versioned cache path can go stale this way. The launcher
+        // carries no version, and a dev checkout is wired deliberately and
+        // never rewired — warning about either would be a permanent lie.
+        const wired = statusLineScriptVersion(m[1]);
+        const inst = installedPluginRoot(home, dirname(wiredRoot));
+        if (wired && inst && inst.version && wired !== inst.version) {
+          out.push(
+            finding(
+              "install",
+              "warn",
+              "statusline",
+              `statusLine is wired to projectstore ${wired} while ${inst.version} is installed — a version-pinned path lags one session behind each update. Run ${commandForm("statusline", { args: "on" })} to install the version-agnostic launcher; the SessionStart hook only repoints the pinned path at the current install.`,
+            ),
+          );
+        }
+      }
+    }
+  } else if (st && st.enabled === false && isOurs) {
+    out.push(
+      finding(
+        "install",
+        "warn",
+        "statusline",
+        "statusline.enabled=false but our statusLine entry is still wired — the hook removes it on next session start.",
+      ),
+    );
+  } else if ((!st || typeof st.enabled !== "boolean") && isOurs) {
+    out.push(
+      finding(
+        "install",
+        "info",
+        "statusline",
+        "statusLine wired manually (no statusline flag in projectstore.json) — the hook will leave it alone.",
+      ),
+    );
+  }
+
+  try {
+    const base = JSON.parse(readFileSync(join(claudeHome(home), "settings.json"), "utf8"))?.statusLine?.command;
+    if (base && !statusLineIsOurs(base)) {
+      out.push(
+        finding(
+          "install",
+          "info",
+          "statusline",
+          "Base HUD present in your user settings.json — projectstore composes above it.",
+        ),
+      );
+    }
+  } catch {}
+  // session_id divergence (ADR-006): the renderer's breadcrumb names the id
+  // the statusLine process received; hook-side pointer files name the ids the
+  // hooks observed. A breadcrumb id with no pointer file while others exist
+  // means the two processes disagree — the issue note's second suspect.
+  try {
+    const sdir = pickExisting(stateDir(proj), legacyStateDir(proj));
+    const bc = JSON.parse(readFileSync(join(sdir, ".last-render.json"), "utf8"));
+    if (bc && bc.session_id) {
+      const hookIds = readdirSync(sdir)
+        .filter((n) => n.endsWith(".json") && !n.startsWith("."))
+        .map((n) => n.replace(/\.json$/, ""));
+      if (hookIds.length && !hookIds.includes(bc.session_id)) {
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "statusline",
+            `statusLine renderer last saw session_id ${String(bc.session_id).slice(0, 8)}… with no hook-side state file — possible session_id divergence (renderer shows the cold-start line while hooks log activity).`,
+          ),
+        );
+      }
+    }
+    // What the user is actually looking at: the renderer stamps the version
+    // that drew the line. Breadcrumbs without a root (pre-0.16.0) and dev
+    // checkouts are skipped — only a cache install can go stale this way.
+    if (bc && bc.version && isPluginCacheRoot(bc.root, home)) {
+      const inst = installedPluginRoot(home, dirname(bc.root));
+      if (inst && inst.version && inst.version !== bc.version) {
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "statusline",
+            `The last status line rendered in this project came from projectstore ${bc.version} while ${inst.version} is installed — a session that resolved its statusLine command before the update (the breadcrumb is per project, so it may belong to a sibling session). Restart that session; after that the launcher picks up the installed version at every render.`,
+          ),
+        );
+      }
+    }
+  } catch {}
+  return out;
+}
+
+// The root a launcher of ours falls back to, when that root is a copy synced
+// from claude.ai that is no longer on disk and no other synced copy is: the
+// launcher then has nothing of ours to render. Null otherwise.
+// A synced copy vanishes into the host's trash folder (sync turned off, or
+// the plugin turned off on claude.ai). With no trash folder there is nothing
+// to name, and the launcher is not read: one existsSync on every SessionStart,
+// not a file read (the B review, 2026-10-15).
+function vanishedSyncedRoot(launcher, proj, home) {
+  const r = hostRegistry(sourceHarness());
+  if (!r?.trash_dir || !existsSync(join(claudeHome(home), ...r.trash_dir))) return null;
+  let root;
+  try {
+    root = JSON.parse(readFileSync(launcher, "utf8").match(/const FALLBACK_ROOT = ("(?:[^"\\]|\\.)*");/)[1]);
+  } catch {
+    return null;
+  }
+  if (installChannel(root, { home, harness: sourceHarness() }) !== "synced") return null;
+  if (existsSync(join(root, "scripts", "statusline.mjs"))) return null;
+  return syncedPluginEntries(home, proj).length ? null : root;
+}
+
+// The one-time offer after a plugin update (the story "Seamless upgrade from
+// 0.27.1 to 0.28"): a launcher we wrote before file stamps existed still
+// renders, but its embedded fallback root is frozen at the old version until
+// install re-stamps it — which the SessionStart hook may not do (it cannot
+// load the provenance leaf). So the startup line names the step. Only for a
+// cache install: a dev checkout does not produce the launcher at all, and its
+// install would leave the file, not re-stamp it.
+export function checkPendingUpgrade(proj, home = homedir(), root = pluginRoot(), harness = speakingHarness()) {
+  if (harness?.surfaces?.statusline?.supported === false) return [];
+  if (!isPluginCacheRoot(root, home)) return [];
+  // Only a launcher our entry runs. Under a foreign status line nothing reads
+  // it, install leaves that slot alone, and the offer would repeat every
+  // session with a command that cannot clear it (the critic of the layout
+  // spec's 2026-10-03 amendment, case S1).
+  let wired = null;
+  try {
+    wired = JSON.parse(readFileSync(hostSettingsPath(proj, process.env, harness), "utf8"))?.statusLine?.command || null;
+  } catch {}
+  if (!wired || !statusLineIsOurWiring(wired, proj, home, root)) return [];
+  const lp = pickExisting(statusLineLauncherPath(proj, harness?.id), legacyStatusLineLauncherPath(proj));
+  let text;
+  try {
+    text = readFileSync(lp, "utf8");
+  } catch {
+    return [];
+  }
+  if (!text.includes(LAUNCHER_HEADER) || text.includes(STAMP_PREFIX)) return [];
+  return [
+    finding(
+      "install",
+      "info",
+      "upgrade",
+      `The status line launcher predates this plugin's file stamps (plugin updated) — it keeps rendering. Re-stamp it once, in the session:\n${commandForm("doctor", { args: "--fix" })}`,
+      relative(proj, lp),
+    ),
+  ];
+}
+
+// The two findings the layout move itself repairs carry what they say without
+// their remedy, so a pending move can name itself instead (foldIntoMove).
+const moveRepairs = (f, fact) => ({ ...f, byMove: fact });
+
+export function checkAgentsBlock(proj, { env = process.env, root = pluginRoot() } = {}) {
+  const out = [];
+  const AGENT_BLOCK_VERSION = agentsBlockVersion();
+  const texts = {};
+  // One parser for every reader (findAgentsBlock): its count is the loose one,
+  // so a good block plus a re-wrapped marker in one file is "more than once"
+  // here exactly as install and uninstall see it (both refuse), never a quiet
+  // startup; a wrapped marker on its own is named with its line — "not
+  // registered" is the reading that makes install append a second block.
+  let blocks = 0;
+  let wrappedFiles = 0;
+  let unclosedFiles = 0;
+  const perFile = {};
+  const staleVersions = [];
+  const newerVersions = [];
+  for (const name of ["CLAUDE.md", "AGENTS.md"]) {
+    const p = join(proj, name);
+    if (!existsSync(p)) continue;
+    let text;
+    try {
+      text = readFileSync(p, "utf8");
+    } catch {
+      continue;
+    }
+    texts[name] = text;
+    const f = findAgentsBlock(text);
+    if (!f) continue;
+    perFile[name] = f.count;
+    blocks += f.count;
+    if (f.wrapped) {
+      wrappedFiles++;
+      out.push(
+        finding(
+          "install",
+          "issue",
+          "agents-block",
+          `${name}:${f.line}: the projectstore:agents open marker does not close on its own line, and install and uninstall refuse until it does. Put \`-->\` back on the marker's line, then in the session:\n${commandForm("agents", { args: "register" })}`,
+          name,
+        ),
+      );
+      continue;
+    }
+    if (f.unclosed) {
+      // Named here as the wrapped marker is, so the startup count carries it:
+      // the agents-block plan refuses it, and the layout move with it.
+      unclosedFiles++;
+      out.push(
+        finding(
+          "install",
+          "issue",
+          "agents-block",
+          `${name}: the projectstore:agents block opens and never closes, and install and uninstall refuse until then. Close it with \`${AGENTS_BLOCK_CLOSE}\` or delete the half block, then in the session:\n${commandForm("agents", { args: "register" })}`,
+          name,
+        ),
+      );
+    }
+    for (const m of text.matchAll(AGENT_BLOCK_MARKER)) {
+      const v = parseInt(m[1], 10);
+      // A marker above this copy's template is never stale: this copy writes
+      // no block down (the install spec, contract 6, as amended 2026-10-14).
+      if (isNewerBlock(v, AGENT_BLOCK_VERSION)) newerVersions.push({ file: name, v });
+      else if (v !== AGENT_BLOCK_VERSION) staleVersions.push({ file: name, v });
+    }
+  }
+  if (blocks === 0) {
+    out.push(
+      finding(
+        "install",
+        "info",
+        "agents-block",
+        `Agent routing block not registered — optional (v0.13). It comes with the agents command, in the session:\n${commandForm("agents")}`,
+      ),
+    );
+  }
+  if (blocks > 1) {
+    // One block in each file is a state install resolves (it keeps the
+    // preferred file's); two in one file is not, and stays an issue — and a
+    // wrapped marker anywhere means install refuses, so the "both files"
+    // advice is withheld while one is wrapped or never closes.
+    const twiceInOne = Object.entries(perFile).find(([, n]) => n > 1);
+    if (twiceInOne) {
+      out.push(
+        finding(
+          "install",
+          "issue",
+          "agents-block",
+          `${twiceInOne[0]} carries the projectstore:agents block ${twiceInOne[1]} times — keep exactly one; install refuses until it does.`,
+          twiceInOne[0],
+        ),
+      );
+    } else if (wrappedFiles || unclosedFiles) {
+      // already named above, file by file
+    } else {
+      out.push(
+        finding(
+          "install",
+          "warn",
+          "agents-block",
+          `The projectstore:agents block is in both CLAUDE.md and AGENTS.md. Registering it again keeps the one in ${(sourceHarness()?.surfaces?.agents_block?.files || ["AGENTS.md"])[0]} and removes the other, in the session:\n${commandForm("agents", { args: "register" })}`,
+        ),
+      );
+    }
+  }
+  // A state the agents-block plan refuses — a wrapped marker, a block that
+  // never closes, a block twice in one file — refuses the move with it, so
+  // nothing here is the move's to repair while one stands.
+  const refuses = wrappedFiles > 0 || unclosedFiles > 0 || Object.values(perFile).some((n) => n > 1);
+  for (const s of staleVersions) {
+    const fact = `Agents block in ${s.file} is v${s.v}, expected v${AGENT_BLOCK_VERSION}`;
+    const f = finding(
+      "install",
+      "issue",
+      "agents-block",
+      `${fact}. Register it again, in the session:\n${commandForm("agents", { args: "register" })}`,
+      s.file,
+    );
+    out.push(refuses ? f : moveRepairs(f, fact));
+  }
+  // A newer block: an info in the install report only — the startup line
+  // counts issues alone and offers none of this — and only for one
+  // well-formed block. Its way out is the running copy's own bin from a
+  // terminal, never the session's command, whose copy would write its own
+  // version. Not folded into the layout move, which leaves it as it is too.
+  if (blocks === 1 && !refuses)
+    for (const s of newerVersions)
+      out.push(
+        finding(
+          "install",
+          "info",
+          "agents-block",
+          `Agents block in ${s.file} is ${newerBlockWords(s.v, AGENT_BLOCK_VERSION)}: install, upgrade and setup leave it as it is. To write this copy's v${AGENT_BLOCK_VERSION} over it ${fromTerminalIn(proj)}:\nnode "${join(root, "bin", "projectstore.mjs")}" install --harness ${newerReader(proj, s.file, env)} --surface agents_block`,
+          s.file,
+        ),
+      );
+  // Placement, held to the predicate install plans from (the install spec,
+  // contract 6 as amended after the rc.3 tag): one well-formed block, seen by
+  // every harness the project uses. rc.1 and rc.2 left a block in an
+  // AGENTS.md-only project with no CLAUDE.md, so Claude Code saw nothing, and
+  // nothing said so. Used means detected by directory or by its state
+  // directory, or identified from the environment — never the source harness
+  // a terminal run falls back to, so a Codex-only project hears nothing about
+  // CLAUDE.md (contract 16). The state directory is what a bare upgrade and a
+  // bare uninstall select by, so doctor warns about exactly the block they
+  // move (the story "One run plans the agents block once…", rule 5). An issue
+  // for the harness that identified itself, a warning for one only detected.
+  const blockFile = blocks === 1 && !refuses ? Object.keys(perFile)[0] : null;
+  if (blockFile) {
+    const identified = identifiedHarnessId(env);
+    const used = new Set([
+      ...detectHarnesses(proj, { state: true }).map((d) => d.id),
+      ...(identified ? [identified] : []),
+    ]);
+    for (const id of used) {
+      const m = loadHarness(id);
+      if (!m || blockVisibleTo(m, blockFile, texts)) continue;
+      const ab = m.surfaces.agents_block;
+      const why = (ab.files || []).includes(blockFile)
+        ? `${ab.reads_natively} does not import it (\`@${blockFile}\`)`
+        : `it reads ${(ab.files || []).join(" and ")} only`;
+      const fact = `The projectstore:agents block is in ${blockFile}, which ${m.display_name} does not see: ${why}`;
+      // The resolved-root form the surface remedy uses: the running copy's own
+      // bin, the directory in prose and the command alone on the last line.
+      const remedy = `Install the block for ${m.display_name} ${fromTerminalIn(proj)}:\nnode "${join(root, "bin", "projectstore.mjs")}" install --harness ${id} --surface agents_block`;
+      const f = finding(
+        "install",
+        id === identified ? "issue" : "warn",
+        "agents-block",
+        `${fact}. ${remedy}`,
+        blockFile,
+      );
+      // The layout's harness is the one the move's command installs for, so the
+      // move plans this import; another harness's is not the move's to repair.
+      out.push(id === sourceHarness()?.id ? moveRepairs(f, fact) : f);
+    }
+  }
+  return out;
+}
+
+// The harness a newer block's way out names: the one this run identified,
+// else one the project uses whose files hold the block, else the source
+// harness — never Claude Code's by default in a Codex-only project, whose
+// install would create CLAUDE.md and overwrite nothing.
+function newerReader(proj, file, env) {
+  const identified = identifiedHarnessId(env);
+  if (identified) return identified;
+  const used = detectHarnesses(proj, { state: true }).map((d) => d.id);
+  return (
+    used.find((id) => (loadHarness(id)?.surfaces?.agents_block?.files || []).includes(file)) || sourceHarness()?.id
+  );
+}
+
+// While the layout move is pending, the findings the move itself repairs fold
+// into it instead of being counted beside it (the layout spec, contract 7 as
+// amended after the rc.3 tag; the upgrade story's O1): the stale block, which
+// the move re-registers, and the block's invisibility to the layout's
+// harness, whose import the move plans. Nothing else folds — a block twice in
+// one file, one that never closes or a wrapped marker makes the agents-block
+// plan refuse, which blocks the move itself. The message points at the layout
+// finding rather than computing its command again. The tag is internal: no
+// finding leaves here carrying it.
+export function foldIntoMove(findings) {
+  const layout = findings.find((f) => f.check === "layout-legacy" || f.check === "layout-two-configs");
+  const step =
+    layout &&
+    (layout.check === "layout-two-configs"
+      ? "delete the binding the layout-two-configs finding names, then run the layout move, which repairs this"
+      : "the layout move repairs this: run what the layout-legacy finding names");
+  return findings.map(({ byMove, ...f }) =>
+    byMove && layout ? { ...f, level: "info", message: `${byMove} — ${step}.` } : f,
+  );
+}
+
+// Both scopes are walked. The original reason ("project > user > plugin, so a
+// copy in either scope shadows the bundle") turned out to be wrong — a copy
+// shadows NOTHING, because plugin agents register under a scoped id and copies
+// under a bare one (ADR-008). The conclusion survives its premise: a user-scope
+// copy still stands beside the bundled agent in every project, so reporting only
+// the project scope would leave that permanently invisible.
+//
+// Provenance is established by the `# source: projectstore vX` marker OR by a
+// bundled name: copies taken before the marker existed have no other tell, and
+// those are precisely the ones old enough to have gone stale. Where the marker
+// is absent the finding drops to `info`, since a same-named agent the user
+// wrote themselves is indistinguishable from ours.
+// ─── Installed surfaces: the states the install spec defines ───────────
+//
+// Every surface the manifests name for a harness this project uses, read
+// through surfaces.mjs — the same derivation the verbs use, so the report
+// and install never disagree about a file. Reported BY EXCEPTION: a current
+// surface says nothing, except contract 12's "last written by", which is the
+// one `current` worth saying. Wiring facts the state model cannot express
+// (an entry naming a missing script, a foreign slot, a lagging pinned path)
+// stay with checkStatusline under its own id.
+//
+// Imported dynamically, and only here: hooks/session-start.mjs imports this
+// module statically, and the install spec keeps the provenance leaf — which
+// surfaces.mjs needs — out of the SessionStart module graph. The startup
+// checks never call this.
+// Read the states once per doctor run; both checks below consume the result.
+export async function readSurfaceStates(
+  proj,
+  { home = homedir(), root = pluginRoot(), manifestDir = undefined, env = process.env } = {},
+) {
+  const { surfaceStates, FOREIGN_TEXT } = await import("./surfaces.mjs");
+  return { result: surfaceStates(proj, { home, root, env, ...(manifestDir ? { manifestDir } : {}) }), FOREIGN_TEXT };
+}
+
+export async function checkHarnessSurfaces(
+  _cfg,
+  proj,
+  {
+    home = homedir(),
+    root = pluginRoot(),
+    manifestDir = undefined,
+    read = null,
+    env = process.env,
+    speaker = speakingHarness(),
+  } = {},
+) {
+  const out = [];
+  let r, FOREIGN_TEXT;
+  try {
+    ({ result: r, FOREIGN_TEXT } = read || (await readSurfaceStates(proj, { home, root, manifestDir, env })));
+  } catch (e) {
+    return [finding("install", "warn", "surface", `Installed-surface states could not be read: ${e && e.message}`)];
+  }
+  // Contract 16: a harness is reported only when the project uses it; when
+  // none does and nothing of ours is installed, one line names what can be.
+  if (!r.used.length) {
+    out.push(
+      finding(
+        "install",
+        "info",
+        "harness",
+        `No harness detected in this project and nothing of ours installed — install can target: ${r.installable.join(", ")}.`,
+      ),
+    );
+    return out;
+  }
+  for (const s of r.states) {
+    const where = relative(proj, s.path) || s.path;
+    if (s.kind === "registration") continue; // checkPluginRegistration's
+    // Another harness's surface is that harness's fact (aboutHarness): its
+    // steps in its forms, and no status-line hint where it has no status line.
+    // A shared surface — the agents block, one file every harness owns — is
+    // every harness's: never marked, its step in the listener's form.
+    const sh = s.kind === "shared" ? speaker : loadHarness(s.harness) || speaker;
+    const push = (f) => out.push(aboutHarness(f, sh, speaker));
+    if (s.kind === "exclusive") {
+      if (s.state === "foreign") {
+        push(
+          finding(
+            "install",
+            "issue",
+            "surface-foreign",
+            `${where} — ${FOREIGN_TEXT}. install, uninstall and upgrade refuse it; nothing repairs it.`,
+            where,
+          ),
+        );
+      } else if (s.state === "stale" && s.produced) {
+        // Two commands, two paragraphs, each ending with its command alone on
+        // its line (the story "User-facing text says where to run…", rule 4).
+        const status =
+          sh?.surfaces?.statusline?.supported === false
+            ? ""
+            : `\nFor the status line, in the session:\n${invocation(sh, "statusline", { args: "on" })}`;
+        push(
+          finding(
+            "install",
+            "issue",
+            "surface",
+            `${where} — stale: ${s.reason}. Reinstall it ${fromTerminalIn(proj)}:\nnode "${join(root, "bin", "projectstore.mjs")}" install --harness ${s.harness} --surface ${s.surface}${status}`,
+            where,
+          ),
+        );
+      } else if (s.state === "stale" && !s.produced) {
+        push(finding("install", "info", "surface", `${where} — ${s.reason}.`, where));
+      } else if (s.state === "current" && s.writtenBy && !s.sameProject) {
+        push(finding("install", "info", "surface", `${where} — current, last written by ${s.writtenBy}.`, where));
+      }
+    } else if (s.surface === "agents_block") {
+      // Version drift and duplicates are checkAgentsBlock's; what only the
+      // state knows is content that differs at the same version. A block that
+      // never closes is named by both: checkAgentsBlock carries it to the
+      // startup line, and the state names it with the file's own reason, as a
+      // wrapped marker already was.
+      if (s.state === "unparseable") {
+        push(finding("install", "issue", "surface", `${where} — ${s.reason}`, where));
+      } else if (s.state === "ours-stale" && /content differs|migrates/.test(s.reason || "")) {
+        push(
+          finding(
+            "install",
+            "warn",
+            "surface",
+            `${where} [projectstore:agents] — ${s.reason}. Register it again, in the session:\n${invocation(sh, "agents", { args: "register" })}`,
+            where,
+          ),
+        );
+      }
+    }
+    // The statusline entry's states are checkStatusline's, under its own id.
+    // Its ours-stale (a command this installation would not write) is not
+    // always self-healing: syncStatusLine re-points a direct entry at the
+    // running root's script and never touches an entry naming a launcher on
+    // disk, so install is what re-points an entry at the launcher
+    // (contract 0 as amended 2026-10-10).
+  }
+  return out;
+}
+
+// The harness overlay (layout spec, contracts 2–4): a key the allowlist
+// rejects is an issue naming key and file; a binding still carrying an
+// agents block is a pre-0.28 leftover the migration moves; an overlay that
+// does not parse is an issue.
+export function checkOverlays(cfg, proj, { root = pluginRoot(), home = homedir(), speaker = speakingHarness() } = {}) {
+  const out = [];
+  const o = readOverlayAt(proj);
+  const where = relative(proj, o.path);
+  if (o.unparseable)
+    out.push(
+      finding(
+        "install",
+        "issue",
+        "overlay-unparseable",
+        `${where} is not valid JSON — the agents run on their frontmatter models until it is fixed.`,
+        where,
+      ),
+    );
+  for (const k of o.rejected)
+    out.push(
+      finding(
+        "install",
+        "issue",
+        "overlay-forbidden-key",
+        `${where} carries \`${k}\`, which an overlay may not: only agents.default.model, agents.default.effort, agents.per_agent.<name>.model and agents.per_agent.<name>.effort are read; the key is ignored.`,
+        where,
+      ),
+    );
+  if (cfg && cfg.agents && typeof cfg.agents === "object") {
+    // The binding that carries the block is the one the reader found — before
+    // the migration that is the legacy path, and naming the new one would send
+    // the user to a file that does not exist yet.
+    const b = relative(proj, harnessConfigPath(proj, process.env));
+    // The same command as the layout move: a bare "run upgrade" re-runs the
+    // installer in no particular channel (the critic of the layout spec's
+    // 2026-10-03 amendment, finding 7).
+    const remedy = layoutRemedy(proj, { root, home });
+    // The block and its move are the source harness's — a pre-0.28 binding
+    // and that harness's command — so its fact under any other listener. The
+    // move writes the source harness's overlay, whoever listens: since the
+    // overlay follows the shell that bundles the core (layout spec, contract 2,
+    // as amended 2026-10-15), the listener's `where` would name another file.
+    const src = sourceHarness();
+    const dest = relative(proj, layoutPaths(proj).overlay(src?.runtime?.overlay || src?.id));
+    out.push(
+      aboutHarness(
+        finding(
+          "install",
+          "warn",
+          "agents-in-binding",
+          `${b} still carries an agents block — since 0.28 the models live in ${dest} (the layout ADR); nothing reads it there. ${remedyWords(remedy, proj, "Move it")}`,
+          b,
+        ),
+        src,
+        speaker,
+      ),
+    );
+  }
+  // A project can be used from more than one harness, and a model name is
+  // harness-specific (ADR-008) — so each one has its own overlay and they do
+  // not inherit from each other. Silence about a missing one would read as
+  // "configured"; it means the agents there run on their frontmatter models,
+  // and in particular the clerk is NOT pinned cheap.
+  //
+  // Only when another harness in this project HAS an overlay. A project with
+  // none at all is the ordinary fresh state and needs no advice; the asymmetry
+  // is what is actionable, because it is almost always the second harness that
+  // was forgotten rather than the first that was deliberate. Used as a bare
+  // upgrade or uninstall selects: by directory or by state directory.
+  const used = detectHarnesses(proj, { state: true }).map((d) => d.id);
+  if (used.length > 1) {
+    const overlays = used.map((id) => ({ id, o: readOverlayAt(proj, loadHarness(id)?.runtime?.overlay || id) }));
+    const configured = overlays.filter(({ o }) => o.present);
+    if (configured.length) {
+      for (const { id, o } of overlays) {
+        if (o.present) continue;
+        out.push(
+          finding(
+            "install",
+            "info",
+            "overlay-absent",
+            `This project is used from ${id} too, and ${relative(proj, o.path)} does not exist — ` +
+              `its agents run on their frontmatter models (${configured.map((c) => c.id).join(", ")} ` +
+              `${configured.length > 1 ? "have" : "has"} an overlay; a model name is harness-specific, so nothing carries over). ` +
+              `Configure it: ${commandForm("agents", { args: `configure --harness ${id}` })}.`,
+            relative(proj, o.path),
+          ),
+        );
+      }
+    }
+  }
+  // A configured name no roster agent carries runs nothing: what it
+  // configures never applies. A warn, not an issue — a newer package's agent
+  // is a legitimate reason for a committed overlay to name one this copy does
+  // not ship.
+  // An effort the harness's levels lack fails at spawn on a harness whose
+  // spawn takes those levels only, and is the harness's to judge elsewhere:
+  // a warn names it either way (the effort ADR, decision 7). Read against the
+  // manifest's floor alone: doctor reads no model catalog.
+  const levels = effortSpec(harnessForOverlay(o.id))?.levels?.map((l) => l.id) || null;
+  if (levels) {
+    const set = [
+      ...(o.efforts.default ? [["agents.default.effort", o.efforts.default]] : []),
+      ...Object.entries(o.efforts.per_agent).map(([n, v]) => [`agents.per_agent.${n}.effort`, v]),
+    ];
+    for (const [k, v] of set)
+      if (!levels.includes(v))
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "overlay-unknown-effort",
+            `${where} sets \`${k}\` to ${v}, which is not one of ${harnessForOverlay(o.id)?.display_name || o.id}'s effort levels (${levels.join(", ")}) — a spawn may refuse it.`,
+            where,
+          ),
+        );
+  }
+  const roster = layoutRoster(cfg);
+  if (roster) {
+    for (const n of new Set([...Object.keys(o.agents.per_agent), ...Object.keys(o.efforts.per_agent)])) {
+      if (!roster.includes(n))
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "overlay-unknown-agent",
+            `${where} configures \`${n}\`, which is not in the ${cfg.layout} roster (${roster.join(", ")}) — no agent by that name runs, so what it configures never applies. A typo, or an agent this package does not ship yet.`,
+            where,
+          ),
+        );
+    }
+  }
+  return out;
+}
+
+// Contract 4′ (2026-09-05): the registration the package made through the
+// host's CLI — one row per registration surface the manifest declares. Current
+// → one info; stale → an issue naming the refresh in the form that can make
+// it (the npm package's core via npx, `--harness <id>`: a cache install never
+// re-registers itself); a competing copy enabled beside ours → an issue (two
+// enabled copies of one plugin); a competitor alone → an info naming the npm
+// path; foreign → never repairable; the host CLI missing → an info.
+//
+// Every command here ends its message, alone on its line after a lead ending
+// with `:`, and carries no --project: the lead names the directory (the story
+// "User-facing text says where to run and names no project path and no
+// shell", rules 1, 4 and 5). The report draws each lead as prose and each
+// command alone after a blank line (doctor-report.mjs); --json carries the
+// message one part per line. The silenced copy's info ends with how to record
+// the switch (the setup story, rule 17): setup's `--channel npm`, in the core
+// form, the last of its three paragraphs.
+const SETUP_NPM = "npx projectstore setup --channel npm";
+export function checkPluginRegistration(
+  proj,
+  states = [],
+  { home = homedir(), speaker = speakingHarness(), cfg = null } = {},
+) {
+  const out = [];
+  // A checkout whose binding records a channel switch (the converge story's
+  // rule 3) chose the npm install: the info that ends "If moving to npm was
+  // meant, record it…" is the one thing it no longer needs. Doctor never
+  // reads who made the mark.
+  const marked = Boolean(channelMark(cfg));
+  for (const s of states.filter((x) => x.kind === "registration")) {
+    // The core's form with this registration's --harness (packageCommand):
+    // the command a person can paste, built in one place.
+    const h = loadHarness(s.harness) || { id: s.harness };
+    // A registration of ANOTHER harness in the same project is that
+    // harness's fact: named, marked, its steps in its own forms (aboutHarness).
+    const push = (f) => out.push(aboutHarness(f, h, speaker));
+    const refresh = packageCommand(h, "upgrade", { version: s.pkg || "latest", args: `--surface ${s.surface}` });
+    // A copy this registration silenced for the checkout and the checkout
+    // still holds off, one per key (the install spec, contract 13 as amended
+    // after the rc.3 tag): rc.1 and rc.2's startup offer left exactly this on
+    // git-marketplace projects, and nothing said so. Only for a registration
+    // this checkout holds; the record lives in our directory, so a directory
+    // removed by hand takes it along and leaves nothing to name.
+    if ((s.silenced || []).length && (s.state === "current" || s.state === "stale")) {
+      // The row this checkout loads: its own local-scope row first, then a
+      // user-scope one — never another checkout's (layoutRemedy's rule).
+      const real = (x) => {
+        try {
+          return realpathSync.native(x);
+        } catch {
+          return resolve(x);
+        }
+      };
+      const here = real(proj);
+      const rows = installedPluginEntries(home, proj).filter(
+        (e) => e.present && (!e.projectPath || real(e.projectPath) === here),
+      );
+      for (const key of s.silenced) {
+        const row = rows
+          .filter((e) => e.key === key)
+          .sort((a, b) => Number(Boolean(b.projectPath)) - Number(Boolean(a.projectPath)))[0];
+        if (!row) {
+          push(
+            finding(
+              "install",
+              "info",
+              "plugin-registration",
+              `${key} is held off in this checkout's local settings, where the npm registration turned it off — and that copy is no longer installed, so the entry is stale.`,
+              s.path,
+            ),
+          );
+          continue;
+        }
+        if (marked) continue;
+        // The release line, not the build: a 0.28 release candidate reads a
+        // moved project; 0.27.x reads it as unbound. No version reads as old.
+        const old = !row.version || cmpVersion(row.version, "0.28.0") < 0;
+        push(
+          finding(
+            "install",
+            "info",
+            "plugin-registration",
+            [
+              `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and its updates no longer reach the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it, ${fromTerminalIn(proj)}, outside the session:`,
+              packageCommand(h, "uninstall", { version: s.pkg || "latest", args: `--surface ${s.surface}` }),
+              "Restart, then in the session:",
+              invocation(loadHarness(h.id) || speaker, "doctor", { args: "--fix" }),
+              "If moving to npm was meant, record it from a terminal in this project:",
+              SETUP_NPM,
+            ].join("\n"),
+            s.path,
+          ),
+        );
+      }
+    }
+    const others = (s.others || []).map((o) => `${o.key} (${o.version || "?"})`).join(", ");
+    if (s.state === "foreign") {
+      push(
+        finding(
+          "install",
+          "issue",
+          "plugin-registration-foreign",
+          `${s.reason} — install, uninstall and upgrade refuse it; nothing repairs it.`,
+          s.path,
+        ),
+      );
+    } else if (s.state === "unavailable") {
+      push(
+        finding(
+          "install",
+          "info",
+          "plugin-registration",
+          `No npm registration of projectstore for this project, and ${s.reason}.`,
+        ),
+      );
+    } else if (s.state === "absent") {
+      // A git-marketplace install alone is not a finding: a permanent info
+      // advertising the npm path to every marketplace user is noise (2026-09-05).
+    } else if (s.state === "stale") {
+      push(
+        finding(
+          "install",
+          "issue",
+          "plugin-registration",
+          `${s.entry} — stale: ${s.reason}. Refresh it ${fromTerminalIn(proj)}:\n${refresh}`,
+          s.path,
+        ),
+      );
+    } else if (s.state === "current") {
+      // The host loads a host plugin registration in place, from the
+      // plugin's root inside our marketplace directory (the payload — what
+      // its plugin-root variable names); the install path is the registry's
+      // copy, the one the launcher renders (measured on host 2.1.293 and
+      // 2.1.296). A portable registration's host loads the copy.
+      const loaded =
+        h.surfaces?.[s.surface]?.format === "host-plugin-registration" && s.payload
+          ? `install path ${s.installPath}; loaded in place from ${s.payload}`
+          : `loaded from ${s.installPath}`;
+      if (others)
+        push(
+          finding(
+            "install",
+            "issue",
+            "plugin-registration",
+            `${s.entry} is current, and ${others} is enabled for this project too — two enabled copies of one plugin load twice. The host's own disable turns the other off, at the scope the manifest names — never the committed project scope. Or install silences it for this project, ${fromTerminalIn(proj)}:\n${packageCommand(h, "install", { args: `--surface ${s.surface}` })}`,
+            s.path,
+          ),
+        );
+      else
+        push(
+          finding(
+            "install",
+            "info",
+            "plugin-registration",
+            `${s.entry} ${s.installedVersion} registered from the npm package for this project (${loaded}). Refresh it ${fromTerminalIn(proj)}:\n${refresh}`,
+          ),
+        );
+    }
+  }
+  return out;
+}
+
+// Contract 17: two registrations of projectstore at different versions on one
+// machine are a finding, not a failure — install cannot prevent it, since
+// hosts install from different sources. The versions come from the harness
+// registry (one per marketplace key and scope) and from the pkg= field of a
+// file we stamped in this project; each is named with where it was read.
+export function checkVersionDrift(home = homedir(), states = [], proj = null, { speaker = speakingHarness() } = {}) {
+  // Pairs, not a map keyed by source: two registrations under one marketplace
+  // key and one scope are the common shape (the registry keeps every install
+  // it made), and they must both be seen. Only installs still on disk count —
+  // a wiped entry is not a copy anyone runs.
+  const seen = [];
+  // The registry read here is the source harness's own.
+  const registryOf = sourceHarness()?.id || null;
+  // The copies the host loads for this project (contract 17, amended
+  // 2026-10-14): this checkout's own row or a user-scope row, never another
+  // project's — the registry keeps every project's local rows, and another
+  // checkout's old copy is not a drift here. Every row, not one per key: this
+  // project's own row against a user-scope row is the drift contract 17 names.
+  // Without a project, the user-scope rows alone.
+  const rows = proj
+    ? projectCopies(home, proj)
+    : installedPluginEntries(home).filter((e) => e.present && e.enabled !== false && !e.projectPath);
+  for (const e of rows) {
+    // A disabled registration is not a copy anyone runs (contract 17, amended 2026-09-05).
+    if (e.version && e.present && e.enabled !== false)
+      seen.push({
+        // A synced copy has no registry row: its version is its own plugin.json's.
+        source: e.synced
+          ? `synced copy ${e.key} at ${e.path}`
+          : `registry ${e.key}${e.scope ? " (" + e.scope + ")" : ""} at ${e.path}`,
+        version: e.version,
+        harness: registryOf,
+      });
+  }
+  for (const s of states) {
+    if (s.installedPkg)
+      seen.push({ source: `pkg= of ${s.surface}`, version: s.installedPkg, harness: s.harness || null });
+  }
+  const versions = new Set(seen.map((x) => x.version));
+  if (versions.size < 2) return [];
+  const list = seen.map(({ source, version }) => `${version} (${source})`).join(", ");
+  // Every copy one harness's: that harness's fact (aboutHarness). The launcher
+  // is the status line's, so its clause is said only where the subject — or,
+  // for copies of several harnesses, the listener — has one.
+  const owners = [...new Set(seen.map((x) => x.harness))];
+  const subject = owners.length === 1 && owners[0] ? loadHarness(owners[0]) : null;
+  const launcher =
+    (subject || speaker)?.surfaces?.statusline?.supported === false
+      ? ""
+      : "; the launcher renders whichever is registered";
+  return [
+    aboutHarness(
+      finding(
+        "install",
+        "warn",
+        "version-drift",
+        `projectstore is registered or installed at more than one version on this machine: ${list}. Update the older one${launcher}.`,
+      ),
+      subject,
+      speaker,
+    ),
+  ];
+}
+
+// A copy from Anthropic's directory that does not load (the PS-DIRECTORY
+// story "A copy installed from Anthropic's directory…", decision 5): Claude
+// Code loads an enabled copy of the same name from any other origin over a
+// synced one (the loading reference, "Name conflicts", item 5). Named with the
+// copy that loads and the way back, which is to turn that copy off, in its own
+// channel: the npm registration's uninstall, the host's disable for any other.
+// A checkout whose binding records the switch (`channel_switch`, written by
+// setup's npm answer) chose the npm copy over it: no info, as the git
+// copy's silenced-copy info goes under the mark (the B2 review).
+export function checkSyncedCopy(
+  proj,
+  { home = homedir(), harness = sourceHarness(), speaker = speakingHarness(), cfg = null } = {},
+) {
+  const r = hostRegistry(harness);
+  if (!r?.synced_dir || channelMark(cfg)) return [];
+  const copies = projectCopies(home, proj);
+  const synced = copies.find((e) => e.synced);
+  const loads = copies.find((e) => !e.synced);
+  if (!synced || !loads) return [];
+  const v = (e) => (e.version ? ` ${e.version}` : "");
+  const back =
+    installChannel(loads.path, { home, harness }) === "registration"
+      ? `remove the npm registration, ${fromTerminalIn(proj)}, outside the session:\n${packageCommand(harness, "uninstall", { version: "latest", args: `--surface ${r.surface}` })}`
+      : `turn ${loads.key} off in the session: /plugin → Installed, then disable ${loads.key}. Claude Code loads the directory copy at the next start.`;
+  return [
+    aboutHarness(
+      finding(
+        "install",
+        "info",
+        "synced-copy",
+        `${synced.key}${v(synced)}, from Anthropic's directory (${synced.path}), is not loaded in this project: Claude Code loads ${loads.key}${v(loads)} over it. To use the directory copy instead, ${back}`,
+      ),
+      harness,
+      speaker,
+    ),
+  ];
+}
+
+export function checkOverrideCopies(proj, home = homedir(), harness = speakingHarness()) {
+  const out = [];
+  // Copies of our agents a host loads from its own agents directory: a fact
+  // only for a harness that loads agents that way (its agents surface); a
+  // harness without one hears nothing about them (generation spec, contract 18).
+  if (harness && harness.surfaces?.agents?.supported === false) return out;
+  const ver = pluginVersion();
+  const scopes = [
+    { dir: join(proj, ".claude", "agents"), label: ".claude/agents", scope: "project" },
+    { dir: join(home, ".claude", "agents"), label: "~/.claude/agents", scope: "user" },
+  ];
+  for (const { dir, label, scope } of scopes) {
+    for (const f of listMd(dir)) {
+      let text;
+      try {
+        text = readFileSync(join(dir, f), "utf8");
+      } catch {
+        continue;
+      }
+      const m = text.match(/#\s*source:\s*projectstore\s+v(\S+)/);
+      const { data } = parseFrontmatter(text);
+      // A provenance-marked copy with no `name:` still deserves a usable
+      // message: falling back to the filename beats reporting `name ""`.
+      const name = data.name || (m ? basename(f, ".md") : "");
+      if (!m && !BUNDLED_AGENT_NAMES.includes(name)) continue; // user-authored agent — never ours to judge
+
+      const where = join(label, f);
+      const everywhere = scope === "user" ? " User-scoped, so it applies in every project." : "";
+
+      if (Object.hasOwn(LEGACY_AGENTS, name)) {
+        const { now, renamed } = LEGACY_AGENTS[name];
+        const advice = renamed
+          ? `v0.13 renamed the role to "${now}". Renaming this file would NOT make it override the bundled agent — nothing does (ADR-008) — so delete it, or keep it as an agent of your own under a name you invoke deliberately.`
+          : `v0.13 replaced it with a narrower vault-aware "${now}", so renaming would swap its role — keep this copy if you use it outside projectstore, but re-check its pinned model.`;
+        // without a provenance marker we cannot prove lineage — hedge FIRST,
+        // not 40 words in, or the false premise leads for user-authored agents
+        const lead = m ? `${f}` : `If ${f} began as a projectstore copy (no provenance marker — ignore otherwise): it`;
+        out.push(
+          finding(
+            "install",
+            m ? "warn" : "info",
+            "override-copies",
+            `${lead} carries the pre-v0.13 name "${name}", which no longer matches a bundled agent, so it overrides nothing and stands alongside "${now}" in the roster.${everywhere} ${advice}`,
+            where,
+          ),
+        );
+        continue; // a stale-version note on top would just be noise
+      }
+      if (!CURRENT_AGENT_NAMES.includes(name)) {
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "override-copies",
+            `Override copy ${f} has name "${name}" which matches no bundled agent — it duplicates instead of overriding.${everywhere}`,
+            where,
+          ),
+        );
+        continue;
+      }
+      // ADR-008. A current-name copy overrides nothing either: the bundled agent
+      // registers as "projectstore:<name>" and this one as "<name>", so both are
+      // live and the registration block keeps invoking the bundled one — the
+      // model pinned here never runs. This fires at ANY version, because
+      // refreshing such a copy fixes nothing; that is why it replaces the old
+      // "frozen at vX — re-run configure" advice instead of sitting beside it.
+      // Staleness is demoted to a parenthetical: still true, no longer the point.
+      const stale = m && ver && m[1] !== ver ? ` (It is also frozen at projectstore v${m[1]}, installed v${ver}.)` : "";
+      // Without a marker we cannot prove lineage — hedge FIRST, and never issue
+      // a delete imperative against a file the user may well have written.
+      const lead = m
+        ? `Override copy ${f} overrides nothing.`
+        : `If ${f} began as a projectstore copy (no provenance marker — ignore otherwise): it overrides nothing.`;
+      // `configure` only ever touched PROJECT scope, so pointing a user-scope
+      // copy at it would name a command that will not act — the scope split
+      // fca8def introduced for staleness applies here for the same reason.
+      const remove =
+        scope === "user"
+          ? `Delete ${where} by hand (or via ${commandForm("doctor", { args: "--fix" })}) — ${commandForm("agents", { args: "configure" })} only cleans up project-scope copies.`
+          : `Delete it via ${commandForm("agents", { args: "configure" })}, which now records the model in .projectstore/harness/<harness>.json (the active harness's overlay) and passes it per invocation.`;
+      const advice = m
+        ? remove
+        : `If you wrote it yourself, nothing is broken; if you meant to change the bundled agent's model, that is ${commandForm("agents", { args: "configure" })}, not a copy.`;
+      out.push(
+        finding(
+          "install",
+          m ? "warn" : "info",
+          "override-copies",
+          `${lead} It registers as "${name}" while the bundled agent registers as "${sharedRoleForm(name)}", so both exist side by side.${everywhere}${stale} ${advice}`,
+          where,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// The variable outranks every effort projectstore passes at spawn and the
+// bundled agents' frontmatter effort: with it set, the spawn offers no effort
+// parameter at all (the effort ADR, decision 7). So a value set for cost or
+// latency silently replaces the efforts the overlay configures — exactly the
+// class of "the value configured is not the value that runs" doctor names.
+// The variable names come from the manifest (runtime.agent_overrides); the
+// overlay is read only when one is set, so a clean startup reads nothing.
+export function checkEnvEffort(proj = null) {
+  // The variable is the active harness's (agentOverrides keys on detection), so
+  // the overlay it outranks is that harness's too — not the listener's, which
+  // in a shell's tree can be another harness (layout spec, contract 2, as
+  // amended 2026-10-15).
+  const h = activeHarness();
+  return agentOverrides()
+    .filter((o) => o.kind === "effort")
+    .map((o) => {
+      const ov = proj ? readOverlayAt(proj, h?.runtime?.overlay || h?.id) : null;
+      const set = ov
+        ? [
+            ...(ov.efforts.default ? ["agents.default.effort"] : []),
+            ...Object.keys(ov.efforts.per_agent).map((n) => `agents.per_agent.${n}.effort`),
+          ]
+        : [];
+      const where = set.length ? ` (${relative(proj, ov.path) || ov.path} sets ${set.join(", ")})` : "";
+      return finding(
+        "install",
+        "warn",
+        "env-effort",
+        `${o.env}=${o.value} is set — it outranks every effort projectstore passes at spawn${where} and the bundled agents' frontmatter, so every projectstore agent runs at "${o.value}". Unset it for the configured efforts to run.`,
+      );
+    });
+}
+
+export function checkEnvModel() {
+  return agentOverrides()
+    .filter((o) => o.kind === "model")
+    .map((o) =>
+      finding(
+        "install",
+        "warn",
+        "env-model",
+        `${o.env}=${o.value} is set — it overrides ALL projectstore agent model configuration, per-invocation parameter included.`,
+      ),
+    );
+}
+
+// The project-level layout (the layout ADR): a legacy .projectstore/projectstore.json
+// or .projectstore/state/ is one warn naming the upgrade; two bindings is an
+// issue. Cheap — a handful of existsSync — so the startup line carries the
+// warn as an offer (OFFER_CHECKS).
+// `restamp`: the startup line's pending re-stamp, which the move covers — its
+// sentence goes before the move's command, never after it (the story
+// "User-facing text says where to run…", rule 4).
+export function checkLayout(
+  proj,
+  harness = sourceHarness(),
+  { level = "warn", root = pluginRoot(), home = homedir(), speaker = speakingHarness(), restamp = false } = {},
+) {
+  const p = layoutPaths(proj, { harnessDir: harness?.runtime?.harness_dir || null });
+  const legacyBinding = existsSync(p.legacy.binding),
+    legacyRuntime = existsSync(p.legacy.runtime);
+  let resumable = false;
+  if (legacyBinding && existsSync(p.binding)) {
+    try {
+      const { agents: _agents, ...rest } = JSON.parse(readFileSync(p.legacy.binding, "utf8"));
+      resumable = JSON.stringify(rest) === JSON.stringify(JSON.parse(readFileSync(p.binding, "utf8")));
+    } catch {}
+  }
+  if (legacyBinding && existsSync(p.binding) && !resumable) {
+    return [
+      finding(
+        "install",
+        "issue",
+        "layout-two-configs",
+        `Two bindings: ${relative(proj, p.legacy.binding)} (legacy) and ${relative(proj, p.binding)} — keep one and delete the other; install and upgrade refuse while both exist. Usually the legacy one goes: it is the copy an interrupted migration or a 0.27.x re-bind left behind (when both name the same vault, upgrade removes it itself).`,
+        relative(proj, p.legacy.binding),
+      ),
+    ];
+  }
+  if (!legacyBinding && !legacyRuntime && !existsSync(p.legacy.welcomed) && !existsSync(p.legacy.sessionId)) return [];
+  // The command in the channel of the copy the project runs (the layout spec,
+  // contract 12 as amended 2026-10-03; maintainer decision the same day). The
+  // npm package's plain upgrade registers the plugin through the npm channel:
+  // run for a git-marketplace user it added projectstore@projectstore-npm at
+  // local scope and turned the git copy off for the checkout (reproduced with
+  // the suite's fake host), and without the host CLI on PATH it stopped
+  // part-way with exit 1. So the npm form is named only for the npm
+  // registration's copy; any other copy runs its own bin, and both carry
+  // --no-register, which leaves the registration out of the plan — no host
+  // command by construction, not by recognising the root (a checkout, a
+  // symlinked or relocated home). Neither carries --project: the message names
+  // the directory in prose, the command alone on its last line (remedyWords).
+  const remedy = layoutRemedy(proj, { root, home, harness });
+  const held = [
+    legacyBinding && relative(proj, p.legacy.binding),
+    legacyRuntime && relative(proj, p.legacy.runtime) + "/",
+    existsSync(p.legacy.welcomed) && relative(proj, p.legacy.welcomed),
+    existsSync(p.legacy.sessionId) && relative(proj, p.legacy.sessionId),
+  ]
+    .filter(Boolean)
+    .join(", ");
+  // The files sit in that harness's legacy directory and the move is its
+  // command: its fact under any other listener (aboutHarness).
+  return [
+    aboutHarness(
+      finding(
+        "install",
+        level,
+        "layout-legacy",
+        `The project layout moved to .projectstore/ (the layout ADR, 0.28); this project still holds ${held}. Readers fall back to the old paths through 0.30.${restamp ? " The same run re-stamps the status line launcher." : ""} ${remedyWords(remedy, proj, "Migrate it")}`,
+        relative(
+          proj,
+          [
+            legacyBinding && p.legacy.binding,
+            legacyRuntime && p.legacy.runtime,
+            existsSync(p.legacy.welcomed) && p.legacy.welcomed,
+            p.legacy.sessionId,
+          ].find(Boolean),
+        ),
+      ),
+      harness,
+      speaker,
+    ),
+  ];
+}
+
+// The one command that moves this project's files (the layout spec, contract
+// 12 as amended 2026-10-03), in the channel of the copy the project runs. A
+// session runs that copy, so its root answers: the package's own registration
+// takes the core's npm form, `npx projectstore@<v> upgrade --harness <id>
+// --no-register` (the front-door ADR, decision 5), any other host copy its own
+// bin. A run from anywhere else — a terminal `npx projectstore doctor`, a
+// checkout — asks the host's registry, counting only rows this project loads:
+// its own local-scope row first, then user-scope rows, never another
+// checkout's. With none enabled, a package root takes the npm form and a
+// checkout its own bin. BOTH forms carry --no-register: the move never needs
+// the registration, so a misread channel can cost a launcher stamp but never a
+// channel switch. Neither carries --project: the finding names the directory
+// in prose (remedyWords). A copy that predates the move (no
+// bin/projectstore.mjs — 0.27.x) cannot run it: update that copy first. Nor
+// can one whose CLI predates --no-register (lib's takesNoRegister).
+//
+// It answers { command } (a form above), { advice } (words with no command of
+// ours), or { advice, refresh } (the npm registration's incapable copy: words,
+// then the refresh that moves the project too).
+//
+// The selection, the capability read and the copy advice are lib's
+// (selectCopy, takesNoRegister, copyUpdateAdvice), shared with the
+// installer's keep (the converge story's rule 5). takesNoRegister is
+// re-exported here, where its callers already import it.
+export { takesNoRegister };
+
+// The layout remedy's closing words (the story "User-facing text says where to
+// run and names no project path and no shell", rules 1, 4 and 5): the
+// directory in prose, then the command alone on the message's last line.
+// Advice that names no command of ours ends the message with its own period.
+export function remedyWords(remedy, proj, verb) {
+  const where = `${fromTerminalIn(proj)}, outside the session:`;
+  if (remedy.command) return `${verb} ${where}\n${remedy.command}`;
+  if (remedy.refresh) return `${remedy.advice}, ${where}\n${remedy.refresh}`;
+  return `${remedy.advice}.`;
+}
+
+export function layoutRemedy(
+  proj,
+  { root = pluginRoot(), home = homedir(), harness = sourceHarness(), env = process.env } = {},
+) {
+  // A session under a relocated host home hands it on: a terminal without it
+  // would classify the copy as a checkout, render no launcher and never clear
+  // the offer (the second review of the 2026-10-03 fixes, S2).
+  const homeVar = harness?.runtime?.home_env;
+  const prefix = homeVar && env[homeVar] ? `${homeVar}="${env[homeVar]}" ` : "";
+  const npm = (version) => ({
+    command: prefix + packageCommand(harness, "upgrade", { version: version || "latest", args: "--no-register" }),
+  });
+  const own = (copy) => ({
+    command: `${prefix}node "${join(copy, "bin", "projectstore.mjs")}" upgrade --harness ${harness?.id || "<id>"} --no-register`,
+  });
+  const channel = installChannel(root, { home, harness });
+  if (channel === "registration") return npm(pluginVersion(root));
+  // A copy synced from claude.ai runs its own bin too (contract 12, item 1, as
+  // widened by the PS-DIRECTORY story "A copy installed from Anthropic's
+  // directory…"): its channel is claude.ai's, never npm's.
+  if (channel === "marketplace" || channel === "synced") return own(root);
+  // The selection is lib's selectCopy: this checkout's row first, then
+  // user-scope rows by recency, never another checkout's.
+  const copy = selectCopy(home, proj, { harness });
+  if (copy) {
+    const v = copy.version ? ` (${copy.version})` : "";
+    const then = "and the next session's startup line names the command";
+    if (copy.missing === "bin")
+      return { advice: copyUpdateAdvice(copy, { cannot: "predates the move and cannot run it", then }) };
+    // Chosen first, gated after: the copy is what the project runs, so an
+    // incapable one gets advice even beside a capable user-scope copy.
+    const viaRegistration = copy.channel === "registration";
+    if (copy.missing === "no-register") {
+      return viaRegistration
+        ? // Its channel's ordinary refresh, at the running version: the plain
+          // upgrade re-registers from npm — not a switch for an npm project — and
+          // moves the project in the same run.
+          {
+            advice: `This project's projectstore plugin${v} is the npm registration's copy and predates --no-register, so it cannot run the move as named. Refresh that registration, which moves the project too`,
+            refresh: prefix + packageCommand(harness, "upgrade", { version: pluginVersion(root) || "latest" }),
+          }
+        : {
+            advice: copyUpdateAdvice(copy, { cannot: "predates --no-register and cannot run the move as named", then }),
+          };
+    }
+    return viaRegistration ? npm(copy.version) : own(copy.path);
+  }
+  return channel === "package" ? npm(pluginVersion(root)) : own(root);
+}
+
+export function checkGitignore(proj) {
+  const out = [];
+  // .projectstore/.gitignore is line-merged with the vault's own writer; a "*"
+  // (a vault that is also a project, written before 2026-09-06) hides the
+  // committed harness/ overlays.
+  const p = layoutPaths(proj);
+  if (existsSync(p.root)) {
+    let lines = null;
+    try {
+      lines = readFileSync(p.gitignore, "utf8")
+        .split("\n")
+        .map((l) => l.trim());
+    } catch {}
+    if (lines === null) {
+      // Contract 5's ignore file is what keeps a machine-local binding — with
+      // an absolute vault path — out of a commit. Until 2026-09-06 bind never
+      // wrote it, so a project bound and committed before its first session
+      // carried one; doctor reasoned from the self-ignoring without ever
+      // checking it.
+      out.push(
+        finding(
+          "install",
+          "warn",
+          "gitignore",
+          `.projectstore/ exists without its .gitignore — the binding and state/ are machine-local and would be committed. Write the lines ${[...LAYOUT.gitignore].map((l) => JSON.stringify(l)).join(", ")}.`,
+          ".projectstore/.gitignore",
+        ),
+      );
+    } else {
+      if (lines.includes("*") && existsSync(p.overlayDir))
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "gitignore",
+            `.projectstore/.gitignore carries "*", which hides harness/ (the committed overlays) from git — replace it with the lines ${[...LAYOUT.gitignore, LAYOUT.vaultSessions + "/"].map((l) => JSON.stringify(l)).join(", ")}.`,
+            ".projectstore/.gitignore",
+          ),
+        );
+      else if (!lines.includes("*")) {
+        // A lone "*" is the pre-2026-09-06 vault-that-is-a-project shape: it
+        // ignores the binding and state/ already, and only hides harness/ when
+        // that directory exists — which the branch above is for.
+        const short = [...LAYOUT.gitignore].filter((l) => !lines.includes(l));
+        if (short.length)
+          out.push(
+            finding(
+              "install",
+              "warn",
+              "gitignore",
+              `.projectstore/.gitignore is missing ${short.map((l) => JSON.stringify(l)).join(", ")} — the file is line-merged, so add the line rather than rewriting it.`,
+              ".projectstore/.gitignore",
+            ),
+          );
+      }
+    }
+  }
+  // The host's settings file is checkHostIgnored's (the layout spec, contract 9
+  // as amended 2026-10-14): only git knows every rule that ignores it, and this
+  // function runs in the SessionStart subset, whose budget forbids a subprocess.
+  return out;
+}
+
+// The line read the host-file check used before it asked git, and still uses
+// when git cannot answer: the project's own .gitignore, exact lines only.
+function hostIgnoreLineMissing(proj, env) {
+  let lines = [];
+  try {
+    lines = readFileSync(join(proj, ".gitignore"), "utf8")
+      .split("\n")
+      .map((l) => l.trim());
+  } catch {}
+  if (lines.includes(".claude/") || lines.includes(".claude")) return [];
+  return [relative(proj, hostSettingsPath(proj, env, sourceHarness()))].filter((w) => !lines.includes(w));
+}
+
+// Whether git ignores the host's machine-local settings file (the layout spec,
+// contract 9 as amended 2026-10-14). Our own files are self-ignored inside
+// .projectstore/; what is left is the host's. Git's answer covers every rule
+// it applies — nested .gitignore files, .git/info/exclude, core.excludesFile
+// and its XDG default — where the line read saw only the project's exact
+// lines. --no-index keeps this about rules: a tracked file with a matching rule
+// is quiet here (tracking is checkTrackedRuntime's). Exit 0 is ignored, 1 is
+// not; anything else — no git on PATH, an error, a timeout — falls back to the
+// line read. Full report only: a subprocess, like checkTrackedRuntime.
+export function checkHostIgnored(proj, { env = process.env } = {}) {
+  if (!existsSync(join(proj, ".git"))) return [];
+  const file = relative(proj, hostSettingsPath(proj, env, sourceHarness()));
+  const r = spawnSync("git", ["check-ignore", "-q", "--no-index", "--", file], { cwd: proj, env, timeout: 5000 });
+  const missing = r.status === 0 ? [] : r.status === 1 ? [file] : hostIgnoreLineMissing(proj, env);
+  if (!missing.length) return [];
+  return [
+    finding(
+      "install",
+      "warn",
+      "gitignore",
+      `Machine-specific files not gitignored: ${missing.join(", ")} (or ignore ".claude/" wholesale).`,
+    ),
+  ];
+}
+
+// An ignore line never untracks a file already in the index, so the project
+// that committed its binding before 2026-09-06 keeps committing it. Only git
+// can answer this, so it lives outside checkGitignore, which the SessionStart
+// budget forbids a subprocess.
+export function checkTrackedRuntime(proj) {
+  if (!existsSync(join(proj, ".git"))) return [];
+  const p = layoutPaths(proj);
+  const want = [relative(proj, p.binding), relative(proj, p.state)];
+  const r = spawnSync("git", ["ls-files", "--", ...want], { cwd: proj, encoding: "utf8", timeout: 5000 });
+  if (r.status !== 0 || !r.stdout) return [];
+  const tracked = r.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!tracked.length) return [];
+  return [
+    finding(
+      "install",
+      "warn",
+      "gitignore-tracked",
+      `git already tracks ${tracked.join(", ")} — machine-local files with an absolute vault path, committed before the ignore lines existed. An ignore line does not untrack them: run \`git rm --cached ${tracked.join(" ")}\` and commit.`,
+      tracked[0],
+    ),
+  ];
+}
+
+export function checkVaultGit(cfg) {
+  if (existsSync(join(cfg.vault_path, ".git"))) return [];
+  return [
+    finding(
+      "install",
+      "warn",
+      "vault-git",
+      "Vault is not a git repository — the knowledge has no history/blame/review. Consider `git init` (doctor --fix offers it).",
+    ),
+  ];
+}
+
+// Marketplace auto-update (maintainer request 2026-07-03): a marketplace whose
+// auto-update is off leaves a stale plugin looking like "the feature is
+// broken". Read the real registries and, when the flag is off, tell the user
+// the exact correct values.
+export function checkAutoUpdate(home = homedir(), harness = speakingHarness(), { root = pluginRoot() } = {}) {
+  const out = [];
+  // Auto-update is a toggle of the host's own plugin marketplace. A harness
+  // whose registration is not the host's plugin system (Codex's is a portable
+  // marketplace driven by our shell) has no such toggle to report on.
+  if (harness?.surfaces?.plugin?.format !== "host-plugin-registration") return out;
+  const reg = hostRegistry(harness) || {};
+  const at = (parts) => `~/${harness.runtime?.home_default || ".claude"}/${parts.join("/")}`;
+  // A copy synced from claude.ai (Anthropic's directory) has no marketplace and
+  // no install record: claude.ai updates it. One info, from the manifest's
+  // update hint, and never another copy's install record, which would
+  // describe a copy this session does not run (the PS-DIRECTORY story "A copy
+  // installed from Anthropic's directory…", decision 5).
+  if (installChannel(root, { home, harness }) === "synced") {
+    out.push(
+      finding(
+        "install",
+        "info",
+        "auto-update",
+        `This session runs projectstore from Anthropic's directory (${root}), so no marketplace auto-update applies to it. ${updateHint({ root, home }).line}`,
+      ),
+    );
+    return out;
+  }
+  // Two corrections over the first version of this check, both found by running
+  // doctor straight out of a checkout (2026-08-05):
+  //
+  // 1. The path pattern required a segment AFTER the marketplace name, so a
+  //    marketplace clone root (.../plugins/marketplaces/<name>) never matched
+  //    even though the name is right there. Hence the trailing (?:/|$).
+  // 2. pluginRoot() is the SCRIPT's own location. That equals the session's
+  //    plugin only when the harness launched us with its plugin-root variable; run
+  //    from a checkout it reported "local dev install" about what was in fact
+  //    an ordinary marketplace install — the check described itself, not the
+  //    session. So fall back to the registered install when our own path says
+  //    nothing, and never claim --plugin-dir as a conclusion.
+  const marketplaceOf = (p) =>
+    (String(p || "")
+      .replace(/\\/g, "/")
+      .match(/\/plugins\/(?:cache|marketplaces)\/([^/]+)(?:\/|$)/) || [])[1] || null;
+  const inst = installedPluginRoot(home);
+  const marketplace = marketplaceOf(root) || marketplaceOf(inst && inst.path);
+  if (!marketplace) {
+    out.push(
+      finding(
+        "install",
+        "info",
+        "auto-update",
+        "No marketplace install of projectstore found (--plugin-dir, or a checkout with none registered) — marketplace auto-update not applicable.",
+      ),
+    );
+    return out;
+  }
+
+  // A marketplace added from claude.ai is recorded in a registry file of its
+  // own, and is added again from the host's list, never by a source.
+  const claudeai = Boolean(reg.claudeai_prefix) && marketplace.startsWith(reg.claudeai_prefix);
+  const file = (claudeai && reg.marketplaces_claudeai) || reg.marketplaces || ["plugins", "known_marketplaces.json"];
+  let registry = null;
+  try {
+    registry = JSON.parse(readFileSync(join(claudeHome(home), ...file), "utf8"));
+  } catch {}
+  const entry = registry ? registry[marketplace] : null;
+  // A directory marketplace — the package's own registration — has no remote
+  // to poll and nothing to toggle; its update path is the package's upgrade
+  // verb, reported by checkPluginRegistration (2026-09-05).
+  if (entry && entry.source && entry.source.source === "directory") return out;
+  if (!entry) {
+    out.push(
+      finding(
+        "install",
+        "warn",
+        "auto-update",
+        `Marketplace "${marketplace}" is missing from ${at(file)} — updates cannot be tracked. ` +
+          (claudeai
+            ? "Add it again from /plugin → Marketplaces, where claude.ai lists it."
+            : "Re-add it: /plugin marketplace add <owner/repo>."),
+      ),
+    );
+    return out;
+  }
+
+  // Claude Code's documented order (the loading reference, "Which marketplaces
+  // and plugins auto-update"): the settings entry first, then the registry
+  // entry, then the marketplace's default (registry.auto_update) — on for
+  // Anthropic's official marketplaces and claude.ai's, off for every other.
+  const userSettings = reg.user_settings || ["settings.json"];
+  let set;
+  try {
+    set = JSON.parse(readFileSync(join(claudeHome(home), ...userSettings), "utf8"))?.extraKnownMarketplaces?.[
+      marketplace
+    ]?.autoUpdate;
+  } catch {}
+  const [enabled, why] =
+    typeof set === "boolean"
+      ? [set, `set to false in ${at(userSettings)} → extraKnownMarketplaces, which wins over the registry`]
+      : typeof entry.autoUpdate === "boolean"
+        ? [entry.autoUpdate, `set to false in ${at(file)}`]
+        : [autoUpdateDefault(harness, marketplace) === true, "off by default for this marketplace"];
+  if (!enabled) {
+    out.push(
+      finding(
+        "install",
+        "warn",
+        "auto-update",
+        `Auto-update is OFF for marketplace "${marketplace}" (${why}) — new projectstore releases will not be noticed. ` +
+          `Correct values: "autoUpdate": true on the "${marketplace}" entry in ${at(file)} ` +
+          `(set via /plugin → Marketplaces → ${marketplace} → toggle auto-update), or in ${at(userSettings)} → ` +
+          `extraKnownMarketplaces.${marketplace}.autoUpdate: true, which wins where that entry exists. Manual path, ${COPY_UPDATE_STEPS}.`,
+      ),
+    );
+  }
+
+  // Bonus: the marketplace checkout's catalog knows the latest released
+  // version — flag when it is newer than the one actually running.
+  //
+  // "Running" must be read from the SAME root that named the marketplace above.
+  // On the fallback path our own script is a checkout, so pluginRoot() and
+  // pluginVersion() describe the checkout, not the install — reporting that as
+  // the running version is the very confusion this check was just fixed for.
+  const named = marketplaceOf(root) ? { path: root, version: null } : inst;
+  try {
+    const from = (named && named.path) || root;
+    const name = JSON.parse(readFileSync(join(from, ".claude-plugin", "plugin.json"), "utf8")).name;
+    const catalog = JSON.parse(readFileSync(join(entry.installLocation, ".claude-plugin", "marketplace.json"), "utf8"));
+    const latest = (catalog.plugins || []).find((p) => p.name === name)?.version;
+    const running =
+      (named && named.version) || JSON.parse(readFileSync(join(from, ".claude-plugin", "plugin.json"), "utf8")).version;
+    // Precedence, not the triple: a session on 0.28.0-rc.3 hears that 0.28.0 is out.
+    if (latest && running && cmpPrecedence(latest, running) > 0) {
+      out.push(
+        finding(
+          "install",
+          "warn",
+          "auto-update",
+          `A newer ${name} is available: v${latest} (running v${running}) — ${COPY_UPDATE_STEPS}.`,
+        ),
+      );
+    }
+  } catch {}
+  return out;
+}
+
+// The plugin-bundled MCP registration (MCP ADR decision 6, amended
+// 2026-09-05): Claude Code loads .mcp.json from the plugin root and expands
+// the placeholders per session, so the check is only that the shipped file is
+// there and launches this package's bin. A host surface — nothing to
+// install, nothing to derive — so this is not a surfaces.mjs state.
+export function checkMcpRegistration(root = pluginRoot(), harness = speakingHarness()) {
+  // Whether a plugin-root .mcp.json registers anything is the host's fact,
+  // read from the manifest: a harness whose mcp surface is not host-loaded
+  // has nothing to check here.
+  const mcp = harness && harness.surfaces && harness.surfaces.mcp;
+  if (!mcp || mcp.kind !== "host" || mcp.supported === false) return [];
+  const p = join(root, mcp.file || ".mcp.json");
+  if (!existsSync(p))
+    return [
+      finding(
+        "install",
+        "warn",
+        "mcp",
+        "No .mcp.json at the plugin root — the MCP read tools are not registered; the package ships one, so this install is incomplete or predates the MCP surface (0.28).",
+      ),
+    ];
+  let reg;
+  try {
+    reg = JSON.parse(readFileSync(p, "utf8"));
+  } catch (e) {
+    return [
+      finding("install", "issue", "mcp", `.mcp.json at the plugin root is not valid JSON: ${e.message}`, ".mcp.json"),
+    ];
+  }
+  // What it must launch is the manifest's entry (scripts/mcp-server.mjs, the
+  // PS-DIRECTORY story "The MCP server's entry reaches no install verb…"),
+  // checked as a path and a file, never imported: mcp.mjs on SessionStart's
+  // path would load the server's whole graph into the hook.
+  // The entry is the checked copy's own: a root that carries its own manifest
+  // says what it launches, and one whose manifest names no entry (0.30.5 and
+  // older) launches `bin/projectstore.mjs mcp`, which serves — a newer doctor
+  // run against such a copy must not call it broken (the E2b review). A root
+  // with no manifest of its own is held to this doctor's.
+  let entry = mcp.entry || "scripts/mcp-server.mjs";
+  let verbArg = null;
+  try {
+    const own = JSON.parse(readFileSync(join(root, "harnesses", `${harness.id}.json`), "utf8"));
+    const e = own?.surfaces?.mcp?.entry;
+    if (typeof e === "string" && e) entry = e;
+    else [entry, verbArg] = ["bin/projectstore.mjs", "mcp"];
+  } catch {}
+  const server = reg && reg.mcpServers && reg.mcpServers.projectstore;
+  const args = server && Array.isArray(server.args) ? server.args : [];
+  const launches = args.some((a) => String(a).endsWith(`/${entry}`)) && (!verbArg || args.includes(verbArg));
+  if (!server || !launches) {
+    return [
+      finding(
+        "install",
+        "issue",
+        "mcp",
+        `.mcp.json at the plugin root does not launch ${entry} — the MCP read tools will not answer.`,
+        ".mcp.json",
+      ),
+    ];
+  }
+  if (!existsSync(join(root, entry)))
+    return [
+      finding(
+        "install",
+        "issue",
+        "mcp",
+        `.mcp.json launches ${entry}, which is not in the plugin root — the MCP read tools will not answer; this install is incomplete.`,
+        ".mcp.json",
+      ),
+    ];
+  return [
+    finding(
+      "install",
+      "info",
+      "mcp",
+      "MCP read tools registered by the plugin's .mcp.json (one server per project, bound through the host's project directory).",
+    ),
+  ];
+}
+
+// ─── Vault checks ──────────────────────────────────────────────────────
+
+// Collect every structured artifact with parsed frontmatter.
+export function scanArtifacts(cfg, layout) {
+  const vault = cfg.vault_path;
+  const artifacts = [];
+  const push = (abs, rel, kind) => {
+    let md;
+    try {
+      md = readFileSync(abs, "utf8");
+    } catch {
+      return;
+    }
+    artifacts.push({ abs, rel, kind, fm: parseFrontmatter(md).data, body: md });
+  };
+  for (const folder of layout.folders) {
+    const dir = join(vault, folder.path);
+    if (!existsSync(dir)) continue;
+    if (folder.kind === "epic") {
+      for (const id of readdirSync(dir)) {
+        const epicMd = join(dir, id, "epic.md");
+        if (existsSync(epicMd)) push(epicMd, `${folder.path}/${id}/epic.md`, "epic");
+        const storiesDir = join(dir, id, "stories");
+        for (const f of listMd(storiesDir)) {
+          push(join(storiesDir, f), `${folder.path}/${id}/stories/${f}`, "story");
+        }
+      }
+    } else {
+      for (const f of listMd(dir)) {
+        if (f === "README.md") continue;
+        push(join(dir, f), `${folder.path}/${f}`, folder.kind);
+      }
+    }
+  }
+  return artifacts;
+}
+
+// status ↔ kanban: generate the expected board with the real generator and
+// text-diff it against disk, ignoring the generated_at stamp (ADR-005).
+export function checkKanbanSync(cfg) {
+  const vault = cfg.vault_path;
+  const onDisk = join(vault, "kanban.md");
+  if (!existsSync(onDisk)) {
+    return [finding("vault", "info", "kanban", `No kanban.md yet — run ${commandForm("kanban")} to create the board.`)];
+  }
+  const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", "kanban.mjs")], {
+    encoding: "utf8",
+    timeout: 10000,
+    env: childEnv(process.env, { projectRoot: projectRoot() }),
+  });
+  if (r.status !== 0) {
+    return [finding("vault", "warn", "kanban", `kanban generator failed: ${(r.stderr || "").trim()}`)];
+  }
+  let expected;
+  try {
+    expected = JSON.parse(r.stdout).content;
+  } catch {
+    return [finding("vault", "warn", "kanban", "kanban generator returned unparseable output.")];
+  }
+  const norm = (s) =>
+    s
+      .split("\n")
+      .filter((l) => !l.startsWith("generated_at:"))
+      .join("\n")
+      .trimEnd();
+  if (norm(expected) !== norm(readFileSync(onDisk, "utf8"))) {
+    return [
+      finding(
+        "vault",
+        "issue",
+        "kanban",
+        `kanban.md is out of sync with story frontmatter — run ${commandForm("kanban")} (or reconcile).`,
+        "kanban.md",
+      ),
+    ];
+  }
+  return [];
+}
+
+// Folder README index rows ↔ artifact frontmatter.
+export function checkIndexes(cfg, layout, artifacts) {
+  const out = [];
+  const vault = cfg.vault_path;
+  const rowRx = /^\|\s*\[([^\]]+)\]\(([^)]+)\)\s*\|([^|]+)\|([^|]+)\|([^|]+)\|/;
+  for (const folder of layout.folders) {
+    const readme = join(vault, folder.path, "README.md");
+    if (!existsSync(readme)) continue;
+    let rows = [];
+    for (const line of readFileSync(readme, "utf8").split("\n")) {
+      const m = line.match(rowRx);
+      if (m) rows.push({ label: m[1], target: m[2].replace(/^\.\//, ""), title: m[3].trim(), status: m[4].trim() });
+    }
+    const indexed = new Set();
+    for (const row of rows) {
+      const rel = `${folder.path}/${row.target}`;
+      indexed.add(rel);
+      const art = artifacts.find((a) => a.rel === rel);
+      if (!art) {
+        out.push(
+          finding(
+            "vault",
+            "issue",
+            "index",
+            `${folder.path}/README.md row "${row.label}" points at a missing file: ${row.target}`,
+            `${folder.path}/README.md`,
+          ),
+        );
+        continue;
+      }
+      const fmStatus = (art.fm.status || "").trim();
+      if (fmStatus && row.status && fmStatus !== row.status) {
+        out.push(
+          finding(
+            "vault",
+            "issue",
+            "index",
+            `${folder.path}/README.md lists "${row.label}" as "${row.status}" but its frontmatter says "${fmStatus}".`,
+            art.rel,
+          ),
+        );
+      }
+      const fmTitle = (art.fm.title || "").trim();
+      if (fmTitle && row.title && fmTitle !== row.title) {
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "index",
+            `${folder.path}/README.md title for "${row.label}" differs from frontmatter title.`,
+            art.rel,
+          ),
+        );
+      }
+    }
+    for (const a of artifacts) {
+      const inFolder =
+        folder.kind === "epic"
+          ? a.kind === "epic" && a.rel.startsWith(`${folder.path}/`)
+          : a.kind === folder.kind && a.rel === `${folder.path}/${basename(a.rel)}`;
+      if (inFolder && !indexed.has(a.rel)) {
+        out.push(
+          finding("vault", "warn", "index", `${a.rel} is not listed in ${folder.path}/README.md's index.`, a.rel),
+        );
+      }
+    }
+  }
+  return out;
+}
+
+// Fence/inline-code stripping lives in lib.mjs (stripCodeSpans) — one
+// definition shared with the link-graph extractor, so "not a link/checkbox
+// when inside code" means the same thing everywhere.
+
+// RAW lines outside fenced blocks — for checks that must both MATCH (fence-
+// immune) and REPORT the line verbatim (backticks intact in the message).
+function linesOutsideFences(s) {
+  const out = [];
+  let fenced = false;
+  for (const line of s.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (!fenced) out.push(line);
+  }
+  return out;
+}
+
+// Epic id of a story artifact, derived from the layout's epic folder path —
+// never from a hardcoded segment index (custom layouts may nest the folder).
+function epicIdOf(storyRel, epicFolderPath) {
+  if (!storyRel.startsWith(epicFolderPath + "/")) return null;
+  return storyRel.slice(epicFolderPath.length + 1).split("/")[0];
+}
+
+export function checkStoriesAndEpics(artifacts) {
+  const out = [];
+  for (const a of artifacts) {
+    if (a.kind === "story" && (a.fm.status || "").toLowerCase() === "done") {
+      const sec = sectionOf(a.body, "acceptance") || "";
+      const unchecked = (stripCodeSpans(sec).match(/- \[ \]/g) || []).length;
+      if (unchecked > 0) {
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "acceptance",
+            `Story is "done" with ${unchecked} unchecked acceptance criteria.`,
+            a.rel,
+          ),
+        );
+      }
+    }
+    if ((a.fm.review_status || "") === "reviewed" && (!a.fm.reviewed_at || a.fm.reviewed_at === "null")) {
+      out.push(
+        finding("vault", "issue", "review-status", `review_status is "reviewed" but reviewed_at is empty.`, a.rel),
+      );
+    }
+  }
+  for (const epic of artifacts.filter((a) => a.kind === "epic")) {
+    if ((epic.fm.status || "").toLowerCase() !== "done") continue;
+    const dir = epic.rel.replace(/\/epic\.md$/, "");
+    const open = artifacts.filter(
+      (s) => s.kind === "story" && s.rel.startsWith(dir + "/") && (s.fm.status || "").toLowerCase() !== "done",
+    );
+    if (open.length) {
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "epic-status",
+          `Epic is "done" while ${open.length} child stor${open.length === 1 ? "y is" : "ies are"} not.`,
+          epic.rel,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// Folder README whose index table header matches no registered form — the
+// silent-rebuildIndex-null class of failure (ru indexes never reconciled for
+// the whole life of the feature). Standard form is 4 columns; extra hand-kept
+// columns (e.g. a 5-column specs index) are flagged for migration, since
+// reconcile would drop them.
+export function checkIndexHeaders(cfg, layout) {
+  const out = [];
+  const headerRe = indexHeaderRe();
+  for (const folder of layout.folders) {
+    const readme = join(cfg.vault_path, folder.path, "README.md");
+    if (!existsSync(readme)) continue;
+    const lines = readFileSync(readme, "utf8").split("\n");
+    const headIdx = lines.findIndex((l, i) => /^\|.*\|\s*$/.test(l) && /^\|[-\s|]+\|\s*$/.test(lines[i + 1] || ""));
+    if (headIdx === -1) continue; // no table at all — nothing to lint
+    if (!headerRe.test(lines[headIdx])) {
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "index-header",
+          `${folder.path}/README.md index header "${lines[headIdx].trim()}" matches no registered form — reconcile cannot rebuild this index (standard form: | File | Title | Status | Date |, localized forms in scaffold/headings.json).`,
+          `${folder.path}/README.md`,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// ─── Spec checks (PS-SPEC story-006, ADR-007 Decisions 2/3/5/6) ────────
+//
+// All spec gates are no-ops unless the VAULT policy says spec_policy=required.
+// Link integrity (checkSpecLinks) runs whenever specs exist — dead links are
+// defects regardless of policy.
+
+function specStatusOf(spec) {
+  return String(spec.fm.status || "draft").toLowerCase();
+}
+
+// Filename stem used for story identity matching; a folder-shape story
+// (stories/<name>/README.md) is identified by its folder name.
+function storyStemOf(storyRel) {
+  const b = basename(storyRel);
+  return b === "README.md" ? basename(dirname(storyRel)) : b.replace(/\.md$/, "");
+}
+
+// Resolve a spec's `stories:` entry "<epic-id>/<story-id>" to a story
+// artifact. Tiered via the shared matcher (SPEC-002 contract 5): exact fm.id,
+// exact filename stem, legacy story-NNN prefix fallback — the strongest tier
+// wins across the epic's stories, and a tie within it is a reported
+// ambiguity, never a silent first match.
+function resolveSpecStory(entry, artifacts, epicFolderPath) {
+  const m = String(entry).match(/^([^/]+)\/(.+)$/);
+  if (!m) return { error: `not in <epic-id>/<story-id> form: "${entry}"` };
+  const [, epicId, storyId] = m;
+  let best = 0;
+  let hits = [];
+  for (const a of artifacts) {
+    if (a.kind !== "story" || epicIdOf(a.rel, epicFolderPath) !== epicId) continue;
+    const tier = storyMatchesEntry(storyId, { id: a.fm.id, stem: storyStemOf(a.rel) });
+    if (!tier) continue;
+    if (best === 0 || tier < best) {
+      best = tier;
+      hits = [a];
+    } else if (tier === best) hits.push(a);
+  }
+  if (hits.length === 1) return { story: hits[0] };
+  if (hits.length > 1) {
+    return {
+      error: `ambiguous — "${storyId}" matches ${hits.map((a) => storyStemOf(a.rel)).join(", ")}; qualify the reference`,
+    };
+  }
+  return {
+    error: `no story in ${epicFolderPath}/${epicId} matches "${storyId}" (by exact id:, exact filename stem, or legacy story-NNN prefix)`,
+  };
+}
+
+// The ONE spec resolver (SPEC-002 contract 5) — shared by checkSpecLinks,
+// checkSpecCoverage and checkSpecAcceptance: dual-keying only some of them
+// would let the others silently skip a resolvable spec (their "dead link
+// already reported" premise breaks). Exact fm.id wins (grandfathered
+// SPEC-NNN entries hit here); normalized filename-stem candidates (legacy
+// prefix stripped, case-insensitive) resolve slug-form references to
+// grandfathered SPEC-NNN-<slug>.md files. Cross-spec identity clashes are
+// the identity check's finding, so first-wins here stays deterministic.
+function buildSpecResolver(artifacts, layout = null) {
+  const prefix = layout ? (folderByKind(layout, "spec")?.prefix ?? null) : null;
+  const byId = new Map();
+  const byStem = new Map();
+  for (const s of artifacts.filter((a) => a.kind === "spec")) {
+    const id = String(s.fm.id || "");
+    if (id && !byId.has(id)) byId.set(id, s);
+    for (const c of slugIdentity(basename(s.rel), { prefix }).candidates) {
+      if (!byStem.has(c.id)) byStem.set(c.id, s);
+    }
+  }
+  return (ref) => byId.get(String(ref)) ?? byStem.get(String(ref).toLowerCase()) ?? null;
+}
+
+// Parse a spec's Acceptance section into items:
+// { checked, text, stories: [bare story ids] | null (unattributed) }
+export function parseSpecAcceptance(spec) {
+  const sec = sectionOf(spec.body, "spec_acceptance");
+  if (sec === null) return null;
+  const attrRe = storiesAttributionRe();
+  const items = [];
+  for (const line of linesOutsideFences(sec)) {
+    const m = line.match(/^\s*-\s*\[( |x|X)\]\s*(.*)$/);
+    if (!m) continue;
+    const checked = m[1].toLowerCase() === "x";
+    const text = m[2];
+    // Full-width colon accepted for the same reason as the evidence suffix: a zh
+    // spec writing `— stories：PS-X/story-foo` must attribute the item to that
+    // story, not silently fall through to "applies to every covered story".
+    const attr = text.match(attrRe);
+    const stories = attr
+      ? attr[1]
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : null;
+    items.push({ checked, text, stories });
+  }
+  return items;
+}
+
+export function checkSpecLinks(cfg, layout, artifacts) {
+  const out = [];
+  const epicFolder = folderByKind(layout, "epic");
+  if (!epicFolder) return out;
+  const specs = artifacts.filter((a) => a.kind === "spec");
+  const resolveSpec = buildSpecResolver(artifacts, layout);
+
+  for (const spec of specs) {
+    for (const entry of listOf(spec.fm, "stories")) {
+      const r = resolveSpecStory(entry, artifacts, epicFolder.path);
+      if (r.error) {
+        out.push(
+          finding(
+            "vault",
+            "issue",
+            "spec-links",
+            `Spec "${spec.fm.id}" stories entry "${entry}" does not resolve: ${r.error}.`,
+            spec.rel,
+          ),
+        );
+      } else if (spec.fm.id && !listOf(r.story.fm, "specs").some((ref) => resolveSpec(ref) === spec)) {
+        // Membership through the SAME resolver — a slug-form back-reference
+        // to a grandfathered SPEC-NNN file is a valid link, not a gap.
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "spec-links",
+            `Spec "${spec.fm.id}" covers ${entry} but the story's \`specs:\` list lacks "${spec.fm.id}" (bidirectional link).`,
+            r.story.rel,
+          ),
+        );
+      }
+    }
+  }
+  for (const story of artifacts.filter((a) => a.kind === "story")) {
+    for (const id of listOf(story.fm, "specs")) {
+      const spec = resolveSpec(id);
+      if (!spec) {
+        out.push(
+          finding(
+            "vault",
+            "issue",
+            "spec-links",
+            `Story lists spec "${id}" which does not exist in specs/.`,
+            story.rel,
+          ),
+        );
+      } else {
+        const epicId = epicIdOf(story.rel, epicFolder.path);
+        const stem = storyStemOf(story.rel);
+        const covered = listOf(spec.fm, "stories").some((e) => {
+          const m = String(e).match(/^([^/]+)\/(.+)$/);
+          return m && m[1] === epicId && storyMatchesEntry(m[2], { id: story.fm.id, stem }) > 0;
+        });
+        if (!covered) {
+          out.push(
+            finding(
+              "vault",
+              "warn",
+              "spec-links",
+              `Story lists spec "${id}" but that spec's \`stories:\` does not list it back.`,
+              story.rel,
+            ),
+          );
+        }
+      }
+    }
+    // Block-sequence YAML trap: parseFrontmatter is line-based; `specs:` with
+    // an empty parsed value while the raw FRONTMATTER shows a block list means
+    // the list is invisible to every deterministic check.
+    const fmBlock = story.body.match(/^---\n[\s\S]*?\n---/);
+    if (story.fm.specs === "" && fmBlock && /\nspecs:\s*\n\s+-\s/.test(fmBlock[0])) {
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "spec-links",
+          '`specs:` uses block-sequence YAML which projectstore cannot parse — use inline flow: specs: ["SPEC-001"].',
+          story.rel,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// In-scope story = status beyond planned, not legacy-exempt.
+function specScopeStatus(fm) {
+  const s = String(fm.status || "").toLowerCase();
+  return ["in-progress", "in_progress", "review", "done"].includes(s) ? s : null;
+}
+
+export function checkSpecCoverage(artifacts, vaultCfg, layout = null) {
+  if ((vaultCfg.spec_policy || "optional") !== "required") return [];
+  const out = [];
+  const since = vaultCfg.spec_policy_since || null;
+  const resolveSpec = buildSpecResolver(artifacts, layout);
+
+  for (const story of artifacts.filter((a) => a.kind === "story")) {
+    const status = specScopeStatus(story.fm);
+    if (!status) continue;
+    if (isLegacyStory(story.fm, since)) continue;
+    const ids = listOf(story.fm, "specs");
+    if (!ids.length) {
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "spec-coverage",
+          `Story is ${status} with no covering spec (spec_policy: required — every story needs a spec; ADR-007).`,
+          story.rel,
+        ),
+      );
+      continue;
+    }
+    for (const id of ids) {
+      const spec = resolveSpec(id);
+      if (!spec) continue; // dead link already reported by spec-links (same resolver)
+      const st = specStatusOf(spec);
+      if (status === "done") {
+        if (!["active", "superseded"].includes(st)) {
+          out.push(
+            finding(
+              "vault",
+              "issue",
+              "spec-status",
+              `Story is done while covering spec "${id}" is ${st} — a story may close only against an active spec.`,
+              story.rel,
+            ),
+          );
+        }
+      } else if (st === "draft") {
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "spec-status",
+            `Story is ${status} while covering spec "${id}" is still draft — the spec must go active before implementation.`,
+            story.rel,
+          ),
+        );
+      }
+    }
+  }
+  return out;
+}
+
+// Additive acceptance oracle (ADR-007 Decision 3): a done story requires every
+// spec acceptance item ATTRIBUTED to it (bare ids resolved against that spec's
+// own stories list) — plus every UNATTRIBUTED item — checked, in every
+// covering spec.
+export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
+  if ((vaultCfg.spec_policy || "optional") !== "required") return [];
+  const out = [];
+  const since = vaultCfg.spec_policy_since || null;
+  const epicFolder = folderByKind(layout, "epic");
+  if (!epicFolder) return out;
+  const resolveSpec = buildSpecResolver(artifacts, layout);
+  const ambiguousReported = new Set(); // spec-scoped: one finding per spec+item
+
+  for (const story of artifacts.filter((a) => a.kind === "story")) {
+    if (String(story.fm.status || "").toLowerCase() !== "done") continue;
+    if (isLegacyStory(story.fm, since)) continue;
+    const epicId = epicIdOf(story.rel, epicFolder.path);
+    const stem = storyStemOf(story.rel);
+
+    for (const id of listOf(story.fm, "specs")) {
+      const spec = resolveSpec(id);
+      if (!spec) continue;
+      const items = parseSpecAcceptance(spec);
+      if (items === null) {
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "spec-acceptance",
+            `Covering spec "${id}" has no Acceptance section — its criteria cannot gate this story.`,
+            spec.rel,
+          ),
+        );
+        continue;
+      }
+      const coveredEntries = listOf(spec.fm, "stories");
+      for (const item of items) {
+        let applies;
+        if (item.stories === null) {
+          applies = true; // unattributed → applies to all covered stories
+        } else {
+          // Bare ids resolve against THIS spec's own stories list.
+          applies = item.stories.some((bare) =>
+            coveredEntries.some((e) => {
+              const m = String(e).match(/^([^/]+)\/(.+)$/);
+              return m && m[1] === epicId && bare === m[2] && storyMatchesEntry(bare, { id: story.fm.id, stem }) > 0;
+            }),
+          );
+          const ambiguous = item.stories.some(
+            (bare) =>
+              coveredEntries.filter((e) => {
+                const m = String(e).match(/^([^/]+)\/(.+)$/);
+                return m && bare === m[2];
+              }).length > 1,
+          );
+          const ambKey = `${spec.rel}|${item.text}`;
+          if (ambiguous && !ambiguousReported.has(ambKey)) {
+            ambiguousReported.add(ambKey);
+            out.push(
+              finding(
+                "vault",
+                "warn",
+                "ambiguous-attribution",
+                `Spec "${id}" acceptance item attributes bare id(s) "${item.stories.join(", ")}" that match more than one covered epic — qualify as <epic-id>/<story-id>.`,
+                spec.rel,
+              ),
+            );
+          }
+        }
+        if (applies && !item.checked) {
+          out.push(
+            finding(
+              "vault",
+              "issue",
+              "spec-acceptance",
+              `Story is done but spec "${id}" acceptance item is unchecked: "${item.text.slice(0, 80)}".`,
+              story.rel,
+            ),
+          );
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// ─── Lifecycle gates (PS-SPEC story-008) — behind lifecycle_gates=on ───
+
+export function checkLifecycleGates(artifacts, vaultCfg) {
+  const gates = String(vaultCfg.lifecycle_gates || "off").toLowerCase();
+  if (!["on", "true"].includes(gates)) return [];
+  const out = [];
+  const since = vaultCfg.spec_policy_since || null;
+  const evidenceRe = evidenceSuffixRe();
+
+  for (const story of artifacts.filter((a) => a.kind === "story")) {
+    if (String(story.fm.status || "").toLowerCase() !== "done") continue;
+    if (isLegacyStory(story.fm, since)) continue;
+
+    const acc = sectionOf(story.body, "acceptance");
+    if (acc !== null) {
+      // Raw lines (fence-immune matching, verbatim reporting — backticks kept).
+      for (const line of linesOutsideFences(acc)) {
+        const m = line.match(/^\s*-\s*\[(x|X)\]\s*(.*)$/);
+        if (m && !evidenceRe.test(m[2])) {
+          out.push(
+            finding(
+              "vault",
+              "warn",
+              "evidence",
+              `Checked acceptance criterion carries no evidence suffix ("— evidence: <test | command | file:line>"): "${m[2].slice(0, 70)}".`,
+              story.rel,
+            ),
+          );
+        }
+      }
+    }
+
+    const plan = sectionOf(story.body, "implementation_plan");
+    if (plan !== null && (!story.fm.plan_updated_at || story.fm.plan_updated_at === "null")) {
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "plan-gate",
+          `Story has an Implementation Plan section but no plan_updated_at — the plan bypassed the ${commandForm("story", { args: "plan" })} gate.`,
+          story.rel,
+        ),
+      );
+    }
+    const summary = sectionOf(story.body, "final_summary");
+    if (summary === null) {
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "final-summary",
+          "Done story has no Final Summary section (lifecycle_gates: on requires a close-out record).",
+          story.rel,
+        ),
+      );
+    }
+    if (plan === null) {
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "plan-gate",
+          "Done story has no Implementation Plan section (lifecycle_gates: on requires the plan to live in the story).",
+          story.rel,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// Suggestion for existing binds: specs exist but no vault policy declared.
+export function checkVaultPolicy(cfg, layout, artifacts, vaultCfg) {
+  const out = [];
+  const hasSpecs = artifacts.some((a) => a.kind === "spec");
+  if (hasSpecs && !vaultCfg.spec_policy) {
+    out.push(
+      finding(
+        "vault",
+        "info",
+        "spec-policy",
+        'Vault contains specs but declares no spec_policy — consider enabling spec-first: add { "spec_policy": "required" } to <vault>/.projectstore.json (doctor gates activate; ADR-007).',
+      ),
+    );
+  }
+  if (vaultCfg.spec_policy === "required" && !vaultCfg.spec_policy_since) {
+    out.push(
+      finding(
+        "vault",
+        "warn",
+        "spec-policy",
+        "spec_policy is required but spec_policy_since is missing — the legacy exemption cannot be evaluated; stamp it with the enable date (ISO-8601).",
+      ),
+    );
+  }
+  return out;
+}
+
+// One shared recursive walk of the vault's markdown files (dotfiles
+// skipped). scanArtifacts only sees layout-declared folders — vault-wide
+// claims (wikilink targets, identity uniqueness, filename shapes) must use
+// this walk instead, or folder-shape story READMEs and loose notes go blind.
+export function walkVaultFiles(vault) {
+  const files = []; // { rel, name } — rel is /-joined relative to the vault root
+  const walk = (dir, relDir) => {
+    for (const n of readdirSync(dir)) {
+      if (n.startsWith(".")) continue;
+      const p = join(dir, n);
+      let st;
+      try {
+        st = statSync(p);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) walk(p, relDir ? `${relDir}/${n}` : n);
+      else if (n.endsWith(".md")) files.push({ rel: relDir ? `${relDir}/${n}` : n, name: n });
+    }
+  };
+  walk(vault, "");
+  return files;
+}
+
+// Body links resolved through the ONE shared resolver (spec:
+// vault-link-graph-derived-view-and-shared-link-resolver): dead stays an
+// issue, ambiguous (multiple node candidates — invisible to the old
+// basename-set check) is a NEW warn, out-of-scope (the target exists but
+// is not an artifact: kanban, code-map, READMEs, attachments) is silent at
+// every level. A deliberate, documented behavior change in both
+// directions: tiered matching also accepts links the exact-basename check
+// rejected (number-stripped slug readings), and path-qualified links now
+// resolve as paths — a wrong relative depth is dead here even though
+// Obsidian's basename fallback happens to heal it. The graph generator
+// consumes the same resolver, so a dead edge in graph.md and a dead-link
+// finding here are the same fact reported twice.
+export function checkWikilinks(cfg, artifacts, vaultFiles = null, nodeIndex = null) {
+  const out = [];
+  const files = vaultFiles ?? walkVaultFiles(cfg.vault_path);
+  let index = nodeIndex;
+  if (!index) {
+    try {
+      index = buildNodeIndex(cfg, loadLayout(cfg.layout));
+    } catch (e) {
+      // A silent no-op check would read as "links are fine" — say why not.
+      return [finding("vault", "warn", "wikilink", `Link check skipped — node index failed: ${e.message}`)];
+    }
+  }
+  for (const a of artifacts) {
+    const ctx = {
+      sourceRel: a.rel,
+      index,
+      files,
+      exists: (rel) => existsSync(join(cfg.vault_path, rel)),
+    };
+    for (const link of extractLinks(a.body)) {
+      const r = resolveLinkTarget(link.target, link.type, ctx);
+      if (r.outcome === "dead") {
+        out.push(
+          link.type === "wikilink"
+            ? finding("vault", "issue", "wikilink", `Dead wiki-link [[${link.target}]].`, a.rel)
+            : finding("vault", "issue", "rel-link", `Dead relative link (${link.target}).`, a.rel),
+        );
+      } else if (r.outcome === "ambiguous") {
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "wikilink",
+            `Ambiguous wiki-link [[${link.target}]] — matches ${r.candidates.join(", ")}; qualify with a path.`,
+            a.rel,
+          ),
+        );
+      }
+    }
+  }
+  return out;
+}
+
+// ─── Artifact identity & filename shapes (ADR-010 / SPEC-002 4, 7) ─────
+
+// Infrastructure names carry no topic identity: README.md is every folder's
+// index, epic.md every epic's root, kanban.md the board.
+const INFRA_NAMES = new Set(["README.md", "epic.md", "kanban.md"]);
+
+// Normalized slug-identity uniqueness per identity scope (a kind folder; an
+// epic for stories), on candidate sets — so `ADR-003-foo.md` vs `foo.md`
+// and `story-006-foo.md` vs `story-foo.md` collide with no rename ever
+// having happened. Severity keys on each member's ERA, decided by
+// frontmatter where the filename alone is ambiguous (a digit-leading
+// story stem reads as either era; the exact machine id settles it):
+//   - two as-written twins (flat story + folder-shape namesake) → issue;
+//   - a new-era name overlapping a certain legacy one → issue (the exact
+//     case the pre-write guard exists to prevent);
+//   - any member of undecidable era (digit-leading, no fm evidence) → warn;
+//   - all members certainly legacy (same slug, different numbers) → info —
+//     in the numbered era the number WAS the identity, so this was legal
+//     and grandfathering must not turn it into a defect (contract 6).
+// Duplicate display numbers are info: numbers are reference metadata
+// (ADR-010), duplicates confuse humans but identify nothing.
+export function checkArtifactIdentity(layout, vaultFiles, artifacts = []) {
+  const out = [];
+  const fmByRel = new Map(artifacts.map((a) => [a.rel, a.fm]));
+  // Era of one directory entry: "new" | "legacy" | "uncertain".
+  const eraOf = (entry, opts) => {
+    const idn = slugIdentity(entry.name, opts);
+    if (!idn.legacyNumber) return "new";
+    const fm = fmByRel.get(entry.rel);
+    const fmId = fm && fm.id != null ? String(fm.id) : "";
+    if (fmId) {
+      const machineId = opts.story ? `story-${idn.primary}` : idn.primary;
+      if (fmId.toLowerCase() === machineId) return "new"; // exact machine id = slug era
+      if (isLegacyNumberedId(fmId, opts)) return "legacy";
+    }
+    const num = fm && fm.number != null ? String(fm.number).trim() : "";
+    if (num && num !== "null") return "legacy";
+    return idn.digitLeading ? "uncertain" : "legacy"; // prefix-anchored names are confident
+  };
+  const scopes = [];
+  const epicFolder = folderByKind(layout, "epic");
+  for (const f of layout.folders) {
+    if (f.kind === "epic") continue;
+    const entries = vaultFiles
+      .filter((x) => dirname(x.rel) === f.path && !INFRA_NAMES.has(x.name))
+      .map((x) => ({ name: x.name, rel: x.rel }));
+    scopes.push({ label: f.path, entries, opts: { prefix: f.prefix || null } });
+  }
+  if (epicFolder) {
+    const byEpic = new Map();
+    for (const x of vaultFiles) {
+      if (!x.rel.startsWith(epicFolder.path + "/")) continue;
+      const parts = x.rel.split("/");
+      let entry = null; // stories/<f>.md | stories/<dir>/README.md | standalone story-*.md
+      if (parts.length === 4 && parts[2] === "stories") entry = { name: parts[3], rel: x.rel };
+      else if (parts.length === 5 && parts[2] === "stories" && parts[4] === "README.md")
+        entry = { name: parts[3], rel: x.rel };
+      else if (parts.length === 3 && parts[2].startsWith("story-")) entry = { name: parts[2], rel: x.rel };
+      if (!entry || INFRA_NAMES.has(entry.name)) continue;
+      if (!byEpic.has(parts[1])) byEpic.set(parts[1], []);
+      byEpic.get(parts[1]).push(entry);
+    }
+    for (const [epicId, entries] of byEpic) {
+      scopes.push({ label: `${epicFolder.path}/${epicId}`, entries, opts: { story: true } });
+    }
+  }
+
+  for (const { label, entries, opts } of scopes) {
+    const groups = new Map(); // candidate identity -> hits
+    const numbers = new Map(); // normalized display number -> entries
+    for (const entry of entries) {
+      const idn = slugIdentity(entry.name, opts);
+      for (const c of idn.candidates) {
+        if (!groups.has(c.id)) groups.set(c.id, []);
+        groups.get(c.id).push({ entry, via: c.via, digitLeading: idn.digitLeading });
+      }
+      if (idn.legacyNumber) {
+        const k = String(parseInt(idn.legacyNumber, 10));
+        if (!numbers.has(k)) numbers.set(k, []);
+        numbers.get(k).push(entry);
+      }
+    }
+    const reported = new Set(); // one finding per file group, not per shared candidate
+    for (const [ident, hits] of groups) {
+      const uniq = [...new Map(hits.map((h) => [h.entry.rel, h])).values()];
+      if (uniq.length < 2) continue;
+      const key = uniq
+        .map((h) => h.entry.rel)
+        .sort()
+        .join("|");
+      if (reported.has(key)) continue;
+      reported.add(key);
+      const selfOnly = uniq.every((h) => h.via === "self");
+      const classed = uniq.map((h) => ({ h, era: eraOf(h.entry, opts) }));
+      const level = selfOnly
+        ? "issue"
+        : // Overlap reached via the legacy reading of a PROVEN slug-era file
+          // (its machine id is the full stem) is spurious — the file's real
+          // identity is the unstripped slug.
+          classed.some(({ h, era }) => h.via !== "self" && era === "new")
+          ? "warn"
+          : classed.some(({ era }) => era === "uncertain")
+            ? "warn"
+            : classed.every(({ era }) => era === "legacy")
+              ? "info"
+              : "issue"; // a new-era name colliding with a certain legacy one
+      const note =
+        level === "warn"
+          ? "; the overlap depends on a legacy reading that frontmatter does not confirm"
+          : level === "info"
+            ? "; all carry legacy numbers — legal in the numbered era, duplicate topic is hygiene"
+            : "";
+      out.push(
+        finding(
+          "vault",
+          level,
+          "identity",
+          `Same normalized identity "${ident}" in ${label}: ${uniq.map((h) => h.entry.name).join(", ")} — two artifacts claim one topic (ADR-010${note}).`,
+          uniq[0].entry.rel,
+        ),
+      );
+    }
+    for (const [num, ents] of numbers) {
+      if (new Set(ents.map((e) => e.rel)).size < 2) continue;
+      out.push(
+        finding(
+          "vault",
+          "info",
+          "identity",
+          `Display number ${num} is carried by ${ents.length} artifacts in ${label}: ${ents.map((e) => e.name).join(", ")} — numbers are reference metadata (ADR-010), duplicates confuse humans.`,
+          ents[0].rel,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// Block-form YAML trap for `external_refs` (SPEC-002 contract 3): the
+// line-based parseFrontmatter reads a block map as an empty scalar, so every
+// deterministic consumer goes blind — the same guard class protects `specs:`
+// in checkSpecLinks. Applies to every artifact kind that carries the field.
+export function checkExternalRefsForm(artifacts) {
+  const out = [];
+  for (const a of artifacts) {
+    if (a.fm.external_refs !== "") continue;
+    const fmBlock = a.body.match(/^---\n[\s\S]*?\n---/);
+    if (fmBlock && /\nexternal_refs:\s*\n\s+\S/.test(fmBlock[0])) {
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "external-refs",
+          '`external_refs:` uses block-form YAML which projectstore cannot parse — use inline flow: external_refs: {jira: "ABC-123"}.',
+          a.rel,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// Filename-shape checks over the WHOLE vault walk (SPEC-002 contract 7):
+// sync-conflict shapes by blacklist at warn (a legal-form whitelist would
+// flag hand-created legacy notes), cross-folder basename collisions at info
+// (short wiki-links to that basename become ambiguous).
+export function checkArtifactNames(vaultFiles) {
+  const out = [];
+  const byName = new Map();
+  for (const x of vaultFiles) {
+    const bad = legalArtifactName(x.name);
+    if (bad) {
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "artifact-name",
+          `Sync-conflict filename shape — ${bad}. Merge or remove; sync engines leave these beside the original.`,
+          x.rel,
+        ),
+      );
+    }
+    if (INFRA_NAMES.has(x.name)) continue;
+    if (!byName.has(x.name)) byName.set(x.name, []);
+    byName.get(x.name).push(x.rel);
+  }
+  for (const [name, rels] of byName) {
+    if (rels.length < 2) continue;
+    out.push(
+      finding(
+        "vault",
+        "info",
+        "artifact-name",
+        `Basename "${name}" appears in ${rels.length} folders (${rels.map((r) => dirname(r)).join(", ")}) — short wiki-links [[${name.replace(/\.md$/, "")}]] are ambiguous.`,
+        rels[0],
+      ),
+    );
+  }
+  return out;
+}
+
+// code_refs: status-aware (ADR-004) — required to resolve only for
+// in-progress / done artifacts; globs are skipped in v1 (documented).
+// Story refs must fall under the parent epic's refs (subset) — that is how
+// drift between the two levels is caught.
+function refsOf(fm) {
+  return listOf(fm, "code_refs");
+}
+
+// Untracked work, after the fact (spec contract 18). The reminder fires at the
+// moment of the act and cannot see Bash-mediated writes at all; this is the
+// backstop, and it is where the reported incident was actually caught — at
+// "done". Warn, never issue: spikes and hotfixes legitimately produce this
+// state, and an issue would poison the SessionStart line.
+export function checkWorkWithoutStory(cfg, proj) {
+  const out = [];
+  if (!cfg || !cfg.vault_path) return out;
+
+  // The same predicate the hook uses, fed by a plain read: doctor is not on a
+  // hot path and needs no budget, but it must not answer a different question.
+  const files = listVaultStoryFiles(cfg.vault_path);
+  const fms = [];
+  let unreadable = 0;
+  for (const f of files) {
+    try {
+      fms.push(parseFrontmatter(readFileSync(f, "utf8")).data);
+    } catch {
+      unreadable++;
+    }
+  }
+  if (unreadable > 0 && !openStoryFrom(fms)) {
+    // A diagnostic that goes quiet because it could not read is a false clean.
+    out.push(
+      finding(
+        "vault",
+        "warn",
+        "work-without-story",
+        `Could not read ${unreadable} story file(s), so "is any story in progress" is unproven — this check is inconclusive rather than clean.`,
+      ),
+    );
+    return out;
+  }
+  if (openStoryFrom(fms)) return out;
+
+  // ENTRY_IGNORE, not the shared set: /projectstore:bind writes AGENTS.md,
+  // CLAUDE.md and .gitignore in a session that by construction has no story, so
+  // the shared set would make this fire on every project's first run.
+  const dirty = uncommittedProjectFiles(proj, ENTRY_IGNORE);
+  if (dirty === null) return out; // not a git repo, shallow, no commits, detached
+
+  // The other half: work that WAS committed, with no story to attribute it to.
+  // In a repo of small frequent commits that is the common shape, and a
+  // dirty-tree-only check would never see it.
+  const vaultMs = lastVaultActivityMs(cfg.vault_path);
+  const commitMs = lastCommitMs(proj);
+  const committedSince = vaultMs !== null && commitMs !== null && commitMs > vaultMs;
+
+  if (dirty.length === 0 && !committedSince) return out;
+
+  // kind: null — entry reminders only. The log is shared with the session-name
+  // offer, whose breadcrumbs would otherwise be reported as reminders delivered.
+  const fired = readEntryLog(proj, { withinDays: 30, kind: null }).length;
+  const firedNote =
+    fired > 0
+      ? ` An entry reminder fired ${fired} time(s) in the last 30 days on this machine, so the prompt was delivered and the work still went untracked.`
+      : " No entry reminder fired in the last 30 days on this machine (the log is machine-local — .claude/ is gitignored).";
+  const what = [];
+  if (dirty.length) what.push(`${dirty.length} uncommitted source file(s)`);
+  if (committedSince) what.push("commits newer than the vault's last activity");
+  out.push(
+    finding(
+      "vault",
+      "warn",
+      "work-without-story",
+      `${what.join(" and ")} in the project, and no story is in progress. If this is feature-sized work, open it in the vault: ${commandForm("story", { args: '<EPIC> "<title>"' })}.${firedNote}`,
+    ),
+  );
+  return out;
+}
+
+export function checkCodeRefs(artifacts, proj) {
+  const out = [];
+  const epicRefs = new Map();
+  for (const e of artifacts.filter((a) => a.kind === "epic")) {
+    epicRefs.set(e.rel.replace(/\/epic\.md$/, ""), refsOf(e.fm));
+  }
+  for (const a of artifacts) {
+    const refs = refsOf(a.fm);
+    if (!refs.length) continue;
+    const status = (a.fm.status || "").toLowerCase();
+    if (["in-progress", "in_progress", "done"].includes(status)) {
+      for (const ref of refs) {
+        if (ref.includes("*")) continue;
+        if (!existsSync(join(proj, ref))) {
+          out.push(
+            finding(
+              "vault",
+              "issue",
+              "code-refs",
+              `code_refs path "${ref}" does not resolve inside the project (status: ${status}).`,
+              a.rel,
+            ),
+          );
+        }
+      }
+    }
+    if (a.kind === "story") {
+      const dir = a.rel.replace(/\/stories\/[^/]+$/, "");
+      const parent = epicRefs.get(dir) || [];
+      if (!parent.length) {
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "code-refs",
+            "Story has code_refs but its epic has none — set the epic's footprint first.",
+            a.rel,
+          ),
+        );
+      } else {
+        const norm = (r) => r.replace(/\/+$/, "");
+        for (const ref of refs) {
+          if (!parent.some((p) => norm(ref).startsWith(norm(p)))) {
+            out.push(
+              finding(
+                "vault",
+                "warn",
+                "code-refs",
+                `Story code_ref "${ref}" falls outside the parent epic's code_refs.`,
+                a.rel,
+              ),
+            );
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// code-map.md staleness: regenerate with the real generator and compare
+// (same pattern as the kanban check).
+export function checkCodeMap(cfg) {
+  const p = join(cfg.vault_path, "code-map.md");
+  if (!existsSync(p)) return [];
+  const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", "codemap.mjs")], {
+    encoding: "utf8",
+    timeout: 10000,
+    env: childEnv(process.env, { projectRoot: projectRoot() }),
+  });
+  if (r.status !== 0) return [finding("vault", "warn", "code-map", "codemap generator failed.")];
+  let expected;
+  try {
+    expected = JSON.parse(r.stdout).content;
+  } catch {
+    return [finding("vault", "warn", "code-map", "codemap generator returned unparseable output.")];
+  }
+  const norm = (s) =>
+    s
+      .split("\n")
+      .filter((l) => !l.startsWith("generated_at:"))
+      .join("\n")
+      .trimEnd();
+  if (norm(expected) !== norm(readFileSync(p, "utf8"))) {
+    return [
+      finding(
+        "vault",
+        "issue",
+        "code-map",
+        `code-map.md is stale against frontmatter code_refs — run ${commandForm("codemap")} (or reconcile).`,
+        "code-map.md",
+      ),
+    ];
+  }
+  return [];
+}
+
+// graph.md staleness: regenerate with the real generator and compare —
+// kanban's variant of the pattern, INCLUDING its missing-file info
+// (checkCodeMap stays silent on a missing file; the graph deliberately
+// picks the louder branch, because bare reconcile never re-mints a deleted
+// graph.md — this info is the standing signal; spec contract 6).
+export function checkGraph(cfg) {
+  const p = join(cfg.vault_path, "graph.md");
+  if (!existsSync(p)) {
+    return [
+      finding("vault", "info", "graph", `No graph.md yet — run ${commandForm("graph")} to create the link graph.`),
+    ];
+  }
+  const r = spawnSync(process.execPath, [join(pluginRoot(), "scripts", "graph.mjs")], {
+    encoding: "utf8",
+    timeout: 10000,
+    env: childEnv(process.env, { projectRoot: projectRoot() }),
+  });
+  if (r.status !== 0) return [finding("vault", "warn", "graph", `graph generator failed: ${(r.stderr || "").trim()}`)];
+  let expected;
+  try {
+    expected = JSON.parse(r.stdout).content;
+  } catch {
+    return [finding("vault", "warn", "graph", "graph generator returned unparseable output.")];
+  }
+  const norm = (s) =>
+    s
+      .split("\n")
+      .filter((l) => !l.startsWith("generated_at:"))
+      .join("\n")
+      .trimEnd();
+  if (norm(expected) !== norm(readFileSync(p, "utf8"))) {
+    return [
+      finding(
+        "vault",
+        "issue",
+        "graph",
+        `graph.md is out of sync with vault links — run ${commandForm("graph")} (or reconcile).`,
+        "graph.md",
+      ),
+    ];
+  }
+  return [];
+}
+
+// ─── Runners ───────────────────────────────────────────────────────────
+
+export async function runInstallChecks(cfg, proj, opts = {}) {
+  const out = [...checkConfig(cfg, proj)];
+  if (!cfg || !cfg.vault_path) return out;
+  out.push(...checkVaultPath(cfg));
+  if (out.some((f) => f.check === "vault-path" && f.level === "issue")) return out;
+  out.push(
+    ...checkLayoutTemplates(cfg),
+    ...checkHooksAlive(cfg),
+    ...checkStatusline(cfg, proj),
+    ...checkAgentsBlock(proj, { env: opts.env, root: opts.root }),
+    ...checkOverrideCopies(proj),
+    ...checkEnvModel(),
+    ...checkEnvEffort(proj),
+    ...checkGitignore(proj),
+    ...checkHostIgnored(proj, { env: opts.env }),
+    ...checkTrackedRuntime(proj),
+    ...checkVaultGit(cfg),
+    ...checkAutoUpdate(opts.home, undefined, { root: opts.root }),
+    ...checkSyncedCopy(proj, { home: opts.home, cfg }),
+    ...checkMcpRegistration(),
+    ...checkLayout(proj, undefined, opts),
+    ...checkOverlays(cfg, proj, opts),
+  );
+  let read = null;
+  try {
+    read = await readSurfaceStates(proj, opts);
+  } catch {} // reported as a warn by checkHarnessSurfaces
+  out.push(...(await checkHarnessSurfaces(cfg, proj, { ...opts, read })));
+  if (read) out.push(...checkPluginRegistration(proj, read.result.states, { home: opts.home, cfg }));
+  if (read) out.push(...checkVersionDrift(opts.home, read.result.states, proj));
+  return foldIntoMove(out);
+}
+
+export function runVaultChecks(cfg) {
+  let layout;
+  try {
+    layout = loadLayout(cfg.layout);
+  } catch (e) {
+    return [finding("vault", "issue", "layout", `Layout not loadable: ${e.message}`)];
+  }
+  const artifacts = scanArtifacts(cfg, layout);
+  // Vault-side policy read ONCE (ADR-007 Decision 4): spec gates and lifecycle
+  // gates key off <vault>/.projectstore.json, never the machine-local config.
+  const vaultCfg = readVaultConfig(cfg.vault_path);
+  const findings = [...checkKanbanSync(cfg), ...checkIndexes(cfg, layout, artifacts)];
+  // Registry-dependent checks: a missing/corrupt scaffold/headings.json must
+  // become a finding, never a crash that swallows the whole report.
+  const guarded = [
+    () => checkIndexHeaders(cfg, layout),
+    () => checkStoriesAndEpics(artifacts),
+    () => checkSpecLinks(cfg, layout, artifacts),
+    () => checkSpecCoverage(artifacts, vaultCfg, layout),
+    () => checkSpecAcceptance(layout, artifacts, vaultCfg),
+    () => checkLifecycleGates(artifacts, vaultCfg),
+  ];
+  for (const step of guarded) {
+    try {
+      findings.push(...step());
+    } catch (e) {
+      findings.push(finding("vault", "issue", "registry", e.message));
+      break;
+    }
+  }
+  const vaultFiles = walkVaultFiles(cfg.vault_path); // one walk, three consumers
+  findings.push(
+    ...checkVaultPolicy(cfg, layout, artifacts, vaultCfg),
+    ...checkWikilinks(cfg, artifacts, vaultFiles, buildNodeIndex(cfg, layout)),
+    ...checkArtifactIdentity(layout, vaultFiles, artifacts),
+    ...checkArtifactNames(vaultFiles),
+    ...checkExternalRefsForm(artifacts),
+    ...checkCodeRefs(artifacts, projectRoot()),
+    ...checkWorkWithoutStory(cfg, projectRoot()),
+    ...checkCodeMap(cfg),
+    ...checkGraph(cfg),
+  );
+  return findings;
+}
+
+// SessionStart subset: install/fs checks only (never the vault group — ADR-005
+// Decision 4). Aborts past the budget rather than reporting a false "clean".
+export function runStartupChecks(cfg, proj, budgetMs = 150) {
+  const started = Date.now();
+  const findings = [];
+  const steps = [
+    () => checkConfig(cfg, proj),
+    () => (cfg && cfg.vault_path ? checkVaultPath(cfg) : []),
+    () => (cfg && cfg.vault_path ? checkStatusline(cfg, proj) : []),
+    () => (cfg && cfg.vault_path && cfg.statusline && cfg.statusline.enabled === true ? checkPendingUpgrade(proj) : []),
+    () => checkAgentsBlock(proj),
+    () => checkGitignore(proj),
+    // The layout move is offered from the startup line (info here, warn in the
+    // report) — a user who never runs doctor still learns to migrate. A
+    // pending re-stamp, found by the step above, is covered by the move: its
+    // sentence goes before the move's command (below).
+    () =>
+      checkLayout(proj, undefined, {
+        level: "info",
+        restamp: findings.some((f) => f.level === "info" && f.check === "upgrade"),
+      }),
+    () => checkEnvModel(),
+    () => checkEnvEffort(proj),
+  ];
+  for (const step of steps) {
+    if (Date.now() - started > budgetMs) return { skipped: true, count: 0, findings: foldIntoMove(findings) };
+    try {
+      findings.push(...step());
+    } catch {}
+  }
+  // The findings the move repairs are not counted beside it (foldIntoMove).
+  const settled = foldIntoMove(findings);
+  // While the move is pending, the re-stamp is not a step of its own: the move
+  // re-stamps the launcher at its new path (the layout spec, contract 7 as
+  // amended 2026-10-03), and an in-session `doctor --fix` would write that
+  // launcher and then stop at the deferred move with exit 1. So the line names
+  // one step, and says what it covers when the dropped offer would have fired:
+  // checkLayout's `restamp`, a sentence before the move's command, so the
+  // command still ends the offer, alone on its line.
+  const movePending = settled.some((f) => f.check === "layout-legacy" || f.check === "layout-two-configs");
+  const offers = settled
+    .filter((f) => f.level === "info" && OFFER_CHECKS.has(f.check) && !(movePending && f.check === "upgrade"))
+    .map((f) => f.message);
+  return {
+    skipped: false,
+    count: settled.filter((f) => f.level === "issue").length,
+    offers,
+    findings: settled,
+  };
+}
+
+// ─── CLI ───────────────────────────────────────────────────────────────
+
+async function main() {
+  const args = process.argv.slice(2);
+  const wantJson = args.includes("--json");
+  const startup = args.includes("--startup");
+  let install = args.includes("--install");
+  let vault = args.includes("--vault");
+  if (!install && !vault && !startup) {
+    install = true;
+    vault = true;
+  }
+
+  const cfg = readConfig();
+  const proj = projectRoot();
+
+  if (startup) {
+    const r = runStartupChecks(cfg, proj);
+    process.stdout.write(JSON.stringify(r) + "\n");
+    return;
+  }
+
+  const findings = [];
+  const groups = [];
+  if (install) {
+    groups.push("install");
+    findings.push(...(await runInstallChecks(cfg, proj)));
+  }
+  if (vault && cfg && cfg.vault_path && existsSync(cfg.vault_path)) {
+    groups.push("vault");
+    findings.push(...runVaultChecks(cfg));
+  } else if (vault) {
+    groups.push("vault");
+    findings.push(finding("vault", "info", "vault", "Vault checks skipped — no usable vault (see install issues)."));
+  }
+
+  if (wantJson) {
+    process.stdout.write(JSON.stringify(findings, null, 2) + "\n");
+    return;
+  }
+  process.stdout.write(await textReport(findings, groups, { version: pluginVersion(), project: proj }));
+}
+
+// The text is the bin's renderer's, in its plain layout (the presentation
+// spec, contract 11) — one report, whoever prints it. Imported at run time,
+// and nowhere else in this file: the SessionStart hook imports this module
+// statically, and the renderer's term.mjs is not on its path. A renderer
+// that cannot load, or throws, costs the reader nothing: the findings one
+// per line and the Summary line, still last (lib.mjs). `load` is a test's.
+export async function textReport(
+  findings,
+  groups,
+  { version = null, project = null, env = process.env, stderr = process.stderr } = {},
+  { load = () => import("./doctor-report.mjs") } = {},
+) {
+  try {
+    const { report } = await load();
+    return report(findings, groups, { version, project, env });
+  } catch (e) {
+    if (stderr)
+      stderr.write(
+        `doctor: the report could not be drawn (${e && e.message ? e.message : e}); its findings follow, one per line.\n`,
+      );
+    return doctorFallbackText(findings, { env });
+  }
+}
+
+if (isMain(import.meta.url)) {
+  main();
+}

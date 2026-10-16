@@ -1,0 +1,678 @@
+{
+  "_comment": "Harness capability manifest — Claude Code. This is the SOURCE layout (generation spec, contract 2): the plugin's own commands/, agents/, skills/ and hooks/hooks.json are already in Claude Code's shapes, so nothing is emitted for it (emit: false). The manifest still exists in full because the portability lint reads every harness's vocabulary, and a token only Claude Code understands is only detectable as unmapped in another harness's tree if Claude Code's own names are written down somewhere. It carries no `lint` block and an empty `rewrites` because linting runs over emitted trees only; its `ui_vocabulary` lists the UI affordances that mean nothing elsewhere, read by the generator's leak check and by the runtime vocabulary lint over what the core prints for another harness (generation spec, contracts 2 and 18). Shape contributed by Maxim Podreshetnikov (PR #13); `verified`, `output_channels`, `scope_reason`, `root_placeholder_literal` and `agent_overrides` are the spec's additions.",
+  "id": "claude-code",
+  "display_name": "Claude Code",
+  "emit": false,
+  "source_layout": true,
+  "output_dir": null,
+  "docs": "https://code.claude.com/docs",
+  "verified": {
+    "session": "the shipped plugin's own hooks, run continuously in this repository under Claude Code 2.1.163+ — not one session but daily operation; each output_channels row cites where the fact is observed",
+    "date": "2026-09-04"
+  },
+  "install": {
+    "mechanism": "the package's own registration (setup or install, from npm), or the built-in plugin marketplace",
+    "shell": "projectstore-claude",
+    "shell_reason": "the distribution shell of this harness on npm (the layout ADR decision 6; the shells ADR): `projectstore-claude install` is the core's `install --harness claude-code`, with the core pinned at the same version and bundled inside the shell's tarball. Data, not `projectstore-<id>`: the id is claude-code and the reserved, published name is projectstore-claude. Since the front-door ADR the shell is a release artifact: no command a person is told to type names it (packageCommand builds the core's form, `npx projectstore <verb> --harness claude-code`), and this key tells the core which harness a running shell fixes (harness.mjs bundlingShellHarnessId, speakingHarnessId).",
+    "why_not_scripted": "Two channels. The npm package registers the plugin for a project itself — run `npx projectstore setup` or the core's low-level `install --harness claude-code` from a terminal in the project — through a local marketplace under the Claude home, driven by Claude Code's own `claude plugin` CLI. `/plugin install projectstore@SmartAndPoint` installs it from the git marketplace. `/plugin` lists and toggles either. The npm registration is upgraded, and pinned, by `npx projectstore@<version> upgrade` from a terminal in the project.",
+    "steps": [
+      "npm, for this checkout (the core registers the plugin), from a terminal in the project: npx projectstore install --harness claude-code",
+      "git marketplace, user-wide, in a Claude Code session: /plugin marketplace add SmartAndPoint/ProjectStore && /plugin install projectstore@SmartAndPoint",
+      "restart Claude Code"
+    ],
+    "next": [
+      "restart Claude Code in this project"
+    ],
+    "notes": [
+      "Git marketplace only: auto-update is OFF by default for third-party plugins: /plugin -> Marketplaces -> SmartAndPoint -> toggle auto-update. The npm registration updates when you run `npx projectstore@<version> upgrade` from a terminal in the project.",
+      "Pin a git-marketplace release by adding the marketplace at a tag: /plugin marketplace add SmartAndPoint/ProjectStore#<tag>",
+      "The npm registration is pinned by the version its upgrade names: npx projectstore@<version> upgrade",
+      "Two enabled copies of the plugin (git marketplace and npm) in one checkout would load twice; the npm registration silences the other one for that checkout only (settings.local.json), and says so in its preview.",
+      "From a checkout instead: claude --plugin-dir ./ProjectStore",
+      "The npm registration is per checkout (local scope) and per machine; a fresh clone or a new worktree runs the install command again. It must run from a terminal outside a Claude Code session: the host CLI and a live session both rewrite settings files."
+    ],
+    "docs": "https://github.com/SmartAndPoint/ProjectStore#install"
+  },
+  "runtime": {
+    "detect_env": [
+      "CLAUDE_PLUGIN_ROOT",
+      "CLAUDE_PROJECT_DIR",
+      "CLAUDE_CONFIG_DIR"
+    ],
+    "project_dir_env": "CLAUDE_PROJECT_DIR",
+    "plugin_root_env": "CLAUDE_PLUGIN_ROOT",
+    "home_env": "CLAUDE_CONFIG_DIR",
+    "home_default": ".claude",
+    "harness_dir": ".claude",
+    "harness_dir_reason": "the harness's own directory in a project: how it is detected, where its settings live — never where projectstore's config is (the layout ADR, 2026-09-06: that is <project>/.projectstore/, one for every harness)",
+    "agent_overrides": [
+      {
+        "env": "CLAUDE_CODE_EFFORT_LEVEL",
+        "kind": "effort",
+        "beats": "the spawn's effort parameter and agent frontmatter: with it set, the Agent tool offers no effort parameter at all (measured 2026-10-14, 2.1.296)"
+      },
+      {
+        "env": "CLAUDE_CODE_SUBAGENT_MODEL",
+        "kind": "model",
+        "beats": "every projectstore model configuration, per-invocation parameter included"
+      }
+    ],
+    "session_env": [
+      "CLAUDECODE",
+      "CLAUDE_CODE_SESSION_ID"
+    ],
+    "session_env_reason": "set to 1 in every Bash tool of a live session (measured 2026-09-05, 2.1.261); detect_env names the variables a hook or plugin process receives, which a Bash tool does not — the two questions differ. CLAUDE_CODE_SESSION_ID is set there too (measured 2026-10-10, 2.1.296).",
+    "session_id_env": "CLAUDE_CODE_SESSION_ID",
+    "session_id_env_reason": "the session's id in every Bash tool of a live session (measured 2026-10-10 and 2026-10-11, 2.1.296): the id the session-state files are keyed by, which `band status` needs to find this session's pointer and heartbeat (the band spec, contract 13). Read only through hostSessionId(), since scripts/ names no branded variable.",
+    "registration_defer_env": [],
+    "registration_defer_env_reason": "Empty: session_env already defers this harness's registration inside its own session (measured: the host's CLI and the session's exit rewrite the same settings files), and registrationDeferred reads both lists. Present on every manifest, an array, so an absent key is never a forgotten one (story: projectstore setup asks, shows one plan and installs every harness it finds, with the vault, rule 15).",
+    "overlay": "claude-code",
+    "overlay_reason": "the file under <project>/.projectstore/harness/ that carries this harness's agents block — the models, per agent, that plugin surfaces pass per invocation (ADR-008; the layout ADR decision 3)"
+  },
+  "tools": {
+    "write_tools": [
+      "Write",
+      "Edit",
+      "MultiEdit",
+      "NotebookEdit"
+    ],
+    "path_fields": [
+      "file_path",
+      "notebook_path",
+      "path"
+    ],
+    "patch_envelope_field": null,
+    "approval_tool": "AskUserQuestion",
+    "write_tool_name": "the Write tool",
+    "edit_tool_name": "the Edit tool",
+    "known_non_write_tools": [
+      "Bash",
+      "Read",
+      "Grep",
+      "Glob",
+      "LS",
+      "WebFetch",
+      "WebSearch",
+      "Task",
+      "TodoWrite"
+    ]
+  },
+  "hooks": {
+    "config_file": "hooks/hooks.json",
+    "events": {
+      "SessionStart": "SessionStart",
+      "PreToolUse": "PreToolUse",
+      "PostToolUse": "PostToolUse",
+      "Stop": "Stop",
+      "PreCompact": "PreCompact"
+    },
+    "unsupported_events": [],
+    "matchers": {
+      "write": "Edit|Write|MultiEdit|NotebookEdit"
+    },
+    "root_placeholder": "${CLAUDE_PLUGIN_ROOT}",
+    "root_placeholder_literal": false,
+    "_root_placeholder_literal_comment": "true = the harness passes the placeholder through as literal text and the installer must substitute an absolute path; false = the harness expands it. Claude Code expands ${CLAUDE_PLUGIN_ROOT}, so false. Measured value for Codex comes from the spike."
+  },
+  "output_channels": {
+    "_comment": "Per-event output channels (generation spec, contract 17). `fields` are the hookSpecificOutput keys the event honours; `system_message` is the top-level systemMessage; `decision` names the decision object where one exists; an optional `input_fields` lists the stdin keys; Stop's `carrier` is the shape the entry reminder's Stop carrier prints (additionalContext | block | null) — our choice where both are honoured. `evidence` is `measured` only where this repository's own hooks observe the fact, `documented` where the Claude Code hooks reference says so and we never emit it.",
+    "SessionStart": {
+      "fields": [
+        "additionalContext"
+      ],
+      "system_message": true,
+      "decision": null,
+      "evidence": "measured",
+      "note": "hooks/session-start.mjs emits additionalContext and systemMessage in one object; the ~10,000-character cap on additionalContext was measured (vault story: SessionStart context exceeds the hook output cap)."
+    },
+    "PreToolUse": {
+      "fields": [
+        "permissionDecision",
+        "permissionDecisionReason",
+        "updatedInput",
+        "additionalContext"
+      ],
+      "system_message": true,
+      "decision": "permissionDecision",
+      "evidence": "measured",
+      "note": "systemMessage measured — scripts/touch-session.mjs used it for the raw-edit nudge and uses it for the name offer (the nudge moved to PostToolUse with the write's pointer patch, ADR-006 amended 2026-10-12). additionalContext and permissionDecision (allow|deny|ask) are documented; projectstore never emits them. A separate PermissionRequest event carries its own decision object."
+    },
+    "PostToolUse": {
+      "fields": [
+        "additionalContext"
+      ],
+      "system_message": true,
+      "decision": null,
+      "evidence": "measured",
+      "note": "scripts/touch-session.mjs — the entry-rule reminder's primary carrier (entry-rule spec, contract 14). The measurement covers additionalContext only. systemMessage carries the raw-edit nudge since the pointer patch moved after the write (ADR-006, amended 2026-10-12): documented for every event, not yet observed on this one — the closed-story story's live check records it."
+    },
+    "PostToolUseFailure": {
+      "fields": [
+        "additionalContext"
+      ],
+      "system_message": null,
+      "decision": null,
+      "evidence": "documented",
+      "note": "Hooks reference; not registered by projectstore."
+    },
+    "PostToolBatch": {
+      "fields": [
+        "additionalContext"
+      ],
+      "system_message": null,
+      "decision": null,
+      "evidence": "documented",
+      "note": "Hooks reference; not registered by projectstore."
+    },
+    "UserPromptSubmit": {
+      "fields": [
+        "additionalContext"
+      ],
+      "system_message": null,
+      "decision": null,
+      "evidence": "documented",
+      "note": "Hooks reference; not registered by projectstore."
+    },
+    "Stop": {
+      "fields": [
+        "additionalContext"
+      ],
+      "system_message": null,
+      "decision": "block",
+      "carrier": "additionalContext",
+      "evidence": "measured",
+      "min_version": "2.1.163",
+      "note": "additionalContext on Stop CONTINUES the turn (2.1.163 changelog) — hooks/session-stop.mjs runs a create-then-emit election because of it. Below 2.1.163 only decision:block + reason exists. Both shapes are honoured here; the carrier is context, so the reminder reads as context, not as a new turn."
+    },
+    "SubagentStop": {
+      "fields": [
+        "additionalContext"
+      ],
+      "system_message": null,
+      "decision": "block",
+      "evidence": "documented",
+      "note": "Same channel as Stop per the 2.1.163 changelog; not registered by projectstore — a subagent is the actor that cannot open a story."
+    },
+    "PreCompact": {
+      "fields": [],
+      "system_message": true,
+      "decision": null,
+      "evidence": "measured",
+      "note": "Measured NEGATIVELY: an output object containing additionalContext is rejected whole, taking systemMessage down with it (hooks/pre-compact.mjs; vault story: PreCompact survival packet targets a channel PreCompact does not have). Only top-level decision/reason and systemMessage exist."
+    }
+  },
+  "surfaces": {
+    "commands": {
+      "supported": true,
+      "kind": "host",
+      "dir": "commands",
+      "file": "<name>.md",
+      "format": "command-md",
+      "invocation": "/projectstore:<name>",
+      "scope": "user",
+      "scope_reason": "Claude Code loads commands from the plugin installation itself, not from a per-project directory.",
+      "registered_by": "plugin"
+    },
+    "agents": {
+      "supported": true,
+      "kind": "host",
+      "dir": "agents",
+      "file": "<name>.md",
+      "format": "agent-md",
+      "invocation": "projectstore:<name>",
+      "scope": "user",
+      "scope_reason": "Claude Code loads agents from the plugin installation itself, not from a per-project directory.",
+      "registered_by": "plugin"
+    },
+    "skills": {
+      "supported": true,
+      "kind": "host",
+      "dir": "skills",
+      "file": "<name>/SKILL.md",
+      "format": "skill-md",
+      "scope": "user",
+      "scope_reason": "Claude Code loads skills from the plugin installation itself, not from a per-project directory.",
+      "registered_by": "plugin",
+      "frontmatter_required": [
+        "name",
+        "description"
+      ],
+      "frontmatter_reason": "`description` is what Claude Code matches a skill on; `name` was added 2026-09-08 because Codex's documentation requires it and this is the tree both harnesses load until the generator renders one per harness. Harmless here, required there.",
+      "invocation": null,
+      "invocation_reason": "UNMEASURED. Claude Code activates a skill from its description rather than from a form the user types; there is no explicit call syntax to record, and null says that rather than leaving the key out and reading as forgotten.",
+      "unrendered_source": false,
+      "unrendered_source_reason": "This IS the source tree (source_layout: true), so there is nothing to render and no foreign vocabulary to leak into it."
+    },
+    "hooks": {
+      "supported": true,
+      "kind": "host",
+      "dir": "hooks",
+      "file": "hooks.json",
+      "format": "hooks-json",
+      "scope": "user",
+      "scope_reason": "Claude Code loads the plugin's hooks.json from the plugin installation itself; per-project hooks live in settings, which projectstore does not write.",
+      "registered_by": "plugin"
+    },
+    "band": {
+      "supported": true,
+      "kind": "host",
+      "registered_by": "plugin",
+      "scope": "user",
+      "scope_reason": "Claude Code loads the band as a hooks module named under `modules` in the plugin's own hooks.json, from the plugin installation itself; nothing is written into a project to draw it.",
+      "verified": null,
+      "verified_reason": "null until a recorded live session (terminal and Desktop) observes it drawing, hiding during a question, and the status line yielding and coming back (the band spec, contract 15). The harness's own `verified` block predates the surface and does not cover it."
+    },
+    "agents_block": {
+      "supported": true,
+      "kind": "shared",
+      "format": "markdown-block",
+      "scope": "project",
+      "scope_reason": "Claude Code reads CLAUDE.md from the project root; AGENTS.md is the cross-tool convention, bridged by an @AGENTS.md import (ADR-002 decision 3).",
+      "files": [
+        "AGENTS.md",
+        "CLAUDE.md"
+      ],
+      "reads_natively": "CLAUDE.md",
+      "reads_natively_reason": "The file this harness reads BY ITSELF. `files` is the block's placement preference and conflates two things: AGENTS.md is first because it is the cross-tool convention, but Claude Code reaches it only through the @AGENTS.md import WE install — remove the bridge and the block is invisible. So installing for this harness must leave CLAUDE.md present: holding the block when it lands here, holding the import when it lands in AGENTS.md. Measured 2026-09-09: a project with an AGENTS.md and no CLAUDE.md took the block into AGENTS.md and created no bridge, so the harness that ran the install could not see it.",
+      "source": "templates/claude-md-block.md.tmpl",
+      "marker": {
+        "open": "<!-- projectstore:agents v",
+        "close": "<!-- /projectstore:agents -->"
+      }
+    },
+    "statusline": {
+      "supported": true,
+      "kind": "shared",
+      "format": "json-entry",
+      "scope": "project",
+      "scope_reason": "The statusLine slot is per project and not plugin-declarable (ADR-006); our entry lives in settings.local.json, which is machine-specific.",
+      "file": ".claude/settings.local.json",
+      "marker": {
+        "pointer": "statusLine.command",
+        "predicate": "statusLineIsOurWiring"
+      }
+    },
+    "statusline_launcher": {
+      "supported": true,
+      "kind": "exclusive",
+      "format": "mjs",
+      "scope": "project",
+      "scope_reason": "The launcher resolves the currently installed plugin on every render, so the wired command carries no version; it is written only when the plugin runs from a host install — the marketplace cache, or the folder Claude Code syncs a claude.ai copy into (registry.synced_dir), whose path may change or vanish — a dev checkout is wired directly. The condition key keeps its name, plugin_cache_install.",
+      "file": ".projectstore/state/claude-code/statusline.mjs",
+      "source": "scripts/statusline-launcher.mjs",
+      "condition": "plugin_cache_install",
+      "file_reason": "the harness's generated runtime files live under .projectstore/state/<harness id>/ (layout ADR decision 4); the 0.27.x path .claude/.projectstore/statusline.mjs is read as ours through 0.30",
+      "legacy_file": ".claude/.projectstore/statusline.mjs"
+    },
+    "mcp": {
+      "supported": true,
+      "kind": "host",
+      "dir": ".",
+      "file": ".mcp.json",
+      "entry": "scripts/mcp-server.mjs",
+      "entry_reason": "The script .mcp.json runs, under the plugin root, with --project and the host's project directory as its only arguments. It lives under scripts/, never bin/ (a plugin's top-level bin/ is on the host's Bash PATH), and imports nothing from cli.mjs, so the server's imports reach no install verb (PS-DIRECTORY, the story \"The MCP server's entry reaches no install verb through a read-verb runner that shares the CLI's verb table…\"; the MCP ADR's decision 1 as amended). The CLI's `mcp` verb serves the same way, for a host without a plugin channel.",
+      "scope": "plugin",
+      "scope_reason": "Claude Code loads a plugin's .mcp.json from the plugin installation itself and expands ${CLAUDE_PLUGIN_ROOT} and ${CLAUDE_PROJECT_DIR} in it per session, so the one shipped file binds each server to one project (MCP ADR decision 6, amended 2026-09-05); nothing is installed and nothing is derived — the host kind install-harness skips, which the install spec's contract 0 does not yet name.",
+      "launch": {
+        "cwd": "project",
+        "project_dir_in_env": true,
+        "expands_measured": [
+          "args",
+          "env"
+        ],
+        "expands_inferred": [
+          "command"
+        ],
+        "default_syntax": "${VAR:-default}",
+        "unset_placeholder_in_env": "literal",
+        "unset_placeholder_in_args": "inferred literal — the server refuses a --project still carrying a dollar-brace placeholder",
+        "entrypoint": "sdk-cli (headless -p), plugin loaded with --plugin-dir; the marketplace install and an interactive session are A9's",
+        "protocol_era": "initialize",
+        "protocol_version_seen": "2025-11-25",
+        "shutdown_signal": "SIGINT",
+        "evidence": "measured",
+        "client": "claude 2.1.261",
+        "date": "2026-09-05"
+      },
+      "registered_by": "plugin"
+    },
+    "mcp_project_entry": {
+      "supported": false,
+      "kind": "shared",
+      "format": "json-entry",
+      "scope": "project",
+      "scope_reason": "A project-root .mcp.json registers the server with an absolute --project for a host that does not expand placeholders (MCP ADR, decision 6); per project because the server binds to one.",
+      "file": ".mcp.json",
+      "marker": {
+        "pointer": "mcpServers.projectstore"
+      },
+      "why_unsupported": "the plugin-bundled registration already binds per project in Claude Code; this row is for hosts without plugin MCP and lands with their adapters (roadmap B3/C3)"
+    },
+    "plugin": {
+      "supported": true,
+      "kind": "registration",
+      "format": "host-plugin-registration",
+      "scope": "local",
+      "scope_reason": "Claude Code registers a plugin per scope (user, project, local, managed). The registration carries a machine-absolute path and an enablement, so it lands in the checkout's settings.local.json — the same machine-specific file the status line uses — never in the committed settings.json and never in the user's own settings (install spec contract 4′, 2026-09-05). Local scope is per checkout: a worktree registers again.",
+      "condition": "npm_package_root",
+      "marketplace_name": "projectstore-npm",
+      "plugin_name": "projectstore",
+      "dir": [
+        "projectstore",
+        "marketplace"
+      ],
+      "plugin_subdir": "projectstore",
+      "manifest": ".claude-plugin/marketplace.json",
+      "provenance_key": "projectstore",
+      "registry": {
+        "installed": [
+          "plugins",
+          "installed_plugins.json"
+        ],
+        "marketplaces": [
+          "plugins",
+          "known_marketplaces.json"
+        ],
+        "user_settings": [
+          "settings.json"
+        ],
+        "project_settings": [
+          "settings.local.json"
+        ],
+        "cache_dir": [
+          "plugins",
+          "cache"
+        ],
+        "enabled_pointer": "enabledPlugins",
+        "known_pointer": "extraKnownMarketplaces",
+        "install_path_layout": "<cache_dir>/<marketplace>/<plugin>/<version>",
+        "synced_dir": [
+          "plugins",
+          "synced"
+        ],
+        "synced_origin": "synced",
+        "sync_setting": "syncClaudeAiPlugins",
+        "trash_dir": [
+          "plugins",
+          ".trash"
+        ],
+        "synced_reason": "A plugin on the person's claude.ai account (added from Anthropic's directory, or turned on by their organization) loads as <plugin>@synced, with no marketplace and no install record, and its files sit in <synced_dir>/<bucket>/<plugin>/ (code.claude.com/docs/en/plugins/loading, \"Plugins synced from claude.ai\"; the bucket layout measured 2026-10-15, undocumented). installChannel answers \"synced\" for a root there from the path alone; the copy's version is read from its own .claude-plugin/plugin.json, never from the bucket's manifest.json, whose version is claude.ai's string. It is on unless a settings file sets <plugin>@synced to false, and an enabled copy of the same name from any other origin loads over it (the loading reference, \"Name conflicts\", item 5). With sync_setting false in the user's settings, Claude Code moves the synced copies to trash_dir at its next start and stops loading them. CLAUDE_CODE_PLUGIN_CACHE_DIR moves the whole plugins root and is not read: a known gap, as for cache_dir.",
+        "marketplaces_claudeai": [
+          "plugins",
+          "known_marketplaces_claudeai.json"
+        ],
+        "claudeai_prefix": "claudeai-",
+        "claudeai_reason": "A marketplace added from claude.ai is registered under a local name that starts with claudeai- and is recorded in known_marketplaces_claudeai.json instead of known_marketplaces.json (code.claude.com/docs/en/plugins/install, \"Add a marketplace from claude.ai\"; the loading reference, \"Find plugins on disk\"). It is added again from /plugin → Marketplaces, never by a source.",
+        "auto_update": {
+          "on": [
+            "claude-plugins-official",
+            "claude-code-marketplace",
+            "claude-code-plugins",
+            "anthropic-marketplace",
+            "anthropic-plugins",
+            "agent-skills",
+            "anthropic-agent-skills",
+            "life-sciences",
+            "claude-for-legal",
+            "claude-for-financial-services",
+            "financial-services-plugins",
+            "claude-tag-plugins"
+          ],
+          "on_prefix": [
+            "claudeai-"
+          ],
+          "reason": "Whether a marketplace auto-updates when neither its extraKnownMarketplaces entry in a settings file nor its registry entry sets autoUpdate (the loading reference, \"Which marketplaces and plugins auto-update\", read 2026-10-15): on for Anthropic's official marketplace names (code.claude.com/docs/en/plugins/security#official-marketplace-names) except knowledge-work-plugins and first-party-plugins, on for a marketplace added from claude.ai, off for every other marketplace."
+        }
+      },
+      "cli": {
+        "bin": "claude",
+        "verified": {
+          "version": "2.1.261",
+          "date": "2026-09-05",
+          "evidence": "measured in a sandboxed CLAUDE_CONFIG_DIR with two projects",
+          "notes": [
+            "plugin.json wins over the marketplace entry's version",
+            "--scope local writes only <project>/.claude/settings.local.json (extraKnownMarketplaces, enabledPlugins) and one registry row per project carrying projectPath",
+            "`plugin update <id> --scope local -y` swaps that project's row in place after the directory is rewritten; without --scope it looks at user scope and fails",
+            "`plugin uninstall --scope local -y` removes only the calling project's row and enablement",
+            "`marketplace remove` (any scope) empties known_marketplaces.json AND every project's rows for that marketplace — run only when no other project uses it; the project's own extraKnownMarketplaces entry is removed by install itself",
+            "`plugin validate` warns about the unknown `projectstore` field and exits 0",
+            "-y accepts a marketplace-declared command; this marketplace declares none",
+            "the project of a --scope local command is the process cwd; there is no --project flag",
+            "a live session marks its Bash environment with CLAUDECODE=1 (not the plugin-root or project-dir variables, which reach hooks only); the registration defers on that marker",
+            "`plugin update` at an unchanged version answers \"already at the latest version\" and copies nothing, even after `marketplace update`: a same-version content refresh is uninstall + install",
+            "2.1.296, 2026-10-10: the plugin of this directory marketplace loads in place from <dir>/<plugin_subdir> — the MCP server's argv, the slash commands' plugin root and the SessionStart hook all name it — while the registry row's installPath stays the cache copy the launcher renders; the SessionStart refresh therefore never demotes a launcher entry (install spec, contract 0 as amended 2026-10-10)"
+          ]
+        },
+        "commands": {
+          "validate": [
+            "plugin",
+            "validate",
+            "{dir}"
+          ],
+          "marketplace_add": [
+            "plugin",
+            "marketplace",
+            "add",
+            "{dir}",
+            "--scope",
+            "local"
+          ],
+          "marketplace_update": [
+            "plugin",
+            "marketplace",
+            "update",
+            "{marketplace}"
+          ],
+          "marketplace_remove": [
+            "plugin",
+            "marketplace",
+            "remove",
+            "{marketplace}",
+            "--scope",
+            "local"
+          ],
+          "install": [
+            "plugin",
+            "install",
+            "{id}",
+            "--scope",
+            "local",
+            "-y"
+          ],
+          "update": [
+            "plugin",
+            "update",
+            "{id}",
+            "--scope",
+            "local",
+            "-y"
+          ],
+          "uninstall": [
+            "plugin",
+            "uninstall",
+            "{id}",
+            "--scope",
+            "local",
+            "-y"
+          ],
+          "disable": [
+            "plugin",
+            "disable",
+            "{other}",
+            "--scope",
+            "local"
+          ],
+          "enable": [
+            "plugin",
+            "enable",
+            "{other}",
+            "--scope",
+            "local"
+          ]
+        }
+      },
+      "condition_reason": "any root that is not the host's own plugin cache — the npm package under npx, a global install, a dev checkout — registers; a session running from the cache never registers a second copy of itself."
+    }
+  },
+  "capabilities": {
+    "statusline": true,
+    "interactive_approval_tool": true,
+    "permission_decision_hook": "PreToolUse",
+    "subagent_tool_allowlist": true,
+    "subagent_model_per_invocation": true,
+    "session_rename": "/rename <name>",
+    "session_rename_reason": "Claude Code's own command for naming a session; the session-name offer prints it filled (generation spec, contract 18). A harness without one gets no offer.",
+    "bind_inherit": true,
+    "bind_inherit_reason": "commands/bind.md adopts the binding of the checkout a worktree was forked from (`bind --inherit`), so an unbound worktree is told to run that. A harness whose bind cannot inherit is told the explicit vault instead (generation spec, contract 18)."
+  },
+  "rewrites": [],
+  "ui_vocabulary": [
+    "/plugin",
+    "/reload-plugins",
+    "AskUserQuestion"
+  ],
+  "ui_vocabulary_reason": "This harness's UI affordances and tool names: words that mean nothing on another harness. The generator refuses them in another harness's rendered tree, and the runtime vocabulary lint refuses them in what the core prints for another harness (generation spec, contracts 6 and 18). A word here must be followed by a non-word character to count, so `/plugins/` in a path is not `/plugin`.",
+  "update_hint": {
+    "line": "Update from a terminal in this project:\n{upgrade}",
+    "welcome": [
+      "**About future updates**: from a terminal in this project, run:",
+      "",
+      "```",
+      "{upgrade}",
+      "```",
+      "",
+      "Then restart Claude Code. See https://github.com/SmartAndPoint/ProjectStore#upgrading for details."
+    ],
+    "by_channel": {
+      "marketplace": {
+        "line": "Updates come through the {marketplace} marketplace, whose auto-update is {auto_update} by default: /plugin → Marketplaces → {marketplace} turns it on or off.",
+        "welcome": [
+          "**About future updates**: this copy comes from the **{marketplace}** marketplace. Claude Code updates it in the background while that marketplace's auto-update is on, and for {marketplace} auto-update is **{auto_update}** by default. To check it:",
+          "1. Open `/plugin` → **Marketplaces** tab.",
+          "2. Find **{marketplace}**.",
+          "3. Make sure **auto-update** is on.",
+          "",
+          "Without it, open `/plugin manage` and choose **Update now** on projectstore when a new version is out."
+        ]
+      },
+      "synced": {
+        "line": "Updates come from claude.ai: Claude Code downloads each new version at its next start, then asks for /reload-plugins. Off for your account on this machine: /plugin → Installed. Off for one project only: \"projectstore@synced\": false under enabledPlugins in that project's .claude/settings.local.json.",
+        "welcome": [
+          "**About future updates**: this copy comes from Anthropic's plugin directory, through your claude.ai account, and Claude Code loads it as `projectstore@synced`. Updates come from claude.ai: when a new version is published, Claude Code downloads it at its next start and asks you to run `/reload-plugins`.",
+          "",
+          "- **Off for your account on this machine**: `/plugin` → **Installed**, then turn off `projectstore@synced`.",
+          "- **Off for one project only**: set `\"projectstore@synced\": false` under `enabledPlugins` in that project's `.claude/settings.local.json`, or in its committed `.claude/settings.json` to keep it out for everyone who opens the project.",
+          "- **Removed**: on claude.ai, where it was added."
+        ]
+      }
+    },
+    "reason": "What the first-run welcome and its one-line notice say about updates (generation spec, contract 18): `line` ends the notice, `welcome` is the welcome's update block, and `{upgrade}` is filled with the core's upgrade for this harness at latest, so what is printed runs as printed. `by_channel` holds the text for a copy that loads from another channel, by installChannel's answer: a marketplace copy is updated by Claude Code itself, so its welcome names that marketplace's auto-update toggle, with `{marketplace}` filled from the copy's own path and `{auto_update}` with its default (on or off, registry.auto_update); a copy synced from claude.ai (Anthropic's directory) is updated by claude.ai and names no npm, upgrade or marketplace command, only the two ways to turn it off (the story \"A copy installed from Anthropic's directory is a channel the core knows…\", PS-DIRECTORY); the npm registration and a checkout get the npm form. update_instructions is the long-form guidance; this is the part a session prints, kept here so no hook names a harness's update path."
+  },
+  "update_instructions": [
+    "**About future updates**: installed from the git marketplace, Claude Code does NOT auto-update third-party marketplaces by default; an npm registration updates with `npx projectstore@<version> upgrade` from a terminal in the project. To get notified of new git-marketplace releases (v0.7+):",
+    "1. Open `/plugin` → **Marketplaces** tab.",
+    "2. Find **SmartAndPoint**.",
+    "3. Toggle **auto-update** on.",
+    "",
+    "Without it, open `/plugin manage` and choose **Update now** on projectstore when a new version is out. See https://github.com/SmartAndPoint/ProjectStore#upgrading for details.",
+    "",
+    "**Upgrading from 0.27.x to 0.28**: restart after the update, then move the project's files to `.projectstore/` with the one command the first session names, run from a terminal in the project, outside the session. For a git-marketplace install it is the installed copy's own `bin/projectstore.mjs` with `upgrade --harness claude-code --no-register`, which leaves the registration as it is. For the npm registration it is `npx projectstore@<version> upgrade --harness claude-code --no-register` and nothing else. The same run re-stamps the status-line launcher, and until then every reader falls back to the old paths. `status` and `search` answer from artifact facts; `doctor` gains surface, version-drift and mcp lines and exits 1 on findings; the plugin registers an MCP server the host may ask you to approve once. On 0.28.0-rc.1 or rc.2, update first: their startup line named the form without `--no-register`, which also switches a git-marketplace install to npm for the checkout (the README's Upgrading section has the way back). Before the move, a rollback to 0.27.x keeps working and the move is the way forward again; after the move, 0.27.x reads the project as unbound."
+  ],
+  "agent_translation": {
+    "carries_model": true,
+    "cheap_model": "sonnet",
+    "cheap_model_evidence": "measured",
+    "cheap_model_reason": "The model the clerk is pinned to when a strong default would otherwise lift it (ADR-008). A literal here, in the one file allowed to name a harness's vocabulary; it used to be a literal in scripts/cli.mjs, which made `agents configure --harness codex` write an Anthropic model name into a Codex overlay. MEASURED in the sense that matters: this is the model the clerk has been running on since ADR-008, in this repository, and tests/overlay.test.mjs asserts the pin end to end.",
+    "effort": {
+      "spawn_param": "effort",
+      "spawn_param_evidence": "measured",
+      "spawn_param_reason": "The Agent tool's `effort` parameter, an enum of the five levels below, in the tool schema Claude Code 2.1.296 gave a session on 2026-10-14 (documented from 2.1.292). A plugin agent with `effort: max` in its frontmatter, spawned with `effort: \"xhigh\"`, ran every request at xhigh; spawned with none, at max (subagent transcripts). An off-enum level fails the tool's schema and no subagent starts. So the overlay's effort is passed here, as the model is (the ADR \"Agent effort is passed at spawn beside the model, from the overlay, in each harness's own levels\", decision 2).",
+      "levels": [
+        {
+          "id": "low",
+          "description": "The fastest and cheapest: little thinking before an answer."
+        },
+        {
+          "id": "medium",
+          "description": "Balances speed and depth: thinks where the task needs it."
+        },
+        {
+          "id": "high",
+          "description": "Thinks longer before answering, for harder work."
+        },
+        {
+          "id": "xhigh",
+          "description": "Extended thinking for hard reviews, plans and designs."
+        },
+        {
+          "id": "max",
+          "description": "The most thinking Claude Code allows: the level the bundled agents' frontmatter names, the clerk's excepted."
+        }
+      ],
+      "levels_reason": "The Agent tool's enum, measured. Claude Code lowers a level a model does not support to the highest one it does (documented), so one list serves every alias and no catalog is read.",
+      "strict": true,
+      "strict_reason": "The spawn takes these levels and nothing else: an off-enum level (ultra) failed the Agent tool's schema and no subagent started (measured 2026-10-14, 2.1.296). So a level off this list is written with a note that the spawn refuses it.",
+      "unset": {
+        "value": "frontmatter",
+        "row": "use frontmatter",
+        "model_default": false,
+        "reason": "With no effort passed, the agent runs at its frontmatter's effort — max for every bundled agent but the clerk, which runs at low — whatever model is passed (transcripts of 2026-10-11/12)."
+      },
+      "cheap": "low",
+      "cheap_evidence": "chosen",
+      "cheap_reason": "The clerk's level, in its frontmatter and as its pin under a default effort (the effort ADR, decision 6): it copies an approved file and runs a pinned ceremony. Chosen by the maintainer on 2026-10-14 (\"клерка да на лоу\"), as on Codex."
+    },
+    "models": {
+      "spawn_takes": "alias",
+      "spawn_takes_evidence": "measured",
+      "spawn_takes_reason": "The Agent tool's `model` parameter is an enum, [\"sonnet\", \"opus\", \"haiku\", \"fable\"], in the tool schema Claude Code 2.1.296 gave a session on 2026-10-13. The registration block tells the session to pass the overlay's model as that parameter, so an overlay value outside the enum fails at every spawn of that agent. Only an agent definition's frontmatter takes a full model name, and ADR-008 retired the copies that carried one. So the list offers the aliases, never an exact id (the ADR \"Agent model lists are read from each harness's own catalog, declared in its manifest and cached for a day\", decision 1).",
+      "static": [
+        {
+          "id": "fable",
+          "family": "fable",
+          "description": "Follows the newest Fable model: Claude Code resolves the alias when it starts the agent."
+        },
+        {
+          "id": "opus",
+          "family": "opus",
+          "description": "Follows the newest Opus model: Claude Code resolves the alias when it starts the agent."
+        },
+        {
+          "id": "sonnet",
+          "family": "sonnet",
+          "description": "Follows the newest Sonnet model: Claude Code resolves the alias when it starts the agent."
+        },
+        {
+          "id": "haiku",
+          "family": "haiku",
+          "description": "Follows the newest Haiku model: Claude Code resolves the alias when it starts the agent."
+        }
+      ],
+      "static_reason": "The enum above, in the order the menu lists it. A line the catalog below reports that this list lacks is never offered: a Claude Code release that adds an alias is named with `--set`, with the warning, until this list learns it.",
+      "catalogs": [
+        {
+          "kind": "http",
+          "source": "the Anthropic API",
+          "caption": "Anthropic API",
+          "url": "https://api.anthropic.com/v1/models?limit=1000",
+          "base_env": "ANTHROPIC_BASE_URL",
+          "path": "/v1/models?limit=1000",
+          "key_env": "ANTHROPIC_API_KEY",
+          "key_header": "x-api-key",
+          "headers": { "anthropic-version": "2023-06-01" },
+          "fields": {
+            "list": "data",
+            "id": "id",
+            "label": "display_name",
+            "family": "line",
+            "order": "created_at",
+            "order_desc": true,
+            "keep_when": { "lifecycle": "active" }
+          },
+          "reason": "Measured 2026-10-13: 14 models in 0.5–0.7 s, each with id, display_name, created_at, line (fable, opus, sonnet, haiku) and lifecycle. `line` is the family an alias follows, so the newest active entry of a line is the best local account of what that alias starts; Claude Code resolves the alias itself. Read only when a model list opens with a stale cache, or on refresh, and only with ANTHROPIC_API_KEY set; ANTHROPIC_BASE_URL, when set, is the base the key belongs to."
+        }
+      ]
+    }
+  }
+}
