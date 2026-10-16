@@ -1976,10 +1976,23 @@ export function checkMcpRegistration(root = pluginRoot(), harness = speakingHarn
   // PS-DIRECTORY story "The MCP server's entry reaches no install verb…"),
   // checked as a path and a file, never imported: mcp.mjs on SessionStart's
   // path would load the server's whole graph into the hook.
-  const entry = mcp.entry || "scripts/mcp-server.mjs";
+  // The entry is the checked copy's own: a root that carries its own manifest
+  // says what it launches, and one whose manifest names no entry (0.30.5 and
+  // older) launches `bin/projectstore.mjs mcp`, which serves — a newer doctor
+  // run against such a copy must not call it broken (the E2b review). A root
+  // with no manifest of its own is held to this doctor's.
+  let entry = mcp.entry || "scripts/mcp-server.mjs";
+  let verbArg = null;
+  try {
+    const own = JSON.parse(readFileSync(join(root, "harnesses", `${harness.id}.json`), "utf8"));
+    const e = own?.surfaces?.mcp?.entry;
+    if (typeof e === "string" && e) entry = e;
+    else [entry, verbArg] = ["bin/projectstore.mjs", "mcp"];
+  } catch {}
   const server = reg && reg.mcpServers && reg.mcpServers.projectstore;
   const args = server && Array.isArray(server.args) ? server.args : [];
-  if (!server || !args.some((a) => String(a).endsWith(`/${entry}`))) {
+  const launches = args.some((a) => String(a).endsWith(`/${entry}`)) && (!verbArg || args.includes(verbArg));
+  if (!server || !launches) {
     return [
       finding(
         "install",

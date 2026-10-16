@@ -316,6 +316,20 @@ test("mcp entry: doctor's registration check names the manifest's entry, and nev
   );
   assert.equal(gone[0].level, "issue");
   assert.match(gone[0].message, /scripts\/mcp-server\.mjs, which is not in the plugin root/);
+  // A copy that carries its own manifest is held to its own entry: 0.30.5's
+  // manifest names none, and its bin form serves (the E2b review).
+  const older = root([`${plugin}/bin/projectstore.mjs`, "mcp", "--project", project], { entry: false });
+  mkdirSync(join(older, "harnesses"));
+  mkdirSync(join(older, "bin"));
+  writeFileSync(join(older, "bin", "projectstore.mjs"), "");
+  const own = JSON.parse(readFileSync(join(ROOT, "harnesses", `${SRC.id}.json`), "utf8"));
+  delete own.surfaces.mcp.entry;
+  writeFileSync(join(older, "harnesses", `${SRC.id}.json`), JSON.stringify(own));
+  assert.deepEqual(
+    checkMcpRegistration(older, SRC).map((f) => f.level),
+    ["info"],
+    "a 0.30.5 copy's bin form is not reported broken",
+  );
   const start = closure("hooks/session-start.mjs", { root: ROOT });
   assert.ok(start.includes("scripts/doctor.mjs"));
   for (const f of ["scripts/mcp.mjs", "scripts/mcp-server.mjs", "scripts/read-verbs.mjs", "scripts/cli.mjs"])

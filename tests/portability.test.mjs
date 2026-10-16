@@ -871,6 +871,16 @@ test("MCP fence: the entry .mcp.json launches reaches no install module, no fetc
   assert.ok(!files.includes("scripts/cli.mjs"), "the MCP entry's closure reaches cli.mjs");
   // The doctor tool spawns doctor.mjs, a spawn and not an import: its closure is fenced on its own.
   assertFenced("scripts/doctor.mjs", "the doctor the MCP server spawns");
+  // A positive control (the E2b review): the exemption of verbs.mjs is what
+  // keeps the install modules out. The table does name them, and read under
+  // the default dispatch the same entry reaches the whole family.
+  assert.ok(READ_RUNNER, "the read runner loads");
+  assert.ok(
+    verbModuleSpecifiers(readFileSync(join(ROOT, "scripts/verbs.mjs"), "utf8")).includes("./install-harness.mjs"),
+    "the one table names the installer's module",
+  );
+  const naive = closure(entry, { root: ROOT });
+  for (const f of installFamily(ROOT)) assert.ok(naive.includes(f), `read naively, the entry reaches ${f}`);
 });
 
 // One verb table: verbs.mjs holds it, as data, with the envelope and the

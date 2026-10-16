@@ -128,7 +128,7 @@ export function closure(entry, { root, dispatch = (rel, src) => verbModuleSpecif
 // The network modules a fence refuses among the specifiers a closure skips:
 // node's sockets and HTTP clients, bare or `node:`-prefixed, and undici (the
 // package behind node's fetch).
-export const NETWORK_MODULE = /^(?:(?:node:)?(?:http|https|http2|net|tls|dgram)|undici)(?:\/.*)?$/;
+export const NETWORK_MODULE = /^(?:(?:node:)?(?:http|https|http2|net|tls|dgram|dns)|undici)(?:\/.*)?$/;
 
 // networkImports(files, { root }) → `<file> imports <specifier>` for each
 // network module one of `files` (a closure) imports, statically or by a
