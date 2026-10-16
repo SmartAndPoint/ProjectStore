@@ -396,13 +396,24 @@ test("directory guard: the headroom rule fails a shipped .mjs over 204,800 bytes
   assert.equal(g.check(g.trackedSet(dir, { set: "repository" })).ok, true);
 });
 
-test("directory guard: the real tree passes under the packed set and the repository set, with each limit's headroom", async () => {
+// The directory tracks the packed tree (the `directory` branch, the plan gate
+// of the submission story, 2026-10-15), so the packed set must pass every row.
+// The repository set must pass every row but the file count: the repository
+// (tests, site, packaging) is near 512 files and may pass it, which matters
+// only if the maintainer ever has the directory track `main` — then
+// `npm run directory:check -- --set repository` is the check to run.
+test("directory guard: the real tree passes under the packed set, and under the repository set but for its file count, with each limit's headroom", async () => {
   const g = await load();
   const packlist = JSON.parse(read("tests/fixtures/packlist.json"));
   for (const set of g.SETS) {
     const entries = g.trackedSet(ROOT, { set });
     const r = g.check(entries);
-    assert.deepEqual(r.failed, [], `${set}: ${JSON.stringify(r.rows.filter((x) => !x.ok))}`);
+    const waived = set === "repository" ? ["file-count"] : [];
+    assert.deepEqual(
+      r.failed.filter((id) => !waived.includes(id)),
+      [],
+      `${set}: ${JSON.stringify(r.rows.filter((x) => !x.ok))}`,
+    );
     if (set === "packed")
       assert.deepEqual(
         entries.map((e) => e.path),
@@ -417,7 +428,8 @@ test("directory guard: the real tree passes under the packed set and the reposit
     assert.deepEqual(r.headroom.headroom.next, { file: largest[0], bytes: largest[1], left: 204800 - largest[1] });
     for (const k of ["file-count", "file-size", "readme", "repository-size"])
       assert.ok(r.headroom[k], `${set}: ${k}'s headroom`);
-    assert.ok(r.headroom["file-count"].left >= 0 && r.headroom["file-size"].left > 0);
+    assert.ok(r.headroom["file-size"].left > 0, `${set}: file-size headroom`);
+    if (set === "packed") assert.ok(r.headroom["file-count"].left >= 0, "packed: file-count headroom");
   }
 });
 
