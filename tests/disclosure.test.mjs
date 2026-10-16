@@ -235,8 +235,10 @@ const MODULES = {
   "scripts/diff-refs.mjs": { rows: ["git"] },
   "scripts/doctor.mjs": { rows: ["git"], execPath: true },
   "scripts/install-harness.mjs": { rows: ["hosts", "node"] },
-  "scripts/mcp.mjs": { rows: [], execPath: true },
   "scripts/models.mjs": { rows: ["hosts", "models"] },
+  // The MCP server's doctor tool spawns scripts/doctor.mjs through this Node
+  // (the read-verb runner, the MCP entry story); mcp.mjs itself spawns nothing.
+  "scripts/read-verbs.mjs": { rows: [], execPath: true },
   "scripts/reconcile.mjs": { rows: [], execPath: true },
   "scripts/run-host.mjs": { rows: ["npm", "codex", "node"] },
   "scripts/setup.mjs": { rows: ["git"] },
