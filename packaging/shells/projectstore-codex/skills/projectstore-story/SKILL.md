@@ -99,7 +99,7 @@ the two cannot collide).
      files with different jobs: the scratch is what gets copied to the target;
      the baseline is what `--check` compares against. Handing `--check` the
      scratch makes it report drift on every run.
-   - **Model and effort (ADR-008)**: resolve them with `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model clerk --json --project "$PWD"` and pass `result.model` as the spawn's model parameter (`null` → pass nothing),
+   - **Model and effort (ADR-008)**: resolve them with `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model clerk --json --project "$PWD"` and pass `result.model` as the spawn's model parameter, verbatim — never substitute the model you are running on (`null` → pass nothing),
      and `result.effort` as its effort parameter when it is not `null` and the spawn offers one.
      Missing key, `inherit`, or unreadable config → pass nothing and let the
      agent's own frontmatter decide; never guess a model.

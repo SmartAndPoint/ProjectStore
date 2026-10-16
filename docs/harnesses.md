@@ -93,7 +93,7 @@ Installation is user-global because Codex stores marketplace registrations and
 plugin caches in `CODEX_HOME`; the agents block in `AGENTS.md` remains
 project-local. Ordinary uninstall leaves the global plugin in place; add
 `--global` only when you mean to remove it for every project. A checkout's own
-build runs through the same flow: [`packaging/README.md`](../packaging/README.md#running-a-checkouts-build)
+build runs through the same flow: [`packaging/README.md`](https://github.com/SmartAndPoint/ProjectStore/blob/main/packaging/README.md#running-a-checkouts-build)
 has the tarball loop.
 
 `npx projectstore configure` changes Codex's settings as it does Claude Code's.

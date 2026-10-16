@@ -153,12 +153,18 @@ test("packaging contract 2: no package.json — the core's or a shell's — decl
 // every Node it promises and installs nothing beside itself.
 // The lint ADR ("Lint and format: ESLint and Prettier as pinned dev
 // dependencies; the published package stays dependency-free", decision 2)
-// keeps it so: the tools are devDependencies, which no consumer installs,
-// pinned exactly so an upgrade is a reviewed change.
-test("packaging: package.json declares no dependency of any kind, its tools are pinned devDependencies, and engines stays >=20.0.0", () => {
+// keeps it so: the tools are pinned exactly, so an upgrade is a reviewed
+// change. Since the PS-DIRECTORY story "Dev dependencies stay out of every
+// user's plugin copy: the plugin root carries no lockfile for Claude Code to
+// install from" they live in tools/lint/, a private package with its own
+// lockfile, and the root manifest declares no dependency at all: Claude Code
+// copies the repository for a git-channel install, and a root devDependency
+// beside a root lockfile was installed into every user's copy.
+test("packaging: package.json declares no dependency of any kind, the lint tools are pinned in tools/lint/, and engines stays >=20.0.0", () => {
   const pkg = readRootJson("package.json");
   for (const k of [
     "dependencies",
+    "devDependencies",
     "peerDependencies",
     "optionalDependencies",
     "bundleDependencies",
@@ -166,10 +172,62 @@ test("packaging: package.json declares no dependency of any kind, its tools are 
   ]) {
     assert.equal(pkg[k], undefined, `package.json declares ${k}`);
   }
-  assert.deepEqual(Object.keys(pkg.devDependencies).sort(), ["@eslint/js", "eslint", "eslint-plugin-n", "prettier"]);
-  for (const [name, v] of Object.entries(pkg.devDependencies))
-    assert.match(v, /^\d+\.\d+\.\d+$/, `${name} is pinned exactly`);
   assert.equal(pkg.engines.node, ">=20.0.0");
+
+  const tools = readRootJson("tools/lint/package.json");
+  assert.equal(tools.private, true, "tools/lint/ is private: nothing publishes it");
+  assert.equal(tools.version, undefined, "tools/lint/ carries no version for the guard to miss");
+  assert.deepEqual(Object.keys(tools.devDependencies).sort(), ["@eslint/js", "eslint", "eslint-plugin-n", "prettier"]);
+  for (const [name, v] of Object.entries(tools.devDependencies))
+    assert.match(v, /^\d+\.\d+\.\d+$/, `${name} is pinned exactly`);
+  // Its lockfile is the one `npm run lint:setup` installs from, and it agrees
+  // with the pins: the run is reproducible.
+  const lock = readRootJson("tools/lint/package-lock.json");
+  assert.deepEqual(lock.packages[""].devDependencies, tools.devDependencies);
+  for (const [name, v] of Object.entries(tools.devDependencies))
+    assert.equal(lock.packages[`node_modules/${name}`]?.version, v, `the lockfile resolves ${name} to its pin`);
+  assert.equal(pkg.scripts["lint:setup"], "npm ci --prefix tools/lint");
+});
+
+// The same story, its first criterion. Claude Code installs a plugin's
+// packages whenever the plugin's root holds a package.json and a supported
+// lockfile, at install, at every update and at session start, and it cannot be
+// turned off. The git channel's plugin root is this repository's root, so it
+// holds no lockfile of any kind Claude Code reads, and the directory's
+// pre-submission checklist holds the same pair.
+test("packaging: the plugin root holds package.json and no lockfile for Claude Code to install from", () => {
+  const top = new Set(readdirSync(ROOT));
+  assert.ok(top.has("package.json"));
+  for (const lockfile of ["package-lock.json", "npm-shrinkwrap.json", "bun.lock", "bun.lockb"])
+    assert.ok(
+      !top.has(lockfile),
+      `${lockfile} at the repository root: Claude Code installs what it names into every git-channel user's plugin copy. ` +
+        `The lint tools' lockfile is tools/lint/package-lock.json (npm run lint:setup); delete the root one.`,
+    );
+});
+
+// Before `npm run lint:setup`, the lint and format scripts would die on Node's
+// raw "Cannot find module" (the A review, 2026-10-15). Their pre-scripts run
+// tools/lint/setup-check.mjs, which names the one command that fixes it.
+test("packaging: lint and format first check that the lint tools are installed, and name lint:setup when not", () => {
+  const scripts = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts;
+  for (const s of ["lint", "format", "format:check"])
+    assert.equal(scripts[`pre${s}`], "node tools/lint/setup-check.mjs", `pre${s} runs the check`);
+  const dir = mkdtempSync(join(tmpdir(), "ps-lint-setup-"));
+  try {
+    copyFileSync(join(ROOT, "tools", "lint", "setup-check.mjs"), join(dir, "setup-check.mjs"));
+    const bare = spawnSync(process.execPath, [join(dir, "setup-check.mjs")], { encoding: "utf8" });
+    assert.equal(bare.status, 1, "no tools installed: the check fails");
+    assert.match(bare.stderr, /npm run lint:setup/);
+    for (const bin of ["eslint/bin/eslint.js", "prettier/bin/prettier.cjs"]) {
+      mkdirSync(dirname(join(dir, "node_modules", bin)), { recursive: true });
+      writeFileSync(join(dir, "node_modules", bin), "");
+    }
+    const ready = spawnSync(process.execPath, [join(dir, "setup-check.mjs")], { encoding: "utf8" });
+    assert.equal(ready.status, 0, ready.stderr);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // The lint ADR, decision 4: a Node-floor finding kept rather than replaced
@@ -191,7 +249,14 @@ test("lint: every disable of a Node-floor rule gives its reason", () => {
     treeFiles(join(ROOT, dir))
       .filter((f) => f.endsWith(".mjs"))
       .map((f) => `${dir}/${f}`);
-  const files = [...mjs("bin"), ...mjs("scripts"), ...mjs("packaging"), ...mjs("tests"), "eslint.config.mjs"];
+  const files = [
+    ...mjs("bin"),
+    ...mjs("scripts"),
+    ...mjs("packaging"),
+    ...mjs("tests"),
+    "eslint.config.mjs",
+    "tools/lint/eslint.config.mjs",
+  ];
   files.push(
     ...readdirSync(join(ROOT, "hooks"))
       .filter((f) => f.endsWith(".mjs"))
@@ -245,65 +310,30 @@ test("packaging contract 3b: a checkout missing a required manifest fails, not p
   assert.match(result.error, /package\.json: missing/);
 });
 
-test("packaging contract 3c: a lockfile left behind by a bump fails the guard, at either of its two versions", () => {
-  // package-lock.json is committed since the lint ADR and records the root
-  // package's version twice: `version` and `packages[""].version`.
+test("packaging contract 3c: the guard reads no lockfile, and a root without one passes it", () => {
+  // From the lint ADR until the PS-DIRECTORY story "Dev dependencies stay out
+  // of every user's plugin copy…", the root's package-lock.json recorded the
+  // root package's version twice and the guard read both. The root holds no
+  // lockfile now (the test above refuses one), and tools/lint/'s carries no
+  // version, so the guard has no lockfile site: one it required would fail
+  // every checkout, and one it read would keep a lockfile at the root alive.
   const scratch = mkdtempSync(join(tmpdir(), "ps-guard-lock-"));
-  for (const rel of [
-    "package.json",
-    ".claude-plugin/plugin.json",
-    ".claude-plugin/marketplace.json",
-    "package-lock.json",
-  ]) {
+  for (const rel of ["package.json", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"]) {
     mkdirSync(dirname(join(scratch, rel)), { recursive: true });
     copyFileSync(join(ROOT, rel), join(scratch, rel));
   }
   const agreed = checkVersions({ root: scratch });
   assert.equal(agreed.ok, true, JSON.stringify(agreed));
-  assert.equal(
-    agreed.checked.filter((c) => c.file === "package-lock.json").length,
-    2,
-    "both lockfile versions are checked",
+  assert.deepEqual(
+    agreed.checked.filter((c) => /(^|\/)package-lock\.json$/.test(c.file)),
+    [],
+    "no lockfile is a version site",
   );
-
-  const lock = join(scratch, "package-lock.json");
-  const good = readFileSync(lock, "utf8");
-  const mutate = (fn) => {
-    const j = JSON.parse(good);
-    fn(j);
-    writeFileSync(lock, JSON.stringify(j, null, 2) + "\n");
-    const r = checkVersions({ root: scratch });
-    writeFileSync(lock, good);
-    return r;
-  };
-  for (const [where, fn] of [
-    [
-      "version",
-      (j) => {
-        j.version = "0.0.0-stale";
-      },
-    ],
-    [
-      'packages[""].version',
-      (j) => {
-        j.packages[""].version = "0.0.0-stale";
-      },
-    ],
-  ]) {
-    const r = mutate(fn);
-    assert.equal(r.ok, false, `a stale lockfile ${where} must fail the guard`);
-    assert.equal(r.error, "version mismatch");
-    assert.ok(r.versions.includes("0.0.0-stale"), where);
-  }
-  assert.match(
-    mutate((j) => {
-      delete j.packages;
-    }).error,
-    /package-lock\.json: no version found/,
+  assert.deepEqual(
+    checkVersions({ root: ROOT }).checked.filter((c) => /(^|\/)package-lock\.json$/.test(c.file)),
+    [],
+    "nor in the repository itself",
   );
-
-  rmSync(lock);
-  assert.match(checkVersions({ root: scratch }).error, /package-lock\.json: missing/);
   rmSync(scratch, { recursive: true, force: true });
 });
 
@@ -313,12 +343,7 @@ test("packaging contract 3d: a version without its release notes fails the guard
   // heading and nothing under it (0.28.0's "tagged without release notes"),
   // is refused before the tag rather than on it.
   const scratch = mkdtempSync(join(tmpdir(), "ps-guard-notes-"));
-  for (const rel of [
-    "package.json",
-    ".claude-plugin/plugin.json",
-    ".claude-plugin/marketplace.json",
-    "package-lock.json",
-  ]) {
+  for (const rel of ["package.json", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"]) {
     mkdirSync(dirname(join(scratch, rel)), { recursive: true });
     copyFileSync(join(ROOT, rel), join(scratch, rel));
   }

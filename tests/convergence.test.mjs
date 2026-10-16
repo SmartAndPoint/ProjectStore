@@ -382,7 +382,7 @@ test("converge rule 6, the deferral (as the setup story's rule 17 words it): one
   );
   assert.equal(
     switchConsequence(),
-    "this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by npx projectstore setup",
+    "this project stops loading the git-marketplace copy, and that copy's updates no longer reach it — from now on it is updated by npx projectstore setup",
   );
   assert.deepEqual(advised("prose", []), { reason: "prose", advice: { text: "prose", blocks: [] } });
   assert.equal(
@@ -1004,7 +1004,7 @@ test("converge rule 9 (2026-10-14): copyBehind ranks by semver precedence, rc in
   const plain = behindAdvice(copy("0.29.0"), "0.30.3");
   assert.equal(
     plain,
-    "projectstore@SmartAndPoint 0.29.0 is older than this package (0.30.3): until it updates, the agents block and anything else this run writes for the project are at 0.30.3, and its own doctor may call the block stale. Update it (in Claude Code: /plugin marketplace update, then /plugin update, then restart).",
+    "projectstore@SmartAndPoint 0.29.0 is older than this package (0.30.3): until it updates, the agents block and anything else this run writes for the project are at 0.30.3, and its own doctor may call the block stale. Update it (in Claude Code: open /plugin manage and choose Update now on projectstore, then run /reload-plugins to load it).",
   );
   assert.match(
     behindAdvice(copy("0.29.0"), "0.30.3", { step: true }),

@@ -33,6 +33,7 @@ import { checkOverlays, checkEnvEffort } from "../scripts/doctor.mjs";
 import { ALT_OFF, PLAIN } from "../scripts/term.mjs";
 import { run } from "../scripts/cli.mjs";
 import { renderCodexAdapter } from "../scripts/build-adapters.mjs";
+import { SHELLS, SHELLS_DIR } from "../packaging/shells.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -642,4 +643,52 @@ test("effort AC: every text that spawns an agent passes the resolved effort; no 
   for (const f of ["README.md", "AGENTS.md", "scripts/build-adapters.mjs", "scripts/doctor.mjs"])
     for (const re of stale) if (re.test(read(join(ROOT, f)))) hits.push(`${f}: ${re}`);
   assert.deepEqual(hits, []);
+});
+
+// "If the result names a model, pass that model" let a parent read "that model"
+// as its own: on gpt-5.6-sol at low it passed its own slug in 2 of 3 runs from
+// npm 0.30.5 (the story "Codex role skills pass the model the core names,
+// verbatim", PS-HARNESS). So every role skill, the committed one and the Codex
+// shell's copy, names the two fields, says what null means for each, and says
+// not to substitute the running model. It names no example model either: an
+// example is one more name a parent could pass instead of `result.model`.
+test("Codex role skills pass `result.model` and `result.effort` verbatim, never the running model", () => {
+  const flat = (t) => t.replace(/\s+/g, " ");
+  const roles = readdirSync(join(ROOT, "agents"))
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => f.slice(0, -".md".length));
+  assert.ok(roles.length > 0, "no role, so this test would prove nothing");
+  const trees = [
+    CODEX.output_dir,
+    ...SHELLS.filter((s) => s.harness === CODEX.id && s.plugin_root).map((s) => join(SHELLS_DIR, s.name)),
+  ];
+  assert.equal(trees.length, 2, "the adapter and the Codex shell");
+  const effort = CODEX.agent_translation.effort.spawn_param;
+  // Every slug the Codex manifest names (its cheap model and its static list)
+  // and every slug of the measured catalog above.
+  const slugs = [
+    CODEX.agent_translation.cheap_model,
+    ...(CODEX.agent_translation.models.static || []).map((m) => m.id),
+    ...CATALOG.models.map((m) => m.slug),
+  ].filter(Boolean);
+  assert.ok(slugs.length > 0, "no slug to look for, so the no-example half would prove nothing");
+  for (const tree of trees)
+    for (const role of roles) {
+      const rel = join(tree, "skills", CODEX.surfaces.agents.rendered_name.replace("<name>", role), "SKILL.md");
+      const text = flat(read(join(ROOT, rel)));
+      const spawn = text.slice(text.indexOf("## Codex orchestration"), text.indexOf("## Role contract"));
+      assert.ok(spawn.length > 0, `${rel}: carries the orchestration section`);
+      assert.ok(text.includes("pass `result.model` exactly as `model`"), `${rel}: names result.model`);
+      assert.ok(text.includes("Never substitute your own model for it"), `${rel}: not the running model`);
+      assert.ok(text.includes("If `result.model` is `null`, pass no model at all"), `${rel}: null model`);
+      assert.ok(text.includes(`If \`result.effort\` is a string, pass it as \`${effort}\`, verbatim`), rel);
+      assert.ok(text.includes("If `result.effort` is `null`, pass none"), `${rel}: null effort`);
+      assert.doesNotMatch(spawn, /for example|e\.g\./i, `${rel}: no example in the spawn sentences`);
+      assert.deepEqual(
+        slugs.filter((slug) => spawn.includes(slug)),
+        [],
+        `${rel}: the spawn sentences name no model`,
+      );
+      assert.ok(!text.includes("If the result names a model, pass that model"), `${rel}: the old wording is gone`);
+    }
 });

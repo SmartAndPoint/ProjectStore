@@ -227,6 +227,7 @@
   "footer.span.3": "GitHub",
   "footer.span.6": "文档",
   "footer.a.1": "llms.txt",
+  "footer.privacy": "隐私",
   "meta.description": "ProjectStore 把项目的记录——决定了什么、进行中的是什么、检查过什么——以经过评审的 Markdown 保存在 git 中。它适用于 Claude Code、Codex、Gemini CLI 和 Cursor；你只需和智能体对话。",
   "nav.home": "ProjectStore 首页",
   "nav.aria-label.2": "主导航",

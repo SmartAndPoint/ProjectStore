@@ -7,7 +7,7 @@
     "email": "ekonev@smartandpoint.com",
     "url": "https://github.com/SmartAndPoint"
   },
-  "homepage": "https://github.com/SmartAndPoint/ProjectStore#readme",
+  "homepage": "https://projectstore.dev",
   "repository": "git+https://github.com/SmartAndPoint/ProjectStore.git",
   "license": "MIT",
   "keywords": [
@@ -38,7 +38,7 @@
       "Planning",
       "Peer review"
     ],
-    "websiteURL": "https://github.com/SmartAndPoint/ProjectStore#readme",
+    "websiteURL": "https://projectstore.dev",
     "defaultPrompt": [
       "Show the current ProjectStore status and work in progress.",
       "Capture this technical decision as a ProjectStore ADR.",

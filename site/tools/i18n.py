@@ -3,8 +3,9 @@
 and language.
 
     python3 tools/i18n.py build [--base-url https://projectstore.dev] [--strict]
-        Render every template in PAGES with every locales/<lang>.json. English, the default, lives at
-        the root (index.html, <slug>/index.html); every other language under <lang>/. The base URL
+        Render every template in PAGES with every locales/<lang>.json (a page with "langs" in those
+        only). English, the default, lives at the root (index.html, <slug>/index.html); every other
+        language under <lang>/. The base URL
         defaults to the site's own address, so hreflang, canonical and og:url links are absolute;
         --base-url "" renders them relative. The link-preview image is always absolute.
 
@@ -46,11 +47,14 @@ SRC = os.path.join(ROOT, "src")
 LOCALES = os.path.join(ROOT, "locales")
 # The pages, in a fixed order (the order of locales/en.json): each template in src/ and the folder its
 # pages live in, under the root for English and under <lang>/ for the others. "" is the language root.
+# A page with "langs" is built in those languages only: the privacy page is English for now, so it
+# carries no data-i18n key of its own, and every page links it at the site root (SHARED_PAGES).
 PAGES = [
     {"kind": "main", "src": "index.html", "slug": ""},
     {"kind": "how-it-works", "src": "how-it-works.html", "slug": "how-it-works"},
     {"kind": "why-it-works", "src": "why-it-works.html", "slug": "why-it-works"},
     {"kind": "one-vault", "src": "one-vault.html", "slug": "one-vault"},
+    {"kind": "privacy", "src": "privacy.html", "slug": "privacy", "langs": ["en"]},
 ]
 # The site's own address: hreflang and canonical links are rendered under it by default.
 BASE_URL = "https://projectstore.dev"
@@ -73,6 +77,17 @@ LANGS = [
 ]
 DEFAULT = "en"
 COOKIE = "ps_lang"
+
+
+def page_langs(page):
+    """The languages a page is built in: its own "langs", else every language in LANGS order."""
+    only = page.get("langs")
+    return [c for c, _, _ in LANGS if not only or c in only]
+
+
+# The folders of the pages that are not built in every language: a link to one is written from the
+# site root, like a shared file, so /ru/ reaches /privacy/ and not a /ru/privacy/ that does not exist.
+SHARED_PAGES = [p["slug"] + "/" for p in PAGES if p.get("langs") and p["slug"]]
 
 # Keys that the build uses but that do not live in the template.
 SPECIAL = {"_lang.label": "Language"}
@@ -364,9 +379,11 @@ def preview_tags(out, code, slug, base_url):
     ])
 
 
-def alternates(code, slug, base_url):
+def alternates(code, slug, base_url, langs=None):
     lines = []
     for c, _, tag in LANGS:
+        if langs is not None and c not in langs:
+            continue
         lines.append(f'<link rel="alternate" hreflang="{tag}" href="{page_url(c, code, slug, base_url)}">')
     lines.append(f'<link rel="alternate" hreflang="x-default" href="{page_url(DEFAULT, code, slug, base_url)}">')
     lines.append(f'<link rel="canonical" href="{page_url(code, code, slug, base_url)}">')
@@ -437,10 +454,19 @@ def asset_versions():
 #   - a page (./, ./#start, how-it-works/ …): one "../" per level below the *language* root, so a link on
 #     a Russian page stays Russian.
 # "./" alone, the main page, becomes the prefix itself.
-REL_URL = re.compile(r"""(\s(?:href|src)=)(["'])(?!#|[a-zA-Z][a-zA-Z0-9+.-]*:|/|\.\./)(\./(?=["'#?]))?((?:assets/|llms)?)""")
+REL_URL = re.compile(
+    r"""(\s(?:href|src)=)(["'])(?!#|[a-zA-Z][a-zA-Z0-9+.-]*:|/|\.\./)(\./(?=["'#?]))?((?:assets/|llms"""
+    + "".join("|" + re.escape(p) for p in SHARED_PAGES)
+    + r""")?)"""
+)
 
 
-def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn):
+def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn, langs=None):
+    """One page. `langs`: the languages its page is built in (page_langs). A page in one language only
+    lists itself as its alternate, shows no switcher and never redirects: there is no other page to
+    send a visitor to."""
+    langs = langs or [c for c, _, _ in LANGS]
+    single = len(langs) == 1
     reps = []
     for key, el in inner_keys.items():
         val = d.get(key)
@@ -477,10 +503,12 @@ def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn):
 
     out = REL_URL.sub(rel, out)
     out = out.replace(
-        "<!--i18n:alternates-->", alternates(code, slug, base_url) + "\n" + preview_tags(out, code, slug, base_url)
+        "<!--i18n:alternates-->", alternates(code, slug, base_url, langs) + "\n" + preview_tags(out, code, slug, base_url)
     )
-    out = out.replace("<!--i18n:switcher-->", switcher(code, slug, d.get("_lang.label") or SPECIAL["_lang.label"]))
-    out = out.replace("<!--i18n:redirect-->", redirect_script(slug) if code == DEFAULT else "")
+    out = out.replace(
+        "<!--i18n:switcher-->", "" if single else switcher(code, slug, d.get("_lang.label") or SPECIAL["_lang.label"])
+    )
+    out = out.replace("<!--i18n:redirect-->", redirect_script(slug) if code == DEFAULT and not single else "")
     return out
 
 
@@ -495,11 +523,12 @@ def cmd_build(args):
     for page, (_, src) in zip(PAGES, sources):
         tree = parse(src)
         inner_keys, attr_keys = collect(src, tree)
-        for code, _, _ in LANGS:
+        langs = page_langs(page)
+        for code in langs:
             d = dicts[code]
             if d is None:
                 continue
-            out = render(src, inner_keys, attr_keys, code, page["slug"], d, en, args.base_url, warn)
+            out = render(src, inner_keys, attr_keys, code, page["slug"], d, en, args.base_url, warn, langs)
             rel = page_path(code, page["slug"]) + "index.html"
             path = os.path.join(ROOT, rel)
             os.makedirs(os.path.dirname(path), exist_ok=True)

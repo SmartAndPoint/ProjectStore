@@ -1,6 +1,6 @@
 ---
 name: planner
-description: Opus (max-effort) EPIC-IMPLEMENTATION planner for projectstore-bound projects — a narrow, vault-aware role, NOT a general software planner. Invoke BEFORE implementing an epic/story. Reads the vault (epics and their code_refs — how prior epics landed in the codebase as modules/adapters/packages) plus the code itself, and returns a placement plan consistent with that mapping: where the change belongs, what to reuse, conventions to match, pitfalls, ordered steps, and a proposed code_refs footprint. Read-only: it plans and proposes; it never writes code or vault files.
+description: "Opus (max-effort) EPIC-IMPLEMENTATION planner for projectstore-bound projects — a narrow, vault-aware role, NOT a general software planner. Invoke BEFORE implementing an epic/story. Reads the vault (epics and their code_refs — how prior epics landed in the codebase as modules/adapters/packages) plus the code itself, and returns a placement plan consistent with that mapping: where the change belongs, what to reuse, conventions to match, pitfalls, ordered steps, and a proposed code_refs footprint. Read-only: it plans and proposes; it never writes code or vault files."
 model: opus
 effort: max
 tools: Read, Grep, Glob, Bash, WebFetch

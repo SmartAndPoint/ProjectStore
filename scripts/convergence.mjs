@@ -20,6 +20,10 @@
 //   newerCopyDeferral({ copy, running, decision, harness, pin })
 //                                     → a newer copy not switched off: { reason, advice }
 //   switchConsequence()               → a switch row's consequence line (rule 2)
+//   directoryConsequence(display), directoryKeepConsequence(display, key)
+//                                     → an npm registration over a directory copy,
+//                                       and the keep of that copy (PS-DIRECTORY)
+//   copyOrigin(copy), DIRECTORY        → where a kept or competing copy comes from
 //   switchReason({ copy, running, runs, decision, unbound })
 //                                     → what a switch row adds under the channel "npm"
 //   noCopyToKeep({ harness, surface, off }) → the channel "git" with nothing to keep
@@ -57,6 +61,8 @@ import {
   envFlag,
   isEphemeralRoot,
   COPY_UPDATE_STEPS,
+  SYNCED_UPDATE_STEPS,
+  isSyncedCopy,
 } from "./lib.mjs";
 import { loadHarness, loadHarnesses } from "./harness.mjs";
 import { analysePortableRegistration, portableRegistrationPaths } from "./portable-registration.mjs";
@@ -120,7 +126,9 @@ const within = (root, dir) => {
 // Doctor keeps installChannel's answers; only these two checks read this.
 export function hostCopyRoot(root, { home = homedir(), env = process.env } = {}) {
   if (!root) return false;
-  if (["registration", "marketplace"].includes(installChannel(root, { home }))) return true;
+  // A copy synced from claude.ai (Anthropic's directory) is one too: claude.ai
+  // updates it (the install spec, contract 21, rule 2).
+  if (["registration", "marketplace", "synced"].includes(installChannel(root, { home }))) return true;
   for (const m of loadHarnesses().values()) {
     for (const s of Object.values(m.surfaces || {})) {
       if (s?.kind !== "registration") continue;
@@ -153,7 +161,9 @@ export const updateCheckOff = (env) => envFlag(env, NO_CHECK_ENV);
 // - a host plugin registration: contract 12's rows, one per key — the row the
 //   host loads here (lib's projectCopiesByKey, the same rows the registration's
 //   competing copies are read from) — of any marketplace: the npm
-//   registration's row and a git-marketplace copy alike. Under channel "git"
+//   registration's row and a git-marketplace copy alike, and a copy synced
+//   from claude.ai (Anthropic's directory) while no copy of another origin is
+//   enabled here — Claude Code loads any of them over it. Under channel "git"
 //   none: that run renders nothing for it;
 // - a portable registration: the global registration's recorded version,
 //   when it is effectively enabled for this project.
@@ -170,7 +180,10 @@ export function runningCopies(
       if (key.startsWith("_") || s?.kind !== "registration") continue;
       if (s.format === "host-plugin-registration") {
         if (channel === "git") continue;
-        for (const e of projectCopiesByKey(home, projectDir)) {
+        const rows = projectCopiesByKey(home, projectDir);
+        const shadowed = rows.some((e) => !e.synced);
+        for (const e of rows) {
+          if (e.synced && shadowed) continue;
           if (typeof e.version === "string" && e.version)
             out.push({ harness: id, key: e.key, version: e.version, path: e.path, scope: e.scope, own: e.own });
         }
@@ -437,17 +450,22 @@ export function pinFor(root, version) {
 // npm` and `--channel git`, each alone on its line (a `|` copied into a shell
 // is a pipe). Each names `@<version>` when the pin says so (pinFor), and
 // never --project (the ADR's decision 5).
-// - `gate` ({ args: { harnesses }, keys, version }): the channel gate's text
-//   (rule 2), for a switch planned under no channel answer without a
-//   terminal, the run's own --harness repeated in each command. setup takes
-//   no --surface, so a narrowed run's --surface is not repeated. A block with
-//   no lead follows the one before it.
+// - `gate` ({ args: { harnesses }, keys, directory, version }): the channel
+//   gate's text (rule 2), for a switch planned under no channel answer
+//   without a terminal, the run's own --harness repeated in each command.
+//   `keys` are the git-marketplace copies a switch turns off, `directory` the
+//   synced copies an npm registration loads over (PS-DIRECTORY): each named
+//   by where it comes from. setup takes no --surface, so a narrowed run's
+//   --surface is not repeated. A block with no lead follows the one before it.
 // - otherwise, a newer copy that is not switched off (rule 6), for `harness`:
 //   keeping it lets that copy write this project's surfaces (the keep), and
 //   switching runs this older package — both named, after the terminal run.
 export function channelChoices({ harness = null, copy = null, running = null, gate = null, pin = null } = {}) {
   if (gate) {
-    const from = gate.keys?.length ? ` (${gate.keys.join(", ")})` : "";
+    const named = (where, keys) => (keys?.length ? `${where} (${keys.join(", ")})` : null);
+    const from =
+      [named("the git marketplace", gate.keys), named(DIRECTORY, gate.directory)].filter(Boolean).join(" and ") ||
+      "the git marketplace";
     const run = (extra = "") =>
       coreCommand("setup", {
         version: gate.version || null,
@@ -455,7 +473,7 @@ export function channelChoices({ harness = null, copy = null, running = null, ga
       });
     return [
       {
-        lead: `Nothing written: this project loads ${PACKAGE} from the git marketplace${from}, and moving it to the npm install is a choice made at a terminal in this project:`,
+        lead: `Nothing written: this project loads ${PACKAGE} from ${from}, and moving it to the npm install is a choice made at a terminal in this project:`,
         command: run(),
       },
       { lead: "Without a terminal, name the channel:", command: run("--channel npm") },
@@ -482,7 +500,8 @@ export function channelChoices({ harness = null, copy = null, running = null, ga
 // The rows name both versions and the case, then the ways out.
 export function newerCopyDeferral({ copy, running, decision, harness, pin = null }) {
   const c = proceedCase(decision, copy.version);
-  const text = `this project runs a newer copy (${copy.key} ${copy.version}) than this package (${running}), so it is not switched off${c ? ` — ${c}` : ""}.`;
+  const not = isSyncedCopy(copy) ? "the npm install is not registered over it" : "it is not switched off";
+  const text = `this project runs a newer copy (${copy.key} ${copy.version}) than this package (${running}), so ${not}${c ? ` — ${c}` : ""}.`;
   return advised(text, channelChoices({ harness, copy, running, pin }));
 }
 
@@ -493,7 +512,23 @@ export function newerCopyDeferral({ copy, running, decision, harness, pin = null
 // setup's, in the core form and unpinned (the setup story, rule 17): what
 // updates the project from now on is whichever version runs it next.
 export function switchConsequence() {
-  return `this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by ${coreCommand("setup")}`;
+  return `this project stops loading the git-marketplace copy, and that copy's updates no longer reach it — from now on it is updated by ${coreCommand("setup")}`;
+}
+
+// Where a copy of ours from another channel comes from, in a person's words.
+export const DIRECTORY = "Anthropic's directory";
+export const copyOrigin = (copy) => (isSyncedCopy(copy) ? DIRECTORY : "the git marketplace");
+
+// The consequence line of an npm registration over a copy synced from
+// claude.ai (PS-DIRECTORY, "Setup and install keep a directory copy…",
+// decision 4): never a switch — Claude Code loads the installed copy over the
+// synced one by its own precedence, so nothing is turned off — and of the keep
+// of that copy, setup's other answer (decision 6). `display`: the host's name.
+export function directoryConsequence(display) {
+  return `${display} then loads the npm copy here, and reports the directory copy as not loaded`;
+}
+export function directoryKeepConsequence(display, key) {
+  return `${display} keeps loading ${key}, updated from claude.ai; setup refreshes this project's files through that copy`;
 }
 
 // The words a switch row adds under the channel "npm" (rules 2 and 6): over a
@@ -501,6 +536,7 @@ export function switchConsequence() {
 // found, and that the project will run the older one; for a project not bound
 // yet, that the switch is recorded once it is.
 export function switchReason({ copy, running, runs = running, decision, unbound = false }) {
+  const off = isSyncedCopy(copy) ? "loading the npm copy over it" : "turning it off";
   const parts = [];
   // Against what the project runs once the copy is off (`runs`: the shared
   // directory's version when another checkout wrote a newer one), not against
@@ -509,7 +545,7 @@ export function switchReason({ copy, running, runs = running, decision, unbound 
   if (copy && typeof copy.version === "string" && runs && cmpPrecedence(copy.version, runs) > 0) {
     const c = proceedCase(decision, copy.version);
     parts.push(
-      `${copy.key} ${copy.version} is newer than this package (${running})${c ? ` — ${c}` : ""}; turning it off runs this project on the older ${runs}`,
+      `${copy.key} ${copy.version} is newer than this package (${running})${c ? ` — ${c}` : ""}; ${off} runs this project on the older ${runs}`,
     );
   }
   if (unbound) parts.push("the project is not bound yet: the switch is recorded in its binding once it is");
@@ -655,14 +691,21 @@ export function behindAdvice(copy, version, { step = false } = {}) {
   const middle = step
     ? `its own upgrade runs after this run's agents block and may plan the block back to its own version; until it updates, its doctor may call the block stale, and the next run may plan the block again`
     : `until it updates, the agents block and anything else this run writes for the project are at ${version}, and its own doctor may call the block stale`;
-  return `${head}: ${middle}. Update it (${COPY_UPDATE_STEPS}).`;
+  const update = isSyncedCopy(copy)
+    ? `${SYNCED_UPDATE_STEPS[0].toUpperCase()}${SYNCED_UPDATE_STEPS.slice(1)}.`
+    : `Update it (${COPY_UPDATE_STEPS}).`;
+  return `${head}: ${middle}. ${update}`;
 }
 
 // This checkout's npm registration enabled beside the kept copy: the keep
 // changes no registration, so it stays; its uninstall (rule 4) drops it.
-export function npmRowBeside({ harness, id, surface }) {
+// A kept directory copy does not load while it stays: the installed copy wins.
+export function npmRowBeside({ harness, id, surface, copy = null }) {
+  const stays = isSyncedCopy(copy)
+    ? `stays enabled, and ${harness.display_name} loads it over the kept directory copy until it goes`
+    : "stays enabled beside the kept copy";
   return {
-    lead: `This checkout's npm registration (${id}) stays enabled beside the kept copy. To drop it, from a terminal in this project:`,
+    lead: `This checkout's npm registration (${id}) ${stays}. To drop it, from a terminal in this project:`,
     command: coreCommand("uninstall", { args: runArgs({ harnesses: [harness.id], surfaces: [surface] }) }),
   };
 }

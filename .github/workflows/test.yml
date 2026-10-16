@@ -36,6 +36,15 @@ jobs:
       - name: Manifest versions agree
         run: node scripts/version-guard.mjs
 
+      # Anthropic's directory checks the plugin's files on every version it
+      # picks up (the pre-submission checklist): the file count, sizes and
+      # kinds, names, links, the README and license, package sources,
+      # credentials and the components' front matter. The packed tree, which the directory branch carries, is
+      # held to those rules here, where a breach fails the merge instead of
+      # holding a version in the portal days later.
+      - name: The packed tree keeps the directory's file rules
+        run: node packaging/directory-guard.mjs
+
       # The public site's pages are generated from the templates in site/src/ and
       # site/locales/*.json by site/tools/i18n.py and committed. Rebuilding
       # them here must change nothing: a page edited by hand, a template edit
@@ -59,9 +68,10 @@ jobs:
       - name: Test suite, including the packaging contracts
         run: node --test --import ./tests/fixtures/hermetic.mjs tests/*.test.mjs
 
-  # ESLint and Prettier (the lint ADR): pinned devDependencies, installed from
-  # the committed lockfile. The test job above installs nothing; this one runs
-  # once, on Node 24, since ESLint 10 needs ^20.19, ^22.13 or >=24.
+  # ESLint and Prettier (the lint ADR): pinned in tools/lint/, a package of
+  # their own with its own committed lockfile, so the plugin root carries none
+  # for Claude Code to install from. The test job above installs nothing; this
+  # one runs once, on Node 24, since ESLint 10 needs ^20.19, ^22.13 or >=24.
   lint:
     runs-on: ubuntu-latest
     name: lint (node 24)
@@ -74,7 +84,8 @@ jobs:
         with:
           node-version: "24"
 
-      - run: npm ci
+      - name: Install the lint tools (npm ci in tools/lint)
+        run: npm run lint:setup
 
       - name: Lint
         run: npm run lint

@@ -49,11 +49,9 @@ const VERSION_SITES = [
   // version the moment the marketplace lists more than one, and reports the
   // disagreement against the wrong file.
   [".claude-plugin/marketplace.json", (j) => j.plugins?.find((p) => p.name === "projectstore")?.version, true],
-  // The lockfile, committed since the lint ADR, records the root package's
-  // version twice. `npm version` rewrites both; a hand edit of package.json
-  // leaves both behind, and this is where that shows.
-  ["package-lock.json", (j) => j.version, true],
-  ["package-lock.json", (j) => j.packages?.[""]?.version, true],
+  // No package-lock.json: the root holds none since the lint toolchain moved to
+  // tools/lint/ (the PS-DIRECTORY story "Dev dependencies stay out of every
+  // user's plugin copy"), and tools/lint/'s own lockfile carries no version.
 ];
 
 // The distribution shells (the shells ADR; layout spec contract 11): one
@@ -271,8 +269,14 @@ export const NOT_SHIPPED = new Set([
   "packaging", // reserved-name stubs; see packaging/README.md
   "adapters", // generated harness inputs copied into their distribution shells at build time
   "site", // the public site: Pages serves it, npm never does
+  // A root lockfile is refused by tests/packaging.test.mjs; listed so a stray
+  // one fails that test rather than this tree check.
   "package-lock.json",
   // The lint and format tooling (the lint ADR): dev-only, never in the package.
+  // tools/lint/ holds the tools' package.json, lockfile and config; the root's
+  // eslint.config.mjs re-exports that config. Dev-only: nothing under tools/
+  // ships, so a future tools/<x> meant to ship needs its own entry in `files`.
+  "tools",
   "eslint.config.mjs",
   ".prettierrc.json",
   ".prettierignore",

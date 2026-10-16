@@ -227,6 +227,7 @@
   "footer.span.3": "GitHub",
   "footer.span.6": "Documentación",
   "footer.a.1": "llms.txt",
+  "footer.privacy": "Privacidad",
   "meta.description": "ProjectStore guarda el registro de tu proyecto —qué se decidió, qué está en curso, qué se comprobó— como Markdown revisado en git. Funciona con Claude Code, Codex, Gemini CLI y Cursor; solo hablas con tu agente.",
   "nav.home": "ProjectStore, inicio",
   "nav.aria-label.2": "Navegación principal",

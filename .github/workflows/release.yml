@@ -25,8 +25,12 @@ name: release
 # hand drifted three times — the last time seven tags, v0.29.3 to v0.30.4, went
 # out with none, and the repository page and the README's badge said v0.29.2
 # while npm served 0.30.4. What a user then sees on every surface is checked by
-# surfaces.yml, a workflow of its own, so this run's colour keeps meaning
-# "published".
+# surfaces.yml, a workflow of its own, so this run's colour means "published,
+# and the directory branch moved".
+
+# And, for a stable release, the `directory` branch Anthropic's directory
+# tracks: the core's packed tree as its next commit (PS-DIRECTORY: "The
+# maintainer submits ProjectStore through the developer portal…").
 on:
   push:
     tags: ["v*"]
@@ -169,7 +173,7 @@ jobs:
     if: ${{ !cancelled() && needs.core.result == 'success' && (needs.shells.result == 'success' || needs.shells.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write # gh release create: the one contents: write in this workflow
+      contents: write # gh release create: one of the two contents: write in this workflow, with the directory job's
     steps:
       - uses: actions/checkout@v4
         with:
@@ -196,3 +200,43 @@ jobs:
             next) gh release create "$TAG" --verify-tag --prerelease --latest=false --title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md" ;;
             *) echo "::error::no dist-tag from the core job (\"${DIST_TAG}\"); a release would be guessed"; exit 1 ;;
           esac
+
+  # The directory branch, after the core publish, for a stable release only:
+  # a release candidate never reaches the directory's users. Its tree is the
+  # core's npm packlist, packed from this checkout as the core job packed it
+  # and held to tests/fixtures/packlist.json; packaging/directory-branch.mjs
+  # commits it as the next commit on `directory` (an orphan when the branch is
+  # missing) and pushes. A tree equal to the branch's head commits nothing, so
+  # re-running the tag recovers this job too, and an older tag never moves the
+  # branch back. The token reaches git in the remote URL inside the script;
+  # the checkout keeps persist-credentials: false. The tree carries no
+  # .github/, so the push starts no workflow.
+  #
+  # .claude-plugin/marketplace.json stays in the tree (no --strip) until the
+  # first Validate in the developer portal answers the story's open question.
+  directory:
+    needs: core
+    if: ${{ needs.core.result == 'success' && needs.core.outputs.disttag == 'latest' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # git push to the directory branch: one of the two contents: write in this workflow, with github-release's
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - run: npm install -g npm@11.11.0
+
+      - name: The packed tree, as the next commit on the directory branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.core.outputs.version }}
+          GIT_AUTHOR_NAME: "github-actions[bot]"
+          GIT_AUTHOR_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+          GIT_COMMITTER_NAME: "github-actions[bot]"
+          GIT_COMMITTER_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+        run: node packaging/directory-branch.mjs --version "${VERSION}"

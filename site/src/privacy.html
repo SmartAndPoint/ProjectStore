@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--i18n:redirect-->
+<title>Privacy — ProjectStore</title>
+<meta name="description" content="ProjectStore has no server, no account and no telemetry. What the plugin sends, where and when; what stays on your machine; what Anthropic's plugin directory reports; and how to reach the maintainer.">
+<meta name="theme-color" content="#080d19">
+<link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<link rel="stylesheet" href="assets/style.css">
+<!--i18n:include _tone.html-->
+<!--i18n:alternates-->
+</head>
+<body data-page="privacy">
+<!--i18n:include _sprite.html-->
+<!--i18n:include _header.html-->
+
+<main id="main" class="wrap page">
+
+<section class="page-hero" aria-labelledby="privacy-title">
+  <p class="crumb"><a href="./">.projectstore</a> / privacy</p>
+  <h1 id="privacy-title">No server. No account. <span class="acc">No telemetry.</span></h1>
+  <p class="lead">ProjectStore runs on your machine, inside Claude Code or Codex. It collects nothing about you, your project or your vault, and it has no server to send anything to. This page is the short form of the README section <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md#what-projectstore-runs-writes-sends-and-fetches">What ProjectStore runs, writes, sends and fetches</a>.</p>
+</section>
+
+<section class="sec" id="sent" aria-labelledby="privacy-sent-title">
+  <div class="section-label">What is sent, where and when</div>
+  <h2 id="privacy-sent-title" class="visually-hidden">What is sent, where and when</h2>
+  <div class="prose">
+    <p><b>The npm registry</b>, <code>registry.npmjs.org</code> or the registry your npm is set to. Setup, install and upgrade ask it for the newest release of ProjectStore, with no credentials, when they run from npm or from a git checkout; never from the copy Claude Code or Codex loads, and never in a dry run. The answer is kept on your machine for 24 hours. Setting <code>PROJECTSTORE_NO_UPDATE_CHECK=1</code> turns the request off.</p>
+    <p><b>The same registry, for Codex.</b> When setup, install or upgrade sets up Codex, npm fetches the Codex plugin's package from the registry your npm is set to, with npm's own settings and with no install script run.</p>
+    <p><b>Anthropic's model list</b>, <code>api.anthropic.com</code>, or the address in <code>ANTHROPIC_BASE_URL</code> when that is set. Only the model menu of the configure command sends it, only when <code>ANTHROPIC_API_KEY</code> is set, and only when the list is missing or older than a day, or you ask to refresh it. The request carries your key in its header and nothing else of yours, and only model names, labels and families are kept, for a day.</p>
+    <p>ProjectStore's own code sends nothing else: the hooks, the MCP server, the band above the prompt and the status line open no connection, and every request above is made by a command you run. Two programs it runs may connect on their own. When the configure menu reads Codex's model list, Codex refreshes its catalog with your Codex login. The status line command you had before runs as you set it.</p>
+  </div>
+</section>
+
+<section class="sec" id="kept" aria-labelledby="privacy-kept-title">
+  <div class="section-label">What stays on your machine</div>
+  <h2 id="privacy-kept-title" class="visually-hidden">What stays on your machine</h2>
+  <div class="prose">
+    <p><b>Your vault</b> is plain Markdown in a folder you chose. Each artifact is written after you approve it. ProjectStore reads your git <code>user.name</code> to propose the default author; the binding keeps it, and each new artifact names it as its author, so it goes wherever the vault goes. The vault also keeps one small file per session, ignored by git, with its id, start time, project path, host name, process id and the vault files it read or edited last, with the tool and the time. A session's file is deleted at the next session start once it has been inactive for 24 hours.</p>
+    <p><b>Your project</b> gets a <code>.projectstore/</code> folder once it is bound, with the binding, the agents' models and each session's state, plus the agents block in <code>AGENTS.md</code> and <code>CLAUDE.md</code>. Its <code>.claude/settings.local.json</code> gets the status line when you turn it on, and this checkout's plugin registration when setup or install registers the npm copy. A project that is not bound gets nothing.</p>
+    <p><b>Your home directory</b> holds ProjectStore's cache, <code>~/.cache/projectstore/</code>, with the registry's answer, the model lists, which first-run welcomes you have seen, and the Codex package while a run installs it. Setup and install from npm also keep a <code>projectstore/</code> folder under <code>~/.claude</code> or <code>~/.codex</code>, with the marketplace the agent installs ProjectStore from.</p>
+    <p>None of this is sent anywhere by ProjectStore. What your coding agent reads and sends to its model provider is up to the agent, under its own terms and permissions.</p>
+  </div>
+</section>
+
+<section class="sec" id="directory" aria-labelledby="privacy-dir-title">
+  <div class="section-label">What Anthropic's directory reports</div>
+  <h2 id="privacy-dir-title" class="visually-hidden">What Anthropic's directory reports</h2>
+  <div class="prose">
+    <p>For a copy added from Anthropic's plugin directory, Claude, not ProjectStore, collects usage figures and shows the maintainer totals across accounts, computed once a day: installs, active accounts and retention; the share of accounts on each version; how often each skill, command, agent, hook and MCP server is used; load errors, and the MCP server's tool calls, errors and latency; and the listing's views and install clicks. Anthropic describes them in <a href="https://claude.com/docs/connectors/building/after-publishing#track-published-plugin-usage">Track published plugin usage</a>. A copy installed with npx, npm or the git marketplace is not counted.</p>
+  </div>
+</section>
+
+<section class="sec" id="site" aria-labelledby="privacy-site-title">
+  <div class="section-label">This site</div>
+  <h2 id="privacy-site-title" class="visually-hidden">This site</h2>
+  <div class="prose">
+    <p>projectstore.dev is static pages served by GitHub Pages. It has no analytics and loads nothing from another site; its fonts are its own files. It keeps two choices in your browser, and nowhere else: the language you pick, in a cookie named <code>ps_lang</code> for a year, and the background tone, under <code>ps_tone</code> in local storage. GitHub, which serves the pages, keeps its own server logs under the <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub General Privacy Statement</a>.</p>
+  </div>
+</section>
+
+<section class="sec" id="contact" aria-labelledby="privacy-contact-title">
+  <div class="section-label">Questions</div>
+  <h2 id="privacy-contact-title" class="visually-hidden">Questions</h2>
+  <div class="prose">
+    <p>Write to Evgenii Konev, SmartAndPoint, at <a href="mailto:ekonev@smartandpoint.com">ekonev@smartandpoint.com</a>, or open an issue at <a href="https://github.com/SmartAndPoint/ProjectStore/issues">github.com/SmartAndPoint/ProjectStore/issues</a>. This page changes in the repository, with its history in git.</p>
+  </div>
+</section>
+
+</main>
+
+<!--i18n:include _footer.html-->
+</body>
+</html>

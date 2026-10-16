@@ -80,6 +80,8 @@ import {
   readOverlayAt,
   layoutRoster,
   installChannel,
+  updateHint,
+  syncedPluginEntries,
   cmpPrecedence,
   cmpVersion,
   blockVisibleTo,
@@ -90,6 +92,7 @@ import {
   bindInherits,
   doctorFallbackText,
   fromTerminalIn,
+  COPY_UPDATE_STEPS,
 } from "./lib.mjs";
 import {
   agentOverrides,
@@ -103,8 +106,12 @@ import {
   invocation,
   harnessForOverlay,
   activeHarness,
+  hostRegistry,
+  autoUpdateDefault,
 } from "./harness.mjs";
-import { effortSpec } from "./models.mjs";
+// The pure reader, never models.mjs: that file holds a fetch, and the
+// SessionStart hook imports this one (the portability suite's hook fence).
+import { effortSpec } from "./model-spec.mjs";
 
 // A remedy used to interpolate the surface's harness variable here. It cannot:
 // measured 2026-09-06, NO harness gives its Bash tool that variable, and a
@@ -410,6 +417,7 @@ export function checkStatusline(cfg, proj, home = homedir(), harness = speakingH
       const m = curCmd.match(/"([^"]+statusline\.mjs)"/) || curCmd.match(/(\S+statusline\.mjs)/);
       const wiredRoot = m ? dirname(dirname(m[1])) : null;
       const isLauncher = m ? isLauncherPath(m[1]) : false;
+      const gone = isLauncher ? vanishedSyncedRoot(m[1], proj, home) : null;
       if (m && !existsSync(m[1])) {
         out.push(
           finding(
@@ -419,6 +427,21 @@ export function checkStatusline(cfg, proj, home = homedir(), harness = speakingH
             isLauncher
               ? `statusLine points at a generated launcher that no longer exists: ${m[1]} — run ${commandForm("statusline", { args: "on" })} to reinstall it; until then the next session start repoints the entry at the installed script.`
               : `statusLine points at a missing script (stale plugin path?): ${m[1]}`,
+          ),
+        );
+      } else if (gone) {
+        // A launcher written from a copy synced from claude.ai renders that
+        // copy; with sync turned off the host moves it to its trash folder,
+        // and the launcher falls back to the person's own status line.
+        const src = sourceHarness();
+        const r = hostRegistry(src) || {};
+        const trash = `~/${src.runtime?.home_default}/${(r.trash_dir || []).join("/")}/`;
+        out.push(
+          finding(
+            "install",
+            "warn",
+            "statusline",
+            `The status line launcher renders the copy from Anthropic's directory at ${gone}, and that copy is gone: the host moves a synced plugin to ${trash} when it is turned off on claude.ai, or when "${r.sync_setting}": false is in your user settings. Until a copy is back the launcher runs your own status line, or none. Two ways back: turn it on again (on claude.ai, or remove "${r.sync_setting}": false) and restart, or install projectstore through a channel of ours, ${fromTerminalIn(proj)}:\n${packageCommand([], "setup")}`,
           ),
         );
       } else if (m && isPluginCacheRoot(wiredRoot, home)) {
@@ -512,6 +535,27 @@ export function checkStatusline(cfg, proj, home = homedir(), harness = speakingH
     }
   } catch {}
   return out;
+}
+
+// The root a launcher of ours falls back to, when that root is a copy synced
+// from claude.ai that is no longer on disk and no other synced copy is: the
+// launcher then has nothing of ours to render. Null otherwise.
+// A synced copy vanishes into the host's trash folder (sync turned off, or
+// the plugin turned off on claude.ai). With no trash folder there is nothing
+// to name, and the launcher is not read: one existsSync on every SessionStart,
+// not a file read (the B review, 2026-10-15).
+function vanishedSyncedRoot(launcher, proj, home) {
+  const r = hostRegistry(sourceHarness());
+  if (!r?.trash_dir || !existsSync(join(claudeHome(home), ...r.trash_dir))) return null;
+  let root;
+  try {
+    root = JSON.parse(readFileSync(launcher, "utf8").match(/const FALLBACK_ROOT = ("(?:[^"\\]|\\.)*");/)[1]);
+  } catch {
+    return null;
+  }
+  if (installChannel(root, { home, harness: sourceHarness() }) !== "synced") return null;
+  if (existsSync(join(root, "scripts", "statusline.mjs"))) return null;
+  return syncedPluginEntries(home, proj).length ? null : root;
 }
 
 // The one-time offer after a plugin update (the story "Seamless upgrade from
@@ -1123,7 +1167,7 @@ export function checkPluginRegistration(
             "info",
             "plugin-registration",
             [
-              `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and a /plugin update no longer reaches the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it, ${fromTerminalIn(proj)}, outside the session:`,
+              `${key} (${row.version || "no version recorded"}) is off for this checkout: the npm registration turned it off when it registered, so the checkout no longer loads that copy and its updates no longer reach the project. ${old ? "Update that copy first — 0.27.x reads a moved project as unbound. " : ""}To go back to it, ${fromTerminalIn(proj)}, outside the session:`,
               packageCommand(h, "uninstall", { version: s.pkg || "latest", args: `--surface ${s.surface}` }),
               "Restart, then in the session:",
               invocation(loadHarness(h.id) || speaker, "doctor", { args: "--fix" }),
@@ -1228,7 +1272,10 @@ export function checkVersionDrift(home = homedir(), states = [], proj = null, { 
     // A disabled registration is not a copy anyone runs (contract 17, amended 2026-09-05).
     if (e.version && e.present && e.enabled !== false)
       seen.push({
-        source: `registry ${e.key}${e.scope ? " (" + e.scope + ")" : ""} at ${e.path}`,
+        // A synced copy has no registry row: its version is its own plugin.json's.
+        source: e.synced
+          ? `synced copy ${e.key} at ${e.path}`
+          : `registry ${e.key}${e.scope ? " (" + e.scope + ")" : ""} at ${e.path}`,
         version: e.version,
         harness: registryOf,
       });
@@ -1258,6 +1305,44 @@ export function checkVersionDrift(home = homedir(), states = [], proj = null, { 
         `projectstore is registered or installed at more than one version on this machine: ${list}. Update the older one${launcher}.`,
       ),
       subject,
+      speaker,
+    ),
+  ];
+}
+
+// A copy from Anthropic's directory that does not load (the PS-DIRECTORY
+// story "A copy installed from Anthropic's directory…", decision 5): Claude
+// Code loads an enabled copy of the same name from any other origin over a
+// synced one (the loading reference, "Name conflicts", item 5). Named with the
+// copy that loads and the way back, which is to turn that copy off, in its own
+// channel: the npm registration's uninstall, the host's disable for any other.
+// A checkout whose binding records the switch (`channel_switch`, written by
+// setup's npm answer) chose the npm copy over it: no info, as the git
+// copy's silenced-copy info goes under the mark (the B2 review).
+export function checkSyncedCopy(
+  proj,
+  { home = homedir(), harness = sourceHarness(), speaker = speakingHarness(), cfg = null } = {},
+) {
+  const r = hostRegistry(harness);
+  if (!r?.synced_dir || channelMark(cfg)) return [];
+  const copies = projectCopies(home, proj);
+  const synced = copies.find((e) => e.synced);
+  const loads = copies.find((e) => !e.synced);
+  if (!synced || !loads) return [];
+  const v = (e) => (e.version ? ` ${e.version}` : "");
+  const back =
+    installChannel(loads.path, { home, harness }) === "registration"
+      ? `remove the npm registration, ${fromTerminalIn(proj)}, outside the session:\n${packageCommand(harness, "uninstall", { version: "latest", args: `--surface ${r.surface}` })}`
+      : `turn ${loads.key} off in the session: /plugin → Installed, then disable ${loads.key}. Claude Code loads the directory copy at the next start.`;
+  return [
+    aboutHarness(
+      finding(
+        "install",
+        "info",
+        "synced-copy",
+        `${synced.key}${v(synced)}, from Anthropic's directory (${synced.path}), is not loaded in this project: Claude Code loads ${loads.key}${v(loads)} over it. To use the directory copy instead, ${back}`,
+      ),
+      harness,
       speaker,
     ),
   ];
@@ -1540,13 +1625,16 @@ export function layoutRemedy(
   });
   const channel = installChannel(root, { home, harness });
   if (channel === "registration") return npm(pluginVersion(root));
-  if (channel === "marketplace") return own(root);
+  // A copy synced from claude.ai runs its own bin too (contract 12, item 1, as
+  // widened by the PS-DIRECTORY story "A copy installed from Anthropic's
+  // directory…"): its channel is claude.ai's, never npm's.
+  if (channel === "marketplace" || channel === "synced") return own(root);
   // The selection is lib's selectCopy: this checkout's row first, then
   // user-scope rows by recency, never another checkout's.
   const copy = selectCopy(home, proj, { harness });
   if (copy) {
     const v = copy.version ? ` (${copy.version})` : "";
-    const then = "and the startup line names the command";
+    const then = "and the next session's startup line names the command";
     if (copy.missing === "bin")
       return { advice: copyUpdateAdvice(copy, { cannot: "predates the move and cannot run it", then }) };
     // Chosen first, gated after: the copy is what the project runs, so an
@@ -1709,16 +1797,34 @@ export function checkVaultGit(cfg) {
   ];
 }
 
-// Marketplace auto-update (maintainer request 2026-07-03): third-party
-// marketplaces do NOT auto-update by default, so a stale plugin looks like
-// "the feature is broken". Read the real registries and, when the flag is
-// off, tell the user the exact correct values.
-export function checkAutoUpdate(home = homedir(), harness = speakingHarness()) {
+// Marketplace auto-update (maintainer request 2026-07-03): a marketplace whose
+// auto-update is off leaves a stale plugin looking like "the feature is
+// broken". Read the real registries and, when the flag is off, tell the user
+// the exact correct values.
+export function checkAutoUpdate(home = homedir(), harness = speakingHarness(), { root = pluginRoot() } = {}) {
   const out = [];
   // Auto-update is a toggle of the host's own plugin marketplace. A harness
   // whose registration is not the host's plugin system (Codex's is a portable
   // marketplace driven by our shell) has no such toggle to report on.
   if (harness?.surfaces?.plugin?.format !== "host-plugin-registration") return out;
+  const reg = hostRegistry(harness) || {};
+  const at = (parts) => `~/${harness.runtime?.home_default || ".claude"}/${parts.join("/")}`;
+  // A copy synced from claude.ai (Anthropic's directory) has no marketplace and
+  // no install record: claude.ai updates it. One info, from the manifest's
+  // update hint, and never another copy's install record, which would
+  // describe a copy this session does not run (the PS-DIRECTORY story "A copy
+  // installed from Anthropic's directory…", decision 5).
+  if (installChannel(root, { home, harness }) === "synced") {
+    out.push(
+      finding(
+        "install",
+        "info",
+        "auto-update",
+        `This session runs projectstore from Anthropic's directory (${root}), so no marketplace auto-update applies to it. ${updateHint({ root, home }).line}`,
+      ),
+    );
+    return out;
+  }
   // Two corrections over the first version of this check, both found by running
   // doctor straight out of a checkout (2026-08-05):
   //
@@ -1736,7 +1842,7 @@ export function checkAutoUpdate(home = homedir(), harness = speakingHarness()) {
       .replace(/\\/g, "/")
       .match(/\/plugins\/(?:cache|marketplaces)\/([^/]+)(?:\/|$)/) || [])[1] || null;
   const inst = installedPluginRoot(home);
-  const marketplace = marketplaceOf(pluginRoot()) || marketplaceOf(inst && inst.path);
+  const marketplace = marketplaceOf(root) || marketplaceOf(inst && inst.path);
   if (!marketplace) {
     out.push(
       finding(
@@ -1749,9 +1855,13 @@ export function checkAutoUpdate(home = homedir(), harness = speakingHarness()) {
     return out;
   }
 
+  // A marketplace added from claude.ai is recorded in a registry file of its
+  // own, and is added again from the host's list, never by a source.
+  const claudeai = Boolean(reg.claudeai_prefix) && marketplace.startsWith(reg.claudeai_prefix);
+  const file = (claudeai && reg.marketplaces_claudeai) || reg.marketplaces || ["plugins", "known_marketplaces.json"];
   let registry = null;
   try {
-    registry = JSON.parse(readFileSync(join(claudeHome(home), "plugins", "known_marketplaces.json"), "utf8"));
+    registry = JSON.parse(readFileSync(join(claudeHome(home), ...file), "utf8"));
   } catch {}
   const entry = registry ? registry[marketplace] : null;
   // A directory marketplace — the package's own registration — has no remote
@@ -1764,29 +1874,42 @@ export function checkAutoUpdate(home = homedir(), harness = speakingHarness()) {
         "install",
         "warn",
         "auto-update",
-        `Marketplace "${marketplace}" is missing from ~/.claude/plugins/known_marketplaces.json — updates cannot be tracked. Re-add it: /plugin marketplace add <owner/repo>.`,
+        `Marketplace "${marketplace}" is missing from ${at(file)} — updates cannot be tracked. ` +
+          (claudeai
+            ? "Add it again from /plugin → Marketplaces, where claude.ai lists it."
+            : "Re-add it: /plugin marketplace add <owner/repo>."),
       ),
     );
     return out;
   }
 
-  let enabled = entry.autoUpdate === true;
-  if (!enabled) {
-    try {
-      const s = JSON.parse(readFileSync(join(claudeHome(home), "settings.json"), "utf8"));
-      if (s?.extraKnownMarketplaces?.[marketplace]?.autoUpdate === true) enabled = true;
-    } catch {}
-  }
+  // Claude Code's documented order (the loading reference, "Which marketplaces
+  // and plugins auto-update"): the settings entry first, then the registry
+  // entry, then the marketplace's default (registry.auto_update) — on for
+  // Anthropic's official marketplaces and claude.ai's, off for every other.
+  const userSettings = reg.user_settings || ["settings.json"];
+  let set;
+  try {
+    set = JSON.parse(readFileSync(join(claudeHome(home), ...userSettings), "utf8"))?.extraKnownMarketplaces?.[
+      marketplace
+    ]?.autoUpdate;
+  } catch {}
+  const [enabled, why] =
+    typeof set === "boolean"
+      ? [set, `set to false in ${at(userSettings)} → extraKnownMarketplaces, which wins over the registry`]
+      : typeof entry.autoUpdate === "boolean"
+        ? [entry.autoUpdate, `set to false in ${at(file)}`]
+        : [autoUpdateDefault(harness, marketplace) === true, "off by default for this marketplace"];
   if (!enabled) {
     out.push(
       finding(
         "install",
         "warn",
         "auto-update",
-        `Auto-update is OFF for marketplace "${marketplace}" — new projectstore releases will not be noticed. ` +
-          `Correct values: "autoUpdate": true on the "${marketplace}" entry in ~/.claude/plugins/known_marketplaces.json ` +
-          `(set via /plugin → Marketplaces → ${marketplace} → toggle auto-update), or in ~/.claude/settings.json → ` +
-          `extraKnownMarketplaces.${marketplace}.autoUpdate: true. Manual path: /plugin marketplace update ${marketplace}, then /reload-plugins.`,
+        `Auto-update is OFF for marketplace "${marketplace}" (${why}) — new projectstore releases will not be noticed. ` +
+          `Correct values: "autoUpdate": true on the "${marketplace}" entry in ${at(file)} ` +
+          `(set via /plugin → Marketplaces → ${marketplace} → toggle auto-update), or in ${at(userSettings)} → ` +
+          `extraKnownMarketplaces.${marketplace}.autoUpdate: true, which wins where that entry exists. Manual path, ${COPY_UPDATE_STEPS}.`,
       ),
     );
   }
@@ -1798,14 +1921,14 @@ export function checkAutoUpdate(home = homedir(), harness = speakingHarness()) {
   // On the fallback path our own script is a checkout, so pluginRoot() and
   // pluginVersion() describe the checkout, not the install — reporting that as
   // the running version is the very confusion this check was just fixed for.
-  const named = marketplaceOf(pluginRoot()) ? { path: pluginRoot(), version: null } : inst;
+  const named = marketplaceOf(root) ? { path: root, version: null } : inst;
   try {
-    const root = (named && named.path) || pluginRoot();
-    const name = JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).name;
+    const from = (named && named.path) || root;
+    const name = JSON.parse(readFileSync(join(from, ".claude-plugin", "plugin.json"), "utf8")).name;
     const catalog = JSON.parse(readFileSync(join(entry.installLocation, ".claude-plugin", "marketplace.json"), "utf8"));
     const latest = (catalog.plugins || []).find((p) => p.name === name)?.version;
     const running =
-      (named && named.version) || JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).version;
+      (named && named.version) || JSON.parse(readFileSync(join(from, ".claude-plugin", "plugin.json"), "utf8")).version;
     // Precedence, not the triple: a session on 0.28.0-rc.3 hears that 0.28.0 is out.
     if (latest && running && cmpPrecedence(latest, running) > 0) {
       out.push(
@@ -1813,7 +1936,7 @@ export function checkAutoUpdate(home = homedir(), harness = speakingHarness()) {
           "install",
           "warn",
           "auto-update",
-          `A newer ${name} is available: v${latest} (running v${running}) — run /plugin marketplace update ${marketplace}, then /reload-plugins.`,
+          `A newer ${name} is available: v${latest} (running v${running}) — ${COPY_UPDATE_STEPS}.`,
         ),
       );
     }
@@ -1850,19 +1973,47 @@ export function checkMcpRegistration(root = pluginRoot(), harness = speakingHarn
       finding("install", "issue", "mcp", `.mcp.json at the plugin root is not valid JSON: ${e.message}`, ".mcp.json"),
     ];
   }
+  // What it must launch is the manifest's entry (scripts/mcp-server.mjs, the
+  // PS-DIRECTORY story "The MCP server's entry reaches no install verb…"),
+  // checked as a path and a file, never imported: mcp.mjs on SessionStart's
+  // path would load the server's whole graph into the hook.
+  // The entry is the checked copy's own: a root that carries its own manifest
+  // says what it launches, and one whose manifest names no entry (0.30.5 and
+  // older) launches `bin/projectstore.mjs mcp`, which serves — a newer doctor
+  // run against such a copy must not call it broken (the E2b review). A root
+  // with no manifest of its own is held to this doctor's.
+  let entry = mcp.entry || "scripts/mcp-server.mjs";
+  let verbArg = null;
+  try {
+    const own = JSON.parse(readFileSync(join(root, "harnesses", `${harness.id}.json`), "utf8"));
+    const e = own?.surfaces?.mcp?.entry;
+    if (typeof e === "string" && e) entry = e;
+    else [entry, verbArg] = ["bin/projectstore.mjs", "mcp"];
+  } catch {}
   const server = reg && reg.mcpServers && reg.mcpServers.projectstore;
   const args = server && Array.isArray(server.args) ? server.args : [];
-  if (!server || !args.some((a) => String(a).endsWith("/bin/projectstore.mjs")) || !args.includes("mcp")) {
+  const launches = args.some((a) => String(a).endsWith(`/${entry}`)) && (!verbArg || args.includes(verbArg));
+  if (!server || !launches) {
     return [
       finding(
         "install",
         "issue",
         "mcp",
-        ".mcp.json at the plugin root does not launch bin/projectstore.mjs mcp — the MCP read tools will not answer.",
+        `.mcp.json at the plugin root does not launch ${entry} — the MCP read tools will not answer.`,
         ".mcp.json",
       ),
     ];
   }
+  if (!existsSync(join(root, entry)))
+    return [
+      finding(
+        "install",
+        "issue",
+        "mcp",
+        `.mcp.json launches ${entry}, which is not in the plugin root — the MCP read tools will not answer; this install is incomplete.`,
+        ".mcp.json",
+      ),
+    ];
   return [
     finding(
       "install",
@@ -3070,7 +3221,8 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
     ...checkHostIgnored(proj, { env: opts.env }),
     ...checkTrackedRuntime(proj),
     ...checkVaultGit(cfg),
-    ...checkAutoUpdate(),
+    ...checkAutoUpdate(opts.home, undefined, { root: opts.root }),
+    ...checkSyncedCopy(proj, { home: opts.home, cfg }),
     ...checkMcpRegistration(),
     ...checkLayout(proj, undefined, opts),
     ...checkOverlays(cfg, proj, opts),

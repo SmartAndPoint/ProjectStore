@@ -19,11 +19,13 @@ import {
   statSync,
   existsSync,
   utimesSync,
+  rmSync,
 } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, delimiter } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync, spawn } from "node:child_process";
-import { makeVaultProject, seedGraphFixture, writeBinding } from "./fixtures/vault.mjs";
+import { makeVaultProject, seedGraphFixture, seedCliVault, writeBinding } from "./fixtures/vault.mjs";
+import { fakeInstall } from "./fixtures/install.mjs";
 import {
   readAnchorState,
   layoutPaths,
@@ -1266,7 +1268,14 @@ test("no hook emits a field its event does not carry (spec contract 22)", () => 
     ...new Set(
       Object.values(reg.hooks).flatMap((entries) =>
         entries.flatMap((e) =>
-          (e.hooks || []).map((h) => (h.command || "").replace(/^.*\$\{CLAUDE_PLUGIN_ROOT\}\//, "").trim()),
+          // The quotes go first: the commands quote their plugin root, and a
+          // path read with its closing quote ends in `.mjs"`, not `.mjs`.
+          (e.hooks || []).map((h) =>
+            (h.command || "")
+              .replaceAll('"', "")
+              .replace(/^.*\$\{CLAUDE_PLUGIN_ROOT\}\//, "")
+              .trim(),
+          ),
         ),
       ),
     ),
@@ -1303,6 +1312,86 @@ test("no hook emits a field its event does not carry (spec contract 22)", () => 
     );
   }
 });
+
+// A hook command with no `args` runs through a shell, the way the host runs it:
+// an unquoted plugin root with a space in it splits into two words, node looks
+// for a module at the first, and every hook fails. On Windows every home such as
+// `C:\Users\First Last` puts the space there (the story "Every hook command
+// quotes its plugin root…", PS-DIRECTORY). So the commands are read from a full
+// plugin copy under such a home and run through /bin/sh, each with the payload
+// its event carries, in a bound project; each exits 0 and says what it says
+// anywhere else.
+test(
+  "every hook command runs through a shell from a plugin copy whose path has a space in it",
+  { timeout: 120000 },
+  (t) => {
+    const H = sourceHarness();
+    const home = join(mkdtempSync(join(tmpdir(), "ps-space-")), "First Last");
+    const cache = mkdtempSync(join(tmpdir(), "ps-space-cache-"));
+    // A full plugin copy is several megabytes: leave nothing behind.
+    t.after(() => {
+      rmSync(dirname(home), { recursive: true, force: true });
+      rmSync(cache, { recursive: true, force: true });
+    });
+    mkdirSync(home);
+    const root = fakeInstall(home, "0.0.0-space", { full: true });
+    assert.ok(root.includes(" "), `the plugin copy's path carries the space: ${root}`);
+    const { proj, vault } = seedCliVault();
+    const hooks = JSON.parse(readFileSync(join(root, H.hooks.config_file), "utf8")).hooks;
+    const env = hermeticEnv({
+      [H.runtime.plugin_root_env]: root,
+      [H.runtime.project_dir_env]: proj,
+      HOME: home,
+      XDG_CACHE_HOME: cache,
+      PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter),
+    });
+    for (const k of Object.keys(env)) if (k.startsWith("PROJECTSTORE_") || k === "NODE_OPTIONS") delete env[k];
+    const story = join(vault, "epics", "PS-X", "stories", "story-in-flight.md");
+    const write = { tool_name: H.tools.write_tools[0], tool_input: { [H.tools.path_fields[0]]: story } };
+    const payloads = {
+      SessionStart: { source: "startup" },
+      PreToolUse: write,
+      PostToolUse: write,
+      PreCompact: { trigger: "manual" },
+      Stop: {},
+    };
+    assert.deepEqual(
+      Object.keys(hooks).sort(),
+      Object.keys(payloads).sort(),
+      "every registered event is fired here, so a new hook cannot escape the space",
+    );
+    const fire = (event) => {
+      const commands = hooks[event].flatMap((g) => (g.hooks || []).map((h) => h.command));
+      const input = JSON.stringify({ session_id: "space-root", cwd: proj, hook_event_name: event, ...payloads[event] });
+      return commands
+        .map((command) => {
+          const r = spawnSync("/bin/sh", ["-c", command], { input, cwd: home, env, encoding: "utf8", timeout: 30000 });
+          assert.equal(r.status, 0, `${event}: ${command}\n${r.stderr}`);
+          assert.doesNotMatch(
+            r.stdout + r.stderr,
+            /Cannot find module|ENOENT|vault load failed/,
+            `${event}: ${command}`,
+          );
+          return r.stdout;
+        })
+        .join("\n");
+    };
+    const start = fire("SessionStart");
+    assert.match(start, /loaded for the first time/, "the first session carries the welcome");
+    assert.ok(
+      start.includes("# Projectstore vault: "),
+      `the session orients on the bound vault\n${start.slice(0, 400)}`,
+    );
+    fire("PreToolUse");
+    fire("PostToolUse");
+    assert.match(
+      fire("PreCompact"),
+      /in flight: `epics\/PS-X\/stories\/story-in-flight\.md`/,
+      "the compaction names the story just written",
+    );
+    fire("Stop");
+  },
+);
 
 test("the block bump and the block content ship together (spec contract 24)", () => {
   const tmpl = readFileSync(join(REPO, "templates", "claude-md-block.md.tmpl"), "utf8");
@@ -1605,12 +1694,27 @@ function envWithoutProjectDir(extra = {}) {
 // "# Projectstore vault: <path>".
 const vaultNamedBy = (emitted) => emitted?.hookSpecificOutput?.additionalContext?.split("\n")[0] ?? "";
 
+// A user-level cache per project fired here, never the test process's shared
+// one. An unbound project remembers its welcome on the machine (the story
+// "Opening a project that is not bound writes nothing into it…"), so through
+// a shared cache one test's unbound run would silence the welcome a later
+// test asserts, depending on the order the file runs in. Per project, not per
+// spawn: a project fired twice still sees its own first welcome.
+const CACHES = new Map();
+function cacheFor(proj) {
+  if (!CACHES.has(proj)) CACHES.set(proj, mkdtempSync(join(tmpdir(), "ps-ss-cache-")));
+  return CACHES.get(proj);
+}
+
 function fireSessionStart(proj, payload = {}, { env = null, cwd = proj } = {}) {
+  const base = env || { ...process.env, CLAUDE_PROJECT_DIR: proj };
+  // A caller that set its own cache keeps it.
+  const own = base.XDG_CACHE_HOME && base.XDG_CACHE_HOME !== process.env.XDG_CACHE_HOME;
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "session-start.mjs")], {
     encoding: "utf8",
     input: JSON.stringify({ hook_event_name: "SessionStart", ...payload }),
     timeout: 15000,
-    env: env || { ...process.env, CLAUDE_PROJECT_DIR: proj },
+    env: own ? base : { ...base, XDG_CACHE_HOME: cacheFor(proj) },
     cwd,
   });
   assert.equal(r.status, 0, `SessionStart hook must exit 0; stderr: ${r.stderr}`);
@@ -1803,15 +1907,32 @@ test("SessionStart: delivers on additionalContext, and the welcome renders once 
   // rule for the welcome). This hook runs from the checkout, which gets the npm
   // form: 937 + the path bound, 921 unbound. A git-marketplace copy keeps the
   // toggle text and the sizes above, so 1,295 stays contract 3's worst case.
+  // 2026-10-15: the footer follows the binding (the story "Opening a project
+  // that is not bound writes nothing into it…"): an unbound project's welcome
+  // appears "once on this machine", +4 in every unbound variant: 925 from a
+  // checkout. The other channels' update blocks changed the same day (the
+  // story "A copy installed from Anthropic's directory…"), so their sizes —
+  // git marketplace, claude-plugins-official, a synced copy (the largest) and
+  // Codex — are pinned in tests/directory.test.mjs, not here.
   const WELCOME_BOUND_BASE = 937,
-    WELCOME_UNBOUND = 921,
-    WELCOME_WORST = 1295;
+    WELCOME_UNBOUND = 925;
   const vaultPath = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path;
   const delta = withWelcome.length - without.length;
   assert.equal(
     delta,
     WELCOME_BOUND_BASE + Math.min(vaultPath.length, 200),
-    `the welcome is ${WELCOME_BOUND_BASE} + the capped vault path (${WELCOME_UNBOUND} unbound) from a checkout; the skeleton spec's contract 3 quotes the git-marketplace variant's ${WELCOME_WORST} as the worst case — update it in the same change`,
+    `the welcome is ${WELCOME_BOUND_BASE} + the capped vault path (${WELCOME_UNBOUND} unbound) from a checkout; the skeleton spec's contract 3 names it — update it in the same change`,
+  );
+  assert.ok(withWelcome.includes("_This message appears once per project._"), "a bound project's footer");
+  // An unbound project that is no worktree carries the welcome alone, so its
+  // payload is the unbound welcome's size.
+  const unbound = mkdtempSync(join(tmpdir(), "ps-ss-unbound-"));
+  const alone = fireSessionStart(unbound, { session_id: "u1", source: "startup" }).hookSpecificOutput.additionalContext;
+  assert.ok(alone.includes("_This message appears once on this machine._"), "an unbound project's footer");
+  assert.equal(
+    alone.length,
+    WELCOME_UNBOUND,
+    `the unbound welcome is ${WELCOME_UNBOUND} from a checkout; the skeleton spec's contract 3 names it — update it in the same change`,
   );
 });
 
@@ -2957,17 +3078,20 @@ test("SessionStart: detecting an inheritable worktree writes nothing", () => {
     "detection did run and did speak — the assertions below are about what it did NOT do",
   );
 
-  // Scoped deliberately: the first-run welcome marker is a pre-existing write on
-  // this path and is not part of detection. What must not appear is a binding
-  // this session never approved, or per-session state for an unbound project.
+  // What must not appear is a binding this session never approved, or
+  // per-session state for an unbound project.
   assert.ok(
     !existsSync(layoutPaths(child).binding) && !existsSync(join(child, ".claude", "projectstore.json")),
     "no binding is adopted without the approval gate",
   );
   assert.ok(
     !existsSync(layoutPaths(child).sessions) && !existsSync(join(child, ".claude", ".projectstore")),
-    "no per-session state for a project that is not bound (the welcome marker under state/<harness>/ is not session state)",
+    "no per-session state for a project that is not bound",
   );
+  // …nor anything else: the first-run welcome it showed is remembered on the
+  // machine, not in the worktree (the story "Opening a project that is not
+  // bound writes nothing into it…").
+  assert.ok(!existsSync(layoutPaths(child).root), "no .projectstore/ in an unbound worktree");
 });
 
 test("SessionStart: no offer when there is no bound parent to inherit from", () => {

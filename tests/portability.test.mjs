@@ -19,7 +19,18 @@ import { readFileSync, readdirSync, writeFileSync, mkdtempSync, mkdirSync, rmSyn
 import { tmpdir } from "node:os";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { importSpecifiers } from "./fixtures/imports.mjs";
+import {
+  importSpecifiers,
+  dynamicSpecifiers,
+  opaqueDynamicImports,
+  callsFetch,
+  closure,
+  hookEntries,
+  installFamily,
+  hiddenByComments,
+  networkImports,
+  verbModuleSpecifiers,
+} from "./fixtures/imports.mjs";
 import {
   MANIFEST_DIR,
   SOURCE_WRITE_TOOLS_FALLBACK,
@@ -48,6 +59,7 @@ import {
   STOP_CARRIERS,
   commonBlockFiles,
   blockTargetProblem,
+  pinPluginRoot,
 } from "../scripts/harness.mjs";
 import { WRITE_TOOLS, isWriteTool, layoutPaths } from "../scripts/lib.mjs";
 import { modelsProblem } from "../scripts/models.mjs";
@@ -632,6 +644,316 @@ test("generation modules: the import reader finds a wrapped import and a re-expo
   assert.deepEqual(importSpecifiers(src), ["./a.mjs", "./b.mjs", "./d.mjs"]);
 });
 
+// ─── The hook fence (the story "The MCP server's entry reaches no install
+// verb through a read-verb runner that shares the CLI's verb table, and no
+// hook reaches a network call", PS-DIRECTORY, decisions 1 and 4) ────────────
+
+// A one-file tree under `parent` whose x.mjs imports `spec`.
+function mkNet(parent, spec) {
+  const dir = mkdtempSync(join(parent, "net-"));
+  writeFileSync(join(dir, "x.mjs"), `import x from "${spec}";\n`);
+  return dir;
+}
+
+// The closure reader the fences share, on a tree built here: each import class
+// is an edge, a comment is not, and an edge it cannot follow fails loud.
+test("hook fence: the closure follows static imports, literal import() and verb-table module strings, never a comment", () => {
+  const root = mkdtempSync(join(tmpdir(), "ps-closure-"));
+  try {
+    const put = (rel, text) => {
+      mkdirSync(dirname(join(root, rel)), { recursive: true });
+      writeFileSync(join(root, rel), text);
+    };
+    put(
+      "hooks/hooks.json",
+      JSON.stringify({
+        modules: ["./mod.tsx"],
+        hooks: {
+          A: [{ hooks: [{ type: "command", command: 'node "${ROOT}/hooks/quoted.mjs"' }] }],
+          B: [{ hooks: [{ type: "command", command: "node ${ROOT}/scripts/bare.mjs" }] }],
+        },
+      }),
+    );
+    put("hooks/quoted.mjs", 'import { a } from "../scripts/a.mjs";\nimport "../scripts/side.mjs";\n');
+    put("scripts/side.mjs", "");
+    put("scripts/bare.mjs", "");
+    put(
+      "hooks/mod.tsx",
+      [
+        "import { s } from '../scripts/s.mjs'",
+        "import type { T } from './types'",
+        "import { host } from 'host'",
+        'import { d } from "../scripts/d.mjs"',
+        "import { request } from 'node:https'",
+        "",
+      ].join("\n"),
+    );
+    put("scripts/s.mjs", "");
+    put("scripts/d.mjs", "");
+    put(
+      "scripts/a.mjs",
+      [
+        '// await import("./commented.mjs");',
+        "/* import('./blocked.mjs') */",
+        'const run = async () => (await import("./lazy.mjs")).go();',
+        'export const TABLE = [{ verb: "x", module: "./row.mjs" }, { verb: "y", module: null }];',
+        "export const MORE = [{ verb: 'z', module: './quoted-row.mjs' }];",
+      ].join("\n"),
+    );
+    put("scripts/lazy.mjs", "export const go = () => fetch(url);\n");
+    put("scripts/row.mjs", "");
+    put("scripts/quoted-row.mjs", 'const net = await import("node:net");\nexport { net };\n');
+    assert.deepEqual(hookEntries(root, { placeholder: "${ROOT}" }), [
+      "hooks/quoted.mjs",
+      "scripts/bare.mjs",
+      "hooks/mod.tsx",
+    ]);
+    assert.deepEqual(dynamicSpecifiers(readFileSync(join(root, "scripts/a.mjs"), "utf8")), ["./lazy.mjs"]);
+    assert.deepEqual(closure("hooks/quoted.mjs", { root }), [
+      "hooks/quoted.mjs",
+      "scripts/a.mjs",
+      "scripts/lazy.mjs",
+      "scripts/quoted-row.mjs",
+      "scripts/row.mjs",
+      "scripts/side.mjs",
+    ]);
+    // Either quote, with or without the `;`.
+    assert.deepEqual(closure("hooks/mod.tsx", { root }), ["hooks/mod.tsx", "scripts/d.mjs", "scripts/s.mjs"]);
+    // A runner that dispatches another module's table names its own rows.
+    assert.deepEqual(closure("hooks/quoted.mjs", { root, dispatch: () => [] }), [
+      "hooks/quoted.mjs",
+      "scripts/a.mjs",
+      "scripts/lazy.mjs",
+      "scripts/side.mjs",
+    ]);
+    assert.deepEqual(verbModuleSpecifiers(readFileSync(join(root, "scripts/a.mjs"), "utf8")), [
+      "./row.mjs",
+      "./quoted-row.mjs",
+    ]);
+    // A network module is skipped by the walk and named by networkImports, statically or by import().
+    assert.deepEqual(networkImports(closure("hooks/mod.tsx", { root }), { root }), [
+      "hooks/mod.tsx imports node:https",
+    ]);
+    assert.deepEqual(networkImports(closure("hooks/quoted.mjs", { root }), { root }), [
+      "scripts/quoted-row.mjs imports node:net",
+    ]);
+    for (const spec of ["http", "node:http2", "tls", "node:dgram", "undici", "https"])
+      assert.deepEqual(networkImports(["x.mjs"], { root: mkNet(root, spec) }), [`x.mjs imports ${spec}`], spec);
+    assert.deepEqual(networkImports(["x.mjs"], { root: mkNet(root, "node:path") }), [], "a builtin with no socket");
+    assert.ok(callsFetch(readFileSync(join(root, "scripts/lazy.mjs"), "utf8")));
+    assert.ok(!callsFetch("// the shell fetch (contract 19)\nconst prefetch = () => 1;"), "a comment is no call");
+    for (const code of [
+      "const f = globalThis.fetch;",
+      "fetch.call(null, u);",
+      'globalThis["fetch"](u);',
+      "g.fetch(u);",
+    ])
+      assert.ok(callsFetch(code), code);
+    // The blanking is checked: a `//` inside a string hides the rest of its line from every reader.
+    const hiding = 'const sep = "a // b"; await import("./hidden.mjs");\n';
+    assert.equal(hiddenByComments(hiding), 1);
+    assert.equal(
+      hiddenByComments('// import("./x.mjs")\n * fetch(u)\nconst a = 1;\n'),
+      0,
+      "comment lines are not code",
+    );
+    put("scripts/hides.mjs", hiding);
+    assert.throws(() => closure("scripts/hides.mjs", { root }), /comment stripping hid code in scripts\/hides\.mjs/);
+    put("scripts/bare.mjs", 'export * from "./gone.mjs";\nimport { g } from "./gone.mjs";\n');
+    assert.throws(() => closure("scripts/bare.mjs", { root }), /scripts\/gone\.mjs is imported but does not exist/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// Which rows of the verb table each module dispatches through (decision 1's
+// third class), now that the table is data in verbs.mjs: verbs.mjs holds it
+// and runs none of it, the read runner serves its READ_HANDLERS' rows, and
+// cli.mjs serves every row. Any other module counts the module strings in its
+// own code, the default. On 0.30.5 cli.mjs held the table and its runner in
+// one file, which this reads the same way.
+const READ_RUNNER = await import("../scripts/read-verbs.mjs").catch(() => null);
+const { VERBS: TABLE } = await import("../scripts/cli.mjs");
+const rowModules = (rows) => rows.map((v) => v.module).filter(Boolean);
+function tableDispatch(rel, src) {
+  if (rel === "scripts/verbs.mjs") return [];
+  if (rel === "scripts/read-verbs.mjs")
+    return rowModules(TABLE.filter((v) => Object.hasOwn(READ_RUNNER?.READ_HANDLERS ?? {}, v.verb)));
+  if (rel === "scripts/cli.mjs") return rowModules(TABLE);
+  return verbModuleSpecifiers(src);
+}
+
+// What a fence refuses in a closure: a module that calls fetch, one of the
+// install family, an import() the walk cannot read (a hole in the fence), and
+// a network module among the specifiers the walk skips.
+function fenceBreaches(entry, { dispatch = tableDispatch } = {}) {
+  const files = closure(entry, { root: ROOT, dispatch });
+  const family = installFamily(ROOT);
+  const src = (f) => readFileSync(join(ROOT, f), "utf8");
+  return {
+    files,
+    fetch: files.filter((f) => callsFetch(src(f))),
+    family: files.filter((f) => family.includes(f)),
+    opaque: files.filter((f) => opaqueDynamicImports(src(f)) > 0),
+    network: networkImports(files, { root: ROOT }),
+  };
+}
+const assertFenced = (entry, why) => {
+  const b = fenceBreaches(entry);
+  assert.deepEqual(b.family, [], `${entry} reaches the install family`);
+  assert.deepEqual(b.fetch, [], `${entry} reaches a module that calls fetch — ${why} would load network code`);
+  assert.deepEqual(b.opaque, [], `${entry} reaches an import() whose target is not a literal`);
+  assert.deepEqual(b.network, [], `${entry} reaches a network module`);
+  return b.files;
+};
+
+// The disclosure story's "nothing is sent anywhere by a hook", true by
+// construction: no module a hook can load holds a fetch call, and none is the
+// installer or what it spawns (npm install, the host CLI, the release fetch).
+// The classes are decision 1's, because a fence over static imports alone
+// passed on 0.30.5, where SessionStart reached models.mjs's keyed fetch through
+// doctor.mjs. A spawn is not an import: doctor launches kanban, codemap and
+// graph through the bin's node, each a reader whose own closure is fenced too.
+test("hook fence: no hook's closure holds a module that calls fetch, or the install family", () => {
+  const entries = hookEntries(ROOT, { placeholder: sourceHarness().hooks.root_placeholder });
+  for (const f of ["hooks/session-start.mjs", "scripts/touch-session.mjs", "hooks/band.tsx"])
+    assert.ok(entries.includes(f), `the entries read from hooks/hooks.json include ${f}`);
+  const family = installFamily(ROOT);
+  assert.ok(family.includes("scripts/install-harness.mjs") && family.includes("scripts/fetch-shell.mjs"));
+  for (const entry of entries) assertFenced(entry, "a hook");
+  // Not vacuous: SessionStart's walk goes through doctor and its import()s,
+  // and the band module's through its shared reader.
+  const start = closure("hooks/session-start.mjs", { root: ROOT });
+  for (const f of ["scripts/doctor.mjs", "scripts/surfaces.mjs", "scripts/model-spec.mjs"])
+    assert.ok(start.includes(f), `the SessionStart closure reaches ${f}`);
+  assert.ok(!start.includes("scripts/models.mjs"), "the SessionStart closure reaches models.mjs");
+  assert.ok(closure("hooks/band.tsx", { root: ROOT }).includes("scripts/band-shared.mjs"), "band.tsx's walk");
+  assert.deepEqual(closure("scripts/model-spec.mjs", { root: ROOT }), ["scripts/model-spec.mjs"]);
+  // doctor's own spawns, through process.execPath: each target's closure is fenced as a hook's.
+  const doctor = readFileSync(join(ROOT, "scripts", "doctor.mjs"), "utf8");
+  const spawned = [
+    ...doctor.matchAll(/spawnSync\(process\.execPath, \[join\(pluginRoot\(\), "scripts", "([\w-]+\.mjs)"\)/g),
+  ].map((m) => `scripts/${m[1]}`);
+  assert.deepEqual(spawned.sort(), ["scripts/codemap.mjs", "scripts/graph.mjs", "scripts/kanban.mjs"]);
+  for (const target of spawned) assertFenced(target, "a script doctor spawns");
+});
+
+// ─── The MCP fence (the same story, decisions 1 to 3) ──────────────────
+
+// The entry .mcp.json launches, as a root-relative path.
+function mcpEntry() {
+  const server = JSON.parse(readFileSync(join(ROOT, ".mcp.json"), "utf8")).mcpServers.projectstore;
+  const lead = `${"$"}{${sourceHarness().runtime.plugin_root_env}}/`;
+  assert.ok(server.args[0].startsWith(lead), `.mcp.json runs a file under ${lead}`);
+  return server.args[0].slice(lead.length);
+}
+
+// The server's code reaches no install verb: its entry's closure, with
+// decision 1's classes, holds none of the install family, no fetch, no
+// unreadable import() and no network module. On 0.30.5 .mcp.json ran the bin,
+// whose closure of 32 modules held all five install modules through cli.mjs's
+// import() calls and its VERBS rows.
+test("MCP fence: the entry .mcp.json launches reaches no install module, no fetch and no unreadable import()", () => {
+  const entry = mcpEntry();
+  const files = assertFenced(entry, "the MCP server");
+  assert.equal(entry, sourceHarness().surfaces.mcp.entry, "the manifest names the entry .mcp.json runs");
+  assert.ok(!entry.startsWith("bin/"), "the entry is not in bin/, which is on the host's Bash PATH");
+  // Not vacuous: the walk goes through the server, the runner, the table and
+  // the query and doctor-report modules the read verbs call.
+  for (const f of [
+    "scripts/mcp.mjs",
+    "scripts/read-verbs.mjs",
+    "scripts/verbs.mjs",
+    "scripts/query.mjs",
+    "scripts/doctor-report.mjs",
+  ])
+    assert.ok(files.includes(f), `the MCP entry's closure reaches ${f}`);
+  assert.ok(!files.includes("scripts/cli.mjs"), "the MCP entry's closure reaches cli.mjs");
+  // The doctor tool spawns doctor.mjs, a spawn and not an import: its closure is fenced on its own.
+  assertFenced("scripts/doctor.mjs", "the doctor the MCP server spawns");
+  // A positive control (the E2b review): the exemption of verbs.mjs is what
+  // keeps the install modules out. The table does name them, and read under
+  // the default dispatch the same entry reaches the whole family.
+  assert.ok(READ_RUNNER, "the read runner loads");
+  assert.ok(
+    verbModuleSpecifiers(readFileSync(join(ROOT, "scripts/verbs.mjs"), "utf8")).includes("./install-harness.mjs"),
+    "the one table names the installer's module",
+  );
+  const naive = closure(entry, { root: ROOT });
+  for (const f of installFamily(ROOT)) assert.ok(naive.includes(f), `read naively, the entry reaches ${f}`);
+});
+
+// One verb table: verbs.mjs holds it, as data, with the envelope and the
+// version, and loads nothing at run time; cli.mjs re-exports the same
+// objects; the read runner dispatches through that table with its handlers
+// alone; neither the runner nor mcp.mjs imports cli.mjs.
+test("MCP fence: one verb table — the CLI and the read runner dispatch the same export, and neither the runner nor mcp.mjs imports cli.mjs", async () => {
+  assert.ok(READ_RUNNER, "scripts/read-verbs.mjs, the read-verb runner, loads");
+  const verbs = await import("../scripts/verbs.mjs");
+  const cli = await import("../scripts/cli.mjs");
+  const mcp = await import("../scripts/mcp.mjs");
+  for (const n of ["VERBS", "envelope", "packageVersion", "PLANNED_VERBS", "usage", "verbHelp", "nearest"])
+    assert.equal(cli[n], verbs[n], `cli.mjs's ${n} is verbs.mjs's`);
+  const src = (f) => readFileSync(join(ROOT, "scripts", f), "utf8");
+  assert.ok(!/\bimport\s*\(/.test(src("verbs.mjs")), "verbs.mjs loads no module at run time, nor names one");
+  for (const f of ["cli.mjs", "read-verbs.mjs", "mcp.mjs"])
+    assert.deepEqual(verbModuleSpecifiers(src(f)), [], `${f} declares no verb table of its own`);
+  for (const f of ["read-verbs.mjs", "mcp.mjs", "mcp-server.mjs"]) {
+    assert.ok(!importSpecifiers(src(f)).includes("./cli.mjs"), `${f} imports cli.mjs`);
+    assert.deepEqual(
+      dynamicSpecifiers(src(f)).filter((s) => s.endsWith("/cli.mjs") || s === "./cli.mjs"),
+      [],
+      f,
+    );
+  }
+  for (const f of ["read-verbs.mjs", "mcp.mjs", "cli.mjs"])
+    assert.ok(importSpecifiers(src(f)).includes("./verbs.mjs"), `${f} imports the table from verbs.mjs`);
+  assert.ok(importSpecifiers(src("mcp.mjs")).includes("./read-verbs.mjs"), "mcp.mjs runs the read runner");
+  // Every row is served by the CLI; the read runner's are rows of the same table, none of them a write.
+  assert.deepEqual(Object.keys(cli.HANDLERS).sort(), verbs.VERBS.map((v) => v.verb).sort());
+  const reads = Object.keys(READ_RUNNER.READ_HANDLERS);
+  for (const v of reads) {
+    const row = verbs.VERBS.find((r) => r.verb === v);
+    assert.ok(row && row.writes === false, `${v} is a row of the table that writes nothing`);
+    assert.equal(cli.HANDLERS[v], READ_RUNNER.READ_HANDLERS[v], `the CLI runs the read runner's ${v}`);
+  }
+  // Every MCP tool's verb is a read row, whose module is outside the install family.
+  const family = installFamily(ROOT);
+  for (const [name, t] of Object.entries(mcp.TOOLS)) {
+    assert.ok(reads.includes(t.verb), `tool ${name}'s verb ${t.verb} is served by the read runner`);
+    const row = verbs.VERBS.find((r) => r.verb === t.verb);
+    assert.ok(!family.includes(`scripts/${String(row.module).replace(/^\.\//, "")}`), `${t.verb} wraps ${row.module}`);
+  }
+  // The runner reads the whole table: its help is the CLI's, and a write verb
+  // is a verb it knows and does not serve — never an unknown one.
+  const sink = () => ({
+    text: "",
+    isTTY: false,
+    write(s) {
+      this.text += s;
+      return true;
+    },
+  });
+  const io = () => ({ env: {}, cwd: tmpdir(), stdin: null, stdout: sink(), stderr: sink() });
+  const a = io(),
+    b = io(),
+    w = io();
+  try {
+    assert.equal(await READ_RUNNER.runRead(["--help"], a), 0);
+    assert.equal(await cli.run(["--help"], b), 0);
+    assert.equal(await READ_RUNNER.runRead(["install", "--json"], w), 2);
+  } finally {
+    // dispatch pins the plugin root to this package; the resolver tests here read it unpinned.
+    pinPluginRoot(null);
+  }
+  assert.equal(a.stdout.text, b.stdout.text, "one table, one help");
+  const env = JSON.parse(w.stdout.text);
+  assert.equal(env.verb, "install");
+  assert.equal(env.ok, false);
+  assert.match(env.result.error, /^install is not served here/);
+  assert.doesNotMatch(w.stderr.text, /unknown verb/);
+});
+
 // ─── The resolvers lib.mjs re-exports ──────────────────────────────────
 
 test("generation contract 2: WRITE_TOOLS comes from the source manifest, and the fallback matches it", () => {
@@ -774,7 +1096,11 @@ test("every registered hook adopts its payload before it can resolve a project",
   const files = [
     ...new Set(
       Object.values(reg.hooks).flatMap((entries) =>
-        entries.flatMap((e) => (e.hooks || []).map((h) => (h.command || "").split(`${placeholder}/`).pop().trim())),
+        entries.flatMap((e) =>
+          // Unquoted first: every command quotes its plugin root, and the
+          // closing quote would otherwise end the path.
+          (e.hooks || []).map((h) => (h.command || "").replaceAll('"', "").split(`${placeholder}/`).pop().trim()),
+        ),
       ),
     ),
   ].filter((f) => f.endsWith(".mjs"));
@@ -1350,21 +1676,45 @@ test("hooks.json's placeholder and write matcher are the manifest's", () => {
   assert.equal(src.hooks.matchers.write.split("|").sort().join("|"), [...src.tools.write_tools].sort().join("|"));
 });
 
-test(".mcp.json's placeholders are the manifest's, and it launches this package's bin (MCP ADR decision 6, measured)", () => {
+// A hook command with no `args` runs through a shell, so a plugin root with a
+// space in it (any Windows home such as C:\Users\First Last) splits into two
+// words unless the expanded path is quoted; the host's validator warns once per
+// unquoted command (the story "Every hook command quotes its plugin root…",
+// PS-DIRECTORY, decision 1: the whole-path form).
+test('every hook command quotes its plugin root as one shell word: node "<placeholder>/<path>"', () => {
+  const placeholder = sourceHarness().hooks.root_placeholder;
+  const reg = JSON.parse(readFileSync(join(ROOT, "hooks", "hooks.json"), "utf8"));
+  const commands = Object.values(reg.hooks).flatMap((entries) =>
+    entries.flatMap((e) => (e.hooks || []).map((h) => h.command)),
+  );
+  assert.ok(commands.length > 0, "hooks.json registers no command, so this test would prove nothing");
+  const lead = `node "${placeholder}/`;
+  const offenders = commands.filter(
+    (c) => !(c.startsWith(lead) && c.endsWith('"') && /^[^"\s]+$/.test(c.slice(lead.length, -1))),
+  );
+  assert.deepEqual(offenders, [], `every command reads ${lead}<path>"`);
+});
+
+// The launch form since the PS-DIRECTORY story "The MCP server's entry reaches
+// no install verb…" (decision 3; the MCP ADR's decision 1 as amended): the
+// manifest's entry under scripts/, not the bin, whose `mcp` verb argument
+// stays with the bin for hosts without a plugin channel.
+test(".mcp.json's placeholders are the manifest's, and it launches the manifest's MCP entry (MCP ADR decision 6, measured)", () => {
   const src = sourceHarness();
   const reg = JSON.parse(readFileSync(join(ROOT, ".mcp.json"), "utf8"));
   const server = reg.mcpServers.projectstore;
   assert.equal(server.type, "stdio");
   assert.equal(server.command, "node");
   assert.ok(Array.isArray(server.args), "args is an array — the plugin path can contain spaces");
+  assert.equal(src.surfaces.mcp.entry, "scripts/mcp-server.mjs");
   assert.equal(
     server.args[0],
-    `${"$"}{${src.runtime.plugin_root_env}}/bin/projectstore.mjs`,
-    "the bin, under the harness's plugin-root variable (runtime, not the hooks surface's placeholder)",
+    `${"$"}{${src.runtime.plugin_root_env}}/${src.surfaces.mcp.entry}`,
+    "the entry, under the harness's plugin-root variable (runtime, not the hooks surface's placeholder)",
   );
   assert.deepEqual(
     server.args.slice(1),
-    ["mcp", "--project", `${"$"}{${src.runtime.project_dir_env}}`],
+    ["--project", `${"$"}{${src.runtime.project_dir_env}}`],
     "the project comes from the host's variable, expanded per session — never ambient cwd",
   );
   assert.equal(server.env, undefined, "one binding channel: --project, not an env block");
@@ -1546,11 +1896,23 @@ test("contract 18: the manifests' message fields have their shape and their reas
     // A channel's own text has the same shape, keyed by an installChannel answer.
     for (const [ch, h] of Object.entries(m.update_hint?.by_channel || {}))
       assert.ok(
-        ["registration", "marketplace", "package", "checkout"].includes(ch) &&
+        ["registration", "marketplace", "synced", "package", "checkout"].includes(ch) &&
           typeof h.line === "string" &&
           Array.isArray(h.welcome),
         `${m.id}: update_hint.by_channel.${ch} { line, welcome }`,
       );
+    // A synced copy is the host plugin system's channel (PS-DIRECTORY, "A copy
+    // installed from Anthropic's directory…"): only a manifest whose
+    // registration is that system names its folder or speaks for it, and the
+    // folder comes with its reason.
+    const hostReg = Object.values(m.surfaces || {}).find((s) => s?.format === "host-plugin-registration");
+    if (!hostReg) {
+      assert.ok(!JSON.stringify(m.surfaces || {}).includes('"synced_dir"'), `${m.id}: no synced_dir`);
+      assert.equal(m.update_hint?.by_channel?.synced, undefined, `${m.id}: no by_channel.synced`);
+    } else if (hostReg.registry?.synced_dir) {
+      assert.ok(hostReg.registry.synced_reason && hostReg.registry.synced_origin, `${m.id}: synced_dir's reason`);
+      assert.ok(hostReg.registry.auto_update?.reason, `${m.id}: registry.auto_update's reason`);
+    }
     for (const key of ["session_rename", "bind_inherit"]) {
       assert.ok(key in (m.capabilities || {}), `${m.id}: capabilities.${key} is stated, even as null or false`);
       assert.ok(m.capabilities[`${key}_reason`], `${m.id}: capabilities.${key}_reason`);

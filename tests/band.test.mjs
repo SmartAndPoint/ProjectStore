@@ -5,7 +5,8 @@
 
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run } from "../scripts/cli.mjs";
@@ -223,11 +224,14 @@ test("contract 1: Claude Code declares the band, Codex states why it has none", 
   assert.equal(hasBand(loadHarness("codex")), false);
 });
 
-test("contract 1: the module rides hooks.json beside the classic hooks, which it leaves as they were", () => {
+test("contract 1: the module rides hooks.json beside the classic hooks, which stay as pinned", () => {
   const reg = JSON.parse(readFileSync(join(ROOT, "hooks", "hooks.json"), "utf8"));
   assert.deepEqual(reg.modules, ["./band.tsx"]);
   const classic = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "hooks-classic.json"), "utf8"));
-  assert.deepEqual(reg.hooks, classic, "the classic hook entries are byte-for-byte the pre-band ones");
+  // The pre-band entries, changed since only by quoting their plugin root
+  // (contract 1 as amended by the story "Every hook command quotes its plugin
+  // root…", PS-DIRECTORY).
+  assert.deepEqual(reg.hooks, classic, "the classic hook entries are byte-for-byte the pinned ones");
   const plugin = JSON.parse(readFileSync(join(ROOT, ".claude-plugin", "plugin.json"), "utf8"));
   assert.equal(plugin.types, "./hooks/band-state.d.ts");
 });
@@ -244,6 +248,68 @@ test("contract 1: the generator keeps the module out of a harness without a band
     surfaces: { ...loadHarness("codex").surfaces, band: { supported: true } },
   };
   assert.deepEqual(JSON.parse(renderHooks(withBand)[1]).modules, ["./band.tsx"], "a harness with a band keeps it");
+});
+
+// Codex keys hook trust to the rendered command text (`trusted_hash` under
+// `[hooks.state]`, measured in *Codex hook contract measured in a live
+// session*, PS-HARNESS), so how the source quotes its plugin root must never
+// reach the Codex render. The host's two documentation pages quote it two ways;
+// a source written in either, or bare, renders the committed tree byte for
+// byte (the story "Every hook command quotes its plugin root…", PS-DIRECTORY,
+// decision 2).
+test("contract 1: the Codex hooks render byte-identically whether the source quotes its plugin root bare, whole-path or variable-only", () => {
+  const source = JSON.parse(readFileSync(join(ROOT, "hooks", "hooks.json"), "utf8"));
+  const placeholder = SRC.hooks.root_placeholder;
+  const committed = readFileSync(join(ROOT, "adapters", "codex", "hooks", "hooks.json"), "utf8");
+  const forms = {
+    bare: (p) => `node ${placeholder}/${p}`,
+    "whole-path": (p) => `node "${placeholder}/${p}"`,
+    "variable-only": (p) => `node "${placeholder}"/${p}`,
+  };
+  const differ = [];
+  for (const [name, form] of Object.entries(forms)) {
+    const root = mkdtempSync(join(tmpdir(), `ps-hooks-${name}-`));
+    TEMP.push(root);
+    mkdirSync(join(root, "hooks"));
+    const hooks = structuredClone(source);
+    let rewritten = 0;
+    for (const groups of Object.values(hooks.hooks))
+      for (const group of groups)
+        for (const h of group.hooks || []) {
+          const path = h.command.replaceAll('"', "").split(`${placeholder}/`)[1];
+          h.command = form(path);
+          rewritten++;
+        }
+    assert.ok(rewritten > 0, `${name}: the scratch source carries no command`);
+    writeFileSync(join(root, "hooks", "hooks.json"), JSON.stringify(hooks, null, 2) + "\n");
+    const [rel, text] = renderHooks(loadHarness("codex"), root);
+    assert.equal(rel, join("hooks", "hooks.json"));
+    if (text !== committed) differ.push(name);
+  }
+  assert.deepEqual(differ, [], "every quoting form renders the committed Codex hooks.json");
+});
+
+// The pin itself: the six command strings Codex users have trusted. A change
+// here is a change every one of them is asked to approve again.
+test("contract 1: the Codex hook commands are the six trusted strings, in the adapter and in the Codex shell", () => {
+  const trusted = [
+    'SessionStart node "${PLUGIN_ROOT}/node_modules/projectstore/hooks/session-start.mjs"',
+    'SessionStart node "${PLUGIN_ROOT}/node_modules/projectstore/hooks/session-rules.mjs"',
+    'PreToolUse node "${PLUGIN_ROOT}/node_modules/projectstore/scripts/touch-session.mjs"',
+    'PostToolUse node "${PLUGIN_ROOT}/node_modules/projectstore/scripts/touch-session.mjs"',
+    'Stop node "${PLUGIN_ROOT}/node_modules/projectstore/hooks/session-stop.mjs"',
+    'PreCompact node "${PLUGIN_ROOT}/node_modules/projectstore/hooks/pre-compact.mjs"',
+  ];
+  for (const rel of [
+    join("adapters", "codex", "hooks", "hooks.json"),
+    join("packaging", "shells", "projectstore-codex", "hooks", "hooks.json"),
+  ]) {
+    const hooks = JSON.parse(readFileSync(join(ROOT, rel), "utf8")).hooks;
+    const commands = Object.entries(hooks).flatMap(([event, groups]) =>
+      groups.flatMap((g) => (g.hooks || []).map((h) => `${event} ${h.command}`)),
+    );
+    assert.deepEqual(commands, trusted, rel);
+  }
 });
 
 test("contract 1: the module ships; the host-laid declarations and tsconfig do not", () => {

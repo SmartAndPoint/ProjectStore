@@ -31,12 +31,21 @@ role's model and effort by running:
 node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model reviewer --json --project "$PWD"
 ```
 
-Spawn a collaboration agent for the bounded task. If the result names a model,
-pass that model and use an empty or bounded context fork; otherwise inherit the
-current model. If the result names an effort, pass it as `reasoning_effort`,
-with or without a model; otherwise pass none. Give the spawned agent the role
-contract below and the exact artifact/diff it must inspect. Wait for its final
-result.
+Spawn a collaboration agent for the bounded task. Its model and effort are the
+two fields that command printed, `result.model` and `result.effort`, passed
+verbatim:
+
+- If `result.model` is a string, pass `result.model` exactly as `model`: the
+  string the command printed, even when it names the model you are running
+  on. Never substitute your own model for it. Use an empty or bounded context
+  fork.
+- If `result.model` is `null`, pass no model at all, not even your own; the
+  agent inherits the current model.
+- If `result.effort` is a string, pass it as `reasoning_effort`, verbatim,
+  with or without a model. If `result.effort` is `null`, pass none.
+
+Give the spawned agent the role contract below and the exact artifact/diff it
+must inspect. Wait for its final result.
 
 ## Role contract
 

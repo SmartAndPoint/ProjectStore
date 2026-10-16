@@ -4,8 +4,7 @@
       "type": "stdio",
       "command": "node",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs",
-        "mcp",
+        "${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs",
         "--project",
         "${CLAUDE_PROJECT_DIR}"
       ]

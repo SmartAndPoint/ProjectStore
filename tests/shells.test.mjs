@@ -546,12 +546,7 @@ test("shells contract 11 / AC 3: the guard counts every shell — a version, a p
   );
   // A scratch tree with the version sites and the shells.
   const scratch = mkdtempSync(join(TMP, "guard-"));
-  for (const rel of [
-    "package.json",
-    ".claude-plugin/plugin.json",
-    ".claude-plugin/marketplace.json",
-    "package-lock.json",
-  ]) {
+  for (const rel of ["package.json", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"]) {
     mkdirSync(dirname(join(scratch, rel)), { recursive: true });
     copyFileSync(join(ROOT, rel), join(scratch, rel));
   }
@@ -686,6 +681,9 @@ test(
         ...roots,
         PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter),
         HOME: mkdtempSync(join(TMP, "hooks-home-")),
+        // A cache of its own, so no unbound run elsewhere in this process can
+        // have remembered the welcome session 1 asserts.
+        XDG_CACHE_HOME: mkdtempSync(join(TMP, "hooks-cache-")),
       });
       // Ours and node's: a forced harness, a sessions dir or a preloaded module
       // from the developer's shell would steer the hooks from inside the suite.

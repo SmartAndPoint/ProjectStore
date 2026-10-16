@@ -321,6 +321,28 @@ export function harnessHome(manifest, { env = process.env, home = homedir() } = 
   return fromEnv || (home && r.home_default ? join(home, r.home_default) : null);
 }
 
+// The registry block of a manifest's host plugin registration, where it names
+// its host's own folders and files (cache_dir, synced_dir, the registry
+// files), or null for a harness whose registration is not the host's plugin
+// system.
+export function hostRegistry(manifest) {
+  const [surface, s] =
+    Object.entries(manifest?.surfaces || {}).find(
+      ([k, x]) => !k.startsWith("_") && x?.format === "host-plugin-registration" && x.registry,
+    ) || [];
+  return s ? { ...s.registry, plugin_name: s.plugin_name, surface } : null;
+}
+
+// Whether the host auto-updates `marketplace` when no settings entry and no
+// registry entry say (registry.auto_update: its names and name prefixes are on,
+// every other marketplace off). null when the manifest states no default.
+export function autoUpdateDefault(manifest, marketplace) {
+  const d = hostRegistry(manifest)?.auto_update;
+  if (!d) return null;
+  const name = String(marketplace || "");
+  return (d.on || []).includes(name) || (d.on_prefix || []).some((p) => name.startsWith(p));
+}
+
 // The agents block of a RUN (the story "One run plans the agents block once,
 // and a bare uninstall selects every harness the project uses", rules 1–2):
 // the files every manifest of the run names for it, in the FIRST manifest's
@@ -603,7 +625,8 @@ export function projectRootDeclared(env = process.env) {
 // Where this projectstore's core lives on disk: its layouts, templates and
 // scripts. The bin runs ITS OWN copy of the core: a child gets that through childEnv's
 // pluginRoot, an in-process read (the query verbs' loadLayout, the headings
-// registry) through this pin. Set once by cli.mjs; nothing else may call it.
+// registry) through this pin. Set by verbs.mjs's dispatch, on every run of
+// the CLI and of the read runner; nothing else may call it.
 let _pinnedPluginRoot = null;
 export function pinPluginRoot(root) {
   _pinnedPluginRoot = root || null;
@@ -733,8 +756,10 @@ export function layoutPaths(projectDir, { harnessDir = null, dir = MANIFEST_DIR 
 //
 // What is ours on the machine but belongs to no project and no harness home:
 // the shell fetch's scratch (<root>/fetch/<pid>-<ms>/, removed when its run
-// ends) and the registry answer the update notice caches for a day
-// (<root>/registry.json, named now and read by no one yet). The XDG Base
+// ends), the registry answer the update notice caches for a day
+// (<root>/registry.json, named now and read by no one yet), the model lists
+// (<root>/models/<id>.json) and the welcome an unbound project has shown
+// (<root>/welcomed/<id>). The XDG Base
 // Directory spec puts a cache at $XDG_CACHE_HOME when that is an absolute
 // path and ignores a relative one; an empty one is ignored too. Otherwise it
 // is <home>/.cache. With neither, `root` is null and the fetch refuses. This
@@ -755,6 +780,12 @@ export function cachePaths({ env = process.env, home = homedir() } = {}) {
     // A harness's model list, as its last live read answered (the ADR "Agent
     // model lists are read from each harness's own catalog…", decision 4).
     models: (id) => (root && id ? join(root, "models", `${id}.json`) : null),
+    // A harness's first-run welcome, seen on this machine: the SessionStart
+    // hook writes it in place of the project's marker when the project is not
+    // bound, so an unbound project gets no writes (layout spec contract 5, as
+    // amended by the story "Opening a project that is not bound writes nothing
+    // into it…"). A lost marker costs one more welcome.
+    welcomed: (id) => (root && id ? join(root, "welcomed", id) : null),
     from: fromEnv ? variable : "the home directory",
     variable,
   };

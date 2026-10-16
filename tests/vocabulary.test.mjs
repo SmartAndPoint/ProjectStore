@@ -95,7 +95,12 @@ function fixture(m) {
   const sessions = tmp("ps-vocab-sessions-");
   const bare = tmp("ps-vocab-bare-");
   mkdirSync(join(bare, m.runtime.harness_dir), { recursive: true });
-  return { proj, vault, home, sessions, bare };
+  // A user-level cache of its own: a welcome some unbound run remembered in
+  // the shared one would silence this fixture's, and the lint of the welcome
+  // would pass with nothing to check (the story "Opening a project that is
+  // not bound writes nothing into it…").
+  const cache = tmp("ps-vocab-cache-");
+  return { proj, vault, home, sessions, bare, cache };
 }
 
 // How the harness itself identifies a hook process: its plugin-root variable,
@@ -462,6 +467,7 @@ test("contract 18, layer 3: SessionStart, the rules, pre-compact, doctor and the
       const f = fixture(m);
       const env = cleanEnv({
         HOME: f.home,
+        XDG_CACHE_HOME: f.cache,
         PROJECTSTORE_SESSIONS_DIR: f.sessions,
         ...(how === "forced"
           ? {
@@ -480,6 +486,8 @@ test("contract 18, layer 3: SessionStart, the rules, pre-compact, doctor and the
         "doctor text": runNode("bin/projectstore.mjs", ["doctor", "--project", f.proj], { cwd: f.proj, env }),
         "not-bound": runNode("bin/projectstore.mjs", ["status", "--project", f.bare], { cwd: f.bare, env }),
       };
+      // Not vacuous: the first-run welcome is part of what is linted.
+      assert.match(runs["session-start"].out, /loaded for the first time/, `${m.id} ${how}: the welcome is there`);
       const pats = foreignPatterns(ROOT, m.id);
       const about = aboutMessages(runs["doctor"].out, m.id);
       for (const [label, r] of Object.entries(runs)) {
@@ -524,7 +532,7 @@ test("contract 18, layer 3: a core run from a shell's tree, with no identity var
     const f = fixture(m);
     for (const h of MANIFESTS) mkdirSync(join(f.proj, h.runtime.harness_dir), { recursive: true });
     const registered = registerSource(f);
-    const env = cleanEnv({ HOME: f.home, PROJECTSTORE_SESSIONS_DIR: f.sessions });
+    const env = cleanEnv({ HOME: f.home, XDG_CACHE_HOME: f.cache, PROJECTSTORE_SESSIONS_DIR: f.sessions });
     const run = (file, args, input = null) => {
       const r = spawnSync(process.execPath, [join(core, file), ...args], {
         cwd: f.proj,
@@ -556,6 +564,7 @@ test("contract 18, layer 3: a core run from a shell's tree, with no identity var
         cwd: f.proj,
       }),
     };
+    assert.match(outs["session-start"], /loaded for the first time/, `${m.id}: the welcome is linted too`);
     const pats = foreignPatterns(ROOT, m.id);
     const aboutMsgs = aboutMessages(outs["doctor json"], m.id);
     for (const [label, out] of Object.entries(outs))

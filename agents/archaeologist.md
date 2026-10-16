@@ -1,6 +1,6 @@
 ---
 name: archaeologist
-description: Opus (max-effort) decision archaeologist for brownfield onboarding. Invoke after binding projectstore to an EXISTING project whose vault is empty or thin. Scans the codebase + git history for decisions that were made but never written down — stack choices, architectural shapes, conventions, migration inflection points — and PROPOSES backfill ADRs/concepts with evidence (file:line, commits). Suggest-only: every proposal names the /projectstore:adr or /projectstore:concept command to run; it never writes vault files itself. Read-only, deduplicates against existing artifacts first.
+description: "Opus (max-effort) decision archaeologist for brownfield onboarding. Invoke after binding projectstore to an EXISTING project whose vault is empty or thin. Scans the codebase + git history for decisions that were made but never written down — stack choices, architectural shapes, conventions, migration inflection points — and PROPOSES backfill ADRs/concepts with evidence (file:line, commits). Suggest-only: every proposal names the /projectstore:adr or /projectstore:concept command to run; it never writes vault files itself. Read-only, deduplicates against existing artifacts first."
 model: opus
 effort: max
 tools: Read, Grep, Glob, Bash

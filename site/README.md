@@ -1,7 +1,7 @@
 # ProjectStore — the public site
 
 The site for [ProjectStore](https://github.com/SmartAndPoint/ProjectStore): a main page and three
-method pages, in eight languages, served by GitHub Pages at <https://projectstore.dev> from this
+method pages, in eight languages, and a privacy page in English, served by GitHub Pages at <https://projectstore.dev> from this
 folder (`.github/workflows/pages.yml`). It is not part of the npm package: `site` is in
 `NOT_SHIPPED` (`scripts/version-guard.mjs`), and `tests/site.test.mjs` holds it to the repository.
 
@@ -55,6 +55,8 @@ src/index.html             the main page's template: English text, every transla
 src/how-it-works.html      the method pages' templates, the same way
 src/why-it-works.html
 src/one-vault.html
+src/privacy.html           the privacy page (plugin.json's privacyPolicyUrl): English only, no keys of its own;
+                             PAGES builds it in "langs" alone, and every footer links it at the site root
 src/_header.html           partials every template splices in: the header and nav, the footer (where the
 src/_footer.html             version lives), the icon sprite and arrow markers, and the loop diagram
 src/_sprite.html             (the main page and How it works)
@@ -64,7 +66,7 @@ locales/<lang>.json        one dictionary per language for the whole site: en (e
 tools/i18n.py              build, extract and check (stdlib Python 3.12); PAGES is the table of pages
 tools/graph-slice.mjs      the background graph's data: a slice of the vault's graph.md, laid out, into site.js
 index.html                 generated: English, the default, at the site root
-<slug>/index.html          generated: the English method pages — /how-it-works/ /why-it-works/ /one-vault/
+<slug>/index.html          generated: the English method pages — /how-it-works/ /why-it-works/ /one-vault/ — and /privacy/
 <lang>/index.html          generated: every page per language — /de/ /de/how-it-works/ … /zh/one-vault/
 <lang>/<slug>/index.html
 en/index.html              generated: a redirect from the old /en/ address to the root
@@ -72,11 +74,15 @@ llms.txt                   the project for agents, in the llmstxt.org format
 llms-full.txt              the long form: a technical reference written for agents
 assets/style.css           tokens, components, diagrams, responsive rules, print, the @font-face rules, Chinese font stacks
 assets/site.js             tabs, the loop's lines and cartoon, copy buttons, language switcher, tone switch, the graph
-assets/mark.svg            the mark: the header logo and the favicon
-assets/icon-180.png        the mark for Safari's touch icon
-assets/og.png              the 1280×640 link preview every page names in og:image and twitter:image
+assets/                    the images: the mark, the touch icon and the link preview (below)
 assets/fonts/              the self-hosted fonts and their licences (see Fonts)
 ```
+
+The images in assets/ are mark.svg, the mark (the header logo and the favicon); icon-180.png, the
+mark for Safari's touch icon; and og.png, the 1280×640 link preview every page names in og:image and
+twitter:image. Their names stay out of code spans and blocks here: Anthropic's directory holds a
+version for a reviewer when a bundled image's path is written in backticks or a code block, and a
+directory tracking `main` would read this file (`node packaging/directory-guard.mjs --set repository`).
 
 The generated pages are committed next to the templates, so Pages serves plain files. Never edit them
 by hand: edit a template, a partial or a dictionary and rebuild. CI rebuilds them and fails when
@@ -92,7 +98,7 @@ English is the default and lives at the root. Every other language has its own a
 crawlers and by agents. Each page lists the same page in every language as an `hreflang` alternate
 (`x-default` is the English one) and itself as canonical, all absolute under
 `https://projectstore.dev/`, and carries `og:` and `twitter:` tags with its own title and
-description and the absolute address of `assets/og.png`. The language switcher on a page links the
+description and the absolute address of assets/og.png. The language switcher on a page links the
 same page in the other languages.
 
 An English page, of any kind, picks a language only when the visitor has a reason to want one: an
@@ -313,9 +319,9 @@ Fonts v11, from `google/fonts` `ofl/onest` (upstream `simpals/onest` at `8739b19
 
 | File | Bytes | Source | SHA-256 |
 |---|---:|---|---|
-| `onest-latin.woff2` | 33,808 | `https://fonts.gstatic.com/s/onest/v11/gNMKW3F-SZuj7xmf-HYoEoey.woff2` | `cc61cbd632bb677cd55f0eec9ebdd3e1525c5f30904cbf0769e2ac50d0fba992` |
-| `onest-cyrillic.woff2` | 15,828 | `https://fonts.gstatic.com/s/onest/v11/gNMKW3F-SZuj7xmb-HYoEoeyxMI.woff2` | `c3f4223046fb9623a0e92414d2834745cbebb260742e049aff103018b991fd47` |
-| `onest-symbols.woff2` | 18,164 | `https://fonts.gstatic.com/s/onest/v11/gNMKW3F-SZuj7xnx-HYoEoeyxMI.woff2` | `5977fb8a281a636793b099a3929ad9919e38af52c494a45603930e4a3b4ecc7c` |
+| onest-latin.woff2 | 33,808 | `https://fonts.gstatic.com/s/onest/v11/gNMKW3F-SZuj7xmf-HYoEoey.woff2` | `cc61cbd632bb677cd55f0eec9ebdd3e1525c5f30904cbf0769e2ac50d0fba992` |
+| onest-cyrillic.woff2 | 15,828 | `https://fonts.gstatic.com/s/onest/v11/gNMKW3F-SZuj7xmb-HYoEoeyxMI.woff2` | `c3f4223046fb9623a0e92414d2834745cbebb260742e049aff103018b991fd47` |
+| onest-symbols.woff2 | 18,164 | `https://fonts.gstatic.com/s/onest/v11/gNMKW3F-SZuj7xnx-HYoEoeyxMI.woff2` | `5977fb8a281a636793b099a3929ad9919e38af52c494a45603930e4a3b4ecc7c` |
 | `OFL-Onest.txt` | 4,384 | `https://raw.githubusercontent.com/google/fonts/main/ofl/onest/OFL.txt` | `071195d8806e226faeee60259c28ca67b458227af5195a73f5cfcab06e3003bc` |
 
 **IBM Plex Mono** 400 and 500 (IBM; SIL Open Font License 1.1, `LICENSE-IBMPlexMono.txt`). IBM's own
@@ -327,10 +333,10 @@ Name, and under the OFL a subset made by a third party is a Modified Version tha
 
 | File | Bytes | Source (in the package) | SHA-256 |
 |---|---:|---|---|
-| `IBMPlexMono-Regular-Latin1.woff2` | 17,544 | `fonts/split/woff2/IBMPlexMono-Regular-Latin1.woff2` | `e8993d946649b9d01abb1ed06d574b19d8ea3e66b5c3948602db335c44c18e56` |
-| `IBMPlexMono-Regular-Cyrillic.woff2` | 15,776 | `fonts/split/woff2/IBMPlexMono-Regular-Cyrillic.woff2` | `44e877f4d7718832f438809250ec677f75b0bba9dcb3b0076aaf00f08d9385d4` |
-| `IBMPlexMono-Medium-Latin1.woff2` | 17,868 | `fonts/split/woff2/IBMPlexMono-Medium-Latin1.woff2` | `41201b658a328b9d00368215c2f1102770f80b15952ab82631e4006255e6365d` |
-| `IBMPlexMono-Medium-Cyrillic.woff2` | 16,076 | `fonts/split/woff2/IBMPlexMono-Medium-Cyrillic.woff2` | `b7b352381265d31cc4845ca9d6321b869ae5913c4504bf61aed30baedab77a27` |
+| IBMPlexMono-Regular-Latin1.woff2 | 17,544 | fonts/split/woff2/IBMPlexMono-Regular-Latin1.woff2 | `e8993d946649b9d01abb1ed06d574b19d8ea3e66b5c3948602db335c44c18e56` |
+| IBMPlexMono-Regular-Cyrillic.woff2 | 15,776 | fonts/split/woff2/IBMPlexMono-Regular-Cyrillic.woff2 | `44e877f4d7718832f438809250ec677f75b0bba9dcb3b0076aaf00f08d9385d4` |
+| IBMPlexMono-Medium-Latin1.woff2 | 17,868 | fonts/split/woff2/IBMPlexMono-Medium-Latin1.woff2 | `41201b658a328b9d00368215c2f1102770f80b15952ab82631e4006255e6365d` |
+| IBMPlexMono-Medium-Cyrillic.woff2 | 16,076 | fonts/split/woff2/IBMPlexMono-Medium-Cyrillic.woff2 | `b7b352381265d31cc4845ca9d6321b869ae5913c4504bf61aed30baedab77a27` |
 | `LICENSE-IBMPlexMono.txt` | 4,456 | `LICENSE.txt` | `7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da` |
 
 ## Sources and honesty

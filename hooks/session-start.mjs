@@ -25,6 +25,7 @@ import {
   adoptHookInput,
   projectRoot,
   layoutPaths,
+  cachePaths,
   pickExisting,
   activeHarnessId,
   ensureStateRoot,
@@ -46,31 +47,48 @@ import {
 import { runStartupChecks } from "../scripts/doctor.mjs";
 import { resolveBinding, bindingOfferText } from "../scripts/worktree.mjs";
 
-// The marker lives under the harness's state directory; a legacy marker at
-// .claude/.projectstore-welcomed still counts while the window is open.
-function welcomedMarkerPath(proj) {
-  const p = layoutPaths(proj);
-  return pickExisting(p.welcomed(activeHarnessId()), p.legacy.welcomed);
+// The welcome has been seen, by this harness, when either marker exists: the
+// project's (state/<id>/welcomed, or the legacy .claude/.projectstore-welcomed
+// while the window is open) or the machine's (the user-level cache's
+// welcomed/<id>). Both branches read both; only the write follows the binding
+// (the story "Opening a project that is not bound writes nothing into it…",
+// decisions 1 and 2). So a project that holds a marker an unbound session of
+// 0.30.5 or earlier wrote is not welcomed again.
+//
+// The machine's marker is null with no cache root, and a home the platform
+// cannot answer for must not break startup either (skeleton spec, contract 17).
+function machineMarker(id) {
+  try {
+    return cachePaths().welcomed(id);
+  } catch {
+    return null;
+  }
 }
-function welcomedMarkerWritePath(proj) {
-  return layoutPaths(proj).welcomed(activeHarnessId());
+function welcomeSeen(proj, id) {
+  const p = layoutPaths(proj);
+  const machine = machineMarker(id);
+  return existsSync(pickExisting(p.welcomed(id), p.legacy.welcomed)) || (machine !== null && existsSync(machine));
 }
 
-// One-time orientation packet shown when projectstore first loads in a project.
-// Idempotent via a marker file at <project>/.claude/.projectstore-welcomed.
-// The welcome fires once per project, and a project can already be bound when
-// it does — a fresh install into a project someone bound first is the ordinary
+// One-time orientation packet shown when projectstore first loads. A bound
+// project shows it once per project; a project that is not bound shows it once
+// on this machine, because a user-scope install is on in every repository the
+// person opens, and writing a marker into each of them is a write into
+// projects nobody set up. A project can already be bound when the welcome
+// fires — a fresh install into a project someone bound first is the ordinary
 // case, not a corner (measured 2026-09-06: the first line a new user read told
 // them to bind a project whose vault the install preview had just named). So
-// the one instruction it carries branches on the binding; everything else is
-// the same message.
+// the one instruction it carries branches on the binding, and so does the
+// footer that says how often it appears; everything else is the same message.
 function buildWelcome(cfg = null) {
   const start =
     cfg && cfg.vault_path
       ? `**Already bound**: this project's vault is \`${truncFront(String(cfg.vault_path), PATH_CELL)}\`. Ask for what you want — the agent picks up commands like \`${commandForm("adr")}\` and \`${commandForm("epic")}\` from the conversation, and you approve every write. If the vault has no folders yet, \`${commandForm("scaffold")}\` lays them out.`
       : `**To start using it**: run \`${commandForm("bind", { args: "<vault-path>" })}\` and point it at an Obsidian vault (or any folder). After that, the agent will pick up commands like \`${commandForm("adr")}\` and \`${commandForm("epic")}\` from the conversation; you only approve the writes.`;
   return [
-    "# 👋 projectstore is loaded for the first time in this project",
+    cfg
+      ? "# 👋 projectstore is loaded for the first time in this project"
+      : "# 👋 projectstore is loaded for the first time on this machine",
     "",
     "**What it does**: turns the conversation's decisions into a structured Obsidian-friendly markdown vault — ADRs, epics, stories, runbooks, research. Agent-maintained, you approve every write.",
     "",
@@ -80,7 +98,7 @@ function buildWelcome(cfg = null) {
     // a git marketplace's toggle means nothing to a harness installed from npm.
     ...updateHint().welcome,
     "",
-    "_This message appears once per project._",
+    cfg ? "_This message appears once per project._" : "_This message appears once on this machine._",
     "",
     "_If projectstore helps you ship, a [GitHub star](https://github.com/SmartAndPoint/ProjectStore) helps others discover it. No pressure._",
     "",
@@ -88,17 +106,30 @@ function buildWelcome(cfg = null) {
 }
 
 function showWelcomeOnce(proj, cfg = null) {
-  if (existsSync(welcomedMarkerPath(proj))) return "";
+  const id = activeHarnessId();
+  if (welcomeSeen(proj, id)) return "";
   const text = buildWelcome(cfg);
   try {
-    const marker = welcomedMarkerWritePath(proj);
-    // The state directory's own .gitignore, header included, even in an
-    // unbound project — and no sessions/ there: it is how a project uninstall
-    // recognises this marker as ours (install spec contract 13, as amended by
-    // the shell-fetch story).
-    ensureStateRoot(proj);
-    mkdirSync(dirname(marker), { recursive: true });
-    writeFileSync(marker, new Date().toISOString() + "\n", "utf8");
+    let marker = null;
+    if (cfg) {
+      // Bound: the project's marker, beside the launcher (layout spec contract
+      // 5). The state directory's own .gitignore comes with it, header
+      // included, and no sessions/: it is how a project uninstall recognises
+      // this marker as ours (install spec contract 13, as amended by the
+      // shell-fetch story).
+      ensureStateRoot(proj);
+      marker = layoutPaths(proj).welcomed(id);
+    } else {
+      // Not bound: the machine's marker, and nothing in the project. With no
+      // cache root (no usable home) nothing is written and the welcome shows
+      // again next time — startup never breaks over it (skeleton spec,
+      // contract 17).
+      marker = machineMarker(id);
+    }
+    if (marker) {
+      mkdirSync(dirname(marker), { recursive: true });
+      writeFileSync(marker, new Date().toISOString() + "\n", "utf8");
+    }
   } catch {}
   return text;
 }

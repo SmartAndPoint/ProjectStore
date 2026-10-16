@@ -278,13 +278,16 @@ test("user text: updateHint under every identity fills {upgrade} with the core's
     npmForm,
     "the npm directory, in place",
   );
+  // …named, with its default, from the copy's own path (PS-DIRECTORY, "A copy
+  // installed from Anthropic's directory…", decision 4).
+  const sap = (t) => t.split("{marketplace}").join("SmartAndPoint").split("{auto_update}").join("off");
   assert.equal(
     cc(cache("SmartAndPoint")),
-    SRC.update_hint.by_channel.marketplace.line,
+    sap(SRC.update_hint.by_channel.marketplace.line),
     "the git marketplace keeps the toggle",
   );
   const welcome = (root) => updateHint({ env: { PROJECTSTORE_HARNESS: SRC.id }, root, home }).welcome;
-  assert.deepEqual(welcome(cache("SmartAndPoint")), SRC.update_hint.by_channel.marketplace.welcome);
+  assert.deepEqual(welcome(cache("SmartAndPoint")), SRC.update_hint.by_channel.marketplace.welcome.map(sap));
   assert.ok(!welcome(ROOT).join("\n").includes("auto-update"), "the npm welcome names no host toggle");
   assert.ok(
     welcome(ROOT).includes(packageCommand(SRC, "upgrade", { version: "latest" })),
@@ -628,7 +631,9 @@ test("user text: a startup with the welcome and an offer puts each part on lines
   const r = spawnSync(process.execPath, [join(root, "hooks", "session-start.mjs")], {
     encoding: "utf8",
     input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "ut-start", source: "startup", cwd: proj }),
-    env: installEnv(home, root, proj),
+    // A cache of its own: a machine marker another test's unbound run left in
+    // the shared one would silence this welcome.
+    env: installEnv(home, root, proj, { XDG_CACHE_HOME: tmp("start-cache-") }),
     cwd: proj,
     timeout: 30000,
   });
@@ -648,6 +653,11 @@ test("user text: a startup with the welcome and an offer puts each part on lines
   assert.ok(commandsAlone("joined", sys.split("\n").join(" · ")).length > 0);
 });
 
+// Each startup on a machine of its own (a fresh user-level cache): an unbound
+// project remembers its welcome on the machine (the story "Opening a project
+// that is not bound writes nothing into it…"), so through a shared cache the
+// first unbound run would silence every later welcome of that harness, and the
+// lints below would pass with nothing to check.
 function fireStartup(proj, env) {
   const clean = Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !/^(CLAUDE|CODEX|PROJECTSTORE_(HARNESS|IDENTIFIED|SHELL))/.test(k)),
@@ -655,7 +665,7 @@ function fireStartup(proj, env) {
   const r = spawnSync(process.execPath, [join(ROOT, "hooks", "session-start.mjs")], {
     encoding: "utf8",
     input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "ut-1", source: "startup", cwd: proj }),
-    env: { ...clean, [SRC.runtime.project_dir_env]: proj, ...env },
+    env: { ...clean, [SRC.runtime.project_dir_env]: proj, XDG_CACHE_HOME: tmp("ut-cache-"), ...env },
     cwd: proj,
     timeout: 30000,
   });
@@ -1155,4 +1165,23 @@ test("user text, the file half: each rule fails on one planted case, naming the 
   const desc = only({ shells: [{ name: "projectstore-x", description: "Run npx projectstore setup, then restart." }] });
   assert.equal(desc.length, 1, desc.join("\n"));
   assert.match(desc[0], /^packaging\/shells\.mjs SHELLS projectstore-x\.description: \(d\) /);
+});
+
+// Claude Code has no `/plugin update` in a session: an unknown word after
+// /plugin opens the Discover tab; and `/plugin marketplace update <name>`
+// refreshes a marketplace's listing, which the docs never give as the way to
+// update an installed plugin (the story "The update step a message gives for a
+// git-marketplace copy names what Claude Code has…", PS-HARNESS). No shipped
+// text names either; only the status-line launcher's comment may, since the
+// launcher is a stamped surface and a changed byte would re-stamp every copy.
+test("user text: no shipped file names /plugin update or /plugin marketplace update, but the status-line launcher's comment", () => {
+  const packlist = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "packlist.json"), "utf8"));
+  const found = [];
+  for (const rel of packlist) {
+    if (/\.(?:png|svg|woff2?)$/.test(rel)) continue;
+    for (const [i, line] of readFileSync(join(ROOT, rel), "utf8").split("\n").entries())
+      if (/\/plugin (?:update(?!d)|marketplace update)/.test(line))
+        if (!(rel === "scripts/statusline-launcher.mjs" && /^\s*\/\//.test(line))) found.push(`${rel}:${i + 1}`);
+  }
+  assert.deepEqual(found, []);
 });

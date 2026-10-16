@@ -8,8 +8,12 @@
     "email": "ekonev@smartandpoint.com",
     "url": "https://github.com/SmartAndPoint"
   },
-  "homepage": "https://github.com/SmartAndPoint/ProjectStore",
+  "homepage": "https://projectstore.dev",
   "repository": "https://github.com/SmartAndPoint/ProjectStore",
+  "icon": "./docs/images/icon.png",
+  "documentationUrl": "https://github.com/SmartAndPoint/ProjectStore#readme",
+  "supportUrl": "https://github.com/SmartAndPoint/ProjectStore/issues",
+  "privacyPolicyUrl": "https://projectstore.dev/privacy/",
   "license": "MIT",
   "types": "./hooks/band-state.d.ts",
   "keywords": [

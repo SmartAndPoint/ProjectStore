@@ -139,7 +139,7 @@ test("models ADR decision 1: Claude Code offers its aliases and no exact id; a c
     p,
     JSON.stringify({ at: new Date(NOW - 1000).toISOString(), source: "the Anthropic API", models: entries }),
   );
-  const k = knownModels(CC, { env: { ...env, ANTHROPIC_API_KEY: "sk-test" }, home, now: () => NOW });
+  const k = knownModels(CC, { env: { ...env, ANTHROPIC_API_KEY: "test-anthropic-key" }, home, now: () => NOW });
   assert.equal(k.stale, false);
   assert.deepEqual(k.live, {
     source: "the Anthropic API",
@@ -312,16 +312,16 @@ test("models ADR decisions 1 and 4: Codex's list is its own catalog file under C
 
 test("models ADR decisions 3 and 4: an http read sends the key in its header only, and caches names without it", async () => {
   const home = tmp("ps-models-home-");
-  const env = { XDG_CACHE_HOME: join(home, "cache"), ANTHROPIC_API_KEY: "sk-secret-123" };
+  const env = { XDG_CACHE_HOME: join(home, "cache"), ANTHROPIC_API_KEY: "test-anthropic-key" };
   const calls = [];
   const r = await readLive(CC, { env, home, now: () => NOW, fetch: fakeFetch(ANTHROPIC, calls) });
   assert.equal(r.error, undefined, r.error);
   assert.equal(calls.length, 1, "one request");
   assert.equal(calls[0].url, "https://api.anthropic.com/v1/models?limit=1000");
-  assert.equal(calls[0].headers["x-api-key"], "sk-secret-123");
+  assert.equal(calls[0].headers["x-api-key"], "test-anthropic-key");
   assert.equal(calls[0].headers["anthropic-version"], "2023-06-01");
   const cache = readFileSync(modelCachePath(CC, { env, home }), "utf8");
-  assert.doesNotMatch(cache, /sk-secret-123|x-api-key/, "the cache holds no key and no header");
+  assert.doesNotMatch(cache, /test-anthropic-key|x-api-key/, "the cache holds no key and no header");
   const parsed = JSON.parse(cache);
   assert.equal(parsed.at, new Date(NOW).toISOString());
   assert.deepEqual(Object.keys(parsed).sort(), ["at", "models", "source"], "the cache holds these and nothing else");

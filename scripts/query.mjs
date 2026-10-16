@@ -3,9 +3,10 @@
 // The read operations behind the CLI's read verbs and the MCP surface's
 // tools — one exported function per MCP tool (MCP ADR decision 2): status,
 // orientation, search, show (get_artifact), neighbors, lineage, codeRefs.
-// Read-only, no stdout side effects, no writes: imported by scripts/cli.mjs;
-// the MCP server reaches these only through cli.run(), so the envelope is
-// built in one place — but it shares the module graph, where stdout is the
+// Read-only, no stdout side effects, no writes: imported by the read-verb
+// runner (scripts/read-verbs.mjs), whose handlers both the CLI's run() and
+// the MCP server dispatch through, so the envelope is built in one place —
+// and this module shares the server's module graph, where stdout is the
 // protocol channel.
 //
 // Every result is small on purpose — a model reads it. Artifact paths in
@@ -24,8 +25,8 @@
 // return the same facts), stories from the kanban generator's finder, the
 // vault walk from doctor's (a static import is safe: doctor's main() is
 // guarded, and this module takes one pure function from it — the MCP ADR's
-// "spawn, never import" is about running doctor, which stays cli.mjs's
-// spawn), the orientation from the SessionStart gather. Bad input is a
+// "spawn, never import" is about running doctor, which stays the read
+// runner's spawn), the orientation from the SessionStart gather. Bad input is a
 // usage error (`code: "USAGE"`), which the front-ends turn into exit 2.
 //
 // Normative: MCP ADR decisions 2 and 4; the link-graph ADR's decision 4
@@ -56,7 +57,7 @@ import { buildGraph } from "./graph.mjs";
 import { findStories, statusToColumn } from "./kanban.mjs";
 // status's text screen is drawn with the presentation primitives; term.mjs
 // has no side effect at import, so the MCP server's graph gains nothing it
-// could trip on (cli.mjs imports it already).
+// could trip on (verbs.mjs imports it already).
 import { PLAIN, painter, icon, heading, kv, rows, wrap, commandBlock } from "./term.mjs";
 import { packageCommand } from "./harness.mjs";
 

@@ -4,11 +4,11 @@
       "hooks": [
         {
           "type": "command",
-          "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs"
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs\""
         },
         {
           "type": "command",
-          "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/session-rules.mjs"
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-rules.mjs\""
         }
       ]
     }
@@ -18,7 +18,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/touch-session.mjs"
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/touch-session.mjs\""
         }
       ]
     }
@@ -29,7 +29,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/touch-session.mjs"
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/touch-session.mjs\""
         }
       ]
     }
@@ -39,7 +39,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/session-stop.mjs"
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-stop.mjs\""
         }
       ]
     }
@@ -49,7 +49,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/pre-compact.mjs"
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-compact.mjs\""
         }
       ]
     }

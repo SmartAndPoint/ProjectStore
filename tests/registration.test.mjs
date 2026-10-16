@@ -1492,7 +1492,7 @@ const ignoreThis = (sb, cfg) =>
     cfg,
   }).filter((f) => RECORD_IT.test(f.message));
 const CONSEQUENCE =
-  "this project stops loading the git-marketplace copy, and /plugin update no longer reaches it — from now on it is updated by npx projectstore setup";
+  "this project stops loading the git-marketplace copy, and that copy's updates no longer reach it — from now on it is updated by npx projectstore setup";
 
 test("converge criterion 'The switch': channel npm plans the registration, the switch with its consequence line and the mark last; apply turns the copy off and records the switch, doctor drops its info, a second plan is zero-change; channel null plans no mark", () => {
   const sb = sandbox({ vault: true });
@@ -2134,7 +2134,7 @@ test("converge criterion 'The keep': this checkout's npm row enabled beside the 
 
 test("converge criterion 'The keep', the other cases: no bin or no --no-register gives no step and DONE's advice; no envelope names the copy's own upgrade; a refusal refuses before the question; incomplete still steps; inside a session it defers; a failed upgrade is STOPPED", async () => {
   const ADVICE = (v, cannot) =>
-    `This project's projectstore plugin (${v}) ${cannot}: update it first (in ${SRC.display_name}: /plugin marketplace update, then /plugin update, then restart), then run this again`;
+    `This project's projectstore plugin (${v}) ${cannot}: update it first (in ${SRC.display_name}: open /plugin manage and choose Update now on projectstore, then run /reload-plugins to load it), then run this again`;
   // A copy without bin/projectstore.mjs, and one whose CLI lacks "no-register".
   for (const [what, make, cannot] of [
     ["no bin", (h, v) => fakeInstall(h, v), "predates the move and cannot write this project's surfaces itself"],

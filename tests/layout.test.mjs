@@ -174,6 +174,14 @@ test("layout contract 0, the user-level class: cachePaths names <abs>/projectsto
     [null, null, null, null],
     "no absolute base: the fetch refuses",
   );
+  // The welcome an unbound project has shown, one per harness (the story
+  // "Opening a project that is not bound writes nothing into it…", decision 1).
+  assert.equal(xdg.welcomed("codex"), "/x/cache/projectstore/welcomed/codex", "under an absolute XDG_CACHE_HOME");
+  assert.equal(at({}).welcomed(SRC.id), `/h/.cache/projectstore/welcomed/${SRC.id}`, "under the home otherwise");
+  assert.equal(none.welcomed(SRC.id), null, "no root: no marker, and the hook writes none");
+  assert.equal(cachePaths({ env: {}, home: null }).welcomed(SRC.id), null, "no home at all");
+  assert.equal(xdg.welcomed(null), null, "no harness: no marker");
+  assert.equal(xdg.welcomed(""), null);
   assert.equal(libCachePaths, cachePaths, "lib.mjs re-exports the resolver, as it does layoutPaths");
 });
 
@@ -698,7 +706,7 @@ test("layout contract 12: a copy whose CLI does not declare --no-register gets a
   ]);
   const git = msg();
   assert.match(git, /\(0\.28\.0-rc\.2\) predates --no-register/);
-  assert.match(git, /\/plugin update/);
+  assert.match(git, /open \/plugin manage and choose Update now on projectstore/);
   assert.doesNotMatch(git, /npx |node "/, "no command the copy would reject");
   const ran = spawnSync(
     process.execPath,
@@ -775,6 +783,41 @@ test("layout contract 6: a narrowed uninstall leaves the legacy runtime alone; o
   const cleanup = full.items.find((i) => i.surface === "layout_cleanup");
   assert.ok(cleanup, "a full uninstall still disowns the legacy runtime");
   assert.equal(cleanup.path, lp.legacy.runtime);
+});
+
+// Since 0.30.6 a copy's parse table is scripts/verbs.mjs (the PS-DIRECTORY
+// story "The MCP server's entry reaches no install verb…"), and a released
+// copy keeps it in scripts/cli.mjs: the capability read takes either, so a
+// 0.30.6 copy never reads as predating --no-register or --verbose — which
+// would cost doctor's remedy its command and the installer's keep its copy.
+test("layout contract 12: the capability read takes the parse table from scripts/verbs.mjs as well as scripts/cli.mjs", async () => {
+  const { takesVerbose } = await import("../scripts/lib.mjs");
+  const copy = (files) => {
+    const root = mkdtempSync(join(tmpdir(), "ps-parse-table-"));
+    mkdirSync(join(root, "scripts"));
+    for (const [f, text] of Object.entries(files)) writeFileSync(join(root, "scripts", f), text);
+    return root;
+  };
+  // The table in verbs.mjs, beside a cli.mjs that names neither flag.
+  const split = copy({
+    "verbs.mjs": 'opt("no-register", false, "…"); opt("verbose", false, "…");\n',
+    "cli.mjs": "export {};\n",
+  });
+  assert.equal(takesNoRegister(split), true, "a 0.30.6 copy takes --no-register");
+  assert.equal(takesVerbose(split), true, "a 0.30.6 copy takes --verbose");
+  // …and this tree's own table, alone.
+  const own = copy({ "verbs.mjs": readFileSync(join(ROOT, "scripts", "verbs.mjs"), "utf8") });
+  assert.equal(takesNoRegister(own), true, "this tree's verbs.mjs declares --no-register");
+  assert.equal(takesVerbose(own), true, "this tree's verbs.mjs declares --verbose");
+  // A released copy: the table in cli.mjs.
+  const released = copy({ "cli.mjs": 'opt("no-register", false, "…"); opt("verbose", false, "…");\n' });
+  assert.equal(takesNoRegister(released), true);
+  assert.equal(takesVerbose(released), true);
+  // Neither file declares them: rc.2, or a copy with no CLI.
+  const none = copy({ "cli.mjs": "export {};\n", "verbs.mjs": "export {};\n" });
+  assert.equal(takesNoRegister(none), false);
+  assert.equal(takesVerbose(none), false);
+  assert.equal(takesNoRegister(copy({})), false);
 });
 
 test("layout contract 12: a host-cache copy reached through a symlinked home is still a host-cache copy", () => {

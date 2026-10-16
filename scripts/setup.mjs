@@ -64,7 +64,16 @@ import {
   languageNames,
 } from "./binding.mjs";
 import { analyseRegistration, analyseJsonEntry } from "./surfaces.mjs";
-import { runningCopies, coreCommand, channelChoices, pinFor, terminalRun } from "./convergence.mjs";
+import {
+  runningCopies,
+  coreCommand,
+  channelChoices,
+  pinFor,
+  terminalRun,
+  directoryConsequence,
+  directoryKeepConsequence,
+  DIRECTORY,
+} from "./convergence.mjs";
 import { runVerb, isInteractive, gateText, channelText, publicItem, planOptions } from "./install-harness.mjs";
 import { resolveBinding } from "./worktree.mjs";
 import * as term from "./term.mjs";
@@ -82,6 +91,13 @@ export const TITLES = Object.freeze({
 export const CHANNEL_TEXT =
   "This project loads projectstore from the git marketplace (updated by /plugin). Switch this project to the npm install, or keep the git marketplace?";
 export const CHANNEL_ANSWERS = Object.freeze({ npm: "Switch to npm", git: "Keep the git marketplace" });
+// …and for a copy synced from claude.ai (PS-DIRECTORY, "Setup and install keep
+// a directory copy…", decision 6), the question's words when that copy is the
+// one this project loads: the same two answers, `git` still meaning the keep.
+export const DIRECTORY_TEXT = `This project loads projectstore from ${DIRECTORY} (updated from claude.ai). Keep the directory copy, or move this project to the npm install?`;
+export const DIRECTORY_ANSWERS = Object.freeze({ npm: "Move to npm", git: "Keep the directory copy" });
+export const channelWords = (directory) =>
+  directory ? { text: DIRECTORY_TEXT, answers: DIRECTORY_ANSWERS } : { text: CHANNEL_TEXT, answers: CHANNEL_ANSWERS };
 const UNRECORDED = "nothing is recorded: this project has no binding; setup asks again once it is bound";
 
 const real = (p) => {
@@ -105,7 +121,7 @@ const surfaceOf = (m, test) =>
   Object.entries(m?.surfaces || {}).find(([k, s]) => !k.startsWith("_") && s && test(s)) || null;
 const registrationOf = (m) => surfaceOf(m, (s) => s.kind === "registration");
 // The harness whose project can switch channels: the one with a host plugin
-// registration (cli.mjs's switchHarness reads it the same way).
+// registration (verbs.mjs's switchHarness reads it the same way).
 const hostRegistrationOf = (m) => surfaceOf(m, (s) => s.format === "host-plugin-registration");
 // The harness with a status-line slot of ours (install-harness.mjs's flagHarness).
 const statuslineOf = (m) => {
@@ -187,10 +203,15 @@ export function harnessRows({ listed, detected, presence, home = null }) {
 // table). `selected`: the copy contract 12's selection keeps, from another
 // marketplace, with the version it runs; `kept`: the binding's channel_keep;
 // `sessionCopy`: the copy the selection finds at all, for "inside a session
-// running the git-marketplace copy".
+// running the git-marketplace copy". `directory`: the copy synced from
+// claude.ai this project loads (analyseRegistration's), asked about as a git
+// copy is, with the keep the default and each answer's consequence
+// (PS-DIRECTORY); `display` the host's name those consequences say.
 export function decideChannel({
   inSet,
   others = [],
+  directory = null,
+  display = null,
   flag = null,
   interactive = false,
   running = null,
@@ -200,15 +221,33 @@ export function decideChannel({
   sessionCopy = null,
 }) {
   if (flag) return { asked: false, value: flag, why: "flag" };
-  if (!inSet || !others.length) return { asked: false, value: null, why: "none" };
+  if (!inSet || (!others.length && !directory)) return { asked: false, value: null, why: "none" };
   if (interactive) {
     const newer = Boolean(selected?.version && running && cmpPrecedence(selected.version, running) > 0);
+    if (!others.length) {
+      const stop = newer
+        ? `it runs ${running} in place of ${selected.version}; if ${selected.version} is published, setup stops after these questions and names it`
+        : "setup and upgrade update the npm copy from now on";
+      return {
+        asked: true,
+        default: "git",
+        newer,
+        choices: [
+          {
+            value: "git",
+            label: DIRECTORY_ANSWERS.git,
+            reason: kept ? `kept on ${String(kept.at).slice(0, 10)}` : directoryKeepConsequence(display, directory.key),
+          },
+          { value: "npm", label: DIRECTORY_ANSWERS.npm, reason: `${directoryConsequence(display)}; ${stop}` },
+        ],
+      };
+    }
     const keepReason = kept
       ? `kept on ${String(kept.at).slice(0, 10)}`
       : "/plugin keeps updating it; setup refreshes this project's files through that copy";
     const switchReason = newer
       ? `switching runs ${running} in place of ${selected.version}; if ${selected.version} is published, setup stops after these questions and names it`
-      : "setup and upgrade update it from now on; /plugin update no longer reaches this project";
+      : "setup and upgrade update it from now on; the git-marketplace copy's updates no longer reach this project";
     return {
       asked: true,
       default: newer || kept ? "git" : "npm",
@@ -219,7 +258,8 @@ export function decideChannel({
       ],
     };
   }
-  if (inSession && sessionCopy?.channel === "marketplace") return { asked: false, value: "git", why: "session" };
+  if (inSession && ["marketplace", "synced"].includes(sessionCopy?.channel))
+    return { asked: false, value: "git", why: "session" };
   if (kept) return { asked: false, value: "git", why: "recorded" };
   return { asked: false, value: null, refuse: true };
 }
@@ -315,12 +355,13 @@ function factsOf(project, { env, home, root, version, interactive }) {
   const binding = readConfigAt(project);
   const channelHarness = manifests.find((m) => hostRegistrationOf(m)) || null;
   let others = [],
+    directory = null,
     selected = null,
     sessionCopy = null;
   if (channelHarness) {
     const [, s] = hostRegistrationOf(channelHarness);
-    others = analyseRegistration(project, s, { root, home, harness: channelHarness, env }).others;
-    const pick = selectCopy(home, project, { harness: channelHarness, only: "marketplace" });
+    ({ others, directory } = analyseRegistration(project, s, { root, home, harness: channelHarness, env }));
+    const pick = selectCopy(home, project, { harness: channelHarness, only: ["marketplace", "synced"] });
     // The version it runs, as the convergence story reads it (runningCopies,
     // under no channel answer: local and read-only).
     const copies = runningCopies(project, { harnesses: [channelHarness.id], root, home, env, channel: null, version });
@@ -350,6 +391,7 @@ function factsOf(project, { env, home, root, version, interactive }) {
     binding,
     channelHarness,
     others,
+    directory,
     selected,
     sessionCopy,
     slotHarness,
@@ -476,9 +518,12 @@ async function questions(rail, s) {
         `--channel chooses ${ch ? ch.display_name : "the host plugin"}'s channel; this run does not install ${ch ? ch.display_name : "it"}`,
       ),
     };
+  const words = channelWords(!f.others.length && Boolean(f.directory));
   const dc = decideChannel({
     inSet: chInSet,
     others: f.others,
+    directory: f.directory,
+    display: ch?.display_name ?? null,
     flag: flagChannel,
     interactive: Boolean(rail),
     running: version,
@@ -489,7 +534,12 @@ async function questions(rail, s) {
   });
   if (dc.refuse) {
     const blocks = channelChoices({
-      gate: { args: { harnesses: named }, keys: f.others.map((o) => o.key), version: pinFor(root, version) },
+      gate: {
+        args: { harnesses: named },
+        keys: f.others.map((o) => o.key),
+        directory: f.directory ? [f.directory.key] : [],
+        version: pinFor(root, version),
+      },
     });
     return {
       early: refused(
@@ -507,11 +557,11 @@ async function questions(rail, s) {
     const a = await rail.select(
       TITLES.channel,
       dc.choices.map((x) => ({ ...x, reason: glyphs(x.reason) })),
-      { default: dc.default, note: CHANNEL_TEXT },
+      { default: dc.default, note: words.text },
     );
     if (cancelled(a)) return CANCEL;
     channel = a;
-  } else if (rail && dc.why === "flag") rail.answered(TITLES.channel, CHANNEL_ANSWERS[channel]);
+  } else if (rail && dc.why === "flag") rail.answered(TITLES.channel, words.answers[channel]);
   summary.channel = channel;
 
   // Question 4, the vault (rule 7), or --vault.
@@ -618,7 +668,7 @@ async function questions(rail, s) {
   // A keep with no binding to record it in says so (rule 6), once the vault's
   // answer has settled that there is none.
   if (rail && channel === "git" && !leaves)
-    rail.answered(TITLES.channel, `${CHANNEL_ANSWERS.git} ${term.icon(c, "dot")} ${UNRECORDED}`);
+    rail.answered(TITLES.channel, `${words.answers.git} ${term.icon(c, "dot")} ${UNRECORDED}`);
 
   // Question 6, the status line (rule 9).
   const sh = f.slotHarness;

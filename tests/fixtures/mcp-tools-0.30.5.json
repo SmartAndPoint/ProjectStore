@@ -1,0 +1,243 @@
+[
+  {
+    "name": "status",
+    "description": "The project's binding, the stories in progress, and whether the derived views are fresh.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "orientation",
+    "description": "The vault's navigation skeleton (the SessionStart orientation) and the facts behind it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "search",
+    "description": "Find a phrase in the vault's artifacts: literal, case-insensitive by default, bounded; matches carry path, line, snippet, type, title, status.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "the phrase to find (literal substring)"
+        },
+        "kind": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "only artifacts of these kinds (adr, spec, epic, story, research, …)"
+        },
+        "status": {
+          "type": "string",
+          "description": "only artifacts in this status"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "at most this many matches (default 20, hard cap 100)"
+        },
+        "include_derived": {
+          "type": "boolean",
+          "description": "search the derived views (kanban, code-map, graph) too"
+        },
+        "case_sensitive": {
+          "type": "boolean",
+          "description": "match case"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "get_artifact",
+    "description": "One artifact by vault-relative path: its frontmatter, and its body or one section on request.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "vault-relative path of the artifact"
+        },
+        "body": {
+          "type": "boolean",
+          "description": "include the body"
+        },
+        "section": {
+          "type": "string",
+          "description": "one section by its registry id (description, acceptance, …)"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "neighbors",
+    "description": "The typed links of one artifact in both directions, from the live link graph (the same edges graph.md holds).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "vault-relative path of the artifact"
+        },
+        "kind": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "only edges of these kinds (wikilink, dead, supersedes, spec-covers, spec-implements-adr, epic-contains, …)"
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "in",
+            "out",
+            "both"
+          ],
+          "description": "which edges (default both)"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "cap per direction (default and maximum 100)"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "lineage",
+    "description": "The typed ancestry and descent of one artifact: supersedes, spec-covers, spec-implements-adr, epic-contains, breadth-first to a depth (default 3).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "vault-relative path of the artifact"
+        },
+        "kind": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "only these lineage kinds (a subset of the four)"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "how far to walk (default 3, maximum 10)"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "code_refs",
+    "description": "Which code an epic or artifact maps to (its code_refs), or which artifacts map to a repository path; the result says which reading was taken.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "selector": {
+          "type": "string",
+          "description": "an epic id, an artifact identity or vault path, or a repository-relative path"
+        },
+        "reverse": {
+          "type": "boolean",
+          "description": "read the selector as a path even if it names an artifact"
+        }
+      },
+      "required": [
+        "selector"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "doctor",
+    "description": "Check the install wiring and the vault's consistency: findings with severity, id and remedy. The slow tool (it spawns the doctor script).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "install": {
+          "type": "boolean",
+          "description": "only the install section"
+        },
+        "vault": {
+          "type": "boolean",
+          "description": "only the vault section"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  }
+]

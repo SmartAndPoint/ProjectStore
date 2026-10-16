@@ -54,6 +54,8 @@ import {
   whichOnPath,
   hostSessionId,
   stopCarrier,
+  hostRegistry,
+  autoUpdateDefault,
 } from "./harness.mjs";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
@@ -104,9 +106,14 @@ export function updateHint({ env = process.env, root = pluginRoot(), home = home
   // `{upgrade}` is the core's upgrade for this harness, pinned to latest so it
   // runs as printed, with no --project: the hint says where to run it (the
   // story "User-facing text says where to run…", rule 2). Any hint that holds
-  // the placeholder gets it; one that holds none prints as written.
+  // the placeholder gets it; one that holds none prints as written. A
+  // marketplace copy's hint names its own marketplace, from the path, and that
+  // marketplace's auto-update default (the PS-DIRECTORY story "A copy
+  // installed from Anthropic's directory…", decision 4).
   const upgrade = m.id ? packageCommand(m, "upgrade", { version: "latest" }) : "";
-  const fill = (t) => String(t).split("{upgrade}").join(upgrade);
+  const mp = channel === "marketplace" ? underHostDir(root, CACHE, home).split("/")[0] : "";
+  const fills = { upgrade, marketplace: mp, auto_update: autoUpdateDefault(m, mp) ? "on" : "off" };
+  const fill = (t) => String(t).replace(/\{(upgrade|marketplace|auto_update)\}/g, (_, k) => fills[k]);
   return { line: fill(hint.line || ""), welcome: (hint.welcome || []).map(fill) };
 }
 // How an unbound worktree adopts its parent's binding: `bind --inherit` where
@@ -172,7 +179,8 @@ export function doctorFallbackText(findings, { env = process.env } = {}) {
 // The layout resolver and its constants, re-exported so hooks and scripts
 // import one module (the layout ADR, 2026-09-06). The active harness's id,
 // for the paths keyed by it (state/<id>/…). cachePaths is the user-level
-// class beside it (layout spec contract 0): the shell fetch's scratch.
+// class beside it (layout spec contract 0): the shell fetch's scratch, and
+// the welcome marker of a project that is not bound.
 // whichOnPath, the PATH walk for a host binary, moved to harness.mjs beside
 // hostPresence (the setup story, rule 5); its importers keep this name.
 export {
@@ -629,29 +637,63 @@ export function cmpPrecedence(a, b) {
 // The host's enablement of a plugin, user settings first and the project's
 // settings over it (a project may silence a user-scope plugin). Absent → true.
 export function pluginEnabled(key, home = homedir(), projectDir = null) {
-  const read = (p) => {
+  const v = enabledValues(key, home, projectDir);
+  return v.length ? v[v.length - 1] !== false : true;
+}
+// The values `key` has in the host's enabledPlugins sources this project
+// reads, lowest precedence first: the user's settings, then the committed
+// project file, then the checkout's local one over it — the host's own
+// precedence (measured 2026-09-05, --scope local). Claude Code's project
+// directory, whichever harness this process runs as.
+function enabledValues(key, home, projectDir) {
+  const dir = harnessProjectConfigDir(process.env, sourceHarness());
+  const files = [join(claudeHome(home), "settings.json")];
+  if (projectDir) files.push(join(projectDir, dir, "settings.json"), join(projectDir, dir, "settings.local.json"));
+  const out = [];
+  for (const f of files) {
     try {
-      return JSON.parse(readFileSync(p, "utf8"));
-    } catch {
-      return null;
-    }
-  };
-  let enabled = true;
-  const user = read(join(claudeHome(home), "settings.json"));
-  if (user && user.enabledPlugins && Object.hasOwn(user.enabledPlugins, key))
-    enabled = user.enabledPlugins[key] !== false;
-  if (projectDir) {
-    // The committed project file, then the checkout's local one over it — the
-    // host's own precedence (measured 2026-09-05, --scope local). Claude Code's
-    // project directory, whichever harness this process runs as.
-    const dir = harnessProjectConfigDir(process.env, sourceHarness());
-    for (const f of ["settings.json", "settings.local.json"]) {
-      const proj = read(join(projectDir, dir, f));
-      if (proj && proj.enabledPlugins && Object.hasOwn(proj.enabledPlugins, key))
-        enabled = proj.enabledPlugins[key] !== false;
-    }
+      const e = JSON.parse(readFileSync(f, "utf8"))?.enabledPlugins;
+      if (e && Object.hasOwn(e, key)) out.push(e[key]);
+    } catch {}
   }
-  return enabled;
+  return out;
+}
+
+// The copies of ours the host syncs from the person's claude.ai account
+// (Anthropic's directory): <synced_dir>/<bucket>/<plugin>/, beside files the
+// core never reads. One readdir and one plugin.json read per bucket; the
+// version is the copy's own, never the bucket manifest's (claude.ai's string).
+// A copy is on by the same precedence as any other id (pluginEnabled): the
+// highest-precedence source that names the key decides, so a project or
+// local `true` brings back a user-level `false` (the loading reference, "Find
+// where a plugin is enabled"; the B review, 2026-10-15). Several buckets:
+// newest version first, then the newest folder — the status-line launcher's
+// order, so doctor and the launcher name the same copy. Known gap: CLAUDE_CODE_PLUGIN_CACHE_DIR moves the host's
+// whole plugins root, synced/ included, and is not read here, as for cache/.
+export function syncedPluginEntries(home = homedir(), projectDir = null, harness = sourceHarness()) {
+  const r = hostRegistry(harness);
+  if (!r?.synced_dir) return [];
+  const dir = join(claudeHome(home), ...r.synced_dir);
+  const key = `${r.plugin_name}@${r.synced_origin}`;
+  let names = [];
+  try {
+    names = readdirSync(dir).filter((n) => !n.startsWith("."));
+  } catch {}
+  const enabled = pluginEnabled(key, home, projectDir);
+  const out = [];
+  for (const n of names) {
+    const path = join(dir, n, r.plugin_name);
+    if (!existsSync(join(path, "scripts", "statusline.mjs"))) continue;
+    let version = null,
+      at = 0;
+    try {
+      at = statSync(path).mtimeMs;
+      version = JSON.parse(readFileSync(join(path, ".claude-plugin", "plugin.json"), "utf8")).version;
+    } catch {}
+    version = typeof version === "string" ? version : null;
+    out.push({ key, path, scope: "user", version, at, present: true, enabled, projectPath: null, synced: true });
+  }
+  return out.sort((a, b) => cmpPrecedence(b.version, a.version) || b.at - a.at);
 }
 
 // Every projectstore registration the host knows, with whether it is enabled
@@ -704,10 +746,17 @@ export function projectCopies(home = homedir(), projectDir) {
   };
   const here = real(projectDir);
   const mine = (e) => Boolean(e.projectPath) && real(e.projectPath) === here;
+  // A synced copy (Anthropic's directory) comes after every registry row: an
+  // enabled copy of the same name from any other origin loads over it.
   return installedPluginEntries(home, projectDir)
     .filter((e) => e.present && e.enabled && (!e.projectPath || mine(e)))
     .map((e) => ({ ...e, own: mine(e) }))
-    .sort((a, b) => Number(b.own) - Number(a.own) || b.at - a.at);
+    .sort((a, b) => Number(b.own) - Number(a.own) || b.at - a.at)
+    .concat(
+      syncedPluginEntries(home, projectDir)
+        .filter((e) => e.enabled)
+        .map((e) => ({ ...e, own: false })),
+    );
 }
 
 // The same selection, one row per plugin key: the row the host loads for this
@@ -729,26 +778,30 @@ export function projectCopiesByKey(home = homedir(), projectDir) {
 // the flag, while a copy labelled rc.2 taken from main at 418448e has it. A
 // file read, because this runs in the SessionStart subset: never an import()
 // of the copy, never a spawn. Add files to the read, never drop cli.mjs:
-// released copies keep their parse there. Moved here from doctor.mjs (the
-// converge story's rule 5), which re-exports it: doctor's layout remedy and
-// the installer's keep read one function.
+// released copies keep their parse there, and since 0.30.6 the table is
+// verbs.mjs's (the PS-DIRECTORY story "The MCP server's entry reaches no
+// install verb…"), so both are read. Moved here from doctor.mjs (the converge
+// story's rule 5), which re-exports it: doctor's layout remedy and the
+// installer's keep read one function.
+const PARSE_TABLE_FILES = Object.freeze(["cli.mjs", "verbs.mjs"]);
+function parseTableText(copy) {
+  return PARSE_TABLE_FILES.map((f) => {
+    try {
+      return readFileSync(join(copy, "scripts", f), "utf8");
+    } catch {
+      return "";
+    }
+  }).join("\n");
+}
 export function takesNoRegister(copy) {
-  try {
-    return readFileSync(join(copy, "scripts", "cli.mjs"), "utf8").includes('"no-register"');
-  } catch {
-    return false;
-  }
+  return parseTableText(copy).includes('"no-register"');
 }
 // …and whether its CLI takes --verbose, the same way: the flag arrived in
 // 0.29.0, after --no-register, and a copy between them (rc.3 to 0.28.x)
 // parses strictly, so a command naming it would exit 2. Read before DONE names
 // a kept copy's own `plan --verbose`.
 export function takesVerbose(copy) {
-  try {
-    return /\bverbose\b/.test(readFileSync(join(copy, "scripts", "cli.mjs"), "utf8"));
-  } catch {
-    return false;
-  }
+  return /\bverbose\b/.test(parseTableText(copy));
 }
 
 // Contract 12's selection with its capability read (the layout spec, contract
@@ -761,8 +814,17 @@ export function takesVerbose(copy) {
 // taken: the keep takes "marketplace", so the npm registration's copy is never
 // the kept one. Doctor's layout remedy and the installer's keep call this one
 // function, so the two never disagree about which copy a project runs.
+// A synced copy is a candidate only while Claude Code loads it here — no copy
+// of another origin enabled, the npm registration's included — so the keep
+// never keeps a directory copy the host does not run (PS-DIRECTORY, the B2
+// review): with one shadowed, `only` falls through as it did before.
 export function selectCopy(home = homedir(), projectDir, { harness = sourceHarness(), only = null } = {}) {
-  const copy = projectCopies(home, projectDir).find((e) => !only || installChannel(e.path, { home, harness }) === only);
+  const want = only === null ? null : [].concat(only);
+  const copies = projectCopies(home, projectDir);
+  const shadowed = copies.some((e) => !e.synced);
+  const copy = copies.find(
+    (e) => !(e.synced && shadowed) && (!want || want.includes(installChannel(e.path, { home, harness }))),
+  );
   if (!copy) return null;
   const bin = join(copy.path, "bin", "projectstore.mjs");
   const missing = !existsSync(bin) ? "bin" : !takesNoRegister(copy.path) ? "no-register" : null;
@@ -770,8 +832,17 @@ export function selectCopy(home = homedir(), projectDir, { harness = sourceHarne
 }
 
 // How a git-marketplace copy is updated, in its own channel: the one phrase
-// every advice about a kept or older copy quotes.
-export const COPY_UPDATE_STEPS = "in Claude Code: /plugin marketplace update, then /plugin update, then restart";
+// every advice about a kept or older copy quotes. Claude Code has no session
+// form of `plugin update` (an unknown word after /plugin opens the Discover
+// tab); one plugin is updated from the Installed tab, which `/plugin manage`
+// opens.
+export const COPY_UPDATE_STEPS =
+  "in Claude Code: open /plugin manage and choose Update now on projectstore, then run /reload-plugins to load it";
+// …and a copy synced from claude.ai (Anthropic's directory): nobody runs its
+// update; claude.ai publishes it and the host downloads it (PS-DIRECTORY).
+export const SYNCED_UPDATE_STEPS =
+  "updates come from claude.ai, and Claude Code downloads each new version at its next start";
+export const isSyncedCopy = (copy) => copy?.channel === "synced" || copy?.synced === true;
 
 // The advice for a marketplace copy that cannot run what is named for it, in
 // that copy's own channel: the host's update, then a restart. `cannot` says
@@ -779,7 +850,10 @@ export const COPY_UPDATE_STEPS = "in Claude Code: /plugin marketplace update, th
 // layout remedy and the keep's skip row and DONE line.
 export function copyUpdateAdvice(copy, { cannot, then }) {
   const v = copy?.version ? ` (${copy.version})` : "";
-  return `This project's projectstore plugin${v} ${cannot}: update it first (${COPY_UPDATE_STEPS}), ${then}`;
+  const first = isSyncedCopy(copy)
+    ? `its next version comes first (${SYNCED_UPDATE_STEPS})`
+    : `update it first (${COPY_UPDATE_STEPS})`;
+  return `This project's projectstore plugin${v} ${cannot}: ${first}, ${then}`;
 }
 
 // The mark a channel switch leaves in this checkout's machine-local binding
@@ -1033,19 +1107,21 @@ export function installedPluginRoot(home = homedir(), preferFamily = null) {
   }
 }
 
-// The path of `root` below the host's plugin cache, or null when it is not
-// there. Compared as given first, then as real paths on both sides: Node
-// resolves an entry script's real path, so a terminal run from a cache under a
-// symlinked home (dotfiles) sees the real path where the session's variable
-// names the link, and the two must classify alike — otherwise the terminal run
+// The path of `root` below a host folder (`parts`: the plugin cache, or the
+// folder it syncs a claude.ai copy into), or null when it is not there.
+// Compared as given first, then as real paths on both sides: Node resolves an
+// entry script's real path, so a terminal run from a cache under a symlinked
+// home (dotfiles) sees the real path where the session's variable names the
+// link, and the two must classify alike — otherwise the terminal run
 // took its own copy for a checkout and planned the package's registration
 // (measured 2026-10-03, the critic of the layout spec's contract 12 amendment).
-function underPluginCache(root, home = homedir()) {
+const CACHE = ["plugins", "cache"];
+function underHostDir(root, parts, home = homedir()) {
   const norm = (s) =>
     String(s || "")
       .replace(/\\/g, "/")
       .replace(/\/+$/, "");
-  const cache = join(claudeHome(home), "plugins", "cache");
+  const cache = join(claudeHome(home), ...parts);
   const below = (r, c) => {
     const a = norm(r),
       b = norm(c);
@@ -1067,7 +1143,23 @@ function underPluginCache(root, home = homedir()) {
 
 // Is this plugin root a versioned cache install (the only kind that goes stale)?
 export function isPluginCacheRoot(root, home = homedir()) {
-  return underPluginCache(root, home) !== null;
+  return underHostDir(root, CACHE, home) !== null;
+}
+// …or a copy the host synced from claude.ai (Anthropic's directory), whose
+// path carries no version but may change or vanish: both are host installs,
+// the launcher's condition (the install spec, contract 0, plugin_cache_install).
+// The folder is the manifest's, under claudeHome (CLAUDE_CODE_PLUGIN_CACHE_DIR:
+// a known gap, see syncedPluginEntries).
+// The plugin segment must be ours: another synced plugin's
+// scripts/statusline.mjs is not our wiring (the B review, 2026-10-15).
+export function isSyncedRoot(root, home = homedir(), harness = sourceHarness()) {
+  const r = hostRegistry(harness);
+  if (!r?.synced_dir) return false;
+  const rel = underHostDir(root, r.synced_dir, home);
+  return rel !== null && rel.split("/")[1] === r.plugin_name;
+}
+export function isHostInstallRoot(root, home = homedir()) {
+  return isPluginCacheRoot(root, home) || isSyncedRoot(root, home);
 }
 
 // npx extracts into a cache under _npx/, npm install into node_modules/: both
@@ -1087,15 +1179,20 @@ export function isEphemeralRoot(root) {
 // - "registration": the host's cache copy of the registration marketplace the
 //   manifest names, i.e. the package's own channel;
 // - "marketplace": any other host cache copy (the git marketplace, a fork);
+// - "synced": a copy the host synced from claude.ai (Anthropic's directory),
+//   under the manifest's registry.synced_dir;
 // - "package": a package manager's root (npx, node_modules);
 // - "checkout": anything else (a dev checkout, --plugin-dir).
-// String tests, plus at most two realpath calls when a root does not match as
-// given (a symlinked home); no file is read, so the SessionStart budget is
-// untouched, and the marketplace name comes from the manifest, never from here.
+// String tests, plus a few realpath calls when a root does not match as given
+// (a symlinked home); no file is read, so the SessionStart budget is
+// untouched. The registration's own marketplace name comes from the manifest;
+// any other marketplace's name, which updateHint fills in, from the root's
+// path (the PS-DIRECTORY story "A copy installed from Anthropic's
+// directory…", decision 4: the manifest names only our own marketplaces).
 export function installChannel(root, { home = homedir(), harness = sourceHarness() } = {}) {
   if (isEphemeralRoot(root)) return "package";
-  const rel = underPluginCache(root, home);
-  if (rel === null) return "checkout";
+  const rel = underHostDir(root, CACHE, home);
+  if (rel === null) return isSyncedRoot(root, home, harness) ? "synced" : "checkout";
   const marketplace = rel.split("/")[0];
   const own = Object.values(harness?.surfaces || {}).find((x) => x && x.kind === "registration" && x.marketplace_name);
   return own && marketplace === own.marketplace_name ? "registration" : "marketplace";
@@ -1135,7 +1232,7 @@ export function fromTerminalIn(dir) {
 // startup — so a direct path always rendered the version installed at the
 // PREVIOUS session start, one restart behind every update. The launcher path
 // never changes, and it resolves the installed plugin at render time, so
-// `/plugin update` + `/reload-plugins` show up immediately. Dev checkouts and
+// an Update now from `/plugin manage` + `/reload-plugins` show up immediately. Dev checkouts and
 // --plugin-dir roots carry no version, so install wires those directly; a
 // session run from one keeps whatever launcher entry install wrote.
 //
@@ -1227,9 +1324,9 @@ function isRegistrationPayloadScript(p, harness = sourceHarness()) {
 // delete the entry: the loose shape above also matches a user's own
 // ~/.claude/scripts/statusline.mjs, and clobbering that would take their HUD.
 // Ours means one of: this project's launcher, the running plugin's own script
-// (dev checkouts included), any versioned install under the plugin cache, or
-// the npm registration's payload script — the one rung that reads a file, so
-// it runs last, after every cheaper test has failed.
+// (dev checkouts included), any host install (the plugin cache, a synced
+// copy), or the npm registration's payload script — the one rung that reads
+// a file, so it runs last, after every cheaper test has failed.
 export function statusLineIsOurWiring(cmd, projectDir, home = homedir(), root = pluginRoot()) {
   const p = statusLineScriptPath(cmd);
   if (!p) return false;
@@ -1237,7 +1334,7 @@ export function statusLineIsOurWiring(cmd, projectDir, home = homedir(), root = 
   // Ours if it is any harness's launcher in this project's state, or the legacy launcher.
   if (ourLauncherPath(p, projectDir)) return true;
   if (p === norm(join(root, "scripts", "statusline.mjs"))) return true;
-  if (isPluginCacheRoot(dirname(dirname(p)), home)) return true;
+  if (isHostInstallRoot(dirname(dirname(p)), home)) return true;
   return isRegistrationPayloadScript(p);
 }
 
@@ -1297,18 +1394,18 @@ export function writeStatusLineLauncher(projectDir, root) {
 }
 
 // The command our entry should carry for this installation: the version-free
-// launcher for a marketplace-cache install, the plugin's own script for a dev
-// checkout (its path has no version to go stale). One resolver, shared by the
-// SessionStart refresh and the installer, so the two cannot disagree. The
-// installer names the harness it plans (its launcher's state directory); the
-// refresh names none and means its own host.
+// launcher for a host install (a cache or synced copy), the plugin's own
+// script for a dev checkout (its path has no version to go stale). One
+// resolver, shared by the SessionStart refresh and the installer, so the two
+// cannot disagree. The installer names the harness it plans (its launcher's
+// state directory); the refresh names none and means its own host.
 export function desiredStatusLineCommand(
   projectDir,
   root = pluginRoot(),
   home = homedir(),
   harnessId = activeHarnessId(),
 ) {
-  const launcher = isPluginCacheRoot(root, home);
+  const launcher = isHostInstallRoot(root, home);
   return {
     launcher,
     command: launcher
@@ -3177,8 +3274,10 @@ export function ensureStateDir(projectDir) {
 }
 
 // state/ and its .gitignore, header included, without sessions/: what the
-// welcome marker's writer needs in a project that is not bound, where no
-// session state may appear. The header is how a project uninstall
+// welcome marker's writer needs in a bound project before its first session,
+// and what setup's `state` item lays in a project it has not bound yet. An
+// unbound session writes nothing into the project (its marker is the
+// machine's, cachePaths().welcomed). The header is how a project uninstall
 // recognises the marker as ours (install spec contract 13, as amended by the
 // shell-fetch story).
 export function ensureStateRoot(projectDir) {

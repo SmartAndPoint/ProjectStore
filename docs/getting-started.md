@@ -14,7 +14,7 @@ The next two sections are the other ways in: a checkout, for contributors, and t
 
 ## From a checkout
 
-For contributors working on projectstore itself. Clone it; [Running a checkout's build](../packaging/README.md#running-a-checkouts-build) covers the packed form.
+For contributors working on projectstore itself. Clone it; [Running a checkout's build](https://github.com/SmartAndPoint/ProjectStore/blob/main/packaging/README.md#running-a-checkouts-build) covers the packed form.
 
 ```bash
 git clone https://github.com/SmartAndPoint/ProjectStore.git ~/Projects/SmartAndPoint/ProjectStore
@@ -172,11 +172,10 @@ Installed with setup or from npm: from a terminal in your project, name the vers
 npx projectstore@<version> upgrade
 ```
 
-Installed from the git marketplace, in a Claude Code session:
+Installed from the git marketplace: in a Claude Code session, open `/plugin manage` and choose **Update now** on projectstore, then run `/reload-plugins` to load it. Or, from a terminal, then restart Claude Code:
 
 ```
-/plugin marketplace update SmartAndPoint
-/reload-plugins
+claude plugin update projectstore@SmartAndPoint
 ```
 
 Or enable auto-update once (`/plugin` → **Marketplaces** → **SmartAndPoint** → toggle **auto-update**) and Claude Code will detect new releases at startup.

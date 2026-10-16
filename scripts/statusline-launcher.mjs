@@ -16,7 +16,7 @@
 // Never crashes: a status line that throws blanks the user's HUD, so every
 // failure path degrades to an empty line.
 
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -46,8 +46,8 @@ function versionKey(v) {
 // helper would mean naming a versioned path, which is the exact bug this file
 // exists to remove.
 function installedRoot() {
+  const claudeHome = (HOME_ENV && process.env[HOME_ENV]) || join(homedir(), ".claude");
   try {
-    const claudeHome = (HOME_ENV && process.env[HOME_ENV]) || join(homedir(), ".claude");
     const reg = JSON.parse(readFileSync(join(claudeHome, "plugins", "installed_plugins.json"), "utf8"));
     const family = dirname(FALLBACK_ROOT); // …/<marketplace>/projectstore
     // This launcher lives at <project>/<config dir>/<runtime dir>/…: a row the
@@ -87,10 +87,43 @@ function installedRoot() {
     // this file imports whatever it picks. Same rule as installedPluginRoot().
     const pool = found.filter((f) => f.same);
     pool.sort((a, b) => b.mine - a.mine || b.at - a.at || b.v[0] - a.v[0] || b.v[1] - a.v[1] || b.v[2] - a.v[2]);
-    return pool.length ? pool[0].p : null;
+    if (pool.length) return pool[0].p;
+  } catch {}
+  try {
+    return syncedRoot(claudeHome);
   } catch {
     return null;
   }
+}
+
+// A copy Claude Code synced from claude.ai (Anthropic's directory) has no
+// install record: <home>/plugins/synced/<bucket>/projectstore/, whose bucket
+// may change across an update. Its family is that folder, so only a launcher
+// written from a synced copy looks there; the newest version on disk wins,
+// read from the copy's own plugin.json, then the most recently written. The
+// folder is spelled here as installed_plugins.json is above: this file runs
+// standalone and cannot read the manifest (registry.synced_dir). Gone to
+// plugins/.trash/ (sync turned off), none is found, and the fallbacks below run.
+// Known edge, left as is: a copy of ours installed later loads over the synced
+// one in the session, while this launcher keeps rendering the synced copy until
+// an install re-stamps it from the copy that loads (the family rule above).
+// CLAUDE_CODE_PLUGIN_CACHE_DIR, which moves the host's whole plugins folder,
+// is not read here, as it is not for installed_plugins.json: a known gap.
+function syncedRoot(claudeHome) {
+  const dir = join(claudeHome, "plugins", "synced");
+  if (!FALLBACK_ROOT.replace(/\\/g, "/").startsWith(dir.replace(/\\/g, "/") + "/")) return null;
+  const found = [];
+  for (const b of readdirSync(dir)) {
+    const p = join(dir, b, "projectstore");
+    if (b.startsWith(".") || !existsSync(join(p, "scripts", "statusline.mjs"))) continue;
+    let v = null;
+    try {
+      v = JSON.parse(readFileSync(join(p, ".claude-plugin", "plugin.json"), "utf8")).version;
+    } catch {}
+    found.push({ p, v: versionKey(v), at: statSync(p).mtimeMs });
+  }
+  found.sort((a, b) => b.v[0] - a.v[0] || b.v[1] - a.v[1] || b.v[2] - a.v[2] || b.at - a.at);
+  return found.length ? found[0].p : null;
 }
 
 // Try the installed plugin, then the root that generated this file. The second

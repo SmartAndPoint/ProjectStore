@@ -42,7 +42,7 @@ You are running a peer review on a projectstore artifact.
 
 5. **Gather domain context**: read the vault's top-level `README.md` and the folder README of the artifact's parent (e.g. `adr/README.md`). Keep both short — they're context for the critic, not the focus.
 
-6. **Spawn the critic agent**. Prefer this plugin's own `$projectstore-critic` (purpose-built fresh-context critic, no sycophancy). If unavailable, fall back to `oh-my-codexcode:critic`, then `general-purpose`. Use this exact prompt template:
+6. **Spawn the critic agent**. Prefer this plugin's own `$projectstore-critic` (purpose-built fresh-context critic, no sycophancy). If unavailable, fall back to `general-purpose`. Use this exact prompt template:
 
    ```
    You are a critic-mode reviewer. You have ONLY the artifact and the
@@ -83,7 +83,7 @@ You are running a peer review on a projectstore artifact.
 
    Set the agent description to: `Peer-review of {{kind}} artifact at {{path}}`. Pass it as a foreground task (you need the result to continue).
 
-   **Model and effort (ADR-008)**: resolve them with `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model critic --json --project "$PWD"` and pass `result.model` as the spawn's model parameter (`null` → pass nothing), and `result.effort` as its effort parameter when it is not `null` and the spawn offers one. Missing key, `inherit`, or unreadable config → pass nothing and let the agent's own frontmatter decide; never guess a model. This is the only way the configured model and effort reach the agent — there are no override copies (`$projectstore-agents configure`). When falling back to `oh-my-codexcode:critic` or `general-purpose`, pass the same model and effort.
+   **Model and effort (ADR-008)**: resolve them with `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model critic --json --project "$PWD"` and pass `result.model` as the spawn's model parameter, verbatim — never substitute the model you are running on (`null` → pass nothing), and `result.effort` as its effort parameter when it is not `null` and the spawn offers one. Missing key, `inherit`, or unreadable config → pass nothing and let the agent's own frontmatter decide; never guess a model. This is the only way the configured model and effort reach the agent — there are no override copies (`$projectstore-agents configure`). When falling back to `general-purpose`, pass the same model and effort.
 
 7. **Show findings**: print the agent's report verbatim. Number is its number.
 

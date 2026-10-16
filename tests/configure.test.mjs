@@ -622,13 +622,13 @@ test("configure contract 4 (amended 2026-10-13): opening a stale model list star
     };
   };
   const t = screenTty([{ keys: [KEYS.RIGHT, KEYS.RIGHT] }, { after: /→ claude-fable-5-1/, keys: [KEYS.CTRL_C] }]);
-  const env = { ANTHROPIC_API_KEY: "sk-test", XDG_CACHE_HOME: join(p.home, "cache") };
+  const env = { ANTHROPIC_API_KEY: "test-anthropic-key", XDG_CACHE_HOME: join(p.home, "cache") };
   const { r } = await configure(p, {}, { term: t, env, fetch });
   assert.equal(r.code, 130);
   assert.equal(calls.length, 1, "one read");
-  assert.equal(calls[0].key, "sk-test");
+  assert.equal(calls[0].key, "test-anthropic-key");
   const cache = read(join(p.home, "cache", "projectstore", "models", `${SRC.id}.json`));
-  assert.doesNotMatch(cache, /sk-test/);
+  assert.doesNotMatch(cache, /test-anthropic-key/);
 });
 
 // A terminal a test drives step by step: it waits for what the screen draws,

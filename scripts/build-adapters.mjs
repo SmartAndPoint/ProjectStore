@@ -251,7 +251,39 @@ function renderRole(file) {
   const { data, body } = frontmatter(read(file), file);
   const role = file.split("/").pop().replace(/\.md$/, "");
   const name = renderedName("agents", role);
-  const orchestration = `## Codex orchestration\n\nThis is a role-orchestration skill, not a native agent registration. Resolve the\nrole's model and effort by running:\n\n\`\`\`bash\nnode "\${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model ${role} --json --project "$PWD"\n\`\`\`\n\nSpawn a collaboration agent for the bounded task. If the result names a model,\npass that model and use an empty or bounded context fork; otherwise inherit the\ncurrent model. If the result names an effort, pass it as \`${effortParam()}\`,\nwith or without a model; otherwise pass none. Give the spawned agent the role\ncontract below and the exact artifact/diff it must inspect. Wait for its final\nresult.\n\n## Role contract\n\n`;
+  // The spawn sentences name the fields and the value, verbatim: "if the
+  // result names a model, pass that model" let a parent read "that model" as
+  // its own, and pass it in 2 of 3 runs (the story "Codex role skills pass the
+  // model the core names, verbatim", PS-HARNESS). No example slug: the failure
+  // is a substituted model name, and an example is one more name to copy.
+  const orchestration = `## Codex orchestration
+
+This is a role-orchestration skill, not a native agent registration. Resolve the
+role's model and effort by running:
+
+\`\`\`bash
+node "\${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" agents model ${role} --json --project "$PWD"
+\`\`\`
+
+Spawn a collaboration agent for the bounded task. Its model and effort are the
+two fields that command printed, \`result.model\` and \`result.effort\`, passed
+verbatim:
+
+- If \`result.model\` is a string, pass \`result.model\` exactly as \`model\`: the
+  string the command printed, even when it names the model you are running
+  on. Never substitute your own model for it. Use an empty or bounded context
+  fork.
+- If \`result.model\` is \`null\`, pass no model at all, not even your own; the
+  agent inherits the current model.
+- If \`result.effort\` is a string, pass it as \`${effortParam()}\`, verbatim,
+  with or without a model. If \`result.effort\` is \`null\`, pass none.
+
+Give the spawned agent the role contract below and the exact artifact/diff it
+must inspect. Wait for its final result.
+
+## Role contract
+
+`;
   const description = (data.description || `Run the ProjectStore ${role} role in a fresh collaboration agent.`).replace(
     /^(?:Opus|Sonnet) \([a-z]+-effort\)\s+/,
     "",
@@ -267,14 +299,23 @@ export function renderHooks(manifest, root = ROOT) {
   if (!hasBand(manifest)) delete source.modules;
   const post = source.hooks?.PostToolUse || [];
   for (const group of post) if (group.matcher) group.matcher = (manifest.tools?.write_tools || []).join("|");
+  const sourceRoot = "${" + SOURCE.runtime.plugin_root_env + "}";
+  const targetRoot = "${" + manifest.runtime.plugin_root_env + "}";
+  // The source may write its root bare, quote the whole path ("${ROOT}/x") or
+  // quote the variable alone ("${ROOT}"/x): the host's two documentation pages
+  // show the last two. Codex keys hook trust to the rendered command text, so
+  // all three render the one command, and a re-quoted source cannot ask every
+  // Codex user to trust the hooks again (the story "Every hook command quotes
+  // its plugin root…", PS-DIRECTORY, decision 2).
+  const r = escapeRe(sourceRoot);
+  const sourceCommand = new RegExp(`^node (?:"${r}/([^"\\s]+)"|"${r}"/([^"\\s]+)|${r}/([^"\\s]+))$`);
   const rewrite = (value) => {
     if (Array.isArray(value)) return value.map(rewrite);
     if (value && typeof value === "object")
       return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, rewrite(v)]));
     if (typeof value !== "string") return value;
-    const sourceRoot = "${" + SOURCE.runtime.plugin_root_env + "}";
-    const targetRoot = "${" + manifest.runtime.plugin_root_env + "}";
-    const command = value.startsWith(`node ${sourceRoot}/`) ? value.slice(`node ${sourceRoot}/`.length) : null;
+    const m = sourceCommand.exec(value);
+    const command = m ? m[1] || m[2] || m[3] : null;
     return command
       ? `node "${targetRoot}/node_modules/projectstore/${command}"`
       : value.replaceAll(sourceRoot, `${targetRoot}/node_modules/projectstore`);
