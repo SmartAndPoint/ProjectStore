@@ -44,8 +44,13 @@
 // launcher; the attributes text, eol, crlf, ident and working-tree-encoding
 // count as rewriting contents, as filter does (so `* text=auto eol=lf` fails
 // here); JPEG and GIF completeness is a heuristic (the end marker), PNG and
-// WebP are walked; and the archive's size is bounded by the unpacked bytes
-// plus a 512-byte header per entry.
+// WebP are walked; the archive's size is bounded by the unpacked bytes plus a
+// 512-byte header per entry; and front matter is read as the subset of YAML our
+// files use, so some text a parser could read fails here: an indented
+// continuation of a value already on its line, a quoted value or a flow
+// collection that does not close on its line, a value starting with an anchor,
+// alias, tag, `,` or `]`, a `? ` key, and a description YAML 1.1 reads as a
+// boolean (yes, no, on, off) or a number with `_`.
 //
 // Output is JSON on stdout, always: every row with its findings, and each
 // limit's headroom. Exit 0 when every row passes, 1 when one fails or the set
@@ -362,6 +367,14 @@ export const ROWS = [
     result: "Blocks",
   },
   {
+    id: "front-matter",
+    section: "Hooks, skills, commands, and agents",
+    rule: "valid YAML front matter in each skill, command and agent file, with description a single text value, not a list",
+    limit: "front matter a YAML parser reads; description text",
+    result:
+      "Blocks for front matter that doesn't parse or a description that isn't text; Warning for no front matter or no description",
+  },
+  {
     id: "headroom",
     section: "ours",
     ours: true,
@@ -428,6 +441,103 @@ export function credentialLines(text) {
   const out = [];
   for (const [i, line] of text.split("\n").entries())
     for (const [shape, re] of CREDENTIALS) if (re.test(line)) out.push([i + 1, shape]);
+  return out;
+}
+
+// The component files whose front matter the checklist parses: each agent,
+// command and skill of the plugin, a namespaced command or agent included.
+const COMPONENT = /^(?:agents\/.+\.md|commands\/.+\.md|skills\/[^/]+\/SKILL\.md)$/;
+// What a plain value cannot start with: YAML reads each as syntax.
+const PLAIN_START = /^(?:[-?:](?:\s|$)|[,[\]{}#&*!|>%@`])/;
+// A double-quoted value closed on its line, with only the escapes YAML knows;
+// a single-quoted one, its quote doubled inside.
+const DOUBLE = /^"(?:[^"\\]|\\(?:[0abtnvfre "/\\N_LP\t]|x[\da-fA-F]{2}|u[\da-fA-F]{4}|U[\da-fA-F]{8}))*"(?:\s+#.*)?$/;
+const SINGLE = /^'(?:[^']|'')*'(?:\s+#.*)?$/;
+// What a parser reads as no text: null, a boolean (YAML 1.1's yes/no/on/off
+// too) or a number, in either YAML's forms.
+const NOT_TEXT =
+  /^(?:~|null|Null|NULL|(?:true|false|yes|no|on|off|y|n)|(?:True|False|Yes|No|On|Off|Y|N)|(?:TRUE|FALSE|YES|NO|ON|OFF)|[-+]?(?:\d[\d_]*\.?\d*|\.\d+)(?:[eE][-+]?\d+)?|0x[\da-fA-F_]+|0o[0-7_]+|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$/;
+
+// What a parser refuses in one value on its line, or null.
+function valueProblem(key, v) {
+  if (v.startsWith('"'))
+    return DOUBLE.test(v)
+      ? null
+      : `${key}'s double-quoted value does not close on its line, or holds an escape YAML does not know`;
+  if (v.startsWith("'")) return SINGLE.test(v) ? null : `${key}'s single-quoted value does not close on its line`;
+  if (v.startsWith("[")) return /\]\s*(?:#.*)?$/.test(v) ? null : `${key}'s flow list does not close on its line`;
+  if (v.startsWith("{")) return /\}\s*(?:#.*)?$/.test(v) ? null : `${key}'s flow mapping does not close on its line`;
+  if (PLAIN_START.test(v)) return `${key}'s value starts with ${JSON.stringify(v[0])}, which YAML reads as syntax`;
+  if (/:(?:\s|$)/.test(v.replace(/\s+#.*$/, "")))
+    return `${key}'s plain value holds ": ", which YAML reads as a second key: quote the value`;
+  return null;
+}
+
+// The front matter's problems, as [line, what]. It is read as the subset of
+// YAML our files use: one `key: value` per line, the value plain, quoted or a
+// flow collection closed on its line, or a block under its key — a block
+// scalar (`|`, `>`), or an empty value with an indented list or mapping, whose
+// entries are held to the same rules. A file with no front matter has none:
+// the checklist warns of that, it does not block it.
+export function frontMatterProblems(text) {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
+  if (!m) return [];
+  const out = [];
+  const seen = new Set();
+  const lines = m[1].split(/\r?\n/);
+  const content = (l) => l.trim() && !/^\s*#/.test(l);
+  let open = null;
+  for (const [i, line] of lines.entries()) {
+    const at = i + 2;
+    if (/^[ \t]/.test(line)) {
+      if (!line.trim()) continue;
+      if (!open) {
+        if (content(line)) out.push([at, "an indented line under a key whose value is already on its line"]);
+        continue;
+      }
+      if (open.block) {
+        if (/^\t/.test(line)) out.push([at, "a tab in the indentation, which YAML refuses"]);
+        continue;
+      }
+      if (!content(line)) continue;
+      if (/^ *\t/.test(line)) out.push([at, "a tab in the indentation, which YAML refuses"]);
+      else {
+        const body = line.trim();
+        const item = body.replace(/^-(?:\s+|$)/, "");
+        const nk = /^([^\s:#"'][^:]*?):(?:\s+(.*))?$/.exec(item);
+        if (open.key === "description" && open.first && (body !== item || nk))
+          out.push([at, "description is a list or a mapping, not text"]);
+        const problem = nk
+          ? nk[2] && valueProblem(nk[1], nk[2].trim())
+          : body !== item && item && valueProblem("a list item", item);
+        if (problem) out.push([at, problem]);
+      }
+      open.first = false;
+      continue;
+    }
+    open = null;
+    if (!content(line)) continue;
+    const kv = /^([^\s:#][^:]*?):(?:[ \t]+(.*))?$/.exec(line);
+    if (!kv) {
+      out.push([at, "a line that is not a key and its value"]);
+      continue;
+    }
+    const key = kv[1].replace(/^(["'])(.*)\1$/, "$2");
+    const v = (kv[2] || "").trim();
+    if (seen.has(key)) out.push([at, `${key} is set twice`]);
+    seen.add(key);
+    if (!v || /^[|>][-+0-9]*(?:\s+#.*)?$/.test(v)) {
+      open = { key, block: !!v, first: true };
+      const next = lines.slice(i + 1).find(content);
+      if (key === "description" && !v && !(next && /^[ \t]/.test(next))) out.push([at, "description has no value"]);
+      continue;
+    }
+    const problem = valueProblem(key, v);
+    if (problem) out.push([at, problem]);
+    else if (key === "description" && /^[[{]/.test(v)) out.push([at, "description is a list or a mapping, not text"]);
+    else if (key === "description" && NOT_TEXT.test(v.replace(/\s+#.*$/, "")))
+      out.push([at, "description is a number, a boolean or null, not text"]);
+  }
   return out;
 }
 
@@ -615,6 +725,10 @@ export function check(entries) {
   // Credentials: file and line, never the value.
   for (const [p, t] of textOf)
     for (const [line, shape] of credentialLines(t)) add("credentials", `${p}:${line}`, shape);
+
+  // Front matter, in each agent, command and skill.
+  for (const [p, t] of textOf)
+    if (COMPONENT.test(p)) for (const [line, what] of frontMatterProblems(t)) add("front-matter", `${p}:${line}`, what);
 
   // Ours: the shipped .mjs files.
   const modules = files.filter((e) => e.shipped && e.path.endsWith(".mjs")).sort((a, b) => b.size - a.size);

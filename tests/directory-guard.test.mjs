@@ -130,7 +130,8 @@ test("directory guard: the rows quote the checklist's results", async () => {
   for (const id of ["file-count", "file-size", "file-types"])
     assert.match(result[id], /^Held for a reviewer \(Files or downloads the validator couldn’t inspect\)$/, id);
   for (const id of ["readme-images", "bundled-references"]) assert.equal(result[id], "Held for a reviewer", id);
-  for (const id of ["system-files", "readme", "license", "credentials"]) assert.match(result[id], /^Blocks\b/, id);
+  for (const id of ["system-files", "readme", "license", "credentials", "front-matter"])
+    assert.match(result[id], /^Blocks\b/, id);
   for (const id of ["names", "gitattributes", "repository-size"]) assert.match(result[id], /^Validation stops\b/, id);
   assert.match(result["regular-files"], /^Blocks where the plugin loads the entry, Warning elsewhere$/);
   assert.match(result["package-source"], /^Blocks with a launcher, Held for a reviewer with a package install/);
@@ -372,6 +373,94 @@ test("directory guard: an sk- string, a GitHub token or a private key block fail
   // The renamed fixtures' values are no key's shape.
   for (const v of ["test-anthropic-key", "test-github-token", "task-list", "disk-0", 'hreflang="sk-SK"', "sk-spinner"])
     assert.equal((await packed({ "docs/setup.md": `KEY=${v}\n` })).ok, true, v);
+});
+
+// Three agents shipped in 0.30.5 with a plain description holding ": "
+// ("Suggest-only: every…"): Claude Code loads them, a YAML parser does not,
+// and the checklist blocks front matter that doesn't parse.
+test("directory guard: front matter a parser refuses, or a description that is not text, fails the front-matter row, by file and line", async () => {
+  fails(
+    await packed({ "agents/planner.md": "---\nname: planner\ndescription: Read-only: it plans\n---\n\nPlan.\n" }),
+    "front-matter",
+    /^agents\/planner\.md:3: description's plain value holds ": ", which YAML reads as a second key/,
+  );
+  const cases = [
+    [
+      "commands/hello.md",
+      "---\ndescription:\n  - Say\n  - hello\n---\n\nHi.\n",
+      /^commands\/hello\.md:3: description is a list or a mapping/,
+    ],
+    [
+      "commands/hello.md",
+      "---\ndescription: [Say, hello]\n---\n",
+      /^commands\/hello\.md:2: description is a list or a mapping/,
+    ],
+    [
+      "skills/hi/SKILL.md",
+      '---\nname: hi\ndescription: "Say hello\n---\n',
+      /^skills\/hi\/SKILL\.md:3: description's double-quoted value does not close/,
+    ],
+    [
+      "commands/hello.md",
+      "---\ndescription: Say hello\ndescription: Again\n---\n",
+      /^commands\/hello\.md:3: description is set twice/,
+    ],
+    ["commands/hello.md", "---\ndescription: 42\n---\n", /:2: description is a number, a boolean or null/],
+    ["commands/hello.md", "---\ndescription:\n---\n", /:2: description has no value/],
+    ["commands/hello.md", "---\ndescription: @here\n---\n", /:2: description's value starts with "@"/],
+    [
+      "commands/hello.md",
+      "---\ndescription: Say hello\n  to the user\n---\n",
+      /:3: an indented line under a key whose value is already on its line/,
+    ],
+    [
+      "agents/planner.md",
+      '---\nname: planner\ndescription: "Matches \\d+"\n---\n',
+      /:3: description's double-quoted value does not close on its line, or holds an escape YAML does not know/,
+    ],
+    ["commands/hello.md", "---\ndescription:\nname: x\ntools:\n  - Read\n---\n", /:2: description has no value/],
+    ["commands/hello.md", '---\ndescription: a\n"description": b\n---\n', /:3: description is set twice/],
+    [
+      "commands/hello.md",
+      "---\ndescription: Hi\ntools: [Read, Grep\n---\n",
+      /:3: tools's flow list does not close on its line/,
+    ],
+    [
+      "commands/hello.md",
+      "---\ndescription: Hi\nmetadata:\n  foo: bar: baz\n---\n",
+      /:4: foo's plain value holds ": "/,
+    ],
+    [
+      "commands/hello.md",
+      "---\ndescription: >\n\tSay hello\n---\n",
+      /:3: a tab in the indentation, which YAML refuses/,
+    ],
+    ["commands/hello.md", "---\ndescription:\n  say: hello\n---\n", /:3: description is a list or a mapping, not text/],
+    ["commands/hello.md", "---\ndescription: true\n---\n", /:2: description is a number, a boolean or null/],
+    ["commands/hello.md", "---\ndescription: 0x1F\n---\n", /:2: description is a number, a boolean or null/],
+    [
+      "commands/nested/hello.md",
+      "---\ndescription: Read-only: it says hello\n---\n",
+      /^commands\/nested\/hello\.md:2: /,
+    ],
+  ];
+  for (const [file, body, pattern] of cases) fails(await packed({ [file]: body }), "front-matter", pattern);
+});
+
+test("directory guard: a quoted or folded description, a known escape, a nested mapping, an apostrophe, no front matter, and a file outside agents/, commands/ and skills/ pass the front-matter row", async () => {
+  const r = await packed({
+    "agents/planner.md": '---\nname: planner\ndescription: "Read-only: it plans"\ntools: Read, Grep\n---\n\nPlan.\n',
+    "agents/critic.md": "---\nname: critic\ndescription: 'It''s read-only: it reports'\n---\n",
+    "commands/hello.md": "---\ndescription: >-\n  Say hello: once.\n  Then stop.\n---\n",
+    "commands/plain.md": "No front matter at all.\n",
+    "skills/hi/SKILL.md": "---\nname: hi\ndescription: It's a greeting, nothing more # a comment\n---\n",
+    "docs/notes.md": "---\ndescription: free: form\n---\n",
+    "commands/escape.md": '---\ndescription: "Line one\\nline two: \\"quoted\\""\n---\n',
+    "commands/block.md":
+      "---\ndescription: > # a comment\n  Say hello: once.\nmetadata:\n  foo: bar\n  list:\n    - a\n---\n",
+    "commands/next.md": '---\ndescription:\n  "Say hello: once"\n---\n',
+  });
+  assert.deepEqual(r.failed, []);
 });
 
 test("directory guard: the headroom rule fails a shipped .mjs over 204,800 bytes, the 0.30.5 installer's size included, with no exemption", async () => {
