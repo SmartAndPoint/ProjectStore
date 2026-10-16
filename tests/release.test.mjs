@@ -288,15 +288,15 @@ test("release surfaces: GITHUB_TOKEN goes to api.github.com only, and is never p
     fetch: routed(live(), seen),
     stdout: { write: (s) => out.push(s) },
     stderr: { write: (s) => out.push(s) },
-    env: { GITHUB_TOKEN: "secret-token", GITHUB_REPOSITORY: REPO },
+    env: { GITHUB_TOKEN: "test-github-token", GITHUB_REPOSITORY: REPO },
   });
   assert.equal(code, 0);
   for (const s of seen) {
     const auth = s.headers.authorization;
-    if (s.url.startsWith("https://api.github.com/")) assert.equal(auth, "Bearer secret-token");
+    if (s.url.startsWith("https://api.github.com/")) assert.equal(auth, "Bearer test-github-token");
     else assert.equal(auth, undefined, `${s.url} gets no token`);
   }
-  assert.ok(!out.join("").includes("secret-token"));
+  assert.ok(!out.join("").includes("test-github-token"));
 });
 
 // A lagging and a wrong case for every row: the mutation, the row it lands
