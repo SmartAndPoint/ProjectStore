@@ -1909,19 +1909,19 @@ test("SessionStart: delivers on additionalContext, and the welcome renders once 
   // toggle text and the sizes above, so 1,295 stays contract 3's worst case.
   // 2026-10-15: the footer follows the binding (the story "Opening a project
   // that is not bound writes nothing into it…"): an unbound project's welcome
-  // appears "once on this machine", +4 in every unbound variant — 925 from a
-  // checkout, 1,083 from a git marketplace, Codex's 948. The bound variant
-  // keeps "once per project", so its base and the worst case do not move.
-  // The unbound size is asserted now, below, not only named.
+  // appears "once on this machine", +4 in every unbound variant: 925 from a
+  // checkout. The other channels' update blocks changed the same day (the
+  // story "A copy installed from Anthropic's directory…"), so their sizes —
+  // git marketplace, claude-plugins-official, a synced copy (the largest) and
+  // Codex — are pinned in tests/directory.test.mjs, not here.
   const WELCOME_BOUND_BASE = 937,
-    WELCOME_UNBOUND = 925,
-    WELCOME_WORST = 1295;
+    WELCOME_UNBOUND = 925;
   const vaultPath = JSON.parse(readFileSync(layoutPaths(proj).binding, "utf8")).vault_path;
   const delta = withWelcome.length - without.length;
   assert.equal(
     delta,
     WELCOME_BOUND_BASE + Math.min(vaultPath.length, 200),
-    `the welcome is ${WELCOME_BOUND_BASE} + the capped vault path (${WELCOME_UNBOUND} unbound) from a checkout; the skeleton spec's contract 3 quotes the git-marketplace variant's ${WELCOME_WORST} as the worst case — update it in the same change`,
+    `the welcome is ${WELCOME_BOUND_BASE} + the capped vault path (${WELCOME_UNBOUND} unbound) from a checkout; the skeleton spec's contract 3 names it — update it in the same change`,
   );
   assert.ok(withWelcome.includes("_This message appears once per project._"), "a bound project's footer");
   // An unbound project that is no worktree carries the welcome alone, so its

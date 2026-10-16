@@ -30,7 +30,7 @@ import * as conv from "../scripts/convergence.mjs";
 import * as surfaces from "../scripts/surfaces.mjs";
 import * as installer from "../scripts/install-harness.mjs";
 import * as setupVerb from "../scripts/setup.mjs";
-import { sourceHarness, packageCommand } from "../scripts/harness.mjs";
+import { sourceHarness, packageCommand, loadHarnesses } from "../scripts/harness.mjs";
 import * as fixtures from "./fixtures/install.mjs";
 import { fakeNpm, fakeNpmSpawn } from "./fixtures/fetch.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
@@ -299,6 +299,69 @@ test("directory B: an existing git user adds the listing — the welcome is the 
     f[0].message,
   );
   assert.ok(f[0].message.includes("Claude Code loads projectstore@SmartAndPoint"), f[0].message);
+});
+
+// The skeleton spec's contract 3 (amended 2026-10-15, the vault critic's
+// finding): the welcome's size per channel, pinned, so a change to any update
+// block fails here with the number to write into the spec. A synced copy's
+// welcome is the largest; the composed value stays under the 10,000 cap with
+// it and the sibling list at its cap.
+test("directory B: the welcome's size per channel is pinned — git marketplace, claude-plugins-official, a synced copy and Codex — and the largest keeps the composed value under 10,000", () => {
+  const home = tmp("ps-dir-size-");
+  const roots = {
+    git: fakeInstall(home, VERSION, { full: true }),
+    official: fakeInstall(home, VERSION, { full: true, marketplace: "claude-plugins-official" }),
+    synced: fakeSynced(home, VERSION, { full: true }),
+  };
+  const UNBOUND = { git: 1116, official: 1155, synced: 1394 };
+  const BOUND_BASE = { git: 1128, official: 1167, synced: 1406 };
+  for (const [name, root] of Object.entries(roots)) {
+    const alone = sessionStart(home, root, project()).welcome;
+    assert.ok(alone.includes("_This message appears once on this machine._"), name);
+    assert.equal(alone.length, UNBOUND[name], `${name}: the unbound welcome's size — contract 3 names it`);
+    const proj = project({ bound: true });
+    const vaultPath = JSON.parse(readFileSync(lib.layoutPaths(proj).binding, "utf8")).vault_path;
+    const first = sessionStart(home, root, proj).welcome;
+    const again = sessionStart(home, root, proj).welcome;
+    assert.ok(first.includes("_This message appears once per project._") && !again.includes("first time"), name);
+    assert.equal(
+      first.length - again.length,
+      BOUND_BASE[name] + Math.min(vaultPath.length, 200),
+      `${name}: the bound welcome is ${BOUND_BASE[name]} + the capped vault path — contract 3 names it`,
+    );
+  }
+  // Codex's unbound welcome, from the checkout under Codex's manifest.
+  const codex = [...loadHarnesses().values()].find((m) => m.id !== SRC.id);
+  if (codex) {
+    const proj = project();
+    const r = spawnSync(process.execPath, [join(ROOT, "hooks", "session-start.mjs")], {
+      encoding: "utf8",
+      input: JSON.stringify({ hook_event_name: "SessionStart", session_id: "dir-cx", source: "startup", cwd: proj }),
+      env: installEnv(home, ROOT, proj, { XDG_CACHE_HOME: tmp("ps-dir-cache-"), PROJECTSTORE_HARNESS: codex.id }),
+      cwd: proj,
+      timeout: 30000,
+    });
+    assert.equal(r.status, 0, r.stderr);
+    const w = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+    assert.equal(w.length, 948, `${codex.id}: the unbound welcome's size — contract 3 names it`);
+  }
+  // The largest welcome, a synced copy's, beside the capped sibling list.
+  const proj = project({ bound: true });
+  const vault = JSON.parse(readFileSync(lib.layoutPaths(proj).binding, "utf8")).vault_path;
+  const sessions = join(vault, ".projectstore", "sessions");
+  mkdirSync(sessions, { recursive: true });
+  for (let i = 0; i < 40; i++)
+    writeFileSync(
+      join(sessions, `sib-${i}.json`),
+      JSON.stringify({
+        id: `sib-${i}`,
+        started_at: new Date().toISOString(),
+        project_root: `/${"deeply-nested-worktree-".repeat(9)}p${i}`,
+      }),
+    );
+  const ctx = sessionStart(home, roots.synced, proj).welcome;
+  assert.ok(ctx.includes("projectstore is loaded for the first time"), "the welcome is in it");
+  assert.ok(ctx.length < 10000, `contract 3: the composed value is ${ctx.length} characters`);
 });
 
 // ─── Doctor ─────────────────────────────────────────────────────────────
