@@ -568,7 +568,7 @@ export function noCopyToKeep({ harness, surface, off = [] }) {
     command: coreCommand("uninstall", { args: runArgs({ harnesses: [harness.id], surfaces: [surface] }) }),
   });
   return advised(
-    `no copy of ${PACKAGE} from the git marketplace or ${DIRECTORY} is enabled for this project, so there is none to keep. Nothing is written.`,
+    `no git-marketplace copy of ${PACKAGE} is enabled for this project, so there is none to keep. Nothing is written.`,
     blocks,
   );
 }

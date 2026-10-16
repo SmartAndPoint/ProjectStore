@@ -770,10 +770,11 @@ function planRegistration(ctx, key, s) {
         : a.reason,
     };
     // The way back from the npm answer over a directory copy (PS-DIRECTORY,
-    // decision 5): with no other copy left on for this checkout, the synced
-    // copy is the one the host loads again. DONE says so (off the envelope).
+    // decision 5): when this checkout's npm copy was the one loading and no
+    // other copy is left on, the synced copy is the one the host loads again.
+    // DONE says so (off the envelope).
     const reenabled = a.dir.disabled.some((k) => a.disabledHere.includes(k));
-    if (a.synced && !a.others.length && !reenabled)
+    if (a.synced && a.installed?.present && a.enabled && !a.others.length && !reenabled)
       Object.defineProperty(removed, "next", {
         value: [
           {

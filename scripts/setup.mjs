@@ -95,7 +95,7 @@ export const CHANNEL_ANSWERS = Object.freeze({ npm: "Switch to npm", git: "Keep 
 // a directory copy…", decision 6), the question's words when that copy is the
 // one this project loads: the same two answers, `git` still meaning the keep.
 export const DIRECTORY_TEXT = `This project loads projectstore from ${DIRECTORY} (updated from claude.ai). Keep the directory copy, or move this project to the npm install?`;
-export const DIRECTORY_ANSWERS = Object.freeze({ npm: "Switch to npm", git: "Keep the directory copy" });
+export const DIRECTORY_ANSWERS = Object.freeze({ npm: "Move to npm", git: "Keep the directory copy" });
 export const channelWords = (directory) =>
   directory ? { text: DIRECTORY_TEXT, answers: DIRECTORY_ANSWERS } : { text: CHANNEL_TEXT, answers: CHANNEL_ANSWERS };
 const UNRECORDED = "nothing is recorded: this project has no binding; setup asks again once it is bound";
@@ -227,7 +227,7 @@ export function decideChannel({
     if (!others.length) {
       const stop = newer
         ? `it runs ${running} in place of ${selected.version}; if ${selected.version} is published, setup stops after these questions and names it`
-        : "setup and upgrade update it from now on";
+        : "setup and upgrade update the npm copy from now on";
       return {
         asked: true,
         default: "git",

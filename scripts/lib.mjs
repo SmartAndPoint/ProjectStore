@@ -810,10 +810,16 @@ export function takesVerbose(copy) {
 // taken: the keep takes "marketplace", so the npm registration's copy is never
 // the kept one. Doctor's layout remedy and the installer's keep call this one
 // function, so the two never disagree about which copy a project runs.
+// A synced copy is a candidate only while Claude Code loads it here — no copy
+// of another origin enabled, the npm registration's included — so the keep
+// never keeps a directory copy the host does not run (PS-DIRECTORY, the B2
+// review): with one shadowed, `only` falls through as it did before.
 export function selectCopy(home = homedir(), projectDir, { harness = sourceHarness(), only = null } = {}) {
   const want = only === null ? null : [].concat(only);
-  const copy = projectCopies(home, projectDir).find(
-    (e) => !want || want.includes(installChannel(e.path, { home, harness })),
+  const copies = projectCopies(home, projectDir);
+  const shadowed = copies.some((e) => !e.synced);
+  const copy = copies.find(
+    (e) => !(e.synced && shadowed) && (!want || want.includes(installChannel(e.path, { home, harness }))),
   );
   if (!copy) return null;
   const bin = join(copy.path, "bin", "projectstore.mjs");

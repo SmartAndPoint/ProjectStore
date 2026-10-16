@@ -1315,12 +1315,15 @@ export function checkVersionDrift(home = homedir(), states = [], proj = null, { 
 // synced one (the loading reference, "Name conflicts", item 5). Named with the
 // copy that loads and the way back, which is to turn that copy off, in its own
 // channel: the npm registration's uninstall, the host's disable for any other.
+// A checkout whose binding records the switch (`channel_switch`, written by
+// setup's npm answer) chose the npm copy over it: no info, as the git
+// copy's silenced-copy info goes under the mark (the B2 review).
 export function checkSyncedCopy(
   proj,
-  { home = homedir(), harness = sourceHarness(), speaker = speakingHarness() } = {},
+  { home = homedir(), harness = sourceHarness(), speaker = speakingHarness(), cfg = null } = {},
 ) {
   const r = hostRegistry(harness);
-  if (!r?.synced_dir) return [];
+  if (!r?.synced_dir || channelMark(cfg)) return [];
   const copies = projectCopies(home, proj);
   const synced = copies.find((e) => e.synced);
   const loads = copies.find((e) => !e.synced);
@@ -3190,7 +3193,7 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
     ...checkTrackedRuntime(proj),
     ...checkVaultGit(cfg),
     ...checkAutoUpdate(opts.home, undefined, { root: opts.root }),
-    ...checkSyncedCopy(proj, { home: opts.home }),
+    ...checkSyncedCopy(proj, { home: opts.home, cfg }),
     ...checkMcpRegistration(),
     ...checkLayout(proj, undefined, opts),
     ...checkOverlays(cfg, proj, opts),

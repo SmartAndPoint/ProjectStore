@@ -582,26 +582,65 @@ test("directory B: doctor's status-line check names a vanished synced root and t
 
 // ─── Beside an enabled git copy: the installer plans as 0.30.5 did ──────
 
-test("directory B (a pin, passes on 0.30.5): beside an enabled git copy, which Claude Code loads over it, a synced copy changes nothing an npx run plans — not the running copies, not the competing copies, not the items", () => {
-  const home = tmp("ps-dir-pin-");
-  const proj = project({ bound: true, statusline: true });
-  const root = join(tmp("ps-dir-pin-npx-"), "_npx", "1", "node_modules", "projectstore");
-  fakePackageRoot(root, VERSION);
-  const git = fakeInstall(home, "0.30.4");
-  writeRegistry(home, [{ scope: "user", installPath: git, version: "0.30.4", lastUpdated: "2026-10-15T00:00:00Z" }]);
-  const env = noHostEnv();
-  const strip = (p) => JSON.stringify(p.items);
-  const before = strip(installPlan(proj, { home, root, env }));
-  fakeSynced(home, "0.31.0");
-  assert.equal(strip(installPlan(proj, { home, root, env })), before);
-  assert.deepEqual(
-    conv.runningCopies(proj, { harnesses: [SRC.id], root, home, env }).map((c) => c.key),
-    ["projectstore@SmartAndPoint"],
+// Every channel answer's plan for one project, as JSON: its items, refusals
+// and flags — what a synced copy beside an enabled copy must not change.
+const plansOf = (proj, { home, root, env }) =>
+  Object.fromEntries(
+    [null, "npm", "git"].map((channel) => {
+      const p = installPlan(proj, { home, root, env, channel });
+      return [String(channel), JSON.stringify({ items: p.items, refusals: p.refusals, ok: p.ok, inc: p.incomplete })];
+    }),
   );
-  assert.deepEqual(
-    surfaces.analyseRegistration(proj, SRC.surfaces.plugin, { root, home, harness: SRC, env }).others.map((o) => o.key),
-    ["projectstore@SmartAndPoint"],
-  );
+
+test("directory B (a pin, passes on 0.30.5): beside an enabled git copy, which Claude Code loads over it, a synced copy at the same, a newer or an older version changes nothing an npx run plans under any channel answer — and after a switch to npm, the keep still refuses as it did", () => {
+  for (const v of [VERSION, "99.0.0", "0.29.0"]) {
+    const home = tmp("ps-dir-pin-");
+    const proj = project({ bound: true, statusline: true });
+    const root = join(tmp("ps-dir-pin-npx-"), "_npx", "1", "node_modules", "projectstore");
+    fakePackageRoot(root, VERSION);
+    const git = fakeInstall(home, "0.30.4");
+    writeRegistry(home, [{ scope: "user", installPath: git, version: "0.30.4", lastUpdated: "2026-10-15T00:00:00Z" }]);
+    const host = fakeClaude(tmp("ps-dir-pin-bin-"));
+    const env = host.env({ HOME: home });
+    const sw = installPlan(proj, { home, root, env, channel: "npm" });
+    assert.ok(
+      sw.items.some((i) => i.surface === "plugin_others" && i.action === "disable"),
+      "the host is on PATH: the registration and its switch are planned",
+    );
+    const before = plansOf(proj, { home, root, env });
+    fakeSynced(home, v);
+    assert.deepEqual(plansOf(proj, { home, root, env }), before, `a synced copy at ${v}`);
+    assert.deepEqual(
+      conv.runningCopies(proj, { harnesses: [SRC.id], root, home, env }).map((c) => c.key),
+      ["projectstore@SmartAndPoint"],
+    );
+    assert.deepEqual(
+      surfaces
+        .analyseRegistration(proj, SRC.surfaces.plugin, { root, home, harness: SRC, env })
+        .others.map((o) => o.key),
+      ["projectstore@SmartAndPoint"],
+    );
+    // The switch applied: the git copy held off here, the npm row on. With
+    // the synced copy gone and back, every answer plans the same — the keep
+    // refuses, never keeping a directory copy Claude Code does not load.
+    rmSync(dirname(syncedRoot(home)), { recursive: true });
+    assert.equal(installApply(installPlan(proj, { home, root, env, channel: "npm" }), { env, home }).failed, undefined);
+    const switched = plansOf(proj, { home, root, env });
+    fakeSynced(home, v);
+    assert.deepEqual(plansOf(proj, { home, root, env }), switched, `switched, a synced copy at ${v}`);
+    const keep = installPlan(proj, { home, root, env, channel: "git" });
+    assert.equal(keep.ok, false);
+    assert.equal(
+      keep.refusals[0],
+      [
+        "no git-marketplace copy of projectstore is enabled for this project, so there is none to keep. Nothing is written.",
+        `This checkout's local settings hold projectstore@SmartAndPoint off. To load it again, run this in ${SRC.display_name}:`,
+        "/plugin enable projectstore@SmartAndPoint",
+        "The way back from an earlier switch to the npm install is its uninstall, from a terminal in this project:",
+        `npx projectstore uninstall --harness ${SRC.id} --surface plugin`,
+      ].join("\n"),
+    );
+  }
 });
 
 // ─── B2: setup and install keep a directory copy ────────────────────────
@@ -896,6 +935,46 @@ test("directory B2 criterion 'The way back': uninstall --surface plugin after th
   );
 });
 
+test("directory B2: uninstall says the directory copy loads again only when this checkout's npm copy was the one loading — not with the npm row already held off", async () => {
+  const sb = b2Sandbox();
+  const { home, proj, root, env } = sb;
+  assert.equal(installApply(installPlan(proj, { home, root, env, channel: "npm" }), { env, home }).failed, undefined);
+  const local = readJson(sb.paths.projectSettings);
+  writeFileSync(
+    sb.paths.projectSettings,
+    JSON.stringify({ ...local, enabledPlugins: { ...local.enabledPlugins, [NPM_ID]: false } }, null, 2),
+  );
+  const out = sink();
+  const r = await installer.runVerb("uninstall", proj, {
+    harnesses: [SRC.id],
+    surfaces: ["plugin"],
+    home,
+    root,
+    env,
+    cwd: proj,
+    out,
+  });
+  assert.equal(r.failed, null, JSON.stringify(r.failed));
+  assert.equal(r.plan.items.find((i) => i.surface === "plugin").action, "remove");
+  assert.ok(out.text().includes("\nDone"), out.text());
+  assert.ok(!out.text().includes("loads in this project again"), out.text());
+});
+
+test("directory B2: after the npm answer doctor's synced-copy info goes quiet — the checkout recorded channel_switch — and an unmarked checkout keeps it; the install checks pass the binding through", async () => {
+  const sb = b2Sandbox();
+  const { home, proj, root, env } = sb;
+  assert.equal(installApply(installPlan(proj, { home, root, env, channel: "npm" }), { env, home }).failed, undefined);
+  const cfg = readJson(lib.layoutPaths(proj).binding);
+  assert.ok(cfg.channel_switch, "the mark");
+  assert.deepEqual(doctor.checkSyncedCopy(proj, { home, cfg }), [], "marked: no info");
+  const unmarked = { ...cfg };
+  delete unmarked.channel_switch;
+  const [f] = doctor.checkSyncedCopy(proj, { home, cfg: unmarked });
+  assert.equal(f?.check, "synced-copy", "unmarked: the info");
+  const all = await doctor.runInstallChecks(cfg, proj, { home, root, env });
+  assert.ok(!all.some((x) => x.check === "synced-copy"), JSON.stringify(all.map((x) => x.check)));
+});
+
 // The TTY double: stdin a PassThrough that says it is a terminal, with a
 // setRawMode; stdout a terminal sink; a process stand-in for the rail.
 function tty() {
@@ -957,7 +1036,7 @@ test(
       ),
       drawn,
     );
-    assert.ok(drawn.includes(`○ Switch to npm ${SHADOW}; setup and upgrade update it from now on`), drawn);
+    assert.ok(drawn.includes(`○ Move to npm ${SHADOW}; setup and upgrade update the npm copy from now on`), drawn);
     assert.equal(keep.r.result.setup.channel, "git", "the keep is the default");
     assert.equal(keep.r.result.items.find((i) => i.kind === "channel")?.entry, SYNCED_KEY);
     assert.ok(!keep.r.result.items.some((i) => i.kind === "registration"), "no registration under the keep");
@@ -988,7 +1067,7 @@ test("directory B2: setup's channel table for a directory copy — asked with th
     asked.choices.map((x) => [x.value, x.label]),
     [
       ["git", "Keep the directory copy"],
-      ["npm", "Switch to npm"],
+      ["npm", "Move to npm"],
     ],
   );
   assert.deepEqual(decide({ inSession: true, sessionCopy: { channel: "synced" } }), {
