@@ -421,10 +421,48 @@ test("directory B: a shadowed directory copy is named with the copy that loads a
   // Off for this project: no copy of the directory's loads here, so nothing is shadowed.
   localSettings(proj, { enabledPlugins: { [SYNCED_KEY]: false } });
   assert.deepEqual(doctor.checkSyncedCopy(proj, { home }), []);
-  // …and a `true` in a source over it does not bring it back: any false keeps it out.
+  // …and Claude Code's precedence decides, as for any id: a local `true` over a
+  // user-level `false` loads the copy again (the loading reference, "Find where
+  // a plugin is enabled"), so it is shadowed again.
   userSettings(home, { enabledPlugins: { [SYNCED_KEY]: false } });
   localSettings(proj, { enabledPlugins: { [SYNCED_KEY]: true } });
-  assert.deepEqual(doctor.checkSyncedCopy(proj, { home }), [], "a user-level false holds");
+  assert.equal(doctor.checkSyncedCopy(proj, { home }).length, 1, "a local true over a user false: on");
+  localSettings(proj, {});
+  assert.deepEqual(doctor.checkSyncedCopy(proj, { home }), [], "the user-level false alone: off");
+});
+
+// The B review, 2026-10-15: two buckets order by version, then folder age —
+// the launcher's order — and only our plugin's folder under synced/ is ours.
+test("directory B: several buckets order newest version first, and another synced plugin's status line is not our wiring", () => {
+  const home = tmp("ps-dir-buckets-");
+  const proj = project();
+  const older = fakeSynced(home, "0.30.6", { bucket: "a_1" });
+  const newer = fakeSynced(home, "0.30.7", { bucket: "b_2" });
+  // The older version's folder is the newer one on disk.
+  const later = new Date(Date.now() + 60000);
+  fs.utimesSync(older, later, later);
+  const rows = lib.syncedPluginEntries(home, proj);
+  assert.deepEqual(
+    rows.map((r) => r.path),
+    [newer, older],
+    "newest version first, whatever the folder times",
+  );
+  const ours = join(newer, "scripts", "statusline.mjs");
+  assert.equal(lib.isSyncedRoot(newer, home), true);
+  assert.equal(lib.statusLineIsOurWiring(`node "${ours}"`, proj, home, join(home, "elsewhere")), true);
+  const otherRoot = join(dirname(newer), "another-plugin");
+  mkdirSync(join(otherRoot, "scripts"), { recursive: true });
+  writeFileSync(join(otherRoot, "scripts", "statusline.mjs"), "");
+  assert.equal(lib.isSyncedRoot(otherRoot, home), false, "another plugin's synced folder is not ours");
+  assert.equal(
+    lib.statusLineIsOurWiring(
+      `node "${join(otherRoot, "scripts", "statusline.mjs")}"`,
+      proj,
+      home,
+      join(home, "elsewhere"),
+    ),
+    false,
+  );
 });
 
 test("directory B: a session run from a synced copy gets the layout move in the 'any other copy' form, naming that copy — over an enabled registry copy — and a terminal run whose project loads only the synced copy names it too", () => {

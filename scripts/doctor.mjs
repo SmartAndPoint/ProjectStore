@@ -539,7 +539,13 @@ export function checkStatusline(cfg, proj, home = homedir(), harness = speakingH
 // The root a launcher of ours falls back to, when that root is a copy synced
 // from claude.ai that is no longer on disk and no other synced copy is: the
 // launcher then has nothing of ours to render. Null otherwise.
+// A synced copy vanishes into the host's trash folder (sync turned off, or
+// the plugin turned off on claude.ai). With no trash folder there is nothing
+// to name, and the launcher is not read: one existsSync on every SessionStart,
+// not a file read (the B review, 2026-10-15).
 function vanishedSyncedRoot(launcher, proj, home) {
+  const r = hostRegistry(sourceHarness());
+  if (!r?.trash_dir || !existsSync(join(claudeHome(home), ...r.trash_dir))) return null;
   let root;
   try {
     root = JSON.parse(readFileSync(launcher, "utf8").match(/const FALLBACK_ROOT = ("(?:[^"\\]|\\.)*");/)[1]);

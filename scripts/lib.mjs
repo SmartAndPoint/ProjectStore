@@ -663,9 +663,12 @@ function enabledValues(key, home, projectDir) {
 // (Anthropic's directory): <synced_dir>/<bucket>/<plugin>/, beside files the
 // core never reads. One readdir and one plugin.json read per bucket; the
 // version is the copy's own, never the bucket manifest's (claude.ai's string).
-// A copy is on unless a settings file this project reads sets its key to
-// false — any of them, not the last (the loading reference's table for
-// <name>@synced). Known gap: CLAUDE_CODE_PLUGIN_CACHE_DIR moves the host's
+// A copy is on by the same precedence as any other id (pluginEnabled): the
+// highest-precedence source that names the key decides, so a project or
+// local `true` brings back a user-level `false` (the loading reference, "Find
+// where a plugin is enabled"; the B review, 2026-10-15). Several buckets:
+// newest version first, then the newest folder — the status-line launcher's
+// order, so doctor and the launcher name the same copy. Known gap: CLAUDE_CODE_PLUGIN_CACHE_DIR moves the host's
 // whole plugins root, synced/ included, and is not read here, as for cache/.
 export function syncedPluginEntries(home = homedir(), projectDir = null, harness = sourceHarness()) {
   const r = hostRegistry(harness);
@@ -676,7 +679,7 @@ export function syncedPluginEntries(home = homedir(), projectDir = null, harness
   try {
     names = readdirSync(dir).filter((n) => !n.startsWith("."));
   } catch {}
-  const enabled = !enabledValues(key, home, projectDir).includes(false);
+  const enabled = pluginEnabled(key, home, projectDir);
   const out = [];
   for (const n of names) {
     const path = join(dir, n, r.plugin_name);
@@ -690,7 +693,7 @@ export function syncedPluginEntries(home = homedir(), projectDir = null, harness
     version = typeof version === "string" ? version : null;
     out.push({ key, path, scope: "user", version, at, present: true, enabled, projectPath: null, synced: true });
   }
-  return out.sort((a, b) => b.at - a.at);
+  return out.sort((a, b) => cmpPrecedence(b.version, a.version) || b.at - a.at);
 }
 
 // Every projectstore registration the host knows, with whether it is enabled
@@ -1125,9 +1128,13 @@ export function isPluginCacheRoot(root, home = homedir()) {
 // the launcher's condition (the install spec, contract 0, plugin_cache_install).
 // The folder is the manifest's, under claudeHome (CLAUDE_CODE_PLUGIN_CACHE_DIR:
 // a known gap, see syncedPluginEntries).
+// The plugin segment must be ours: another synced plugin's
+// scripts/statusline.mjs is not our wiring (the B review, 2026-10-15).
 export function isSyncedRoot(root, home = homedir(), harness = sourceHarness()) {
-  const dir = hostRegistry(harness)?.synced_dir;
-  return Boolean(dir) && underHostDir(root, dir, home) !== null;
+  const r = hostRegistry(harness);
+  if (!r?.synced_dir) return false;
+  const rel = underHostDir(root, r.synced_dir, home);
+  return rel !== null && rel.split("/")[1] === r.plugin_name;
 }
 export function isHostInstallRoot(root, home = homedir()) {
   return isPluginCacheRoot(root, home) || isSyncedRoot(root, home);
