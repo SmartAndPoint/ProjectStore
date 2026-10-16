@@ -450,6 +450,8 @@ export function analyseRegistration(
     installPath: null,
     enabled: null,
     others: [],
+    synced: null,
+    directory: null,
     otherProjects: 0,
     writtenBy: null,
     newer: false,
@@ -505,9 +507,18 @@ export function analyseRegistration(
   // newer copy and the stop never disagree about its version.
   // Never a synced copy (Anthropic's directory): Claude Code loads an enabled
   // copy of ours over it, so it neither loads twice nor is ours to turn off.
-  for (const e of projectCopiesByKey(home, projectDir)) {
+  const copies = projectCopiesByKey(home, projectDir);
+  for (const e of copies) {
     if (e.key !== id && !e.synced) a.others.push({ key: e.key, path: e.path, version: e.version });
   }
+  // The synced copy enabled for this project, and — as `directory` — the same
+  // copy when it is the one Claude Code loads here: no copy of another origin
+  // is enabled for this project, ours included (the install spec, contract
+  // 21, rule 1, as amended for PS-DIRECTORY). An npm registration planned
+  // over `directory` shadows it; nothing turns it off.
+  const synced = copies.find((e) => e.synced);
+  a.synced = synced ? { key: synced.key, path: synced.path, version: synced.version, synced: true } : null;
+  a.directory = a.synced && !copies.some((e) => !e.synced) ? a.synced : null;
   a.newer = Boolean(a.dir.pkg) && cmpPrecedence(a.dir.pkg, pkg) > 0;
   // Same version, different payload: the directory's recorded digest against
   // this package's — contract 4's rung 3 (source changed) for a directory.

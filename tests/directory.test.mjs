@@ -3,7 +3,10 @@
 // npm". A plugin on the person's claude.ai account loads in Claude Code as
 // projectstore@synced, from <claude home>/plugins/synced/<bucket>/projectstore,
 // with no marketplace and no install record (the fixture's fakeSynced lays the
-// folder out as measured on 2026-10-15).
+// folder out as measured on 2026-10-15). The "directory B2" tests are its
+// sibling story's, "Setup and install keep a directory copy: no npm
+// registration is planned over an enabled projectstore@synced unless the npm
+// channel is chosen".
 //
 // Every module is read through its namespace, so a name a release lacks fails
 // the one test that calls it, not the whole file.
@@ -19,14 +22,17 @@ import { fileURLToPath } from "node:url";
 import { spawnSync, spawn as spawnChild } from "node:child_process";
 import { createServer } from "node:http";
 import { syncBuiltinESMExports } from "node:module";
+import { PassThrough } from "node:stream";
+import { EventEmitter } from "node:events";
 import * as lib from "../scripts/lib.mjs";
 import * as doctor from "../scripts/doctor.mjs";
 import * as conv from "../scripts/convergence.mjs";
 import * as surfaces from "../scripts/surfaces.mjs";
-import { plan as installPlan, apply as installApply } from "../scripts/install-harness.mjs";
+import * as installer from "../scripts/install-harness.mjs";
+import * as setupVerb from "../scripts/setup.mjs";
 import { sourceHarness, packageCommand } from "../scripts/harness.mjs";
 import * as fixtures from "./fixtures/install.mjs";
-import { fakeNpm } from "./fixtures/fetch.mjs";
+import { fakeNpm, fakeNpmSpawn } from "./fixtures/fetch.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -37,6 +43,8 @@ const NPM_ID = `${SRC.surfaces.plugin.plugin_name}@${SRC.surfaces.plugin.marketp
 const SYNCED_KEY = "projectstore@synced";
 const { fakeSynced, trashSynced, syncedRoot, fakeInstall, cacheRoot, writeRegistry, legacyProject } = fixtures;
 const { noHostEnv, installEnv, fakePackageRoot, fakeClaude } = fixtures;
+const installPlan = (...a) => installer.plan(...a);
+const installApply = (...a) => installer.apply(...a);
 
 const TEMP = [];
 const tmp = (prefix) => {
@@ -572,9 +580,9 @@ test("directory B: doctor's status-line check names a vanished synced root and t
   assert.deepEqual(named(), []);
 });
 
-// ─── Until B2: the installer plans as 0.30.5 did ────────────────────────
+// ─── Beside an enabled git copy: the installer plans as 0.30.5 did ──────
 
-test("directory B (a pin, passes on 0.30.5): a synced copy changes nothing an npx run plans — not the running copies, not the competing copies, not the items", () => {
+test("directory B (a pin, passes on 0.30.5): beside an enabled git copy, which Claude Code loads over it, a synced copy changes nothing an npx run plans — not the running copies, not the competing copies, not the items", () => {
   const home = tmp("ps-dir-pin-");
   const proj = project({ bound: true, statusline: true });
   const root = join(tmp("ps-dir-pin-npx-"), "_npx", "1", "node_modules", "projectstore");
@@ -594,4 +602,426 @@ test("directory B (a pin, passes on 0.30.5): a synced copy changes nothing an np
     surfaces.analyseRegistration(proj, SRC.surfaces.plugin, { root, home, harness: SRC, env }).others.map((o) => o.key),
     ["projectstore@SmartAndPoint"],
   );
+});
+
+// ─── B2: setup and install keep a directory copy ────────────────────────
+//
+// PS-DIRECTORY, "Setup and install keep a directory copy: no npm registration
+// is planned over an enabled projectstore@synced unless the npm channel is
+// chosen". The fake host on a temp PATH logs every call; the synced copy is at
+// the running version, so no run here reads the registry.
+
+const DISPLAY = SRC.display_name;
+const SHADOW = `${DISPLAY} then loads the npm copy here, and reports the directory copy as not loaded`;
+// The gate's text: from a checkout no version is pinned; from a package root
+// (a node_modules, npx's cache) the running one is.
+const GATE = (pin = "") =>
+  [
+    `Nothing written: this project loads projectstore from Anthropic's directory (${SYNCED_KEY}), and moving it to the npm install is a choice made at a terminal in this project:`,
+    "",
+    `    npx projectstore${pin} setup --harness ${SRC.id}`,
+    "",
+    "Without a terminal, name the channel:",
+    "",
+    `    npx projectstore${pin} setup --harness ${SRC.id} --channel npm`,
+    "",
+    `    npx projectstore${pin} setup --harness ${SRC.id} --channel git`,
+  ].join("\n");
+// The stub copy's own plan lists these writes while their files are missing.
+const STUB_WRITES = [
+  {
+    surface: "statusline_launcher",
+    kind: "exclusive",
+    action: "create",
+    file: join(".projectstore", "stub-launcher.mjs"),
+    body: "// written by the stub copy\n",
+  },
+  {
+    surface: "statusline",
+    kind: "shared",
+    action: "create",
+    file: join(SRC.runtime.harness_dir, "stub-settings.json"),
+    body: "{}\n",
+  },
+];
+// A machine with the fake host on PATH, a project (bound unless asked), a
+// package root at the running version, and a copy synced from claude.ai — the
+// stub copy, which answers its own plan and upgrade, when `stub` is given.
+function b2Sandbox({ bound = true, stub = false, statusline = false } = {}) {
+  const home = tmp("ps-dir-b2-home-");
+  const proj = project({ bound, statusline });
+  writeFileSync(join(proj, "CLAUDE.md"), "# Mine\n");
+  const root = fakePackageRoot(join(tmp("ps-dir-b2-pkg-"), "node_modules", "projectstore"), VERSION);
+  const copy = stub
+    ? fixtures.stubCopy(home, VERSION, { writes: STUB_WRITES }, { synced: "org-0001_user-0001" })
+    : fakeSynced(home, VERSION);
+  const host = fakeClaude(tmp("ps-dir-b2-bin-"));
+  const paths = surfaces.registrationPaths(SRC.surfaces.plugin, { home, projectDir: proj, harness: SRC });
+  return { home, proj, root, copy, host, paths, env: host.env({ HOME: home }) };
+}
+const othersOf = (p) => p.items.filter((i) => i.surface === "plugin_others");
+const hostStepsOf = (p) => p.items.flatMap((i) => (i.steps || []).filter((st) => st.kind === "host"));
+const writesOf = (p) => p.items.filter((i) => !["skip", "refuse"].includes(i.action));
+const readJson = (p) => {
+  try {
+    return JSON.parse(readFileSync(p, "utf8"));
+  } catch {
+    return null;
+  }
+};
+// A text sink that is not a terminal.
+function sink() {
+  const chunks = [];
+  return {
+    isTTY: false,
+    write: (s) => {
+      chunks.push(String(s));
+      return true;
+    },
+    text: () => chunks.join(""),
+  };
+}
+
+test("directory B2 rule 1: an enabled synced copy is one running copy, keyed projectstore@synced with its own plugin.json's version, and never a competing copy to turn off; false in the checkout's settings.local.json gives none", () => {
+  const sb = b2Sandbox();
+  const env = noHostEnv();
+  const running = (extra = {}) =>
+    conv.runningCopies(sb.proj, { harnesses: [SRC.id], root: sb.root, home: sb.home, env, ...extra });
+  const analysis = () =>
+    surfaces.analyseRegistration(sb.proj, SRC.surfaces.plugin, { root: sb.root, home: sb.home, harness: SRC, env });
+  assert.deepEqual(
+    running().map((c) => [c.key, c.version]),
+    [[SYNCED_KEY, VERSION]],
+    "the copy's own version, never the bucket's 0040",
+  );
+  assert.deepEqual(analysis().others, [], "never a switch, never our manifest's disabled list");
+  assert.equal(analysis().directory?.key, SYNCED_KEY, "the copy Claude Code loads here");
+  assert.deepEqual(running({ channel: "git" }), [], "under the keep none counts");
+  localSettings(sb.proj, { enabledPlugins: { [SYNCED_KEY]: false } });
+  assert.deepEqual(running(), []);
+  assert.equal(analysis().directory, null);
+});
+
+test("directory B2 criterion 'No channel answer': install and upgrade over a synced copy, without a terminal and without --no-register, write nothing, exit 1 and print the gate naming the directory copy — through the bin and main(); under --json ok:false with {confirmed:false, why:'channel'}", () => {
+  const sb = b2Sandbox();
+  const env = sb.host.env({ HOME: sb.home, [SRC.runtime.plugin_root_env]: ROOT });
+  const run = (script, args) =>
+    spawnSync(process.execPath, [script, ...args, "--project", sb.proj], {
+      encoding: "utf8",
+      env,
+      cwd: sb.proj,
+      timeout: 60000,
+    });
+  const files = ["CLAUDE.md", join(SRC.runtime.harness_dir, "settings.local.json"), "AGENTS.md"].map((f) =>
+    join(sb.proj, f),
+  );
+  const snap = () => files.map((f) => (fs.existsSync(f) ? readFileSync(f, "utf8") : null));
+  const before = snap();
+  for (const [entry, script] of [
+    ["the bin", join(ROOT, "bin", "projectstore.mjs")],
+    ["main()", join(ROOT, "scripts", "install-harness.mjs")],
+  ]) {
+    for (const verb of ["install", "upgrade"]) {
+      const t = run(script, [verb, "--harness", SRC.id]);
+      assert.equal(t.status, 1, `${entry} ${verb}: ${t.stdout}${t.stderr}`);
+      assert.ok(t.stdout.endsWith(`\n${GATE()}\n`), `${entry} ${verb}:\n${t.stdout}`);
+      assert.ok(
+        t.stdout.includes(`\n      ${SHADOW}\n`),
+        `the plan was shown first, with the consequence:\n${t.stdout}`,
+      );
+      assert.ok(!t.stdout.includes("⇄"), "no switch is drawn: nothing is turned off");
+      const j = run(script, [verb, "--harness", SRC.id, "--json"]);
+      assert.equal(j.status, 1, `${entry} ${verb} --json: ${j.stderr}`);
+      const out = JSON.parse(j.stdout);
+      const r = entry === "the bin" ? out.result : out;
+      assert.equal(out.ok, false);
+      assert.deepEqual(r.gate, { confirmed: false, why: "channel" });
+      assert.deepEqual(r.applied, []);
+    }
+  }
+  assert.deepEqual(sb.host.log(), [], "no host command ran");
+  assert.deepEqual(snap(), before, "nothing written in the project");
+  assert.ok(!fs.existsSync(sb.paths.dir), "no marketplace directory written");
+});
+
+test("directory B2 criterion '--no-register' (a pin, passes on 0.30.5): over a synced copy a --no-register run plans no registration and meets no gate — named, it confirms as today", async () => {
+  const sb = b2Sandbox();
+  const p = installPlan(sb.proj, { home: sb.home, root: sb.root, env: sb.env, harnesses: [SRC.id], register: false });
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  assert.deepEqual(
+    p.items.filter((i) => i.kind === "registration"),
+    [],
+    "every registration surface is left out of the plan",
+  );
+  assert.deepEqual(await installer.confirm(p, {}), { confirmed: true, why: "named" });
+});
+
+test("directory B2 criterion 'The keep': under --channel git the plan holds one channel item for Claude Code whose step runs the synced copy's own bin with --no-register; no registration is written, and the copy writes the project's surfaces", async () => {
+  const sb = b2Sandbox({ stub: true });
+  const out = sink();
+  const r = await installer.runVerb("upgrade", sb.proj, {
+    harnesses: [SRC.id],
+    home: sb.home,
+    root: sb.root,
+    env: sb.env,
+    channel: "git",
+    cwd: sb.proj,
+    out,
+    ask: async () => "y",
+  });
+  const p = r.plan;
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  const keeps = p.items.filter((i) => i.harness === SRC.id && i.kind === "channel");
+  assert.equal(keeps.length, 1);
+  const [keep] = keeps;
+  assert.equal(keep.entry, SYNCED_KEY);
+  assert.deepEqual(keep.steps[0].argv, [
+    process.execPath,
+    join(sb.copy, "bin", "projectstore.mjs"),
+    "upgrade",
+    "--harness",
+    SRC.id,
+    "--no-register",
+    "--json",
+    "--project",
+    sb.proj,
+  ]);
+  assert.ok(
+    keep.reason.startsWith(`this project keeps ${SYNCED_KEY} ${VERSION} from Anthropic's directory`),
+    keep.reason,
+  );
+  assert.ok(!/git marketplace/.test(keep.reason), keep.reason);
+  assert.deepEqual(
+    p.items.filter((i) => i.kind === "registration"),
+    [],
+    "no registration row",
+  );
+  assert.equal(r.failed, null, JSON.stringify(r.failed));
+  assert.deepEqual(
+    fixtures.stubCalls(sb.copy).map((c) => c.argv[0]),
+    ["plan", "upgrade"],
+  );
+  for (const w of STUB_WRITES) assert.equal(readFileSync(join(sb.proj, w.file), "utf8"), w.body);
+  assert.deepEqual(sb.host.log(), [], "no host command");
+  assert.ok(!fs.existsSync(sb.paths.dir), "no marketplace directory");
+  assert.ok(!readJson(sb.paths.projectSettings)?.enabledPlugins, "no enablement written");
+  assert.ok(out.text().includes(`kept     ${DISPLAY}: ${SYNCED_KEY} ${VERSION}`), out.text());
+});
+
+test("directory B2 criterion 'The npm answer': --channel npm registers the npm copy at local scope with the consequence row — no plugin disable for projectstore@synced, no ⇄ switch, nothing in our manifest's disabled list — and writes channel_switch; a re-run is zero-change", () => {
+  const sb = b2Sandbox();
+  const { home, proj, root, env } = sb;
+  const p = installPlan(proj, { home, root, env, channel: "npm" });
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  const reg = p.items.find((i) => i.surface === "plugin");
+  assert.equal(reg.action, "create");
+  assert.equal(reg.scope, "local");
+  const install = reg.steps.find((st) => st.kind === "host" && st.name === "install");
+  assert.ok(install.argv.includes("--scope") && install.argv.includes("local"), JSON.stringify(install.argv));
+  const [row, ...more] = othersOf(p);
+  assert.deepEqual(more, []);
+  assert.deepEqual([row.entry, row.action, row.state], [SYNCED_KEY, "skip", "shadowed"]);
+  assert.deepEqual(
+    row.steps.map((st) => [st.kind, st.why]),
+    [["note", SHADOW]],
+    "the consequence row",
+  );
+  assert.ok(
+    !hostStepsOf(p).some((st) => st.name === "disable" || st.argv?.includes(SYNCED_KEY)),
+    "no plugin disable for the directory copy",
+  );
+  const manifest = reg.steps.find((st) => st.kind === "write").manifest;
+  const prov = manifest[SRC.surfaces.plugin.provenance_key];
+  assert.deepEqual(prov.disabled, [], "never in our manifest's disabled list");
+  const mark = p.items.find((i) => i.kind === "binding" && i.surface === "channel_switch");
+  assert.equal(mark?.action, "add", "channel_switch is planned");
+  const preview = installer.renderPreview(p);
+  assert.ok(preview.includes(`\n      ${SHADOW}\n`), preview);
+  assert.ok(!preview.includes("⇄") && !/\bswitch\b +projectstore@synced/.test(preview), preview);
+  const done = installApply(p, { env, home });
+  assert.equal(done.failed, undefined, JSON.stringify(done.failed));
+  assert.equal(typeof readJson(lib.layoutPaths(proj).binding)?.channel_switch?.at, "string", "the mark");
+  assert.ok(!Object.hasOwn(readJson(sb.paths.projectSettings)?.enabledPlugins || {}, SYNCED_KEY), "nothing turned off");
+  const again = installPlan(proj, { home, root, env, channel: "npm" });
+  assert.deepEqual(writesOf(again), [], "zero changes");
+  assert.deepEqual(othersOf(again), [], "the npm copy loads now: no row for the directory copy");
+});
+
+test("directory B2: under --channel npm, a registration that fails leaves the directory copy loading and records no channel_switch", () => {
+  const sb = b2Sandbox();
+  const failing = sb.host.env({ HOME: sb.home, FAKE_CLAUDE_FAIL: "install" });
+  const p = installPlan(sb.proj, { home: sb.home, root: sb.root, env: failing, channel: "npm" });
+  const done = installApply(p, { env: failing, home: sb.home });
+  assert.equal(done.failed?.step, "install");
+  const mark = done.find((d) => d.surface === "channel_switch");
+  assert.deepEqual([mark.action, mark.reason], ["skipped", "the switch did not complete; nothing is recorded"]);
+  assert.equal(readJson(lib.layoutPaths(sb.proj).binding).channel_switch, undefined);
+});
+
+test("directory B2 criterion 'The way back': uninstall --surface plugin after the npm answer removes the registration and channel_switch, and its DONE says the directory copy loads again at the next start", async () => {
+  const sb = b2Sandbox();
+  const { home, proj, root, env } = sb;
+  assert.equal(installApply(installPlan(proj, { home, root, env, channel: "npm" }), { env, home }).failed, undefined);
+  assert.ok(readJson(lib.layoutPaths(proj).binding).channel_switch);
+  const out = sink();
+  const r = await installer.runVerb("uninstall", proj, {
+    harnesses: [SRC.id],
+    surfaces: ["plugin"],
+    home,
+    root,
+    env,
+    cwd: proj,
+    out,
+  });
+  assert.equal(r.failed, null, JSON.stringify(r.failed));
+  const reg = r.plan.items.find((i) => i.surface === "plugin");
+  assert.equal(reg.action, "remove");
+  assert.ok(
+    reg.steps.some((st) => st.kind === "unmark"),
+    "the mark goes with the registration",
+  );
+  assert.equal(readJson(lib.layoutPaths(proj).binding).channel_switch, undefined);
+  assert.ok(
+    !lib.installedPluginEntries(home, proj).some((e) => e.key === NPM_ID && e.projectPath),
+    "the registration is gone",
+  );
+  const done = out.text().slice(out.text().indexOf("\nDone"));
+  assert.ok(
+    done
+      .replace(/\s+/g, " ")
+      .includes(
+        `${SYNCED_KEY}, from Anthropic's directory, loads in this project again at the next start of ${DISPLAY}.`,
+      ),
+    done,
+  );
+});
+
+// The TTY double: stdin a PassThrough that says it is a terminal, with a
+// setRawMode; stdout a terminal sink; a process stand-in for the rail.
+function tty() {
+  const stdin = new PassThrough();
+  stdin.isTTY = true;
+  stdin.setRawMode = (on) => {
+    stdin.isRaw = on;
+    return stdin;
+  };
+  const chunks = [];
+  const stdout = {
+    isTTY: true,
+    columns: 200,
+    write: (s) => {
+      chunks.push(String(s));
+      return true;
+    },
+  };
+  const proc = Object.assign(new EventEmitter(), { pid: 4242, kill: () => true });
+  return { stdin, stdout, proc, text: () => chunks.join("") };
+}
+async function b2Setup(sb, { keys = null, values = {} } = {}) {
+  const t = keys ? tty() : null;
+  if (t) t.stdin.write(keys.join(""));
+  const pipe = sink();
+  const env = { ...sb.env, NO_COLOR: "1", TERM: "xterm-256color" };
+  for (const k of ["CI", "FORCE_COLOR", "PROJECTSTORE_ASCII", "PROJECTSTORE_PROJECT_DIR"]) delete env[k];
+  const r = await setupVerb.runSetup({
+    values: { project: sb.proj, ...values },
+    project: sb.proj,
+    env,
+    cwd: sb.proj,
+    stdin: t ? t.stdin : null,
+    stdout: t ? t.stdout : pipe,
+    stderr: t ? t.stdout : pipe,
+    ask: async () => "n",
+    root: sb.root,
+    home: sb.home,
+    proc: t ? t.proc : new EventEmitter(),
+    escapeMs: 20,
+    fetchSpawn: fakeNpmSpawn().spawn,
+  });
+  return { r, text: t ? t.text() : pipe.text() };
+}
+
+test(
+  "directory B2 criterion 'Setup at a terminal': the channel question offers the keep, the default, and the npm move, each with its consequence; the keep plans the copy's own step, the npm move plans the consequence row and never a ⇄ switch; without a terminal setup refuses naming the directory copy",
+  { timeout: 60000 },
+  async () => {
+    const sb = b2Sandbox({ stub: true, statusline: true });
+    const ENTER = "\r",
+      DOWN = "\x1b[B";
+    const keep = await b2Setup(sb, { keys: [ENTER, ENTER], values: { "dry-run": true } });
+    const drawn = keep.text.replace(/\n│ +/g, " ").replace(/ +/g, " ");
+    assert.ok(drawn.includes(setupVerb.DIRECTORY_TEXT), drawn);
+    assert.ok(
+      drawn.includes(
+        `● Keep the directory copy ${DISPLAY} keeps loading ${SYNCED_KEY}, updated from claude.ai; setup refreshes this project's files through that copy`,
+      ),
+      drawn,
+    );
+    assert.ok(drawn.includes(`○ Switch to npm ${SHADOW}; setup and upgrade update it from now on`), drawn);
+    assert.equal(keep.r.result.setup.channel, "git", "the keep is the default");
+    assert.equal(keep.r.result.items.find((i) => i.kind === "channel")?.entry, SYNCED_KEY);
+    assert.ok(!keep.r.result.items.some((i) => i.kind === "registration"), "no registration under the keep");
+    const npm = await b2Setup(sb, { keys: [ENTER, DOWN, ENTER], values: { "dry-run": true } });
+    assert.equal(npm.r.result.setup.channel, "npm");
+    assert.deepEqual(
+      npm.r.result.items.filter((i) => i.surface === "plugin_others").map((i) => [i.entry, i.action, i.state]),
+      [[SYNCED_KEY, "skip", "shadowed"]],
+    );
+    const plan = npm.text.slice(npm.text.indexOf("Plan"));
+    assert.ok(plan.includes(SHADOW), plan);
+    assert.ok(!plan.includes("⇄"), "the npm answer turns nothing off, so no switch is drawn");
+    // Without a terminal and without --channel: refused before any plan, naming the directory copy.
+    const bare = await b2Setup(sb, { values: { harness: [SRC.id] } });
+    assert.equal(bare.r.code, 1);
+    assert.equal(bare.text, `${GATE(`@${VERSION}`)}\n`);
+    assert.deepEqual(bare.r.result.items, []);
+    assert.deepEqual(sb.host.log(), [], "no host call");
+  },
+);
+
+test("directory B2: setup's channel table for a directory copy — asked with the keep the default, a session running it keeps, without a terminal refused, an npm user beside it never asked", () => {
+  const directory = { key: SYNCED_KEY, version: VERSION, synced: true };
+  const decide = (extra) => setupVerb.decideChannel({ inSet: true, others: [], directory, display: DISPLAY, ...extra });
+  const asked = decide({ interactive: true, running: VERSION, selected: directory });
+  assert.equal(asked.default, "git");
+  assert.deepEqual(
+    asked.choices.map((x) => [x.value, x.label]),
+    [
+      ["git", "Keep the directory copy"],
+      ["npm", "Switch to npm"],
+    ],
+  );
+  assert.deepEqual(decide({ inSession: true, sessionCopy: { channel: "synced" } }), {
+    asked: false,
+    value: "git",
+    why: "session",
+  });
+  assert.deepEqual(decide({}), { asked: false, value: null, refuse: true });
+  assert.deepEqual(setupVerb.decideChannel({ inSet: true, others: [], directory: null }), {
+    asked: false,
+    value: null,
+    why: "none",
+  });
+});
+
+test("directory B2: a directory copy newer than this package is not registered over under no channel answer — the registration defers, names both versions and the ways out, and nothing turns it off", () => {
+  const sb = b2Sandbox();
+  fakeSynced(sb.home, "99.0.0", { bucket: "org-0002_user-0001" });
+  const p = installPlan(sb.proj, { home: sb.home, root: sb.root, env: sb.env });
+  const reg = p.items.find((i) => i.surface === "plugin");
+  assert.equal(reg.action, "skip");
+  assert.equal(reg.deferred, true);
+  assert.equal(p.incomplete, true);
+  assert.ok(
+    reg.reason.startsWith(
+      `this project runs a newer copy (${SYNCED_KEY} 99.0.0) than this package (${VERSION}), so the npm install is not registered over it`,
+    ),
+    reg.reason,
+  );
+  assert.ok(
+    reg.reason.split("\n").includes(`npx projectstore@${VERSION} setup --harness ${SRC.id} --channel git`),
+    reg.reason,
+  );
+  assert.deepEqual(hostStepsOf(p), [], "no host command");
+  assert.deepEqual(othersOf(p), []);
 });

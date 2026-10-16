@@ -177,6 +177,8 @@ import {
   updateCheckOff,
   channelChoices,
   switchConsequence,
+  directoryConsequence,
+  copyOrigin,
   switchReason,
   noCopyToKeep,
   keepArgv,
@@ -759,16 +761,28 @@ function planRegistration(ctx, key, s) {
         path: a.paths.dir,
         why: "our marketplace directory, removed whole (its manifest carries our provenance field); no other checkout is installed from it",
       });
-    return [
-      {
-        ...base,
-        action: "remove",
-        steps,
-        reason: a.otherProjects
-          ? `${a.otherProjects} other checkout(s) are installed from the shared directory; it and the host's marketplace entry stay`
-          : a.reason,
-      },
-    ];
+    const removed = {
+      ...base,
+      action: "remove",
+      steps,
+      reason: a.otherProjects
+        ? `${a.otherProjects} other checkout(s) are installed from the shared directory; it and the host's marketplace entry stay`
+        : a.reason,
+    };
+    // The way back from the npm answer over a directory copy (PS-DIRECTORY,
+    // decision 5): with no other copy left on for this checkout, the synced
+    // copy is the one the host loads again. DONE says so (off the envelope).
+    const reenabled = a.dir.disabled.some((k) => a.disabledHere.includes(k));
+    if (a.synced && !a.others.length && !reenabled)
+      Object.defineProperty(removed, "next", {
+        value: [
+          {
+            lead: `${a.synced.key}, from ${copyOrigin(a.synced)}, loads in this project again at the next start of ${harness.display_name}.`,
+          },
+        ],
+        enumerable: false,
+      });
+    return [removed];
   }
 
   // install / upgrade
@@ -863,7 +877,8 @@ function planRegistration(ctx, key, s) {
   // Newer than what the project would run with the copy off — the shared
   // directory's version when another checkout wrote a newer one — not merely
   // newer than this package: under that, turning it off is no downgrade.
-  const newerOther = a.others
+  // A directory copy this registration would load over counts too (PS-DIRECTORY).
+  const newerOther = [...a.others, ...(a.directory ? [a.directory] : [])]
     .filter((o) => typeof o.version === "string" && cmpPrecedence(o.version, a.targetPkg || a.pkg) > 0)
     .sort((x, y) => cmpPrecedence(y.version, x.version))[0];
   if (newerOther && (ctx.channel ?? null) === null) {
@@ -889,8 +904,11 @@ function planRegistration(ctx, key, s) {
   // switches this run plans, and contract 13's silenced set — the copies this
   // registration turned off that this checkout still holds off — for a
   // registration this checkout holds.
+  // A directory copy the registration loads over is that switch too, never
+  // turned off (PS-DIRECTORY, decision 4): a skip row of its own, below.
+  const shadows = a.directory && a.state !== "current" ? a.directory : null;
   ctx.channelFacts = {
-    switches: a.others.map((o) => o.key),
+    switches: [...a.others.map((o) => o.key), ...(shadows ? [shadows.key] : [])],
     silenced: ["current", "stale"].includes(a.state) ? a.dir.disabled.filter((k) => a.disabledHere.includes(k)) : [],
   };
 
@@ -1060,17 +1078,44 @@ function planRegistration(ctx, key, s) {
         : null;
     items.push({ ...other(o), action: "disable", ...(reason ? { reason } : {}), steps });
   }
+  // The directory copy (PS-DIRECTORY, "Setup and install keep a directory
+  // copy…", decision 4): the registration above loads over it by Claude
+  // Code's own precedence, so nothing is turned off — no `disable`, no ⇄
+  // switch, no entry in our manifest's disabled list. A skip whose
+  // consequence line says what changes; asked like a switch (the gate).
+  if (shadows) {
+    const extra =
+      ctx.channel === "npm"
+        ? switchReason({
+            copy: shadows,
+            running: a.pkg,
+            runs: a.targetPkg,
+            decision: ctx.convergence,
+            unbound: !ctx.binding?.bound,
+          })
+        : null;
+    items.push({
+      ...other(shadows),
+      state: "shadowed",
+      action: "skip",
+      reason: `${shadows.key} (${shadows.version || "no version recorded"}), from ${copyOrigin(shadows)}, stays enabled: nothing turns it off${extra ? `; ${extra}` : ""}`,
+      steps: [consequenceStep(directoryConsequence(harness.display_name))],
+    });
+  }
   return items;
 }
 // A channel switch: a copy from another marketplace turned off for this checkout.
 const isSwitch = (i) => String(i?.surface || "").endsWith("_others") && i.action === "disable";
+// …and a directory copy an npm registration loads over, never turned off.
+const isShadow = (i) => String(i?.surface || "").endsWith("_others") && i.state === "shadowed" && i.action === "skip";
 
 // The channel "git" (the converge story's rules 1 and 5), for the first
 // harness of the run with a host plugin registration — the channel concerns
 // that registration alone; Codex has none. The copy kept is contract 12's
-// selection (lib's selectCopy), limited to copies from another marketplace —
-// the git marketplace, a fork's — so the npm registration's copy is never the
-// kept one. None enabled for this project is a refusal: there is nothing to
+// selection (lib's selectCopy), limited to copies from another channel — the
+// git marketplace, a fork's, or Anthropic's directory (after every registry
+// row, so an enabled git copy wins) — so the npm registration's copy is never
+// the kept one. None enabled for this project is a refusal: there is nothing to
 // keep. A copy of ours this checkout's local settings hold off — a hand
 // removal of the npm row leaves the git copy off — is named with the way to
 // turn it back on. Read-only; plan() and the prepare step both call it, so the
@@ -1086,7 +1131,7 @@ function keepTarget(projectDir, ids, { root, home, env }) {
     );
     if (!row) continue;
     const [key, s] = row;
-    const copy = selectCopy(home, projectDir, { harness, only: "marketplace" });
+    const copy = selectCopy(home, projectDir, { harness, only: ["marketplace", "synced"] });
     if (copy) return { harness, key, s, copy };
     const a = analyseRegistration(projectDir, s, { root, home, harness, env });
     const off = (a.disabledHere || []).filter((k) => k !== a.id && k.split("@")[0] === s.plugin_name);
@@ -1152,7 +1197,7 @@ function planKeep(ctx, target, read) {
   const { projectDir, env, home, root, harness, surfaces } = ctx;
   const { key, s, copy } = target;
   const a = analyseRegistration(projectDir, s, { root, home, harness, env });
-  const beside = a.installed?.present && a.enabled ? npmRowBeside({ harness, id: a.id, surface: key }) : null;
+  const beside = a.installed?.present && a.enabled ? npmRowBeside({ harness, id: a.id, surface: key, copy }) : null;
   const besides = beside ? [beside] : [];
   const named = `${copy.key} ${copy.version || "(no version recorded)"}`;
   // Built whole, never spread into place: `next` (what DONE says) and `kept`
@@ -1183,7 +1228,7 @@ function planKeep(ctx, target, read) {
     });
     return it;
   };
-  const kept = `this project keeps ${named} from the git marketplace, and that copy writes its own ${harness.display_name} surfaces here — no registration changes`;
+  const kept = `this project keeps ${named} from ${copyOrigin(copy)}, and that copy writes its own ${harness.display_name} surfaces here — no registration changes`;
   if (surfaces && surfaces.length) {
     return [
       item({
@@ -1383,7 +1428,7 @@ function planMark(ctx, facts) {
 // answer wins, as for the mark: a `channel_switch` this checkout recorded
 // earlier, of any shape, goes in the same item — alone, when the keep is
 // already recorded.
-function planKeepRecord(ctx) {
+function planKeepRecord(ctx, copy = null) {
   const b = ctx.binding;
   if (!b || !b.bound) return null;
   const record = !b.hasKeepRecord;
@@ -1404,8 +1449,7 @@ function planKeepRecord(ctx) {
     set: record ? { [CHANNEL_KEEP_KEY]: STAMP } : {},
     unset: b.hasKey ? [CHANNEL_SWITCH_KEY] : [],
     why: {
-      [CHANNEL_KEEP_KEY]:
-        "this checkout chose to keep the git marketplace: setup's channel question defaults to keep from now on, and a run without a terminal reads it as --channel git",
+      [CHANNEL_KEEP_KEY]: `this checkout chose to keep ${copy?.synced ? `the copy from ${copyOrigin(copy)}` : "the git marketplace"}: setup's channel question defaults to keep from now on, and a run without a terminal reads it as --channel git`,
       [CHANNEL_SWITCH_KEY]:
         "the switch this checkout recorded earlier goes: the keep is its later answer, and doctor names a copy held off here again",
     },
@@ -1687,7 +1731,7 @@ export function plan(
     }
     if (mode === "uninstall") return;
     if (recordKeep && keeping && ctx.harness.id === keeping.harness.id) {
-      const kept = planKeepRecord(ctx);
+      const kept = planKeepRecord(ctx, keeping.copy);
       if (kept) marks.push(kept);
     }
   };
@@ -1873,8 +1917,12 @@ export function plan(
       const items = handler(ctx, key, s);
       const dependent =
         s.kind !== "registration" && ctx.renderRoot !== root && ["json-entry", "mjs"].includes(s.format);
-      for (const item of items)
-        out.items.push({ harness: id, ...item, ...(dependent ? { plannedAgainst: ctx.renderRoot } : {}) });
+      for (const item of items) {
+        const row = { harness: id, ...item, ...(dependent ? { plannedAgainst: ctx.renderRoot } : {}) };
+        // DONE's next lines stay off the envelope, through the spread too.
+        if (item.next) Object.defineProperty(row, "next", { value: item.next, enumerable: false });
+        out.items.push(row);
+      }
       if (s.kind === "registration") {
         // Phase two (contract 4′): the rest is planned against the root the
         // registration produces — when it produces one on this run or has.
@@ -2008,7 +2056,7 @@ export function asksAtTerminal({ stdin = null, stdout = null, ask = null, env = 
 // confirm it, a bare run is refused for it too, and nothing is written:
 // `channel`, ahead of the whole non-interactive branch. A plan built without
 // plan() (no `channel` on it) reads as no answer.
-export const switchUnanswered = (p) => (p.channel ?? null) === null && p.items.some(isSwitch);
+export const switchUnanswered = (p) => (p.channel ?? null) === null && p.items.some((i) => isSwitch(i) || isShadow(i));
 export async function confirm(
   p,
   {
@@ -2099,7 +2147,11 @@ export function apply(
       return r;
     }
     if (i.kind === "binding") {
-      const r = applyBinding(p, i, { env, onStep, switched: switched.get(i.harness) || [] });
+      // A directory copy's "switch" is the registration itself (PS-DIRECTORY):
+      // the mark waits on it as on a switch.
+      const shadowed = p.items.some((x) => x.harness === i.harness && isShadow(x));
+      const outcome = [...(switched.get(i.harness) || []), ...(shadowed ? [registered.get(i.harness) === true] : [])];
+      const r = applyBinding(p, i, { env, onStep, switched: outcome });
       if (r.failed) done.failed = r.failed;
       return r;
     }
@@ -3747,7 +3799,9 @@ export function renderDone(r, { caps: c = PLAIN, verbose = false, cwd = process.
   // that could not run the keep needs, its own upgrade when its plan printed
   // no result, the npm row's uninstall — each lead, then its command alone on
   // its line (contract 6).
-  const kept = p.items.filter((i) => i.kind === "channel" && Array.isArray(i.next)).flatMap((i) => i.next);
+  // An uninstall's registration row carries one too: the directory copy that
+  // loads again (PS-DIRECTORY).
+  const kept = p.items.filter((i) => Array.isArray(i.next)).flatMap((i) => i.next);
   const more = extra?.blocks || [];
   if (next.length || kept.length || more.length) lines.push("", paint("emphasis", "Next"));
   if (next.length) {
@@ -3879,9 +3933,12 @@ export function gateText(r, { verb, harnesses = [], caps: c = PLAIN, args = "" }
   if (why === "dry-run") return "Nothing written: this was a dry run.\n";
   if (why === "channel") {
     const keys = [...new Set(r.plan.items.filter(isSwitch).map((i) => i.entry))];
+    const directory = [...new Set(r.plan.items.filter(isShadow).map((i) => i.entry))];
     return (
       channelText(
-        channelChoices({ gate: { args: { harnesses }, keys, version: pinFor(r.plan.root, r.plan.version) } }),
+        channelChoices({
+          gate: { args: { harnesses }, keys, directory, version: pinFor(r.plan.root, r.plan.version) },
+        }),
         c,
       ) + "\n"
     );

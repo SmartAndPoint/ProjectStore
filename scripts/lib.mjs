@@ -824,6 +824,11 @@ export function selectCopy(home = homedir(), projectDir, { harness = sourceHarne
 // How a git-marketplace copy is updated, in its own channel: the one phrase
 // every advice about a kept or older copy quotes.
 export const COPY_UPDATE_STEPS = "in Claude Code: /plugin marketplace update, then /plugin update, then restart";
+// …and a copy synced from claude.ai (Anthropic's directory): nobody runs its
+// update; claude.ai publishes it and the host downloads it (PS-DIRECTORY).
+export const SYNCED_UPDATE_STEPS =
+  "updates come from claude.ai, and Claude Code downloads each new version at its next start";
+export const isSyncedCopy = (copy) => copy?.channel === "synced" || copy?.synced === true;
 
 // The advice for a marketplace copy that cannot run what is named for it, in
 // that copy's own channel: the host's update, then a restart. `cannot` says
@@ -831,7 +836,10 @@ export const COPY_UPDATE_STEPS = "in Claude Code: /plugin marketplace update, th
 // layout remedy and the keep's skip row and DONE line.
 export function copyUpdateAdvice(copy, { cannot, then }) {
   const v = copy?.version ? ` (${copy.version})` : "";
-  return `This project's projectstore plugin${v} ${cannot}: update it first (${COPY_UPDATE_STEPS}), ${then}`;
+  const first = isSyncedCopy(copy)
+    ? `its next version comes first (${SYNCED_UPDATE_STEPS})`
+    : `update it first (${COPY_UPDATE_STEPS})`;
+  return `This project's projectstore plugin${v} ${cannot}: ${first}, ${then}`;
 }
 
 // The mark a channel switch leaves in this checkout's machine-local binding

@@ -3233,7 +3233,10 @@ test("converge rules 1 and 5: under the channel git, a run plan() will refuse fe
   const none = keepBeside(tmp("keep-none"), [], {}, { copy: false });
   const r = await none.run("y");
   assert.equal(r.plan.ok, false);
-  assert.match(r.plan.refusals[0], /^no git-marketplace copy of projectstore is enabled for this project/);
+  assert.match(
+    r.plan.refusals[0],
+    /^no copy of projectstore from the git marketplace or Anthropic's directory is enabled for this project/,
+  );
   assert.deepEqual(r.npm.calls, [], "no shell fetched, no registry resolved");
   const proj = tmp("keep-refused");
   const refused = keepBeside(proj, [STUB_LAUNCHER], { plan: { refusals: ["two bindings: keep one"] } });

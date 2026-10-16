@@ -1762,7 +1762,7 @@ test("converge criterion 'No git copy': channel git with the git copy held off b
   assert.equal(
     p.refusals[0],
     [
-      "no git-marketplace copy of projectstore is enabled for this project, so there is none to keep. Nothing is written.",
+      "no copy of projectstore from the git marketplace or Anthropic's directory is enabled for this project, so there is none to keep. Nothing is written.",
       `This checkout's local settings hold ${GIT} off. To load it again, run this in ${SRC.display_name}:`,
       `/plugin enable ${GIT}`,
       "The way back from an earlier switch to the npm install is its uninstall, from a terminal in this project:",
@@ -2284,7 +2284,10 @@ test("converge criterion 'The keep', the other cases: no bin or no --no-register
   const none = sandbox({ version: "0.30.0", statusline: false });
   const nn = await keepRun(none);
   assert.equal(nn.r.plan.ok, false);
-  assert.match(nn.r.plan.refusals[0], /^no git-marketplace copy of projectstore is enabled for this project/);
+  assert.match(
+    nn.r.plan.refusals[0],
+    /^no copy of projectstore from the git marketplace or Anthropic's directory is enabled for this project/,
+  );
 });
 
 // ─── Setup's engine: the keep's record, a later switch, the dry run ─────

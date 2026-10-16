@@ -224,7 +224,7 @@ const SETUP_OPTS = [
   opt(
     "channel",
     "<npm|git>",
-    "with a git-marketplace copy enabled, without a terminal: npm switches to the npm install, git keeps the git marketplace",
+    "with a copy from another channel enabled (the git marketplace, Anthropic's directory), without a terminal: npm moves to the npm install, git keeps that copy",
   ),
   opt("dry-run", false, "the questions and the plan; nothing is written or fetched"),
   VERBOSE_OPT,
