@@ -27,14 +27,17 @@
 //
 // The site is one main page and three method pages (PS-HARNESS: "The site
 // leads with one install line and the prompts you type, and the method moves
-// to pages of its own"), each in every language. A page's kind decides what
-// it must carry (KIND_RULES); every other rule holds on every page.
+// to pages of its own"). The method pages are in every language; the main
+// page in English and Russian, and the other languages' addresses redirect to
+// it (PS-HARNESS: "The front page speaks to a beginner …"). A page's kind
+// decides what it must carry and in which languages it is built (KINDS,
+// KIND_RULES); every other rule holds on every page.
 //
 // Python-free: the pages are site/tools/i18n.py's output, and CI proves that
 // with Python 3.12 (.github/workflows/test.yml). What a stale build would get
 // wrong without changing a word is checked here instead: asset hashes,
 // alternates and canonicals, the link-preview tags, the redirect, a page per
-// dictionary and kind with no orphan folder beside them, the en/ stub.
+// dictionary and kind with no orphan folder beside them, the stubs.
 //
 // The helpers live in this file and in tests/fixtures/markdown.mjs, not in
 // scripts/: a file there ships, and the runtime vocabulary lint would read
@@ -79,8 +82,12 @@ const LLMS = ["site/llms.txt", "site/llms-full.txt"];
 // never resolve a relative URL (tools/i18n.py PREVIEW_IMAGE).
 const PREVIEW_IMAGE = `${ORIGIN}assets/og.png`;
 const PREVIEW_SIZE = { width: 1280, height: 640 };
-const STUB_FILE = "site/en/index.html";
-// What tools/i18n.py writes at en/: the old address, redirected to the root.
+// What tools/i18n.py writes at en/, the old address, and at the main page's
+// address in each language it is not built in (PS-HARNESS "The front page
+// speaks to a beginner …"): a redirect to the root, where English lives.
+const STUB_LANGS = ["en", "de", "es", "fr", "pt", "uk", "zh"];
+const STUB_FILES = STUB_LANGS.map((l) => `site/${l}/index.html`);
+const STUB_FILE = STUB_FILES[0];
 const STUB =
   '<!doctype html><meta charset="utf-8"><title>ProjectStore</title><link rel="canonical" href="../"><meta http-equiv="refresh" content="0; url=../"><a href="../">ProjectStore</a>\n';
 // A copy of LANGS in tools/i18n.py — code to the BCP 47 tag of <html lang> and
@@ -91,10 +98,11 @@ const DEFAULT_LANG = "en";
 // and the folder its pages live in ("" is the language root). A test below
 // holds the copy to the original, so a page the build renders cannot go
 // unchecked: a new kind fails here until KIND_RULES says what it carries.
-// `langs`: a kind built in those languages only (the privacy page, English
-// for now, linked from every page at the site root).
+// `langs`: a kind built in those languages only — the privacy page, English
+// for now, and the main page, English and Russian — linked from a page in any
+// other language at its English address.
 const KINDS = [
-  { kind: "main", src: "index.html", slug: "" },
+  { kind: "main", src: "index.html", slug: "", langs: ["en", "ru"] },
   { kind: "how-it-works", src: "how-it-works.html", slug: "how-it-works" },
   { kind: "why-it-works", src: "why-it-works.html", slug: "why-it-works" },
   { kind: "one-vault", src: "one-vault.html", slug: "one-vault" },
@@ -107,23 +115,28 @@ const slugOf = (kind) => KINDS.find((k) => k.kind === kind)?.slug ?? null;
 const kindLangs = (k, langs) => (k.langs ? langs.filter((l) => k.langs.includes(l)) : langs);
 const kindOf = (kind) => KINDS.find((k) => k.kind === kind);
 const singleLanguage = (kind) => Boolean(kindOf(kind)?.langs && kindOf(kind).langs.length === 1);
-// The folders of the single-language kinds: shared by every language, at the
-// site root (tools/i18n.py SHARED_PAGES).
-const SHARED_PAGE_DIRS = KINDS.filter((k) => k.langs && k.slug).map((k) => `/${k.slug}/`);
+// Whether a page in `lang` may link the kind whose folder is `path` at its
+// English address: the kind is not built in that language (the privacy page,
+// at the site root for every language, as tools/i18n.py SHARED_PAGES has it;
+// the main page, at / for the six languages without one).
+const linkedInEnglish = (path, lang) =>
+  KINDS.some((k) => k.langs && !k.langs.includes(lang) && path === (k.slug ? `/${k.slug}/` : "/"));
 // A page's folder under the site root, its file and its address: English at
 // the root, every other language under <lang>/, a method page in <slug>/.
 const pagePath = (lang, slug) => `${lang === DEFAULT_LANG ? "" : `${lang}/`}${slug ? `${slug}/` : ""}`;
 const pageFile = (lang, slug) => `${SITE}/${pagePath(lang, slug)}index.html`;
 const pageUrl = (lang, slug = "") => `${ORIGIN}${pagePath(lang, slug)}`;
 // "A Claude Code plugin" as each page said it before the refresh, from its
-// hero and description keys (AC: the phrase and its seven translations).
+// hero and description keys (AC: the phrase and its seven translations). The
+// Russian main page's taglines say «Плагин для Claude Code и Codex», which
+// names both, so the Russian phrase is retired only on its own.
 const RETIRED = [
   "a Claude Code plugin",
   "ein Claude-Code-Plugin",
   "un plugin de Claude Code",
   "un plugin Claude Code",
   "um plugin do Claude Code",
-  "плагин для Claude Code",
+  /плагин для claude code(?! и codex)/,
   "плагін для Claude Code",
   "一个 Claude Code 插件",
 ];
@@ -497,8 +510,8 @@ function checkHarnessesNamed(page, repo) {
 // AC 3: no page and no llms file calls ProjectStore a Claude Code plugin.
 function checkWording(file, texts) {
   const all = texts.join("\n").replace(/\s+/g, " ").toLowerCase();
-  return RETIRED.filter((p) => all.includes(p.toLowerCase())).map((p) =>
-    finding(file, "wording", `"${p}": the plugin is no longer one harness's`),
+  return RETIRED.filter((p) => (p instanceof RegExp ? p.test(all) : all.includes(p.toLowerCase()))).map((p) =>
+    finding(file, "wording", `"${p instanceof RegExp ? p.source : p}": the plugin is no longer one harness's`),
   );
 }
 
@@ -800,10 +813,12 @@ function checkCounts(page, repo) {
   return out;
 }
 
-// The four-agents story: the site names four agents, in this order, as plain
-// names, and carries no harness status. The names live here alone, so a
-// rename is one edit (and one in the markup, and one re-render of the card).
-const AGENTS = ["Claude Code", "Codex", "Gemini CLI", "Cursor"];
+// The front page story: the main page's agents line names these agents, in
+// this order, as plain names, and carries no harness status. The names live
+// here alone, so a rename is one edit (and one in each dictionary). The
+// names the main page dropped stay off it.
+const AGENTS = ["Claude Code", "Codex", "OpenCode", "Gemini", "Z.ai", "DeepSeek"];
+const DROPPED_AGENTS = ["Cursor", "Gemini CLI"];
 // Each language's stem for "experimental", as the dictionaries spell it.
 const EXPERIMENTAL = {
   en: "experimental",
@@ -815,36 +830,41 @@ const EXPERIMENTAL = {
   uk: "експериментальн",
   zh: "实验性",
 };
-// AC "Four agents named": the hero's agent line is the four names alone, each
-// in a b with no data-i18n, between middle dots; the terminal box has the same
-// four chips, each with the class chip alone.
+// AC "The agents line": the hero and the trust ticks each hold one agents
+// line, whose names are the b elements in it — AGENTS in order, none with a
+// data-i18n of its own, so no dictionary translates a name. Nothing else on
+// the page, text or attribute value, names an agent the main page dropped.
 function checkAgents(page) {
   const out = [];
-  const line = page.els.find((el) => hasClass(el, "cta-sub") && page.els.some((b) => b.name === "b" && within(el, b)));
-  const names = line ? page.els.filter((el) => el.name === "b" && within(line, el)) : [];
-  const said = names.map((b) => b.text.trim());
-  if (said.join("|") !== AGENTS.join("|") || names.some((b) => "data-i18n" in b.attrs))
-    out.push(
-      finding(
-        page.file,
-        "agents-named",
-        `the hero names ${said.join(", ") || "no agent"}; it names ${AGENTS.join(", ")}`,
-      ),
-    );
-  const read = line ? line.text.replace(/\s+/g, " ").trim() : "";
-  if (line && said.join("|") === AGENTS.join("|") && read !== AGENTS.join(" · "))
-    out.push(finding(page.file, "agents-named", `the hero's agent line reads "${read}"; it is the four names alone`));
-  const box = page.els.find((el) => hasClass(el, "chips"));
-  const chips = box ? page.els.filter((el) => within(box, el) && hasClass(el, "chip")) : [];
-  const chipped = chips.map((c) => c.text.trim());
-  if (chipped.join("|") !== AGENTS.join("|") || chips.some((c) => c.attrs.class.trim() !== "chip"))
-    out.push(
-      finding(
-        page.file,
-        "agents-named",
-        `the chips are ${chips.map((c) => `${c.text.trim()} (class "${c.attrs.class}")`).join(", ") || "missing"}; they are the four names, class "chip"`,
-      ),
-    );
+  const lines = page.els.filter((el) => hasClass(el, "agents-line"));
+  const hero = page.els.find((el) => el.name === "section" && el.attrs.id === "start");
+  const trust = page.els.find((el) => hasClass(el, "trust"));
+  for (const [where, box] of [
+    ["the hero", hero],
+    ["the trust list", trust],
+  ]) {
+    const held = box ? lines.filter((el) => within(box, el)) : [];
+    if (held.length !== 1) {
+      out.push(finding(page.file, "agents-named", `${where} holds ${held.length} agents lines; it holds one`));
+      continue;
+    }
+    const names = page.els.filter((el) => el.name === "b" && within(held[0], el));
+    const said = names.map((b) => b.text.trim());
+    if (said.join("|") !== AGENTS.join("|") || names.some((b) => "data-i18n" in b.attrs))
+      out.push(
+        finding(
+          page.file,
+          "agents-named",
+          `${where} names ${said.join(", ") || "no agent"}; it names ${AGENTS.join(", ")}`,
+        ),
+      );
+  }
+  if (lines.length !== 2)
+    out.push(finding(page.file, "agents-named", `${lines.length} agents lines; the page has two`));
+  const rest = lines.reduceRight((m, el) => m.slice(0, el.start) + m.slice(el.end + el.inner.length), page.markup);
+  const seen = [decode(rest.replace(ANY_TAG, " ")), ...page.els.flatMap((el) => Object.values(el.attrs))].join("\n");
+  for (const name of DROPPED_AGENTS)
+    if (seen.includes(name)) out.push(finding(page.file, "agents-named", `the page names ${name}, which it dropped`));
   return out;
 }
 // AC "The link": the header's top row links to the source with GitHub's mark
@@ -993,33 +1013,10 @@ function checkParity(en, page, repo) {
   return out;
 }
 
-// AC 4: the main page's sections are numbered in their labels ("01 /
-// Install", …). A changed English label leaves its translations stale with no
-// tool to notice — i18n.py check compares the template with en.json only — so
-// the numbers are held here: on every page the numbered labels run 01, 02, …
-// in page order, as many as on the English page of its kind. An unnumbered
-// label (a method page's) is not one.
+// A section label that starts with a number ("01 / Install"): the main page
+// numbered its sections until the front page story, and no page does now.
 const sectionNumbers = (page) =>
-  page.els
-    .filter((el) => hasClass(el, "section-label") && /^\s*\d/.test(el.text))
-    .map((el) => (el.text.trim().match(/^(\d{2}) \//) || [])[1] ?? el.text.trim());
-function checkSectionNumbers(page, en) {
-  const nums = sectionNumbers(page);
-  const out = [];
-  const bad = nums.findIndex((n, i) => n !== String(i + 1).padStart(2, "0"));
-  if (bad >= 0)
-    out.push(
-      finding(
-        page.file,
-        "section-number",
-        `numbered section #${bad + 1} is labelled ${JSON.stringify(nums[bad])}; the labels run 01, 02, … in page order`,
-      ),
-    );
-  const want = sectionNumbers(en).length;
-  if (nums.length !== want)
-    out.push(finding(page.file, "section-number", `${nums.length} numbered sections here, ${want} on ${en.file}`));
-  return out;
-}
+  page.els.filter((el) => hasClass(el, "section-label") && /^\s*\d/.test(el.text)).map((el) => el.text.trim());
 
 // The loop diagram's cartoon (assets/site.js) presses its blocks, svg
 // .node[data-step], one by one in document order, and the loop partial writes
@@ -1053,9 +1050,10 @@ const LOOP_STEPS = 8;
 
 // A link between pages stays in the page's language. Templates write page links from the
 // language root and the build prefixes them by the page's depth below it; files every language
-// shares (assets/, llms) take the depth below the site root. A page link that lands on another
-// language's page, or on no page at all, is a finding. The language switcher is the one place
-// that links other languages, and is skipped.
+// shares (assets/, llms) take the depth below the site root, and so does a page of a kind not
+// built in the page's language, which is linked at its English address. A page link that lands
+// on another language's page, or on no page at all, is a finding. The language switcher is the
+// one place that links other languages, and is skipped.
 function checkPageLinks(page, pageDirs) {
   const dir = `/${page.file.slice(`${SITE}/`.length).replace(/index\.html$/, "")}`;
   const own = (pageDirs[page.lang] || []).map((d) => `/${d}`);
@@ -1071,13 +1069,30 @@ function checkPageLinks(page, pageDirs) {
         out.push(finding(page.file, "page-link", `${href} names no file under site/`));
       continue;
     }
-    // A page built in one language only is every language's, at the site root.
-    if (SHARED_PAGE_DIRS.includes(path)) continue;
+    if (linkedInEnglish(path, page.lang)) continue;
     if (!own.includes(path))
       out.push(finding(page.file, "page-link", `${href} lands on ${path}, which is not a ${page.lang} page`));
   }
   return unique(out);
 }
+// AC "Two languages": no link on a page reaches a stub — the en/ address or a
+// language's main-page address that redirects to / — which the link check
+// above, skipping links from the site root and the language switcher, cannot
+// see. A visitor who follows one lands on / a moment later, and a crawler
+// reads a redirect.
+const STUB_DIRS = STUB_LANGS.map((l) => `/${l}/`);
+function checkNoStubLinks(page) {
+  const dir = `/${page.file.slice(`${SITE}/`.length).replace(/index\.html$/, "")}`;
+  const out = [];
+  for (const el of page.els) {
+    if (el.name !== "a" || !el.attrs.href || /^[a-z][a-z0-9+.-]*:/i.test(el.attrs.href)) continue;
+    const path = new URL(el.attrs.href, `https://site.invalid${dir}`).pathname.replace(/index\.html$/, "");
+    if (STUB_DIRS.includes(path))
+      out.push(finding(page.file, "stub-link", `${el.attrs.href} lands on ${path}, which redirects to /`));
+  }
+  return unique(out);
+}
+
 // Every page folder per language, as the build writes them: "" or "de/" plus each kind's slug,
 // for each kind built in that language.
 const pageDirsByLang = (langs) =>
@@ -1096,8 +1111,8 @@ const pageDirsByLang = (langs) =>
 //   templates  the example artifacts it shows (data-template);
 //   source     whether a measured figure on it is marked data-source;
 //   loop       whether it carries the loop diagram, whose arrow order is held;
-//   sections   the main page's section ids in page order, each numbered in its
-//              label, 01 to 07; a page without the list numbers none;
+//   sections   the main page's section ids in page order; no page numbers its
+//              section labels;
 //   named      whether its hero, #start and description name every published
 //              harness;
 //   prose      "no commands": its prose names no ProjectStore command (the
@@ -1105,14 +1120,11 @@ const pageDirsByLang = (langs) =>
 //   words      the English page's word budget.
 const KIND_RULES = {
   main: {
-    facts: ["version", "install", "prompt", "commands", "agents", "languages", "mcp-tools"],
-    templates: ["adr"],
-    source: true,
-    loop: true,
-    sections: ["start", "talk", "rails", "fits", "disk", "teams", "method"],
+    facts: ["version", "install", "prompt"],
+    sections: ["start", "pains", "loop", "talk", "quick", "free"],
     named: true,
     prose: "no commands",
-    words: 2300,
+    words: 1300,
   },
   "how-it-works": {
     facts: ["version", "agents", "mcp-tools", "mcp-tool"],
@@ -1149,16 +1161,14 @@ function checkRequired(page, repo, rules = rulesOf(page)) {
   return out;
 }
 
-// AC "Seven sections, in order": the main page's sections run in the order
-// of the story's table, one numbered label each; a method page numbers none.
+// AC "Six sections, in order": the main page's sections run in the order of
+// the story's table; no page numbers a section label.
 function checkSections(page, rules = rulesOf(page)) {
   const out = [];
   const want = rules.sections ?? [];
   const nums = sectionNumbers(page).length;
-  if (nums !== want.length)
-    out.push(
-      finding(page.file, "section-number", `${nums} numbered section labels; a ${page.kind} page has ${want.length}`),
-    );
+  if (nums)
+    out.push(finding(page.file, "section-number", `${nums} numbered section labels; a ${page.kind} page has 0`));
   if (rules.sections) {
     const ids = page.els.filter((el) => el.name === "section").map((el) => el.attrs.id ?? "");
     if (ids.join() !== want.join())
@@ -1464,9 +1474,9 @@ function checkAssetVersions(page, hashes) {
 }
 
 // A page exists exactly when its dictionary and its kind do: every dictionary
-// has a page of every kind, and every index.html under site/ is one of those
-// pages, the en/ stub aside. A slug renamed, a kind or a language dropped,
-// leaves no orphan folder behind for Pages to keep serving.
+// has a page of every kind built in its language, and every index.html under
+// site/ is one of those pages, the stubs aside. A slug renamed, a kind or a
+// language dropped, leaves no orphan folder behind for Pages to keep serving.
 function checkPageSet(langs, files, isFile) {
   const out = [];
   const want = new Set();
@@ -1482,7 +1492,8 @@ function checkPageSet(langs, files, isFile) {
     }
   }
   for (const file of files) {
-    if (file === STUB_FILE || want.has(file)) continue;
+    if (want.has(file)) continue;
+    if (STUB_FILES.includes(file)) continue;
     const dir = file.slice(SITE.length + 1, -"index.html".length);
     out.push(
       finding(
@@ -2113,41 +2124,166 @@ function checkHeaderRows(file, css) {
   return broken.length ? [finding(file, "header", broken.join("; "))] : [];
 }
 
-// AC "Install first": the hero opens with the problem — one list of exactly
-// three posters before the headline, in the tints' order, each with a large
-// line on its key; the second and third with a small line, the first with its
-// second sentence in <em>. The # is drawn by the stylesheet, never written.
-// The list is a named list that takes focus, so a keyboard can scroll it
-// where it swipes. What this cannot see: the posters spanning both columns,
-// the swipe itself, and a translation long enough to push the prompt below
-// the fold; those are the browser check's.
-const POSTER_KEYS = ["hero.post.1", "hero.post.2", "hero.post.3"];
-function checkPosters(page) {
-  const hero = page.els.find((el) => el.name === "section" && hasClass(el, "hero"));
-  const lists = hero ? page.els.filter((el) => within(hero, el) && hasClass(el, "problem")) : [];
-  if (lists.length !== 1) return [finding(page.file, "posters", `${lists.length} problem lists in the hero; one`)];
-  const [list] = lists;
-  const h1 = page.els.find((el) => el.name === "h1" && within(hero, el));
-  const posters = page.els.filter((el) => within(list, el) && hasClass(el, "poster"));
-  const first = (p, name) => page.els.find((el) => el.name === name && within(p, el));
-  const lines = posters.map((p) => first(p, "b"));
+// AC "The carousel": the hero holds one carousel region of six slides, in
+// the story's order on fixed keys, the first shown without a script; each
+// slide a headline and a tagline, neither a heading, as the page's one h1 is
+// the product name. Its pause button comes before its dots, one dot a slide,
+// so a keyboard reaches the stop first. What this cannot see: the turning,
+// the swipe, and a slide long enough to push the install box below the fold;
+// those are the browser check's.
+const SLIDES = 6;
+const SLIDE_KEYS = Array.from({ length: SLIDES }, (_, i) => [`hero.h.${i + 1}`, `hero.t.${i + 1}`]);
+function checkCarousel(page) {
+  const hero = page.els.find((el) => el.name === "section" && el.attrs.id === "start");
+  const regions = hero ? page.els.filter((el) => within(hero, el) && "data-carousel" in el.attrs) : [];
+  if (regions.length !== 1) return [finding(page.file, "carousel", `${regions.length} carousels in the hero; one`)];
+  const [region] = regions;
+  const inside = page.els.filter((el) => within(region, el));
+  const slides = inside.filter((el) => hasClass(el, "slide"));
   const broken = [];
-  if (!h1 || list.start > h1.start) broken.push("the problem comes after the headline");
-  if (list.name !== "ul" || posters.some((el) => el.name !== "li")) broken.push("the posters are not a ul of li");
-  if (list.attrs.role !== "list" || list.attrs.tabindex !== "0" || !(list.attrs["aria-label"] ?? "").trim())
-    broken.push('the list is not role="list", tabindex="0" and named');
-  if (posters.length !== POSTER_KEYS.length) broken.push(`${posters.length} posters; ${POSTER_KEYS.length}`);
-  else if (lines.some((b) => !b?.text.trim())) broken.push("a poster has no large line");
+  if (region.attrs.role !== "region" || region.attrs["aria-roledescription"] !== "carousel")
+    broken.push('the carousel is not role="region" with aria-roledescription="carousel"');
+  if (!(region.attrs["aria-label"] ?? "").trim()) broken.push("the carousel has no name");
+  if (slides.length !== SLIDES) broken.push(`${slides.length} slides; ${SLIDES}`);
   else {
-    const keys = lines.map((b) => b.attrs["data-i18n"] ?? "none");
-    if (keys.join() !== POSTER_KEYS.join()) broken.push(`the posters' keys are ${keys.join(", ")}`);
-    if (posters.some((el, i) => !hasClass(el, `p-${i + 1}`))) broken.push("the posters' tints are out of order");
-    if (lines.some((b) => b.text.trim().startsWith("#"))) broken.push("a large line writes the # the stylesheet draws");
-    if (!first(posters[0], "em")?.text.trim()) broken.push("the first poster has no second sentence in <em>");
-    if (posters.slice(1).some((el) => !first(el, "span")?.text.trim()))
-      broken.push("the second or third poster has no small line");
+    const keys = slides.map((sl) =>
+      ["slide-h", "slide-t"].map((c) => inside.find((el) => within(sl, el) && hasClass(el, c))),
+    );
+    const said = keys.map((pair) => pair.map((el) => el?.attrs["data-i18n"] ?? "none").join("+"));
+    if (said.join() !== SLIDE_KEYS.map((pair) => pair.join("+")).join())
+      broken.push(`the slides' keys run ${said.join(", ")}`);
+    if (keys.some((pair) => pair.some((el) => !el?.text.trim()))) broken.push("a slide has no headline or no tagline");
+    const shown = slides.map((sl) => hasClass(sl, "active"));
+    if (!shown[0] || shown.slice(1).some(Boolean)) broken.push("the first slide alone is not the one shown");
+    if (slides.some((sl) => sl.attrs.role !== "group" || !(sl.attrs["aria-label"] ?? "").trim()))
+      broken.push('a slide is not a named role="group"');
   }
-  return broken.length ? [finding(page.file, "posters", broken.join("; "))] : [];
+  const headings = page.els.filter((el) => /^h[1-6]$/.test(el.name));
+  if (headings.some((h) => slides.some((sl) => within(sl, h)))) broken.push("a slide holds a heading");
+  const h1s = headings.filter((h) => h.name === "h1");
+  if (h1s.length !== 1 || h1s[0].text.trim() !== "ProjectStore")
+    broken.push(
+      `the page's h1 is ${h1s.map((h) => JSON.stringify(h.text.trim())).join(", ") || "missing"}; one, the product name`,
+    );
+  const pause = inside.find((el) => hasClass(el, "carousel-pause"));
+  const dots = inside.filter((el) => hasClass(el, "dot"));
+  if (!pause || dots.length !== SLIDES || dots.some((d) => d.start < pause.start))
+    broken.push(
+      `the controls are ${pause ? "a pause button" : "no pause button"} and ${dots.length} dots; the pause button, then a dot a slide`,
+    );
+  return broken.length ? [finding(page.file, "carousel", broken.join("; "))] : [];
+}
+
+// AC "The title and description": each main page carries the story's title
+// and description, word for word. They are the page's first words in a search
+// result and a link preview, so they are held here as the story writes them.
+const MAIN_HEAD = {
+  en: {
+    title: "ProjectStore — a plan, two checks and a record for your coding agent",
+    description:
+      "A plugin for Claude Code and Codex. Your agent plans first, a second agent checks the plan, and a third checks the result against your checklist. Decisions and plans stay as Markdown in your git, so any agent can carry on.",
+  },
+  ru: {
+    title: "ProjectStore — план, две проверки и записи для вашего агента",
+    description:
+      "Плагин для Claude Code и Codex. Агент сначала пишет план, второй агент проверяет план, третий сверяет результат с вашим чек-листом. Решения и планы лежат Markdown-файлами в вашем git, и работу продолжит любой агент.",
+  },
+};
+function checkMainHead(page) {
+  const want = MAIN_HEAD[page.lang];
+  if (!want) return [finding(page.file, "head", `the test holds no title for a ${page.lang} main page`)];
+  const title = page.els.find((el) => el.name === "title")?.text.trim() ?? null;
+  const meta = page.els.find((el) => el.name === "meta" && el.attrs.name === "description");
+  const description = meta ? (meta.attrs.content ?? "") : null;
+  const out = [];
+  if (title !== want.title) out.push(finding(page.file, "head", `the title is ${JSON.stringify(title)}`));
+  if (description !== want.description)
+    out.push(finding(page.file, "head", `the description is ${JSON.stringify(description)}`));
+  return out;
+}
+
+// AC "The install box": the hero's install box is two tabs over two panels —
+// "Ask your agent" holding README's prompt and the line, on its key, that the
+// prompt is for Claude Code and Codex takes the Terminal tab; "Terminal"
+// holding README's install line. checkPrompt, checkInstall and checkCopies
+// hold what each says and copies; this holds where each sits.
+const ASK_NOTE = "start.ask.note";
+function checkInstallBox(page) {
+  const hero = page.els.find((el) => el.name === "section" && el.attrs.id === "start");
+  const boxes = hero ? page.els.filter((el) => within(hero, el) && "data-tabs" in el.attrs) : [];
+  if (boxes.length !== 1) return [finding(page.file, "install-box", `${boxes.length} tabbed boxes in the hero; one`)];
+  const inside = page.els.filter((el) => within(boxes[0], el));
+  const tabs = inside.filter((el) => el.attrs.role === "tab").map((el) => el.attrs["data-tab"]);
+  const panel = (name) => inside.find((el) => el.attrs.role === "tabpanel" && el.attrs["data-panel"] === name);
+  const holds = (box, pred) => Boolean(box) && inside.some((el) => within(box, el) && pred(el));
+  const [ask, term] = [panel("ask"), panel("term")];
+  const broken = [];
+  if (tabs.join() !== "ask,term") broken.push(`the tabs are ${tabs.join(", ") || "none"}; ask, then term`);
+  if (!holds(ask, (el) => el.attrs["data-fact"] === "prompt")) broken.push("the ask panel holds no prompt");
+  if (!holds(ask, (el) => el.attrs["data-i18n"] === ASK_NOTE && el.text.trim()))
+    broken.push(`the ask panel has no note on ${ASK_NOTE}`);
+  if (!holds(term, (el) => el.attrs["data-fact"] === "install"))
+    broken.push("the terminal panel holds no install line");
+  return broken.length ? [finding(page.file, "install-box", broken.join("; "))] : [];
+}
+
+// AC "The loop media": the loop section's figure is the marketing loop, one
+// picture in English for both main pages (the maintainer's decision of
+// 2026-10-22) — the animation for the image, its still for reduced motion —
+// inside a link to the animation, which a phone opens full size; with an alt
+// and a caption in the page's language. The load check sees each file
+// through <source>, <img> and the link; this sees which file is where.
+const LOOP_ANIMATION = "loop.webp";
+const LOOP_STILL = "loop-still.webp";
+const LOOP_FILES = [LOOP_ANIMATION, LOOP_STILL];
+function checkLoopFigure(page) {
+  const figs = page.els.filter((el) => "data-loopfig" in el.attrs);
+  if (figs.length !== 1) return [finding(page.file, "loop-figure", `${figs.length} loop figures; one`)];
+  const [fig] = figs;
+  const inside = page.els.filter((el) => within(fig, el));
+  const base = (v) => posix.basename(v ?? "");
+  const sources = inside.filter((el) => el.name === "source");
+  const img = inside.find((el) => el.name === "img");
+  const link = inside.find((el) => el.name === "a" && img && within(el, img));
+  const broken = [];
+  const still = sources.map((el) => [el.attrs.media ?? "", base(el.attrs.srcset)]);
+  if (still.length !== 1 || still[0][0] !== "(prefers-reduced-motion: reduce)" || still[0][1] !== LOOP_STILL)
+    broken.push(`the sources are ${JSON.stringify(still)}; one, ${LOOP_STILL} under reduced motion`);
+  if (base(img?.attrs.src) !== LOOP_ANIMATION)
+    broken.push(`the image is ${img?.attrs.src ?? "missing"}; ${LOOP_ANIMATION}`);
+  if (base(link?.attrs.href) !== LOOP_ANIMATION) broken.push(`the picture is not inside a link to ${LOOP_ANIMATION}`);
+  if (!(img?.attrs.alt ?? "").trim()) broken.push("the picture has no alt");
+  if (!inside.find((el) => el.name === "figcaption")?.text.trim()) broken.push("the figure has no caption");
+  return broken.length ? [finding(page.file, "loop-figure", broken.join("; "))] : [];
+}
+// The two files themselves: each a complete WebP (its RIFF size is the file's),
+// together within the story's cap.
+const LOOP_BYTES = 1200000;
+// A well-formed WebP of n bytes, for the planted cases.
+const webpOf = (n) => {
+  const buf = Buffer.alloc(Math.max(n, 12));
+  buf.write("RIFF", 0, "latin1");
+  buf.writeUInt32LE(buf.length - 8, 4);
+  buf.write("WEBP", 8, "latin1");
+  return buf;
+};
+function checkLoopFiles(files) {
+  const out = [];
+  let total = 0;
+  for (const [name, buf] of files) {
+    if (!buf) {
+      out.push(finding(`${SITE}/assets/${name}`, "loop-files", "the file is not under site/assets/"));
+      continue;
+    }
+    total += buf.length;
+    const riff =
+      buf.length >= 12 && buf.toString("latin1", 0, 4) === "RIFF" && buf.toString("latin1", 8, 12) === "WEBP";
+    if (!riff || buf.readUInt32LE(4) + 8 !== buf.length)
+      out.push(finding(`${SITE}/assets/${name}`, "loop-files", "the file is not a complete WebP"));
+  }
+  if (total > LOOP_BYTES)
+    out.push(finding(`${SITE}/assets/`, "loop-files", `the loop's files are ${total} B; the cap is ${LOOP_BYTES} B`));
+  return out;
 }
 
 // The dot and graph story. The stylesheet's rules, flattened: every block
@@ -2592,7 +2728,10 @@ function checkScriptColours(file, js) {
 // same page in that language. Its redirect script's target, the language code
 // t joined to literals, resolves from the page's own address to the page of
 // its kind in that language, for every language the script follows — which
-// are the other dictionaries. A page in another language redirects nowhere.
+// are the other languages its kind is built in. Its table L names every other
+// dictionary, 1 where the kind is built and 0 where not, so a browser language
+// the site has elsewhere stops the walk (the front page story: "uk, ru" stays
+// on the English main page). A page in another language redirects nowhere.
 function checkRedirect(page, langs) {
   const scripts = rawBodies(page.html, "script").filter((js) => /location\.replace\(/.test(js));
   if (page.lang !== DEFAULT_LANG)
@@ -2608,10 +2747,21 @@ function checkRedirect(page, langs) {
     return [finding(page.file, "redirect", `${scripts.length} redirect scripts; an English page has one`)];
   const target = /location\.replace\(((?:'[^']*'|t)(?:\+(?:'[^']*'|t))*)\+\(location\.protocol/.exec(scripts[0]);
   if (!target) return [finding(page.file, "redirect", "the redirect's target is not literals joined to the language")];
-  const follows = [...(/var L=\{([^}]*)\}/.exec(scripts[0])?.[1] ?? "").matchAll(/"([a-z]+)":1/g)].map((m) => m[1]);
-  const others = langs.filter((l) => l !== DEFAULT_LANG);
+  const table = [...(/var L=\{([^}]*)\}/.exec(scripts[0])?.[1] ?? "").matchAll(/"([a-z]+)":([01])/g)];
+  const listed = table.map((m) => m[1]);
+  const follows = table.filter((m) => m[2] === "1").map((m) => m[1]);
+  const others = kindLangs(kindOf(page.kind), langs).filter((l) => l !== DEFAULT_LANG);
+  const every = langs.filter((l) => l !== DEFAULT_LANG);
+  if ([...listed].sort().join() !== [...every].sort().join())
+    return [finding(page.file, "redirect", `lists ${listed.join(", ")}; the dictionaries are ${every.join(", ")}`)];
   if ([...follows].sort().join() !== [...others].sort().join())
-    return [finding(page.file, "redirect", `follows ${follows.join(", ")}; the dictionaries are ${others.join(", ")}`)];
+    return [
+      finding(
+        page.file,
+        "redirect",
+        `follows ${follows.join(", ")}; a ${page.kind} page is built in ${others.join(", ")}`,
+      ),
+    ];
   for (const lang of others) {
     const path = [...target[1].matchAll(/'([^']*)'|t/g)].map((m) => m[1] ?? lang).join("");
     const lands = new URL(path, pageUrl(DEFAULT_LANG, page.slug)).href;
@@ -2621,10 +2771,23 @@ function checkRedirect(page, langs) {
   return [];
 }
 
-const checkStub = (text) =>
-  text === STUB
-    ? []
-    : [finding(STUB_FILE, "stub", `is not the redirect tools/i18n.py writes: ${JSON.stringify(text)}`)];
+// Where an English page's redirect sends a visitor, run as a browser would:
+// with their stored choice, if any, and their browser's languages. Null when
+// they stay.
+function runRedirect(page, { cookie = null, languages = [] } = {}) {
+  const [script] = rawBodies(page.html, "script").filter((js) => /location\.replace\(/.test(js));
+  let went = null;
+  const location = { protocol: "https:", search: "", hash: "", replace: (to) => (went = to) };
+  runInNewContext(script ?? "", {
+    document: { cookie: cookie ? `ps_lang=${cookie}` : "" },
+    navigator: { languages, language: languages[0] ?? "" },
+    location,
+  });
+  return went;
+}
+
+const checkStub = (file, text) =>
+  text === STUB ? [] : [finding(file, "stub", `is not the redirect tools/i18n.py writes: ${JSON.stringify(text)}`)];
 
 // The llms files carry the facts in a fixed shape: a "Facts about version
 // <version>" heading, and under it "- <n> commands", "- <n> bundled agents",
@@ -2696,20 +2859,23 @@ function checkLlmsFacts(file, text, repo) {
   return out;
 }
 
-// llms.txt links every language's main page and the English method pages
-// (agents read English); a link under https://projectstore.dev/ in either file
-// resolves to a file under site/ (a directory to its index.html), and no link
-// is site-relative.
+// llms.txt links the main page in every language it is built in and the
+// English method pages (agents read English), and no stub; a link under
+// https://projectstore.dev/ in either file resolves to a file under site/ (a
+// directory to its index.html), and no link is site-relative.
 function checkLlmsLinks(file, text, langs, fsys = SITE_FS) {
   const out = [];
   const urls = markdownUrls(text);
   if (file.endsWith("/llms.txt")) {
     const want = [
-      ...langs.map((l) => pageUrl(l)),
+      ...kindLangs(kindOf("main"), langs).map((l) => pageUrl(l)),
       ...KINDS.filter((k) => k.slug).map((k) => pageUrl(DEFAULT_LANG, k.slug)),
     ];
     for (const u of want) if (!urls.includes(u)) out.push(finding(file, "pages", `does not link ${u}`));
   }
+  for (const u of urls)
+    if (STUB_LANGS.some((l) => u === pageUrl(DEFAULT_LANG, l)))
+      out.push(finding(file, "stub-link", `${u} redirects to ${ORIGIN}`));
   for (const u of urls) {
     if (!u.startsWith(ORIGIN)) continue;
     const missing = missingTarget(ownTarget(file, u), fsys);
@@ -2789,6 +2955,11 @@ test("site: the sources the checks read are there — README's three headings, i
     PAGES.length,
     KINDS.reduce((n, k) => n + kindLangs(k, LANGS).length, 0),
     "a page per dictionary and kind, a single-language kind in its languages",
+  );
+  assert.deepEqual(
+    STUB_LANGS,
+    [DEFAULT_LANG, ...LANGS.filter((l) => !kindLangs(kindOf("main"), LANGS).includes(l))],
+    "a stub at en/ and at each language's main-page address where the main page is not built",
   );
 });
 
@@ -2908,11 +3079,11 @@ test("site AC 1: site/ holds the source as it is served and built, none of its l
   );
 });
 
-test("site AC 2: the committed pages are the build's — a page per dictionary and kind and no orphan, asset hashes, alternates and canonicals, the en/ stub", () => {
+test("site AC 2: the committed pages are the build's — a page per dictionary and kind and no orphan, asset hashes, alternates and canonicals, the stubs", () => {
   const found = [
     ...checkPageSet(LANGS, PAGE_FILES, SITE_FS.isFile),
     ...eachPage((p) => [...checkAssetVersions(p, HASHES), ...checkAlternates(p, LANGS)]),
-    ...checkStub(read(STUB_FILE)),
+    ...STUB_FILES.flatMap((f) => checkStub(f, read(f))),
   ];
   assert.deepEqual(found, [], show(found));
 });
@@ -2920,6 +3091,20 @@ test("site AC 2: the committed pages are the build's — a page per dictionary a
 test("site: every English page follows a stored language choice to the same page in that language; no other page redirects", () => {
   const found = eachPage((p) => checkRedirect(p, LANGS));
   assert.deepEqual(found, [], show(found));
+});
+
+test("site: the English main page follows a reader to Russian only when Russian is their language; a method page follows every language", () => {
+  const main = EN.main.page;
+  const goes = (opts) => runRedirect(main, opts);
+  assert.equal(goes({ cookie: "ru" }), "ru/", "a stored ru is followed");
+  for (const cookie of ["de", "uk", "zh"]) assert.equal(goes({ cookie }), null, `a stored ${cookie} is not`);
+  for (const languages of [["ru"], ["ru-RU", "en"]])
+    assert.equal(goes({ languages }), "ru/", `a browser saying ${languages.join(", ")} goes to Russian`);
+  for (const languages of [["de", "ru"], ["uk", "ru", "en"], ["de"], ["en"], ["en", "ru"], []])
+    assert.equal(goes({ languages }), null, `a browser saying ${languages.join(", ") || "nothing"} stays`);
+  const how = EN["how-it-works"].page;
+  assert.equal(runRedirect(how, { cookie: "de" }), "../de/how-it-works/", "a method page follows a stored de");
+  assert.equal(runRedirect(how, { languages: ["uk", "ru"] }), "../uk/how-it-works/", "and a browser's first language");
 });
 
 test("site: every page names the 1280×640 link preview, absolute, with its canonical as og:url and its own title and description", () => {
@@ -2939,9 +3124,13 @@ test("site AC 3: the main pages name each published harness; no page or llms fil
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: every main page names the four agents in the hero and the terminal box's chips, as plain names", () => {
+test("site: both main pages carry the agents line in the hero and the trust ticks, its names plain and in order, and name no dropped agent", () => {
   const mains = PAGES.filter((p) => p.page && p.kind === "main");
-  assert.equal(mains.length, 8, "eight main pages");
+  assert.deepEqual(
+    mains.map((p) => p.lang),
+    kindOf("main").langs,
+    "a main page per language it is built in",
+  );
   const found = mains.flatMap((p) => checkAgents(p.page));
   assert.deepEqual(found, [], show(found));
 });
@@ -3029,10 +3218,10 @@ test("site AC 4: every language page has its English page's ids, markers, facts,
   assert.deepEqual(found, [], show(found));
 });
 
-test("site AC 4: the main page's sections run start, talk, rails, fits, disk, teams, method, labelled 01 to 07 in every language; a method page numbers none", () => {
+test("site AC 4: the main page's sections run start, pains, loop, talk, quick, free in both its languages; no page numbers a section label", () => {
   const ids = EN.main.page.els.filter((el) => el.name === "section").map((el) => el.attrs.id);
-  assert.deepEqual(ids, ["start", "talk", "rails", "fits", "disk", "teams", "method"]);
-  const found = eachPage((p) => [...checkSections(p), ...checkSectionNumbers(p, EN[p.kind].page)]);
+  assert.deepEqual(ids, ["start", "pains", "loop", "talk", "quick", "free"]);
+  const found = eachPage((p) => checkSections(p));
   assert.deepEqual(found, [], show(found));
 });
 
@@ -3041,9 +3230,9 @@ test("site AC 4: on every page with the loop diagram its blocks are in arrow ord
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: every link between pages stays in the page's language, and every shared file it names exists", () => {
+test("site: every link between pages stays in the page's language or reaches a page not built in it at its English address, no link reaches a stub, and every shared file it names exists", () => {
   const dirs = pageDirsByLang(LANGS);
-  const found = eachPage((p) => checkPageLinks(p, dirs));
+  const found = eachPage((p) => [...checkPageLinks(p, dirs), ...checkNoStubLinks(p)]);
   assert.deepEqual(found, [], show(found));
 });
 
@@ -3119,11 +3308,42 @@ test("site: the header's page links move to the second row under the same media 
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: every main page opens its hero with the problem — three posters before the headline, each with a large line, on the same keys", () => {
+test("site: both main pages carry the story's title and description and open with the carousel — six slides on fixed keys, the first shown, no heading in a slide, the pause button before the dots — over the install box's two tabs", () => {
   const mains = PAGES.filter((p) => p.page && p.kind === "main");
-  assert.equal(mains.length, 8, "eight main pages");
-  const found = mains.flatMap((p) => checkPosters(p.page));
+  assert.equal(mains.length, kindOf("main").langs.length, "a main page per language it is built in");
+  const found = mains.flatMap((p) => [...checkCarousel(p.page), ...checkInstallBox(p.page), ...checkMainHead(p.page)]);
   assert.deepEqual(found, [], show(found));
+});
+
+test("site: both main pages show the marketing loop, its still under reduced motion, inside a link that opens it full size, with an alt and a caption; its two files are complete WebPs within 1,200,000 bytes", () => {
+  const mains = PAGES.filter((p) => p.page && p.kind === "main");
+  const files = LOOP_FILES.map((n) => {
+    const f = join(ROOT, SITE, "assets", n);
+    return [n, existsSync(f) ? readFileSync(f) : null];
+  });
+  assert.deepEqual(
+    siteFiles()
+      .map((f) => posix.basename(f.path))
+      .filter((n) => /^loop.*\.webp$/.test(n))
+      .sort(),
+    [...LOOP_FILES].sort(),
+    "no other loop file is left in site/assets/",
+  );
+  const found = [...mains.flatMap((p) => checkLoopFigure(p.page)), ...checkLoopFiles(files)];
+  assert.deepEqual(found, [], show(found));
+  // Planted: a file cut short, a file gone, and the two over the cap.
+  const [first] = files;
+  const total = files.reduce((n, [, buf]) => n + buf.length, 0);
+  for (const [planted, fact, message] of [
+    [[[first[0], first[1].subarray(0, first[1].length - 1)], ...files.slice(1)], "loop-files", /not a complete WebP/],
+    [[[first[0], null], ...files.slice(1)], "loop-files", /not under site\/assets\//],
+    [[...files, ["loop-extra.webp", webpOf(LOOP_BYTES - total + 1)]], "loop-files", /the cap is 1200000 B/],
+  ]) {
+    const got = checkLoopFiles(planted);
+    assert.equal(got.length, 1, show(got));
+    assert.equal(got[0].fact, fact);
+    assert.match(got[0].message, message);
+  }
 });
 
 test("site AC 4: no page, stylesheet or script loads from another origin, and every load is a file under site/", () => {
@@ -3212,23 +3432,12 @@ test("site AC 4: site/ stays within its budget", () => {
 
 // The prose keys the story "Install, first run, configure, daily work and
 // removal read the same in the README, docs, the site in eight languages and
-// the in-session texts" (PS-HARNESS) added and the redesigned site keeps: each
-// in every dictionary, and translated, not the English copied. Per change, not
-// a blanket rule: brand names and code legitimately equal the English in many
-// other keys. (start.span.17 and start.span.18 went with the old install
-// section's terminals.)
-const TRANSLATED = [
-  "start.p.5",
-  "questions.summary.10",
-  "questions.p.11",
-  // the four-agents story's keys
-  "meta.description",
-  "talk.lede",
-  "set.models.h",
-  "set.skill.h",
-  "how.fine.2",
-  "how.meta.description",
-];
+// the in-session texts" (PS-HARNESS) and the four-agents story added and the
+// method pages keep: each in every dictionary, and translated, not the English
+// copied. Per change, not a blanket rule: brand names and code legitimately
+// equal the English in many other keys. (Their main-page keys went with the
+// old main page, in the front page story.)
+const TRANSLATED = ["how.fine.2", "how.meta.description"];
 function checkTranslated(keys, en, dicts) {
   const out = [];
   for (const [lang, dict] of Object.entries(dicts))
@@ -3246,19 +3455,69 @@ const dictionaries = () =>
       .map((n) => [n.replace(/\.json$/, ""), JSON.parse(read(join(SITE, "locales", n)))]),
   );
 
-test("site: the instructions and four-agents stories' keys are translated in all seven other dictionaries; a key set back to English is one finding", () => {
+test("site: the instructions and four-agents stories' method-page keys are translated in all seven other dictionaries; a key set back to English is one finding", () => {
   const en = JSON.parse(read(join(SITE, "locales", "en.json")));
   const dicts = dictionaries();
   assert.equal(Object.keys(dicts).length, 7);
   for (const k of TRANSLATED) assert.ok(k in en, `${k} is still a key of the site`);
   assert.deepEqual(checkTranslated(TRANSLATED, en, dicts), []);
-  const planted = { ...dicts, ru: { ...dicts.ru, "start.p.5": en["start.p.5"] } };
+  const planted = { ...dicts, ru: { ...dicts.ru, "how.fine.2": en["how.fine.2"] } };
   const found = checkTranslated(TRANSLATED, en, planted);
   assert.equal(found.length, 1);
-  assert.match(JSON.stringify(found[0]), /site\/locales\/ru\.json.*translation:start\.p\.5/);
+  assert.match(JSON.stringify(found[0]), /site\/locales\/ru\.json.*translation:how\.fine\.2/);
 });
 
-test("site AC 4: the llms files state the facts in their fixed shape, link every main page and the English method pages, and resolve every link on the site", () => {
+// The main page's own keys: those its template names (data-i18n, or a
+// data-i18n-attr pair) that no other template does. The partials every page
+// includes are other templates, so the header's and footer's keys are not.
+const templateKeys = (file) =>
+  new Set(
+    [...read(file).matchAll(/data-i18n(?:-attr)?="([^"]+)"/g)].flatMap((m) =>
+      m[0].startsWith("data-i18n-attr") ? m[1].split(";").map((pair) => pair.split(":")[1]) : [m[1]],
+    ),
+  );
+function mainKeys() {
+  const others = TEMPLATES.filter((f) => !f.endsWith("/index.html")).map(templateKeys);
+  return [...templateKeys(`${SITE}/src/index.html`)].filter((k) => !others.some((set) => set.has(k)));
+}
+// AC "Two languages": a dictionary holds the main page's keys exactly when the
+// main page is built in its language, and in Russian each is translated — a
+// key the English page and the Russian one share word for word is one the
+// translation missed.
+function checkMainKeys(keys, en, dicts) {
+  const out = [];
+  for (const [lang, dict] of Object.entries(dicts)) {
+    const file = `site/locales/${lang}.json`;
+    const built = kindOf("main").langs.includes(lang);
+    for (const k of keys) {
+      if (built && !(k in dict)) out.push(finding(file, `main-key:${k}`, `${k} is missing`));
+      else if (built && dict[k] === en[k]) out.push(finding(file, `main-key:${k}`, `${k} is the English text`));
+      else if (!built && k in dict)
+        out.push(finding(file, `main-key:${k}`, `${k} is a main-page key, and the main page is not built in ${lang}`));
+    }
+  }
+  return out;
+}
+
+test("site: the main page's keys are in the Russian dictionary, translated, and in none of the six without a main page; a key copied back is one finding", () => {
+  const en = JSON.parse(read(join(SITE, "locales", "en.json")));
+  const dicts = dictionaries();
+  const keys = mainKeys();
+  assert.ok(keys.length > 50 && keys.includes("hero.h.1") && keys.includes("fig.alt"), `the keys: ${keys.join(", ")}`);
+  for (const k of keys) assert.ok(k in en, `${k} is in en.json`);
+  assert.deepEqual(checkMainKeys(keys, en, dicts), []);
+  // The English copied into the Russian dictionary, and a main-page key left in the German one.
+  for (const [lang, key] of [
+    ["ru", "hero.h.3"],
+    ["de", "pains.h2"],
+  ]) {
+    const found = checkMainKeys(keys, en, { ...dicts, [lang]: { ...dicts[lang], [key]: en[key] } });
+    assert.equal(found.length, 1, show(found));
+    assert.equal(`${found[0].page} ${found[0].fact}`, `site/locales/${lang}.json main-key:${key}`);
+  }
+});
+
+test("site AC 4: the llms files state the facts in their fixed shape, link both main pages and the English method pages and no stub, and resolve every link on the site", () => {
   const found = LLMS.flatMap((f) => [...checkLlmsFacts(f, read(f), REPO), ...checkLlmsLinks(f, read(f), LANGS)]);
   assert.deepEqual(found, [], show(found));
 });
@@ -3324,8 +3583,9 @@ const onFile = (file) => ({ file, source: read(file), run: (text) => checkLoads(
 const onText = (file, check) => ({ file, source: read(file), run: (text) => check(file, text) });
 const parity = (lang, kind = "main") => onPage(lang, (p) => checkParity(EN[kind].page, p, REPO), kind);
 const section = (open, fn) => [new RegExp(`${escape(open)}[\\s\\S]*?</section>`), fn];
-// The first line of the hero's install box, whatever it says.
-const INSTALL_LINE = /(<pre id="install-cmd" data-fact="install"[^>]*>)[^<]*</;
+// The first line of a page's install block, whatever it says: the hero's
+// install box on the main page, One vault's setup line.
+const INSTALL_LINE = /(<(?:pre id="install-cmd"|code) data-fact="install"[^>]*>)[^<]*</;
 // Before </main>: a paragraph a check reads like any other.
 const beforeMain = (html) => ["</main>", `${html}</main>`];
 
@@ -3342,12 +3602,9 @@ const ukStory = (() => {
   ];
 })();
 
-// The German ADR's slug, as the core makes it of the page's own title: the
-// plant below types it without its umlaut.
-const DE_ADR_SLUG = (() => {
-  const title = pageOf("de")?.page?.els.find((el) => el.attrs["data-title"] === "adr")?.text;
-  return title ? REPO.derive("adr", "slug", title) : "";
-})();
+// A German story title with an umlaut, which slugify keeps: the plant below
+// gives How it works this title and types its path without the umlaut.
+const DE_TITLE = "Gespeicherte Karten zählen im Checkout zuerst";
 
 // The English main page's redirect, which a German page must not carry.
 const EN_REDIRECT = /<script>\(function\(\)\{var L=[\s\S]*?<\/script>/.exec(EN.main.html)?.[0] ?? "<script></script>";
@@ -3363,7 +3620,7 @@ const PLANTED = [
   {
     ac: "2",
     what: "a page links its stylesheet under an old hash",
-    ...onPage("de", (p) => checkAssetVersions(p, HASHES)),
+    ...onPage("ru", (p) => checkAssetVersions(p, HASHES)),
     fact: "asset",
     message: /assets\/style\.css hashes to/,
     edits: [[/(\.\.\/assets\/style\.css\?v=)[0-9a-f]{8}/, "$100000000"]],
@@ -3379,10 +3636,28 @@ const PLANTED = [
   {
     ac: "2",
     what: "an alternate names a page that is not there",
-    ...onPage("zh", (p) => checkAlternates(p, LANGS)),
+    ...onPage("zh", (p) => checkAlternates(p, LANGS), "why-it-works"),
     fact: "alternate",
     message: /hreflang="uk"/,
-    edits: [['hreflang="uk" href="https://projectstore.dev/uk/"', 'hreflang="uk" href="https://projectstore.dev/ua/"']],
+    edits: [
+      [
+        'hreflang="uk" href="https://projectstore.dev/uk/why-it-works/"',
+        'hreflang="uk" href="https://projectstore.dev/ua/why-it-works/"',
+      ],
+    ],
+  },
+  {
+    ac: "Two languages",
+    what: "the Russian main page lists a German main page as an alternate",
+    ...onPage("ru", (p) => checkAlternates(p, LANGS)),
+    fact: "alternate",
+    message: /hreflang="de" names no page/,
+    edits: [
+      [
+        '<link rel="alternate" hreflang="x-default"',
+        '<link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">\n<link rel="alternate" hreflang="x-default"',
+      ],
+    ],
   },
   {
     ac: "2",
@@ -3420,9 +3695,18 @@ const PLANTED = [
     what: "the en/ stub redirects to the server root",
     file: STUB_FILE,
     source: read(STUB_FILE),
-    run: checkStub,
+    run: (text) => checkStub(STUB_FILE, text),
     fact: "stub",
     edits: [['<link rel="canonical" href="../">', '<link rel="canonical" href="/">']],
+  },
+  {
+    ac: "Two languages",
+    what: "a /de/ main page left in place",
+    file: "site/de/index.html",
+    source: read("site/de/index.html"),
+    run: (text) => checkStub("site/de/index.html", text),
+    fact: "stub",
+    edits: [[STUB, EN.main.html]],
   },
 
   // The redirect: an English method page sends a stored choice to the main
@@ -3439,10 +3723,18 @@ const PLANTED = [
   {
     ac: "Method pages",
     what: "a German page carries the English redirect",
-    ...onPage("de", (p) => checkRedirect(p, LANGS)),
+    ...onPage("de", (p) => checkRedirect(p, LANGS), "why-it-works"),
     fact: "redirect",
     message: /only English pages follow/,
     edits: [["</title>", `</title>\n${EN_REDIRECT}`]],
+  },
+  {
+    ac: "Two languages",
+    what: "a reader whose browser says uk, ru led from the English main page to the Russian one",
+    ...onPage("en", (p) => checkRedirect(p, LANGS)),
+    fact: "redirect",
+    message: /follows ru, uk; a main page is built in ru/,
+    edits: [['"uk":0', '"uk":1']],
   },
 
   // The link preview: an image named relative; an og:url left on another page.
@@ -3485,7 +3777,7 @@ const PLANTED = [
   {
     ac: "3",
     what: "the description stops naming Codex",
-    ...onPage("de", (p) => checkHarnessesNamed(p, REPO)),
+    ...onPage("ru", (p) => checkHarnessesNamed(p, REPO)),
     fact: "harness:codex",
     message: /meta name="description"/,
     edits: [[/<meta name="description" content="[^"]*"/, (m) => m.split("Codex").join("Kodex")]],
@@ -3493,10 +3785,10 @@ const PLANTED = [
   {
     ac: "3",
     what: "the hero, which is the install section, stops naming Codex",
-    ...onPage("pt", (p) => checkHarnessesNamed(p, REPO)),
+    ...onPage("ru", (p) => checkHarnessesNamed(p, REPO)),
     fact: "harness:codex",
     message: /the hero, which is the install section/,
-    edits: [section('<section class="hero" id="start"', (s) => s.split("Codex").join("Kodex"))],
+    edits: [section('<section class="hero front" id="start"', (s) => s.split("Codex").join("Kodex"))],
   },
   {
     ac: "3",
@@ -3504,7 +3796,7 @@ const PLANTED = [
     ...onPage("en", (p) => checkHarnessesNamed(p, REPO)),
     fact: "harnesses",
     message: /the install section is missing/,
-    edits: [['<section class="hero" id="start"', '<section class="hero"']],
+    edits: [['<section class="hero front" id="start"', '<section class="hero front"']],
   },
   {
     ac: "3",
@@ -3559,7 +3851,7 @@ const PLANTED = [
   {
     ac: "Prompts, not commands",
     what: "an npx projectstore line in the main page's prose",
-    ...onPage("fr", (p) => checkNoCommands(p, REPO)),
+    ...onPage("ru", (p) => checkNoCommands(p, REPO)),
     fact: "command",
     message: /"npx projectstore doctor --json" outside a block marked/,
     edits: [beforeMain("<p>In CI: <code>npx projectstore doctor --json</code></p>")],
@@ -3567,7 +3859,7 @@ const PLANTED = [
   {
     ac: "Install first",
     what: "the prompt reworded",
-    ...onPage("de", (p) => checkPrompt(p, REPO)),
+    ...onPage("ru", (p) => checkPrompt(p, REPO)),
     fact: "prompt",
     message: /README's prompt is/,
     edits: [[/(data-fact="prompt">)[^<]*/, "$1Install ProjectStore for this project."]],
@@ -3602,21 +3894,21 @@ const PLANTED = [
   // AC 4: install — README's lines, the --lang rule, nothing outside a marked block.
   {
     ac: "4",
-    what: "$ npx projectstore@latest upgrade --harness codex in the FAQ, outside a marked block",
+    what: "$ npx projectstore@latest upgrade --harness codex in the quick start, outside a marked block",
     ...onPage("en", (p) => checkInstall(p, REPO)),
     fact: "install",
     message: /projectstore@latest upgrade --harness codex" is an install.* outside a block marked/,
     edits: [
       [
-        /(<div class="faq" id="questions">)/,
-        "$1<p>To upgrade Codex: <code>$ npx projectstore@latest upgrade --harness codex</code> in your project.</p>",
+        /(<ol class="qs">)/,
+        "$1<li><p>To upgrade Codex: <code>$ npx projectstore@latest upgrade --harness codex</code> in your project.</p></li>",
       ],
     ],
   },
   {
     ac: "4",
     what: "a bunx upgrade after a code block, outside a marked block",
-    ...onPage("de", (p) => checkInstall(p, REPO)),
+    ...onPage("ru", (p) => checkInstall(p, REPO)),
     fact: "install",
     message: /"bunx projectstore@latest upgrade" is an install.* outside a block marked/,
     edits: [["</pre>", "</pre><p><code>bunx projectstore@latest upgrade</code></p>"]],
@@ -3672,7 +3964,7 @@ const PLANTED = [
   {
     ac: "4",
     what: "a marked install line README does not fence",
-    ...onPage("pt", (p) => checkInstall(p, REPO)),
+    ...onPage("pt", (p) => checkInstall(p, REPO), "one-vault"),
     fact: "install",
     message: /"npx projectstore setup --channel npm" is no line README fences/,
     edits: [[INSTALL_LINE, "$1npx projectstore setup --channel npm<"]],
@@ -3688,7 +3980,7 @@ const PLANTED = [
   {
     ac: "4",
     what: "a bind line with another page's --lang",
-    ...onPage("es", (p) => checkInstall(p, REPO)),
+    ...onPage("es", (p) => checkInstall(p, REPO), "one-vault"),
     fact: "install",
     message: /--lang fr" is no line README fences/,
     edits: [[INSTALL_LINE, "$1/projectstore:bind ~/Documents/my-project-vault --lang fr<"]],
@@ -3696,7 +3988,7 @@ const PLANTED = [
   {
     ac: "4",
     what: "a --lang on a page whose language ships no templates",
-    ...onPage("uk", (p) => checkInstall(p, REPO)),
+    ...onPage("uk", (p) => checkInstall(p, REPO), "one-vault"),
     fact: "install",
     message: /--lang uk" is no line README fences/,
     edits: [[INSTALL_LINE, "$1/projectstore:bind ~/Documents/my-project-vault --lang uk<"]],
@@ -3712,7 +4004,7 @@ const PLANTED = [
   {
     ac: "4",
     what: "a copy button that copies another line than it shows",
-    ...onPage("zh", checkCopies),
+    ...onPage("ru", checkCopies),
     fact: "copy",
     message: /#install-cmd copies "npx projectstore@latest setup" where it shows "npx projectstore setup"/,
     edits: [
@@ -3725,7 +4017,7 @@ const PLANTED = [
   {
     ac: "4",
     what: "a --lang ProjectStore ships no templates for",
-    ...onPage("de", (p) => checkLangFlags(p.file, readable(p), REPO)),
+    ...onPage("de", (p) => checkLangFlags(p.file, readable(p), REPO), "one-vault"),
     fact: "lang",
     message: /--lang it/,
     edits: [[INSTALL_LINE, "$1npx projectstore setup --lang it<"]],
@@ -3775,10 +4067,10 @@ const PLANTED = [
   {
     ac: "4",
     what: "a link to a docs/ heading that does not exist",
-    ...onPage("uk", (p) => checkLinks(p, REPO)),
+    ...onPage("uk", (p) => checkLinks(p, REPO), "how-it-works"),
     fact: "link",
     message: /has no heading #kodeks$/,
-    edits: [['blob/main/docs/alongside.md"', 'blob/main/docs/alongside.md#kodeks"']],
+    edits: [['blob/main/README.md"', 'blob/main/docs/alongside.md#kodeks"']],
   },
   {
     ac: "4",
@@ -3790,17 +4082,17 @@ const PLANTED = [
   },
   {
     ac: "4",
-    what: "a command count the repository disagrees with",
-    ...onPage("zh", (p) => checkCounts(p, REPO)),
-    fact: "commands",
-    edits: [[/(data-fact="commands">)\d+/, `$1${REPO.counts.commands + 1}`]],
+    what: "an agent count the repository disagrees with",
+    ...onPage("zh", (p) => checkCounts(p, REPO), "how-it-works"),
+    fact: "agents",
+    edits: [[/(data-fact="agents">)\d+/, `$1${REPO.counts.agents + 1}`]],
   },
   {
     ac: "4",
-    what: "a language count the repository disagrees with",
-    ...onPage("uk", (p) => checkCounts(p, REPO)),
+    what: "a language count the repository disagrees with, on a page that had none",
+    ...onPage("uk", (p) => checkCounts(p, REPO), "how-it-works"),
     fact: "languages",
-    edits: [[/(data-fact="languages">)\d+/, `$1${REPO.counts.languages + 1}`]],
+    edits: [beforeMain(`<p><span data-fact="languages">${REPO.counts.languages + 1}</span></p>`)],
   },
   {
     ac: "4",
@@ -3822,7 +4114,7 @@ const PLANTED = [
   {
     ac: "4",
     what: "a language page translates a count",
-    ...parity("ru"),
+    ...parity("ru", "how-it-works"),
     fact: "fact values",
     message: /agents=шесть/,
     edits: [['data-fact="agents">6<', 'data-fact="agents">шесть<']],
@@ -3885,7 +4177,7 @@ const PLANTED = [
   {
     ac: "4",
     what: "no figure is marked data-source",
-    ...onPage("zh", (p) => checkRequired(p, REPO)),
+    ...onPage("zh", (p) => checkRequired(p, REPO), "one-vault"),
     fact: "data-source",
     edits: [[/ data-source="[^"]*"/g, ""]],
   },
@@ -3906,16 +4198,22 @@ const PLANTED = [
     edits: [[' data-template="story"', ""]],
   },
 
-  // AC "Seven sections, in order", and a word budget held.
+  // AC "Six sections, in order", and a word budget held.
   {
-    ac: "Seven sections, in order",
-    what: "a main-page section renamed out of the table's order",
+    ac: "Six sections, in order",
+    what: "the loop section moved below the talk section",
     ...onPage("en", checkSections),
     fact: "sections",
-    edits: [['<section class="sec" id="disk"', '<section class="sec" id="files"']],
+    message: /run start, pains, talk, loop, quick, free/,
+    edits: [
+      [
+        /(<section class="sec" id="loop"[\s\S]*?<\/section>\s*)(<section class="sec" id="talk"[\s\S]*?<\/section>\s*)/,
+        "$2$1",
+      ],
+    ],
   },
   {
-    ac: "Seven sections, in order",
+    ac: "Six sections, in order",
     what: "a method page gets a numbered label",
     ...onPage("en", checkSections, "how-it-works"),
     fact: "section-number",
@@ -4197,57 +4495,115 @@ const PLANTED = [
     message: /^a header link may wrap the row$/,
     edits: [["text-decoration: none; white-space: nowrap; }", "text-decoration: none; }"]],
   },
+  // AC "The carousel": six slides on fixed keys, in order, the first shown; no heading in a slide;
+  // the pause button before the dots.
   {
-    ac: "Install first",
-    what: "a main page with two posters",
-    ...onPage("es", checkPosters),
-    fact: "posters",
-    message: /^2 posters; 3$/,
-    edits: [[/<li class="poster p-3">[\s\S]*?<\/li>\n?/, ""]],
+    ac: "The carousel",
+    what: "a seventh slide",
+    ...onPage("en", checkCarousel),
+    fact: "carousel",
+    message: /^7 slides; 6$/,
+    edits: [[/(<div class="slide"[^>]*hero\.slide\.6">[\s\S]*?<\/div>\n)/, "$1$1"]],
   },
   {
-    ac: "Install first",
-    what: "a poster with no large line",
-    ...onPage("fr", checkPosters),
-    fact: "posters",
-    message: /^a poster has no large line$/,
-    edits: [[/(<b data-i18n="hero\.post\.2">)[^<]*/, "$1"]],
-  },
-  {
-    ac: "Install first",
-    what: "a large line that writes the #",
-    ...onPage("de", checkPosters),
-    fact: "posters",
-    message: /^a large line writes the # the stylesheet draws$/,
-    edits: [[/(<b data-i18n="hero\.post\.3">)/, "$1# "]],
-  },
-  {
-    ac: "Install first",
-    what: "the blue and red posters swapped",
-    ...onPage("pt", checkPosters),
-    fact: "posters",
-    message: /^the posters' tints are out of order$/,
+    ac: "The carousel",
+    what: "slides 2 and 3 swapped",
+    ...onPage("ru", checkCarousel),
+    fact: "carousel",
+    message: /^the slides' keys run hero\.h\.1\+hero\.t\.1, hero\.h\.3\+hero\.t\.3, hero\.h\.2\+hero\.t\.2,/,
     edits: [
-      ['<li class="poster p-2">', '<li class="poster p-x">'],
-      ['<li class="poster p-3">', '<li class="poster p-2">'],
-      ['<li class="poster p-x">', '<li class="poster p-3">'],
+      [
+        /(<div class="slide"[^>]*hero\.slide\.2">[\s\S]*?<\/div>\n)(\s*<div class="slide"[^>]*hero\.slide\.3">[\s\S]*?<\/div>\n)/,
+        "$2$1",
+      ],
     ],
   },
   {
-    ac: "Install first",
-    what: "a poster list that takes no focus",
-    ...onPage("zh", checkPosters),
-    fact: "posters",
-    message: /^the list is not role="list", tabindex="0" and named$/,
-    edits: [[' tabindex="0"', ""]],
+    ac: "The carousel",
+    what: "an h1 in a slide",
+    ...onPage("en", checkCarousel),
+    fact: "carousel",
+    message: /^a slide holds a heading; the page's h1 is "ProjectStore", "/,
+    edits: [
+      [/<p class="slide-h" data-i18n="hero\.h\.4">([\s\S]*?)<\/p>/, '<h1 class="slide-h" data-i18n="hero.h.4">$1</h1>'],
+    ],
   },
   {
-    ac: "Install first",
-    what: "the problem after the headline",
-    ...onPage("ru", checkPosters),
-    fact: "posters",
-    message: /^the problem comes after the headline$/,
-    edits: [[/(<ul class="problem"[^>]*>[\s\S]*?<\/ul>\n)([\s\S]*?<\/h1>\n)/, "$2$1"]],
+    ac: "The carousel",
+    what: "the pause button after the dots",
+    ...onPage("ru", checkCarousel),
+    fact: "carousel",
+    message: /the pause button, then a dot a slide$/,
+    edits: [
+      [/(<button class="carousel-pause"[\s\S]*?<\/button>)\s*(<span class="carousel-dots">[\s\S]*?<\/span>)/, "$2$1"],
+    ],
+  },
+  {
+    ac: "The carousel",
+    what: "no slide shown without a script",
+    ...onPage("en", checkCarousel),
+    fact: "carousel",
+    message: /^the first slide alone is not the one shown$/,
+    edits: [['<div class="slide active"', '<div class="slide"']],
+  },
+
+  {
+    ac: "The install box",
+    what: "the ask panel's note on another key",
+    ...onPage("en", checkInstallBox),
+    fact: "install-box",
+    message: /^the ask panel has no note on start\.ask\.note$/,
+    edits: [['data-i18n="start.ask.note"', 'data-i18n="start.ask.hint"']],
+  },
+  {
+    ac: "The install box",
+    what: "the tabs in the other order",
+    ...onPage("ru", checkInstallBox),
+    fact: "install-box",
+    message: /^the tabs are term, ask; ask, then term$/,
+    edits: [
+      ['data-tab="ask" id="tab-ask"', 'data-tab="x" id="tab-ask"'],
+      ['data-tab="term" id="tab-term"', 'data-tab="ask" id="tab-term"'],
+      ['data-tab="x" id="tab-ask"', 'data-tab="term" id="tab-ask"'],
+    ],
+  },
+
+  {
+    ac: "The title and description",
+    what: "the Russian title reworded",
+    ...onPage("ru", checkMainHead),
+    fact: "head",
+    message: /^the title is "ProjectStore — план и проверки для вашего агента"$/,
+    edits: [[/(<title data-i18n="meta\.title">)[^<]*/, "$1ProjectStore — план и проверки для вашего агента"]],
+  },
+
+  // AC "The loop media": the animation, its still, the link that opens it, its alt.
+  {
+    ac: "The loop media",
+    what: "the still shown to everyone, the animation to no one",
+    ...onPage("ru", checkLoopFigure),
+    fact: "loop-figure",
+    message: /^the image is \.\.\/assets\/loop-still\.webp; loop\.webp$/,
+    edits: [['<img src="../assets/loop.webp"', '<img src="../assets/loop-still.webp"']],
+  },
+  {
+    ac: "The loop media",
+    what: "the picture taken out of its link",
+    ...onPage("en", checkLoopFigure),
+    fact: "loop-figure",
+    message: /^the picture is not inside a link to loop\.webp$/,
+    edits: [
+      ['<a class="loopfig-open" href="assets/loop.webp">', ""],
+      [/(<\/picture>\s*)<\/a>/, "$1"],
+    ],
+  },
+  {
+    ac: "The loop media",
+    what: "the picture without an alt",
+    ...onPage("en", checkLoopFigure),
+    fact: "loop-figure",
+    message: /^the picture has no alt$/,
+    edits: [[/(<img src="assets\/loop\.webp"[^>]*) alt="[^"]*"/, '$1 alt=""']],
   },
 
   // The dot and the graph.
@@ -4402,12 +4758,7 @@ const PLANTED = [
     ...onText(STYLE, checkGraphCss),
     fact: "graph-layer",
     message: /print does not hide \.graph/,
-    edits: [
-      [
-        "  .poster { box-shadow: none; transform: none; }\n  .graph { display: none; }",
-        "  .poster { box-shadow: none; transform: none; }",
-      ],
-    ],
+    edits: [["  .term { box-shadow: none; }\n  .graph { display: none; }", "  .term { box-shadow: none; }"]],
   },
   {
     ac: "Out of the way",
@@ -4613,38 +4964,45 @@ const PLANTED = [
     edits: [["  .site-header, .mobile-nav,", "  .mobile-nav,"]],
   },
 
-  // The four-agents story: the names, the chips, no status in any language.
+  // The front page story: the agents line, its names in order, no status in any language.
   {
-    ac: "Four agents named",
-    what: "Cursor before Gemini CLI in the hero",
+    ac: "The agents line",
+    what: "Cursor added to the hero's agents line",
     ...onPage("en", checkAgents),
     fact: "agents-named",
-    message: /^the hero names Claude Code, Codex, Cursor, Gemini CLI;/,
-    edits: [["<b>Gemini CLI</b> · <b>Cursor</b>", "<b>Cursor</b> · <b>Gemini CLI</b>"]],
+    message: /^the hero names Claude Code, Codex, Cursor, OpenCode, Gemini, Z\.ai, DeepSeek;/,
+    edits: [["<b>Codex</b>. <b>OpenCode</b>", "<b>Codex</b>, <b>Cursor</b>. <b>OpenCode</b>"]],
   },
   {
-    ac: "Four agents named",
-    what: "a word added to the hero's agent line",
-    ...onPage("en", checkAgents),
-    fact: "agents-named",
-    message: /^the hero's agent line reads "Claude Code · Codex \(beta\) · Gemini CLI · Cursor"/,
-    edits: [["<b>Codex</b> · <b>Gemini CLI</b>", "<b>Codex</b> (beta) · <b>Gemini CLI</b>"]],
-  },
-  {
-    ac: "Four agents named",
-    what: "a chip marked experimental by its class",
-    ...onPage("es", checkAgents),
-    fact: "agents-named",
-    message: /Codex \(class "chip exp"\)/,
-    edits: [['<span class="chip">Codex</span>', '<span class="chip exp">Codex</span>']],
-  },
-  {
-    ac: "Four agents named",
-    what: "a language page that translates a name",
+    ac: "The agents line",
+    what: "Cursor named again in the page's description",
     ...onPage("ru", checkAgents),
     fact: "agents-named",
-    message: /^the hero names Claude Code, Codex, Gemini CLI, Курсор;/,
-    edits: [["<b>Cursor</b>", "<b>Курсор</b>"]],
+    message: /^the page names Cursor, which it dropped$/,
+    edits: [[/(<meta name="description" content="[^"]*)Codex/, "$1Codex и Cursor"]],
+  },
+  {
+    ac: "The agents line",
+    what: "OpenCode and Gemini swapped in the trust ticks",
+    ...onPage("en", checkAgents),
+    fact: "agents-named",
+    message: /^the trust list names Claude Code, Codex, Gemini, OpenCode, Z\.ai, DeepSeek;/,
+    edits: [
+      section('<section class="sec" id="talk"', (sec) =>
+        sec
+          .replace("<b>OpenCode</b>", "<b>x</b>")
+          .replace("<b>Gemini</b>", "<b>OpenCode</b>")
+          .replace("<b>x</b>", "<b>Gemini</b>"),
+      ),
+    ],
+  },
+  {
+    ac: "The agents line",
+    what: "a name translated on the Russian page",
+    ...onPage("ru", checkAgents),
+    fact: "agents-named",
+    message: /^the hero names Claude Code, Кодекс, OpenCode,/,
+    edits: [["<b>Codex</b>", "<b>Кодекс</b>"]],
   },
   {
     ac: "No harness status on the site",
@@ -4652,43 +5010,31 @@ const PLANTED = [
     ...onPage("en", checkNoStatus),
     fact: "no-status",
     message: /data-fact="harness-status:codex"/,
-    edits: [
-      [
-        '<span class="chip">Codex</span>',
-        '<span class="chip">Codex · <span data-fact="harness-status:codex">ready</span></span>',
-      ],
-    ],
+    edits: [["<b>Codex</b>", '<b>Codex</b> <span data-fact="harness-status:codex">ready</span>']],
   },
   {
     ac: "No harness status on the site",
-    what: "the English lede calling the Codex flow experimental",
+    what: "the English install note calling Codex experimental",
     ...onPage("en", checkNoStatus),
     fact: "no-status",
     message: /calls Codex experimental$/,
-    edits: [
-      [
-        "The scenes below are Claude Code.",
-        "The scenes below are Claude Code; in Codex the same flow is experimental.",
-      ],
-    ],
+    edits: [[/(data-i18n="start\.ask\.note">)[^<]*/, "$1In Claude Code. Codex is experimental: use the Terminal tab."]],
   },
   {
     ac: "No harness status on the site",
-    what: "the German models card calling Codex experimental",
-    ...onPage("de", checkNoStatus),
+    what: "the German How it works calling Codex experimentell",
+    ...onPage("de", checkNoStatus, "how-it-works"),
     fact: "no-status",
     message: /calls Codex experimentell$/,
-    edits: [[/(data-i18n="set\.models\.h">)[^<]*/, "$1Codex experimentell, nur Modelle"]],
+    edits: [[/(data-i18n="how\.fine\.2">)[^<]*/, "$1In Codex sind die Rollen experimentell."]],
   },
   {
     ac: "No harness status on the site",
-    what: "the Russian lede calling the Codex flow experimental",
+    what: "the Russian install note calling Codex experimental",
     ...onPage("ru", checkNoStatus),
     fact: "no-status",
     message: /calls Codex экспериментальн$/,
-    edits: [
-      [/(data-i18n="talk\.lede">[^<]*<b[^>]*>[^<]*<\/b>[^<]*)/, "$1 В Codex этот же сценарий экспериментальный."],
-    ],
+    edits: [[/(data-i18n="start\.ask\.note">)[^<]*/, "$1Для Claude Code. Codex пока экспериментальный."]],
   },
 
   // AC 4: loads — another origin, a link off the site, a file that is not there.
@@ -4709,42 +5055,42 @@ const PLANTED = [
   {
     ac: "4",
     what: "a canonical that points off the site",
-    ...onFile(pageOf("de").file),
+    ...onFile(pageOf("ru").file),
     fact: "load",
     message:
-      /<link rel="canonical"> points at https:\/\/projectstore\.example\/de\/, not under https:\/\/projectstore\.dev\//,
+      /<link rel="canonical"> points at https:\/\/projectstore\.example\/ru\/, not under https:\/\/projectstore\.dev\//,
     edits: [
       [
-        '<link rel="canonical" href="https://projectstore.dev/de/">',
-        '<link rel="canonical" href="https://projectstore.example/de/">',
+        '<link rel="canonical" href="https://projectstore.dev/ru/">',
+        '<link rel="canonical" href="https://projectstore.example/ru/">',
       ],
     ],
   },
   {
     ac: "4",
     what: "a <script src> from a CDN",
-    ...onFile(pageOf("zh").file),
+    ...onFile(pageOf("zh", "why-it-works").file),
     fact: "load",
     message: /<script src> loads https:\/\/cdn/,
     edits: [
       [
-        '<script src="../assets/site.js',
-        '<script src="https://cdn.example.com/a.js"></script>\n<script src="../assets/site.js',
+        '<script src="../../assets/site.js',
+        '<script src="https://cdn.example.com/a.js"></script>\n<script src="../../assets/site.js',
       ],
     ],
   },
   {
     ac: "4",
     what: "a protocol-relative <img src>",
-    ...onFile(pageOf("uk").file),
+    ...onFile(pageOf("uk", "how-it-works").file),
     fact: "load",
     message: /<img src> loads \/\/cdn/,
-    edits: [['src="../assets/mark.svg"', 'src="//cdn.example.com/mark.svg"']],
+    edits: [['src="../../assets/mark.svg"', 'src="//cdn.example.com/mark.svg"']],
   },
   {
     ac: "4",
     what: "a stylesheet that is not under site/",
-    ...onFile(pageOf("pt").file),
+    ...onFile(pageOf("ru").file),
     fact: "load",
     message: /no site\/assets\/styles\.css/,
     edits: [["../assets/style.css?v=", "../assets/styles.css?v="]],
@@ -4789,6 +5135,22 @@ const PLANTED = [
     message: /no site\/assets\/fonts\/index\.html/,
     edits: [['src="assets/mark.svg"', 'src="assets/fonts"']],
   },
+  {
+    ac: "The loop media",
+    what: "a loop source on another origin",
+    ...onFile(EN.main.file),
+    fact: "load",
+    message: /<img src> loads https:\/\/cdn\.example\.com\/loop\.webp/,
+    edits: [['<img src="assets/loop.webp"', '<img src="https://cdn.example.com/loop.webp"']],
+  },
+  {
+    ac: "The loop media",
+    what: "a still missing from site/assets/",
+    ...onFile(pageOf("ru").file),
+    fact: "load",
+    message: /no site\/assets\/loop-stil\.webp/,
+    edits: [["../assets/loop-still.webp", "../assets/loop-stil.webp"]],
+  },
 
   // AC 4: the llms files' fixed shape and their links.
   {
@@ -4828,11 +5190,19 @@ const PLANTED = [
   },
   {
     ac: "4",
-    what: "llms.txt stops linking a language's main page",
+    what: "llms.txt stops linking the Russian main page",
     ...onText(LLMS_TXT, (f, t) => checkLlmsLinks(f, t, LANGS)),
     fact: "pages",
-    message: /https:\/\/projectstore\.dev\/zh\//,
-    edits: [[/^.*\(https:\/\/projectstore\.dev\/zh\/\).*\n/m, ""]],
+    message: /https:\/\/projectstore\.dev\/ru\//,
+    edits: [[/^.*\(https:\/\/projectstore\.dev\/ru\/\).*\n/m, ""]],
+  },
+  {
+    ac: "Two languages",
+    what: "llms.txt links the German main page, which redirects",
+    ...onText(LLMS_TXT, (f, t) => checkLlmsLinks(f, t, LANGS)),
+    fact: "stub-link",
+    message: /https:\/\/projectstore\.dev\/de\/ redirects/,
+    edits: [[/$/, "\n- [Deutsch](https://projectstore.dev/de/)\n"]],
   },
   {
     // The method links are appended first, so the plant holds whether or not
@@ -4880,19 +5250,21 @@ const PLANTED = [
   // AC 5: an example's shape, a numbered name, a slug slugify would not make.
   {
     ac: "5",
-    what: "a review_status the product never writes",
-    ...onPage("pt", (p) => checkShapes(p, REPO)),
+    what: "an ADR example with a review_status the product never writes, on a page that had none",
+    ...onPage("pt", (p) => checkShapes(p, REPO), "how-it-works"),
     fact: "template:adr",
     message: /review_status: approved/,
-    edits: [["<span>review_status: reviewed</span>", "<span>review_status: approved</span>"]],
+    edits: [
+      beforeMain('<pre data-template="adr">---\ntype: adr\nstatus: accepted\nreview_status: approved\n---</pre>'),
+    ],
   },
   {
     ac: "5",
-    what: "a heading the Chinese ADR template does not have",
-    ...onPage("zh", (p) => checkShapes(p, REPO)),
-    fact: "template:adr",
+    what: "a heading the Chinese story template does not have",
+    ...onPage("zh", (p) => checkShapes(p, REPO), "how-it-works"),
+    fact: "template:story",
     message: /## 上下文/,
-    edits: [["<span>## 背景</span>", "<span>## 上下文</span>"]],
+    edits: [['<span class="h">## 验收标准</span>', '<span class="h">## 上下文</span>']],
   },
   {
     ac: "5",
@@ -4905,18 +5277,28 @@ const PLANTED = [
   {
     ac: "5",
     what: "an example whose frontmatter never closes",
-    ...onPage("es", (p) => checkShapes(p, REPO)),
-    fact: "template:adr",
+    ...onPage("es", (p) => checkShapes(p, REPO), "how-it-works"),
+    fact: "template:story",
     message: /no frontmatter between "---" lines/,
-    edits: [[/(data-template="adr"[\s\S]*?<span>---<\/span>[\s\S]*?)<span>---<\/span>/, "$1<span>- - -</span>"]],
+    edits: [
+      [
+        /(data-template="story"[\s\S]*?<span class="fm">---<\/span>[\s\S]*?)<span class="fm">---<\/span>/,
+        '$1<span class="fm">- - -</span>',
+      ],
+    ],
   },
   {
     ac: "5",
     what: "a frontmatter line that is not key: value",
-    ...onPage("fr", (p) => checkShapes(p, REPO)),
-    fact: "template:adr",
-    message: /frontmatter line "status accepted" is not "key: value"/,
-    edits: [["<span>status: accepted</span>", "<span>status accepted</span>"]],
+    ...onPage("fr", (p) => checkShapes(p, REPO), "how-it-works"),
+    fact: "template:story",
+    message: /frontmatter line "status done" is not "key: value"/,
+    edits: [
+      [
+        '<span class="k">status:</span> <span class="c-ok">done</span>',
+        '<span class="k">status</span> <span class="c-ok">done</span>',
+      ],
+    ],
   },
   {
     ac: "5",
@@ -4937,10 +5319,13 @@ const PLANTED = [
   {
     ac: "5",
     what: "a German slug typed without its umlaut",
-    ...onPage("de", (p) => checkSlugs(p, REPO)),
-    fact: "slug:adr",
-    message: new RegExp(`slugify makes "${escape(DE_ADR_SLUG)}"`),
-    edits: [[`data-slug="adr:slug">${DE_ADR_SLUG}<`, `data-slug="adr:slug">${DE_ADR_SLUG.replace(/ä/g, "a")}<`]],
+    ...onPage("de", (p) => checkSlugs(p, REPO), "how-it-works"),
+    fact: "slug:story",
+    message: new RegExp(`slugify makes "${escape(REPO.derive("story", "path", DE_TITLE))}"`),
+    edits: [
+      [/(data-title="story">)[^<]*/, `$1${DE_TITLE}`],
+      [/(data-slug="story:path">)[^<]*/, `$1${REPO.derive("story", "path", DE_TITLE).replace(/ä/g, "a")}`],
+    ],
   },
   {
     ac: "5",
@@ -4960,20 +5345,10 @@ const PLANTED = [
   {
     ac: "5",
     what: "an example path with no data-slug",
-    ...onPage("en", (p) => checkSlugs(p, REPO)),
+    ...onPage("en", (p) => checkSlugs(p, REPO), "how-it-works"),
     fact: "slug",
-    message: /example path "adr\/[^"]+\.md" is not marked/,
-    edits: [['<span data-slug="adr:path">', "<span>"]],
-  },
-
-  // AC 4: a translation keeps a section's old number after the English one moved.
-  {
-    ac: "4",
-    what: "a translated section label keeps its old number",
-    ...onPage("de", (p) => checkSectionNumbers(p, EN.main.page)),
-    fact: "section-number",
-    message: /#3 is labelled "02"/,
-    edits: [[/(data-i18n="rails\.label">)\d\d/, "$102"]],
+    message: /example path "stories\/story-[^"]+\.md" is not marked/,
+    edits: [[/<span data-slug="story:path"[^>]*>/, "<span>"]],
   },
 
   // AC 4: a loop block out of arrow order, which the cartoon would press out of turn; no blocks at all.
@@ -4988,7 +5363,7 @@ const PLANTED = [
   {
     ac: "4",
     what: "the done block dropped from the loop",
-    ...onPage("de", checkPressOrder),
+    ...onPage("de", checkPressOrder, "how-it-works"),
     fact: "press-order",
     message: /7 blocks; the loop has 8 steps/,
     edits: [[/<g class="node" data-step="8">[\s\S]*?<\/g>/, ""]],
@@ -5002,9 +5377,25 @@ const PLANTED = [
     edits: [['href="how-it-works/"', 'href="../how-it-works/"']],
   },
   {
+    ac: "Two languages",
+    what: "a German method page linking its brand to /de/, which redirects",
+    ...onPage("de", checkNoStubLinks, "how-it-works"),
+    fact: "stub-link",
+    message: /lands on \/de\/, which redirects to \//,
+    edits: [['<a class="brand" href="../../"', '<a class="brand" href="../"']],
+  },
+  {
+    ac: "Two languages",
+    what: "a German method page's brand still linking the German main page",
+    ...onPage("de", (p) => checkPageLinks(p, pageDirsByLang(LANGS)), "how-it-works"),
+    fact: "page-link",
+    message: /lands on \/de\/, which is not a de page/,
+    edits: [['<a class="brand" href="../../"', '<a class="brand" href="../"']],
+  },
+  {
     ac: "4",
     what: "the loop diagram's blocks lose their class",
-    ...onPage("es", checkPressOrder),
+    ...onPage("es", checkPressOrder, "how-it-works"),
     fact: "press-order",
     message: /no svg \.node\[data-step\]/,
     edits: [['<g class="node" data-step=', '<g class="step" data-step=', "all"]],
@@ -5053,8 +5444,8 @@ for (const c of PLANTED) {
 test("site AC 2, planted: a dictionary with no page, a missing method page, a page with no dictionary, an orphan folder", () => {
   const cases = [
     [
-      checkPageSet(LANGS, PAGE_FILES, (rel) => rel !== `${SITE}/pt/index.html` && SITE_FS.isFile(rel)),
-      `${SITE}/pt/index.html`,
+      checkPageSet(LANGS, PAGE_FILES, (rel) => rel !== `${SITE}/ru/index.html` && SITE_FS.isFile(rel)),
+      `${SITE}/ru/index.html`,
     ],
     [
       checkPageSet(LANGS, PAGE_FILES, (rel) => rel !== `${SITE}/pt/how-it-works/index.html` && SITE_FS.isFile(rel)),
@@ -5096,9 +5487,9 @@ test("site, planted: a link preview that is not 1280×640, or not a PNG, or not 
 });
 
 test("site: the near misses pass — a bind line with the page's own --lang, a colour inside the print rules, a token in a fill", () => {
-  const es = pageOf("es");
+  const es = pageOf("es", "one-vault");
   const bind = plant(es.html, [[INSTALL_LINE, "$1/projectstore:bind ~/Documents/my-project-vault --lang es<"]]);
-  assert.deepEqual(checkInstall(parse(es.file, bind, "es", "main"), REPO), [], "es ships templates");
+  assert.deepEqual(checkInstall(parse(es.file, bind, "es", "one-vault"), REPO), [], "es ships templates");
   const css = read(STYLE);
   assert.deepEqual(checkColourCss(STYLE, `${css}\n@media print { .x { color: #000000; } }\n`), []);
   assert.deepEqual(checkColourCss(STYLE, `${css}\n.x { color: var(--ink); background: transparent; }\n`), []);
@@ -5114,18 +5505,18 @@ test("site: the near misses pass — a bind line with the page's own --lang, a c
 });
 
 test("site AC 4: a canonical or alternate under https://projectstore.dev/, or a relative one, is no load", () => {
-  const de = pageOf("de");
+  const de = pageOf("de", "why-it-works");
   assert.ok(
-    de.html.includes('<link rel="canonical" href="https://projectstore.dev/de/">'),
+    de.html.includes('<link rel="canonical" href="https://projectstore.dev/de/why-it-works/">'),
     "the built page's canonical is absolute",
   );
   assert.ok(
-    de.html.includes('<link rel="alternate" hreflang="x-default" href="https://projectstore.dev/">'),
+    de.html.includes('<link rel="alternate" hreflang="x-default" href="https://projectstore.dev/why-it-works/">'),
     "and so are its alternates",
   );
   assert.deepEqual(checkLoads(de.file, de.html), [], "an absolute canonical under the site's origin is not a finding");
   const relative = plant(de.html, [
-    ['<link rel="canonical" href="https://projectstore.dev/de/">', '<link rel="canonical" href="./">'],
+    ['<link rel="canonical" href="https://projectstore.dev/de/why-it-works/">', '<link rel="canonical" href="./">'],
   ]);
   assert.deepEqual(checkLoads(de.file, relative), [], "nor is a relative one");
 });

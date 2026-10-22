@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script>(function(){var L={"de":1,"es":1,"fr":1,"pt":1,"ru":1,"uk":1,"zh":1};var m=document.cookie.match(/(?:^|; )ps_lang=([a-z]{2})/),c=m&&m[1],t=null;if(c){if(L[c])t=c;}else{var a=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language||''];for(var i=0;i<a.length;i++){var p=String(a[i]).toLowerCase().split('-')[0];if(p==='en')break;if(L[p]){t=p;break;}}}if(t){location.replace('../'+t+'/one-vault/'+(location.protocol==='file:'?'index.html':'')+location.search+location.hash);}})();</script>
+<script>(function(){var L={"de":1,"es":1,"fr":1,"pt":1,"ru":1,"uk":1,"zh":1};var m=document.cookie.match(/(?:^|; )ps_lang=([a-z]{2})/),c=m&&m[1],t=null;if(c){if(L[c])t=c;}else{var a=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language||''];for(var i=0;i<a.length;i++){var p=String(a[i]).toLowerCase().split('-')[0];if(p==='en')break;if(p in L){if(L[p])t=p;break;}}}if(t){location.replace('../'+t+'/one-vault/'+(location.protocol==='file:'?'index.html':'')+location.search+location.hash);}})();</script>
 <title data-i18n="vault.meta.title">One vault, many people — ProjectStore for sessions, teams and agents</title>
 <meta name="description" content="Several sessions, a whole team and several agents on one ProjectStore vault: the rules that keep them apart, the vault in its own git repository, ADRs and specs reviewed as pull requests, and a team setup in four steps." data-i18n-attr="content:vault.meta.description">
 <meta name="theme-color" content="#080d19">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=a7345ec8">
+<link rel="stylesheet" href="../assets/style.css?v=1faa4155">
 <script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="light")t=s;}catch(e){}d.setAttribute("data-tone",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/one-vault/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/one-vault/">
@@ -180,6 +180,6 @@ projectstore: this session looks like <span class="c-acc">"<span data-slug="stor
   </div>
 </footer>
 
-<script src="../assets/site.js?v=15226866"></script>
+<script src="../assets/site.js?v=9f162179"></script>
 </body>
 </html>

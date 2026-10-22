@@ -1,17 +1,19 @@
 # ProjectStore — the public site
 
-The site for [ProjectStore](https://github.com/SmartAndPoint/ProjectStore): a main page and three
-method pages, in eight languages, and a privacy page in English, served by GitHub Pages at <https://projectstore.dev> from this
-folder (`.github/workflows/pages.yml`). It is not part of the npm package: `site` is in
+The site for [ProjectStore](https://github.com/SmartAndPoint/ProjectStore): a main page in English
+and Russian, three method pages in eight languages, and a privacy page in English, served by GitHub
+Pages at <https://projectstore.dev> from this folder (`.github/workflows/pages.yml`). It is not part of the npm package: `site` is in
 `NOT_SHIPPED` (`scripts/version-guard.mjs`), and `tests/site.test.mjs` holds it to the repository.
 
-**The main page leads with the problem and install, and shows the work as prompts.** Three posters
-across the top name the problem; then the seven numbered sections: install (the hero: one prompt to
-your agent, or `npx projectstore setup` in a terminal); then just talk (four
-scenes, each a prompt and the Claude Code result, and the settings as sentences); the rails (the
-two-row loop); where it fits (agent memory, instruction files, spec-driven tools, ProjectStore);
-what lands on disk; solo or a team; the method, proof and questions. **The method has pages of its
-own:** *How it works* (the loop step by step, the six agents, the guards, a story closed with
+**The main page speaks to a beginner** (PS-HARNESS: "The front page speaks to a beginner …"). Six
+sections: the hero, whose headline is a carousel of six, each with its tagline, over the install box
+(one prompt to your agent, or `npx projectstore setup` in a terminal) and the agents line; the pains
+it fixes, as was and now; the loop as a picture; what to say to the agent, in four cards; a quick
+start in four steps; and free and open source. The carousel turns about every 6 s, stops on hover,
+on focus and under reduced motion, and shows its first slide without JavaScript. The loop is the
+marketing loop's terminal dashboard, one English animated WebP for both pages, with a still for
+reduced motion and the pause button; a phone shows it whole and opens it full size on a tap.
+**The method has pages of its own:** *How it works* (the loop step by step, the six agents, the guards, a story closed with
 evidence), *Why it works* (decades-old practice, what was always expensive about it, the chain from
 goal to proof) and *One vault, many people* (sessions, teams and agents on one vault, the vault in
 git, a team setup).
@@ -58,29 +60,33 @@ src/one-vault.html
 src/privacy.html           the privacy page (plugin.json's privacyPolicyUrl): English only, no keys of its own;
                              PAGES builds it in "langs" alone, and every footer links it at the site root
 src/_header.html           partials every template splices in: the header and nav, the footer (where the
-src/_footer.html             version lives), the icon sprite and arrow markers, and the loop diagram
-src/_sprite.html             (the main page and How it works)
+src/_footer.html             version lives), the icon sprite and arrow markers, and the live loop diagram
+src/_sprite.html             (How it works)
 src/_loop.html
 src/_tone.html             the early script every template's <head> includes after the stylesheet: the saved tone
-locales/<lang>.json        one dictionary per language for the whole site: en (extracted), de, es, fr, pt, ru, uk, zh
+locales/<lang>.json        one dictionary per language: en (extracted), de, es, fr, pt, ru, uk, zh; each holds
+                             the keys of the pages built in its language
 tools/i18n.py              build, extract and check (stdlib Python 3.12); PAGES is the table of pages
 tools/graph-slice.mjs      the background graph's data: a slice of the vault's graph.md, laid out, into site.js
 index.html                 generated: English, the default, at the site root
 <slug>/index.html          generated: the English method pages — /how-it-works/ /why-it-works/ /one-vault/ — and /privacy/
-<lang>/index.html          generated: every page per language — /de/ /de/how-it-works/ … /zh/one-vault/
-<lang>/<slug>/index.html
-en/index.html              generated: a redirect from the old /en/ address to the root
+ru/index.html              generated: the Russian main page
+<lang>/<slug>/index.html   generated: every method page per language — /de/how-it-works/ … /zh/one-vault/
+en/index.html              generated: redirects to the root — the old /en/ address, and /de/ /es/ /fr/
+<lang>/index.html            /pt/ /uk/ /zh/, the main page's address in each language it is not built in
 llms.txt                   the project for agents, in the llmstxt.org format
 llms-full.txt              the long form: a technical reference written for agents
 assets/style.css           tokens, components, diagrams, responsive rules, print, the @font-face rules, Chinese font stacks
-assets/site.js             tabs, the loop's lines and cartoon, copy buttons, language switcher, tone switch, the graph
-assets/                    the images: the mark, the touch icon and the link preview (below)
+assets/site.js             tabs, the carousel, the loop picture's pause, the live loop's lines and cartoon, copy
+                             buttons, language switcher, tone switch, the graph
+assets/                    the images: the mark, the touch icon, the link preview and the loop (below)
 assets/fonts/              the self-hosted fonts and their licences (see Fonts)
 ```
 
 The images in assets/ are mark.svg, the mark (the header logo and the favicon); icon-180.png, the
-mark for Safari's touch icon; and og.png, the 1280×640 link preview every page names in og:image and
-twitter:image. Their names stay out of code spans and blocks here: Anthropic's directory holds a
+mark for Safari's touch icon; og.png, the 1280×640 link preview every page names in og:image and
+twitter:image; and the main page's loop, two lossless WebP files: loop.webp, the animation, and
+loop-still.webp, its still. Their names stay out of code spans and blocks here: Anthropic's directory holds a
 version for a reviewer when a bundled image's path is written in backticks or a code block, and a
 directory tracking `main` would read this file (`node packaging/directory-guard.mjs --set repository`).
 
@@ -94,18 +100,25 @@ all of it counts toward the site's budget of 2,621,440 bytes, which `tests/site.
 ## Languages
 
 English is the default and lives at the root. Every other language has its own address, so a link to
-`/de/` always shows German, and each page is complete static HTML: readable without JavaScript, by
-crawlers and by agents. Each page lists the same page in every language as an `hreflang` alternate
-(`x-default` is the English one) and itself as canonical, all absolute under
-`https://projectstore.dev/`, and carries `og:` and `twitter:` tags with its own title and
-description and the absolute address of assets/og.png. The language switcher on a page links the
-same page in the other languages.
+`/de/how-it-works/` always shows German, and each page is complete static HTML: readable without
+JavaScript, by crawlers and by agents. A page kind is built in the languages its row in `PAGES`
+names: the method pages in all eight, the main page in English and Russian (the maintainer's
+decision of 2026-10-22), the privacy page in English. Each page lists the same page in every language
+it is built in as an `hreflang` alternate (`x-default` is the English one) and itself as canonical,
+all absolute under `https://projectstore.dev/`, and carries `og:` and `twitter:` tags with its own
+title and description and the absolute address of assets/og.png. The language switcher on a page
+links the same page in its other languages. A page links a kind not built in its language at the
+English address: a German method page's brand goes to `/`, never to `/de/`, which is a redirect.
 
 An English page, of any kind, picks a language only when the visitor has a reason to want one: an
 explicit earlier choice stored in the `ps_lang` cookie by the language switcher, otherwise the
 browser's preferred languages. It then goes to the same page in that language (`/how-it-works/` to
-`/de/how-it-works/`). If English comes first in the browser, or the visitor picked English in the
-switcher, the page stays English. Agents and crawlers run no JavaScript and always get English.
+`/de/how-it-works/`). A stored choice is followed only to a page built in it. Without one, the first
+browser language the site has in any page decides, and the page follows only if it is built in that
+language: on the main page, a browser saying `uk, ru` stays English rather than go to Russian, since
+`/uk/` would send the reader back. If English comes first in the browser, or the visitor picked
+English in the switcher, the page stays English. Agents and crawlers run no JavaScript and always get
+English.
 
 The tone switch in the header keeps the visitor's choice in `localStorage` under `ps_tone`. The
 early script, `src/_tone.html`, reads it before the first paint, sets `data-tone` on `<html>` and
@@ -128,7 +141,8 @@ data-i18n-attr="aria-label:nav.aria-label.2"  attribute values come from the dic
 
 A key is unique across the whole site: the same key in two templates must carry the same English,
 which the shared partials do by construction. That is how a sentence the main page and a method page
-share, a tab's label say, is translated once.
+share, a tab's label say, is translated once. A dictionary holds the keys of the pages built in its
+language, so de, es, fr, pt, uk and zh hold no main-page key, and `check` asks none of them for one.
 
 Day-to-day, from this folder, with Python 3.12:
 
@@ -162,8 +176,6 @@ What a translation may change and what it may not:
   with the dictionary key `start.bind-lang`: ` --lang <code>` for de, es, fr, ru and zh, and empty
   for en, pt and uk. `check` refuses any other value, and any `--lang` for a language without
   `templates/<code>/`.
-- **The band's words** in the main page's band card are the product's own for that language, from
-  `templates/<lang>/strings.json` where it exists.
 - **File names and session names.** Every path or session name made from an example title is what
   the product's own `slugify()` and `composeAnchorName()` make of that page's title (German keeps
   `ä`, French keeps `é`, Chinese keeps its characters). Artifacts are named by slug, as the product
@@ -200,14 +212,14 @@ page has its English page's ids, markers, marker values and fact values. The rul
 
 | Kind | Facts and markers it must carry |
 |---|---|
-| main | the version, the install and configure blocks, the prompt, the counts, an ADR example (`data-template="adr"`), a `data-source`; the loop; numbered sections 01–07 |
+| main | the version, the install block, the prompt; the sections `start`, `pains`, `loop`, `talk`, `quick`, `free`, none numbered |
 | How it works | the version, the agents count, the MCP tools listed, a story example (`data-template="story"`); the loop |
 | Why it works | the version |
 | One vault | the version, the setup line, a `data-source` |
 
 The version lives in one place, the footer partial `src/_footer.html`, so a release edits one file.
 
-The test also holds, on the English pages, a word budget (the main page at most 2,300 visible words,
+The test also holds, on the English pages, a word budget (the main page at most 1,300 visible words,
 a method page at most 1,100); on every page, the link-preview tags; in `assets/style.css`, colours
 only as tokens on `:root` (print aside); and in the templates, no colour literal in a `fill`,
 `stroke`, `stop-color` or `style` attribute (`<meta name="theme-color">` aside). For the tones it
@@ -219,15 +231,22 @@ accent and the roles 4.5:1, `--ink-5` the ratio it had on black, the text on the
 it); that every page ships in midnight, with the switch and the early script, its `theme-color` the
 `:root` `--bg`; and that the early script, run in `node:vm`, sets each tone the switch offers and
 midnight for anything else. It also holds that the page links and the header's second row switch
-under one media query, and that every main page opens with the three posters before the headline.
+under one media query; that both main pages open with the carousel (six slides on fixed keys, the
+first shown, no heading in a slide, the pause button before the dots) over the install box's two
+tabs; and that the loop figure's image is the animation, its one source the still under reduced
+motion, inside a link to the animation, the two files complete WebPs within 1,200,000 bytes. It runs the main page's redirect in `node:vm`: a stored `ru` and a browser
+saying `ru` go to Russian, and `de, ru` and `uk, ru, en` stay. It holds that no page and no llms file
+links a redirect.
 It holds the GitHub link on every page: one `a.gh` in the header's top row, to the repository, its
 mark hidden from a screen reader, its name "GitHub" untranslated, the word hidden at 760 px and
 narrower; and no page keeps the Star button it replaced.
 
-**The agents the site names** are positioning, not facts: every main page names Claude Code, Codex,
-Gemini CLI and Cursor, in that order, in the hero and as the terminal box's chips, and no page carries
-a harness status or calls Codex experimental in its language (the test holds the four names in one
-constant). The product's measured statuses stay in README, `docs/harnesses.md`, the manifests and
+**The agents the site names** are positioning, not facts: both main pages carry the agents line in
+the hero and in the trust ticks, "Works in Claude Code and Codex. OpenCode soon; Gemini, Z.ai and
+DeepSeek next.", its names untranslated and in that order, and name neither Cursor nor Gemini CLI;
+no page carries a harness status or calls Codex experimental in its language (the test holds the
+names in one constant). The link preview and How it works' description still name the four agents
+of 2026-10-14 until the maintainer decides otherwise. The product's measured statuses stay in README, `docs/harnesses.md`, the manifests and
 the llms files, which agents read as facts.
 
 For the graph, the test reads the `GRAPH` literal (every node is a kind the vault has, labelled with its
@@ -256,8 +275,8 @@ if git status --porcelain -- site/ | grep .; then echo "::error::the build left 
 A page edited by hand, a template edit never built, or an English change never extracted fails the
 merge; the diff shows what changed, and a file the build wrote that is not in the commit (a new
 language's page, say) is named on the line before the error. `npm test` stays Python-free; it checks what a stale build would get wrong without changing a
-word: each page's `?v=` asset hashes, its alternates and canonical, a page per dictionary, and the
-`en/` stub. (Python 3.12.7, 3.12.11, 3.12.15 and 3.14.6 have all rendered these pages byte for byte
+word: each page's `?v=` asset hashes, its alternates and canonical, a page per dictionary and kind,
+and the stubs. (Python 3.12.7, 3.12.11, 3.12.15 and 3.14.6 have all rendered these pages byte for byte
 the same so far; 3.12 stays the reference.)
 
 ## Releases
@@ -301,7 +320,7 @@ mechanisms, measured cost, and boundaries. The same two rules hold.
 ```bash
 python3 tools/i18n.py build
 python3 -m http.server 8474
-# → http://localhost:8474   (and /ru/, /de/, …)
+# → http://localhost:8474   (and /ru/, /de/how-it-works/, …)
 ```
 
 Opening `index.html` from disk works too; the language switcher adjusts its links for `file://`. The
@@ -344,10 +363,9 @@ Name, and under the OFL a subset made by a third party is a Modified Version tha
 Content is derived from ProjectStore v0.30.6 as of 2026-10-16: `README.md`, `docs/how-it-works.md`,
 `docs/getting-started.md`, `docs/harnesses.md`, the command and agent definitions, the harness
 manifests, `scaffold/layouts/engineering.json`, the templates, and the core's `slugify()` and
-`composeAnchorName()`. Every measured figure (22.5 %, 10–15 %, 2–6 parallel sessions, 12
-session-name offers across nine sessions) carries a `data-source` naming the README or docs heading
-it comes from, and the page shows those citations. The comparison figure in section 03 is labelled
-as a schema, not a measurement. Practice dates (Scrum 1995, XP 1999, ADR 2011, RFC 1969, DO-178B
+`composeAnchorName()`. Every measured figure (2–6 parallel sessions, 12 session-name offers across
+nine sessions) carries a `data-source` naming the README or docs heading it comes from, and the page
+shows those citations. Practice dates (Scrum 1995, XP 1999, ADR 2011, RFC 1969, DO-178B
 1992, kanban for software 2007) are the commonly cited ones. The example ADR, spec, story and
 session transcripts are illustrative; their shapes, names and headings are the product's. What
 `docs/alongside.md` and the "Where it fits" section of `llms-full.txt` say about other tools (agent
@@ -355,4 +373,11 @@ memory, instruction files, spec-driven tools) comes from the maintainer's resear
 memory, project memory and spec-driven tools: what projectstore is not, and how it runs beside
 them", whose sources were read on 2026-10-09; the docs page lists the sources row by row.
 
-Section 02 draws on the same note and names tools only as examples.
+The main page's texts are the maintainer's approved mockup, v11 of 2026-10-21, in English and
+Russian. The Quick start's third step quotes a real Claude Code session on an empty project, from
+2026-10-21. The loop is the marketing loop video's dashboard (posted on X on 2026-10-14), drawn by
+`tools/loop-media/loop.html` at the repository root, a copy of agent-film's `render/loop.html`, and
+rendered by `node tools/loop-media/render.mjs` (headless Chrome, then img2webp and cwebp, both
+lossless). Its side panel's figures are from a real epic's critic runs. Re-render it only when the
+loop's words or drawing change, in the same change as those words: each render adds a full copy of
+the two files to the history.
