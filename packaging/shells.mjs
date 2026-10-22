@@ -52,6 +52,7 @@ import { resolve, dirname, join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { filesDigest } from "../scripts/lib.mjs";
+import { packEntry } from "../scripts/version-guard.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const ROOT = resolve(HERE, "..");
@@ -358,7 +359,7 @@ export function packCore({ root = ROOT, dest = mkdtempSync(join(tmpdir(), "ps-co
   });
   if (r.status !== 0) return { error: `npm pack (the core) failed: ${r.stderr?.trim()}` };
   try {
-    const [p] = JSON.parse(r.stdout);
+    const p = packEntry(JSON.parse(r.stdout));
     return { tgz: resolve(dest, p.filename), version: p.version, files: p.files.map((f) => f.path).sort() };
   } catch (e) {
     return { error: `npm pack output unparseable: ${e.message}` };
@@ -407,7 +408,7 @@ export function buildShell(
   if (dry.status !== 0) return { error: `npm pack --dry-run (${name}) failed: ${dry.stderr?.trim()}` };
   let pkg;
   try {
-    [pkg] = JSON.parse(dry.stdout);
+    pkg = packEntry(JSON.parse(dry.stdout));
   } catch (e) {
     return { error: `npm pack output unparseable (${name}): ${e.message}` };
   }
@@ -441,7 +442,7 @@ export function buildShell(
     });
     if (real.status !== 0) return { error: `npm pack (${name}) failed: ${real.stderr?.trim()}` };
     try {
-      tgz = resolve(out, JSON.parse(real.stdout)[0].filename);
+      tgz = resolve(out, packEntry(JSON.parse(real.stdout)).filename);
     } catch (e) {
       return { error: `npm pack output unparseable (${name}): ${e.message}` };
     }
