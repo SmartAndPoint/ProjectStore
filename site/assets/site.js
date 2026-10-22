@@ -1,4 +1,4 @@
-/* ProjectStore site — tabs, the hero's headlines, the loop picture's pause, the loop's steps and cartoon,
+/* ProjectStore site — tabs, the hero's headlines, the loop's player, the loop's steps and cartoon,
    copy buttons, the language switcher, the tone switch, the graph behind the page.
    Vanilla, no dependencies, no build. */
 (function () {
@@ -110,21 +110,156 @@
     io.observe(root);
   });
 
-  /* ---------- the loop picture: a pause button swaps the animation for its still, and back ----------
-     Under reduced motion the picture's one source is the still. The button (shown only with script, hidden
-     under reduced motion) points the image at that still and back. */
-  each("[data-loopfig]", function (fig) {
-    var btn = fig.querySelector(".loopfig-pause");
-    var img = fig.querySelector("img");
-    var still = fig.querySelector("source");
-    if (!btn || !img || !still) return;
-    var anim = img.getAttribute("src");
-    fig.classList.add("js");
-    btn.addEventListener("click", function () {
-      var pause = btn.getAttribute("aria-pressed") !== "true";
-      btn.setAttribute("aria-pressed", pause ? "true" : "false");
-      img.setAttribute("src", pause ? still.getAttribute("srcset") : anim);
+  /* ---------- the loop's player: the loop's own page in a frame, played through its window.frame(t) ----------
+     The still is the poster and, without script, the whole picture. The frame loads when the figure first
+     shows; once its fonts are ready it covers the poster at the poster's own moment, and the bar appears. It plays while half of it is
+     on screen and pauses once it has left, unless the reader paused it; under reduced motion it waits on the
+     still frame. A click on the picture plays or pauses it; the bar carries play and pause, the position,
+     the time and full screen. Where an element cannot go full screen (Safari on iPhone) the player fills
+     the window instead. */
+  each("[data-player]", function (fig) {
+    var box = fig.querySelector(".player");
+    var tpl = fig.querySelector("template.player-src");
+    var bar = fig.querySelector(".player-bar");
+    var play = fig.querySelector(".player-play");
+    var seek = fig.querySelector(".player-seek");
+    var time = fig.querySelector(".player-time");
+    var full = fig.querySelector(".player-full");
+    if (!box || !tpl || !tpl.content || !bar || !play || !seek || !time || !full) return;
+    if (!window.requestAnimationFrame || !("IntersectionObserver" in window)) return;
+    var reduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: true };
+    var view = null, dur = 30, t = 0, playing = false, held = reduce.matches, inView = false, scrubbing = false;
+    var last = 0, raf = 0, hide = 0, drawn = -1, label = "";
+    function clock(s) { s = Math.floor(s); return Math.floor(s / 60) + ":" + (s % 60 < 10 ? "0" : "") + (s % 60); }
+    /* at most 30 pictures a second: a frame whose thirtieth of a second is unchanged is skipped */
+    function draw(moveThumb) {
+      var q = Math.floor(t * 30);
+      if (q === drawn && moveThumb !== false) return;
+      drawn = q;
+      view.frame(t);
+      if (moveThumb !== false) seek.value = String(t);
+      var now = clock(t) + " / " + clock(dur);
+      if (now === label) return;
+      label = now;
+      time.textContent = label;
+      seek.setAttribute("aria-valuetext", label);
+    }
+    function tick(now) {
+      if (!playing) return;
+      if (!scrubbing) {
+        t += Math.min(Math.max((now - last) / 1000, 0), 0.1);
+        if (t >= dur) t -= dur;
+        draw();
+      }
+      last = now;
+      raf = window.requestAnimationFrame(tick);
+    }
+    function setPlaying(on) {
+      play.setAttribute("aria-pressed", on ? "false" : "true");
+      box.classList.toggle("paused", !on);
+      if (on === playing) return;
+      playing = on;
+      if (on) { last = window.performance.now(); raf = window.requestAnimationFrame(tick); }
+      else window.cancelAnimationFrame(raf);
+    }
+    function settle() { setPlaying(!!view && (inView || isFull()) && !held && !document.hidden); }
+    /* the reader's play counts as in view: the picture was there to be clicked */
+    function toggle() {
+      held = playing;
+      if (!held) inView = true;
+      settle();
+    }
+    function show() {
+      box.classList.add("show");
+      window.clearTimeout(hide);
+      hide = window.setTimeout(function () { box.classList.remove("show"); }, 2500);
+    }
+    function load() {
+      var frame = tpl.content.firstElementChild.cloneNode(true);
+      frame.addEventListener("load", function () {
+        var w = frame.contentWindow;
+        /* opened from file://, the frame is another origin and reading it throws: the poster stays */
+        try { if (!w || typeof w.frame !== "function" || !w.ready) return; } catch (e) { return; }
+        w.ready.then(function () {
+          view = w;
+          dur = w.duration || dur;
+          seek.max = String(dur);
+          t = w.still || 0; /* the poster's own moment, so the swap does not show */
+          draw();
+          box.classList.add("ready");
+          bar.hidden = false;
+          settle();
+        });
+      });
+      box.insertBefore(frame, bar);
+    }
+
+    box.addEventListener("click", function (ev) {
+      if (!view || bar.contains(ev.target)) return;
+      toggle();
+      show();
     });
+    box.addEventListener("pointermove", function (ev) { if (ev.pointerType === "mouse") show(); });
+    play.addEventListener("click", toggle);
+    seek.addEventListener("pointerdown", function () { scrubbing = true; });
+    seek.addEventListener("input", function () {
+      if (!view) return;
+      t = Math.min(Math.max(Number(seek.value) || 0, 0), dur);
+      draw(false);
+    });
+    /* a press on the thumb that never moves it sends no change, so any release ends the scrub */
+    function release() {
+      if (!scrubbing) return;
+      scrubbing = false;
+      last = window.performance.now();
+    }
+    seek.addEventListener("change", release);
+    document.addEventListener("pointerup", release);
+    document.addEventListener("pointercancel", release);
+
+    /* full screen: the Fullscreen API where it works on an element, else the player fills the window */
+    function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+    function isFull() { return fsElement() === box || box.classList.contains("filled"); }
+    function sync() {
+      var on = isFull();
+      full.setAttribute("aria-pressed", on ? "true" : "false");
+      box.classList.toggle("full", on);
+      settle();
+    }
+    function fill(on) {
+      box.classList.toggle("filled", on);
+      document.documentElement.classList.toggle("player-open", on);
+      sync();
+    }
+    function landscape() {
+      var o = window.screen && window.screen.orientation;
+      if (o && o.lock) o.lock("landscape").catch(function () {});
+    }
+    full.addEventListener("click", function () {
+      if (fsElement()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+      if (box.classList.contains("filled")) { fill(false); return; }
+      var enter = box.requestFullscreen || box.webkitRequestFullscreen;
+      if (!enter) { fill(true); return; }
+      var done = enter.call(box);
+      if (done && done.then) done.then(landscape, function () { fill(true); });
+      else landscape();
+    });
+    document.addEventListener("fullscreenchange", sync);
+    document.addEventListener("webkitfullscreenchange", sync);
+    document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && box.classList.contains("filled")) fill(false); });
+
+    document.addEventListener("visibilitychange", settle);
+    if (reduce.addEventListener) reduce.addEventListener("change", function () { if (reduce.matches) { held = true; settle(); } });
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting && !box.querySelector(".player-frame")) load();
+        /* it starts at half on screen and stops once wholly off it */
+        if (e.intersectionRatio >= 0.5) inView = true;
+        else if (!e.isIntersecting) inView = false;
+      });
+      settle();
+    }, { threshold: [0, 0.5] });
+    io.observe(box);
   });
 
   /* ---------- the loop: a block shows its step's line; the blocks play until the reader takes over ----------
@@ -273,7 +408,7 @@
     // a stored tone counts only if a button offers it, so this script keeps no list of tones
     var offered = function (tone) { return toneBtns.some(function (b) { return b.getAttribute("data-tone-set") === tone; }); };
     var savedTone = function () {
-      try { var s = localStorage.getItem("ps_tone"); return offered(s) ? s : "midnight"; } catch (e) { return docEl.getAttribute("data-tone") || "midnight"; }
+      try { var s = localStorage.getItem("ps_tone"); return offered(s) ? s : "light"; } catch (e) { return docEl.getAttribute("data-tone") || "light"; }
     };
     applyTone(savedTone());
     toneBtns.forEach(function (b) {
@@ -336,7 +471,7 @@
       ringBox.appendChild(s);
       return s;
     });
-    document.body.insertBefore(svg, document.body.firstChild); /* after body::before: above the glow */
+    document.body.insertBefore(svg, document.body.firstChild); /* body's first child, under the content */
     document.body.insertBefore(ringBox, svg.nextSibling);
     var reduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
     var range = 0, frame = 0, live = false;
@@ -372,8 +507,19 @@
       });
       range = document.documentElement.scrollHeight - window.innerHeight; /* read here, never per scroll */
     }
+    /* while the page scrolls the graph sinks further (style.css, .scrolling), and comes back 0.3 s after the
+       last frame that found the scroll position moved; a load, a resize or an opening <details> does not dip it */
+    var calm = 0, root = document.documentElement, lastY = null;
+    function sink() {
+      if (!root || !root.classList || !window.setTimeout || (reduce && reduce.matches)) return; /* no snap under reduced motion */
+      root.classList.add("scrolling");
+      window.clearTimeout(calm);
+      calm = window.setTimeout(function () { root.classList.remove("scrolling"); }, 300);
+    }
     function draw() {
       frame = 0;
+      if (lastY !== null && window.scrollY !== lastY) sink();
+      lastY = window.scrollY;
       var whole = (reduce && reduce.matches) || range < 1;
       var p = whole ? 1 : Math.min(1, Math.max(0, window.scrollY / range));
       var rest = lines.length - GRAPH.open, step = 0.9 / Math.max(rest + 1, 1), reached = [];

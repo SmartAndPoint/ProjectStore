@@ -11,29 +11,32 @@ sections: the hero, whose headline is a carousel of six, each with its tagline, 
 it fixes, as was and now; the loop as a picture; what to say to the agent, in four cards; a quick
 start in four steps; and free and open source. The carousel turns about every 6 s, stops on hover,
 on focus and under reduced motion, and shows its first slide without JavaScript. The loop is the
-marketing loop's terminal dashboard, one English animated WebP for both pages, with a still for
-reduced motion and the pause button; a phone shows it whole and opens it full size on a tap.
+marketing loop's terminal dashboard, one English loop for both pages, in a standard player: a click
+plays or pauses it, and a bar carries play and pause, seeking and full screen. Its still is the
+poster, the whole picture without JavaScript, and where it waits under reduced motion.
 **The method has pages of its own:** *How it works* (the loop step by step, the six agents, the guards, a story closed with
 evidence), *Why it works* (decades-old practice, what was always expensive about it, the chain from
 goal to proof) and *One vault, many people* (sessions, teams and agents on one vault, the vault in
 git, a team setup).
 
-**The look** is a translucent terminal window in midnight blue: a soft glow fixed behind the page
-shows through panels in a translucent tint. Graphite and a light tone in cream paper are the second
-and third, chosen in the header. One
-amber accent; mono for labels, code and the terminal box; Onest for headlines and body; diagrams with real connectors in the colours of the narrated film (amber for
-what lands and for you, red for an independent check, blue for the planner and for participants,
-green for done). Every colour is a token on `:root` in `assets/style.css`: midnight's values, and
+**The look** is smartandpoint.com's, without its gradients (2026-10-22): a white page by default,
+with midnight and graphite as the dark tones chosen in the header; one indigo accent; pill buttons;
+cards rounded 16 px with a thin border; mono for labels, code and the terminal box; Onest for
+headlines and body; diagrams with real connectors in the colours of the narrated film (the accent
+for what lands and for you, red for an independent check, blue for the planner and for
+participants, green for done). There is no glow behind the page; the one gradient left is the
+diagrams' dot grid. Every colour is a token on `:root` in `assets/style.css`: midnight's values, and
 graphite's and light's under their own names (`--graphite-*`, `--light-*`), which
 `:root[data-tone="graphite"]` and `:root[data-tone="light"]` point tokens at, inside `@media screen`.
 A dark tone changes the surfaces only; light also recolours the text, the accent and the roles, and
 sets `color-scheme: light`. `--bg` is the opaque base, `--bg-1` to `--bg-4` are the translucent panels,
-`--bg-0` a well inside one, and `--bg-pop` the opaque surface of a menu. Print gets light tokens and
-no glow, and `prefers-reduced-motion` stops every animation. The brand is the repository's social-preview
+`--bg-0` a well inside one, and `--bg-pop` the opaque surface of a menu. Every page ships in light,
+named in its markup (`<html data-tone="light">`). Print gets its own light tokens, and
+`prefers-reduced-motion` stops every animation. The brand is the repository's social-preview
 mark and the wordmark `.projectstore`, whose dot is a round brand-coloured dot with a slow pulse.
 
-**The graph behind the page.** `assets/site.js` builds a faint graph in a fixed layer with the glow,
-under the content: a slice of this project's own vault, 28 artifacts around ADR-010 and 34 of the
+**The graph behind the page.** `assets/site.js` builds a faint graph in a fixed layer under the
+content, the whole layer at 30% opacity and at 10% while the page scrolls (`:root.scrolling`): a slice of this project's own vault, 28 artifacts around ADR-010 and 34 of the
 links among them (the rest are left out to keep it sparse), as `tools/graph-slice.mjs` cut it from the
 vault's `graph.md`. Only accepted, done, active, final and in-progress artifacts are shown, never a
 draft or a proposal. Each node carries its number and slug (`ADR-010 slug-first-artifa…`,
@@ -61,7 +64,7 @@ src/privacy.html           the privacy page (plugin.json's privacyPolicyUrl): En
                              PAGES builds it in "langs" alone, and every footer links it at the site root
 src/_header.html           partials every template splices in: the header and nav, the footer (where the
 src/_footer.html             version lives), the icon sprite and arrow markers, and the live loop diagram
-src/_sprite.html             (How it works)
+src/_sprite.html             (How it works); the sprite holds the player's full-screen icons too
 src/_loop.html
 src/_tone.html             the early script every template's <head> includes after the stylesheet: the saved tone
 locales/<lang>.json        one dictionary per language: en (extracted), de, es, fr, pt, ru, uk, zh; each holds
@@ -77,16 +80,17 @@ en/index.html              generated: redirects to the root — the old /en/ add
 llms.txt                   the project for agents, in the llmstxt.org format
 llms-full.txt              the long form: a technical reference written for agents
 assets/style.css           tokens, components, diagrams, responsive rules, print, the @font-face rules, Chinese font stacks
-assets/site.js             tabs, the carousel, the loop picture's pause, the live loop's lines and cartoon, copy
+assets/site.js             tabs, the carousel, the loop's player, the live loop's lines and cartoon, copy
                              buttons, language switcher, tone switch, the graph
-assets/                    the images: the mark, the touch icon, the link preview and the loop (below)
+assets/loop.html           the main page's loop: the marketing loop's dashboard, which the player plays in a
+                             frame through its window.frame(t)
+assets/                    the images: the mark, the touch icon, the link preview and the loop's still (below)
 assets/fonts/              the self-hosted fonts and their licences (see Fonts)
 ```
 
 The images in assets/ are mark.svg, the mark (the header logo and the favicon); icon-180.png, the
 mark for Safari's touch icon; og.png, the 1280×640 link preview every page names in og:image and
-twitter:image; and the main page's loop, two lossless WebP files: loop.webp, the animation, and
-loop-still.webp, its still. Their names stay out of code spans and blocks here: Anthropic's directory holds a
+twitter:image; and loop-still.webp, the still of the main page's loop, a lossless WebP. Its name stays out of code spans and blocks here: Anthropic's directory holds a
 version for a reviewer when a bundled image's path is written in backticks or a code block, and a
 directory tracking `main` would read this file (`node packaging/directory-guard.mjs --set repository`).
 
@@ -122,9 +126,9 @@ English.
 
 The tone switch in the header keeps the visitor's choice in `localStorage` under `ps_tone`. The
 early script, `src/_tone.html`, reads it before the first paint, sets `data-tone` on `<html>` and
-the `theme-color` from the computed `--bg`, so a page in graphite or light never shows midnight
-first. Without JavaScript, or without storage, a page is midnight, and without JavaScript the switch
-is not shown. Below 1200 px the page links leave the header row for a second row under it, so the
+the `theme-color` from the computed `--bg`, so a page in midnight or graphite never shows white
+first; it also sets `data-tones`, which shows the switch. Without JavaScript, or without storage, a
+page is light, and without JavaScript the switch is not shown. Below 1200 px the page links leave the header row for a second row under it, so the
 row with the switch, the language and the GitHub link never wraps in any language; below 400 px that
 row tightens, so it fits from 360 px. The GitHub link is GitHub's mark, inline in `currentColor`, and
 the name "GitHub", which no dictionary translates; at 760 px and narrower only the mark shows, and
@@ -228,13 +232,17 @@ dark tone surface tokens only, a light one (its `--bg` above 0.5 luminance) the 
 with `color-scheme: light`; that the base and the menus are opaque in every tone; that every text
 colour keeps its floor at its lowest over the surfaces text sits on (`--ink` to `--ink-4`, the
 accent and the roles 4.5:1, `--ink-5` the ratio it had on black, the text on the accent 4.5:1 on
-it); that every page ships in midnight, with the switch and the early script, its `theme-color` the
-`:root` `--bg`; and that the early script, run in `node:vm`, sets each tone the switch offers and
-midnight for anything else. It also holds that the page links and the header's second row switch
+it); that every page ships in light (`<html data-tone="light">`), with the switch and the early
+script, its `theme-color` the light tone's `--bg`; that the early script, run in `node:vm`, sets each
+tone the switch offers and light for anything else, and sets `data-tones`, the switch's gate; that
+the accent and the brand colour are an indigo in every tone; that no gradient is left but the
+diagrams' dot grid; and that the graph's layer is at most 0.3 at rest and 0.1 while scrolling. It also holds that the page links and the header's second row switch
 under one media query; that both main pages open with the carousel (six slides on fixed keys, the
 first shown, no heading in a slide, the pause button before the dots) over the install box's two
-tabs; and that the loop figure's image is the animation, its one source the still under reduced
-motion, inside a link to the animation, the two files complete WebPs within 1,200,000 bytes. It runs the main page's redirect in `node:vm`: a stored `ru` and a browser
+tabs; and that the loop figure is the player: the still with an alt, loop.html in the frame its
+template holds, a play and pause button, a seek range and a full-screen button with names, a caption
+and no link; the still a complete WebP and loop.html defining window.frame, window.duration,
+window.still and window.ready, the two within 300,000 bytes. It runs the main page's redirect in `node:vm`: a stored `ru` and a browser
 saying `ru` go to Russian, and `de, ru` and `uk, ru, en` stay. It holds that no page and no llms file
 links a redirect.
 It holds the GitHub link on every page: one `a.gh` in the header's top row, to the repository, its
@@ -377,8 +385,8 @@ The main page's texts are the maintainer's approved mockup, v11 of 2026-10-21, i
 Russian. The Quick start's third step quotes a real Claude Code session on an empty project, from
 2026-10-21. The loop is the marketing loop video's dashboard (v2, the corrected cut of the one posted
 on X on 2026-10-14), drawn by
-`tools/loop-media/loop.html` at the repository root, a copy of agent-film's `render/loop.html`, and
-rendered by `node tools/loop-media/render.mjs` (headless Chrome, then img2webp and cwebp, both
-lossless). Its side panel's figures are from a real epic's critic runs. Re-render it only when the
-loop's words or drawing change, in the same change as those words: each render adds a full copy of
-the two files to the history.
+`assets/loop.html`, a copy of agent-film's `render/loop.html`, which the player plays as it is. Its
+still is rendered by `node tools/loop-media/render.mjs` at the repository root (headless Chrome, then
+cwebp, lossless). Its side panel's figures are from a real epic's critic runs. Re-render the still
+only when the loop's words or drawing change, in the same change as those words: each render adds a
+full copy of it to the history.

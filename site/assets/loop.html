@@ -2,23 +2,27 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>ProjectStore — how a task goes</title>
 <style>
   /* The ProjectStore loop as a terminal dashboard: the site's diagram (site/src/_loop.html), its words and
      its role colours, animated step by step. The left panel is the critic on call, with what it said today
      on a real epic, and the model that run used (the demo profile's default); the legend's models are the
      maintainer's own setup. window.frame(t) draws the picture at second t; nothing runs on its own.
      The marketing loop video (PS-MARKETING; v1 posted on X 2026-10-14, the vault keeps the corrected
-     projectstore-loop-v2.mp4, whose panel this is) is this page, from agent-film's render/loop.html;
-     render.mjs beside it turns it into the main page's animated WebP and its still (PS-HARNESS: "The
-     front page speaks to a beginner …"). */
-  @font-face { font-family: "Plex"; src: url("../../site/assets/fonts/IBMPlexMono-Regular-Latin1.woff2") format("woff2"); font-weight: 400; }
-  @font-face { font-family: "Plex"; src: url("../../site/assets/fonts/IBMPlexMono-Medium-Latin1.woff2") format("woff2"); font-weight: 500 700; }
+     projectstore-loop-v2.mp4, whose panel this is) is this page, from agent-film's render/loop.html.
+     The main page's player (site.js) loads it in a frame and plays it through window.frame(t); in a
+     frame other than 1280 px wide the picture scales to fit. tools/loop-media/render.mjs captures its
+     still, the player's poster (PS-HARNESS: "The front page speaks to a beginner …"). */
+  @font-face { font-family: "Plex"; src: url("fonts/IBMPlexMono-Regular-Latin1.woff2") format("woff2"); font-weight: 400; }
+  @font-face { font-family: "Plex"; src: url("fonts/IBMPlexMono-Medium-Latin1.woff2") format("woff2"); font-weight: 500 700; }
   :root {
     --bg: #080d19; --win: rgba(11, 18, 34, 0.96); --line: #26345a; --line-2: #1b2645; --line-4: #46546f; --line-5: #5b6884;
     --ink: #e6e3d8; --hi: #ffffff; --ink-2: #c9c6bb; --ink-3: #a3a89a; --ink-4: #8d9285; --ink-5: #7f8578;
     --acc: #ffb347; --acc-bg: #1d232ddb; --chk: #ff7a7a; --chk-bg: #202031db; --pln: #7cc4ff; --pln-bg: #152439db;
     --ok: #7bd88f; --ok-bg: #152531db; --nb: #142036cc;
   }
+  body { transform-origin: 0 0; }
   html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; font-family: "Plex", Menlo, monospace; color: var(--ink);
     background: radial-gradient(70% 90% at 6% 0%, #3d63dd47, transparent 70%),
                 radial-gradient(60% 80% at 100% 30%, #7c5cff26, transparent 70%),
@@ -249,6 +253,10 @@ ${verdict ? `<div class="bad">● revise · 2 blockers</div><div>&nbsp; phones c
       : t >= 24.6 ? `<b>↺</b>${esc(typed("Every artifact lands in the vault, and the next session sees it.", 24.6, t, 90))}` : "";
     $("end").style.opacity = ease((t - 25.8) / 0.6);
   };
+  // the player's frame is as wide as the figure: the 1280 × 720 picture scales to it
+  const fit = () => { const k = innerWidth / 1280; document.body.style.transform = k === 1 ? "" : `scale(${k})`; };
+  addEventListener("resize", fit);
+  fit();
   window.duration = DUR;
   window.still = 28; // the whole loop done, its last line typed and the closing line shown
   window.ready = document.fonts.ready.then(() => true);

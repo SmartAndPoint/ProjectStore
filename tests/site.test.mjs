@@ -1818,6 +1818,10 @@ function toneRules(blocks, media = null) {
   });
 }
 const DEFAULT_TONE = "midnight";
+// The tone every page ships in, the light rule, named in its markup
+// (<html data-tone="light">) since the look story of 2026-10-22; the palette on
+// :root stays midnight's, the source the tones draw from.
+const SHIP_TONE = "light";
 const TONE_KEY = "ps_tone";
 // What a tone may change: the surfaces (a role's tint on a panel among them),
 // the lines, the header tint and the glow. A light tone may also recolour what
@@ -1900,13 +1904,13 @@ function checkTones(file, css) {
       out.push(finding(file, "tone", `${tone} --head-bg is ${resolveToken(tokens, "--head-bg")}; at least d1 dense`));
   }
   const hides = blocks.some((b) => b.head === ".tone-switch" && /display:\s*none/.test(b.body));
-  const shows = blocks.some((b) => /^:root\[data-tone\] \.tone-switch$/.test(b.head) && /display:/.test(b.body));
+  const shows = blocks.some((b) => /^:root\[data-tones\] \.tone-switch$/.test(b.head) && /display:/.test(b.body));
   if (!hides || !shows)
     out.push(
       finding(
         file,
         "tone",
-        ".tone-switch is not hidden until :root[data-tone] shows it; without the script it would show",
+        ".tone-switch is not hidden until :root[data-tones] shows it; without the script it would show",
       ),
     );
   return out;
@@ -1987,22 +1991,27 @@ function checkToneContrast(file, css) {
   return out;
 }
 
-// AC "Midnight by default", "One two-way switch" and "Remembered, without a
-// flash": a page ships in the default tone — no data-tone on <html>, its
-// theme-color the --bg :root declares — and carries the switch, a named
+// AC "White by default" (the look story; before it, "Midnight by default"),
+// "One two-way switch" and "Remembered, without a flash": a page ships in
+// SHIP_TONE — <html data-tone="light">, its theme-color that tone's --bg — and
+// carries the switch, a named
 // position per tone with aria-pressed, and in <head>, after the stylesheet,
 // the one early script that reads the tone's key and sets data-tone.
 function checkTonePage(page, tones, bg) {
   const out = [];
   const html = page.els.find((el) => el.name === "html");
-  if (html && "data-tone" in html.attrs)
+  if (html?.attrs["data-tone"] !== SHIP_TONE)
     out.push(
-      finding(page.file, "tone", `<html data-tone="${html.attrs["data-tone"]}">: a page ships in ${DEFAULT_TONE}`),
+      finding(page.file, "tone", `<html data-tone="${html?.attrs["data-tone"] ?? ""}">: a page ships in ${SHIP_TONE}`),
     );
   const meta = page.els.find((el) => el.name === "meta" && el.attrs.name === "theme-color");
   if ((meta?.attrs.content ?? "").toLowerCase() !== bg.toLowerCase())
     out.push(
-      finding(page.file, "theme-color", `theme-color is ${meta?.attrs.content ?? "missing"}; :root --bg is ${bg}`),
+      finding(
+        page.file,
+        "theme-color",
+        `theme-color is ${meta?.attrs.content ?? "missing"}; ${SHIP_TONE} --bg is ${bg}`,
+      ),
     );
   const switches = page.els.filter((el) => hasClass(el, "tone-switch"));
   if (switches.length !== 1)
@@ -2037,8 +2046,12 @@ function checkTonePage(page, tones, bg) {
         `${early.length} scripts read ${TONE_KEY} in <head> after the stylesheet; one does`,
       ),
     );
-  else if (/location\.replace\(/.test(early[0][1]) || !/setAttribute\("data-tone"/.test(early[0][1]))
-    out.push(finding(page.file, "tone-script", "the early script redirects, or sets no data-tone"));
+  else if (
+    /location\.replace\(/.test(early[0][1]) ||
+    !/setAttribute\("data-tone"/.test(early[0][1]) ||
+    !/setAttribute\("data-tones"/.test(early[0][1])
+  )
+    out.push(finding(page.file, "tone-script", "the early script redirects, or sets no data-tone or no data-tones"));
   return out;
 }
 
@@ -2079,13 +2092,13 @@ function checkToneScript(file, partial, tones) {
     } catch (e) {
       return `an error (${e.message})`;
     }
-    return attrs["data-tone"] ?? "none";
+    return "data-tones" in attrs ? (attrs["data-tone"] ?? "none") : "set without data-tones";
   };
   const cases = [
     ...tones.map((t) => [`"${t}" stored`, t, t]),
-    ["nothing stored", null, DEFAULT_TONE],
-    ['"sepia" stored', "sepia", DEFAULT_TONE],
-    ["storage that throws", new Error("storage is off"), DEFAULT_TONE],
+    ["nothing stored", null, SHIP_TONE],
+    ['"sepia" stored', "sepia", SHIP_TONE],
+    ["storage that throws", new Error("storage is off"), SHIP_TONE],
   ];
   return cases.flatMap(([label, stored, want]) => {
     const got = run(stored);
@@ -2227,46 +2240,53 @@ function checkInstallBox(page) {
   return broken.length ? [finding(page.file, "install-box", broken.join("; "))] : [];
 }
 
-// AC "The loop media": the loop section's figure is the marketing loop, one
-// picture in English for both main pages (the maintainer's decision of
-// 2026-10-22) — the animation for the image, its still for reduced motion —
-// inside a link to the animation, which a phone opens full size; with an alt
-// and a caption in the page's language. The load check sees each file
-// through <source>, <img> and the link; this sees which file is where.
-const LOOP_ANIMATION = "loop.webp";
+// AC "The loop media": the loop section's figure is the marketing loop in a
+// player, one English picture for both main pages (the maintainer's decisions
+// of 2026-10-22): the still as an <img> with an alt (the poster, and the whole
+// picture without script); the loop's own page as the src of an aria-hidden,
+// unfocusable frame that site.js clones from a <template>; a play and pause
+// button, a seek range and a full-screen button, each with a name; a caption;
+// and no link, so nothing opens in a new window. The load check sees each file
+// through <img> and <iframe>; this sees which file is where.
+const LOOP_PAGE = "loop.html";
 const LOOP_STILL = "loop-still.webp";
-const LOOP_FILES = [LOOP_ANIMATION, LOOP_STILL];
+const LOOP_FILES = [LOOP_PAGE, LOOP_STILL];
+const LOOP_CONTROLS = [
+  ["button", "player-play"],
+  ["input", "player-seek"],
+  ["button", "player-full"],
+];
 function checkLoopFigure(page) {
-  const figs = page.els.filter((el) => "data-loopfig" in el.attrs);
+  const figs = page.els.filter((el) => "data-player" in el.attrs);
   if (figs.length !== 1) return [finding(page.file, "loop-figure", `${figs.length} loop figures; one`)];
   const [fig] = figs;
   const inside = page.els.filter((el) => within(fig, el));
   const base = (v) => posix.basename(v ?? "");
-  const sources = inside.filter((el) => el.name === "source");
+  const classes = (el) => (el.attrs.class ?? "").split(/\s+/);
   const img = inside.find((el) => el.name === "img");
-  const link = inside.find((el) => el.name === "a" && img && within(el, img));
+  const tpl = inside.find((el) => el.name === "template");
+  const frame = inside.find((el) => el.name === "iframe");
   const broken = [];
-  const still = sources.map((el) => [el.attrs.media ?? "", base(el.attrs.srcset)]);
-  if (still.length !== 1 || still[0][0] !== "(prefers-reduced-motion: reduce)" || still[0][1] !== LOOP_STILL)
-    broken.push(`the sources are ${JSON.stringify(still)}; one, ${LOOP_STILL} under reduced motion`);
-  if (base(img?.attrs.src) !== LOOP_ANIMATION)
-    broken.push(`the image is ${img?.attrs.src ?? "missing"}; ${LOOP_ANIMATION}`);
-  if (base(link?.attrs.href) !== LOOP_ANIMATION) broken.push(`the picture is not inside a link to ${LOOP_ANIMATION}`);
+  if (base(img?.attrs.src) !== LOOP_STILL) broken.push(`the image is ${img?.attrs.src ?? "missing"}; ${LOOP_STILL}`);
   if (!(img?.attrs.alt ?? "").trim()) broken.push("the picture has no alt");
+  if (!frame || !tpl || !within(tpl, frame) || base(frame.attrs.src) !== LOOP_PAGE)
+    broken.push(`the player's frame is ${frame?.attrs.src ?? "missing"}; ${LOOP_PAGE}, inside a <template>`);
+  else if (frame.attrs["aria-hidden"] !== "true" || frame.attrs.tabindex !== "-1")
+    broken.push("the player's frame is not aria-hidden and out of the tab order");
+  for (const [name, cls] of LOOP_CONTROLS)
+    if (!inside.some((el) => el.name === name && classes(el).includes(cls) && (el.attrs["aria-label"] ?? "").trim()))
+      broken.push(`no <${name} class="${cls}"> with a name`);
+  for (const a of inside.filter((el) => el.name === "a"))
+    broken.push(`the figure links to ${a.attrs.href ?? "nothing"}; it links to no file`);
   if (!inside.find((el) => el.name === "figcaption")?.text.trim()) broken.push("the figure has no caption");
   return broken.length ? [finding(page.file, "loop-figure", broken.join("; "))] : [];
 }
-// The two files themselves: each a complete WebP (its RIFF size is the file's),
-// together within the story's cap.
-const LOOP_BYTES = 1200000;
-// A well-formed WebP of n bytes, for the planted cases.
-const webpOf = (n) => {
-  const buf = Buffer.alloc(Math.max(n, 12));
-  buf.write("RIFF", 0, "latin1");
-  buf.writeUInt32LE(buf.length - 8, 4);
-  buf.write("WEBP", 8, "latin1");
-  return buf;
-};
+// The two files themselves: the still a complete WebP (its RIFF size is the
+// file's), the page defining the four globals the player reads, together
+// within the story's cap. That the page loads nothing from another origin is
+// the load check's, which reads every page Pages serves, this one among them.
+const LOOP_BYTES = 300000;
+const LOOP_GLOBALS = ["frame", "duration", "still", "ready"];
 function checkLoopFiles(files) {
   const out = [];
   let total = 0;
@@ -2276,6 +2296,13 @@ function checkLoopFiles(files) {
       continue;
     }
     total += buf.length;
+    if (name.endsWith(".html")) {
+      const text = buf.toString("utf8");
+      for (const g of LOOP_GLOBALS)
+        if (!new RegExp(`window\\.${g}\\s*=`).test(text))
+          out.push(finding(`${SITE}/assets/${name}`, "loop-files", `the page defines no window.${g}`));
+      continue;
+    }
     const riff =
       buf.length >= 12 && buf.toString("latin1", 0, 4) === "RIFF" && buf.toString("latin1", 8, 12) === "WEBP";
     if (!riff || buf.readUInt32LE(4) + 8 !== buf.length)
@@ -2382,7 +2409,7 @@ function checkGraphData(file, js) {
   return out;
 }
 
-// AC "Out of the way": the layer is fixed with the glow, under the content,
+// AC "Out of the way": the layer is fixed, under the content,
 // takes no pointer; its lines stroke its colour, --graph, which every tone
 // sets; its nodes fill --node; print and forced colours hide it; reduced
 // motion draws it whole and still; a narrow screen shows no labels.
@@ -3263,6 +3290,87 @@ test("site: every colour is a token — none outside :root and the print rules i
   assert.deepEqual(found, [], show(found));
 });
 
+// The look story of 2026-10-22 (PS-HARNESS, "The site takes smartandpoint.com's
+// look …"). AC "One accent, readable": in every tone the accent and the brand
+// colour resolve to an indigo, an HSL hue from 230° to 250°.
+const hueOf = (hex) => {
+  const c = rgba(hex);
+  if (!c) return null;
+  const [r, g, b] = [c.r / 255, c.g / 255, c.b / 255];
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  if (!d) return null;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+};
+function checkAccent(file, css) {
+  return toneSets(css).flatMap(([tone, tokens]) =>
+    ["--accent", "--brand"].flatMap((name) => {
+      const value = resolveToken(tokens, name);
+      const hue = hueOf(value);
+      return hue !== null && hue >= 230 && hue <= 250
+        ? []
+        : [finding(file, "accent", `${tone}: ${name} is ${value}; an indigo, hue 230°–250°`)];
+    }),
+  );
+}
+// AC "No gradients": no gradient but the dot grid of .diagram and .mode-box,
+// a pattern rather than a colour fade. The glow behind the page is gone.
+const DOT_GRID = "radial-gradient(var(--dot) 1px, transparent 1px)";
+function checkNoGradients(file, css) {
+  return cssRules(css).flatMap((r) => {
+    const found = r.body.match(/[a-z-]*gradient\([^;]*/g) ?? [];
+    if (!found.length) return [];
+    const grid = [".diagram", ".mode-box"].includes(r.head) && found.every((g) => g.trim() === DOT_GRID);
+    return grid ? [] : [finding(file, "gradient", `${r.head} paints ${found[0].trim()}; only the dot grid may`)];
+  });
+}
+// AC "The graph barely shows": the whole layer at 0.3 or less at rest, and at
+// 0.1 or less under :root.scrolling, which site.js sets while the page scrolls.
+const GRAPH_REST = [".graph, .graph-rings", 0.3];
+const GRAPH_MOVING = [":root.scrolling .graph, :root.scrolling .graph-rings", 0.1];
+function checkGraphQuiet(file, css) {
+  const rules = cssRules(css).filter((r) => !r.media);
+  return [GRAPH_REST, GRAPH_MOVING].flatMap(([head, most]) => {
+    const rule = rules.find((r) => r.head === head);
+    const value = Number(/(?:^|;)\s*opacity:\s*([\d.]+)/.exec(rule?.body ?? "")?.[1] ?? NaN);
+    return value <= most ? [] : [finding(file, "graph-quiet", `${head} is at opacity ${value}; at most ${most}`)];
+  });
+}
+
+// AC "White by default", site.js's half: with no stored tone, or no storage,
+// the switch's script falls back to SHIP_TONE, as the early script does.
+function checkToneFallback(file, js) {
+  const line = /var savedTone = function \(\) \{\s*([^\n]*)/.exec(js)?.[1] ?? "";
+  const literals = [...line.matchAll(/(?:\? s :|\|\|) "([a-z]+)"/g)].map((m) => m[1]);
+  return literals.length === 2 && literals.every((t) => t === SHIP_TONE)
+    ? []
+    : [finding(file, "tone", `site.js falls back to ${literals.join(" and ") || "nothing"}; ${SHIP_TONE} both times`)];
+}
+// The main button's label, --bg on --ink-hi, readable in every tone (it is
+// outside the floors above, which hold text on surfaces).
+function checkMainButton(file, css) {
+  return toneSets(css).flatMap(([tone, tokens]) => {
+    const [label, fill] = ["--bg", "--ink-hi"].map((n) => rgba(resolveToken(tokens, n)));
+    const ratio = label && fill ? contrast(label, fill) : 0;
+    return ratio >= 4.5
+      ? []
+      : [finding(file, "contrast", `${tone}: the main button is ${ratio.toFixed(2)}:1; at least 4.5`)];
+  });
+}
+
+test("site: the look of 2026-10-22 — the accent and the brand indigo in every tone, no gradient but the diagrams' dot grid, the graph at 0.3 at rest and 0.1 while the page scrolls, the main button readable, and site.js falling back to light", () => {
+  const css = read(STYLE);
+  const found = [
+    ...checkAccent(STYLE, css),
+    ...checkNoGradients(STYLE, css),
+    ...checkGraphQuiet(STYLE, css),
+    ...checkMainButton(STYLE, css),
+    ...checkToneFallback(`${SITE}/assets/site.js`, read(`${SITE}/assets/site.js`)),
+  ];
+  assert.deepEqual(found, [], show(found));
+});
+
 test("site: the tones — midnight on :root, graphite and light screen-only rules (graphite over surface tokens, light over the text too, with color-scheme: light), the covering surfaces opaque, and every text colour readable at its lowest", () => {
   const css = read(`${SITE}/assets/style.css`);
   assert.deepEqual(
@@ -3274,10 +3382,11 @@ test("site: the tones — midnight on :root, graphite and light screen-only rule
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: every page ships in midnight — no data-tone, theme-color the :root --bg — with the tone switch in its header and the early script in its head, and site.js keeps the tone under the key that script reads", () => {
+test('site: every page ships in light — <html data-tone="light">, theme-color the light tone\'s --bg — with the tone switch in its header and the early script in its head, and site.js keeps the tone under the key that script reads', () => {
   const css = read(`${SITE}/assets/style.css`);
-  const tones = toneSets(css).map(([tone]) => tone);
-  const bg = rootTokens(cssBlocks(css))["--bg"];
+  const sets = toneSets(css);
+  const tones = sets.map(([tone]) => tone);
+  const bg = resolveToken(Object.fromEntries(sets)[SHIP_TONE], "--bg");
   const found = [
     ...eachPage((page) => checkTonePage(page, tones, bg)),
     ...checkToneKey(`${SITE}/assets/site.js`, read(`${SITE}/assets/site.js`), read(`${SITE}/src/_tone.html`)),
@@ -3315,7 +3424,7 @@ test("site: both main pages carry the story's title and description and open wit
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: both main pages show the marketing loop, its still under reduced motion, inside a link that opens it full size, with an alt and a caption; its two files are complete WebPs within 1,200,000 bytes", () => {
+test("site: both main pages show the marketing loop in a player — the still with an alt as its poster, the loop's page in a template's frame, three named controls, a caption, no link; the still a complete WebP and the page with its four globals, within 300,000 bytes", () => {
   const mains = PAGES.filter((p) => p.page && p.kind === "main");
   const files = LOOP_FILES.map((n) => {
     const f = join(ROOT, SITE, "assets", n);
@@ -3324,24 +3433,34 @@ test("site: both main pages show the marketing loop, its still under reduced mot
   assert.deepEqual(
     siteFiles()
       .map((f) => posix.basename(f.path))
-      .filter((n) => /^loop.*\.webp$/.test(n))
+      .filter((n) => /^loop/.test(n))
       .sort(),
     [...LOOP_FILES].sort(),
     "no other loop file is left in site/assets/",
   );
   const found = [...mains.flatMap((p) => checkLoopFigure(p.page)), ...checkLoopFiles(files)];
   assert.deepEqual(found, [], show(found));
-  // Planted: a file cut short, a file gone, and the two over the cap.
-  const [first] = files;
+  // Planted: the still cut short, the still gone, the page without its frame
+  // function, the page without its ready promise, and the two over the cap.
+  const [page, still] = files;
   const total = files.reduce((n, [, buf]) => n + buf.length, 0);
-  for (const [planted, fact, message] of [
-    [[[first[0], first[1].subarray(0, first[1].length - 1)], ...files.slice(1)], "loop-files", /not a complete WebP/],
-    [[[first[0], null], ...files.slice(1)], "loop-files", /not under site\/assets\//],
-    [[...files, ["loop-extra.webp", webpOf(LOOP_BYTES - total + 1)]], "loop-files", /the cap is 1200000 B/],
+  const pageWith = (buf) => [page[0], buf];
+  for (const [planted, message] of [
+    [[page, [still[0], still[1].subarray(0, still[1].length - 1)]], /not a complete WebP/],
+    [[page, [still[0], null]], /not under site\/assets\//],
+    [
+      [pageWith(Buffer.from(page[1].toString("utf8").replace("window.frame =", "window.draw ="))), still],
+      /defines no window\.frame$/,
+    ],
+    [
+      [pageWith(Buffer.from(page[1].toString("utf8").replace("window.ready =", "window.fontsReady ="))), still],
+      /defines no window\.ready$/,
+    ],
+    [[pageWith(Buffer.concat([page[1], Buffer.alloc(LOOP_BYTES - total + 1, 32)])), still], /the cap is 300000 B/],
   ]) {
     const got = checkLoopFiles(planted);
     assert.equal(got.length, 1, show(got));
-    assert.equal(got[0].fact, fact);
+    assert.equal(got[0].fact, "loop-files");
     assert.match(got[0].message, message);
   }
 });
@@ -3679,7 +3798,7 @@ const PLANTED = [
     ...onPage("pt", (p) => checkAlternates(p, LANGS), "one-vault"),
     fact: "lang",
     message: /pt is pt-BR/,
-    edits: [['<html lang="pt-BR">', '<html lang="pt">']],
+    edits: [['<html lang="pt-BR"', '<html lang="pt"']],
   },
   {
     ac: "2",
@@ -4310,7 +4429,7 @@ const PLANTED = [
     what: "the tone switch shown without the early script",
     ...onText(STYLE, checkTones),
     fact: "tone",
-    message: /\.tone-switch is not hidden until :root\[data-tone\] shows it/,
+    message: /\.tone-switch is not hidden until :root\[data-tones\] shows it/,
     edits: [[".tone-switch { display: none;", ".tone-switch { display: inline-flex;"]],
   },
   {
@@ -4327,7 +4446,7 @@ const PLANTED = [
     ...onText(STYLE, checkToneContrast),
     fact: "contrast",
     message: /^graphite: --ink-\d is \d\.\d\d:1/,
-    edits: [["--graphite-accent-bg: #252320db;", "--graphite-accent-bg: #4a4235db;"]],
+    edits: [["--graphite-accent-bg: #23243adb;", "--graphite-accent-bg: #4a4235db;"]],
   },
   {
     ac: "Still on tokens",
@@ -4338,17 +4457,78 @@ const PLANTED = [
     edits: [[/$/, '\n@supports (color: red) {\n  :root[data-tone="graphite"] { --bg: var(--graphite-bg); }\n}\n']],
   },
   {
-    ac: "Midnight by default",
-    what: "a page whose theme-color is not the :root --bg",
-    ...onPage("pt", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#080d19"), "one-vault"),
+    ac: "White by default",
+    what: "a page whose theme-color is not the light tone's --bg",
+    ...onPage("pt", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#ffffff"), "one-vault"),
     fact: "theme-color",
-    message: /theme-color is #0b0c0a; :root --bg is #080d19/,
+    message: /theme-color is #0b0c0a; light --bg is #ffffff/,
     edits: [[/(<meta name="theme-color" content=")[^"]*/, "$1#0b0c0a"]],
+  },
+  {
+    ac: "White by default",
+    what: "a page in midnight",
+    ...onPage("pt", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#ffffff"), "why-it-works"),
+    fact: "tone",
+    message: /^<html data-tone="">: a page ships in light$/,
+    edits: [['<html lang="pt-BR" data-tone="light">', '<html lang="pt-BR">']],
+  },
+  {
+    ac: "One accent, readable",
+    what: "the light accent put back to copper",
+    ...onText(STYLE, checkAccent),
+    fact: "accent",
+    message: /^light: --accent is #a1491f; an indigo/,
+    edits: [["--light-accent: #4f46e5;", "--light-accent: #a1491f;"]],
+  },
+  {
+    ac: "No gradients",
+    what: "the glow put back behind the page",
+    ...onText(STYLE, checkNoGradients),
+    fact: "gradient",
+    message: /^body::before paints radial-gradient/,
+    edits: [
+      [
+        /$/,
+        "\n@media screen { body::before { background: radial-gradient(70vw 60vh at 8% 0%, var(--accent-soft), transparent 70%); } }\n",
+      ],
+    ],
+  },
+  {
+    ac: "The graph barely shows",
+    what: "the graph back at 0.6",
+    ...onText(STYLE, checkGraphQuiet),
+    fact: "graph-quiet",
+    message: /^\.graph, \.graph-rings is at opacity 0\.6; at most 0\.3$/,
+    edits: [[".graph, .graph-rings { opacity: 0.3;", ".graph, .graph-rings { opacity: 0.6;"]],
+  },
+  {
+    ac: "White by default",
+    what: "site.js falling back to midnight",
+    ...onText(`${SITE}/assets/site.js`, checkToneFallback),
+    fact: "tone",
+    message: /^site\.js falls back to midnight and light; light both times$/,
+    edits: [['return offered(s) ? s : "light";', 'return offered(s) ? s : "midnight";']],
+  },
+  {
+    ac: "White by default",
+    what: "the switch shown by [data-tone] again",
+    ...onText(STYLE, checkTones),
+    fact: "tone",
+    message: /\.tone-switch is not hidden until :root\[data-tones\] shows it/,
+    edits: [[":root[data-tones] .tone-switch {", ":root[data-tone] .tone-switch {"]],
+  },
+  {
+    ac: "The look",
+    what: "the main button lettered in its own fill",
+    ...onText(STYLE, checkMainButton),
+    fact: "contrast",
+    message: /^light: the main button is 1\.00:1/,
+    edits: [["--light-bg: #ffffff;", "--light-bg: #171717;"]],
   },
   {
     ac: "One two-way switch",
     what: "a switch without its graphite position",
-    ...onPage("zh", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#080d19"), "why-it-works"),
+    ...onPage("zh", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#ffffff"), "why-it-works"),
     fact: "tone-switch",
     message: /no position for graphite/,
     edits: [[/<button class="tone-opt" type="button" data-tone-set="graphite"[^>]*>.*?<\/button>/, ""]],
@@ -4356,7 +4536,7 @@ const PLANTED = [
   {
     ac: "Remembered, without a flash",
     what: "a page without the early script",
-    ...onPage("de", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#080d19"), "one-vault"),
+    ...onPage("de", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#ffffff"), "one-vault"),
     fact: "tone-script",
     message: /0 scripts read ps_tone in <head>/,
     edits: [[/<script>\(function\(\)\{var d=document\.documentElement[\s\S]*?<\/script>\n?/, ""]],
@@ -4405,15 +4585,15 @@ const PLANTED = [
     ...onText(STYLE, checkToneContrast),
     fact: "contrast",
     message: /^light: --(?:on-)?accent is \d\.\d\d:1/,
-    edits: [["--light-accent: #a1491f;", "--light-accent: #c4643c;"]],
+    edits: [["--light-accent: #4f46e5;", "--light-accent: #c4643c;"]],
   },
   {
     ac: "Readable in every tone",
-    what: "a light --ink-4 too pale for cream",
+    what: "a light --ink-4 too pale for white",
     ...onText(STYLE, checkToneContrast),
     fact: "contrast",
     message: /^light: --ink-4 is \d\.\d\d:1 at its lowest; at least 4\.5/,
-    edits: [["--light-ink-4: #5c584e;", "--light-ink-4: #8a857a;"]],
+    edits: [["--light-ink-4: #5c5c5c;", "--light-ink-4: #8f8f8f;"]],
   },
   {
     ac: "Readable in every tone",
@@ -4421,12 +4601,12 @@ const PLANTED = [
     ...onText(STYLE, checkToneContrast),
     fact: "contrast",
     message: /^light: --done is \d\.\d\d:1 at its lowest; at least 4\.5/,
-    edits: [["--light-done: #05683f;", "--light-done: #3a9a6a;"]],
+    edits: [["--light-done: #065f46;", "--light-done: #3a9a6a;"]],
   },
   {
     ac: "Three positions",
     what: "a page without its light position",
-    ...onPage("uk", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#080d19"), "how-it-works"),
+    ...onPage("uk", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#ffffff"), "how-it-works"),
     fact: "tone-switch",
     message: /no position for light/,
     edits: [[/<button class="tone-opt" type="button" data-tone-set="light"[^>]*>.*?<\/button>/, ""]],
@@ -4434,7 +4614,7 @@ const PLANTED = [
   {
     ac: "Three positions",
     what: "a switch offering a tone the stylesheet does not declare",
-    ...onPage("fr", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#080d19"), "one-vault"),
+    ...onPage("fr", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#ffffff"), "one-vault"),
     fact: "tone-switch",
     message: /^the switch offers sepia, which the stylesheet does not declare$/,
     edits: [
@@ -4449,16 +4629,16 @@ const PLANTED = [
     what: "an early script that takes any stored id",
     ...onText(TONE_PARTIAL, (file, partial) => checkToneScript(file, partial, [DEFAULT_TONE, "graphite", "light"])),
     fact: "tone-script",
-    message: /^"sepia" stored: data-tone is sepia; midnight is expected/,
-    edits: [['if(s==="graphite"||s==="light")t=s;', "t=s||t;"]],
+    message: /^"sepia" stored: data-tone is sepia; light is expected/,
+    edits: [['if(s==="graphite"||s==="midnight")t=s;', "t=s||t;"]],
   },
   {
     ac: "Three positions",
-    what: "an early script that forgets light",
+    what: "an early script that forgets midnight",
     ...onText(TONE_PARTIAL, (file, partial) => checkToneScript(file, partial, [DEFAULT_TONE, "graphite", "light"])),
     fact: "tone-script",
-    message: /^"light" stored: data-tone is midnight; light is expected/,
-    edits: [['||s==="light"', ""]],
+    message: /^"midnight" stored: data-tone is light; midnight is expected/,
+    edits: [['||s==="midnight"', ""]],
   },
   {
     ac: "Three positions",
@@ -4577,24 +4757,29 @@ const PLANTED = [
     edits: [[/(<title data-i18n="meta\.title">)[^<]*/, "$1ProjectStore — план и проверки для вашего агента"]],
   },
 
-  // AC "The loop media": the animation, its still, the link that opens it, its alt.
+  // AC "The loop media": the player's still, its alt, its controls' names, no link.
   {
     ac: "The loop media",
-    what: "the still shown to everyone, the animation to no one",
+    what: "the still swapped for another picture",
     ...onPage("ru", checkLoopFigure),
     fact: "loop-figure",
-    message: /^the image is \.\.\/assets\/loop-still\.webp; loop\.webp$/,
-    edits: [['<img src="../assets/loop.webp"', '<img src="../assets/loop-still.webp"']],
+    message: /^the image is \.\.\/assets\/og\.png; loop-still\.webp$/,
+    edits: [
+      [
+        '<img class="player-poster" src="../assets/loop-still.webp"',
+        '<img class="player-poster" src="../assets/og.png"',
+      ],
+    ],
   },
   {
     ac: "The loop media",
-    what: "the picture taken out of its link",
+    what: "a link around the picture",
     ...onPage("en", checkLoopFigure),
     fact: "loop-figure",
-    message: /^the picture is not inside a link to loop\.webp$/,
+    message: /^the figure links to assets\/loop-still\.webp; it links to no file$/,
     edits: [
-      ['<a class="loopfig-open" href="assets/loop.webp">', ""],
-      [/(<\/picture>\s*)<\/a>/, "$1"],
+      ['<img class="player-poster"', '<a href="assets/loop-still.webp"><img class="player-poster"'],
+      [/(<img class="player-poster"[^>]*>)/, "$1</a>"],
     ],
   },
   {
@@ -4603,7 +4788,26 @@ const PLANTED = [
     ...onPage("en", checkLoopFigure),
     fact: "loop-figure",
     message: /^the picture has no alt$/,
-    edits: [[/(<img src="assets\/loop\.webp"[^>]*) alt="[^"]*"/, '$1 alt=""']],
+    edits: [[/(<img class="player-poster"[^>]*) alt="[^"]*"/, '$1 alt=""']],
+  },
+  {
+    ac: "The loop media",
+    what: "a control without a name",
+    ...onPage("ru", checkLoopFigure),
+    fact: "loop-figure",
+    message: /^no <button class="player-full"> with a name$/,
+    edits: [[/(<button class="player-full"[^>]*) aria-label="[^"]*"/, "$1"]],
+  },
+  {
+    ac: "The loop media",
+    what: "the player's frame out of its template",
+    ...onPage("en", checkLoopFigure),
+    fact: "loop-figure",
+    message: /^the player's frame is assets\/loop\.html; loop\.html, inside a <template>$/,
+    edits: [
+      ['<template class="player-src">', ""],
+      ["</iframe></template>", "</iframe>"],
+    ],
   },
 
   // The dot and the graph.
@@ -5137,11 +5341,32 @@ const PLANTED = [
   },
   {
     ac: "The loop media",
-    what: "a loop source on another origin",
+    what: "a loop still on another origin",
     ...onFile(EN.main.file),
     fact: "load",
-    message: /<img src> loads https:\/\/cdn\.example\.com\/loop\.webp/,
-    edits: [['<img src="assets/loop.webp"', '<img src="https://cdn.example.com/loop.webp"']],
+    message: /<img src> loads https:\/\/cdn\.example\.com\/loop-still\.webp/,
+    edits: [
+      [
+        '<img class="player-poster" src="assets/loop-still.webp"',
+        '<img class="player-poster" src="https://cdn.example.com/loop-still.webp"',
+      ],
+    ],
+  },
+  {
+    ac: "The loop media",
+    what: "the loop's page loading its font from another origin",
+    ...onFile(`${SITE}/assets/loop.html`),
+    fact: "load",
+    message: /loads https:\/\/fonts\.example\.com\/plex\.woff2/,
+    edits: [['url("fonts/IBMPlexMono-Regular-Latin1.woff2")', 'url("https://fonts.example.com/plex.woff2")']],
+  },
+  {
+    ac: "The loop media",
+    what: "the loop's page missing from site/assets/",
+    ...onFile(pageOf("ru").file),
+    fact: "load",
+    message: /no site\/assets\/loop\.htm(?!l)/,
+    edits: [["../assets/loop.html", "../assets/loop.htm"]],
   },
   {
     ac: "The loop media",

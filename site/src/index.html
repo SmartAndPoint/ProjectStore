@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-tone="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!--i18n:redirect-->
 <title data-i18n="meta.title">ProjectStore — a plan, two checks and a record for your coding agent</title>
 <meta name="description" content="A plugin for Claude Code and Codex. Your agent plans first, a second agent checks the plan, and a third checks the result against your checklist. Decisions and plans stay as Markdown in your git, so any agent can carry on." data-i18n-attr="content:meta.description">
-<meta name="theme-color" content="#080d19">
+<meta name="theme-color" content="#ffffff">
 <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icon-180.png">
 <link rel="stylesheet" href="assets/style.css">
@@ -91,18 +91,18 @@
 </section>
 
 <section class="sec" id="loop" aria-labelledby="loop-title">
-  <figure class="loopfig" data-loopfig>
+  <figure class="loopfig" data-player>
     <figcaption id="loop-title" data-i18n="fig.cap">How a task goes</figcaption>
-    <div class="loopfig-frame">
-      <a class="loopfig-open" href="assets/loop.webp">
-        <picture>
-          <source media="(prefers-reduced-motion: reduce)" srcset="assets/loop-still.webp" width="1920" height="1080">
-          <img src="assets/loop.webp" width="1920" height="1080" loading="lazy" decoding="async" alt="An animated terminal dashboard of the loop on a real epic. You ask for a copy-paste system between your devices; the agent writes the epic and its stories; the critic, with a fresh context, sends them back with two blockers; you approve the fixes; the planner finds where the code goes; code and tests; the reviewer checks each acceptance criterion; done. The task board, the link graph and the code map regenerate, and the next session sees them. A side panel shows the critic on call and the reviewer." data-i18n-attr="alt:fig.alt">
-        </picture>
-      </a>
-      <button class="loopfig-pause" type="button" aria-pressed="false" aria-label="Pause the animation" data-i18n-attr="aria-label:fig.pause"><span class="pause-bars" aria-hidden="true"></span></button>
+    <div class="player">
+      <img class="player-poster" src="assets/loop-still.webp" width="1920" height="1080" loading="lazy" decoding="async" draggable="false" alt="An animated terminal dashboard of the loop on a real epic. You ask for a copy-paste system between your devices; the agent writes the epic and its stories; the critic, with a fresh context, sends them back with two blockers; you approve the fixes; the planner finds where the code goes; code and tests; the reviewer checks each acceptance criterion; done. The task board, the link graph and the code map regenerate, and the next session sees them. A side panel shows the critic on call and the reviewer." data-i18n-attr="alt:fig.alt">
+      <template class="player-src"><iframe class="player-frame" src="assets/loop.html" tabindex="-1" aria-hidden="true"></iframe></template>
+      <div class="player-bar" hidden>
+        <button class="player-play" type="button" aria-pressed="false" aria-label="Pause" data-i18n-attr="aria-label:fig.pause"><span class="pause-bars" aria-hidden="true"></span></button>
+        <input class="player-seek" type="range" min="0" max="30" step="0.1" value="0" aria-label="Position" data-i18n-attr="aria-label:fig.seek">
+        <span class="player-time" aria-hidden="true">0:00 / 0:30</span>
+        <button class="player-full" type="button" aria-pressed="false" aria-label="Full screen" data-i18n-attr="aria-label:fig.full"><svg class="icon on-off" aria-hidden="true"><use href="#i-expand"/></svg><svg class="icon on-on" aria-hidden="true"><use href="#i-shrink"/></svg></button>
+      </div>
     </div>
-    <p class="loopfig-hint" data-i18n="fig.zoom">Tap the picture to open it full size.</p>
   </figure>
 </section>
 
