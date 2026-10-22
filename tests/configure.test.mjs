@@ -75,11 +75,7 @@ const sink = () => {
 };
 
 // One run in process, without a terminal unless `term` is given.
-async function configure(
-  p,
-  values = {},
-  { term = null, answer = "y", root = ROOT, env = {}, fetch = null, spawn = null } = {},
-) {
+async function configure(p, values = {}, { term = null, answer = "y", root = ROOT, env = {}, spawn = null } = {}) {
   const out = term ? term.stdout : sink();
   const err = sink();
   const asked = [];
@@ -100,7 +96,6 @@ async function configure(
     home: p.home,
     proc: term ? term.proc : new EventEmitter(),
     escapeMs: 20,
-    ...(fetch ? { fetch } : {}),
     ...(spawn ? { spawn } : {}),
     nearest: (w, names) => names.find((n) => n.startsWith(w.slice(0, 4))) || null,
   });
@@ -587,6 +582,14 @@ test("configure contract 2 (amended 2026-10-13): Claude Code's model list is its
     false,
     "no free text where the spawn takes aliases",
   );
+  // Each alias with the manifest's own description; nothing to ask, and the
+  // caption and the refresh row say so (the 0.30.7 story, PS-DIRECTORY).
+  assert.deepEqual(
+    cc.filter((o) => o.kind === "value" && o.value).map((o) => o.description),
+    SRC.agent_translation.models.static.map((s) => s.description),
+  );
+  assert.equal(cc.find((o) => o.kind === "refresh").description, "Nothing to ask: Claude Code's list is its aliases.");
+  assert.deepEqual(groups.find((g) => g.title === "Agents · Claude Code").items[0].caption(), { text: "aliases only" });
   const cx = optionsOf("Agents · Codex", "agents.critic");
   assert.deepEqual(
     cx.filter((o) => o.kind === "value" && o.value).map((o) => o.value),
@@ -601,34 +604,129 @@ test("configure contract 2 (amended 2026-10-13): Claude Code's model list is its
   assert.match(caption.text, /^Codex · checked /);
 });
 
-test("configure contract 4 (amended 2026-10-13): opening a stale model list starts one read, in the background, that names what each alias follows", async () => {
+// The words an alias harness gets when it declares a catalog, or a reason it
+// cannot be asked. No shipped manifest reaches them since the 0.30.7 story
+// (PS-DIRECTORY), so the knowledge is handed in as knownModels would answer.
+test("configure contract 2: an alias harness's list names what each alias follows, and says why nothing can be asked", () => {
   const p = project();
-  const calls = [];
-  const fetch = async (url, init) => {
-    calls.push({ url, key: init?.headers?.["x-api-key"] });
-    return {
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            id: "claude-fable-5-1",
-            display_name: "Claude Fable 5.1",
-            created_at: "2026-08-28T00:00:00Z",
-            line: "fable",
-            lifecycle: "active",
-          },
-        ],
-      }),
-    };
+  const f = readFacts(p.proj, { root: ROOT, home: p.home, env: {} });
+  const base = {
+    spawnTakes: "alias",
+    aliases: ["fable"],
+    known: new Set(["fable"]),
+    hidden: new Set(),
+    levels: new Map(),
+    stale: false,
   };
-  const t = screenTty([{ keys: [KEYS.RIGHT, KEYS.RIGHT] }, { after: /→ claude-fable-5-1/, keys: [KEYS.CTRL_C] }]);
-  const env = { ANTHROPIC_API_KEY: "test-anthropic-key", XDG_CACHE_HOME: join(p.home, "cache") };
-  const { r } = await configure(p, {}, { term: t, env, fetch });
-  assert.equal(r.code, 130);
-  assert.equal(calls.length, 1, "one read");
-  assert.equal(calls[0].key, "test-anthropic-key");
-  const cache = read(join(p.home, "cache", "projectstore", "models", `${SRC.id}.json`));
-  assert.doesNotMatch(cache, /test-anthropic-key/);
+  const fable = { id: "fable", label: "", description: "The top line.", family: "fable" };
+  const optionsAndCaption = (known) => {
+    const item = menuGroups(f, settingsOf(f), { "claude-code": { known } })
+      .find((g) => g.title === "Agents · Claude Code")
+      .items.find((i) => i.key === "agents.critic");
+    return { options: item.options(), caption: item.caption() };
+  };
+  const followed = optionsAndCaption({
+    ...base,
+    offered: [{ ...fable, follows: { id: "stub-fable-2", label: "Stub Fable 2" } }],
+    source: "the stub catalog",
+    caption: "Stub",
+    at: Date.now(),
+    live: { source: "the stub catalog", caption: "Stub", kind: "command" },
+    why: null,
+  });
+  const row = followed.options.find((o) => o.value === "fable");
+  assert.match(row.note, /stub-fable-2$/);
+  assert.equal(row.description, "The top line. Newest fable in the stub catalog: Stub Fable 2, stub-fable-2.");
+  assert.match(followed.caption.text, /^Stub · checked /);
+  const unasked = optionsAndCaption({
+    ...base,
+    offered: [{ ...fable, follows: null }],
+    source: "",
+    caption: "",
+    at: null,
+    live: null,
+    why: "no stub on PATH",
+  });
+  assert.equal(unasked.options.find((o) => o.value === "fable").description, "The top line.");
+  assert.deepEqual(unasked.caption, { text: "aliases only · no stub on PATH" });
+  assert.equal(unasked.options.find((o) => o.kind === "refresh").description, "Nothing to ask: no stub on PATH.");
+});
+
+test("configure contract 2: a model off Claude Code's aliases is named as that, not as missing from a list", () => {
+  const p = project();
+  const overlay = layoutPaths(p.proj).overlay(SRC.id);
+  mkdirSync(dirname(overlay), { recursive: true });
+  writeFileSync(overlay, JSON.stringify({ agents: { per_agent: { critic: { model: "claude-legacy-1" } } } }));
+  const f = readFacts(p.proj, { root: ROOT, home: p.home, env: {} });
+  const known = knownModels(SRC, { env: {}, home: p.home });
+  const row = menuGroups(f, settingsOf(f), { [SRC.id]: { known } })
+    .find((g) => g.title === "Agents · Claude Code")
+    .items.find((i) => i.key === "agents.critic")
+    .options()
+    .find((o) => o.value === "claude-legacy-1");
+  assert.equal(row.description, "Not one of Claude Code's aliases. It is kept as it is.");
+});
+
+// The 0.30.7 story (PS-DIRECTORY): Claude Code's list is its four aliases and
+// nothing is read for it. A key or a base URL in the environment, or the
+// cache 0.30.6 wrote from Anthropic's model list, changes nothing on the
+// screen; opening the list and refreshing it start no request and no
+// subprocess, and write no file.
+test("configure contract 4 (0.30.7): Claude Code's model list is its four aliases, with a key, a base URL or an old cache or without; nothing is asked, named or written", async () => {
+  const fixture = read(join(ROOT, "tests", "fixtures", "models-cache-claude-code-0.30.6.json"));
+  const key = { ANTHROPIC_API_KEY: "test-anthropic-key" };
+  const cases = [
+    ["no variable", {}, false],
+    ["the key", key, false],
+    ["the key and a base URL", { ...key, ANTHROPIC_BASE_URL: "https://gateway.example" }, false],
+    ["the 0.30.6 cache", key, true],
+  ];
+  // Any request at all is recorded: the global fetch is replaced for the table.
+  const requests = [];
+  // eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: the global fetch is present at Node 20, stable from 21
+  const ownFetch = globalThis.fetch;
+  // eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: the global fetch is present at Node 20, stable from 21
+  globalThis.fetch = async (...a) => {
+    requests.push(a);
+    throw new Error("no request in this test");
+  };
+  try {
+    for (const [name, vars, cached] of cases) {
+      const p = project();
+      const env = { XDG_CACHE_HOME: join(p.home, "cache"), ...vars };
+      const models = join(p.home, "cache", "projectstore", "models");
+      mkdirSync(models, { recursive: true });
+      // Dated now, as 0.30.6 kept it for a day: read, it would show at once.
+      if (cached)
+        writeFileSync(
+          join(models, `${SRC.id}.json`),
+          fixture.replace(/"at": "[^"]+"/, `"at": "${new Date().toISOString()}"`),
+        );
+      const before = tree(models);
+      const spawned = [];
+      const t = driver();
+      const run = configure(p, {}, { term: t, env, spawn: (...a) => (spawned.push(a), null) });
+      await t.waitFor(/What do you want to change/);
+      await t.type(KEYS.RIGHT, KEYS.RIGHT);
+      await t.waitFor(/aliases only/);
+      assert.match(t.text().split("\x1b[H").at(-1), /fable[\s\S]*opus[\s\S]*sonnet[\s\S]*haiku/, name);
+      // refresh the list: nothing to ask, and the row says why.
+      await t.type("r", KEYS.RIGHT);
+      await t.waitFor(/Nothing to ask: Claude Code's list is its aliases\./);
+      await t.type(KEYS.CTRL_C);
+      const { r } = await run;
+      assert.equal(r.code, 130, name);
+      const screen = t.text().replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+      for (const s of ["ANTHROPIC", "Anthropic API", "→ claude-", "Newest", "claude-fable-5-1"])
+        assert.ok(!screen.includes(s), `${name}: the screen says ${s}`);
+      assert.deepEqual(spawned, [], `${name}: no subprocess`);
+      assert.deepEqual(tree(models), before, `${name}: the cache directory is as it was`);
+    }
+  } finally {
+    // eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: the global fetch is present at Node 20, stable from 21
+    globalThis.fetch = ownFetch;
+  }
+  assert.deepEqual(requests, [], "no request");
 });
 
 // A terminal a test drives step by step: it waits for what the screen draws,
@@ -807,75 +905,78 @@ test("configure contract 4 (amended 2026-10-13): a throw in the menu restores th
   assert.equal(t.proc.listenerCount("SIGINT"), 0);
 });
 
+// The live read is Codex's command catalog, `codex debug models`: a stub on
+// PATH, and the injected spawn answers for it (Claude Code declares no catalog
+// since 0.30.7). Codex's own file is two days old, so the list is stale.
 test("configure contract 4 (amended 2026-10-13): no read at open; a fresh list is not read again; refresh reads once; a failed read keeps the list and caches nothing", async () => {
-  const p = project();
-  const calls = [];
-  const spawned = [];
-  let status = 200;
-  const fetch = async (url) => {
-    calls.push(url);
-    return status === 200
-      ? {
-          ok: true,
-          json: async () => ({
-            data: [
-              {
-                id: "claude-opus-5-5",
-                display_name: "Claude Opus 5.5",
-                created_at: "2026-09-21T00:00:00Z",
-                line: "opus",
-                lifecycle: "active",
-              },
-            ],
-          }),
-        }
-      : { ok: false, status, body: { cancel: async () => {} } };
+  const p = project({ harnesses: [CODEX] });
+  const bin = tmp("ps-cfg-bin-");
+  writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  const codexHome = tmp("ps-cfg-codex-");
+  writeFileSync(
+    join(codexHome, "models_cache.json"),
+    JSON.stringify({
+      fetched_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      models: [{ slug: "gpt-6-astra", display_name: "GPT-6-Astra", visibility: "list", priority: 2 }],
+    }),
+  );
+  const ran = [];
+  let code = 0;
+  const spawn = (b, args) => {
+    ran.push([b, ...args]);
+    const c = new EventEmitter();
+    c.stdout = new PassThrough();
+    c.kill = () => true;
+    const out = { models: [{ slug: "gpt-6.1-sol", display_name: "GPT-6.1-Sol", visibility: "list", priority: 1 }] };
+    setImmediate(() => {
+      c.stdout.end(code === 0 ? JSON.stringify(out) : "");
+      c.stdout.on("end", () => c.emit("close", code, null));
+      c.stdout.resume();
+    });
+    return c;
   };
-  const spawn = () => {
-    spawned.push(1);
-    throw new Error("no spawn in this test");
-  };
-  const env = { ANTHROPIC_API_KEY: "k", XDG_CACHE_HOME: join(p.home, "cache") };
-  const cache = join(p.home, "cache", "projectstore", "models", `${SRC.id}.json`);
+  const env = { PATH: bin, CODEX_HOME: codexHome, XDG_CACHE_HOME: join(p.home, "cache") };
+  const cache = join(p.home, "cache", "projectstore", "models", `${CODEX.id}.json`);
   // Open to the settings level: nothing is read.
   let t = driver();
-  let run = configure(p, {}, { term: t, env, fetch, spawn });
+  let run = configure(p, {}, { term: t, env, spawn });
   await t.waitFor(/What do you want to change/);
   await t.type(KEYS.RIGHT, KEYS.DOWN);
   await t.waitFor(/critic/);
   await t.type(KEYS.CTRL_C);
   await run;
-  assert.deepEqual([calls.length, spawned.length], [0, 0], "no request and no subprocess before a model list opens");
+  assert.equal(ran.length, 0, "no subprocess before a model list opens");
   // A failed read: the list stays, the caption says why, nothing is cached.
-  status = 401;
+  code = 2;
   t = driver();
-  run = configure(p, {}, { term: t, env, fetch, spawn });
+  run = configure(p, {}, { term: t, env, spawn });
   await t.waitFor(/What do you want to change/);
   await t.type(KEYS.RIGHT, KEYS.RIGHT);
-  await t.waitFor(/the key was refused \(HTTP 401\)/);
-  assert.match(t.text().split("\x1b[H").at(-1), /fable[\s\S]*opus[\s\S]*sonnet[\s\S]*haiku/);
+  await t.waitFor(/Codex · Codex could not refresh/);
+  assert.match(t.text().split("\x1b[H").at(-1), /gpt-6-astra/);
   await t.type(KEYS.CTRL_C);
   await run;
   assert.equal(existsSync(cache), false);
   // A good read is cached; opening the list again does not read.
-  status = 200;
+  code = 0;
   t = driver();
-  run = configure(p, {}, { term: t, env, fetch, spawn });
+  run = configure(p, {}, { term: t, env, spawn });
   await t.waitFor(/What do you want to change/);
   await t.type(KEYS.RIGHT, KEYS.RIGHT);
-  await t.waitFor(/Anthropic API · checked today/);
+  await t.waitFor(/Codex · checked today/);
+  assert.match(t.text().split("\x1b[H").at(-1), /gpt-6\.1-sol/);
   await t.type(KEYS.LEFT, KEYS.RIGHT);
   await t.waitFor(/↻ refresh the list/);
-  const before = calls.length;
+  const before = ran.length;
   // refresh the list reads, fresh or not.
   await t.type("r", KEYS.RIGHT);
-  await t.waitFor(/asking api\.anthropic\.com/);
-  await t.waitFor(/Anthropic API · checked today/);
+  await t.waitFor(/asking Codex/);
+  await t.waitFor(/Codex · checked today/);
   await t.type(KEYS.CTRL_C);
   await run;
-  assert.equal(before, 2, "the 401 and the first good read; reopening a fresh list read nothing");
-  assert.equal(calls.length, 3, "refresh read once");
-  assert.equal(spawned.length, 0);
+  assert.equal(before, 2, "the failed and the first good read; reopening a fresh list read nothing");
+  assert.equal(ran.length, 3, "refresh read once");
+  assert.deepEqual(ran[0], ["codex", "debug", "models"]);
 });
 
 test("configure contract 4 (amended 2026-10-13): every group, setting and value has a description", () => {

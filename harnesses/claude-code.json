@@ -649,30 +649,8 @@
           "description": "Follows the newest Haiku model: Claude Code resolves the alias when it starts the agent."
         }
       ],
-      "static_reason": "The enum above, in the order the menu lists it. A line the catalog below reports that this list lacks is never offered: a Claude Code release that adds an alias is named with `--set`, with the warning, until this list learns it.",
-      "catalogs": [
-        {
-          "kind": "http",
-          "source": "the Anthropic API",
-          "caption": "Anthropic API",
-          "url": "https://api.anthropic.com/v1/models?limit=1000",
-          "base_env": "ANTHROPIC_BASE_URL",
-          "path": "/v1/models?limit=1000",
-          "key_env": "ANTHROPIC_API_KEY",
-          "key_header": "x-api-key",
-          "headers": { "anthropic-version": "2023-06-01" },
-          "fields": {
-            "list": "data",
-            "id": "id",
-            "label": "display_name",
-            "family": "line",
-            "order": "created_at",
-            "order_desc": true,
-            "keep_when": { "lifecycle": "active" }
-          },
-          "reason": "Measured 2026-10-13: 14 models in 0.5–0.7 s, each with id, display_name, created_at, line (fable, opus, sonnet, haiku) and lifecycle. `line` is the family an alias follows, so the newest active entry of a line is the best local account of what that alias starts; Claude Code resolves the alias itself. Read only when a model list opens with a stale cache, or on refresh, and only with ANTHROPIC_API_KEY set; ANTHROPIC_BASE_URL, when set, is the base the key belongs to."
-        }
-      ]
+      "static_reason": "The enum above, in the order the menu lists it. It is the whole list: Anthropic's model list takes a key, and ProjectStore reads no credential from the environment (the 0.30.7 story, PS-DIRECTORY), so no catalog is declared and the menu asks nothing. A Claude Code release that adds an alias is named with `--set`, with the warning, until this list learns it.",
+      "catalogs": []
     }
   }
 }

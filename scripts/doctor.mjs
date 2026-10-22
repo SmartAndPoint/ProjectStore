@@ -109,8 +109,8 @@ import {
   hostRegistry,
   autoUpdateDefault,
 } from "./harness.mjs";
-// The pure reader, never models.mjs: that file holds a fetch, and the
-// SessionStart hook imports this one (the portability suite's hook fence).
+// The pure reader, never models.mjs: that file starts a catalog command, and
+// the SessionStart hook imports this one (the portability suite's hook fence).
 import { effortSpec } from "./model-spec.mjs";
 
 // A remedy used to interpolate the surface's harness variable here. It cannot:

@@ -1,0 +1,41 @@
+{
+  "at": "2026-10-16T09:12:00.000Z",
+  "source": "the Anthropic API",
+  "models": [
+    {
+      "id": "claude-haiku-5-5",
+      "label": "Claude Haiku 5.5",
+      "description": "",
+      "family": "haiku",
+      "hidden": false
+    },
+    {
+      "id": "claude-opus-5-5",
+      "label": "Claude Opus 5.5",
+      "description": "",
+      "family": "opus",
+      "hidden": false
+    },
+    {
+      "id": "claude-fable-5-1",
+      "label": "Claude Fable 5.1",
+      "description": "",
+      "family": "fable",
+      "hidden": false
+    },
+    {
+      "id": "claude-sonnet-5",
+      "label": "Claude Sonnet 5",
+      "description": "",
+      "family": "sonnet",
+      "hidden": false
+    },
+    {
+      "id": "claude-opus-5",
+      "label": "Claude Opus 5",
+      "description": "",
+      "family": "opus",
+      "hidden": false
+    }
+  ]
+}

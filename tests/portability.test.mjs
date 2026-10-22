@@ -471,10 +471,6 @@ test("generation acceptance: no file under scripts/ reads a branded environment 
       r.home_env,
       ...(r.detect_env || []),
       ...(r.agent_overrides || []).map((o) => o.env),
-      // A model catalog's key and base (the ADR "Agent model lists are read
-      // from each harness's own catalog…"): models.mjs reads them by the
-      // manifest's name for them, never a literal.
-      ...(m.agent_translation?.models?.catalogs || []).flatMap((c) => [c.key_env, c.base_env]),
     ]) {
       if (k) declared.add(k);
     }
@@ -783,9 +779,11 @@ function tableDispatch(rel, src) {
   return verbModuleSpecifiers(src);
 }
 
-// What a fence refuses in a closure: a module that calls fetch, one of the
-// install family, an import() the walk cannot read (a hole in the fence), and
-// a network module among the specifiers the walk skips.
+// What a fence refuses in a closure: a module that calls fetch, models.mjs
+// (which starts a harness's catalog command; it held the keyed fetch until the
+// 0.30.7 story, PS-DIRECTORY, so the fetch class alone no longer catches it),
+// one of the install family, an import() the walk cannot read (a hole in the
+// fence), and a network module among the specifiers the walk skips.
 function fenceBreaches(entry, { dispatch = tableDispatch } = {}) {
   const files = closure(entry, { root: ROOT, dispatch });
   const family = installFamily(ROOT);
@@ -793,6 +791,7 @@ function fenceBreaches(entry, { dispatch = tableDispatch } = {}) {
   return {
     files,
     fetch: files.filter((f) => callsFetch(src(f))),
+    models: files.filter((f) => f === "scripts/models.mjs"),
     family: files.filter((f) => family.includes(f)),
     opaque: files.filter((f) => opaqueDynamicImports(src(f)) > 0),
     network: networkImports(files, { root: ROOT }),
@@ -802,6 +801,7 @@ const assertFenced = (entry, why) => {
   const b = fenceBreaches(entry);
   assert.deepEqual(b.family, [], `${entry} reaches the install family`);
   assert.deepEqual(b.fetch, [], `${entry} reaches a module that calls fetch — ${why} would load network code`);
+  assert.deepEqual(b.models, [], `${entry} reaches models.mjs — ${why} could start a catalog command`);
   assert.deepEqual(b.opaque, [], `${entry} reaches an import() whose target is not a literal`);
   assert.deepEqual(b.network, [], `${entry} reaches a network module`);
   return b.files;
@@ -836,6 +836,13 @@ test("hook fence: no hook's closure holds a module that calls fetch, or the inst
   ].map((m) => `scripts/${m[1]}`);
   assert.deepEqual(spawned.sort(), ["scripts/codemap.mjs", "scripts/graph.mjs", "scripts/kanban.mjs"]);
   for (const target of spawned) assertFenced(target, "a script doctor spawns");
+  // A positive control for the models class: configure's closure, which the
+  // fence never covers, does reach it.
+  assert.deepEqual(
+    fenceBreaches("scripts/configure.mjs").models,
+    ["scripts/models.mjs"],
+    "configure reaches models.mjs",
+  );
 });
 
 // ─── The MCP fence (the same story, decisions 1 to 3) ──────────────────

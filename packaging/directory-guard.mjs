@@ -24,10 +24,10 @@
 // trackedSet() is the one function that names the set.
 //
 // check() is pure: it reads nothing, the entries carry their bytes. One row
-// per checklist rule, plus one of ours (the headroom rule below). Each finding
-// names the file (and line, where there is one), the rule, its limit and the
-// checklist's result for it. A credential finding names the file, the line and
-// the key's shape, never its value.
+// per checklist rule, plus two of ours (the headroom and credential-variable
+// rules below). Each finding names the file (and line, where there is one),
+// the rule, its limit and the checklist's result for it. A credential finding
+// names the file, the line and the key's shape, never its value.
 //
 // Our headroom rule: no shipped .mjs over 200 KiB (204,800 bytes), stricter
 // than the directory's 256 KiB, so a module is split long before the limit
@@ -36,6 +36,17 @@
 // directory's 256 KiB only. There is no exemption — the installer was split
 // first (PS-DIRECTORY: "The installer is split into modules under 200 KiB
 // each…"), and the report names the next file in line.
+//
+// Our credential-variable rule: no shipped file names the variables 0.30.6's
+// model menu read a key and its base from, ANTHROPIC_API_KEY and
+// ANTHROPIC_BASE_URL, or the catalog fields that named them, key_env, base_env
+// and key_header — comments and prose included, by file and line. The
+// checklist holds a version that reads a credential already set in the
+// user's environment and sends it ("Uses a credential from the user's
+// machine"), and its scan reads the source, so a name left in a comment or an
+// unused branch is a finding too (the 0.30.7 story, PS-DIRECTORY). Shipped
+// files only, under either set: the tests that plant the names do not ship.
+// The `credentials` row is a different rule: a key-shaped value, which Blocks.
 //
 // Where the checklist leaves a reading open, the guard takes the stricter one:
 // SVG is text, so the 256 KiB limit holds for it; a symbolic link, a submodule
@@ -55,7 +66,7 @@
 // Output is JSON on stdout, always: every row with its findings, and each
 // limit's headroom. Exit 0 when every row passes, 1 when one fails or the set
 // cannot be read. Never shipped: packaging/ is in NOT_SHIPPED, and so are the
-// credential shapes and the git call.
+// credential shapes, the credential variables' names and the git call.
 
 import { readFileSync, lstatSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -264,7 +275,8 @@ export function proseWords(md) {
 // ─── The rows ───────────────────────────────────────────────────────────
 
 // The checklist's rows, each with its section, its result if broken and the
-// title its report shows. `ours` is the one rule that is not the checklist's.
+// title its report shows. `ours` marks the two rules that are not the
+// checklist's.
 export const ROWS = [
   {
     id: "regular-files",
@@ -382,6 +394,14 @@ export const ROWS = [
     limit: `${n(LIMITS.headroom)} bytes`,
     result: "ours: npm run release:check and CI's test job fail",
   },
+  {
+    id: "credential-variables",
+    section: "ours",
+    ours: true,
+    rule: "no shipped file names ANTHROPIC_API_KEY or ANTHROPIC_BASE_URL, or the catalog fields key_env, base_env and key_header that named them, so the scan finds no key read from the user's environment (the checklist's hold: Uses a credential from the user's machine)",
+    limit: "none of those names, comments included",
+    result: "ours: npm run release:check and CI's test job fail",
+  },
 ];
 
 const ROW = Object.fromEntries(ROWS.map((r) => [r.id, r]));
@@ -435,6 +455,10 @@ const CREDENTIALS = [
   ["a github_pat_ token (GitHub's prefix)", /\bgithub_pat_[A-Za-z0-9]/],
   ["a private key block", /-{5}BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-{5}/],
 ];
+
+// The names our credential-variable rule refuses in a shipped file: the two
+// variables 0.30.6 read, and the catalog fields that named them.
+const CREDENTIAL_VARIABLES = /\b(?:ANTHROPIC_API_KEY|ANTHROPIC_BASE_URL|key_env|base_env|key_header)\b/g;
 
 // The credential findings of one text, as [line, shape]: never the value.
 export function credentialLines(text) {
@@ -740,6 +764,12 @@ export function check(entries) {
     why: "a shipped module is split long before the directory's 256 KiB",
     next: next ? { file: next.path, bytes: next.size, left: LIMITS.headroom - next.size } : null,
   };
+
+  // Ours: the credential variables, in the shipped text files, by file and line.
+  for (const e of files.filter((f) => f.shipped && textOf.has(f.path)))
+    for (const [i, line] of text(e.path).split("\n").entries())
+      for (const name of new Set(line.match(CREDENTIAL_VARIABLES) || []))
+        add("credential-variables", `${e.path}:${i + 1}`, `names ${name}`);
 
   const rows = ROWS.map((r) => ({
     id: r.id,

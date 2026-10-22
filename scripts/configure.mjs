@@ -949,7 +949,6 @@ export async function runConfigure(ctx) {
       now,
       path: tildeOf(f.project, f.home),
       dryRun,
-      fetch: ctx.fetch,
       spawn: ctx.spawn,
       timers: ctx.timers,
       review: (list) => {
