@@ -375,7 +375,8 @@ them", whose sources were read on 2026-10-09; the docs page lists the sources ro
 
 The main page's texts are the maintainer's approved mockup, v11 of 2026-10-21, in English and
 Russian. The Quick start's third step quotes a real Claude Code session on an empty project, from
-2026-10-21. The loop is the marketing loop video's dashboard (posted on X on 2026-10-14), drawn by
+2026-10-21. The loop is the marketing loop video's dashboard (v2, the corrected cut of the one posted
+on X on 2026-10-14), drawn by
 `tools/loop-media/loop.html` at the repository root, a copy of agent-film's `render/loop.html`, and
 rendered by `node tools/loop-media/render.mjs` (headless Chrome, then img2webp and cwebp, both
 lossless). Its side panel's figures are from a real epic's critic runs. Re-render it only when the

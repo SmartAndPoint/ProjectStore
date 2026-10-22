@@ -595,7 +595,7 @@ body[data-page="main"] .mobile-nav [data-nav="main"] { color: var(--ink-hi); box
 .pain .arr { color: var(--done); font-weight: 600; }
 .pain:last-child { border-bottom: 0; }
 
-/* the loop: an animated picture on beige paper, the same in every tone; the caption follows the tone */
+/* the loop: the marketing loop's dark terminal dashboard as an animated picture, the same in every tone; the caption follows the tone */
 .loopfig { display: flex; flex-direction: column; gap: 12px; }
 .loopfig figcaption { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-4); }
 .loopfig-frame { position: relative; border: 1px solid var(--line-3); border-radius: 10px; overflow: hidden; }
