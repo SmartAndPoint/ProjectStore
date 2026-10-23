@@ -1,31 +1,25 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-tone="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<title data-i18n="meta.title">ProjectStore — агент пишет код, ProjectStore ведёт записи</title>
-<meta name="description" content="ProjectStore ведёт записи вашего проекта — что решено, что в работе, что проверено — в виде Markdown в git, прошедшего ревью. Работает с Claude Code, Codex, Gemini CLI и Cursor; вы просто говорите с агентом." data-i18n-attr="content:meta.description">
-<meta name="theme-color" content="#080d19">
+<title data-i18n="meta.title">ProjectStore — план, две проверки и записи для вашего агента</title>
+<meta name="description" content="Плагин для Claude Code и Codex. Агент сначала пишет план, второй агент проверяет план, третий сверяет результат с вашим чек-листом. Решения и планы лежат Markdown-файлами в вашем git, и работу продолжит любой агент." data-i18n-attr="content:meta.description">
+<meta name="theme-color" content="#ffffff">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=a7345ec8">
-<script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="light")t=s;}catch(e){}d.setAttribute("data-tone",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
+<link rel="stylesheet" href="../assets/style.css?v=711c3f33">
+<script>(function(){var d=document.documentElement,t="light",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="midnight")t=s;}catch(e){}d.setAttribute("data-tone",t);d.setAttribute("data-tones","");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
-<link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
-<link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
-<link rel="alternate" hreflang="fr" href="https://projectstore.dev/fr/">
-<link rel="alternate" hreflang="pt-BR" href="https://projectstore.dev/pt/">
 <link rel="alternate" hreflang="ru" href="https://projectstore.dev/ru/">
-<link rel="alternate" hreflang="uk" href="https://projectstore.dev/uk/">
-<link rel="alternate" hreflang="zh-CN" href="https://projectstore.dev/zh/">
 <link rel="alternate" hreflang="x-default" href="https://projectstore.dev/">
 <link rel="canonical" href="https://projectstore.dev/ru/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="ProjectStore">
 <meta property="og:locale" content="ru">
-<meta property="og:title" content="ProjectStore — агент пишет код, ProjectStore ведёт записи">
-<meta property="og:description" content="ProjectStore ведёт записи вашего проекта — что решено, что в работе, что проверено — в виде Markdown в git, прошедшего ревью. Работает с Claude Code, Codex, Gemini CLI и Cursor; вы просто говорите с агентом.">
+<meta property="og:title" content="ProjectStore — план, две проверки и записи для вашего агента">
+<meta property="og:description" content="Плагин для Claude Code и Codex. Агент сначала пишет план, второй агент проверяет план, третий сверяет результат с вашим чек-листом. Решения и планы лежат Markdown-файлами в вашем git, и работу продолжит любой агент.">
 <meta property="og:url" content="https://projectstore.dev/ru/">
 <meta property="og:image" content="https://projectstore.dev/assets/og.png">
 <meta property="og:image:width" content="1280">
@@ -40,6 +34,8 @@
   <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
   <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
   <symbol id="i-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
+  <symbol id="i-shrink" viewBox="0 0 24 24"><path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"/></symbol>
   <defs>
     <marker id="m" class="mk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
     <marker id="m-chk" class="mk chk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
@@ -57,8 +53,8 @@
       <a class="page-link" data-nav="how-it-works" href="how-it-works/" data-i18n="nav.how">Как это работает</a>
       <a class="page-link" data-nav="why-it-works" href="why-it-works/" data-i18n="nav.why">Почему это работает</a>
       <a class="page-link" data-nav="one-vault" href="one-vault/" data-i18n="nav.vault">Один vault, много людей</a>
-      <div class="tone-switch" role="group" aria-label="Тон фона" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="true" aria-label="Полночь" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="Графит" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="light" aria-pressed="false" aria-label="Светлый" data-i18n-attr="aria-label:nav.tone.light"><span class="sw sw-light" aria-hidden="true"></span></button></div>
-      <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="Язык: Русский"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>RU</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../" hreflang="en" lang="en" data-lang="en">English</a></li><li><a href="../de/" hreflang="de" lang="de" data-lang="de">Deutsch</a></li><li><a href="../es/" hreflang="es" lang="es" data-lang="es">Español</a></li><li><a href="../fr/" hreflang="fr" lang="fr" data-lang="fr">Français</a></li><li><a href="../pt/" hreflang="pt-BR" lang="pt-BR" data-lang="pt">Português</a></li><li><a href="../ru/" hreflang="ru" lang="ru" data-lang="ru" aria-current="true">Русский</a></li><li><a href="../uk/" hreflang="uk" lang="uk" data-lang="uk">Українська</a></li><li><a href="../zh/" hreflang="zh-CN" lang="zh-CN" data-lang="zh">中文</a></li></ul></div>
+      <div class="tone-switch" role="group" aria-label="Тон фона" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="false" aria-label="Полночь" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="Графит" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="light" aria-pressed="true" aria-label="Светлый" data-i18n-attr="aria-label:nav.tone.light"><span class="sw sw-light" aria-hidden="true"></span></button></div>
+      <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="Язык: Русский"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>RU</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../" hreflang="en" lang="en" data-lang="en">English</a></li><li><a href="../ru/" hreflang="ru" lang="ru" data-lang="ru" aria-current="true">Русский</a></li></ul></div>
       <a class="gh" href="https://github.com/SmartAndPoint/ProjectStore" aria-label="GitHub"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span>GitHub</span></a>
     </nav>
   </div>
@@ -67,146 +63,121 @@
 
 <main id="main" class="wrap">
 
-<section class="hero" id="start" aria-labelledby="hero-title">
-  <ul class="problem" role="list" tabindex="0" aria-label="Проблема" data-i18n-attr="aria-label:hero.post.label">
-    <li class="poster p-1"><b data-i18n="hero.post.1">Навайбкодили сегодня. <em>Легаси — завтра.</em></b></li>
-    <li class="poster p-2"><b data-i18n="hero.post.2">На чём мы остановились?</b><span data-i18n="hero.post.2.s">Каждая новая сессия спрашивает снова.</span></li>
-    <li class="poster p-3"><b data-i18n="hero.post.3">Агенты забывают.</b><span data-i18n="hero.post.3.s">Закрыл, сжал контекст, сменил инструмент, и «почему» пропало.</span></li>
+<section class="hero what" id="what" aria-labelledby="what-title">
+  <div class="section-label" data-i18n="what.label">Методика + плагин для Claude Code и Codex</div>
+  <h1 id="what-title" data-i18n="what.h1">Методика работы с ИИ-агентами, <span class="acc">чтобы получать то, что задумали.</span></h1>
+  <div class="what-text">
+    <p class="lead" data-i18n="what.p.1"><b>ProjectStore</b> — методика и фреймворк для создания приложений и сервисов любой сложности с помощью ИИ-агентов.</p>
+    <p class="lead" data-i18n="what.p.2">В первую очередь это способ работы человека и агентов. Вы решаете, что строить. Агент пишет план, второй агент ищет в нём дыры, вы одобряете. Потом агент делает, а третий сверяет результат с вашим чек-листом — по каждому пункту.</p>
+    <p class="lead" data-i18n="what.p.3">Ставится плагином в Claude Code и Codex. Дальше вы просто говорите с агентом своими словами, а решения, планы и прогресс он сам сохраняет обычными файлами в вашем проекте. Завтра, на другой машине или в другом агенте работа продолжается с того же места.</p>
+    <div class="actions">
+      <a class="btn primary" href="#start" data-i18n="what.cta.install">Установить</a>
+      <a class="btn" href="#how" data-i18n="what.cta.how">Как это работает</a>
+    </div>
+    <p class="agents-line" data-i18n="hero.agents">Работает в <b>Claude Code</b> и <b>Codex</b>. Скоро <b>OpenCode</b>, следом <b>Gemini</b>, <b>Z.ai</b> и <b>DeepSeek</b>.</p>
+  </div>
+  <div class="what-side">
+    <div class="section-label" data-i18n="what.helps">Как это поможет</div>
+    <ul class="pain-list">
+    <li class="pain"><p class="was" data-i18n="pains.was.1">Агент сказал, что всё работает. Не работает.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.1">Ревьюер не закроет задачу, пока не проверен каждый пункт чек-листа.</span></p></li>
+    <li class="pain"><p class="was" data-i18n="pains.was.2">Утром новая сессия — и опять объяснять, что это за проект.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.2">Сессия начинает с доски задач и текущей задачи.</span></p></li>
+    <li class="pain"><p class="was" data-i18n="pains.was.3">Он снова предлагает Mongo, хотя вчера выбрали Postgres.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.3">Решение записано вместе с причиной, и агент ему следует.</span></p></li>
+    <li class="pain"><p class="was" data-i18n="pains.was.4">Кончились лимиты, а Codex ничего не знает о проекте.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.4">Codex читает те же файлы и продолжает.</span></p></li>
+    <li class="pain"><p class="was" data-i18n="pains.was.5">Через месяц сами не понимаете, почему код такой.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.5">У каждого решения есть файл с причиной и отвергнутыми вариантами.</span></p></li>
   </ul>
-  <div class="hero-text">
-    <h1 id="hero-title" data-i18n="hero.h1">Агент пишет код. <span class="acc">ProjectStore ведёт записи.</span></h1>
-    <p class="lead" data-i18n="hero.lead">Что решено, что в работе, что проверено — в виде <b class="hl">Markdown в git, прошедшего ревью</b>. Его читает любой агент и любой, у кого есть доступ к репозиторию.</p>
+  </div>
+  <div class="cmp-box">
+    <div class="section-label" id="cmp-label" data-i18n="cmp.label">Из какой это семьи</div>
+    <p class="lede" data-i18n="cmp.sub">Подходы, где агент работает по документам, а не по одному промпту.</p>
+    <div class="table-wrap">
+      <table class="grid-table cmp" aria-labelledby="cmp-label">
+        <thead><tr><th scope="col" data-i18n="cmp.col.1">Подход</th><th scope="col" data-i18n="cmp.col.2">Что ведёт работу</th><th scope="col" data-i18n="cmp.col.3">Когда «готово»</th><th scope="col" data-i18n="cmp.col.4">Сильная сторона</th><th scope="col" data-i18n="cmp.col.5">Слабое место</th></tr></thead>
+        <tbody>
+        <tr class="from"><td><b data-i18n="cmp.chat.1">Промпт в чате</b><small data-i18n="cmp.chat.2">охват: одна сессия</small></td><td data-i18n="cmp.chat.3">Переписка с агентом</td><td data-i18n="cmp.chat.4">Агент сказал «готово»</td><td data-i18n="cmp.chat.5">Быстро и просто: говорите своими словами, код появляется сразу</td><td data-i18n="cmp.chat.6">Нет плана и проверки. Всё живёт в одной сессии и забывается к завтрашнему дню</td></tr>
+        <tr class="from"><td><b>SDD</b><small>spec-driven development</small><small data-i18n="cmp.sdd.2">охват: фича</small></td><td data-i18n="cmp.sdd.3">Спецификация: сначала описано, как должно работать, потом код. Например, GitHub Spec Kit</td><td data-i18n="cmp.sdd.4">Код соответствует спеке</td><td data-i18n="cmp.sdd.5">Сначала думают, потом пишут: «как» описано до кода</td><td data-i18n="cmp.sdd.6">Спека пишется на одну фичу: решения всего проекта и связи между фичами остаются за её рамками</td></tr>
+        <tr class="from"><td><b>PDD</b><small>proof-driven development</small><small data-i18n="cmp.pdd.2">охват: изменение</small></td><td data-i18n="cmp.pdd.3">Доказательство: каждое изменение сдаётся вместе с подтверждением, что оно работает</td><td data-i18n="cmp.pdd.4">Есть тест, выполненная команда или строка кода</td><td data-i18n="cmp.pdd.5">«Готово» доказано тестом или командой, а не словами агента</td><td data-i18n="cmp.pdd.6">Доказывает, что код работает, но не что сделано нужное: без спеки и плана не с чем сверять</td></tr>
+        <tr class="us"><td><b>ProjectStore</b><small data-i18n="cmp.ps.2">охват: весь проект</small></td><td data-i18n="cmp.ps.3">Решения, спеки, стори и планы проекта в git, связанные между собой и с кодом</td><td data-i18n="cmp.ps.4">Ревьюер нашёл подтверждение под каждым критерием приёмки</td><td data-i18n="cmp.ps.5">Все три сразу: разговор своими словами, спека и план до кода, доказательство после — для всего проекта, многих сессий, людей и агентов</td><td data-i18n="cmp.ps.6">Цикл стоит токенов: черновики, критик и ревьюер работают на модели, за которую вы и так платите</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cmp-sum" data-i18n="cmp.sum">ProjectStore берёт лучшее из трёх: разговор своими словами, спеку до кода и доказательство после. И держит это для всего проекта, а не для одной фичи.</p>
+  </div>
+</section>
 
-    <div class="section-label" data-i18n="hero.label">01 / Установка</div>
-    <div class="cta-block">
-      <div class="cta-opt">
-        <p class="cta-label"><span data-i18n="hero.ask">Просто попросите агента:</span> <span class="cta-sub"><b>Claude Code</b> · <b>Codex</b> · <b>Gemini CLI</b> · <b>Cursor</b></span></p>
-        <div class="quote-row"><blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Скопировать промпт" data-done="Скопировано" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
-        <p class="note" data-i18n="hero.note">В Claude Code этот промпт добавляет git-маркетплейс и ставит плагин из него; включите его автообновление в <code>/plugin</code>. В Codex запустите команду ниже: внутри сессии установка ждёт терминала. Для других агентов плагина пока нет; они читают тот же vault через файлы, CLI и MCP.</p>
-      </div>
-      <div class="cta-opt">
-        <p class="cta-label"><span data-i18n="hero.or">Или запустите в терминале:</span> <span class="cta-sub" data-i18n="hero.term">в вашем проекте, вне агента</span></p>
-        <div class="term">
-          <div class="cmdline">
-            <div class="cmdtext"><span class="ps1">~/your-project $</span><pre id="install-cmd" data-fact="install">npx projectstore setup</pre><span class="cursor" aria-hidden="true">▍</span></div>
-            <button class="copy" type="button" data-copy-from="install-cmd" aria-label="Скопировать команду" data-done="Скопировано" data-i18n-attr="aria-label:hero.copy;data-done:hero.copied"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+<section class="sec chapter" id="start" aria-labelledby="start-title">
+  <div class="section-label" data-i18n="start.label">Установка и начало работы</div>
+  <h2 id="start-title" data-i18n="start.h2">Начать можно, даже если вы не программист.</h2>
+  <p class="lead" data-i18n="start.lead">Команды за вас выполнит агент. Вам нужно поставить две программы, открыть папку проекта и вставить одну фразу.</p>
+</section>
+
+<section class="sec" id="quick" aria-labelledby="quick-title">
+  <h2 id="quick-title" data-i18n="quick.h2">Быстрый старт</h2>
+  <ol class="qs">
+    <li><h3 data-i18n="quick.s.a.h">Поставьте агента</h3><p data-i18n="quick.s.a.p">Агент — программа, которая пишет и запускает код по вашим словам. Подойдёт <a href="https://claude.ai/download">Claude</a> (приложение, вкладка Code) или <a href="https://openai.com/codex/">Codex</a> от OpenAI.</p></li>
+    <li><h3 data-i18n="quick.s.b.h">Поставьте Node.js и откройте папку проекта</h3><p data-i18n="quick.s.b.p">Node.js — среда, в которой работает ProjectStore: установщик LTS с <a href="https://nodejs.org">nodejs.org</a>, версия 20 или новее, macOS или Linux. Создайте пустую папку, например «my-bot», и откройте её в агенте.</p></li>
+    <li><h3 data-i18n="quick.s.1.h">Установите</h3><p data-i18n="quick.s.1.p">Попросите агента или выполните команду в терминале в папке проекта. В Codex — только терминал. Терминал — окно, где команды набирают текстом; на Mac: Программы → Утилиты → Терминал.</p>
+      <div class="install" data-tabs data-initial="ask">
+        <div class="install-bar"><span class="install-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <div class="install-tabs" role="tablist" aria-label="Установка" data-i18n-attr="aria-label:start.tabs">
+            <button class="install-tab" type="button" role="tab" data-tab="ask" id="tab-ask" aria-controls="panel-ask" data-i18n="start.tab.ask">Через запрос агенту</button>
+            <button class="install-tab" type="button" role="tab" data-tab="term" id="tab-term" aria-controls="panel-term" data-i18n="start.tab.term">Через терминал</button>
           </div>
-          <div class="term-foot">
-            <span class="chips"><span class="chip">Claude Code</span><span class="chip">Codex</span><span class="chip">Gemini CLI</span><span class="chip">Cursor</span></span>
-            <ul class="term-notes">
-              <li data-i18n="hero.n.1">Спросит, где лежит vault, покажет один план и спросит один раз.</li>
-              <li data-i18n="hero.n.2">Потом перезапустите агента; Codex один раз попросит одобрить хуки.</li>
-              <li class="reqs" data-i18n="hero.reqs">Node.js 20+ · npm для Codex · macOS или Linux</li>
-            </ul>
+        </div>
+        <div class="install-panel chatbox active" role="tabpanel" id="panel-ask" aria-labelledby="tab-ask" data-panel="ask">
+          <blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote>
+          <div class="chatbox-row"><p class="chatbox-note" data-i18n="start.ask.note">Для Claude Code. В Codex — вкладка «Через терминал».</p><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Скопировать промпт" data-done="Скопировано" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+        </div>
+        <div class="install-panel termbox" role="tabpanel" id="panel-term" aria-labelledby="tab-term" data-panel="term">
+          <div class="cmdline">
+            <div class="cmdtext"><span class="ps1">~/your-project $</span><pre id="install-cmd" data-fact="install">npx projectstore setup</pre></div>
+            <button class="copy" type="button" data-copy-from="install-cmd" aria-label="Скопировать команду" data-done="Скопировано" data-i18n-attr="aria-label:hero.copy;data-done:hero.copied"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
           </div>
         </div>
       </div>
-    </div>
-  </div>
-
-  <figure class="rail" aria-labelledby="rail-cap">
-    <figcaption id="rail-cap" data-i18n="rail.cap">Одно решение, от начала до конца</figcaption>
-    <ol class="rail-steps">
-      <li class="rs"><span class="c-dim" data-i18n="rail.you">вы ›</span> <span class="c-hi" data-i18n="rail.1">Берём Postgres, а не Mongo — нам нужны транзакции.</span></li>
-      <li class="re" data-i18n="rail.e.1">агент предлагает ADR</li>
-      <li class="rs acc"><b data-i18n="rail.2">Черновик ADR</b><span data-i18n="rail.2.s">показан, но пока ничего не записано</span></li>
-      <li class="re ok" data-i18n="rail.e.2">запись после вашего «да»</li>
-      <li class="rs ok"><b data-i18n="rail.3">+ <span data-slug="adr:path">adr/postgres-kak-osnovnoe-hranilishche.md</span></b><span>review_status: pending</span></li>
-      <li class="re chk" data-i18n="rail.e.3">независимая проверка</li>
-      <li class="rs chk"><b data-i18n="rail.4">critic · чистый контекст</b><span data-i18n="rail.4.s">revise: что будет с заказами, которые уже в Mongo?</span></li>
-      <li class="re" data-i18n="rail.e.4">вы одобряете правки</li>
-      <li class="rs acc"><b>review_status: reviewed</b><span data-i18n="rail.5.s">с датой и связями, в git</span></li>
-    </ol>
-  </figure>
+      <p class="note" data-i18n="quick.s.1.after">После установки перезапустите агента; Codex один раз попросит одобрить его хуки.</p></li>
+    <li><h3 data-i18n="quick.s.2.h">Скажите, что хотите сделать</h3><p class="say">I want to create a stock trading bot</p><p class="tr" data-i18n="quick.s.2.tr">«Хочу сделать бота для торговли акциями»</p></li>
+    <li><h3 data-i18n="quick.s.3.h">Ответьте на вопросы</h3><p data-i18n="quick.s.3.p">Прежде чем планировать, агент спрашивает то, что решать только вам:</p>
+      <div class="chat">
+        <p class="chat-agent">The project is empty—no code, and the vault just has README scaffolding with no epics, stories, or ADRs yet. Per CLAUDE.md, I'll start with an epic and its stories in the vault rather than code, but first I need you to make a few decisions that will shape the plan.</p>
+        <p class="tr" data-i18n="quick.chat.tr">Перевод: «Проект пустой, кода и заметок пока нет. Начну с плана, а не с кода. Но сначала нужны ваши решения».</p>
+        <div class="choice">
+          <p class="choice-q">Should the bot trade real money? <span class="tr" data-i18n="quick.q.tr">(торговать реальными деньгами?)</span></p>
+          <ol>
+            <li>Paper only (Recommended) <span data-i18n="quick.o.1">· учебный счёт</span></li>
+            <li>Backtest only <span data-i18n="quick.o.2">· исторические данные, без брокера</span></li>
+            <li>Live, with safeguards <span data-i18n="quick.o.3">· аварийная остановка, лимиты позиций и убытка</span></li>
+          </ol>
+        </div>
+      </div>
+      <p class="note" data-i18n="quick.s.3.src">Из настоящей сессии Claude Code в пустом проекте, 21 октября 2026. Текст агента дословный, описания вариантов сокращены, русский — перевод.</p>
+    </li>
+    <li><h3 data-i18n="quick.s.4.h">Одобрите план</h3><p data-i18n="quick.s.4.p">К этому моменту критик его уже проверил. После вашего «да» агент делает работу, а ревьюер сверяет результат с чек-листом.</p></li>
+  </ol>
 </section>
 
 <section class="sec" id="talk" aria-labelledby="talk-title">
-  <div class="section-label" data-i18n="talk.label">02 / Дальше просто говорите</div>
-  <div class="talk-head">
-    <div><h2 id="talk-title" data-i18n="talk.h2">Команды учить не нужно. <span class="acc">Просто спросите.</span></h2></div>
-    <p class="lede" data-i18n="talk.lede">Скажите, что хотите. Агент запустит нужный процесс, покажет каждый черновик и <b class="hl">спросит, прежде чем записать</b>. Сцены ниже — из Claude Code.</p>
+  <h2 id="talk-title" data-i18n="talk.h2">Что можно сделать</h2>
+  <p class="lede" data-i18n="talk.sub">Просто говорите с агентом своими словами. Например:</p>
+  <div class="tasks">
+    <div class="task"><h3 data-i18n="talk.c.1.h">Начать проект с идеи</h3><p class="say">I want to create a stock trading bot</p><p data-i18n="talk.c.1.p">Агент спрашивает то, что решать только вам, и пишет план: эпики, задачи, чек-лист к каждой. Кода пока нет.</p></div>
+    <div class="task"><h3 data-i18n="talk.c.2.h">Решить один раз</h3><p class="say">Let's go with Postgres, not Mongo — we need transactions.</p><p data-i18n="talk.c.2.p">Решение становится файлом вместе с отвергнутыми вариантами. Следующие сессии следуют ему, а не решают заново.</p></div>
+    <div class="task"><h3 data-i18n="talk.c.3.h">Сделать фичу по чек-листу</h3><p class="say">Take the next story and build it</p><p data-i18n="talk.c.3.p">Планировщик находит место в коде, агент пишет код и тесты, ревьюер проверяет каждый пункт, прежде чем работа считается сделанной.</p></div>
+    <div class="task"><h3 data-i18n="talk.c.4.h">Продолжить завтра</h3><p class="say">Where were we?</p><p data-i18n="talk.c.4.p">Новая сессия читает доску и текущую задачу и продолжает с того же места.</p></div>
   </div>
-
-  <div class="scenes">
-    <div class="scene cols">
-      <div class="scene-text">
-        <div class="step-name"><span class="step-no">1</span><span data-i18n="talk.s1.name">Решение</span></div>
-        <h3 data-i18n="talk.s1.h3">Решили один раз. «Почему» остаётся.</h3>
-        <p data-i18n="talk.s1.p">Решение становится ADR с отклонёнными вариантами. Без вашего «да» ничего не записывается, а потом его проверяет критик с чистым контекстом.</p>
-      </div>
-      <figure class="tty"><figcaption><span>Claude Code · your-project</span><span class="c-ok">Claude Code</span></figcaption>
-        <div class="tty-body" data-i18n="talk.s1.tty"><span class="you">&gt; Сессии храним в Redis, а не в базе данных.</span><span><span class="c-acc">●</span> decision-detector <span class="c-dim">· это решение: записать как ADR?</span></span><span><span class="c-pln">?</span> Записать ADR? <span class="c-acc">› Да</span></span><span class="c-ok">+ ADR записан · review_status: pending</span><span><span class="c-chk">●</span> <span class="c-chk">critic</span> <span class="c-dim">· чистый контекст</span></span><span class="ind sub">revise — что будет с сессиями при перезапуске Redis?</span><span><span class="c-pln">?</span> Применить правку? <span class="c-acc">› Да</span></span><span><span class="c-acc">●</span> исправлено: персистентность включена; потерянная сессия просит войти заново</span><span class="c-ok">✓ review_status: reviewed</span></div>
-      </figure>
-    </div>
-
-    <div class="scene cols">
-      <div class="scene-text">
-        <div class="step-name"><span class="step-no">2</span><span data-i18n="talk.s2.name">План</span></div>
-        <h3 data-i18n="talk.s2.h3">План приходит с критериями приёмки.</h3>
-        <p data-i18n="talk.s2.p">Пробелы находятся, пока это ещё фразы, а не баги.</p>
-      </div>
-      <figure class="tty"><figcaption><span>Claude Code · your-project</span><span class="c-ok">Claude Code</span></figcaption>
-        <div class="tty-body" data-i18n="talk.s2.tty"><span class="you">&gt; Раздели «оплату сохранёнными картами» на эпик и стори.</span><span><span class="c-acc">●</span> эпик CHECKOUT <span class="c-dim">· цель, объём, 4 стори в плане</span></span><span><span class="c-pln">?</span> Записать эпик? <span class="c-acc">› Да</span></span><span class="c-ok">+ epics/CHECKOUT/epic.md · review_status: pending</span><span><span class="c-chk">●</span> <span class="c-chk">critic</span> <span class="sub">revise — ни одна стори не покрывает отклонённую сохранённую карту</span></span><span><span class="c-pln">?</span> Добавить эту стори в план? <span class="c-acc">› Да</span></span><span><span class="c-acc">●</span> 5 стори, у каждой критерии приёмки, каждая записана после вашего «да»</span></div>
-      </figure>
-    </div>
-
-    <div class="scene cols">
-      <div class="scene-text">
-        <div class="step-name"><span class="step-no">3</span><span data-i18n="talk.s3.name">Разработка</span></div>
-        <h3 data-i18n="talk.s3.h3">«Готово» значит «доказано».</h3>
-        <p data-i18n="talk.s3.p">Планировщик говорит, где место изменению. Ревьюер просит подтверждение по каждому критерию приёмки, прежде чем стори закроется.</p>
-      </div>
-      <figure class="tty"><figcaption><span>Claude Code · your-project</span><span class="c-ok">Claude Code</span></figcaption>
-        <div class="tty-body" data-i18n="talk.s3.tty"><span class="you">&gt; Возьми следующую стори в CHECKOUT.</span><span><span class="c-pln">●</span> <span class="c-pln">planner</span> <span class="c-dim">·</span> src/billing/cards/ — переиспользовать PaymentGateway</span><span><span class="c-acc">●</span> реализовано · 4 файла · тесты проходят</span><span><span class="c-chk">●</span> <span class="c-chk">reviewer</span> <span class="sub">у критерия 2 нет подтверждения: причина отказа банка по отклонённой карте</span></span><span><span class="c-acc">●</span> тест добавлен · tests/cards.test.ts:58</span><span><span class="c-pln">?</span> Закрыть стори? <span class="c-acc">› Да</span></span><span class="c-ok">✓ стори готова · подтверждение под каждым критерием</span></div>
-      </figure>
-    </div>
-
-    <div class="scene cols">
-      <div class="scene-text">
-        <div class="step-name"><span class="step-no ok">4</span><span data-i18n="talk.s4.name">Следующая сессия</span></div>
-        <h3 data-i18n="talk.s4.h3">Завтра начинается с доски.</h3>
-        <p data-i18n="talk.s4.p">Новая сессия открывается со списком того, что в работе. Назовите стори, и агент прочитает её план и чеклист из файла.</p>
-      </div>
-      <figure class="tty"><figcaption><span>Claude Code · a new session</span><span class="c-ok">Claude Code</span></figcaption>
-        <div class="tty-body" data-i18n="talk.s4.tty"><span class="c-dim">старт сессии · your-project-vault · сейчас в работе:</span><span class="ind"><span class="c-epic">CHECKOUT</span> · Отклонённая сохранённая карта просит другую</span><span class="ind"><span class="c-epic">CHECKOUT</span> · Сохранённую карту можно удалить</span><span class="you">&gt; Продолжи стори про отклонённую карту.</span><span><span class="c-acc">●</span> 2 из 5 задач отмечены · дальше: предложить другие сохранённые карты</span></div>
-      </figure>
-    </div>
-  </div>
-
-  <h3 data-i18n="set.h3">Настройки — тоже одной фразой.</h3>
-  <div class="settings">
-    <article class="set-card wide">
-      <div class="wide-text">
-        <div class="set-head"><span class="acc" data-i18n="set.band.k">бар</span><span class="c-ok" data-i18n="set.band.h">Claude Code · экспериментально</span></div>
-        <p class="set-prompt" data-i18n="set.band.q">«Покажи проект над строкой ввода».</p>
-        <p data-i18n="set.band.p">Текущий эпик, его прогресс и цель, ваша стори и агент, который сейчас работает, — над строкой ввода, прямо во время работы. Пока бар на экране, строка статуса уступает ему место.</p>
-      </div>
-      <figure class="band" aria-label="Бар над строкой ввода" data-i18n-attr="aria-label:set.band.aria"><b class="c-epic">📚 CHECKOUT</b> <b class="c-hi" data-i18n="set.band.title">Оплата сохранёнными картами</b> · <span data-i18n="set.band.1">эта сессия</span>
-   <span data-i18n="set.band.2">цель  Клиенты платят сохранённой картой в один клик</span>
-   <span class="c-ok">■■</span><span class="c-epic">■■■■</span>■■■■  <b class="c-hi">20%</b>  <span class="c-ok" data-i18n="set.band.3">1 готово</span> · <span class="c-epic" data-i18n="set.band.4">2 в работе</span> · <span data-i18n="set.band.5">2 бэклог · 5 стори</span>
-   <span data-i18n="set.band.6">стори</span> <span class="c-pln" data-i18n="set.band.7">Отклонённая сохранённая карта просит другую</span> · in-progress
-   <span data-i18n="set.band.8">агент</span> <b class="c-chk">reviewer</b> · opus 5.5 · <span data-i18n="set.band.9">сверяет дифф с «Отклонённая сохранённая карта…»</span>
-<span class="prompt-box">&gt; <span class="cursor">▍</span></span></figure>
-    </article>
-    <article class="set-card">
-      <div class="set-head"><span data-i18n="set.models.k">модели</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.models.h">Codex: только модели</span></span></div>
-      <p class="set-prompt" data-i18n="set.models.q">«Запусти critic на Fable и покажи ProjectStore в строке статуса».</p>
-      <p class="runs"><span data-i18n="set.runs">агент запускает:</span></p>
-      <pre class="runs" id="cfg-set" data-fact="install">npx projectstore configure --set agents.critic=fable --set statusline=on</pre>
-    </article>
-    <article class="set-card">
-      <div class="set-head"><span data-i18n="set.skill.k">свой скилл</span><span><span class="c-ok">Claude Code</span> · <span data-i18n="set.skill.h">Codex: файлы и CLI</span></span></div>
-      <p class="set-prompt" data-i18n="set.skill.q">«Напиши скилл: перед релизом показывать стори, которые не готовы, и ADR, которые ещё ждут ревью».</p>
-      <p class="runs" data-i18n="set.skill.p">Обычный скилл, который читает записи проекта: простой Markdown с frontmatter или <span data-fact="mcp-tools">8</span> MCP-инструментов только для чтения.</p>
-    </article>
-  </div>
-  <div class="later-row"><span data-i18n="set.later">Все настройки — из терминала:</span><pre id="cfg-all" data-fact="install">npx projectstore configure</pre></div>
-  <p class="note" data-i18n="start.p.5">Как обновить и как удалить — в README, разделы <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#upgrading" target="_blank" rel="noopener noreferrer">Upgrading</a> и <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#uninstalling" target="_blank" rel="noopener noreferrer">Uninstalling</a>. При удалении vault остаётся.</p>
+  <ul class="trust">
+    <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="talk.trust.1">Без вашего «да» ничего не пишется.</span></li>
+    <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="talk.trust.2">Обычный Markdown в вашем git. Удалите плагин — заметки останутся.</span></li>
+    <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span class="agents-line" data-i18n="talk.agents">Работает в <b>Claude Code</b> и <b>Codex</b>. Скоро <b>OpenCode</b>, следом <b>Gemini</b>, <b>Z.ai</b> и <b>DeepSeek</b>.</span></li>
+  </ul>
+  <div class="proof"><b data-i18n="talk.proof.h">Собран на самом себе</b><p data-i18n="talk.proof.p">Мы строим ProjectStore с помощью ProjectStore.</p></div>
+</section>
+<section class="sec chapter" id="how" aria-labelledby="how-title">
+  <div class="section-label" data-i18n="how.label">Как это работает</div>
+  <h2 id="how-title" data-i18n="how.h1">Цикл с <span class="acc">независимой проверкой</span> внутри.</h2>
+  <p class="lead" data-i18n="how.lead">Агенты быстро пишут код и так же быстро пересматривают решённое: каждая новая сессия начинает с нуля. Лечится это не более умным агентом. Лечится циклом «собрать контекст → действовать → проверить», который идёт над проектом, а не только над кодом.</p>
 </section>
 
-<section class="sec" id="rails" aria-labelledby="rails-title">
-  <div class="section-label" data-i18n="rails.label">03 / Рельсы</div>
-  <h2 id="rails-title" data-i18n="rails.h2">Собрать контекст → действовать → проверить.<br><span class="acc">Над проектом, а не только над кодом.</span></h2>
+<section class="sec joined" id="loop" aria-labelledby="loop-title">
 <figure class="loop" aria-labelledby="loop-cap">
   <figcaption id="loop-cap" class="visually-hidden" data-i18n="loop.cap">Цикл ProjectStore. Решение: задача от вас, ADR, спека или стори, независимый критик, ваше одобрение. Разработка: планировщик, реализация, независимый ревьюер, готово. Каждый артефакт попадает в vault, и следующая сессия его видит.</figcaption>
   <div class="diagram">
@@ -252,114 +223,182 @@
     <li data-line="8"><b>08</b><span data-i18n="loop.l.8">Готово, с подтверждением под каждым критерием. Доска, граф связей и карта кода пересобираются.</span></li>
   </ol>
 </figure>
-  <a class="more" href="how-it-works/" data-i18n="rails.more">Как это работает: восемь шагов, шесть агентов и защитные механизмы →</a>
+  <figure class="loopfig" data-player>
+    <figcaption id="loop-title" data-i18n="fig.cap">Как проходит задача</figcaption>
+    <div class="player">
+      <img class="player-poster" src="../assets/loop-still.webp" width="1920" height="1080" loading="lazy" decoding="async" draggable="false" alt="Анимированная терминальная панель с циклом на реальном эпике. Вы просите систему копирования между своими устройствами; агент пишет эпик и истории; критик со свежим контекстом возвращает их с двумя блокерами; вы одобряете исправления; планировщик находит, где это в коде; код и тесты; ревьюер сверяет каждый критерий приёмки; готово. Доска задач, граф связей и карта кода обновляются, и следующая сессия их видит. Боковая панель показывает дежурного критика и ревьюера. Текст в анимации — на английском." data-i18n-attr="alt:fig.alt">
+      <template class="player-src"><iframe class="player-frame" src="../assets/loop.html" tabindex="-1" aria-hidden="true"></iframe></template>
+      <div class="player-bar" hidden>
+        <button class="player-play" type="button" aria-pressed="false" aria-label="Пауза" data-i18n-attr="aria-label:fig.pause"><span class="pause-bars" aria-hidden="true"></span></button>
+        <input class="player-seek" type="range" min="0" max="30" step="0.1" value="0" aria-label="Позиция" data-i18n-attr="aria-label:fig.seek">
+        <span class="player-time" aria-hidden="true">0:00 / 0:30</span>
+        <button class="player-full" type="button" aria-pressed="false" aria-label="Во весь экран" data-i18n-attr="aria-label:fig.full"><svg class="icon on-off" aria-hidden="true"><use href="#i-expand"/></svg><svg class="icon on-on" aria-hidden="true"><use href="#i-shrink"/></svg></button>
+      </div>
+    </div>
+  </figure>
 </section>
 
-<section class="sec" id="fits" aria-labelledby="fits-title">
-  <div class="section-label" data-i18n="fits.span.1">04 / Где его место</div>
-  <h2 id="fits-title" data-i18n="fits.h2.1">Не память агента. Не конвейер спек.<br><span class="acc">Проектные артефакты.</span></h2>
-  <p class="lede" data-i18n="fits.p.1">Рядом с агентом, который пишет код, работают инструменты трёх видов. <b>Каждый отвечает на свой вопрос.</b></p>
-  <div class="table-wrap">
-    <table class="grid-table">
-      <thead><tr><th scope="col" data-i18n="fits.th.1">Вид</th><th scope="col" data-i18n="fits.th.2">Вопрос, на который отвечает</th><th scope="col" data-i18n="fits.th.3">Примеры</th></tr></thead>
-      <tbody>
-        <tr><td data-i18n="fits.span.2">Память агента</td><td data-i18n="fits.h3.1">Что помнит этот агент?</td><td class="ex" data-i18n="fits.p.3">Mem0, Zep, память Codex и Claude Code</td></tr>
-        <tr><td data-i18n="fits.span.3">Файлы инструкций</td><td data-i18n="fits.h3.2">Как здесь должен вести себя агент?</td><td class="ex" data-i18n="fits.p.5"><code>CLAUDE.md</code>, <code>AGENTS.md</code>, правила, steering-файлы</td></tr>
-        <tr><td data-i18n="fits.span.4">Разработка по спекам</td><td data-i18n="fits.h3.3">Как нам сделать это изменение?</td><td class="ex" data-i18n="fits.p.7">Spec Kit, Kiro, OpenSpec, BMAD</td></tr>
-        <tr class="us"><td>ProjectStore</td><td data-i18n="fits.h3.4">Что проект решил, что сейчас в работе и проверено ли это?</td><td class="ex" data-i18n="fits.p.8">Проектные артефакты — ADR, спеки, эпики, стори, доска — со статусом, датой и связями, в git. Человек одобряет каждый, прежде чем ProjectStore его запишет; критик с чистым контекстом проверяет его по правилу.</td></tr>
-      </tbody>
-    </table>
+<section class="sec" id="agents" aria-labelledby="how-agents-title">
+  <div class="section-label" data-i18n="how.agents.label">Агенты</div>
+  <h2 id="how-agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">агентов.</span> <span class="acc" data-i18n="agents.h2.2">Всем, кроме одного, разрешено только читать.</span></h2>
+  <p class="lede" data-i18n="agents.p.1">Советники проверяют, планируют и наводят порядок, но ничего не меняют. <b>Один клерк сохраняет только то, что вы одобрили, и только после вашего «да».</b></p>
+  <div class="agents">
+    <article class="agent"><span class="role chk">critic</span><span class="rw" data-i18n="agents.span.4">только чтение · независимый</span><p data-i18n="agents.td.1">Когда написан или изменён ADR, спека, эпик, стори или дизайн</p><p class="c-hi" data-i18n="agents.td.2">Ищет слабые места, сверяет каждое утверждение с источником и спрашивает, как план может провалиться. Без лести.</p><span class="rw" data-i18n="agents.td.3">opus · max</span></article>
+    <article class="agent"><span class="role pln">planner</span><span class="rw" data-i18n="agents.span.5">только чтение · независимый</span><p data-i18n="agents.td.4">До начала работы над стори (<code>story plan</code>)</p><p class="c-hi" data-i18n="agents.td.5">Смотрит, где в коде живут прошлые эпики. Говорит, где место изменению, что переиспользовать, чего опасаться и в каком порядке работать.</p><span class="rw" data-i18n="agents.td.6">opus · max</span></article>
+    <article class="agent"><span class="role chk">reviewer</span><span class="rw" data-i18n="agents.span.6">только чтение · независимый</span><p data-i18n="agents.td.7">После кода, до коммита или <code>story close</code></p><p class="c-hi" data-i18n="agents.td.8">Просит подтверждение по каждому критерию приёмки, включая критерии спеки. Затем проверяет корректность, регрессии и тесты.</p><span class="rw" data-i18n="agents.td.9">opus · max</span></article>
+    <article class="agent"><span class="role">librarian</span><span class="rw" data-i18n="agents.span.7">только чтение · предлагает</span><p data-i18n="agents.td.10">Время от времени, перед релизами, после быстрого роста vault</p><p class="c-hi" data-i18n="agents.td.11">Находит то, что не поймать правилом: исследования, которые противоречат принятому ADR, дубликаты, недостающие ссылки, файлы, которые пора убрать в архив.</p><span class="rw" data-i18n="agents.td.12">opus · max</span></article>
+    <article class="agent"><span class="role">archaeologist</span><span class="rw" data-i18n="agents.span.8">только чтение · предлагает</span><p data-i18n="agents.td.13">Один раз, после привязки существующей кодовой базы</p><p class="c-hi" data-i18n="agents.td.14">Находит решения, которые никто не записал: в коде, конфигах и истории git. Предлагает оформить их в ADR, с доказательствами.</p><span class="rw" data-i18n="agents.td.15">opus · max</span></article>
+    <article class="agent"><span class="role acc">clerk</span><span class="rw" data-i18n="agents.span.9">пишет · после вашего «да»</span><p data-i18n="agents.td.16">Только в рамках команды, только после вашего «да»</p><p class="c-hi" data-i18n="agents.td.17">Сохраняет ровно то, что вы одобрили, и ничего больше. Затем пересобирает доску и запускает проверки. Ничего не пишет от себя и ничего не спрашивает.</p><span class="rw" data-i18n="agents.td.18">sonnet · max</span></article>
   </div>
-  <p class="lede" data-i18n="fits.p.10">Журналы решений, валидаторы, сводка в начале сессии и независимое ревью по отдельности есть и в других инструментах. <b>Вклад ProjectStore — всё это вместе, поверх единого связанного набора записей.</b></p>
-  <a class="more" href="https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/alongside.md"><span data-i18n="fits.span.5">Разбор по инструментам, с источниками</span>: docs/alongside.md →</a>
+  <p class="note"><span data-i18n="agents.p.10">Модели по умолчанию — для Claude Code. В Codex каждая роль — это одноимённый скилл, который просит Codex её запустить, например <code>$projectstore-critic</code> для критика; роль использует модель сессии, если вы не задали другую.</span></p>
 </section>
-
-<section class="sec" id="disk" aria-labelledby="disk-title">
-  <div class="section-label" data-i18n="disk.label">05 / Что остаётся на диске</div>
-  <h2 id="disk-title" data-i18n="disk.h2">Простой Markdown. <span class="acc">В собственном git-репозитории.</span></h2>
+<section class="sec" id="mechanisms" aria-labelledby="how-mech-title">
+  <div class="section-label" data-i18n="how.mech.label">Защитные механизмы</div>
+  <h2 id="how-mech-title" data-i18n="how.mech.h2">Всё держится на механизмах, <span class="acc">а не на дисциплине.</span></h2>
+  <div class="mechs">
+    <div class="mech"><h3 data-i18n="how.m.1.h">Нет стори — напоминание</h3><p data-i18n="how.m.1.p">Агенту, который начал править код без открытой стори, напоминают открыть её. Изменение размером с фичу начинается в vault.</p></div>
+    <div class="mech"><h3 data-i18n="workflow.h4.2">Пометка «без ревью» остаётся</h3><p data-i18n="how.m.2.p">Артефакт, которому нужно ревью, остаётся с <code>review_status: pending</code>, пока не применены итоги проверки критиком. «Ещё без ревью» — это состояние, которое читают инструменты, а не то, что кто-то должен помнить.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.3.h">Doctor без ИИ</h3><p data-i18n="how.m.3.p"><code>doctor</code> детерминированно проверяет механическую согласованность vault. В CI он работает без агента и без токенов.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.4.h">Куда смотреть — генерируется</h3><p data-i18n="how.m.4.p"><code>graph.md</code> хранит связи каждого артефакта в обе стороны; <code>code-map.md</code> говорит, где живёт код каждого эпика. Перед архитектурным выбором агента сначала отправляют к индексу ADR.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.5.h">После <code>/compact</code> vault возвращается</h3><p data-i18n="how.m.5.p">В Claude Code после <code>/compact</code>, запущенного вами, сессия снова начинается со сводки по vault и с файлов vault, которые разговор затрагивал до сжатия.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.6.h">Вторую сессию предупреждают</h3><p data-i18n="how.m.6.p">Сессия, которая стартует, пока другая работает с тем же vault, открывается с предупреждением о нескольких сессиях: сначала поищите, потом создавайте новое.</p></div>
+  </div>
+</section>
+<section class="sec" id="evidence" aria-labelledby="how-ev-title">
+  <div class="section-label" data-i18n="how.ev.label">«Готово» значит «доказано»</div>
+  <h2 id="how-ev-title" data-i18n="how.ev.h2">Стори закрывается с подтверждением <span class="acc">под каждым критерием.</span></h2>
   <div class="files">
     <figure class="file">
-      <figcaption data-i18n="disk.cap.1">ADR в vault</figcaption>
-<pre class="code-lines" data-template="adr" data-i18n="artifacts.pre.1"><code><span class="code-line"><span class="line-number">01</span><span>---</span></span>
-<span class="code-line code-key"><span class="line-number">02</span><span>id: "<span data-slug="adr:slug">postgres-kak-osnovnoe-hranilishche</span>"</span></span>
-<span class="code-line code-key"><span class="line-number">03</span><span>title: "<span data-title="adr">Postgres как основное хранилище</span>"</span></span>
-<span class="code-line code-key"><span class="line-number">04</span><span>status: accepted</span></span>
-<span class="code-line code-key"><span class="line-number">05</span><span>date: 2026-07-03</span></span>
-<span class="code-line code-key"><span class="line-number">06</span><span>supersedes: null</span></span>
-<span class="code-line code-key"><span class="line-number">07</span><span>review_status: reviewed</span></span>
-<span class="code-line"><span class="line-number">08</span><span>---</span></span>
-<span class="code-line"><span class="line-number">09</span><span> </span></span>
-<span class="code-line code-heading"><span class="line-number">10</span><span>## Контекст</span></span>
-<span class="code-line"><span class="line-number">11</span><span>Заказ и его строки должны писаться атомарно.</span></span>
-<span class="code-line"><span class="line-number">12</span><span> </span></span>
-<span class="code-line code-heading"><span class="line-number">13</span><span>## Решение</span></span>
-<span class="code-line"><span class="line-number">14</span><span>Postgres 16. Заказ и строки — одна транзакция.</span></span>
-<span class="code-line"><span class="line-number">15</span><span> </span></span>
-<span class="code-line code-heading"><span class="line-number">16</span><span>## Рассмотренные альтернативы</span></span>
-<span class="code-line"><span class="line-number">17</span><span>MongoDB: транзакции есть, реляционных ограничений нет.</span></span>
-<span class="code-line"><span class="line-number">18</span><span> </span></span>
-<span class="code-line code-heading"><span class="line-number">19</span><span>## Последствия</span></span>
-<span class="code-line"><span class="line-number">20</span><span>Миграции — шаг релиза. Ночная сверка снята.</span></span></code></pre>
-      <p class="file-note" data-i18n="artifacts.div.1">Упрощённый пример. Устройство файла, поля в шапке и заголовки — настоящие (русский шаблон, <code>--lang ru</code>).</p>
+      <figcaption><span data-i18n="how.story.path"><span data-slug="story:path">epics/CHECKOUT/stories/story-sohranennye-karty-pokazany-pri-oformlenii-zakaza.md</span></span></figcaption>
+<pre class="plain-code" data-template="story" data-i18n="how.story"><span class="fm">---</span>
+<span class="k">type:</span> story
+<span class="k">epic:</span> "CHECKOUT"
+<span class="k">title:</span> "<span data-title="story">Сохранённые карты показаны при оформлении заказа</span>"
+<span class="k">status:</span> <span class="c-ok">done</span>
+<span class="k">code_refs:</span> ["src/billing/cards/", "tests/cards.test.ts"]
+<span class="k">closed_at:</span> "2026-07-14T16:02:11Z"
+<span class="fm">---</span>
+
+<span class="h">## Критерии приёмки</span>
+
+- [x] Сохранённые карты показаны первыми — подтверждение: tests/cards.test.ts:21
+- [x] У отклонённой карты показана причина отказа банка — подтверждение: tests/cards.test.ts:58
+- [x] Номер карты не попадает в логи — подтверждение: tests/cards.test.ts:73</pre>
     </figure>
-    <figure class="file">
-      <figcaption data-i18n="disk.cap.2">your-project-vault — открывается в Obsidian, на GitHub, в любом редакторе</figcaption>
-<pre class="tree" data-i18n="disk.tree">your-project-vault/
-├── adr/          <span class="k">решения, с датами</span>
-├── specs/        <span class="k">как это должно работать</span>
-├── epics/        <span class="k">работа, со своими стори</span>
-├── research/     <span class="k">исследования</span>
-├── …             <span class="k">концепции, встречи, ранбуки, диаграммы</span>
-├── kanban.md     <span class="fm">доска · пересобирается</span>
-├── graph.md      <span class="fm">все связи · пересобирается</span>
-└── code-map.md   <span class="fm">эпик ↔ код · пересобирается</span></pre>
-    </figure>
+    <div class="prose">
+      <p data-i18n="how.ev.p.1">Ещё до кода планировщик сказал, где место изменению, и план попал в стори после вашего «да»; после кода ревьюер сверил диф с каждым критерием. Каждая строка подтверждения — это тест, выполненная команда или строка кода.</p>
+      <p data-i18n="how.ev.p.2">Эти записи может прочитать любой агент, с плагином или без: через CLI, который отвечает JSON и не тратит токены, или через <span data-fact="mcp-tools">8</span> инструментов MCP-сервера, доступных только для чтения.</p>
+      <ul class="tools" aria-label="Инструменты MCP" data-i18n-attr="aria-label:agents.aria-label.1"><li data-fact="mcp-tool">orientation</li><li data-fact="mcp-tool">search</li><li data-fact="mcp-tool">status</li><li data-fact="mcp-tool">get_artifact</li><li data-fact="mcp-tool">lineage</li><li data-fact="mcp-tool">neighbors</li><li data-fact="mcp-tool">code_refs</li><li data-fact="mcp-tool">doctor</li></ul>
+    </div>
   </div>
 </section>
+<section class="sec" id="fine-print" aria-labelledby="how-fine-title">
+  <div class="section-label" data-i18n="how.fine.label">Оговорки</div>
+  <h2 id="how-fine-title" class="visually-hidden" data-i18n="how.fine.h2">Оговорки</h2>
+  <ul class="fine">
+    <li data-i18n="how.fine.1">Цикл стоит токенов: черновики, критик и ревьюер работают на модели, за которую вы и так платите. Замеры — в README.</li>
+    <li data-i18n="how.fine.2">Критик и ревьюер в Claude Code — отдельные агенты с чистым контекстом. В Codex эти роли — скиллы.</li>
+    <li data-i18n="how.fine.3">ProjectStore — это общий контекст проекта и способ работы. Это не оркестратор агентов: запуск агентов — задача вашего harness.</li>
+  </ul>
+</section>
+<section class="sec chapter" id="team" aria-labelledby="team-title">
+  <div class="section-label" data-i18n="team.label">Команда и много сессий</div>
+  <h2 id="team-title" data-i18n="vault.h1">Много сессий. Много людей. <span class="acc">Один vault.</span></h2>
+  <p class="lead" data-i18n="teams.p.1">Контекст принадлежит команде. Не чату одного разработчика. ADR и спеки проходят через pull request, как код. <b>На ревью — ход рассуждений.</b></p>
+</section>
 
-<section class="sec modes" id="teams" aria-labelledby="teams-title" data-tabs data-initial="solo">
-  <div class="section-label" data-i18n="modes.label">06 / Один или в команде</div>
-  <h2 id="teams-title" data-i18n="modes.h2">Один vault. <span class="acc">Много сессий, людей и агентов.</span></h2>
+<section class="sec modes" id="modes" aria-labelledby="vault-modes-title" data-tabs data-initial="solo">
+  <div class="section-label" data-i18n="vault.modes.label">Четыре способа работы</div>
+  <h2 id="vault-modes-title" class="visually-hidden" data-i18n="vault.modes.h2">Четыре способа работы</h2>
   <div class="tabs" role="tablist" aria-label="Сценарии совместной работы" data-i18n-attr="aria-label:teams.aria-label.1">
-    <button class="tab" type="button" role="tab" data-tab="solo" id="mt-solo" aria-controls="mp-solo" data-i18n="modes.tab.solo">Один человек, много сессий</button>
-    <button class="tab" type="button" role="tab" data-tab="team" id="mt-team" aria-controls="mp-team" data-i18n="teams.button.1">Одна команда</button>
-    <button class="tab" type="button" role="tab" data-tab="teams" id="mt-teams" aria-controls="mp-teams" data-i18n="teams.button.2">Несколько команд</button>
-    <button class="tab" type="button" role="tab" data-tab="agents" id="mt-agents" aria-controls="mp-agents" data-i18n="teams.button.3">Несколько агентов</button>
+    <button class="tab" type="button" role="tab" data-tab="solo" id="vt-solo" aria-controls="vp-solo" data-i18n="modes.tab.solo">Один человек, много сессий</button>
+    <button class="tab" type="button" role="tab" data-tab="team" id="vt-team" aria-controls="vp-team" data-i18n="teams.button.1">Одна команда</button>
+    <button class="tab" type="button" role="tab" data-tab="teams" id="vt-teams" aria-controls="vp-teams" data-i18n="teams.button.2">Несколько команд</button>
+    <button class="tab" type="button" role="tab" data-tab="agents" id="vt-agents" aria-controls="vp-agents" data-i18n="teams.button.3">Несколько агентов</button>
   </div>
-  <div class="mode-box">
-    <div>
-      <div class="mode-panel" role="tabpanel" data-panel="solo" id="mp-solo" aria-labelledby="mt-solo"><h3 data-i18n="teams.h3.5">Несколько сессий, один vault</h3><p data-i18n="teams.p.12">Два агента или два человека в одном vault одновременно — это нормально. Каждая сессия знает о других, а несколько простых правил не дают им мешать друг другу.</p></div>
-      <div class="mode-panel" role="tabpanel" data-panel="team" id="mp-team" aria-labelledby="mt-team"><h3 data-i18n="teams.h3.1">Каждый видит не только свою часть.</h3><p data-i18n="teams.p.2">Разработчик, техлид и QA работают с одними и теми же решениями и критериями. Человеку без агента достаточно GitHub или редактора Markdown: это всего лишь файлы.</p></div>
-      <div class="mode-panel" role="tabpanel" data-panel="teams" id="mp-teams" aria-labelledby="mt-teams"><h3 data-i18n="teams.h3.2">Общие контракты. Свои зоны работы.</h3><p data-i18n="teams.p.4">В одном проекте API-, Web- и Platform-команды ведут свои эпики на основе общих ADR и спек. Изменение общего контракта обсуждают на ревью с командами, которые им пользуются. ProjectStore показывает, какие стори от него зависят.</p></div>
-      <div class="mode-panel" role="tabpanel" data-panel="agents" id="mp-agents" aria-labelledby="mt-agents"><h3 data-i18n="teams.h3.3">Разные исполнители. Общие основания.</h3><p data-i18n="teams.p.6">Планировщик читает решения и карту кода. Исполнитель — стори и спеку. Ревьюер — диф и критерии. Каждый получает нужный ему контекст, а не всю историю чужой сессии. Сессии в одном vault предупреждают друг друга.</p></div>
-      <a class="more" href="one-vault/" data-i18n="modes.more">Один vault, много людей: правила, git и настройка для команды →</a>
-    </div>
-    <div class="mode-fig">
-      <svg class="dg" viewBox="0 0 480 300" width="480" height="300" role="img" aria-labelledby="mode-cap">
-        <title id="mode-cap" data-i18n="modes.fig">Участники встречаются в одном vault, который отправляется в git remote и забирается из него.</title>
-        <path class="edge pln" d="M72 56V88H408V56M240 56V88"/>
-        <path class="edge pln" d="M240 88V116" marker-end="url(#m-pln)"/>
-        <path class="edge" d="M216 184V234" marker-end="url(#m)"/>
-        <path class="edge" d="M264 240V190" marker-end="url(#m)"/>
-        <rect class="who" x="0" y="0" width="144" height="56" rx="6"/><rect class="who" x="168" y="0" width="144" height="56" rx="6"/><rect class="who" x="336" y="0" width="144" height="56" rx="6"/>
-        <g data-mode="solo"><text class="who-t" x="72" y="33" text-anchor="middle" data-i18n="modes.solo.1">сессия 1</text><text class="who-t" x="240" y="33" text-anchor="middle" data-i18n="modes.solo.2">сессия 2</text><text class="who-t" x="408" y="33" text-anchor="middle" data-i18n="modes.solo.3">сессия 3</text><text class="elbl pln" x="252" y="108" data-i18n="modes.solo.via">предупреждают друг друга</text></g>
-        <g data-mode="team"><text class="who-t" x="72" y="33" text-anchor="middle" data-i18n="teams.strong.1">Разработчик</text><text class="who-t" x="240" y="33" text-anchor="middle" data-i18n="teams.strong.2">Техлид</text><text class="who-t" x="408" y="33" text-anchor="middle" data-i18n="teams.strong.3">QA</text><text class="elbl pln" x="252" y="108" data-i18n="teams.span.5">ветки → ревью → merge</text></g>
-        <g data-mode="teams"><text class="who-t" x="72" y="33" text-anchor="middle" data-i18n="teams.strong.5">API-команда</text><text class="who-t" x="240" y="33" text-anchor="middle" data-i18n="teams.strong.6">Web-команда</text><text class="who-t" x="408" y="33" text-anchor="middle" data-i18n="teams.strong.7">Platform</text><text class="elbl pln" x="252" y="108" data-i18n="modes.teams.via">общие ADR и спеки → ревью</text></g>
-        <g data-mode="agents"><text class="who-t" x="72" y="33" text-anchor="middle" data-i18n="teams.strong.9">Планировщик</text><text class="who-t" x="240" y="33" text-anchor="middle" data-i18n="teams.strong.10">Исполнитель</text><text class="who-t" x="408" y="33" text-anchor="middle" data-i18n="teams.strong.11">Ревьюер</text><text class="elbl pln" x="252" y="108" data-i18n="teams.span.19">доступ только на чтение через MCP или CLI</text></g>
-        <g class="pulse"><rect class="nb acc" x="168" y="122" width="144" height="62" rx="6"/></g>
-        <text class="t acc" x="240" y="150" text-anchor="middle" data-i18n="modes.vault">vault</text><text class="s" x="240" y="170" text-anchor="middle" data-i18n="modes.vault.s">простой Markdown</text>
-        <rect class="nb" x="96" y="240" width="288" height="58" rx="6"/>
-        <text class="t" x="240" y="266" text-anchor="middle" data-i18n="modes.remote">git remote</text><text class="s" x="240" y="286" text-anchor="middle" data-i18n="modes.remote.s">ADR ревьюятся как pull request</text>
-        <text class="elbl dim" x="176" y="214" text-anchor="end" data-i18n="modes.push">push</text><text class="elbl dim" x="276" y="214" data-i18n="modes.pull">pull</text>
-      </svg>
+
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="solo" id="vp-solo" aria-labelledby="vt-solo">
+    <div class="cols">
+      <div class="prose">
+        <h3 data-i18n="teams.h3.5">Несколько сессий, один vault</h3>
+        <p data-i18n="teams.p.12">Два агента или два человека в одном vault одновременно — это нормально. Каждая сессия знает о других, а несколько простых правил не дают им мешать друг другу.</p>
+        <ul class="rules-list">
+          <li data-i18n="teams.li.1"><strong>Никаких тихих перезаписей.</strong> Перед сохранением нового файла ProjectStore проверяет, что его ещё нет. Две сессии на одну тему получат конфликт, а не две копии.</li>
+          <li data-i18n="teams.li.2"><strong>Каждая строка статуса показывает свою работу.</strong> <span data-source="docs/how-it-works.md#sessions-how-parallel-claude-instances-coexist">2–6 сессий</span> рядом — и каждая видит ровно свой эпик и свою стори.</li>
+          <li data-i18n="teams.li.3"><strong>Имя сессии предлагается, а не навязывается.</strong> Когда сессия сосредоточилась на одной задаче, она предлагает для неё имя. Редко: <span data-source="docs/how-it-works.md#naming-a-session-after-the-work-it-settled-on">не больше двух раз за сессию, 12 предложений на девять записанных сессий</span>.</li>
+        </ul>
+      </div>
+      <figure class="tty"><figcaption><span data-i18n="vault.tty.cap">вторая сессия в your-project-vault</span><span class="c-ok">Claude Code</span></figcaption>
+<pre class="transcript" data-i18n="vault.tty"><span class="c-dim">разработчик A работает над CHECKOUT с 13:35. вы открываете вторую сессию:</span>
+
+<span class="c-epic">⚠ Multi-session warning</span> — 1 other projectstore session active.
+  Run <span class="c-acc">/projectstore:search &lt;topic&gt;</span> before creating new artifacts.
+
+<span class="c-dim">позже, когда работа сосредоточится на «<span data-title="story">Сохранённые карты показаны при оформлении заказа</span>»:</span>
+projectstore: this session looks like <span class="c-acc">"<span data-slug="story:session">checkout-sohranennye-karty-pokazany-pri</span>"</span>
+  → <span class="c-acc">/rename <span data-slug="story:session">checkout-sohranennye-karty-pokazany-pri</span></span></pre>
+      </figure>
     </div>
   </div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="team" id="vp-team" aria-labelledby="vt-team"><div class="prose"><h3 data-i18n="teams.h3.1">Каждый видит не только свою часть.</h3><p data-i18n="teams.p.2">Разработчик, техлид и QA работают с одними и теми же решениями и критериями. Человеку без агента достаточно GitHub или редактора Markdown: это всего лишь файлы.</p><p data-i18n="teams.p.3">Контекст доступен всей команде, а не только владельцу чата.</p></div></div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="teams" id="vp-teams" aria-labelledby="vt-teams"><div class="prose"><h3 data-i18n="teams.h3.2">Общие контракты. Свои зоны работы.</h3><p data-i18n="teams.p.4">В одном проекте API-, Web- и Platform-команды ведут свои эпики на основе общих ADR и спек. Изменение общего контракта обсуждают на ревью с командами, которые им пользуются. ProjectStore показывает, какие стори от него зависят.</p><p data-i18n="teams.p.5">Ответственных за артефакты и согласование контрактов определяет команда.</p></div></div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="agents" id="vp-agents" aria-labelledby="vt-agents"><div class="prose"><h3 data-i18n="teams.h3.3">Разные исполнители. Общие основания.</h3><p data-i18n="teams.p.6">Планировщик читает решения и карту кода. Исполнитель — стори и спеку. Ревьюер — диф и критерии. Каждый получает нужный ему контекст, а не всю историю чужой сессии. Сессии в одном vault предупреждают друг друга.</p><p data-i18n="teams.p.7">Запуск агентов и передача работы между ними — задача вашего harness или оркестратора.</p></div></div>
+  <p class="note" data-i18n="teams.span.8">Пример организации работы, а не оркестрация в реальном времени</p>
+</section>
+<section class="sec" id="git" aria-labelledby="vault-git-title">
+  <div class="section-label" data-i18n="teams.span.24">vault в отдельном репозитории</div>
+  <h2 id="vault-git-title" data-i18n="teams.span.23">Как это выглядит в git</h2>
+  <figure class="diagram">
+  <svg class="dg" viewBox="0 0 1104 392" width="1104" height="392" role="img" aria-labelledby="git-cap">
+    <title id="git-cap" data-i18n="teams.title.1">Разработчики со своими агентами привязаны к одному vault в отдельном git-репозитории. ADR и спеки проходят ревью через pull request. Коллега без агента смотрит их на GitHub или в Obsidian.</title>
+    <path class="edge pln" d="M260 56H372" marker-end="url(#m-pln)"/>
+    <path class="edge pln" d="M260 188H372" marker-end="url(#m-pln)"/>
+    <text class="elbl pln" x="316" y="46" text-anchor="middle" data-i18n="teams.text.28">настройка</text>
+    <path class="edge" d="M712 160H822" marker-end="url(#m)"/>
+    <path class="edge" d="M822 200H718" marker-end="url(#m)"/>
+    <text class="elbl" x="767" y="150" text-anchor="middle" data-i18n="teams.text.29">push / pull</text>
+    <path class="edge chk" d="M260 320H966V292" marker-end="url(#m-chk)"/>
+    <text class="elbl chk" x="600" y="342" text-anchor="middle" data-i18n="teams.text.30">ревью и pull</text>
+
+    <rect class="who" x="0" y="16" width="260" height="84" rx="6"/>
+    <text class="t pln" x="16" y="46" data-i18n="teams.text.1">Разработчик A</text><text class="s" x="16" y="68" data-i18n="teams.text.2">Claude Code + projectstore</text><text class="tag" x="16" y="88" data-i18n="teams.text.3">агент</text>
+    <rect class="who" x="0" y="148" width="260" height="84" rx="6"/>
+    <text class="t pln" x="16" y="178" data-i18n="teams.text.4">Разработчик B</text><text class="s" x="16" y="200" data-i18n="teams.text.5">Codex + projectstore</text><text class="tag" x="16" y="220" data-i18n="teams.text.6">агент</text>
+    <rect class="nb" x="0" y="280" width="260" height="84" rx="6"/>
+    <text class="t" x="16" y="310" data-i18n="teams.text.7">Разработчик C</text><text class="s" x="16" y="330" data-i18n="teams.text.8">без агента</text><text class="s" x="16" y="350" data-i18n="teams.text.9">ревью в GitHub или Obsidian</text>
+
+    <g class="pulse"><rect class="nb acc" x="378" y="16" width="334" height="270" rx="6"/></g>
+    <text class="t acc" x="396" y="46" data-i18n="teams.text.10">your-project-vault</text>
+    <text class="s" x="396" y="68" data-i18n="teams.text.11">свой git-репо · обычный markdown</text>
+    <text class="s" x="396" y="104" data-i18n="teams.text.12"><tspan class="d">adr/</tspan> решения, с датами</text>
+    <text class="s" x="396" y="128" data-i18n="teams.text.13"><tspan class="d">specs/</tspan> как должно работать</text>
+    <text class="s" x="396" y="152" data-i18n="teams.text.14"><tspan class="d">epics/ · stories/</tspan> бэклог</text>
+    <text class="s" x="396" y="176" data-i18n="teams.text.15"><tspan class="d">kanban.md</tspan> доска</text>
+    <text class="s" x="396" y="200" data-i18n="teams.text.16"><tspan class="d">graph.md</tspan> все связи</text>
+    <text class="s" x="396" y="224" data-i18n="teams.text.17"><tspan class="d">code-map.md</tspan> эпик ↔ код</text>
+    <text class="elbl ok" x="396" y="262" data-i18n="teams.text.18">каждая запись показана и одобрена</text>
+
+    <rect class="nb" x="828" y="96" width="276" height="196" rx="6"/>
+    <text class="t" x="846" y="126" data-i18n="teams.text.22">git remote</text>
+    <text class="s" x="846" y="148" data-i18n="teams.text.23">GitHub · GitLab · что угодно</text>
+    <text class="s" x="846" y="184" data-i18n="teams.text.24">ADR и спеки ревьюятся</text>
+    <text class="s" x="846" y="204" data-i18n="teams.text.25">как pull request:</text>
+    <text class="elbl chk" x="846" y="236" data-i18n="teams.text.26"><tspan class="d">ревью проходит «почему»,</tspan></text>
+    <text class="elbl chk" x="846" y="256" data-i18n="teams.text.27"><tspan class="d">а не только код</tspan></text>
+  </svg>
+  <figcaption class="cap-after" data-i18n="teams.figcaption.1">Положите vault в отдельный репозиторий. Каждый ставит ProjectStore, привязывается к тому же vault и сохраняет изменения только после одобрения. Коллега без агента проводит ревью на GitHub или в Obsidian.</figcaption>
+  </figure>
+  <p class="next-pages"><a href="one-vault/" data-i18n="team.more">Вся страница «Один vault, много людей» →</a></p>
+</section>
+<section class="sec chapter" id="why" aria-labelledby="why-title">
+  <div class="section-label" data-i18n="why.label">Почему это работает</div>
+  <h2 id="why-title" data-i18n="why.h2.1">Индустрия придумала это давно.<br><span class="acc">Агенты сделали это дешёвым.</span></h2>
+  <p class="lead" data-i18n="why.p.1">ADR, ревью, бэклог, критерии приёмки, связь от цели до кода. Зрелые инженерные команды работают так уже двадцать лет. <b>ProjectStore здесь ничего не изобретает.</b></p>
 </section>
 
-<section class="sec" id="method" aria-labelledby="method-title">
-  <div class="section-label" data-i18n="method.label">07 / Метод, доказательства и вопросы</div>
-  <h2 id="method-title" data-i18n="why.h2.1">Индустрия придумала это давно.<br><span class="acc">Агенты сделали это дешёвым.</span></h2>
-  <p class="lede" data-i18n="why.p.1">ADR, ревью, бэклог, критерии приёмки, связь от цели до кода. Зрелые инженерные команды работают так уже двадцать лет. <b>ProjectStore здесь ничего не изобретает.</b></p>
+<section class="sec" id="timeline" aria-labelledby="why-tl-title">
+  <div class="section-label" data-i18n="why.tl.label">Откуда взялась каждая часть</div>
+  <h2 id="why-tl-title" class="visually-hidden" data-i18n="why.tl.h2">Откуда взялась каждая часть</h2>
   <ol class="timeline">
     <li><span class="yr">1969</span><span data-i18n="why.tl.1">RFC: решения записаны, пронумерованы и обсуждаются открыто.</span></li>
     <li><span class="yr">1992</span><span data-i18n="why.tl.2">DO-178B: в авионике каждое требование должно прослеживаться до кода и до теста.</span></li>
@@ -369,31 +408,37 @@
     <li><span class="yr">2011</span><span data-i18n="why.tl.6">ADR, Майкл Найгард: один короткий файл на каждое архитектурное решение.</span></li>
     <li class="now"><span class="yr" data-i18n="why.tl.now.y">сейчас</span><span data-i18n="why.tl.now">Агенты для кода: каждый шаг занимает минуты. Без артефактов каждая сессия начинается с нуля.</span></li>
   </ol>
-  <a class="more" href="why-it-works/" data-i18n="method.why">Подробнее — с историей отрасли →</a>
-  <div class="cards3">
-    <a class="card" href="how-it-works/"><span class="card-k" data-i18n="method.k.1">метод / 1</span><span class="card-t" data-i18n="method.t.1">Как это работает →</span><span class="card-d" data-i18n="method.d.1">Цикл шаг за шагом, шесть агентов и механизмы, на которых всё держится вместо дисциплины.</span></a>
-    <a class="card" href="why-it-works/"><span class="card-k" data-i18n="method.k.2">метод / 2</span><span class="card-t" data-i18n="method.t.2">Почему это работает →</span><span class="card-d" data-i18n="method.d.2">ADR, бэклоги, критерии приёмки, трассируемость: десятилетия практики и то, что в ней всегда было дорогим.</span></a>
-    <a class="card" href="one-vault/"><span class="card-k" data-i18n="method.k.3">метод / 3</span><span class="card-t" data-i18n="method.t.3">Один vault, много людей →</span><span class="card-d" data-i18n="method.d.3">Много сессий, два агента и целая команда на одном vault, а «почему» проходит ревью, как код.</span></a>
-  </div>
-  <p class="facts"><span><span data-fact="commands">21</span> <span data-i18n="method.f.1">команда, которую агент запускает за вас</span></span><span><span data-fact="agents">6</span> <span data-i18n="method.f.2">агентов</span></span><span><span data-fact="languages">6</span> <span data-i18n="method.f.3">языков шаблонов</span></span><span><span data-fact="mcp-tools">8</span> <span data-i18n="method.f.4">MCP-инструментов только для чтения</span></span><span>MIT</span></p>
-  <div class="stats">
-    <div class="stat"><span class="big"><span data-source="README.md#what-it-costs--measured-not-promised">10–15%</span></span><p data-i18n="method.c.1">недельного лимита на типичном проекте — на всю работу с vault</p></div>
-    <div class="stat"><span class="big"><span data-source="README.md#what-it-costs--measured-not-promised">22.5%</span></span><p data-i18n="method.c.2">всех расходов в худшем известном нам случае: на этом репозитории, который строит сам себя через полный цикл</p></div>
-    <div class="stat"><p data-i18n="method.self">Мы строим ProjectStore с помощью ProjectStore.</p><a class="outline-btn" href="https://github.com/SmartAndPoint/ProjectStore"><span aria-hidden="true">★</span> <span data-i18n="method.star">Поставить звезду на GitHub</span></a></div>
-  </div>
-  <p class="src"><span data-i18n="method.src">Обе цифры:</span> <a href="https://github.com/SmartAndPoint/ProjectStore#what-it-costs--measured-not-promised">README — What it costs</a></p>
-  <div class="faq" id="questions">
-    <details class="qa"><summary data-i18n="questions.summary.1">Это плагин памяти?</summary><p data-i18n="questions.p.2">Нет. Плагин памяти помнит, что сказал агент. ProjectStore записывает, что решил проект. Это документы со статусом и датой, прошедшие ревью. Дальше новая работа идёт через эти документы. Разница видна, когда меняется агент, машина или коллега: память принадлежит агенту, пользователю или машине, и даже память, которая хранится в git, — это собственные заметки агента. А vault — это записи проекта: одобренные, прошедшие ревью, со статусом. И он передаётся через git.</p></details>
-    <details class="qa"><summary data-i18n="questions.summary.3">Нужен ли Obsidian?</summary><p data-i18n="questions.p.4">Нет. Vault — обычная папка с файлами Markdown. Открывайте её в редакторе, смотрите на GitHub или используйте Obsidian, если вам нравятся его граф и доска. Без плагина файлы читаются так же хорошо.</p></details>
-    <details class="qa"><summary data-i18n="questions.summary.4">Он когда-нибудь пишет без спроса?</summary><p data-i18n="questions.p.5">Нет. Каждый новый файл или правку вам сначала показывают: путь и весь текст. Затем ждут ответа: «Да», «Править перед сохранением» или «Нет». Помощники, которые следят за разговором, только предлагают команду. Писать может только один агент — клерк. Он запускается после вашего «да» и сохраняет ровно то, что вы одобрили.</p></details>
-    <details class="qa"><summary data-i18n="questions.summary.10">Что останется, если его удалить?</summary><p data-i18n="questions.p.11">Ваш vault остаётся нетронутым: это обычный Markdown в собственном git-репозитории. Привязка проекта и модели агентов команды тоже остаются, поэтому повторная установка их найдёт. Плагин Codex зарегистрирован для всех проектов на машине, поэтому его удаление — отдельный шаг. <a class="underlined-link" href="https://github.com/SmartAndPoint/ProjectStore#uninstalling" target="_blank" rel="noopener noreferrer">Как удалить</a></p></details>
-  </div>
-  <div class="ask ask-end">
-    <div class="ask-head"><span data-i18n="method.ask">Просто попросите Claude Code:</span></div>
-    <div class="quote-row"><blockquote id="ask-prompt-end" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt-end" aria-label="Скопировать промпт" data-done="Скопировано" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+</section>
+<section class="sec" id="cost" aria-labelledby="why-cost-title">
+  <div class="section-label" data-i18n="why.cost.label">Дорогая часть</div>
+  <h2 id="why-cost-title" data-i18n="why.p.4">Процесс всегда был ценным. Дорого было другое: <b>каждый его шаг делали люди.</b></h2>
+  <p class="equation"><span class="term-pill" data-i18n="why.eq.1">процесс людей</span><span>+</span><span class="term-pill" data-i18n="why.eq.2">скорость агентов</span><span>=</span><span class="term-pill acc">ProjectStore</span></p>
+  <div class="prose"><p data-i18n="why.p.6">ProjectStore соединяет одно с другим. Скорость агентов впервые делает старый процесс дешёвым. А его документы, которые лежат в файлах рядом с кодом, дают агентам то, чего у них не было: контекст проекта со связями вверх, к целям, и вниз, к коду. По правилу ревью каждого шага проводит второй агент, который не писал черновик. У скорости появляется память, а у памяти — проверка.</p></div>
+</section>
+<section class="sec" id="chain" aria-labelledby="why-chain-title">
+  <div class="section-label" data-i18n="why.ch.label">Цепочка</div>
+  <h2 id="why-chain-title" data-i18n="why.h3.1">Связи, которые агент получает бесплатно: от цели до доказательства</h2>
+  <ol class="chain" aria-label="Цепочка связей артефактов" data-i18n-attr="aria-label:why.aria-label.3">
+    <li><span class="ch-k" data-i18n="why.span.8">цель</span><span class="ch-c"><b data-i18n="why.strong.1">Эпик</b><span data-i18n="why.span.9">CHECKOUT · зачем мы это делаем</span></span><span class="ch-f" data-i18n="why.span.10">epic:</span></li>
+    <li><span class="ch-k" data-i18n="why.span.11">почему</span><span class="ch-c"><b data-i18n="why.strong.2">ADR</b><span data-i18n="why.span.12">решение и отклонённые варианты</span></span><span class="ch-f" data-i18n="why.span.13">adr: [ ]</span></li>
+    <li><span class="ch-k" data-i18n="why.span.14">как</span><span class="ch-c"><b data-i18n="why.strong.3">Спека</b><span data-i18n="why.span.15">ожидаемое поведение</span></span><span class="ch-f" data-i18n="why.span.16">specs: [ ]</span></li>
+    <li><span class="ch-k" data-i18n="why.span.17">что</span><span class="ch-c"><b data-i18n="why.strong.4">Стори</b><span data-i18n="why.span.18">план и критерии приёмки</span></span><span class="ch-f" data-i18n="why.span.19">code_refs:</span></li>
+    <li><span class="ch-k" data-i18n="why.span.20">где</span><span class="ch-c"><b data-i18n="why.strong.5">Код</b><span data-i18n="why.span.21">src/billing/cards/ · там же, где прошлые эпики</span></span><span class="ch-f" data-i18n="why.span.22">— подтверждение:</span></li>
+    <li class="ok"><span class="ch-k" data-i18n="why.span.23">доказательство</span><span class="ch-c"><b data-i18n="why.strong.6">Подтверждение</b><span data-i18n="why.span.24">tests/cards.test.ts:58 · по каждому критерию</span></span></li>
+  </ol>
+  <div class="prose"><p data-i18n="why.p.7">Связи хранятся в шапке каждого файла, а подтверждение — это строка под каждым критерием приёмки. Агент заполняет всё это по ходу работы. Карта связей показывает, с чем связан каждый документ. Карта кода — где живёт код каждого эпика. Новая сессия, новая модель или новый коллега начинают с этой цепочки, а не с нуля.</p></div>
+  <p class="next-pages"><a href="why-it-works/" data-i18n="why.more">Вся страница «Почему это работает» →</a></p>
+</section>
+<section class="sec" id="free" aria-labelledby="free-title">
+  <div class="closing">
+    <h2 id="free-title" data-i18n="free.h2">Бесплатно и с открытым кодом</h2>
+    <p data-i18n="free.p">Лицензия MIT. Заметки ваши: обычные файлы в вашем же репозитории.</p>
+    <div class="actions">
+      <a class="btn primary" href="#start" data-i18n="free.cta.start">Начать</a>
+      <a class="btn" href="how-it-works/" data-i18n="free.cta.how">Как это работает →</a>
+    </div>
   </div>
 </section>
-
 </main>
 
 <footer class="site-footer">
@@ -404,6 +449,6 @@
   </div>
 </footer>
 
-<script src="../assets/site.js?v=15226866"></script>
+<script src="../assets/site.js?v=5d3f8854"></script>
 </body>
 </html>

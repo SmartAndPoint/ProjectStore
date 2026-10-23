@@ -48,9 +48,12 @@ LOCALES = os.path.join(ROOT, "locales")
 # The pages, in a fixed order (the order of locales/en.json): each template in src/ and the folder its
 # pages live in, under the root for English and under <lang>/ for the others. "" is the language root.
 # A page with "langs" is built in those languages only: the privacy page is English for now, so it
-# carries no data-i18n key of its own, and every page links it at the site root (SHARED_PAGES).
+# carries no data-i18n key of its own, and every page links it at the site root (SHARED_PAGES). The
+# main page is English and Russian (PS-HARNESS: "The front page speaks to a beginner …"): its keys
+# live in en.json and ru.json alone, the other languages' addresses redirect to the English one
+# (STUB), and a link to it from a page in another language goes to the site root.
 PAGES = [
-    {"kind": "main", "src": "index.html", "slug": ""},
+    {"kind": "main", "src": "index.html", "slug": "", "langs": ["en", "ru"]},
     {"kind": "how-it-works", "src": "how-it-works.html", "slug": "how-it-works"},
     {"kind": "why-it-works", "src": "why-it-works.html", "slug": "why-it-works"},
     {"kind": "one-vault", "src": "one-vault.html", "slug": "one-vault"},
@@ -77,6 +80,12 @@ LANGS = [
 ]
 DEFAULT = "en"
 COOKIE = "ps_lang"
+# A redirect to the site root: /en/, and /<lang>/ for a language the main page is not built in.
+STUB = (
+    '<!doctype html><meta charset="utf-8"><title>ProjectStore</title>'
+    '<link rel="canonical" href="../"><meta http-equiv="refresh" content="0; url=../">'
+    '<a href="../">ProjectStore</a>\n'
+)
 
 
 def page_langs(page):
@@ -88,6 +97,10 @@ def page_langs(page):
 # The folders of the pages that are not built in every language: a link to one is written from the
 # site root, like a shared file, so /ru/ reaches /privacy/ and not a /ru/privacy/ that does not exist.
 SHARED_PAGES = [p["slug"] + "/" for p in PAGES if p.get("langs") and p["slug"]]
+# The main page's languages: from any other language a link to it ("./", "./#start") goes to the
+# site root, and that language's own address is a redirect there.
+MAIN_LANGS = page_langs(next(p for p in PAGES if p["kind"] == "main"))
+STUB_LANGS = [DEFAULT] + [c for c, _, _ in LANGS if c not in MAIN_LANGS]
 
 # Keys that the build uses but that do not live in the template.
 SPECIAL = {"_lang.label": "Language"}
@@ -396,11 +409,13 @@ def alternates(code, slug, base_url, langs=None):
 LABEL_SEPARATOR = {"fr": "\u202f: ", "zh": "："}
 
 
-def switcher(code, slug, label):
+def switcher(code, slug, label, langs=None):
     native = dict((c, n) for c, n, _ in LANGS)[code]
     sep = LABEL_SEPARATOR.get(code, ": ")
     items = []
     for c, name, tag in LANGS:
+        if langs is not None and c not in langs:
+            continue
         cur = ' aria-current="true"' if c == code else ""
         items.append(
             f'<li><a href="{page_url(c, code, slug, None)}" hreflang="{tag}" lang="{tag}" data-lang="{c}"{cur}>{name}</a></li>'
@@ -417,9 +432,15 @@ def switcher(code, slug, label):
     )
 
 
-def redirect_script(slug):
-    """On an English page: go to the same page in the visitor's language, if they have a reason to want one."""
-    others = ",".join(f'"{c}":1' for c, _, _ in LANGS if c != DEFAULT)
+def redirect_script(slug, langs=None):
+    """On an English page: go to the same page in the visitor's language, if they have a reason to want one.
+
+    L names every other site language, 1 where this page is built in it and 0 where it is not. A stored
+    choice is followed only to a page that exists. Without one, the first browser language the site has
+    in any page decides: the visitor goes there if this page is built in it, and otherwise stays, so a
+    reader whose browser says uk, ru stays on an English main page rather than go to the Russian one."""
+    built = langs or [c for c, _, _ in LANGS]
+    others = ",".join(f'"{c}":{1 if c in built else 0}' for c, _, _ in LANGS if c != DEFAULT)
     up = "../" * depth(DEFAULT, slug)
     target = (f"'{up}'+t+'/{slug}/'" if slug else "t+'/'")
     return (
@@ -429,7 +450,7 @@ def redirect_script(slug):
         "if(c){if(L[c])t=c;}else{"
         "var a=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language||''];"
         "for(var i=0;i<a.length;i++){var p=String(a[i]).toLowerCase().split('-')[0];"
-        f"if(p==='{DEFAULT}')break;if(L[p]){{t=p;break;}}}}}}"
+        f"if(p==='{DEFAULT}')break;if(p in L){{if(L[p])t=p;break;}}}}}}"
         f"if(t){{location.replace({target}+(location.protocol==='file:'?'index.html':'')+location.search+location.hash);}}"
         "})();</script>"
     )
@@ -455,7 +476,7 @@ def asset_versions():
 #     a Russian page stays Russian.
 # "./" alone, the main page, becomes the prefix itself.
 REL_URL = re.compile(
-    r"""(\s(?:href|src)=)(["'])(?!#|[a-zA-Z][a-zA-Z0-9+.-]*:|/|\.\./)(\./(?=["'#?]))?((?:assets/|llms"""
+    r"""(\s(?:href|src|srcset)=)(["'])(?!#|[a-zA-Z][a-zA-Z0-9+.-]*:|/|\.\./)(\./(?=["'#?]))?((?:assets/|llms"""
     + "".join("|" + re.escape(p) for p in SHARED_PAGES)
     + r""")?)"""
 )
@@ -496,7 +517,8 @@ def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn, langs=
 
     def rel(m):
         shared = m.group(4)
-        up = to_site if shared else to_lang
+        # the main page from a language it is not built in: the English one, at the site root
+        up = to_site if shared or (m.group(3) and code not in MAIN_LANGS) else to_lang
         if m.group(3) and not up:
             return m.group(0)  # "./" on the language root stays "./"
         return f"{m.group(1)}{m.group(2)}{up}{shared}"
@@ -506,9 +528,10 @@ def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn, langs=
         "<!--i18n:alternates-->", alternates(code, slug, base_url, langs) + "\n" + preview_tags(out, code, slug, base_url)
     )
     out = out.replace(
-        "<!--i18n:switcher-->", "" if single else switcher(code, slug, d.get("_lang.label") or SPECIAL["_lang.label"])
+        "<!--i18n:switcher-->",
+        "" if single else switcher(code, slug, d.get("_lang.label") or SPECIAL["_lang.label"], langs),
     )
-    out = out.replace("<!--i18n:redirect-->", redirect_script(slug) if code == DEFAULT and not single else "")
+    out = out.replace("<!--i18n:redirect-->", redirect_script(slug, langs) if code == DEFAULT and not single else "")
     return out
 
 
@@ -535,15 +558,14 @@ def cmd_build(args):
             with open(path, "w", encoding="utf-8") as f:
                 f.write(out)
             written.append(rel)
-    # The old /en/ address now points at the root, where English lives.
-    stub = os.path.join(ROOT, "en", "index.html")
-    os.makedirs(os.path.dirname(stub), exist_ok=True)
-    with open(stub, "w", encoding="utf-8") as f:
-        f.write(
-            '<!doctype html><meta charset="utf-8"><title>ProjectStore</title>'
-            '<link rel="canonical" href="../"><meta http-equiv="refresh" content="0; url=../">'
-            '<a href="../">ProjectStore</a>\n'
-        )
+    # The old /en/ address, and the main page's address in every language it is not built in, point at
+    # the root, where the English main page lives.
+    for code in STUB_LANGS:
+        stub = os.path.join(ROOT, code, "index.html")
+        os.makedirs(os.path.dirname(stub), exist_ok=True)
+        with open(stub, "w", encoding="utf-8") as f:
+            f.write(STUB)
+        written.append(f"{code}/index.html")
     for w in warn:
         print("warning:", w, file=sys.stderr)
     print("built:", ", ".join(written))
@@ -571,8 +593,18 @@ def bind_lang_problem(code, value):
     return None
 
 
+def keys_for(code, sources):
+    """The keys a dictionary in `code` holds: those of every page built in that language."""
+    keys = set(SPECIAL)
+    for page, (_, src) in zip(PAGES, sources):
+        if code in page_langs(page):
+            keys.update(page_dict(src))
+    return keys
+
+
 def cmd_check(args):
-    en = extract_dict(templates())
+    sources = templates()
+    en = extract_dict(sources)
     snapshot = load_locale("en") or {}
     problems = 0
     bad = bind_lang_problem(DEFAULT, en.get(BIND_LANG))
@@ -593,9 +625,10 @@ def cmd_check(args):
             print(f"{code}: no locales/{code}.json")
             problems += 1
             continue
-        missing = sorted(set(en) - set(d))
-        extra = sorted(set(d) - set(en))
-        markup = sorted(k for k in en if k in d and signature(en[k]) != signature(d[k]))
+        want = keys_for(code, sources)
+        missing = sorted(want - set(d))
+        extra = sorted(set(d) - want)
+        markup = sorted(k for k in want if k in d and signature(en[k]) != signature(d[k]))
         outdated = [k for k in stale if k in d]
         bad = bind_lang_problem(code, d.get(BIND_LANG))
         n = len(missing) + len(extra) + len(markup) + (1 if bad else 0)
