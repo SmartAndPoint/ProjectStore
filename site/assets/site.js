@@ -1,4 +1,4 @@
-/* ProjectStore site — tabs, the hero's headlines, the loop's player, the loop's steps and cartoon,
+/* ProjectStore site — tabs, the loop's player, the loop's steps and cartoon,
    copy buttons, the language switcher, the tone switch, the graph behind the page.
    Vanilla, no dependencies, no build. */
 (function () {
@@ -33,82 +33,6 @@
     if (initial) select(initial);
   }
   each("[data-tabs]", initTabs);
-
-  /* ---------- the hero's headlines: six slides that take turns until the reader takes over ----------
-     The main page's contract (PS-HARNESS, "The front page speaks to a beginner …"): a new slide about
-     every 6 s while the hero is on screen; a pointer over it, focus inside it or a hidden tab holds it; a
-     dot or a swipe stops it for good, and the pause button stops and resumes it; reduced motion never
-     starts it. While it turns, a screen reader is not interrupted (aria-live off). Without script the
-     first slide shows and the controls stay hidden. */
-  each("[data-carousel]", function (root) {
-    var slides = Array.prototype.slice.call(root.querySelectorAll(".slide"));
-    var dots = Array.prototype.slice.call(root.querySelectorAll(".dot"));
-    var pauseBtn = root.querySelector(".carousel-pause");
-    var live = root.querySelector(".slides");
-    if (slides.length < 2 || !pauseBtn || !live) return;
-    root.classList.add("js");
-    var index = 0;
-    function show(i) {
-      index = (i + slides.length) % slides.length;
-      slides.forEach(function (s, k) {
-        s.classList.toggle("active", k === index);
-        s.setAttribute("aria-hidden", k === index ? "false" : "true");
-      });
-      dots.forEach(function (d, k) { d.setAttribute("aria-current", k === index ? "true" : "false"); });
-    }
-    show(0);
-
-    /* Without matchMedia or IntersectionObserver it never turns by itself; the dots and the pause button still work. */
-    var reduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: true };
-    var TURN_MS = 6000;
-    var timer = null, stopped = false, inView = false, hovering = false;
-    function focusInside() { var a = document.activeElement; return !!a && root.contains(a); }
-    function canTurn() { return !stopped && inView && !hovering && !document.hidden && !focusInside() && !reduce.matches; }
-    function hold() { if (timer) { clearTimeout(timer); timer = null; } }
-    function settle() { if (!canTurn()) hold(); else if (!timer) timer = setTimeout(turn, TURN_MS); }
-    function turn() {
-      timer = null;
-      if (!canTurn()) return;
-      show(index + 1);
-      settle();
-    }
-    function stop() {
-      stopped = true;
-      hold();
-      live.setAttribute("aria-live", "polite");
-      pauseBtn.setAttribute("aria-pressed", "true");
-    }
-    dots.forEach(function (d, k) { d.addEventListener("click", function () { stop(); show(k); }); });
-    pauseBtn.addEventListener("click", function () {
-      if (!stopped) { stop(); return; }
-      stopped = false;
-      live.setAttribute("aria-live", "off");
-      pauseBtn.setAttribute("aria-pressed", "false");
-      settle();
-    });
-    var startX = null, startY = null;
-    live.addEventListener("touchstart", function (ev) { startX = ev.touches[0].clientX; startY = ev.touches[0].clientY; }, { passive: true });
-    live.addEventListener("touchend", function (ev) {
-      if (startX === null) return;
-      var dx = ev.changedTouches[0].clientX - startX, dy = ev.changedTouches[0].clientY - startY;
-      startX = null;
-      if (Math.abs(dx) < 40 || Math.abs(dy) >= Math.abs(dx)) return; /* a page scroll is not a swipe */
-      stop();
-      show(index + (dx < 0 ? 1 : -1));
-    }, { passive: true });
-    root.addEventListener("mouseenter", function () { hovering = true; settle(); });
-    root.addEventListener("mouseleave", function () { hovering = false; settle(); });
-    root.addEventListener("focusin", settle);
-    root.addEventListener("focusout", function () { setTimeout(settle, 0); }); /* activeElement is settled only after focusout */
-    document.addEventListener("visibilitychange", settle);
-    if (reduce.addEventListener) reduce.addEventListener("change", settle);
-    if (!("IntersectionObserver" in window)) return;
-    var io = new IntersectionObserver(function (entries) {
-      inView = entries[entries.length - 1].isIntersecting;
-      settle();
-    });
-    io.observe(root);
-  });
 
   /* ---------- the loop's player: the loop's own page in a frame, played through its window.frame(t) ----------
      The still is the poster and, without script, the whole picture. The frame loads when the figure first

@@ -3,17 +3,26 @@
 The site for [ProjectStore](https://github.com/SmartAndPoint/ProjectStore): a main page in English
 and Russian, three method pages in eight languages, and a privacy page in English, served by GitHub
 Pages at <https://projectstore.dev> from this folder (`.github/workflows/pages.yml`). It is not part of the npm package: `site` is in
-`NOT_SHIPPED` (`scripts/version-guard.mjs`), and `tests/site.test.mjs` holds it to the repository.
+`NOT_SHIPPED` (`scripts/version-guard.mjs`), and `tests/site.test.mjs` holds it to the repository. The
+checks and their rules are in `tests/fixtures/site-checks.mjs`, which the test imports: one file was
+split in two, since the plugin directory holds a file of 256 KiB or more for a reviewer.
 
-**The main page speaks to a beginner** (PS-HARNESS: "The front page speaks to a beginner …"). Six
-sections: the hero, whose headline is a carousel of six, each with its tagline, over the install box
-(one prompt to your agent, or `npx projectstore setup` in a terminal) and the agents line; the pains
-it fixes, as was and now; the loop as a picture; what to say to the agent, in four cards; a quick
-start in four steps; and free and open source. The carousel turns about every 6 s, stops on hover,
-on focus and under reduced motion, and shows its first slide without JavaScript. The loop is the
-marketing loop's terminal dashboard, one English loop for both pages, in a standard player: a click
-plays or pauses it, and a bar carries play and pause, seeking and full screen. Its still is the
-poster, the whole picture without JavaScript, and where it waits under reduced motion.
+**The main page says what ProjectStore is, then carries the method** (PS-HARNESS: "The front page
+says what ProjectStore is, walks a beginner through setup …", 2026-10-23). It opens with what it is
+and how it helps: a method and a plugin, three short paragraphs, the agents line, the five pains it
+fixes, and a small table of the family it belongs to (a prompt in a chat, SDD, PDD, ProjectStore,
+the first three drawn into the fourth). Then installation for someone who is not a programmer: a
+chapter head, a quick start in six steps (get an agent, Node.js and a folder, the install box with
+one prompt to your agent or `npx projectstore setup` in a terminal, then say what to build, answer
+its questions, approve the plan) and what to say to the agent, in four cards. Then three chapters
+made of the method pages' own blocks, keys and all, not new texts: the whole of How it works (the
+live loop diagram, then the loop in its player, the six agents, the mechanisms, a story closed with
+evidence, the fine print), then digests of Team and many sessions (the modes, the vault in git) and
+Why it works (the timeline, the cost, the chain), each ending in a link to its whole page; and free
+and open source. The loop's player is the marketing loop's terminal
+dashboard, one English loop for both pages: a click plays or pauses it, and a bar carries play and
+pause, seeking and full screen. Its still is the poster, the whole picture without JavaScript, and
+where it waits under reduced motion.
 **The method has pages of its own:** *How it works* (the loop step by step, the six agents, the guards, a story closed with
 evidence), *Why it works* (decades-old practice, what was always expensive about it, the chain from
 goal to proof) and *One vault, many people* (sessions, teams and agents on one vault, the vault in
@@ -64,7 +73,7 @@ src/privacy.html           the privacy page (plugin.json's privacyPolicyUrl): En
                              PAGES builds it in "langs" alone, and every footer links it at the site root
 src/_header.html           partials every template splices in: the header and nav, the footer (where the
 src/_footer.html             version lives), the icon sprite and arrow markers, and the live loop diagram
-src/_sprite.html             (How it works); the sprite holds the player's full-screen icons too
+src/_sprite.html             (the main page and How it works); the sprite holds the player's full-screen icons too
 src/_loop.html
 src/_tone.html             the early script every template's <head> includes after the stylesheet: the saved tone
 locales/<lang>.json        one dictionary per language: en (extracted), de, es, fr, pt, ru, uk, zh; each holds
@@ -80,7 +89,7 @@ en/index.html              generated: redirects to the root — the old /en/ add
 llms.txt                   the project for agents, in the llmstxt.org format
 llms-full.txt              the long form: a technical reference written for agents
 assets/style.css           tokens, components, diagrams, responsive rules, print, the @font-face rules, Chinese font stacks
-assets/site.js             tabs, the carousel, the loop's player, the live loop's lines and cartoon, copy
+assets/site.js             tabs, the loop's player, the live loop's lines and cartoon, copy
                              buttons, language switcher, tone switch, the graph
 assets/loop.html           the main page's loop: the marketing loop's dashboard, which the player plays in a
                              frame through its window.frame(t)
@@ -216,14 +225,14 @@ page has its English page's ids, markers, marker values and fact values. The rul
 
 | Kind | Facts and markers it must carry |
 |---|---|
-| main | the version, the install block, the prompt; the sections `start`, `pains`, `loop`, `talk`, `quick`, `free`, none numbered |
+| main | the version, the install block, the prompt, the agents count, the MCP tools listed, a story example (`data-template="story"`), a `data-source`; the loop; the sections `what`, `start`, `quick`, `talk`, `how`, `loop`, `agents`, `mechanisms`, `evidence`, `fine-print`, `team`, `modes`, `git`, `why`, `timeline`, `cost`, `chain`, `free`, in that order |
 | How it works | the version, the agents count, the MCP tools listed, a story example (`data-template="story"`); the loop |
 | Why it works | the version |
 | One vault | the version, the setup line, a `data-source` |
 
 The version lives in one place, the footer partial `src/_footer.html`, so a release edits one file.
 
-The test also holds, on the English pages, a word budget (the main page at most 1,300 visible words,
+The test also holds, on the English pages, a word budget (the main page at most 3,300 visible words,
 a method page at most 1,100); on every page, the link-preview tags; in `assets/style.css`, colours
 only as tokens on `:root` (print aside); and in the templates, no colour literal in a `fill`,
 `stroke`, `stop-color` or `style` attribute (`<meta name="theme-color">` aside). For the tones it
@@ -237,9 +246,13 @@ script, its `theme-color` the light tone's `--bg`; that the early script, run in
 tone the switch offers and light for anything else, and sets `data-tones`, the switch's gate; that
 the accent and the brand colour are an indigo in every tone; that no gradient is left but the
 diagrams' dot grid; and that the graph's layer is at most 0.3 at rest and 0.1 while scrolling. It also holds that the page links and the header's second row switch
-under one media query; that both main pages open with the carousel (six slides on fixed keys, the
-first shown, no heading in a slide, the pause button before the dots) over the install box's two
-tabs; and that the loop figure is the player: the still with an alt, loop.html in the frame its
+under one media query; that every page has one `h1` and no id twice; that both main pages open with
+what ProjectStore is (the `h1`, three paragraphs, the two buttons, the agents line, the five pains,
+and the table's five columns over its four rows: chat, SDD, PDD, ProjectStore); that the quick start
+has six steps with the install box's two tabs in the third; that the chapter heads carry a label, an
+`h2` and a lead, and the team and why chapters link their whole pages; that a link to one of our
+pages with a `#fragment` lands on an id of that page; that the first four sections show no command
+outside the install box; and that the loop figure is the player: the still with an alt, loop.html in the frame its
 template holds, a play and pause button, a seek range and a full-screen button with names, a caption
 and no link; the still a complete WebP and loop.html defining window.frame, window.duration,
 window.still and window.ready, the two within 300,000 bytes. It runs the main page's redirect in `node:vm`: a stored `ru` and a browser
@@ -250,7 +263,7 @@ mark hidden from a screen reader, its name "GitHub" untranslated, the word hidde
 narrower; and no page keeps the Star button it replaced.
 
 **The agents the site names** are positioning, not facts: both main pages carry the agents line in
-the hero and in the trust ticks, "Works in Claude Code and Codex. OpenCode soon; Gemini, Z.ai and
+the opening section and in the trust ticks, "Works in Claude Code and Codex. OpenCode soon; Gemini, Z.ai and
 DeepSeek next.", its names untranslated and in that order, and name neither Cursor nor Gemini CLI;
 no page carries a harness status or calls Codex experimental in its language (the test holds the
 names in one constant). The link preview and How it works' description still name the four agents
@@ -381,8 +394,9 @@ memory, instruction files, spec-driven tools) comes from the maintainer's resear
 memory, project memory and spec-driven tools: what projectstore is not, and how it runs beside
 them", whose sources were read on 2026-10-09; the docs page lists the sources row by row.
 
-The main page's texts are the maintainer's approved mockup, v11 of 2026-10-21, in English and
-Russian. The Quick start's third step quotes a real Claude Code session on an empty project, from
+The main page's own texts (what it is, the table, the chapter heads, the first two steps) are the
+maintainer's approved design of 2026-10-23, in English and Russian; the rest are the method pages'
+and the mockup of 2026-10-21's. The Quick start's fifth step quotes a real Claude Code session on an empty project, from
 2026-10-21. The loop is the marketing loop video's dashboard (v2, the corrected cut of the one posted
 on X on 2026-10-14), drawn by
 `assets/loop.html`, a copy of agent-film's `render/loop.html`, which the player plays as it is. Its

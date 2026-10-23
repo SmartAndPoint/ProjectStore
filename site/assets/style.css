@@ -531,29 +531,39 @@ body[data-page="main"] .mobile-nav [data-nav="main"] { color: var(--ink-hi); box
 .ask-end .ask-head { font-size: 14px; color: var(--ink-3); }
 .ask-end blockquote { font-size: 17px; }
 
-/* ---------- the main page: one message, the loop as a picture, what to say ----------
-   PS-HARNESS "The front page speaks to a beginner …": the approved mockup's (v11) texts and order in the
-   site's own tokens. Colour stays in the loop picture; the rest of the page is ink on the tone. */
+/* ---------- the main page: what it is, how to start, and the method pages' own blocks ----------
+   PS-HARNESS "The front page says what ProjectStore is …": the top says what it is and how it helps, then
+   installation for a beginner, then How it works whole and digests of One vault and Why it works, in those
+   pages' own markup. Colour stays in the diagrams and the loop picture; the rest is ink on the tone. */
 
-.hero.front { max-width: 860px; gap: 22px; padding-bottom: 56px; }
-.name { font-size: clamp(40px, 6vw, 64px); line-height: 1; font-weight: 700; letter-spacing: -0.03em; color: var(--brand); padding-bottom: 0.06em; }
+/* what it is: the heading across the page, the text and the pain rows side by side, the comparison under both */
+.hero.what { grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); gap: 24px clamp(28px, 4vw, 56px); padding-bottom: 56px; }
+.hero.what > .section-label, .hero.what > h1, .cmp-box { grid-column: 1 / -1; }
+.what-text, .what-side, .cmp-box { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.what-side { gap: 12px; }
+.what-text .lead { max-width: 62ch; font-size: clamp(17px, 1.6vw, 19px); color: var(--ink-2); }
 
-/* the headlines: six slides in one grid cell, so the slot is as tall as the longest and nothing below moves */
-.carousel { display: flex; flex-direction: column; gap: 14px; }
-.slides { display: grid; touch-action: pan-y; }
-.slide { grid-area: 1 / 1; display: flex; flex-direction: column; gap: 16px; visibility: hidden; opacity: 0; transition: opacity 0.4s ease, visibility 0s linear 0.4s; }
-.slide.active { visibility: visible; opacity: 1; transition: opacity 0.4s ease; }
-.slide-h { font-size: clamp(30px, 4.4vw, 54px); line-height: 1.06; font-weight: 600; letter-spacing: -0.03em; text-wrap: balance; color: var(--ink-hi); }
-.slide-h .h-sub { color: var(--ink-3); }
-.slide-t { max-width: 58ch; font-size: clamp(16px, 1.6vw, 19px); line-height: 1.55; color: var(--ink-2); }
-.carousel-ctl { order: 2; display: none; align-items: center; gap: 10px; }
-.carousel.js .carousel-ctl { display: flex; }
-.carousel-dots { display: inline-flex; gap: 2px; }
-.carousel-dots .dot { width: 28px; height: 28px; padding: 0; border: 0; background: transparent; display: inline-grid; place-items: center; }
-.carousel-dots .dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--line-4); transition: width 0.2s; }
-.carousel-dots .dot[aria-current="true"]::before { width: 22px; border-radius: 4px; background: var(--accent); }
-.carousel-pause { width: 32px; height: 32px; padding: 0; display: inline-grid; place-items: center; border: 1px solid var(--line-3); border-radius: 50%; background: var(--bg-pop); color: var(--ink-3); }
-.carousel-pause:hover { border-color: var(--line-5); color: var(--ink-hi); }
+/* the comparison: three approaches feed ProjectStore. The drawing lives in the first cell's left padding, drawn by
+   pseudo-elements, so the table keeps five columns and a screen reader meets no extra cell */
+.cmp-box { gap: 14px; margin-top: 16px; padding-top: 32px; border-top: 1px solid var(--line-2); }
+.cmp { min-width: 920px; }
+.cmp td:first-child { position: relative; width: 15%; padding-left: 44px; }
+.cmp td:first-child small { display: block; font-family: var(--font-mono); font-size: 12px; font-weight: 400; color: var(--ink-4); }
+.cmp tr.from td:first-child::before { content: ""; position: absolute; left: 18px; top: 0; bottom: -1px; width: 2px; background: var(--line-5); }
+.cmp tr.from:first-child td:first-child::before { top: 25px; }
+.cmp tr.from td:first-child::after { content: ""; position: absolute; left: 18px; top: 25px; width: 20px; height: 2px; background: var(--line-5); }
+.cmp tr.us td:first-child::before { content: ""; position: absolute; box-sizing: border-box; left: 18px; top: 0; width: 16px; height: 27px; border-left: 2px solid var(--accent); border-bottom: 2px solid var(--accent); border-bottom-left-radius: 8px; }
+.cmp tr.us td:first-child::after { content: ""; position: absolute; left: 32px; top: 20px; border-style: solid; border-width: 6px 0 6px 8px; border-color: transparent transparent transparent var(--accent); }
+.cmp-sum { max-width: 70ch; color: var(--ink-3); }
+
+/* a chapter head: a method page's own heading and lead, set as an h2 at the h1's size so the page keeps one h1 */
+.sec.chapter { gap: 18px; padding-bottom: 48px; }
+.chapter h2 { font-size: clamp(38px, 5vw, 64px); line-height: 1.04; letter-spacing: -0.03em; }
+.chapter .lead { max-width: 62ch; font-size: clamp(17px, 1.6vw, 19px); color: var(--ink-2); }
+/* the loop diagram belongs to its chapter head: no rule and no gap above it */
+.sec.joined { border-top: 0; padding-top: 0; }
+
+/* the loop player's play and pause icon */
 .pause-bars { width: 10px; height: 11px; border-left: 3px solid currentColor; border-right: 3px solid currentColor; }
 [aria-pressed="true"] > .pause-bars { width: 0; height: 0; border-style: solid; border-width: 6px 0 6px 10px; border-color: transparent transparent transparent currentColor; margin-left: 2px; }
 
@@ -657,7 +667,6 @@ body[data-page="main"] .mobile-nav [data-nav="main"] { color: var(--ink-hi); box
 .closing p { color: var(--ink-3); }
 
 @media (max-width: 760px) {
-  .hero.front { gap: 18px; }
   .pain { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .tasks { grid-template-columns: minmax(0, 1fr); }
   .closing { padding: 20px; }
