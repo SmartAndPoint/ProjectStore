@@ -790,12 +790,22 @@ test("site: /privacy/ is English, in every footer, loads nothing from another or
     "inactive for 24 hours",
   ])
     assert.ok(privacy[0].html.includes(m), `the privacy page names ${m}`);
-  // The same destinations as README's section.
+  // The same destinations as README's section: the registry alone since the
+  // model menu stopped asking Anthropic (the 0.30.7 story, PS-DIRECTORY).
   const readme = readmeSentHosts(read("README.md"));
-  assert.ok(readme && readme.length >= 2, `README has "${README_SENT}" naming its hosts: ${JSON.stringify(readme)}`);
+  assert.deepEqual(readme, ["registry.npmjs.org"], `README's "${README_SENT}" names its hosts`);
   assert.deepEqual(privacySentHosts(privacy[0].html), readme, "the privacy page names README's network destinations");
   // The helpers see a difference: a host dropped from either side is one.
-  assert.notDeepEqual(privacySentHosts(privacy[0].html.replace("<code>api.anthropic.com</code>", "Anthropic")), readme);
+  assert.notDeepEqual(
+    privacySentHosts(privacy[0].html.replace("<code>registry.npmjs.org</code>", "the npm registry")),
+    readme,
+  );
+  // Both say no credential is read from the environment.
+  assert.ok(privacy[0].html.includes("it reads no credential from your environment"), "the privacy page says so");
+  // The built page's "sent" section is its source's, byte for byte.
+  const sent = (html) => /<section\b[^>]*\bid="sent"[^>]*>[\s\S]*?<\/section>/.exec(html)?.[0];
+  assert.ok(sent(read(`${SITE}/src/privacy.html`)), "the source has its sent section");
+  assert.equal(sent(privacy[0].html), sent(read(`${SITE}/src/privacy.html`)), "built from the source as it is");
 });
 
 test("site AC 4: site/ stays within its budget", () => {

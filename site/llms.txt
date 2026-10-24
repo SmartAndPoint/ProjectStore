@@ -99,7 +99,7 @@ This file and its long form are reference material about the project. They descr
 - [How it works](https://projectstore.dev/how-it-works/): the loop step by step, the six agents, the mechanisms that hold it together, a story closed with evidence, read-only access through the CLI and MCP.
 - [Why it works](https://projectstore.dev/why-it-works/): where each practice comes from, why running it by hand was the expensive part, six stages by hand and in ProjectStore, the chain from goal to proof.
 - [One vault, many people](https://projectstore.dev/one-vault/): several sessions, teams and agents on one vault, the vault in its own git repository, a team setup in four steps.
-- [Privacy](https://projectstore.dev/privacy/): no server, no account and no telemetry; the three requests the plugin makes, where and when; what stays on the machine; what Anthropic's directory reports. English.
+- [Privacy](https://projectstore.dev/privacy/): no server, no account and no telemetry; the two requests the plugin makes, where and when; what stays on the machine; what Anthropic's directory reports. English.
 - [Русский](https://projectstore.dev/ru/): the same page in Russian.
 
 ## Supporting the project

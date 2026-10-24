@@ -223,7 +223,7 @@ npx projectstore configure
 
 At a terminal it opens a settings menu that works like a monitor's: ↑ and ↓ move, → opens a group or a setting in a frame beside it, space chooses, ← goes back, and Enter shows the plan. A second Enter writes it. Under the frames, a few lines say what the row under the cursor means. The settings:
 
-- each agent's model and effort, per harness. Claude Code offers its aliases: `fable`, `opus`, `sonnet` and `haiku`. Codex offers its own list of models, with its descriptions. With `ANTHROPIC_API_KEY` set, each alias also names the newest model of its line. A list is kept for a day in projectstore's user cache, and "refresh the list" asks again. Each agent's effort sits under its model: Claude Code's levels, `low` to `max`, or the levels that Codex model lists. With none set, a Claude Code agent runs at its frontmatter's level (`max`, the clerk `low`) and a Codex one at its model's own default;
+- each agent's model and effort, per harness. Claude Code offers its aliases: `fable`, `opus`, `sonnet` and `haiku`. Codex offers its own list of models, with its descriptions, kept for a day in projectstore's user cache; "refresh the list" asks Codex again. Each agent's effort sits under its model: Claude Code's levels, `low` to `max`, or the levels that Codex model lists. With none set, a Claude Code agent runs at its frontmatter's level (`max`, the clerk `low`) and a Codex one at its model's own default;
 - the status line and the band above the prompt (Claude Code);
 - the vault's template language, the default author and tags;
 - the vault's spec policy and lifecycle gates.
@@ -393,7 +393,7 @@ The deep dive — real session files, measured payloads, how every mechanism wor
 
 ## What ProjectStore runs, writes, sends and fetches
 
-ProjectStore has no server, no account and no telemetry. It collects nothing about you, your project or your vault. Its own code makes three requests, the ones under "What it sends and fetches" below, and each one is made by a command you run, never by a hook. One program it runs makes a request of its own: Codex's model command, which refreshes Codex's catalog with your Codex login. This list covers everything in the package, and a [test](https://github.com/SmartAndPoint/ProjectStore/blob/main/tests/disclosure.test.mjs) fails when a shipped module that starts a program or makes a request is not accounted for here.
+ProjectStore has no server, no account and no telemetry. It collects nothing about you, your project or your vault, and it reads no credential from your environment. Its own code makes two requests, the ones under "What it sends and fetches" below, and each one is made by a command you run, never by a hook. One program it runs makes a request of its own: Codex's model command, which refreshes Codex's catalog with your Codex login. This list covers everything in the package, and a [test](https://github.com/SmartAndPoint/ProjectStore/blob/main/tests/disclosure.test.mjs) fails when a shipped module that starts a program or makes a request is not accounted for here.
 
 ### What it runs
 
@@ -420,7 +420,6 @@ ProjectStore never changes Claude Code's or Codex's permission settings.
 
 - **The npm registry**, `https://registry.npmjs.org/` or the registry your npm is set to. One `GET <registry>/projectstore` request with no credentials and a 2-second limit asks for the newest release. Setup, install and upgrade make it when they run from npm (npx or a global install) or from a git checkout. They never make it from the copy that Claude Code or Codex loads, and never in a dry run. The answer is kept for 24 hours, and `PROJECTSTORE_NO_UPDATE_CHECK=1` turns the request off.
 - **The Codex package.** The `npm install` above fetches `projectstore-codex` from the registry your npm is set to, with npm's own settings, only when setup, install or upgrade sets up Codex.
-- **Anthropic's model list**, `https://api.anthropic.com/v1/models`, or the same path under `$ANTHROPIC_BASE_URL` when that is set. Only the model menu of `configure` at a terminal sends it, only when `ANTHROPIC_API_KEY` is set, and only when the model list is missing or older than a day, or you ask to refresh it. The request carries your key in its `x-api-key` header and nothing else of yours. Only the model names, labels and families of the answer are kept, for a day. Without the variable nothing is sent, and the menu offers Claude Code's aliases.
 
 ProjectStore's own code sends nothing else: the hooks, the MCP server, the band and the status line open no connection. Two programs it runs may connect on their own. When the model menu reads Codex's list, `codex debug models` refreshes Codex's catalog with your Codex login. The status line command you had before is yours, and it runs as you set it.
 

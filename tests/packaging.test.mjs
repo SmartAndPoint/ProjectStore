@@ -36,6 +36,7 @@ import {
   runGuard,
   releaseNotesPath,
   currentPacklist,
+  packEntry,
   unshippedTopLevel,
   PACKLIST,
 } from "../scripts/version-guard.mjs";
@@ -57,6 +58,21 @@ test("packaging contract 1: the tarball matches the checked-in packlist", () => 
 
   assert.deepEqual(unexpected, [], `shipped but not in ${PACKLIST} — run \`npm run packlist\` if this is intended`);
   assert.deepEqual(missing, [], `in ${PACKLIST} but no longer shipped — a files[] entry was dropped, or the file was`);
+});
+
+// npm 12 answers `npm pack --json` with an object keyed by the package's
+// name where npm 11 and older answer with an array; both are read alike.
+test("packaging: npm pack's --json answer is read as an array (npm ≤ 11) and as an object keyed by name (npm 12)", () => {
+  const entry = {
+    name: "projectstore",
+    version: "0.30.6",
+    filename: "projectstore-0.30.6.tgz",
+    files: [{ path: "a" }],
+  };
+  assert.equal(packEntry([entry]), entry);
+  assert.equal(packEntry({ projectstore: entry }), entry);
+  for (const bad of [[], {}, null, [{ name: "projectstore" }]])
+    assert.throws(() => packEntry(bad), /no package entry/, JSON.stringify(bad));
 });
 
 test("packaging contract 1b: nothing at the root is silently unshipped", () => {

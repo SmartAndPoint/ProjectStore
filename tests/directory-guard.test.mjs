@@ -136,6 +136,7 @@ test("directory guard: the rows quote the checklist's results", async () => {
   assert.match(result["regular-files"], /^Blocks where the plugin loads the entry, Warning elsewhere$/);
   assert.match(result["package-source"], /^Blocks with a launcher, Held for a reviewer with a package install/);
   assert.match(result.headroom, /^ours\b/);
+  assert.match(result["credential-variables"], /^ours\b/);
   assert.equal(g.CHECKLIST, "https://claude.com/docs/plugins/pre-submission-checklist");
 });
 
@@ -352,7 +353,7 @@ test("directory guard: an sk- string, a GitHub token or a private key block fail
   const ghs = "gh" + "s_" + "A1b2C3d4E5f6";
   const pat = "github" + "_pat_" + "11ABCDEFG0";
   const pem = "-".repeat(5) + "BEGIN OPENSSH " + "PRIVATE KEY" + "-".repeat(5);
-  const body = `# Setup\n\nexport ANTHROPIC_API_KEY=${sk}\n\nGITHUB_TOKEN=${ghp}\nGH=${pat}\nCI=${ghs}\n${pem}\n`;
+  const body = `# Setup\n\nexport SERVICE_API_KEY=${sk}\n\nGITHUB_TOKEN=${ghp}\nGH=${pat}\nCI=${ghs}\n${pem}\n`;
   const findings = fails(
     await packed({ "docs/setup.md": body }),
     "credentials",
@@ -373,6 +374,43 @@ test("directory guard: an sk- string, a GitHub token or a private key block fail
   // The renamed fixtures' values are no key's shape.
   for (const v of ["test-anthropic-key", "test-github-token", "task-list", "disk-0", 'hreflang="sk-SK"', "sk-spinner"])
     assert.equal((await packed({ "docs/setup.md": `KEY=${v}\n` })).ok, true, v);
+});
+
+// Ours: no shipped file names the variables 0.30.6's model menu read a key
+// and its base from, or the catalog fields that named them, comments and
+// prose included (the 0.30.7 story, PS-DIRECTORY). Each name fails that row
+// alone, by file and line; a file that does not ship may name them.
+test("directory guard: a shipped file naming a credential variable or a catalog's key field fails the credential-variable row alone, by file and line", async () => {
+  const g = await load();
+  for (const name of ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "key_env", "base_env", "key_header"]) {
+    const findings = fails(
+      await packed({
+        "scripts/run.mjs": `// reads ${name}\nexport const run = () => 1;\n`,
+        "docs/guide.md": `# Guide\n\nSet \`${name}\` first.\n`,
+      }),
+      "credential-variables",
+      new RegExp(`^docs/guide\\.md:3: names ${name} — .*our rule, stricter than the checklist`),
+    );
+    assert.deepEqual(
+      findings.map((f) => f.slice(0, f.indexOf(" — "))),
+      [`docs/guide.md:3: names ${name}`, `scripts/run.mjs:1: names ${name}`],
+    );
+  }
+  // A longer name, another variable and a value that is no key pass.
+  for (const v of ["monkey_env", "key_envelope", "ANTHROPIC_API_KEYS", "SERVICE_API_KEY", "test-anthropic-key"])
+    assert.equal((await packed({ "docs/setup.md": `${v}\n` })).ok, true, v);
+  // Under the repository set only what ships is held to it: a test that sets
+  // the variable passes off the packlist and fails on it.
+  const { dir, list } = tree({ "tests/models.test.mjs": 'const env = { ANTHROPIC_API_KEY: "test-anthropic-key" };\n' });
+  git(dir, ["init", "-q"]);
+  git(dir, ["add", "-A"]);
+  const shipped = list.filter((f) => !f.startsWith("tests/"));
+  assert.equal(g.check(g.trackedSet(dir, { set: "repository", packlist: shipped })).ok, true);
+  fails(
+    g.check(g.trackedSet(dir, { set: "repository", packlist: list })),
+    "credential-variables",
+    /^tests\/models\.test\.mjs:1: names ANTHROPIC_API_KEY — /,
+  );
 });
 
 // Three agents shipped in 0.30.5 with a plain description holding ": "

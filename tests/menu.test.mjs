@@ -25,7 +25,7 @@ function groups() {
       { kind: "refresh", label: "refresh the list", section: "", description: "Asks." },
       { value: null, label: "use the default", kind: "value", description: "Drops it." },
     ],
-    caption: () => ({ text: "Anthropic API · checked today 09:12" }),
+    caption: () => ({ text: "aliases only" }),
   });
   const toggle = (key, value) => ({
     id: key,

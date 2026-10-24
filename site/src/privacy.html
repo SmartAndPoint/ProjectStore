@@ -22,7 +22,7 @@
 <section class="page-hero" aria-labelledby="privacy-title">
   <p class="crumb"><a href="./">.projectstore</a> / privacy</p>
   <h1 id="privacy-title">No server. No account. <span class="acc">No telemetry.</span></h1>
-  <p class="lead">ProjectStore runs on your machine, inside Claude Code or Codex. It collects nothing about you, your project or your vault, and it has no server to send anything to. This page is the short form of the README section <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md#what-projectstore-runs-writes-sends-and-fetches">What ProjectStore runs, writes, sends and fetches</a>.</p>
+  <p class="lead">ProjectStore runs on your machine, inside Claude Code or Codex. It collects nothing about you, your project or your vault, it reads no credential from your environment, and it has no server to send anything to. This page is the short form of the README section <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md#what-projectstore-runs-writes-sends-and-fetches">What ProjectStore runs, writes, sends and fetches</a>.</p>
 </section>
 
 <section class="sec" id="sent" aria-labelledby="privacy-sent-title">
@@ -31,7 +31,6 @@
   <div class="prose">
     <p><b>The npm registry</b>, <code>registry.npmjs.org</code> or the registry your npm is set to. Setup, install and upgrade ask it for the newest release of ProjectStore, with no credentials, when they run from npm or from a git checkout; never from the copy Claude Code or Codex loads, and never in a dry run. The answer is kept on your machine for 24 hours. Setting <code>PROJECTSTORE_NO_UPDATE_CHECK=1</code> turns the request off.</p>
     <p><b>The same registry, for Codex.</b> When setup, install or upgrade sets up Codex, npm fetches the Codex plugin's package from the registry your npm is set to, with npm's own settings and with no install script run.</p>
-    <p><b>Anthropic's model list</b>, <code>api.anthropic.com</code>, or the address in <code>ANTHROPIC_BASE_URL</code> when that is set. Only the model menu of the configure command sends it, only when <code>ANTHROPIC_API_KEY</code> is set, and only when the list is missing or older than a day, or you ask to refresh it. The request carries your key in its header and nothing else of yours, and only model names, labels and families are kept, for a day.</p>
     <p>ProjectStore's own code sends nothing else: the hooks, the MCP server, the band above the prompt and the status line open no connection, and every request above is made by a command you run. Two programs it runs may connect on their own. When the configure menu reads Codex's model list, Codex refreshes its catalog with your Codex login. The status line command you had before runs as you set it.</p>
   </div>
 </section>

@@ -9,7 +9,7 @@
 // The guard pins modules, not call strings: a program or a URL is often
 // manifest data or an argv built elsewhere (`spawn(bin || s.cli.bin, …)`,
 // run-host's `spawn(bin, argv, …)`, setup handing `spawnSync` to gitTop,
-// models.mjs's URL and header from the catalog). So every shipped module that
+// models.mjs's argv from the catalog). So every shipped module that
 // imports node:child_process or calls fetch is in MODULES below, with the
 // README rows that disclose what it starts or asks; a new one fails until it
 // is placed there, and the README says what it does. A launch of our own file
@@ -88,7 +88,6 @@ const sub = (heading) => (section() === null ? null : under(section(), heading))
 const code = (rel) => stripComments(read(rel));
 const manifest = (id) => harness.loadHarness(id);
 const catalogs = (id) => manifest(id)?.agent_translation?.models?.catalogs || [];
-const httpCatalogs = () => ["claude-code", "codex"].flatMap((id) => catalogs(id).filter((c) => c.kind === "http"));
 const hostCli = () =>
   ["claude-code", "codex"].map((id) => manifest(id)?.surfaces?.plugin?.cli?.bin).filter((b) => typeof b === "string");
 const npmArgv = () => JSON.stringify(fetchShell.fetchArgv({ prefix: "p", shell: "s", version: "1.0.0" }));
@@ -192,25 +191,6 @@ const ROWS = {
     lead: "The Codex package",
     says: () => [[`\`${codexShell()}\``, String(codexShell()), JSON.stringify(manifest("codex")?.install)]],
   },
-  models: {
-    sub: SENDS,
-    lead: "Anthropic's model list",
-    says: () => [
-      ...httpCatalogs().flatMap((c) => {
-        const u = new URL(c.url);
-        return [
-          [`\`https://${u.host}${u.pathname}\``, `https://${u.host}${u.pathname}`, c.url],
-          [`\`$${c.base_env}\``, c.base_env, JSON.stringify(c)],
-          [`\`${c.key_env}\``, c.key_env, JSON.stringify(c)],
-          [`\`${c.key_header}\``, c.key_header, JSON.stringify(c)],
-        ];
-      }),
-      // The module reads those fields of the catalog, and nothing else of the environment.
-      ["your key", "catalog.key_env", code("scripts/models.mjs")],
-      ["`x-api-key` header", "catalog.key_header", code("scripts/models.mjs")],
-      ["`$ANTHROPIC_BASE_URL`", "catalog.base_env", code("scripts/models.mjs")],
-    ],
-  },
 };
 
 // The one named exemption: shipped, never run by the plugin. It names itself
@@ -235,7 +215,8 @@ const MODULES = {
   "scripts/diff-refs.mjs": { rows: ["git"] },
   "scripts/doctor.mjs": { rows: ["git"], execPath: true },
   "scripts/install-harness.mjs": { rows: ["hosts", "node"] },
-  "scripts/models.mjs": { rows: ["hosts", "models"] },
+  // `codex debug models`; since 0.30.7 it makes no request of its own.
+  "scripts/models.mjs": { rows: ["hosts"] },
   // The MCP server's doctor tool spawns scripts/doctor.mjs through this Node
   // (the read-verb runner, the MCP entry story); mcp.mjs itself spawns nothing.
   "scripts/read-verbs.mjs": { rows: [], execPath: true },
@@ -322,7 +303,7 @@ test("disclosure: the shipped modules that spawn or fetch are the pinned map", (
   assert.ok(section() !== null, `README has "${SECTION}"`);
   for (const [heading, rows] of [
     [RUNS, ["node", "git", "hosts", "npm", "statusline"]],
-    [SENDS, ["registry", "codex", "models"]],
+    [SENDS, ["registry", "codex"]],
   ]) {
     const have = rowsOf(sub(heading));
     for (const id of rows) assert.ok(have.has(ROWS[id].lead), `README's "${heading}" has the row **${ROWS[id].lead}**`);
@@ -373,11 +354,9 @@ test("disclosure: the shipped modules that spawn or fetch are the pinned map", (
     nonExecPathUses('import { spawnSync } from "node:child_process";\nrun({ spawn: spawnSync });\n').length,
     1,
   );
-  // The fetch callers, by name: the two README's "What it sends and fetches" covers.
-  assert.deepEqual(SHIPPED_CODE.filter((f) => callsFetch(read(f))).sort(), [
-    "scripts/convergence.mjs",
-    "scripts/models.mjs",
-  ]);
+  // The fetch callers, by name: the one README's "What it sends and fetches"
+  // covers, the registry read. models.mjs holds none since 0.30.7.
+  assert.deepEqual(SHIPPED_CODE.filter((f) => callsFetch(read(f))).sort(), ["scripts/convergence.mjs"]);
 });
 
 test("disclosure: each row's strings are in its module or the manifest data it reads, and every git subcommand and host CLI is named", () => {
@@ -410,7 +389,7 @@ test("disclosure: each row's strings are in its module or the manifest data it r
     /\bgit\s+(?:commit|push|pull|fetch|clone)\b|first commit/.test(read(f)),
   );
   assert.deepEqual(told, [], "no command, skill or agent has the agent commit, push, pull, fetch or clone");
-  // Every harness's host CLI and every http catalog's host is named.
+  // Every harness's host CLI is named.
   const hostsRow = rowsOf(sub(RUNS)).get(ROWS.hosts.lead);
   for (const b of hostCli()) assert.ok(hostsRow.includes(`\`${b}\``), `the agent CLIs row names ${b}`);
   assert.equal(hostCli().length, 2, "both harnesses register through their own CLI");
@@ -418,9 +397,17 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   // The one program that connects on its own is named where the sends are.
   for (const c of catalogs("codex").filter((x) => x.kind === "command"))
     assert.ok(sends.includes(`\`${c.argv.join(" ")}\``), `the sends section names ${c.argv.join(" ")}, which connects`);
-  assert.ok(section().includes("Its own code makes three requests"), "the intro counts ProjectStore's own requests");
-  for (const c of httpCatalogs()) assert.ok(sends.includes(new URL(c.url).host), `the sends section names ${c.url}`);
+  assert.ok(section().includes("Its own code makes two requests"), "the intro counts ProjectStore's own requests");
+  assert.equal(rowsOf(sends).size, 2, "the sends section lists those two");
   assert.ok(sends.includes(new URL(conv.DEFAULT_REGISTRY).host), "the sends section names the default registry");
+  // No credential is read from the environment (the 0.30.7 story,
+  // PS-DIRECTORY): the intro says so, and no catalog asks for a key.
+  assert.ok(
+    section().includes("it reads no credential from your environment"),
+    "the intro says ProjectStore reads no credential from the environment",
+  );
+  for (const id of ["claude-code", "codex"])
+    for (const c of catalogs(id)) assert.ok(["file", "command"].includes(c.kind), `${id}: a ${c.kind} catalog`);
 });
 
 test("disclosure: the hooks start only git, from SessionStart, and fetch nothing", () => {
