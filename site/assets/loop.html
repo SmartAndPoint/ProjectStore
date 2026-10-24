@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>ProjectStore — how a task goes</title>
+<style>
+  /* The ProjectStore loop as a terminal dashboard: the site's diagram (site/src/_loop.html), its words and
+     its role colours, animated step by step. The left panel is the critic on call, with what it said today
+     on a real epic, and the model that run used (the demo profile's default); the legend's models are the
+     maintainer's own setup. window.frame(t) draws the picture at second t; nothing runs on its own.
+     The marketing loop video (PS-MARKETING; v1 posted on X 2026-10-14, the vault keeps the corrected
+     projectstore-loop-v2.mp4, whose panel this is) is this page, from agent-film's render/loop.html.
+     The main page's player (site.js) loads it in a frame and plays it through window.frame(t); in a
+     frame other than 1280 px wide the picture scales to fit. tools/loop-media/render.mjs captures its
+     still, the player's poster (PS-HARNESS: "The front page speaks to a beginner …"). */
+  @font-face { font-family: "Plex"; src: url("fonts/IBMPlexMono-Regular-Latin1.woff2") format("woff2"); font-weight: 400; }
+  @font-face { font-family: "Plex"; src: url("fonts/IBMPlexMono-Medium-Latin1.woff2") format("woff2"); font-weight: 500 700; }
+  :root {
+    --bg: #080d19; --win: rgba(11, 18, 34, 0.96); --line: #26345a; --line-2: #1b2645; --line-4: #46546f; --line-5: #5b6884;
+    --ink: #e6e3d8; --hi: #ffffff; --ink-2: #c9c6bb; --ink-3: #a3a89a; --ink-4: #8d9285; --ink-5: #7f8578;
+    --acc: #ffb347; --acc-bg: #1d232ddb; --chk: #ff7a7a; --chk-bg: #202031db; --pln: #7cc4ff; --pln-bg: #152439db;
+    --ok: #7bd88f; --ok-bg: #152531db; --nb: #142036cc;
+  }
+  body { transform-origin: 0 0; }
+  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; font-family: "Plex", Menlo, monospace; color: var(--ink);
+    background: radial-gradient(70% 90% at 6% 0%, #3d63dd47, transparent 70%),
+                radial-gradient(60% 80% at 100% 30%, #7c5cff26, transparent 70%),
+                radial-gradient(80% 70% at 45% 115%, #1fa5a02e, transparent 70%), var(--bg); }
+  .win { position: absolute; left: 32px; top: 26px; width: 1216px; height: 668px; border-radius: 12px; overflow: hidden;
+    background: var(--win); border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0,0,0,.55); }
+  .bar { height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line-2);
+    color: var(--ink-4); font-size: 11.5px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #2a3554; }
+  .bar .title { flex: 1; text-align: center; margin-right: 48px; }
+  .head { text-align: center; font-size: 13.5px; font-weight: 600; letter-spacing: .1em; margin-top: 14px; color: var(--hi); white-space: pre; }
+  .legend { display: flex; justify-content: center; gap: 22px; margin-top: 10px; font-size: 11.5px; color: var(--ink-4); }
+  .legend i { display: inline-block; width: 9px; height: 9px; margin-right: 7px; vertical-align: -1px; }
+  .rule { position: absolute; left: 0; right: 0; top: 104px; border-top: 1px solid var(--line-2); }
+  /* the critic on call */
+  .panel { position: absolute; left: 18px; top: 120px; width: 268px; height: 528px; box-sizing: border-box; padding: 12px 14px;
+    border: 1px solid var(--chk); border-radius: 6px; background: var(--chk-bg); font-size: 11.5px; line-height: 1.55; color: var(--ink-3); }
+  .panel { height: 500px; }
+  .fill { fill: var(--ink-2); } .fill.ok { fill: var(--ok); } .empty { fill: #2c3a58; }
+  .panel .h { color: var(--chk); font-weight: 600; letter-spacing: .08em; }
+  .panel .sub { color: var(--ink-4); }
+  .panel .sep { border-top: 1px dashed #ff7a7a55; margin: 9px 0; }
+  .panel .row { display: flex; justify-content: space-between; }
+  .panel .v { color: var(--hi); }
+  .panel .st { color: var(--ink-4); }
+  .panel .st.on { color: var(--chk); }
+  .panel .bad { color: var(--chk); }
+  .panel .faint { opacity: .35; }
+  /* the loop */
+  .main { position: absolute; left: 304px; top: 120px; width: 894px; height: 528px; }
+  .prompt { height: 26px; font-size: 13px; color: var(--ink-2); white-space: pre; }
+  .prompt b { color: var(--acc); font-weight: 500; }
+  svg { position: absolute; left: 0; top: 34px; }
+  .edge { fill: none; stroke: var(--ink-5); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .edge.chk { stroke: var(--chk); stroke-dasharray: 6 6; }
+  .edge.ok { stroke: var(--ok); }
+  .edge.ret { stroke: var(--ink-4); stroke-dasharray: 6 6; }
+  .nb { fill: var(--nb); stroke: var(--line-4); stroke-width: 1; }
+  .nb.acc { fill: var(--acc-bg); stroke: var(--acc); } .nb.chk { fill: var(--chk-bg); stroke: var(--chk); }
+  .nb.pln { fill: var(--pln-bg); stroke: var(--pln); } .nb.ok { fill: var(--ok-bg); stroke: var(--ok); }
+  .nb.dash { stroke: var(--line-5); stroke-dasharray: 5 4; fill: #0f172ab8; }
+  text { font-family: "Plex", Menlo, monospace; }
+  .t { fill: var(--hi); font-weight: 600; font-size: 16px; } .t.acc { fill: var(--acc); } .t.chk { fill: var(--chk); }
+  .t.pln { fill: var(--pln); } .t.ok { fill: var(--ok); }
+  .s { fill: var(--ink-4); font-size: 13px; }
+  .tag { fill: var(--chk); font-size: 10px; letter-spacing: .12em; }
+  .lbl { fill: var(--ink-4); font-size: 11px; letter-spacing: .14em; }
+  .elbl { fill: var(--ink-3); font-size: 13px; } .elbl.chk { fill: var(--chk); } .elbl.dim { fill: var(--ink-4); }
+  .note { font-size: 12px; } .note.ok { fill: var(--ok); } .note.mod { fill: #e2c08d; } .note.chk { fill: var(--chk); }
+  .note.pln { fill: var(--pln); } .note.acc { fill: var(--acc); } .note.dim { fill: var(--ink-4); }
+  .caption { position: absolute; left: 0; right: 0; top: 452px; height: 44px; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+  .caption b { color: var(--acc); font-weight: 600; margin-right: 10px; }
+  .end { position: absolute; left: 0; right: 0; bottom: 0; height: 34px; border-top: 1px solid var(--line-2); display: flex;
+    align-items: center; justify-content: center; gap: 26px; font-size: 13px; color: var(--ink-3); background: rgba(8, 13, 25, .7); }
+  .end .u { color: var(--acc); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="win">
+  <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">~/code/clipsync — claude · projectstore</span></div>
+  <div class="head" id="head"></div>
+  <div class="legend" id="legend">
+    <span><i style="background:var(--acc)"></i>you · decide</span>
+    <span><i style="background:var(--ink-2)"></i>main session · writes</span>
+    <span><i style="background:var(--chk)"></i>critic · fable</span>
+    <span><i style="background:var(--pln)"></i>planner · opus</span>
+    <span><i style="background:var(--chk)"></i>reviewer · opus</span>
+    <span><i style="border:1px dashed var(--line-5)"></i>vault · on disk</span>
+    <span style="color:var(--ink-5)">(models: our setup)</span>
+  </div>
+  <div class="rule"></div>
+  <div class="panel" id="panel"></div>
+  <div class="main">
+    <div class="prompt" id="prompt"></div>
+    <svg id="svg" viewBox="0 0 1104 488" width="894" height="395">
+      <defs>
+        <marker id="m" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7f8578"/></marker>
+        <marker id="m-chk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#ff7a7a"/></marker>
+        <marker id="m-ok" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7bd88f"/></marker>
+        <marker id="m-ret" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8d9285"/></marker>
+        <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <text class="lbl" x="48" y="80">DECIDE</text>
+      <text class="lbl" x="150" y="262">BUILD</text>
+      <path id="e12" class="edge" d="M216 134H298" marker-end="url(#m)"/>
+      <path id="e23" class="edge" d="M528 134H610" marker-end="url(#m)"/>
+      <path id="e34" class="edge" d="M840 134H922" marker-end="url(#m)"/>
+      <path id="rev" class="edge chk" d="M728 96V52H416V90" marker-end="url(#m-chk)"/>
+      <text id="revl" class="elbl chk" x="572" y="44" text-anchor="middle">↺ revise</text>
+      <path id="pick" class="edge" d="M1012 172V228H132V278" marker-end="url(#m)"/>
+      <text class="elbl" x="572" y="218" text-anchor="middle">an agent picks it up</text>
+      <path id="e56" class="edge" d="M216 322H298" marker-end="url(#m)"/>
+      <path id="e67" class="edge" d="M528 322H610" marker-end="url(#m)"/>
+      <path id="e78" class="edge ok" d="M840 322H922" marker-end="url(#m-ok)"/>
+      <path id="fix" class="edge chk" d="M680 360V384H460V366" marker-end="url(#m-chk)"/>
+      <text id="fixl" class="elbl chk" x="570" y="404" text-anchor="middle">↺ fix</text>
+      <path id="e8v" class="edge ok" d="M1012 360V410" marker-end="url(#m-ok)"/>
+      <rect id="views" class="nb dash" x="304" y="416" width="792" height="44" rx="6"/>
+      <text id="viewsl" class="elbl" x="320" y="443">board, link graph and code map regenerate</text>
+      <path id="ret" class="edge ret" d="M304 438H24V134H42" marker-end="url(#m-ret)"/>
+      <text id="retl" class="elbl dim" x="40" y="478">the next session sees it</text>
+      <g id="n1" class="node"><rect class="nb" x="48" y="96" width="168" height="76" rx="6"/><text class="t" x="64" y="128">Task</text><text class="s" x="64" y="150">from you</text></g>
+      <g id="n2" class="node"><rect class="nb acc" x="304" y="96" width="224" height="76" rx="6"/><text class="t acc" x="320" y="128">ADR · spec · story</text><text class="s" x="320" y="150">the why, on disk</text></g>
+      <g id="n3" class="node"><rect class="nb chk" x="616" y="96" width="224" height="76" rx="6"/><text class="tag" x="632" y="118">INDEPENDENT CHECK</text><text class="t chk" x="632" y="142">critic</text><text class="s" x="632" y="162">fresh context</text></g>
+      <g id="n4" class="node"><rect class="nb acc" x="928" y="96" width="168" height="76" rx="6"/><text class="t acc" x="944" y="128">You</text><text class="s" x="944" y="150">approve</text></g>
+      <g id="n5" class="node"><rect class="nb pln" x="48" y="284" width="168" height="76" rx="6"/><text class="t pln" x="64" y="316">planner</text><text class="s" x="64" y="338">where in the code</text></g>
+      <g id="n6" class="node"><rect class="nb" x="304" y="284" width="224" height="76" rx="6"/><text class="t" x="320" y="316">implement</text><text class="s" x="320" y="338">code + tests</text></g>
+      <g id="n7" class="node"><rect class="nb chk" x="616" y="284" width="224" height="76" rx="6"/><text class="tag" x="632" y="306">INDEPENDENT CHECK</text><text class="t chk" x="632" y="330">reviewer</text><text class="s" x="632" y="350">per criterion</text></g>
+      <g id="n8" class="node"><rect class="nb ok" x="928" y="284" width="168" height="76" rx="6"/><text class="t ok" x="944" y="316">done ✓</text><text class="s" x="944" y="338">criteria met</text></g>
+      <!-- what each step leaves, drawn beside it -->
+      <text id="a2" class="note ok" x="304" y="192"></text>
+      <text id="a3" class="note chk" x="616" y="192"></text>
+      <text id="a4" class="note acc" x="928" y="192"></text>
+      <text id="a5" class="note pln" x="48" y="380"></text>
+      <text id="a6" class="note dim" x="304" y="380"></text>
+      <text id="a7" class="note" x="704" y="380"></text>
+      <circle id="tok" r="6" fill="#ffffff" filter="url(#glow)" opacity="0"/>
+    </svg>
+    <div class="caption" id="caption"></div>
+  </div>
+  <div class="end" id="end"><span>open source</span><span class="u">github.com/SmartAndPoint/ProjectStore</span><span>npx projectstore setup</span></div>
+</div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const clamp = (x) => Math.max(0, Math.min(1, x));
+  const ease = (x) => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+  const typed = (s, t0, t, cps = 55) => s.slice(0, Math.max(0, Math.floor((t - t0) * cps)));
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+  // the steps, in the site's words (site/locales/en.json, loop.l.1 … loop.l.8)
+  const LINES = [
+    "You say what you want. The agent opens an artifact before it opens an editor.",
+    "An ADR when something needs deciding, an epic and stories for the work, a spec when the \"how\" is not obvious. Previewed, and written on your yes.",
+    "A critic with a fresh context, and no stake in the draft, attacks it. Expect \"revise\".",
+    "You approve the fixes. The artifact is marked reviewed and lands in the backlog.",
+    "An agent picks up a story. The planner reads how earlier epics landed in the code and says where this change belongs.",
+    "Code and tests, following the story's plan.",
+    "A reviewer with a fresh context checks the diff against each acceptance criterion and asks for evidence.",
+    "Done, with evidence under each criterion. The board, the link graph and the code map regenerate.",
+  ];
+  // [start, step]: which node is lit from when; a travel is [start, end, edge id, reverse?]
+  const NODES = [[1.2, 1], [4.0, 2], [6.6, 3], [11.6, 4], [14.0, 5], [16.2, 6], [18.4, 7], [22.0, 8]];
+  const TRAVEL = [[3.4, 4.0, "e12"], [6.0, 6.6, "e23"], [9.4, 10.4, "rev"], [10.4, 11.0, "e23"], [11.0, 11.6, "e34"],
+    [13.0, 14.0, "pick"], [15.6, 16.2, "e56"], [17.8, 18.4, "e67"], [19.8, 20.6, "fix"], [20.6, 21.4, "e67"],
+    [21.4, 22.0, "e78"], [23.2, 23.8, "e8v"], [24.6, 26.0, "ret"]];
+  const CAPTION_AT = [1.2, 4.0, 6.6, 11.6, 14.0, 16.2, 18.4, 22.0];
+  const DUR = 30;
+
+  function panel(t) {
+    const reviewing = t >= 6.6 && t < 8.8, verdict = t >= 8.8, second = t >= 10.4, rev = t >= 18.4;
+    const mins = reviewing ? Math.min(16, Math.floor((t - 6.6) / 2.2 * 16)) : 16;
+    const on = (c) => `<span class="st${c ? " on" : ""}">●</span>`;
+    return `<div class="h">CRITIC</div><div class="sub">independent check · on call</div>
+<div class="sep"></div>
+${on(t >= 6.6 && t < 11.6)} before an artifact is final<br>
+<span class="faint">●</span> <span class="st">not on routine turns</span>
+<div class="sep"></div>
+reads the artifact,<br>not the chat.<br>fresh context, no stake<br>in the draft.
+<div class="sep"></div>
+<div class="sub">today, on a real epic:</div>
+<div class="row"><span>epic</span><span class="v">CLIP-001</span></div>
+<div class="row"><span>model</span><span class="v">opus · max</span></div>
+<div class="row"><span>run 1</span><span class="v">${t >= 6.6 ? (reviewing ? `reviewing… ${mins}m` : "16m") : "—"}</span></div>
+${verdict ? `<div class="bad">● revise · 2 blockers</div><div>&nbsp; phones can't receive</div><div>&nbsp; passwords on lock screen</div>` : `<div class="faint">verdict —</div><div>&nbsp;</div><div>&nbsp;</div>`}
+<div class="row"><span>run 2</span><span class="v">${second ? "12m 31s" : "—"}</span></div>
+<div class="sep"></div>
+<div class="h" style="letter-spacing:.06em">${rev ? "▸ " : ""}REVIEWER</div>
+<div class="sub">before done: the diff,<br>per acceptance criterion</div>
+<div class="sep"></div>
+<div class="sub">neither writes code.<br>you approve the fixes.</div>`;
+  }
+
+  const lit = new Set();
+  window.frame = (t) => {
+    // header and legend
+    const head = "PROJECTSTORE   CRITIC BEFORE CODE · REVIEWER BEFORE DONE";
+    const h = typed(head, 0.1, t, 70);
+    $("head").innerHTML = esc(h).replace("PROJECTSTORE", '<span style="color:var(--acc)">PROJECTSTORE</span>')
+      .replace(/CRITIC|REVIEWER/g, (m) => `<span style="color:var(--chk)">${m}</span>`);
+    $("legend").style.opacity = ease((t - 0.6) / 0.6);
+    $("panel").style.opacity = ease((t - 0.4) / 0.6);
+    $("panel").innerHTML = panel(t);
+    // the prompt
+    const p = "hey. i want to build a copy paste system between my devices";
+    $("prompt").innerHTML = t >= 1.2 ? `<b>❯</b> ${esc(typed(p, 1.3, t, 32))}${t < 3.4 && Math.floor(t * 2) % 2 ? "▌" : ""}` : "";
+    // nodes: dim until reached; the current one glows
+    let cur = 0;
+    for (const [s, n] of NODES) if (t >= s) cur = n;
+    for (let n = 1; n <= 8; n++) {
+      const g = $("n" + n), reached = NODES.find(([, k]) => k === n)[0] <= t;
+      g.style.opacity = reached ? 1 : 0.38;
+      g.setAttribute("filter", n === cur && t < 26 ? "url(#glow)" : "");
+    }
+    if (t >= 24.6) { $("n1").style.opacity = 1; $("n1").setAttribute("filter", t < 27 ? "url(#glow)" : ""); }
+    // notes beside the nodes
+    $("a2").textContent = t >= 4.4 ? (t >= 10.2 ? "M epics/CLIP-001/epic.md" : "+ epics/CLIP-001/epic.md") : "";
+    $("a2").setAttribute("class", "note " + (t >= 10.2 ? "mod" : "ok"));
+    $("a3").textContent = t >= 8.8 ? "revise · 2 blockers" : t >= 6.6 ? "reviewing…" : "";
+    $("a4").textContent = t >= 12.0 ? "✓ apply all" : "";
+    $("a5").textContent = t >= 14.6 ? "reads code_refs" : "";
+    // a bar is two runs of one glyph, lit and unlit, so it does not depend on the font's block characters
+    const bar = (x, n = 12, cls = "") => { const k = Math.round(clamp(x) * n); return `<tspan class="fill ${cls}">${"■".repeat(k)}</tspan><tspan class="empty">${"■".repeat(n - k)}</tspan>`; };
+    $("a6").innerHTML = t >= 16.4 ? bar((t - 16.4) / 1.3, 16) : "";
+    const ac = t >= 21.4 ? "AC1 ✓  AC2 ✓  AC3 ✓" : t >= 19.2 ? "AC1 ✓  AC2 ✓  AC3 ✗" : t >= 18.8 ? "AC1 ✓  AC2 ✓" : t >= 18.6 ? "AC1 ✓" : "";
+    $("a7").textContent = ac; $("a7").setAttribute("class", "note " + (t >= 21.4 ? "ok" : "chk"));
+    // the loops pulse while they are travelled
+    $("revl").style.opacity = t >= 9.4 && t < 10.6 ? 0.55 + 0.45 * Math.sin((t - 9.4) * 12) : 1;
+    $("fixl").style.opacity = t >= 19.8 && t < 20.8 ? 0.55 + 0.45 * Math.sin((t - 19.8) * 12) : 1;
+    $("ret").style.strokeDashoffset = String(-t * 14);
+    // the vault's derived views regenerate
+    const v = clamp((t - 23.8) / 0.8);
+    $("viewsl").innerHTML = t >= 23.8
+      ? `board ${bar(v, 8, "ok")}   link graph ${bar(v * 1.2 - 0.2, 8, "ok")}   code map ${bar(v * 1.4 - 0.4, 8, "ok")}${v >= 1 ? '<tspan class="note ok">   regenerated</tspan>' : ""}`
+      : "board, link graph and code map regenerate";
+    $("retl").style.opacity = t >= 24.6 ? 1 : 0.5;
+    // the token on its way
+    const tok = $("tok"), tr = TRAVEL.find(([a, b]) => t >= a && t < b);
+    if (tr) {
+      const path = $(tr[2]), L = path.getTotalLength(), pt = path.getPointAtLength(L * ease((t - tr[0]) / (tr[1] - tr[0])));
+      tok.setAttribute("cx", pt.x); tok.setAttribute("cy", pt.y); tok.setAttribute("opacity", 1);
+      tok.setAttribute("fill", /rev|fix/.test(tr[2]) ? "#ff7a7a" : /e78|e8v/.test(tr[2]) ? "#7bd88f" : "#ffffff");
+    } else tok.setAttribute("opacity", 0);
+    // the step's line
+    let k = -1;
+    for (let i = 0; i < CAPTION_AT.length; i++) if (t >= CAPTION_AT[i]) k = i;
+    $("caption").innerHTML = k >= 0 && t < 24.6
+      ? `<b>0${k + 1}</b>${esc(typed(LINES[k], CAPTION_AT[k], t, 90))}`
+      : t >= 24.6 ? `<b>↺</b>${esc(typed("Every artifact lands in the vault, and the next session sees it.", 24.6, t, 90))}` : "";
+    $("end").style.opacity = ease((t - 25.8) / 0.6);
+  };
+  // the player's frame is as wide as the figure: the 1280 × 720 picture scales to it
+  const fit = () => { const k = innerWidth / 1280; document.body.style.transform = k === 1 ? "" : `scale(${k})`; };
+  addEventListener("resize", fit);
+  fit();
+  window.duration = DUR;
+  window.still = 28; // the whole loop done, its last line typed and the closing line shown
+  window.ready = document.fonts.ready.then(() => true);
+</script>
+</body>
+</html>
