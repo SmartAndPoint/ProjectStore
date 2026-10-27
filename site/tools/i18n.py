@@ -482,6 +482,16 @@ REL_URL = re.compile(
 )
 
 
+# A link off the site opens in a new tab, so the reader keeps the page (the maintainer, 2026-10-27): every
+# <a> whose href is http(s) on another host gets target="_blank" and rel="noopener noreferrer". Written here,
+# not in the templates or the dictionaries, so no translation has to carry it.
+EXTERNAL_A = re.compile(r'<a\b(?![^>]*\btarget=)([^>]*\bhref="https?://(?!projectstore\.dev[/"])[^"]*"[^>]*)>')
+
+
+def external_links(out):
+    return EXTERNAL_A.sub(lambda m: f'<a{m.group(1)} target="_blank" rel="noopener noreferrer">', out)
+
+
 def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn, langs=None):
     """One page. `langs`: the languages its page is built in (page_langs). A page in one language only
     lists itself as its alternate, shows no switcher and never redirects: there is no other page to
@@ -532,7 +542,7 @@ def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn, langs=
         "" if single else switcher(code, slug, d.get("_lang.label") or SPECIAL["_lang.label"], langs),
     )
     out = out.replace("<!--i18n:redirect-->", redirect_script(slug, langs) if code == DEFAULT and not single else "")
-    return out
+    return external_links(out)
 
 
 def cmd_build(args):

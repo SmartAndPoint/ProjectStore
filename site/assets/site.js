@@ -316,6 +316,7 @@
   }
 
   /* ---------- tone switch: midnight, graphite, paper or light, remembered in localStorage ----------
+     With nothing stored, midnight, or paper when the system asks for a light page.
      The early script in <head> applies the saved tone before the first paint; this keeps the
      buttons and theme-color in step, and re-reads the choice when the page returns from the
      back-forward cache. theme-color is read from the computed --bg, never written here. */
@@ -331,8 +332,10 @@
     };
     // a stored tone counts only if a button offers it, so this script keeps no list of tones
     var offered = function (tone) { return toneBtns.some(function (b) { return b.getAttribute("data-tone-set") === tone; }); };
+    // with no choice stored, the reader's system decides: paper when it asks for a light page, else midnight
+    var preferred = function () { return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "paper" : "midnight"; };
     var savedTone = function () {
-      try { var s = localStorage.getItem("ps_tone"); return offered(s) ? s : "light"; } catch (e) { return docEl.getAttribute("data-tone") || "light"; }
+      try { var s = localStorage.getItem("ps_tone"); return offered(s) ? s : preferred(); } catch (e) { return docEl.getAttribute("data-tone") || preferred(); }
     };
     applyTone(savedTone());
     toneBtns.forEach(function (b) {

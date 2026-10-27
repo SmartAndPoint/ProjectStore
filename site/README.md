@@ -31,12 +31,13 @@ evidence), *Why it works* (decades-old practice, what was always expensive about
 goal to proof) and *One vault, many people* (sessions, teams and agents on one vault, the vault in
 git, a team setup).
 
-**The look** comes in four tones, chosen in the header (2026-10-26). Light, the default, is
-smartandpoint.com's: a white page, the indigo accent, pill buttons, cards rounded 16 px with a thin
-border, the graph faint. Paper is the cream light of 2026-10-13 with its copper accent, in the same
-shapes. Midnight and graphite keep the site's classic look of 2026-10-13 to 2026-10-22: the amber
-accent, a soft glow behind the page, square corners, outline buttons, grey section labels and the
-graph at full strength. In every tone: mono for labels, code and the terminal box; Onest for
+**The look** comes in four tones, chosen in the header (2026-10-26). Midnight is the default, and
+paper when the reader's system asks for a light page (`prefers-color-scheme: light`, 2026-10-27);
+paper is the cream light of 2026-10-13 with its copper accent; midnight and graphite have the
+amber accent; all three keep the site's classic look of 2026-10-13 to 2026-10-22: a soft glow behind
+the page, square corners, outline buttons and grey section labels. Light is smartandpoint.com's: a
+white page, the indigo accent, pill buttons, cards rounded 16 px with a thin border. In every tone the
+graph behind the page is faint, as smartandpoint.com draws its own. In every tone: mono for labels, code and the terminal box; Onest for
 headlines and body; diagrams with real connectors in the colours of the narrated film (the accent
 for what lands and for you, red for an independent check, blue for the planner and for
 participants, green for done). Every colour is a token on `:root` in `assets/style.css`: midnight's
@@ -44,16 +45,17 @@ values, with the amber accent and the glow, and graphite's, light's and paper's 
 (`--graphite-*`, `--light-*`, `--paper-*`), which `:root[data-tone="graphite"]`,
 `:root[data-tone="light"]` and `:root[data-tone="paper"]` point tokens at, inside `@media screen`. A
 dark tone changes the surfaces and the glow only; a light one also recolours the text, the accent and
-the roles, points the glow at `--no-glow`, and sets `color-scheme: light`. The classic shapes are one
-block of rules scoped to the two dark tones, at the end of the screen rules: a new shape rule for the
+the roles, and sets `color-scheme: light`; paper points the glow at its copper set, light at
+`--no-glow`. The classic shapes are one block of rules scoped to midnight, graphite and paper, at the
+end of the screen rules: a new shape rule for the
 light look gets its classic twin there. `--bg` is the opaque base, `--bg-1` to `--bg-4` are the translucent panels,
-`--bg-0` a well inside one, and `--bg-pop` the opaque surface of a menu. Every page ships in light,
-named in its markup (`<html data-tone="light">`). Print gets its own light tokens, and
+`--bg-0` a well inside one, and `--bg-pop` the opaque surface of a menu. Every page ships in midnight,
+named in its markup (`<html data-tone="midnight">`). Print gets its own light tokens, and
 `prefers-reduced-motion` stops every animation. The brand is the repository's social-preview
 mark and the wordmark `.projectstore`, whose dot is a round brand-coloured dot with a slow pulse.
 
 **The graph behind the page.** `assets/site.js` builds a faint graph in a fixed layer under the
-content, in the light tones the whole layer at 30% opacity and at 10% while the page scrolls (`:root.scrolling`), in the dark ones at full strength: a slice of this project's own vault, 28 artifacts around ADR-010 and 34 of the
+content, the whole layer at 30% opacity and at 10% while the page scrolls (`:root.scrolling`), in every tone: a slice of this project's own vault, 28 artifacts around ADR-010 and 34 of the
 links among them (the rest are left out to keep it sparse), as `tools/graph-slice.mjs` cut it from the
 vault's `graph.md`. Only accepted, done, active, final and in-progress artifacts are shown, never a
 draft or a proposal. Each node carries its number and slug (`ADR-010 slug-first-artifa…`,
@@ -129,6 +131,9 @@ all absolute under `https://projectstore.dev/`, and carries `og:` and `twitter:`
 title and description and the absolute address of assets/og.png. The language switcher on a page
 links the same page in its other languages. A page links a kind not built in its language at the
 English address: every page links the privacy page at `/privacy/`. No page links `/en/`, a redirect.
+A link off the site (GitHub, nodejs.org, claude.ai and the rest) opens in a new tab, so the reader
+keeps the page: the build adds `target="_blank" rel="noopener noreferrer"` to every such `<a>`, in every
+language, and the test holds it.
 
 An English page, of any kind, picks a language only when the visitor has a reason to want one: an
 explicit earlier choice stored in the `ps_lang` cookie by the language switcher, otherwise the
@@ -143,7 +148,7 @@ The tone switch in the header keeps the visitor's choice in `localStorage` under
 early script, `src/_tone.html`, reads it before the first paint, sets `data-tone` on `<html>` and
 the `theme-color` from the computed `--bg`, so a page in midnight, graphite or paper never shows white
 first; it also sets `data-tones`, which shows the switch. Without JavaScript, or without storage, a
-page is light, and without JavaScript the switch is not shown. Below 1200 px the page links leave the header row for a second row under it, so the
+page is midnight (paper when the system asks for a light page and JavaScript runs), and without JavaScript the switch is not shown. Below 1200 px the page links leave the header row for a second row under it, so the
 row with the switch, the language and the GitHub link never wraps in any language; below 400 px that
 row tightens, so it fits from 360 px. The GitHub link is GitHub's mark, inline in `currentColor`, and
 the name "GitHub", which no dictionary translates; at 760 px and narrower only the mark shows, and
@@ -248,13 +253,13 @@ only, a light one (its `--bg` above 0.5 luminance) the text and roles too,
 with `color-scheme: light`; that the base and the menus are opaque in every tone; that every text
 colour keeps its floor at its lowest over the surfaces text sits on (`--ink` to `--ink-4`, the
 accent and the roles 4.5:1, `--ink-5` the ratio it had on black, the text on the accent 4.5:1 on
-it); that every page ships in light (`<html data-tone="light">`), with the switch and the early
-script, its `theme-color` the light tone's `--bg`; that the early script, run in `node:vm`, sets each
-tone the switch offers and light for anything else, and sets `data-tones`, the switch's gate; that
+it); that every page ships in midnight (`<html data-tone="midnight">`), with the switch and the early
+script, its `theme-color` midnight's `--bg`; that the early script, run in `node:vm`, sets each
+tone the switch offers, and for anything else midnight, or paper on a system that asks for light, and sets `data-tones`, the switch's gate; that
 the accent and the brand colour are in each tone's family (light's indigo, paper's copper, the dark
-tones' amber with an orange brand); that no gradient is left but the diagrams' dot grid and the dark
-tones' glow; and that the graph's layer is at most 0.3 at rest and 0.1 while scrolling, raised only in
-the dark tones. It also holds that the page links and the header's second row switch
+tones' amber with an orange brand); that no gradient is left but the diagrams' dot grid and the
+classic tones' glow, lit in midnight, graphite and paper and transparent in light; and that the
+graph's layer is at most 0.3 at rest and 0.1 while scrolling, in every tone. It also holds that the page links and the header's second row switch
 under one media query; that every page has one `h1` and no id twice; that every main page opens with
 what ProjectStore is (the `h1`, three paragraphs, the two buttons, the agents line, the five lines
 under "Why it works", the table's five columns over its five rows: chat, agent memory, SDD, PDD,

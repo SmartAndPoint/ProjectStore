@@ -1,7 +1,7 @@
 /* ProjectStore — site stylesheet
-   Four tones: light, smartandpoint.com's white with the indigo accent, by default, and paper, the cream light with
-   its copper accent, in pill buttons and rounded cards; midnight and graphite in the classic look, with the amber
-   accent and a glow behind the page; mono for what a terminal would show. Every colour is a token on :root; the
+   Four tones: paper, the cream light with its copper accent, by default, and midnight and graphite with the amber
+   accent, all three in the classic look with a glow behind the page; light, smartandpoint.com's white with the
+   indigo accent, pill buttons and rounded cards; mono for what a terminal would show. Every colour is a token on :root; the
    print rules at the end are the one place that sets its own. Static, no build step. */
 
 /* ---------- fonts ----------
@@ -84,10 +84,11 @@
    that [data-tone="graphite"] points at; and light, smartandpoint.com's white with the indigo accent,
    whose --light-* set [data-tone="light"] points at; and paper, the cream light of 2026-10-13 with its
    copper accent, whose --paper-* set [data-tone="paper"] points at (the rules after the motion rules).
-   Every page ships in light (<html data-tone="light">); the early script sets a stored tone.
+   Every page ships in midnight (<html data-tone="midnight">); the early script sets a stored tone, and
+   with none stored paper when the system asks for a light page (prefers-color-scheme: light).
    A dark tone changes surfaces and the glow only: text, accent and roles stay midnight's. A light tone
-   also changes the inks, the accent family, the roles and the menu shadow, has no glow, and is
-   color-scheme: light.
+   also changes the inks, the accent family, the roles and the menu shadow, and is color-scheme: light;
+   paper keeps a copper glow, light has none.
    - --bg is the opaque base: the canvas, and theme-color.
    - --bg-1 to --bg-4 are translucent panels, so the faint graph behind the page shows through.
    - --bg-0 is a well inside a panel; --bg-pop is opaque, for menus that cover the page.
@@ -197,6 +198,9 @@
   --paper-line-4: #b2a78e;
   --paper-line-5: #998e76;
   --paper-head-bg: #f4f1e8d9;
+  --paper-glow-1: #e8946a24;
+  --paper-glow-2: #d9b98a2b;
+  --paper-glow-3: #7cc4ff0f;
   --paper-ink: #1f1e1b;
   --paper-ink-hi: #0d0c0a;
   --paper-ink-2: #3a372f;
@@ -470,6 +474,8 @@ svg.dg { font-family: var(--font-mono); font-size: 13px; }
 .grid-table tr.us { background: var(--accent-row); }
 .grid-table tr.us td { color: var(--ink-hi); }
 .grid-table tr.us td:first-child { color: var(--accent); font-weight: 700; }
+/* ProjectStore's name in its row: the accent, in mono, as the rating's row heading has it */
+.grid-table tr.us td:first-child b { color: inherit; font-family: var(--font-mono); font-weight: 600; }
 .grid-table tr.us td.ex { color: var(--ink-2); }
 .files { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px; }
 .file { border: 1px solid var(--line-2); background: var(--bg-2); border-radius: 12px; min-width: 0; }
@@ -948,7 +954,7 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
     --line-1: var(--paper-line-1); --line-2: var(--paper-line-2); --line-3: var(--paper-line-3);
     --line-4: var(--paper-line-4); --line-5: var(--paper-line-5);
     --head-bg: var(--paper-head-bg);
-    --glow-1: var(--no-glow); --glow-2: var(--no-glow); --glow-3: var(--no-glow);
+    --glow-1: var(--paper-glow-1); --glow-2: var(--paper-glow-2); --glow-3: var(--paper-glow-3);
     --ink: var(--paper-ink); --ink-hi: var(--paper-ink-hi); --ink-2: var(--paper-ink-2); --ink-3: var(--paper-ink-3);
     --ink-4: var(--paper-ink-4); --ink-5: var(--paper-ink-5);
     --on-accent: var(--paper-on-accent); --accent: var(--paper-accent); --accent-soft: var(--paper-accent-soft);
@@ -962,62 +968,58 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
   }
 }
 
-/* ---------- the classic look, for the dark tones ----------
-   Midnight and graphite keep the site's look of 2026-10-13 to 2026-10-22. Its colours are tokens: the amber
-   accent and the glow are midnight's palette on :root, graphite points the glow at its own, and the light
-   tones point both at theirs. The rules below are its shapes: the soft light behind the page, square corners,
-   outline buttons, grey section labels and the graph at full strength, each restoring what smartandpoint.com's
-   look changed (commit 28a9d08), scoped to the two dark tones; screen only, as the tone rules are. A new shape
-   rule for the light look gets its classic twin here. */
+/* ---------- the classic look, for midnight, graphite and paper ----------
+   Midnight, graphite and paper keep the site's look of 2026-10-13 to 2026-10-22. Its colours are tokens: the
+   amber accent and the glow are midnight's palette on :root, graphite and paper point the glow at their own,
+   paper the accent at its copper, and light the glow at --no-glow. The rules below are its shapes: the soft
+   light behind the page, square corners, outline buttons and grey section labels,
+   each restoring what smartandpoint.com's look changed (commit 28a9d08), scoped to the three classic tones;
+   screen only, as the tone rules are. A new shape rule for the light look gets its classic twin here. */
 
 @media screen {
   /* the soft light behind the page */
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) body::before { content: ""; position: fixed; inset: 0; height: 100lvh; z-index: -1; pointer-events: none; background: radial-gradient(70vw 60vh at 8% 0%, var(--glow-1), transparent 70%), radial-gradient(55vw 50vh at 100% 40%, var(--glow-2), transparent 70%), radial-gradient(80vw 60vh at 40% 110%, var(--glow-3), transparent 70%); }
-  /* the graph at full strength, still while scrolling; no hover pill in the nav */
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .graph,
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .graph-rings,
-  :root:is([data-tone="midnight"], [data-tone="graphite"]).scrolling .graph,
-  :root:is([data-tone="midnight"], [data-tone="graphite"]).scrolling .graph-rings { opacity: 1; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .head-nav > a:hover { background: none; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) body::before { content: ""; position: fixed; inset: 0; height: 100lvh; z-index: -1; pointer-events: none; background: radial-gradient(70vw 60vh at 8% 0%, var(--glow-1), transparent 70%), radial-gradient(55vw 50vh at 100% 40%, var(--glow-2), transparent 70%), radial-gradient(80vw 60vh at 40% 110%, var(--glow-3), transparent 70%); }
+  /* no hover pill in the nav; the graph stays as faint as light's (2026-10-27: at full strength it pulled the eye) */
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .head-nav > a:hover { background: none; }
   /* square corners, outline buttons, grey section labels */
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .head-nav { gap: 22px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .head-nav > a { padding: 0; border-radius: 0; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .lang { border-radius: 4px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .lang-menu { border-radius: 6px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .lang-menu a { border-radius: 4px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .tone-opt::after { border-radius: 4px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .section-label { color: var(--ink-4); }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .term { border-radius: 6px; box-shadow: 0 24px 60px -30px var(--accent-glow); }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .copy { border-radius: 6px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .diagram { border-radius: 8px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .tty { border-radius: 8px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .band { border-radius: 8px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .band .prompt-box { border-radius: 6px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .table-wrap { border-radius: 6px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .file { border-radius: 6px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .tab { border-radius: 4px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .mode-box { border-radius: 8px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .outline-btn { padding: 0 14px; border: 1px solid var(--accent); border-radius: 4px; color: var(--accent); background: transparent; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .outline-btn:hover { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .agent { border-radius: 6px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .transcript { border-radius: 8px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .setup li { border-radius: 6px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .install { border-radius: 10px; box-shadow: 0 24px 60px -30px var(--accent-glow); }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .chatbox { border-radius: 14px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .btn { background: transparent; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .btn.primary:hover { color: var(--on-accent); }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .task { border-radius: 10px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .say { border-radius: 6px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .chat { border-radius: 8px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .closing { border-radius: 10px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .tools li { border-radius: 4px; }
-  :root:is([data-tone="midnight"], [data-tone="graphite"]) .chain .ch-c { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .head-nav { gap: 22px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .head-nav > a { padding: 0; border-radius: 0; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .lang { border-radius: 4px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .lang-menu { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .lang-menu a { border-radius: 4px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .tone-opt::after { border-radius: 4px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .section-label { color: var(--ink-4); }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .term { border-radius: 6px; box-shadow: 0 24px 60px -30px var(--accent-glow); }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .copy { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .diagram { border-radius: 8px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .tty { border-radius: 8px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .band { border-radius: 8px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .band .prompt-box { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .table-wrap { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .file { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .tab { border-radius: 4px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .mode-box { border-radius: 8px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .outline-btn { padding: 0 14px; border: 1px solid var(--accent); border-radius: 4px; color: var(--accent); background: transparent; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .outline-btn:hover { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .agent { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .transcript { border-radius: 8px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .setup li { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .install { border-radius: 10px; box-shadow: 0 24px 60px -30px var(--accent-glow); }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .chatbox { border-radius: 14px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .btn { background: transparent; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .btn.primary:hover { color: var(--on-accent); }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .task { border-radius: 10px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .say { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .chat { border-radius: 8px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .closing { border-radius: 10px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .tools li { border-radius: 4px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .chain .ch-c { border-radius: 6px; }
   @media (max-width: 760px) {
-    :root:is([data-tone="midnight"], [data-tone="graphite"]) .head-nav { gap: 8px; }
+    :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .head-nav { gap: 8px; }
   }
   @media (max-width: 400px) {
-    :root:is([data-tone="midnight"], [data-tone="graphite"]) .head-nav { gap: 6px; }
+    :root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) .head-nav { gap: 6px; }
   }
 }
 

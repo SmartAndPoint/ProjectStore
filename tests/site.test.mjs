@@ -30,6 +30,7 @@ import {
   DEFAULT_LANG,
   KINDS,
   kindLangs,
+  checkExternalLinks,
   checkStep3,
   checkGlow,
   kindOf,
@@ -100,6 +101,7 @@ import {
   checkColourAttrs,
   DEFAULT_TONE,
   SHIP_TONE,
+  LIGHT_TONE,
   toneSets,
   resolveToken,
   rgba,
@@ -349,6 +351,17 @@ test("site: the English main page follows a reader to the language they name fir
   assert.equal(runRedirect(how, { languages: ["uk", "ru"] }), "../uk/how-it-works/", "and a browser's first language");
 });
 
+test("site: every link off the site opens in a new tab with noopener, and no link on it does", () => {
+  const found = eachPage(checkExternalLinks);
+  assert.deepEqual(found, [], show(found));
+  assert.ok(
+    EN.main.page.els.some(
+      (el) => el.name === "a" && el.attrs.href === "https://nodejs.org" && el.attrs.target === "_blank",
+    ),
+    "the quick start's nodejs.org link is one of them",
+  );
+});
+
 test("site: every page names the 1280×640 link preview, absolute, with its canonical as og:url and its own title and description", () => {
   const image = existsSync(join(ROOT, PREVIEW_FILE)) ? readFileSync(join(ROOT, PREVIEW_FILE)) : null;
   const found = [...checkPreviewImage(PREVIEW_FILE, image), ...eachPage(checkPreview)];
@@ -576,7 +589,7 @@ function checkAccent(file, css) {
 // behind the page, one rule for the two of them, painted from --glow-1 to
 // --glow-3 (a light tone points them at --no-glow and draws no rule).
 const DOT_GRID = "radial-gradient(var(--dot) 1px, transparent 1px)";
-const GLOW_HEAD = ':root:is([data-tone="midnight"], [data-tone="graphite"]) body::before';
+const GLOW_HEAD = ':root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) body::before';
 function checkNoGradients(file, css) {
   return cssRules(css).flatMap((r) => {
     const found = r.body.match(/[a-z-]*gradient\([^;]*/g) ?? [];
@@ -601,8 +614,8 @@ function checkNoGradients(file, css) {
 }
 // AC "The graph barely shows": the whole layer at 0.3 or less at rest, and at
 // 0.1 or less under :root.scrolling, which site.js sets while the page scrolls;
-// a rule that raises it names the dark tones only (AC "Four tones": the graph
-// at full strength is the classic look's, the light tones keep it faint).
+// and a tone's own rule holds it there or lower, scrolling or not (2026-10-27:
+// the classic tones keep it barely there, since at full strength it pulled the eye).
 const GRAPH_REST = [".graph, .graph-rings", 0.3];
 const GRAPH_MOVING = [":root.scrolling .graph, :root.scrolling .graph-rings", 0.1];
 function checkGraphQuiet(file, css) {
@@ -616,10 +629,13 @@ function checkGraphQuiet(file, css) {
     .concat(
       cssRules(css)
         .filter((r) => /\.graph/.test(r.head) && /(?:^|;)\s*opacity:/.test(r.body) && /data-tone/.test(r.head))
-        .filter((r) =>
-          [...r.head.matchAll(/data-tone="([a-z]+)"/g)].some((m) => !["midnight", "graphite"].includes(m[1])),
-        )
-        .map((r) => finding(file, "graph-quiet", `${r.head} raises the graph in a light tone; it stays faint there`)),
+        .flatMap((r) => {
+          const most = /\.scrolling/.test(r.head) ? GRAPH_MOVING[1] : GRAPH_REST[1];
+          const value = Number(/(?:^|;)\s*opacity:\s*([\d.]+)/.exec(r.body)[1]);
+          return value <= most
+            ? []
+            : [finding(file, "graph-quiet", `${r.head} is at opacity ${value}; at most ${most}`)];
+        }),
     );
 }
 
@@ -627,10 +643,23 @@ function checkGraphQuiet(file, css) {
 // the switch's script falls back to SHIP_TONE, as the early script does.
 function checkToneFallback(file, js) {
   const line = /var savedTone = function \(\) \{\s*([^\n]*)/.exec(js)?.[1] ?? "";
-  const literals = [...line.matchAll(/(?:\? s :|\|\|) "([a-z]+)"/g)].map((m) => m[1]);
-  return literals.length === 2 && literals.every((t) => t === SHIP_TONE)
-    ? []
-    : [finding(file, "tone", `site.js falls back to ${literals.join(" and ") || "nothing"}; ${SHIP_TONE} both times`)];
+  const falls = [...line.matchAll(/(?:\? s :|\|\|) (preferred\(\)|"[a-z]+")/g)].map((m) => m[1]);
+  const pref = /var preferred = function \(\) \{([^\n]*)\};/.exec(js)?.[1] ?? "";
+  const picks = /prefers-color-scheme: light\)"\)\.matches \? "([a-z]+)" : "([a-z]+)"/.exec(pref);
+  const out = [];
+  if (falls.length !== 2 || !falls.every((f) => f === "preferred()"))
+    out.push(
+      finding(file, "tone", `site.js falls back to ${falls.join(" and ") || "nothing"}; preferred() both times`),
+    );
+  if (!picks || picks[1] !== LIGHT_TONE || picks[2] !== SHIP_TONE)
+    out.push(
+      finding(
+        file,
+        "tone",
+        `site.js prefers ${picks ? `${picks[1]} and ${picks[2]}` : "nothing"}; ${LIGHT_TONE} for a light system, else ${SHIP_TONE}`,
+      ),
+    );
+  return out;
 }
 // The main button's label, --bg on --ink-hi, readable in every tone (it is
 // outside the floors above, which hold text on surfaces).
@@ -644,7 +673,7 @@ function checkMainButton(file, css) {
   });
 }
 
-test("site: the look of the four tones — each tone's accent and brand in its family, no gradient but the diagrams' dot grid and the dark tones' glow, the graph at 0.3 at rest and 0.1 while the page scrolls on the light tones, the main button readable, and site.js falling back to light", () => {
+test("site: the look of the four tones — each tone's accent and brand in its family, no gradient but the diagrams' dot grid and the dark tones' glow, the graph at 0.3 at rest and 0.1 while the page scrolls on the light tones, the main button readable, and site.js falling back to the system's preference", () => {
   const css = read(STYLE);
   const found = [
     ...checkAccent(STYLE, css),
@@ -668,7 +697,7 @@ test("site: the tones — midnight on :root, graphite, light and paper screen-on
   assert.deepEqual(found, [], show(found));
 });
 
-test('site: every page ships in light — <html data-tone="light">, theme-color the light tone\'s --bg — with the tone switch in its header and the early script in its head, and site.js keeps the tone under the key that script reads', () => {
+test('site: every page ships in midnight — <html data-tone="midnight">, theme-color midnight\'s --bg — with the tone switch in its header and the early script in its head, and site.js keeps the tone under the key that script reads', () => {
   const css = read(`${SITE}/assets/style.css`);
   const sets = toneSets(css);
   const tones = sets.map(([tone]) => tone);
@@ -1181,6 +1210,31 @@ const PLANTED = [
     fact: "redirect",
     message: /^follows de, es, fr, pt, ru, zh; a main page is built in de, es, fr, pt, ru, uk, zh$/,
     edits: [['"uk":1', '"uk":0']],
+  },
+
+  // A link off the site: in the same tab, or a link on the site in a new one.
+  {
+    ac: "External links",
+    what: "the GitHub link in the header opening in the same tab",
+    ...onPage("fr", checkExternalLinks, "why-it-works"),
+    fact: "external-link",
+    message: /^https:\/\/github\.com\/SmartAndPoint\/ProjectStore opens in the same tab/,
+    edits: [
+      [
+        /(<a class="gh" href="https:\/\/github\.com\/SmartAndPoint\/ProjectStore"[^>]*?) target="_blank" rel="noopener noreferrer"/,
+        "$1",
+      ],
+    ],
+  },
+  {
+    ac: "External links",
+    what: "a link on the site opening a new tab",
+    ...onPage("en", checkExternalLinks),
+    fact: "external-link",
+    message: /^#start is on the site and opens a new tab$/,
+    edits: [
+      ['href="#start" data-i18n="what.cta.install"', 'href="#start" target="_blank" data-i18n="what.cta.install"'],
+    ],
   },
 
   // The link preview: an image named relative; an og:url left on another page.
@@ -1851,18 +1905,18 @@ const PLANTED = [
   {
     ac: "White by default",
     what: "a page whose theme-color is not the light tone's --bg",
-    ...onPage("pt", (p) => checkTonePage(p, FOUR_TONES, "#ffffff"), "one-vault"),
+    ...onPage("pt", (p) => checkTonePage(p, FOUR_TONES, "#080d19"), "one-vault"),
     fact: "theme-color",
-    message: /theme-color is #0b0c0a; light --bg is #ffffff/,
+    message: /theme-color is #0b0c0a; midnight --bg is #080d19/,
     edits: [[/(<meta name="theme-color" content=")[^"]*/, "$1#0b0c0a"]],
   },
   {
     ac: "White by default",
     what: "a page in midnight",
-    ...onPage("pt", (p) => checkTonePage(p, FOUR_TONES, "#ffffff"), "why-it-works"),
+    ...onPage("pt", (p) => checkTonePage(p, FOUR_TONES, "#080d19"), "why-it-works"),
     fact: "tone",
-    message: /^<html data-tone="">: a page ships in light$/,
-    edits: [['<html lang="pt-BR" data-tone="light">', '<html lang="pt-BR">']],
+    message: /^<html data-tone="">: a page ships in midnight$/,
+    edits: [['<html lang="pt-BR" data-tone="midnight">', '<html lang="pt-BR">']],
   },
   {
     ac: "One accent, readable",
@@ -1887,6 +1941,14 @@ const PLANTED = [
   },
   {
     ac: "The graph barely shows",
+    what: "the classic tones' graph back at full strength while scrolling",
+    ...onText(STYLE, checkGraphQuiet),
+    fact: "graph-quiet",
+    message: /\.scrolling \.graph is at opacity 1; at most 0\.1$/,
+    edits: [[/$/, '\n@media screen { :root:is([data-tone="midnight"]).scrolling .graph { opacity: 1; } }\n']],
+  },
+  {
+    ac: "The graph barely shows",
     what: "the graph back at 0.6",
     ...onText(STYLE, checkGraphQuiet),
     fact: "graph-quiet",
@@ -1898,8 +1960,8 @@ const PLANTED = [
     what: "site.js falling back to midnight",
     ...onText(`${SITE}/assets/site.js`, checkToneFallback),
     fact: "tone",
-    message: /^site\.js falls back to midnight and light; light both times$/,
-    edits: [['return offered(s) ? s : "light";', 'return offered(s) ? s : "midnight";']],
+    message: /^site\.js falls back to "midnight" and preferred\(\); preferred\(\) both times$/,
+    edits: [["return offered(s) ? s : preferred();", 'return offered(s) ? s : "midnight";']],
   },
   {
     ac: "White by default",
@@ -1920,7 +1982,7 @@ const PLANTED = [
   {
     ac: "One two-way switch",
     what: "a switch without its graphite position",
-    ...onPage("zh", (p) => checkTonePage(p, FOUR_TONES, "#ffffff"), "why-it-works"),
+    ...onPage("zh", (p) => checkTonePage(p, FOUR_TONES, "#080d19"), "why-it-works"),
     fact: "tone-switch",
     message: /no position for graphite/,
     edits: [[/<button class="tone-opt" type="button" data-tone-set="graphite"[^>]*>.*?<\/button>/, ""]],
@@ -1928,7 +1990,7 @@ const PLANTED = [
   {
     ac: "Remembered, without a flash",
     what: "a page without the early script",
-    ...onPage("de", (p) => checkTonePage(p, FOUR_TONES, "#ffffff"), "one-vault"),
+    ...onPage("de", (p) => checkTonePage(p, FOUR_TONES, "#080d19"), "one-vault"),
     fact: "tone-script",
     message: /0 scripts read ps_tone in <head>/,
     edits: [[/<script>\(function\(\)\{var d=document\.documentElement[\s\S]*?<\/script>\n?/, ""]],
@@ -1998,7 +2060,7 @@ const PLANTED = [
   {
     ac: "Four tones",
     what: "a page without its light position",
-    ...onPage("uk", (p) => checkTonePage(p, FOUR_TONES, "#ffffff"), "how-it-works"),
+    ...onPage("uk", (p) => checkTonePage(p, FOUR_TONES, "#080d19"), "how-it-works"),
     fact: "tone-switch",
     message: /no position for light/,
     edits: [[/<button class="tone-opt" type="button" data-tone-set="light"[^>]*>.*?<\/button>/, ""]],
@@ -2006,7 +2068,7 @@ const PLANTED = [
   {
     ac: "Four tones",
     what: "a switch offering a tone the stylesheet does not declare",
-    ...onPage("fr", (p) => checkTonePage(p, FOUR_TONES, "#ffffff"), "one-vault"),
+    ...onPage("fr", (p) => checkTonePage(p, FOUR_TONES, "#080d19"), "one-vault"),
     fact: "tone-switch",
     message: /^the switch offers sepia, which the stylesheet does not declare$/,
     edits: [
@@ -2021,16 +2083,26 @@ const PLANTED = [
     what: "an early script that takes any stored id",
     ...onText(TONE_PARTIAL, (file, partial) => checkToneScript(file, partial, FOUR_TONES)),
     fact: "tone-script",
-    message: /^"sepia" stored: data-tone is sepia; light is expected/,
-    edits: [['if(s==="graphite"||s==="midnight"||s==="paper")t=s;', "t=s||t;"]],
+    message: /^"sepia" stored: data-tone is sepia; midnight is expected/,
+    edits: [['if(s==="graphite"||s==="midnight"||s==="paper"||s==="light")t=s;else ', "t=s||t;if(!s)"]],
   },
   {
     ac: "Four tones",
-    what: "an early script that forgets midnight",
+    what: "an early script that forgets graphite",
     ...onText(TONE_PARTIAL, (file, partial) => checkToneScript(file, partial, FOUR_TONES)),
     fact: "tone-script",
-    message: /^"midnight" stored: data-tone is light; midnight is expected/,
-    edits: [['||s==="midnight"', ""]],
+    message: /^"graphite" stored: data-tone is midnight; graphite is expected/,
+    edits: [['s==="graphite"||', ""]],
+  },
+  {
+    ac: "Four tones",
+    what: "an early script that ignores a light system",
+    ...onText(TONE_PARTIAL, (file, partial) => checkToneScript(file, partial, FOUR_TONES)),
+    fact: "tone-script",
+    message: /^nothing stored, a light system: data-tone is midnight; paper is expected/,
+    edits: [
+      ['else if(typeof matchMedia==="function"&&matchMedia("(prefers-color-scheme: light)").matches)t="paper";', ""],
+    ],
   },
   {
     ac: "Four tones",
@@ -2253,27 +2325,32 @@ const PLANTED = [
   },
   {
     ac: "Four tones",
-    what: "the dark tones' glow rule removed",
+    what: "the classic tones' glow rule removed",
     ...onText(STYLE, checkGlow),
     fact: "glow",
-    message: /^0 glow rules for the dark tones/,
-    edits: [[/\n {2}:root:is\(\[data-tone="midnight"\], \[data-tone="graphite"\]\) body::before \{[^\n]*\}/, ""]],
+    message: /^0 glow rules for the classic tones/,
+    edits: [
+      [
+        /\n {2}:root:is\(\[data-tone="midnight"\], \[data-tone="graphite"\], \[data-tone="paper"\]\) body::before \{[^\n]*\}/,
+        "",
+      ],
+    ],
   },
   {
     ac: "Four tones",
     what: "midnight's glow made transparent",
     ...onText(STYLE, checkGlow),
     fact: "glow",
-    message: /^midnight --glow-1 is #3d63dd00; lit in a dark tone$/,
+    message: /^midnight --glow-1 is #3d63dd00; lit in a classic tone$/,
     edits: [["--glow-1: #3d63dd30;", "--glow-1: #3d63dd00;"]],
   },
   {
     ac: "Four tones",
-    what: "paper keeping midnight's glow",
+    what: "light keeping midnight's glow",
     ...onText(STYLE, checkGlow),
     fact: "glow",
-    message: /^paper --glow-1 is #3d63dd30; transparent in a light tone$/,
-    edits: [[/(--head-bg: var\(--paper-head-bg\);\n)\s*--glow-1: var\(--no-glow\);/, "$1   "]],
+    message: /^light --glow-1 is #3d63dd30; transparent in light$/,
+    edits: [[/(--head-bg: var\(--light-head-bg\);\n)\s*--glow-1: var\(--no-glow\);/, "$1   "]],
   },
   {
     ac: "Four tones",
@@ -2283,8 +2360,8 @@ const PLANTED = [
     message: /\.lang sets a token/,
     edits: [
       [
-        '[data-tone="graphite"]) .lang { border-radius: 4px; }',
-        '[data-tone="graphite"]) .lang { border-radius: 4px; --accent: var(--brand); }',
+        '[data-tone="paper"]) .lang { border-radius: 4px; }',
+        '[data-tone="paper"]) .lang { border-radius: 4px; --accent: var(--brand); }',
       ],
     ],
   },

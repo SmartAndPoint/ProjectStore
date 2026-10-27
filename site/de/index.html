@@ -1,16 +1,16 @@
 <!doctype html>
-<html lang="de" data-tone="light">
+<html lang="de" data-tone="midnight">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title data-i18n="meta.title">ProjectStore — ein Plan, zwei Prüfungen und ein Protokoll für deinen Coding-Agenten</title>
 <meta name="description" content="Ein Plugin für Claude Code und Codex. Dein Agent plant zuerst, ein zweiter Agent prüft den Plan, und ein dritter prüft das Ergebnis gegen deine Checkliste. Entscheidungen und Pläne bleiben als Markdown in deinem Git, damit jeder Agent weitermachen kann." data-i18n-attr="content:meta.description">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="#080d19">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=4de81198">
-<script>(function(){var d=document.documentElement,t="light",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="midnight"||s==="paper")t=s;}catch(e){}d.setAttribute("data-tone",t);d.setAttribute("data-tones","");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
+<link rel="stylesheet" href="../assets/style.css?v=1f26b3ac">
+<script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");}catch(e){}if(s==="graphite"||s==="midnight"||s==="paper"||s==="light")t=s;else if(typeof matchMedia==="function"&&matchMedia("(prefers-color-scheme: light)").matches)t="paper";d.setAttribute("data-tone",t);d.setAttribute("data-tones","");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
@@ -61,7 +61,7 @@
       <a class="page-link" data-nav="one-vault" href="one-vault/" data-i18n="nav.vault">Ein Vault, viele Menschen</a>
       <div class="tone-switch" role="group" aria-label="Hintergrundfarbe" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="false" aria-label="Mitternacht" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="Graphit" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="paper" aria-pressed="false" aria-label="Papier" data-i18n-attr="aria-label:nav.tone.paper"><span class="sw sw-paper" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="light" aria-pressed="true" aria-label="Hell" data-i18n-attr="aria-label:nav.tone.light"><span class="sw sw-light" aria-hidden="true"></span></button></div>
       <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="Sprache: Deutsch"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>DE</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../" hreflang="en" lang="en" data-lang="en">English</a></li><li><a href="../de/" hreflang="de" lang="de" data-lang="de" aria-current="true">Deutsch</a></li><li><a href="../es/" hreflang="es" lang="es" data-lang="es">Español</a></li><li><a href="../fr/" hreflang="fr" lang="fr" data-lang="fr">Français</a></li><li><a href="../pt/" hreflang="pt-BR" lang="pt-BR" data-lang="pt">Português</a></li><li><a href="../ru/" hreflang="ru" lang="ru" data-lang="ru">Русский</a></li><li><a href="../uk/" hreflang="uk" lang="uk" data-lang="uk">Українська</a></li><li><a href="../zh/" hreflang="zh-CN" lang="zh-CN" data-lang="zh">中文</a></li></ul></div>
-      <a class="gh" href="https://github.com/SmartAndPoint/ProjectStore" aria-label="GitHub"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span>GitHub</span></a>
+      <a class="gh" href="https://github.com/SmartAndPoint/ProjectStore" aria-label="GitHub" target="_blank" rel="noopener noreferrer"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span>GitHub</span></a>
     </nav>
   </div>
   <nav class="mobile-nav" aria-label="Seiten" data-i18n-attr="aria-label:nav.pages"><a data-nav="main" href="./#start" data-i18n="nav.install">Installieren</a><a data-nav="how-it-works" href="how-it-works/" data-i18n="nav.how.2">So funktioniert es</a><a data-nav="why-it-works" href="why-it-works/" data-i18n="nav.why.2">Warum es funktioniert</a><a data-nav="one-vault" href="one-vault/" data-i18n="nav.vault.2">Ein Vault, viele Menschen</a></nav>
@@ -71,7 +71,7 @@
 
 <section class="hero what" id="what" aria-labelledby="what-title">
   <div class="section-label big" data-i18n="what.label">Eine Methode und ein Plugin für Claude Code und Codex</div>
-  <h1 id="what-title" data-i18n="what.h1">Eine Methode für die Arbeit mit KI-Agenten, <span class="acc">damit du bekommst, was du dir vorgestellt hast.</span></h1>
+  <h1 id="what-title" data-i18n="what.h1">Eine Methode für die Arbeit mit KI-Agenten, <span class="acc">die wirklich funktioniert.</span></h1>
   <div class="what-text">
     <p class="lead" data-i18n="what.p.1"><b>ProjectStore</b> ist eine Methode und ein Framework, um Apps und Dienste jeder Größe mit KI-Agenten zu bauen.</p>
     <p class="lead" data-i18n="what.p.2">Zuallererst ist es eine Art, wie Mensch und Agenten zusammenarbeiten. Du entscheidest, was gebaut wird. Ein Agent schreibt den Plan, ein zweiter Agent sucht darin nach Lücken, und du gibst frei. Dann baut der Agent, und ein dritter prüft das Ergebnis Punkt für Punkt gegen deine Checkliste.</p>
@@ -153,8 +153,8 @@
 <section class="sec" id="quick" aria-labelledby="quick-title">
   <h2 id="quick-title" data-i18n="quick.h2">Schnellstart</h2>
   <ol class="qs">
-    <li><h3 data-i18n="quick.s.a.h">Einen Agenten besorgen</h3><p data-i18n="quick.s.a.p">Ein Agent ist ein Programm, das aus deinen Worten Code schreibt und ausführt. Beides funktioniert: <a href="https://claude.ai/download">Claude</a> (die App, ihr Tab Code) oder <a href="https://openai.com/codex/">Codex</a> von OpenAI.</p></li>
-    <li><h3 data-i18n="quick.s.b.h">Node.js installieren und einen Projektordner öffnen</h3><p data-i18n="quick.s.b.p">Node.js ist die Grundlage, auf der ProjectStore läuft: der LTS-Installer von <a href="https://nodejs.org">nodejs.org</a>, Version 20 oder neuer, unter macOS oder Linux. Lege einen leeren Ordner an, zum Beispiel „my-bot“, und öffne ihn im Agenten.</p></li>
+    <li><h3 data-i18n="quick.s.a.h">Einen Agenten besorgen</h3><p data-i18n="quick.s.a.p">Ein Agent ist ein Programm, das aus deinen Worten Code schreibt und ausführt. Beides funktioniert: <a href="https://claude.ai/download" target="_blank" rel="noopener noreferrer">Claude</a> (die App, ihr Tab Code) oder <a href="https://openai.com/codex/" target="_blank" rel="noopener noreferrer">Codex</a> von OpenAI.</p></li>
+    <li><h3 data-i18n="quick.s.b.h">Node.js installieren und einen Projektordner öffnen</h3><p data-i18n="quick.s.b.p">Node.js ist die Grundlage, auf der ProjectStore läuft: der LTS-Installer von <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer">nodejs.org</a>, Version 20 oder neuer, unter macOS oder Linux. Lege einen leeren Ordner an, zum Beispiel „my-bot“, und öffne ihn im Agenten.</p></li>
     <li><h3 data-i18n="quick.s.1.h">ProjectStore installieren</h3><p data-i18n="quick.s.1.p"><b><i>Bitte deinen Agenten darum</i></b> oder führe den Befehl in einem Terminal im Projektordner aus.</p>
       <div class="install" data-tabs data-initial="ask">
         <div class="install-bar"><span class="install-dots" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -280,7 +280,7 @@
 
 <section class="sec" id="agents" aria-labelledby="how-agents-title">
   <div class="section-label" data-i18n="how.agents.label">Die Agenten</div>
-  <h2 id="how-agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">Agenten.</span> <span class="acc" data-i18n="agents.h2.2">Alle bis auf einen dürfen nur lesen.</span></h2>
+  <h2 id="how-agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">Agenten.</span> <span class="acc" data-i18n="agents.h2.2">Jeder erledigt nur seine eigene Aufgabe.</span></h2>
   <p class="lede" data-i18n="agents.p.1">Die Berater prüfen, planen und räumen auf, ohne etwas zu ändern. <b>Ein einziger Clerk speichert nach deinem Ja nur das, was du freigegeben hast.</b></p>
   <div class="agents">
     <article class="agent"><span class="role chk">critic</span><span class="rw" data-i18n="agents.span.4">nur lesend · unabhängig</span><p data-i18n="agents.td.1">Nachdem ein ADR, eine Spec, ein Epic, eine Story oder ein Design geschrieben oder geändert wurde</p><p class="c-hi" data-i18n="agents.td.2">Sucht nach Schwachstellen, prüft jede Behauptung an der Quelle und fragt, wie der Plan scheitern könnte. Keine Schmeichelei.</p><span class="rw" data-i18n="agents.td.3">opus · max</span></article>
@@ -485,10 +485,10 @@ projectstore: this session looks like <span class="c-acc">"<span data-slug="stor
   <div class="wrap foot-row">
     <span><span class="wordmark-sm"><span class="dot">.</span>projectstore</span> · <span data-i18n="footer.tag">Der Code ändert sich. Der Kontext bleibt.</span> · <span data-i18n="footer.span.4">Open Source · MIT · Evgenii Konev, SmartAndPoint</span></span>
     <span><span data-fact="version">v0.30.7</span> · <span data-i18n="footer.span.5">jede gemessene Zahl verweist auf die Stelle in README oder docs, aus der sie stammt; die Beispiele sind illustrativ</span></span>
-    <span class="foot-links"><a href="https://github.com/SmartAndPoint/ProjectStore" data-i18n="footer.span.3">GitHub</a> <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" data-i18n="footer.span.6">Dokumentation</a> <a href="../llms.txt" data-i18n="footer.a.1">llms.txt</a> <a href="../privacy/" data-i18n="footer.privacy">Datenschutz</a></span>
+    <span class="foot-links"><a href="https://github.com/SmartAndPoint/ProjectStore" data-i18n="footer.span.3" target="_blank" rel="noopener noreferrer">GitHub</a> <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" data-i18n="footer.span.6" target="_blank" rel="noopener noreferrer">Dokumentation</a> <a href="../llms.txt" data-i18n="footer.a.1">llms.txt</a> <a href="../privacy/" data-i18n="footer.privacy">Datenschutz</a></span>
   </div>
 </footer>
 
-<script src="../assets/site.js?v=c1f5565b"></script>
+<script src="../assets/site.js?v=de3b5313"></script>
 </body>
 </html>

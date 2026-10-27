@@ -1938,10 +1938,13 @@ export function toneRules(blocks, media = null) {
   });
 }
 export const DEFAULT_TONE = "midnight";
-// The tone every page ships in, the light rule, named in its markup
-// (<html data-tone="light">) since the look story of 2026-10-22; the palette on
-// :root stays midnight's, the source the tones draw from.
-export const SHIP_TONE = "light";
+// The tone every page ships in, named in its markup: light (<html
+// data-tone="light">) from the look story of 2026-10-22, midnight since the
+// maintainer's word of 2026-10-27; the palette on :root is midnight's, the
+// source the tones draw from. With nothing stored, a system that asks for a
+// light page (prefers-color-scheme: light) gets LIGHT_TONE instead.
+export const SHIP_TONE = "midnight";
+export const LIGHT_TONE = "paper";
 export const TONE_KEY = "ps_tone";
 // What a tone may change: the surfaces (a role's tint on a panel among them),
 // the lines, the header tint and the glow. A light tone may also recolour what
@@ -2114,7 +2117,7 @@ export function checkToneContrast(file, css) {
 
 // AC "White by default" (the look story; before it, "Midnight by default"),
 // "One two-way switch" and "Remembered, without a flash": a page ships in
-// SHIP_TONE — <html data-tone="light">, its theme-color that tone's --bg — and
+// SHIP_TONE — <html data-tone="midnight">, its theme-color that tone's --bg — and
 // carries the switch, a named
 // position per tone with aria-pressed, and in <head>, after the stylesheet,
 // the one early script that reads the tone's key and sets data-tone.
@@ -2195,7 +2198,7 @@ export function checkToneKey(file, js, early) {
 export function checkToneScript(file, partial, tones) {
   const code = /<script>([\s\S]*?)<\/script>/.exec(partial)?.[1];
   if (!code) return [finding(file, "tone-script", "the partial holds no script")];
-  const run = (stored) => {
+  const run = (stored, light = false) => {
     const attrs = {};
     const storage = {
       getItem: (key) => {
@@ -2205,6 +2208,7 @@ export function checkToneScript(file, partial, tones) {
     };
     const sandbox = {
       document: { documentElement: { setAttribute: (k, v) => (attrs[k] = v) }, querySelector: () => null },
+      matchMedia: (q) => ({ matches: light && /prefers-color-scheme:\s*light/.test(q) }),
       localStorage: storage,
       getComputedStyle: () => ({ getPropertyValue: () => "" }),
     };
@@ -2220,9 +2224,11 @@ export function checkToneScript(file, partial, tones) {
     ["nothing stored", null, SHIP_TONE],
     ['"sepia" stored', "sepia", SHIP_TONE],
     ["storage that throws", new Error("storage is off"), SHIP_TONE],
+    ["nothing stored, a light system", null, LIGHT_TONE, true],
+    ['"midnight" stored, a light system', "midnight", "midnight", true],
   ];
-  return cases.flatMap(([label, stored, want]) => {
-    const got = run(stored);
+  return cases.flatMap(([label, stored, want, light]) => {
+    const got = run(stored, light);
     return got === want ? [] : [finding(file, "tone-script", `${label}: data-tone is ${got}; ${want} is expected`)];
   });
 }
@@ -2771,15 +2777,16 @@ export function checkStep3(page) {
   return broken.length ? [finding(page.file, "step-3", broken.join("; "))] : [];
 }
 
-// AC "Four tones", the glow: midnight and graphite light --glow-1 to 3, the
-// light tones point them at a transparent token, and one rule for the two dark
-// tones, inside @media screen, paints them behind the page. A block that names
-// a tone without being a tone rule sets no token.
-export const GLOW_RULE = ':root:is([data-tone="midnight"], [data-tone="graphite"]) body::before';
+// AC "Four tones", the glow: the classic tones (midnight, graphite, paper)
+// light --glow-1 to 3, light points them at a transparent token, and one rule
+// for the three classic tones, inside @media screen, paints them behind the
+// page. A block that names a tone without being a tone rule sets no token.
+export const CLASSIC_TONES = ["midnight", "graphite", "paper"];
+export const GLOW_RULE = ':root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) body::before';
 export function checkGlow(file, css) {
   const out = [];
   for (const [tone, tokens] of toneSets(css)) {
-    const dark = !isLight(tokens);
+    const dark = CLASSIC_TONES.includes(tone);
     for (const n of ["--glow-1", "--glow-2", "--glow-3"]) {
       const c = rgba(resolveToken(tokens, n));
       if (!c || (dark ? c.a === 0 : c.a !== 0))
@@ -2787,7 +2794,7 @@ export function checkGlow(file, css) {
           finding(
             file,
             "glow",
-            `${tone} ${n} is ${resolveToken(tokens, n)}; ${dark ? "lit in a dark tone" : "transparent in a light tone"}`,
+            `${tone} ${n} is ${resolveToken(tokens, n)}; ${dark ? "lit in a classic tone" : "transparent in light"}`,
           ),
         );
     }
@@ -2799,7 +2806,7 @@ export function checkGlow(file, css) {
     (r) => r.head === GLOW_RULE && /^@media\s+screen\b/i.test(r.media ?? "") && /radial-gradient\(/.test(r.body),
   );
   if (glows.length !== 1)
-    out.push(finding(file, "glow", `${glows.length} glow rules for the dark tones inside @media screen; one`));
+    out.push(finding(file, "glow", `${glows.length} glow rules for the classic tones inside @media screen; one`));
   for (const r of rules.filter((r) => /data-tone=/.test(r.head) && !/^:root\[data-tone="[a-z]+"\]$/.test(r.head)))
     if (/--[\w-]+\s*:/.test(r.body))
       out.push(finding(file, "glow", `${r.head} sets a token; only a :root[data-tone="…"] rule does`));
@@ -3412,6 +3419,23 @@ export function runRedirect(page, { cookie = null, languages = [] } = {}) {
 
 export const checkStub = (file, text) =>
   text === STUB ? [] : [finding(file, "stub", `is not the redirect tools/i18n.py writes: ${JSON.stringify(text)}`)];
+
+// A link off the site opens in a new tab and keeps the page (the maintainer,
+// 2026-10-27): every <a> whose href is http(s) on another host carries
+// target="_blank" and a rel with noopener; a link on the site carries neither.
+export function checkExternalLinks(page) {
+  const out = [];
+  for (const a of page.els.filter((el) => el.name === "a" && el.attrs.href)) {
+    const href = a.attrs.href;
+    const external = /^https?:\/\//.test(href) && !href.startsWith(ORIGIN);
+    const rel = (a.attrs.rel ?? "").split(/\s+/);
+    if (external && (a.attrs.target !== "_blank" || !rel.includes("noopener")))
+      out.push(finding(page.file, "external-link", `${href} opens in the same tab; target="_blank" rel="noopener"`));
+    if (!external && a.attrs.target === "_blank")
+      out.push(finding(page.file, "external-link", `${href} is on the site and opens a new tab`));
+  }
+  return out;
+}
 
 // The llms files carry the facts in a fixed shape: a "Facts about version
 // <version>" heading, and under it "- <n> commands", "- <n> bundled agents",
