@@ -247,11 +247,11 @@ time, or when the job could not push — from a checkout of the release's tag,
 read the plan first, then move the branch:
 
 ```sh
-node packaging/directory-branch.mjs --version 0.30.6 --dry-run
+node packaging/directory-branch.mjs --version <version> --dry-run
 ```
 
 ```sh
-GH_TOKEN="$(gh auth token)" node packaging/directory-branch.mjs --version 0.30.6
+GH_TOKEN="$(gh auth token)" node packaging/directory-branch.mjs --version <version>
 ```
 
 A failed `directory` job turns the release run red, and pages and surfaces run
