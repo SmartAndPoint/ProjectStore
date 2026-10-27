@@ -381,7 +381,7 @@ Name, and under the OFL a subset made by a third party is a Modified Version tha
 
 ## Sources and honesty
 
-Content is derived from ProjectStore v0.30.6 as of 2026-10-16: `README.md`, `docs/how-it-works.md`,
+Content is derived from ProjectStore v0.30.7 as of 2026-10-27: `README.md`, `docs/how-it-works.md`,
 `docs/getting-started.md`, `docs/harnesses.md`, the command and agent definitions, the harness
 manifests, `scaffold/layouts/engineering.json`, the templates, and the core's `slugify()` and
 `composeAnchorName()`. Every measured figure (2–6 parallel sessions, 12 session-name offers across
