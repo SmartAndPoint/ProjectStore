@@ -49,11 +49,10 @@ LOCALES = os.path.join(ROOT, "locales")
 # pages live in, under the root for English and under <lang>/ for the others. "" is the language root.
 # A page with "langs" is built in those languages only: the privacy page is English for now, so it
 # carries no data-i18n key of its own, and every page links it at the site root (SHARED_PAGES). The
-# main page is English and Russian (PS-HARNESS: "The front page speaks to a beginner …"): its keys
-# live in en.json and ru.json alone, the other languages' addresses redirect to the English one
-# (STUB), and a link to it from a page in another language goes to the site root.
+# main page is built in every language (PS-HARNESS: "The front page in all eight languages …"); only
+# /en/ is a STUB, the redirect to the English page at the root.
 PAGES = [
-    {"kind": "main", "src": "index.html", "slug": "", "langs": ["en", "ru"]},
+    {"kind": "main", "src": "index.html", "slug": ""},
     {"kind": "how-it-works", "src": "how-it-works.html", "slug": "how-it-works"},
     {"kind": "why-it-works", "src": "why-it-works.html", "slug": "why-it-works"},
     {"kind": "one-vault", "src": "one-vault.html", "slug": "one-vault"},
@@ -239,14 +238,16 @@ def set_attr(tag_raw, name, value):
 
 
 def collect(src, tree):
-    """Return (inner, attrs): {key: (el)} for data-i18n, and [(el, [(name, key)])] for data-i18n-attr."""
+    """Return (inner, attrs): {key: [el, ...]} for data-i18n, and [(el, [(name, key)])] for data-i18n-attr.
+    A key may repeat in a template (the comparison names an approach in four places) only where every copy
+    holds the same English: one key, one text, one translation."""
     inner_keys, attr_keys = {}, []
     for el in tree.iter():
         k = el.attrs.get("data-i18n")
         if k:
-            if k in inner_keys:
-                raise SystemExit(f"duplicate key in template: {k}")
-            inner_keys[k] = el
+            if k in inner_keys and inner(src, el) != inner(src, inner_keys[k][0]):
+                raise SystemExit(f"a key repeats with different text in a template: {k}")
+            inner_keys.setdefault(k, []).append(el)
         spec = el.attrs.get("data-i18n-attr")
         if spec:
             attr_keys.append((el, attr_pairs(spec)))
@@ -272,8 +273,8 @@ def page_dict(src):
     tree = parse(src)
     inner_keys, attr_keys = collect(src, tree)
     d = {}
-    for k, el in inner_keys.items():
-        d[k] = inner(src, el)
+    for k, els in inner_keys.items():
+        d[k] = inner(src, els[0])
     for el, pairs in attr_keys:
         for name, key in pairs:
             d[key] = el.attrs.get(name, "")
@@ -437,8 +438,7 @@ def redirect_script(slug, langs=None):
 
     L names every other site language, 1 where this page is built in it and 0 where it is not. A stored
     choice is followed only to a page that exists. Without one, the first browser language the site has
-    in any page decides: the visitor goes there if this page is built in it, and otherwise stays, so a
-    reader whose browser says uk, ru stays on an English main page rather than go to the Russian one."""
+    in any page decides: the visitor goes there if this page is built in it, and otherwise stays."""
     built = langs or [c for c, _, _ in LANGS]
     others = ",".join(f'"{c}":{1 if c in built else 0}' for c, _, _ in LANGS if c != DEFAULT)
     up = "../" * depth(DEFAULT, slug)
@@ -482,6 +482,16 @@ REL_URL = re.compile(
 )
 
 
+# A link off the site opens in a new tab, so the reader keeps the page (the maintainer, 2026-10-27): every
+# <a> whose href is http(s) on another host gets target="_blank" and rel="noopener noreferrer". Written here,
+# not in the templates or the dictionaries, so no translation has to carry it.
+EXTERNAL_A = re.compile(r'<a\b(?![^>]*\btarget=)([^>]*\bhref="https?://(?!projectstore\.dev[/"])[^"]*"[^>]*)>')
+
+
+def external_links(out):
+    return EXTERNAL_A.sub(lambda m: f'<a{m.group(1)} target="_blank" rel="noopener noreferrer">', out)
+
+
 def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn, langs=None):
     """One page. `langs`: the languages its page is built in (page_langs). A page in one language only
     lists itself as its alternate, shows no switcher and never redirects: there is no other page to
@@ -489,12 +499,12 @@ def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn, langs=
     langs = langs or [c for c, _, _ in LANGS]
     single = len(langs) == 1
     reps = []
-    for key, el in inner_keys.items():
+    for key, els in inner_keys.items():
         val = d.get(key)
         if val is None:
             val = en[key]
             warn.append(f"{code}: missing {key}, English used")
-        reps.append((el.start_end, el.end_start, val))
+        reps += [(el.start_end, el.end_start, val) for el in els]
     for el, pairs in attr_keys:
         raw = src[el.start:el.start_end]
         for name, key in pairs:
@@ -532,7 +542,7 @@ def render(src, inner_keys, attr_keys, code, slug, d, en, base_url, warn, langs=
         "" if single else switcher(code, slug, d.get("_lang.label") or SPECIAL["_lang.label"], langs),
     )
     out = out.replace("<!--i18n:redirect-->", redirect_script(slug, langs) if code == DEFAULT and not single else "")
-    return out
+    return external_links(out)
 
 
 def cmd_build(args):

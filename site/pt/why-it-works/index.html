@@ -1,16 +1,16 @@
 <!doctype html>
-<html lang="pt-BR" data-tone="light">
+<html lang="pt-BR" data-tone="midnight">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title data-i18n="why.meta.title">Por que o ProjectStore funciona — prática antiga de engenharia, barateada pelos agentes</title>
 <meta name="description" content="ADRs, specs, backlogs, critérios de aceitação e rastreabilidade têm décadas. Executá-los à mão era a parte cara. Os agentes fazem cada passo levar minutos; os artefatos dão aos agentes a memória que lhes falta." data-i18n-attr="content:why.meta.description">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="#080d19">
 <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../../assets/icon-180.png">
-<link rel="stylesheet" href="../../assets/style.css?v=711c3f33">
-<script>(function(){var d=document.documentElement,t="light",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="midnight")t=s;}catch(e){}d.setAttribute("data-tone",t);d.setAttribute("data-tones","");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
+<link rel="stylesheet" href="../../assets/style.css?v=1f26b3ac">
+<script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");}catch(e){}if(s==="graphite"||s==="midnight"||s==="paper"||s==="light")t=s;else if(typeof matchMedia==="function"&&matchMedia("(prefers-color-scheme: light)").matches)t="paper";d.setAttribute("data-tone",t);d.setAttribute("data-tones","");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/why-it-works/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/why-it-works/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/why-it-works/">
@@ -54,23 +54,23 @@
 
 <header class="site-header">
   <div class="wrap head-row">
-    <a class="brand" href="../../" aria-label="ProjectStore, início" data-i18n-attr="aria-label:nav.home"><img class="mark" src="../../assets/mark.svg" alt="" width="30" height="30"><span class="wordmark"><span class="dot">.</span>projectstore</span></a>
+    <a class="brand" href="../" aria-label="ProjectStore, início" data-i18n-attr="aria-label:nav.home"><img class="mark" src="../../assets/mark.svg" alt="" width="30" height="30"><span class="wordmark"><span class="dot">.</span>projectstore</span></a>
     <nav class="head-nav" aria-label="Navegação principal" data-i18n-attr="aria-label:nav.aria-label.2">
       <a class="page-link" data-nav="how-it-works" href="../how-it-works/" data-i18n="nav.how">Como funciona</a>
       <a class="page-link" data-nav="why-it-works" href="../why-it-works/" data-i18n="nav.why">Por que funciona</a>
       <a class="page-link" data-nav="one-vault" href="../one-vault/" data-i18n="nav.vault">Um vault, muitas pessoas</a>
-      <div class="tone-switch" role="group" aria-label="Tom do fundo" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="false" aria-label="Meia-noite" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="Grafite" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="light" aria-pressed="true" aria-label="Claro" data-i18n-attr="aria-label:nav.tone.light"><span class="sw sw-light" aria-hidden="true"></span></button></div>
+      <div class="tone-switch" role="group" aria-label="Tom do fundo" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="false" aria-label="Meia-noite" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="Grafite" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="paper" aria-pressed="false" aria-label="Papel" data-i18n-attr="aria-label:nav.tone.paper"><span class="sw sw-paper" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="light" aria-pressed="true" aria-label="Claro" data-i18n-attr="aria-label:nav.tone.light"><span class="sw sw-light" aria-hidden="true"></span></button></div>
       <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="Idioma: Português"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>PT</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../../why-it-works/" hreflang="en" lang="en" data-lang="en">English</a></li><li><a href="../../de/why-it-works/" hreflang="de" lang="de" data-lang="de">Deutsch</a></li><li><a href="../../es/why-it-works/" hreflang="es" lang="es" data-lang="es">Español</a></li><li><a href="../../fr/why-it-works/" hreflang="fr" lang="fr" data-lang="fr">Français</a></li><li><a href="../../pt/why-it-works/" hreflang="pt-BR" lang="pt-BR" data-lang="pt" aria-current="true">Português</a></li><li><a href="../../ru/why-it-works/" hreflang="ru" lang="ru" data-lang="ru">Русский</a></li><li><a href="../../uk/why-it-works/" hreflang="uk" lang="uk" data-lang="uk">Українська</a></li><li><a href="../../zh/why-it-works/" hreflang="zh-CN" lang="zh-CN" data-lang="zh">中文</a></li></ul></div>
-      <a class="gh" href="https://github.com/SmartAndPoint/ProjectStore" aria-label="GitHub"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span>GitHub</span></a>
+      <a class="gh" href="https://github.com/SmartAndPoint/ProjectStore" aria-label="GitHub" target="_blank" rel="noopener noreferrer"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span>GitHub</span></a>
     </nav>
   </div>
-  <nav class="mobile-nav" aria-label="Páginas" data-i18n-attr="aria-label:nav.pages"><a data-nav="main" href="../../#start" data-i18n="nav.install">Instalar</a><a data-nav="how-it-works" href="../how-it-works/" data-i18n="nav.how.2">Como funciona</a><a data-nav="why-it-works" href="../why-it-works/" data-i18n="nav.why.2">Por que funciona</a><a data-nav="one-vault" href="../one-vault/" data-i18n="nav.vault.2">Um vault, muitas pessoas</a></nav>
+  <nav class="mobile-nav" aria-label="Páginas" data-i18n-attr="aria-label:nav.pages"><a data-nav="main" href="../#start" data-i18n="nav.install">Instalar</a><a data-nav="how-it-works" href="../how-it-works/" data-i18n="nav.how.2">Como funciona</a><a data-nav="why-it-works" href="../why-it-works/" data-i18n="nav.why.2">Por que funciona</a><a data-nav="one-vault" href="../one-vault/" data-i18n="nav.vault.2">Um vault, muitas pessoas</a></nav>
 </header>
 
 <main id="main" class="wrap page">
 
 <section class="page-hero" aria-labelledby="why-title">
-  <p class="crumb"><a href="../../">.projectstore</a> / <span data-i18n="why.crumb">método / 2</span></p>
+  <p class="crumb"><a href="../">.projectstore</a> / <span data-i18n="why.crumb">método / 2</span></p>
   <h1 id="why-title" data-i18n="why.h2.1">A indústria inventou isso há muito tempo.<br><span class="acc">Os agentes tornaram isso barato.</span></h1>
   <p class="lead" data-i18n="why.p.1">ADRs, revisões, backlog, critérios de aceitação, vínculos do objetivo ao código. Equipes de engenharia maduras trabalham assim há vinte anos. <b>O ProjectStore não inventa nada disso.</b></p>
 </section>
@@ -144,7 +144,7 @@
     <div class="ask-head"><span data-i18n="method.ask">É só pedir ao Claude Code:</span></div>
     <div class="quote-row"><blockquote id="ask-prompt-why" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote><button class="copy" type="button" data-copy-from="ask-prompt-why" aria-label="Copiar o prompt" data-done="Copiado" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
   </div>
-  <p class="next-pages"><a href="../how-it-works/" data-i18n="why.next.1">Como funciona →</a><a href="../one-vault/" data-i18n="why.next.2">Um vault, muitas pessoas →</a><a href="../../#start" data-i18n="why.next.3">Instalar →</a></p>
+  <p class="next-pages"><a href="../how-it-works/" data-i18n="why.next.1">Como funciona →</a><a href="../one-vault/" data-i18n="why.next.2">Um vault, muitas pessoas →</a><a href="../#start" data-i18n="why.next.3">Instalar →</a></p>
 </section>
 
 </main>
@@ -153,10 +153,10 @@
   <div class="wrap foot-row">
     <span><span class="wordmark-sm"><span class="dot">.</span>projectstore</span> · <span data-i18n="footer.tag">O código muda. O contexto fica.</span> · <span data-i18n="footer.span.4">Código aberto · MIT · Evgenii Konev, SmartAndPoint</span></span>
     <span><span data-fact="version">v0.30.7</span> · <span data-i18n="footer.span.5">cada número medido cita o trecho do README ou da documentação de onde vem; os exemplos são ilustrativos</span></span>
-    <span class="foot-links"><a href="https://github.com/SmartAndPoint/ProjectStore" data-i18n="footer.span.3">GitHub</a> <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" data-i18n="footer.span.6">Documentação</a> <a href="../../llms.txt" data-i18n="footer.a.1">llms.txt</a> <a href="../../privacy/" data-i18n="footer.privacy">Privacidade</a></span>
+    <span class="foot-links"><a href="https://github.com/SmartAndPoint/ProjectStore" data-i18n="footer.span.3" target="_blank" rel="noopener noreferrer">GitHub</a> <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" data-i18n="footer.span.6" target="_blank" rel="noopener noreferrer">Documentação</a> <a href="../../llms.txt" data-i18n="footer.a.1">llms.txt</a> <a href="../../privacy/" data-i18n="footer.privacy">Privacidade</a></span>
   </div>
 </footer>
 
-<script src="../../assets/site.js?v=5d3f8854"></script>
+<script src="../../assets/site.js?v=de3b5313"></script>
 </body>
 </html>

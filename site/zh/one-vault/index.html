@@ -1,16 +1,16 @@
 <!doctype html>
-<html lang="zh-CN" data-tone="light">
+<html lang="zh-CN" data-tone="midnight">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title data-i18n="vault.meta.title">一个 vault，多人协作 — 面向会话、团队与智能体的 ProjectStore</title>
 <meta name="description" content="多个会话、整个团队和多个智能体共用一个 ProjectStore vault：让它们互不干扰的规则、放在独立 git 仓库中的 vault、按合并请求评审的 ADR 和 spec，以及四步完成的团队配置。" data-i18n-attr="content:vault.meta.description">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="#080d19">
 <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../../assets/icon-180.png">
-<link rel="stylesheet" href="../../assets/style.css?v=711c3f33">
-<script>(function(){var d=document.documentElement,t="light",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="midnight")t=s;}catch(e){}d.setAttribute("data-tone",t);d.setAttribute("data-tones","");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
+<link rel="stylesheet" href="../../assets/style.css?v=1f26b3ac">
+<script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");}catch(e){}if(s==="graphite"||s==="midnight"||s==="paper"||s==="light")t=s;else if(typeof matchMedia==="function"&&matchMedia("(prefers-color-scheme: light)").matches)t="paper";d.setAttribute("data-tone",t);d.setAttribute("data-tones","");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/one-vault/">
 <link rel="alternate" hreflang="de" href="https://projectstore.dev/de/one-vault/">
 <link rel="alternate" hreflang="es" href="https://projectstore.dev/es/one-vault/">
@@ -54,23 +54,23 @@
 
 <header class="site-header">
   <div class="wrap head-row">
-    <a class="brand" href="../../" aria-label="ProjectStore 首页" data-i18n-attr="aria-label:nav.home"><img class="mark" src="../../assets/mark.svg" alt="" width="30" height="30"><span class="wordmark"><span class="dot">.</span>projectstore</span></a>
+    <a class="brand" href="../" aria-label="ProjectStore 首页" data-i18n-attr="aria-label:nav.home"><img class="mark" src="../../assets/mark.svg" alt="" width="30" height="30"><span class="wordmark"><span class="dot">.</span>projectstore</span></a>
     <nav class="head-nav" aria-label="主导航" data-i18n-attr="aria-label:nav.aria-label.2">
       <a class="page-link" data-nav="how-it-works" href="../how-it-works/" data-i18n="nav.how">工作原理</a>
       <a class="page-link" data-nav="why-it-works" href="../why-it-works/" data-i18n="nav.why">为何有效</a>
       <a class="page-link" data-nav="one-vault" href="../one-vault/" data-i18n="nav.vault">一个 vault，多人协作</a>
-      <div class="tone-switch" role="group" aria-label="背景色调" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="false" aria-label="午夜蓝" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="石墨灰" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="light" aria-pressed="true" aria-label="米白" data-i18n-attr="aria-label:nav.tone.light"><span class="sw sw-light" aria-hidden="true"></span></button></div>
+      <div class="tone-switch" role="group" aria-label="背景色调" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="false" aria-label="午夜蓝" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="石墨灰" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="paper" aria-pressed="false" aria-label="纸色" data-i18n-attr="aria-label:nav.tone.paper"><span class="sw sw-paper" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="light" aria-pressed="true" aria-label="白色" data-i18n-attr="aria-label:nav.tone.light"><span class="sw sw-light" aria-hidden="true"></span></button></div>
       <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="语言：中文"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>ZH</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../../one-vault/" hreflang="en" lang="en" data-lang="en">English</a></li><li><a href="../../de/one-vault/" hreflang="de" lang="de" data-lang="de">Deutsch</a></li><li><a href="../../es/one-vault/" hreflang="es" lang="es" data-lang="es">Español</a></li><li><a href="../../fr/one-vault/" hreflang="fr" lang="fr" data-lang="fr">Français</a></li><li><a href="../../pt/one-vault/" hreflang="pt-BR" lang="pt-BR" data-lang="pt">Português</a></li><li><a href="../../ru/one-vault/" hreflang="ru" lang="ru" data-lang="ru">Русский</a></li><li><a href="../../uk/one-vault/" hreflang="uk" lang="uk" data-lang="uk">Українська</a></li><li><a href="../../zh/one-vault/" hreflang="zh-CN" lang="zh-CN" data-lang="zh" aria-current="true">中文</a></li></ul></div>
-      <a class="gh" href="https://github.com/SmartAndPoint/ProjectStore" aria-label="GitHub"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span>GitHub</span></a>
+      <a class="gh" href="https://github.com/SmartAndPoint/ProjectStore" aria-label="GitHub" target="_blank" rel="noopener noreferrer"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span>GitHub</span></a>
     </nav>
   </div>
-  <nav class="mobile-nav" aria-label="页面" data-i18n-attr="aria-label:nav.pages"><a data-nav="main" href="../../#start" data-i18n="nav.install">安装</a><a data-nav="how-it-works" href="../how-it-works/" data-i18n="nav.how.2">工作原理</a><a data-nav="why-it-works" href="../why-it-works/" data-i18n="nav.why.2">为何有效</a><a data-nav="one-vault" href="../one-vault/" data-i18n="nav.vault.2">一个 vault，多人协作</a></nav>
+  <nav class="mobile-nav" aria-label="页面" data-i18n-attr="aria-label:nav.pages"><a data-nav="main" href="../#start" data-i18n="nav.install">安装</a><a data-nav="how-it-works" href="../how-it-works/" data-i18n="nav.how.2">工作原理</a><a data-nav="why-it-works" href="../why-it-works/" data-i18n="nav.why.2">为何有效</a><a data-nav="one-vault" href="../one-vault/" data-i18n="nav.vault.2">一个 vault，多人协作</a></nav>
 </header>
 
 <main id="main" class="wrap page">
 
 <section class="page-hero" aria-labelledby="vault-title">
-  <p class="crumb"><a href="../../">.projectstore</a> / <span data-i18n="vault.crumb">方法 / 3</span></p>
+  <p class="crumb"><a href="../">.projectstore</a> / <span data-i18n="vault.crumb">方法 / 3</span></p>
   <h1 id="vault-title" data-i18n="vault.h1">多个会话。多个人。<span class="acc">一个 vault。</span></h1>
   <p class="lead" data-i18n="teams.p.1">上下文属于团队，而不属于某个开发者的聊天。ADR 和 spec 像代码一样走合并请求。<b>被评审的是推理过程。</b></p>
 </section>
@@ -169,7 +169,7 @@ projectstore: this session looks like <span class="c-acc">"<span data-slug="stor
     <li><span class="n">04</span><h3 data-i18n="teams.h4.4">在 CI 中运行 doctor</h3><p data-i18n="teams.p.11"><code>npx projectstore doctor --json</code> 在 CI 中运行，不需要智能体，也不消耗 token。发现问题时，它会让这一步失败。<code>reconcile --write</code> 也可以在 CI 中重建看板。</p></li>
   </ol>
   <p class="note"><span data-i18n="vault.codex">Claude Code 和 Codex 可以并排处理同一个项目：它们共用绑定，各自保留自己的智能体模型和会话状态。</span></p>
-  <p class="next-pages"><a href="../how-it-works/" data-i18n="vault.next.1">工作原理 →</a><a href="../why-it-works/" data-i18n="vault.next.2">为何有效 →</a><a href="../../#start" data-i18n="vault.next.3">安装 →</a></p>
+  <p class="next-pages"><a href="../how-it-works/" data-i18n="vault.next.1">工作原理 →</a><a href="../why-it-works/" data-i18n="vault.next.2">为何有效 →</a><a href="../#start" data-i18n="vault.next.3">安装 →</a></p>
 </section>
 
 </main>
@@ -178,10 +178,10 @@ projectstore: this session looks like <span class="c-acc">"<span data-slug="stor
   <div class="wrap foot-row">
     <span><span class="wordmark-sm"><span class="dot">.</span>projectstore</span> · <span data-i18n="footer.tag">代码会变，上下文常在。</span> · <span data-i18n="footer.span.4">开源 · MIT · Evgenii Konev, SmartAndPoint</span></span>
     <span><span data-fact="version">v0.30.7</span> · <span data-i18n="footer.span.5">每个实测数据都注明了它在 README 或 docs 中的出处；示例仅作示意</span></span>
-    <span class="foot-links"><a href="https://github.com/SmartAndPoint/ProjectStore" data-i18n="footer.span.3">GitHub</a> <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" data-i18n="footer.span.6">文档</a> <a href="../../llms.txt" data-i18n="footer.a.1">llms.txt</a> <a href="../../privacy/" data-i18n="footer.privacy">隐私</a></span>
+    <span class="foot-links"><a href="https://github.com/SmartAndPoint/ProjectStore" data-i18n="footer.span.3" target="_blank" rel="noopener noreferrer">GitHub</a> <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" data-i18n="footer.span.6" target="_blank" rel="noopener noreferrer">文档</a> <a href="../../llms.txt" data-i18n="footer.a.1">llms.txt</a> <a href="../../privacy/" data-i18n="footer.privacy">隐私</a></span>
   </div>
 </footer>
 
-<script src="../../assets/site.js?v=5d3f8854"></script>
+<script src="../../assets/site.js?v=de3b5313"></script>
 </body>
 </html>

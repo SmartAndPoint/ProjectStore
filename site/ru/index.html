@@ -1,18 +1,24 @@
 <!doctype html>
-<html lang="ru" data-tone="light">
+<html lang="ru" data-tone="midnight">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title data-i18n="meta.title">ProjectStore — план, две проверки и записи для вашего агента</title>
 <meta name="description" content="Плагин для Claude Code и Codex. Агент сначала пишет план, второй агент проверяет план, третий сверяет результат с вашим чек-листом. Решения и планы лежат Markdown-файлами в вашем git, и работу продолжит любой агент." data-i18n-attr="content:meta.description">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="#080d19">
 <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
-<link rel="stylesheet" href="../assets/style.css?v=711c3f33">
-<script>(function(){var d=document.documentElement,t="light",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="midnight")t=s;}catch(e){}d.setAttribute("data-tone",t);d.setAttribute("data-tones","");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
+<link rel="stylesheet" href="../assets/style.css?v=1f26b3ac">
+<script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");}catch(e){}if(s==="graphite"||s==="midnight"||s==="paper"||s==="light")t=s;else if(typeof matchMedia==="function"&&matchMedia("(prefers-color-scheme: light)").matches)t="paper";d.setAttribute("data-tone",t);d.setAttribute("data-tones","");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
 <link rel="alternate" hreflang="en" href="https://projectstore.dev/">
+<link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
+<link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
+<link rel="alternate" hreflang="fr" href="https://projectstore.dev/fr/">
+<link rel="alternate" hreflang="pt-BR" href="https://projectstore.dev/pt/">
 <link rel="alternate" hreflang="ru" href="https://projectstore.dev/ru/">
+<link rel="alternate" hreflang="uk" href="https://projectstore.dev/uk/">
+<link rel="alternate" hreflang="zh-CN" href="https://projectstore.dev/zh/">
 <link rel="alternate" hreflang="x-default" href="https://projectstore.dev/">
 <link rel="canonical" href="https://projectstore.dev/ru/">
 <meta property="og:type" content="website">
@@ -53,9 +59,9 @@
       <a class="page-link" data-nav="how-it-works" href="how-it-works/" data-i18n="nav.how">Как это работает</a>
       <a class="page-link" data-nav="why-it-works" href="why-it-works/" data-i18n="nav.why">Почему это работает</a>
       <a class="page-link" data-nav="one-vault" href="one-vault/" data-i18n="nav.vault">Один vault, много людей</a>
-      <div class="tone-switch" role="group" aria-label="Тон фона" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="false" aria-label="Полночь" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="Графит" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="light" aria-pressed="true" aria-label="Светлый" data-i18n-attr="aria-label:nav.tone.light"><span class="sw sw-light" aria-hidden="true"></span></button></div>
-      <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="Язык: Русский"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>RU</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../" hreflang="en" lang="en" data-lang="en">English</a></li><li><a href="../ru/" hreflang="ru" lang="ru" data-lang="ru" aria-current="true">Русский</a></li></ul></div>
-      <a class="gh" href="https://github.com/SmartAndPoint/ProjectStore" aria-label="GitHub"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span>GitHub</span></a>
+      <div class="tone-switch" role="group" aria-label="Тон фона" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="false" aria-label="Полночь" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="Графит" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="paper" aria-pressed="false" aria-label="Бумага" data-i18n-attr="aria-label:nav.tone.paper"><span class="sw sw-paper" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="light" aria-pressed="true" aria-label="Светлый" data-i18n-attr="aria-label:nav.tone.light"><span class="sw sw-light" aria-hidden="true"></span></button></div>
+      <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="Язык: Русский"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>RU</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../" hreflang="en" lang="en" data-lang="en">English</a></li><li><a href="../de/" hreflang="de" lang="de" data-lang="de">Deutsch</a></li><li><a href="../es/" hreflang="es" lang="es" data-lang="es">Español</a></li><li><a href="../fr/" hreflang="fr" lang="fr" data-lang="fr">Français</a></li><li><a href="../pt/" hreflang="pt-BR" lang="pt-BR" data-lang="pt">Português</a></li><li><a href="../ru/" hreflang="ru" lang="ru" data-lang="ru" aria-current="true">Русский</a></li><li><a href="../uk/" hreflang="uk" lang="uk" data-lang="uk">Українська</a></li><li><a href="../zh/" hreflang="zh-CN" lang="zh-CN" data-lang="zh">中文</a></li></ul></div>
+      <a class="gh" href="https://github.com/SmartAndPoint/ProjectStore" aria-label="GitHub" target="_blank" rel="noopener noreferrer"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span>GitHub</span></a>
     </nav>
   </div>
   <nav class="mobile-nav" aria-label="Страницы" data-i18n-attr="aria-label:nav.pages"><a data-nav="main" href="./#start" data-i18n="nav.install">Установка</a><a data-nav="how-it-works" href="how-it-works/" data-i18n="nav.how.2">Как это работает</a><a data-nav="why-it-works" href="why-it-works/" data-i18n="nav.why.2">Почему это работает</a><a data-nav="one-vault" href="one-vault/" data-i18n="nav.vault.2">Один vault, много людей</a></nav>
@@ -64,8 +70,8 @@
 <main id="main" class="wrap">
 
 <section class="hero what" id="what" aria-labelledby="what-title">
-  <div class="section-label" data-i18n="what.label">Методика + плагин для Claude Code и Codex</div>
-  <h1 id="what-title" data-i18n="what.h1">Методика работы с ИИ-агентами, <span class="acc">чтобы получать то, что задумали.</span></h1>
+  <div class="section-label big" data-i18n="what.label">Методика + плагин для Claude Code и Codex</div>
+  <h1 id="what-title" data-i18n="what.h1">Методика работы для ИИ-агентов, <span class="acc">которая реально работает.</span></h1>
   <div class="what-text">
     <p class="lead" data-i18n="what.p.1"><b>ProjectStore</b> — методика и фреймворк для создания приложений и сервисов любой сложности с помощью ИИ-агентов.</p>
     <p class="lead" data-i18n="what.p.2">В первую очередь это способ работы человека и агентов. Вы решаете, что строить. Агент пишет план, второй агент ищет в нём дыры, вы одобряете. Потом агент делает, а третий сверяет результат с вашим чек-листом — по каждому пункту.</p>
@@ -77,35 +83,69 @@
     <p class="agents-line" data-i18n="hero.agents">Работает в <b>Claude Code</b> и <b>Codex</b>. Скоро <b>OpenCode</b>, следом <b>Gemini</b>, <b>Z.ai</b> и <b>DeepSeek</b>.</p>
   </div>
   <div class="what-side">
-    <div class="section-label" data-i18n="what.helps">Как это поможет</div>
-    <ul class="pain-list">
-    <li class="pain"><p class="was" data-i18n="pains.was.1">Агент сказал, что всё работает. Не работает.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.1">Ревьюер не закроет задачу, пока не проверен каждый пункт чек-листа.</span></p></li>
-    <li class="pain"><p class="was" data-i18n="pains.was.2">Утром новая сессия — и опять объяснять, что это за проект.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.2">Сессия начинает с доски задач и текущей задачи.</span></p></li>
-    <li class="pain"><p class="was" data-i18n="pains.was.3">Он снова предлагает Mongo, хотя вчера выбрали Postgres.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.3">Решение записано вместе с причиной, и агент ему следует.</span></p></li>
-    <li class="pain"><p class="was" data-i18n="pains.was.4">Кончились лимиты, а Codex ничего не знает о проекте.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.4">Codex читает те же файлы и продолжает.</span></p></li>
-    <li class="pain"><p class="was" data-i18n="pains.was.5">Через месяц сами не понимаете, почему код такой.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.5">У каждого решения есть файл с причиной и отвергнутыми вариантами.</span></p></li>
-  </ul>
+    <div class="section-label big" data-i18n="what.why">Почему это работает</div>
+    <ul class="why-list">
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.1">Ревьюер не закроет задачу, пока не проверен каждый пункт чек-листа.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.2">Сессия начинает с доски задач и текущей задачи.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.3">Решение записано вместе с причиной, и агент ему следует.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.4">Codex читает те же файлы и продолжает.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.5">У каждого решения есть файл с причиной и отвергнутыми вариантами.</span></li>
+    </ul>
   </div>
   <div class="cmp-box">
-    <div class="section-label" id="cmp-label" data-i18n="cmp.label">Из какой это семьи</div>
-    <p class="lede" data-i18n="cmp.sub">Подходы, где агент работает по документам, а не по одному промпту.</p>
+    <h2 class="cmp-title" id="cmp-title" data-i18n="cmp.title">Отличие от других подходов</h2>
     <div class="table-wrap">
-      <table class="grid-table cmp" aria-labelledby="cmp-label">
+      <table class="grid-table cmp" aria-labelledby="cmp-title">
         <thead><tr><th scope="col" data-i18n="cmp.col.1">Подход</th><th scope="col" data-i18n="cmp.col.2">Что ведёт работу</th><th scope="col" data-i18n="cmp.col.3">Когда «готово»</th><th scope="col" data-i18n="cmp.col.4">Сильная сторона</th><th scope="col" data-i18n="cmp.col.5">Слабое место</th></tr></thead>
         <tbody>
         <tr class="from"><td><b data-i18n="cmp.chat.1">Промпт в чате</b><small data-i18n="cmp.chat.2">охват: одна сессия</small></td><td data-i18n="cmp.chat.3">Переписка с агентом</td><td data-i18n="cmp.chat.4">Агент сказал «готово»</td><td data-i18n="cmp.chat.5">Быстро и просто: говорите своими словами, код появляется сразу</td><td data-i18n="cmp.chat.6">Нет плана и проверки. Всё живёт в одной сессии и забывается к завтрашнему дню</td></tr>
+        <tr class="from"><td><b data-i18n="cmp.mem.1">Память агента</b><small data-i18n="cmp.mem.ex">Mem0, claude-mem, авто-память Claude Code</small><small data-i18n="cmp.mem.2">охват: агент или машина</small></td><td data-i18n="cmp.mem.3">Факты, которые модель сама запомнила из разговоров</td><td data-i18n="cmp.mem.4">Не определяет: память только напоминает</td><td data-i18n="cmp.mem.5">Ничего делать не надо: агент сам помнит ваши привычки и особенности окружения</td><td data-i18n="cmp.mem.6">Пишется сама, без вашего одобрения; живёт у одного агента или на одной машине; устаревшее тихо удаляется, а не заменяется с причиной</td></tr>
         <tr class="from"><td><b>SDD</b><small>spec-driven development</small><small data-i18n="cmp.sdd.2">охват: фича</small></td><td data-i18n="cmp.sdd.3">Спецификация: сначала описано, как должно работать, потом код. Например, GitHub Spec Kit</td><td data-i18n="cmp.sdd.4">Код соответствует спеке</td><td data-i18n="cmp.sdd.5">Сначала думают, потом пишут: «как» описано до кода</td><td data-i18n="cmp.sdd.6">Спека пишется на одну фичу: решения всего проекта и связи между фичами остаются за её рамками</td></tr>
         <tr class="from"><td><b>PDD</b><small>proof-driven development</small><small data-i18n="cmp.pdd.2">охват: изменение</small></td><td data-i18n="cmp.pdd.3">Доказательство: каждое изменение сдаётся вместе с подтверждением, что оно работает</td><td data-i18n="cmp.pdd.4">Есть тест, выполненная команда или строка кода</td><td data-i18n="cmp.pdd.5">«Готово» доказано тестом или командой, а не словами агента</td><td data-i18n="cmp.pdd.6">Доказывает, что код работает, но не что сделано нужное: без спеки и плана не с чем сверять</td></tr>
-        <tr class="us"><td><b>ProjectStore</b><small data-i18n="cmp.ps.2">охват: весь проект</small></td><td data-i18n="cmp.ps.3">Решения, спеки, стори и планы проекта в git, связанные между собой и с кодом</td><td data-i18n="cmp.ps.4">Ревьюер нашёл подтверждение под каждым критерием приёмки</td><td data-i18n="cmp.ps.5">Все три сразу: разговор своими словами, спека и план до кода, доказательство после — для всего проекта, многих сессий, людей и агентов</td><td data-i18n="cmp.ps.6">Цикл стоит токенов: черновики, критик и ревьюер работают на модели, за которую вы и так платите</td></tr>
+        <tr class="us"><td><b>ProjectStore</b><small data-i18n="cmp.ps.2">охват: весь проект</small></td><td data-i18n="cmp.ps.3">Решения, спеки, стори и планы проекта в git, связанные между собой и с кодом</td><td data-i18n="cmp.ps.4">Ревьюер нашёл подтверждение под каждым критерием приёмки</td><td data-i18n="cmp.ps.5">Все четыре сразу: разговор своими словами, память о проекте, спека и план до кода, доказательство после — для всего проекта, многих сессий, людей и агентов</td><td data-i18n="cmp.ps.6">Цикл стоит токенов: черновики, критик и ревьюер работают на модели, за которую вы и так платите</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="cmp-sum" data-i18n="cmp.sum">ProjectStore берёт лучшее из трёх: разговор своими словами, спеку до кода и доказательство после. И держит это для всего проекта, а не для одной фичи.</p>
+    <p class="cmp-sum" data-i18n="cmp.sum">ProjectStore берёт лучшее из всех: разговор своими словами, память между сессиями, спеку до кода и доказательство после. И держит это для всего проекта и всей команды, а не для одной фичи или одной машины.</p>
+    <h3 class="cmp-sub" id="rate-title" data-i18n="rate.title">Что выдерживает долгий проект</h3>
+    <div class="table-wrap">
+      <table class="grid-table rate" aria-labelledby="rate-title">
+        <thead><tr><th scope="col"><span class="visually-hidden" data-i18n="cmp.col.1">Подход</span></th><th scope="col" data-i18n="rate.col.1">Много сессий</th><th scope="col" data-i18n="rate.col.2">Несколько людей</th><th scope="col" data-i18n="rate.col.3">Бэклог и план</th><th scope="col" data-i18n="rate.col.4">Решения с причинами</th><th scope="col" data-i18n="rate.col.5">Проверка «готово»</th><th scope="col" data-i18n="rate.col.6">Просто начать</th></tr></thead>
+        <tbody>
+        <tr><th scope="row"><span data-i18n="cmp.chat.1">Промпт в чате</span></th><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td></tr>
+        <tr><th scope="row"><span data-i18n="cmp.mem.1">Память агента</span></th><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td></tr>
+        <tr><th scope="row">SDD</th><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td></tr>
+        <tr><th scope="row">PDD</th><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td></tr>
+        <tr class="us"><th scope="row">ProjectStore</th><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cmp-note" data-i18n="rate.note">Три точки — держит само; две — частично; одна — с ручной работой; ни одной — нет. Оценка наша. «Просто начать» у ProjectStore две точки: нужен Node.js и установка плагина.</p>
+    <h3 class="cmp-sub" id="tree-title" data-i18n="tree.title">Какой подход нужен вам</h3>
+    <div class="tree-wrap">
+      <ol class="tree" aria-labelledby="tree-title">
+        <li class="tree-step"><p class="tree-q" data-i18n="tree.q.1">Задача на один вечер?</p><span class="tree-yes" data-i18n="tree.yes">да</span><p class="tree-a"><b data-i18n="cmp.chat.1">Промпт в чате</b><small data-i18n="tree.a.1">просто и быстро</small></p><span class="tree-no" data-i18n="tree.no">нет</span><span class="tree-up" aria-hidden="true"></span><span class="tree-grew" data-i18n="tree.grew">проект вырос</span></li>
+        <li class="tree-step"><p class="tree-q" data-i18n="tree.q.2">Хватит, чтобы агент помнил только вас?</p><span class="tree-yes" data-i18n="tree.yes">да</span><p class="tree-a"><b data-i18n="cmp.mem.1">Память агента</b><small data-i18n="tree.a.2">помнит вас на этой машине</small></p><span class="tree-no" data-i18n="tree.no">нет</span><span class="tree-up" aria-hidden="true"></span></li>
+        <li class="tree-step"><p class="tree-q" data-i18n="tree.q.3">Одна фича с понятным «как»?</p><span class="tree-yes" data-i18n="tree.yes">да</span><p class="tree-a"><b>SDD</b><small data-i18n="tree.a.3">спека до кода</small></p><span class="tree-no" data-i18n="tree.no">нет</span><span class="tree-up" aria-hidden="true"></span></li>
+        <li class="tree-step last"><p class="tree-q" data-i18n="tree.q.4">Достаточно доказать, что код работает?</p><span class="tree-yes" data-i18n="tree.yes">да</span><p class="tree-a"><b>PDD</b><small data-i18n="tree.a.4">тест вместо слов агента</small></p><span class="tree-no" data-i18n="tree.no">нет</span><span class="tree-up" aria-hidden="true"></span></li>
+        <li class="tree-end"><p><b>ProjectStore</b> <span data-i18n="tree.end">— проект на месяцы: много сессий, несколько людей, бэклог. И всё, что было выше: ваши слова, память о проекте, спека до кода и доказательство после.</span></p></li>
+      </ol>
+    </div>
+    <h3 class="cmp-sub" id="ladder-title" data-i18n="ladder.title">Каждый подход добавляет ступень, ProjectStore собирает все</h3>
+    <div class="ladder-wrap">
+      <ol class="ladder" aria-labelledby="ladder-title">
+        <li><span class="brick" data-i18n="ladder.b.1">ваши слова</span><b data-i18n="cmp.chat.1">Промпт в чате</b></li>
+        <li><span class="brick" data-i18n="ladder.b.2">память</span><span class="brick" data-i18n="ladder.b.1">ваши слова</span><b data-i18n="cmp.mem.1">Память агента</b></li>
+        <li><span class="brick" data-i18n="ladder.b.3">спека до кода</span><span class="brick" data-i18n="ladder.b.2">память</span><span class="brick" data-i18n="ladder.b.1">ваши слова</span><b>SDD</b></li>
+        <li><span class="brick" data-i18n="ladder.b.4">доказательство</span><span class="brick" data-i18n="ladder.b.3">спека до кода</span><span class="brick" data-i18n="ladder.b.2">память</span><span class="brick" data-i18n="ladder.b.1">ваши слова</span><b>PDD</b></li>
+        <li class="us"><span class="brick top" data-i18n="ladder.b.5">команда, сессии, бэклог</span><span class="brick" data-i18n="ladder.b.4">доказательство</span><span class="brick" data-i18n="ladder.b.3">спека до кода</span><span class="brick" data-i18n="ladder.b.2">память</span><span class="brick" data-i18n="ladder.b.1">ваши слова</span><b>ProjectStore</b></li>
+      </ol>
+    </div>
   </div>
 </section>
 
 <section class="sec chapter" id="start" aria-labelledby="start-title">
-  <div class="section-label" data-i18n="start.label">Установка и начало работы</div>
+  <div class="section-label big" data-i18n="start.label">Установка и начало работы</div>
   <h2 id="start-title" data-i18n="start.h2">Начать можно, даже если вы не программист.</h2>
   <p class="lead" data-i18n="start.lead">Команды за вас выполнит агент. Вам нужно поставить две программы, открыть папку проекта и вставить одну фразу.</p>
 </section>
@@ -113,19 +153,19 @@
 <section class="sec" id="quick" aria-labelledby="quick-title">
   <h2 id="quick-title" data-i18n="quick.h2">Быстрый старт</h2>
   <ol class="qs">
-    <li><h3 data-i18n="quick.s.a.h">Поставьте агента</h3><p data-i18n="quick.s.a.p">Агент — программа, которая пишет и запускает код по вашим словам. Подойдёт <a href="https://claude.ai/download">Claude</a> (приложение, вкладка Code) или <a href="https://openai.com/codex/">Codex</a> от OpenAI.</p></li>
-    <li><h3 data-i18n="quick.s.b.h">Поставьте Node.js и откройте папку проекта</h3><p data-i18n="quick.s.b.p">Node.js — среда, в которой работает ProjectStore: установщик LTS с <a href="https://nodejs.org">nodejs.org</a>, версия 20 или новее, macOS или Linux. Создайте пустую папку, например «my-bot», и откройте её в агенте.</p></li>
-    <li><h3 data-i18n="quick.s.1.h">Установите</h3><p data-i18n="quick.s.1.p">Попросите агента или выполните команду в терминале в папке проекта. В Codex — только терминал. Терминал — окно, где команды набирают текстом; на Mac: Программы → Утилиты → Терминал.</p>
+    <li><h3 data-i18n="quick.s.a.h">Поставьте агента</h3><p data-i18n="quick.s.a.p">Агент — программа, которая пишет и запускает код по вашим словам. Подойдёт <a href="https://claude.ai/download" target="_blank" rel="noopener noreferrer">Claude</a> (приложение, вкладка Code) или <a href="https://openai.com/codex/" target="_blank" rel="noopener noreferrer">Codex</a> от OpenAI.</p></li>
+    <li><h3 data-i18n="quick.s.b.h">Поставьте Node.js и откройте папку проекта</h3><p data-i18n="quick.s.b.p">Node.js — среда, в которой работает ProjectStore: установщик LTS с <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer">nodejs.org</a>, версия 20 или новее, macOS или Linux. Создайте пустую папку, например «my-bot», и откройте её в агенте.</p></li>
+    <li><h3 data-i18n="quick.s.1.h">Установите ProjectStore</h3><p data-i18n="quick.s.1.p"><b><i>Попросите агента</i></b> или выполните команду в терминале в папке проекта.</p>
       <div class="install" data-tabs data-initial="ask">
         <div class="install-bar"><span class="install-dots" aria-hidden="true"><i></i><i></i><i></i></span>
           <div class="install-tabs" role="tablist" aria-label="Установка" data-i18n-attr="aria-label:start.tabs">
-            <button class="install-tab" type="button" role="tab" data-tab="ask" id="tab-ask" aria-controls="panel-ask" data-i18n="start.tab.ask">Через запрос агенту</button>
-            <button class="install-tab" type="button" role="tab" data-tab="term" id="tab-term" aria-controls="panel-term" data-i18n="start.tab.term">Через терминал</button>
+            <button class="install-tab" type="button" role="tab" data-tab="ask" id="tab-ask" aria-controls="panel-ask" data-i18n="start.tab.ask"><b>Напишите своему агенту</b></button>
+            <button class="install-tab" type="button" role="tab" data-tab="term" id="tab-term" aria-controls="panel-term" data-i18n="start.tab.term"><i>Через терминал в проекте</i></button>
           </div>
         </div>
         <div class="install-panel chatbox active" role="tabpanel" id="panel-ask" aria-labelledby="tab-ask" data-panel="ask">
           <blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote>
-          <div class="chatbox-row"><p class="chatbox-note" data-i18n="start.ask.note">Для Claude Code. В Codex — вкладка «Через терминал».</p><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Скопировать промпт" data-done="Скопировано" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+          <button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Скопировать промпт" data-done="Скопировано" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
         </div>
         <div class="install-panel termbox" role="tabpanel" id="panel-term" aria-labelledby="tab-term" data-panel="term">
           <div class="cmdline">
@@ -172,7 +212,7 @@
   <div class="proof"><b data-i18n="talk.proof.h">Собран на самом себе</b><p data-i18n="talk.proof.p">Мы строим ProjectStore с помощью ProjectStore.</p></div>
 </section>
 <section class="sec chapter" id="how" aria-labelledby="how-title">
-  <div class="section-label" data-i18n="how.label">Как это работает</div>
+  <div class="section-label big" data-i18n="how.label">Как это работает</div>
   <h2 id="how-title" data-i18n="how.h1">Цикл с <span class="acc">независимой проверкой</span> внутри.</h2>
   <p class="lead" data-i18n="how.lead">Агенты быстро пишут код и так же быстро пересматривают решённое: каждая новая сессия начинает с нуля. Лечится это не более умным агентом. Лечится циклом «собрать контекст → действовать → проверить», который идёт над проектом, а не только над кодом.</p>
 </section>
@@ -240,7 +280,7 @@
 
 <section class="sec" id="agents" aria-labelledby="how-agents-title">
   <div class="section-label" data-i18n="how.agents.label">Агенты</div>
-  <h2 id="how-agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">агентов.</span> <span class="acc" data-i18n="agents.h2.2">Всем, кроме одного, разрешено только читать.</span></h2>
+  <h2 id="how-agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">агентов.</span> <span class="acc" data-i18n="agents.h2.2">Каждый решает только свою задачу.</span></h2>
   <p class="lede" data-i18n="agents.p.1">Советники проверяют, планируют и наводят порядок, но ничего не меняют. <b>Один клерк сохраняет только то, что вы одобрили, и только после вашего «да».</b></p>
   <div class="agents">
     <article class="agent"><span class="role chk">critic</span><span class="rw" data-i18n="agents.span.4">только чтение · независимый</span><p data-i18n="agents.td.1">Когда написан или изменён ADR, спека, эпик, стори или дизайн</p><p class="c-hi" data-i18n="agents.td.2">Ищет слабые места, сверяет каждое утверждение с источником и спрашивает, как план может провалиться. Без лести.</p><span class="rw" data-i18n="agents.td.3">opus · max</span></article>
@@ -302,7 +342,7 @@
   </ul>
 </section>
 <section class="sec chapter" id="team" aria-labelledby="team-title">
-  <div class="section-label" data-i18n="team.label">Команда и много сессий</div>
+  <div class="section-label big" data-i18n="team.label">Команда и много сессий</div>
   <h2 id="team-title" data-i18n="vault.h1">Много сессий. Много людей. <span class="acc">Один vault.</span></h2>
   <p class="lead" data-i18n="teams.p.1">Контекст принадлежит команде. Не чату одного разработчика. ADR и спеки проходят через pull request, как код. <b>На ревью — ход рассуждений.</b></p>
 </section>
@@ -391,7 +431,7 @@ projectstore: this session looks like <span class="c-acc">"<span data-slug="stor
   <p class="next-pages"><a href="one-vault/" data-i18n="team.more">Вся страница «Один vault, много людей» →</a></p>
 </section>
 <section class="sec chapter" id="why" aria-labelledby="why-title">
-  <div class="section-label" data-i18n="why.label">Почему это работает</div>
+  <div class="section-label big" data-i18n="why.label">Почему это работает</div>
   <h2 id="why-title" data-i18n="why.h2.1">Индустрия придумала это давно.<br><span class="acc">Агенты сделали это дешёвым.</span></h2>
   <p class="lead" data-i18n="why.p.1">ADR, ревью, бэклог, критерии приёмки, связь от цели до кода. Зрелые инженерные команды работают так уже двадцать лет. <b>ProjectStore здесь ничего не изобретает.</b></p>
 </section>
@@ -445,10 +485,10 @@ projectstore: this session looks like <span class="c-acc">"<span data-slug="stor
   <div class="wrap foot-row">
     <span><span class="wordmark-sm"><span class="dot">.</span>projectstore</span> · <span data-i18n="footer.tag">Код меняется. Контекст остаётся.</span> · <span data-i18n="footer.span.4">Open source · MIT · Евгений Конев, SmartAndPoint</span></span>
     <span><span data-fact="version">v0.30.7</span> · <span data-i18n="footer.span.5">каждая измеренная цифра ссылается на раздел README или docs, из которого она взята; примеры иллюстративны</span></span>
-    <span class="foot-links"><a href="https://github.com/SmartAndPoint/ProjectStore" data-i18n="footer.span.3">GitHub</a> <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" data-i18n="footer.span.6">Документация</a> <a href="../llms.txt" data-i18n="footer.a.1">llms.txt</a> <a href="../privacy/" data-i18n="footer.privacy">Конфиденциальность</a></span>
+    <span class="foot-links"><a href="https://github.com/SmartAndPoint/ProjectStore" data-i18n="footer.span.3" target="_blank" rel="noopener noreferrer">GitHub</a> <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" data-i18n="footer.span.6" target="_blank" rel="noopener noreferrer">Документация</a> <a href="../llms.txt" data-i18n="footer.a.1">llms.txt</a> <a href="../privacy/" data-i18n="footer.privacy">Конфиденциальность</a></span>
   </div>
 </footer>
 
-<script src="../assets/site.js?v=5d3f8854"></script>
+<script src="../assets/site.js?v=de3b5313"></script>
 </body>
 </html>

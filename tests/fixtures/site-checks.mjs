@@ -85,10 +85,10 @@ export const LLMS = ["site/llms.txt", "site/llms-full.txt"];
 // never resolve a relative URL (tools/i18n.py PREVIEW_IMAGE).
 export const PREVIEW_IMAGE = `${ORIGIN}assets/og.png`;
 export const PREVIEW_SIZE = { width: 1280, height: 640 };
-// What tools/i18n.py writes at en/, the old address, and at the main page's
-// address in each language it is not built in (PS-HARNESS "The front page
-// speaks to a beginner …"): a redirect to the root, where English lives.
-export const STUB_LANGS = ["en", "de", "es", "fr", "pt", "uk", "zh"];
+// What tools/i18n.py writes at en/, the old address: a redirect to the root,
+// where English lives. The main page is built in every language since
+// PS-HARNESS "The front page in all eight languages …", so en/ is the one stub.
+export const STUB_LANGS = ["en"];
 export const STUB_FILES = STUB_LANGS.map((l) => `site/${l}/index.html`);
 export const STUB_FILE = STUB_FILES[0];
 export const STUB =
@@ -102,10 +102,9 @@ export const DEFAULT_LANG = "en";
 // holds the copy to the original, so a page the build renders cannot go
 // unchecked: a new kind fails here until KIND_RULES says what it carries.
 // `langs`: a kind built in those languages only — the privacy page, English
-// for now, and the main page, English and Russian — linked from a page in any
-// other language at its English address.
+// for now — linked from a page in any other language at its English address.
 export const KINDS = [
-  { kind: "main", src: "index.html", slug: "", langs: ["en", "ru"] },
+  { kind: "main", src: "index.html", slug: "" },
   { kind: "how-it-works", src: "how-it-works.html", slug: "how-it-works" },
   { kind: "why-it-works", src: "why-it-works.html", slug: "why-it-works" },
   { kind: "one-vault", src: "one-vault.html", slug: "one-vault" },
@@ -131,8 +130,9 @@ export const pageFile = (lang, slug) => `${SITE}/${pagePath(lang, slug)}index.ht
 export const pageUrl = (lang, slug = "") => `${ORIGIN}${pagePath(lang, slug)}`;
 // "A Claude Code plugin" as each page said it before the refresh, from its
 // hero and description keys (AC: the phrase and its seven translations). The
-// Russian main page's taglines say «Плагин для Claude Code и Codex», which
-// names both, so the Russian phrase is retired only on its own.
+// Russian and Ukrainian main pages' taglines say «плагин для Claude Code и
+// Codex», «плагін для Claude Code і Codex», which name both, so those phrases
+// are retired only on their own.
 export const RETIRED = [
   "a Claude Code plugin",
   "ein Claude-Code-Plugin",
@@ -140,7 +140,7 @@ export const RETIRED = [
   "un plugin Claude Code",
   "um plugin do Claude Code",
   /плагин для claude code(?! и codex)/,
-  "плагін для Claude Code",
+  /плагін для claude code(?! [ій] codex)/,
   "一个 Claude Code 插件",
 ];
 // The example epic's id: an id, so English and the same on every page.
@@ -1220,7 +1220,7 @@ export const KIND_RULES = {
     named: { "the hero (#what)": ["what"], "the install chapter (#start with #quick)": ["start", "quick"] },
     prose: "no commands",
     proseSections: ["what", "start", "quick", "talk"],
-    words: 3300,
+    words: 3400,
   },
   "how-it-works": {
     facts: ["version", "agents", "mcp-tools", "mcp-tool"],
@@ -1925,20 +1925,26 @@ export const declarations = (body) =>
 export const rootTokens = (blocks) =>
   Object.assign({}, ...blocks.filter((b) => b.head === ":root").map((b) => declarations(b.body)));
 // Any at-rule is walked (a tone rule in @supports or @layer is still a tone
-// rule); only an @media sets the media the rule sits under.
+// rule); only an @media sets the media the rule sits under. A tone rule is a
+// block whose selector is exactly :root[data-tone="…"]; a rule that names a
+// tone and goes on to an element (the dark tones' classic shapes) is a shape
+// rule, held by checkColourCss and checkGlow, not a tone; it sets no token.
 export function toneRules(blocks, media = null) {
   return blocks.flatMap((b) => {
     if (b.head.startsWith("@")) return toneRules(b.blocks, b.head.startsWith("@media") ? b.head : media);
-    const tone = /\[data-tone="([a-z]+)"\]/.exec(b.head)?.[1];
+    const tone = /^:root\[data-tone="([a-z]+)"\]$/.exec(b.head)?.[1];
     const scheme = /(?:^|;)\s*color-scheme\s*:\s*([^;]+)/.exec(b.body)?.[1].trim() ?? null;
     return tone ? [{ tone, head: b.head, media, scheme, tokens: declarations(b.body) }] : [];
   });
 }
 export const DEFAULT_TONE = "midnight";
-// The tone every page ships in, the light rule, named in its markup
-// (<html data-tone="light">) since the look story of 2026-10-22; the palette on
-// :root stays midnight's, the source the tones draw from.
-export const SHIP_TONE = "light";
+// The tone every page ships in, named in its markup: light (<html
+// data-tone="light">) from the look story of 2026-10-22, midnight since the
+// maintainer's word of 2026-10-27; the palette on :root is midnight's, the
+// source the tones draw from. With nothing stored, a system that asks for a
+// light page (prefers-color-scheme: light) gets LIGHT_TONE instead.
+export const SHIP_TONE = "midnight";
+export const LIGHT_TONE = "paper";
 export const TONE_KEY = "ps_tone";
 // What a tone may change: the surfaces (a role's tint on a panel among them),
 // the lines, the header tint and the glow. A light tone may also recolour what
@@ -2111,7 +2117,7 @@ export function checkToneContrast(file, css) {
 
 // AC "White by default" (the look story; before it, "Midnight by default"),
 // "One two-way switch" and "Remembered, without a flash": a page ships in
-// SHIP_TONE — <html data-tone="light">, its theme-color that tone's --bg — and
+// SHIP_TONE — <html data-tone="midnight">, its theme-color that tone's --bg — and
 // carries the switch, a named
 // position per tone with aria-pressed, and in <head>, after the stylesheet,
 // the one early script that reads the tone's key and sets data-tone.
@@ -2192,7 +2198,7 @@ export function checkToneKey(file, js, early) {
 export function checkToneScript(file, partial, tones) {
   const code = /<script>([\s\S]*?)<\/script>/.exec(partial)?.[1];
   if (!code) return [finding(file, "tone-script", "the partial holds no script")];
-  const run = (stored) => {
+  const run = (stored, light = false) => {
     const attrs = {};
     const storage = {
       getItem: (key) => {
@@ -2202,6 +2208,7 @@ export function checkToneScript(file, partial, tones) {
     };
     const sandbox = {
       document: { documentElement: { setAttribute: (k, v) => (attrs[k] = v) }, querySelector: () => null },
+      matchMedia: (q) => ({ matches: light && /prefers-color-scheme:\s*light/.test(q) }),
       localStorage: storage,
       getComputedStyle: () => ({ getPropertyValue: () => "" }),
     };
@@ -2217,9 +2224,11 @@ export function checkToneScript(file, partial, tones) {
     ["nothing stored", null, SHIP_TONE],
     ['"sepia" stored', "sepia", SHIP_TONE],
     ["storage that throws", new Error("storage is off"), SHIP_TONE],
+    ["nothing stored, a light system", null, LIGHT_TONE, true],
+    ['"midnight" stored, a light system', "midnight", "midnight", true],
   ];
-  return cases.flatMap(([label, stored, want]) => {
-    const got = run(stored);
+  return cases.flatMap(([label, stored, want, light]) => {
+    const got = run(stored, light);
     return got === want ? [] : [finding(file, "tone-script", `${label}: data-tone is ${got}; ${want} is expected`)];
   });
 }
@@ -2255,31 +2264,64 @@ export function checkHeaderRows(file, css) {
   return broken.length ? [finding(file, "header", broken.join("; "))] : [];
 }
 
-// AC "What it is": the hero, section.hero.what#what, holds what.label over the
-// page's one h1 on what.h1; the three paragraphs what.p.1 to 3; the Install
-// button to #start and the How it works button to #how; the agents line on
-// hero.agents (checkAgents holds its names); the label what.helps over the five
-// pain rows, each pains.was.n then pains.now.n, as the old pains section had
-// them; and the comparison: cmp.label and cmp.sub above one table.cmp of five
-// header cells (cmp.col.1 to 5) and four body rows — the approaches
-// ProjectStore draws on, tr.from, a prompt in a chat, SDD and PDD, then
-// ProjectStore itself, tr.us — and cmp.sum under it. A row's first cell holds its name and its scope
-// (cmp.<row>.2), the four after it cmp.<row>.3 to 6; only the chat row's name
-// is a key (cmp.chat.1), as "SDD", "PDD" and "ProjectStore" read the same in
-// every language. What this cannot see: the drawing in the first column's
-// padding, which is the browser check's.
+// AC "What it is" (PS-HARNESS "The front page in all eight languages …"): the
+// hero, section.hero.what#what, holds what.label over the page's one h1 on
+// what.h1; the three paragraphs what.p.1 to 3; the Install button to #start
+// and the How it works button to #how; the agents line on hero.agents
+// (checkAgents holds its names); the label what.why over ul.why-list, five
+// lines, each a dot and pains.now.n; and the comparison under cmp.title, in
+// four blocks in this order. The table, table.cmp: five header cells
+// (cmp.col.1 to 5) and five body rows — the approaches ProjectStore draws on,
+// tr.from, a prompt in a chat, agent memory, SDD and PDD, then ProjectStore
+// itself, tr.us — and cmp.sum under it. A row's first cell holds its name and
+// its scope (cmp.<row>.2), agent memory its examples (cmp.mem.ex) between, the
+// four after it cmp.<row>.3 to 6; only the chat and memory rows' names are
+// keys (cmp.chat.1, cmp.mem.1), as "SDD", "PDD" and "ProjectStore" read the
+// same in every language. The rating, rate.title over table.rate and rate.note
+// under it: the same five approaches by six needs (rate.col.1 to 6), each
+// cell three marks with RATING's number lit and that number of three for a
+// screen reader. The choice tree, tree.title over ol.tree: four questions,
+// tree.q.1 to 4, each answering yes with the next approach of the table and
+// no with the next question, ending in ProjectStore. The ladder, ladder.title
+// over ol.ladder: five steps, each one brick more than the one before
+// (ladder.b.n down to ladder.b.1), the last ProjectStore's, li.us, with
+// ladder.b.5 on top. What this cannot see: the drawing, which is the browser
+// check's.
 export const WHAT_PARAGRAPHS = ["what.p.1", "what.p.2", "what.p.3"];
 export const WHAT_BUTTONS = [
   ["what.cta.install", "#start"],
   ["what.cta.how", "#how"],
 ];
-export const PAIN_ROWS = 5;
+export const WHY_LINES = 5;
 export const CMP_COLUMNS = 5;
 export const CMP_ROWS = [
   ["chat", "from", null],
+  ["mem", "from", null],
   ["sdd", "from", "SDD"],
   ["pdd", "from", "PDD"],
   ["ps", "us", "ProjectStore"],
+];
+// The rating, as the maintainer chose it on the canvas of 2026-10-24: sessions,
+// people, backlog, decisions, proof, easy to start.
+export const RATE_COLUMNS = 6;
+export const RATING = {
+  chat: [0, 0, 0, 0, 0, 3],
+  mem: [2, 0, 0, 1, 0, 3],
+  sdd: [1, 2, 1, 1, 2, 2],
+  pdd: [1, 1, 0, 0, 3, 2],
+  ps: [3, 3, 3, 3, 3, 2],
+};
+export const COMPARISON_BLOCKS = [
+  "cmp.title",
+  "table.cmp",
+  "cmp.sum",
+  "rate.title",
+  "table.rate",
+  "rate.note",
+  "tree.title",
+  "ol.tree",
+  "ladder.title",
+  "ol.ladder",
 ];
 export const keyOf = (el) => el?.attrs["data-i18n"] ?? null;
 export function checkWhat(page) {
@@ -2310,20 +2352,19 @@ export function checkWhat(page) {
     broken.push(
       `#what holds ${lines.length} agents lines (${lines.map(keyOf).join(", ") || "none"}); one, on hero.agents`,
     );
-  const helps = keyed("what.helps");
-  const lists = inside.filter((el) => el.name === "ul" && hasClass(el, "pain-list"));
+  const why = keyed("what.why");
+  const lists = inside.filter((el) => el.name === "ul" && hasClass(el, "why-list"));
   const rows = lists.length === 1 ? inside.filter((el) => el.name === "li" && within(lists[0], el)) : [];
-  const pains = rows.map((li) =>
-    inside
-      .filter((el) => within(li, el) && /^pains\.(?:was|now)\.\d+$/.test(keyOf(el) ?? ""))
-      .map(keyOf)
-      .join("+"),
-  );
-  const wantPains = Array.from({ length: PAIN_ROWS }, (_, i) => `pains.was.${i + 1}+pains.now.${i + 1}`);
-  if (helps.length !== 1 || lists.length !== 1 || helps[0].start > lists[0].start)
-    broken.push(`${helps.length} what.helps labels over ${lists.length} ul.pain-list; one over one`);
-  else if (pains.join() !== wantPains.join())
-    broken.push(`the pain rows run ${pains.join(", ") || "none"}; ${PAIN_ROWS}, pains.was.n+pains.now.n`);
+  const whyLines = rows.map((li) => {
+    const keys = inside.filter((el) => within(li, el) && keyOf(el)).map(keyOf);
+    const dot = inside.some((el) => within(li, el) && hasClass(el, "dot"));
+    return (dot ? "" : "no dot+") + keys.join("+");
+  });
+  const wantLines = Array.from({ length: WHY_LINES }, (_, i) => `pains.now.${i + 1}`);
+  if (why.length !== 1 || !hasClass(why[0], "section-label") || lists.length !== 1 || why[0].start > lists[0].start)
+    broken.push(`${why.length} what.why labels over ${lists.length} ul.why-list; one section label over one`);
+  else if (whyLines.join() !== wantLines.join())
+    broken.push(`the why lines run ${whyLines.join(", ") || "none"}; ${WHY_LINES}, a dot and pains.now.n`);
   const tables = inside.filter((el) => el.name === "table" && hasClass(el, "cmp"));
   if (tables.length !== 1) broken.push(`#what holds ${tables.length} table.cmp; one`);
   else {
@@ -2336,7 +2377,7 @@ export function checkWhat(page) {
     const body = cells.find((el) => el.name === "tbody");
     const trs = body ? cells.filter((el) => el.name === "tr" && within(body, el)) : [];
     const rowKeys = trs.map((tr) => cells.filter((el) => within(tr, el) && keyOf(el)).map(keyOf));
-    const names = rowKeys.map((keys) => /^cmp\.([a-z]+)\.\d+$/.exec(keys[0] ?? "")?.[1] ?? "?");
+    const names = rowKeys.map((keys) => /^cmp\.([a-z]+)\.\w+$/.exec(keys[0] ?? "")?.[1] ?? "?");
     const wantNames = CMP_ROWS.map(([row]) => row);
     if (trs.length !== CMP_ROWS.length) broken.push(`the comparison has ${trs.length} body rows; ${CMP_ROWS.length}`);
     else if (names.join() !== wantNames.join())
@@ -2344,7 +2385,11 @@ export function checkWhat(page) {
     else
       CMP_ROWS.forEach(([row, cls, name], i) => {
         const tr = trs[i];
-        const keys = [...(name ? [] : [`cmp.${row}.1`]), ...[2, 3, 4, 5, 6].map((n) => `cmp.${row}.${n}`)];
+        const keys = [
+          ...(name ? [] : [`cmp.${row}.1`]),
+          ...(row === "mem" ? ["cmp.mem.ex"] : []),
+          ...[2, 3, 4, 5, 6].map((n) => `cmp.${row}.${n}`),
+        ];
         const tds = cells.filter((el) => el.name === "td" && within(tr, el));
         const b = cells.find((el) => el.name === "b" && within(tr, el));
         const named = name ? b && !keyOf(b) && b.text.trim() === name : keyOf(b) === `cmp.${row}.1`;
@@ -2354,8 +2399,7 @@ export function checkWhat(page) {
           );
       });
     for (const [k, under] of [
-      ["cmp.label", false],
-      ["cmp.sub", false],
+      ["cmp.title", false],
       ["cmp.sum", true],
     ]) {
       const els = keyed(k);
@@ -2364,7 +2408,99 @@ export function checkWhat(page) {
         broken.push(`${k} is not once ${under ? "under" : "above"} the table`);
     }
   }
+  broken.push(...checkComparisonBlocks(inside, keyed));
   return broken.length ? [finding(page.file, "what", broken.join("; "))] : [];
+}
+
+// The rating, the tree and the ladder, and the order of the comparison's four
+// blocks. A row's name: its key (cmp.chat.1, cmp.mem.1) or its plain text.
+const rowName = (inside, box) => {
+  const named = inside.find((el) => within(box, el) && /^cmp\.(?:chat|mem)\.1$/.test(keyOf(el) ?? ""));
+  if (named) return /^cmp\.([a-z]+)\./.exec(keyOf(named))[1];
+  const plain = inside.find((el) => within(box, el) && (el.name === "b" || el.name === "th") && !keyOf(el));
+  return CMP_ROWS.find(([, , name]) => name && plain?.text.trim() === name)?.[0] ?? "?";
+};
+function checkComparisonBlocks(inside, keyed) {
+  const broken = [];
+  const one = (sel) => {
+    const [name, cls] = sel.split(".");
+    const found = inside.filter((el) => el.name === name && hasClass(el, cls));
+    return found.length === 1 ? found[0] : null;
+  };
+  // "table.cmp" is an element and its class; "cmp.title" a key
+  const at = COMPARISON_BLOCKS.map((b) =>
+    /^(?:table|ol)\./.test(b) ? one(b) : keyed(b).length === 1 ? keyed(b)[0] : null,
+  );
+  const missing = COMPARISON_BLOCKS.filter((b, i) => !at[i]);
+  if (missing.length) return [`the comparison has no single ${missing.join(", ")}`];
+  if (at.some((el, i) => i && el.start < at[i - 1].start))
+    broken.push(`the comparison's blocks do not run ${COMPARISON_BLOCKS.join(", ")}`);
+  const [rate, tree, ladder] = [at[4], at[7], at[9]];
+  // the rating
+  const cells = inside.filter((el) => within(rate, el));
+  const head = cells.find((el) => el.name === "thead");
+  const heads = head ? cells.filter((el) => within(head, el) && keyOf(el)).map(keyOf) : [];
+  const wantHeads = ["cmp.col.1", ...Array.from({ length: RATE_COLUMNS }, (_, i) => `rate.col.${i + 1}`)];
+  if (heads.join() !== wantHeads.join())
+    broken.push(`the rating's header holds ${heads.join(", ") || "nothing"}; ${wantHeads.join(", ")}`);
+  const body = cells.find((el) => el.name === "tbody");
+  const trs = body ? cells.filter((el) => el.name === "tr" && within(body, el)) : [];
+  const names = trs.map((tr) => rowName(cells, tr));
+  const wantNames = CMP_ROWS.map(([row]) => row);
+  if (names.join() !== wantNames.join())
+    broken.push(`the rating's rows run ${names.join(", ")}; ${wantNames.join(", ")}`);
+  else
+    trs.forEach((tr, i) => {
+      const row = names[i];
+      const tds = cells.filter((el) => el.name === "td" && within(tr, el));
+      const marks = tds.map((td) => {
+        const box = cells.find((el) => within(td, el) && hasClass(el, "marks") && el.attrs["aria-hidden"] === "true");
+        const dots = box ? cells.filter((el) => el.name === "i" && within(box, el)) : [];
+        const lit = dots.filter((el) => hasClass(el, "on")).length;
+        const said = cells.find((el) => within(td, el) && hasClass(el, "visually-hidden"))?.text.trim();
+        return dots.length === 3 && said === `${lit}/3` ? lit : `${lit} of ${dots.length} said ${said ?? "nothing"}`;
+      });
+      if (hasClass(tr, "us") !== (row === "ps"))
+        broken.push(`the rating's ${row} row is ${row === "ps" ? "not " : ""}tr.us`);
+      if (marks.join() !== RATING[row].join())
+        broken.push(`the rating's ${row} row is ${marks.join(", ")}; ${RATING[row].join(", ")}`);
+    });
+  // the tree
+  const items = inside.filter((el) => el.name === "li" && within(tree, el));
+  const steps = items.filter((el) => hasClass(el, "tree-step"));
+  const runs = steps.map((li) => {
+    const q = inside.find((el) => within(li, el) && hasClass(el, "tree-q"));
+    const a = inside.find((el) => within(li, el) && hasClass(el, "tree-a"));
+    const yes = inside.some((el) => within(li, el) && keyOf(el) === "tree.yes");
+    const no = inside.some((el) => within(li, el) && keyOf(el) === "tree.no");
+    return `${keyOf(q) ?? "?"}>${yes && a ? rowName(inside, a) : "?"}${no ? "" : " without no"}`;
+  });
+  const wantRuns = CMP_ROWS.slice(0, 4).map(([row], i) => `tree.q.${i + 1}>${row}`);
+  if (runs.join() !== wantRuns.join())
+    broken.push(`the tree runs ${runs.join(", ") || "nothing"}; ${wantRuns.join(", ")}`);
+  const end = items.filter((el) => hasClass(el, "tree-end"));
+  const last = items.at(-1);
+  if (
+    end.length !== 1 ||
+    last !== end[0] ||
+    rowName(inside, end[0]) !== "ps" ||
+    !inside.some((el) => within(end[0], el) && keyOf(el) === "tree.end")
+  )
+    broken.push("the tree does not end in ProjectStore, one li.tree-end with tree.end, after its four questions");
+  // the ladder
+  const rungs = inside.filter((el) => el.name === "li" && within(ladder, el));
+  if (rungs.length !== CMP_ROWS.length) broken.push(`the ladder has ${rungs.length} steps; ${CMP_ROWS.length}`);
+  else
+    rungs.forEach((li, i) => {
+      const bricks = inside.filter((el) => within(li, el) && hasClass(el, "brick")).map(keyOf);
+      const want = Array.from({ length: i + 1 }, (_, j) => `ladder.b.${i + 1 - j}`);
+      const row = rowName(inside, li);
+      if (bricks.join() !== want.join() || row !== CMP_ROWS[i][0] || hasClass(li, "us") !== (i === CMP_ROWS.length - 1))
+        broken.push(
+          `the ladder's step ${i + 1} is ${row} on ${bricks.join(", ")}; ${CMP_ROWS[i][0]} on ${want.join(", ")}`,
+        );
+    });
+  return broken;
 }
 
 // AC "Install": quick start, section#quick's ol.qs, runs six steps — two for a
@@ -2548,7 +2684,9 @@ export const checkNoCarousel = (file, text) =>
 
 // AC "The title and description": each main page carries the story's title
 // and description, word for word. They are the page's first words in a search
-// result and a link preview, so they are held here as the story writes them.
+// result and a link preview, so they are held here as the story writes them;
+// the six languages the main page reached on 2026-10-26 ("The front page in all
+// eight languages …") as their translations of the English were reviewed.
 export const MAIN_HEAD = {
   en: {
     title: "ProjectStore — a plan, two checks and a record for your coding agent",
@@ -2559,6 +2697,36 @@ export const MAIN_HEAD = {
     title: "ProjectStore — план, две проверки и записи для вашего агента",
     description:
       "Плагин для Claude Code и Codex. Агент сначала пишет план, второй агент проверяет план, третий сверяет результат с вашим чек-листом. Решения и планы лежат Markdown-файлами в вашем git, и работу продолжит любой агент.",
+  },
+  de: {
+    title: "ProjectStore — ein Plan, zwei Prüfungen und ein Protokoll für deinen Coding-Agenten",
+    description:
+      "Ein Plugin für Claude Code und Codex. Dein Agent plant zuerst, ein zweiter Agent prüft den Plan, und ein dritter prüft das Ergebnis gegen deine Checkliste. Entscheidungen und Pläne bleiben als Markdown in deinem Git, damit jeder Agent weitermachen kann.",
+  },
+  es: {
+    title: "ProjectStore — un plan, dos revisiones y un registro para tu agente de programación",
+    description:
+      "Un plugin para Claude Code y Codex. Tu agente planifica primero, un segundo agente revisa el plan y un tercero comprueba el resultado contra tu lista. Decisiones y planes quedan como Markdown en tu git, así cualquier agente puede continuar.",
+  },
+  fr: {
+    title: "ProjectStore — un plan, deux vérifications et une trace pour votre agent de code",
+    description:
+      "Un plugin pour Claude Code et Codex. Votre agent planifie d'abord, un deuxième agent vérifie le plan, et un troisième vérifie le résultat à partir de votre liste de contrôle. Décisions et plans restent en Markdown dans votre git, donc n'importe quel agent peut reprendre.",
+  },
+  pt: {
+    title: "ProjectStore — um plano, duas checagens e um registro para o seu agente de programação",
+    description:
+      "Um plugin para Claude Code e Codex. O seu agente planeja primeiro, um segundo agente confere o plano e um terceiro confere o resultado com a sua lista de verificação. Decisões e planos ficam como Markdown no seu git, e qualquer agente pode continuar.",
+  },
+  uk: {
+    title: "ProjectStore — план, дві перевірки та запис для вашого агента",
+    description:
+      "Плагін для Claude Code і Codex. Ваш агент спершу планує, другий агент перевіряє план, а третій звіряє результат із вашим чек-листом. Рішення й плани лишаються як Markdown у вашому git, тож будь-який агент може продовжити.",
+  },
+  zh: {
+    title: "ProjectStore — 给编程智能体的计划、两道检查和一份记录",
+    description:
+      "面向 Claude Code 和 Codex 的插件。你的智能体先做计划，第二个智能体检查计划，第三个对照你的清单检查结果。决策和计划以 Markdown 保存在你的 git 中，任何智能体都能接着做。",
   },
 };
 export function checkMainHead(page) {
@@ -2574,12 +2742,77 @@ export function checkMainHead(page) {
   return out;
 }
 
-// AC "Install": the install box, in quick start's step 3, is two tabs over two
-// panels — "Ask your agent" holding README's prompt and the line, on its key,
-// that the prompt is for Claude Code and Codex takes the Terminal tab;
-// "Terminal" holding README's install line. checkPrompt, checkInstall and
-// checkCopies hold what each says and copies; this holds where each sits.
-export const ASK_NOTE = "start.ask.note";
+// AC "Install" and "Step 3": the install box, in quick start's step 3, is two
+// tabs over two panels — "Write to your agent" holding README's prompt and its
+// copy button and nothing else (the note under it went with the canvas of
+// 2026-10-24); "In a terminal in the project" holding README's install line.
+// checkPrompt, checkInstall and checkCopies hold what each says and copies;
+// this holds where each sits.
+// AC "Step 3": the step's own words are on their keys — the heading, the one
+// line before the box, and the two tab labels, ask then term.
+export const STEP_3 = { heading: "quick.s.1.h", line: "quick.s.1.p", tabs: ["start.tab.ask", "start.tab.term"] };
+export function checkStep3(page) {
+  const step = quickSteps(page)?.steps[INSTALL_STEP - 1];
+  if (!step) return [finding(page.file, "step-3", "no quick-start step 3")];
+  const inside = page.els.filter((el) => within(step, el));
+  const box = inside.find((el) => "data-tabs" in el.attrs);
+  const broken = [];
+  if (
+    inside
+      .filter((el) => el.name === "h3")
+      .map(keyOf)
+      .join() !== STEP_3.heading
+  )
+    broken.push(`the step's heading is not one h3 on ${STEP_3.heading}`);
+  const lines = inside.filter(
+    (el) => el.name === "p" && (!box || el.start < box.start) && !within(box ?? { start: -1, end: -1, inner: "" }, el),
+  );
+  if (lines.map(keyOf).join() !== STEP_3.line)
+    broken.push(
+      `the step's text before the box is ${lines.map((el) => keyOf(el) ?? "unkeyed").join(", ") || "nothing"}; one line on ${STEP_3.line}`,
+    );
+  const tabs = inside.filter((el) => el.attrs.role === "tab").map(keyOf);
+  if (tabs.join() !== STEP_3.tabs.join())
+    broken.push(`the tabs are on ${tabs.join(", ") || "nothing"}; ${STEP_3.tabs.join(", ")}`);
+  return broken.length ? [finding(page.file, "step-3", broken.join("; "))] : [];
+}
+
+// AC "Four tones", the glow: the classic tones (midnight, graphite, paper)
+// light --glow-1 to 3, light points them at a transparent token, and one rule
+// for the three classic tones, inside @media screen, paints them behind the
+// page. A block that names a tone without being a tone rule sets no token.
+export const CLASSIC_TONES = ["midnight", "graphite", "paper"];
+export const GLOW_RULE = ':root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) body::before';
+export function checkGlow(file, css) {
+  const out = [];
+  for (const [tone, tokens] of toneSets(css)) {
+    const dark = CLASSIC_TONES.includes(tone);
+    for (const n of ["--glow-1", "--glow-2", "--glow-3"]) {
+      const c = rgba(resolveToken(tokens, n));
+      if (!c || (dark ? c.a === 0 : c.a !== 0))
+        out.push(
+          finding(
+            file,
+            "glow",
+            `${tone} ${n} is ${resolveToken(tokens, n)}; ${dark ? "lit in a classic tone" : "transparent in light"}`,
+          ),
+        );
+    }
+  }
+  const walk = (blocks, media = null) =>
+    blocks.flatMap((b) => (b.head.startsWith("@") ? walk(b.blocks, b.head) : [{ ...b, media }]));
+  const rules = walk(cssBlocks(css));
+  const glows = rules.filter(
+    (r) => r.head === GLOW_RULE && /^@media\s+screen\b/i.test(r.media ?? "") && /radial-gradient\(/.test(r.body),
+  );
+  if (glows.length !== 1)
+    out.push(finding(file, "glow", `${glows.length} glow rules for the classic tones inside @media screen; one`));
+  for (const r of rules.filter((r) => /data-tone=/.test(r.head) && !/^:root\[data-tone="[a-z]+"\]$/.test(r.head)))
+    if (/--[\w-]+\s*:/.test(r.body))
+      out.push(finding(file, "glow", `${r.head} sets a token; only a :root[data-tone="…"] rule does`));
+  return out;
+}
+
 export function checkInstallBox(page) {
   const step = quickSteps(page)?.steps[INSTALL_STEP - 1];
   const boxes = step ? page.els.filter((el) => within(step, el) && "data-tabs" in el.attrs) : [];
@@ -2595,8 +2828,11 @@ export function checkInstallBox(page) {
   const broken = [];
   if (tabs.join() !== "ask,term") broken.push(`the tabs are ${tabs.join(", ") || "none"}; ask, then term`);
   if (!holds(ask, (el) => el.attrs["data-fact"] === "prompt")) broken.push("the ask panel holds no prompt");
-  if (!holds(ask, (el) => el.attrs["data-i18n"] === ASK_NOTE && el.text.trim()))
-    broken.push(`the ask panel has no note on ${ASK_NOTE}`);
+  const notes = ask ? inside.filter((el) => within(ask, el) && (keyOf(el) || hasClass(el, "note"))) : [];
+  if (notes.length)
+    broken.push(
+      `the ask panel carries ${notes.map((el) => keyOf(el) ?? "a note").join(", ")}; the prompt stands alone`,
+    );
   if (!holds(term, (el) => el.attrs["data-fact"] === "install"))
     broken.push("the terminal panel holds no install line");
   return broken.length ? [finding(page.file, "install-box", broken.join("; "))] : [];
@@ -3183,6 +3419,23 @@ export function runRedirect(page, { cookie = null, languages = [] } = {}) {
 
 export const checkStub = (file, text) =>
   text === STUB ? [] : [finding(file, "stub", `is not the redirect tools/i18n.py writes: ${JSON.stringify(text)}`)];
+
+// A link off the site opens in a new tab and keeps the page (the maintainer,
+// 2026-10-27): every <a> whose href is http(s) on another host carries
+// target="_blank" and a rel with noopener; a link on the site carries neither.
+export function checkExternalLinks(page) {
+  const out = [];
+  for (const a of page.els.filter((el) => el.name === "a" && el.attrs.href)) {
+    const href = a.attrs.href;
+    const external = /^https?:\/\//.test(href) && !href.startsWith(ORIGIN);
+    const rel = (a.attrs.rel ?? "").split(/\s+/);
+    if (external && (a.attrs.target !== "_blank" || !rel.includes("noopener")))
+      out.push(finding(page.file, "external-link", `${href} opens in the same tab; target="_blank" rel="noopener"`));
+    if (!external && a.attrs.target === "_blank")
+      out.push(finding(page.file, "external-link", `${href} is on the site and opens a new tab`));
+  }
+  return out;
+}
 
 // The llms files carry the facts in a fixed shape: a "Facts about version
 // <version>" heading, and under it "- <n> commands", "- <n> bundled agents",

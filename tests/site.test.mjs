@@ -30,6 +30,9 @@ import {
   DEFAULT_LANG,
   KINDS,
   kindLangs,
+  checkExternalLinks,
+  checkStep3,
+  checkGlow,
   kindOf,
   pageUrl,
   read,
@@ -98,6 +101,7 @@ import {
   checkColourAttrs,
   DEFAULT_TONE,
   SHIP_TONE,
+  LIGHT_TONE,
   toneSets,
   resolveToken,
   rgba,
@@ -325,18 +329,37 @@ test("site: every English page follows a stored language choice to the same page
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: the English main page follows a reader to Russian only when Russian is their language; a method page follows every language", () => {
+test("site: the English main page follows a reader to the language they name first among the eight, as a method page does; a stored choice wins", () => {
   const main = EN.main.page;
   const goes = (opts) => runRedirect(main, opts);
-  assert.equal(goes({ cookie: "ru" }), "ru/", "a stored ru is followed");
-  for (const cookie of ["de", "uk", "zh"]) assert.equal(goes({ cookie }), null, `a stored ${cookie} is not`);
-  for (const languages of [["ru"], ["ru-RU", "en"]])
-    assert.equal(goes({ languages }), "ru/", `a browser saying ${languages.join(", ")} goes to Russian`);
-  for (const languages of [["de", "ru"], ["uk", "ru", "en"], ["de"], ["en"], ["en", "ru"], []])
+  for (const cookie of ["ru", "de", "uk", "zh"])
+    assert.equal(goes({ cookie }), `${cookie}/`, `a stored ${cookie} is followed`);
+  assert.equal(goes({ cookie: "en", languages: ["ru"] }), null, "a stored en stays, whatever the browser says");
+  for (const [languages, to] of [
+    [["ru"], "ru/"],
+    [["ru-RU", "en"], "ru/"],
+    [["uk", "ru"], "uk/"],
+    [["de", "ru"], "de/"],
+    [["pt-BR"], "pt/"],
+    [["zh-CN"], "zh/"],
+  ])
+    assert.equal(goes({ languages }), to, `a browser saying ${languages.join(", ")} goes to ${to}`);
+  for (const languages of [["en"], ["en", "ru"], ["ja"], []])
     assert.equal(goes({ languages }), null, `a browser saying ${languages.join(", ") || "nothing"} stays`);
   const how = EN["how-it-works"].page;
   assert.equal(runRedirect(how, { cookie: "de" }), "../de/how-it-works/", "a method page follows a stored de");
   assert.equal(runRedirect(how, { languages: ["uk", "ru"] }), "../uk/how-it-works/", "and a browser's first language");
+});
+
+test("site: every link off the site opens in a new tab with noopener, and no link on it does", () => {
+  const found = eachPage(checkExternalLinks);
+  assert.deepEqual(found, [], show(found));
+  assert.ok(
+    EN.main.page.els.some(
+      (el) => el.name === "a" && el.attrs.href === "https://nodejs.org" && el.attrs.target === "_blank",
+    ),
+    "the quick start's nodejs.org link is one of them",
+  );
 });
 
 test("site: every page names the 1280×640 link preview, absolute, with its canonical as og:url and its own title and description", () => {
@@ -356,11 +379,11 @@ test("site AC 3: the main pages name each published harness; no page or llms fil
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: both main pages carry the agents line in #what and the trust ticks, its names plain and in order, and name no dropped agent", () => {
+test("site: every main page carries the agents line in #what and the trust ticks, its names plain and in order, and name no dropped agent", () => {
   const mains = PAGES.filter((p) => p.page && p.kind === "main");
   assert.deepEqual(
     mains.map((p) => p.lang),
-    kindOf("main").langs,
+    kindLangs(kindOf("main"), LANGS),
     "a main page per language it is built in",
   );
   const found = mains.flatMap((p) => checkAgents(p.page));
@@ -523,9 +546,14 @@ test("site: every colour is a token — none outside :root and the print rules i
   assert.deepEqual(found, [], show(found));
 });
 
+// The four tones the switch offers and the stylesheet declares, in its order.
+const FOUR_TONES = [DEFAULT_TONE, "graphite", "light", "paper"];
+
 // The look story of 2026-10-22 (PS-HARNESS, "The site takes smartandpoint.com's
-// look …"). AC "One accent, readable": in every tone the accent and the brand
-// colour resolve to an indigo, an HSL hue from 230° to 250°.
+// look …"), as the four-tones story of 2026-10-26 ("The front page in all eight
+// languages …") revised it. AC "Four tones": the accent and the brand colour
+// resolve to the tone's family, an HSL hue in its range: light's indigo,
+// paper's copper, and the dark tones' amber accent with its orange brand.
 const hueOf = (hex) => {
   const c = rgba(hex);
   if (!c) return null;
@@ -536,49 +564,102 @@ const hueOf = (hex) => {
   const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
   return (h * 60 + 360) % 360;
 };
+const INDIGO = ["an indigo", 230, 250];
+const COPPER = ["a copper", 10, 30];
+const ACCENTS = {
+  midnight: { "--accent": ["an amber", 30, 45], "--brand": COPPER },
+  graphite: { "--accent": ["an amber", 30, 45], "--brand": COPPER },
+  paper: { "--accent": COPPER, "--brand": COPPER },
+  light: { "--accent": INDIGO, "--brand": INDIGO },
+};
 function checkAccent(file, css) {
   return toneSets(css).flatMap(([tone, tokens]) =>
     ["--accent", "--brand"].flatMap((name) => {
       const value = resolveToken(tokens, name);
       const hue = hueOf(value);
-      return hue !== null && hue >= 230 && hue <= 250
+      const [family, lo, hi] = ACCENTS[tone]?.[name] ?? ["a declared family", 0, -1];
+      return hue !== null && hue >= lo && hue <= hi
         ? []
-        : [finding(file, "accent", `${tone}: ${name} is ${value}; an indigo, hue 230°–250°`)];
+        : [finding(file, "accent", `${tone}: ${name} is ${value}; ${family}, hue ${lo}°–${hi}°`)];
     }),
   );
 }
-// AC "No gradients": no gradient but the dot grid of .diagram and .mode-box,
-// a pattern rather than a colour fade. The glow behind the page is gone.
+// AC "Four tones", the gradients: none but the dot grid of .diagram and
+// .mode-box, a pattern rather than a colour fade, and the dark tones' glow
+// behind the page, one rule for the two of them, painted from --glow-1 to
+// --glow-3 (a light tone points them at --no-glow and draws no rule).
 const DOT_GRID = "radial-gradient(var(--dot) 1px, transparent 1px)";
+const GLOW_HEAD = ':root:is([data-tone="midnight"], [data-tone="graphite"], [data-tone="paper"]) body::before';
 function checkNoGradients(file, css) {
   return cssRules(css).flatMap((r) => {
     const found = r.body.match(/[a-z-]*gradient\([^;]*/g) ?? [];
     if (!found.length) return [];
     const grid = [".diagram", ".mode-box"].includes(r.head) && found.every((g) => g.trim() === DOT_GRID);
-    return grid ? [] : [finding(file, "gradient", `${r.head} paints ${found[0].trim()}; only the dot grid may`)];
+    const glow =
+      r.head === GLOW_HEAD &&
+      /^@media\s+screen\b/i.test(r.media ?? "") &&
+      [...r.body.matchAll(/radial-gradient\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g)].every((m) =>
+        /, var\(--glow-[1-3]\), transparent \d+%$/.test(m[1]),
+      );
+    return grid || glow
+      ? []
+      : [
+          finding(
+            file,
+            "gradient",
+            `${r.head} paints ${found[0].trim()}; only the dot grid and the dark tones' glow may`,
+          ),
+        ];
   });
 }
 // AC "The graph barely shows": the whole layer at 0.3 or less at rest, and at
-// 0.1 or less under :root.scrolling, which site.js sets while the page scrolls.
+// 0.1 or less under :root.scrolling, which site.js sets while the page scrolls;
+// and a tone's own rule holds it there or lower, scrolling or not (2026-10-27:
+// the classic tones keep it barely there, since at full strength it pulled the eye).
 const GRAPH_REST = [".graph, .graph-rings", 0.3];
 const GRAPH_MOVING = [":root.scrolling .graph, :root.scrolling .graph-rings", 0.1];
 function checkGraphQuiet(file, css) {
   const rules = cssRules(css).filter((r) => !r.media);
-  return [GRAPH_REST, GRAPH_MOVING].flatMap(([head, most]) => {
-    const rule = rules.find((r) => r.head === head);
-    const value = Number(/(?:^|;)\s*opacity:\s*([\d.]+)/.exec(rule?.body ?? "")?.[1] ?? NaN);
-    return value <= most ? [] : [finding(file, "graph-quiet", `${head} is at opacity ${value}; at most ${most}`)];
-  });
+  return [GRAPH_REST, GRAPH_MOVING]
+    .flatMap(([head, most]) => {
+      const rule = rules.find((r) => r.head === head);
+      const value = Number(/(?:^|;)\s*opacity:\s*([\d.]+)/.exec(rule?.body ?? "")?.[1] ?? NaN);
+      return value <= most ? [] : [finding(file, "graph-quiet", `${head} is at opacity ${value}; at most ${most}`)];
+    })
+    .concat(
+      cssRules(css)
+        .filter((r) => /\.graph/.test(r.head) && /(?:^|;)\s*opacity:/.test(r.body) && /data-tone/.test(r.head))
+        .flatMap((r) => {
+          const most = /\.scrolling/.test(r.head) ? GRAPH_MOVING[1] : GRAPH_REST[1];
+          const value = Number(/(?:^|;)\s*opacity:\s*([\d.]+)/.exec(r.body)[1]);
+          return value <= most
+            ? []
+            : [finding(file, "graph-quiet", `${r.head} is at opacity ${value}; at most ${most}`)];
+        }),
+    );
 }
 
 // AC "White by default", site.js's half: with no stored tone, or no storage,
 // the switch's script falls back to SHIP_TONE, as the early script does.
 function checkToneFallback(file, js) {
   const line = /var savedTone = function \(\) \{\s*([^\n]*)/.exec(js)?.[1] ?? "";
-  const literals = [...line.matchAll(/(?:\? s :|\|\|) "([a-z]+)"/g)].map((m) => m[1]);
-  return literals.length === 2 && literals.every((t) => t === SHIP_TONE)
-    ? []
-    : [finding(file, "tone", `site.js falls back to ${literals.join(" and ") || "nothing"}; ${SHIP_TONE} both times`)];
+  const falls = [...line.matchAll(/(?:\? s :|\|\|) (preferred\(\)|"[a-z]+")/g)].map((m) => m[1]);
+  const pref = /var preferred = function \(\) \{([^\n]*)\};/.exec(js)?.[1] ?? "";
+  const picks = /prefers-color-scheme: light\)"\)\.matches \? "([a-z]+)" : "([a-z]+)"/.exec(pref);
+  const out = [];
+  if (falls.length !== 2 || !falls.every((f) => f === "preferred()"))
+    out.push(
+      finding(file, "tone", `site.js falls back to ${falls.join(" and ") || "nothing"}; preferred() both times`),
+    );
+  if (!picks || picks[1] !== LIGHT_TONE || picks[2] !== SHIP_TONE)
+    out.push(
+      finding(
+        file,
+        "tone",
+        `site.js prefers ${picks ? `${picks[1]} and ${picks[2]}` : "nothing"}; ${LIGHT_TONE} for a light system, else ${SHIP_TONE}`,
+      ),
+    );
+  return out;
 }
 // The main button's label, --bg on --ink-hi, readable in every tone (it is
 // outside the floors above, which hold text on surfaces).
@@ -592,30 +673,31 @@ function checkMainButton(file, css) {
   });
 }
 
-test("site: the look of 2026-10-22 — the accent and the brand indigo in every tone, no gradient but the diagrams' dot grid, the graph at 0.3 at rest and 0.1 while the page scrolls, the main button readable, and site.js falling back to light", () => {
+test("site: the look of the four tones — each tone's accent and brand in its family, no gradient but the diagrams' dot grid and the dark tones' glow, the graph at 0.3 at rest and 0.1 while the page scrolls on the light tones, the main button readable, and site.js falling back to the system's preference", () => {
   const css = read(STYLE);
   const found = [
     ...checkAccent(STYLE, css),
     ...checkNoGradients(STYLE, css),
     ...checkGraphQuiet(STYLE, css),
+    ...checkGlow(STYLE, css),
     ...checkMainButton(STYLE, css),
     ...checkToneFallback(`${SITE}/assets/site.js`, read(`${SITE}/assets/site.js`)),
   ];
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: the tones — midnight on :root, graphite and light screen-only rules (graphite over surface tokens, light over the text too, with color-scheme: light), the covering surfaces opaque, and every text colour readable at its lowest", () => {
+test("site: the tones — midnight on :root, graphite, light and paper screen-only rules (graphite over surface tokens and the glow, the light tones over the text too, with color-scheme: light), the covering surfaces opaque, and every text colour readable at its lowest", () => {
   const css = read(`${SITE}/assets/style.css`);
   assert.deepEqual(
     toneSets(css).map(([tone]) => tone),
-    [DEFAULT_TONE, "graphite", "light"],
-    "midnight is the palette, graphite and light the tone rules",
+    [DEFAULT_TONE, "graphite", "light", "paper"],
+    "midnight is the palette, graphite, light and paper the tone rules",
   );
   const found = [...checkTones(`${SITE}/assets/style.css`, css), ...checkToneContrast(`${SITE}/assets/style.css`, css)];
   assert.deepEqual(found, [], show(found));
 });
 
-test('site: every page ships in light — <html data-tone="light">, theme-color the light tone\'s --bg — with the tone switch in its header and the early script in its head, and site.js keeps the tone under the key that script reads', () => {
+test('site: every page ships in midnight — <html data-tone="midnight">, theme-color midnight\'s --bg — with the tone switch in its header and the early script in its head, and site.js keeps the tone under the key that script reads', () => {
   const css = read(`${SITE}/assets/style.css`);
   const sets = toneSets(css);
   const tones = sets.map(([tone]) => tone);
@@ -650,21 +732,22 @@ test("site: the header's page links move to the second row under the same media 
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: both main pages carry the story's title and description, open with what it is — the h1, three paragraphs, two buttons, the pain rows and the comparison table — then quick start's six steps with the install box's two tabs in step 3, and the four chapter heads", () => {
+test("site: every main page carries the story's title and description, open with what it is — the h1, three paragraphs, two buttons, the why lines and the comparison's four blocks — then quick start's six steps with the install box's two tabs in step 3, and the four chapter heads", () => {
   const mains = PAGES.filter((p) => p.page && p.kind === "main");
-  assert.equal(mains.length, kindOf("main").langs.length, "a main page per language it is built in");
+  assert.equal(mains.length, kindLangs(kindOf("main"), LANGS).length, "a main page per language it is built in");
   const found = mains.flatMap((p) => [
     ...checkWhat(p.page),
     ...checkQuickStart(p.page),
     ...checkInstallBox(p.page),
+    ...checkStep3(p.page),
     ...checkChapters(p.page),
     ...checkMainHead(p.page),
   ]);
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: both main pages carry the method pages' blocks with those blocks' keys, less the next-page rows, the prompt box and the cost section's first paragraphs", () => {
-  const found = kindOf("main").langs.flatMap((lang) => checkCopied(pageOf(lang).page, methodPages(lang)));
+test("site: every main page carries the method pages' blocks with those blocks' keys, less the next-page rows, the prompt box and the cost section's first paragraphs", () => {
+  const found = kindLangs(kindOf("main"), LANGS).flatMap((lang) => checkCopied(pageOf(lang).page, methodPages(lang)));
   assert.deepEqual(found, [], show(found));
 });
 
@@ -678,7 +761,7 @@ test("site: the carousel, its class names and the keys that left with it are in 
   assert.deepEqual(found, [], show(found));
 });
 
-test("site: both main pages show the marketing loop in a player — the still with an alt as its poster, the loop's page in a template's frame, three named controls, a caption, no link; the still a complete WebP and the page with its four globals, within 300,000 bytes", () => {
+test("site: every main page shows the marketing loop in a player — the still with an alt as its poster, the loop's page in a template's frame, three named controls, a caption, no link; the still a complete WebP and the page with its four globals, within 300,000 bytes", () => {
   const mains = PAGES.filter((p) => p.page && p.kind === "main");
   const files = LOOP_FILES.map((n) => {
     const f = join(ROOT, SITE, "assets", n);
@@ -863,18 +946,20 @@ function mainKeys() {
   const others = TEMPLATES.filter((f) => !f.endsWith("/index.html")).map(templateKeys);
   return [...templateKeys(`${SITE}/src/index.html`)].filter((k) => !others.some((set) => set.has(k)));
 }
-// AC "Two languages": a dictionary holds the main page's keys exactly when the
-// main page is built in its language, and in Russian each is translated — a
-// key the English page and the Russian one share word for word is one the
-// translation missed.
+// AC "Languages": a dictionary holds the main page's keys exactly when the
+// main page is built in its language, and each is translated — a key the
+// English page and another share word for word is one the translation missed,
+// but for the word a language shares with English (Spanish "no").
+const SAME_AS_ENGLISH = { es: ["tree.no"] };
 function checkMainKeys(keys, en, dicts) {
   const out = [];
   for (const [lang, dict] of Object.entries(dicts)) {
     const file = `site/locales/${lang}.json`;
-    const built = kindOf("main").langs.includes(lang);
+    const built = kindLangs(kindOf("main"), LANGS).includes(lang);
     for (const k of keys) {
       if (built && !(k in dict)) out.push(finding(file, `main-key:${k}`, `${k} is missing`));
-      else if (built && dict[k] === en[k]) out.push(finding(file, `main-key:${k}`, `${k} is the English text`));
+      else if (built && dict[k] === en[k] && !SAME_AS_ENGLISH[lang]?.includes(k))
+        out.push(finding(file, `main-key:${k}`, `${k} is the English text`));
       else if (!built && k in dict)
         out.push(finding(file, `main-key:${k}`, `${k} is a main-page key, and the main page is not built in ${lang}`));
     }
@@ -882,7 +967,7 @@ function checkMainKeys(keys, en, dicts) {
   return out;
 }
 
-test("site: the main page's keys are in the Russian dictionary, translated, and in none of the six without a main page; a key copied back is one finding", () => {
+test("site: the main page's keys are in every dictionary, translated; a key copied back or left out is one finding", () => {
   const en = JSON.parse(read(join(SITE, "locales", "en.json")));
   const dicts = dictionaries();
   const keys = mainKeys();
@@ -892,18 +977,20 @@ test("site: the main page's keys are in the Russian dictionary, translated, and 
   );
   for (const k of keys) assert.ok(k in en, `${k} is in en.json`);
   assert.deepEqual(checkMainKeys(keys, en, dicts), []);
-  // The English copied into the Russian dictionary, and a main-page key left in the German one.
-  for (const [lang, key] of [
-    ["ru", "what.p.1"],
-    ["de", "pains.was.1"],
+  // The English copied into the Russian and the Chinese dictionaries, a key left out of the German one.
+  const without = (dict, key) => Object.fromEntries(Object.entries(dict).filter(([k]) => k !== key));
+  for (const [lang, key, dict] of [
+    ["ru", "what.p.1", { ...dicts.ru, "what.p.1": en["what.p.1"] }],
+    ["zh", "rate.note", { ...dicts.zh, "rate.note": en["rate.note"] }],
+    ["de", "tree.q.3", without(dicts.de, "tree.q.3")],
   ]) {
-    const found = checkMainKeys(keys, en, { ...dicts, [lang]: { ...dicts[lang], [key]: en[key] } });
+    const found = checkMainKeys(keys, en, { ...dicts, [lang]: dict });
     assert.equal(found.length, 1, show(found));
     assert.equal(`${found[0].page} ${found[0].fact}`, `site/locales/${lang}.json main-key:${key}`);
   }
 });
 
-test("site AC 4: the llms files state the facts in their fixed shape, link both main pages and the English method pages and no stub, and resolve every link on the site", () => {
+test("site AC 4: the llms files state the facts in their fixed shape, link every main page and the English method pages and no stub, and resolve every link on the site", () => {
   const found = LLMS.flatMap((f) => [...checkLlmsFacts(f, read(f), REPO), ...checkLlmsLinks(f, read(f), LANGS)]);
   assert.deepEqual(found, [], show(found));
 });
@@ -1040,17 +1127,12 @@ const PLANTED = [
     ],
   },
   {
-    ac: "Two languages",
-    what: "the Russian main page lists a German main page as an alternate",
+    ac: "Languages",
+    what: "the Russian main page drops its German alternate",
     ...onPage("ru", (p) => checkAlternates(p, LANGS)),
     fact: "alternate",
-    message: /hreflang="de" names no page/,
-    edits: [
-      [
-        '<link rel="alternate" hreflang="x-default"',
-        '<link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">\n<link rel="alternate" hreflang="x-default"',
-      ],
-    ],
+    message: /hreflang="de"/,
+    edits: [[/<link rel="alternate" hreflang="de" href="https:\/\/projectstore\.dev\/de\/">\n?/, ""]],
   },
   {
     ac: "2",
@@ -1093,11 +1175,11 @@ const PLANTED = [
     edits: [['<link rel="canonical" href="../">', '<link rel="canonical" href="/">']],
   },
   {
-    ac: "Two languages",
-    what: "a /de/ main page left in place",
-    file: "site/de/index.html",
-    source: read("site/de/index.html"),
-    run: (text) => checkStub("site/de/index.html", text),
+    ac: "Languages",
+    what: "a main page built at /en/, the old address",
+    file: STUB_FILE,
+    source: read(STUB_FILE),
+    run: (text) => checkStub(STUB_FILE, text),
     fact: "stub",
     edits: [[STUB, EN.main.html]],
   },
@@ -1122,12 +1204,37 @@ const PLANTED = [
     edits: [["</title>", `</title>\n${EN_REDIRECT}`]],
   },
   {
-    ac: "Two languages",
-    what: "a reader whose browser says uk, ru led from the English main page to the Russian one",
+    ac: "Language follow",
+    what: "the English main page no longer following Ukrainian",
     ...onPage("en", (p) => checkRedirect(p, LANGS)),
     fact: "redirect",
-    message: /follows ru, uk; a main page is built in ru/,
-    edits: [['"uk":0', '"uk":1']],
+    message: /^follows de, es, fr, pt, ru, zh; a main page is built in de, es, fr, pt, ru, uk, zh$/,
+    edits: [['"uk":1', '"uk":0']],
+  },
+
+  // A link off the site: in the same tab, or a link on the site in a new one.
+  {
+    ac: "External links",
+    what: "the GitHub link in the header opening in the same tab",
+    ...onPage("fr", checkExternalLinks, "why-it-works"),
+    fact: "external-link",
+    message: /^https:\/\/github\.com\/SmartAndPoint\/ProjectStore opens in the same tab/,
+    edits: [
+      [
+        /(<a class="gh" href="https:\/\/github\.com\/SmartAndPoint\/ProjectStore"[^>]*?) target="_blank" rel="noopener noreferrer"/,
+        "$1",
+      ],
+    ],
+  },
+  {
+    ac: "External links",
+    what: "a link on the site opening a new tab",
+    ...onPage("en", checkExternalLinks),
+    fact: "external-link",
+    message: /^#start is on the site and opens a new tab$/,
+    edits: [
+      ['href="#start" data-i18n="what.cta.install"', 'href="#start" target="_blank" data-i18n="what.cta.install"'],
+    ],
   },
 
   // The link preview: an image named relative; an og:url left on another page.
@@ -1785,7 +1892,7 @@ const PLANTED = [
     ...onText(STYLE, checkToneContrast),
     fact: "contrast",
     message: /^graphite: --ink-\d is \d\.\d\d:1/,
-    edits: [["--graphite-accent-bg: #23243adb;", "--graphite-accent-bg: #4a4235db;"]],
+    edits: [["--graphite-accent-bg: #252320db;", "--graphite-accent-bg: #4a4235db;"]],
   },
   {
     ac: "Still on tokens",
@@ -1798,18 +1905,18 @@ const PLANTED = [
   {
     ac: "White by default",
     what: "a page whose theme-color is not the light tone's --bg",
-    ...onPage("pt", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#ffffff"), "one-vault"),
+    ...onPage("pt", (p) => checkTonePage(p, FOUR_TONES, "#080d19"), "one-vault"),
     fact: "theme-color",
-    message: /theme-color is #0b0c0a; light --bg is #ffffff/,
+    message: /theme-color is #0b0c0a; midnight --bg is #080d19/,
     edits: [[/(<meta name="theme-color" content=")[^"]*/, "$1#0b0c0a"]],
   },
   {
     ac: "White by default",
     what: "a page in midnight",
-    ...onPage("pt", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#ffffff"), "why-it-works"),
+    ...onPage("pt", (p) => checkTonePage(p, FOUR_TONES, "#080d19"), "why-it-works"),
     fact: "tone",
-    message: /^<html data-tone="">: a page ships in light$/,
-    edits: [['<html lang="pt-BR" data-tone="light">', '<html lang="pt-BR">']],
+    message: /^<html data-tone="">: a page ships in midnight$/,
+    edits: [['<html lang="pt-BR" data-tone="midnight">', '<html lang="pt-BR">']],
   },
   {
     ac: "One accent, readable",
@@ -1834,6 +1941,14 @@ const PLANTED = [
   },
   {
     ac: "The graph barely shows",
+    what: "the classic tones' graph back at full strength while scrolling",
+    ...onText(STYLE, checkGraphQuiet),
+    fact: "graph-quiet",
+    message: /\.scrolling \.graph is at opacity 1; at most 0\.1$/,
+    edits: [[/$/, '\n@media screen { :root:is([data-tone="midnight"]).scrolling .graph { opacity: 1; } }\n']],
+  },
+  {
+    ac: "The graph barely shows",
     what: "the graph back at 0.6",
     ...onText(STYLE, checkGraphQuiet),
     fact: "graph-quiet",
@@ -1845,8 +1960,8 @@ const PLANTED = [
     what: "site.js falling back to midnight",
     ...onText(`${SITE}/assets/site.js`, checkToneFallback),
     fact: "tone",
-    message: /^site\.js falls back to midnight and light; light both times$/,
-    edits: [['return offered(s) ? s : "light";', 'return offered(s) ? s : "midnight";']],
+    message: /^site\.js falls back to "midnight" and preferred\(\); preferred\(\) both times$/,
+    edits: [["return offered(s) ? s : preferred();", 'return offered(s) ? s : "midnight";']],
   },
   {
     ac: "White by default",
@@ -1867,7 +1982,7 @@ const PLANTED = [
   {
     ac: "One two-way switch",
     what: "a switch without its graphite position",
-    ...onPage("zh", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#ffffff"), "why-it-works"),
+    ...onPage("zh", (p) => checkTonePage(p, FOUR_TONES, "#080d19"), "why-it-works"),
     fact: "tone-switch",
     message: /no position for graphite/,
     edits: [[/<button class="tone-opt" type="button" data-tone-set="graphite"[^>]*>.*?<\/button>/, ""]],
@@ -1875,7 +1990,7 @@ const PLANTED = [
   {
     ac: "Remembered, without a flash",
     what: "a page without the early script",
-    ...onPage("de", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#ffffff"), "one-vault"),
+    ...onPage("de", (p) => checkTonePage(p, FOUR_TONES, "#080d19"), "one-vault"),
     fact: "tone-script",
     message: /0 scripts read ps_tone in <head>/,
     edits: [[/<script>\(function\(\)\{var d=document\.documentElement[\s\S]*?<\/script>\n?/, ""]],
@@ -1943,17 +2058,17 @@ const PLANTED = [
     edits: [["--light-done: #065f46;", "--light-done: #3a9a6a;"]],
   },
   {
-    ac: "Three positions",
+    ac: "Four tones",
     what: "a page without its light position",
-    ...onPage("uk", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#ffffff"), "how-it-works"),
+    ...onPage("uk", (p) => checkTonePage(p, FOUR_TONES, "#080d19"), "how-it-works"),
     fact: "tone-switch",
     message: /no position for light/,
     edits: [[/<button class="tone-opt" type="button" data-tone-set="light"[^>]*>.*?<\/button>/, ""]],
   },
   {
-    ac: "Three positions",
+    ac: "Four tones",
     what: "a switch offering a tone the stylesheet does not declare",
-    ...onPage("fr", (p) => checkTonePage(p, [DEFAULT_TONE, "graphite", "light"], "#ffffff"), "one-vault"),
+    ...onPage("fr", (p) => checkTonePage(p, FOUR_TONES, "#080d19"), "one-vault"),
     fact: "tone-switch",
     message: /^the switch offers sepia, which the stylesheet does not declare$/,
     edits: [
@@ -1964,23 +2079,33 @@ const PLANTED = [
     ],
   },
   {
-    ac: "Three positions",
+    ac: "Four tones",
     what: "an early script that takes any stored id",
-    ...onText(TONE_PARTIAL, (file, partial) => checkToneScript(file, partial, [DEFAULT_TONE, "graphite", "light"])),
+    ...onText(TONE_PARTIAL, (file, partial) => checkToneScript(file, partial, FOUR_TONES)),
     fact: "tone-script",
-    message: /^"sepia" stored: data-tone is sepia; light is expected/,
-    edits: [['if(s==="graphite"||s==="midnight")t=s;', "t=s||t;"]],
+    message: /^"sepia" stored: data-tone is sepia; midnight is expected/,
+    edits: [['if(s==="graphite"||s==="midnight"||s==="paper"||s==="light")t=s;else ', "t=s||t;if(!s)"]],
   },
   {
-    ac: "Three positions",
-    what: "an early script that forgets midnight",
-    ...onText(TONE_PARTIAL, (file, partial) => checkToneScript(file, partial, [DEFAULT_TONE, "graphite", "light"])),
+    ac: "Four tones",
+    what: "an early script that forgets graphite",
+    ...onText(TONE_PARTIAL, (file, partial) => checkToneScript(file, partial, FOUR_TONES)),
     fact: "tone-script",
-    message: /^"midnight" stored: data-tone is light; midnight is expected/,
-    edits: [['||s==="midnight"', ""]],
+    message: /^"graphite" stored: data-tone is midnight; graphite is expected/,
+    edits: [['s==="graphite"||', ""]],
   },
   {
-    ac: "Three positions",
+    ac: "Four tones",
+    what: "an early script that ignores a light system",
+    ...onText(TONE_PARTIAL, (file, partial) => checkToneScript(file, partial, FOUR_TONES)),
+    fact: "tone-script",
+    message: /^nothing stored, a light system: data-tone is midnight; paper is expected/,
+    edits: [
+      ['else if(typeof matchMedia==="function"&&matchMedia("(prefers-color-scheme: light)").matches)t="paper";', ""],
+    ],
+  },
+  {
+    ac: "Four tones",
     what: "the page links hidden at a width where the second row is not shown",
     ...onText(STYLE, checkHeaderRows),
     fact: "header",
@@ -1998,7 +2123,7 @@ const PLANTED = [
     ],
   },
   {
-    ac: "Three positions",
+    ac: "Four tones",
     what: "the second row moved back to narrow screens only",
     ...onText(STYLE, checkHeaderRows),
     fact: "header",
@@ -2007,20 +2132,20 @@ const PLANTED = [
     edits: [["@media (max-width: 1199px) {", "@media (max-width: 900px) {"]],
   },
   {
-    ac: "Three positions",
+    ac: "Four tones",
     what: "a header link that may wrap",
     ...onText(STYLE, checkHeaderRows),
     fact: "header",
     message: /^a header link may wrap the row$/,
     edits: [["text-decoration: none; white-space: nowrap; }", "text-decoration: none; }"]],
   },
-  // AC "What it is": the h1, the paragraphs, the buttons, the pain rows, the comparison table.
+  // AC "What it is": the h1, the paragraphs, the buttons, the why lines, the comparison's four blocks.
   {
     ac: "What it is",
-    what: "a fifth row in the comparison",
+    what: "a sixth row in the comparison",
     ...onPage("en", checkWhat),
     fact: "what",
-    message: /^the comparison has 5 body rows; 4$/,
+    message: /^the comparison has 6 body rows; 5$/,
     edits: [[/(<tr class="us">[\s\S]*?<\/tr>)/, "$1$1"]],
   },
   {
@@ -2028,7 +2153,7 @@ const PLANTED = [
     what: "SDD and PDD swapped in the Russian comparison",
     ...onPage("ru", checkWhat),
     fact: "what",
-    message: /^the comparison's rows run chat, pdd, sdd, ps; chat, sdd, pdd, ps$/,
+    message: /^the comparison's rows run chat, mem, pdd, sdd, ps; chat, mem, sdd, pdd, ps$/,
     edits: [
       [
         /(<tr class="from"><td><b>SDD<\/b>[\s\S]*?<\/tr>)(\s*)(<tr class="from"><td><b>PDD<\/b>[\s\S]*?<\/tr>)/,
@@ -2054,18 +2179,96 @@ const PLANTED = [
   },
   {
     ac: "What it is",
-    what: "a sixth pain row",
+    what: "a sixth line under Why it works",
     ...onPage("ru", checkWhat),
     fact: "what",
-    message: /^the pain rows run .*pains\.was\.5\+pains\.now\.5, pains\.was\.5\+pains\.now\.5; 5,/,
-    edits: [[/(<li class="pain"><p class="was" data-i18n="pains\.was\.5">[\s\S]*?<\/li>)/, "$1$1"]],
+    message: /^the why lines run .*pains\.now\.5, pains\.now\.5; 5, a dot and pains\.now\.n/,
+    edits: [
+      [/(<li><span class="dot" aria-hidden="true"><\/span><span data-i18n="pains\.now\.5">[\s\S]*?<\/li>)/, "$1$1"],
+    ],
+  },
+  {
+    ac: "What it is",
+    what: "a why line without its dot",
+    ...onPage("de", checkWhat),
+    fact: "what",
+    message: /^the why lines run pains\.now\.1, no dot\+pains\.now\.2,/,
+    edits: [[/<span class="dot" aria-hidden="true"><\/span>(<span data-i18n="pains\.now\.2">)/, "$1"]],
+  },
+  {
+    ac: "What it is",
+    what: "agent memory's sessions mark raised to three",
+    ...onPage("fr", checkWhat),
+    fact: "what",
+    message: /the rating's mem row is 3, 0, 0, 1, 0, 3; 2, 0, 0, 1, 0, 3/,
+    edits: [
+      [
+        '<i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span>',
+        '<i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span>',
+      ],
+    ],
+  },
+  {
+    ac: "What it is",
+    what: "a rating cell whose dots and words disagree",
+    ...onPage("zh", checkWhat),
+    fact: "what",
+    message: /the rating's mem row is 2 of 3 said 1\/3, 0,/,
+    edits: [
+      [
+        '<i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span>',
+        '<i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">1/3</span>',
+      ],
+    ],
+  },
+  {
+    ac: "What it is",
+    what: "the choice tree ending in PDD",
+    ...onPage("uk", checkWhat),
+    fact: "what",
+    message: /the tree does not end in ProjectStore/,
+    edits: [['<li class="tree-end"><p><b>ProjectStore</b>', '<li class="tree-end"><p><b>PDD</b>']],
+  },
+  {
+    ac: "What it is",
+    what: "the tree's questions in another order",
+    ...onPage("es", checkWhat),
+    fact: "what",
+    message: /^the tree runs tree\.q\.2>mem, tree\.q\.1>chat,/,
+    edits: [
+      [
+        /(<li class="tree-step"><p class="tree-q" data-i18n="tree\.q\.1">[\s\S]*?<\/li>)(\s*)(<li class="tree-step"><p class="tree-q" data-i18n="tree\.q\.2">[\s\S]*?<\/li>)/,
+        "$3$2$1",
+      ],
+    ],
+  },
+  {
+    ac: "What it is",
+    what: "the ladder losing SDD's step",
+    ...onPage("pt", checkWhat),
+    fact: "what",
+    message: /the ladder has 4 steps; 5/,
+    edits: [[/\s*<li><span class="brick" data-i18n="ladder\.b\.3">[^\n]*?<b>SDD<\/b><\/li>/, ""]],
+  },
+  {
+    ac: "What it is",
+    what: "the ladder put above the rating",
+    ...onPage("en", checkWhat),
+    fact: "what",
+    message: /the comparison's blocks do not run/,
+    edits: [
+      [
+        /(<h3 class="cmp-sub" id="rate-title"[\s\S]*?)(<h3 class="cmp-sub" id="ladder-title"[\s\S]*?<\/ol>\s*<\/div>)/,
+        "$2$1",
+      ],
+    ],
   },
   {
     ac: "What it is",
     what: "the comparison's summary moved above the table",
     ...onPage("en", checkWhat),
     fact: "what",
-    message: /^cmp\.sum is not once under the table$/,
+    message: /^cmp\.sum is not once under the table;/,
     edits: [
       [/(<div class="table-wrap">[\s\S]*?<\/table>\s*<\/div>)(\s*)(<p class="cmp-sum"[^>]*>[\s\S]*?<\/p>)/, "$3$2$1"],
     ],
@@ -2105,12 +2308,72 @@ const PLANTED = [
     edits: [[BOX_TO_STEP_4, "$2$1"]],
   },
   {
-    ac: "Install",
-    what: "the ask panel's note on another key",
+    ac: "Step 3",
+    what: "the old tab label's key back on the ask tab",
+    ...onPage("ru", checkStep3),
+    fact: "step-3",
+    message: /^the tabs are on start\.tab\.old, start\.tab\.term; start\.tab\.ask, start\.tab\.term$/,
+    edits: [['data-i18n="start.tab.ask"', 'data-i18n="start.tab.old"']],
+  },
+  {
+    ac: "Step 3",
+    what: "a second line before the install box",
+    ...onPage("en", checkStep3),
+    fact: "step-3",
+    message: /^the step's text before the box is quick\.s\.1\.p, unkeyed; one line on quick\.s\.1\.p$/,
+    edits: [[/(<p data-i18n="quick\.s\.1\.p">[\s\S]*?<\/p>)/, "$1<p>In Codex, only the terminal.</p>"]],
+  },
+  {
+    ac: "Four tones",
+    what: "the classic tones' glow rule removed",
+    ...onText(STYLE, checkGlow),
+    fact: "glow",
+    message: /^0 glow rules for the classic tones/,
+    edits: [
+      [
+        /\n {2}:root:is\(\[data-tone="midnight"\], \[data-tone="graphite"\], \[data-tone="paper"\]\) body::before \{[^\n]*\}/,
+        "",
+      ],
+    ],
+  },
+  {
+    ac: "Four tones",
+    what: "midnight's glow made transparent",
+    ...onText(STYLE, checkGlow),
+    fact: "glow",
+    message: /^midnight --glow-1 is #3d63dd00; lit in a classic tone$/,
+    edits: [["--glow-1: #3d63dd30;", "--glow-1: #3d63dd00;"]],
+  },
+  {
+    ac: "Four tones",
+    what: "light keeping midnight's glow",
+    ...onText(STYLE, checkGlow),
+    fact: "glow",
+    message: /^light --glow-1 is #3d63dd30; transparent in light$/,
+    edits: [[/(--head-bg: var\(--light-head-bg\);\n)\s*--glow-1: var\(--no-glow\);/, "$1   "]],
+  },
+  {
+    ac: "Four tones",
+    what: "a token set in a shape rule",
+    ...onText(STYLE, checkGlow),
+    fact: "glow",
+    message: /\.lang sets a token/,
+    edits: [
+      [
+        '[data-tone="paper"]) .lang { border-radius: 4px; }',
+        '[data-tone="paper"]) .lang { border-radius: 4px; --accent: var(--brand); }',
+      ],
+    ],
+  },
+  {
+    ac: "Step 3",
+    what: "a note put back under the prompt",
     ...onPage("en", checkInstallBox),
     fact: "install-box",
-    message: /^the ask panel has no note on start\.ask\.note$/,
-    edits: [['data-i18n="start.ask.note"', 'data-i18n="start.ask.hint"']],
+    message: /^the ask panel carries start\.ask\.note; the prompt stands alone$/,
+    edits: [
+      ["</blockquote>", '</blockquote><p class="note" data-i18n="start.ask.note">In Codex, use the terminal.</p>'],
+    ],
   },
   {
     ac: "Install",
@@ -2129,8 +2392,8 @@ const PLANTED = [
     what: "a method page's Install → aimed at #instal",
     ...onPage("de", (p) => checkFragments(p, idsByPath(PAGES)), "one-vault"),
     fact: "fragment",
-    message: /^\.\.\/\.\.\/#instal lands on \/, which has no id="instal"$/,
-    edits: [['href="../../#start"', 'href="../../#instal"']],
+    message: /^\.\.\/#instal lands on \/de\/, which has no id="instal"$/,
+    edits: [['href="../#start"', 'href="../#instal"']],
   },
 
   // AC "The order", "Unique ids": the chapter heads as h2, one h1 a page, no id twice.
@@ -2730,11 +2993,13 @@ const PLANTED = [
   },
   {
     ac: "No harness status on the site",
-    what: "the English install note calling Codex experimental",
+    what: "the English after-install line calling Codex experimental",
     ...onPage("en", checkNoStatus),
     fact: "no-status",
     message: /calls Codex experimental$/,
-    edits: [[/(data-i18n="start\.ask\.note">)[^<]*/, "$1In Claude Code. Codex is experimental: use the Terminal tab."]],
+    edits: [
+      [/(data-i18n="quick\.s\.1\.after">)[^<]*/, "$1After installing, restart the agent. Codex is experimental."],
+    ],
   },
   {
     ac: "No harness status on the site",
@@ -2746,11 +3011,16 @@ const PLANTED = [
   },
   {
     ac: "No harness status on the site",
-    what: "the Russian install note calling Codex experimental",
+    what: "the Russian after-install line calling Codex experimental",
     ...onPage("ru", checkNoStatus),
     fact: "no-status",
     message: /calls Codex экспериментальн$/,
-    edits: [[/(data-i18n="start\.ask\.note">)[^<]*/, "$1Для Claude Code. Codex пока экспериментальный."]],
+    edits: [
+      [
+        /(data-i18n="quick\.s\.1\.after">)[^<]*/,
+        "$1После установки перезапустите агента. Codex пока экспериментальный.",
+      ],
+    ],
   },
 
   // AC 4: loads — another origin, a link off the site, a file that is not there.
@@ -2934,12 +3204,12 @@ const PLANTED = [
     edits: [[/^.*\(https:\/\/projectstore\.dev\/ru\/\).*\n/m, ""]],
   },
   {
-    ac: "Two languages",
-    what: "llms.txt links the German main page, which redirects",
+    ac: "Languages",
+    what: "llms.txt links /en/, which redirects",
     ...onText(LLMS_TXT, (f, t) => checkLlmsLinks(f, t, LANGS)),
     fact: "stub-link",
-    message: /https:\/\/projectstore\.dev\/de\/ redirects/,
-    edits: [[/$/, "\n- [Deutsch](https://projectstore.dev/de/)\n"]],
+    message: /https:\/\/projectstore\.dev\/en\/ redirects/,
+    edits: [[/$/, "\n- [English](https://projectstore.dev/en/)\n"]],
   },
   {
     // The method links are appended first, so the plant holds whether or not
@@ -3114,20 +3384,20 @@ const PLANTED = [
     edits: [['href="how-it-works/"', 'href="../how-it-works/"']],
   },
   {
-    ac: "Two languages",
-    what: "a German method page linking its brand to /de/, which redirects",
+    ac: "Languages",
+    what: "a German method page linking its brand to /en/, which redirects",
     ...onPage("de", checkNoStubLinks, "how-it-works"),
     fact: "stub-link",
-    message: /lands on \/de\/, which redirects to \//,
-    edits: [['<a class="brand" href="../../"', '<a class="brand" href="../"']],
+    message: /lands on \/en\/, which redirects to \//,
+    edits: [['<a class="brand" href="../"', '<a class="brand" href="../../en/"']],
   },
   {
-    ac: "Two languages",
-    what: "a German method page's brand still linking the German main page",
+    ac: "Languages",
+    what: "a German method page's brand linking the English main page",
     ...onPage("de", (p) => checkPageLinks(p, pageDirsByLang(LANGS)), "how-it-works"),
     fact: "page-link",
-    message: /lands on \/de\/, which is not a de page/,
-    edits: [['<a class="brand" href="../../"', '<a class="brand" href="../"']],
+    message: /lands on \/, which is not a de page/,
+    edits: [['<a class="brand" href="../"', '<a class="brand" href="../../"']],
   },
   {
     ac: "4",

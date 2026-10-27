@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="en" data-tone="light">
+<html lang="en" data-tone="midnight">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!--i18n:redirect-->
 <title data-i18n="meta.title">ProjectStore — a plan, two checks and a record for your coding agent</title>
 <meta name="description" content="A plugin for Claude Code and Codex. Your agent plans first, a second agent checks the plan, and a third checks the result against your checklist. Decisions and plans stay as Markdown in your git, so any agent can carry on." data-i18n-attr="content:meta.description">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="#080d19">
 <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icon-180.png">
 <link rel="stylesheet" href="assets/style.css">
@@ -20,8 +20,8 @@
 <main id="main" class="wrap">
 
 <section class="hero what" id="what" aria-labelledby="what-title">
-  <div class="section-label" data-i18n="what.label">A method and a plugin for Claude Code and Codex</div>
-  <h1 id="what-title" data-i18n="what.h1">A method for working with AI agents, <span class="acc">so you get what you had in mind.</span></h1>
+  <div class="section-label big" data-i18n="what.label">A method and a plugin for Claude Code and Codex</div>
+  <h1 id="what-title" data-i18n="what.h1">A method for working with AI agents <span class="acc">that really works.</span></h1>
   <div class="what-text">
     <p class="lead" data-i18n="what.p.1"><b>ProjectStore</b> is a method and a framework for building apps and services of any size with AI agents.</p>
     <p class="lead" data-i18n="what.p.2">First of all, it is a way for a person and agents to work together. You decide what to build. An agent writes the plan, a second agent looks for holes in it, and you approve. Then the agent builds, and a third checks the result against your checklist, item by item.</p>
@@ -33,35 +33,69 @@
     <p class="agents-line" data-i18n="hero.agents">Works in <b>Claude Code</b> and <b>Codex</b>. <b>OpenCode</b> soon; <b>Gemini</b>, <b>Z.ai</b> and <b>DeepSeek</b> next.</p>
   </div>
   <div class="what-side">
-    <div class="section-label" data-i18n="what.helps">How it helps</div>
-    <ul class="pain-list">
-    <li class="pain"><p class="was" data-i18n="pains.was.1">The agent said everything works. It doesn’t.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.1">The reviewer won’t close the task until every point of the checklist is checked.</span></p></li>
-    <li class="pain"><p class="was" data-i18n="pains.was.2">A new session in the morning, and you explain the project all over again.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.2">The session starts from the task board and the story in progress.</span></p></li>
-    <li class="pain"><p class="was" data-i18n="pains.was.3">It suggests Mongo again, though yesterday you chose Postgres.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.3">The decision is written down with its reason, and the agent follows it.</span></p></li>
-    <li class="pain"><p class="was" data-i18n="pains.was.4">You hit your limits, and Codex knows nothing about the project.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.4">Codex reads the same files and carries on.</span></p></li>
-    <li class="pain"><p class="was" data-i18n="pains.was.5">A month later, you can’t tell why the code is the way it is.</p><p class="now"><span class="arr" aria-hidden="true">→</span> <span data-i18n="pains.now.5">Every decision has a file with the reason and the options you turned down.</span></p></li>
-  </ul>
+    <div class="section-label big" data-i18n="what.why">Why it works</div>
+    <ul class="why-list">
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.1">The reviewer won’t close the task until every point of the checklist is checked.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.2">The session starts from the task board and the story in progress.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.3">The decision is written down with its reason, and the agent follows it.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.4">Codex reads the same files and carries on.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.5">Every decision has a file with the reason and the options you turned down.</span></li>
+    </ul>
   </div>
   <div class="cmp-box">
-    <div class="section-label" id="cmp-label" data-i18n="cmp.label">Which family it belongs to</div>
-    <p class="lede" data-i18n="cmp.sub">Approaches where the agent works from documents, not from a single prompt.</p>
+    <h2 class="cmp-title" id="cmp-title" data-i18n="cmp.title">How it differs from other approaches</h2>
     <div class="table-wrap">
-      <table class="grid-table cmp" aria-labelledby="cmp-label">
+      <table class="grid-table cmp" aria-labelledby="cmp-title">
         <thead><tr><th scope="col" data-i18n="cmp.col.1">Approach</th><th scope="col" data-i18n="cmp.col.2">What drives the work</th><th scope="col" data-i18n="cmp.col.3">When it is “done”</th><th scope="col" data-i18n="cmp.col.4">Strength</th><th scope="col" data-i18n="cmp.col.5">Weak spot</th></tr></thead>
         <tbody>
         <tr class="from"><td><b data-i18n="cmp.chat.1">Prompt in a chat</b><small data-i18n="cmp.chat.2">scope: one session</small></td><td data-i18n="cmp.chat.3">The conversation with the agent</td><td data-i18n="cmp.chat.4">The agent said “done”</td><td data-i18n="cmp.chat.5">Fast and simple: say it in your own words and the code appears</td><td data-i18n="cmp.chat.6">No plan and no check. Everything lives in one session and is forgotten by tomorrow</td></tr>
+        <tr class="from"><td><b data-i18n="cmp.mem.1">Agent memory</b><small data-i18n="cmp.mem.ex">Mem0, claude-mem, Claude Code auto memory</small><small data-i18n="cmp.mem.2">scope: an agent or a machine</small></td><td data-i18n="cmp.mem.3">Facts the model remembered from conversations on its own</td><td data-i18n="cmp.mem.4">Not defined: memory only reminds</td><td data-i18n="cmp.mem.5">Nothing to do: the agent remembers your habits and your environment by itself</td><td data-i18n="cmp.mem.6">It writes itself, without your approval; it lives with one agent or on one machine; what goes stale is quietly dropped, not replaced with a reason</td></tr>
         <tr class="from"><td><b>SDD</b><small>spec-driven development</small><small data-i18n="cmp.sdd.2">scope: a feature</small></td><td data-i18n="cmp.sdd.3">A specification: first how it should work, then the code. GitHub Spec Kit, for example</td><td data-i18n="cmp.sdd.4">The code matches the spec</td><td data-i18n="cmp.sdd.5">Think first, then write: the “how” is written before the code</td><td data-i18n="cmp.sdd.6">A spec covers one feature: the project's decisions and the links between features stay outside it</td></tr>
         <tr class="from"><td><b>PDD</b><small>proof-driven development</small><small data-i18n="cmp.pdd.2">scope: a change</small></td><td data-i18n="cmp.pdd.3">Proof: every change comes with evidence that it works</td><td data-i18n="cmp.pdd.4">There is a test, a command run or a line of code</td><td data-i18n="cmp.pdd.5">“Done” is proven by a test or a command, not by the agent's word</td><td data-i18n="cmp.pdd.6">It proves the code works, not that the right thing was built: without a spec and a plan there is nothing to check it against</td></tr>
-        <tr class="us"><td><b>ProjectStore</b><small data-i18n="cmp.ps.2">scope: the whole project</small></td><td data-i18n="cmp.ps.3">The project's decisions, specs, stories and plans in git, linked to each other and to the code</td><td data-i18n="cmp.ps.4">The reviewer found evidence under every acceptance criterion</td><td data-i18n="cmp.ps.5">All three at once: your own words, a spec and a plan before the code, proof after — for the whole project, many sessions, people and agents</td><td data-i18n="cmp.ps.6">Running the loop costs tokens: the drafts, the critic and the reviewer run on the model you already pay for</td></tr>
+        <tr class="us"><td><b>ProjectStore</b><small data-i18n="cmp.ps.2">scope: the whole project</small></td><td data-i18n="cmp.ps.3">The project's decisions, specs, stories and plans in git, linked to each other and to the code</td><td data-i18n="cmp.ps.4">The reviewer found evidence under every acceptance criterion</td><td data-i18n="cmp.ps.5">All four at once: your own words, memory of the project, a spec and a plan before the code, proof after — for the whole project, many sessions, people and agents</td><td data-i18n="cmp.ps.6">Running the loop costs tokens: the drafts, the critic and the reviewer run on the model you already pay for</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="cmp-sum" data-i18n="cmp.sum">ProjectStore takes the best of the three: your own words, a spec before the code and proof after. And it keeps that for the whole project, not for one feature.</p>
+    <p class="cmp-sum" data-i18n="cmp.sum">ProjectStore takes the best of all of them: your own words, memory between sessions, a spec before the code and proof after. And it keeps that for the whole project and the whole team, not for one feature or one machine.</p>
+    <h3 class="cmp-sub" id="rate-title" data-i18n="rate.title">What holds up in a long project</h3>
+    <div class="table-wrap">
+      <table class="grid-table rate" aria-labelledby="rate-title">
+        <thead><tr><th scope="col"><span class="visually-hidden" data-i18n="cmp.col.1">Approach</span></th><th scope="col" data-i18n="rate.col.1">Many sessions</th><th scope="col" data-i18n="rate.col.2">Several people</th><th scope="col" data-i18n="rate.col.3">Backlog and plan</th><th scope="col" data-i18n="rate.col.4">Decisions with reasons</th><th scope="col" data-i18n="rate.col.5">Proof of “done”</th><th scope="col" data-i18n="rate.col.6">Easy to start</th></tr></thead>
+        <tbody>
+        <tr><th scope="row"><span data-i18n="cmp.chat.1">Prompt in a chat</span></th><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td></tr>
+        <tr><th scope="row"><span data-i18n="cmp.mem.1">Agent memory</span></th><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td></tr>
+        <tr><th scope="row">SDD</th><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td></tr>
+        <tr><th scope="row">PDD</th><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td></tr>
+        <tr class="us"><th scope="row">ProjectStore</th><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cmp-note" data-i18n="rate.note">Three dots: it holds by itself; two: partly; one: with manual work; none: not at all. The rating is ours. ProjectStore gets two dots for “easy to start”: it needs Node.js and a plugin install.</p>
+    <h3 class="cmp-sub" id="tree-title" data-i18n="tree.title">Which approach you need</h3>
+    <div class="tree-wrap">
+      <ol class="tree" aria-labelledby="tree-title">
+        <li class="tree-step"><p class="tree-q" data-i18n="tree.q.1">One task for an evening?</p><span class="tree-yes" data-i18n="tree.yes">yes</span><p class="tree-a"><b data-i18n="cmp.chat.1">Prompt in a chat</b><small data-i18n="tree.a.1">quick and simple</small></p><span class="tree-no" data-i18n="tree.no">no</span><span class="tree-up" aria-hidden="true"></span><span class="tree-grew" data-i18n="tree.grew">the project grew</span></li>
+        <li class="tree-step"><p class="tree-q" data-i18n="tree.q.2">Is it enough that the agent remembers only you?</p><span class="tree-yes" data-i18n="tree.yes">yes</span><p class="tree-a"><b data-i18n="cmp.mem.1">Agent memory</b><small data-i18n="tree.a.2">remembers you on this machine</small></p><span class="tree-no" data-i18n="tree.no">no</span><span class="tree-up" aria-hidden="true"></span></li>
+        <li class="tree-step"><p class="tree-q" data-i18n="tree.q.3">One feature with a clear “how”?</p><span class="tree-yes" data-i18n="tree.yes">yes</span><p class="tree-a"><b>SDD</b><small data-i18n="tree.a.3">a spec before the code</small></p><span class="tree-no" data-i18n="tree.no">no</span><span class="tree-up" aria-hidden="true"></span></li>
+        <li class="tree-step last"><p class="tree-q" data-i18n="tree.q.4">Is it enough to prove the code works?</p><span class="tree-yes" data-i18n="tree.yes">yes</span><p class="tree-a"><b>PDD</b><small data-i18n="tree.a.4">a test instead of the agent’s word</small></p><span class="tree-no" data-i18n="tree.no">no</span><span class="tree-up" aria-hidden="true"></span></li>
+        <li class="tree-end"><p><b>ProjectStore</b> <span data-i18n="tree.end">— a project for months: many sessions, several people, a backlog. And everything above: your own words, memory of the project, a spec before the code and proof after.</span></p></li>
+      </ol>
+    </div>
+    <h3 class="cmp-sub" id="ladder-title" data-i18n="ladder.title">Each approach adds a step; ProjectStore holds them all</h3>
+    <div class="ladder-wrap">
+      <ol class="ladder" aria-labelledby="ladder-title">
+        <li><span class="brick" data-i18n="ladder.b.1">your words</span><b data-i18n="cmp.chat.1">Prompt in a chat</b></li>
+        <li><span class="brick" data-i18n="ladder.b.2">memory</span><span class="brick" data-i18n="ladder.b.1">your words</span><b data-i18n="cmp.mem.1">Agent memory</b></li>
+        <li><span class="brick" data-i18n="ladder.b.3">a spec before the code</span><span class="brick" data-i18n="ladder.b.2">memory</span><span class="brick" data-i18n="ladder.b.1">your words</span><b>SDD</b></li>
+        <li><span class="brick" data-i18n="ladder.b.4">proof</span><span class="brick" data-i18n="ladder.b.3">a spec before the code</span><span class="brick" data-i18n="ladder.b.2">memory</span><span class="brick" data-i18n="ladder.b.1">your words</span><b>PDD</b></li>
+        <li class="us"><span class="brick top" data-i18n="ladder.b.5">team, sessions, backlog</span><span class="brick" data-i18n="ladder.b.4">proof</span><span class="brick" data-i18n="ladder.b.3">a spec before the code</span><span class="brick" data-i18n="ladder.b.2">memory</span><span class="brick" data-i18n="ladder.b.1">your words</span><b>ProjectStore</b></li>
+      </ol>
+    </div>
   </div>
 </section>
 
 <section class="sec chapter" id="start" aria-labelledby="start-title">
-  <div class="section-label" data-i18n="start.label">Install and first steps</div>
+  <div class="section-label big" data-i18n="start.label">Install and first steps</div>
   <h2 id="start-title" data-i18n="start.h2">You can start even if you are not a programmer.</h2>
   <p class="lead" data-i18n="start.lead">Your agent runs the commands for you. You install two programs, open a project folder and paste one sentence.</p>
 </section>
@@ -71,17 +105,17 @@
   <ol class="qs">
     <li><h3 data-i18n="quick.s.a.h">Get an agent</h3><p data-i18n="quick.s.a.p">An agent is a program that writes and runs code from your words. Either works: <a href="https://claude.ai/download">Claude</a> (the app, its Code tab) or <a href="https://openai.com/codex/">Codex</a> by OpenAI.</p></li>
     <li><h3 data-i18n="quick.s.b.h">Install Node.js and open a project folder</h3><p data-i18n="quick.s.b.p">Node.js is what ProjectStore runs on: the LTS installer from <a href="https://nodejs.org">nodejs.org</a>, version 20 or newer, on macOS or Linux. Make an empty folder, say “my-bot”, and open it in the agent.</p></li>
-    <li><h3 data-i18n="quick.s.1.h">Install</h3><p data-i18n="quick.s.1.p">Ask your agent, or run the command in a terminal in the project folder. In Codex, only the terminal. A terminal is a window where you type commands as text; on a Mac: Applications → Utilities → Terminal.</p>
+    <li><h3 data-i18n="quick.s.1.h">Install ProjectStore</h3><p data-i18n="quick.s.1.p"><b><i>Ask your agent</i></b> or run the command in a terminal in the project folder.</p>
       <div class="install" data-tabs data-initial="ask">
         <div class="install-bar"><span class="install-dots" aria-hidden="true"><i></i><i></i><i></i></span>
           <div class="install-tabs" role="tablist" aria-label="Install" data-i18n-attr="aria-label:start.tabs">
-            <button class="install-tab" type="button" role="tab" data-tab="ask" id="tab-ask" aria-controls="panel-ask" data-i18n="start.tab.ask">Ask your agent</button>
-            <button class="install-tab" type="button" role="tab" data-tab="term" id="tab-term" aria-controls="panel-term" data-i18n="start.tab.term">Terminal</button>
+            <button class="install-tab" type="button" role="tab" data-tab="ask" id="tab-ask" aria-controls="panel-ask" data-i18n="start.tab.ask"><b>Write to your agent</b></button>
+            <button class="install-tab" type="button" role="tab" data-tab="term" id="tab-term" aria-controls="panel-term" data-i18n="start.tab.term"><i>In a terminal in the project</i></button>
           </div>
         </div>
         <div class="install-panel chatbox active" role="tabpanel" id="panel-ask" aria-labelledby="tab-ask" data-panel="ask">
           <blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote>
-          <div class="chatbox-row"><p class="chatbox-note" data-i18n="start.ask.note">In Claude Code. In Codex, use the Terminal tab.</p><button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Copy the prompt" data-done="Copied" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+          <button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Copy the prompt" data-done="Copied" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
         </div>
         <div class="install-panel termbox" role="tabpanel" id="panel-term" aria-labelledby="tab-term" data-panel="term">
           <div class="cmdline">
@@ -128,7 +162,7 @@
   <div class="proof"><b data-i18n="talk.proof.h">Built with itself</b><p data-i18n="talk.proof.p">We build ProjectStore with ProjectStore.</p></div>
 </section>
 <section class="sec chapter" id="how" aria-labelledby="how-title">
-  <div class="section-label" data-i18n="how.label">How it works</div>
+  <div class="section-label big" data-i18n="how.label">How it works</div>
   <h2 id="how-title" data-i18n="how.h1">A loop with <span class="acc">an independent check</span> in it.</h2>
   <p class="lead" data-i18n="how.lead">Agents write code fast, and they re-decide settled questions just as fast: every fresh session arrives empty. The fix is not a smarter agent. It is gather context → act → verify, run over the project and not only over the code.</p>
 </section>
@@ -152,7 +186,7 @@
 
 <section class="sec" id="agents" aria-labelledby="how-agents-title">
   <div class="section-label" data-i18n="how.agents.label">The agents</div>
-  <h2 id="how-agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">agents.</span> <span class="acc" data-i18n="agents.h2.2">All but one may only read.</span></h2>
+  <h2 id="how-agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">agents.</span> <span class="acc" data-i18n="agents.h2.2">Each one does only its own job.</span></h2>
   <p class="lede" data-i18n="agents.p.1">The advisors check, plan and tidy up, and change nothing. <b>One clerk saves only what you approved, after your Yes.</b></p>
   <div class="agents">
     <article class="agent"><span class="role chk">critic</span><span class="rw" data-i18n="agents.span.4">read-only · independent</span><p data-i18n="agents.td.1">After an ADR, spec, epic, story or design is written or changed</p><p class="c-hi" data-i18n="agents.td.2">Looks for weak spots, checks every claim against the source and asks how the plan could fail. No flattery.</p><span class="rw" data-i18n="agents.td.3">opus · max</span></article>
@@ -214,7 +248,7 @@
   </ul>
 </section>
 <section class="sec chapter" id="team" aria-labelledby="team-title">
-  <div class="section-label" data-i18n="team.label">Team and many sessions</div>
+  <div class="section-label big" data-i18n="team.label">Team and many sessions</div>
   <h2 id="team-title" data-i18n="vault.h1">Many sessions. Many people. <span class="acc">One vault.</span></h2>
   <p class="lead" data-i18n="teams.p.1">The context belongs to the team, not to one developer's chat. ADRs and specs go through pull requests, like code. <b>What gets reviewed is the reasoning.</b></p>
 </section>
@@ -303,7 +337,7 @@ projectstore: this session looks like <span class="c-acc">"<span data-slug="stor
   <p class="next-pages"><a href="one-vault/" data-i18n="team.more">The whole page: One vault, many people →</a></p>
 </section>
 <section class="sec chapter" id="why" aria-labelledby="why-title">
-  <div class="section-label" data-i18n="why.label">Why it works</div>
+  <div class="section-label big" data-i18n="why.label">Why it works</div>
   <h2 id="why-title" data-i18n="why.h2.1">The industry invented this long ago.<br><span class="acc">Agents made it cheap.</span></h2>
   <p class="lead" data-i18n="why.p.1">ADRs, reviews, a backlog, acceptance criteria, links from goal to code. Mature engineering teams have worked this way for twenty years. <b>ProjectStore invents none of it.</b></p>
 </section>

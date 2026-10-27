@@ -1,1 +1,494 @@
-<!doctype html><meta charset="utf-8"><title>ProjectStore</title><link rel="canonical" href="../"><meta http-equiv="refresh" content="0; url=../"><a href="../">ProjectStore</a>
+<!doctype html>
+<html lang="uk" data-tone="midnight">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title data-i18n="meta.title">ProjectStore — план, дві перевірки та запис для вашого агента</title>
+<meta name="description" content="Плагін для Claude Code і Codex. Ваш агент спершу планує, другий агент перевіряє план, а третій звіряє результат із вашим чек-листом. Рішення й плани лишаються як Markdown у вашому git, тож будь-який агент може продовжити." data-i18n-attr="content:meta.description">
+<meta name="theme-color" content="#080d19">
+<link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="stylesheet" href="../assets/style.css?v=1f26b3ac">
+<script>(function(){var d=document.documentElement,t="midnight",s;try{s=localStorage.getItem("ps_tone");}catch(e){}if(s==="graphite"||s==="midnight"||s==="paper"||s==="light")t=s;else if(typeof matchMedia==="function"&&matchMedia("(prefers-color-scheme: light)").matches)t="paper";d.setAttribute("data-tone",t);d.setAttribute("data-tones","");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
+<link rel="alternate" hreflang="en" href="https://projectstore.dev/">
+<link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
+<link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
+<link rel="alternate" hreflang="fr" href="https://projectstore.dev/fr/">
+<link rel="alternate" hreflang="pt-BR" href="https://projectstore.dev/pt/">
+<link rel="alternate" hreflang="ru" href="https://projectstore.dev/ru/">
+<link rel="alternate" hreflang="uk" href="https://projectstore.dev/uk/">
+<link rel="alternate" hreflang="zh-CN" href="https://projectstore.dev/zh/">
+<link rel="alternate" hreflang="x-default" href="https://projectstore.dev/">
+<link rel="canonical" href="https://projectstore.dev/uk/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ProjectStore">
+<meta property="og:locale" content="uk">
+<meta property="og:title" content="ProjectStore — план, дві перевірки та запис для вашого агента">
+<meta property="og:description" content="Плагін для Claude Code і Codex. Ваш агент спершу планує, другий агент перевіряє план, а третій звіряє результат із вашим чек-листом. Рішення й плани лишаються як Markdown у вашому git, тож будь-який агент може продовжити.">
+<meta property="og:url" content="https://projectstore.dev/uk/">
+<meta property="og:image" content="https://projectstore.dev/assets/og.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://projectstore.dev/assets/og.png">
+</head>
+<body data-page="main">
+<svg class="sprite" width="0" height="0" aria-hidden="true" focusable="false">
+  <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/><path d="M10.5 3.5V3A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.5 6.5 12 13 4.5"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
+  <symbol id="i-shrink" viewBox="0 0 24 24"><path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"/></symbol>
+  <defs>
+    <marker id="m" class="mk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+    <marker id="m-chk" class="mk chk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+    <marker id="m-ok" class="mk ok" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+    <marker id="m-pln" class="mk pln" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+    <marker id="m-ret" class="mk ret" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+  </defs>
+</svg>
+<a class="skip-link" href="#main" data-i18n="page.a.1">Перейти до вмісту</a>
+
+<header class="site-header">
+  <div class="wrap head-row">
+    <a class="brand" href="./" aria-label="ProjectStore, головна" data-i18n-attr="aria-label:nav.home"><img class="mark" src="../assets/mark.svg" alt="" width="30" height="30"><span class="wordmark"><span class="dot">.</span>projectstore</span></a>
+    <nav class="head-nav" aria-label="Основна навігація" data-i18n-attr="aria-label:nav.aria-label.2">
+      <a class="page-link" data-nav="how-it-works" href="how-it-works/" data-i18n="nav.how">Як це працює</a>
+      <a class="page-link" data-nav="why-it-works" href="why-it-works/" data-i18n="nav.why">Чому це працює</a>
+      <a class="page-link" data-nav="one-vault" href="one-vault/" data-i18n="nav.vault">Один vault, багато людей</a>
+      <div class="tone-switch" role="group" aria-label="Тон тла" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="false" aria-label="Опівніч" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="Графіт" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="paper" aria-pressed="false" aria-label="Папір" data-i18n-attr="aria-label:nav.tone.paper"><span class="sw sw-paper" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="light" aria-pressed="true" aria-label="Світлий" data-i18n-attr="aria-label:nav.tone.light"><span class="sw sw-light" aria-hidden="true"></span></button></div>
+      <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="Мова: Українська"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>UK</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../" hreflang="en" lang="en" data-lang="en">English</a></li><li><a href="../de/" hreflang="de" lang="de" data-lang="de">Deutsch</a></li><li><a href="../es/" hreflang="es" lang="es" data-lang="es">Español</a></li><li><a href="../fr/" hreflang="fr" lang="fr" data-lang="fr">Français</a></li><li><a href="../pt/" hreflang="pt-BR" lang="pt-BR" data-lang="pt">Português</a></li><li><a href="../ru/" hreflang="ru" lang="ru" data-lang="ru">Русский</a></li><li><a href="../uk/" hreflang="uk" lang="uk" data-lang="uk" aria-current="true">Українська</a></li><li><a href="../zh/" hreflang="zh-CN" lang="zh-CN" data-lang="zh">中文</a></li></ul></div>
+      <a class="gh" href="https://github.com/SmartAndPoint/ProjectStore" aria-label="GitHub" target="_blank" rel="noopener noreferrer"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span>GitHub</span></a>
+    </nav>
+  </div>
+  <nav class="mobile-nav" aria-label="Сторінки" data-i18n-attr="aria-label:nav.pages"><a data-nav="main" href="./#start" data-i18n="nav.install">Встановити</a><a data-nav="how-it-works" href="how-it-works/" data-i18n="nav.how.2">Як це працює</a><a data-nav="why-it-works" href="why-it-works/" data-i18n="nav.why.2">Чому це працює</a><a data-nav="one-vault" href="one-vault/" data-i18n="nav.vault.2">Один vault, багато людей</a></nav>
+</header>
+
+<main id="main" class="wrap">
+
+<section class="hero what" id="what" aria-labelledby="what-title">
+  <div class="section-label big" data-i18n="what.label">Методика й плагін для Claude Code і Codex</div>
+  <h1 id="what-title" data-i18n="what.h1">Методика роботи з ШІ-агентами, <span class="acc">яка справді працює.</span></h1>
+  <div class="what-text">
+    <p class="lead" data-i18n="what.p.1"><b>ProjectStore</b> — це методика й фреймворк для створення застосунків і сервісів будь-якого розміру за допомогою ШІ-агентів.</p>
+    <p class="lead" data-i18n="what.p.2">Передусім це спосіб спільної роботи людини й агентів. Ви вирішуєте, що будувати. Агент пише план, другий агент шукає в ньому прогалини, ви схвалюєте. Потім агент будує, а третій звіряє результат із вашим чек-листом, пункт за пунктом.</p>
+    <p class="lead" data-i18n="what.p.3">Він встановлюється як плагін у Claude Code і Codex. Далі ви говорите з агентом своїми словами, а рішення, плани й прогрес він зберігає звичайними файлами у вашому проєкті. Завтра, на іншому комп’ютері чи в іншому агенті робота продовжиться з того самого місця.</p>
+    <div class="actions">
+      <a class="btn primary" href="#start" data-i18n="what.cta.install">Встановити</a>
+      <a class="btn" href="#how" data-i18n="what.cta.how">Як це працює</a>
+    </div>
+    <p class="agents-line" data-i18n="hero.agents">Працює в <b>Claude Code</b> і <b>Codex</b>. Незабаром <b>OpenCode</b>; далі <b>Gemini</b>, <b>Z.ai</b> і <b>DeepSeek</b>.</p>
+  </div>
+  <div class="what-side">
+    <div class="section-label big" data-i18n="what.why">Чому це працює</div>
+    <ul class="why-list">
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.1">Reviewer не закриє завдання, доки не перевірено кожен пункт чек-листа.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.2">Сесія починається з дошки завдань і сторі, що в роботі.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.3">Рішення записане разом із причиною, і агент йому слідує.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.4">Codex читає ті самі файли й продовжує роботу.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.5">Для кожного рішення є файл із причиною та варіантами, від яких ви відмовилися.</span></li>
+    </ul>
+  </div>
+  <div class="cmp-box">
+    <h2 class="cmp-title" id="cmp-title" data-i18n="cmp.title">Чим це відрізняється від інших підходів</h2>
+    <div class="table-wrap">
+      <table class="grid-table cmp" aria-labelledby="cmp-title">
+        <thead><tr><th scope="col" data-i18n="cmp.col.1">Підхід</th><th scope="col" data-i18n="cmp.col.2">Що веде роботу</th><th scope="col" data-i18n="cmp.col.3">Коли це «готово»</th><th scope="col" data-i18n="cmp.col.4">Сильна сторона</th><th scope="col" data-i18n="cmp.col.5">Слабке місце</th></tr></thead>
+        <tbody>
+        <tr class="from"><td><b data-i18n="cmp.chat.1">Запит у чаті</b><small data-i18n="cmp.chat.2">охоплення: одна сесія</small></td><td data-i18n="cmp.chat.3">Розмова з агентом</td><td data-i18n="cmp.chat.4">Агент сказав «готово»</td><td data-i18n="cmp.chat.5">Швидко й просто: кажете своїми словами, і з’являється код</td><td data-i18n="cmp.chat.6">Ні плану, ні перевірки. Усе живе в одній сесії, а завтра забувається</td></tr>
+        <tr class="from"><td><b data-i18n="cmp.mem.1">Пам’ять агента</b><small data-i18n="cmp.mem.ex">Mem0, claude-mem, авто-пам’ять Claude Code</small><small data-i18n="cmp.mem.2">охоплення: один агент або один комп’ютер</small></td><td data-i18n="cmp.mem.3">Факти, які модель сама запам’ятала з розмов</td><td data-i18n="cmp.mem.4">Не визначено: пам’ять лише нагадує</td><td data-i18n="cmp.mem.5">Нічого робити не треба: агент сам пам’ятає ваші звички й середовище</td><td data-i18n="cmp.mem.6">Пишеться сама, без вашого схвалення; живе в одного агента або на одному комп’ютері; застаріле тихо відкидається, а не замінюється із зазначенням причини</td></tr>
+        <tr class="from"><td><b>SDD</b><small>spec-driven development</small><small data-i18n="cmp.sdd.2">охоплення: одна функція</small></td><td data-i18n="cmp.sdd.3">Специфікація: спершу як це має працювати, потім код. Наприклад, GitHub Spec Kit</td><td data-i18n="cmp.sdd.4">Код відповідає специфікації</td><td data-i18n="cmp.sdd.5">Спершу подумати, потім писати: «як» записується до коду</td><td data-i18n="cmp.sdd.6">Специфікація охоплює одну функцію: рішення проєкту та зв’язки між функціями лишаються поза нею</td></tr>
+        <tr class="from"><td><b>PDD</b><small>proof-driven development</small><small data-i18n="cmp.pdd.2">охоплення: одна зміна</small></td><td data-i18n="cmp.pdd.3">Доказ: кожна зміна супроводжується свідченням, що вона працює</td><td data-i18n="cmp.pdd.4">Є тест, запуск команди або рядок коду</td><td data-i18n="cmp.pdd.5">«Готово» підтверджує тест чи команда, а не слово агента</td><td data-i18n="cmp.pdd.6">Доводить, що код працює, а не що збудовано те, що треба: без специфікації й плану немає з чим звіряти</td></tr>
+        <tr class="us"><td><b>ProjectStore</b><small data-i18n="cmp.ps.2">охоплення: увесь проєкт</small></td><td data-i18n="cmp.ps.3">Рішення, специфікації, сторі та плани проєкту в git, пов’язані між собою і з кодом</td><td data-i18n="cmp.ps.4">Reviewer знайшов доказ під кожним критерієм приймання</td><td data-i18n="cmp.ps.5">Усі чотири разом: ваші слова, пам’ять про проєкт, специфікація й план перед кодом, доказ після нього — для всього проєкту, багатьох сесій, людей і агентів</td><td data-i18n="cmp.ps.6">Цикл коштує токенів: чернетки, critic і reviewer працюють на моделі, за яку ви вже платите</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cmp-sum" data-i18n="cmp.sum">ProjectStore бере найкраще від усіх: ваші слова, пам’ять між сесіями, специфікацію перед кодом і доказ після. І зберігає це для всього проєкту та всієї команди, а не для однієї функції чи одного комп’ютера.</p>
+    <h3 class="cmp-sub" id="rate-title" data-i18n="rate.title">Що витримує довгий проєкт</h3>
+    <div class="table-wrap">
+      <table class="grid-table rate" aria-labelledby="rate-title">
+        <thead><tr><th scope="col"><span class="visually-hidden" data-i18n="cmp.col.1">Підхід</span></th><th scope="col" data-i18n="rate.col.1">Багато сесій</th><th scope="col" data-i18n="rate.col.2">Кілька людей</th><th scope="col" data-i18n="rate.col.3">Беклог і план</th><th scope="col" data-i18n="rate.col.4">Рішення з причинами</th><th scope="col" data-i18n="rate.col.5">Доказ «готово»</th><th scope="col" data-i18n="rate.col.6">Легко почати</th></tr></thead>
+        <tbody>
+        <tr><th scope="row"><span data-i18n="cmp.chat.1">Запит у чаті</span></th><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td></tr>
+        <tr><th scope="row"><span data-i18n="cmp.mem.1">Пам’ять агента</span></th><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td></tr>
+        <tr><th scope="row">SDD</th><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td></tr>
+        <tr><th scope="row">PDD</th><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td></tr>
+        <tr class="us"><th scope="row">ProjectStore</th><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cmp-note" data-i18n="rate.note">Три крапки: тримається саме; дві: частково; одна: з ручною роботою; жодної: зовсім ні. Оцінка наша. ProjectStore отримує дві крапки за «легко почати»: потрібні Node.js і встановлення плагіна.</p>
+    <h3 class="cmp-sub" id="tree-title" data-i18n="tree.title">Який підхід вам потрібен</h3>
+    <div class="tree-wrap">
+      <ol class="tree" aria-labelledby="tree-title">
+        <li class="tree-step"><p class="tree-q" data-i18n="tree.q.1">Одне завдання на вечір?</p><span class="tree-yes" data-i18n="tree.yes">так</span><p class="tree-a"><b data-i18n="cmp.chat.1">Запит у чаті</b><small data-i18n="tree.a.1">швидко й просто</small></p><span class="tree-no" data-i18n="tree.no">ні</span><span class="tree-up" aria-hidden="true"></span><span class="tree-grew" data-i18n="tree.grew">проєкт виріс</span></li>
+        <li class="tree-step"><p class="tree-q" data-i18n="tree.q.2">Чи досить, щоб агент пам’ятав лише вас?</p><span class="tree-yes" data-i18n="tree.yes">так</span><p class="tree-a"><b data-i18n="cmp.mem.1">Пам’ять агента</b><small data-i18n="tree.a.2">пам’ятає вас на цьому комп’ютері</small></p><span class="tree-no" data-i18n="tree.no">ні</span><span class="tree-up" aria-hidden="true"></span></li>
+        <li class="tree-step"><p class="tree-q" data-i18n="tree.q.3">Одна функція з ясним «як»?</p><span class="tree-yes" data-i18n="tree.yes">так</span><p class="tree-a"><b>SDD</b><small data-i18n="tree.a.3">специфікація перед кодом</small></p><span class="tree-no" data-i18n="tree.no">ні</span><span class="tree-up" aria-hidden="true"></span></li>
+        <li class="tree-step last"><p class="tree-q" data-i18n="tree.q.4">Чи досить довести, що код працює?</p><span class="tree-yes" data-i18n="tree.yes">так</span><p class="tree-a"><b>PDD</b><small data-i18n="tree.a.4">тест замість слова агента</small></p><span class="tree-no" data-i18n="tree.no">ні</span><span class="tree-up" aria-hidden="true"></span></li>
+        <li class="tree-end"><p><b>ProjectStore</b> <span data-i18n="tree.end">— проєкт на місяці: багато сесій, кілька людей, беклог. І все перелічене вище: ваші слова, пам’ять про проєкт, специфікація перед кодом і доказ після.</span></p></li>
+      </ol>
+    </div>
+    <h3 class="cmp-sub" id="ladder-title" data-i18n="ladder.title">Кожен підхід додає крок; ProjectStore тримає їх усі</h3>
+    <div class="ladder-wrap">
+      <ol class="ladder" aria-labelledby="ladder-title">
+        <li><span class="brick" data-i18n="ladder.b.1">ваші слова</span><b data-i18n="cmp.chat.1">Запит у чаті</b></li>
+        <li><span class="brick" data-i18n="ladder.b.2">пам’ять</span><span class="brick" data-i18n="ladder.b.1">ваші слова</span><b data-i18n="cmp.mem.1">Пам’ять агента</b></li>
+        <li><span class="brick" data-i18n="ladder.b.3">специфікація перед кодом</span><span class="brick" data-i18n="ladder.b.2">пам’ять</span><span class="brick" data-i18n="ladder.b.1">ваші слова</span><b>SDD</b></li>
+        <li><span class="brick" data-i18n="ladder.b.4">доказ</span><span class="brick" data-i18n="ladder.b.3">специфікація перед кодом</span><span class="brick" data-i18n="ladder.b.2">пам’ять</span><span class="brick" data-i18n="ladder.b.1">ваші слова</span><b>PDD</b></li>
+        <li class="us"><span class="brick top" data-i18n="ladder.b.5">команда, сесії, беклог</span><span class="brick" data-i18n="ladder.b.4">доказ</span><span class="brick" data-i18n="ladder.b.3">специфікація перед кодом</span><span class="brick" data-i18n="ladder.b.2">пам’ять</span><span class="brick" data-i18n="ladder.b.1">ваші слова</span><b>ProjectStore</b></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="sec chapter" id="start" aria-labelledby="start-title">
+  <div class="section-label big" data-i18n="start.label">Встановлення й перші кроки</div>
+  <h2 id="start-title" data-i18n="start.h2">Почати можна, навіть якщо ви не програміст.</h2>
+  <p class="lead" data-i18n="start.lead">Команди за вас виконує агент. Ви встановлюєте дві програми, відкриваєте папку проєкту й вставляєте одне речення.</p>
+</section>
+
+<section class="sec" id="quick" aria-labelledby="quick-title">
+  <h2 id="quick-title" data-i18n="quick.h2">Швидкий старт</h2>
+  <ol class="qs">
+    <li><h3 data-i18n="quick.s.a.h">Отримайте агента</h3><p data-i18n="quick.s.a.p">Агент — це програма, яка пише й запускає код за вашими словами. Підійде будь-який: <a href="https://claude.ai/download" target="_blank" rel="noopener noreferrer">Claude</a> (застосунок, вкладка Code) або <a href="https://openai.com/codex/" target="_blank" rel="noopener noreferrer">Codex</a> від OpenAI.</p></li>
+    <li><h3 data-i18n="quick.s.b.h">Встановіть Node.js і відкрийте папку проєкту</h3><p data-i18n="quick.s.b.p">Node.js — це те, на чому працює ProjectStore: інсталятор LTS із <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer">nodejs.org</a>, версія 20 або новіша, для macOS чи Linux. Створіть порожню папку, скажімо «my-bot», і відкрийте її в агенті.</p></li>
+    <li><h3 data-i18n="quick.s.1.h">Встановіть ProjectStore</h3><p data-i18n="quick.s.1.p"><b><i>Попросіть свого агента</i></b> або виконайте команду в терміналі в папці проєкту.</p>
+      <div class="install" data-tabs data-initial="ask">
+        <div class="install-bar"><span class="install-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <div class="install-tabs" role="tablist" aria-label="Встановлення" data-i18n-attr="aria-label:start.tabs">
+            <button class="install-tab" type="button" role="tab" data-tab="ask" id="tab-ask" aria-controls="panel-ask" data-i18n="start.tab.ask"><b>Напишіть своєму агенту</b></button>
+            <button class="install-tab" type="button" role="tab" data-tab="term" id="tab-term" aria-controls="panel-term" data-i18n="start.tab.term"><i>У терміналі в проєкті</i></button>
+          </div>
+        </div>
+        <div class="install-panel chatbox active" role="tabpanel" id="panel-ask" aria-labelledby="tab-ask" data-panel="ask">
+          <blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote>
+          <button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Скопіювати промпт" data-done="Скопійовано" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+        </div>
+        <div class="install-panel termbox" role="tabpanel" id="panel-term" aria-labelledby="tab-term" data-panel="term">
+          <div class="cmdline">
+            <div class="cmdtext"><span class="ps1">~/your-project $</span><pre id="install-cmd" data-fact="install">npx projectstore setup</pre></div>
+            <button class="copy" type="button" data-copy-from="install-cmd" aria-label="Копіювати команду" data-done="Скопійовано" data-i18n-attr="aria-label:hero.copy;data-done:hero.copied"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+          </div>
+        </div>
+      </div>
+      <p class="note" data-i18n="quick.s.1.after">Після встановлення перезапустіть агента; Codex один раз попросить схвалити свої хуки.</p></li>
+    <li><h3 data-i18n="quick.s.2.h">Скажіть, що хочете побудувати</h3><p class="say">I want to create a stock trading bot</p><p class="tr" data-i18n="quick.s.2.tr">«Хочу зробити бота для торгівлі акціями»</p></li>
+    <li><h3 data-i18n="quick.s.3.h">Дайте відповіді на його запитання</h3><p data-i18n="quick.s.3.p">Перш ніж планувати, агент питає про те, що можете вирішити лише ви:</p>
+      <div class="chat">
+        <p class="chat-agent">The project is empty—no code, and the vault just has README scaffolding with no epics, stories, or ADRs yet. Per CLAUDE.md, I'll start with an epic and its stories in the vault rather than code, but first I need you to make a few decisions that will shape the plan.</p>
+        <p class="tr" data-i18n="quick.chat.tr">Переклад: «Проєкт порожній, коду й нотаток поки немає. Почну з плану, а не з коду. Але спершу потрібні ваші рішення».</p>
+        <div class="choice">
+          <p class="choice-q">Should the bot trade real money? <span class="tr" data-i18n="quick.q.tr">(торгувати реальними грошима?)</span></p>
+          <ol>
+            <li>Paper only (Recommended) <span data-i18n="quick.o.1">· paper/sandbox-акаунт</span></li>
+            <li>Backtest only <span data-i18n="quick.o.2">· історичні дані, без брокера</span></li>
+            <li>Live, with safeguards <span data-i18n="quick.o.3">· аварійна зупинка, ліміти позицій, денний ліміт збитків</span></li>
+          </ol>
+        </div>
+      </div>
+      <p class="note" data-i18n="quick.s.3.src">З реальної сесії Claude Code на порожньому проєкті, 21 жовтня 2026 року. Текст агента наведено дослівно; подробиці варіантів скорочено.</p>
+    </li>
+    <li><h3 data-i18n="quick.s.4.h">Схваліть план</h3><p data-i18n="quick.s.4.p">На той час critic його вже перевірив. Після вашого «так» агент будує, а reviewer звіряє результат із чек-листом.</p></li>
+  </ol>
+</section>
+
+<section class="sec" id="talk" aria-labelledby="talk-title">
+  <h2 id="talk-title" data-i18n="talk.h2">Що ви можете робити</h2>
+  <p class="lede" data-i18n="talk.sub">Просто говоріть зі своїм агентом, своїми словами. Наприклад:</p>
+  <div class="tasks">
+    <div class="task"><h3 data-i18n="talk.c.1.h">Почати проєкт з ідеї</h3><p class="say">I want to create a stock trading bot</p><p data-i18n="talk.c.1.p">Він питає про те, що можете вирішити лише ви, потім пише план: епіки, сторі, чек-лист для кожного. Коду ще немає.</p></div>
+    <div class="task"><h3 data-i18n="talk.c.2.h">Вирішити один раз</h3><p class="say">Let's go with Postgres, not Mongo — we need transactions.</p><p data-i18n="talk.c.2.p">Рішення стає файлом із варіантами, від яких ви відмовилися. Наступні сесії йому слідують, а не вирішують наново.</p></div>
+    <div class="task"><h3 data-i18n="talk.c.3.h">Побудувати функцію за її чек-листом</h3><p class="say">Take the next story and build it</p><p data-i18n="talk.c.3.p">Planner знаходить, куди це подіти, агент пише код і тести, а reviewer перевіряє кожен пункт, перш ніж це вважатиметься готовим.</p></div>
+    <div class="task"><h3 data-i18n="talk.c.4.h">Продовжити завтра</h3><p class="say">Where were we?</p><p data-i18n="talk.c.4.p">Нова сесія читає дошку й сторі в роботі та продовжує звідти.</p></div>
+  </div>
+  <ul class="trust">
+    <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="talk.trust.1">Нічого не записується без вашого «так».</span></li>
+    <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="talk.trust.2">Звичайний Markdown у вашому git. Приберіть плагін, і нотатки залишаться.</span></li>
+    <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span class="agents-line" data-i18n="talk.agents">Працює в <b>Claude Code</b> і <b>Codex</b>. Незабаром <b>OpenCode</b>; далі <b>Gemini</b>, <b>Z.ai</b> і <b>DeepSeek</b>.</span></li>
+  </ul>
+  <div class="proof"><b data-i18n="talk.proof.h">Побудовано з його допомогою</b><p data-i18n="talk.proof.p">Ми будуємо ProjectStore за допомогою ProjectStore.</p></div>
+</section>
+<section class="sec chapter" id="how" aria-labelledby="how-title">
+  <div class="section-label big" data-i18n="how.label">Як це працює</div>
+  <h2 id="how-title" data-i18n="how.h1">Цикл із <span class="acc">незалежною перевіркою</span> всередині.</h2>
+  <p class="lead" data-i18n="how.lead">Агенти пишуть код швидко — і так само швидко знову вирішують уже вирішене: кожна нова сесія починає з нуля. Вихід не в розумнішому агентові. Це «зібрати контекст → діяти → перевірити» над проєктом, а не лише над кодом.</p>
+</section>
+
+<section class="sec joined" id="loop" aria-labelledby="loop-title">
+<figure class="loop" aria-labelledby="loop-cap">
+  <figcaption id="loop-cap" class="visually-hidden" data-i18n="loop.cap">Цикл ProjectStore. Рішення: завдання від вас, ADR, специфікація чи сторі, незалежний critic, ваше схвалення. Розробка: planner, реалізація, незалежний reviewer, готово. Кожен артефакт потрапляє до vault, і наступна сесія його бачить.</figcaption>
+  <div class="diagram">
+  <svg class="dg loop-svg" viewBox="0 0 1104 488" width="1104" height="488" role="group" aria-labelledby="loop-cap">
+    <text class="lbl" x="48" y="80" data-i18n="loop.decide">рішення</text>
+    <text class="lbl" x="150" y="262" data-i18n="loop.build">розробка</text>
+    <path class="edge" d="M216 134H298" marker-end="url(#m)"/>
+    <path class="edge" d="M528 134H610" marker-end="url(#m)"/>
+    <path class="edge" d="M840 134H922" marker-end="url(#m)"/>
+    <path class="edge chk" d="M728 96V52H416V90" marker-end="url(#m-chk)"/>
+    <text class="elbl chk" x="572" y="44" text-anchor="middle" data-i18n="loop.revise">↺ правки</text>
+    <path class="edge" d="M1012 172V228H132V278" marker-end="url(#m)"/>
+    <text class="elbl" x="572" y="218" text-anchor="middle" data-i18n="loop.pickup">агент бере в роботу</text>
+    <path class="edge" d="M216 322H298" marker-end="url(#m)"/>
+    <path class="edge" d="M528 322H610" marker-end="url(#m)"/>
+    <path class="edge ok" d="M840 322H922" marker-end="url(#m-ok)"/>
+    <path class="edge chk" d="M680 360V384H460V366" marker-end="url(#m-chk)"/>
+    <text class="elbl chk" x="570" y="404" text-anchor="middle" data-i18n="loop.fix">↺ правка</text>
+    <path class="edge ok" d="M1012 360V410" marker-end="url(#m-ok)"/>
+    <rect class="nb dash" x="304" y="416" width="792" height="44" rx="6"/>
+    <text class="elbl" x="320" y="443" data-i18n="loop.views">дошка, граф зв’язків і мапа коду оновлюються</text>
+    <path class="edge ret" d="M304 438H24V134H42" marker-end="url(#m-ret)"/>
+    <text class="elbl dim" x="40" y="478" data-i18n="loop.next">наступна сесія це бачить</text>
+
+    <g class="node" data-step="1"><rect class="nb" x="48" y="96" width="168" height="76" rx="6"/><text class="t" x="64" y="128" data-i18n="loop.task">Завдання</text><text class="s" x="64" y="150" data-i18n="loop.task.s">від вас</text></g>
+    <g class="node" data-step="2"><rect class="nb acc" x="304" y="96" width="224" height="76" rx="6"/><text class="t acc" x="320" y="128" data-i18n="loop.art">ADR · спец. · сторі</text><text class="s" x="320" y="150" data-i18n="loop.art.s">«чому» на диску</text></g>
+    <g class="node" data-step="3"><rect class="nb chk" x="616" y="96" width="224" height="76" rx="6"/><text class="tag" x="632" y="118" data-i18n="loop.check">незалежна перевірка</text><text class="t chk" x="632" y="142" data-i18n="loop.critic">critic</text><text class="s" x="632" y="162" data-i18n="loop.critic.s">чистий контекст</text></g>
+    <g class="node" data-step="4"><rect class="nb acc" x="928" y="96" width="168" height="76" rx="6"/><text class="t acc" x="944" y="128" data-i18n="loop.you">Ви</text><text class="s" x="944" y="150" data-i18n="loop.you.s">схвалюєте</text></g>
+    <g class="node" data-step="5"><rect class="nb pln" x="48" y="284" width="168" height="76" rx="6"/><text class="t pln" x="64" y="316" data-i18n="loop.planner">planner</text><text class="s" x="64" y="338" data-i18n="loop.planner.s">де в коді</text></g>
+    <g class="node" data-step="6"><rect class="nb" x="304" y="284" width="224" height="76" rx="6"/><text class="t" x="320" y="316" data-i18n="loop.impl">реалізація</text><text class="s" x="320" y="338" data-i18n="loop.impl.s">код + тести</text></g>
+    <g class="node" data-step="7"><rect class="nb chk" x="616" y="284" width="224" height="76" rx="6"/><text class="tag" x="632" y="306" data-i18n="loop.check.2">незалежна перевірка</text><text class="t chk" x="632" y="330" data-i18n="loop.reviewer">reviewer</text><text class="s" x="632" y="350" data-i18n="loop.reviewer.s">за критеріями</text></g>
+    <g class="node" data-step="8"><rect class="nb ok" x="928" y="284" width="168" height="76" rx="6"/><text class="t ok" x="944" y="316" data-i18n="loop.done">готово ✓</text><text class="s" x="944" y="338" data-i18n="loop.done.s">критерії виконано</text></g>
+  </svg>
+  </div>
+  <ol class="step-lines">
+    <li data-line="1"><b>01</b><span data-i18n="loop.l.1">Ви кажете, що вам потрібно. Агент відкриває артефакт, перш ніж відкрити редактор.</span></li>
+    <li data-line="2"><b>02</b><span data-i18n="loop.l.2">ADR — коли щось треба вирішити, епік і сторі — для роботи, специфікація — коли «як» неочевидне. Спершу попередній перегляд, запис — після вашого «Так».</span></li>
+    <li data-line="3"><b>03</b><span data-i18n="loop.l.3">Critic із чистим контекстом, не зацікавлений у чернетці, атакує її. Чекайте на «revise».</span></li>
+    <li data-line="4"><b>04</b><span data-i18n="loop.l.4">Ви схвалюєте правки. Артефакт отримує позначку reviewed і потрапляє в беклог.</span></li>
+    <li data-line="5"><b>05</b><span data-i18n="loop.l.5">Агент береться за сторі. Planner читає, як попередні епіки лягли в код, і каже, де місце цій зміні.</span></li>
+    <li data-line="6"><b>06</b><span data-i18n="loop.l.6">Код і тести за планом сторі.</span></li>
+    <li data-line="7"><b>07</b><span data-i18n="loop.l.7">Reviewer із чистим контекстом звіряє диф із кожним критерієм приймання й просить доказ.</span></li>
+    <li data-line="8"><b>08</b><span data-i18n="loop.l.8">Готово, з доказом під кожним критерієм. Дошка, граф зв’язків і мапа коду перебудовуються.</span></li>
+  </ol>
+</figure>
+  <figure class="loopfig" data-player>
+    <figcaption id="loop-title" data-i18n="fig.cap">Як проходить завдання</figcaption>
+    <div class="player">
+      <img class="player-poster" src="../assets/loop-still.webp" width="1920" height="1080" loading="lazy" decoding="async" draggable="false" alt="Анімована термінальна панель циклу на реальному епіку. Ви просите систему копіювання між вашими пристроями; агент пише епік і його сторі; critic із чистим контекстом повертає їх із двома блокерами; ви схвалюєте виправлення; planner знаходить, куди піде код; код і тести; reviewer перевіряє кожен критерій приймання; готово. Дошка завдань, граф зв’язків і мапа коду перебудовуються, і наступна сесія їх бачить. Бічна панель показує critic на виклику та reviewer." data-i18n-attr="alt:fig.alt">
+      <template class="player-src"><iframe class="player-frame" src="../assets/loop.html" tabindex="-1" aria-hidden="true"></iframe></template>
+      <div class="player-bar" hidden>
+        <button class="player-play" type="button" aria-pressed="false" aria-label="Пауза" data-i18n-attr="aria-label:fig.pause"><span class="pause-bars" aria-hidden="true"></span></button>
+        <input class="player-seek" type="range" min="0" max="30" step="0.1" value="0" aria-label="Позиція" data-i18n-attr="aria-label:fig.seek">
+        <span class="player-time" aria-hidden="true">0:00 / 0:30</span>
+        <button class="player-full" type="button" aria-pressed="false" aria-label="На весь екран" data-i18n-attr="aria-label:fig.full"><svg class="icon on-off" aria-hidden="true"><use href="#i-expand"/></svg><svg class="icon on-on" aria-hidden="true"><use href="#i-shrink"/></svg></button>
+      </div>
+    </div>
+  </figure>
+</section>
+
+<section class="sec" id="agents" aria-labelledby="how-agents-title">
+  <div class="section-label" data-i18n="how.agents.label">Агенти</div>
+  <h2 id="how-agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">агентів.</span> <span class="acc" data-i18n="agents.h2.2">Кожен розв’язує лише своє завдання.</span></h2>
+  <p class="lede" data-i18n="agents.p.1">Радники перевіряють, планують і впорядковують, але нічого не змінюють. <b>Один clerk зберігає лише те, що ви схвалили, після вашого «Так».</b></p>
+  <div class="agents">
+    <article class="agent"><span class="role chk">critic</span><span class="rw" data-i18n="agents.span.4">лише читання · незалежний</span><p data-i18n="agents.td.1">Після того як написано або змінено ADR, специфікацію, епік, сторі чи дизайн</p><p class="c-hi" data-i18n="agents.td.2">Шукає слабкі місця, звіряє кожне твердження з джерелом і питає, де план може дати збій. Без лестощів.</p><span class="rw" data-i18n="agents.td.3">opus · max</span></article>
+    <article class="agent"><span class="role pln">planner</span><span class="rw" data-i18n="agents.span.5">лише читання · незалежний</span><p data-i18n="agents.td.4">Перед початком роботи над сторі (<code>story plan</code>)</p><p class="c-hi" data-i18n="agents.td.5">Дивиться, де в коді живуть попередні епіки. Каже, де місце зміни, що використати повторно, на що зважати і в якому порядку працювати.</p><span class="rw" data-i18n="agents.td.6">opus · max</span></article>
+    <article class="agent"><span class="role chk">reviewer</span><span class="rw" data-i18n="agents.span.6">лише читання · незалежний</span><p data-i18n="agents.td.7">Після написання коду, перед комітом або <code>story close</code></p><p class="c-hi" data-i18n="agents.td.8">Вимагає доказу для кожного критерію приймання, зокрема зі специфікації. Потім перевіряє коректність, регресії та тести.</p><span class="rw" data-i18n="agents.td.9">opus · max</span></article>
+    <article class="agent"><span class="role">librarian</span><span class="rw" data-i18n="agents.span.7">лише читання · пропонує</span><p data-i18n="agents.td.10">Час від часу, перед релізами, коли vault швидко росте</p><p class="c-hi" data-i18n="agents.td.11">Знаходить те, чого не впіймає жодне правило: дослідження, що суперечать прийнятому ADR, дублікати, відсутні зв’язки, файли, які час архівувати.</p><span class="rw" data-i18n="agents.td.12">opus · max</span></article>
+    <article class="agent"><span class="role">archaeologist</span><span class="rw" data-i18n="agents.span.8">лише читання · пропонує</span><p data-i18n="agents.td.13">Один раз, після прив’язки наявної кодової бази</p><p class="c-hi" data-i18n="agents.td.14">Знаходить рішення, які ніхто не записав, — у коді, конфігураційних файлах та історії git. Пропонує для них ADR із доказами.</p><span class="rw" data-i18n="agents.td.15">opus · max</span></article>
+    <article class="agent"><span class="role acc">clerk</span><span class="rw" data-i18n="agents.span.9">пише · після вашого «Так»</span><p data-i18n="agents.td.16">Лише під час виконання команди ProjectStore, лише після вашого «Так»</p><p class="c-hi" data-i18n="agents.td.17">Зберігає саме те, що ви схвалили, і нічого більше. Потім перебудовує дошку і запускає перевірки. Нічого не пише від себе і нічого не питає.</p><span class="rw" data-i18n="agents.td.18">sonnet · max</span></article>
+  </div>
+  <p class="note"><span data-i18n="agents.p.10">Типові моделі — для Claude Code. У Codex кожна роль — це однойменний skill, що просить Codex запустити цю роль, наприклад <code>$projectstore-critic</code> для critic; він використовує модель сесії, якщо ви не задали іншу.</span></p>
+</section>
+<section class="sec" id="mechanisms" aria-labelledby="how-mech-title">
+  <div class="section-label" data-i18n="how.mech.label">Запобіжники</div>
+  <h2 id="how-mech-title" data-i18n="how.mech.h2">Усе тримається на механізмах, <span class="acc">а не на дисципліні.</span></h2>
+  <div class="mechs">
+    <div class="mech"><h3 data-i18n="how.m.1.h">Немає сторі — нагадування</h3><p data-i18n="how.m.1.p">Агентові, який почав правити код без відкритого сторі, нагадують його відкрити. Зміна розміром із фічу починається у vault.</p></div>
+    <div class="mech"><h3 data-i18n="workflow.h4.2">Без рев’ю — позначка лишається</h3><p data-i18n="how.m.2.p">Артефакт, що потребує рев’ю, має <code>review_status: pending</code>, доки не застосовано прохід critic. «Ще без рев’ю» — це стан, який можуть прочитати інструменти, а не те, що хтось мусить пам’ятати.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.3.h">Doctor без ШІ</h3><p data-i18n="how.m.3.p"><code>doctor</code> детерміновано перевіряє механічну узгодженість vault. У CI він працює без агента і без токенів.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.4.h">Де шукати — згенеровано</h3><p data-i18n="how.m.4.p"><code>graph.md</code> містить зв’язки кожного артефакту в обох напрямках; <code>code-map.md</code> каже, де живе код кожного епіка. Перед архітектурним вибором агента спершу спрямовують до індексу ADR.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.5.h">Після <code>/compact</code> vault повертається</h3><p data-i18n="how.m.5.p">У Claude Code після <code>/compact</code>, який ви запустили, сесія знову починається з огляду vault і з тих його файлів, яких торкалася розмова до стиснення.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.6.h">Другу сесію попереджають</h3><p data-i18n="how.m.6.p">Сесія, що починається, коли інша працює над тим самим vault, відкривається з попередженням про кілька сесій: спершу пошукайте, потім створюйте щось нове.</p></div>
+  </div>
+</section>
+<section class="sec" id="evidence" aria-labelledby="how-ev-title">
+  <div class="section-label" data-i18n="how.ev.label">«Готово» означає «доведено»</div>
+  <h2 id="how-ev-title" data-i18n="how.ev.h2">Сторі закривається з доказом <span class="acc">під кожним критерієм.</span></h2>
+  <div class="files">
+    <figure class="file">
+      <figcaption><span data-i18n="how.story.path"><span data-slug="story:path">epics/CHECKOUT/stories/story-saved-cards-are-listed-at-checkout.md</span></span></figcaption>
+<pre class="plain-code" data-template="story" data-i18n="how.story"><span class="fm">---</span>
+<span class="k">type:</span> story
+<span class="k">epic:</span> "CHECKOUT"
+<span class="k">title:</span> "<span data-title="story">Saved cards are listed at checkout</span>"
+<span class="k">status:</span> <span class="c-ok">done</span>
+<span class="k">code_refs:</span> ["src/billing/cards/", "tests/cards.test.ts"]
+<span class="k">closed_at:</span> "2026-07-14T16:02:11Z"
+<span class="fm">---</span>
+
+<span class="h">## Acceptance Criteria</span>
+
+- [x] Збережені картки показано першими — evidence: tests/cards.test.ts:21
+- [x] Для відхиленої картки показано причину відмови банку — evidence: tests/cards.test.ts:58
+- [x] Номер картки не потрапляє в логи — evidence: tests/cards.test.ts:73</pre>
+    </figure>
+    <div class="prose">
+      <p data-i18n="how.ev.p.1">Planner сказав, де місце зміни, ще до коду, і план потрапив у сторі після вашого «Так»; reviewer після цього звірив диф із кожним критерієм. Кожен рядок доказу — це тест, команда, що виконалась, або рядок коду.</p>
+      <p data-i18n="how.ev.p.2">Будь-який агент може прочитати цей запис, із плагіном чи без: через CLI, що відповідає у форматі JSON і не потребує токенів, або через <span data-fact="mcp-tools">8</span> MCP-інструментів сервера лише для читання.</p>
+      <ul class="tools" aria-label="Інструменти MCP" data-i18n-attr="aria-label:agents.aria-label.1"><li data-fact="mcp-tool">orientation</li><li data-fact="mcp-tool">search</li><li data-fact="mcp-tool">status</li><li data-fact="mcp-tool">get_artifact</li><li data-fact="mcp-tool">lineage</li><li data-fact="mcp-tool">neighbors</li><li data-fact="mcp-tool">code_refs</li><li data-fact="mcp-tool">doctor</li></ul>
+    </div>
+  </div>
+</section>
+<section class="sec" id="fine-print" aria-labelledby="how-fine-title">
+  <div class="section-label" data-i18n="how.fine.label">Дрібний шрифт</div>
+  <h2 id="how-fine-title" class="visually-hidden" data-i18n="how.fine.h2">Дрібний шрифт</h2>
+  <ul class="fine">
+    <li data-i18n="how.fine.1">Цикл коштує токенів: чернетки, critic і reviewer працюють на моделі, за яку ви вже платите. Вимірювання — у README.</li>
+    <li data-i18n="how.fine.2">Critic і reviewer — окремі агенти з чистим контекстом у Claude Code. У Codex ролі — це skills.</li>
+    <li data-i18n="how.fine.3">ProjectStore — спільний контекст проєкту й спосіб роботи. Це не оркестратор агентів: запускати агентів — справа вашого середовища (harness).</li>
+  </ul>
+</section>
+<section class="sec chapter" id="team" aria-labelledby="team-title">
+  <div class="section-label big" data-i18n="team.label">Команда й багато сесій</div>
+  <h2 id="team-title" data-i18n="vault.h1">Багато сесій. Багато людей. <span class="acc">Один vault.</span></h2>
+  <p class="lead" data-i18n="teams.p.1">Контекст належить команді, а не чату одного розробника. ADR і специфікації проходять через пул-реквести, як код. <b>На рев’ю потрапляють саме міркування.</b></p>
+</section>
+
+<section class="sec modes" id="modes" aria-labelledby="vault-modes-title" data-tabs data-initial="solo">
+  <div class="section-label" data-i18n="vault.modes.label">Чотири способи працювати</div>
+  <h2 id="vault-modes-title" class="visually-hidden" data-i18n="vault.modes.h2">Чотири способи працювати</h2>
+  <div class="tabs" role="tablist" aria-label="Сценарії спільної роботи" data-i18n-attr="aria-label:teams.aria-label.1">
+    <button class="tab" type="button" role="tab" data-tab="solo" id="vt-solo" aria-controls="vp-solo" data-i18n="modes.tab.solo">Одна людина, багато сесій</button>
+    <button class="tab" type="button" role="tab" data-tab="team" id="vt-team" aria-controls="vp-team" data-i18n="teams.button.1">Одна команда</button>
+    <button class="tab" type="button" role="tab" data-tab="teams" id="vt-teams" aria-controls="vp-teams" data-i18n="teams.button.2">Кілька команд</button>
+    <button class="tab" type="button" role="tab" data-tab="agents" id="vt-agents" aria-controls="vp-agents" data-i18n="teams.button.3">Кілька агентів</button>
+  </div>
+
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="solo" id="vp-solo" aria-labelledby="vt-solo">
+    <div class="cols">
+      <div class="prose">
+        <h3 data-i18n="teams.h3.5">Кілька сесій, один vault</h3>
+        <p data-i18n="teams.p.12">Два агенти чи двоє людей в одному vault одночасно — це нормально. Кожна сесія знає про інші, а кілька простих правил не дають їм заважати одна одній.</p>
+        <ul class="rules-list">
+          <li data-i18n="teams.li.1"><strong>Без тихого перезапису.</strong> Перед збереженням нового файлу ProjectStore перевіряє, чи такого файлу ще немає. Дві сесії на одну тему отримають конфлікт, а не дві копії.</li>
+          <li data-i18n="teams.li.2"><strong>Кожен рядок стану показує свою роботу.</strong> <span data-source="docs/how-it-works.md#sessions-how-parallel-claude-instances-coexist">2–6 сесій</span> поруч — і кожна бачить саме свій епік і своє сторі.</li>
+          <li data-i18n="teams.li.3"><strong>Назви сесій пропонуються, а не нав’язуються.</strong> Коли сесія зосереджується на одному завданні, вона пропонує для нього назву. Рідко: <span data-source="docs/how-it-works.md#naming-a-session-after-the-work-it-settled-on">щонайбільше двічі за сесію, 12 пропозицій на дев’ять записаних сесій</span>.</li>
+        </ul>
+      </div>
+      <figure class="tty"><figcaption><span data-i18n="vault.tty.cap">друга сесія в your-project-vault</span><span class="c-ok">Claude Code</span></figcaption>
+<pre class="transcript" data-i18n="vault.tty"><span class="c-dim">розробник A працює над CHECKOUT із 13:35. ви відкриваєте другу сесію:</span>
+
+<span class="c-epic">⚠ Multi-session warning</span> — 1 other projectstore session active.
+  Run <span class="c-acc">/projectstore:search &lt;topic&gt;</span> before creating new artifacts.
+
+<span class="c-dim">пізніше, коли ваша робота зосередиться на «<span data-title="story">Saved cards are listed at checkout</span>»:</span>
+projectstore: this session looks like <span class="c-acc">"<span data-slug="story:session">checkout-saved-cards-are-listed-at-checkout</span>"</span>
+  → <span class="c-acc">/rename <span data-slug="story:session">checkout-saved-cards-are-listed-at-checkout</span></span></pre>
+      </figure>
+    </div>
+  </div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="team" id="vp-team" aria-labelledby="vt-team"><div class="prose"><h3 data-i18n="teams.h3.1">Кожен бачить більше, ніж свою частину.</h3><p data-i18n="teams.p.2">Розробник, техлід і QA працюють з одними й тими самими рішеннями та критеріями. Людині без агента потрібен лише GitHub або редактор Markdown: це просто файли.</p><p data-i18n="teams.p.3">Контекст доступний усій команді, а не лише власникові чату.</p></div></div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="teams" id="vp-teams" aria-labelledby="vt-teams"><div class="prose"><h3 data-i18n="teams.h3.2">Спільні контракти. Окремі ділянки роботи.</h3><p data-i18n="teams.p.4">В одному проєкті команди API, Web і Platform ведуть власні епіки на основі спільних ADR і специфікацій. Зміну спільного контракту обговорюють на рев’ю з командами, які ним користуються. ProjectStore показує, які сторі від нього залежать.</p><p data-i18n="teams.p.5">Хто відповідає за які артефакти і хто затверджує контракти — вирішує команда.</p></div></div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="agents" id="vp-agents" aria-labelledby="vt-agents"><div class="prose"><h3 data-i18n="teams.h3.3">Різні агенти. Спільна основа.</h3><p data-i18n="teams.p.6">Планувальник читає рішення і мапу коду. Виконавець — сторі та специфікацію. Рев’юер — диф і критерії. Кожен отримує потрібний йому контекст, а не всю історію чужої сесії. Сесії в одному vault попереджають одна одну.</p><p data-i18n="teams.p.7">Запуск агентів і передавання роботи між ними — завдання вашого середовища (harness) або оркестратора.</p></div></div>
+  <p class="note" data-i18n="teams.span.8">Приклад організації роботи, а не оркестрація в реальному часі</p>
+</section>
+<section class="sec" id="git" aria-labelledby="vault-git-title">
+  <div class="section-label" data-i18n="teams.span.24">vault в окремому репозиторії</div>
+  <h2 id="vault-git-title" data-i18n="teams.span.23">Як це виглядає в git</h2>
+  <figure class="diagram">
+  <svg class="dg" viewBox="0 0 1104 392" width="1104" height="392" role="img" aria-labelledby="git-cap">
+    <title id="git-cap" data-i18n="teams.title.1">Розробники з власними агентами прив’язуються до одного vault в окремому git-репозиторії. ADR і специфікації проходять рев’ю як пул-реквести. Колега без агента робить рев’ю на GitHub або в Obsidian.</title>
+    <path class="edge pln" d="M260 56H372" marker-end="url(#m-pln)"/>
+    <path class="edge pln" d="M260 188H372" marker-end="url(#m-pln)"/>
+    <text class="elbl pln" x="316" y="46" text-anchor="middle" data-i18n="teams.text.28">setup</text>
+    <path class="edge" d="M712 160H822" marker-end="url(#m)"/>
+    <path class="edge" d="M822 200H718" marker-end="url(#m)"/>
+    <text class="elbl" x="767" y="150" text-anchor="middle" data-i18n="teams.text.29">push / pull</text>
+    <path class="edge chk" d="M260 320H966V292" marker-end="url(#m-chk)"/>
+    <text class="elbl chk" x="600" y="342" text-anchor="middle" data-i18n="teams.text.30">рев’ю й pull</text>
+
+    <rect class="who" x="0" y="16" width="260" height="84" rx="6"/>
+    <text class="t pln" x="16" y="46" data-i18n="teams.text.1">Розробник A</text><text class="s" x="16" y="68" data-i18n="teams.text.2">Claude Code + projectstore</text><text class="tag" x="16" y="88" data-i18n="teams.text.3">агент</text>
+    <rect class="who" x="0" y="148" width="260" height="84" rx="6"/>
+    <text class="t pln" x="16" y="178" data-i18n="teams.text.4">Розробник B</text><text class="s" x="16" y="200" data-i18n="teams.text.5">Codex + projectstore</text><text class="tag" x="16" y="220" data-i18n="teams.text.6">агент</text>
+    <rect class="nb" x="0" y="280" width="260" height="84" rx="6"/>
+    <text class="t" x="16" y="310" data-i18n="teams.text.7">Розробник C</text><text class="s" x="16" y="330" data-i18n="teams.text.8">без агента</text><text class="s" x="16" y="350" data-i18n="teams.text.9">рев’ю на GitHub/Obsidian</text>
+
+    <g class="pulse"><rect class="nb acc" x="378" y="16" width="334" height="270" rx="6"/></g>
+    <text class="t acc" x="396" y="46" data-i18n="teams.text.10">your-project-vault</text>
+    <text class="s" x="396" y="68" data-i18n="teams.text.11">окреме git-репо · простий markdown</text>
+    <text class="s" x="396" y="104" data-i18n="teams.text.12"><tspan class="d">adr/</tspan> рішення з датами</text>
+    <text class="s" x="396" y="128" data-i18n="teams.text.13"><tspan class="d">specs/</tspan> як має працювати</text>
+    <text class="s" x="396" y="152" data-i18n="teams.text.14"><tspan class="d">epics/ · stories/</tspan> беклог</text>
+    <text class="s" x="396" y="176" data-i18n="teams.text.15"><tspan class="d">kanban.md</tspan> дошка</text>
+    <text class="s" x="396" y="200" data-i18n="teams.text.16"><tspan class="d">graph.md</tspan> усі зв’язки</text>
+    <text class="s" x="396" y="224" data-i18n="teams.text.17"><tspan class="d">code-map.md</tspan> епік ↔ код</text>
+    <text class="elbl ok" x="396" y="262" data-i18n="teams.text.18">кожен запис показують і схвалюють</text>
+
+    <rect class="nb" x="828" y="96" width="276" height="196" rx="6"/>
+    <text class="t" x="846" y="126" data-i18n="teams.text.22">git remote</text>
+    <text class="s" x="846" y="148" data-i18n="teams.text.23">GitHub · GitLab · будь-що</text>
+    <text class="s" x="846" y="184" data-i18n="teams.text.24">рев’ю ADR і специфікацій</text>
+    <text class="s" x="846" y="204" data-i18n="teams.text.25">у пул-реквестах:</text>
+    <text class="elbl chk" x="846" y="236" data-i18n="teams.text.26"><tspan class="d">рев’ю проходить «чому»,</tspan></text>
+    <text class="elbl chk" x="846" y="256" data-i18n="teams.text.27"><tspan class="d">а не лише код</tspan></text>
+  </svg>
+  <figcaption class="cap-after" data-i18n="teams.figcaption.1">Тримайте vault в окремому репозиторії. Кожен встановлює ProjectStore, прив’язується до того самого vault і зберігає зміни лише після схвалення. Колега без агента робить рев’ю на GitHub або в Obsidian.</figcaption>
+  </figure>
+  <p class="next-pages"><a href="one-vault/" data-i18n="team.more">Уся сторінка: Один vault, багато людей →</a></p>
+</section>
+<section class="sec chapter" id="why" aria-labelledby="why-title">
+  <div class="section-label big" data-i18n="why.label">Чому це працює</div>
+  <h2 id="why-title" data-i18n="why.h2.1">Індустрія давно це винайшла.<br><span class="acc">Агенти зробили це дешевим.</span></h2>
+  <p class="lead" data-i18n="why.p.1">ADR, рев’ю, беклог, критерії приймання, зв’язки від мети до коду. Зрілі інженерні команди працюють так уже двадцять років. <b>ProjectStore нічого з цього не вигадує.</b></p>
+</section>
+
+<section class="sec" id="timeline" aria-labelledby="why-tl-title">
+  <div class="section-label" data-i18n="why.tl.label">Звідки береться кожна частина</div>
+  <h2 id="why-tl-title" class="visually-hidden" data-i18n="why.tl.h2">Звідки береться кожна частина</h2>
+  <ol class="timeline">
+    <li><span class="yr">1969</span><span data-i18n="why.tl.1">RFC: рішення записані й пронумеровані, а потім відкрито обговорені.</span></li>
+    <li><span class="yr">1992</span><span data-i18n="why.tl.2">DO-178B: в авіоніці кожна вимога має простежуватися до коду і до тесту.</span></li>
+    <li><span class="yr">1995</span><span data-i18n="why.tl.3">Scrum: робота як беклог, упорядкований і видимий.</span></li>
+    <li><span class="yr">1999</span><span data-i18n="why.tl.4">XP: користувацькі історії (user stories) і критерії приймання, що кажуть, коли історія готова.</span></li>
+    <li><span class="yr">2007</span><span data-i18n="why.tl.5">Канбан для ПЗ: дошка, що показує, що в роботі.</span></li>
+    <li><span class="yr">2011</span><span data-i18n="why.tl.6">ADR, Майкл Найгард: один короткий файл на одне архітектурне рішення.</span></li>
+    <li class="now"><span class="yr" data-i18n="why.tl.now.y">тепер</span><span data-i18n="why.tl.now">Агенти, що пишуть код: кожен крок займає хвилини. Без артефактів кожна сесія починається з нуля.</span></li>
+  </ol>
+</section>
+<section class="sec" id="cost" aria-labelledby="why-cost-title">
+  <div class="section-label" data-i18n="why.cost.label">Дорога частина</div>
+  <h2 id="why-cost-title" data-i18n="why.p.4">Процес завжди був цінним. Дорогим було те, що <b>кожен його крок виконували люди.</b></h2>
+  <p class="equation"><span class="term-pill" data-i18n="why.eq.1">процес людей</span><span>+</span><span class="term-pill" data-i18n="why.eq.2">швидкість агентів</span><span>=</span><span class="term-pill acc">ProjectStore</span></p>
+  <div class="prose"><p data-i18n="why.p.6">ProjectStore поєднує одне з другим. Швидкість агентів уперше робить старий процес дешевим. А його документи, що лежать у файлах поруч із кодом, дають агентам те, чого в них ніколи не було: контекст проєкту, пов’язаний угору — з цілями, і вниз — з кодом. За правилом кожен крок рецензує другий агент, який не писав чернетку. Швидкість отримує пам’ять, а пам’ять — перевірку.</p></div>
+</section>
+<section class="sec" id="chain" aria-labelledby="why-chain-title">
+  <div class="section-label" data-i18n="why.ch.label">Ланцюжок</div>
+  <h2 id="why-chain-title" data-i18n="why.h3.1">Зв’язки, які агент отримує безкоштовно: від мети до доказу</h2>
+  <ol class="chain" aria-label="Ланцюжок зв’язків між артефактами" data-i18n-attr="aria-label:why.aria-label.3">
+    <li><span class="ch-k" data-i18n="why.span.8">мета</span><span class="ch-c"><b data-i18n="why.strong.1">Епік</b><span data-i18n="why.span.9">CHECKOUT · навіщо ми це робимо</span></span><span class="ch-f" data-i18n="why.span.10">epic:</span></li>
+    <li><span class="ch-k" data-i18n="why.span.11">чому</span><span class="ch-c"><b data-i18n="why.strong.2">ADR</b><span data-i18n="why.span.12">рішення і відхилені варіанти</span></span><span class="ch-f" data-i18n="why.span.13">adr: [ ]</span></li>
+    <li><span class="ch-k" data-i18n="why.span.14">як</span><span class="ch-c"><b data-i18n="why.strong.3">Специфікація</b><span data-i18n="why.span.15">очікувана поведінка</span></span><span class="ch-f" data-i18n="why.span.16">specs: [ ]</span></li>
+    <li><span class="ch-k" data-i18n="why.span.17">що</span><span class="ch-c"><b data-i18n="why.strong.4">Сторі</b><span data-i18n="why.span.18">план і критерії приймання</span></span><span class="ch-f" data-i18n="why.span.19">code_refs:</span></li>
+    <li><span class="ch-k" data-i18n="why.span.20">де</span><span class="ch-c"><b data-i18n="why.strong.5">Код</b><span data-i18n="why.span.21">src/billing/cards/ · де вже живуть попередні епіки</span></span><span class="ch-f" data-i18n="why.span.22">— evidence:</span></li>
+    <li class="ok"><span class="ch-k" data-i18n="why.span.23">доказ</span><span class="ch-c"><b data-i18n="why.strong.6">Докази</b><span data-i18n="why.span.24">tests/cards.test.ts:58 · для кожного критерію</span></span></li>
+  </ol>
+  <div class="prose"><p data-i18n="why.p.7">Зв’язки записано в шапці кожного файлу, а доказ — це рядок під кожним критерієм приймання. Усе це агент заповнює під час роботи. Мапа зв’язків показує, з чим пов’язаний кожен документ. Мапа коду показує, де живе код кожного епіка. Нова сесія, нова модель чи новий колега починають із цього ланцюжка, а не з нуля.</p></div>
+  <p class="next-pages"><a href="why-it-works/" data-i18n="why.more">Уся сторінка: Чому це працює →</a></p>
+</section>
+<section class="sec" id="free" aria-labelledby="free-title">
+  <div class="closing">
+    <h2 id="free-title" data-i18n="free.h2">Безкоштовно й з відкритим кодом</h2>
+    <p data-i18n="free.p">Ліцензія MIT. Нотатки ваші: звичайні файли у вашому власному репозиторії.</p>
+    <div class="actions">
+      <a class="btn primary" href="#start" data-i18n="free.cta.start">Почати</a>
+      <a class="btn" href="how-it-works/" data-i18n="free.cta.how">Як це працює →</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap foot-row">
+    <span><span class="wordmark-sm"><span class="dot">.</span>projectstore</span> · <span data-i18n="footer.tag">Код змінюється. Контекст лишається.</span> · <span data-i18n="footer.span.4">Відкритий код · MIT · Evgenii Konev, SmartAndPoint</span></span>
+    <span><span data-fact="version">v0.30.7</span> · <span data-i18n="footer.span.5">кожна виміряна цифра посилається на розділ README або docs, з якого її взято; приклади ілюстративні</span></span>
+    <span class="foot-links"><a href="https://github.com/SmartAndPoint/ProjectStore" data-i18n="footer.span.3" target="_blank" rel="noopener noreferrer">GitHub</a> <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" data-i18n="footer.span.6" target="_blank" rel="noopener noreferrer">Документація</a> <a href="../llms.txt" data-i18n="footer.a.1">llms.txt</a> <a href="../privacy/" data-i18n="footer.privacy">Конфіденційність</a></span>
+  </div>
+</footer>
+
+<script src="../assets/site.js?v=de3b5313"></script>
+</body>
+</html>
