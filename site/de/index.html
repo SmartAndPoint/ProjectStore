@@ -1,1 +1,494 @@
-<!doctype html><meta charset="utf-8"><title>ProjectStore</title><link rel="canonical" href="../"><meta http-equiv="refresh" content="0; url=../"><a href="../">ProjectStore</a>
+<!doctype html>
+<html lang="de" data-tone="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title data-i18n="meta.title">ProjectStore — ein Plan, zwei Prüfungen und ein Protokoll für deinen Coding-Agenten</title>
+<meta name="description" content="Ein Plugin für Claude Code und Codex. Dein Agent plant zuerst, ein zweiter Agent prüft den Plan, und ein dritter prüft das Ergebnis gegen deine Checkliste. Entscheidungen und Pläne bleiben als Markdown in deinem Git, damit jeder Agent weitermachen kann." data-i18n-attr="content:meta.description">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="stylesheet" href="../assets/style.css?v=4de81198">
+<script>(function(){var d=document.documentElement,t="light",s;try{s=localStorage.getItem("ps_tone");if(s==="graphite"||s==="midnight"||s==="paper")t=s;}catch(e){}d.setAttribute("data-tone",t);d.setAttribute("data-tones","");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",getComputedStyle(d).getPropertyValue("--bg").trim());})();</script>
+<link rel="alternate" hreflang="en" href="https://projectstore.dev/">
+<link rel="alternate" hreflang="de" href="https://projectstore.dev/de/">
+<link rel="alternate" hreflang="es" href="https://projectstore.dev/es/">
+<link rel="alternate" hreflang="fr" href="https://projectstore.dev/fr/">
+<link rel="alternate" hreflang="pt-BR" href="https://projectstore.dev/pt/">
+<link rel="alternate" hreflang="ru" href="https://projectstore.dev/ru/">
+<link rel="alternate" hreflang="uk" href="https://projectstore.dev/uk/">
+<link rel="alternate" hreflang="zh-CN" href="https://projectstore.dev/zh/">
+<link rel="alternate" hreflang="x-default" href="https://projectstore.dev/">
+<link rel="canonical" href="https://projectstore.dev/de/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ProjectStore">
+<meta property="og:locale" content="de">
+<meta property="og:title" content="ProjectStore — ein Plan, zwei Prüfungen und ein Protokoll für deinen Coding-Agenten">
+<meta property="og:description" content="Ein Plugin für Claude Code und Codex. Dein Agent plant zuerst, ein zweiter Agent prüft den Plan, und ein dritter prüft das Ergebnis gegen deine Checkliste. Entscheidungen und Pläne bleiben als Markdown in deinem Git, damit jeder Agent weitermachen kann.">
+<meta property="og:url" content="https://projectstore.dev/de/">
+<meta property="og:image" content="https://projectstore.dev/assets/og.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://projectstore.dev/assets/og.png">
+</head>
+<body data-page="main">
+<svg class="sprite" width="0" height="0" aria-hidden="true" focusable="false">
+  <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/><path d="M10.5 3.5V3A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.5 6.5 12 13 4.5"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
+  <symbol id="i-shrink" viewBox="0 0 24 24"><path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"/></symbol>
+  <defs>
+    <marker id="m" class="mk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+    <marker id="m-chk" class="mk chk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+    <marker id="m-ok" class="mk ok" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+    <marker id="m-pln" class="mk pln" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+    <marker id="m-ret" class="mk ret" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+  </defs>
+</svg>
+<a class="skip-link" href="#main" data-i18n="page.a.1">Zum Inhalt springen</a>
+
+<header class="site-header">
+  <div class="wrap head-row">
+    <a class="brand" href="./" aria-label="ProjectStore, Startseite" data-i18n-attr="aria-label:nav.home"><img class="mark" src="../assets/mark.svg" alt="" width="30" height="30"><span class="wordmark"><span class="dot">.</span>projectstore</span></a>
+    <nav class="head-nav" aria-label="Hauptnavigation" data-i18n-attr="aria-label:nav.aria-label.2">
+      <a class="page-link" data-nav="how-it-works" href="how-it-works/" data-i18n="nav.how">So funktioniert es</a>
+      <a class="page-link" data-nav="why-it-works" href="why-it-works/" data-i18n="nav.why">Warum es funktioniert</a>
+      <a class="page-link" data-nav="one-vault" href="one-vault/" data-i18n="nav.vault">Ein Vault, viele Menschen</a>
+      <div class="tone-switch" role="group" aria-label="Hintergrundfarbe" data-i18n-attr="aria-label:nav.tone"><button class="tone-opt" type="button" data-tone-set="midnight" aria-pressed="false" aria-label="Mitternacht" data-i18n-attr="aria-label:nav.tone.midnight"><span class="sw sw-midnight" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="graphite" aria-pressed="false" aria-label="Graphit" data-i18n-attr="aria-label:nav.tone.graphite"><span class="sw sw-graphite" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="paper" aria-pressed="false" aria-label="Papier" data-i18n-attr="aria-label:nav.tone.paper"><span class="sw sw-paper" aria-hidden="true"></span></button><button class="tone-opt" type="button" data-tone-set="light" aria-pressed="true" aria-label="Hell" data-i18n-attr="aria-label:nav.tone.light"><span class="sw sw-light" aria-hidden="true"></span></button></div>
+      <div class="lang-switch"><button class="lang" type="button" aria-expanded="false" aria-controls="lang-menu" aria-label="Sprache: Deutsch"><svg class="icon sm" aria-hidden="true"><use href="#i-globe"/></svg><span>DE</span><svg class="icon sm lang-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button><ul class="lang-menu" id="lang-menu" hidden><li><a href="../" hreflang="en" lang="en" data-lang="en">English</a></li><li><a href="../de/" hreflang="de" lang="de" data-lang="de" aria-current="true">Deutsch</a></li><li><a href="../es/" hreflang="es" lang="es" data-lang="es">Español</a></li><li><a href="../fr/" hreflang="fr" lang="fr" data-lang="fr">Français</a></li><li><a href="../pt/" hreflang="pt-BR" lang="pt-BR" data-lang="pt">Português</a></li><li><a href="../ru/" hreflang="ru" lang="ru" data-lang="ru">Русский</a></li><li><a href="../uk/" hreflang="uk" lang="uk" data-lang="uk">Українська</a></li><li><a href="../zh/" hreflang="zh-CN" lang="zh-CN" data-lang="zh">中文</a></li></ul></div>
+      <a class="gh" href="https://github.com/SmartAndPoint/ProjectStore" aria-label="GitHub"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span>GitHub</span></a>
+    </nav>
+  </div>
+  <nav class="mobile-nav" aria-label="Seiten" data-i18n-attr="aria-label:nav.pages"><a data-nav="main" href="./#start" data-i18n="nav.install">Installieren</a><a data-nav="how-it-works" href="how-it-works/" data-i18n="nav.how.2">So funktioniert es</a><a data-nav="why-it-works" href="why-it-works/" data-i18n="nav.why.2">Warum es funktioniert</a><a data-nav="one-vault" href="one-vault/" data-i18n="nav.vault.2">Ein Vault, viele Menschen</a></nav>
+</header>
+
+<main id="main" class="wrap">
+
+<section class="hero what" id="what" aria-labelledby="what-title">
+  <div class="section-label big" data-i18n="what.label">Eine Methode und ein Plugin für Claude Code und Codex</div>
+  <h1 id="what-title" data-i18n="what.h1">Eine Methode für die Arbeit mit KI-Agenten, <span class="acc">damit du bekommst, was du dir vorgestellt hast.</span></h1>
+  <div class="what-text">
+    <p class="lead" data-i18n="what.p.1"><b>ProjectStore</b> ist eine Methode und ein Framework, um Apps und Dienste jeder Größe mit KI-Agenten zu bauen.</p>
+    <p class="lead" data-i18n="what.p.2">Zuallererst ist es eine Art, wie Mensch und Agenten zusammenarbeiten. Du entscheidest, was gebaut wird. Ein Agent schreibt den Plan, ein zweiter Agent sucht darin nach Lücken, und du gibst frei. Dann baut der Agent, und ein dritter prüft das Ergebnis Punkt für Punkt gegen deine Checkliste.</p>
+    <p class="lead" data-i18n="what.p.3">Es wird als Plugin in Claude Code und Codex installiert. Ab dann sprichst du mit dem Agenten in deinen eigenen Worten, und er hält Entscheidungen, Pläne und Fortschritt als einfache Dateien in deinem Projekt fest. Morgen, auf einem anderen Rechner oder in einem anderen Agenten, geht die Arbeit dort weiter, wo sie aufgehört hat.</p>
+    <div class="actions">
+      <a class="btn primary" href="#start" data-i18n="what.cta.install">Installieren</a>
+      <a class="btn" href="#how" data-i18n="what.cta.how">So funktioniert es</a>
+    </div>
+    <p class="agents-line" data-i18n="hero.agents">Funktioniert in <b>Claude Code</b> und <b>Codex</b>. <b>OpenCode</b> bald; <b>Gemini</b>, <b>Z.ai</b> und <b>DeepSeek</b> als Nächstes.</p>
+  </div>
+  <div class="what-side">
+    <div class="section-label big" data-i18n="what.why">Warum es funktioniert</div>
+    <ul class="why-list">
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.1">Der Reviewer schließt die Aufgabe erst, wenn jeder Punkt der Checkliste abgehakt ist.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.2">Die Sitzung beginnt mit dem Aufgabenboard und der Story, die in Arbeit ist.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.3">Die Entscheidung wird mit ihrer Begründung aufgeschrieben, und der Agent hält sich daran.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.4">Codex liest dieselben Dateien und macht weiter.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span data-i18n="pains.now.5">Zu jeder Entscheidung gibt es eine Datei mit der Begründung und den Optionen, die du abgelehnt hast.</span></li>
+    </ul>
+  </div>
+  <div class="cmp-box">
+    <h2 class="cmp-title" id="cmp-title" data-i18n="cmp.title">Wie es sich von anderen Ansätzen unterscheidet</h2>
+    <div class="table-wrap">
+      <table class="grid-table cmp" aria-labelledby="cmp-title">
+        <thead><tr><th scope="col" data-i18n="cmp.col.1">Ansatz</th><th scope="col" data-i18n="cmp.col.2">Was die Arbeit antreibt</th><th scope="col" data-i18n="cmp.col.3">Wann es „fertig“ ist</th><th scope="col" data-i18n="cmp.col.4">Stärke</th><th scope="col" data-i18n="cmp.col.5">Schwachstelle</th></tr></thead>
+        <tbody>
+        <tr class="from"><td><b data-i18n="cmp.chat.1">Prompt im Chat</b><small data-i18n="cmp.chat.2">Umfang: eine Sitzung</small></td><td data-i18n="cmp.chat.3">Das Gespräch mit dem Agenten</td><td data-i18n="cmp.chat.4">Der Agent hat „fertig“ gesagt</td><td data-i18n="cmp.chat.5">Schnell und einfach: Sag es in deinen eigenen Worten, und der Code entsteht</td><td data-i18n="cmp.chat.6">Kein Plan und keine Prüfung. Alles lebt in einer Sitzung und ist morgen vergessen</td></tr>
+        <tr class="from"><td><b data-i18n="cmp.mem.1">Agenten-Gedächtnis</b><small data-i18n="cmp.mem.ex">Mem0, claude-mem, Auto-Memory von Claude Code</small><small data-i18n="cmp.mem.2">Umfang: ein Agent oder ein Rechner</small></td><td data-i18n="cmp.mem.3">Fakten, die sich das Modell aus Gesprächen selbst gemerkt hat</td><td data-i18n="cmp.mem.4">Nicht festgelegt: Das Gedächtnis erinnert nur</td><td data-i18n="cmp.mem.5">Nichts zu tun: Der Agent merkt sich deine Gewohnheiten und deine Umgebung von selbst</td><td data-i18n="cmp.mem.6">Es schreibt sich selbst, ohne deine Freigabe; es gehört zu einem Agenten oder einem Rechner; Veraltetes fällt stillschweigend weg, statt mit einer Begründung ersetzt zu werden</td></tr>
+        <tr class="from"><td><b>SDD</b><small>spec-driven development</small><small data-i18n="cmp.sdd.2">Umfang: ein Feature</small></td><td data-i18n="cmp.sdd.3">Eine Spezifikation: erst, wie es funktionieren soll, dann der Code. Zum Beispiel GitHub Spec Kit</td><td data-i18n="cmp.sdd.4">Der Code entspricht der Spec</td><td data-i18n="cmp.sdd.5">Erst denken, dann schreiben: Das „Wie“ steht vor dem Code</td><td data-i18n="cmp.sdd.6">Eine Spec deckt ein Feature ab: Die Entscheidungen des Projekts und die Verbindungen zwischen Features bleiben außerhalb</td></tr>
+        <tr class="from"><td><b>PDD</b><small>proof-driven development</small><small data-i18n="cmp.pdd.2">Umfang: eine Änderung</small></td><td data-i18n="cmp.pdd.3">Nachweis: Jede Änderung kommt mit einem Beleg, dass sie funktioniert</td><td data-i18n="cmp.pdd.4">Es gibt einen Test, einen ausgeführten Befehl oder eine Codezeile</td><td data-i18n="cmp.pdd.5">„Fertig“ wird durch einen Test oder einen Befehl bewiesen, nicht durch das Wort des Agenten</td><td data-i18n="cmp.pdd.6">Es beweist, dass der Code funktioniert, nicht dass das Richtige gebaut wurde: Ohne Spec und Plan gibt es nichts, wogegen man es prüfen könnte</td></tr>
+        <tr class="us"><td><b>ProjectStore</b><small data-i18n="cmp.ps.2">Umfang: das ganze Projekt</small></td><td data-i18n="cmp.ps.3">Entscheidungen, Specs, Stories und Pläne des Projekts in Git, untereinander und mit dem Code verknüpft</td><td data-i18n="cmp.ps.4">Der Reviewer hat unter jedem Abnahmekriterium einen Nachweis gefunden</td><td data-i18n="cmp.ps.5">Alle vier zugleich: deine eigenen Worte, Gedächtnis des Projekts, eine Spec und ein Plan vor dem Code, Nachweis danach — für das ganze Projekt, viele Sitzungen, Menschen und Agenten</td><td data-i18n="cmp.ps.6">Die Schleife zu betreiben kostet Tokens: Die Entwürfe, der Critic und der Reviewer laufen auf dem Modell, das du ohnehin bezahlst</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cmp-sum" data-i18n="cmp.sum">ProjectStore nimmt von allen das Beste: deine eigenen Worte, Gedächtnis zwischen Sitzungen, eine Spec vor dem Code und Nachweis danach. Und es hält das für das ganze Projekt und das ganze Team fest, nicht für ein Feature oder einen Rechner.</p>
+    <h3 class="cmp-sub" id="rate-title" data-i18n="rate.title">Was in einem langen Projekt trägt</h3>
+    <div class="table-wrap">
+      <table class="grid-table rate" aria-labelledby="rate-title">
+        <thead><tr><th scope="col"><span class="visually-hidden" data-i18n="cmp.col.1">Ansatz</span></th><th scope="col" data-i18n="rate.col.1">Viele Sitzungen</th><th scope="col" data-i18n="rate.col.2">Mehrere Personen</th><th scope="col" data-i18n="rate.col.3">Backlog und Plan</th><th scope="col" data-i18n="rate.col.4">Entscheidungen mit Begründung</th><th scope="col" data-i18n="rate.col.5">Nachweis für „fertig“</th><th scope="col" data-i18n="rate.col.6">Leicht zu starten</th></tr></thead>
+        <tbody>
+        <tr><th scope="row"><span data-i18n="cmp.chat.1">Prompt im Chat</span></th><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td></tr>
+        <tr><th scope="row"><span data-i18n="cmp.mem.1">Agenten-Gedächtnis</span></th><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td></tr>
+        <tr><th scope="row">SDD</th><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td></tr>
+        <tr><th scope="row">PDD</th><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i></i><i></i></span><span class="visually-hidden">1/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i></i><i></i><i></i></span><span class="visually-hidden">0/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td></tr>
+        <tr class="us"><th scope="row">ProjectStore</th><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="visually-hidden">3/3</span></td><td><span class="marks" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span><span class="visually-hidden">2/3</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cmp-note" data-i18n="rate.note">Drei Punkte: hält von allein; zwei: teilweise; einer: mit Handarbeit; keiner: gar nicht. Die Bewertung stammt von uns. ProjectStore bekommt zwei Punkte für „leicht zu starten“: Es braucht Node.js und eine Plugin-Installation.</p>
+    <h3 class="cmp-sub" id="tree-title" data-i18n="tree.title">Welchen Ansatz du brauchst</h3>
+    <div class="tree-wrap">
+      <ol class="tree" aria-labelledby="tree-title">
+        <li class="tree-step"><p class="tree-q" data-i18n="tree.q.1">Eine Aufgabe für einen Abend?</p><span class="tree-yes" data-i18n="tree.yes">ja</span><p class="tree-a"><b data-i18n="cmp.chat.1">Prompt im Chat</b><small data-i18n="tree.a.1">schnell und einfach</small></p><span class="tree-no" data-i18n="tree.no">nein</span><span class="tree-up" aria-hidden="true"></span><span class="tree-grew" data-i18n="tree.grew">das Projekt ist gewachsen</span></li>
+        <li class="tree-step"><p class="tree-q" data-i18n="tree.q.2">Reicht es, dass der Agent sich nur dich merkt?</p><span class="tree-yes" data-i18n="tree.yes">ja</span><p class="tree-a"><b data-i18n="cmp.mem.1">Agenten-Gedächtnis</b><small data-i18n="tree.a.2">merkt sich dich auf diesem Rechner</small></p><span class="tree-no" data-i18n="tree.no">nein</span><span class="tree-up" aria-hidden="true"></span></li>
+        <li class="tree-step"><p class="tree-q" data-i18n="tree.q.3">Ein Feature mit klarem „Wie“?</p><span class="tree-yes" data-i18n="tree.yes">ja</span><p class="tree-a"><b>SDD</b><small data-i18n="tree.a.3">eine Spec vor dem Code</small></p><span class="tree-no" data-i18n="tree.no">nein</span><span class="tree-up" aria-hidden="true"></span></li>
+        <li class="tree-step last"><p class="tree-q" data-i18n="tree.q.4">Reicht es zu beweisen, dass der Code funktioniert?</p><span class="tree-yes" data-i18n="tree.yes">ja</span><p class="tree-a"><b>PDD</b><small data-i18n="tree.a.4">ein Test statt des Worts des Agenten</small></p><span class="tree-no" data-i18n="tree.no">nein</span><span class="tree-up" aria-hidden="true"></span></li>
+        <li class="tree-end"><p><b>ProjectStore</b> <span data-i18n="tree.end">— ein Projekt für Monate: viele Sitzungen, mehrere Personen, ein Backlog. Und alles von oben: deine eigenen Worte, Gedächtnis des Projekts, eine Spec vor dem Code und Nachweis danach.</span></p></li>
+      </ol>
+    </div>
+    <h3 class="cmp-sub" id="ladder-title" data-i18n="ladder.title">Jeder Ansatz fügt eine Stufe hinzu; ProjectStore hält sie alle</h3>
+    <div class="ladder-wrap">
+      <ol class="ladder" aria-labelledby="ladder-title">
+        <li><span class="brick" data-i18n="ladder.b.1">deine Worte</span><b data-i18n="cmp.chat.1">Prompt im Chat</b></li>
+        <li><span class="brick" data-i18n="ladder.b.2">Gedächtnis</span><span class="brick" data-i18n="ladder.b.1">deine Worte</span><b data-i18n="cmp.mem.1">Agenten-Gedächtnis</b></li>
+        <li><span class="brick" data-i18n="ladder.b.3">eine Spec vor dem Code</span><span class="brick" data-i18n="ladder.b.2">Gedächtnis</span><span class="brick" data-i18n="ladder.b.1">deine Worte</span><b>SDD</b></li>
+        <li><span class="brick" data-i18n="ladder.b.4">Nachweis</span><span class="brick" data-i18n="ladder.b.3">eine Spec vor dem Code</span><span class="brick" data-i18n="ladder.b.2">Gedächtnis</span><span class="brick" data-i18n="ladder.b.1">deine Worte</span><b>PDD</b></li>
+        <li class="us"><span class="brick top" data-i18n="ladder.b.5">Team, Sitzungen, Backlog</span><span class="brick" data-i18n="ladder.b.4">Nachweis</span><span class="brick" data-i18n="ladder.b.3">eine Spec vor dem Code</span><span class="brick" data-i18n="ladder.b.2">Gedächtnis</span><span class="brick" data-i18n="ladder.b.1">deine Worte</span><b>ProjectStore</b></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="sec chapter" id="start" aria-labelledby="start-title">
+  <div class="section-label big" data-i18n="start.label">Installation und erste Schritte</div>
+  <h2 id="start-title" data-i18n="start.h2">Du kannst auch starten, wenn du kein Programmierer bist.</h2>
+  <p class="lead" data-i18n="start.lead">Dein Agent führt die Befehle für dich aus. Du installierst zwei Programme, öffnest einen Projektordner und fügst einen Satz ein.</p>
+</section>
+
+<section class="sec" id="quick" aria-labelledby="quick-title">
+  <h2 id="quick-title" data-i18n="quick.h2">Schnellstart</h2>
+  <ol class="qs">
+    <li><h3 data-i18n="quick.s.a.h">Einen Agenten besorgen</h3><p data-i18n="quick.s.a.p">Ein Agent ist ein Programm, das aus deinen Worten Code schreibt und ausführt. Beides funktioniert: <a href="https://claude.ai/download">Claude</a> (die App, ihr Tab Code) oder <a href="https://openai.com/codex/">Codex</a> von OpenAI.</p></li>
+    <li><h3 data-i18n="quick.s.b.h">Node.js installieren und einen Projektordner öffnen</h3><p data-i18n="quick.s.b.p">Node.js ist die Grundlage, auf der ProjectStore läuft: der LTS-Installer von <a href="https://nodejs.org">nodejs.org</a>, Version 20 oder neuer, unter macOS oder Linux. Lege einen leeren Ordner an, zum Beispiel „my-bot“, und öffne ihn im Agenten.</p></li>
+    <li><h3 data-i18n="quick.s.1.h">ProjectStore installieren</h3><p data-i18n="quick.s.1.p"><b><i>Bitte deinen Agenten darum</i></b> oder führe den Befehl in einem Terminal im Projektordner aus.</p>
+      <div class="install" data-tabs data-initial="ask">
+        <div class="install-bar"><span class="install-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <div class="install-tabs" role="tablist" aria-label="Installation" data-i18n-attr="aria-label:start.tabs">
+            <button class="install-tab" type="button" role="tab" data-tab="ask" id="tab-ask" aria-controls="panel-ask" data-i18n="start.tab.ask"><b>Schreib an deinen Agenten</b></button>
+            <button class="install-tab" type="button" role="tab" data-tab="term" id="tab-term" aria-controls="panel-term" data-i18n="start.tab.term"><i>In einem Terminal im Projekt</i></button>
+          </div>
+        </div>
+        <div class="install-panel chatbox active" role="tabpanel" id="panel-ask" aria-labelledby="tab-ask" data-panel="ask">
+          <blockquote id="ask-prompt" data-fact="prompt">Install the projectstore plugin from https://github.com/SmartAndPoint/ProjectStore and set it up for this project.</blockquote>
+          <button class="copy" type="button" data-copy-from="ask-prompt" aria-label="Prompt kopieren" data-done="Kopiert" data-i18n-attr="aria-label:hero.copy.2;data-done:hero.copied.2"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+        </div>
+        <div class="install-panel termbox" role="tabpanel" id="panel-term" aria-labelledby="tab-term" data-panel="term">
+          <div class="cmdline">
+            <div class="cmdtext"><span class="ps1">~/your-project $</span><pre id="install-cmd" data-fact="install">npx projectstore setup</pre></div>
+            <button class="copy" type="button" data-copy-from="install-cmd" aria-label="Befehl kopieren" data-done="Kopiert" data-i18n-attr="aria-label:hero.copy;data-done:hero.copied"><svg class="icon copy-icon" aria-hidden="true"><use href="#i-copy"/></svg><svg class="icon done-icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+          </div>
+        </div>
+      </div>
+      <p class="note" data-i18n="quick.s.1.after">Starte den Agenten nach der Installation neu; Codex bittet einmal darum, seine Hooks freizugeben.</p></li>
+    <li><h3 data-i18n="quick.s.2.h">Sag, was du bauen willst</h3><p class="say">I want to create a stock trading bot</p><p class="tr" data-i18n="quick.s.2.tr">„Ich möchte einen Bot für den Aktienhandel bauen“</p></li>
+    <li><h3 data-i18n="quick.s.3.h">Beantworte seine Fragen</h3><p data-i18n="quick.s.3.p">Der Agent fragt, was nur du entscheiden kannst, bevor er plant:</p>
+      <div class="chat">
+        <p class="chat-agent">The project is empty—no code, and the vault just has README scaffolding with no epics, stories, or ADRs yet. Per CLAUDE.md, I'll start with an epic and its stories in the vault rather than code, but first I need you to make a few decisions that will shape the plan.</p>
+        <p class="tr" data-i18n="quick.chat.tr">Übersetzung: „Das Projekt ist leer, es gibt noch keinen Code und keine Notizen. Ich beginne mit einem Plan, nicht mit Code. Vorher brauche ich aber deine Entscheidungen.“</p>
+        <div class="choice">
+          <p class="choice-q">Should the bot trade real money? <span class="tr" data-i18n="quick.q.tr">(mit echtem Geld handeln?)</span></p>
+          <ol>
+            <li>Paper only (Recommended) <span data-i18n="quick.o.1">· Papier-/Sandbox-Konto</span></li>
+            <li>Backtest only <span data-i18n="quick.o.2">· historische Daten, kein Broker</span></li>
+            <li>Live, with safeguards <span data-i18n="quick.o.3">· Notaus, Positionslimits, Tagesverlustgrenze</span></li>
+          </ol>
+        </div>
+      </div>
+      <p class="note" data-i18n="quick.s.3.src">Aus einer echten Sitzung in Claude Code, in einem leeren Projekt, 21. Oktober 2026. Der Text des Agenten ist wörtlich zitiert; die Details der Optionen sind gekürzt.</p>
+    </li>
+    <li><h3 data-i18n="quick.s.4.h">Den Plan freigeben</h3><p data-i18n="quick.s.4.p">Der Critic hat ihn bis dahin geprüft. Nach deinem Ja baut der Agent ihn, und der Reviewer prüft das Ergebnis gegen die Checkliste.</p></li>
+  </ol>
+</section>
+
+<section class="sec" id="talk" aria-labelledby="talk-title">
+  <h2 id="talk-title" data-i18n="talk.h2">Was du tun kannst</h2>
+  <p class="lede" data-i18n="talk.sub">Sprich einfach mit deinem Agenten, in deinen eigenen Worten. Zum Beispiel:</p>
+  <div class="tasks">
+    <div class="task"><h3 data-i18n="talk.c.1.h">Ein Projekt aus einer Idee starten</h3><p class="say">I want to create a stock trading bot</p><p data-i18n="talk.c.1.p">Er fragt, was nur du entscheiden kannst, und schreibt dann den Plan: Epics, Stories, zu jeder eine Checkliste. Noch kein Code.</p></div>
+    <div class="task"><h3 data-i18n="talk.c.2.h">Einmal entscheiden</h3><p class="say">Let's go with Postgres, not Mongo — we need transactions.</p><p data-i18n="talk.c.2.p">Die Entscheidung wird zu einer Datei mit den Optionen, die du abgelehnt hast. Spätere Sitzungen folgen ihr, statt neu zu entscheiden.</p></div>
+    <div class="task"><h3 data-i18n="talk.c.3.h">Ein Feature nach seiner Checkliste bauen</h3><p class="say">Take the next story and build it</p><p data-i18n="talk.c.3.p">Der Planner findet, wohin es gehört, der Agent schreibt Code und Tests, und der Reviewer prüft jeden Punkt, bevor es als fertig zählt.</p></div>
+    <div class="task"><h3 data-i18n="talk.c.4.h">Morgen weitermachen</h3><p class="say">Where were we?</p><p data-i18n="talk.c.4.p">Eine neue Sitzung liest das Board und die Story in Arbeit und macht von dort weiter.</p></div>
+  </div>
+  <ul class="trust">
+    <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="talk.trust.1">Nichts wird ohne dein Ja geschrieben.</span></li>
+    <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="talk.trust.2">Einfaches Markdown in deinem Git. Entferne das Plugin, und die Notizen bleiben.</span></li>
+    <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span class="agents-line" data-i18n="talk.agents">Funktioniert in <b>Claude Code</b> und <b>Codex</b>. <b>OpenCode</b> bald; <b>Gemini</b>, <b>Z.ai</b> und <b>DeepSeek</b> als Nächstes.</span></li>
+  </ul>
+  <div class="proof"><b data-i18n="talk.proof.h">Mit sich selbst gebaut</b><p data-i18n="talk.proof.p">Wir bauen ProjectStore mit ProjectStore.</p></div>
+</section>
+<section class="sec chapter" id="how" aria-labelledby="how-title">
+  <div class="section-label big" data-i18n="how.label">So funktioniert es</div>
+  <h2 id="how-title" data-i18n="how.h1">Eine Schleife mit <span class="acc">einer unabhängigen Prüfung</span> darin.</h2>
+  <p class="lead" data-i18n="how.lead">Agenten schreiben schnell Code, und sie entscheiden Geklärtes genauso schnell neu: Jede frische Sitzung beginnt leer. Die Lösung ist kein klügerer Agent, sondern Kontext sammeln → handeln → prüfen, angewandt auf das Projekt und nicht nur auf den Code.</p>
+</section>
+
+<section class="sec joined" id="loop" aria-labelledby="loop-title">
+<figure class="loop" aria-labelledby="loop-cap">
+  <figcaption id="loop-cap" class="visually-hidden" data-i18n="loop.cap">Die ProjectStore-Schleife. Entscheiden: eine Aufgabe von dir, ein ADR, eine Spec oder Story, ein unabhängiger Critic, deine Freigabe. Bauen: der Planner, die Umsetzung, ein unabhängiger Reviewer, fertig. Jedes Artefakt landet im Vault, und die nächste Sitzung sieht es.</figcaption>
+  <div class="diagram">
+  <svg class="dg loop-svg" viewBox="0 0 1104 488" width="1104" height="488" role="group" aria-labelledby="loop-cap">
+    <text class="lbl" x="48" y="80" data-i18n="loop.decide">entscheiden</text>
+    <text class="lbl" x="150" y="262" data-i18n="loop.build">bauen</text>
+    <path class="edge" d="M216 134H298" marker-end="url(#m)"/>
+    <path class="edge" d="M528 134H610" marker-end="url(#m)"/>
+    <path class="edge" d="M840 134H922" marker-end="url(#m)"/>
+    <path class="edge chk" d="M728 96V52H416V90" marker-end="url(#m-chk)"/>
+    <text class="elbl chk" x="572" y="44" text-anchor="middle" data-i18n="loop.revise">↺ überarbeiten</text>
+    <path class="edge" d="M1012 172V228H132V278" marker-end="url(#m)"/>
+    <text class="elbl" x="572" y="218" text-anchor="middle" data-i18n="loop.pickup">ein Agent übernimmt</text>
+    <path class="edge" d="M216 322H298" marker-end="url(#m)"/>
+    <path class="edge" d="M528 322H610" marker-end="url(#m)"/>
+    <path class="edge ok" d="M840 322H922" marker-end="url(#m-ok)"/>
+    <path class="edge chk" d="M680 360V384H460V366" marker-end="url(#m-chk)"/>
+    <text class="elbl chk" x="570" y="404" text-anchor="middle" data-i18n="loop.fix">↺ beheben</text>
+    <path class="edge ok" d="M1012 360V410" marker-end="url(#m-ok)"/>
+    <rect class="nb dash" x="304" y="416" width="792" height="44" rx="6"/>
+    <text class="elbl" x="320" y="443" data-i18n="loop.views">Board, Link-Map, Code-Map neu aufgebaut</text>
+    <path class="edge ret" d="M304 438H24V134H42" marker-end="url(#m-ret)"/>
+    <text class="elbl dim" x="40" y="478" data-i18n="loop.next">die nächste Sitzung sieht es</text>
+
+    <g class="node" data-step="1"><rect class="nb" x="48" y="96" width="168" height="76" rx="6"/><text class="t" x="64" y="128" data-i18n="loop.task">Aufgabe</text><text class="s" x="64" y="150" data-i18n="loop.task.s">von dir</text></g>
+    <g class="node" data-step="2"><rect class="nb acc" x="304" y="96" width="224" height="76" rx="6"/><text class="t acc" x="320" y="128" data-i18n="loop.art">ADR · Spec · Story</text><text class="s" x="320" y="150" data-i18n="loop.art.s">das Warum, auf Platte</text></g>
+    <g class="node" data-step="3"><rect class="nb chk" x="616" y="96" width="224" height="76" rx="6"/><text class="tag" x="632" y="118" data-i18n="loop.check">unabhängige Prüfung</text><text class="t chk" x="632" y="142" data-i18n="loop.critic">critic</text><text class="s" x="632" y="162" data-i18n="loop.critic.s">frischer Kontext</text></g>
+    <g class="node" data-step="4"><rect class="nb acc" x="928" y="96" width="168" height="76" rx="6"/><text class="t acc" x="944" y="128" data-i18n="loop.you">Du</text><text class="s" x="944" y="150" data-i18n="loop.you.s">Freigabe</text></g>
+    <g class="node" data-step="5"><rect class="nb pln" x="48" y="284" width="168" height="76" rx="6"/><text class="t pln" x="64" y="316" data-i18n="loop.planner">planner</text><text class="s" x="64" y="338" data-i18n="loop.planner.s">wo im Code</text></g>
+    <g class="node" data-step="6"><rect class="nb" x="304" y="284" width="224" height="76" rx="6"/><text class="t" x="320" y="316" data-i18n="loop.impl">umsetzen</text><text class="s" x="320" y="338" data-i18n="loop.impl.s">Code + Tests</text></g>
+    <g class="node" data-step="7"><rect class="nb chk" x="616" y="284" width="224" height="76" rx="6"/><text class="tag" x="632" y="306" data-i18n="loop.check.2">unabhängige Prüfung</text><text class="t chk" x="632" y="330" data-i18n="loop.reviewer">reviewer</text><text class="s" x="632" y="350" data-i18n="loop.reviewer.s">je Kriterium</text></g>
+    <g class="node" data-step="8"><rect class="nb ok" x="928" y="284" width="168" height="76" rx="6"/><text class="t ok" x="944" y="316" data-i18n="loop.done">fertig ✓</text><text class="s" x="944" y="338" data-i18n="loop.done.s">Kriterien erfüllt</text></g>
+  </svg>
+  </div>
+  <ol class="step-lines">
+    <li data-line="1"><b>01</b><span data-i18n="loop.l.1">Du sagst, was du willst. Der Agent öffnet ein Artefakt, bevor er einen Editor öffnet.</span></li>
+    <li data-line="2"><b>02</b><span data-i18n="loop.l.2">Ein ADR, wenn etwas entschieden werden muss, ein Epic mit Stories für die Arbeit, eine Spec, wenn das „Wie“ nicht offensichtlich ist. Erst als Vorschau gezeigt, dann nach deinem Ja geschrieben.</span></li>
+    <li data-line="3"><b>03</b><span data-i18n="loop.l.3">Ein Critic mit frischem Kontext, der am Entwurf nichts zu verlieren hat, greift ihn an. Rechne mit einem „überarbeiten“.</span></li>
+    <li data-line="4"><b>04</b><span data-i18n="loop.l.4">Du gibst die Fixes frei. Das Artefakt wird als reviewt markiert und landet im Backlog.</span></li>
+    <li data-line="5"><b>05</b><span data-i18n="loop.l.5">Ein Agent übernimmt eine Story. Der Planner liest, wie frühere Epics im Code gelandet sind, und sagt, wo diese Änderung hingehört.</span></li>
+    <li data-line="6"><b>06</b><span data-i18n="loop.l.6">Code und Tests, nach dem Plan der Story.</span></li>
+    <li data-line="7"><b>07</b><span data-i18n="loop.l.7">Ein Reviewer mit frischem Kontext prüft den Diff gegen jedes Abnahmekriterium und verlangt einen Nachweis.</span></li>
+    <li data-line="8"><b>08</b><span data-i18n="loop.l.8">Fertig, mit Nachweis unter jedem Kriterium. Board, Link-Map und Code-Map werden neu aufgebaut.</span></li>
+  </ol>
+</figure>
+  <figure class="loopfig" data-player>
+    <figcaption id="loop-title" data-i18n="fig.cap">Wie eine Aufgabe abläuft</figcaption>
+    <div class="player">
+      <img class="player-poster" src="../assets/loop-still.webp" width="1920" height="1080" loading="lazy" decoding="async" draggable="false" alt="Ein animiertes Terminal-Dashboard der Schleife an einem echten Epic. Du bittest um ein Copy-Paste-System zwischen deinen Geräten; der Agent schreibt das Epic und seine Stories; der Critic mit frischem Kontext schickt sie mit zwei Blockern zurück; du gibst die Korrekturen frei; der Planner findet, wohin der Code gehört; Code und Tests; der Reviewer prüft jedes Abnahmekriterium; fertig. Das Aufgabenboard, die Link-Map und die Code-Map werden neu aufgebaut, und die nächste Sitzung sieht sie. Ein Seitenfeld zeigt den Critic im Einsatz und den Reviewer." data-i18n-attr="alt:fig.alt">
+      <template class="player-src"><iframe class="player-frame" src="../assets/loop.html" tabindex="-1" aria-hidden="true"></iframe></template>
+      <div class="player-bar" hidden>
+        <button class="player-play" type="button" aria-pressed="false" aria-label="Anhalten" data-i18n-attr="aria-label:fig.pause"><span class="pause-bars" aria-hidden="true"></span></button>
+        <input class="player-seek" type="range" min="0" max="30" step="0.1" value="0" aria-label="Abspielposition" data-i18n-attr="aria-label:fig.seek">
+        <span class="player-time" aria-hidden="true">0:00 / 0:30</span>
+        <button class="player-full" type="button" aria-pressed="false" aria-label="Vollbild" data-i18n-attr="aria-label:fig.full"><svg class="icon on-off" aria-hidden="true"><use href="#i-expand"/></svg><svg class="icon on-on" aria-hidden="true"><use href="#i-shrink"/></svg></button>
+      </div>
+    </div>
+  </figure>
+</section>
+
+<section class="sec" id="agents" aria-labelledby="how-agents-title">
+  <div class="section-label" data-i18n="how.agents.label">Die Agenten</div>
+  <h2 id="how-agents-title"><span data-fact="agents">6</span> <span data-i18n="agents.h2.1">Agenten.</span> <span class="acc" data-i18n="agents.h2.2">Alle bis auf einen dürfen nur lesen.</span></h2>
+  <p class="lede" data-i18n="agents.p.1">Die Berater prüfen, planen und räumen auf, ohne etwas zu ändern. <b>Ein einziger Clerk speichert nach deinem Ja nur das, was du freigegeben hast.</b></p>
+  <div class="agents">
+    <article class="agent"><span class="role chk">critic</span><span class="rw" data-i18n="agents.span.4">nur lesend · unabhängig</span><p data-i18n="agents.td.1">Nachdem ein ADR, eine Spec, ein Epic, eine Story oder ein Design geschrieben oder geändert wurde</p><p class="c-hi" data-i18n="agents.td.2">Sucht nach Schwachstellen, prüft jede Behauptung an der Quelle und fragt, wie der Plan scheitern könnte. Keine Schmeichelei.</p><span class="rw" data-i18n="agents.td.3">opus · max</span></article>
+    <article class="agent"><span class="role pln">planner</span><span class="rw" data-i18n="agents.span.5">nur lesend · unabhängig</span><p data-i18n="agents.td.4">Bevor die Arbeit an einer Story beginnt (<code>story plan</code>)</p><p class="c-hi" data-i18n="agents.td.5">Schaut, wo frühere Epics im Code liegen. Sagt, wo die Änderung hingehört, was sich wiederverwenden lässt, worauf zu achten ist und in welcher Reihenfolge gearbeitet wird.</p><span class="rw" data-i18n="agents.td.6">opus · max</span></article>
+    <article class="agent"><span class="role chk">reviewer</span><span class="rw" data-i18n="agents.span.6">nur lesend · unabhängig</span><p data-i18n="agents.td.7">Wenn der Code steht, vor dem Commit oder <code>story close</code></p><p class="c-hi" data-i18n="agents.td.8">Verlangt einen Nachweis für jedes Abnahmekriterium, auch für die der Spec. Prüft dann Korrektheit, Regressionen und Tests.</p><span class="rw" data-i18n="agents.td.9">opus · max</span></article>
+    <article class="agent"><span class="role">librarian</span><span class="rw" data-i18n="agents.span.7">nur lesend · schlägt vor</span><p data-i18n="agents.td.10">Ab und zu, vor Releases, wenn der Vault schnell wächst</p><p class="c-hi" data-i18n="agents.td.11">Findet, was keine Regel erkennt: Research-Notizen, die einem akzeptierten ADR widersprechen, Duplikate, fehlende Links, Dateien, die ins Archiv können.</p><span class="rw" data-i18n="agents.td.12">opus · max</span></article>
+    <article class="agent"><span class="role">archaeologist</span><span class="rw" data-i18n="agents.span.8">nur lesend · schlägt vor</span><p data-i18n="agents.td.13">Einmal, nach dem Binden einer bestehenden Codebasis</p><p class="c-hi" data-i18n="agents.td.14">Findet Entscheidungen, die niemand aufgeschrieben hat: im Code, in Konfigurationsdateien und in der Git-Historie. Schlägt dafür ADRs vor, mit Nachweisen.</p><span class="rw" data-i18n="agents.td.15">opus · max</span></article>
+    <article class="agent"><span class="role acc">clerk</span><span class="rw" data-i18n="agents.span.9">schreibt · nach deinem Ja</span><p data-i18n="agents.td.16">Nur innerhalb eines Befehlsablaufs, nur nach deinem Ja</p><p class="c-hi" data-i18n="agents.td.17">Speichert genau das, was du freigegeben hast, nicht mehr. Baut danach das Board neu auf und führt die Prüfungen aus. Schreibt nichts Eigenes und fragt nichts.</p><span class="rw" data-i18n="agents.td.18">sonnet · max</span></article>
+  </div>
+  <p class="note"><span data-i18n="agents.p.10">Die Standardmodelle gelten für Claude Code. In Codex ist jede Rolle ein gleichnamiger Skill, der Codex bittet, die Rolle zu starten, etwa <code>$projectstore-critic</code> für den Critic; er nutzt das Modell der Sitzung, solange du keines festlegst.</span></p>
+</section>
+<section class="sec" id="mechanisms" aria-labelledby="how-mech-title">
+  <div class="section-label" data-i18n="how.mech.label">Die Schutzmechanismen</div>
+  <h2 id="how-mech-title" data-i18n="how.mech.h2">Mechanismen halten es zusammen, <span class="acc">nicht Disziplin.</span></h2>
+  <div class="mechs">
+    <div class="mech"><h3 data-i18n="how.m.1.h">Keine Story, ein Stups</h3><p data-i18n="how.m.1.p">Ein Agent, der Code zu bearbeiten beginnt, ohne dass eine Story offen ist, wird daran erinnert, eine zu öffnen. Eine Änderung in Feature-Größe beginnt im Vault.</p></div>
+    <div class="mech"><h3 data-i18n="workflow.h4.2">Was nicht reviewt ist, bleibt markiert</h3><p data-i18n="how.m.2.p">Ein Artefakt, das ein Review braucht, trägt <code>review_status: pending</code>, bis ein Critic-Durchgang eingearbeitet ist. „Noch nicht reviewt“ ist ein Zustand, den die Werkzeuge lesen können, nichts, woran sich jemand erinnern muss.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.3.h">Ein Doctor ohne KI</h3><p data-i18n="how.m.3.p"><code>doctor</code> prüft die mechanische Konsistenz des Vaults deterministisch. In der CI läuft er ohne Agent und ohne Tokens.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.4.h">Wo man nachschaut, generiert</h3><p data-i18n="how.m.4.p"><code>graph.md</code> hält die Links jedes Artefakts in beiden Richtungen fest; <code>code-map.md</code> sagt, wo der Code jedes Epics liegt. Vor einer Architekturentscheidung wird der Agent zuerst auf den ADR-Index verwiesen.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.5.h">Nach <code>/compact</code> kommt der Vault zurück</h3><p data-i18n="how.m.5.p">Nach einem <code>/compact</code>, das du ausführst, beginnt die Sitzung in Claude Code wieder mit der Orientierung des Vaults und mit den Vault-Dateien, die das Gespräch zuvor berührt hat.</p></div>
+    <div class="mech"><h3 data-i18n="how.m.6.h">Eine zweite Sitzung wird gewarnt</h3><p data-i18n="how.m.6.p">Eine Sitzung, die startet, während eine andere am selben Vault arbeitet, beginnt mit einer Multi-Session-Warnung: erst suchen, bevor etwas Neues entsteht.</p></div>
+  </div>
+</section>
+<section class="sec" id="evidence" aria-labelledby="how-ev-title">
+  <div class="section-label" data-i18n="how.ev.label">Fertig heißt bewiesen</div>
+  <h2 id="how-ev-title" data-i18n="how.ev.h2">Eine Story schließt mit Nachweis <span class="acc">unter jedem Kriterium.</span></h2>
+  <div class="files">
+    <figure class="file">
+      <figcaption><span data-i18n="how.story.path"><span data-slug="story:path">epics/CHECKOUT/stories/story-gespeicherte-karten-werden-im-checkout-aufgelistet.md</span></span></figcaption>
+<pre class="plain-code" data-template="story" data-i18n="how.story"><span class="fm">---</span>
+<span class="k">type:</span> story
+<span class="k">epic:</span> "CHECKOUT"
+<span class="k">title:</span> "<span data-title="story">Gespeicherte Karten werden im Checkout aufgelistet</span>"
+<span class="k">status:</span> <span class="c-ok">done</span>
+<span class="k">code_refs:</span> ["src/billing/cards/", "tests/cards.test.ts"]
+<span class="k">closed_at:</span> "2026-07-14T16:02:11Z"
+<span class="fm">---</span>
+
+<span class="h">## Abnahmekriterien</span>
+
+- [x] Gespeicherte Karten stehen an erster Stelle — Nachweis: tests/cards.test.ts:21
+- [x] Eine abgelehnte Karte zeigt den Grund der Bank — Nachweis: tests/cards.test.ts:58
+- [x] Keine Kartennummer gelangt in die Logs — Nachweis: tests/cards.test.ts:73</pre>
+    </figure>
+    <div class="prose">
+      <p data-i18n="how.ev.p.1">Der Planner hat vor dem Code gesagt, wo die Änderung hingehört, und der Plan ging mit deinem Ja in die Story; danach hat der Reviewer den Diff gegen jedes Kriterium geprüft. Jede Zeile Nachweis ist ein Test, ein ausgeführter Befehl oder eine Codezeile.</p>
+      <p data-i18n="how.ev.p.2">Jeder Agent kann diese Akte lesen, mit oder ohne Plugin: über die CLI, die mit JSON antwortet und keine Tokens braucht, oder über die <span data-fact="mcp-tools">8</span> schreibgeschützten Tools des MCP-Servers.</p>
+      <ul class="tools" aria-label="MCP-Tools" data-i18n-attr="aria-label:agents.aria-label.1"><li data-fact="mcp-tool">orientation</li><li data-fact="mcp-tool">search</li><li data-fact="mcp-tool">status</li><li data-fact="mcp-tool">get_artifact</li><li data-fact="mcp-tool">lineage</li><li data-fact="mcp-tool">neighbors</li><li data-fact="mcp-tool">code_refs</li><li data-fact="mcp-tool">doctor</li></ul>
+    </div>
+  </div>
+</section>
+<section class="sec" id="fine-print" aria-labelledby="how-fine-title">
+  <div class="section-label" data-i18n="how.fine.label">Kleingedrucktes</div>
+  <h2 id="how-fine-title" class="visually-hidden" data-i18n="how.fine.h2">Kleingedrucktes</h2>
+  <ul class="fine">
+    <li data-i18n="how.fine.1">Die Schleife zu betreiben kostet Tokens: Die Entwürfe, der Critic und der Reviewer laufen auf dem Modell, das du ohnehin bezahlst. Das README misst es.</li>
+    <li data-i18n="how.fine.2">Critic und Reviewer sind in Claude Code getrennte Agenten mit frischem Kontext. In Codex sind die Rollen Skills.</li>
+    <li data-i18n="how.fine.3">ProjectStore ist geteilter Projektkontext und eine Arbeitsweise. Es ist kein Agenten-Orchestrator: Agenten zu starten ist Aufgabe deines Harness.</li>
+  </ul>
+</section>
+<section class="sec chapter" id="team" aria-labelledby="team-title">
+  <div class="section-label big" data-i18n="team.label">Team und viele Sitzungen</div>
+  <h2 id="team-title" data-i18n="vault.h1">Viele Sitzungen. Viele Menschen. <span class="acc">Ein Vault.</span></h2>
+  <p class="lead" data-i18n="teams.p.1">Der Kontext gehört dem Team, nicht dem Chat eines einzelnen Entwicklers. ADRs und Specs laufen wie Code über Pull Requests. <b>Reviewt wird die Begründung.</b></p>
+</section>
+
+<section class="sec modes" id="modes" aria-labelledby="vault-modes-title" data-tabs data-initial="solo">
+  <div class="section-label" data-i18n="vault.modes.label">Vier Arten zu arbeiten</div>
+  <h2 id="vault-modes-title" class="visually-hidden" data-i18n="vault.modes.h2">Vier Arten zu arbeiten</h2>
+  <div class="tabs" role="tablist" aria-label="Szenarien der Zusammenarbeit" data-i18n-attr="aria-label:teams.aria-label.1">
+    <button class="tab" type="button" role="tab" data-tab="solo" id="vt-solo" aria-controls="vp-solo" data-i18n="modes.tab.solo">Eine Person, viele Sitzungen</button>
+    <button class="tab" type="button" role="tab" data-tab="team" id="vt-team" aria-controls="vp-team" data-i18n="teams.button.1">Ein Team</button>
+    <button class="tab" type="button" role="tab" data-tab="teams" id="vt-teams" aria-controls="vp-teams" data-i18n="teams.button.2">Mehrere Teams</button>
+    <button class="tab" type="button" role="tab" data-tab="agents" id="vt-agents" aria-controls="vp-agents" data-i18n="teams.button.3">Mehrere Agenten</button>
+  </div>
+
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="solo" id="vp-solo" aria-labelledby="vt-solo">
+    <div class="cols">
+      <div class="prose">
+        <h3 data-i18n="teams.h3.5">Mehrere Sitzungen, ein Vault</h3>
+        <p data-i18n="teams.p.12">Dass zwei Agenten oder zwei Menschen gleichzeitig in einem Vault arbeiten, ist normal. Jede Sitzung weiß von den anderen, und ein paar einfache Regeln sorgen dafür, dass sie sich nicht in die Quere kommen.</p>
+        <ul class="rules-list">
+          <li data-i18n="teams.li.1"><strong>Kein stilles Überschreiben.</strong> Bevor ProjectStore eine neue Datei speichert, prüft es, ob sie schon existiert. Zwei Sitzungen zum selben Thema bekommen einen Konflikt, keine zwei Kopien.</li>
+          <li data-i18n="teams.li.2"><strong>Jede Statuszeile zeigt die eigene Arbeit.</strong> <span data-source="docs/how-it-works.md#sessions-how-parallel-claude-instances-coexist">2–6 Sitzungen</span> nebeneinander sehen jeweils genau ihr eigenes Epic und ihre eigene Story.</li>
+          <li data-i18n="teams.li.3"><strong>Sitzungsnamen werden angeboten, nicht aufgezwungen.</strong> Sobald sich eine Sitzung auf eine Aufgabe festlegt, schlägt sie einen Namen dafür vor. Selten: <span data-source="docs/how-it-works.md#naming-a-session-after-the-work-it-settled-on">höchstens zweimal pro Sitzung, 12 Vorschläge in neun aufgezeichneten Sitzungen</span>.</li>
+        </ul>
+      </div>
+      <figure class="tty"><figcaption><span data-i18n="vault.tty.cap">eine zweite Sitzung auf your-project-vault</span><span class="c-ok">Claude Code</span></figcaption>
+<pre class="transcript" data-i18n="vault.tty"><span class="c-dim">Entwickler A arbeitet seit 13:35 an CHECKOUT. Du öffnest eine zweite Sitzung:</span>
+
+<span class="c-epic">⚠ Multi-session warning</span> — 1 other projectstore session active.
+  Run <span class="c-acc">/projectstore:search &lt;topic&gt;</span> before creating new artifacts.
+
+<span class="c-dim">später, sobald sich deine Arbeit auf „<span data-title="story">Gespeicherte Karten werden im Checkout aufgelistet</span>“ festlegt:</span>
+projectstore: this session looks like <span class="c-acc">"<span data-slug="story:session">checkout-gespeicherte-karten-werden-im-checkout</span>"</span>
+  → <span class="c-acc">/rename <span data-slug="story:session">checkout-gespeicherte-karten-werden-im-checkout</span></span></pre>
+      </figure>
+    </div>
+  </div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="team" id="vp-team" aria-labelledby="vt-team"><div class="prose"><h3 data-i18n="teams.h3.1">Alle sehen mehr als ihren eigenen Teil.</h3><p data-i18n="teams.p.2">Entwickler, Tech Lead und QA arbeiten mit denselben Entscheidungen und Kriterien. Wer keinen Agenten nutzt, braucht nur GitHub oder einen Markdown-Editor: Es sind einfach Dateien.</p><p data-i18n="teams.p.3">Der Kontext steht dem ganzen Team zur Verfügung, nicht nur dem Besitzer des Chats.</p></div></div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="teams" id="vp-teams" aria-labelledby="vt-teams"><div class="prose"><h3 data-i18n="teams.h3.2">Gemeinsame Verträge. Getrennte Arbeitsbereiche.</h3><p data-i18n="teams.p.4">In einem Projekt führen die Teams API, Web und Plattform ihre eigenen Epics auf Basis gemeinsamer ADRs und Specs. Eine Änderung an einem gemeinsamen Vertrag wird im Review mit den Teams besprochen, die ihn nutzen. ProjectStore zeigt, welche Stories davon abhängen.</p><p data-i18n="teams.p.5">Wem welche Artefakte gehören und wer Verträge abzeichnet, entscheidet das Team.</p></div></div>
+  <div class="mode-panel wide-panel" role="tabpanel" data-panel="agents" id="vp-agents" aria-labelledby="vt-agents"><div class="prose"><h3 data-i18n="teams.h3.3">Verschiedene Ausführende. Gemeinsame Grundlage.</h3><p data-i18n="teams.p.6">Der Planner liest die Entscheidungen und die Code-Map. Der Implementierer liest Story und Spec. Der Reviewer liest Diff und Kriterien. Jeder bekommt den Kontext, den er braucht, nicht den ganzen Verlauf einer fremden Sitzung. Sitzungen im selben Vault warnen einander.</p><p data-i18n="teams.p.7">Agenten zu starten und Arbeit zwischen ihnen zu übergeben, ist Aufgabe deines Harness oder Orchestrators.</p></div></div>
+  <p class="note" data-i18n="teams.span.8">Ein Beispiel für die Arbeitsorganisation, keine Live-Orchestrierung</p>
+</section>
+<section class="sec" id="git" aria-labelledby="vault-git-title">
+  <div class="section-label" data-i18n="teams.span.24">der Vault im eigenen Repository</div>
+  <h2 id="vault-git-title" data-i18n="teams.span.23">So sieht es in git aus</h2>
+  <figure class="diagram">
+  <svg class="dg" viewBox="0 0 1104 392" width="1104" height="392" role="img" aria-labelledby="git-cap">
+    <title id="git-cap" data-i18n="teams.title.1">Entwickler mit eigenen Agenten binden denselben Vault, der in einem eigenen Git-Repository liegt. ADRs und Specs werden als Pull Requests reviewt. Ein Teammitglied ohne Agent reviewt auf GitHub oder in Obsidian.</title>
+    <path class="edge pln" d="M260 56H372" marker-end="url(#m-pln)"/>
+    <path class="edge pln" d="M260 188H372" marker-end="url(#m-pln)"/>
+    <text class="elbl pln" x="316" y="46" text-anchor="middle" data-i18n="teams.text.28">Setup</text>
+    <path class="edge" d="M712 160H822" marker-end="url(#m)"/>
+    <path class="edge" d="M822 200H718" marker-end="url(#m)"/>
+    <text class="elbl" x="767" y="150" text-anchor="middle" data-i18n="teams.text.29">push / pull</text>
+    <path class="edge chk" d="M260 320H966V292" marker-end="url(#m-chk)"/>
+    <text class="elbl chk" x="600" y="342" text-anchor="middle" data-i18n="teams.text.30">Review &amp; Pull</text>
+
+    <rect class="who" x="0" y="16" width="260" height="84" rx="6"/>
+    <text class="t pln" x="16" y="46" data-i18n="teams.text.1">Entwickler A</text><text class="s" x="16" y="68" data-i18n="teams.text.2">Claude Code + projectstore</text><text class="tag" x="16" y="88" data-i18n="teams.text.3">Agent</text>
+    <rect class="who" x="0" y="148" width="260" height="84" rx="6"/>
+    <text class="t pln" x="16" y="178" data-i18n="teams.text.4">Entwickler B</text><text class="s" x="16" y="200" data-i18n="teams.text.5">Codex + projectstore</text><text class="tag" x="16" y="220" data-i18n="teams.text.6">Agent</text>
+    <rect class="nb" x="0" y="280" width="260" height="84" rx="6"/>
+    <text class="t" x="16" y="310" data-i18n="teams.text.7">Entwickler C</text><text class="s" x="16" y="330" data-i18n="teams.text.8">ohne Agent</text><text class="s" x="16" y="350" data-i18n="teams.text.9">reviewt auf GitHub/Obsidian</text>
+
+    <g class="pulse"><rect class="nb acc" x="378" y="16" width="334" height="270" rx="6"/></g>
+    <text class="t acc" x="396" y="46" data-i18n="teams.text.10">your-project-vault</text>
+    <text class="s" x="396" y="68" data-i18n="teams.text.11">eigenes Git-Repo · reines Markdown</text>
+    <text class="s" x="396" y="104" data-i18n="teams.text.12"><tspan class="d">adr/</tspan> Entscheidungen, datiert</text>
+    <text class="s" x="396" y="128" data-i18n="teams.text.13"><tspan class="d">specs/</tspan> das Sollverhalten</text>
+    <text class="s" x="396" y="152" data-i18n="teams.text.14"><tspan class="d">epics/ · stories/</tspan> das Backlog</text>
+    <text class="s" x="396" y="176" data-i18n="teams.text.15"><tspan class="d">kanban.md</tspan> das Board</text>
+    <text class="s" x="396" y="200" data-i18n="teams.text.16"><tspan class="d">graph.md</tspan> alle Links</text>
+    <text class="s" x="396" y="224" data-i18n="teams.text.17"><tspan class="d">code-map.md</tspan> Epic ↔ Code</text>
+    <text class="elbl ok" x="396" y="262" data-i18n="teams.text.18">jede Änderung gezeigt und freigegeben</text>
+
+    <rect class="nb" x="828" y="96" width="276" height="196" rx="6"/>
+    <text class="t" x="846" y="126" data-i18n="teams.text.22">Git-Remote</text>
+    <text class="s" x="846" y="148" data-i18n="teams.text.23">GitHub · GitLab · beliebig</text>
+    <text class="s" x="846" y="184" data-i18n="teams.text.24">ADRs und Specs reviewt</text>
+    <text class="s" x="846" y="204" data-i18n="teams.text.25">als Pull Requests:</text>
+    <text class="elbl chk" x="846" y="236" data-i18n="teams.text.26"><tspan class="d">das Warum wird reviewt,</tspan></text>
+    <text class="elbl chk" x="846" y="256" data-i18n="teams.text.27"><tspan class="d">nicht nur der Code</tspan></text>
+  </svg>
+  <figcaption class="cap-after" data-i18n="teams.figcaption.1">Leg den Vault in ein eigenes Repository. Alle installieren ProjectStore, binden denselben Vault und speichern Änderungen erst nach einer Freigabe. Ein Teammitglied ohne Agent reviewt auf GitHub oder in Obsidian.</figcaption>
+  </figure>
+  <p class="next-pages"><a href="one-vault/" data-i18n="team.more">Die ganze Seite: Ein Vault, viele Menschen →</a></p>
+</section>
+<section class="sec chapter" id="why" aria-labelledby="why-title">
+  <div class="section-label big" data-i18n="why.label">Warum es funktioniert</div>
+  <h2 id="why-title" data-i18n="why.h2.1">Die Branche hat das längst erfunden.<br><span class="acc">Agenten haben es günstig gemacht.</span></h2>
+  <p class="lead" data-i18n="why.p.1">ADRs, Reviews, ein Backlog, Abnahmekriterien, Verknüpfungen vom Ziel bis zum Code. Reife Engineering-Teams arbeiten seit zwanzig Jahren so. <b>ProjectStore erfindet nichts davon.</b></p>
+</section>
+
+<section class="sec" id="timeline" aria-labelledby="why-tl-title">
+  <div class="section-label" data-i18n="why.tl.label">Woher jedes Stück kommt</div>
+  <h2 id="why-tl-title" class="visually-hidden" data-i18n="why.tl.h2">Woher jedes Stück kommt</h2>
+  <ol class="timeline">
+    <li><span class="yr">1969</span><span data-i18n="why.tl.1">RFCs: Entscheidungen, aufgeschrieben und nummeriert, dann offen diskutiert.</span></li>
+    <li><span class="yr">1992</span><span data-i18n="why.tl.2">DO-178B: In der Avionik muss jede Anforderung auf Code und auf einen Test zurückführbar sein.</span></li>
+    <li><span class="yr">1995</span><span data-i18n="why.tl.3">Scrum: die Arbeit als Backlog, geordnet und sichtbar.</span></li>
+    <li><span class="yr">1999</span><span data-i18n="why.tl.4">XP: User Stories und Abnahmekriterien, die sagen, wann eine fertig ist.</span></li>
+    <li><span class="yr">2007</span><span data-i18n="why.tl.5">Kanban für Software: ein Board, das zeigt, was in Arbeit ist.</span></li>
+    <li><span class="yr">2011</span><span data-i18n="why.tl.6">ADRs, Michael Nygard: eine kurze Datei pro Architekturentscheidung.</span></li>
+    <li class="now"><span class="yr" data-i18n="why.tl.now.y">jetzt</span><span data-i18n="why.tl.now">Coding-Agenten: Jeder Schritt dauert Minuten. Ohne die Artefakte beginnt jede Sitzung leer.</span></li>
+  </ol>
+</section>
+<section class="sec" id="cost" aria-labelledby="why-cost-title">
+  <div class="section-label" data-i18n="why.cost.label">Der teure Teil</div>
+  <h2 id="why-cost-title" data-i18n="why.p.4">Der Prozess war immer wertvoll. Teuer war, <b>dass Menschen jeden Schritt selbst ausführten.</b></h2>
+  <p class="equation"><span class="term-pill" data-i18n="why.eq.1">Prozess der Menschen</span><span>+</span><span class="term-pill" data-i18n="why.eq.2">Tempo der Agenten</span><span>=</span><span class="term-pill acc">ProjectStore</span></p>
+  <div class="prose"><p data-i18n="why.p.6">ProjectStore bringt beides zusammen. Die Geschwindigkeit von Agenten macht den alten Prozess zum ersten Mal günstig. Die Dokumente dieses Prozesses liegen als Dateien neben dem Code und geben Agenten, was sie nie hatten: den Kontext des Projekts, verknüpft nach oben mit den Zielen und nach unten mit dem Code. Jeden Schritt reviewt laut Arbeitsregel ein zweiter Agent, der den Entwurf nicht geschrieben hat. Geschwindigkeit bekommt ein Gedächtnis, und das Gedächtnis eine Prüfung.</p></div>
+</section>
+<section class="sec" id="chain" aria-labelledby="why-chain-title">
+  <div class="section-label" data-i18n="why.ch.label">Die Kette</div>
+  <h2 id="why-chain-title" data-i18n="why.h3.1">Die Verknüpfungen, die ein Agent gratis bekommt: vom Ziel zum Nachweis</h2>
+  <ol class="chain" aria-label="Die Kette der Artefakt-Verknüpfungen" data-i18n-attr="aria-label:why.aria-label.3">
+    <li><span class="ch-k" data-i18n="why.span.8">Ziel</span><span class="ch-c"><b data-i18n="why.strong.1">Epic</b><span data-i18n="why.span.9">CHECKOUT · warum wir das tun</span></span><span class="ch-f" data-i18n="why.span.10">epic:</span></li>
+    <li><span class="ch-k" data-i18n="why.span.11">warum</span><span class="ch-c"><b data-i18n="why.strong.2">ADR</b><span data-i18n="why.span.12">die Entscheidung und die verworfenen Optionen</span></span><span class="ch-f" data-i18n="why.span.13">adr: [ ]</span></li>
+    <li><span class="ch-k" data-i18n="why.span.14">wie</span><span class="ch-c"><b data-i18n="why.strong.3">Spec</b><span data-i18n="why.span.15">das erwartete Verhalten</span></span><span class="ch-f" data-i18n="why.span.16">specs: [ ]</span></li>
+    <li><span class="ch-k" data-i18n="why.span.17">was</span><span class="ch-c"><b data-i18n="why.strong.4">Story</b><span data-i18n="why.span.18">Plan und Abnahmekriterien</span></span><span class="ch-f" data-i18n="why.span.19">code_refs:</span></li>
+    <li><span class="ch-k" data-i18n="why.span.20">wo</span><span class="ch-c"><b data-i18n="why.strong.5">Code</b><span data-i18n="why.span.21">src/billing/cards/ · wo frühere Epics schon liegen</span></span><span class="ch-f" data-i18n="why.span.22">— Nachweis:</span></li>
+    <li class="ok"><span class="ch-k" data-i18n="why.span.23">Beleg</span><span class="ch-c"><b data-i18n="why.strong.6">Nachweis</b><span data-i18n="why.span.24">tests/cards.test.ts:58 · je Kriterium</span></span></li>
+  </ol>
+  <div class="prose"><p data-i18n="why.p.7">Die Verknüpfungen stehen im Kopf jeder Datei, und der Nachweis ist eine Zeile unter jedem Abnahmekriterium. All das trägt der Agent bei der Arbeit ein. Die Link-Map zeigt, womit jedes Dokument verbunden ist. Die Code-Map zeigt, wo der Code jedes Epics liegt. Eine neue Sitzung, ein neues Modell oder ein neuer Kollege startet von dieser Kette aus, nicht bei null.</p></div>
+  <p class="next-pages"><a href="why-it-works/" data-i18n="why.more">Die ganze Seite: Warum es funktioniert →</a></p>
+</section>
+<section class="sec" id="free" aria-labelledby="free-title">
+  <div class="closing">
+    <h2 id="free-title" data-i18n="free.h2">Kostenlos und Open Source</h2>
+    <p data-i18n="free.p">MIT-Lizenz. Die Notizen gehören dir: einfache Dateien in deinem eigenen Repository.</p>
+    <div class="actions">
+      <a class="btn primary" href="#start" data-i18n="free.cta.start">Loslegen</a>
+      <a class="btn" href="how-it-works/" data-i18n="free.cta.how">So funktioniert es →</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap foot-row">
+    <span><span class="wordmark-sm"><span class="dot">.</span>projectstore</span> · <span data-i18n="footer.tag">Der Code ändert sich. Der Kontext bleibt.</span> · <span data-i18n="footer.span.4">Open Source · MIT · Evgenii Konev, SmartAndPoint</span></span>
+    <span><span data-fact="version">v0.30.6</span> · <span data-i18n="footer.span.5">jede gemessene Zahl verweist auf die Stelle in README oder docs, aus der sie stammt; die Beispiele sind illustrativ</span></span>
+    <span class="foot-links"><a href="https://github.com/SmartAndPoint/ProjectStore" data-i18n="footer.span.3">GitHub</a> <a href="https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md" data-i18n="footer.span.6">Dokumentation</a> <a href="../llms.txt" data-i18n="footer.a.1">llms.txt</a> <a href="../privacy/" data-i18n="footer.privacy">Datenschutz</a></span>
+  </div>
+</footer>
+
+<script src="../assets/site.js?v=c1f5565b"></script>
+</body>
+</html>

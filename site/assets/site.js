@@ -315,7 +315,7 @@
     });
   }
 
-  /* ---------- tone switch: midnight, graphite or light, remembered in localStorage ----------
+  /* ---------- tone switch: midnight, graphite, paper or light, remembered in localStorage ----------
      The early script in <head> applies the saved tone before the first paint; this keeps the
      buttons and theme-color in step, and re-reads the choice when the page returns from the
      back-forward cache. theme-color is read from the computed --bg, never written here. */

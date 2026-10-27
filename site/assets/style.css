@@ -1,7 +1,8 @@
 /* ProjectStore — site stylesheet
-   smartandpoint.com's look without its gradients: white by default, with midnight and graphite as dark tones; one
-   indigo accent; pill buttons and rounded cards; mono for what a terminal would show. Every colour is a token on
-   :root; the print rules at the end are the one place that sets its own. Static, no build step. */
+   Four tones: light, smartandpoint.com's white with the indigo accent, by default, and paper, the cream light with
+   its copper accent, in pill buttons and rounded cards; midnight and graphite in the classic look, with the amber
+   accent and a glow behind the page; mono for what a terminal would show. Every colour is a token on :root; the
+   print rules at the end are the one place that sets its own. Static, no build step. */
 
 /* ---------- fonts ----------
    Served from assets/fonts/, so the site makes no third-party request; provenance and
@@ -76,14 +77,17 @@
 }
 
 /* ---------- tokens ----------
-   The film's colour semantics, with an indigo accent: the accent for what lands on disk and for
-   you, red for an independent check, blue for the planner and for participants, green for done.
-   Three tones: midnight's values below are the palette every tone draws from; graphite, a second
-   set of the same surface values that [data-tone="graphite"] points at; and light, smartandpoint.com's
-   white, whose --light-* set [data-tone="light"] points at (both rules after the motion rules).
-   Every page ships in light (<html data-tone="light">); the early script sets a stored dark tone.
-   A dark tone changes surfaces only: text, accent and roles stay midnight's. Light also changes
-   the inks, the accent family, the roles and the menu shadow, and is color-scheme: light.
+   The film's colour semantics: the accent for what lands on disk and for you, red for an
+   independent check, blue for the planner and for participants, green for done.
+   Four tones: midnight's values below are the palette every tone draws from, with the amber accent
+   and the glow behind the page; graphite, a second set of the same surface values and its own glow,
+   that [data-tone="graphite"] points at; and light, smartandpoint.com's white with the indigo accent,
+   whose --light-* set [data-tone="light"] points at; and paper, the cream light of 2026-10-13 with its
+   copper accent, whose --paper-* set [data-tone="paper"] points at (the rules after the motion rules).
+   Every page ships in light (<html data-tone="light">); the early script sets a stored tone.
+   A dark tone changes surfaces and the glow only: text, accent and roles stay midnight's. A light tone
+   also changes the inks, the accent family, the roles and the menu shadow, has no glow, and is
+   color-scheme: light.
    - --bg is the opaque base: the canvas, and theme-color.
    - --bg-1 to --bg-4 are translucent panels, so the faint graph behind the page shows through.
    - --bg-0 is a well inside a panel; --bg-pop is opaque, for menus that cover the page.
@@ -108,6 +112,11 @@
   --swatch-midnight: #2b4aa8;
   --swatch-graphite: #5d6470;
   --swatch-light: #ffffff;
+  --swatch-paper: #efe8d8;
+  --glow-1: #3d63dd30;
+  --glow-2: #7c5cff1a;
+  --glow-3: #1fa5a01e;
+  --no-glow: #ffffff00;
   --graphite-bg: #111316;
   --graphite-bg-0: #0a0b0db3;
   --graphite-bg-1: #191c21b8;
@@ -123,7 +132,10 @@
   --graphite-line-4: #4f5660;
   --graphite-line-5: #646b76;
   --graphite-head-bg: #111316d1;
-  --graphite-accent-bg: #23243adb;
+  --graphite-glow-1: #8fa6c81e;
+  --graphite-glow-2: #ffb34710;
+  --graphite-glow-3: #7bd88f10;
+  --graphite-accent-bg: #252320db;
   --graphite-check-bg: #282024db;
   --graphite-plan-bg: #1d242bdb;
   --graphite-done-bg: #1c2524db;
@@ -170,6 +182,49 @@
   --light-exp-line: #d6bf8c;
   --light-epic: #7a5000;
   --light-shade: #17171726;
+  --paper-bg: #f4f1e8;
+  --paper-bg-0: #ebe6d8b3;
+  --paper-bg-1: #fbf9f3b8;
+  --paper-bg-2: #fcfaf5cc;
+  --paper-bg-3: #fdfcf8d9;
+  --paper-bg-4: #ebe6d9e6;
+  --paper-bg-pop: #fffdf8;
+  --paper-dot: #d6cebb;
+  --paper-line-1: #e7e1d3;
+  --paper-graph: #e6e0d2;
+  --paper-line-2: #ddd5c4;
+  --paper-line-3: #cbc1ab;
+  --paper-line-4: #b2a78e;
+  --paper-line-5: #998e76;
+  --paper-head-bg: #f4f1e8d9;
+  --paper-ink: #1f1e1b;
+  --paper-ink-hi: #0d0c0a;
+  --paper-ink-2: #3a372f;
+  --paper-ink-3: #4d493f;
+  --paper-ink-4: #5c584e;
+  --paper-ink-5: #6d685e;
+  --paper-on-accent: #ffffff;
+  --paper-accent: #a1491f;
+  --paper-accent-soft: #a1491f2b;
+  --paper-accent-glow: #a1491f3d;
+  --paper-accent-bg: #f7eadde6;
+  --paper-accent-row: #a1491f0c;
+  --paper-brand: #c4643c;
+  --paper-check: #a8231a;
+  --paper-check-bg: #f8e5e1e6;
+  --paper-check-glow: #a8231a33;
+  --paper-plan: #1756c4;
+  --paper-plan-bg: #e4ecf8e6;
+  --paper-plan-line: #5a86cc;
+  --paper-plan-glow: #1756c433;
+  --paper-done: #05683f;
+  --paper-done-bg: #e1f0e6e6;
+  --paper-done-line: #84c09b;
+  --paper-done-glow: #05683f33;
+  --paper-exp: #7a5000;
+  --paper-exp-line: #d6bf8c;
+  --paper-epic: #7a5000;
+  --paper-shade: #3d392933;
   --ink: #e6e3d8;
   --ink-hi: #ffffff;
   --ink-2: #c9c6bb;
@@ -177,14 +232,14 @@
   --ink-4: #8d9285;
   --ink-5: #7f8578;
   --on-accent: #0b0c0a;
-  --accent: #818cf8;
-  --accent-soft: #818cf838;
-  --accent-glow: #818cf866;
-  --accent-bg: #1b2040db;
-  --accent-row: #818cf80f;
-  --brand: #818cf8;
-  --brand-2: #a5b4fc;
-  --brand-3: #6366f1;
+  --accent: #ffb347;
+  --accent-soft: #ffb34738;
+  --accent-glow: #ffb34766;
+  --accent-bg: #1d232ddb;
+  --accent-row: #ffb3470f;
+  --brand: #e07b4c;
+  --brand-2: #e8946a;
+  --brand-3: #c4643c;
   --mark-bar: #3d434d;
   --mark-bar-2: #2c3139;
   --check: #ff7a7a;
@@ -276,7 +331,7 @@ b, strong { font-weight: 600; color: var(--ink-hi); }
 .lang-menu a:hover, .lang-menu a:focus-visible { background: var(--bg-4); outline: none; }
 .lang-menu a[aria-current] { color: var(--accent); }
 
-/* the tone switch: three swatches, midnight, graphite and light. It needs the script, and the
+/* the tone switch: four swatches, midnight, graphite, paper and light. It needs the script, and the
    early script in <head> sets data-tones before the first paint, so it never appears late; a page
    ships with data-tone="light" in its markup, so data-tone alone cannot be the gate. */
 .tone-switch { display: none; align-items: center; gap: 2px; padding: 3px; min-height: 40px; border: 1px solid var(--line-3); border-radius: 20px; }
@@ -286,6 +341,7 @@ b, strong { font-weight: 600; color: var(--ink-hi); }
 .tone-opt .sw-midnight { background: var(--swatch-midnight); }
 .tone-opt .sw-graphite { background: var(--swatch-graphite); }
 .tone-opt .sw-light { background: var(--swatch-light); }
+.tone-opt .sw-paper { background: var(--swatch-paper); }
 .tone-opt[aria-pressed="true"] { box-shadow: inset 0 0 0 1.5px var(--accent); }
 .tone-opt:hover .sw { border-color: var(--ink-3); }
 /* the tone's name: on keyboard focus, and on hover where there is one (a tap would leave it stuck) */
@@ -404,7 +460,7 @@ svg.dg { font-family: var(--font-mono); font-size: 13px; }
 
 /* ---------- tables, files ---------- */
 
-.table-wrap { overflow-x: auto; border: 1px solid var(--line-2); border-radius: 12px; }
+.table-wrap { position: relative; overflow-x: auto; border: 1px solid var(--line-2); border-radius: 12px; }
 .grid-table { min-width: 720px; font-size: 15px; }
 .grid-table th { padding: 12px 16px; border-bottom: 1px solid var(--line-2); font-family: var(--font-mono); font-size: 12px; font-weight: 400; color: var(--ink-4); text-align: left; }
 .grid-table td { padding: 14px 16px; border-bottom: 1px solid var(--line-1); color: var(--ink-3); vertical-align: top; }
@@ -540,11 +596,17 @@ body[data-page="main"] .mobile-nav [data-nav="main"] { color: var(--ink-hi); box
 .hero.what { grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); gap: 24px clamp(28px, 4vw, 56px); padding-bottom: 56px; }
 .hero.what > .section-label, .hero.what > h1, .cmp-box { grid-column: 1 / -1; }
 .what-text, .what-side, .cmp-box { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
-.what-side { gap: 12px; }
+.what-side { gap: 14px; }
+.section-label.big { font-size: 20px; font-weight: 600; }
+/* why it works: the five lines, each led by a dot in the wordmark's colour */
+.why-list { display: flex; flex-direction: column; gap: 14px; }
+.why-list li { display: flex; gap: 12px; align-items: flex-start; font-size: clamp(17px, 1.6vw, 19px); line-height: 1.45; color: var(--ink-2); }
+.why-list .dot { flex: none; width: 8px; height: 8px; margin-top: 0.6em; border-radius: 50%; background: var(--brand); }
 .what-text .lead { max-width: 62ch; font-size: clamp(17px, 1.6vw, 19px); color: var(--ink-2); }
 
-/* the comparison: three approaches feed ProjectStore. The drawing lives in the first cell's left padding, drawn by
-   pseudo-elements, so the table keeps five columns and a screen reader meets no extra cell */
+/* the comparison, in four forms: a table where four approaches feed ProjectStore, a rating, a choice tree and a ladder.
+   The table's drawing lives in the first cell's left padding, drawn by pseudo-elements, so the table keeps five
+   columns and a screen reader meets no extra cell */
 .cmp-box { gap: 14px; margin-top: 16px; padding-top: 32px; border-top: 1px solid var(--line-2); }
 .cmp { min-width: 920px; }
 .cmp td:first-child { position: relative; width: 15%; padding-left: 44px; }
@@ -555,6 +617,54 @@ body[data-page="main"] .mobile-nav [data-nav="main"] { color: var(--ink-hi); box
 .cmp tr.us td:first-child::before { content: ""; position: absolute; box-sizing: border-box; left: 18px; top: 0; width: 16px; height: 27px; border-left: 2px solid var(--accent); border-bottom: 2px solid var(--accent); border-bottom-left-radius: 8px; }
 .cmp tr.us td:first-child::after { content: ""; position: absolute; left: 32px; top: 20px; border-style: solid; border-width: 6px 0 6px 8px; border-color: transparent transparent transparent var(--accent); }
 .cmp-sum { max-width: 70ch; color: var(--ink-3); }
+.cmp-title { font-size: 20px; line-height: 1.4; font-weight: 600; letter-spacing: 0; color: var(--accent); }
+.cmp-sub { margin-top: 28px; font-size: 20px; line-height: 1.4; font-weight: 600; color: var(--ink-hi); }
+.cmp-note { max-width: 80ch; font-size: 14px; color: var(--ink-4); }
+/* the rating: zero to three marks; the count is read out as "n/3" */
+.rate { min-width: 760px; }
+.rate th, .rate td { text-align: center; white-space: nowrap; }
+.rate th[scope="row"] { text-align: left; font-weight: 600; color: var(--ink-hi); }
+.rate tr.us { background: var(--accent-row); }
+.rate tr.us th[scope="row"] { color: var(--accent); }
+.marks { display: inline-flex; gap: 4px; vertical-align: middle; }
+.marks i { width: 10px; height: 10px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid var(--line-4); }
+.marks i.on { background: var(--ink-2); border-color: var(--ink-2); }
+.rate tr.us .marks i { border-color: var(--accent); }
+.rate tr.us .marks i.on { background: var(--accent); }
+/* the choice tree: a question per row; "yes" leads right to an approach, "no" down to the next question; the last
+   "no" and every approach's "the project grew" line end in ProjectStore. Boxes and borders, not one drawing, so it
+   reads in every language; on a phone it scrolls in its box */
+.tree-wrap { position: relative; overflow-x: auto; }
+.tree { min-width: 680px; max-width: 980px; }
+.tree-step { display: grid; grid-template-columns: minmax(0, 1.25fr) 104px minmax(0, 1fr); grid-template-rows: auto 52px; }
+.tree-q { grid-area: 1 / 1; display: flex; align-items: center; min-height: 72px; padding: 12px 18px; border: 1px solid var(--line-3); border-radius: 12px; background: var(--bg-4); font-weight: 600; line-height: 1.35; color: var(--ink-hi); }
+.tree-a { grid-area: 1 / 3; display: flex; flex-direction: column; justify-content: center; min-height: 72px; padding: 10px 16px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--bg-2); line-height: 1.35; }
+.tree-a small { font-size: 13px; color: var(--ink-4); }
+.tree-yes { grid-area: 1 / 2; position: relative; align-self: center; padding-bottom: 14px; text-align: center; font-size: 13px; color: var(--ink-4); }
+.tree-yes::after { content: ""; position: absolute; left: 0; right: 6px; bottom: 4px; height: 2px; background: var(--line-5); }
+.tree-yes::before { content: ""; position: absolute; right: 0; bottom: 0; border-style: solid; border-width: 5px 0 5px 8px; border-color: transparent transparent transparent var(--line-5); }
+.tree-no { grid-area: 2 / 1; position: relative; display: flex; align-items: center; padding-left: calc(50% + 12px); font-size: 13px; color: var(--ink-4); }
+.tree-no::before { content: ""; position: absolute; left: calc(50% - 1px); top: 0; bottom: 6px; width: 2px; background: var(--line-5); }
+.tree-no::after { content: ""; position: absolute; left: calc(50% - 5px); bottom: 0; border-style: solid; border-width: 8px 5px 0 5px; border-color: var(--line-5) transparent transparent transparent; }
+.tree-up { grid-area: 2 / 3; position: relative; }
+.tree-up::before { content: ""; position: absolute; left: calc(50% - 1px); top: 0; bottom: 0; border-left: 2px dashed var(--line-4); }
+.tree-grew { grid-area: 2 / 3; display: flex; align-items: center; padding-left: calc(50% + 12px); font-size: 12px; color: var(--ink-5); }
+.tree-step.last .tree-no::before { background: var(--accent); }
+.tree-step.last .tree-no::after { border-top-color: var(--accent); }
+.tree-step.last .tree-up::before { border-left-color: var(--accent); }
+.tree-end { padding: 16px 20px; border: 1.5px solid var(--accent); border-radius: 14px; background: var(--accent-bg); line-height: 1.5; color: var(--ink); }
+.tree-end b { color: var(--accent); }
+/* the ladder: each approach adds a brick; ProjectStore holds them all and the team's */
+.ladder-wrap { position: relative; overflow-x: auto; }
+.ladder { display: flex; align-items: stretch; gap: 28px; min-width: 860px; }
+.ladder li { position: relative; flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; padding: 12px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--bg-2); }
+.ladder li + li::before { content: "→"; position: absolute; left: -21px; top: 50%; transform: translateY(-50%); color: var(--ink-5); }
+.ladder .brick { padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg-4); font-size: 14px; color: var(--ink-2); }
+.ladder li > b { margin-top: 6px; font-size: 15px; color: var(--ink-hi); }
+.ladder li.us { border-color: var(--accent); background: var(--accent-bg); }
+.ladder li.us .brick { border-color: var(--accent-soft); }
+.ladder li.us .brick.top { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.ladder li.us > b { color: var(--accent); }
 
 /* a chapter head: a method page's own heading and lead, set as an h2 at the h1's size so the page keeps one h1 */
 .sec.chapter { gap: 18px; padding-bottom: 48px; }
@@ -576,12 +686,13 @@ body[data-page="main"] .mobile-nav [data-nav="main"] { color: var(--ink-hi); box
 .install-tab { font-family: var(--font-mono); font-size: 13px; color: var(--ink-4); background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 11px 10px 9px; }
 .install-tab:hover { color: var(--ink-hi); }
 .install-tab[aria-selected="true"] { color: var(--ink-hi); border-bottom-color: var(--accent); }
+.install-tab b, .install-tab i { color: inherit; }
 /* without script both ways show; with it, the tab chosen */
 .install[data-mode] .install-panel:not(.active) { display: none; }
-.chatbox { margin: 12px; padding: 14px 14px 10px 16px; border: 1px solid var(--line-3); border-radius: 16px; background: var(--bg-4); display: flex; flex-direction: column; gap: 10px; }
-.chatbox blockquote { font-size: 16px; line-height: 1.55; color: var(--ink); overflow-wrap: anywhere; }
-.chatbox-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.chatbox-note { font-size: 13px; color: var(--ink-4); }
+/* the prompt and its copy button on one row, as the command and its button are */
+.chatbox { margin: 12px; padding: 8px 8px 8px 16px; border: 1px solid var(--line-3); border-radius: 16px; background: var(--bg-4); display: flex; align-items: center; gap: 12px; }
+.chatbox blockquote { flex: 1; min-width: 0; font-size: 15px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+.chatbox .copy { width: 36px; height: 36px; border-radius: 8px; }
 .termbox { background: var(--bg-0); border-top: 1px solid var(--line-2); }
 .install[data-mode] .termbox { border-top: 0; }
 .termbox .cmdtext { font-size: 17px; }
@@ -596,12 +707,6 @@ body[data-page="main"] .mobile-nav [data-nav="main"] { color: var(--ink-hi); box
 .btn.primary:hover { color: var(--bg); box-shadow: 0 0 0 4px var(--accent-soft); }
 
 /* sound familiar? a pain, then what ProjectStore does about it */
-.pain-list { border-top: 1px solid var(--line-2); }
-.pain { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; padding: 16px 0; border-bottom: 1px solid var(--line-2); }
-.pain .was { font-size: 17px; font-weight: 500; color: var(--ink-hi); }
-.pain .now { font-size: 16px; color: var(--ink-2); }
-.pain .arr { color: var(--done); font-weight: 600; }
-.pain:last-child { border-bottom: 0; }
 
 /* the loop: the marketing loop's dark terminal dashboard in a player (site.js), the same in every tone; the
    caption follows the tone. The loop's own page plays in a frame over its still, and a bar of controls runs
@@ -667,7 +772,6 @@ body[data-page="main"] .mobile-nav [data-nav="main"] { color: var(--ink-hi); box
 .closing p { color: var(--ink-3); }
 
 @media (max-width: 760px) {
-  .pain { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .tasks { grid-template-columns: minmax(0, 1fr); }
   .closing { padding: 20px; }
 }
@@ -801,9 +905,9 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
   .wordmark .dot { width: auto; height: auto; overflow: visible; margin-right: 0; border-radius: 0; background: none; color: inherit; animation: none; }
 }
 
-/* ---------- the graphite and light tones ----------
-   Screen only: in print the palette below is replaced. There is no glow behind the page (2026-10-22: no
-   gradients); the tone rules point the surface tokens, and light the inks too, at their sets. */
+/* ---------- the graphite, light and paper tones ----------
+   Screen only: in print the palette below is replaced. The tone rules point the surface tokens and the
+   glow, and the light tones the inks too, at their sets. */
 
 @media screen {
   :root[data-tone="graphite"] {
@@ -813,6 +917,7 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
     --line-1: var(--graphite-line-1); --line-2: var(--graphite-line-2); --line-3: var(--graphite-line-3);
     --line-4: var(--graphite-line-4); --line-5: var(--graphite-line-5);
     --head-bg: var(--graphite-head-bg);
+    --glow-1: var(--graphite-glow-1); --glow-2: var(--graphite-glow-2); --glow-3: var(--graphite-glow-3);
     --accent-bg: var(--graphite-accent-bg); --check-bg: var(--graphite-check-bg); --plan-bg: var(--graphite-plan-bg); --done-bg: var(--graphite-done-bg);
   }
   :root[data-tone="light"] {
@@ -823,6 +928,7 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
     --line-1: var(--light-line-1); --line-2: var(--light-line-2); --line-3: var(--light-line-3);
     --line-4: var(--light-line-4); --line-5: var(--light-line-5);
     --head-bg: var(--light-head-bg);
+    --glow-1: var(--no-glow); --glow-2: var(--no-glow); --glow-3: var(--no-glow);
     --ink: var(--light-ink); --ink-hi: var(--light-ink-hi); --ink-2: var(--light-ink-2); --ink-3: var(--light-ink-3);
     --ink-4: var(--light-ink-4); --ink-5: var(--light-ink-5);
     --on-accent: var(--light-on-accent); --accent: var(--light-accent); --accent-soft: var(--light-accent-soft);
@@ -833,6 +939,85 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
     --done: var(--light-done); --done-bg: var(--light-done-bg); --done-line: var(--light-done-line); --done-glow: var(--light-done-glow);
     --exp: var(--light-exp); --exp-line: var(--light-exp-line); --epic: var(--light-epic);
     --shade: var(--light-shade);
+  }
+  :root[data-tone="paper"] {
+    color-scheme: light;
+    --bg: var(--paper-bg); --bg-0: var(--paper-bg-0); --bg-1: var(--paper-bg-1); --bg-2: var(--paper-bg-2);
+    --bg-3: var(--paper-bg-3); --bg-4: var(--paper-bg-4); --bg-pop: var(--paper-bg-pop); --dot: var(--paper-dot);
+    --graph: var(--paper-graph);
+    --line-1: var(--paper-line-1); --line-2: var(--paper-line-2); --line-3: var(--paper-line-3);
+    --line-4: var(--paper-line-4); --line-5: var(--paper-line-5);
+    --head-bg: var(--paper-head-bg);
+    --glow-1: var(--no-glow); --glow-2: var(--no-glow); --glow-3: var(--no-glow);
+    --ink: var(--paper-ink); --ink-hi: var(--paper-ink-hi); --ink-2: var(--paper-ink-2); --ink-3: var(--paper-ink-3);
+    --ink-4: var(--paper-ink-4); --ink-5: var(--paper-ink-5);
+    --on-accent: var(--paper-on-accent); --accent: var(--paper-accent); --accent-soft: var(--paper-accent-soft);
+    --accent-glow: var(--paper-accent-glow); --accent-bg: var(--paper-accent-bg); --accent-row: var(--paper-accent-row);
+    --brand: var(--paper-brand);
+    --check: var(--paper-check); --check-bg: var(--paper-check-bg); --check-glow: var(--paper-check-glow);
+    --plan: var(--paper-plan); --plan-bg: var(--paper-plan-bg); --plan-line: var(--paper-plan-line); --plan-glow: var(--paper-plan-glow);
+    --done: var(--paper-done); --done-bg: var(--paper-done-bg); --done-line: var(--paper-done-line); --done-glow: var(--paper-done-glow);
+    --exp: var(--paper-exp); --exp-line: var(--paper-exp-line); --epic: var(--paper-epic);
+    --shade: var(--paper-shade);
+  }
+}
+
+/* ---------- the classic look, for the dark tones ----------
+   Midnight and graphite keep the site's look of 2026-10-13 to 2026-10-22. Its colours are tokens: the amber
+   accent and the glow are midnight's palette on :root, graphite points the glow at its own, and the light
+   tones point both at theirs. The rules below are its shapes: the soft light behind the page, square corners,
+   outline buttons, grey section labels and the graph at full strength, each restoring what smartandpoint.com's
+   look changed (commit 28a9d08), scoped to the two dark tones; screen only, as the tone rules are. A new shape
+   rule for the light look gets its classic twin here. */
+
+@media screen {
+  /* the soft light behind the page */
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) body::before { content: ""; position: fixed; inset: 0; height: 100lvh; z-index: -1; pointer-events: none; background: radial-gradient(70vw 60vh at 8% 0%, var(--glow-1), transparent 70%), radial-gradient(55vw 50vh at 100% 40%, var(--glow-2), transparent 70%), radial-gradient(80vw 60vh at 40% 110%, var(--glow-3), transparent 70%); }
+  /* the graph at full strength, still while scrolling; no hover pill in the nav */
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .graph,
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .graph-rings,
+  :root:is([data-tone="midnight"], [data-tone="graphite"]).scrolling .graph,
+  :root:is([data-tone="midnight"], [data-tone="graphite"]).scrolling .graph-rings { opacity: 1; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .head-nav > a:hover { background: none; }
+  /* square corners, outline buttons, grey section labels */
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .head-nav { gap: 22px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .head-nav > a { padding: 0; border-radius: 0; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .lang { border-radius: 4px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .lang-menu { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .lang-menu a { border-radius: 4px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .tone-opt::after { border-radius: 4px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .section-label { color: var(--ink-4); }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .term { border-radius: 6px; box-shadow: 0 24px 60px -30px var(--accent-glow); }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .copy { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .diagram { border-radius: 8px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .tty { border-radius: 8px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .band { border-radius: 8px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .band .prompt-box { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .table-wrap { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .file { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .tab { border-radius: 4px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .mode-box { border-radius: 8px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .outline-btn { padding: 0 14px; border: 1px solid var(--accent); border-radius: 4px; color: var(--accent); background: transparent; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .outline-btn:hover { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .agent { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .transcript { border-radius: 8px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .setup li { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .install { border-radius: 10px; box-shadow: 0 24px 60px -30px var(--accent-glow); }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .chatbox { border-radius: 14px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .btn { background: transparent; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .btn.primary:hover { color: var(--on-accent); }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .task { border-radius: 10px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .say { border-radius: 6px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .chat { border-radius: 8px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .closing { border-radius: 10px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .tools li { border-radius: 4px; }
+  :root:is([data-tone="midnight"], [data-tone="graphite"]) .chain .ch-c { border-radius: 6px; }
+  @media (max-width: 760px) {
+    :root:is([data-tone="midnight"], [data-tone="graphite"]) .head-nav { gap: 8px; }
+  }
+  @media (max-width: 400px) {
+    :root:is([data-tone="midnight"], [data-tone="graphite"]) .head-nav { gap: 6px; }
   }
 }
 
@@ -853,6 +1038,6 @@ html:lang(zh-CN) :is(.section-label, .step-name, .lbl) { letter-spacing: 0.02em;
   .term { box-shadow: none; }
   .graph { display: none; }
   .graph-rings { display: none; }
-  .sec, .file, .diagram, .tty, .task, .pain, .loopfig { break-inside: avoid; }
+  .sec, .file, .diagram, .tty, .task, .loopfig, .tree-step, .ladder li { break-inside: avoid; }
   a { text-decoration: underline; }
 }

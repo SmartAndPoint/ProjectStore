@@ -1,17 +1,20 @@
 # ProjectStore — the public site
 
-The site for [ProjectStore](https://github.com/SmartAndPoint/ProjectStore): a main page in English
-and Russian, three method pages in eight languages, and a privacy page in English, served by GitHub
+The site for [ProjectStore](https://github.com/SmartAndPoint/ProjectStore): a main page and three
+method pages in eight languages, and a privacy page in English, served by GitHub
 Pages at <https://projectstore.dev> from this folder (`.github/workflows/pages.yml`). It is not part of the npm package: `site` is in
 `NOT_SHIPPED` (`scripts/version-guard.mjs`), and `tests/site.test.mjs` holds it to the repository. The
 checks and their rules are in `tests/fixtures/site-checks.mjs`, which the test imports: one file was
 split in two, since the plugin directory holds a file of 256 KiB or more for a reviewer.
 
 **The main page says what ProjectStore is, then carries the method** (PS-HARNESS: "The front page
-says what ProjectStore is, walks a beginner through setup …", 2026-10-23). It opens with what it is
-and how it helps: a method and a plugin, three short paragraphs, the agents line, the five pains it
-fixes, and a small table of the family it belongs to (a prompt in a chat, SDD, PDD, ProjectStore,
-the first three drawn into the fourth). Then installation for someone who is not a programmer: a
+says what ProjectStore is, walks a beginner through setup …", 2026-10-23; its texts and blocks from
+the design canvas of 2026-10-24, PS-HARNESS: "The front page in all eight languages …"). It opens
+with what it is and why it works: a method and a plugin, three short paragraphs, the agents line,
+five lines on what it changes, and how it differs from other approaches in four blocks — a table of
+a prompt in a chat, agent memory, SDD, PDD and ProjectStore, the first four drawn into the fifth; a
+rating of what holds up in a long project; a choice tree whose every path ends in ProjectStore; and a
+ladder where each approach adds a step. Then installation for someone who is not a programmer: a
 chapter head, a quick start in six steps (get an agent, Node.js and a folder, the install box with
 one prompt to your agent or `npx projectstore setup` in a terminal, then say what to build, answer
 its questions, approve the plan) and what to say to the agent, in four cards. Then three chapters
@@ -28,24 +31,29 @@ evidence), *Why it works* (decades-old practice, what was always expensive about
 goal to proof) and *One vault, many people* (sessions, teams and agents on one vault, the vault in
 git, a team setup).
 
-**The look** is smartandpoint.com's, without its gradients (2026-10-22): a white page by default,
-with midnight and graphite as the dark tones chosen in the header; one indigo accent; pill buttons;
-cards rounded 16 px with a thin border; mono for labels, code and the terminal box; Onest for
+**The look** comes in four tones, chosen in the header (2026-10-26). Light, the default, is
+smartandpoint.com's: a white page, the indigo accent, pill buttons, cards rounded 16 px with a thin
+border, the graph faint. Paper is the cream light of 2026-10-13 with its copper accent, in the same
+shapes. Midnight and graphite keep the site's classic look of 2026-10-13 to 2026-10-22: the amber
+accent, a soft glow behind the page, square corners, outline buttons, grey section labels and the
+graph at full strength. In every tone: mono for labels, code and the terminal box; Onest for
 headlines and body; diagrams with real connectors in the colours of the narrated film (the accent
 for what lands and for you, red for an independent check, blue for the planner and for
-participants, green for done). There is no glow behind the page; the one gradient left is the
-diagrams' dot grid. Every colour is a token on `:root` in `assets/style.css`: midnight's values, and
-graphite's and light's under their own names (`--graphite-*`, `--light-*`), which
-`:root[data-tone="graphite"]` and `:root[data-tone="light"]` point tokens at, inside `@media screen`.
-A dark tone changes the surfaces only; light also recolours the text, the accent and the roles, and
-sets `color-scheme: light`. `--bg` is the opaque base, `--bg-1` to `--bg-4` are the translucent panels,
+participants, green for done). Every colour is a token on `:root` in `assets/style.css`: midnight's
+values, with the amber accent and the glow, and graphite's, light's and paper's under their own names
+(`--graphite-*`, `--light-*`, `--paper-*`), which `:root[data-tone="graphite"]`,
+`:root[data-tone="light"]` and `:root[data-tone="paper"]` point tokens at, inside `@media screen`. A
+dark tone changes the surfaces and the glow only; a light one also recolours the text, the accent and
+the roles, points the glow at `--no-glow`, and sets `color-scheme: light`. The classic shapes are one
+block of rules scoped to the two dark tones, at the end of the screen rules: a new shape rule for the
+light look gets its classic twin there. `--bg` is the opaque base, `--bg-1` to `--bg-4` are the translucent panels,
 `--bg-0` a well inside one, and `--bg-pop` the opaque surface of a menu. Every page ships in light,
 named in its markup (`<html data-tone="light">`). Print gets its own light tokens, and
 `prefers-reduced-motion` stops every animation. The brand is the repository's social-preview
 mark and the wordmark `.projectstore`, whose dot is a round brand-coloured dot with a slow pulse.
 
 **The graph behind the page.** `assets/site.js` builds a faint graph in a fixed layer under the
-content, the whole layer at 30% opacity and at 10% while the page scrolls (`:root.scrolling`): a slice of this project's own vault, 28 artifacts around ADR-010 and 34 of the
+content, in the light tones the whole layer at 30% opacity and at 10% while the page scrolls (`:root.scrolling`), in the dark ones at full strength: a slice of this project's own vault, 28 artifacts around ADR-010 and 34 of the
 links among them (the rest are left out to keep it sparse), as `tools/graph-slice.mjs` cut it from the
 vault's `graph.md`. Only accepted, done, active, final and in-progress artifacts are shown, never a
 draft or a proposal. Each node carries its number and slug (`ADR-010 slug-first-artifa…`,
@@ -82,10 +90,9 @@ tools/i18n.py              build, extract and check (stdlib Python 3.12); PAGES 
 tools/graph-slice.mjs      the background graph's data: a slice of the vault's graph.md, laid out, into site.js
 index.html                 generated: English, the default, at the site root
 <slug>/index.html          generated: the English method pages — /how-it-works/ /why-it-works/ /one-vault/ — and /privacy/
-ru/index.html              generated: the Russian main page
+<lang>/index.html          generated: the main page per language — /de/ /es/ /fr/ /pt/ /ru/ /uk/ /zh/
 <lang>/<slug>/index.html   generated: every method page per language — /de/how-it-works/ … /zh/one-vault/
-en/index.html              generated: redirects to the root — the old /en/ address, and /de/ /es/ /fr/
-<lang>/index.html            /pt/ /uk/ /zh/, the main page's address in each language it is not built in
+en/index.html              generated: redirects to the root — the old /en/ address
 llms.txt                   the project for agents, in the llmstxt.org format
 llms-full.txt              the long form: a technical reference written for agents
 assets/style.css           tokens, components, diagrams, responsive rules, print, the @font-face rules, Chinese font stacks
@@ -115,27 +122,26 @@ all of it counts toward the site's budget of 2,621,440 bytes, which `tests/site.
 English is the default and lives at the root. Every other language has its own address, so a link to
 `/de/how-it-works/` always shows German, and each page is complete static HTML: readable without
 JavaScript, by crawlers and by agents. A page kind is built in the languages its row in `PAGES`
-names: the method pages in all eight, the main page in English and Russian (the maintainer's
-decision of 2026-10-22), the privacy page in English. Each page lists the same page in every language
+names: the main page and the method pages in all eight (the main page since 2026-10-26; from
+2026-10-22 it was English and Russian only), the privacy page in English. Each page lists the same page in every language
 it is built in as an `hreflang` alternate (`x-default` is the English one) and itself as canonical,
 all absolute under `https://projectstore.dev/`, and carries `og:` and `twitter:` tags with its own
 title and description and the absolute address of assets/og.png. The language switcher on a page
 links the same page in its other languages. A page links a kind not built in its language at the
-English address: a German method page's brand goes to `/`, never to `/de/`, which is a redirect.
+English address: every page links the privacy page at `/privacy/`. No page links `/en/`, a redirect.
 
 An English page, of any kind, picks a language only when the visitor has a reason to want one: an
 explicit earlier choice stored in the `ps_lang` cookie by the language switcher, otherwise the
 browser's preferred languages. It then goes to the same page in that language (`/how-it-works/` to
 `/de/how-it-works/`). A stored choice is followed only to a page built in it. Without one, the first
-browser language the site has in any page decides, and the page follows only if it is built in that
-language: on the main page, a browser saying `uk, ru` stays English rather than go to Russian, since
-`/uk/` would send the reader back. If English comes first in the browser, or the visitor picked
+browser language the site has decides: on the main page, a browser saying `uk, ru` goes to `/uk/`.
+If English comes first in the browser, or the visitor picked
 English in the switcher, the page stays English. Agents and crawlers run no JavaScript and always get
 English.
 
 The tone switch in the header keeps the visitor's choice in `localStorage` under `ps_tone`. The
 early script, `src/_tone.html`, reads it before the first paint, sets `data-tone` on `<html>` and
-the `theme-color` from the computed `--bg`, so a page in midnight or graphite never shows white
+the `theme-color` from the computed `--bg`, so a page in midnight, graphite or paper never shows white
 first; it also sets `data-tones`, which shows the switch. Without JavaScript, or without storage, a
 page is light, and without JavaScript the switch is not shown. Below 1200 px the page links leave the header row for a second row under it, so the
 row with the switch, the language and the GitHub link never wraps in any language; below 400 px that
@@ -232,37 +238,42 @@ page has its English page's ids, markers, marker values and fact values. The rul
 
 The version lives in one place, the footer partial `src/_footer.html`, so a release edits one file.
 
-The test also holds, on the English pages, a word budget (the main page at most 3,300 visible words,
+The test also holds, on the English pages, a word budget (the main page at most 3,400 visible words,
 a method page at most 1,100); on every page, the link-preview tags; in `assets/style.css`, colours
 only as tokens on `:root` (print aside); and in the templates, no colour literal in a `fill`,
 `stroke`, `stop-color` or `style` attribute (`<meta name="theme-color">` aside). For the tones it
-holds that a tone rule sits inside `@media screen` and points tokens at tokens `:root` declares: a
-dark tone surface tokens only, a light one (its `--bg` above 0.5 luminance) the text and roles too,
+holds that a tone rule, a block whose selector is exactly `:root[data-tone="…"]`, sits inside
+`@media screen` and points tokens at tokens `:root` declares: a dark tone surface tokens and the glow
+only, a light one (its `--bg` above 0.5 luminance) the text and roles too,
 with `color-scheme: light`; that the base and the menus are opaque in every tone; that every text
 colour keeps its floor at its lowest over the surfaces text sits on (`--ink` to `--ink-4`, the
 accent and the roles 4.5:1, `--ink-5` the ratio it had on black, the text on the accent 4.5:1 on
 it); that every page ships in light (`<html data-tone="light">`), with the switch and the early
 script, its `theme-color` the light tone's `--bg`; that the early script, run in `node:vm`, sets each
 tone the switch offers and light for anything else, and sets `data-tones`, the switch's gate; that
-the accent and the brand colour are an indigo in every tone; that no gradient is left but the
-diagrams' dot grid; and that the graph's layer is at most 0.3 at rest and 0.1 while scrolling. It also holds that the page links and the header's second row switch
-under one media query; that every page has one `h1` and no id twice; that both main pages open with
-what ProjectStore is (the `h1`, three paragraphs, the two buttons, the agents line, the five pains,
-and the table's five columns over its four rows: chat, SDD, PDD, ProjectStore); that the quick start
+the accent and the brand colour are in each tone's family (light's indigo, paper's copper, the dark
+tones' amber with an orange brand); that no gradient is left but the diagrams' dot grid and the dark
+tones' glow; and that the graph's layer is at most 0.3 at rest and 0.1 while scrolling, raised only in
+the dark tones. It also holds that the page links and the header's second row switch
+under one media query; that every page has one `h1` and no id twice; that every main page opens with
+what ProjectStore is (the `h1`, three paragraphs, the two buttons, the agents line, the five lines
+under "Why it works", the table's five columns over its five rows: chat, agent memory, SDD, PDD,
+ProjectStore; the rating's thirty marks; the tree's four questions ending in ProjectStore; the
+ladder's five steps), and that every dictionary holds every main-page key, translated; that the quick start
 has six steps with the install box's two tabs in the third; that the chapter heads carry a label, an
 `h2` and a lead, and the team and why chapters link their whole pages; that a link to one of our
 pages with a `#fragment` lands on an id of that page; that the first four sections show no command
 outside the install box; and that the loop figure is the player: the still with an alt, loop.html in the frame its
 template holds, a play and pause button, a seek range and a full-screen button with names, a caption
 and no link; the still a complete WebP and loop.html defining window.frame, window.duration,
-window.still and window.ready, the two within 300,000 bytes. It runs the main page's redirect in `node:vm`: a stored `ru` and a browser
-saying `ru` go to Russian, and `de, ru` and `uk, ru, en` stay. It holds that no page and no llms file
-links a redirect.
+window.still and window.ready, the two within 300,000 bytes. It runs the main page's redirect in `node:vm`: a stored language is
+followed, a browser saying `uk, ru` goes to Ukrainian and `de, ru` to German, and `en` and `ja` stay.
+It holds that no page and no llms file links a redirect.
 It holds the GitHub link on every page: one `a.gh` in the header's top row, to the repository, its
 mark hidden from a screen reader, its name "GitHub" untranslated, the word hidden at 760 px and
 narrower; and no page keeps the Star button it replaced.
 
-**The agents the site names** are positioning, not facts: both main pages carry the agents line in
+**The agents the site names** are positioning, not facts: every main page carries the agents line in
 the opening section and in the trust ticks, "Works in Claude Code and Codex. OpenCode soon; Gemini, Z.ai and
 DeepSeek next.", its names untranslated and in that order, and name neither Cursor nor Gemini CLI;
 no page carries a harness status or calls Codex experimental in its language (the test holds the
@@ -395,8 +406,12 @@ memory, project memory and spec-driven tools: what projectstore is not, and how 
 them", whose sources were read on 2026-10-09; the docs page lists the sources row by row.
 
 The main page's own texts (what it is, the table, the chapter heads, the first two steps) are the
-maintainer's approved design of 2026-10-23, in English and Russian; the rest are the method pages'
-and the mockup of 2026-10-21's. The Quick start's fifth step quotes a real Claude Code session on an empty project, from
+maintainer's approved design of 2026-10-23, in English and Russian, as the design canvas of
+2026-10-24 revised them (the "Why it works" lines, the memory row, the rating, the tree, the ladder,
+step 3's wording); the rest are the method pages' and the mockup of 2026-10-21's. The rating's marks
+are the maintainer's judgement, and the page says so ("the rating is ours"); the memory row's claims
+are `docs/alongside.md`'s. The six other languages are translations of the English, made and
+reviewed one language at a time. The Quick start's fifth step quotes a real Claude Code session on an empty project, from
 2026-10-21. The loop is the marketing loop video's dashboard (v2, the corrected cut of the one posted
 on X on 2026-10-14), drawn by
 `assets/loop.html`, a copy of agent-film's `render/loop.html`, which the player plays as it is. Its
