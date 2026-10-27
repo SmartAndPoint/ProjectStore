@@ -31,9 +31,11 @@
 //   effortProblem(manifest)              → what is wrong with the block, or null
 //
 // Local reads are synchronous and cheap: the manifest, a `file` catalog, and
-// projectstore's own cache. A `command` or `http` catalog is read only by
-// readLive, which a menu starts in the background. env, home, now, fetch,
-// spawn and timers are parameters, so no test reads the machine.
+// projectstore's own cache. A `command` catalog is read only by readLive,
+// which a menu starts in the background. There is no `http` kind: this module
+// makes no request and reads no credential from the environment (the 0.30.7
+// story, PS-DIRECTORY). env, home, now, spawn and timers are parameters, so
+// no test reads the machine.
 
 import { spawn as spawnChild } from "node:child_process";
 import { mkdirSync, readFileSync, statSync } from "node:fs";
@@ -44,8 +46,8 @@ import { writeFileAtomic } from "./lib.mjs";
 import { modelSpec, effortSpec } from "./model-spec.mjs";
 
 // The two block readers live in model-spec.mjs, which imports nothing, so a
-// hook's imports reach them without reaching this file's fetch. Re-exported:
-// every caller that reads the catalog too keeps one import.
+// hook's imports reach them without reaching this file's subprocess.
+// Re-exported: every caller that reads the catalog too keeps one import.
 export { modelSpec, effortSpec };
 
 // A known list is fresh for a day (decision 3); a live read is bounded by 3 s.
@@ -162,6 +164,10 @@ export function modelCachePath(manifest, { env = process.env, home = homedir() }
   return cachePaths({ env, home }).models(manifest?.id);
 }
 
+// The cache is read only when a catalog the manifest declares names its
+// source: a cache an older release wrote from a catalog this one no longer
+// declares is ignored, never deleted, since opening a list writes nothing
+// (the ADR, decision 3; the 0.30.7 story, PS-DIRECTORY).
 function readCache(manifest, opts) {
   const p = modelCachePath(manifest, opts);
   if (!p) return null;
@@ -169,6 +175,9 @@ function readCache(manifest, opts) {
     const c = JSON.parse(readFileSync(p, "utf8"));
     const t = timeOf(c?.at);
     if (t === null || !Array.isArray(c.models)) return null;
+    const source = typeof c.source === "string" ? c.source : "";
+    const from = (modelSpec(manifest)?.catalogs || []).find((x) => x.source === source);
+    if (!from) return null;
     // Cleaned again: the cache is a file anyone can edit.
     const entries = c.models
       .filter((x) => x && typeof x.id === "string" && clean(x.id))
@@ -180,9 +189,7 @@ function readCache(manifest, opts) {
         hidden: Boolean(x.hidden),
         ...cachedLevels(x),
       }));
-    const source = typeof c.source === "string" ? c.source : "";
-    const from = (modelSpec(manifest)?.catalogs || []).find((x) => x.source === source);
-    return { at: t, source, caption: from?.caption || source, entries };
+    return { at: t, source, caption: from.caption || source, entries };
   } catch {
     return null;
   }
@@ -206,33 +213,11 @@ function readFileCatalog(manifest, spec, catalog, opts) {
   }
 }
 
-// Where an http catalog's key goes: the key's own base when the manifest
-// names a base variable and it is set, else the manifest's URL (the ADR,
-// decision 2). Never any other host.
-function urlOf(catalog, env) {
-  const base = catalog.base_env && env?.[catalog.base_env] ? String(env[catalog.base_env]).replace(/\/+$/, "") : null;
-  return base && catalog.path ? `${base}${catalog.path}` : catalog.url;
-}
-function hostOf(catalog, env) {
-  try {
-    return new URL(urlOf(catalog, env)).host;
-  } catch {
-    return null;
-  }
-}
-
-// The catalog a refresh asks: the first `command` or `http` one that can run
-// here — its key variable set, or its bin on PATH — or null, with why not.
+// The catalog a refresh asks: the first `command` one whose bin is on PATH,
+// or null, with why not.
 function liveCatalog(spec, env) {
   let why = null;
   for (const c of spec.catalogs || []) {
-    if (c.kind === "http") {
-      if (c.key_env && !(env && env[c.key_env])) {
-        why = why || `no ${c.key_env}`;
-        continue;
-      }
-      return { catalog: c, why: null, host: hostOf(c, env) };
-    }
     if (c.kind === "command") {
       const bin = Array.isArray(c.argv) ? c.argv[0] : null;
       if (!bin || !whichOnPath(bin, env || {})) {
@@ -315,7 +300,6 @@ export function knownModels(manifest, { env = process.env, home = homedir(), now
           source: live.catalog.source || "",
           caption: live.catalog.caption || live.catalog.source || "",
           kind: live.catalog.kind,
-          ...(live.host ? { host: live.host } : {}),
         }
       : null,
     why: live.why,
@@ -409,7 +393,10 @@ export function modelsProblem(manifest) {
   if (!Array.isArray(spec.catalogs)) return "catalogs is not a list";
   for (const c of spec.catalogs) {
     const fields = fieldsOf(spec, c);
-    if (!["file", "command", "http"].includes(c?.kind)) return `a catalog's kind is ${c?.kind}`;
+    // The kind 0.30.6 read a key from the environment with: refused by name
+    // (the 0.30.7 story, PS-DIRECTORY).
+    if (c?.kind === "http") return "an http catalog is not read: a catalog is a file or a command";
+    if (!["file", "command"].includes(c?.kind)) return `a catalog's kind is ${c?.kind}`;
     if (typeof c.source !== "string" || !c.source) return `a ${c.kind} catalog names no source`;
     if (!fields.list || !fields.id) return `the ${c.source} catalog names no list or id field`;
     if (typeof c.reason !== "string" || !c.reason) return `the ${c.source} catalog carries no reason`;
@@ -417,12 +404,6 @@ export function modelsProblem(manifest) {
       return `the ${c.source} file catalog's path is not under the harness home`;
     if (c.kind === "command" && (!Array.isArray(c.argv) || !c.argv.length || c.argv.some((a) => typeof a !== "string")))
       return `the ${c.source} command catalog has no argv`;
-    if (c.kind === "http") {
-      if (!/^https:\/\//.test(String(c.url))) return `the ${c.source} http catalog's url is not https`;
-      if (!c.key_env || !c.key_header) return `the ${c.source} http catalog names no key variable and header`;
-      if (c.base_env && !String(c.path || "").startsWith("/"))
-        return `the ${c.source} http catalog's path is not absolute`;
-    }
   }
   return null;
 }
@@ -459,72 +440,6 @@ export function effortProblem(manifest) {
       return `cheap_evidence is ${spec.cheap_evidence}, not ${EVIDENCE.join(", ")}`;
   }
   return null;
-}
-
-// One bounded fetch, settled by a timer whatever the request does after: the
-// pattern of convergence.mjs's request(). The key goes in its header and
-// nowhere else; nothing of the request is kept.
-function readHttp(catalog, { env, fetch, timers, timeoutMs, signal }) {
-  return new Promise((settle) => {
-    if (typeof fetch !== "function") return settle({ error: "no fetch in this Node" });
-    let done = false,
-      timer = null;
-    const ac = typeof AbortController === "function" ? new AbortController() : null;
-    const finish = (r) => {
-      if (done) return;
-      done = true;
-      if (timer !== null)
-        try {
-          timers.clearTimeout(timer);
-        } catch {}
-      settle(r);
-    };
-    timer = timers.setTimeout(() => {
-      timer = null;
-      try {
-        ac?.abort();
-      } catch {}
-      finish({ error: `no answer within ${timeoutMs / 1000} s` });
-    }, timeoutMs);
-    try {
-      timer?.unref?.();
-    } catch {}
-    signal?.addEventListener?.("abort", () => {
-      try {
-        ac?.abort();
-      } catch {}
-      finish({ error: "stopped" });
-    });
-    const url = urlOf(catalog, env);
-    const headers = { accept: "application/json", ...(catalog.headers || {}) };
-    if (catalog.key_env && catalog.key_header) headers[catalog.key_header] = String(env?.[catalog.key_env] || "");
-    Promise.resolve()
-      .then(() => fetch(url, { headers, ...(ac ? { signal: ac.signal } : {}) }))
-      .then(async (res) => {
-        if (!res || !res.ok) {
-          try {
-            Promise.resolve(res?.body?.cancel?.()).catch(() => {});
-          } catch {}
-          const status = res?.status ?? "error";
-          return finish({
-            error: status === 401 || status === 403 ? `the key was refused (HTTP ${status})` : `HTTP ${status}`,
-          });
-        }
-        const size = Number(res.headers?.get?.("content-length"));
-        if (Number.isFinite(size) && size > MAX_BYTES) {
-          try {
-            Promise.resolve(res?.body?.cancel?.()).catch(() => {});
-          } catch {}
-          return finish({ error: "the answer is too large" });
-        }
-        try {
-          finish({ body: await res.json() });
-        } catch {
-          finish({ error: "the answer is not JSON" });
-        }
-      })
-      .catch((e) => finish({ error: String(e?.cause?.code || e?.code || e?.message || "the request failed") }));
-  });
 }
 
 // One bounded run of a catalog command: its stdout as JSON. Asynchronous, so
@@ -604,8 +519,6 @@ export async function readLive(
     env = process.env,
     home = homedir(),
     now = Date.now,
-    // eslint-disable-next-line n/no-unsupported-features/node-builtins -- the global fetch is experimental at Node 20 and stable from 21; without it the read answers "no fetch in this Node"
-    fetch = globalThis.fetch,
     spawn = spawnChild,
     timers = globalThis,
     timeoutMs = LIVE_TIMEOUT_MS,
@@ -618,10 +531,7 @@ export async function readLive(
   if (!catalog) return { error: why || "no catalog to ask" };
   let r;
   try {
-    r =
-      catalog.kind === "http"
-        ? await readHttp(catalog, { env, fetch, timers, timeoutMs, signal })
-        : await readCommand(catalog, { env, spawn, timers, timeoutMs, signal });
+    r = await readCommand(catalog, { env, spawn, timers, timeoutMs, signal });
   } catch (e) {
     r = { error: String(e?.message || e) };
   }

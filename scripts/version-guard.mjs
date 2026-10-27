@@ -298,6 +298,14 @@ export function unshippedTopLevel(entries, packlist) {
 // The packlist is the second release-time invariant: what npm would actually
 // ship. Stored as sorted paths only — sizes churn on every content edit and
 // would make the fixture unreviewable.
+// The one package in `npm pack --json`'s answer: an array of one entry up to
+// npm 11, an object keyed by the package's name from npm 12.
+export function packEntry(answer) {
+  const [pkg] = Array.isArray(answer) ? answer : Object.values(answer ?? {});
+  if (!pkg || !Array.isArray(pkg.files)) throw new Error("no package entry with a file list");
+  return pkg;
+}
+
 export function currentPacklist(root = ROOT) {
   const r = spawnSync("npm", ["pack", "--dry-run", "--json"], {
     cwd: root,
@@ -306,7 +314,7 @@ export function currentPacklist(root = ROOT) {
   });
   if (r.status !== 0) return { error: `npm pack failed: ${r.stderr?.trim()}` };
   try {
-    const [pkg] = JSON.parse(r.stdout);
+    const pkg = packEntry(JSON.parse(r.stdout));
     return { files: pkg.files.map((f) => f.path).sort() };
   } catch (e) {
     return { error: `npm pack output unparseable: ${e.message}` };

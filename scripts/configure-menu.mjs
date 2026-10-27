@@ -444,16 +444,17 @@ function effortOptions(es, display, item, name, isDefault, levels, model, d, men
   return opts;
 }
 
-// The values frame's footer: the list's source and age, the host being
-// asked, or why nothing can be asked (the ADR, decisions 3 and 6).
+// The values frame's footer: the list's source and age, the catalog being
+// asked, or why nothing can be asked (the ADR, decisions 3 and 6). An alias
+// harness with no list says that its aliases are all it offers.
 function caption(cat, now) {
   const k = cat.known;
   if (!k) return null;
   const name = k.caption || k.live?.caption || "";
-  if (cat.busy) return { text: `asking ${k.live?.host || k.live?.caption || name}…`, busy: true };
+  if (cat.busy) return { text: `asking ${k.live?.caption || name}…`, busy: true };
   if (cat.error) return { text: `${k.live?.caption || name} · ${cat.error}` };
   if (k.at) return { text: `${name} · checked ${checkedWhen(k.at, now())}` };
-  if (k.why && k.spawnTakes === "alias") return { text: `aliases only · ${k.why}` };
+  if (k.spawnTakes === "alias") return { text: k.why ? `aliases only · ${k.why}` : "aliases only" };
   return k.why ? { text: k.why } : null;
 }
 
@@ -503,7 +504,9 @@ function modelOptions(h, display, item, cat, { isDefault, defaultNow, menu, now,
         section: opts.length ? undefined : "",
         description: k?.hidden?.has(v)
           ? `${display} hides it from its own picker. It is kept as it is.`
-          : `Not in ${source ? `${source}'s list` : "any list"}. It is kept as it is.`,
+          : k?.spawnTakes === "alias"
+            ? `Not one of ${display}'s aliases. It is kept as it is.`
+            : `Not in ${source ? `${source}'s list` : "any list"}. It is kept as it is.`,
       });
   // No free text where the spawn takes aliases: every other name fails at
   // spawn, and --set is the way to name one (the ADR, decision 5).
@@ -524,7 +527,7 @@ function modelOptions(h, display, item, cat, { isDefault, defaultNow, menu, now,
       description: cat.busy
         ? `Asking ${liveSource} for its list now.`
         : !k?.live
-          ? `Nothing to ask: ${k?.why || "this harness declares no list to read"}.`
+          ? `Nothing to ask: ${k?.why || (k.spawnTakes === "alias" ? `${display}'s list is its aliases` : "this harness declares no list to read")}.`
           : cat.error
             ? `The last ask failed: ${cat.error}. The list is as it was.`
             : `Asks ${liveSource} for its list now.${k.at ? ` Last checked ${checkedWhen(k.at, now())}.` : ""} A list is kept for a day, so opening it never waits on the network.`,
@@ -612,7 +615,6 @@ export async function runMenu(ctx) {
       home,
       now,
       signal: ac.signal,
-      ...(ctx.fetch ? { fetch: ctx.fetch } : {}),
       ...(ctx.spawn ? { spawn: ctx.spawn } : {}),
       ...(ctx.timers ? { timers: ctx.timers } : {}),
     }).then((r) => {
