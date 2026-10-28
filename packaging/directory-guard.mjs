@@ -24,10 +24,10 @@
 // trackedSet() is the one function that names the set.
 //
 // check() is pure: it reads nothing, the entries carry their bytes. One row
-// per checklist rule, plus two of ours (the headroom and credential-variable
-// rules below). Each finding names the file (and line, where there is one),
-// the rule, its limit and the checklist's result for it. A credential finding
-// names the file, the line and the key's shape, never its value.
+// per checklist rule, plus six of ours (the headroom, credential-variable and
+// policy-hold rules below). Each finding names the file (and line, where there
+// is one), the rule, its limit and the checklist's result for it. A credential
+// finding names the file, the line and the key's shape, never its value.
 //
 // Our headroom rule: no shipped .mjs over 200 KiB (204,800 bytes), stricter
 // than the directory's 256 KiB, so a module is split long before the limit
@@ -47,6 +47,34 @@
 // unused branch is a finding too (the 0.30.7 story, PS-DIRECTORY). Shipped
 // files only, under either set: the tests that plant the names do not ship.
 // The `credentials` row is a different rule: a key-shaped value, which Blocks.
+//
+// Our policy-hold rules: the patterns behind the nine holds the portal's
+// Validate raised on the 0.30.7 `directory` tree (PS-DIRECTORY: "The portal's
+// policy holds on the directory branch are fixed in 0.30.8 or kept with a
+// reason, and CI fails on their patterns"). The portal does not publish its
+// rules, so each row is what that report showed and no more: a row can pass
+// while the portal still holds, and the portal's re-Validate stays the proof.
+// - mod-policy-hooks: in each module hooks/hooks.json lists, a hook on
+//   agent.spawn, config.set, agent.register, command.run or fs.write takes
+//   plain parameters, and its event and next names are bound nowhere else in
+//   the file but in other hooks' own parameter lists; the file never uses
+//   `arguments`. Otherwise the scan cannot tell which event the hook passes
+//   on, and holds it as one that may take a permission decision.
+// - mod-write-paths: each fs.write in such a module spells its path as fixed
+//   text, one leading ${…}/ for the project root, then literal folders, then a
+//   file name whose only hole is the session id. A path the scan cannot read
+//   may be a build, start-up or settings file.
+// - credential-beside-url: a shipped .mjs or .tsx file that holds an http(s)
+//   URL names no key, pin, pwd, token, secret or password, comments included,
+//   and a shipped Markdown file that holds one has no $NAME or ${NAME} whose
+//   name holds PWD, PASS, TOKEN, SECRET, KEY, PIN or AUTH. JSON is not read:
+//   the portal did not report the manifests, which hold both. KEPT names the
+//   files the row matches on purpose, each with the reason a reviewer
+//   confirms; a kept file the row no longer matches fails, so the list cannot
+//   outlive its reasons.
+// - credential-read-phrase: no command, skill or agent and no hook file holds
+//   "vault", white space, then "read": the scan read "<vault README" as a
+//   secrets store's `vault read`.
 //
 // Where the checklist leaves a reading open, the guard takes the stricter one:
 // SVG is text, so the 256 KiB limit holds for it; a symbolic link, a submodule
@@ -275,7 +303,7 @@ export function proseWords(md) {
 // ─── The rows ───────────────────────────────────────────────────────────
 
 // The checklist's rows, each with its section, its result if broken and the
-// title its report shows. `ours` marks the two rules that are not the
+// title its report shows. `ours` marks the six rules that are not the
 // checklist's.
 export const ROWS = [
   {
@@ -402,7 +430,48 @@ export const ROWS = [
     limit: "none of those names, comments included",
     result: "ours: npm run release:check and CI's test job fail",
   },
+  {
+    id: "mod-policy-hooks",
+    section: "ours",
+    ours: true,
+    rule: "in each module hooks/hooks.json lists, a hook on agent.spawn, config.set, agent.register, command.run or fs.write takes plain parameters, its event and next names are bound nowhere else in the file but in other hooks' own parameter lists, and the file never uses arguments, so the scan reads the hook as passing its own event on (the portal's hold: MOD_ANSWERS_PERMISSION)",
+    limit: "plain parameters, bound once",
+    result: "ours: npm run release:check and CI's test job fail",
+  },
+  {
+    id: "mod-write-paths",
+    section: "ours",
+    ours: true,
+    rule: "each fs.write in a module hooks/hooks.json lists spells its path as fixed text: one leading ${…}/ for the project root, every folder as literal text, then a file name whose only ${…} hole is the session id (the portal's hold: MOD_WRITES_BUILD_FILE)",
+    limit: "`${root}/<literal folders>/<file name, ${sid} at most>`",
+    result: "ours: npm run release:check and CI's test job fail",
+  },
+  {
+    id: "credential-beside-url",
+    section: "ours",
+    ours: true,
+    rule: "a shipped .mjs or .tsx file that holds an http(s):// URL names no key, pin, pwd, token, secret or password as a word, comments included, and a shipped Markdown file that holds one has no $NAME or ${NAME} whose name holds PWD, PASS, TOKEN, SECRET, KEY, PIN or AUTH, but in a file KEPT names with its reason (the portal's hold: MCP_FORWARDS_CREDENTIAL_ENV)",
+    limit: "no such name beside a URL, but in a kept file; no kept file the row no longer matches",
+    result: "ours: npm run release:check and CI's test job fail",
+  },
+  {
+    id: "credential-read-phrase",
+    section: "ours",
+    ours: true,
+    rule: 'no command, skill or agent and no hook file hooks/hooks.json names holds "vault", white space, then "read", which the scan reads as a secrets store\'s read (the portal\'s hold: MCP_FORWARDS_CREDENTIAL_ENV, across surfaces)',
+    limit: "no such phrase",
+    result: "ours: npm run release:check and CI's test job fail",
+  },
 ];
+
+// The files the credential-beside-url row matches on purpose, each with the
+// reason a reviewer confirms (the portal holds them, once per version).
+export const KEPT = {
+  "hooks/band.tsx":
+    "its one URL is the SVG namespace of the Desktop progress bar's drawing, which the host draws as an image and never fetches; none of its three words is a credential: `token` is the hint's command token (/projectstore:bar off), `key` names the band's own state (an atom's key, a render's cache key) and `pin` is the pinned epic's id, read from the binding; the band starts no program and makes no request",
+  "scripts/fetch-shell.mjs":
+    "its one URL is npm's public registry, PUBLIC_REGISTRY, which is also DEFAULT_REGISTRY, the installer's registry read: one GET for the newest release that sends no credential; its `token` is a refusal's advice on where npm keeps the user's own registry token, which ProjectStore never reads; setup runs npm with the user's environment, so npm reads its own registry, proxy and login settings and fetches the Codex package from the registry the user's npm is set to, npm's own vendor's case",
+};
 
 const ROW = Object.fromEntries(ROWS.map((r) => [r.id, r]));
 
@@ -565,13 +634,414 @@ export function frontMatterProblems(text) {
   return out;
 }
 
+// ─── Ours: the portal's policy holds ────────────────────────────────────
+
+// The hook files hooks/hooks.json names: its modules (paths under hooks/) and
+// the scripts its command hooks run (after ${CLAUDE_PLUGIN_ROOT}/), as paths
+// in the plugin folder. None when it does not parse.
+export function hookFiles(json) {
+  let reg = null;
+  try {
+    reg = JSON.parse(json);
+  } catch {}
+  const modules = new Set();
+  const scripts = new Set();
+  for (const m of Array.isArray(reg?.modules) ? reg.modules : [])
+    if (typeof m === "string") modules.add(posix.join("hooks", m));
+  const events = reg?.hooks && typeof reg.hooks === "object" ? Object.values(reg.hooks) : [];
+  for (const entries of events)
+    for (const entry of Array.isArray(entries) ? entries : [])
+      for (const h of Array.isArray(entry?.hooks) ? entry.hooks : []) {
+        const run = /\$\{CLAUDE_PLUGIN_ROOT\}\/([^"'\s]+)/.exec(String(h?.command ?? ""));
+        if (run) scripts.add(posix.normalize(run[1]));
+      }
+  return { modules: [...modules], scripts: [...scripts] };
+}
+
+// Where a `/` starts a regular expression rather than a division: after one
+// of these characters, or one of these words. Not after `<` or `>`, so a
+// closing JSX tag stays a tag.
+const REGEX_AFTER = /[(,=:[!&|?{};+\-*%~^]/;
+const REGEX_AFTER_WORD = /(?:^|[^\w$])(?:return|typeof|case|do|else|in|of|void|yield|await|delete|new|throw)$/;
+
+// A module's code with its comments, and the text of its strings, templates
+// and regular expressions, blanked: the same length and the same lines, so an
+// offset still names its line. A template's ${…} holes stay code. It is read
+// for names and nothing else, so a lexer this small is enough: JSX text is
+// read as code, and a string does not run past its line.
+export function codeOnly(src) {
+  const out = src.split("");
+  const blank = (at) => {
+    if (out[at] !== "\n") out[at] = " ";
+  };
+  const holes = []; // the brace depth each open ${ was opened at
+  let depth = 0;
+  let last = -1; // the offset of the last code character
+  let i = 0;
+  // Template text, from just inside a backtick or a hole's closing brace to
+  // the closing backtick or the next hole.
+  const template = () => {
+    while (i < src.length && src[i] !== "`" && !(src[i] === "$" && src[i + 1] === "{")) {
+      if (src[i] === "\\") blank(i++);
+      blank(i++);
+    }
+    if (src[i] === "$") {
+      holes.push(depth);
+      i += 2;
+    } else i++;
+    last = i - 1;
+  };
+  while (i < src.length) {
+    const c = src[i];
+    if (c === "/" && src[i + 1] === "/") {
+      while (i < src.length && src[i] !== "\n") blank(i++);
+    } else if (c === "/" && src[i + 1] === "*") {
+      const end = src.indexOf("*/", i + 2);
+      const stop = end < 0 ? src.length : end + 2;
+      while (i < stop) blank(i++);
+    } else if (c === "'" || c === '"') {
+      i++;
+      while (i < src.length && src[i] !== c && src[i] !== "\n") {
+        if (src[i] === "\\") blank(i++);
+        blank(i++);
+      }
+      last = i++;
+    } else if (c === "`") {
+      i++;
+      template();
+    } else if (c === "}" && holes.length && holes[holes.length - 1] === depth) {
+      holes.pop();
+      i++;
+      template();
+    } else if (
+      c === "/" &&
+      (last < 0 || REGEX_AFTER.test(src[last]) || REGEX_AFTER_WORD.test(src.slice(Math.max(0, last - 7), last + 1)))
+    ) {
+      i++;
+      let inClass = false;
+      while (i < src.length && src[i] !== "\n" && (inClass || src[i] !== "/")) {
+        if (src[i] === "\\") blank(i++);
+        else if (src[i] === "[") inClass = true;
+        else if (src[i] === "]") inClass = false;
+        blank(i++);
+      }
+      last = i++;
+    } else {
+      if (c === "{") depth++;
+      else if (c === "}") depth--;
+      if (!/\s/.test(c)) last = i;
+      i++;
+    }
+  }
+  return out.join("");
+}
+
+// The offset of the bracket that closes the one at `at`, or -1.
+function closing(code, at) {
+  const open = code[at];
+  const close = { "(": ")", "[": "]", "{": "}" }[open];
+  let d = 0;
+  for (let i = at; i < code.length; i++) {
+    if (code[i] === open) d++;
+    else if (code[i] === close && --d === 0) return i;
+  }
+  return -1;
+}
+
+// A parameter list split at its top-level commas (a type's <…> included).
+function splitParams(s) {
+  const out = [];
+  let d = 0;
+  let from = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if ("([{<".includes(c)) d++;
+    else if (")]}".includes(c) || (c === ">" && s[i - 1] !== "=")) d--;
+    else if (c === "," && d === 0) {
+      out.push(s.slice(from, i));
+      from = i + 1;
+    }
+  }
+  out.push(s.slice(from));
+  return out.map((p) => p.trim()).filter(Boolean);
+}
+
+const lineAt = (text, at) => text.slice(0, at).split("\n").length;
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// The events whose hooks can take a decision out of the user's hands (the
+// portal's MOD_ANSWERS_PERMISSION hint names these five).
+const POLICY_EVENTS = new Set(["agent.spawn", "config.set", "agent.register", "command.run", "fs.write"]);
+// A plain parameter: a name, with a type at most.
+const PLAIN_PARAM = /^([A-Za-z_$][\w$]*)\s*(?::[\s\S]*)?$/;
+// Words that take a parenthesis and are not a function's name.
+const NOT_A_NAME = new Set([
+  "if",
+  "for",
+  "while",
+  "switch",
+  "catch",
+  "with",
+  "return",
+  "typeof",
+  "await",
+  "function",
+  "new",
+  "in",
+  "of",
+  "void",
+  "delete",
+  "yield",
+  "do",
+  "else",
+  "case",
+  "throw",
+]);
+
+// What may stand before a method's name: the start of a body or a member, or
+// a modifier. A name after anything else (`?`, an operator) is a call.
+const METHOD_LEAD = /(?:[{,;}*]|(?<![\w$.])(?:async|get|set|static|public|private|protected|readonly|override))\s*$/;
+// A JSX tag up to an attribute's name: the tag's name, then attributes with
+// no value, a quoted one or a one-level braced one.
+const JSX_ATTRIBUTE_LEAD = /<[A-Za-z][\w.:-]*(?:\s+[\w$:-]+(?:=(?:"[^"]*"|'[^']*'|\{[^{}]*\}))?)*\s+$/;
+
+// Whether `at` sits directly in a class body, where `name = …` is a field.
+function inClassBody(code, at) {
+  let d = 0;
+  for (let i = at - 1; i >= 0; i--) {
+    if (code[i] === "}") d++;
+    else if (code[i] === "{") {
+      if (d === 0) return /(?<![\w$.])class\b[^{};]*$/.test(code.slice(Math.max(0, i - 120), i));
+      d--;
+    }
+  }
+  return false;
+}
+
+// The hooks a module registers as on('<event>', [filter,] handler): each
+// one's event, the offset of its opening quote, its line and parameters, and
+// where its parameter list sits (`open`, `close`), in `code` (codeOnly's)
+// with the event read from `src`.
+export function hooksOf(src, code) {
+  const out = [];
+  for (const m of code.matchAll(/(?<![\w$.])on\s*\(\s*(['"])/g)) {
+    const q = m.index + m[0].length - 1;
+    const end = src.indexOf(src[q], q + 1);
+    if (end < 0) continue;
+    const event = src.slice(q + 1, end);
+    let at = end + 1;
+    const skip = () => {
+      while (/\s/.test(code[at] ?? "")) at++;
+    };
+    const comma = () => {
+      skip();
+      if (code[at] !== ",") return false;
+      at++;
+      skip();
+      return true;
+    };
+    if (!comma()) continue;
+    if (code[at] === "{") {
+      at = closing(code, at) + 1;
+      if (!at || !comma()) continue;
+    }
+    at += /^(?:async\b\s*)?(?:function\b\s*\*?\s*(?:[A-Za-z_$][\w$]*\s*)?)?/.exec(code.slice(at))[0].length;
+    const hook = { event, quote: q, line: lineAt(code, at), open: at };
+    if (code[at] === "(") {
+      const close = closing(code, at);
+      if (close < 0) continue;
+      out.push({ ...hook, close, params: splitParams(code.slice(at + 1, close)) });
+    } else {
+      const single = /^([A-Za-z_$][\w$]*)\s*=>/.exec(code.slice(at));
+      if (single) out.push({ ...hook, close: at + single[1].length, params: [single[1]] });
+    }
+  }
+  return out;
+}
+
+// Where `name` is bound in `code` outside the hooks' own parameter lists, as
+// [offset, what]: declared, destructured into, taken as a parameter (a
+// function's, an arrow's, a method's or a catch's), assigned or imported.
+export function bindingsOf(code, name, hooks) {
+  const w = `(?<![\\w$])${escapeRe(name)}(?![\\w$])`;
+  const word = new RegExp(w);
+  const inHead = (at) => hooks.some((h) => at >= h.open && at <= h.close);
+  const out = [];
+  const add = (at, what) => {
+    if (!inHead(at)) out.push([at, what]);
+  };
+  for (const m of code.matchAll(new RegExp(`(?<![\\w$.])(?:const|let|var|class|function\\s*\\*?)\\s*${w}`, "g")))
+    add(m.index, `declares ${name}`);
+  for (const m of code.matchAll(/(?<![\w$.])(?:const|let|var)\s*([[{])/g)) {
+    const open = m.index + m[0].length - 1;
+    const hit = word.exec(code.slice(open, closing(code, open) + 1));
+    if (hit) add(open + hit.index, `destructures into ${name}`);
+  }
+  for (let i = code.indexOf("("); i >= 0; i = code.indexOf("(", i + 1)) {
+    if (hooks.some((h) => h.open === i)) continue;
+    const close = closing(code, i);
+    if (close < 0) continue;
+    const before = code.slice(Math.max(0, i - 60), i);
+    const after = code.slice(close + 1, close + 120);
+    // The word just before the parenthesis, and what stands before it.
+    const named = /(?<![\w$])([A-Za-z_$][\w$]*)\s*$/.exec(before);
+    const lead = named ? before.slice(0, named.index) : before;
+    const member = /\.\s*$/.test(lead);
+    const keyword = named && !member && (NOT_A_NAME.has(named[1]) || named[1] === "async");
+    // A call's arguments: after a name, a member, or a call's or an index's
+    // result.
+    const call = (named && !keyword) || /[)\]]\s*$/.test(before);
+    const params =
+      /(?<![\w$.])function\s*\*?\s*(?:[A-Za-z_$][\w$]*)?\s*$/.test(before) ||
+      /(?<![\w$.])catch\s*$/.test(before) ||
+      // An arrow's: never a call's; after `?`, only a bare `=>`, so a
+      // ternary's `: x =>` is not read as a return type.
+      (!call && (/^\s*=>/.test(after) || (!/\?\s*$/.test(before) && /^\s*:[^;{}()=]*=>/.test(after)))) ||
+      // A method's: a name where a member starts, then its body.
+      (named && !keyword && !member && METHOD_LEAD.test(lead) && /^\s*(?::[^;{}()=]*)?\{/.test(after));
+    if (!params) continue;
+    const hit = word.exec(code.slice(i + 1, close));
+    if (hit) add(i + 1 + hit.index, `takes ${name} as a parameter`);
+  }
+  for (const m of code.matchAll(new RegExp(`(?<![\\w$.])${escapeRe(name)}\\s*=>`, "g")))
+    add(m.index, `takes ${name} as a parameter`);
+  // An assignment, but not a JSX attribute's value or a class field: each is
+  // a property, not a binding.
+  const assign = `(?<![\\w$.])(?<!(?:const|let|var)\\s+)${escapeRe(name)}\\s*(?:\\*\\*|<<|>>>?|&&|\\|\\||\\?\\?|[-+*/%&|^])?=(?![=>])`;
+  for (const m of code.matchAll(new RegExp(assign, "g"))) {
+    const attribute =
+      /^\s*["'{]/.test(code.slice(m.index + m[0].length)) &&
+      JSX_ATTRIBUTE_LEAD.test(code.slice(Math.max(0, m.index - 300), m.index));
+    if (!attribute && !inClassBody(code, m.index)) add(m.index, `assigns ${name}`);
+  }
+  for (const m of code.matchAll(
+    new RegExp(`(?:\\+\\+|--)\\s*${w}|(?<![\\w$.])${escapeRe(name)}\\s*(?:\\+\\+|--)`, "g"),
+  ))
+    add(m.index, `assigns ${name}`);
+  // An import clause: a default name, then braces or a namespace (a module
+  // may have no semicolons, so nothing wider than the clause is read).
+  const clause =
+    /(?<![\w$.])import\s+(?:type\s+)?((?:[A-Za-z_$][\w$]*\s*,?\s*)?(?:\{[^}]*\}|\*\s*as\s+[A-Za-z_$][\w$]*)?)\s*from\b/g;
+  for (const m of code.matchAll(clause)) {
+    const hit = word.exec(m[1]);
+    if (hit) add(m.index + m[0].indexOf(m[1]) + hit.index, `imports ${name}`);
+  }
+  return out;
+}
+
+// What keeps a module's policy hook from reading as passing its own event
+// on, as [line, what].
+export function policyHookProblems(src) {
+  const code = codeOnly(src);
+  const hooks = hooksOf(src, code);
+  const out = [];
+  for (const m of code.matchAll(/(?<![\w$.])arguments(?![\w$])/g)) out.push([lineAt(code, m.index), "uses arguments"]);
+  // A policy event named in a string no hook was read from: a hook the guard
+  // cannot read fails the row, so the row never passes for want of a hook.
+  const read = new Set(hooks.map((h) => h.quote));
+  const named = new RegExp(`(['"\`])(${[...POLICY_EVENTS].map(escapeRe).join("|")})\\1`, "g");
+  for (const m of src.matchAll(named))
+    if (code[m.index] === m[1] && !read.has(m.index))
+      out.push([
+        lineAt(code, m.index),
+        `names ${m[2]} where the guard reads no hook: register it as on('${m[2]}', ($, e, next) => …)`,
+      ]);
+  for (const h of hooks.filter((x) => POLICY_EVENTS.has(x.event))) {
+    const plain = h.params.map((p) => PLAIN_PARAM.exec(p)?.[1] ?? null);
+    for (const [k, p] of h.params.entries())
+      if (!plain[k]) out.push([h.line, `the ${h.event} hook's parameter ${JSON.stringify(p)} is not a plain name`]);
+    if (h.params.length < 3) {
+      out.push([h.line, `the ${h.event} hook takes ${h.params.length} parameters, not ($, event, next)`]);
+      continue;
+    }
+    for (const [role, name] of [
+      ["event", plain[1]],
+      ["next", plain[2]],
+    ])
+      if (name)
+        for (const [at, what] of bindingsOf(code, name, hooks))
+          out.push([lineAt(code, at), `${what}, the name the ${h.event} hook (line ${h.line}) gives its ${role}`]);
+  }
+  return out;
+}
+
+// A path of fixed text: one leading ${…}/ for the project root, every folder
+// literal, then a file name whose only hole is the session id.
+const SESSION_HOLE = /^\$\{\s*(?:sid|sessionId)\s*\}$/;
+export function writePathProblem(path) {
+  const root = /^\$\{[^{}]+\}\//.exec(path);
+  if (!root) return "it does not start with one ${…}/ for the project root";
+  const parts = path.slice(root[0].length).split("/");
+  const name = parts.pop();
+  for (const f of parts)
+    if (!f || f === "." || f === ".." || /[$`{}]/.test(f)) return `the folder ${JSON.stringify(f)} is not literal text`;
+  const holes = name.match(/\$\{[^{}]*\}/g) || [];
+  if (holes.length > 1 || holes.some((h) => !SESSION_HOLE.test(h)) || /[`{}]/.test(name.replace(/\$\{[^{}]*\}/g, "")))
+    return `the file name ${JSON.stringify(name)} holds a hole that is not the session id`;
+  if (!name) return "it names no file";
+  return null;
+}
+
+// Each fs.write in a module whose path is not fixed text, as [line, what].
+export function writePathProblems(src) {
+  const code = codeOnly(src);
+  const out = [];
+  for (const m of code.matchAll(/(?<![\w$])fs\s*\.\s*write\s*\(\s*/g)) {
+    const at = m.index + m[0].length;
+    const line = lineAt(code, m.index);
+    if (src[at] !== "`") {
+      const arg = src
+        .slice(at)
+        .split(/[,\n)]/)[0]
+        .trim();
+      out.push([line, `fs.write's path ${arg} is not a template of fixed text`]);
+      continue;
+    }
+    const path = src.slice(at + 1, code.indexOf("`", at + 1));
+    const why = writePathProblem(path);
+    if (why) out.push([line, `fs.write's path \`${path}\` is not fixed text: ${why}`]);
+  }
+  return out;
+}
+
+// A URL a scan reads as a place to send to, and the names it reads beside
+// one as a credential: in code, the word (comments included; `_` separates
+// words, so API_KEY names KEY); in Markdown, a shell variable's name.
+const WEB_URL = /\bhttps?:\/\/[^\s'"`<>()]+/;
+const CREDENTIAL_WORDS = /(?<![A-Za-z0-9])(?:key|pin|pwd|token|secret|password)(?![A-Za-z0-9])/gi;
+const SHELL_VARIABLE = /\$\{?([A-Za-z_][A-Za-z0-9_]*)/g;
+const CREDENTIAL_NAME = /PWD|PASS|TOKEN|SECRET|KEY|PIN|AUTH/;
+const CODE_FILE = /\.(?:mjs|tsx)$/;
+
+// A file's credential-shaped names beside its URL, as [line, what]: each
+// name's first line. None when the file holds no URL, or is neither code nor
+// Markdown.
+export function besideUrl(path, text) {
+  const url = WEB_URL.exec(text);
+  if (!url || !(CODE_FILE.test(path) || MARKDOWN_EXT.test(path))) return [];
+  const where = `line ${lineAt(text, url.index)} holds ${url[0]}`;
+  const seen = new Map();
+  if (CODE_FILE.test(path)) {
+    for (const m of text.matchAll(CREDENTIAL_WORDS)) if (!seen.has(m[0])) seen.set(m[0], m.index);
+    return [...seen].map(([w, at]) => [lineAt(text, at), `names ${w}, and ${where}`]);
+  }
+  for (const m of text.matchAll(SHELL_VARIABLE))
+    if (CREDENTIAL_NAME.test(m[1]) && !seen.has(m[0])) seen.set(m[0], m.index);
+  return [...seen].map(([v, at]) => [lineAt(text, at), `holds ${v}${v.startsWith("${") ? "}" : ""}, and ${where}`]);
+}
+
+// "vault", white space, "read": what the scan read as a secrets store's
+// `vault read` in the review command's "<vault README excerpt>".
+const VAULT_READ = /\bvault\s+read/gi;
+
 // A URL in the tree, not on the web: no scheme, no `//`, no fragment alone.
 const local = (u) => !!u && !/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(u);
 
 const ROOT_README = /^readme(?:\.(?:md|markdown|txt|rst))?$/i;
 const ROOT_LICENSE = /^licen[cs]e(?:\.(?:md|txt))?$/i;
 
-export function check(entries) {
+// `kept` stands in for KEPT (a test's own list).
+export function check(entries, { kept = KEPT } = {}) {
   const found = Object.fromEntries(ROWS.map((r) => [r.id, new Set()]));
   const add = (id, where, what) => found[id].add(say(id, where, what));
   const files = entries.filter((e) => e.kind === "file");
@@ -771,6 +1241,29 @@ export function check(entries) {
       for (const name of new Set(line.match(CREDENTIAL_VARIABLES) || []))
         add("credential-variables", `${e.path}:${i + 1}`, `names ${name}`);
 
+  // Ours: the portal's policy holds, in the shipped text files.
+  const shipped = new Map(files.filter((f) => f.shipped && textOf.has(f.path)).map((f) => [f.path, text(f.path)]));
+  const hooked = shipped.has("hooks/hooks.json") ? hookFiles(shipped.get("hooks/hooks.json")) : null;
+  for (const p of hooked?.modules ?? []) {
+    if (!shipped.has(p)) continue;
+    for (const [line, what] of policyHookProblems(shipped.get(p))) add("mod-policy-hooks", `${p}:${line}`, what);
+    for (const [line, what] of writePathProblems(shipped.get(p))) add("mod-write-paths", `${p}:${line}`, what);
+  }
+  const matched = new Set();
+  for (const [p, t] of shipped) {
+    const hits = besideUrl(p, t);
+    if (hits.length) matched.add(p);
+    if (!Object.hasOwn(kept, p)) for (const [line, what] of hits) add("credential-beside-url", `${p}:${line}`, what);
+  }
+  for (const p of Object.keys(kept))
+    if (shipped.has(p) && !matched.has(p))
+      add("credential-beside-url", p, `is kept (${kept[p]}), but the row no longer matches it: take it out of KEPT`);
+  const hookFile = new Set([...(hooked?.modules ?? []), ...(hooked?.scripts ?? [])]);
+  for (const [p, t] of shipped)
+    if (COMPONENT.test(p) || hookFile.has(p))
+      for (const m of t.matchAll(VAULT_READ))
+        add("credential-read-phrase", `${p}:${lineAt(t, m.index)}`, `holds "${m[0].replace(/\s+/g, " ")}"`);
+
   const rows = ROWS.map((r) => ({
     id: r.id,
     section: r.section,
@@ -779,6 +1272,14 @@ export function check(entries) {
     result: r.result,
     ok: found[r.id].size === 0,
     findings: [...found[r.id]].sort((a, b) => a.localeCompare(b, "en", { numeric: true })),
+    // The holds a reviewer confirms: each kept file the row matches, and why.
+    ...(r.id === "credential-beside-url"
+      ? {
+          kept: Object.keys(kept)
+            .filter((p) => matched.has(p))
+            .map((p) => `${p}: ${kept[p]}`),
+        }
+      : {}),
   }));
   const failed = rows.filter((r) => !r.ok).map((r) => r.id);
   return { ok: failed.length === 0, files: entries.length, failed, rows, headroom, checklist: CHECKLIST };

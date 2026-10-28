@@ -72,8 +72,6 @@ import { registrationPaths } from "./surfaces.mjs";
 // (rule 9's command-form rule). The shells bundle it; the notice and the stop
 // name the package that runs, never a shell.
 export const PACKAGE = "projectstore";
-// What the read uses when the user's registry cannot be resolved.
-export const DEFAULT_REGISTRY = "https://registry.npmjs.org/";
 // The abbreviated packument: what `npm install` itself reads (8 728 bytes
 // against 50 896 for the full document, measured 2026-10-09).
 export const ACCEPT = "application/vnd.npm.install-v1+json";
@@ -90,8 +88,8 @@ export const MIN_READ_MS = 50;
 export const FRESH_MS = 24 * 60 * 60 * 1000;
 export const NO_CHECK_ENV = "PROJECTSTORE_NO_UPDATE_CHECK";
 
-// Strict semver 2.0 (semver.org's own grammar): a `dist-tags.latest` that is
-// anything else counts as missing — never printed, never compared.
+// Strict semver 2.0 (the specification's own grammar): a `dist-tags.latest`
+// that is anything else counts as missing — never printed, never compared.
 const NUM = "(?:0|[1-9]\\d*)";
 const PRE = `(?:${NUM}|\\d*[A-Za-z-][0-9A-Za-z-]*)`;
 const SEMVER = new RegExp(

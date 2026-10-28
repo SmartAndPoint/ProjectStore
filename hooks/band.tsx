@@ -197,14 +197,14 @@ async function storiesOf($: EngineInterface, b: Band, epicDir: string): Promise<
     list: async (dir: string) => {
       const entries = await $.fs.list(dir)
       const out = []
-      for (const e of entries) {
-        let kind = e.kind
+      for (const entry of entries) {
+        let kind = entry.kind
         if (kind === 'other') {
           // A symbolic link: the board follows it, so the band does too.
-          try { kind = (await $.fs.stat(`${dir}/${e.name}`, { resolve: true })).kind } catch { kind = 'other' }
+          try { kind = (await $.fs.stat(`${dir}/${entry.name}`, { resolve: true })).kind } catch { kind = 'other' }
         }
-        seen.push(`${dir}/${e.name}:${kind}:${e.mtimeMs}`)
-        out.push({ ...e, kind })
+        seen.push(`${dir}/${entry.name}:${kind}:${entry.mtimeMs}`)
+        out.push({ ...entry, kind })
       }
       return out
     },
@@ -240,9 +240,9 @@ async function storiesOf($: EngineInterface, b: Band, epicDir: string): Promise<
       })
     }
   }
-  const next = { sig, counts: foldStages(statuses) as BandCounts, items }
-  b.stories.set(epicDir, next)
-  return next
+  const fresh = { sig, counts: foldStages(statuses) as BandCounts, items }
+  b.stories.set(epicDir, fresh)
+  return fresh
 }
 
 // This session's story, from its file (contract 8): the item the pointer's
@@ -313,10 +313,12 @@ async function scan($: EngineInterface, b: Band, root: string, sid: string | nul
 // ── The clock: scan, heartbeat, prune (contract 10) ───────────────────
 
 async function writeHeartbeat($: EngineInterface, root: string, sid: string | null, body: unknown): Promise<boolean> {
-  const name = heartbeatFile(sid)
-  if (!name) return false
+  // An id that cannot name a file writes nothing. The path is spelled out,
+  // folder and name, so the directory's scan can read where the band writes;
+  // a node test holds it to layoutPaths() and heartbeatFile().
+  if (!heartbeatFile(sid)) return false
   try {
-    await $.fs.write(`${root}/${SESSIONS}/${name}`, JSON.stringify(body) + '\n')
+    await $.fs.write(`${root}/.projectstore/state/sessions/.band-${sid}.json`, JSON.stringify(body) + '\n')
     return true
   } catch {
     // A heartbeat missed: the status line keeps its own line, and the next
@@ -341,11 +343,11 @@ async function prune($: EngineInterface, now: number) {
   if (live.length !== list.length) await update($, crew, () => live)
 }
 
-async function show($: EngineInterface, b: Band, next: BandView | null) {
-  const key = JSON.stringify(next)
+async function show($: EngineInterface, b: Band, shown: BandView | null) {
+  const key = JSON.stringify(shown)
   if (key === b.shownKey) return
   b.shownKey = key
-  await update($, view, () => next)
+  await update($, view, () => shown)
 }
 
 async function tick($: EngineInterface, b: Band) {
@@ -362,7 +364,7 @@ async function tick($: EngineInterface, b: Band) {
   b.scan = { gen, startedAt: now }
   const current = () => b.scan?.gen === gen
   const scanning = scan($, b, root, sid)
-    .then(next => (current() ? show($, b, next) : undefined))
+    .then(found => (current() ? show($, b, found) : undefined))
     .catch(() => undefined)
     .finally(() => {
       if (current()) b.scan = null
