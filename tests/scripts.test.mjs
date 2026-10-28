@@ -1796,7 +1796,7 @@ test("PreCompact: with no declared project dir, the payload's cwd names the vaul
     { env: envWithoutProjectDir(), cwd: a.proj },
   );
 
-  const msg = (out && out.systemMessage) || "";
+  const msg = out || "";
   assert.ok(msg.includes("vault-pc-b"), `expected the payload's vault, got: ${msg}`);
   assert.ok(!msg.includes("vault-pc-a"), "must not name the process's own project");
 });
@@ -2332,7 +2332,7 @@ test("SessionStart contract 3: the vault-load failure path truncates its free te
 // whatever about it — the static greps below are belt, and the drives are the
 // actual check.
 
-function firePreCompact(proj, payload = {}, { env = null, cwd = proj } = {}) {
+function firePreCompactRaw(proj, payload = {}, { env = null, cwd = proj } = {}) {
   const r = spawnSync(process.execPath, [join(REPO, "hooks", "pre-compact.mjs")], {
     encoding: "utf8",
     input: JSON.stringify({ hook_event_name: "PreCompact", ...payload }),
@@ -2341,72 +2341,154 @@ function firePreCompact(proj, payload = {}, { env = null, cwd = proj } = {}) {
     cwd,
   });
   assert.equal(r.status, 0, `PreCompact hook must exit 0; stderr: ${r.stderr}`);
-  const out = r.stdout.trim();
-  return out ? JSON.parse(out) : null;
+  return r.stdout;
+}
+
+// The line, whichever carrier printed it: plain text, or the object's one field.
+function preCompactLine(raw) {
+  const out = raw.trim();
+  if (!out) return null;
+  return out.startsWith("{") ? JSON.parse(out).systemMessage : out;
+}
+
+function firePreCompact(proj, payload = {}, opts = {}) {
+  return preCompactLine(firePreCompactRaw(proj, payload, opts));
 }
 
 const DELIVERY_CLAIM = /return at session start|survival packet|injected/i;
 
-test("PreCompact contract 22: nothing but systemMessage, on every path", () => {
-  const { proj, vault } = seedHookProject();
-  seedCompactSession(vault, "pc1", [["epics/PS-A/stories/story-x.md", "Edit"]]);
-  for (const payload of [
-    { session_id: "pc1", trigger: "manual" },
-    { session_id: "pc1", trigger: "auto" },
-    { session_id: "no-such-session", trigger: "manual" },
-    { trigger: "manual" },
-    {},
-  ]) {
-    const out = firePreCompact(proj, payload);
-    assert.deepEqual(
-      Object.keys(out),
-      ["systemMessage"],
-      `${JSON.stringify(payload)} emitted ${JSON.stringify(Object.keys(out))} — an invalid ` +
-        "hookSpecificOutput sinks the whole object, systemMessage included",
-    );
-    assert.ok(!/survival packet injected/.test(out.systemMessage));
+// Contract 22 as amended 2026-10-28: the line goes out through the identified
+// harness's PreCompact carrier. Built from the manifests, never from ids: a
+// harness whose carrier is `stdout`, one that identifies itself with no carrier
+// measured, and nothing identified at all. Hermetic, because a run inside a live
+// session carries that session's marker.
+const PC_STDOUT_H = [...loadHarnesses().values()].find((m) => m.output_channels?.PreCompact?.carrier === "stdout");
+const PC_NULL_H = [...loadHarnesses().values()].find(
+  (m) => m.output_channels?.PreCompact && m.output_channels.PreCompact.carrier === null && m.runtime?.plugin_root_env,
+);
+// Lazy, so a manifest that loses its row fails the guarding assertion below
+// rather than the whole file at load. `h` is the harness whose words the line
+// speaks: with nothing identified, the project's `.claude/` folder answers.
+const PC_CARRIERS = [
+  {
+    name: "stdout carrier",
+    plain: true,
+    h: () => PC_STDOUT_H,
+    env: (proj) =>
+      hermeticEnv({ [PC_STDOUT_H.runtime.project_dir_env]: proj, [PC_STDOUT_H.runtime.plugin_root_env]: REPO }),
+  },
+  {
+    name: "identified, no carrier",
+    plain: false,
+    h: () => PC_NULL_H,
+    env: () => hermeticEnv({ [PC_NULL_H.runtime.plugin_root_env]: REPO }),
+  },
+  { name: "nothing identified", plain: false, h: () => SRC_H, env: () => hermeticEnv() },
+].map((c) => ({
+  ...c,
+  get write() {
+    return c.h().tools.write_tools[0];
+  },
+}));
+
+test("PreCompact contract 22: one line through the identified carrier, on every path", () => {
+  assert.ok(PC_STDOUT_H && PC_NULL_H, "the manifests carry both a stdout and a null PreCompact carrier");
+  for (const c of PC_CARRIERS) {
+    const { proj, vault } = seedHookProject();
+    seedCompactSession(vault, "pc1", [["epics/PS-A/stories/story-x.md", c.write]]);
+    for (const payload of [
+      { session_id: "pc1", trigger: "manual" },
+      { session_id: "pc1", trigger: "auto" },
+      { session_id: "no-such-session", trigger: "manual" },
+      { trigger: "manual" },
+      {},
+    ]) {
+      const why = `${c.name}, ${JSON.stringify(payload)}`;
+      const raw = firePreCompactRaw(proj, { cwd: proj, ...payload }, { env: c.env(proj) });
+      const line = preCompactLine(raw);
+      assert.ok(line.startsWith("projectstore: compacting — "), `${why}: ${raw}`);
+      assert.ok(!/survival packet injected/.test(line), why);
+      assert.ok(!/hookSpecificOutput/.test(raw), why);
+      if (c.plain) {
+        assert.equal(raw, line + "\n", `${why}: exactly one plain line, no object around it`);
+        assert.ok(!raw.startsWith("{") && !/systemMessage/.test(raw), why);
+      } else {
+        assert.equal(raw, JSON.stringify({ systemMessage: line }) + "\n", `${why}: today's object, byte for byte`);
+      }
+    }
   }
 });
 
+test("PreCompact contract 22: the catch-all speaks through the same carrier", () => {
+  for (const c of PC_CARRIERS) {
+    const { proj } = seedHookProject();
+    // A vault path that is not a string throws past every guarded read.
+    writeBinding(proj, JSON.stringify({ vault_path: 5, layout: "engineering", language: "en" }), "utf8");
+    const raw = firePreCompactRaw(proj, { cwd: proj, session_id: "pcx", trigger: "manual" }, { env: c.env(proj) });
+    const line = preCompactLine(raw);
+    assert.ok(line.startsWith("projectstore: PreCompact hook failed — "), `${c.name}: ${raw}`);
+    assert.equal(raw.split("\n").length, 2, `${c.name}: one line`);
+    assert.equal(raw.startsWith("{"), !c.plain, `${c.name}: the carrier decides the form, on this path too`);
+  }
+});
+
+test("PreCompact contract 22: a line break in the vault name stays inside one plain line", () => {
+  const root = mkdtempSync(join(tmpdir(), "ps-hook-"));
+  const proj = join(root, "proj");
+  const vault = join(root, "va\nult");
+  mkdirSync(join(proj, ".claude"), { recursive: true });
+  mkdirSync(join(vault, "epics"), { recursive: true });
+  writeBinding(proj, JSON.stringify({ vault_path: vault, layout: "engineering", language: "en" }), "utf8");
+  const raw = firePreCompactRaw(proj, { cwd: proj, trigger: "manual" }, { env: PC_CARRIERS[0].env(proj) });
+  assert.equal(raw.split("\n").length, 2, raw);
+  assert.ok(raw.includes("vault va ult"), raw);
+});
+
 test("PreCompact contract 22: the delivery claim needs manual AND auto_inject on", () => {
-  const { proj, vault } = seedHookProject();
-  seedCompactSession(vault, "pc2", [["epics/PS-A/stories/story-x.md", "Edit"]]);
+  for (const c of PC_CARRIERS) {
+    const { proj, vault } = seedHookProject();
+    seedCompactSession(vault, "pc2", [["epics/PS-A/stories/story-x.md", c.write]]);
+    const fire = (payload) => firePreCompact(proj, { cwd: proj, ...payload }, { env: c.env(proj) });
 
-  const manual = firePreCompact(proj, { session_id: "pc2", trigger: "manual" }).systemMessage;
-  assert.ok(/return at session start/.test(manual), "manual + auto_inject on: the claim is evidenced");
-  assert.ok(/recent files/.test(manual), "and the log is nonempty, so the stronger referent holds");
+    const manual = fire({ session_id: "pc2", trigger: "manual" });
+    assert.ok(/return at session start/.test(manual), `${c.name}: manual + auto_inject on: the claim is evidenced`);
+    assert.ok(/recent files/.test(manual), `${c.name}: and the log is nonempty, so the stronger referent holds`);
 
-  // On `auto` this plugin makes no claim that SessionStart fires at all.
-  const auto = firePreCompact(proj, { session_id: "pc2", trigger: "auto" }).systemMessage;
-  assert.ok(!DELIVERY_CLAIM.test(auto), `auto claimed delivery: ${auto}`);
-  assert.ok(/projectstore:status/.test(auto), "and still offers something true");
+    // On `auto` this plugin makes no claim that SessionStart fires at all.
+    const auto = fire({ session_id: "pc2", trigger: "auto" });
+    assert.ok(!DELIVERY_CLAIM.test(auto), `${c.name}: auto claimed delivery: ${auto}`);
+    const status = invocation(c.h(), "status", { kind: "commands" });
+    assert.ok(auto.includes(status), `${c.name}: and still offers something true, in its harness's form: ${auto}`);
 
-  // The axis a source-based walk never reaches: config.
-  const cfgPath = layoutPaths(proj).binding;
-  mkdirSync(dirname(cfgPath), { recursive: true });
-  const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
-  writeFileSync(cfgPath, JSON.stringify({ ...cfg, auto_inject: false }), "utf8");
-  const off = firePreCompact(proj, { session_id: "pc2", trigger: "manual" }).systemMessage;
-  assert.ok(
-    !DELIVERY_CLAIM.test(off),
-    `manual under auto_inject:false claimed delivery — deterministically false, not merely unevidenced: ${off}`,
-  );
-  assert.ok(
-    /in flight: `epics\/PS-A\/stories\/story-x\.md`/.test(off),
-    "naming the artifact is a fact about the log, not a promise, and survives the gate",
-  );
+    // The axis a source-based walk never reaches: config.
+    const cfgPath = layoutPaths(proj).binding;
+    mkdirSync(dirname(cfgPath), { recursive: true });
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+    writeFileSync(cfgPath, JSON.stringify({ ...cfg, auto_inject: false }), "utf8");
+    const off = fire({ session_id: "pc2", trigger: "manual" });
+    assert.ok(
+      !DELIVERY_CLAIM.test(off),
+      `${c.name}: manual under auto_inject:false claimed delivery — deterministically false, not merely unevidenced: ${off}`,
+    );
+    assert.ok(
+      /in flight: `epics\/PS-A\/stories\/story-x\.md`/.test(off),
+      `${c.name}: naming the artifact is a fact about the log, not a promise, and survives the gate`,
+    );
+  }
 });
 
 test("PreCompact contract 22: an empty log weakens the claim rather than falsifying it", () => {
-  const { proj, vault } = seedHookProject();
-  seedCompactSession(vault, "pc3", []);
-  const msg = firePreCompact(proj, { session_id: "pc3", trigger: "manual" }).systemMessage;
-  assert.ok(/orientation returns at session start/.test(msg), "the skeleton still comes back");
-  assert.ok(
-    !/recent files/.test(msg),
-    "an empty log renders no continuity section — the stronger wording would be false here",
-  );
-  assert.ok(!/in flight/.test(msg), "and nothing resolves, so the clause is dropped, not rendered empty");
+  for (const c of PC_CARRIERS) {
+    const { proj, vault } = seedHookProject();
+    seedCompactSession(vault, "pc3", []);
+    const msg = firePreCompact(proj, { cwd: proj, session_id: "pc3", trigger: "manual" }, { env: c.env(proj) });
+    assert.ok(/orientation returns at session start/.test(msg), `${c.name}: the skeleton still comes back`);
+    assert.ok(
+      !/recent files/.test(msg),
+      `${c.name}: an empty log renders no continuity section — the stronger wording would be false here`,
+    );
+    assert.ok(!/in flight/.test(msg), `${c.name}: nothing resolves, so the clause is dropped, not rendered empty`);
+  }
 });
 
 test("PreCompact contract 24: it calls the shared resolver and re-implements nothing", () => {
@@ -2425,6 +2507,9 @@ test("PreCompact contract 24: it calls the shared resolver and re-implements not
   }
   // The header comment is what the next reader believes over the code.
   assert.ok(!/Two channels are used/.test(src));
+  // Contract 22 as amended 2026-10-28: one writer, and it asks the carrier.
+  assert.equal(src.split("process.stdout.write(").length - 1, 1, "emit is the file's only writer to stdout");
+  assert.ok(src.includes("preCompactCarrier("), "the carrier is read, not assumed");
 });
 
 test("the shape-violation registry is empty (spec contract 22)", () => {
@@ -2604,7 +2689,7 @@ test("PreCompact contract 19: a >200 path renders in the same cell the skeleton 
   const { proj, vault } = seedHookProject();
   const long = "adr/" + "z".repeat(120) + "/" + "w".repeat(120) + ".md";
   seedCompactSession(vault, "pcl", [[long, "Write"]]);
-  const msg = firePreCompact(proj, { session_id: "pcl", trigger: "manual" }).systemMessage;
+  const msg = firePreCompact(proj, { session_id: "pcl", trigger: "manual" });
   const token = msg.match(/in flight: …`([^`]*)`/)[1];
   assert.ok(
     token.length <= 200 && long.endsWith(token),
