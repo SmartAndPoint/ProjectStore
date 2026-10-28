@@ -159,6 +159,7 @@ import {
   fetchRefusal,
   fetchRunId,
   sweepFetchRuns,
+  DEFAULT_REGISTRY,
 } from "./fetch-shell.mjs";
 import { HOST_BUDGET_MS, startFailure, runHost } from "./run-host.mjs";
 import {
@@ -191,7 +192,6 @@ import {
   terminalRun,
   copyBehind,
   behindAdvice,
-  DEFAULT_REGISTRY,
   NOTICE_BUDGET_MS,
   READ_TIMEOUT_MS,
   MIN_READ_MS,

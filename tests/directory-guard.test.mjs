@@ -89,7 +89,8 @@ function tree(changes = {}) {
   return { dir, list: Object.keys(files).filter((k) => files[k] !== null) };
 }
 
-async function packed(changes, { symlinks = {} } = {}) {
+// `kept` stands in for the guard's KEPT list.
+async function packed(changes, { symlinks = {}, kept } = {}) {
   const g = await load();
   const { dir, list } = tree(changes);
   for (const [rel, target] of Object.entries(symlinks)) {
@@ -97,7 +98,15 @@ async function packed(changes, { symlinks = {} } = {}) {
     symlinkSync(target, join(dir, rel));
     list.push(rel);
   }
-  return g.check(g.trackedSet(dir, { set: "packed", packlist: list }));
+  return g.check(g.trackedSet(dir, { set: "packed", packlist: list }), kept ? { kept } : undefined);
+}
+
+// The real packed tree, read once.
+let real = null;
+async function realPacked(options) {
+  const g = await load();
+  real ??= g.trackedSet(ROOT, { set: "packed" });
+  return g.check(real, options);
 }
 
 // The row failed, alone (or with the rows named in `also`), and one of its
@@ -136,7 +145,14 @@ test("directory guard: the rows quote the checklist's results", async () => {
   assert.match(result["regular-files"], /^Blocks where the plugin loads the entry, Warning elsewhere$/);
   assert.match(result["package-source"], /^Blocks with a launcher, Held for a reviewer with a package install/);
   assert.match(result.headroom, /^ours\b/);
-  assert.match(result["credential-variables"], /^ours\b/);
+  for (const id of [
+    "credential-variables",
+    "mod-policy-hooks",
+    "mod-write-paths",
+    "credential-beside-url",
+    "credential-read-phrase",
+  ])
+    assert.match(result[id], /^ours\b/, id);
   assert.equal(g.CHECKLIST, "https://claude.com/docs/plugins/pre-submission-checklist");
 });
 
@@ -411,6 +427,220 @@ test("directory guard: a shipped file naming a credential variable or a catalog'
     "credential-variables",
     /^tests\/models\.test\.mjs:1: names ANTHROPIC_API_KEY — /,
   );
+});
+
+// Ours: the patterns behind the portal's policy holds on the 0.30.7
+// `directory` tree (PS-DIRECTORY: "The portal's policy holds on the directory
+// branch are fixed in 0.30.8 or kept with a reason, and CI fails on their
+// patterns"). A hooks module as hooks/hooks.json loads it: a hook of another
+// kind and a policy hook, both taking ($, e, next); a helper that takes `$`;
+// e and next in a comment. A plant goes in after the hooks.
+const MODULE_HOOKS = JSON.stringify({ modules: ["./mod.tsx"], hooks: {} }) + "\n";
+const hooksModule = ({ plant = "", head = "async ($, e, next) =>", body = "" } = {}) =>
+  [
+    "import { atom } from 'claude-code'",
+    "",
+    "// The hooks below pass e on through next.",
+    "async function note($, b) {",
+    "  return b",
+    "}",
+    "",
+    "export const register = on => {",
+    "  on('turn.start', async ($, e, next) => {",
+    "    return next(e)",
+    "  })",
+    "",
+    `  on('agent.spawn', ${head} {`,
+    ...(body ? [body] : []),
+    "    const ran = await next(e)",
+    "    return ran",
+    "  })",
+    "}",
+    "",
+    plant,
+    "",
+  ].join("\n");
+const inModule = (src) => ({ "hooks/hooks.json": MODULE_HOOKS, "hooks/mod.tsx": src });
+const lineOf = (text, needle) => text.split("\n").findIndex((l) => l.includes(needle)) + 1;
+
+test("directory guard: a hooks module whose policy hook's event or next name is bound elsewhere fails the mod-policy-hooks row, by file and line", async () => {
+  // These pass: another hook's own ($, e, next), `$` as a helper's
+  // parameter, and e and next inside a comment.
+  assert.deepEqual((await packed(inModule(hooksModule()))).failed, []);
+  // Nor are these bindings: a call in a ternary before an object or an arrow,
+  // a JSX attribute and a class field.
+  for (const plant of [
+    "const shown = ok ? render(e) : { a: 1 }",
+    "const pick = c ? f(e) : x => 1",
+    'const el = <Text next="x" />',
+    "class Box {\n  next = 1\n}",
+  ])
+    assert.deepEqual((await packed(inModule(hooksModule({ plant })))).failed, [], plant);
+  // Each fails the row alone: [the module's shape, text on the line the
+  // finding names, what the finding says].
+  const cases = [
+    [
+      { plant: "const next = 1" },
+      "const next",
+      /declares next, the name the agent\.spawn hook \(line 13\) gives its next/,
+    ],
+    [{ plant: "for (const e of []) note(null, e)" }, "for (const e", /declares e, .* gives its event/],
+    [
+      { plant: "function f($, b, next) {\n  return b\n}" },
+      "function f",
+      /takes next as a parameter, .* gives its next/,
+    ],
+    [{ plant: "Promise.resolve(1).then(next => next)" }, ".then(next", /takes next as a parameter/],
+    [{ plant: "const { e } = { e: 1 }" }, "const { e }", /destructures into e, .* gives its event/],
+    [{ plant: "try {\n  note(null, 1)\n} catch (e) {\n  note(null, e)\n}" }, "catch (e)", /takes e as a parameter/],
+    [{ head: "async function ($, e, next)", body: "    note($, arguments.length)" }, "arguments", /uses arguments/],
+    [
+      { head: "async ({ ...x }, e, next) =>" },
+      "on('agent.spawn'",
+      /the agent\.spawn hook's parameter "\{ \.\.\.x \}" is not a plain name/,
+    ],
+  ];
+  for (const [shape, needle, pattern] of cases) {
+    const src = hooksModule(shape);
+    const at = lineOf(src, needle);
+    assert.ok(at > 0, `${needle} is in the module`);
+    fails(
+      await packed(inModule(src)),
+      "mod-policy-hooks",
+      new RegExp(`^hooks/mod\\.tsx:${at}: ${pattern.source}.* — `),
+    );
+  }
+  // A module hooks/hooks.json does not list is not read.
+  const unlisted = { "hooks/mod.tsx": hooksModule({ plant: "const next = 1" }) };
+  assert.equal((await packed(unlisted)).ok, true, "hooks.json lists no module");
+  // The real tree passes the row.
+  assert.equal((await realPacked()).rows.find((r) => r.id === "mod-policy-hooks").ok, true);
+});
+
+// The row passes only by reading a hook: the band's own agent.spawn hook is
+// found with its three plain parameters, and a policy event registered in a
+// shape the guard cannot read fails the row instead of passing it unseen.
+test("directory guard: the mod-policy-hooks row reads the band's agent.spawn hook, and a policy hook it cannot read fails the row", async () => {
+  const g = await load();
+  const band = read("hooks/band.tsx");
+  const spawn = g.hooksOf(band, g.codeOnly(band)).filter((h) => h.event === "agent.spawn");
+  assert.equal(spawn.length, 1, "one agent.spawn hook");
+  assert.deepEqual(spawn[0].params, ["$", "e", "next"]);
+  const src = hooksModule({ plant: "export const later = on => on('agent.spawn', noted)" });
+  fails(
+    await packed(inModule(src)),
+    "mod-policy-hooks",
+    new RegExp(`^hooks/mod\\.tsx:${lineOf(src, "noted")}: names agent\\.spawn where the guard reads no hook`),
+  );
+});
+
+test("directory guard: a hooks module's fs.write whose path is not fixed text fails the mod-write-paths row, by file and line; the heartbeat's fixed path passes", async () => {
+  const writing = (path) =>
+    hooksModule({
+      plant: `async function beat($, root, sid, name, dir, path) {\n  await $.fs.write(${path}, '{}')\n}`,
+    });
+  for (const [path, why] of [
+    ["`${root}/${SESSIONS}/${name}`", /the folder "\$\{SESSIONS\}" is not literal text/],
+    ["`${root}/.projectstore/${dir}/.band-${sid}.json`", /the folder "\$\{dir\}" is not literal text/],
+    [
+      "`${root}/.projectstore/state/sessions/${name}`",
+      /the file name "\$\{name\}" holds a hole that is not the session id/,
+    ],
+    ["`.projectstore/state/sessions/.band-${sid}.json`", /it does not start with one \$\{…\}\/ for the project root/],
+    ["path", /fs\.write's path path is not a template of fixed text/],
+  ]) {
+    const src = writing(path);
+    fails(
+      await packed(inModule(src)),
+      "mod-write-paths",
+      new RegExp(`^hooks/mod\\.tsx:${lineOf(src, "$.fs.write(")}: .*${why.source} — `),
+    );
+  }
+  const fixed = writing("`${root}/.projectstore/state/sessions/.band-${sid}.json`");
+  assert.deepEqual((await packed(inModule(fixed))).failed, [], "the heartbeat's own path");
+  assert.equal((await realPacked()).rows.find((r) => r.id === "mod-write-paths").ok, true, "the real tree");
+});
+
+test("directory guard: credential-beside-url — a credential-shaped name beside a URL in a shipped .mjs or .tsx, or a $PWD beside one in Markdown, fails by file and line; KEPT has the band and fetch-shell, each with its reason, and a kept file the row no longer matches fails", async () => {
+  const g = await load();
+  const withUrl = "// See https://example.com for more.\nconst key = 1;\nexport const run = () => key;\n";
+  fails(
+    await packed({ "scripts/run.mjs": withUrl }),
+    "credential-beside-url",
+    /^scripts\/run\.mjs:2: names key, and line 1 holds https:\/\/example\.com — /,
+  );
+  fails(
+    await packed({ "hooks/view.tsx": "const pin = 1\n// <svg xmlns='http://www.w3.org/2000/svg'/>\n" }),
+    "credential-beside-url",
+    /^hooks\/view\.tsx:1: names pin, and line 2 holds http:\/\/www\.w3\.org\/2000\/svg — /,
+  );
+  const md = (v) => `# Guide\n\nSee https://example.com for more.\n\n\`\`\`\nnpx tool --project "${v}"\n\`\`\`\n`;
+  fails(
+    await packed({ "docs/guide.md": md("$PWD") }),
+    "credential-beside-url",
+    /^docs\/guide\.md:6: holds \$PWD, and line 3 holds https:\/\/example\.com — /,
+  );
+  fails(
+    await packed({ "docs/guide.md": md("${GITHUB_TOKEN}") }),
+    "credential-beside-url",
+    /^docs\/guide\.md:6: holds \$\{GITHUB_TOKEN\}, and line 3 /,
+  );
+  // The same words with no URL pass, and so does $XDG_CACHE_HOME beside one;
+  // a .json is not read.
+  for (const [what, changes] of [
+    ["a key with no URL", { "scripts/run.mjs": "const key = 1;\nexport const run = () => key;\n" }],
+    ["$PWD with no URL", { "docs/guide.md": '# Guide\n\nnpx tool --project "$PWD"\n' }],
+    ["$XDG_CACHE_HOME beside a URL", { "docs/guide.md": md("$XDG_CACHE_HOME") }],
+    ["a .json", { "harnesses/x.json": '{ "key": "https://example.com", "token": 1 }\n' }],
+  ])
+    assert.equal((await packed(changes)).ok, true, what);
+  // KEPT: exactly the two files a reviewer confirms, each with its reason.
+  assert.deepEqual(Object.keys(g.KEPT).sort(), ["hooks/band.tsx", "scripts/fetch-shell.mjs"]);
+  for (const [f, why] of Object.entries(g.KEPT)) assert.ok(typeof why === "string" && why.length > 40, f);
+  // A kept file passes while the row matches it, and fails once it does not.
+  const kept = { "scripts/run.mjs": "a reason a reviewer confirms" };
+  const held = await packed({ "scripts/run.mjs": withUrl }, { kept });
+  assert.equal(held.ok, true);
+  assert.deepEqual(held.rows.find((r) => r.id === "credential-beside-url").kept, [
+    "scripts/run.mjs: a reason a reviewer confirms",
+  ]);
+  fails(
+    await packed({}, { kept }),
+    "credential-beside-url",
+    /^scripts\/run\.mjs: is kept \(a reason a reviewer confirms\), but the row no longer matches it/,
+  );
+  // On the real tree the row passes, and of its .mjs and .tsx files it
+  // matches only the kept ones.
+  const r = await realPacked();
+  assert.equal(r.rows.find((x) => x.id === "credential-beside-url").ok, true);
+  const bare = (await realPacked({ kept: {} })).rows.find((x) => x.id === "credential-beside-url");
+  assert.deepEqual([...new Set(bare.findings.map((f) => f.slice(0, f.indexOf(":"))))].sort(), Object.keys(g.KEPT));
+});
+
+test('directory guard: credential-read-phrase — "vault" then "read" in a command, or in a hook file hooks/hooks.json names, fails by file and line; "the vault\'s README excerpt" passes', async () => {
+  const command = (s) => `---\ndescription: Review\n---\n\n${s}\n`;
+  fails(
+    await packed({ "commands/hello.md": command("<vault README excerpt>") }),
+    "credential-read-phrase",
+    /^commands\/hello\.md:5: holds "vault READ" — /,
+  );
+  assert.equal((await packed({ "commands/hello.md": command("<the vault's README excerpt>") })).ok, true);
+  // A hook file is one hooks/hooks.json runs: the same words in a script it
+  // does not name pass.
+  const script = "// renders with zero vault reads\nexport const run = () => 1;\n";
+  const hooks =
+    JSON.stringify({
+      hooks: {
+        PreToolUse: [{ hooks: [{ type: "command", command: 'node "${CLAUDE_PLUGIN_ROOT}/scripts/run.mjs"' }] }],
+      },
+    }) + "\n";
+  fails(
+    await packed({ "hooks/hooks.json": hooks, "scripts/run.mjs": script }),
+    "credential-read-phrase",
+    /^scripts\/run\.mjs:1: holds "vault read" — /,
+  );
+  assert.equal((await packed({ "scripts/run.mjs": script })).ok, true, "a script no hook runs");
+  assert.equal((await realPacked()).rows.find((r) => r.id === "credential-read-phrase").ok, true, "the real tree");
 });
 
 // Three agents shipped in 0.30.5 with a plain description holding ": "

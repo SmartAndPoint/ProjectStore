@@ -323,7 +323,7 @@ npx projectstore reconcile --write --only kanban
 **MCP server** — the read-only tools listed at the top of this file, over the vault. Every tool result is the CLI's `--json` for the same arguments, so an agent and a CI job see identical facts. The plugin registers the server itself in Claude Code; elsewhere, Codex included:
 
 ```
-npx projectstore mcp --project "$PWD"
+npx projectstore mcp --project .
 ```
 
 If these tools are available to you, prefer them over grepping the vault: they answer from live state, `lineage` returns a story's covering specs and their ADRs in one call, and `neighbors` returns an artifact's whole neighbourhood without a grep plus a read.

@@ -37,9 +37,9 @@ import { createInterface, emitKeypressEvents } from "node:readline";
 
 // FORCE_COLOR decides when it is set, as Node's own tty reads it: "", "1",
 // "2", "3" or "true" turn colour on even without a terminal, anything else
-// ("0", "false") turns it off. Otherwise NO_COLOR (https://no-color.org) turns
-// colour off when set to anything non-empty, and TERM=dumb means a terminal
-// that understands no escapes.
+// ("0", "false") turns it off. Otherwise NO_COLOR turns colour off when set
+// to anything non-empty, as the NO_COLOR convention has it, and TERM=dumb means
+// a terminal that understands no escapes.
 //
 // Glyphs are a switch of their own (presentation spec contract 2): ASCII
 // under TERM=dumb or PROJECTSTORE_ASCII set non-empty, Unicode otherwise, in

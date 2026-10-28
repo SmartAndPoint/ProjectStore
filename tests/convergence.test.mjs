@@ -38,7 +38,6 @@ import {
   readKeepPlan,
   copyBehind,
   behindAdvice,
-  DEFAULT_REGISTRY,
   ACCEPT,
   FRESH_MS,
   READ_TIMEOUT_MS,
@@ -48,7 +47,7 @@ import {
 import { registrationPaths, analyseRegistration } from "../scripts/surfaces.mjs";
 import { portableRegistrationPaths } from "../scripts/portable-registration.mjs";
 import { runVerb, plan } from "../scripts/install-harness.mjs";
-import { npmUserRegistry } from "../scripts/fetch-shell.mjs";
+import { npmUserRegistry, DEFAULT_REGISTRY, PUBLIC_REGISTRY } from "../scripts/fetch-shell.mjs";
 import { sourceHarness, loadHarness, cachePaths } from "../scripts/harness.mjs";
 import { fakeInstall, fakePackageRoot, noHostEnv, writeRegistry } from "./fixtures/install.mjs";
 import { fakeNpmSpawn, FAKE_REGISTRY, registryFetch, instantTimers } from "./fixtures/fetch.mjs";
@@ -973,6 +972,29 @@ test("converge: convergence.mjs imports lib, harness, portable-registration and 
   // setup.mjs reads the running copies before its questions (the setup
   // story, rule 3); it is loaded lazily by the bin, never by a hook.
   assert.deepEqual(importers, ["install-harness.mjs", "setup.mjs"]);
+});
+
+// The directory's scan held convergence.mjs for a registry URL beside the
+// word "key" (PS-DIRECTORY: "The portal's policy holds on the directory branch
+// are fixed in 0.30.8 or kept with a reason…"). The read's fallback registry
+// is fetch-shell.mjs's, so the plugin spells npm's registry in one place and
+// convergence.mjs holds no URL at all.
+test("converge: one registry constant — fetch-shell.mjs's, and convergence.mjs holds no URL", async () => {
+  assert.equal(DEFAULT_REGISTRY, "https://registry.npmjs.org/");
+  assert.equal(DEFAULT_REGISTRY, `${PUBLIC_REGISTRY}/`, "the fallback is the public registry fetch-shell.mjs uses");
+  assert.ok(
+    !("DEFAULT_REGISTRY" in (await import("../scripts/convergence.mjs"))),
+    "convergence.mjs has none of its own",
+  );
+  const urls = (rel) => readFileSync(join(ROOT, rel), "utf8").match(/https?:\/\//g) || [];
+  assert.deepEqual(urls("scripts/convergence.mjs"), [], "convergence.mjs holds no http:// or https:// literal");
+  assert.equal(urls("scripts/fetch-shell.mjs").length, 1, "fetch-shell.mjs holds PUBLIC_REGISTRY's alone");
+  const packlist = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "packlist.json"), "utf8"));
+  assert.deepEqual(
+    packlist.filter((f) => f.endsWith(".mjs") && readFileSync(join(ROOT, f), "utf8").includes("registry.npmjs.org")),
+    ["scripts/fetch-shell.mjs"],
+    "no other shipped module spells npm's registry",
+  );
 });
 
 // A switch row under the channel "npm" speaks of a downgrade only when there

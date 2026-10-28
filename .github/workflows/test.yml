@@ -40,8 +40,11 @@ jobs:
       # picks up (the pre-submission checklist): the file count, sizes and
       # kinds, names, links, the README and license, package sources,
       # credentials and the components' front matter. The packed tree, which the directory branch carries, is
-      # held to those rules here, where a breach fails the merge instead of
-      # holding a version in the portal days later.
+      # held to those rules here, and to ours: module headroom, no credential
+      # variable, and the patterns behind the portal's policy holds (a hooks
+      # module's policy hooks and fs.write paths, a credential-shaped name
+      # beside a URL, "vault read" in a component or hook file). A breach fails
+      # the merge instead of holding a version in the portal days later.
       - name: The packed tree keeps the directory's file rules
         run: node packaging/directory-guard.mjs
 

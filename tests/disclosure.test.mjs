@@ -158,7 +158,12 @@ const ROWS = {
     says: () => [
       ["inside Claude Code's own process, not in Node", "The module runs with no Node", read("hooks/band.tsx")],
       ["`.projectstore/state/sessions/`", "const SESSIONS = '.projectstore/state/sessions'", read("hooks/band.tsx")],
+      ["`.band-<session id>.json`", ".band-${sid}.json", read("hooks/band.tsx")],
       ["starts no program and makes no request", "./band.tsx", read("hooks/hooks.json")],
+      // What it hooks, which the directory reports as a policy event: passed
+      // on unchanged, the result returned as it came.
+      ["`agent.spawn`", "on('agent.spawn'", read("hooks/band.tsx")],
+      ["passes each of these on unchanged", "const ran = await next(e)", read("hooks/band.tsx")],
     ],
   },
   statusline: {
@@ -174,7 +179,11 @@ const ROWS = {
     sub: SENDS,
     lead: "The npm registry",
     says: () => [
-      [`\`${conv.DEFAULT_REGISTRY}\``, JSON.stringify(conv.DEFAULT_REGISTRY), code("scripts/convergence.mjs")],
+      [
+        `\`${fetchShell.DEFAULT_REGISTRY}\``,
+        JSON.stringify(fetchShell.PUBLIC_REGISTRY),
+        code("scripts/fetch-shell.mjs"),
+      ],
       [`\`GET <registry>/${conv.PACKAGE}\``, "/${PACKAGE}`", code("scripts/convergence.mjs")],
       ["no credentials", "headers: { accept: ACCEPT }", code("scripts/convergence.mjs")],
       [
@@ -399,7 +408,7 @@ test("disclosure: each row's strings are in its module or the manifest data it r
     assert.ok(sends.includes(`\`${c.argv.join(" ")}\``), `the sends section names ${c.argv.join(" ")}, which connects`);
   assert.ok(section().includes("Its own code makes two requests"), "the intro counts ProjectStore's own requests");
   assert.equal(rowsOf(sends).size, 2, "the sends section lists those two");
-  assert.ok(sends.includes(new URL(conv.DEFAULT_REGISTRY).host), "the sends section names the default registry");
+  assert.ok(sends.includes(new URL(fetchShell.DEFAULT_REGISTRY).host), "the sends section names the default registry");
   // No credential is read from the environment (the 0.30.7 story,
   // PS-DIRECTORY): the intro says so, and no catalog asks for a key.
   assert.ok(
