@@ -72,7 +72,7 @@
     "_root_placeholder_literal_comment": "true: Codex substitutes nothing in a hook command string. It does not need to — the hook process receives PLUGIN_ROOT in its environment (measured). The generator therefore renders an absolute interpreter and an absolute script path; a bare `node` is a PATH gamble."
   },
   "output_channels": {
-    "_comment": "Per-event channels (generation spec, contract 17, as amended 2026-10-15). `fields` are the hookSpecificOutput keys the event honours — the output side, as on every manifest; `input_fields` are the stdin keys it delivers, captured from live firings (759 on 2026-09-07/08; Run 4 of *Codex hook contract measured in a live session*, codex-cli 0.162.1, 2026-10-15, traces t1–t7). `decision` names the decision object where one exists; Stop's `carrier` is the shape the entry reminder's Stop carrier prints (additionalContext | block | null). `system_message` stays null: documented, not measured. `evidence` is about the output side.",
+    "_comment": "Per-event channels (generation spec, contract 17, as amended 2026-10-15). `fields` are the hookSpecificOutput keys the event honours — the output side, as on every manifest; `input_fields` are the stdin keys it delivers, captured from live firings (759 on 2026-09-07/08; Run 4 of *Codex hook contract measured in a live session*, codex-cli 0.162.1, 2026-10-15, traces t1–t7). `decision` names the decision object where one exists; Stop's `carrier` is the shape the entry reminder's Stop carrier prints (additionalContext | block | null); PreCompact's `carrier` is how hooks/pre-compact.mjs prints its line (stdout | null). `system_message` stays null: documented, not measured. `evidence` is about the output side.",
     "SessionStart": {
       "input_fields": [
         "session_id",
@@ -185,8 +185,9 @@
       "fields": [],
       "system_message": null,
       "decision": null,
+      "carrier": null,
       "evidence": "documented",
-      "note": "trigger is `auto` on an automatic compaction, and PostCompact follows (Run 4, t2:5–6). No permission_mode. Whether a systemMessage reaches anyone on Codex is unmeasured."
+      "note": "trigger is `auto` on an automatic compaction, and PostCompact follows (Run 4, t2:5–6). No permission_mode. Whether a systemMessage reaches anyone on Codex is unmeasured, so no carrier is set and hooks/pre-compact.mjs keeps its {\"systemMessage\"} object here."
     }
   },
   "surfaces": {

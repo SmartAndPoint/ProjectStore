@@ -57,6 +57,9 @@ import {
   stopCarrier,
   stopCarrierProblem,
   STOP_CARRIERS,
+  preCompactCarrier,
+  preCompactCarrierProblem,
+  PRECOMPACT_CARRIERS,
   commonBlockFiles,
   blockTargetProblem,
   pinPluginRoot,
@@ -185,6 +188,11 @@ test("generation contract 1: every manifest parses strictly and declares what th
         );
     }
     assert.equal(stopCarrierProblem(m), null, `${n}: its Stop carrier is one its row supports (contract 17)`);
+    assert.equal(
+      preCompactCarrierProblem(m),
+      null,
+      `${n}: its PreCompact carrier sits on a measured row (contract 17)`,
+    );
     for (const [kind, s] of Object.entries(m.surfaces || {})) {
       if (kind.startsWith("_")) continue;
       assert.equal(typeof s.supported, "boolean", `${n}: surfaces.${kind}.supported`);
@@ -360,6 +368,36 @@ test("generation contract 17: Stop's carrier is one its row supports, and each r
   for (const [row, why] of refusals) assert.match(stopCarrierProblem(withStop(row)) || "", why, JSON.stringify(row));
   for (const carrier of [...STOP_CARRIERS, null])
     assert.equal(stopCarrierProblem(withStop({ ...measured, carrier })), null, `${carrier} on a row that supports it`);
+});
+
+// The PreCompact carrier is how hooks/pre-compact.mjs prints its line (contract
+// 17, as amended 2026-10-28): plain stdout where that is measured, the
+// {"systemMessage"} object everywhere else.
+test("generation contract 17 (amended 2026-10-28): PreCompact's carrier sits only on a measured row", () => {
+  const stdout = manifests().find((m) => m.output_channels?.PreCompact?.carrier === "stdout");
+  assert.ok(stdout, "a harness whose host echoes PreCompact's stdout carries it");
+  assert.equal(stdout.output_channels.PreCompact.evidence, "measured");
+  assert.equal(stdout.output_channels.PreCompact.system_message, false, "the field it does not use is discarded");
+  for (const m of manifests())
+    if (m.output_channels?.PreCompact)
+      assert.ok("carrier" in m.output_channels.PreCompact, `${m.id}: the key is present, null when unmeasured`);
+
+  const withRow = (row) => ({ output_channels: { PreCompact: row } });
+  const measured = { fields: [], decision: null, evidence: "measured" };
+  assert.equal(preCompactCarrierProblem(withRow(null)), null, "an unmeasured slot is no problem");
+  assert.equal(preCompactCarrierProblem({}), null);
+  const refusals = [
+    [{ ...measured }, /no carrier/],
+    [{ ...measured, carrier: "systemMessage" }, /is not one of/],
+    [{ ...measured, carrier: "stderr" }, /is not one of/],
+    [{ ...measured, evidence: "documented", carrier: "stdout" }, /not measured/],
+  ];
+  for (const [row, why] of refusals)
+    assert.match(preCompactCarrierProblem(withRow(row)) || "", why, JSON.stringify(row));
+  assert.match(preCompactCarrierProblem(withRow("stdout")) || "", /not an object/);
+  for (const carrier of [...PRECOMPACT_CARRIERS, null])
+    assert.equal(preCompactCarrierProblem(withRow({ ...measured, carrier })), null, `${carrier} on a measured row`);
+  assert.equal(preCompactCarrierProblem(withRow({ ...measured, evidence: "documented", carrier: null })), null);
 });
 
 test("Codex adapter: every command, role and passive skill is rendered deterministically under the projectstore namespace", () => {
@@ -1305,6 +1343,70 @@ test("entry contract 14 (amended 2026-10-15): the Stop carrier is the identified
     resetManifests();
     for (const id of ["zz-none", "zz-null", "zz-odd"])
       assert.equal(stopCarrier({ PROJECTSTORE_HARNESS: id }, dir), null, id);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    resetManifests();
+    resetDetection();
+  }
+});
+
+// The same identified-only rule for PreCompact (skeleton spec, contract 22, as
+// amended 2026-10-28): a plain line on a host that refuses one is a failed hook,
+// so anything short of a harness identifying itself keeps today's object.
+test("skeleton contract 22 (amended 2026-10-28): the PreCompact carrier is the identified harness's, else none", () => {
+  resetManifests();
+  resetDetection();
+  const stdout = manifests().find((m) => m.output_channels?.PreCompact?.carrier === "stdout");
+  const unmeasured = manifests().find(
+    (m) => m.output_channels?.PreCompact && m.output_channels.PreCompact.carrier === null && m.runtime?.plugin_root_env,
+  );
+  assert.ok(stdout && unmeasured);
+  assert.equal(
+    preCompactCarrier({ [stdout.runtime.project_dir_env]: "/p", [stdout.runtime.plugin_root_env]: "/p" }, MANIFEST_DIR),
+    "stdout",
+    "its hook environment",
+  );
+  assert.equal(
+    preCompactCarrier({ [stdout.runtime.project_dir_env]: "/p" }, MANIFEST_DIR),
+    "stdout",
+    "its project dir",
+  );
+  for (const k of stdout.runtime.session_env || [])
+    assert.equal(preCompactCarrier({ [k]: "x" }, MANIFEST_DIR), "stdout", `its session marker ${k}`);
+  assert.equal(preCompactCarrier(MEASURED_CODEX_HOOK_ENV, MANIFEST_DIR), null, "the measured Codex hook environment");
+  assert.equal(preCompactCarrier({ [unmeasured.runtime.plugin_root_env]: "/p" }, MANIFEST_DIR), null);
+  assert.equal(preCompactCarrier({}, MANIFEST_DIR), null, "nothing identifies: the object");
+  for (const k of unmeasured.runtime.shared_env || [])
+    assert.equal(preCompactCarrier({ [k]: "/p" }, MANIFEST_DIR), null, `${k} alone is shared, so weak`);
+  for (const m of manifests())
+    assert.equal(
+      preCompactCarrier({ PROJECTSTORE_HARNESS: m.id }, MANIFEST_DIR),
+      m.output_channels?.PreCompact?.carrier ?? null,
+    );
+  assert.equal(preCompactCarrier({ PROJECTSTORE_IDENTIFIED: "" }, MANIFEST_DIR), null, "a parent that decided nothing");
+
+  const dir = mkdtempSync(join(tmpdir(), "ps-manifests-"));
+  for (const m of manifests()) writeFileSync(join(dir, `${m.id}.json`), JSON.stringify(m), "utf8");
+  const third = (id, PreCompact) => ({
+    ...sourceHarness(),
+    id,
+    display_name: id,
+    emit: false,
+    source_layout: false,
+    output_channels: { PreCompact },
+  });
+  const row = { fields: [], decision: null, evidence: "measured" };
+  writeFileSync(join(dir, "zz-none.json"), JSON.stringify(third("zz-none", null)), "utf8");
+  writeFileSync(join(dir, "zz-null.json"), JSON.stringify(third("zz-null", { ...row, carrier: null })), "utf8");
+  writeFileSync(
+    join(dir, "zz-odd.json"),
+    JSON.stringify(third("zz-odd", { ...row, carrier: "systemMessage" })),
+    "utf8",
+  );
+  try {
+    resetManifests();
+    for (const id of ["zz-none", "zz-null", "zz-odd"])
+      assert.equal(preCompactCarrier({ PROJECTSTORE_HARNESS: id }, dir), null, id);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     resetManifests();

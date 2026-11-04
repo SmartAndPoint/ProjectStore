@@ -473,6 +473,38 @@ export function stopCarrierProblem(manifest) {
   return null;
 }
 
+// ─── The PreCompact carrier (generation spec, contract 17; skeleton spec,
+// contract 22, both as amended 2026-10-28) ─────────────────────────────
+//
+// How hooks/pre-compact.mjs prints its one line. Claude Code discards a
+// PreCompact systemMessage and echoes the hook's raw stdout in the /compact
+// output instead (measured 2026-10-28), so there the line goes out as plain
+// text. Null — nothing identified, or no carrier measured — keeps the
+// {"systemMessage"} object the hook has always printed: a plain line on a host
+// whose schema refuses it would be a failed hook, and an unchanged object is
+// not. The same identified-only rule as stopCarrier, for the same reason.
+export const PRECOMPACT_CARRIERS = Object.freeze(["stdout"]);
+export function preCompactCarrier(env = process.env, dir = MANIFEST_DIR) {
+  const id = identifiedHarnessId(env, dir);
+  const carrier = id ? loadHarness(id, dir)?.output_channels?.PreCompact?.carrier : null;
+  return PRECOMPACT_CARRIERS.includes(carrier) ? carrier : null;
+}
+
+// What is wrong with a manifest's PreCompact row, or null. The key is present
+// on every row (null when nothing is measured), and a carrier is only ever
+// chosen from a measured row.
+export function preCompactCarrierProblem(manifest) {
+  const row = manifest?.output_channels?.PreCompact;
+  if (row === null || row === undefined) return null;
+  if (typeof row !== "object") return "output_channels.PreCompact is not an object";
+  if (!("carrier" in row)) return "output_channels.PreCompact has no carrier (null when none is measured)";
+  if (![...PRECOMPACT_CARRIERS, null].includes(row.carrier))
+    return `output_channels.PreCompact.carrier ${JSON.stringify(row.carrier)} is not one of ${PRECOMPACT_CARRIERS.join(", ")} or null`;
+  if (row.carrier !== null && row.evidence !== "measured")
+    return "output_channels.PreCompact.carrier is set on a row that is not measured";
+  return null;
+}
+
 // ─── Who a message is for (generation spec, contract 18) ───────────────
 //
 // The core prints for ONE harness at a time, and a command it names must be
