@@ -87,24 +87,27 @@ Edits made through the shell are not seen; a Read of the story sets the pointer.
 
 Continuity across a compaction is delivered by **SessionStart**, not by
 PreCompact — and that is a correction, not a design flourish. PreCompact has no
-model-facing channel: it accepts a top-level `systemMessage` and nothing else,
-so for its whole life the hook assembled a rich packet, printed a red *"Hook
-JSON output validation failed"*, and reached nobody. Worse, the invalid field
-sank the whole object, so the one line PreCompact *does* support never landed
-either.
+`additionalContext`, so for its early life the hook assembled a rich packet,
+printed a red *"Hook JSON output validation failed"*, and reached nobody. Its
+`systemMessage` is no channel either: Claude Code discards that field on
+PreCompact. What it does with a PreCompact hook is echo the hook's raw stdout in
+the `/compact` output.
 
 So the two hooks now split the work by what each can actually do.
 
-PreCompact prints one line, for you:
+PreCompact prints one plain line, for you:
 
 ```
-PreCompact [...pre-compact.mjs] completed successfully: {
-  "systemMessage": "projectstore: compacting — vault myapp-vault,
-                    in flight: `epics/WEB-101/epic.md`,
-                    orientation and this session's recent files return
-                    at session start"
-}
+⎿ Compacted (ctrl+o to see full summary)
+  PreCompact [...pre-compact.mjs] completed successfully: projectstore:
+  compacting — vault myapp-vault, in flight: `epics/WEB-101/epic.md`,
+  orientation and this session's recent files return at session start
 ```
+
+On a manual `/compact` the model reads that line too, after the summary. On an
+automatic compaction it is shown to no one. (On Codex, where none of this is
+measured yet, the hook keeps printing its line as a `{"systemMessage": …}`
+object.)
 
 That last clause is conditional on purpose. It appears only when the compaction
 is **manual** and `auto_inject` is on — the two things the hook can check at the

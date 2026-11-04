@@ -3,12 +3,19 @@
 //
 // Fires before context compaction (both manual /compact and automatic).
 //
-// ONE channel: `systemMessage`, the line the user sees in their /compact
-// output. PreCompact has no `additionalContext` — the runtime rejects the whole
-// object when one is present, taking `systemMessage` down with it, so for its
-// entire history this hook assembled a packet, printed a red validation error,
-// and reached nobody. Agent-facing continuity after a compaction is
-// SessionStart's job, on `source: "compact"` (spec contract 19).
+// ONE line, through the identified harness's PreCompact carrier (spec
+// contract 22, as amended 2026-10-28). On Claude Code that is plain stdout: the
+// host discards a PreCompact `systemMessage` and echoes the hook's raw stdout in
+// the /compact output instead, where the user sees it and, on a manual
+// compaction, the model reads it after the summary. An automatic compaction
+// shows it to no one. Elsewhere — nothing identified, or nothing measured — the
+// line keeps the {"systemMessage"} object it has always had.
+//
+// PreCompact has no `additionalContext`: the runtime rejects the whole object
+// when one is present, so for its early history this hook assembled a packet,
+// printed a red validation error, and reached nobody. Agent-facing continuity
+// after a compaction is SessionStart's job, on `source: "compact"` (spec
+// contract 19).
 //
 // What this hook may CLAIM is narrower than what it knows, and deliberately so:
 //   - naming the in-flight artifact is always safe — it is a fact about the log
@@ -32,12 +39,22 @@ import {
   resolveInFlightArtifact,
   pathCell,
   commandForm,
+  preCompactCarrier,
 } from "../scripts/lib.mjs";
 
+// The file's one writer to stdout, for the success path and the catch-all
+// alike. A plain line stays one line: the object form escaped a line break in a
+// vault name or an error message for free, the text form has to fold it.
+//
 // Exits after the flush, never before: process.exit does not drain a pending
 // pipe write, and the budgeted read below can still be outstanding.
-function emit(systemMessage) {
-  process.stdout.write(JSON.stringify({ systemMessage }) + "\n", () => process.exit(0));
+function emit(line) {
+  let carrier = null;
+  try {
+    carrier = preCompactCarrier();
+  } catch {}
+  const out = carrier === "stdout" ? line.replace(/[\r\n]+/g, " ") : JSON.stringify({ systemMessage: line });
+  process.stdout.write(out + "\n", () => process.exit(0));
 }
 
 // Contract 13's budget applies here too. The session file lives inside the
