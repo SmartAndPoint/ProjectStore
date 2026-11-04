@@ -54,6 +54,7 @@ import {
   whichOnPath,
   hostSessionId,
   stopCarrier,
+  preCompactCarrier,
   hostRegistry,
   autoUpdateDefault,
 } from "./harness.mjs";
@@ -194,6 +195,7 @@ export {
   speakingHarness,
   whichOnPath,
   stopCarrier,
+  preCompactCarrier,
 };
 
 // A hook's payload carries the `cwd` of the session that fired it, and on a

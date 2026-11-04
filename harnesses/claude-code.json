@@ -115,7 +115,7 @@
     "_root_placeholder_literal_comment": "true = the harness passes the placeholder through as literal text and the installer must substitute an absolute path; false = the harness expands it. Claude Code expands ${CLAUDE_PLUGIN_ROOT}, so false. Measured value for Codex comes from the spike."
   },
   "output_channels": {
-    "_comment": "Per-event output channels (generation spec, contract 17). `fields` are the hookSpecificOutput keys the event honours; `system_message` is the top-level systemMessage; `decision` names the decision object where one exists; an optional `input_fields` lists the stdin keys; Stop's `carrier` is the shape the entry reminder's Stop carrier prints (additionalContext | block | null) — our choice where both are honoured. `evidence` is `measured` only where this repository's own hooks observe the fact, `documented` where the Claude Code hooks reference says so and we never emit it.",
+    "_comment": "Per-event output channels (generation spec, contract 17). `fields` are the hookSpecificOutput keys the event honours; `system_message` is the top-level systemMessage; `decision` names the decision object where one exists; an optional `input_fields` lists the stdin keys; Stop's `carrier` is the shape the entry reminder's Stop carrier prints (additionalContext | block | null) — our choice where both are honoured; PreCompact's `carrier` is how hooks/pre-compact.mjs prints its line (stdout | null, null keeping the {\"systemMessage\"} object). `system_message` is true where the field is honoured, false where it is measured discarded, null where unmeasured. `evidence` is `measured` only where this repository's own hooks observe the fact, `documented` where the Claude Code hooks reference says so and we never emit it.",
     "SessionStart": {
       "fields": [
         "additionalContext"
@@ -195,10 +195,11 @@
     },
     "PreCompact": {
       "fields": [],
-      "system_message": true,
+      "system_message": false,
       "decision": null,
+      "carrier": "stdout",
       "evidence": "measured",
-      "note": "Measured NEGATIVELY: an output object containing additionalContext is rejected whole, taking systemMessage down with it (hooks/pre-compact.mjs; vault story: PreCompact survival packet targets a channel PreCompact does not have). Only top-level decision/reason and systemMessage exist."
+      "note": "Measured NEGATIVELY: an output object containing additionalContext is rejected whole, taking systemMessage down with it (vault story: PreCompact survival packet targets a channel PreCompact does not have). A top-level `decision: \"block\"` exists (documented; never emitted here). The systemMessage field is discarded (hooks reference; measured on 2.1.312, 2026-10-28): what carries the line is the hook's raw stdout, echoed in the /compact output as `PreCompact [<command>] completed successfully: <stdout>` (the same form was seen on 2026-08-18). On a manual compaction the user sees it and the model reads it as <local-command-stdout> after the summary; on an automatic one nothing is shown, and the compacting model appears to receive it (nothing relies on that). stderr reaches no one. Vault story: On Claude Code PreCompact speaks plain text, because the host echoes its stdout and discards systemMessage."
     }
   },
   "surfaces": {
