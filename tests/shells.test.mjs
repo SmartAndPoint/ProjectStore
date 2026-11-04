@@ -25,15 +25,17 @@ import {
   copyFileSync,
   rmSync,
   statSync,
+  realpathSync,
 } from "node:fs";
 // eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite runs on Node 20 in CI
 import { cpSync } from "node:fs";
-import { resolve, dirname, join, delimiter } from "node:path";
+import { resolve, dirname, join, delimiter, relative, basename, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { seedCliVault } from "./fixtures/vault.mjs";
 import { noHostEnv } from "./fixtures/install.mjs";
+import { closure } from "./fixtures/imports.mjs";
 import { sourceHarness, packageCommand, loadHarness, loadHarnesses, harnessIds } from "../scripts/harness.mjs";
 import { VERBS } from "../scripts/cli.mjs";
 import { checkVersions, collectShells, PACKLIST } from "../scripts/version-guard.mjs";
@@ -525,6 +527,65 @@ test(
     assert.equal(gone.core.tgz, null);
     assert.deepEqual(gone.shells[0].files, kept.shells[0].files, "the same listing either way");
     assert.match(JSON.stringify(buildShells({ only: "projectstore-ghost" })), /no shell named projectstore-ghost/);
+  },
+);
+
+// PS-HARNESS: "npm run packlist rewrites every packlist without an import
+// cycle". The guard's --write-packlist loads this module lazily while its own
+// top-level await is pending, so an import of the guard from anything this
+// module reaches deadlocks, and Node exits 13 (757ae1d did it, through
+// packEntry). The walk catches the edge; the run catches whatever else stops
+// the writer.
+test("shells contract 11: packaging/shells.mjs reaches scripts/version-guard.mjs by no import", () => {
+  const reach = closure("packaging/shells.mjs", { root: ROOT });
+  assert.ok(reach.includes("scripts/lib.mjs"), `the walk is not blind: ${reach.join(", ")}`);
+  assert.ok(!reach.includes("scripts/version-guard.mjs"), `shells.mjs reaches the guard: ${reach.join(", ")}`);
+});
+
+// A copy, so a stale fixture fails here instead of being rewritten in place.
+// It leaves out what neither ships nor feeds the writer; .claude/ holds a
+// checkout's worktrees, hundreds of MB. Top-level names only, but node_modules
+// at any depth (tools/lint/node_modules).
+const COPY_SKIP = new Set([".git", ".claude", ".omc", ".projectstore", "dist", "site", "tools"]);
+function repoCopy(into) {
+  cpSync(ROOT, into, {
+    recursive: true,
+    filter: (src) => {
+      const rel = relative(ROOT, src);
+      return rel === "" || (!COPY_SKIP.has(rel.split(sep)[0]) && basename(src) !== "node_modules");
+    },
+  });
+  return into;
+}
+
+test(
+  "shells contract 11: npm run packlist's writer, run in a copy of the repository, exits 0 and rewrites the four fixtures as committed",
+  { timeout: 180000 },
+  () => {
+    // realpath: macOS's tmpdir() is a symlink, and the guard runs main() only
+    // when argv[1] equals its real path. Unresolved, the writer exits 0 having
+    // done nothing, so stdout is parsed, never trusted from the exit code.
+    const copy = repoCopy(realpathSync(mkdtempSync(join(TMP, "packlist-"))));
+    try {
+      const r = spawnSync(process.execPath, [join(copy, "scripts", "version-guard.mjs"), "--write-packlist"], {
+        cwd: copy,
+        encoding: "utf8",
+        timeout: 170000,
+      });
+      // Before parsing: the cycle exits 13 with nothing on stdout.
+      assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.ok, true, r.stdout);
+      assert.equal(out.wrote, PACKLIST);
+      assert.deepEqual(
+        out.shells.map((s) => s.wrote),
+        SHELLS.map((s) => shellPacklistPath(s.name)),
+      );
+      for (const rel of [PACKLIST, ...SHELLS.map((s) => shellPacklistPath(s.name))])
+        assert.equal(read(join(copy, rel)), read(join(ROOT, rel)), `${rel}: rewritten as committed`);
+    } finally {
+      rmSync(copy, { recursive: true, force: true });
+    }
   },
 );
 

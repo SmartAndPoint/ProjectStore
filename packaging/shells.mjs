@@ -30,7 +30,10 @@
 // and --check fails when a hand edit drifts from the render (the pin, the
 // bin's verb set). The README is hand-written. The packlist fixture is written
 // by `npm run packlist` (scripts/version-guard.mjs --write-packlist), which
-// imports this module lazily: scripts/ ships, packaging/ does not.
+// imports this module lazily: scripts/ ships, packaging/ does not. So nothing
+// this module imports may import the guard back: the guard is still in its
+// top-level await when it loads this, and the cycle exits 13. What both need
+// lives in scripts/lib.mjs (packEntry).
 //
 // The build installs the core from the core's OWN pack tarball, never from the
 // registry: at release time the registry copy is seconds old or not there yet.
@@ -51,8 +54,7 @@ import { spawnSync } from "node:child_process";
 import { resolve, dirname, join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { filesDigest } from "../scripts/lib.mjs";
-import { packEntry } from "../scripts/version-guard.mjs";
+import { filesDigest, packEntry } from "../scripts/lib.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const ROOT = resolve(HERE, "..");

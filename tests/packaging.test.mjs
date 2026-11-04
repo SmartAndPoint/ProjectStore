@@ -36,11 +36,10 @@ import {
   runGuard,
   releaseNotesPath,
   currentPacklist,
-  packEntry,
   unshippedTopLevel,
   PACKLIST,
 } from "../scripts/version-guard.mjs";
-import { treeFiles } from "../scripts/lib.mjs";
+import { treeFiles, packEntry } from "../scripts/lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const readRootJson = (rel) => JSON.parse(readFileSync(resolve(ROOT, rel), "utf8"));
