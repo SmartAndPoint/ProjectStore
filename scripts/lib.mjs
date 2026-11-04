@@ -896,6 +896,17 @@ export function envFlag(env, name) {
   return v !== undefined && v !== null && v !== "" && !["0", "false"].includes(String(v).toLowerCase());
 }
 
+// The one package in `npm pack --json`'s answer: an array of one entry up to
+// npm 11, an object keyed by the package's name from npm 12. Here, not in
+// scripts/version-guard.mjs: packaging/shells.mjs reads it too, and an import
+// of the guard from there is a cycle (the guard loads shells.mjs while its own
+// top-level await is pending, and Node exits 13).
+export function packEntry(answer) {
+  const [pkg] = Array.isArray(answer) ? answer : Object.values(answer ?? {});
+  if (!pkg || !Array.isArray(pkg.files)) throw new Error("no package entry with a file list");
+  return pkg;
+}
+
 // The files a package ships, as the release gate defines them — package.json
 // files[] plus npm's always-included package.json, README and LICENSE — copied
 // from `from` to `to`. Never node_modules, never a symlink (a symlink is a
