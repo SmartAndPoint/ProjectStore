@@ -37,8 +37,8 @@ You are running a peer review on a projectstore artifact.
 
    ## Project context
 
-   <vault README excerpt>
-   <folder README excerpt>
+   <the vault's README excerpt>
+   <the folder's README excerpt>
 
    ## Structural checklist
 

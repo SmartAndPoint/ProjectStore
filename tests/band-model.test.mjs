@@ -55,6 +55,7 @@ import {
   leadAgent,
   LINGER_MS,
   heartbeatNext,
+  heartbeatFile,
 } from "../scripts/band-shared.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -400,6 +401,15 @@ test("the band module's paths and hint token are the core's", () => {
   const p = layoutPaths("/p");
   assert.equal(`/p/${literal("BINDING")}`, p.binding);
   assert.equal(`/p/${literal("SESSIONS")}`, p.sessions);
+  // The heartbeat's write spells its folder and its file name as fixed text,
+  // for the directory's scan: the drift fence between that literal,
+  // layoutPaths().sessions and heartbeatFile() (contract 10's file).
+  const writes = [...src.matchAll(/\$\.fs\.write\(`\$\{root\}\/([^`$]+)\/([^`/]+)`/g)];
+  assert.equal(writes.length, 1, "one write, its path fixed text");
+  assert.equal((src.match(/\$\.fs\.write\(/g) || []).length, 1, "and no other write");
+  const [, folder, name] = writes[0];
+  assert.equal(`/p/${folder}`, p.sessions, "the folder is layoutPaths().sessions");
+  assert.equal(name.replace("${sid}", "s1"), heartbeatFile("s1"), "the name has heartbeatFile()'s shape");
   assert.equal(literal("HINT_COMMAND"), invocation(sourceHarness(), "bar", { args: "off" }));
   assert.ok(existsSync(join(ROOT, "commands", "bar.md")), "the hint names a command that exists");
 });

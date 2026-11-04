@@ -214,8 +214,12 @@ export function npmError(stdout, stderr) {
 
 const seconds = (ms) => `${Number((ms / 1000).toFixed(ms % 1000 ? 1 : 0))} s`;
 
-// npm's own registry: the one README's registry-mirror advice names.
+// npm's own registry: the one README's registry-mirror advice names, and the
+// plugin's one spelling of it.
 export const PUBLIC_REGISTRY = "https://registry.npmjs.org";
+// npm's default: what the installer's registry read (readLatest) and its
+// registry comparison use when the user's own registry cannot be resolved.
+export const DEFAULT_REGISTRY = `${PUBLIC_REGISTRY}/`;
 
 // A registry that has no such shell may be a mirror that has not synced it:
 // the run once more, from npm's public registry, in README's form — the

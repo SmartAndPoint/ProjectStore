@@ -1313,6 +1313,36 @@ test("no hook emits a field its event does not carry (spec contract 22)", () => 
   }
 });
 
+// The directory reports the PreToolUse hook (matcher "", every tool call) as
+// one whose decision it could not inspect (HOOK_OUTPUT_UNINSPECTED, kept by
+// PS-DIRECTORY: "The portal's policy holds on the directory branch are fixed
+// in 0.30.8 or kept with a reason…"). The reason a reviewer confirms: it
+// decides nothing. Its output is nothing, or a systemMessage alone, for a
+// vault read, a source edit and a shell call, and its source names no field
+// that decides.
+test("touch-session's PreToolUse output is empty or a systemMessage alone", () => {
+  const { root, proj, vault } = seedHookProject();
+  const story = join(vault, "epics", "PS-A", "stories", "story-a.md");
+  writeFileSync(story, "---\ntype: story\ntitle: A\nstatus: in-progress\n---\n\n# A\n", "utf8");
+  const sessionsDir = join(root, "sessions");
+  mkdirSync(sessionsDir, { recursive: true });
+  for (const [tool, input] of [
+    ["Read", { file_path: story }],
+    ["Edit", { file_path: join(proj, "src", "a.mjs"), old_string: "a", new_string: "b" }],
+    ["Bash", { command: "ls", description: "List files" }],
+  ]) {
+    const out = fireHook(
+      proj,
+      { hook_event_name: "PreToolUse", session_id: "pre1", tool_name: tool, tool_input: input },
+      sessionsDir,
+    );
+    if (out !== null) assert.deepEqual(Object.keys(out), ["systemMessage"], `${tool}: ${JSON.stringify(out)}`);
+  }
+  const src = readFileSync(join(REPO, "scripts", "touch-session.mjs"), "utf8");
+  for (const field of ["permissionDecision", '"decision"', "updatedInput"])
+    assert.ok(!src.includes(field), `touch-session.mjs names ${field}`);
+});
+
 // A hook command with no `args` runs through a shell, the way the host runs it:
 // an unquoted plugin root with a space in it splits into two words, node looks
 // for a module at the first, and every hook fails. On Windows every home such as

@@ -80,7 +80,7 @@ import {
 const NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 
 // Per-session active pointer (ADR-006) — denormalized titles/status captured
-// after the write so the statusline renders with zero vault reads — plus the
+// after the write so the statusline renders with no read of the vault — plus the
 // raw-edit nudge (PS-IMPROVE story-003): throttled, never blocking. Both in
 // patchPointer below.
 // The session-name offer (ADR: the settled-anchor offer). Returns a line or
