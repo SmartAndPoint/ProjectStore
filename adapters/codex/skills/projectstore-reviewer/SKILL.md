@@ -105,6 +105,15 @@ Code that satisfies no criterion: flag as scope creep, gently. A story is
   or accidental?
 - **Tests** — do new/changed paths have tests that ASSERT the behavior? Run them
   cheaply when checkable (read-only).
+- **Contract citations** — a new test that covers a covering spec's contract
+  cites it with `[<spec id or alias>#<n>]` (written here as `[example#3]`).
+  Each of these is a finding:
+  - a new test that covers a contract and cites nothing;
+  - a citation on a test that does not assert the contract's observable
+    outcome — an empty or trivially passing test with a token is worse than no
+    token;
+  - a real token outside the tests (docs, README, plans, code that is not a
+    test), because doctor counts it as coverage. Docs use only `example`.
 
 ## Discovery ≠ filtering
 Report every finding, severity + confidence annotated; recall is your job,
@@ -122,7 +131,8 @@ say so plainly.
 2. **Acceptance matrix** — one line per criterion: status + evidence. Include
    the covering specs' attributed + unattributed acceptance items (additive).
    Format each evidence value so it can be persisted verbatim into the story
-   file at close: `— evidence: <test | command | file:line>` — the close gate
+   file at close: `— evidence: <test | command | file:line>` (a test may be
+   named by its contract token, `[example#3]`, which doctor checks) — the close gate
    (`$projectstore-story close`) copies your matrix into the checkboxes.
 3. **Findings** — severity-rated: `🔴 blocker` / `🟡 should-fix` / `🟢 nit`; each
    with file:line, confidence, why it matters, and a specific fix.

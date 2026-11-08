@@ -139,6 +139,7 @@ function deferralParts(reason, project, run) {
   return prose;
 }
 
+// [install#4'] [install#9]
 test("registration contract 4′/9: from an npx root the plan registers first, previews every host argv, and the other surfaces are planned against the install path the host will produce", () => {
   const sb = sandbox();
   const { home, proj, root, host, env, item, paths } = sb;
@@ -206,6 +207,7 @@ test("registration contract 4′/9: from an npx root the plan registers first, p
   assert.equal(pub.steps.find((s) => s.kind === "write").files, PACKLIST.length, "the write's file count survives");
 });
 
+// [install#4']
 test("registration contract 4′: apply writes the directory whole, runs the host with the pinned home and the project as cwd, verifies the install path, and the launcher is byte-identical to a cache install's", () => {
   const sb = sandbox();
   const { home, proj, root, host, env, item, paths, local, registry, known } = sb;
@@ -279,6 +281,7 @@ test("registration contract 4′: apply writes the directory whole, runs the hos
   );
 });
 
+// [install#4'] [install#14]
 test("registration contract 4′/14: a newer package rewrites the directory and runs plugin update at local scope; an older one does not downgrade what a newer wrote", () => {
   const sb = sandbox();
   const { home, proj, root, host, env, item, paths, registry } = sb;
@@ -348,6 +351,7 @@ test("registration contract 4′/14: a newer package rewrites the directory and 
 // The npm channel's release candidates: a registration made at rc.2 read as
 // current against rc.3 and against 0.28.0, because the comparison stopped at the
 // triple — `upgrade` never refreshed it (the critic's probe, 2026-10-03).
+// [install#4'] [install#14]
 test("registration contract 4′/14: a registration made at a release candidate refreshes from the next candidate and from the release, and a release is never downgraded to its candidate", () => {
   const sb = sandbox({ version: "0.28.0-rc.2" });
   const { home, proj, root, host, env, item, paths, registry } = sb;
@@ -396,6 +400,7 @@ test("cmpPrecedence: a candidate ranks below its release and by its own counter,
   );
 });
 
+// [install#4'] [install#13]
 test("registration contract 4′/13: a competing enabled copy is silenced for this checkout only and recorded; uninstall reverts exactly that, forgets this checkout, and removes the shared directory only when no other checkout uses it", () => {
   const sb = sandbox();
   const { home, proj, root, host, env, item, paths, local, registry, known } = sb;
@@ -517,6 +522,7 @@ test("registration contract 4′/13: a competing enabled copy is silenced for th
   assert.ok(registry().plugins["projectstore@SmartAndPoint"], "the competitor's row is not ours to remove");
 });
 
+// [install#4']
 test("registration contract 4′: without the host CLI the registration is unavailable and the plan incomplete; inside a live session it is deferred; the other surfaces still install", () => {
   const sb = sandbox();
   const { home, proj, root, item, paths } = sb;
@@ -635,6 +641,7 @@ test("registration contract 5: a directory at our path without the provenance fi
   assert.match(p2.items.find((i) => i.surface === "plugin").reason, /not at/);
 });
 
+// [install#4']
 test("registration contract 4′: a host command that fails stops the item, is shown verbatim, leaves the launcher unwritten, and the next plan resumes from the state it finds", () => {
   const sb = sandbox();
   const { home, proj, root, host, item, paths, local } = sb;
@@ -672,6 +679,7 @@ test("registration contract 4′: a host command that fails stops the item, is s
   assert.equal(item(damaged, "plugin").steps[0].kind, "write");
 });
 
+// [install#4']
 test("registration contract 4′: a checkout that never registered is absent even when the shared directory exists; two enabled copies are one doctor issue; a dev checkout's stale registration names the npx refresh", () => {
   const sb = sandbox();
   const { home, root, env, host } = sb;

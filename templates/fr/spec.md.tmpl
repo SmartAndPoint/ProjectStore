@@ -34,7 +34,15 @@ couvertes : une story n'est finie que si les deux sont au vert (ADR-007).
 ## Contrats de comportement
 
 <!-- Numérotés, testables un par un. Chacun énonce un résultat observable, pas une étape d'implémentation.
-     Pour un spike de recherche : questions à trancher + critères de sortie. -->
+     Pour un spike de recherche : questions à trancher + critères de sortie.
+     Facultatif, sous un contrat : des scénarios qu'un test peut suivre, et une
+     marque pour un contrat qu'aucun test ne peut couvrir. Les mots-clés restent
+     en anglais :
+       - WHEN … THEN …
+       (verified: live)   ou   (verified: manual)
+     Un test cite un contrat ainsi : [example#1] — l'id ou l'alias de la spec,
+     puis le numéro du contrat. Le frontmatter peut ajouter `alias: <clé-courte>`
+     et `coverage: report`. Voir docs/contracts-and-tests.md. -->
 
 1.
 2.

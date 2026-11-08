@@ -62,6 +62,7 @@ function derive(text, over = {}) {
   });
 }
 
+// [install#1]
 test("provenance contract 1: emit → parse round-trips every field, spaces and quotes included", () => {
   const { text, render, srcHash } = fresh();
   const p = parseProvenance(text);
@@ -77,6 +78,7 @@ test("provenance contract 1: emit → parse round-trips every field, spaces and 
   assert.equal(hash12("x").length, 12);
 });
 
+// [install#1]
 test("provenance contract 1: the render hash is stable across the two passes and across delimiters", () => {
   const { text, tokenized, render } = fresh();
   const check = renderHashOf(text);
@@ -258,6 +260,7 @@ test("generation contract 15: one banner per format, each naming the remedy", ()
   assert.equal(DELIMITERS.json, null);
 });
 
+// [install#1]
 test("provenance contract 1: the stamp goes after the frontmatter, after a shebang, else at line 1", () => {
   const withFm = insertStamp(BODY, { format: "markdown", harness: "codex", source: SRC });
   const fmEnd = "---\nname: critic\nmodel: gpt-5\n---\n";
@@ -329,6 +332,7 @@ test("provenance contract 2: a JSON surface cannot be stamped — it is shared, 
   );
 });
 
+// [install#1]
 test("install spec contract 1: doctor's duplicated stamp prefix is the emitter's own", async () => {
   const { STAMP_PREFIX } = await import("../scripts/doctor.mjs");
   const line = provenanceLine({

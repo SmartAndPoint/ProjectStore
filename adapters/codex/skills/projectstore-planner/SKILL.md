@@ -112,6 +112,12 @@ generic best practice — cite the real files and patterns you found.
    state, ordering, prior fixes this change could regress.
 6. **Tests** — where new tests go, the harness/fixtures to reuse (cite), the
    cases that matter — mapped to the story's acceptance criteria when given.
+   A covering spec's contract may carry `- WHEN … THEN …` scenario items: list
+   them as the test cases to write, and say each new test cites its contract
+   with a token `[<spec id or alias>#<n>]` in its name or a comment beside it
+   (written here as `[example#3]`; never put a real spec's token in a plan or
+   doc — doctor would count it). A contract marked `(verified: live)` or
+   `(verified: manual)` is checked outside the test suite: name how.
 7. **Plan** — a short ordered step list the engineer can follow.
 8. **Proposed `code_refs`** — the paths/globs this epic (and story) will own once
    implemented, ready for `$projectstore-codemap set`. You PROPOSE; the command
