@@ -240,7 +240,7 @@
       "kind": "host",
       "scope": "project",
       "scope_reason": "Codex auto-discovers a plugin-root .mcp.json even when the manifest does not declare mcpServers — measured.",
-      "why_unsupported": "Our .mcp.json is in Claude Code's dialect: its argv carries ${CLAUDE_PLUGIN_ROOT} and ${CLAUDE_PROJECT_DIR}, which nothing substitutes there, so the server failed its handshake and printed a red error in every session. Ships only once the Codex dialect is rendered and the spike's criterion (h) says what cwd and environment the server receives."
+      "why_unsupported": "Our .mcp.json is in Claude Code's dialect: its argv needs ${CLAUDE_PLUGIN_ROOT} expanded, which nothing substitutes there, and the server needs CLAUDE_PROJECT_DIR in its environment, which Codex does not export. With its earlier argv, which named the project variable too, the server failed its handshake and printed a red error in every session. Ships only once the Codex dialect is rendered and the spike's criterion (h) says what cwd and environment the server receives."
     },
     "skills": {
       "supported": true,

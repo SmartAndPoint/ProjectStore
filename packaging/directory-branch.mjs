@@ -7,9 +7,10 @@
 //
 // Anthropic's directory tracks one branch of this repository, `directory`, and
 // scans each new commit on it. Its tree is the core's npm packlist: no
-// lockfile, no tests/, site/ or packaging/, the plugin at the root (so
-// .mcp.json's ${CLAUDE_PROJECT_DIR} stays legal). release.yml's `directory`
-// job runs this after the core publish, for a stable release only, so the
+// lockfile, no tests/, site/ or packaging/, the plugin at the root (since
+// 0.30.9 .mcp.json names no variable but ${CLAUDE_PLUGIN_ROOT}, which the
+// checklist requires at any depth). release.yml's `directory` job runs this
+// after the core publish, for a stable release only, so the
 // directory scans release commits, each with its raised version, and a merge
 // that changes only the site is no directory version.
 //

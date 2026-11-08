@@ -1807,27 +1807,39 @@ test('every hook command quotes its plugin root as one shell word: node "<placeh
 // The launch form since the PS-DIRECTORY story "The MCP server's entry reaches
 // no install verb…" (decision 3; the MCP ADR's decision 1 as amended): the
 // manifest's entry under scripts/, not the bin, whose `mcp` verb argument
-// stays with the bin for hosts without a plugin channel.
+// stays with the bin for hosts without a plugin channel. Since 0.30.9 (the
+// PS-DIRECTORY story "The MCP server's entry names no variable but
+// ${CLAUDE_PLUGIN_ROOT}…") the entry is its one argument: the portal blocks
+// any other variable in a server's command, and the host exports its project
+// variable to the server.
 test(".mcp.json's placeholders are the manifest's, and it launches the manifest's MCP entry (MCP ADR decision 6, measured)", () => {
   const src = sourceHarness();
-  const reg = JSON.parse(readFileSync(join(ROOT, ".mcp.json"), "utf8"));
-  const server = reg.mcpServers.projectstore;
+  const text = readFileSync(join(ROOT, ".mcp.json"), "utf8");
+  const parsed = JSON.parse(text);
+  assert.deepEqual(Object.keys(parsed), ["mcpServers"], "one key: the server list");
+  assert.deepEqual(Object.keys(parsed.mcpServers), ["projectstore"], "one server");
+  const server = parsed.mcpServers.projectstore;
   assert.equal(server.type, "stdio");
   assert.equal(server.command, "node");
   assert.ok(Array.isArray(server.args), "args is an array — the plugin path can contain spaces");
   assert.equal(src.surfaces.mcp.entry, "scripts/mcp-server.mjs");
-  assert.equal(
-    server.args[0],
-    `${"$"}{${src.runtime.plugin_root_env}}/${src.surfaces.mcp.entry}`,
-    "the entry, under the harness's plugin-root variable (runtime, not the hooks surface's placeholder)",
-  );
   assert.deepEqual(
-    server.args.slice(1),
-    ["--project", `${"$"}{${src.runtime.project_dir_env}}`],
-    "the project comes from the host's variable, expanded per session — never ambient cwd",
+    server.args,
+    [`${"$"}{${src.runtime.plugin_root_env}}/${src.surfaces.mcp.entry}`],
+    "the entry alone, under the harness's plugin-root variable (runtime, not the hooks surface's placeholder)",
   );
-  assert.equal(server.env, undefined, "one binding channel: --project, not an env block");
+  assert.equal(server.env, undefined, "no env block: the host exports the project variable itself");
+  assert.deepEqual(
+    [...new Set(text.match(/\$\{[^}]*\}/g))],
+    [`${"$"}{${src.runtime.plugin_root_env}}`],
+    "the plugin root is the file's one variable",
+  );
   const mcp = src.surfaces.mcp;
+  assert.equal(
+    mcp.launch.project_dir_in_env,
+    true,
+    "the project reaches the server in its environment, measured — never ambient cwd",
+  );
   assert.equal(mcp.kind, "host");
   assert.equal(mcp.launch.evidence, "measured");
   assert.equal(mcp.launch.protocol_era, "initialize");

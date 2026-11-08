@@ -11,7 +11,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, symlinkSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, symlinkSync, realpathSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -199,67 +199,86 @@ test("mcp: importing the server prints nothing — stdout is the protocol channe
 // ─── the entry (PS-DIRECTORY: "The MCP server's entry reaches no install
 // verb through a read-verb runner that shares the CLI's verb table…") ──────
 
-// What .mcp.json runs, expanded as the host expands it: its two placeholders,
-// the plugin root and the project, replaced in each argument.
+// What .mcp.json runs, started as the host starts it: the plugin root
+// replaced in each argument, and the project in the server's environment,
+// under the harness's project variable (the host exports it to a plugin's
+// stdio server; the manifest's launch.project_dir_in_env).
 function registeredArgv(proj) {
   const server = JSON.parse(readFileSync(join(ROOT, ".mcp.json"), "utf8")).mcpServers.projectstore;
-  const vars = { [SRC.runtime.plugin_root_env]: ROOT, [SRC.runtime.project_dir_env]: proj };
+  const vars = { [SRC.runtime.plugin_root_env]: ROOT };
   return {
     server,
     argv: server.args.map((a) => a.replace(/\$\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m))),
+    env: { [SRC.runtime.project_dir_env]: proj },
   };
 }
 
-// Re-baselined on purpose for 0.30.9: the doctor tool gained `policy`, the dry
+// Re-baselined on purpose for 0.30.10: the doctor tool gained `policy`, the dry
 // run of the spec policy ADR (Decision 18). Every other tool is unchanged.
-const TOOLS_RECORDED = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "mcp-tools-0.30.9.json"), "utf8"));
+const TOOLS_RECORDED = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "mcp-tools-0.30.10.json"), "utf8"));
 
-test("mcp: tools/list equals the recorded list (0.30.9), through the entry .mcp.json runs and through projectstore mcp", async () => {
+test("mcp: tools/list equals the recorded list (0.30.10), through the entry .mcp.json runs and through projectstore mcp", async () => {
   const proj = mkdtempSync(join(tmpdir(), "ps-mcp-list-"));
   assert.deepEqual(toolList(), TOOLS_RECORDED, "the table");
-  for (const [how, c] of [
-    ["the entry", client(registeredArgv(proj).argv, { cwd: tmpdir(), entry: null })],
-    ["projectstore mcp", client(["mcp", "--project", proj], { cwd: tmpdir() })],
+  const { argv, env } = registeredArgv(proj);
+  // One server at a time, each ended whatever happens: a client left open
+  // keeps the file running after a failure.
+  for (const [how, start] of [
+    ["the entry", () => client(argv, { cwd: tmpdir(), env, entry: null })],
+    ["projectstore mcp", () => client(["mcp", "--project", proj], { cwd: tmpdir() })],
   ]) {
-    await c.handshake();
-    assert.deepEqual((await c.rpc("tools/list", {})).result.tools, TOOLS_RECORDED, how);
-    c.end();
+    const c = start();
+    try {
+      await c.handshake();
+      assert.deepEqual((await c.rpc("tools/list", {})).result.tools, TOOLS_RECORDED, how);
+    } finally {
+      c.end();
+    }
     assert.equal((await c.exit()).code, 0, how);
   }
 });
 
-test("mcp entry: .mcp.json runs scripts/mcp-server.mjs with plain arguments; it serves, its doctor tool answers as the CLI's doctor, and projectstore mcp still serves", async () => {
+// Since 0.30.9 (PS-DIRECTORY: "The MCP server's entry names no variable but
+// ${CLAUDE_PLUGIN_ROOT}…"): the portal blocks any other variable in a
+// server's command, so the entry takes no argument and the project reaches
+// it in its environment.
+test("mcp entry: .mcp.json runs scripts/mcp-server.mjs with plain arguments and no project; it serves from the host's project variable alone, its doctor tool answers as the CLI's doctor, and projectstore mcp still serves", async () => {
   const { proj } = vaultProject();
-  const { server, argv } = registeredArgv(proj);
+  const { server, argv, env } = registeredArgv(proj);
+  assert.deepEqual(Object.keys(server), ["type", "command", "args"]);
   assert.equal(server.command, "node");
-  assert.deepEqual(server.args, [
-    `${"$"}{${SRC.runtime.plugin_root_env}}/scripts/mcp-server.mjs`,
-    "--project",
-    `${"$"}{${SRC.runtime.project_dir_env}}`,
-  ]);
+  assert.deepEqual(server.args, [`${"$"}{${SRC.runtime.plugin_root_env}}/scripts/mcp-server.mjs`]);
   // Plain: each argument one placeholder-led path or a flag — no shell, no
   // quoting, no space, nothing a host would have to interpret.
   for (const a of server.args) assert.match(a, /^(?:\$\{\w+\}[\w/.-]*|--[a-z]+)$/, a);
   assert.equal(server.env, undefined);
-  const c = client(argv, { cwd: tmpdir(), entry: null });
-  const init = await c.handshake();
-  assert.equal(init.result.serverInfo.name, "projectstore");
-  const status = await c.rpc("tools/call", { name: "status", arguments: {} });
-  assert.equal(status.result.isError, false);
-  assert.equal(JSON.parse(status.result.content[0].text).result.bound, true);
-  const doc = await c.rpc("tools/call", { name: "doctor", arguments: { vault: true } });
-  assert.equal(doc.result.isError, false, "findings are an answer");
-  const fromTool = JSON.parse(doc.result.content[0].text);
-  const fromCli = JSON.parse(bin(["doctor", "--vault", "--json", "--project", proj]).stdout);
-  assert.equal(fromTool.verb, "doctor");
-  assert.equal(fromTool.schema_version, 1);
-  assert.equal(fromTool.ok, fromCli.ok);
-  assert.deepEqual(
-    fromTool.result.map((f) => [f.level, f.check]),
-    fromCli.result.map((f) => [f.level, f.check]),
-    "the CLI's findings",
-  );
-  c.end();
+  // cwd is not the project, and PROJECTSTORE_PROJECT_DIR is unset (cleanEnv):
+  // the host's variable is the one channel.
+  const c = client(argv, { cwd: tmpdir(), env, entry: null });
+  try {
+    const init = await c.handshake();
+    assert.equal(init.result.serverInfo.name, "projectstore");
+    const status = await c.rpc("tools/call", { name: "status", arguments: {} });
+    assert.equal(status.result.isError, false);
+    const served = JSON.parse(status.result.content[0].text);
+    assert.equal(served.result.bound, true);
+    assert.equal(realpathSync(served.project), realpathSync(proj), "the host's project");
+    const doc = await c.rpc("tools/call", { name: "doctor", arguments: { vault: true } });
+    assert.equal(doc.result.isError, false, "findings are an answer");
+    const fromTool = JSON.parse(doc.result.content[0].text);
+    const fromCli = JSON.parse(bin(["doctor", "--vault", "--json", "--project", proj]).stdout);
+    assert.equal(fromTool.verb, "doctor");
+    assert.equal(fromTool.schema_version, 1);
+    assert.equal(fromTool.ok, fromCli.ok);
+    assert.deepEqual(
+      fromTool.result.map((f) => [f.level, f.check]),
+      fromCli.result.map((f) => [f.level, f.check]),
+      "the CLI's findings",
+    );
+  } finally {
+    // A failed assertion above must not leave the server running.
+    c.end();
+  }
   assert.equal((await c.exit()).code, 0);
   // projectstore mcp: the same path, the same answers.
   const m = client(["mcp", "--project", proj], { cwd: tmpdir() });
@@ -273,7 +292,7 @@ test("mcp entry: .mcp.json runs scripts/mcp-server.mjs with plain arguments; it 
   const run = (args) =>
     spawnSync(process.execPath, [entry, ...args], { encoding: "utf8", cwd: tmpdir(), env: cleanEnv(), input: "" });
   for (const [args, why] of [
-    [[], /--project/],
+    [[], /--project[\s\S]*PROJECTSTORE_PROJECT_DIR/],
     [["--project", "${" + SRC.runtime.project_dir_env + "}"], /placeholder/],
     [["--project", proj, "mcp"], /--project <dir> alone/],
     [["--bogus"], /--project <dir> alone/],
@@ -282,6 +301,32 @@ test("mcp entry: .mcp.json runs scripts/mcp-server.mjs with plain arguments; it 
     assert.equal(r.status, 2, `${JSON.stringify(args)}: ${r.stderr}`);
     assert.match(r.stderr, why);
     assert.equal(r.stdout, "", "nothing on the protocol channel");
+  }
+});
+
+// 0.30.8's `--project ${…}` put the host's project first; with no argument the
+// entry keeps that order, so a PROJECTSTORE_PROJECT_DIR the user exported in
+// the shell that started the host does not move the session's tools to
+// another project. `projectstore mcp` keeps the MCP ADR's decision 6 order.
+test("mcp entry: the host's project beats PROJECTSTORE_PROJECT_DIR at the entry and loses to it under projectstore mcp", async () => {
+  const a = mkdtempSync(join(tmpdir(), "ps-mcp-order-a-"));
+  const b = mkdtempSync(join(tmpdir(), "ps-mcp-order-b-"));
+  const { argv, env } = registeredArgv(b);
+  const both = { ...env, PROJECTSTORE_PROJECT_DIR: a };
+  for (const [how, start, want] of [
+    ["the entry", () => client(argv, { cwd: tmpdir(), env: both, entry: null }), b],
+    ["projectstore mcp", () => client(["mcp"], { cwd: tmpdir(), env: both }), a],
+  ]) {
+    const c = start();
+    try {
+      await c.handshake();
+      const status = await c.rpc("tools/call", { name: "status", arguments: {} });
+      assert.equal(status.result.isError, false, how);
+      assert.equal(realpathSync(JSON.parse(status.result.content[0].text).project), realpathSync(want), how);
+    } finally {
+      c.end();
+    }
+    assert.equal((await c.exit()).code, 0, how);
   }
 });
 
@@ -312,12 +357,15 @@ test("mcp entry: doctor's registration check names the manifest's entry, and nev
   const old = checkMcpRegistration(root([`${plugin}/bin/projectstore.mjs`, "mcp", "--project", project]), SRC);
   assert.equal(old[0].level, "issue");
   assert.match(old[0].message, /does not launch scripts\/mcp-server\.mjs/);
-  const gone = checkMcpRegistration(
-    root([`${plugin}/scripts/mcp-server.mjs`, "--project", project], { entry: false }),
-    SRC,
-  );
+  const gone = checkMcpRegistration(root([`${plugin}/scripts/mcp-server.mjs`], { entry: false }), SRC);
   assert.equal(gone[0].level, "issue");
   assert.match(gone[0].message, /scripts\/mcp-server\.mjs, which is not in the plugin root/);
+  // 0.30.8's form, the project as an argument, launches the same entry.
+  assert.deepEqual(
+    checkMcpRegistration(root([`${plugin}/scripts/mcp-server.mjs`, "--project", project]), SRC).map((f) => f.level),
+    ["info"],
+    "0.30.8's three arguments",
+  );
   // A copy that carries its own manifest is held to its own entry: 0.30.5's
   // manifest names none, and its bin form serves (the E2b review).
   const older = root([`${plugin}/bin/projectstore.mjs`, "mcp", "--project", project], { entry: false });
