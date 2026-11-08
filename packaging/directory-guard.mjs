@@ -29,6 +29,15 @@
 // is one), the rule, its limit and the checklist's result for it. A credential
 // finding names the file, the line and the key's shape, never its value.
 //
+// The command-paths row reads JSON, not lines: each hook's command and args
+// in hooks/hooks.json, and each MCP server's command, args and env values in
+// .mcp.json, and a finding names its JSON path in the portal's form
+// (mcpServers.projectstore.args[2]). The rule is the checklist's sentence,
+// read as the probes of 2026-11-08 showed: 0.30.8's `--project
+// ${CLAUDE_PROJECT_DIR}` blocked, the same variable in an env value blocked,
+// and the entry alone passed (PS-DIRECTORY: "The MCP server's entry names no
+// variable but ${CLAUDE_PLUGIN_ROOT}…").
+//
 // Our headroom rule: no shipped .mjs over 200 KiB (204,800 bytes), stricter
 // than the directory's 256 KiB, so a module is split long before the limit
 // where the checklist holds a version. "Shipped" is the packlist under either
@@ -82,8 +91,11 @@
 // a package source in an .npmrc fails whether or not the plugin runs a
 // launcher; the attributes text, eol, crlf, ident and working-tree-encoding
 // count as rewriting contents, as filter does (so `* text=auto eol=lf` fails
-// here); JPEG and GIF completeness is a heuristic (the end marker), PNG and
-// WebP are walked; the archive's size is bounded by the unpacked bytes plus a
+// here); in a command, ${user_config.…} fails as any other variable does, an
+// env value is held to a command's rules, and each string is read on its own,
+// so an inline-program flag in an args list fails wherever it stands; JPEG
+// and GIF completeness is a heuristic (the end marker), PNG and WebP are
+// walked; the archive's size is bounded by the unpacked bytes plus a
 // 512-byte header per entry; and front matter is read as the subset of YAML our
 // files use, so some text a parser could read fails here: an indented
 // continuation of a value already on its line, a quoted value or a flow
@@ -407,6 +419,14 @@ export const ROWS = [
     result: "Blocks",
   },
   {
+    id: "command-paths",
+    section: "Review what the plugin runs and connects to",
+    rule: "in the command of a hook or an MCP server (a hook's command and args in hooks/hooks.json; a server's command, args and env values in .mcp.json), each path written in full from ${CLAUDE_PLUGIN_ROOT}, with no other variable, command substitution, wildcard, or inline program such as python3 -c",
+    limit:
+      "no $ but ${CLAUDE_PLUGIN_ROOT}, no %NAME%, backtick, *, ?, [, ], { or }, no -c, -e, -p, --eval or --print before the first path, and every path from ${CLAUDE_PLUGIN_ROOT}/, with no .. and no ~",
+    result: "Blocks (Command path can’t be followed)",
+  },
+  {
     id: "front-matter",
     section: "Hooks, skills, commands, and agents",
     rule: "valid YAML front matter in each skill, command and agent file, with description a single text value, not a list",
@@ -534,6 +554,94 @@ export function credentialLines(text) {
   const out = [];
   for (const [i, line] of text.split("\n").entries())
     for (const [shape, re] of CREDENTIALS) if (re.test(line)) out.push([i + 1, shape]);
+  return out;
+}
+
+// The one variable a command may name; the flags that run a program written
+// inline; what is left of a variable or a substitution once it is taken out.
+const PLUGIN_ROOT = "${CLAUDE_PLUGIN_ROOT}";
+const INLINE_PROGRAM = /^(?:-c|-e|-p|--eval|--print)$|^--(?:eval|print)=/;
+const DOLLAR = /\$(?:\{[^}]*\}?|\(|[A-Za-z_][A-Za-z0-9_]*)?/g;
+const WINDOWS_VARIABLE = /%[A-Za-z_][A-Za-z0-9_]*%/g;
+const WILDCARD = /[*?[\]{}]/g;
+
+// The strings a hook or an MCP server runs, as [JSON path, string]: in
+// hooks/hooks.json each hook's command and args, in .mcp.json each server's
+// command, args and env values. None when the file does not parse.
+export function commandStrings(path, json) {
+  let reg = null;
+  try {
+    reg = JSON.parse(json);
+  } catch {}
+  const out = [];
+  const read = (at, run, { env = false } = {}) => {
+    if (typeof run?.command === "string") out.push([`${at}.command`, run.command]);
+    for (const [i, a] of (Array.isArray(run?.args) ? run.args : []).entries())
+      if (typeof a === "string") out.push([`${at}.args[${i}]`, a]);
+    if (env && run?.env && typeof run.env === "object")
+      for (const [k, v] of Object.entries(run.env)) if (typeof v === "string") out.push([`${at}.env.${k}`, v]);
+  };
+  if (path === ".mcp.json") {
+    const servers = reg?.mcpServers && typeof reg.mcpServers === "object" ? reg.mcpServers : {};
+    for (const [name, server] of Object.entries(servers)) read(`mcpServers.${name}`, server, { env: true });
+  } else {
+    const events = reg?.hooks && typeof reg.hooks === "object" ? Object.entries(reg.hooks) : [];
+    for (const [event, entries] of events)
+      for (const [i, entry] of (Array.isArray(entries) ? entries : []).entries())
+        for (const [j, h] of (Array.isArray(entry?.hooks) ? entry.hooks : []).entries())
+          read(`hooks.${event}[${i}].hooks[${j}]`, h);
+  }
+  return out;
+}
+
+// A command's words: split on white space outside quotes, each with its
+// quotes taken out, so `"${CLAUDE_PLUGIN_ROOT}"/x.mjs` is one word that
+// starts at the plugin root.
+function commandWords(s) {
+  const words = [];
+  let word = null;
+  let quote = null;
+  for (const c of s) {
+    if (quote) {
+      if (c === quote) quote = null;
+      else word += c;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      word ??= "";
+    } else if (/\s/.test(c)) {
+      if (word !== null) words.push(word);
+      word = null;
+    } else word = (word ?? "") + c;
+  }
+  if (word !== null) words.push(word);
+  return words;
+}
+
+// What one string a hook or a server runs holds that the checklist blocks,
+// as messages. The paths and flags are read on its words; the variables,
+// substitutions and wildcards on what is left once every ${CLAUDE_PLUGIN_ROOT}
+// is taken out.
+export function commandProblems(s) {
+  const out = [];
+  let beforePath = true;
+  for (const w of commandWords(s)) {
+    const path = /[/\\]/.test(w);
+    if (beforePath && !path && INLINE_PROGRAM.test(w)) out.push(`runs an inline program (${w})`);
+    if (path) beforePath = false;
+    if (w.startsWith("~")) out.push(`starts the path ${w} at the home folder`);
+    else if (path && !w.startsWith(`${PLUGIN_ROOT}/`))
+      out.push(`holds the path ${w}, not written from ${PLUGIN_ROOT}/`);
+    if (/(?:^|[/\\])\.\.(?:[/\\]|$)/.test(w)) out.push(`holds the path ${w}, which climbs with ..`);
+  }
+  let rest = s.split(PLUGIN_ROOT).join(" ");
+  for (const m of new Set(rest.match(DOLLAR) || []))
+    out.push(m === "$(" ? "holds $(, a command substitution" : `holds ${m}, a variable other than ${PLUGIN_ROOT}`);
+  rest = rest.replace(DOLLAR, " ");
+  for (const m of new Set(rest.match(WINDOWS_VARIABLE) || []))
+    out.push(`holds ${m}, a variable other than ${PLUGIN_ROOT}`);
+  rest = rest.replace(WINDOWS_VARIABLE, " ");
+  if (rest.includes("`")) out.push("holds a backtick, a command substitution");
+  for (const c of new Set(rest.match(WILDCARD) || [])) out.push(`holds ${c}, a wildcard or brace character`);
   return out;
 }
 
@@ -1219,6 +1327,12 @@ export function check(entries, { kept = KEPT } = {}) {
   // Credentials: file and line, never the value.
   for (const [p, t] of textOf)
     for (const [line, shape] of credentialLines(t)) add("credentials", `${p}:${line}`, shape);
+
+  // What a hook or an MCP server runs: by file and JSON path.
+  for (const p of [".mcp.json", "hooks/hooks.json"])
+    if (text(p) !== undefined)
+      for (const [at, s] of commandStrings(p, text(p)))
+        for (const what of commandProblems(s)) add("command-paths", `${p} ${at}`, what);
 
   // Front matter, in each agent, command and skill.
   for (const [p, t] of textOf)

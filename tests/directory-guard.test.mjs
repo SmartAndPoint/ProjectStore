@@ -139,8 +139,9 @@ test("directory guard: the rows quote the checklist's results", async () => {
   for (const id of ["file-count", "file-size", "file-types"])
     assert.match(result[id], /^Held for a reviewer \(Files or downloads the validator couldn’t inspect\)$/, id);
   for (const id of ["readme-images", "bundled-references"]) assert.equal(result[id], "Held for a reviewer", id);
-  for (const id of ["system-files", "readme", "license", "credentials", "front-matter"])
+  for (const id of ["system-files", "readme", "license", "credentials", "command-paths", "front-matter"])
     assert.match(result[id], /^Blocks\b/, id);
+  assert.equal(result["command-paths"], "Blocks (Command path can’t be followed)");
   for (const id of ["names", "gitattributes", "repository-size"]) assert.match(result[id], /^Validation stops\b/, id);
   assert.match(result["regular-files"], /^Blocks where the plugin loads the entry, Warning elsewhere$/);
   assert.match(result["package-source"], /^Blocks with a launcher, Held for a reviewer with a package install/);
@@ -390,6 +391,70 @@ test("directory guard: an sk- string, a GitHub token or a private key block fail
   // The renamed fixtures' values are no key's shape.
   for (const v of ["test-anthropic-key", "test-github-token", "task-list", "disk-0", 'hreflang="sk-SK"', "sk-spinner"])
     assert.equal((await packed({ "docs/setup.md": `KEY=${v}\n` })).ok, true, v);
+});
+
+// The portal blocked 0.30.8's .mcp.json (COMMAND_PATH_COMPUTED on 326f161);
+// the probe c4fd8cf, the entry alone, passed (PS-DIRECTORY: "The MCP server's
+// entry names no variable but ${CLAUDE_PLUGIN_ROOT}…"). The strings are plain
+// literals, never templates: each `${…}` is the text a host would expand.
+test("directory guard: command-paths — a variable other than ${CLAUDE_PLUGIN_ROOT}, a command substitution, a wildcard, an inline program or a path not written from the plugin root, in .mcp.json or a hook's command, fails by JSON path; the plugin-root forms pass", async () => {
+  const g = await load();
+  const mcp = (server) =>
+    JSON.stringify({ mcpServers: { projectstore: { type: "stdio", command: "node", ...server } } });
+  const entry = "${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs";
+  // 326f161 (0.30.8): the project as an argument.
+  fails(
+    await packed({ ".mcp.json": mcp({ args: [entry, "--project", "${CLAUDE_PROJECT_DIR}"] }) }),
+    "command-paths",
+    /^\.mcp\.json mcpServers\.projectstore\.args\[2\]: holds \$\{CLAUDE_PROJECT_DIR\}, /,
+  );
+  // 11632b9: the project through env, still a variable in the file.
+  fails(
+    await packed({ ".mcp.json": mcp({ args: [entry], env: { PROJECTSTORE_PROJECT_DIR: "${CLAUDE_PROJECT_DIR}" } }) }),
+    "command-paths",
+    /^\.mcp\.json mcpServers\.projectstore\.env\.PROJECTSTORE_PROJECT_DIR: holds \$\{CLAUDE_PROJECT_DIR\}, /,
+  );
+  // c4fd8cf, which passed: the entry alone.
+  assert.equal((await packed({ ".mcp.json": mcp({ args: [entry] }) })).ok, true, "c4fd8cf's .mcp.json");
+  const hooks = (h) => JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: "command", ...h }] }] } }) + "\n";
+  const at = "hooks/hooks.json hooks.PreToolUse[0].hooks[0].command";
+  for (const [command, what] of [
+    ['node "$CLAUDE_PROJECT_DIR/x.mjs"', /holds \$CLAUDE_PROJECT_DIR, /],
+    ['node "${CLAUDE_PLUGIN_DATA}/x.mjs"', /holds \$\{CLAUDE_PLUGIN_DATA\}, /],
+    ["node %APPDATA%\\x.mjs", /holds %APPDATA%, /],
+    ["node $(pwd)/x.mjs", /holds \$\(, a command substitution/],
+    ["node `pwd`/x.mjs", /holds a backtick, a command substitution/],
+    ["node ${CLAUDE_PLUGIN_ROOT}/hooks/*.mjs", /holds \*, a wildcard/],
+    ["sh -c 'cd ${CLAUDE_PLUGIN_ROOT} && node x.mjs'", /runs an inline program \(-c\)/],
+    ['node -e "process.exit(0)"', /runs an inline program \(-e\)/],
+    ["node ./hooks/x.mjs", /holds the path \.\/hooks\/x\.mjs, not written from \$\{CLAUDE_PLUGIN_ROOT\}\//],
+    [
+      "node ${CLAUDE_PLUGIN_ROOT}/../x.mjs",
+      /holds the path \$\{CLAUDE_PLUGIN_ROOT\}\/\.\.\/x\.mjs, which climbs with \.\./,
+    ],
+  ]) {
+    const findings = fails(await packed({ "hooks/hooks.json": hooks({ command }) }), "command-paths", what);
+    assert.ok(
+      findings.every((f) => f.startsWith(`${at}: `)),
+      `${command}: every finding names the file and the JSON path: ${JSON.stringify(findings)}`,
+    );
+  }
+  // Today's form, and an exec-form hook (command plus args).
+  for (const h of [
+    { command: 'node "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs"' },
+    { command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/hooks/check.mjs", "--event", "PreToolUse"] },
+  ])
+    assert.equal((await packed({ "hooks/hooks.json": hooks(h) })).ok, true, JSON.stringify(h));
+  // An args element is read too, by its index.
+  fails(
+    await packed({ "hooks/hooks.json": hooks({ command: "node", args: ["${CLAUDE_PLUGIN_DATA}/x.mjs"] }) }),
+    "command-paths",
+    /^hooks\/hooks\.json hooks\.PreToolUse\[0\]\.hooks\[0\]\.args\[0\]: holds \$\{CLAUDE_PLUGIN_DATA\}, /,
+  );
+  // Quotes are stripped before the prefix test; a flag after the path is the script's.
+  assert.deepEqual(g.commandProblems('node "${CLAUDE_PLUGIN_ROOT}"/hooks/x.mjs -p'), []);
+  assert.deepEqual(g.commandProblems("node ~/x.mjs"), ["starts the path ~/x.mjs at the home folder"]);
+  assert.equal((await realPacked()).rows.find((r) => r.id === "command-paths").ok, true, "the real tree");
 });
 
 // Ours: no shipped file names the variables 0.30.6's model menu read a key
