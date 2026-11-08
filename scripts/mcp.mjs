@@ -205,8 +205,12 @@ export const TOOLS = Object.freeze({
     inputSchema: schema({
       install: bool("only the install section"),
       vault: bool("only the vault section"),
+      policy: str("a dry run of the vault section: required, or required@<date>; writes nothing"),
     }),
-    argv: (a) => ({ opts: [...flag("install", a.install), ...flag("vault", a.vault)], positionals: [] }),
+    argv: (a) => ({
+      opts: [...flag("install", a.install), ...flag("vault", a.vault), ...opt("policy", a.policy)],
+      positionals: [],
+    }),
   },
 });
 

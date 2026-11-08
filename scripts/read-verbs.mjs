@@ -127,6 +127,7 @@ export const doctorArgs = (values) => [
   DOCTOR_SCRIPT,
   "--json",
   ...[values.install && "--install", values.vault && "--vault"].filter(Boolean),
+  ...(values.policy ? ["--policy", String(values.policy)] : []),
 ];
 
 // Where the child runs: in the project when it exists — a project that does

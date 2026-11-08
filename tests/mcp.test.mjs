@@ -210,17 +210,19 @@ function registeredArgv(proj) {
   };
 }
 
-const TOOLS_0305 = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "mcp-tools-0.30.5.json"), "utf8"));
+// Re-baselined on purpose for 0.30.9: the doctor tool gained `policy`, the dry
+// run of the spec policy ADR (Decision 18). Every other tool is unchanged.
+const TOOLS_RECORDED = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "mcp-tools-0.30.9.json"), "utf8"));
 
-test("mcp: tools/list equals 0.30.5's, through the entry .mcp.json runs and through projectstore mcp", async () => {
+test("mcp: tools/list equals the recorded list (0.30.9), through the entry .mcp.json runs and through projectstore mcp", async () => {
   const proj = mkdtempSync(join(tmpdir(), "ps-mcp-list-"));
-  assert.deepEqual(toolList(), TOOLS_0305, "the table");
+  assert.deepEqual(toolList(), TOOLS_RECORDED, "the table");
   for (const [how, c] of [
     ["the entry", client(registeredArgv(proj).argv, { cwd: tmpdir(), entry: null })],
     ["projectstore mcp", client(["mcp", "--project", proj], { cwd: tmpdir() })],
   ]) {
     await c.handshake();
-    assert.deepEqual((await c.rpc("tools/list", {})).result.tools, TOOLS_0305, how);
+    assert.deepEqual((await c.rpc("tools/list", {})).result.tools, TOOLS_RECORDED, how);
     c.end();
     assert.equal((await c.exit()).code, 0, how);
   }

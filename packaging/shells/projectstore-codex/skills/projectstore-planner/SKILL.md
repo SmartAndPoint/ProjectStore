@@ -89,6 +89,12 @@ spec contracts = durable how; the story's `## Implementation Plan` = per-story
 route (your output feeds it via `$projectstore-story plan`); `## Technical
 Notes` = incidental constraints discovered during work.
 
+**Spec or no spec.** When the story has no covering spec, say whether it
+needs one, and why. Work whose "how" is non-trivial, or that will touch three
+or more source files, needs a spec. A release, a text or site change, or a
+small fix may instead declare `no_spec: "<reason>"` at the plan gate, which
+the story command writes. A research spike takes a light spec, not a reason.
+
 ## Phase 1 — Explore the codebase
 
 Use Grep / Glob / Read / Bash to find: the module(s) that own this concern, the
