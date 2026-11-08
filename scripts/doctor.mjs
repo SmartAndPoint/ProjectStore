@@ -40,6 +40,10 @@ import {
   indexHeaderRe,
   evidenceSuffixRe,
   storiesAttributionRe,
+  citationTokenRe,
+  contractNumberAscii,
+  CITATION_EXAMPLE_KEY,
+  CITATION_PREFILTER,
   slugIdentity,
   isLegacyNumberedId,
   storyMatchesEntry,
@@ -124,7 +128,7 @@ import { effortSpec } from "./model-spec.mjs";
 // story "The prompt surface asks the shell for a variable the host would have
 // substituted"; harness neutrality is unaffected, an absolute path carries no
 // brand, and --harness still carries the target.
-import { uncommittedProjectFiles, lastCommitMs } from "./diff-refs.mjs";
+import { uncommittedProjectFiles, lastCommitMs, grepProjectLines } from "./diff-refs.mjs";
 import { resolveBinding } from "./worktree.mjs";
 import { missingScaffoldRequirements } from "./scaffold.mjs";
 
@@ -2675,6 +2679,351 @@ export function checkLifecycleGates(artifacts, vaultCfg) {
   return out;
 }
 
+// ─── Contract scenarios and citations (the spec policy ADR, Part A) ───
+
+// A spec's Behavioral contracts as data. A contract is a top-level numbered
+// item (`4.`, `4′.`, `0.`) in the contracts section; its first nested
+// numbered level is its steps; deeper levels belong to their parent. HTML
+// comments are stripped first, so a template's example `1.` inside a comment
+// is not a contract. Scenario items are `- WHEN|GIVEN|AND|THEN …` list items
+// under a contract; the `(verified: live|manual)` marker is looked for in the
+// contract's first paragraph, which a wrapped bold heading may span.
+export function parseSpecContracts(spec) {
+  const sec = sectionOf(spec.body || "", "spec_contracts");
+  if (sec === null) return null;
+  const lines = linesOutsideFences(sec.replace(/<!--[\s\S]*?-->/g, ""));
+  const contracts = [];
+  let cur = null;
+  let inFirstPara = false;
+  for (const line of lines) {
+    const top = line.match(/^(\d+[′″']*)\.(\s|$)/);
+    if (top) {
+      cur = {
+        n: contractNumberAscii(top[1]),
+        steps: new Set(),
+        stepIndent: null,
+        scenarios: [],
+        marker: null,
+        first: line,
+      };
+      contracts.push(cur);
+      inFirstPara = true;
+      continue;
+    }
+    if (!cur) continue;
+    if (/^\s*$/.test(line)) {
+      inFirstPara = false;
+      continue;
+    }
+    if (inFirstPara) cur.first += " " + line.trim();
+    const step = line.match(/^(\s+)(\d+[′″']*)\.(\s|$)/);
+    if (step) {
+      if (cur.stepIndent === null) cur.stepIndent = step[1].length;
+      if (step[1].length === cur.stepIndent) cur.steps.add(contractNumberAscii(step[2]));
+      continue;
+    }
+    const sc = line.match(/^\s*-\s+(WHEN|GIVEN|AND|THEN)\b/);
+    if (sc) cur.scenarios.push(line.trim());
+  }
+  for (const c of contracts) {
+    const mk = c.first.match(/\(verified\s*[:：]\s*(live|manual)\)/);
+    c.marker = mk ? mk[1] : null;
+    delete c.first;
+    delete c.stepIndent;
+  }
+  return contracts;
+}
+
+// Key → spec, by frontmatter id and alias, exact and case-sensitive. Not
+// buildSpecResolver: its filename fallback is lower-cased, and a citation
+// token resolves only to what a spec declares.
+function citationKeys(artifacts) {
+  const keys = new Map();
+  for (const s of artifacts.filter((a) => a.kind === "spec")) {
+    for (const k of [String(s.fm.id || ""), String(s.fm.alias || "")]) {
+      if (k && k !== "null" && !keys.has(k)) keys.set(k, s);
+    }
+  }
+  return keys;
+}
+
+// Alias rules (Decision 5): unique across specs, never another spec's id,
+// never the reserved example key. An alias is frozen like a slug.
+export function checkSpecAliases(artifacts) {
+  const out = [];
+  const specs = artifacts.filter((a) => a.kind === "spec");
+  const ids = new Map(specs.map((s) => [String(s.fm.id || ""), s]));
+  const seen = new Map();
+  for (const s of specs) {
+    const id = String(s.fm.id || "");
+    if (id === CITATION_EXAMPLE_KEY) {
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "spec-alias",
+          `Spec id "${id}" is the reserved citation key — docs use it for tokens that never resolve.`,
+          s.rel,
+        ),
+      );
+    }
+    const alias = s.fm.alias && s.fm.alias !== "null" ? String(s.fm.alias) : null;
+    if (!alias) continue;
+    if (alias === CITATION_EXAMPLE_KEY) {
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "spec-alias",
+          `Spec alias "${alias}" is the reserved citation key — pick another.`,
+          s.rel,
+        ),
+      );
+    } else if (ids.has(alias) && ids.get(alias) !== s) {
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "spec-alias",
+          `Spec alias "${alias}" is another spec's id (${ids.get(alias).rel}) — a citation would be ambiguous.`,
+          s.rel,
+        ),
+      );
+    } else if (seen.has(alias)) {
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "spec-alias",
+          `Spec alias "${alias}" is also the alias of ${seen.get(alias).rel} — a citation would be ambiguous.`,
+          s.rel,
+        ),
+      );
+    }
+    if (!seen.has(alias)) seen.set(alias, s);
+  }
+  return out;
+}
+
+// Scenario shape (Decision 3): a contract's scenario items need a WHEN (or
+// GIVEN) and a THEN. That is the only reading of scenarios.
+export function checkScenarioShape(artifacts) {
+  const out = [];
+  for (const s of artifacts.filter((a) => a.kind === "spec")) {
+    for (const c of parseSpecContracts(s) || []) {
+      if (!c.scenarios.length) continue;
+      const when = c.scenarios.some((l) => /^-\s+(WHEN|GIVEN)\b/.test(l));
+      const then = c.scenarios.some((l) => /^-\s+THEN\b/.test(l));
+      if (!when || !then) {
+        out.push(
+          finding(
+            "vault",
+            "info",
+            "scenario-shape",
+            `Contract ${c.n}'s scenario has no ${!when ? "WHEN (or GIVEN)" : "THEN"} step.`,
+            s.rel,
+          ),
+        );
+      }
+    }
+  }
+  return out;
+}
+
+// The one scan per doctor run: every citation-shaped line in the bound
+// project, skipping the vault when it sits inside it. null = no active spec
+// with contracts, so nothing was scanned (and git never ran).
+export function scanCitations(cfg, artifacts, proj, grep = grepProjectLines) {
+  const active = artifacts.filter((a) => a.kind === "spec" && String(a.fm.status || "") === "active");
+  if (!active.some((s) => (parseSpecContracts(s) || []).length)) return null;
+  const exclude = [];
+  try {
+    const p = realpathSync.native(proj);
+    const v = realpathSync.native(cfg.vault_path);
+    const rel = relative(p, v);
+    if (rel && !rel.startsWith("..") && !rel.startsWith("/")) exclude.push(rel);
+  } catch {}
+  const r = grep(proj, CITATION_PREFILTER, { exclude });
+  const tokens = [];
+  // A token written with the spec's own primes (`#4′`) is not a citation; it
+  // is kept, flagged, so the check can say "write it in ASCII" instead of
+  // dropping it silently.
+  const typographic = /(?<!\[)\[([A-Za-z0-9][A-Za-z0-9._-]*)#(\d+[′″']*(?:\/\d+[′″']*)?)\](?![(\]])/g;
+  for (const { file, line, text } of r.lines) {
+    for (const m of text.matchAll(citationTokenRe())) tokens.push({ key: m[1], n: m[2], file, line });
+    for (const m of text.matchAll(typographic)) {
+      if (/[′″]/.test(m[2])) tokens.push({ key: m[1], n: m[2], file, line, typographic: true });
+    }
+  }
+  return { status: r.status, reason: r.reason || null, tokens, checkout: basename(proj) };
+}
+
+// Unknown tokens and coverage (Decisions 8 and 9). Coverage is quiet: a spec
+// nothing cites gets one line; the uncited list appears only once a spec has
+// a citation, or sets `coverage: report`. A marked contract is not counted,
+// and a cited step does not cover its parent.
+export function checkContractCitations(artifacts, scan) {
+  if (!scan) return [];
+  if (scan.status === "no-git") {
+    return [
+      finding(
+        "vault",
+        "info",
+        "contract-coverage",
+        "Contract coverage not checked — the bound project is not a git repository.",
+      ),
+    ];
+  }
+  if (scan.status === "unknown") {
+    return [
+      finding(
+        "vault",
+        "info",
+        "contract-coverage",
+        `Contract coverage not checked — ${scan.reason || "the citation scan did not finish"}.`,
+      ),
+    ];
+  }
+  const out = [];
+  const keys = citationKeys(artifacts);
+  const contractsOf = new Map();
+  const cited = new Map();
+  const citedIn = new Map();
+  for (const t of scan.tokens) {
+    if (t.key === CITATION_EXAMPLE_KEY) continue;
+    const where = `${t.file}:${t.line}`;
+    if (t.typographic) {
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "citation-unknown",
+          `[${t.key}#${t.n}] uses typographic primes — write the number in ASCII: [${t.key}#${contractNumberAscii(t.n)}].`,
+          where,
+        ),
+      );
+      continue;
+    }
+    const spec = keys.get(t.key);
+    if (!spec) {
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "citation-unknown",
+          `[${t.key}#${t.n}] names no spec id or alias (a typo, or a renamed alias?).`,
+          where,
+        ),
+      );
+      continue;
+    }
+    if (!contractsOf.has(spec)) contractsOf.set(spec, parseSpecContracts(spec) || []);
+    const [top, step] = t.n.split("/");
+    const c = contractsOf.get(spec).find((x) => x.n === top);
+    if (!c || (step && !c.steps.has(step))) {
+      out.push(
+        finding("vault", "warn", "citation-unknown", `[${t.key}#${t.n}] — ${spec.rel} has no contract ${t.n}.`, where),
+      );
+      continue;
+    }
+    if (String(spec.fm.status || "") === "superseded") {
+      out.push(
+        finding(
+          "vault",
+          "info",
+          "citation-superseded",
+          `[${t.key}#${t.n}] cites a superseded spec (${spec.rel}) — move it to the successor.`,
+          where,
+        ),
+      );
+    }
+    if (!step) {
+      if (!cited.has(spec)) cited.set(spec, new Set());
+      cited.get(spec).add(top);
+    }
+    if (!citedIn.has(spec)) citedIn.set(spec, new Set());
+    citedIn.get(spec).add(t.file);
+  }
+  // `--json` carries the files that cite each spec, so a valid token in a doc
+  // (which counts as coverage) is easy to find (Decision 8).
+  const withCites = (f, s) => {
+    if (citedIn.has(s)) f.cites = [...citedIn.get(s)].sort();
+    return f;
+  };
+  for (const s of artifacts.filter((a) => a.kind === "spec" && String(a.fm.status || "") === "active")) {
+    const contracts = contractsOf.get(s) || parseSpecContracts(s) || [];
+    if (!contracts.length) continue;
+    const got = cited.get(s) || new Set();
+    if (!got.size && String(s.fm.coverage || "") !== "report") {
+      out.push(
+        finding(
+          "vault",
+          "info",
+          "contract-coverage",
+          `${contracts.length} contracts, 0 cited (checkout ${scan.checkout}).`,
+          s.rel,
+        ),
+      );
+      continue;
+    }
+    const open = contracts.filter((c) => !c.marker && !got.has(c.n)).map((c) => c.n);
+    if (open.length) {
+      out.push(
+        withCites(
+          finding(
+            "vault",
+            "info",
+            "contract-coverage",
+            `${open.length} of ${contracts.length} contracts uncited (checkout ${scan.checkout}): ${open.join(", ")}.`,
+            s.rel,
+          ),
+          s,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// Evidence that cites a contract (Decision 10), behind lifecycle_gates: on.
+// A token not found in the project is a warn for a story in progress or in
+// review, and for a done story that is not legacy. Free-text evidence is
+// never checked, and doctor never runs a test.
+export function checkEvidenceCitations(artifacts, vaultCfg, scan) {
+  const gates = String(vaultCfg.lifecycle_gates || "off").toLowerCase();
+  if (!["on", "true"].includes(gates) || !scan || scan.status !== "ok") return [];
+  const since = vaultCfg.spec_policy_since || null;
+  const present = new Set(scan.tokens.map((t) => `${t.key}#${t.n}`));
+  const evidenceRe = evidenceSuffixRe();
+  const out = [];
+  for (const story of artifacts.filter((a) => a.kind === "story")) {
+    const st = String(story.fm.status || "").toLowerCase();
+    if (!["in-progress", "in_progress", "review", "done"].includes(st)) continue;
+    if (st === "done" && isLegacyStory(story.fm, since)) continue;
+    const acc = sectionOf(story.body, "acceptance");
+    if (acc === null) continue;
+    for (const line of linesOutsideFences(acc)) {
+      const m = line.match(/^\s*-\s*\[(x|X)\]\s*(.*)$/);
+      if (!m) continue;
+      const at = m[2].search(evidenceRe);
+      if (at === -1) continue;
+      for (const t of m[2].slice(at).matchAll(citationTokenRe())) {
+        if (t[1] === CITATION_EXAMPLE_KEY || present.has(`${t[1]}#${t[2]}`)) continue;
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "evidence-citation",
+            `Evidence cites [${t[1]}#${t[2]}], which no file in checkout ${scan.checkout} carries (a renamed or removed test, or an older branch?).`,
+            story.rel,
+          ),
+        );
+      }
+    }
+  }
+  return out;
+}
+
 // Suggestion for existing binds: specs exist but no vault policy declared.
 export function checkVaultPolicy(cfg, layout, artifacts, vaultCfg) {
   const out = [];
@@ -3237,7 +3586,7 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
   return foldIntoMove(out);
 }
 
-export function runVaultChecks(cfg) {
+export function runVaultChecks(cfg, { proj = projectRoot(), grep = grepProjectLines } = {}) {
   let layout;
   try {
     layout = loadLayout(cfg.layout);
@@ -3258,6 +3607,12 @@ export function runVaultChecks(cfg) {
     () => checkSpecCoverage(artifacts, vaultCfg, layout),
     () => checkSpecAcceptance(layout, artifacts, vaultCfg),
     () => checkLifecycleGates(artifacts, vaultCfg),
+    () => checkSpecAliases(artifacts),
+    () => checkScenarioShape(artifacts),
+    () => {
+      const scan = scanCitations(cfg, artifacts, proj, grep);
+      return [...checkContractCitations(artifacts, scan), ...checkEvidenceCitations(artifacts, vaultCfg, scan)];
+    },
   ];
   for (const step of guarded) {
     try {
@@ -3274,8 +3629,8 @@ export function runVaultChecks(cfg) {
     ...checkArtifactIdentity(layout, vaultFiles, artifacts),
     ...checkArtifactNames(vaultFiles),
     ...checkExternalRefsForm(artifacts),
-    ...checkCodeRefs(artifacts, projectRoot()),
-    ...checkWorkWithoutStory(cfg, projectRoot()),
+    ...checkCodeRefs(artifacts, proj),
+    ...checkWorkWithoutStory(cfg, proj),
     ...checkCodeMap(cfg),
     ...checkGraph(cfg),
   );
@@ -3363,7 +3718,7 @@ async function main() {
   }
   if (vault && cfg && cfg.vault_path && existsSync(cfg.vault_path)) {
     groups.push("vault");
-    findings.push(...runVaultChecks(cfg));
+    findings.push(...runVaultChecks(cfg, { proj }));
   } else if (vault) {
     groups.push("vault");
     findings.push(finding("vault", "info", "vault", "Vault checks skipped — no usable vault (see install issues)."));

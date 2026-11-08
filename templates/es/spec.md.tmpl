@@ -34,7 +34,15 @@ cubiertas: una historia se cierra cuando ambos están en verde (ADR-007).
 ## Contratos de comportamiento
 
 <!-- Numerados, verificables uno a uno. Cada uno describe un resultado observable, no un paso de implementación.
-     Para un spike de investigación: preguntas a responder + criterios de salida. -->
+     Para un spike de investigación: preguntas a responder + criterios de salida.
+     Opcional, bajo un contrato: escenarios que una prueba puede seguir, y una
+     marca para un contrato que ninguna prueba puede cubrir. Las palabras clave
+     quedan en inglés:
+       - WHEN … THEN …
+       (verified: live)   o   (verified: manual)
+     Una prueba cita un contrato así: [example#1] — el id o alias de la spec y
+     el número del contrato. El frontmatter puede añadir `alias: <clave-corta>`
+     y `coverage: report`. Ver docs/contracts-and-tests.md. -->
 
 1.
 2.

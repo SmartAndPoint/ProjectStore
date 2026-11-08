@@ -33,7 +33,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 // Contract 2 of the atomic-regeneration work: nothing under scripts/ writes
 // directly, and tests/scripts.test.mjs enforces it by globbing this directory.
-import { writeFileAtomic } from "./lib.mjs";
+import { writeFileAtomic, packEntry } from "./lib.mjs";
 import { LAYOUT } from "./harness.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -298,14 +298,6 @@ export function unshippedTopLevel(entries, packlist) {
 // The packlist is the second release-time invariant: what npm would actually
 // ship. Stored as sorted paths only — sizes churn on every content edit and
 // would make the fixture unreviewable.
-// The one package in `npm pack --json`'s answer: an array of one entry up to
-// npm 11, an object keyed by the package's name from npm 12.
-export function packEntry(answer) {
-  const [pkg] = Array.isArray(answer) ? answer : Object.values(answer ?? {});
-  if (!pkg || !Array.isArray(pkg.files)) throw new Error("no package entry with a file list");
-  return pkg;
-}
-
 export function currentPacklist(root = ROOT) {
   const r = spawnSync("npm", ["pack", "--dry-run", "--json"], {
     cwd: root,
@@ -339,7 +331,10 @@ async function main(argv) {
     // The shells' fixtures, from the core's CURRENT pack — after the core's
     // fixture, since each lists the core's files under node_modules/. A lazy
     // import: scripts/ ships and packaging/ does not, so a static specifier
-    // here would ship a module that cannot load.
+    // here would ship a module that cannot load. Nothing shells.mjs imports
+    // may import this file back: this module is still evaluating (the
+    // top-level await below), so the import would wait on it forever and Node
+    // would exit 13. tests/shells.test.mjs walks shells.mjs's imports for it.
     const shellsModule = resolve(ROOT, "packaging", "shells.mjs");
     const shells = [];
     if (existsSync(shellsModule)) {

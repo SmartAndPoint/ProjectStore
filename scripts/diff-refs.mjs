@@ -64,6 +64,45 @@ export function lastCommitMs(cwd = projectRoot()) {
   return Number.isFinite(t) ? t : null;
 }
 
+// The citation scan (the spec policy ADR, Decision 7): every line in the
+// project, untracked files included, that looks like a contract citation.
+// `.gitignore` is honoured, `exclude` paths (the vault, when it sits inside
+// the project) are skipped, and SOURCE_IGNORE paths are dropped. Unlike gitIn
+// this tells "no match" (status ok, no lines) from "not a repository"
+// (no-git) and from every other failure — no git binary, a timeout, an exit
+// git explains on stderr (unknown, with that reason): only the first is an
+// answer.
+export function grepProjectLines(cwd, pattern, { exclude = [], timeout = 10000, ignore = IGNORE } = {}) {
+  const args = [
+    "grep",
+    "--untracked",
+    "-n",
+    "-I",
+    "-E",
+    "-e",
+    pattern,
+    "--",
+    ".",
+    ...exclude.map((p) => `:(exclude)${p}`),
+  ];
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", timeout, maxBuffer: 64 * 1024 * 1024 });
+  if (r.error?.code === "ENOENT") return { status: "unknown", reason: "git is not installed", lines: [] };
+  if (r.error || r.signal) return { status: "unknown", reason: "the scan timed out", lines: [] };
+  if (r.status === 1) return { status: "ok", lines: [] };
+  if (/not a git repository/i.test(r.stderr || "")) return { status: "no-git", lines: [] };
+  if (r.status !== 0) {
+    const why = (r.stderr || "").trim().split("\n")[0] || `git exited ${r.status}`;
+    return { status: "unknown", reason: why, lines: [] };
+  }
+  const lines = [];
+  for (const raw of r.stdout.split("\n")) {
+    const m = raw.match(/^(.*?):(\d+):(.*)$/);
+    if (!m || ignore.some((rx) => rx.test(m[1]))) continue;
+    lines.push({ file: m[1], line: Number(m[2]), text: m[3] });
+  }
+  return { status: "ok", lines };
+}
+
 function filterFiles(list) {
   return [...new Set(list)]
     .map((f) => f.trim())

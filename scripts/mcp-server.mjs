@@ -2,9 +2,15 @@
 // projectstore — mcp-server.mjs
 //
 // The MCP server's entry: what the plugin's .mcp.json runs, as `node
-// <plugin root>/scripts/mcp-server.mjs --project <the host's project>`. It
-// parses --project and starts the server through mcp.mjs's serveSupplied,
-// the path the CLI's `mcp` verb takes too, so the two entries serve alike.
+// <plugin root>/scripts/mcp-server.mjs` with no other argument. The project
+// comes from the directory the host declares in the server's environment
+// (projectRootDeclared), since 0.30.9: Anthropic's plugin portal blocks any
+// variable but the plugin root in a server's command (PS-DIRECTORY: "The MCP
+// server's entry names no variable but ${CLAUDE_PLUGIN_ROOT}…"). That
+// directory comes before PROJECTSTORE_PROJECT_DIR, as 0.30.8's --project
+// did; --project still wins, for a test or a start by hand. It starts the
+// server through mcp.mjs's serveSupplied, the path the CLI's `mcp` verb
+// takes too, so the two entries serve alike.
 // It lives under scripts/, never bin/: a file in the plugin's top-level bin/
 // is on the host's Bash PATH, and it imports nothing from cli.mjs, so its
 // imports reach no install verb (the PS-DIRECTORY story "The MCP server's
@@ -17,6 +23,7 @@
 
 import { parseArgs } from "node:util";
 import { serveSupplied } from "./mcp.mjs";
+import { projectRootDeclared } from "./harness.mjs";
 
 let values;
 try {
@@ -30,4 +37,4 @@ try {
   process.stderr.write(`mcp-server: ${e.message} — it takes --project <dir> alone\n`);
   process.exitCode = 2;
 }
-if (values) process.exitCode = await serveSupplied({ project: values.project ?? null });
+if (values) process.exitCode = await serveSupplied({ project: values.project ?? projectRootDeclared(process.env) });

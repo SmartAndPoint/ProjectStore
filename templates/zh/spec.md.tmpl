@@ -34,7 +34,14 @@ story 才算完成（ADR-007）。
 ## 行为契约
 
 <!-- 编号列出，逐条可测。每条描述可观察的结果，而不是实现步骤。
-     若是研究性 spike：需要回答的问题 + 退出条件。 -->
+     若是研究性 spike：需要回答的问题 + 退出条件。
+     可选，写在契约下方：测试可以照着写的场景，以及无法用测试覆盖的契约的标记。
+     关键字保持英文：
+       - WHEN … THEN …
+       (verified: live)   或   (verified: manual)
+     测试这样引用契约：[example#1]，即 spec 的 id 或 alias，加上契约编号。
+     frontmatter 可以加 `alias: <短键>` 和 `coverage: report`。
+     详见 docs/contracts-and-tests.md。 -->
 
 1.
 2.

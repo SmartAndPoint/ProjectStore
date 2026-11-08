@@ -896,6 +896,17 @@ export function envFlag(env, name) {
   return v !== undefined && v !== null && v !== "" && !["0", "false"].includes(String(v).toLowerCase());
 }
 
+// The one package in `npm pack --json`'s answer: an array of one entry up to
+// npm 11, an object keyed by the package's name from npm 12. Here, not in
+// scripts/version-guard.mjs: packaging/shells.mjs reads it too, and an import
+// of the guard from there is a cycle (the guard loads shells.mjs while its own
+// top-level await is pending, and Node exits 13).
+export function packEntry(answer) {
+  const [pkg] = Array.isArray(answer) ? answer : Object.values(answer ?? {});
+  if (!pkg || !Array.isArray(pkg.files)) throw new Error("no package entry with a file list");
+  return pkg;
+}
+
 // The files a package ships, as the release gate defines them — package.json
 // files[] plus npm's always-included package.json, README and LICENSE — copied
 // from `from` to `to`. Never node_modules, never a symlink (a symlink is a
@@ -1833,6 +1844,24 @@ export function evidenceSuffixRe() {
 
 export function storiesAttributionRe() {
   return new RegExp(`[—–-]\\s*${keywordRe("stories").source}\\s*[:：]\\s*(.+)$`, "i");
+}
+
+// A test cites a spec contract with `[<key>#<n>]` (the spec policy ADR,
+// Decisions 4 and 8): <key> is the spec's id or alias, <n> the contract
+// number in ASCII — `4'` for 4′, `4''` for 4″, `4/1''` for a step nested
+// under contract 4. The closing bracket ends the token, so #4 never matches
+// #4' or #40. The lookarounds drop a Markdown link `[x#1](…)` and a
+// wikilink `[[x#1]]`. These tokens are machine tokens: English in every
+// locale, never in the heading registry.
+export const CITATION_EXAMPLE_KEY = "example";
+export function citationTokenRe() {
+  return /(?<!\[)\[([A-Za-z0-9][A-Za-z0-9._-]*)#(\d+'*(?:\/\d+'*)?)\](?![(\]])/g;
+}
+// A loose ERE for git's side of the scan; citationTokenRe decides.
+export const CITATION_PREFILTER = "\\[[A-Za-z0-9][A-Za-z0-9._-]*#[0-9]";
+// A contract number as a spec writes it (`4′`, `1″`), in the token's ASCII.
+export function contractNumberAscii(n) {
+  return String(n).replace(/″/g, "''").replace(/′/g, "'");
 }
 
 // The body footer (`*Last updated: 2026-01-01*`) is content rather than a heading,

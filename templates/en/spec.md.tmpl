@@ -34,7 +34,14 @@ Spec acceptance is **additive** to the covered stories' own acceptance criteria
 ## Behavioral contracts
 
 <!-- Numbered, individually testable. Each states an observable outcome, not an implementation step.
-     For a research spike: questions to answer + exit criteria. -->
+     For a research spike: questions to answer + exit criteria.
+     Optional, under a contract: scenario items a test can follow, and a marker
+     for a contract no test can cover. The keywords stay in English:
+       - WHEN … THEN …
+       (verified: live)   or   (verified: manual)
+     A test cites a contract as [example#1]: the spec's id or alias, then the
+     contract number. Frontmatter may add `alias: <short-key>` and
+     `coverage: report`. See docs/contracts-and-tests.md. -->
 
 1.
 2.
