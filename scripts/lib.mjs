@@ -1846,6 +1846,24 @@ export function storiesAttributionRe() {
   return new RegExp(`[—–-]\\s*${keywordRe("stories").source}\\s*[:：]\\s*(.+)$`, "i");
 }
 
+// A test cites a spec contract with `[<key>#<n>]` (the spec policy ADR,
+// Decisions 4 and 8): <key> is the spec's id or alias, <n> the contract
+// number in ASCII — `4'` for 4′, `4''` for 4″, `4/1''` for a step nested
+// under contract 4. The closing bracket ends the token, so #4 never matches
+// #4' or #40. The lookarounds drop a Markdown link `[x#1](…)` and a
+// wikilink `[[x#1]]`. These tokens are machine tokens: English in every
+// locale, never in the heading registry.
+export const CITATION_EXAMPLE_KEY = "example";
+export function citationTokenRe() {
+  return /(?<!\[)\[([A-Za-z0-9][A-Za-z0-9._-]*)#(\d+'*(?:\/\d+'*)?)\](?![(\]])/g;
+}
+// A loose ERE for git's side of the scan; citationTokenRe decides.
+export const CITATION_PREFILTER = "\\[[A-Za-z0-9][A-Za-z0-9._-]*#[0-9]";
+// A contract number as a spec writes it (`4′`, `1″`), in the token's ASCII.
+export function contractNumberAscii(n) {
+  return String(n).replace(/″/g, "''").replace(/′/g, "'");
+}
+
 // The body footer (`*Last updated: 2026-01-01*`) is content rather than a heading,
 // but the lifecycle gates keep it in step with frontmatter `updated:`. Matching
 // accepts every registered language; the rewrite preserves the file's OWN prefix

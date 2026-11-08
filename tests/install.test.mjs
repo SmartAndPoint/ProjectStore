@@ -125,6 +125,7 @@ const read = (f) => readFileSync(f, "utf8");
 
 // ─── Detection and refusal (contract 8) ─────────────────────────────────
 
+// [install#8]
 test("install contract 8: a project is detected by its harness directory, and an empty one is refused with the names it accepts", () => {
   const { home, root } = fixture();
   const proj = project();
@@ -433,6 +434,7 @@ test("install: a dev checkout wires the plugin script directly and plans no laun
 
 // ─── The block (contract 6, ADR-002) ────────────────────────────────────
 
+// [install#6]
 test("install contract 6: a current block is skipped, a stale one is replaced in place with the user's prose byte-identical", () => {
   const { home, root } = fixture();
   const prose = "# Mine\n\nSome rules of my own.\n\n";
@@ -592,6 +594,7 @@ test("newer block: a named run that must add an import adds it and leaves the ne
 // them exists. Codex never reads CLAUDE.md; the rules had to be pasted into
 // AGENTS.md by hand before it saw them at all. The list is per-harness data now,
 // and this asserts it from the plan rather than from the manifest.
+// [install#6]
 test("install contract 6: on a project with neither file, the harness's own list decides — Codex gets AGENTS.md and no CLAUDE.md", () => {
   const { home, root } = fixture();
   const bare = project({ claude: null, agents: null });
@@ -626,6 +629,7 @@ test("install contract 6: on a project with neither file, the harness's own list
   assert.ok(!existsSync(join(src, "AGENTS.md")));
 });
 
+// [install#6]
 test("install contract 6 / ADR-002 decision 3: AGENTS.md is preferred, CLAUDE.md gets the import, and a block in the other file migrates", () => {
   const { home, root } = fixture();
   const proj = project({ claude: "# Mine\n", agents: "# Agents\n" });
@@ -652,6 +656,7 @@ test("install contract 6 / ADR-002 decision 3: AGENTS.md is preferred, CLAUDE.md
   assert.equal(findAgentsBlock(read(join(mig, "AGENTS.md"))).count, 1);
 });
 
+// [install#6]
 test("install contract 6: a duplicated or unclosed block is refused and nothing is written", () => {
   const { home, root } = fixture();
   // Twice in ONE file cannot be resolved (one per file can — see the
@@ -722,6 +727,7 @@ test("install: the block is rendered from the layout's roster, and a roster with
 
 // ─── settings.local.json (contract 6, the new row) ──────────────────────
 
+// [install#6]
 test("install contract 6: a foreign statusLine is left byte-identical by install, uninstall and upgrade; an unparseable file refuses", () => {
   const { home, root } = fixture();
   const foreign =
@@ -749,6 +755,7 @@ test("install contract 6: a foreign statusLine is left byte-identical by install
   assert.equal(read(join(bad, CFG_DIR, "settings.local.json")), "{ not json");
 });
 
+// [install#6]
 test("install contract 6: our entry keeps its sibling keys and every other top-level key", () => {
   const { home, root } = fixture();
   const proj = project({
@@ -779,6 +786,7 @@ function installed() {
   return { home, root, proj };
 }
 
+// [install#4]
 test("install contract 4: the four stale reasons each fire on the launcher, and none reports current", () => {
   // edited by hand
   {
@@ -819,6 +827,7 @@ test("install contract 4: the four stale reasons each fire on the launcher, and 
   }
 });
 
+// [install#5]
 test("install contract 5: a foreign launcher is refused by install, uninstall and upgrade, byte-identical", () => {
   const { home, root } = fixture();
   const proj = project();
@@ -834,6 +843,7 @@ test("install contract 5: a foreign launcher is refused by install, uninstall an
   }
 });
 
+// [install#4/1'']
 test("install contract 4 rung 1″: a pre-provenance launcher is ours, stale and replaceable — not foreign", () => {
   const { home, root } = fixture();
   const proj = project();
@@ -851,6 +861,7 @@ test("install contract 4 rung 1″: a pre-provenance launcher is ours, stale and
   assert.ok(parseProvenance(read(statusLineLauncherPath(proj))), "stamped now");
 });
 
+// [install#12]
 test("install contract 12: a launcher another project wrote reports current, last written by it", () => {
   const { home, root, proj } = installed();
   const other = project();
@@ -864,6 +875,7 @@ test("install contract 12: a launcher another project wrote reports current, las
 
 // ─── uninstall and upgrade (contracts 13, 14) ───────────────────────────
 
+// [install#13]
 test("install contract 13: uninstall removes only what it recognises and prunes the runtime dir only when empty", () => {
   const { home, root, proj } = installed();
   writeBinding(proj, { vault_path: "/tmp/nowhere", layout: "engineering", statusline: { enabled: true } });
@@ -893,6 +905,7 @@ test("install contract 13: uninstall removes only what it recognises and prunes 
   );
 });
 
+// [install#14]
 test("install contract 14: upgrade after a version bump re-stamps the launcher and leaves the rest alone", () => {
   const { home, root, proj } = installed();
   writeFileSync(join(root, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.29.0" }));
@@ -908,6 +921,7 @@ test("install contract 14: upgrade after a version bump re-stamps the launcher a
 
 // ─── The gate (contract 9) ──────────────────────────────────────────────
 
+// [install#9]
 test("install contract 9: a bare non-TTY install refuses, a named one proceeds, and the preview precedes every write", () => {
   const { home, root } = fixture();
   const proj = project({ claude: "# Mine\n" });
@@ -955,6 +969,7 @@ test("install contract 9: a bare non-TTY install refuses, a named one proceeds, 
   assert.equal(usage.status, 2);
 });
 
+// [install#9]
 test("install contract 9: the interactive branch applies on yes and writes nothing on anything else", async () => {
   const { home, root } = fixture();
   const proj = project();
@@ -980,6 +995,7 @@ test("install contract 9: the interactive branch applies on yes and writes nothi
 // Contracts 9 and 18 as amended 2026-10-04: the plan is on the screen when the
 // question is asked, Enter means yes, anything else — Ctrl+C and end of input
 // included — writes nothing, and the run reads PLAN, APPLY, DONE in that order.
+// [install#9] [install#18]
 test("install contract 9/18: the plan precedes the question, Enter is yes, anything else writes nothing", async () => {
   const { home, root } = fixture();
   const sink = () => {
@@ -1037,6 +1053,7 @@ test("install contract 9/18: the plan precedes the question, Enter is yes, anyth
 // The terminal branch end to end, without `ask`: streams that say they are a
 // terminal, the question on the same stream as the plan, the answer read from
 // stdin. --json in a terminal never asks (it used to, into the envelope).
+// [install#9]
 test("install contract 9: at a terminal the question follows the plan on the same stream; Enter applies, end of input does not, --json never asks", async () => {
   const { home, root } = fixture();
   const env = { ...process.env };
@@ -1127,6 +1144,7 @@ test("install contract 9: at a terminal the question follows the plan on the sam
 // as what it was, and an injected `ask` never overrides --json.
 // Presentation spec contract 3: a refusal is attention (yellow) — its ▲ on a
 // refused row and on each of the plan's refusals; red is for what failed.
+// [install#18]
 test("install contract 18: a refusal's ▲ is painted in the attention role, never red", () => {
   const p = {
     mode: "install",
@@ -1158,6 +1176,7 @@ test("install contract 18: a refusal's ▲ is painted in the attention role, nev
   assert.ok(!text.includes("\x1b[31m▲"), "never red");
 });
 
+// [install#18]
 test("install contract 18: every reason is in the default view, writes wear write glyphs, STOPPED names what failed", async () => {
   const row = (extra) => ({
     harness: SRC.id,
@@ -1276,6 +1295,7 @@ test("install contract 18: every reason is in the default view, writes wear writ
   assert.equal(asked, false, "--json never asks");
 });
 
+// [install#9]
 test("install contract 9: a terminal is a TTY on both ends, outside CI, without --json and outside a host session", () => {
   const tty = { isTTY: true };
   const base = { stdin: tty, stdout: tty, env: {} };
@@ -1292,6 +1312,7 @@ test("install contract 9: a terminal is a TTY on both ends, outside CI, without 
     assert.equal(isInteractive({ ...base, env: { [k]: "1" } }), false, `inside a host session (${k})`);
 });
 
+// [install#18]
 test("install contract 18: --verbose restores the prose the default folds, and DONE names the manifest's next steps", async () => {
   const { home, root } = fixture();
   const proj = project();
@@ -1453,6 +1474,7 @@ test("install: the roster filter drops an agent line whose verb wraps onto the s
   );
 });
 
+// [install#6]
 test("install contract 6 / ADR-002 decision 3: two files with one block each resolve to the preferred one, never a refusal", () => {
   const { home, root } = fixture();
   const proj = project({ claude: "# Mine\n\n" + BLOCK + "\n", agents: "# Agents\n\n" + BLOCK + "\n" });
@@ -1471,6 +1493,7 @@ test("install contract 6 / ADR-002 decision 3: two files with one block each res
   assert.equal(findAgentsBlock(read(join(proj, "AGENTS.md"))).count, 1);
 });
 
+// [install#13]
 test("install contract 13 / ADR-002 decision 4: uninstall removes the import registration added when CLAUDE.md holds nothing else, and keeps a user's AGENTS.md", () => {
   const { home, root } = fixture();
   const proj = project({ agents: "# Agents\n", claude: "" });
@@ -1495,6 +1518,7 @@ test("install contract 13 / ADR-002 decision 4: uninstall removes the import reg
 // block across the union of every manifest's list; write to a file this harness
 // can read; point every other existing file at it. Measured against the code as
 // it was on 2026-09-08, each of these produced a different and wrong answer.
+// [install#6]
 test("install contract 6: the block lands in the file every installed harness can read, and the others import it", () => {
   const { home, root } = fixture();
   const others = manifests().filter((m) => m.id !== SRC.id);
@@ -1555,6 +1579,7 @@ test("install contract 6: the block lands in the file every installed harness ca
 // project with an AGENTS.md and no CLAUDE.md took the block into AGENTS.md and
 // built no bridge, so Claude Code — the harness that ran the install — could
 // not see what it had just installed, while every placement assertion passed.
+// [install#6]
 test("install contract 6: installing for a harness leaves the file that harness reads natively present, block or bridge", () => {
   const { home, root } = fixture();
   for (const m of manifests()) {
@@ -1593,6 +1618,7 @@ test("install contract 6: installing for a harness leaves the file that harness 
 // stripped the block Codex reads. Either way, disowning one harness silently
 // disabled the other. Both directions are asserted here because the defect was
 // symmetric and only one of them is obvious.
+// [install#13]
 test("install contract 13: disowning one harness leaves the project's agents block alone while another harness reads it", () => {
   const { home, root } = fixture();
   const others = manifests().filter((m) => m.id !== SRC.id);
@@ -1622,6 +1648,7 @@ test("install contract 13: disowning one harness leaves the project's agents blo
   }
 });
 
+// [install#13]
 test("install contract 13: the last harness still clears the block, and naming the surface forces it — with no import left pointing at nothing", () => {
   const { home, root } = fixture();
   // One harness only: nothing else reads its file, so a bare uninstall clears
@@ -1666,6 +1693,7 @@ test("install contract 13: the last harness still clears the block, and naming t
   );
 });
 
+// [install#7]
 test("install contract 7 (amended 2026-09-05) / 13: a dev-checkout root reports a launcher it did not write and never deletes it; uninstall removes it; a foreign one is left", () => {
   const { home, root, proj } = installed();
   const dev = mkdtempSync(join(tmpdir(), "ps-dev-"));
@@ -1700,6 +1728,7 @@ test("install contract 7 (amended 2026-09-05) / 13: a dev-checkout root reports 
   assert.equal(item(f, "statusline_launcher").state, "foreign");
 });
 
+// [install#12]
 test("install contract 12: the preview says who last wrote a shared-path file", () => {
   const { home, root, proj } = installed();
   const other = project();
@@ -1948,6 +1977,7 @@ import { installedPluginEntries } from "../scripts/lib.mjs";
 
 const byCheck = (fs, id) => fs.filter((f) => f.check === id);
 
+// [install#4]
 test("install contract 4 (doctor half): each of the four stale reasons on the launcher is one doctor issue, and current is silent", async () => {
   const one = async (mutate) => {
     const { home, root, proj } = installed();
@@ -2007,6 +2037,7 @@ test("install contract 4 (doctor half): each of the four stale reasons on the la
   );
 });
 
+// [install#5]
 test("install contract 5 (doctor half): a foreign file is reported under its own id with the resolution wording, and never repaired", async () => {
   const { home, root } = fixture();
   const proj = project();
@@ -2072,6 +2103,7 @@ test("install contract 5 (doctor half): a foreign file is reported under its own
   );
 });
 
+// [install#12]
 test("install contract 12 (doctor half): a launcher another project wrote is one info naming it", async () => {
   const { home, root, proj } = installed();
   const other = project();
@@ -2083,6 +2115,7 @@ test("install contract 12 (doctor half): a launcher another project wrote is one
   assert.ok(f[0].message.includes(`current, last written by ${proj}`));
 });
 
+// [install#6]
 test("install contract 6 (doctor half): block states — content drift at the same version, one per file, unclosed", async () => {
   const { home, root } = fixture();
   const drift = project({
@@ -2153,6 +2186,7 @@ test("install contract 6 (doctor half): block states — content drift at the sa
 // amended after the rc.3 tag). rc.1 and rc.2 left a block in an AGENTS.md-only
 // project, which Claude Code never saw, and nothing said so. The env is
 // explicit: a Bash tool in a Claude Code session carries CLAUDECODE; CI does not.
+// [install#6]
 test("install contract 6 (doctor half): a block a used harness cannot see is named — an issue for the harness that identified itself, a warning for one only detected, nothing for one the project does not use; install plans exactly the import doctor asks for", () => {
   const { home, root } = fixture();
   const codex = loadHarness("codex");
@@ -2228,6 +2262,7 @@ test("install contract 6 (doctor half): a block a used harness cannot see is nam
 // child in the harness's own vocabulary, and that must not read there as the
 // harness identifying itself — it made a terminal doctor raise a Claude Code
 // issue in a Codex-only project (the review of the post-rc.3 fixes, 2026-10-04).
+// [install#6]
 test("install contract 6 (doctor half), through the bin from a terminal: a Claude Code project gets a warning, and a Codex-only one hears nothing about Claude Code", () => {
   const codex = loadHarness("codex");
   const home = mkdtempSync(join(tmpdir(), "ps-inst-term-home-"));
@@ -2294,6 +2329,7 @@ test("install: no doctor remedy names a raw script — every one is the bin form
   );
 });
 
+// [install#16]
 test("install contract 16: a harness is reported only when the project uses it", async () => {
   const { home, root } = fixture();
   // A second manifest whose project directory is .codex, in a temp manifest dir.
@@ -2333,6 +2369,7 @@ test("install contract 16: a harness is reported only when the project uses it",
   assert.match(f[0].message, /claude-code, other-harness/);
 });
 
+// [install#17]
 test("install contract 17: registrations at different versions are one warning naming both and their sources", () => {
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   writeRegistry(home, [{ scope: "user", installPath: "/x/0.27.0", version: "0.27.0" }]);
@@ -2364,6 +2401,7 @@ test("install contract 17: registrations at different versions are one warning n
   assert.match(g[0].message, /0\.28\.0 \(pkg= of statusline_launcher\)/);
 });
 
+// [install#17]
 test("install contract 17 (amended 2026-10-14): drift counts this project's copies, never another project's rows", () => {
   const home = mkdtempSync(join(tmpdir(), "ps-home-"));
   const proj = mkdtempSync(join(tmpdir(), "ps-drift-"));
@@ -2440,6 +2478,7 @@ test("install: the installer's item shape did not move when the states moved int
 // Contract 19: the install family works in a project that exists. A path
 // ending in a comma or a space, as pasted from a chat, or a path to a file, is
 // refused before detection, writing, staging, locking or spawning, and quoted.
+// [install#19]
 test("install contract 19: a project directory that does not exist is refused, quoted, before anything else", async () => {
   const parent = mkdtempSync(join(tmpdir(), "ps-missing-"));
   const file = join(parent, "a-file");

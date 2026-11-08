@@ -117,6 +117,7 @@ const ROWS = {
       ["`git ls-files`", '"ls-files"', code("scripts/doctor.mjs")],
       ["`git diff --name-only`", '"diff", "--name-only"', code("scripts/diff-refs.mjs")],
       ["`git log`", '"log"', code("scripts/diff-refs.mjs")],
+      ["`git grep --untracked`", '"--untracked"', code("scripts/diff-refs.mjs")],
       ["SessionStart hook", "resolveBinding(", code("hooks/session-start.mjs")],
       // Agents read history with the agent's own tools, not through ProjectStore's code.
       ["through the agent's own tools", "`git log`", read("agents/archaeologist.md")],

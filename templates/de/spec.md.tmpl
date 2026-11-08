@@ -34,7 +34,15 @@ Stories — eine Story ist erst fertig, wenn beides grün ist (ADR-007).
 ## Verhaltensverträge
 
 <!-- Nummeriert, einzeln testbar. Jeder beschreibt ein beobachtbares Ergebnis, keinen Implementierungsschritt.
-     Für einen Research-Spike: zu beantwortende Fragen + Ausstiegskriterien. -->
+     Für einen Research-Spike: zu beantwortende Fragen + Ausstiegskriterien.
+     Optional, unter einem Vertrag: Szenarien, denen ein Test folgen kann, und
+     eine Markierung für einen Vertrag, den kein Test abdeckt. Die Schlüsselwörter
+     bleiben englisch:
+       - WHEN … THEN …
+       (verified: live)   oder   (verified: manual)
+     Ein Test zitiert einen Vertrag als [example#1]: id oder alias der Spec, dann
+     die Vertragsnummer. Das Frontmatter kann `alias: <kurzer-schlüssel>` und
+     `coverage: report` ergänzen. Siehe docs/contracts-and-tests.md. -->
 
 1.
 2.

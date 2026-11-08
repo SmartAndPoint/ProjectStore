@@ -150,6 +150,23 @@ test("locales: every bundled language covers every registry entry (contract 3)",
 });
 
 for (const lang of LOCALES) {
+  // The spec policy ADR, Decision 2: scenario keywords, the live/manual marker
+  // and the citation example are machine tokens, English in every locale, and
+  // the example sits in a comment, so it is not a contract.
+  test(`locale ${lang}: the spec template names scenarios, the marker and a citation in English`, () => {
+    const tmpl = readFileSync(join(REPO, "templates", lang, "spec.md.tmpl"), "utf8");
+    for (const t of [
+      "- WHEN … THEN …",
+      "(verified: live)",
+      "(verified: manual)",
+      "[example#1]",
+      "alias:",
+      "coverage: report",
+    ]) {
+      assert.ok(tmpl.includes(t), `${lang}/spec.md.tmpl lacks ${t}`);
+    }
+  });
+
   test(`locale ${lang}: templates complete, doctor clean (contract 1)`, () => {
     const findings = checkLayoutTemplates({ layout: "engineering", language: lang });
     assert.deepEqual(findings, [], findings.map((f) => f.message).join("; "));
