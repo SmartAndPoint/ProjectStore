@@ -100,11 +100,32 @@ the two cannot collide).
    `plan_updated_at` / `closed_at` — stamped unconditionally; the
    `lifecycle_gates` key gates checks, never data).
 
+2a. **(plan only) Open questions, one round.** Before writing the plan,
+   collect the open questions: the planner's "Open questions" when it ran,
+   else your own; do not start the planner here. Keep only decisions the
+   user must make; skip what the conversation, or an earlier
+   `### Clarifications` in this plan, already settled. None is the normal
+   case: then ask nothing and write nothing. Keep at most five, the one that
+   changes the plan most first; with more, keep five, say how many were
+   dropped, and suggest splitting the story; when the planner says it left questions out, say so in the same round, with its split suggestion. Each question has two to four
+   options and one recommended option. Put them to the user in one round:
+   one call of AskUserQuestion for up to four questions; with five, or where
+   the harness has no question tool, one plain-text message with the
+   questions numbered. Ask once per gate run: the Edit in step 4 and the
+   re-check in step 5 never ask again. A skipped question, or every question
+   of a dismissed call, takes its recommendation, marked `(assumed)`. Record
+   the round under `### Clarifications`, last in the plan: a line with
+   today's date, then one bullet per question with its answer; a later plan
+   run appends its own dated line to the same subsection. An answer that changes a
+   contract of the covering spec says which one, and the spec is amended
+   the way it records its other amendments before the code is written.
+
 3. **Fill the section content** in the returned `content` before preview:
    - `plan` — write the Implementation Plan. When the story's `specs:` names a
      covering spec, the plan is a THIN ROUTE through that spec's behavioral
      contracts: which contracts, in what order, which files. Consult the
-     planner agent's output if one ran. Do not restate the spec.
+     planner agent's output if one ran. Do not restate the spec. End the plan
+     with the step 2a round, when there was one.
    - `close` — write the Final Summary (what changed / why / tests executed /
      risks & follow-ups), and update the Acceptance Criteria checkboxes with
      evidence suffixes: `- [x] <criterion> — evidence: <test | command | file:line>`.
