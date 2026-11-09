@@ -104,6 +104,23 @@ the ones a production vault hits.
 The story has `variant: test` in its frontmatter and follows every other
 story rule: the plan and close gates, evidence, the board.
 
+## A story with no spec: the Independent test line
+
+Most stories have no covering spec, so no scenario tells them how they are
+checked. The story template has one optional line under Description for
+that: one sentence on how the story is checked on its own, a command to run
+and what to see.
+
+```markdown
+**Independent test:** run `npm test` with a fixture vault whose index has a
+stale row, and see doctor report the folder.
+```
+
+It is a hint, not a gate. `/projectstore:story` fills it only when the
+conversation already says how; otherwise the placeholder stays, or you delete
+it. When the line is filled, the reviewer reports whether that test ran, and
+the close reports it in the Final Summary. Doctor never reads it.
+
 ## A contract no test can cover
 
 Some contracts are checked on a real host after install, or by a person.
