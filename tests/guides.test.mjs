@@ -309,12 +309,27 @@ test("doctor: the vault-root guides/ is not an artifact — no walk entry, no na
   const rels = walkVaultFiles(vault).map((f) => f.rel);
   assert.ok(!rels.some((r) => r.startsWith("guides/")));
   assert.ok(rels.includes("epics/PS-X/guides/note.md"));
+  // A note whose [[spec]] has no artifact behind it: the guide must not make it resolve.
+  writeFileSync(
+    join(vault, "concepts", "linker.md"),
+    "---\ntype: concept\nslug: linker\ntitle: Linker\n---\n\nSee [[spek]] and [[spec]].\n",
+  );
   const cfg = JSON.parse(readFileSync(join(proj, ".projectstore", "projectstore.json"), "utf8"));
-  const findings = await runVaultChecks(cfg, { proj });
-  assert.ok(!findings.some((x) => x.file && x.file.startsWith("guides/") && !x.check.startsWith("guide-")));
-  assert.ok(!findings.some((x) => /guides\/spec\.md/.test(x.message) && x.check !== "guide-shape"));
+  const before = await runVaultChecks(cfg, { proj });
+  assert.ok(
+    !before.some((x) => x.check === "artifact-name"),
+    "guides/spec.md beside concepts/spec.md is no name collision",
+  );
+  assert.ok(!before.some((x) => /guides/.test(x.message) && !x.check.startsWith("guide-")));
   const s = await cli(["search", "One rule", "--json", "--project", proj]);
   assert.ok(!JSON.stringify(s.json.result).includes("guides/"), "search finds nothing in guides/");
+  // Regenerate the views, then touch a guide: status does not call them stale.
+  for (const only of ["kanban", "graph"])
+    assert.equal((await cli(["reconcile", "--write", "--only", only, "--json", "--project", proj])).code, 0, only);
+  putGuide(vault, "adr", guideText("adr"));
+  const st = await cli(["status", "--json", "--project", proj]);
+  const views = st.json.result.views;
+  for (const name of ["kanban", "graph"]) assert.equal(views[name].stale, false, `${name} is not stale`);
 });
 
 // ─── MCP ───────────────────────────────────────────────────────────────

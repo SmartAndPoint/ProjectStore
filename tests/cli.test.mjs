@@ -111,7 +111,7 @@ function semanticInstallItems(items, projectDir, home = null) {
   }));
 }
 
-test("cli: the verb table is the contract — every shipped verb wraps a module that exists, and the union covers the MCP ADR's eight tools", () => {
+test("cli: the verb table is the contract — every shipped verb wraps a module that exists, and the union covers the MCP ADR's nine tools", () => {
   for (const v of VERBS) {
     if (v.module)
       assert.ok(existsSync(join(ROOT, "scripts", v.module.replace(/^\.\//, ""))), `${v.verb} wraps ${v.module}`);
@@ -121,7 +121,7 @@ test("cli: the verb table is the contract — every shipped verb wraps a module 
     assert.ok(typeof HANDLERS[v.verb] === "function" && typeof v.summary === "string" && v.summary.length > 0);
     assert.ok(["script", "module", "new"].includes(v.wraps) && ["spawn", "import"].includes(v.how));
   }
-  // MCP ADR decision 2's table: eight tools, each with a CLI verb.
+  // MCP ADR decision 2's table: eight tools, each with a CLI verb, plus guide (the authoring-guides ADR, decision 8).
   const tools = new Set([...VERBS, ...PLANNED_VERBS].flatMap((v) => v.mcp));
   for (const v of [...VERBS, ...PLANNED_VERBS]) assert.ok(Array.isArray(v.mcp), `${v.verb}.mcp is a list`);
   // Both directions: every tool the table names is one the ADR names.
