@@ -780,6 +780,7 @@ test("agent prose carries the derived-views orientation contract (spec contract 
       "lineage",
       "code_refs",
       "doctor",
+      "guide",
     ])
       assert.ok(src.includes(`\`${tool}\``), `${f} names tool ${tool}`);
   }

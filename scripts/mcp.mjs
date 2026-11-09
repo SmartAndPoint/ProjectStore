@@ -62,7 +62,7 @@ export const isErrorExit = (code) => code !== 0 && code !== 1;
 export const PROTOCOL_VERSIONS = Object.freeze(["2025-11-25", "2025-06-18"]);
 export { DOCTOR_TIMEOUT_MS };
 export const SERVER_NAME = "projectstore";
-export const TOOL_CEILING = 8;
+export const TOOL_CEILING = 9; // amended by the authoring-guides ADR, decision 8
 export const TOOL_LIST_TOKEN_CEILING = 3000; // ADR decision 7, chars/4
 export const RESOURCE_SCHEME = "projectstore://";
 
@@ -212,6 +212,25 @@ export const TOOLS = Object.freeze({
       positionals: [],
     }),
   },
+  // The ninth tool (the authoring-guides ADR, decision 8, amending the MCP
+  // surface ADR's decision 7): the read half of `guide`; eject is not served.
+  guide: {
+    verb: "guide",
+    description:
+      "An artifact kind's authoring guide (Lens, Must, Common mistakes, Do not write, Length). Call it before drafting an artifact of that kind and before reviewing one; the vault's override wins over the package default.",
+    inputSchema: schema(
+      {
+        kind: str("a kind (adr, spec, epic, story, …) or <kind>.<variant>, such as story.test"),
+        section: str("one section: Lens, Must, Common mistakes, Do not write or Length"),
+        source: { type: "string", enum: ["vault", "package"], description: "read one side only" },
+      },
+      ["kind"],
+    ),
+    argv: (a) => ({
+      opts: [...opt("section", a.section), ...opt("source", a.source)],
+      positionals: [a.kind],
+    }),
+  },
 });
 
 export function toolList() {
@@ -336,7 +355,11 @@ export function createServer({
           ).error,
         };
       // An option value that starts with "-" would read as a flag to the CLI's parser; a positional is safe behind "--".
-      if (typeof v === "string" && v.startsWith("-") && ["section", "status", "direction", "selector"].includes(k))
+      if (
+        typeof v === "string" &&
+        v.startsWith("-") &&
+        ["section", "status", "direction", "selector", "source", "kind"].includes(k)
+      )
         return { error: rpcError(null, E_INVALID_PARAMS, `${name}: "${k}" may not start with "-"`).error };
     }
     // The verb table decides who runs unbound: status and doctor do (doctor

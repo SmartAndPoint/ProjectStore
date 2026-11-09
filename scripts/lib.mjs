@@ -2029,6 +2029,45 @@ export function checklistItems(lines) {
   return items;
 }
 
+// A guide's rule items (the authoring-guides ADR, decision 1): plain bullets,
+// not checkboxes. An item is its bullet line plus the lines indented deeper
+// than its dash (wrapped text and nested bullets); a bullet at the same or a
+// lesser depth starts the next item; a blank or an unindented line ends it.
+// The caller drops fenced lines first (linesOutsideFences).
+export function guideItems(lines) {
+  const items = [];
+  let cur = null;
+  for (const line of lines) {
+    const m = line.match(/^(\s*)-\s+(\S.*)$/);
+    if (m && (!cur || m[1].length <= cur.indent)) {
+      cur = { text: m[2].trim(), indent: m[1].length };
+      items.push(cur);
+      continue;
+    }
+    if (cur && /^\s+\S/.test(line) && line.match(/^\s*/)[0].length > cur.indent) {
+      cur.text += " " + line.trim();
+      continue;
+    }
+    cur = null;
+  }
+  return items.map((i) => i.text);
+}
+
+// RAW lines outside fenced blocks — for checks that must both MATCH (fence-
+// immune) and REPORT the line verbatim (backticks intact in the message).
+export function linesOutsideFences(s) {
+  const out = [];
+  let fenced = false;
+  for (const line of s.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (!fenced) out.push(line);
+  }
+  return out;
+}
+
 // The one writer of the vault config: atomic, and every key it was not asked
 // to change is kept as it was.
 export function writeVaultConfig(vault, cfg) {

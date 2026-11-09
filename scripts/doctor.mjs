@@ -43,6 +43,7 @@ import {
   noSpecOf,
   parseDryRunPolicy,
   checklistItems,
+  linesOutsideFences,
   isTestPath,
   isSourcePath,
   sectionOf,
@@ -139,7 +140,8 @@ import { effortSpec } from "./model-spec.mjs";
 // brand, and --harness still carries the target.
 import { uncommittedProjectFiles, lastCommitMs, grepProjectLines } from "./diff-refs.mjs";
 import { resolveBinding } from "./worktree.mjs";
-import { missingScaffoldRequirements } from "./scaffold.mjs";
+import { missingScaffoldRequirements, kindsOf } from "./scaffold.mjs";
+import { GUIDE_NAME, guidesDir, parseGuide, resolveGuide } from "./guides.mjs";
 
 const AGENT_BLOCK_MARKER = new RegExp(AGENTS_BLOCK_OPEN_SRC, "g");
 // The provenance grammar's prefix, duplicated here on purpose: the startup
@@ -2190,20 +2192,8 @@ export function checkIndexes(cfg, layout, artifacts) {
 // definition shared with the link-graph extractor, so "not a link/checkbox
 // when inside code" means the same thing everywhere.
 
-// RAW lines outside fenced blocks — for checks that must both MATCH (fence-
-// immune) and REPORT the line verbatim (backticks intact in the message).
-function linesOutsideFences(s) {
-  const out = [];
-  let fenced = false;
-  for (const line of s.split("\n")) {
-    if (/^\s*```/.test(line)) {
-      fenced = !fenced;
-      continue;
-    }
-    if (!fenced) out.push(line);
-  }
-  return out;
-}
+// linesOutsideFences (RAW lines outside fenced blocks) lives in lib.mjs too,
+// shared with the guide reader.
 
 // Epic id of a story artifact, derived from the layout's epic folder path —
 // never from a hardcoded segment index (custom layouts may nest the folder).
@@ -3216,12 +3206,100 @@ export function walkVaultFiles(vault) {
       } catch {
         continue;
       }
-      if (st.isDirectory()) walk(p, relDir ? `${relDir}/${n}` : n);
-      else if (n.endsWith(".md")) files.push({ rel: relDir ? `${relDir}/${n}` : n, name: n });
+      // The vault-root guides/ holds authoring guides, not artifacts (SPEC-001
+      // contract 12): no name collision, no link target, no stale view, no
+      // search hit. A deeper folder of that name is an ordinary folder.
+      if (st.isDirectory()) {
+        if (relDir === "" && n === LAYOUT.guides) continue;
+        walk(p, relDir ? `${relDir}/${n}` : n);
+      } else if (n.endsWith(".md")) files.push({ rel: relDir ? `${relDir}/${n}` : n, name: n });
     }
   };
   walk(vault, "");
   return files;
+}
+
+// The vault's guide overrides (SPEC-001 contract 12; the authoring-guides
+// ADR, decision 5): guide-shape when one does not parse, guide-unknown when
+// its base kind is not the layout's (or story), guide-stale when the package
+// default moved past its based_on. Never throws; nothing when guides/ is absent.
+export function checkGuides(vault, layout, { proj = null, root = pluginRoot() } = {}) {
+  const dir = guidesDir(vault);
+  let names;
+  try {
+    if (!statSync(dir).isDirectory()) return [];
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const kinds = new Set([...kindsOf(layout || {}), "story"]);
+  const out = [];
+  for (const f of names.sort()) {
+    if (f.startsWith(".") || !f.endsWith(".md") || f === "README.md") continue;
+    const p = join(dir, f);
+    try {
+      if (!statSync(p).isFile()) continue;
+    } catch {
+      continue;
+    }
+    const name = f.slice(0, -3);
+    const rel = `${LAYOUT.guides}/${f}`;
+    const base = name.split(".")[0];
+    if (!kinds.has(base))
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "guide-unknown",
+          `A guide for "${name}", but "${base}" is not a kind of this vault's layout; no command or critic reads it.`,
+          rel,
+        ),
+      );
+    let text;
+    try {
+      text = readFileSync(p, "utf8").replace(/\r\n/g, "\n");
+    } catch (e) {
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "guide-shape",
+          `The guide cannot be read (${e.code || "error"}); the package default is used.`,
+          rel,
+        ),
+      );
+      continue;
+    }
+    const g = GUIDE_NAME.test(name)
+      ? parseGuide(text, name)
+      : { ok: false, reason: "the file name is not a guide name" };
+    if (!g.ok) {
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "guide-shape",
+          `The guide does not parse (${g.reason}), so readers fall back to the package default. A guide needs frontmatter whose guide_for is its file name, and a ## Must with at least one item.`,
+          rel,
+        ),
+      );
+      continue;
+    }
+    const basedOn = Number(g.fm.based_on);
+    if (g.fm.based_on == null || !Number.isInteger(basedOn)) continue;
+    const pkg = resolveGuide(name, { root, source: "package" });
+    if (pkg.resolved !== name || !Number.isInteger(pkg.guide_version) || pkg.guide_version <= basedOn) continue;
+    out.push(
+      finding(
+        "vault",
+        "info",
+        "guide-stale",
+        `This guide was made from the package's version ${basedOn}; the package's guide is now version ${pkg.guide_version}. Read the new default ${fromTerminalIn(proj)}, and merge what you want by hand:\n${packageCommand([], "guide", { args: `${name} --source package` })}`,
+        rel,
+      ),
+    );
+  }
+  return out;
 }
 
 // Body links resolved through the ONE shared resolver (spec:
@@ -3797,6 +3875,7 @@ export function runVaultChecks(
     ...checkNoSpecShare(artifacts, vaultCfg, proj, cfg.vault_path),
     ...checkReviewBy(artifacts, now),
     ...checkGatesStamp(vaultCfg, proj),
+    ...checkGuides(cfg.vault_path, layout, { proj }),
     ...checkWorkWithoutStory(cfg, proj),
     ...checkCodeMap(cfg),
     ...checkGraph(cfg),

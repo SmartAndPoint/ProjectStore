@@ -1,6 +1,6 @@
 ---
 name: projectstore-peer-reviewer
-description: "After a new projectstore artifact is created via $projectstore-adr, $projectstore-research, or $projectstore-epic (and similar generative commands), suggest running $projectstore-review <path> to peer-review the artifact with a fresh critic agent before it's committed. Only suggest for artifact kinds whose checklist has default_review=true. Never auto-execute — always ask first."
+description: "After a new projectstore artifact is created via $projectstore-adr, $projectstore-research, or $projectstore-epic (and similar generative commands), suggest running $projectstore-review <path> to peer-review the artifact with a fresh critic agent before it's committed. Only suggest for artifact kinds whose authoring guide has default_review=true. Never auto-execute — always ask first."
 ---
 
 ## Runtime path
@@ -34,7 +34,13 @@ After a successful invocation of any of:
 - `$projectstore-research` — new research note created
 - `$projectstore-epic` — new epic created
 
-(See `scaffold/checklists.json` — kinds with `default_review: true`.)
+Whether a kind is suggested is its authoring guide's `default_review` (a vault override may change it):
+
+```bash
+node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" guide <kind> --json --project "$PWD"
+```
+
+Suggest only when `result.default_review` is `true`; exit 1 (no guide) means no suggestion.
 
 ## What to do
 
@@ -51,7 +57,7 @@ After a successful invocation of any of:
 
 ## Anti-patterns
 
-- Don't suggest review for kinds with `default_review: false` (meeting, runbook, story, concept). User can still invoke `$projectstore-review` manually if they want.
+- Don't suggest review for kinds whose guide has `default_review: false` (in the package defaults: meeting, runbook, story, concept). User can still invoke `$projectstore-review` manually if they want.
 - Don't suggest review more than once per artifact per session.
 - Don't run the review yourself — `$projectstore-review` handles the critic spawn, the approval flow, and the frontmatter update.
 - Don't reframe the suggestion as "this might need improvement" — that's sycophancy in disguise. The framing is "fresh-eyes pass", not "your work has problems".

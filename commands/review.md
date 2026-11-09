@@ -1,5 +1,5 @@
 ---
-description: Peer-review an existing artifact (ADR / research / epic / etc.) using a fresh critic-mode agent with a structural checklist. Returns concrete improvements, no sycophancy.
+description: Peer-review an existing artifact (ADR / research / epic / etc.) using a fresh critic-mode agent with the kind's authoring guide as its checklist. Returns concrete improvements, no sycophancy.
 argument-hint: <path-to-artifact>
 ---
 
@@ -13,13 +13,13 @@ You are running a peer review on a projectstore artifact.
 
 3. **Identify the kind**: parse the YAML frontmatter for `type:`. If missing, try to infer from the file path (`adr/` → adr, `epics/<id>/epic.md` → epic, `epics/<id>/stories/*` → story, `research/` → research, etc.). If still unknown, ask the user via AskUserQuestion which kind to apply.
 
-4. **Load the checklist**:
+4. **Load the guide**: read the kind's authoring guide (the kind from step 3; for a story whose frontmatter has `variant:`, use `<kind>.<variant>`):
 
    ```bash
-   cat "${CLAUDE_PLUGIN_ROOT}/scaffold/checklists.json"
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" guide <kind> --json --project "${CLAUDE_PROJECT_DIR}"
    ```
 
-   Parse JSON, pick the entry by kind. If the kind has no entry, use the `adr` checklist as a generic fallback and note this to the user.
+   Its `result.sections.Must` items are the checklist, and `result.sections["Common mistakes"]` the likely problem areas; a vault override wins over the package default, so this is the project's own rule set. Exit 1 means the kind has no guide: the review runs without a kind checklist, and the report says so. No other kind's items stand in for it.
 
 5. **Gather domain context**: read the vault's top-level `README.md` and the folder README of the artifact's parent (e.g. `adr/README.md`). Keep both short — they're context for the critic, not the focus.
 
@@ -40,9 +40,13 @@ You are running a peer review on a projectstore artifact.
    <the vault's README excerpt>
    <the folder's README excerpt>
 
-   ## Structural checklist
+   ## Structural checklist (the guide's ## Must)
 
-   <bullet list of checklist.items>
+   <bullet list of result.sections.Must, verbatim; or "none: reviewed without a kind checklist">
+
+   ## Common mistakes for this kind
+
+   <bullet list of result.sections["Common mistakes"], when present>
 
    ## Report format (strict)
 
@@ -86,4 +90,4 @@ You are running a peer review on a projectstore artifact.
 
 - Critic agent MUST NOT see the conversation that produced the artifact. Only the artifact + minimal context. That fresh framing is the whole point.
 - If the critic returns suspiciously sycophantic findings ("good overall, minor nit:"), retry once with an explicit `NO PRAISE, NO HEDGING.` injected into the prompt.
-- Selective default: if user invoked `/projectstore:review` on a kind whose `default_review` is `false` in checklists.json (e.g. meeting), still run — they asked explicitly. Just don't auto-trigger via skill.
+- Selective default: if user invoked `/projectstore:review` on a kind whose guide has `default_review: false` (e.g. meeting), still run — they asked explicitly. Just don't auto-trigger via skill.

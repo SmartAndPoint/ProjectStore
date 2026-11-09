@@ -68,7 +68,8 @@ import {
   SUBCOMMANDS as BAND_SUBCOMMANDS,
 } from "./band.mjs";
 import { dispatch, envelope, usageFail, ownEnv, nearest, notBoundText, PACKAGE_ROOT } from "./verbs.mjs";
-import { READ_HANDLERS } from "./read-verbs.mjs";
+import { READ_HANDLERS, guideVault } from "./read-verbs.mjs";
+import { checkGuideName, planEject, applyEject } from "./guides.mjs";
 
 // What this module exported before the table moved, from where it lives now.
 export {
@@ -640,8 +641,61 @@ async function runInstallVerb({ row, values, project, env, cwd, stdin, stdout, a
 // Every verb's handler, keyed by verb: the read half from read-verbs.mjs,
 // the rest here. Exported so a test can wrap one (setup's sandboxed home) in
 // a table of its own.
+// guide — the read is the read runner's; `guide eject <kind>` is the one
+// write (the authoring-guides ADR, decision 5): it copies the package guide
+// into <vault>/guides/ with based_on, create-only, and confirms as scaffold
+// does — a terminal asks, --write without one is the confirmation.
+async function runGuideVerb(ctx) {
+  const { row, values, positionals, cfg, project, env, stdin, stdout, stderr, ask } = ctx;
+  if (positionals[0] !== "eject") return READ_HANDLERS.guide(ctx);
+  const usage = (m) => usageFail(Object.assign(new Error(m), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  const name = positionals[1];
+  if (!name) return usage("guide eject takes a kind, such as `guide eject spec`");
+  if (values.section || values.source) return usage("--section and --source belong to the read, not to eject");
+  try {
+    checkGuideName(name);
+  } catch (e) {
+    return usageFail(e, { verb: row.verb, ...ctx });
+  }
+  const emit = (ok, result, text, code) => {
+    if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, ok, result), null, 2) + "\n");
+    else (ok ? stdout : stderr).write(text);
+    return code;
+  };
+  const plan = planEject(name, { vault: guideVault(cfg, project), root: PACKAGE_ROOT });
+  const result = (written) => ({ name, target: plan.target, based_on: plan.based_on ?? null, written });
+  if (!plan.ok) return emit(false, { ...result(false), error: plan.refusal }, `guide eject: ${plan.refusal}\n`, 1);
+  const preview = [
+    `guide eject ${name} — creates ${plan.target} (based_on: ${plan.based_on}):`,
+    "",
+    plan.content.replace(/\n*$/, ""),
+    "",
+  ].join("\n");
+  if (!values.write)
+    return emit(
+      true,
+      result(false),
+      `${preview}\nNothing written. To create it, ${fromTerminalIn(project)}:\n${packageCommand([], "guide", { args: `eject ${name} --write` })}\n`,
+      0,
+    );
+  const interactive =
+    !values.json &&
+    (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+  if (interactive) {
+    stdout.write(preview + "\n");
+    if (!(await term.askApply(1, { stdin, stdout, ask, caps: term.caps(stdout, env) }))) {
+      stdout.write("Nothing written.\n");
+      return 1;
+    }
+  }
+  const done = applyEject(plan);
+  if (!done.written) return emit(false, { ...result(false), error: done.refusal }, `guide eject: ${done.refusal}\n`, 1);
+  return emit(true, result(true), `Created ${plan.target}.\n`, 0);
+}
+
 export const HANDLERS = Object.freeze({
   ...READ_HANDLERS,
+  guide: runGuideVerb,
   setup: runSetupVerb,
   configure: runConfigureVerb,
   reconcile: runReconcile,

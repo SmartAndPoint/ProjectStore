@@ -27,6 +27,15 @@ You are creating a meeting note. Today's date is auto-prefixed.
 Steps:
 
 1. Check config; stop if missing.
+1a. **Read the guide** for this kind before writing anything:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" guide meeting --project "$PWD"
+   ```
+
+   Write the draft to its `## Must`, `## Common mistakes`, `## Do not write`
+   and `## Length`: the critic checks the same `## Must` items. Exit 1 means
+   this kind has no guide; say so and go on.
 2. Run `node "${PROJECTSTORE_CORE_ROOT}/scripts/draft.mjs" meeting "<user-arguments>"`.
 3. Preview path + first ~15 lines. When `index` is non-null, print `index.line` too — the exact row that will appear in the folder index, unless the index step reports a failure and no row lands at all. (In the step-5 **Append to existing** branch no new row appears: the existing note already has one, rendered from its own frontmatter.)
 4. the harness's user-input mechanism: Yes / Edit / No. When proposing "Edit", offer to seed `Attendees` and `Agenda` from the conversation context if relevant. This is the only gate: **Yes** covers the artifact and its index row. Disclose in the question that the folder's whole managed index table is regenerated from vault state at write time, so the update may also repair a stale row for another artifact.

@@ -8,6 +8,15 @@ You are creating a research note (deep investigation, comparison, benchmark).
 Steps:
 
 1. Check config; stop if missing.
+1a. **Read the guide** for this kind before writing anything:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" guide research --project "${CLAUDE_PROJECT_DIR}"
+   ```
+
+   Write the draft to its `## Must`, `## Common mistakes`, `## Do not write`
+   and `## Length`: the critic checks the same `## Must` items. Exit 1 means
+   this kind has no guide; say so and go on.
 2. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/draft.mjs" research "$ARGUMENTS"`.
 3. Preview path + first ~20 lines. When `index` is non-null, print `index.line` too — the exact row that will appear in the folder index, unless the index step reports a failure and no row lands at all.
 4. AskUserQuestion: Yes / Edit / No. This is the only gate: **Yes** covers the artifact and its index row. Disclose in the question that the folder's whole managed index table is regenerated from vault state at write time, so the update may also repair a stale row for another artifact.

@@ -194,3 +194,10 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   gates that have no date, `review-by` names an ADR due for review, and
   `dry-run` heads a `--policy` report. None of them is repairable by `--fix`:
   each is a judgement, or a `configure` step its message names.
+- The guide checks read the vault's `guides/` folder, the per-kind overrides
+  of the authoring guides: `guide-shape` (an override that does not parse, so
+  readers fall back to the package default), `guide-unknown` (a guide for a
+  kind the layout does not have) and `guide-stale` (an override made from an
+  older package default; the message names the command that reads the new
+  one). None of them is repairable by `--fix`: the override is the user's
+  file, and merging a newer default into it is a judgement.

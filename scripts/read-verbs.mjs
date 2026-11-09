@@ -1,7 +1,8 @@
 // projectstore — read-verbs.mjs
 //
 // The read-verb runner: the handlers of the verbs that write nothing (status,
-// orientation, search, show, graph, codemap, doctor and version), and
+// orientation, search, show, graph, codemap, doctor and version, and the read
+// half of guide, whose eject only the CLI serves), and
 // runRead(), which dispatches through the one verb table (scripts/verbs.mjs)
 // with these handlers alone. The CLI's run() hands dispatch() these and its
 // write handlers; the MCP server (scripts/mcp.mjs) runs runRead() and imports
@@ -21,8 +22,10 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as term from "./term.mjs";
 import { doctorFallbackText } from "./lib.mjs";
-import { READ_OPERATIONS, LINEAGE_KINDS } from "./query.mjs";
-import { dispatch, envelope, packageVersion, usageFail, ownEnv, runVersion } from "./verbs.mjs";
+import { READ_OPERATIONS, LINEAGE_KINDS, oneOf } from "./query.mjs";
+import { normaliseVaultPath } from "./binding.mjs";
+import { GUIDE_SECTIONS, checkGuideName, resolveGuide, guideKinds, guideResult, renderGuide } from "./guides.mjs";
+import { dispatch, envelope, packageVersion, usageFail, ownEnv, runVersion, PACKAGE_ROOT } from "./verbs.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const DOCTOR_SCRIPT = resolve(HERE, "doctor.mjs");
@@ -105,6 +108,57 @@ async function runCodemap(ctx) {
         code: "USAGE",
       });
     return emitRead({ verb: row.verb, ...ctx }, op, op.fn(cfg, values.for, { reverse: Boolean(values.reverse) }));
+  } catch (e) {
+    if (e && e.code === "USAGE") return usageFail(e, { verb: row.verb, ...ctx });
+    throw e;
+  }
+}
+
+// ─── guide ─────────────────────────────────────────────────────────────
+//
+// The read half of the guide row (the authoring-guides ADR, decision 3): the
+// resolved guide, vault override first. `eject` writes, so this runner, which
+// the MCP server runs, refuses it; the CLI serves it with its own handler.
+
+// The vault the binding names, as scaffold and eject read it; null when the
+// project is unbound or names no usable path (the package side still answers).
+export function guideVault(cfg, project) {
+  const norm = cfg && cfg.vault_path ? normaliseVaultPath(cfg.vault_path, project) : null;
+  return typeof norm === "string" ? norm : null;
+}
+
+async function runGuide(ctx) {
+  const { row, values, positionals, cfg, project, stdout, stderr } = ctx;
+  const usage = (m) => usageFail(Object.assign(new Error(m), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  const vault = guideVault(cfg, project);
+  if (positionals[0] === "eject")
+    return usage("guide eject writes; the read-only runner does not serve it. Run it from a terminal in the project");
+  if (values.write) return usage("--write belongs to guide eject");
+  const name = positionals[0];
+  if (!name) return usage(`guide takes a kind: ${guideKinds({ vault, root: PACKAGE_ROOT }).join(", ")}`);
+  try {
+    checkGuideName(name);
+    const source = oneOf("source", values.source, ["vault", "package"], null);
+    const section = values.section ?? null;
+    if (section !== null && !GUIDE_SECTIONS.includes(section))
+      throw Object.assign(new Error(`--section takes one of: ${GUIDE_SECTIONS.join(", ")}`), { code: "USAGE" });
+    const g = resolveGuide(name, { vault, root: PACKAGE_ROOT, source });
+    if (!g.resolved) {
+      const why = `no guide for "${name}"${source ? ` on the ${source} side` : ""}. Kinds with a guide: ${guideKinds({ vault, root: PACKAGE_ROOT }).join(", ")}`;
+      if (values.json)
+        stdout.write(
+          JSON.stringify(envelope(row.verb, project, false, { error: why, warnings: g.warnings }), null, 2) + "\n",
+        );
+      else stderr.write(why + "\n");
+      return 1;
+    }
+    for (const w of g.warnings) if (!values.json) stderr.write(`guide: ${w}\n`);
+    if (values.json) {
+      const result = guideResult(g);
+      if (section) result.sections = { [section]: g.sections[section] };
+      stdout.write(JSON.stringify(envelope(row.verb, project, true, result), null, 2) + "\n");
+    } else stdout.write(renderGuide(g, section));
+    return 0;
   } catch (e) {
     if (e && e.code === "USAGE") return usageFail(e, { verb: row.verb, ...ctx });
     throw e;
@@ -266,6 +320,7 @@ export const READ_HANDLERS = Object.freeze({
   show: readVerb("show"),
   graph: runGraph,
   codemap: runCodemap,
+  guide: runGuide,
   doctor: runDoctor,
   version: runVersion,
 });

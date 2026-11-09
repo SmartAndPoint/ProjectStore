@@ -22,7 +22,7 @@ CHECK AND REPAIR
   upgrade      After an update, refresh what install wrote and leave the rest.
 
 ADVANCED
-  plan . install . orientation . agents . band . session . bind . init .
+  plan . install . orientation . guide . agents . band . session . bind . init .
   scaffold . mcp . version
 
 Options

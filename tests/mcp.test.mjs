@@ -36,7 +36,17 @@ import { closure } from "./fixtures/imports.mjs";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BIN = join(ROOT, "bin", "projectstore.mjs");
 const SRC = sourceHarness();
-const ADR_TOOLS = ["status", "orientation", "search", "get_artifact", "neighbors", "lineage", "code_refs", "doctor"];
+const ADR_TOOLS = [
+  "status",
+  "orientation",
+  "search",
+  "get_artifact",
+  "neighbors",
+  "lineage",
+  "code_refs",
+  "doctor",
+  "guide",
+];
 
 delete process.env[SRC.runtime.home_env];
 
@@ -136,7 +146,7 @@ function vaultProject() {
 
 // ─── the table ─────────────────────────────────────────────────────────
 
-test("mcp: the tool table is the ADR's eight, every tool has its verb row and every verb row's tools exist — drift is a failing test", () => {
+test("mcp: the tool table is the ADR's nine (eight, plus guide by the authoring-guides ADR), every tool has its verb row and every verb row's tools exist — drift is a failing test", () => {
   assert.deepEqual(Object.keys(TOOLS).sort(), [...ADR_TOOLS].sort());
   assert.ok(Object.keys(TOOLS).length <= TOOL_CEILING);
   for (const [name, t] of Object.entries(TOOLS)) {
