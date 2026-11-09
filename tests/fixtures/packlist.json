@@ -61,6 +61,7 @@
   "scaffold/guides/runbook.md",
   "scaffold/guides/spec.md",
   "scaffold/guides/story.md",
+  "scaffold/guides/story.test.md",
   "scaffold/headings.json",
   "scaffold/layouts/engineering.json",
   "scripts/agents-change.mjs",

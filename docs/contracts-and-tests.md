@@ -4,7 +4,10 @@ A spec's behavioral contracts are numbered and testable. This page shows how
 to write a contract so a test follows from it, how a test cites the contract
 it covers, and what doctor reports. It describes Part A of the ADR *Spec
 policy, revised: contract scenarios and test citations that doctor counts,
-and a declared per-story opt-out from a spec*.
+and a declared per-story opt-out from a spec*, and decisions 6 and 7 of the
+ADR *One authoring guide per artifact kind, read by the author before the
+draft and by the critic after, overridable from the vault* (edge and failure
+marks, and test stories).
 
 All of it is optional. A spec without scenarios, and a test without a
 citation, stay valid.
@@ -31,8 +34,75 @@ The items are a list, so Markdown keeps one step per line. The keywords stay
 in English in every language, like `— stories:`: a tool matches them
 literally.
 
-Doctor reads scenarios for one thing only. If a contract's scenario has no
-`WHEN` (or `GIVEN`), or no `THEN`, it reports an info.
+Doctor reads scenarios for two things. If a contract's scenario has no
+`WHEN` (or `GIVEN`), or no `THEN`, it reports an info. And it counts the
+scenarios marked as an edge or a failure case, below.
+
+An item may wrap: a line indented deeper than its dash, before a blank line,
+belongs to the item above it.
+
+## Marking an edge or a failure case
+
+A scenario's `WHEN` or `GIVEN` item may end with `(edge)` or `(failure)`:
+
+```markdown
+3. **A stale index is reported.** Doctor compares each folder index with the
+   artifacts on disk and reports a row that no longer matches.
+   - GIVEN an index row whose status differs from the artifact's frontmatter
+   - WHEN doctor runs with --vault
+   - THEN it reports an index finding that names the folder
+   - GIVEN a folder whose README is missing (edge)
+   - WHEN doctor runs with --vault
+   - THEN it reports the missing index, and nothing else in that folder
+```
+
+`(edge)` is for a case that comes from the input or the state: boundary
+values, invalid input, a state transition, an upgrade from an older state.
+`(failure)` is for a case where something else fails: a dependency, a retry
+or a concurrent run, a partial failure, a rollback. A happy-path scenario
+has no mark.
+
+The mark is lowercase English in ASCII parentheses, at the very end of the
+item (on its last line when the item wraps). A mark on an `AND` or `THEN`
+item, in the contract's prose, inside backticks, or followed by more text
+does not count.
+
+For each active spec, doctor lists the contracts that carry scenarios and
+have none marked: their scenarios show only the happy path. It counts the
+marks and does not judge them. Whether a marked scenario is a real edge case
+is the critic's question.
+
+## Writing a test story
+
+A test story plans the tests for one or more contracts. Create it with the
+variant flag, and its draft is written to the test lead's guide, `story.test`:
+
+```
+/projectstore:story PS-X "Tests for the stale-index contract" --variant test
+```
+
+The guide asks the story to name the contracts it covers by token, to list
+the cases that apply to each (boundary values, invalid input, state
+transitions, failure of a dependency, retry and concurrency, partial failure,
+upgrade from an older state, rollback), to say which cases it leaves untested
+and why, and to require a citation on every test it adds. For example:
+
+```markdown
+## Description
+
+Covers [example#3]. The scenario shows the happy path; the cases below are
+the ones a production vault hits.
+
+## Decomposition
+
+- [ ] Boundary: an index with no rows, and one with a row per artifact.
+- [ ] Invalid input: a row whose link points at no file.
+- [ ] Partial failure: one folder's README unreadable, the others fine.
+- [ ] Not tested: concurrency. Doctor is read-only, so two runs cannot race.
+```
+
+The story has `variant: test` in its frontmatter and follows every other
+story rule: the plan and close gates, evidence, the board.
 
 ## A contract no test can cover
 
@@ -97,6 +167,7 @@ skipped. Tests outside the bound project, or in a submodule, are not seen.
 | `citation-unknown` | warn | A token whose key is no spec's id or alias, or whose number is not a contract of that spec |
 | `citation-superseded` | info | A token that cites a superseded spec |
 | `scenario-shape` | info | A scenario without a WHEN/GIVEN or a THEN |
+| `contract-happy-path-only` | info | One line per active spec: the contracts that carry scenarios and have none marked `(edge)` or `(failure)` |
 | `spec-alias` | issue | A duplicate alias, an alias equal to another spec's id, or the reserved `example` |
 | `evidence-citation` | warn | Under `lifecycle_gates: on`: a story's evidence names a token that no file in the project carries |
 

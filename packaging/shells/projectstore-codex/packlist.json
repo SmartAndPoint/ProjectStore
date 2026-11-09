@@ -65,6 +65,7 @@
   "node_modules/projectstore/scaffold/guides/runbook.md",
   "node_modules/projectstore/scaffold/guides/spec.md",
   "node_modules/projectstore/scaffold/guides/story.md",
+  "node_modules/projectstore/scaffold/guides/story.test.md",
   "node_modules/projectstore/scaffold/headings.json",
   "node_modules/projectstore/scaffold/layouts/engineering.json",
   "node_modules/projectstore/scripts/agents-change.mjs",
