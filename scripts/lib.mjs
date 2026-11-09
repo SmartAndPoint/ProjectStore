@@ -14,6 +14,7 @@ import {
   mkdirSync,
   utimesSync,
   unlinkSync,
+  linkSync,
   renameSync,
   rmSync,
   realpathSync,
@@ -503,6 +504,26 @@ export function writeFileAtomic(p, content, { sweep = true } = {}) {
       unlinkSync(tmp);
     } catch {}
     throw e;
+  }
+}
+
+// Create a file only if it is absent, atomically: the content goes to the
+// same dot-prefixed temp writeFileAtomic uses, and a hard link puts it at
+// the target, which fails EEXIST when the target exists — a file made
+// meanwhile is never replaced. Returns false on EEXIST; other errors throw.
+export function createFileExclusive(p, content) {
+  const tmp = join(dirname(p), `.${basename(p)}.${process.pid}.tmp`);
+  writeFileSync(tmp, content, "utf8");
+  try {
+    linkSync(tmp, p);
+    return true;
+  } catch (e) {
+    if (e && e.code === "EEXIST") return false;
+    throw e;
+  } finally {
+    try {
+      unlinkSync(tmp);
+    } catch {}
   }
 }
 

@@ -13,9 +13,9 @@
 // the `guide` verb and the MCP `guide` tool (read-verbs.mjs); eject is the one
 // writer, reached only through the CLI's own handler (cli.mjs).
 
-import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, writeFileSync, linkSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { pluginRoot, parseFrontmatter, guideItems, linesOutsideFences } from "./lib.mjs";
+import { pluginRoot, parseFrontmatter, guideItems, linesOutsideFences, createFileExclusive } from "./lib.mjs";
 import { LAYOUT } from "./harness.mjs";
 
 // The five sections, read by name; English in every vault language.
@@ -209,18 +209,9 @@ export function planEject(name, { vault, root = pluginRoot() } = {}) {
 export function applyEject(plan) {
   if (!plan.ok) return { written: false };
   mkdirSync(join(plan.target, ".."), { recursive: true });
-  // Create-only for real: the content goes to a temporary file, and a hard
-  // link puts it at the target, which fails when the target exists — no
-  // window in which a file made meanwhile could be replaced.
-  const tmp = `${plan.target}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, plan.content, { flag: "wx" });
-  try {
-    linkSync(tmp, plan.target);
-  } catch (e) {
-    if (e && e.code === "EEXIST") return { written: false, refusal: `${plan.target} appeared meanwhile` };
-    throw e;
-  } finally {
-    rmSync(tmp, { force: true });
-  }
+  // Create-only for real (lib.mjs's exclusive create): a file made meanwhile
+  // is never replaced.
+  if (!createFileExclusive(plan.target, plan.content))
+    return { written: false, refusal: `${plan.target} appeared meanwhile` };
   return { written: true };
 }
