@@ -128,8 +128,17 @@ generic best practice — cite the real files and patterns you found.
 8. **Proposed `code_refs`** — the paths/globs this epic (and story) will own once
    implemented, ready for `$projectstore-codemap set`. You PROPOSE; the command
    writes after approval.
+9. **Open questions** — at most five decisions the user must make that the
+   code and the vault cannot answer, the one that changes the plan most
+   first. One per line:
+   `Q<n>. <the question> Options: (a) … (b) … Recommend (b): <why>`, with two to four options. The
+   recommendation is one of the options, so it can be recorded as the answer
+   when the user skips the question. "None" is the normal case. With more than
+   five, return five, say how many you left out, and say the story is
+   probably too big: suggest how to split it. You ask the user nothing; the
+   plan step puts these to the user in one round.
 
 Rules: be concrete and cite real paths / symbols; if the task is ambiguous or has
-two plausible homes, say so and recommend one with the tradeoff. No code
+two plausible homes, say so in Open questions (item 9) and recommend one with the tradeoff. No code
 generation beyond tiny illustrative snippets. You are read-only — never write
 code or vault files.
