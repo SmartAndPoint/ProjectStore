@@ -2698,6 +2698,9 @@ export function parseSpecContracts(spec) {
   const contracts = [];
   let cur = null;
   let inFirstPara = false;
+  // The scenario item a continuation line belongs to (SPEC-001 contract 13):
+  // a line indented deeper than its dash, not a bullet, before a blank line.
+  let open = null;
   for (const line of lines) {
     const top = line.match(/^(\d+[′″']*)\.(\s|$)/);
     if (top) {
@@ -2707,15 +2710,18 @@ export function parseSpecContracts(spec) {
         stepIndent: null,
         scenarios: [],
         marker: null,
+        marks: [],
         first: line,
       };
       contracts.push(cur);
       inFirstPara = true;
+      open = null;
       continue;
     }
     if (!cur) continue;
     if (/^\s*$/.test(line)) {
       inFirstPara = false;
+      open = null;
       continue;
     }
     if (inFirstPara) cur.first += " " + line.trim();
@@ -2723,14 +2729,24 @@ export function parseSpecContracts(spec) {
     if (step) {
       if (cur.stepIndent === null) cur.stepIndent = step[1].length;
       if (step[1].length === cur.stepIndent) cur.steps.add(contractNumberAscii(step[2]));
+      open = null;
       continue;
     }
-    const sc = line.match(/^\s*-\s+(WHEN|GIVEN|AND|THEN)\b/);
-    if (sc) cur.scenarios.push(line.trim());
+    const sc = line.match(/^(\s*)-\s+(WHEN|GIVEN|AND|THEN)\b/);
+    if (sc) {
+      cur.scenarios.push(line.trim());
+      open = { i: cur.scenarios.length - 1, indent: sc[1].length };
+      continue;
+    }
+    if (open && line.match(/^\s*/)[0].length > open.indent && !/^\s*[-*+]\s/.test(line))
+      cur.scenarios[open.i] += " " + line.trim();
+    else open = null;
   }
   for (const c of contracts) {
     const mk = c.first.match(/\(verified\s*[:：]\s*(live|manual)\)/);
     c.marker = mk ? mk[1] : null;
+    // An (edge) or (failure) mark closes a WHEN or GIVEN item; nowhere else counts.
+    c.marks = c.scenarios.map((l) => /^-\s+(WHEN|GIVEN)\b.*\((edge|failure)\)\s*$/.exec(l)?.[2]).filter(Boolean);
     delete c.first;
     delete c.stepIndent;
   }
@@ -2808,8 +2824,30 @@ export function checkSpecAliases(artifacts) {
   return out;
 }
 
+// Happy path only (SPEC-001 contract 13; the authoring-guides ADR, decision
+// 7): the contracts of an active spec that carry scenarios and have none
+// marked (edge) or (failure). Counted, not judged; no git.
+export function checkHappyPathOnly(artifacts) {
+  const out = [];
+  for (const s of artifacts.filter((a) => a.kind === "spec" && String(a.fm.status || "") === "active")) {
+    const withScenarios = (parseSpecContracts(s) || []).filter((c) => c.scenarios.length);
+    const bare = withScenarios.filter((c) => !c.marks.length).map((c) => c.n);
+    if (!bare.length) continue;
+    out.push(
+      finding(
+        "vault",
+        "info",
+        "contract-happy-path-only",
+        `${bare.length} of ${withScenarios.length} contracts with scenarios have no scenario marked (edge) or (failure): ${bare.join(", ")}.`,
+        s.rel,
+      ),
+    );
+  }
+  return out;
+}
+
 // Scenario shape (Decision 3): a contract's scenario items need a WHEN (or
-// GIVEN) and a THEN. That is the only reading of scenarios.
+// GIVEN) and a THEN.
 export function checkScenarioShape(artifacts) {
   const out = [];
   for (const s of artifacts.filter((a) => a.kind === "spec")) {
@@ -3850,6 +3888,7 @@ export function runVaultChecks(
     () => checkLifecycleGates(artifacts, vaultCfg),
     () => checkSpecAliases(artifacts),
     () => checkScenarioShape(artifacts),
+    () => checkHappyPathOnly(artifacts),
     () => {
       const scan = scanCitations(cfg, artifacts, proj, grep);
       return [...checkContractCitations(artifacts, scan), ...checkEvidenceCitations(artifacts, vaultCfg, scan)];
