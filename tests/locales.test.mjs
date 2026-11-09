@@ -176,6 +176,17 @@ for (const lang of LOCALES) {
     assert.ok(!("no_spec" in data), `${lang}: the commented field became a key`);
   });
 
+  // SPEC-001 contract 13 (amended for the Independent test line): one bold
+  // label with its comment under Description, in every locale.
+  test(`locale ${lang}: the story template offers one Independent test line under Description`, () => {
+    const tmpl = readFileSync(join(REPO, "templates", lang, "story.md.tmpl"), "utf8");
+    const desc = tmpl.split(/^## /m)[1];
+    const lines = desc.split("\n").filter((l) => /^\*\*[^*]+\*\* ?<!--.*-->$/.test(l));
+    assert.equal(lines.length, 1, `${lang}: ${desc}`);
+    if (lang === "en") assert.match(lines[0], /^\*\*Independent test:\*\* <!-- Optional\./);
+    else assert.ok(!/Independent test/.test(lines[0]), `${lang}: the label is translated`);
+  });
+
   test(`locale ${lang}: templates complete, doctor clean (contract 1)`, () => {
     const findings = checkLayoutTemplates({ layout: "engineering", language: lang });
     assert.deepEqual(findings, [], findings.map((f) => f.message).join("; "));
