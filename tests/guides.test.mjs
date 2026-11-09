@@ -169,7 +169,7 @@ test("resolveGuide: a vault file that does not parse or cannot be read is skippe
   assert.deepEqual(resolveGuide("spec", { vault, root: REPO }).sections.Must, ["edited"]);
   assert.equal(resolveGuide("spec", { vault, root: REPO, source: "package" }).source, "package");
   assert.equal(resolveGuide("research", { vault, root: REPO, source: "vault" }).resolved, null);
-  assert.deepEqual(guideKinds({ vault, root: REPO }), KINDS);
+  assert.deepEqual(guideKinds({ vault, root: REPO }), [...KINDS, "story.test"].sort());
   assert.throws(() => resolveGuide("../x", { root: REPO }), /guide takes a kind/);
   assert.throws(() => resolveGuide("a/b", { root: REPO }), /guide takes a kind/);
 });
@@ -242,10 +242,13 @@ test("guide eject: a preview writes nothing; --write creates package bytes plus 
   assert.match(again.err, /already exists/);
   assert.equal(readFileSync(join(vault, "guides", "spec.md"), "utf8"), copy, "byte-identical");
   assert.equal(
-    (await cli(["guide", "eject", "story.test", "--write", "--project", proj])).code,
+    (await cli(["guide", "eject", "story.nope", "--write", "--project", proj])).code,
     1,
     "no package file of that name",
   );
+  // A variant with a package file ejects like a kind.
+  assert.equal((await cli(["guide", "eject", "story.test", "--write", "--project", proj])).code, 0);
+  assert.match(readFileSync(join(vault, "guides", "story.test.md"), "utf8"), /^based_on: 1$/m);
   assert.equal(planEject("spec", { vault: null, root: REPO }).ok, false);
   // The runner the MCP server runs: eject is a usage error, and nothing is written.
   const { proj: p2, vault: v2 } = makeVaultProject();

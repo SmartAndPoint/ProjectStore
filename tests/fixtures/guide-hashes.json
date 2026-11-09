@@ -30,5 +30,9 @@
   "story": {
     "guide_version": 1,
     "hash": "cb63d7333749d11c0507e10dfdd0706c0f15d1b7aa008bd3f5d9df9f2cc6510e"
+  },
+  "story.test": {
+    "guide_version": 1,
+    "hash": "97c55a5dfe90ddc597001b96ccf8f434b4d6c131830b10cf4c676f1ac627a977"
   }
 }

@@ -1,6 +1,6 @@
 ---
 name: projectstore-story
-description: "Create a new story inside an existing epic, or run its lifecycle gates (plan / close). Arguments: <epic-id> <title> [--spec SPEC-ID] | plan <story> | close <story>."
+description: "Create a new story inside an existing epic, or run its lifecycle gates (plan / close). Arguments: <epic-id> <title> [--spec SPEC-ID] [--variant test] | plan <story> | close <story>."
 ---
 
 ## Runtime path
@@ -37,11 +37,20 @@ the two cannot collide).
 
 2. **Validate args**: epic-id (positional 1) + title (rest). If only one word, ask for the title. An optional `--spec SPEC-ID` names the covering spec — put it into the rendered draft's `specs:` list (inline flow: `specs: ["SPEC-001"]`). Under `spec_policy: required` (vault's `.projectstore.json`), remind that a story needs a covering spec before implementation starts, or a `no_spec` reason declared at the plan gate.
 
+   An optional `--variant test` makes a **test story**: one that plans the
+   tests for a spec's contracts, written to the `story.test` guide. Only
+   `test` is defined: refuse another value and name `test`. Remove `--variant test` and `--spec SPEC-ID` with its
+   value from the arguments before any `draft.mjs` call, in step 3 and in the
+   re-run of step 6: the script reads every remaining word as the title, so a
+   flag left in would end up in the title and the slug.
+
 2a. **Read the guide** for this kind before writing anything:
 
    ```bash
    node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" guide story --project "$PWD"
    ```
+
+   For a test story read `guide story.test` instead, in the same form.
 
    Write the draft to its `## Must`, `## Common mistakes`, `## Do not write`
    and `## Length`: the critic checks the same `## Must` items. Exit 1 means
@@ -50,10 +59,15 @@ the two cannot collide).
 3. **Render draft**:
 
    ```bash
-   node "${PROJECTSTORE_CORE_ROOT}/scripts/draft.mjs" story "<user-arguments>"
+   node "${PROJECTSTORE_CORE_ROOT}/scripts/draft.mjs" story <epic-id> "<title>"
    ```
 
-   The script fails if the epic folder does not exist. Surface the error and suggest `$projectstore-epic <id> "<title>"` first.
+   The epic id and the title only, with the flags of step 2 removed. The
+   script fails if the epic folder does not exist. Surface the error and suggest `$projectstore-epic <id> "<title>"` first.
+
+3a. **For a test story**, replace the draft's commented `# variant: test …`
+   line with `variant: test` before the preview, the way `--spec` fills
+   `specs:`. The critic then reviews the story against `story.test`.
 
 4. **Preview**: path + first ~25 lines.
 
@@ -61,9 +75,10 @@ the two cannot collide).
 
    When prompting "Edit", note that the story template has a `Decomposition` checklist — if the user wants to seed it with concrete tasks from the current conversation, regenerate with those tasks pre-filled in place of the empty checkboxes.
 
-6. **Post-approval race re-check** (Layer 1): re-run `draft.mjs story "<user-arguments>"` and re-read its `collision` field — an exact-name `test -e` cannot see normalized cross-era collisions (`story-006-foo.md` vs `story-foo.md`). If `collision` is non-null, surface it as a topic collision (`"<identity>" already exists as <with>`), and ask: extend the existing story, pick a different slug (`-2` is a deliberate distinct identity), or cancel. Render `warnings` entries as `⚠️` lines in the preview too.
+6. **Post-approval race re-check** (Layer 1): re-run `draft.mjs story <epic-id> "<title>"` (the same stripped arguments as step 3) and re-read its `collision` field — an exact-name `test -e` cannot see normalized cross-era collisions (`story-006-foo.md` vs `story-foo.md`). If `collision` is non-null, surface it as a topic collision (`"<identity>" already exists as <with>`), and ask: extend the existing story, pick a different slug (`-2` is a deliberate distinct identity), or cancel. Render `warnings` entries as `⚠️` lines in the preview too.
 
-7. **On Yes** (path free): Write file.
+7. **On Yes** (path free): Write the file you previewed, with the step-2 and
+   step-3a edits (`specs:`, `variant: test`), not the re-run's raw draft.
 
 8. **Suggest next**: "Now decompose the work in the `Decomposition` section, or run `$projectstore-kanban` to refresh the board. Before implementation: `$projectstore-story plan <story>`."
 
