@@ -50,6 +50,13 @@ the two cannot collide).
    line with `variant: test` before the preview, the way `--spec` fills
    `specs:`. The critic then reviews the story against `story.test`.
 
+3b. **The Independent test line** (optional, under Description; its label is
+   translated in each locale). When the conversation already says how this
+   story is checked on its own (a command to run and what to see), write
+   that sentence in place of the line's comment. Otherwise leave the
+   placeholder as it is and invent nothing: it is a hint, not a gate. Quote
+   the line in the preview.
+
 4. **Preview**: path + first ~25 lines.
 
 5. **Approval** via AskUserQuestion: Yes / Edit / No.
@@ -58,8 +65,9 @@ the two cannot collide).
 
 6. **Post-approval race re-check** (Layer 1): re-run `draft.mjs story <epic-id> "<title>"` (the same stripped arguments as step 3) and re-read its `collision` field — an exact-name `test -e` cannot see normalized cross-era collisions (`story-006-foo.md` vs `story-foo.md`). If `collision` is non-null, surface it as a topic collision (`"<identity>" already exists as <with>`), and ask: extend the existing story, pick a different slug (`-2` is a deliberate distinct identity), or cancel. Render `warnings` entries as `⚠️` lines in the preview too.
 
-7. **On Yes** (path free): Write the file you previewed, with the step-2 and
-   step-3a edits (`specs:`, `variant: test`), not the re-run's raw draft.
+7. **On Yes** (path free): Write the file you previewed, with the step-2,
+   step-3a and step-3b edits (`specs:`, `variant: test`, the Independent test
+   line), not the re-run's raw draft.
 
 8. **Suggest next**: "Now decompose the work in the `Decomposition` section, or run `/projectstore:kanban` to refresh the board. Before implementation: `/projectstore:story plan <story>`."
 
@@ -101,6 +109,9 @@ the two cannot collide).
      risks & follow-ups), and update the Acceptance Criteria checkboxes with
      evidence suffixes: `- [x] <criterion> — evidence: <test | command | file:line>`.
      Check a box ONLY with real evidence (reviewer output, test run, command).
+     When the story's Independent test line is filled, in the Final Summary's
+     tests executed, say whether the Independent test ran and how (the command
+     and what was seen), or why not; the story closes either way.
 
 4. **Preview** path + notes + the changed sections. **Approval** via
    AskUserQuestion: Yes / Edit / No.

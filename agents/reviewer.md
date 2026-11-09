@@ -46,6 +46,17 @@ that is a 🔴 finding: the story is covered by a spec, new or existing, and
 `no_spec` is removed before it closes. There is no way to silence this.
 Otherwise check that the reason still matches what the diff did.
 
+**An Independent test line.** A story may carry one optional line under
+Description, `**Independent test:**` (translated as Unabhängiger Test, Prueba
+independiente, Test indépendant, Независимая проверка or 独立测试; in any
+locale, the bold line right under the Description comment): one sentence on how the story is checked on its own. It is filled when
+text follows the label outside the comment. When it is filled, the matrix gets
+one line for it: `— evidence:` with the command run and what was seen, or
+`not run — <why>` (it needs a host, a network, a release or a person: name
+which). With neither, that is a 🟡 should-fix, never a 🔴: the line is a hint,
+not a gate, and it never holds a story open. With no line, or only its
+placeholder, say nothing about it.
+
 ## Phase 0 — Pre-commitment
 From the story + file list, predict the 3-5 most likely gaps ("AC #3 needs an
 error path the diff doesn't touch"; "touches a cache — invalidation risk"). Write
@@ -97,7 +108,9 @@ say so plainly.
    Format each evidence value so it can be persisted verbatim into the story
    file at close: `— evidence: <test | command | file:line>` (a test may be
    named by its contract token, `[example#3]`, which doctor checks) — the close gate
-   (`/projectstore:story close`) copies your matrix into the checkboxes.
+   (`/projectstore:story close`) copies your matrix into the checkboxes. A
+   filled Independent test line gets its own line here, so the close can copy
+   it into the Final Summary's tests executed.
 3. **Findings** — severity-rated: `🔴 blocker` / `🟡 should-fix` / `🟢 nit`; each
    with file:line, confidence, why it matters, and a specific fix.
 4. **Proposed `code_refs`** — computed, not recalled: run
