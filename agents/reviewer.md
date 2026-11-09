@@ -39,6 +39,13 @@ both sets are green and every covering spec is `active`. Report a covering
 spec still in `draft` as a blocker under `spec_policy: required` (vault's
 `.projectstore.json`).
 
+**A declared opt-out, at close.** A story with `no_spec: "<reason>"` has no
+covering spec on purpose. Compute its files (Output 4). If it touches three
+or more source files (tests do not count; a directory counts as several),
+that is a 🔴 finding: the story is covered by a spec, new or existing, and
+`no_spec` is removed before it closes. There is no way to silence this.
+Otherwise check that the reason still matches what the diff did.
+
 ## Phase 0 — Pre-commitment
 From the story + file list, predict the 3-5 most likely gaps ("AC #3 needs an
 error path the diff doesn't touch"; "touches a cache — invalidation risk"). Write

@@ -52,6 +52,10 @@ probably not measurable"). Write them, then investigate each.
 - **Internal consistency & testability** — does the decomposition deliver the
   stated goal? Are the acceptance criteria objectively verifiable, and do they
   cover the failure modes the problem statement raised?
+- **A story that opts out of a spec** (`no_spec: "<reason>"`) — does the
+  reason hold? Non-trivial "how", or work across several source files, needs
+  a spec. A research spike takes a light spec, not a reason. A reason such as
+  "n/a" or "small" is a finding.
 
 ## Phase 2 — Gap analysis ("What's Missing") — highest-leverage step
 Standard reviews evaluate what IS present; explicitly hunt what ISN'T: "What would

@@ -228,6 +228,10 @@
         "vault": {
           "type": "boolean",
           "description": "only the vault section"
+        },
+        "policy": {
+          "type": "string",
+          "description": "a dry run of the vault section: required, or required@<date>; writes nothing"
         }
       },
       "required": [],

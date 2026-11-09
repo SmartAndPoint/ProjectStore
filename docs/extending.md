@@ -181,8 +181,23 @@ nothing checking that they agree — see the PS-I18N epic's backlog.
 
 `<vault>/.projectstore.json` (vault root — committed with the vault, survives
 clones) carries `spec_policy: required|optional`, `lifecycle_gates: on|off`,
-and `spec_policy_since` (ISO-8601). See ADR-007 in the project vault and
-`commands/doctor.md` for which checks each key activates.
+`spec_policy_since` and `gates_since` (ISO-8601). See ADR-007 and the spec
+policy ADR in the project vault, and `commands/doctor.md`, for which checks
+each key activates.
+
+- `configure` stamps `spec_policy_since` when the policy becomes `required`,
+  and `gates_since` when the lifecycle gates turn on. A done story closed
+  before the date is legacy. The lifecycle checks read `spec_policy_since`,
+  then `gates_since`.
+- A story may declare `no_spec: "<reason>"` at the plan gate instead of a
+  covering spec. Under `required`, doctor accepts it. Under any policy it
+  checks the declaration:
+  - an empty reason, or `no_spec` beside `specs:`, is an issue;
+  - three or more source files in the story's `code_refs` is a warn;
+  - when opt-outs outnumber covered stories among code stories, that is a
+    warn.
+- `doctor --vault --policy required[@<date>]` shows what `required` would
+  report, without writing anything.
 
 ## Contributing back
 

@@ -240,7 +240,7 @@ Each setting has exactly one writer, and the plan says which file it changes:
 
 - **The agents' models and efforts** live in `.projectstore/harness/<harness>.json`. That file is committed, so a change there is a team change.
 - **The status line, the band, the language and the other binding keys** live in `.projectstore/projectstore.json`, which stays on this machine.
-- **The spec policy and the lifecycle gates** live in the vault's `.projectstore.json`, which commits with the vault. Setting `spec_policy=required` records when it took effect; stories closed before then are exempt. A spec's contracts can carry WHEN/THEN scenarios, and a test can cite a contract, so doctor can report the contracts no test covers: see [`docs/contracts-and-tests.md`](./docs/contracts-and-tests.md).
+- **The spec policy and the lifecycle gates** live in the vault's `.projectstore.json`, which commits with the vault. Setting `spec_policy=required` records when it took effect; stories closed before then are exempt. A story whose work needs no spec can say why in `no_spec`, and `doctor --vault --policy required` shows what the policy would report before you switch it on. A spec's contracts can carry WHEN/THEN scenarios, and a test can cite a contract, so doctor can report the contracts no test covers: see [`docs/contracts-and-tests.md`](./docs/contracts-and-tests.md).
 
 The vault itself is changed by `bind --rebind`, which configure names when asked. In a Claude Code session, `/projectstore:statusline` and `/projectstore:agents configure` run the same writers.
 

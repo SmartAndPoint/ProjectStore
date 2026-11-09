@@ -13,7 +13,9 @@
 // The SessionStart line counts level==="issue" only.
 //
 // CLI: node doctor.mjs [--install] [--vault] [--startup] [--json]
-//      default = --install --vault. Exit code is always 0 (reporting tool).
+//                      [--policy required[@<date>]]
+//      default = --install --vault. Exit code is always 0 (reporting tool),
+//      except 2 for a bad --policy, which writes nothing to stdout.
 //      Without --json the findings are drawn by doctor-report.mjs, the
 //      renderer the bin uses, in its plain layout.
 
@@ -36,6 +38,13 @@ import {
   statusLineIsOurs,
   statusLineIsOurWiring,
   isLegacyStory,
+  legacySince,
+  lifecycleGatesOn,
+  noSpecOf,
+  parseDryRunPolicy,
+  checklistItems,
+  isTestPath,
+  isSourcePath,
   sectionOf,
   indexHeaderRe,
   evidenceSuffixRe,
@@ -2479,12 +2488,15 @@ export function checkSpecCoverage(artifacts, vaultCfg, layout = null) {
     if (isLegacyStory(story.fm, since)) continue;
     const ids = listOf(story.fm, "specs");
     if (!ids.length) {
+      // A declared opt-out passes coverage (the spec policy ADR, Decision 12);
+      // checkNoSpec judges the declaration itself.
+      if (noSpecOf(story.fm).declared) continue;
       out.push(
         finding(
           "vault",
           "issue",
           "spec-coverage",
-          `Story is ${status} with no covering spec (spec_policy: required — every story needs a spec; ADR-007).`,
+          `Story is ${status} with no covering spec and no no_spec reason (spec_policy: required — a story needs a spec, or a no_spec reason written at the plan gate).`,
           story.rel,
         ),
       );
@@ -2611,10 +2623,10 @@ export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
 // ─── Lifecycle gates (PS-SPEC story-008) — behind lifecycle_gates=on ───
 
 export function checkLifecycleGates(artifacts, vaultCfg) {
-  const gates = String(vaultCfg.lifecycle_gates || "off").toLowerCase();
-  if (!["on", "true"].includes(gates)) return [];
+  if (!lifecycleGatesOn(vaultCfg)) return [];
   const out = [];
-  const since = vaultCfg.spec_policy_since || null;
+  // spec_policy_since, else gates_since (the spec policy ADR, Decision 18a).
+  const since = legacySince(vaultCfg);
   const evidenceRe = evidenceSuffixRe();
 
   for (const story of artifacts.filter((a) => a.kind === "story")) {
@@ -2623,16 +2635,17 @@ export function checkLifecycleGates(artifacts, vaultCfg) {
 
     const acc = sectionOf(story.body, "acceptance");
     if (acc !== null) {
-      // Raw lines (fence-immune matching, verbatim reporting — backticks kept).
-      for (const line of linesOutsideFences(acc)) {
-        const m = line.match(/^\s*-\s*\[(x|X)\]\s*(.*)$/);
-        if (m && !evidenceRe.test(m[2])) {
+      // Raw lines (fence-immune matching, verbatim reporting — backticks
+      // kept), each item read with its wrapped continuation lines, so an
+      // evidence suffix on the item's second line counts.
+      for (const item of checklistItems(linesOutsideFences(acc))) {
+        if (item.checked && !evidenceRe.test(item.text)) {
           out.push(
             finding(
               "vault",
               "warn",
               "evidence",
-              `Checked acceptance criterion carries no evidence suffix ("— evidence: <test | command | file:line>"): "${m[2].slice(0, 70)}".`,
+              `Checked acceptance criterion carries no evidence suffix ("— evidence: <test | command | file:line>"): "${item.text.slice(0, 70)}".`,
               story.rel,
             ),
           );
@@ -2990,9 +3003,8 @@ export function checkContractCitations(artifacts, scan) {
 // review, and for a done story that is not legacy. Free-text evidence is
 // never checked, and doctor never runs a test.
 export function checkEvidenceCitations(artifacts, vaultCfg, scan) {
-  const gates = String(vaultCfg.lifecycle_gates || "off").toLowerCase();
-  if (!["on", "true"].includes(gates) || !scan || scan.status !== "ok") return [];
-  const since = vaultCfg.spec_policy_since || null;
+  if (!lifecycleGatesOn(vaultCfg) || !scan || scan.status !== "ok") return [];
+  const since = legacySince(vaultCfg);
   const present = new Set(scan.tokens.map((t) => `${t.key}#${t.n}`));
   const evidenceRe = evidenceSuffixRe();
   const out = [];
@@ -3002,12 +3014,11 @@ export function checkEvidenceCitations(artifacts, vaultCfg, scan) {
     if (st === "done" && isLegacyStory(story.fm, since)) continue;
     const acc = sectionOf(story.body, "acceptance");
     if (acc === null) continue;
-    for (const line of linesOutsideFences(acc)) {
-      const m = line.match(/^\s*-\s*\[(x|X)\]\s*(.*)$/);
-      if (!m) continue;
-      const at = m[2].search(evidenceRe);
+    for (const item of checklistItems(linesOutsideFences(acc))) {
+      if (!item.checked) continue;
+      const at = item.text.search(evidenceRe);
       if (at === -1) continue;
-      for (const t of m[2].slice(at).matchAll(citationTokenRe())) {
+      for (const t of item.text.slice(at).matchAll(citationTokenRe())) {
         if (t[1] === CITATION_EXAMPLE_KEY || present.has(`${t[1]}#${t[2]}`)) continue;
         out.push(
           finding(
@@ -3022,6 +3033,144 @@ export function checkEvidenceCitations(artifacts, vaultCfg, scan) {
     }
   }
   return out;
+}
+
+// ─── The declared opt-out from a spec (the spec policy ADR, Part B) ───
+
+// How much source a story's code_refs name, for the size and ratio checks
+// (Decision 15): a directory or a glob weighs three; a file weighs one; a
+// test, or a path isSourcePath ignores, weighs nothing.
+export function sourceWeight(fm, proj, vaultPath) {
+  let w = 0;
+  for (const ref of listOf(fm, "code_refs")) {
+    const r = String(ref).replace(/^\.\//, "");
+    if (!r || isTestPath(r)) continue;
+    const base = r.replace(/[*?[{].*$/, "").replace(/\/$/, "");
+    if (!isSourcePath(join(proj, base || r), proj, vaultPath)) continue;
+    let dir = /\/$/.test(r) || /[*?[{]/.test(r);
+    if (!dir) {
+      try {
+        dir = statSync(join(proj, r)).isDirectory();
+      } catch {}
+    }
+    w += dir ? 3 : 1;
+  }
+  return w;
+}
+
+// The opt-out's own checks, under every spec policy, on stories in scope that
+// are not legacy (Decisions 13 and 15): an empty reason or no_spec beside
+// specs: is an issue; a story whose code_refs weigh three or more is a warn.
+export function checkNoSpec(artifacts, vaultCfg, proj, vaultPath) {
+  const out = [];
+  const since = legacySince(vaultCfg);
+  for (const story of artifacts.filter((a) => a.kind === "story")) {
+    const ns = noSpecOf(story.fm);
+    if (!ns.declared || !specScopeStatus(story.fm) || isLegacyStory(story.fm, since)) continue;
+    if (!ns.reason) {
+      out.push(
+        finding("vault", "issue", "no-spec", "no_spec has no reason — say why this story needs no spec.", story.rel),
+      );
+    }
+    if (listOf(story.fm, "specs").length) {
+      out.push(
+        finding(
+          "vault",
+          "issue",
+          "no-spec",
+          "The story lists specs and also declares no_spec — keep one: the spec, or the reason.",
+          story.rel,
+        ),
+      );
+    }
+    if (sourceWeight(story.fm, proj, vaultPath) >= 3) {
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "no-spec",
+          "A no_spec story whose code_refs name three or more source files — AGENTS.md wants a spec for work across several files. Cover it with a spec and remove no_spec.",
+          story.rel,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// Opt-outs against covered stories, among code stories only (Decision 16).
+// One info when any opt-out exists; a warn once the window holds five stories
+// and the opt-outs outnumber the covered ones. The window is every in-scope
+// code story that is not legacy, stories with neither field included; with
+// no date, done stories are legacy and only open ones are in it.
+export function checkNoSpecShare(artifacts, vaultCfg, proj, vaultPath) {
+  const since = legacySince(vaultCfg);
+  let window = 0;
+  let optedOut = 0;
+  let covered = 0;
+  const perEpic = {};
+  for (const story of artifacts.filter((a) => a.kind === "story")) {
+    if (!specScopeStatus(story.fm) || isLegacyStory(story.fm, since)) continue;
+    if (sourceWeight(story.fm, proj, vaultPath) < 1) continue;
+    window++;
+    const epic = String(story.fm.epic || "");
+    perEpic[epic] = perEpic[epic] || { no_spec: 0, specs: 0 };
+    if (noSpecOf(story.fm).declared) {
+      optedOut++;
+      perEpic[epic].no_spec++;
+    } else if (listOf(story.fm, "specs").length) {
+      covered++;
+      perEpic[epic].specs++;
+    }
+  }
+  if (!optedOut) return [];
+  const warn = window >= 5 && optedOut > covered;
+  const f = finding(
+    "vault",
+    warn ? "warn" : "info",
+    "no-spec-share",
+    `${optedOut} code ${optedOut === 1 ? "story opts" : "stories opt"} out of a spec, against ${covered} covered by one${warn ? " — opting out has become the norm for code work" : ""}.`,
+  );
+  f.per_epic = perEpic;
+  return [f];
+}
+
+// An accepted ADR past its review_by (Decision 17), until it is reviewed on
+// or after that date.
+export function checkReviewBy(artifacts, now = new Date().toISOString()) {
+  const out = [];
+  const today = String(now).slice(0, 10);
+  for (const a of artifacts.filter((x) => x.kind === "adr")) {
+    const by = a.fm.review_by && a.fm.review_by !== "null" ? String(a.fm.review_by).slice(0, 10) : null;
+    if (!by || String(a.fm.status || "") !== "accepted" || by >= today) continue;
+    const at = a.fm.reviewed_at && a.fm.reviewed_at !== "null" ? String(a.fm.reviewed_at).slice(0, 10) : "";
+    if (String(a.fm.review_status || "") === "reviewed" && at >= by) continue;
+    out.push(
+      finding(
+        "vault",
+        "info",
+        "review-by",
+        `This decision was due for review on ${by}. Review it, then set review_status: reviewed and reviewed_at, or move review_by.`,
+        a.rel,
+      ),
+    );
+  }
+  return out;
+}
+
+// A vault whose gates are on but that has no date to count from: every done
+// story is legacy, so the lifecycle checks never reach one (Decision 18a).
+export function checkGatesStamp(vaultCfg, proj) {
+  if (!lifecycleGatesOn(vaultCfg)) return [];
+  if (vaultCfg.spec_policy_since || vaultCfg.gates_since) return [];
+  return [
+    finding(
+      "vault",
+      "info",
+      "gates-since",
+      `The lifecycle gates are on, but the vault has no date to count from, so no done story is checked. Stamp it ${fromTerminalIn(proj)} (stories closed after now are checked from then on):\n${packageCommand([], "configure", { args: "--set lifecycle_gates=on" })}`,
+    ),
+  ];
 }
 
 // Suggestion for existing binds: specs exist but no vault policy declared.
@@ -3586,7 +3735,10 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
   return foldIntoMove(out);
 }
 
-export function runVaultChecks(cfg, { proj = projectRoot(), grep = grepProjectLines } = {}) {
+export function runVaultChecks(
+  cfg,
+  { proj = projectRoot(), grep = grepProjectLines, policy = null, now = new Date().toISOString() } = {},
+) {
   let layout;
   try {
     layout = loadLayout(cfg.layout);
@@ -3596,8 +3748,19 @@ export function runVaultChecks(cfg, { proj = projectRoot(), grep = grepProjectLi
   const artifacts = scanArtifacts(cfg, layout);
   // Vault-side policy read ONCE (ADR-007 Decision 4): spec gates and lifecycle
   // gates key off <vault>/.projectstore.json, never the machine-local config.
-  const vaultCfg = readVaultConfig(cfg.vault_path);
+  // A dry run (`--policy`) overlays it in memory and writes nothing.
+  const vaultCfg = { ...readVaultConfig(cfg.vault_path), ...(policy || {}) };
   const findings = [...checkKanbanSync(cfg), ...checkIndexes(cfg, layout, artifacts)];
+  if (policy) {
+    findings.push(
+      finding(
+        "vault",
+        "info",
+        "dry-run",
+        `Dry run: the vault is evaluated as spec_policy: required since ${policy.spec_policy_since}. Nothing was written; the vault's own policy is unchanged.`,
+      ),
+    );
+  }
   // Registry-dependent checks: a missing/corrupt scaffold/headings.json must
   // become a finding, never a crash that swallows the whole report.
   const guarded = [
@@ -3630,6 +3793,10 @@ export function runVaultChecks(cfg, { proj = projectRoot(), grep = grepProjectLi
     ...checkArtifactNames(vaultFiles),
     ...checkExternalRefsForm(artifacts),
     ...checkCodeRefs(artifacts, proj),
+    ...checkNoSpec(artifacts, vaultCfg, proj, cfg.vault_path),
+    ...checkNoSpecShare(artifacts, vaultCfg, proj, cfg.vault_path),
+    ...checkReviewBy(artifacts, now),
+    ...checkGatesStamp(vaultCfg, proj),
     ...checkWorkWithoutStory(cfg, proj),
     ...checkCodeMap(cfg),
     ...checkGraph(cfg),
@@ -3700,6 +3867,20 @@ async function main() {
     install = true;
     vault = true;
   }
+  // `--policy required[@<date>]`: a dry run of the vault section as if the
+  // spec policy were required (the spec policy ADR, Decision 18). Read-only.
+  let policy = null;
+  const pi = args.indexOf("--policy");
+  if (pi !== -1) {
+    const parsed = parseDryRunPolicy(args[pi + 1]);
+    const why = parsed.error || (!vault ? "--policy applies to the vault section only" : null);
+    if (why) {
+      process.stderr.write(`doctor: ${why}\n`);
+      process.exitCode = 2;
+      return;
+    }
+    policy = parsed.policy;
+  }
 
   const cfg = readConfig();
   const proj = projectRoot();
@@ -3718,7 +3899,7 @@ async function main() {
   }
   if (vault && cfg && cfg.vault_path && existsSync(cfg.vault_path)) {
     groups.push("vault");
-    findings.push(...runVaultChecks(cfg, { proj }));
+    findings.push(...runVaultChecks(cfg, { proj, policy }));
   } else if (vault) {
     groups.push("vault");
     findings.push(finding("vault", "info", "vault", "Vault checks skipped — no usable vault (see install issues)."));

@@ -194,6 +194,32 @@ test("configure contract 5: binding keys are written by the one writer, which ke
   assert.deepEqual(tree(fresh.proj, fresh.vault), before);
 });
 
+test("configure contract 7 (amended 2026-11-08): gates_since is stamped when the gates turn on, and a vault already on gets its date", async () => {
+  const t1 = "2026-01-01T00:00:00.000Z";
+  const t2 = "2026-02-01T00:00:00.000Z";
+  const a = nextVaultConfig({}, { lifecycle_gates: "on" }, t1);
+  assert.equal(a.gates_since, t1);
+  assert.equal(nextVaultConfig(a, { lifecycle_gates: "on" }, t2).gates_since, t1, "on again with a stamp keeps it");
+  assert.equal(nextVaultConfig({ lifecycle_gates: "on" }, { lifecycle_gates: "on" }, t2).gates_since, t2);
+  const off = nextVaultConfig(a, { lifecycle_gates: "off" }, t2);
+  assert.equal(off.gates_since, t1, "turning the gates off keeps the stamp");
+  assert.equal(
+    nextVaultConfig(off, { lifecycle_gates: "on" }, "2025-01-01T00:00:00.000Z").gates_since,
+    t1,
+    "never earlier",
+  );
+
+  // A vault already on, with no stamp: the same --set is a change, not "Nothing to change".
+  const p = project({ vaultCfg: JSON.stringify({ lifecycle_gates: "on" }) });
+  const first = await configure(p, { set: ["lifecycle_gates=on"] });
+  assert.equal(first.r.code, 0);
+  assert.doesNotMatch(first.text, /Nothing to change/);
+  assert.match(first.text, /stories closed after now are checked by the lifecycle gates/);
+  assert.ok(json(join(p.vault, ".projectstore.json")).gates_since);
+  const again = await configure(p, { set: ["lifecycle_gates=on"] });
+  assert.match(again.text, /Nothing to change/);
+});
+
 test("configure contract 7: the stamp — set on a change to required, kept on required again and on optional, set anew on a return", () => {
   const t1 = "2026-01-01T00:00:00.000Z";
   const t2 = "2026-02-01T00:00:00.000Z";

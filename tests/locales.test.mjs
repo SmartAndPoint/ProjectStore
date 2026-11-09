@@ -167,6 +167,15 @@ for (const lang of LOCALES) {
     }
   });
 
+  // The spec policy ADR, Decision 13: the story template shows the opt-out
+  // as a comment, which parses to no key at all.
+  test(`locale ${lang}: the story template carries a commented no_spec that parses to nothing`, () => {
+    const tmpl = readFileSync(join(REPO, "templates", lang, "story.md.tmpl"), "utf8");
+    assert.match(tmpl, /^# no_spec: "/m);
+    const { data } = parseFrontmatter(renderTemplate(loadTemplate(lang, "story"), VARS));
+    assert.ok(!("no_spec" in data), `${lang}: the commented field became a key`);
+  });
+
   test(`locale ${lang}: templates complete, doctor clean (contract 1)`, () => {
     const findings = checkLayoutTemplates({ layout: "engineering", language: lang });
     assert.deepEqual(findings, [], findings.map((f) => f.message).join("; "));

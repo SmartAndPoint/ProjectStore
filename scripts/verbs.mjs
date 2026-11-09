@@ -227,6 +227,7 @@ export const VERBS = Object.freeze([
     options: [
       opt("install", false, "only the install section"),
       opt("vault", false, "only the vault section"),
+      opt("policy", "<rule>", "a dry run of the vault as required[@<date>]; writes nothing"),
       DOCTOR_VERBOSE_OPT,
       JSON_OPT,
     ],
@@ -614,7 +615,7 @@ const EXAMPLES = {
   show: ["{cmd} show adr/README.md", "{cmd} show epics/PS-CORE/epic.md --section acceptance"],
   graph: ["{cmd} graph neighbors adr/README.md --direction out", "{cmd} graph lineage epics/PS-CORE/epic.md --depth 2"],
   codemap: ["{cmd} codemap --for PS-CORE", "{cmd} codemap --for scripts/lib.mjs --reverse"],
-  doctor: ["{cmd} doctor", "{cmd} doctor --install --json"],
+  doctor: ["{cmd} doctor", "{cmd} doctor --install --json", "{cmd} doctor --vault --policy required"],
   reconcile: ["{cmd} reconcile  # what would change; nothing is written", "{cmd} reconcile --write"],
   bind: ["{cmd} bind ~/vaults/my-project", "{cmd} bind ~/vaults/other --rebind"],
   init: ["{cmd} init ~/vaults/new-project --language ru"],

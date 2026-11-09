@@ -270,3 +270,26 @@ test("runVaultChecks: aliases, coverage with citing files, and unknown tokens re
   assert.deepEqual(covA.cites, ["tests/a.test.mjs"]);
   assert.equal(by("registry").length, 0, "no check threw");
 });
+
+test("checkEvidenceCitations: a token on a wrapped line of the item is read, and gates_since reaches a done story", () => {
+  const body = [
+    "## Acceptance Criteria",
+    "",
+    "- [x] works, and the evidence",
+    `      wraps — evidence: ${tok("s", "6")}`,
+    "",
+  ].join("\n");
+  const done = {
+    kind: "story",
+    rel: "epics/E/stories/d.md",
+    fm: { type: "story", status: "done", closed_at: "2026-12-01T00:00:00Z" },
+    body,
+  };
+  const f = checkEvidenceCitations(
+    [done],
+    { lifecycle_gates: "on", gates_since: "2026-06-01T00:00:00Z" },
+    scanOf([["s", "4"]]),
+  );
+  assert.equal(f.length, 1);
+  assert.match(f[0].message, /#6\]/);
+});

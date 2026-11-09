@@ -104,7 +104,8 @@ const KEY = Object.freeze({
   lifecycle_gates: {
     text: () => "Whether doctor checks a story's plan and close sections.",
     values: {
-      on: () => "doctor checks a story's plan when it starts, and its final summary and evidence when it closes.",
+      on: () =>
+        "doctor checks a story's plan when it starts, and its final summary and evidence when it closes. Stories closed after now are checked.",
       off: () => "The plan and close sections are still written; doctor does not check them.",
     },
   },
