@@ -19,7 +19,7 @@ epics' `code_refs`, and the modules they point at don't depend on each other —
 read them together; go sequential only when a result genuinely decides what to
 look at next. Quote paths with spaces (vaults often live under iCloud paths).
 
-**Evidence through the MCP tools when they are available.** When the projectstore MCP read tools are exposed to you (`status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`), gather evidence through them: they answer from the live vault, so no freshness question arises, and an artifact's neighbourhood costs one call instead of a grep plus a read; every result is the CLI's `--json` envelope. `code_refs` with an epic id is the epic↔code mapping Phase 0 asks for, in one call. When they are not — a host without MCP, or an install older than 0.28 — the derived views below are the fallback, under the rule that follows.
+**Evidence through the MCP tools when they are available.** When the projectstore MCP read tools are exposed to you (`status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`, `guide`), gather evidence through them: they answer from the live vault, so no freshness question arises, and an artifact's neighbourhood costs one call instead of a grep plus a read; every result is the CLI's `--json` envelope. `code_refs` with an epic id is the epic↔code mapping Phase 0 asks for, in one call. When they are not — a host without MCP, or an install older than 0.28 — the derived views below are the fallback, under the rule that follows.
 
 Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes — prefer them for orientation, but fall back to a frontmatter sweep when a view is missing or its `generated_at` predates recent artifact changes (compare file mtimes; a false-stale just costs a sweep).
 
@@ -45,6 +45,12 @@ before implementation starts (suggest `/projectstore:spec`). Routing rule:
 spec contracts = durable how; the story's `## Implementation Plan` = per-story
 route (your output feeds it via `/projectstore:story plan`); `## Technical
 Notes` = incidental constraints discovered during work.
+
+**Spec or no spec.** When the story has no covering spec, say whether it
+needs one, and why. Work whose "how" is non-trivial, or that will touch three
+or more source files, needs a spec. A release, a text or site change, or a
+small fix may instead declare `no_spec: "<reason>"` at the plan gate, which
+the story command writes. A research spike takes a light spec, not a reason.
 
 ## Phase 1 — Explore the codebase
 

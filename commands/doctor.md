@@ -1,6 +1,6 @@
 ---
 description: Diagnose the projectstore installation (config, vault, hooks, statusline, agents wiring) and the vault's consistency (status ↔ kanban ↔ indexes, acceptance, links). Read-only by default; --fix offers approval-gated install-side repairs.
-argument-hint: "[--install | --vault] [--fix]"
+argument-hint: "[--install | --vault] [--policy required[@<date>]] [--fix]"
 ---
 
 You are running projectstore diagnostics (ADR-005: umbrella doctor).
@@ -13,7 +13,7 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
    node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" doctor $ARGUMENTS_WITHOUT_FIX
    ```
 
-   Forward only `--install` / `--vault` from the arguments: the bin's parser is strict, and any other flag is a usage error (exit 2) rather than the shrug the bare script gave. Exit 1 means findings were reported, not that the check failed (exit 2 is usage, 3 not bound) — read the report, never the exit code, as the verdict. (The bare script always exited 0; through the bin the exit code carries the verdict, so a Bash tool that colours non-zero red is colouring findings, not a crash.)
+   Forward only `--install` / `--vault` / `--policy <rule>` from the arguments. `--policy required` (or `required@<date>`) is a dry run of the vault section as if the spec policy were required since that date: it writes nothing, and the report opens with a `dry-run` note. The bin's parser is strict, and any other flag is a usage error (exit 2) rather than the shrug the bare script gave. Exit 1 means findings were reported, not that the check failed (exit 2 is usage, 3 not bound) — read the report, never the exit code, as the verdict. (The bare script always exited 0; through the bin the exit code carries the verdict, so a Bash tool that colours non-zero red is colouring findings, not a crash.)
 
    Default (no flags) runs both sections: `--install` (wiring/config) and
    `--vault` (consistency). Print the report **verbatim**.
@@ -186,5 +186,18 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   gates (`evidence`, `plan-gate`, `final-summary`) key off the VAULT-side
   policy file `<vault>/.projectstore.json` (`spec_policy` / `lifecycle_gates`,
   ADR-007), never the machine-local config. `spec-links` integrity runs
-  whenever specs exist. Legacy stories (done before `spec_policy_since`, or
-  done with no `closed_at`) are exempt by design.
+  whenever specs exist. Legacy stories (done before `spec_policy_since`, else
+  `gates_since`, or done with no `closed_at`) are exempt by design.
+- The opt-out checks run under every policy: `no-spec` (an empty reason,
+  `no_spec` beside `specs:`, or three or more source files), `no-spec-share`
+  (opt-outs against covered stories). `gates-since` suggests the stamp for
+  gates that have no date, `review-by` names an ADR due for review, and
+  `dry-run` heads a `--policy` report. None of them is repairable by `--fix`:
+  each is a judgement, or a `configure` step its message names.
+- The guide checks read the vault's `guides/` folder, the per-kind overrides
+  of the authoring guides: `guide-shape` (an override that does not parse, so
+  readers fall back to the package default), `guide-unknown` (a guide for a
+  kind the layout does not have) and `guide-stale` (an override made from an
+  older package default; the message names the command that reads the new
+  one). None of them is repairable by `--fix`: the override is the user's
+  file, and merging a newer default into it is a judgement.

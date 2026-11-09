@@ -18,7 +18,7 @@ its Description, Decomposition, and **Acceptance Criteria** — plus the parent
 epic and the plan if one was produced. If the caller named no story, ask the diff
 which story it serves (grep the vault) before falling back to a plain code review.
 
-**Evidence through the MCP tools when they are available.** When the projectstore MCP read tools are exposed to you (`status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`), gather evidence through them: they answer from the live vault, so no freshness question arises, and an artifact's neighbourhood costs one call instead of a grep plus a read; every result is the CLI's `--json` envelope. When they are not — a host without MCP, or an install older than 0.28 — the derived views below are the fallback, under the rule that follows. `lineage` on the story returns its covering specs and their ADRs in one call; `code_refs` answers whether the parent epic's footprint needs widening; `search` locates the story and its acceptance text.
+**Evidence through the MCP tools when they are available.** When the projectstore MCP read tools are exposed to you (`status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`, `guide`), gather evidence through them: they answer from the live vault, so no freshness question arises, and an artifact's neighbourhood costs one call instead of a grep plus a read; every result is the CLI's `--json` envelope. When they are not — a host without MCP, or an install older than 0.28 — the derived views below are the fallback, under the rule that follows. `lineage` on the story returns its covering specs and their ADRs in one call; `code_refs` answers whether the parent epic's footprint needs widening; `search` locates the story and its acceptance text.
 
 Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes —
 prefer them for orientation, but fall back to a frontmatter sweep when a view is
@@ -38,6 +38,13 @@ verify them exactly like the story's own criteria. A story closes only when
 both sets are green and every covering spec is `active`. Report a covering
 spec still in `draft` as a blocker under `spec_policy: required` (vault's
 `.projectstore.json`).
+
+**A declared opt-out, at close.** A story with `no_spec: "<reason>"` has no
+covering spec on purpose. Compute its files (Output 4). If it touches three
+or more source files (tests do not count; a directory counts as several),
+that is a 🔴 finding: the story is covered by a spec, new or existing, and
+`no_spec` is removed before it closes. There is no way to silence this.
+Otherwise check that the reason still matches what the diff did.
 
 ## Phase 0 — Pre-commitment
 From the story + file list, predict the 3-5 most likely gaps ("AC #3 needs an

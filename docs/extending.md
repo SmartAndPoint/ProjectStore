@@ -6,7 +6,8 @@ Since v0.14 the kind machinery is layout-driven: `draft.mjs` builds ANY kind
 declared in the layout, and doctor's template check follows the layout instead
 of a hardcoded list. A new kind needs **six touch points** — note that **all
 six live inside the plugin installation**, not in your vault (there is no
-vault-side layout or template override):
+vault-side layout or template override). The one exception is the guide
+(step 4): a vault may override it, file by file.
 
 1. **Layout folder entry** — `scaffold/layouts/<name>.json` → `folders`:
 
@@ -46,8 +47,31 @@ vault-side layout or template override):
    but an empty date sorts first, so the kind's rows pile up at the top of
    its index and stay there.
 
-4. **Checklist entry** — `scaffold/checklists.json`, consumed by
-   `/projectstore:review` and the `projectstore-peer-reviewer` skill. English-only by design.
+4. **Guide file** — `scaffold/guides/<kind>.md`, the kind's authoring guide:
+   frontmatter `guide_for: <kind>`, `guide_version: 1` and `default_review`
+   (bare values, no trailing comments), then `## Lens`, `## Must`,
+   `## Common mistakes`, `## Do not write` and `## Length`. Only `## Must` is
+   required; its plain bullets are the checklist the critic checks. The kind's
+   command reads the guide before the draft, `/projectstore:review` and the
+   critic check its `## Must`, and the `projectstore-peer-reviewer` skill reads
+   its `default_review`. The headings are English in every vault language; the
+   package defaults are English only. Bump `guide_version` whenever you change
+   a default's text, then record it:
+
+   ```
+   node tests/fixtures/guides.mjs --write
+   ```
+
+   A project overrides a guide in its vault, as `<vault>/guides/<kind>.md`,
+   which replaces the package file whole. To start from the default:
+
+   ```
+   npx projectstore guide eject <kind> --write
+   ```
+
+   Doctor reports a vault guide that does not parse (`guide-shape`), names an
+   unknown kind (`guide-unknown`), or was made from an older default
+   (`guide-stale`).
 
 5. **Command prompt** — `commands/<kind>.md`, a prompt (not code). It renders
    the draft with the line below, previews it, and gates every write behind
@@ -181,8 +205,23 @@ nothing checking that they agree — see the PS-I18N epic's backlog.
 
 `<vault>/.projectstore.json` (vault root — committed with the vault, survives
 clones) carries `spec_policy: required|optional`, `lifecycle_gates: on|off`,
-and `spec_policy_since` (ISO-8601). See ADR-007 in the project vault and
-`commands/doctor.md` for which checks each key activates.
+`spec_policy_since` and `gates_since` (ISO-8601). See ADR-007 and the spec
+policy ADR in the project vault, and `commands/doctor.md`, for which checks
+each key activates.
+
+- `configure` stamps `spec_policy_since` when the policy becomes `required`,
+  and `gates_since` when the lifecycle gates turn on. A done story closed
+  before the date is legacy. The lifecycle checks read `spec_policy_since`,
+  then `gates_since`.
+- A story may declare `no_spec: "<reason>"` at the plan gate instead of a
+  covering spec. Under `required`, doctor accepts it. Under any policy it
+  checks the declaration:
+  - an empty reason, or `no_spec` beside `specs:`, is an issue;
+  - three or more source files in the story's `code_refs` is a warn;
+  - when opt-outs outnumber covered stories among code stories, that is a
+    warn.
+- `doctor --vault --policy required[@<date>]` shows what `required` would
+  report, without writing anything.
 
 ## Contributing back
 

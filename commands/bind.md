@@ -95,7 +95,7 @@ Steps:
 
 7.5. **Vault policy** (v0.14, ADR-007 — vault-side, survives clones): check `<vault>/.projectstore.json`.
    - If it already exists with a `spec_policy` key — respect it, print the current policy, do not re-ask.
-   - **New bind into a vault with no artifacts** (a vault `init` just made counts: its folders and README indexes are not artifacts): ask via AskUserQuestion — "Enable spec-first policy for this vault (every story must be covered by a spec; doctor enforces it)?" with options **Yes, `spec_policy: required` (Recommended)** / **Not yet, `optional`**. Second question: "Enable lifecycle gates (plan/close sections + evidence checks on stories)?" — **Yes, `lifecycle_gates: on` (Recommended)** / **Off for now**.
+   - **New bind into a vault with no artifacts** (a vault `init` just made counts: its folders and README indexes are not artifacts): ask via AskUserQuestion — "Enable spec-first policy for this vault (every story is covered by a spec, or says at its plan gate why it needs none; doctor enforces it)?" with options **Yes, `spec_policy: required` (Recommended)** / **Not yet, `optional`**. Second question: "Enable lifecycle gates (plan/close sections + evidence checks on stories)?" — **Yes, `lifecycle_gates: on` (Recommended)** / **Off for now**.
    - **Bind to an existing vault with artifacts**: default to `spec_policy: optional`, `lifecycle_gates: off` and say doctor will suggest enabling once specs appear. Do not impose the gate on an existing backlog.
    - On any choice, run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" configure --set spec_policy=<required|optional> --set lifecycle_gates=<on|off> --dry-run --project "${CLAUDE_PROJECT_DIR}"` and show its PLAN, then ask via AskUserQuestion: "Record this policy in the vault? [Yes / No]". On **Yes**, run the same command without `--dry-run`; a non-zero exit is a refusal — relay it and go on to step 8 (the binding is already written). It writes `<vault>/.projectstore.json` — vault ROOT, deliberately not inside `<vault>/.projectstore/`, whose .gitignore would keep the policy out of git — and keeps any other key in it:
 
@@ -103,11 +103,12 @@ Steps:
    {
      "spec_policy": "required",
      "lifecycle_gates": "on",
-     "spec_policy_since": "<current ISO-8601 timestamp>"
+     "spec_policy_since": "<current ISO-8601 timestamp>",
+     "gates_since": "<current ISO-8601 timestamp>"
    }
    ```
 
-   configure stamps `spec_policy_since` whenever spec_policy becomes `required` — it anchors the legacy exemption (stories done before it stay exempt; stories in progress/review at enable time are in scope).
+   configure stamps `spec_policy_since` whenever spec_policy becomes `required` — it anchors the legacy exemption (stories done before it stay exempt; stories in progress/review at enable time are in scope). It stamps `gates_since` when the lifecycle gates turn on, so the gates check stories closed after that date under either policy.
 
 8. **Agent registration** (v0.13, ADR-002): ask via AskUserQuestion — "Register projectstore's agents in CLAUDE.md/AGENTS.md so every session routes to them (critic after authoring artifacts, planner before implementing, reviewer before commit)? [Yes (Recommended) / No]". On Yes, run `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" install --harness claude-code --surface agents_block --project "${CLAUDE_PROJECT_DIR}"` and print its output (it renders from the layout's roster, migrates rather than duplicates, previews every write, and applies because the harness is named). On a rebind where a block already exists the verb reports it current or replaces it in place — do not re-ask blindly.
 

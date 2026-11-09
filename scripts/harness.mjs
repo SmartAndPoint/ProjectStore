@@ -746,6 +746,8 @@ export const LAYOUT = Object.freeze({
   // The vault's own, unrelated files under the same name (ADR-007 decision 4; sessions).
   vaultConfig: ".projectstore.json",
   vaultSessions: "sessions",
+  // <vault>/guides/: per-kind authoring guide overrides (the authoring-guides ADR, decision 2).
+  guides: "guides",
 });
 // The header both the legacy and the new state .gitignore carry — how
 // uninstall recognises a state directory as ours (layout spec, contract 6).

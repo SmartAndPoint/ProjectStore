@@ -53,6 +53,7 @@ const CLEAR = "-";
 const LANGUAGE_NOTE =
   "new artifacts, the derived views on their next reconcile, the plan and close sections of stories still in flight, the session header and the status line take the new language; existing artifacts and the vault's READMEs are untouched";
 const STAMP_NOTE = "stories closed before now are exempt from the spec and lifecycle gates";
+const GATES_NOTE = "stories closed after now are checked by the lifecycle gates";
 
 const parseBool = (v) => {
   const s = String(v).trim().toLowerCase();
@@ -466,7 +467,11 @@ export function planChanges(f, changes, { env = process.env, home = homedir(), r
     const patch = Object.fromEntries(policy.map((c) => [c.key, c.value]));
     const next = nextVaultConfig(strict.cfg, patch, new Date().toISOString());
     const inEffect = (k) => strict.cfg[k] ?? (k === "spec_policy" ? "optional" : undefined);
-    const changed = policy.filter((c) => inEffect(c.key) !== c.value);
+    // `lifecycle_gates=on` on a vault already on but with no gates_since is a
+    // change: it stamps the date the gates count from (the configure spec,
+    // contract 7 as amended 2026-11-08).
+    const stampsGates = (c) => c.key === "lifecycle_gates" && c.value === "on" && !strict.cfg.gates_since;
+    const changed = policy.filter((c) => inEffect(c.key) !== c.value || stampsGates(c));
     for (const c of changed)
       items.push({
         key: c.key,
@@ -474,7 +479,12 @@ export function planChanges(f, changes, { env = process.env, home = homedir(), r
         before: shown(strict.cfg[c.key] ?? (c.key === "spec_policy" ? "optional" : "not set")),
         after: shown(c.value),
         team: true,
-        note: c.key === "spec_policy" && next.spec_policy_since !== strict.cfg.spec_policy_since ? STAMP_NOTE : null,
+        note:
+          c.key === "spec_policy" && next.spec_policy_since !== strict.cfg.spec_policy_since
+            ? STAMP_NOTE
+            : c.key === "lifecycle_gates" && next.gates_since !== strict.cfg.gates_since
+              ? GATES_NOTE
+              : null,
       });
     if (changed.length) steps.push({ writer: "vault", patch, keys: changed.map((c) => c.key) });
   }

@@ -35,6 +35,7 @@ import {
   nowIso,
   today,
   commandForm,
+  listOf,
 } from "./lib.mjs";
 
 function die(msg) {
@@ -104,17 +105,26 @@ function checkNormalize(text) {
 function main() {
   const argv = process.argv.slice(2);
   let checkPath = null;
+  let noSpec = null;
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--check") checkPath = argv[++i];
     else if (a.startsWith("--check=")) checkPath = a.slice("--check=".length);
+    else if (a === "--no-spec") noSpec = argv[++i] ?? "";
+    else if (a.startsWith("--no-spec=")) noSpec = a.slice("--no-spec=".length);
     else positional.push(a);
   }
   if (checkPath === undefined || checkPath === "") die("--check requires a value");
   const [mode, storyPath] = positional;
   if (!["plan", "close"].includes(mode) || !storyPath) {
-    die("usage: story-section.mjs <plan|close> <story-path> [--check <baseline-file>]");
+    die('usage: story-section.mjs <plan|close> <story-path> [--check <baseline-file>] [--no-spec "<reason>"]');
+  }
+  // The declared opt-out from a spec is written at the plan gate only (the
+  // spec policy ADR, Decision 14), with a reason, on a story with no specs.
+  if (noSpec !== null) {
+    if (mode !== "plan") die("--no-spec is written at the plan gate, not at close");
+    if (!noSpec.trim()) die("--no-spec needs a reason: why does this story need no spec?");
   }
   const cfg = readConfig();
   if (!cfg) die(`No projectstore config. Run ${commandForm("bind")} first.`);
@@ -151,6 +161,11 @@ function main() {
     }
     text = setFm(text, "plan_updated_at", JSON.stringify(now));
     notes.push("stamped plan_updated_at");
+    if (noSpec !== null) {
+      if (listOf(fm, "specs").length) die("the story lists specs — --no-spec is for a story with none");
+      text = setFm(text, "no_spec", JSON.stringify(noSpec.trim()));
+      notes.push("declared no_spec");
+    }
   } else {
     const r = insertSection(
       text,

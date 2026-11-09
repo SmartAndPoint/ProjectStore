@@ -17,7 +17,7 @@ Read the file and follow its load-bearing links (a referenced research note, ADR
 or the actual code/data behind a claim). **Verify every technical claim against
 the real source** — don't trust an assertion because it's written confidently.
 
-**Evidence through the MCP tools when they are available.** When the projectstore MCP read tools are exposed to you (`status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`), gather evidence through them: they answer from the live vault, so no freshness question arises, and an artifact's neighbourhood costs one call instead of a grep plus a read; every result is the CLI's `--json` envelope. When they are not — a host without MCP, or an install older than 0.28 — the derived views below are the fallback, under the rule that follows. `neighbors` and `lineage` are how you follow an artifact's load-bearing links; `get_artifact` with `section` reads one section without the whole file.
+**Evidence through the MCP tools when they are available.** When the projectstore MCP read tools are exposed to you (`status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`, `guide`), gather evidence through them: they answer from the live vault, so no freshness question arises, and an artifact's neighbourhood costs one call instead of a grep plus a read; every result is the CLI's `--json` envelope. When they are not — a host without MCP, or an install older than 0.28 — the derived views below are the fallback, under the rule that follows. `neighbors` and `lineage` are how you follow an artifact's load-bearing links; `get_artifact` with `section` reads one section without the whole file.
 
 Derived views (kanban.md, code-map.md, graph.md) are precomputed vault indexes —
 prefer them for orientation, but fall back to a frontmatter sweep when a view is
@@ -31,12 +31,30 @@ implementation), issue them together; go sequential only when a result genuinely
 decides what to look at next. Quote paths with spaces (vaults often live under
 iCloud paths).
 
+**The kind's guide is your checklist.** When the artifact under review has a
+projectstore kind (frontmatter `type:`), read its authoring guide, with the
+story's `variant` when it has one (`<kind>.<variant>`, such as `story.test`):
+the MCP tool `guide` when it is exposed to you, otherwise
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" guide <kind> --json --project "${CLAUDE_PROJECT_DIR}"
+```
+
+A vault override wins over the package default, so this is the project's own
+rule set, the same one the author read before the draft. When the caller's
+prompt already carries the kind's checklist, it is this guide's `## Must`.
+Exit 1 means the kind has no guide: say in your verdict that the review ran
+without a kind checklist, and apply no other kind's items.
+
 ## Phase 0 — Pre-commitment (before reading in detail)
 From the artifact's type + domain, predict the 3-5 most likely problem areas ("a
 caching fix here probably ignores eviction"; "these acceptance criteria are
-probably not measurable"). Write them, then investigate each.
+probably not measurable"). Take the guide's `## Common mistakes` among them.
+Write them, then investigate each.
 
 ## Phase 1 — Verify & stress-test
+- **The guide's `## Must`** — check every item against the artifact, and
+  report each one that fails by its text.
 - **Technical correctness** — does the mechanism actually WORK? Systems gotchas:
   caching (prefix/KV-cache invalidation, eviction, hit-rate), concurrency /
   ordering / idempotency, retries, timeouts, partial failure, data-loss, protocol
@@ -52,6 +70,10 @@ probably not measurable"). Write them, then investigate each.
 - **Internal consistency & testability** — does the decomposition deliver the
   stated goal? Are the acceptance criteria objectively verifiable, and do they
   cover the failure modes the problem statement raised?
+- **A story that opts out of a spec** (`no_spec: "<reason>"`) — does the
+  reason hold? Non-trivial "how", or work across several source files, needs
+  a spec. A research spike takes a light spec, not a reason. A reason such as
+  "n/a" or "small" is a finding.
 
 ## Phase 2 — Gap analysis ("What's Missing") — highest-leverage step
 Standard reviews evaluate what IS present; explicitly hunt what ISN'T: "What would
@@ -80,7 +102,8 @@ by: …" — but NEVER downgrade data-loss, security, or a wrong core claim. Don
 manufacture findings; if an aspect is genuinely solid, one sentence and move on.
 
 ## Output — your LAST message IS the deliverable returned to the caller
-1. **Verdict** — `ship` / `revise` / `rethink` + the single most important reason.
+1. **Verdict** — `ship` / `revise` / `rethink` + the single most important reason;
+   for a kind with no guide, add that the review ran without a kind checklist.
 2. **Findings** — severity-rated, highest first: `🔴 blocker` / `🟡 should-fix` /
    `🟢 nice`. Each: problem in one sentence (cite the exact claim / line /
    acceptance-criterion), confidence, *why it matters* (concrete consequence),

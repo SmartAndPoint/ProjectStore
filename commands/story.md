@@ -16,7 +16,17 @@ the two cannot collide).
 
 1. **Check config**: stop if `.projectstore/projectstore.json` missing.
 
-2. **Validate args**: epic-id (positional 1) + title (rest). If only one word, ask for the title. An optional `--spec SPEC-ID` names the covering spec — put it into the rendered draft's `specs:` list (inline flow: `specs: ["SPEC-001"]`). Under `spec_policy: required` (vault's `.projectstore.json`), remind that every story needs a covering spec before implementation starts.
+2. **Validate args**: epic-id (positional 1) + title (rest). If only one word, ask for the title. An optional `--spec SPEC-ID` names the covering spec — put it into the rendered draft's `specs:` list (inline flow: `specs: ["SPEC-001"]`). Under `spec_policy: required` (vault's `.projectstore.json`), remind that a story needs a covering spec before implementation starts, or a `no_spec` reason declared at the plan gate.
+
+2a. **Read the guide** for this kind before writing anything:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" guide story --project "${CLAUDE_PROJECT_DIR}"
+   ```
+
+   Write the draft to its `## Must`, `## Common mistakes`, `## Do not write`
+   and `## Length`: the critic checks the same `## Must` items. Exit 1 means
+   this kind has no guide; say so and go on.
 
 3. **Render draft**:
 
@@ -42,11 +52,25 @@ the two cannot collide).
 
 1. **Resolve the story file** (second argument). Ambiguous → list candidates and ask.
 
+1a. **(plan only) A spec, or a reason.** When the vault's policy is
+   `required` and the story has neither a `specs:` entry nor a `no_spec`
+   reason, ask the user once: name the covering spec, or say in one sentence
+   why this story needs no spec (a release, a text or site change, work with
+   no non-trivial "how"). A reason becomes `--no-spec '<reason>'` in step 2 and
+   in the re-run of step 5, single-quoted (write an apostrophe inside it as
+   `'\''`). Research spikes take a light spec,
+   not a reason. A story that will touch three or more source files needs a
+   spec: the reviewer flags an opt-out like that at close.
+
 2. **Run the compute script** (pure — writes nothing):
 
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/scripts/story-section.mjs" <plan|close> "<story-path>"
    ```
+
+   On a plan with a reason from step 1a, add `--no-spec '<reason>'` to that
+   command. It writes `no_spec` into the returned frontmatter, and it refuses
+   a story that already lists specs.
 
    It returns `{ path, changed, notes, content }`: section inserted when
    absent, status transition, lifecycle timestamps (`started_at` /

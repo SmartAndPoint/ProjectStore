@@ -14,6 +14,7 @@ import {
   mkdirSync,
   utimesSync,
   unlinkSync,
+  linkSync,
   renameSync,
   rmSync,
   realpathSync,
@@ -503,6 +504,26 @@ export function writeFileAtomic(p, content, { sweep = true } = {}) {
       unlinkSync(tmp);
     } catch {}
     throw e;
+  }
+}
+
+// Create a file only if it is absent, atomically: the content goes to the
+// same dot-prefixed temp writeFileAtomic uses, and a hard link puts it at
+// the target, which fails EEXIST when the target exists — a file made
+// meanwhile is never replaced. Returns false on EEXIST; other errors throw.
+export function createFileExclusive(p, content) {
+  const tmp = join(dirname(p), `.${basename(p)}.${process.pid}.tmp`);
+  writeFileSync(tmp, content, "utf8");
+  try {
+    linkSync(tmp, p);
+    return true;
+  } catch (e) {
+    if (e && e.code === "EEXIST") return false;
+    throw e;
+  } finally {
+    try {
+      unlinkSync(tmp);
+    } catch {}
   }
 }
 
@@ -1919,7 +1940,8 @@ export function listOf(fm, key) {
 // would defeat the whole point. Keys: spec_policy ("required"|"optional"),
 // lifecycle_gates ("on"|"off"), spec_policy_since (ISO-8601, stamped whenever
 // spec_policy becomes "required" from anything else; kept otherwise — the
-// configure spec, contract 7).
+// configure spec, contract 7), gates_since (stamped when lifecycle_gates
+// turns on; the configure spec, contract 7 as amended 2026-11-08).
 export function vaultConfigPath(vault) {
   return join(vault, LAYOUT.vaultConfig);
 }
@@ -1960,7 +1982,111 @@ export function nextVaultConfig(before, patch, now = new Date().toISOString()) {
     const prev = before.spec_policy_since;
     next.spec_policy_since = prev && String(prev) > now ? prev : now;
   }
+  // gates_since (the spec policy ADR, Decision 18a): the date the lifecycle
+  // checks start counting from under any spec policy. Stamped when the gates
+  // turn on, and when they are set on again with no stamp yet, so a vault
+  // already on can get its date. Same never-earlier rule as above.
+  if (patch.lifecycle_gates === "on" && (before.lifecycle_gates !== "on" || !before.gates_since)) {
+    const prev = before.gates_since;
+    next.gates_since = prev && String(prev) > now ? prev : now;
+  }
   return next;
+}
+
+// The date the legacy predicate reads: spec_policy_since, else gates_since.
+// Spec coverage itself reads only spec_policy_since.
+export function legacySince(vaultCfg) {
+  return (vaultCfg && (vaultCfg.spec_policy_since || vaultCfg.gates_since)) || null;
+}
+
+export function lifecycleGatesOn(vaultCfg) {
+  return ["on", "true"].includes(String((vaultCfg && vaultCfg.lifecycle_gates) || "off").toLowerCase());
+}
+
+// A story's declared opt-out from a spec (Decision 13). `declared` when the
+// key is present at all; `reason` is its text, trimmed, "" when empty.
+export function noSpecOf(fm) {
+  if (!fm || fm.no_spec == null || fm.no_spec === "null") {
+    return { declared: false, reason: "" };
+  }
+  return { declared: true, reason: String(fm.no_spec ?? "").trim() };
+}
+
+// `doctor --policy required[@<date>]` (Decision 18): the overlay a dry run
+// evaluates the vault with. A bare date means UTC midnight; none means now.
+export function parseDryRunPolicy(value, now = new Date().toISOString()) {
+  const m = String(value || "").match(/^required(?:@(.+))?$/);
+  if (!m) return { error: `--policy takes required or required@<date>, not "${value}"` };
+  if (!m[1]) return { policy: { spec_policy: "required", spec_policy_since: now } };
+  // ISO only: a date (UTC midnight), or a full timestamp with its zone.
+  const iso = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?$/;
+  if (!iso.test(m[1])) return { error: `--policy: "${m[1]}" is not an ISO date (YYYY-MM-DD)` };
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(m[1]) ? `${m[1]}T00:00:00.000Z` : m[1];
+  const t = Date.parse(d);
+  if (!Number.isFinite(t)) return { error: `--policy: "${m[1]}" is not a date` };
+  return { policy: { spec_policy: "required", spec_policy_since: new Date(t).toISOString() } };
+}
+
+// A checklist item read together with its wrapped continuation lines: the
+// lines after `- [x] …` indented deeper than its dash, nested bullets
+// included (a criterion that lists cases ends with the evidence on its last
+// bullet). `— evidence:` on a wrapped line belongs to the item.
+export function checklistItems(lines) {
+  const items = [];
+  let cur = null;
+  for (const line of lines) {
+    const m = line.match(/^(\s*)-\s*\[( |x|X)\]\s*(.*)$/);
+    if (m) {
+      cur = { checked: m[2].toLowerCase() === "x", text: m[3], indent: m[1].length };
+      items.push(cur);
+      continue;
+    }
+    if (cur && /^\s+\S/.test(line) && line.match(/^\s*/)[0].length > cur.indent) {
+      cur.text += " " + line.trim();
+      continue;
+    }
+    cur = null;
+  }
+  return items;
+}
+
+// A guide's rule items (the authoring-guides ADR, decision 1): plain bullets,
+// not checkboxes. An item is its bullet line plus the lines indented deeper
+// than its dash (wrapped text and nested bullets); a bullet at the same or a
+// lesser depth starts the next item; a blank or an unindented line ends it.
+// The caller drops fenced lines first (linesOutsideFences).
+export function guideItems(lines) {
+  const items = [];
+  let cur = null;
+  for (const line of lines) {
+    const m = line.match(/^(\s*)-\s+(\S.*)$/);
+    if (m && (!cur || m[1].length <= cur.indent)) {
+      cur = { text: m[2].trim(), indent: m[1].length };
+      items.push(cur);
+      continue;
+    }
+    if (cur && /^\s+\S/.test(line) && line.match(/^\s*/)[0].length > cur.indent) {
+      cur.text += " " + line.trim();
+      continue;
+    }
+    cur = null;
+  }
+  return items.map((i) => i.text);
+}
+
+// RAW lines outside fenced blocks — for checks that must both MATCH (fence-
+// immune) and REPORT the line verbatim (backticks intact in the message).
+export function linesOutsideFences(s) {
+  const out = [];
+  let fenced = false;
+  for (const line of s.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (!fenced) out.push(line);
+  }
+  return out;
 }
 
 // The one writer of the vault config: atomic, and every key it was not asked
@@ -3603,6 +3729,13 @@ export function isSourcePath(absPath, projectDir, vaultPath) {
   // Last, because it walks the disk: a file in the vault — a worktree's copy
   // of it included (contract 1, as amended 2026-10-15) — is never source.
   return !(vaultPath && vaultLocation(absPath, vaultPath));
+}
+
+// A test file, for the opt-out's size check only (Decision 15): tests do not
+// weigh. Not part of SOURCE_IGNORE — the entry-rule hook and diff-refs count
+// a test edit as source.
+export function isTestPath(rel) {
+  return /(^|\/)(test|tests|__tests__)(\/|$)/.test(rel) || /\.(test|spec)\.[^/]+$/.test(rel);
 }
 
 export function scoreDir(projectDir, sessionId) {
