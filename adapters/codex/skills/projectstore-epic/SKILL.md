@@ -30,6 +30,16 @@ Steps:
 
 2. **Validate args**: `<user-arguments>` must contain at least an ID and a title. ID is a short uppercase token (e.g. `AUTH-001`, `RECPLAT-269`). If only one word was given, ask user for the title via the harness's user-input mechanism.
 
+2a. **Read the guide** for this kind before writing anything:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" guide epic --project "$PWD"
+   ```
+
+   Write the draft to its `## Must`, `## Common mistakes`, `## Do not write`
+   and `## Length`: the critic checks the same `## Must` items. Exit 1 means
+   this kind has no guide; say so and go on.
+
 3. **Render draft**:
 
    ```bash

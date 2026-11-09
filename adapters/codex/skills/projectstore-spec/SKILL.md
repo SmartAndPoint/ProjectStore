@@ -36,6 +36,16 @@ Dispatch on the first argument:
 
 1. **Check config**: stop if `.projectstore/projectstore.json` missing.
 
+1a. **Read the guide** for this kind before writing anything:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" guide spec --project "$PWD"
+   ```
+
+   Write the draft to its `## Must`, `## Common mistakes`, `## Do not write`
+   and `## Length`: the critic checks the same `## Must` items. Exit 1 means
+   this kind has no guide; say so and go on.
+
 2. **Render draft**:
 
    ```bash

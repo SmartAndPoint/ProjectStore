@@ -14,6 +14,7 @@ import {
   mkdirSync,
   utimesSync,
   unlinkSync,
+  linkSync,
   renameSync,
   rmSync,
   realpathSync,
@@ -503,6 +504,26 @@ export function writeFileAtomic(p, content, { sweep = true } = {}) {
       unlinkSync(tmp);
     } catch {}
     throw e;
+  }
+}
+
+// Create a file only if it is absent, atomically: the content goes to the
+// same dot-prefixed temp writeFileAtomic uses, and a hard link puts it at
+// the target, which fails EEXIST when the target exists — a file made
+// meanwhile is never replaced. Returns false on EEXIST; other errors throw.
+export function createFileExclusive(p, content) {
+  const tmp = join(dirname(p), `.${basename(p)}.${process.pid}.tmp`);
+  writeFileSync(tmp, content, "utf8");
+  try {
+    linkSync(tmp, p);
+    return true;
+  } catch (e) {
+    if (e && e.code === "EEXIST") return false;
+    throw e;
+  } finally {
+    try {
+      unlinkSync(tmp);
+    } catch {}
   }
 }
 
@@ -2027,6 +2048,45 @@ export function checklistItems(lines) {
     cur = null;
   }
   return items;
+}
+
+// A guide's rule items (the authoring-guides ADR, decision 1): plain bullets,
+// not checkboxes. An item is its bullet line plus the lines indented deeper
+// than its dash (wrapped text and nested bullets); a bullet at the same or a
+// lesser depth starts the next item; a blank or an unindented line ends it.
+// The caller drops fenced lines first (linesOutsideFences).
+export function guideItems(lines) {
+  const items = [];
+  let cur = null;
+  for (const line of lines) {
+    const m = line.match(/^(\s*)-\s+(\S.*)$/);
+    if (m && (!cur || m[1].length <= cur.indent)) {
+      cur = { text: m[2].trim(), indent: m[1].length };
+      items.push(cur);
+      continue;
+    }
+    if (cur && /^\s+\S/.test(line) && line.match(/^\s*/)[0].length > cur.indent) {
+      cur.text += " " + line.trim();
+      continue;
+    }
+    cur = null;
+  }
+  return items.map((i) => i.text);
+}
+
+// RAW lines outside fenced blocks — for checks that must both MATCH (fence-
+// immune) and REPORT the line verbatim (backticks intact in the message).
+export function linesOutsideFences(s) {
+  const out = [];
+  let fenced = false;
+  for (const line of s.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (!fenced) out.push(line);
+  }
+  return out;
 }
 
 // The one writer of the vault config: atomic, and every key it was not asked

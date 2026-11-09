@@ -959,6 +959,14 @@ test("MCP fence: one verb table — the CLI and the read runner dispatch the sam
   const reads = Object.keys(READ_RUNNER.READ_HANDLERS);
   for (const v of reads) {
     const row = verbs.VERBS.find((r) => r.verb === v);
+    // guide is the one mixed row (the authoring-guides ADR, decision 5): the
+    // read runner serves its read and refuses eject (tests/guides.test.mjs);
+    // the CLI wraps it to serve eject.
+    if (v === "guide") {
+      assert.ok(row && row.writes === true, "guide's row says it writes (eject)");
+      assert.notEqual(cli.HANDLERS.guide, READ_RUNNER.READ_HANDLERS.guide, "the CLI wraps guide to serve eject");
+      continue;
+    }
     assert.ok(row && row.writes === false, `${v} is a row of the table that writes nothing`);
     assert.equal(cli.HANDLERS[v], READ_RUNNER.READ_HANDLERS[v], `the CLI runs the read runner's ${v}`);
   }

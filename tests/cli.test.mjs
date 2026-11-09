@@ -111,7 +111,7 @@ function semanticInstallItems(items, projectDir, home = null) {
   }));
 }
 
-test("cli: the verb table is the contract — every shipped verb wraps a module that exists, and the union covers the MCP ADR's eight tools", () => {
+test("cli: the verb table is the contract — every shipped verb wraps a module that exists, and the union covers the MCP ADR's nine tools", () => {
   for (const v of VERBS) {
     if (v.module)
       assert.ok(existsSync(join(ROOT, "scripts", v.module.replace(/^\.\//, ""))), `${v.verb} wraps ${v.module}`);
@@ -121,15 +121,35 @@ test("cli: the verb table is the contract — every shipped verb wraps a module 
     assert.ok(typeof HANDLERS[v.verb] === "function" && typeof v.summary === "string" && v.summary.length > 0);
     assert.ok(["script", "module", "new"].includes(v.wraps) && ["spawn", "import"].includes(v.how));
   }
-  // MCP ADR decision 2's table: eight tools, each with a CLI verb.
+  // MCP ADR decision 2's table: eight tools, each with a CLI verb, plus guide (the authoring-guides ADR, decision 8).
   const tools = new Set([...VERBS, ...PLANNED_VERBS].flatMap((v) => v.mcp));
   for (const v of [...VERBS, ...PLANNED_VERBS]) assert.ok(Array.isArray(v.mcp), `${v.verb}.mcp is a list`);
   // Both directions: every tool the table names is one the ADR names.
-  const ADR_TOOLS = ["status", "orientation", "search", "get_artifact", "neighbors", "lineage", "code_refs", "doctor"];
+  const ADR_TOOLS = [
+    "status",
+    "orientation",
+    "search",
+    "get_artifact",
+    "neighbors",
+    "lineage",
+    "code_refs",
+    "doctor",
+    "guide",
+  ];
   for (const t of tools) assert.ok(ADR_TOOLS.includes(t), `tool ${t} is not in the MCP ADR's table`);
   for (const v of VERBS.filter((v) => ["init", "bind", "status", "search"].includes(v.verb)))
     assert.equal(v.wraps, "new", `${v.verb} is marked new`);
-  for (const t of ["status", "orientation", "search", "get_artifact", "neighbors", "lineage", "code_refs", "doctor"])
+  for (const t of [
+    "status",
+    "orientation",
+    "search",
+    "get_artifact",
+    "neighbors",
+    "lineage",
+    "code_refs",
+    "doctor",
+    "guide",
+  ])
     assert.ok(tools.has(t), `tool ${t} has a verb`);
   const names = [...VERBS, ...PLANNED_VERBS].map((v) => v.verb);
   assert.equal(new Set(names).size, names.length, "no verb twice");
@@ -2804,6 +2824,7 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
     show: ["show <path> [options]"],
     graph: ["graph neighbors <path> [options]", "graph lineage <path> [options]"],
     codemap: ["codemap --for <selector> [options]"],
+    guide: ["guide eject <kind> [options]", "guide <kind> [options]"], // new after 0.29.2 (the authoring-guides ADR)
     agents: ["agents model <name> [options]", "agents show [options]", "agents configure [options]"],
     bind: ["bind <vault> [options]"],
     init: ["init <vault> [options]"],

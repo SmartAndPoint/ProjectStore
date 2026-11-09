@@ -37,6 +37,16 @@ the two cannot collide).
 
 2. **Validate args**: epic-id (positional 1) + title (rest). If only one word, ask for the title. An optional `--spec SPEC-ID` names the covering spec — put it into the rendered draft's `specs:` list (inline flow: `specs: ["SPEC-001"]`). Under `spec_policy: required` (vault's `.projectstore.json`), remind that a story needs a covering spec before implementation starts, or a `no_spec` reason declared at the plan gate.
 
+2a. **Read the guide** for this kind before writing anything:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" guide story --project "$PWD"
+   ```
+
+   Write the draft to its `## Must`, `## Common mistakes`, `## Do not write`
+   and `## Length`: the critic checks the same `## Must` items. Exit 1 means
+   this kind has no guide; say so and go on.
+
 3. **Render draft**:
 
    ```bash

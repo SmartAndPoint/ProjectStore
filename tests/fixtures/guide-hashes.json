@@ -1,0 +1,34 @@
+{
+  "adr": {
+    "guide_version": 1,
+    "hash": "64dc98afbed2b16af484a03f2cc81c9accf48028b97e15733a73a51efe7c1413"
+  },
+  "concept": {
+    "guide_version": 1,
+    "hash": "7679dd87fa6c216a440bb6eed422b8f5cbb27bad2ebebbe90dc6f8376394cc8b"
+  },
+  "epic": {
+    "guide_version": 1,
+    "hash": "cdf846d79347f0599925b5c57da86baca6508ca819bd6fdee1a3c9c351a1d58f"
+  },
+  "meeting": {
+    "guide_version": 1,
+    "hash": "efd247e9bd3b74862d2d6dce47fa04f845dad7a534ea3abd0f4bc9a81dd28054"
+  },
+  "research": {
+    "guide_version": 1,
+    "hash": "15264d7035872fc803cbdaa2faae3210bc70e713dcaa2fb965f3e2d54b4f1708"
+  },
+  "runbook": {
+    "guide_version": 1,
+    "hash": "1a5244217fe2acf60c8f0c4c340eaa70ad7a0028f7eecf01bd77c5863869de3a"
+  },
+  "spec": {
+    "guide_version": 1,
+    "hash": "6fff359d6e3407a003b877791228a22fb31e143fd9ba1acafe4b09e6e424d775"
+  },
+  "story": {
+    "guide_version": 1,
+    "hash": "cb63d7333749d11c0507e10dfdd0706c0f15d1b7aa008bd3f5d9df9f2cc6510e"
+  }
+}

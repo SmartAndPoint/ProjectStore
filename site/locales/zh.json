@@ -210,7 +210,7 @@
   "how.story.path": "<span data-slug=\"story:path\">epics/CHECKOUT/stories/story-结账时列出已保存的银行卡.md</span>",
   "how.story": "<span class=\"fm\">---</span>\n<span class=\"k\">type:</span> story\n<span class=\"k\">epic:</span> \"CHECKOUT\"\n<span class=\"k\">title:</span> \"<span data-title=\"story\">结账时列出已保存的银行卡</span>\"\n<span class=\"k\">status:</span> <span class=\"c-ok\">done</span>\n<span class=\"k\">code_refs:</span> [\"src/billing/cards/\", \"tests/cards.test.ts\"]\n<span class=\"k\">closed_at:</span> \"2026-07-14T16:02:11Z\"\n<span class=\"fm\">---</span>\n\n<span class=\"h\">## 验收标准</span>\n\n- [x] 已保存的银行卡排在最前 — 证据：tests/cards.test.ts:21\n- [x] 银行卡被拒时显示银行给出的原因 — 证据：tests/cards.test.ts:58\n- [x] 卡号不会进入日志 — 证据：tests/cards.test.ts:73",
   "how.ev.p.1": "planner 在写代码之前说明了改动应放在哪里，计划在你说“是”之后写进了 story；reviewer 在代码写完后，对照每条标准检查了 diff。每一行证明都是一个测试、一条运行过的命令或一行代码。",
-  "how.ev.p.2": "任何智能体都可以读取这份记录，装不装插件都行：通过 CLI（它以 JSON 作答，不消耗 token），或通过 MCP 服务器的 <span data-fact=\"mcp-tools\">8</span> 个只读工具。",
+  "how.ev.p.2": "任何智能体都可以读取这份记录，装不装插件都行：通过 CLI（它以 JSON 作答，不消耗 token），或通过 MCP 服务器的 <span data-fact=\"mcp-tools\">9</span> 个只读工具。",
   "how.fine.label": "细则",
   "how.fine.h2": "细则",
   "how.fine.1": "运行这个循环会消耗 token：草稿、critic 和 reviewer 都使用你已经在付费的模型。README 对此有实测数据。",

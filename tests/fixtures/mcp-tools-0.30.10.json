@@ -243,5 +243,40 @@
       "idempotentHint": true,
       "openWorldHint": false
     }
+  },
+  {
+    "name": "guide",
+    "description": "An artifact kind's authoring guide (Lens, Must, Common mistakes, Do not write, Length). Call it before drafting an artifact of that kind and before reviewing one; the vault's override wins over the package default.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "a kind (adr, spec, epic, story, …) or <kind>.<variant>, such as story.test"
+        },
+        "section": {
+          "type": "string",
+          "description": "one section: Lens, Must, Common mistakes, Do not write or Length"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "vault",
+            "package"
+          ],
+          "description": "read one side only"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
   }
 ]

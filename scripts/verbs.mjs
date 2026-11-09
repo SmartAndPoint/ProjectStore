@@ -404,6 +404,32 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
+  // One row, two halves (the authoring-guides ADR, decisions 3 and 5): the
+  // read, served by the read-verb runner and the MCP tool, and `eject`, the
+  // one write, served only by the CLI's own handler. So writes: true, as for
+  // agents and band.
+  Object.freeze({
+    verb: "guide",
+    summary: "Read an artifact kind's authoring guide; eject it to override.",
+    usage: Object.freeze(["eject <kind>", "<kind>"]),
+    module: "./guides.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: false,
+    mcp: Object.freeze(["guide"]),
+    options: [
+      opt("section", "<name>", "one section: Lens, Must, Common mistakes, Do not write, Length"),
+      opt("source", "vault|package", "read one side only"),
+      opt(
+        "write",
+        false,
+        "eject: create the vault copy (asks at a terminal; without one, --write is the confirmation)",
+      ),
+      JSON_OPT,
+    ],
+  }),
   Object.freeze({
     verb: "agents",
     summary: "The harness overlay's agents block: the model each agent runs.",
@@ -615,6 +641,11 @@ const EXAMPLES = {
   show: ["{cmd} show adr/README.md", "{cmd} show epics/PS-CORE/epic.md --section acceptance"],
   graph: ["{cmd} graph neighbors adr/README.md --direction out", "{cmd} graph lineage epics/PS-CORE/epic.md --depth 2"],
   codemap: ["{cmd} codemap --for PS-CORE", "{cmd} codemap --for scripts/lib.mjs --reverse"],
+  guide: [
+    "{cmd} guide spec --section Must",
+    "{cmd} guide spec --source package  # the package default behind a vault override",
+    "{cmd} guide eject story  # what would be written; nothing is written",
+  ],
   doctor: ["{cmd} doctor", "{cmd} doctor --install --json", "{cmd} doctor --vault --policy required"],
   reconcile: ["{cmd} reconcile  # what would change; nothing is written", "{cmd} reconcile --write"],
   bind: ["{cmd} bind ~/vaults/my-project", "{cmd} bind ~/vaults/other --rebind"],

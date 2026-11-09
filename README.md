@@ -178,9 +178,10 @@ npx projectstore search "entry rule" --kind spec
 npx projectstore show adr/README.md --section index
 npx projectstore graph neighbors epics/PS-CORE/epic.md
 npx projectstore codemap --for scripts/lib.mjs
+npx projectstore guide spec --section Must
 ```
 
-The same eight reads are an MCP server. The plugin registers it through its own `.mcp.json`, so a Claude Code session has `status`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `orientation` and `doctor` as tools with no shell; every tool result is the CLI's `--json` for the same arguments. Elsewhere:
+The same nine reads are an MCP server. The plugin registers it through its own `.mcp.json`, so a Claude Code session has `status`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `orientation`, `doctor` and `guide` as tools with no shell; every tool result is the CLI's `--json` for the same arguments. Elsewhere:
 
 ```
 npx projectstore mcp --project .
@@ -411,7 +412,7 @@ The package also ships `scripts/version-guard.mjs`, which runs `npm pack --dry-r
 Opening a project that is not bound writes nothing into it: the first-run welcome is remembered in the user cache below. Every other write in a project comes from a command you run, or from the hooks and the status line once the project is bound.
 
 - **In a bound project**: `.projectstore/`, with the binding (`projectstore.json`, machine-local and git-ignored), the agents' models (`harness/`, meant to be committed), `state/` (each session's state, the band's heartbeat, the welcome marker and the status line's launcher, machine-local) and its own `.gitignore`; the agents block between the `projectstore:agents` markers in `AGENTS.md` and `CLAUDE.md`; and `.claude/settings.local.json`, which gets the status line only when you turn it on, and this checkout's plugin registration when setup or install registers the npm copy, or turns the git-marketplace copy off here, through Claude Code's own CLI.
-- **In the vault**: the artifacts, each one after you approve it; the views generated from them (the kanban, the folder indexes, the code map and the graph); `.projectstore.json`, the vault's own settings; and `.projectstore/sessions/`, one small git-ignored file per session with its id, start time, project path, host name, process id and the vault files it read or edited last, with the tool and the time. A session's file is deleted at the next session start once it has been inactive for 24 hours. A new vault also gets its own git repository.
+- **In the vault**: the artifacts, each one after you approve it; the views generated from them (the kanban, the folder indexes, the code map and the graph); `.projectstore.json`, the vault's own settings; `guides/`, only when you run `guide eject --write` to override a kind's authoring guide; and `.projectstore/sessions/`, one small git-ignored file per session with its id, start time, project path, host name, process id and the vault files it read or edited last, with the tool and the time. A session's file is deleted at the next session start once it has been inactive for 24 hours. A new vault also gets its own git repository.
 - **In your home directory**: `~/.cache/projectstore/`, or `$XDG_CACHE_HOME/projectstore/` when that is set. It holds the newest version the npm registry named (`registry.json`, kept for 24 hours), the model lists (`models/`, kept for a day: model names, labels, descriptions and families, never a key), which agent has shown its first-run welcome in a project that is not bound (`welcomed/`, one marker per agent for the machine), and the Codex package while a run installs it (`fetch/`, removed when the run ends). Setup and install from npm also write a folder of their own, `projectstore/`, under Claude Code's home (`~/.claude`, or `$CLAUDE_CONFIG_DIR`) or Codex's (`~/.codex`, or `$CODEX_HOME`), holding the marketplace the agent installs ProjectStore from, and the agent's own CLI records the plugin in that agent's plugin registry.
 
 ProjectStore never changes Claude Code's or Codex's permission settings.

@@ -42,7 +42,7 @@ import { packageCommand } from "./harness.mjs";
 
 const README = "README.md";
 
-const kindsOf = (layout) => [...new Set((layout.folders || []).map((f) => f.kind))];
+export const kindsOf = (layout) => [...new Set((layout.folders || []).map((f) => f.kind))];
 const usable = (v) => typeof v === "string" && v.trim() !== "";
 const pathKind = (p) => {
   try {
