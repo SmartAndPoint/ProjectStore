@@ -1140,6 +1140,10 @@ const SCRIPT_ONLY = [
   },
   { script: "diff-refs.mjs", why: "PS-SPEC's story 'code-refs from diff' owns turning it into a verb" },
   {
+    script: "status-change.mjs",
+    why: "PS-FLOW's epic-row entry: the gates are pure and write no file, so the story command's plan and close ceremonies update the epic's Stories row after their own write, through the same read-again writer move uses",
+  },
+  {
     script: "worktree.mjs",
     why: "PS-WT's inherit probe; its consumer copies the parent config verbatim, which bind deliberately does not do",
   },
@@ -2849,6 +2853,7 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
     scaffold: ["scaffold [options]"],
     band: ["band on [options]", "band off [options]", "band status [options]", "band epic <ID> [options]"],
     session: ["session refresh <path> [options]"],
+    move: ["move <story> <status> [options]"], // new in PS-FLOW (SPEC-001 contract 7, the ready step)
   };
   assert.deepEqual(VERBS.map((v) => v.verb).sort(), Object.keys(GOLDEN).sort(), "every verb has its 0.29.2 forms here");
   for (const v of VERBS) {

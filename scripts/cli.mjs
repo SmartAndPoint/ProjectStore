@@ -20,9 +20,11 @@
 // `--write` asks on a terminal and refuses without one. `scaffold --write`
 // differs on purpose: its write set is closed — create-only, what the layout
 // declares, in the vault the binding names — so it asks at a terminal and,
-// without one, `--write` is the confirmation. There is no --yes.
+// without one, `--write` is the confirmation. `move --write` confirms the
+// same way: its write set is one story, its epic row and the derived views.
+// There is no --yes.
 //
-// The install verbs, setup, configure, reconcile and the MCP server are
+// The install verbs, setup, configure, move, reconcile and the MCP server are
 // imported lazily, on the run that needs them: hooks never import this module
 // (the suite asserts it), and a verb that runs none of them loads none.
 // Pure node, no external deps.
@@ -547,6 +549,31 @@ async function runConfigureVerb(ctx) {
   return r.code;
 }
 
+// move (SPEC-001 contract 7, the ready step): its own module, loaded on first
+// use. The module returns a usage error or a result; the question is asked
+// here, as scaffold's is — a terminal is asked, and without one, or under
+// --json, --write is the confirmation.
+async function runMoveVerb(ctx) {
+  const { runMove } = await import("./move.mjs");
+  const { row, values, project, env, stdin, stdout, stderr, ask } = ctx;
+  const r = await runMove({
+    ...ctx,
+    ownEnv: (p) => ownEnv(env, p),
+    confirm: async (preview) => {
+      const interactive =
+        !values.json &&
+        (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+      if (!interactive) return true;
+      stdout.write(preview);
+      return term.askApply(1, { stdin, stdout, ask, caps: term.caps(stdout, env) });
+    },
+  });
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+  else (r.ok ? stdout : stderr).write(r.text);
+  return r.code;
+}
+
 // setup (the setup story): its own module, imported lazily as the install
 // family is, run with this package as its root and in the environment every
 // installer run gets (ownEnv, for the project setup settles on). The envelope
@@ -709,6 +736,7 @@ export const HANDLERS = Object.freeze({
   bind: runBind(false),
   init: runBind(true),
   scaffold: runScaffold,
+  move: runMoveVerb,
   mcp: runMcp,
 });
 
