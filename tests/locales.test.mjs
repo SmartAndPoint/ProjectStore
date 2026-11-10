@@ -136,7 +136,7 @@ test("locales: the derived set is the one we think it is (contract 11)", () => {
 });
 
 test("locales: every bundled language covers every registry entry (contract 3)", () => {
-  for (const section of ["headings", "keywords", "index_columns", "footers"]) {
+  for (const section of ["headings", "keywords", "index_columns", "footers", "fields"]) {
     for (const [id, entry] of Object.entries(registry[section])) {
       for (const lang of LOCALES) {
         const forms = entry[lang];
@@ -659,4 +659,62 @@ test("inline grammars accept the CJK-width colon in both directions (contract 6)
   const ascii = "ok — stories: PS-X/story-foo".match(storiesAttributionRe());
   assert.ok(ascii, "ASCII attribution colon regressed");
   assert.equal(ascii[1].trim(), "PS-X/story-foo");
+});
+
+// ─── The field labels (fields: status, assignee) ───────────────────────
+//
+// Scripts find a story's header Status and Assignee rows, and an epic's
+// Stories-table Status column, through the registry (status-log.mjs), so a
+// translated template label that is not the registered first form breaks the
+// row silently. The sweep reads the labels by place: the story header's rows
+// are Epic, Status, Priority, Assignee; the epic header's first row is Status;
+// the Stories table's second column is Status.
+function templateLabels(lang, read = (name) => readFileSync(join(REPO, "templates", lang, `${name}.md.tmpl`), "utf8")) {
+  const cells = (row) =>
+    row
+      .split("|")
+      .slice(1, -1)
+      .map((c) => c.trim());
+  const bold = (row) => cells(row)[0].replace(/^\*\*|\*\*$/g, "");
+  const story = read("story");
+  const sRows = story.split("\n").filter((l) => /^\| \*\*/.test(l));
+  const epic = read("epic");
+  const eRows = epic.split("\n").filter((l) => /^\| \*\*/.test(l));
+  const stories = epic.split("\n").find((l) => /^\| \[story-001\]/.test(l));
+  const storiesHeader = epic.split("\n")[epic.split("\n").indexOf(stories) - 2];
+  return [
+    { template: "story.md.tmpl", field: "status", label: bold(sRows[1]) },
+    { template: "story.md.tmpl", field: "assignee", label: bold(sRows[3]) },
+    { template: "epic.md.tmpl", field: "status", label: bold(eRows[0]) },
+    { template: "epic.md.tmpl", field: "status", label: cells(storiesHeader)[1] },
+  ];
+}
+function labelFindings(lang, read) {
+  const fields = registry.fields;
+  return templateLabels(lang, read)
+    .filter(({ field, label }) => fields[field]?.[lang]?.[0] !== label)
+    .map(
+      ({ template, field, label }) =>
+        `${lang}/${template}: the ${field} label "${label}" is not fields.${field}'s first ${lang} form "${fields[field]?.[lang]?.[0]}"`,
+    );
+}
+
+// [adding-a-bundled-locale#14]
+test("locales: every bundled locale's templates spell the Status and Assignee labels in the first registered form", () => {
+  for (const lang of LOCALES) {
+    assert.ok(registry.fields.status[lang] && registry.fields.assignee[lang], `${lang}: fields registered`);
+    assert.deepEqual(labelFindings(lang), [], lang);
+  }
+});
+
+// [adding-a-bundled-locale#14]
+test("locales: a template label that is not a registered form fails the sweep, naming the template and the label (edge)", () => {
+  const read = (name) =>
+    readFileSync(join(REPO, "templates", "fr", `${name}.md.tmpl`), "utf8").replace(
+      "| **Responsable** |",
+      "| **Assigné** |",
+    );
+  assert.deepEqual(labelFindings("fr", read), [
+    'fr/story.md.tmpl: the assignee label "Assigné" is not fields.assignee\'s first fr form "Responsable"',
+  ]);
 });
