@@ -42,7 +42,7 @@ import {
 import { loadHarness, loadHarnesses, sourceHarness, harnessIds, invocation } from "../scripts/harness.mjs";
 import { layoutPaths, commandForm, doctorSummaryLine, doctorFallbackText } from "../scripts/lib.mjs";
 import { textReport } from "../scripts/doctor.mjs";
-import { seedCliVault, writeBinding } from "./fixtures/vault.mjs";
+import { seedCliVault, seedAmendsFixture, writeBinding } from "./fixtures/vault.mjs";
 import { fakeNpm, fakeCodexBin } from "./fixtures/fetch.mjs";
 import { fakeClaude, fakePackageRoot, noHostEnv } from "./fixtures/install.mjs";
 import { plan as installPlan, apply as installApply } from "../scripts/install-harness.mjs";
@@ -1625,6 +1625,24 @@ test("cli graph lineage: typed edges only, both directions, depth- and cycle-saf
     2,
     "an option of the other mode",
   );
+});
+
+// The graph spec, contract 4 (as amended 2026-11-10), [vault-link-graph-derived-view-and-shared-link-resolver#4]:
+// `amends` is a lineage kind, so a superseded spec a story amended stays in its lineage.
+test("cli graph lineage --kind amends: the story's amended specs, a superseded one included; text names the kind", () => {
+  const { proj } = seedAmendsFixture();
+  const st = "epics/PS-A/stories/story-change-it.md";
+  const l = envOf(bin(["graph", "lineage", st, "--kind", "amends", "--json", "--project", proj])).result;
+  assert.deepEqual(l.kinds, ["amends"]);
+  assert.deepEqual(
+    l.edges.map((e) => `${e.kind} ${e.to}`),
+    ["amends specs/live.md", "amends specs/old.md"],
+  );
+  assert.equal(l.nodes.find((n) => n.path === "specs/old.md").status, "superseded");
+  const text = bin(["graph", "lineage", st, "--kind", "amends", "--project", proj]);
+  assert.equal(text.status, 0, text.stderr);
+  assert.match(text.stdout, /lineage over amends to depth 3/);
+  assert.match(text.stdout, new RegExp(`${st}  amends  specs/old\\.md`));
 });
 
 test("cli codemap --for: an epic lists its refs and its stories'; a path lists who covers it; the reading is named", () => {

@@ -108,7 +108,12 @@ test("package guides: the 0.30.9 checklist items moved verbatim under ## Must, w
   for (const [k, v] of Object.entries(old)) {
     if (k.startsWith("_")) continue;
     const g = resolveGuide(k, { root: REPO });
-    assert.deepEqual(g.sections.Must, v.items, k);
+    // The spec guide keeps the eight and adds the amendment items after them
+    // (SPEC-001 contract 12, *Readers*, as amended 2026-11-10): a prefix.
+    if (k === "spec") {
+      assert.deepEqual(g.sections.Must.slice(0, v.items.length), v.items, k);
+      assert.ok(g.sections.Must.length > v.items.length, k);
+    } else assert.deepEqual(g.sections.Must, v.items, k);
     assert.equal(g.default_review, v.default_review, k);
   }
 });
@@ -236,7 +241,8 @@ test("guide eject: a preview writes nothing; --write creates package bytes plus 
   assert.equal(w.code, 0, w.err);
   const pkg = readFileSync(join(REPO, "scaffold", "guides", "spec.md"), "utf8");
   const copy = readFileSync(join(vault, "guides", "spec.md"), "utf8");
-  assert.equal(copy, pkg.replace("guide_version: 1\n", "guide_version: 1\nbased_on: 1\n"));
+  const v = pkg.match(/^guide_version: (\d+)$/m)[1];
+  assert.equal(copy, pkg.replace(`guide_version: ${v}\n`, `guide_version: ${v}\nbased_on: ${v}\n`));
   const again = await cli(["guide", "eject", "spec", "--write", "--project", proj]);
   assert.equal(again.code, 1);
   assert.match(again.err, /already exists/);

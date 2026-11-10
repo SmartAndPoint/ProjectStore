@@ -194,6 +194,17 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   gates that have no date, `review-by` names an ADR due for review, and
   `dry-run` heads a `--policy` report. None of them is repairable by `--fix`:
   each is a judgement, or a `configure` step its message names.
+- The amendment checks read the markers under a spec's contracts
+  (`> amended YYYY-MM-DD by <ref>: ADDED|MODIFIED|REMOVED — <why>`) in every
+  spec, under every policy: `amendment-form` (a marker that is not the grammar,
+  comes before the first contract or after a `REMOVED`; it counts for
+  nothing), `amendment-story` (an issue: the ref names no single story),
+  `amendment-link` (neither the story nor the spec lists the other) and
+  `amendment-date` (not a date, before the spec's `date:`, after tomorrow, or
+  before the previous marker under that contract). `citation-removed` is a
+  token in the project that cites a removed contract or step, with the why of
+  its marker. None of them is repairable by `--fix`: the marker and the test
+  are the author's text.
 - The guide checks read the vault's `guides/` folder, the per-kind overrides
   of the authoring guides: `guide-shape` (an override that does not parse, so
   readers fall back to the package default), `guide-unknown` (a guide for a

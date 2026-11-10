@@ -87,7 +87,10 @@ spec, say so FIRST — under spec-first the spec must exist and be `active`
 before implementation starts (suggest `$projectstore-spec`). Routing rule:
 spec contracts = durable how; the story's `## Implementation Plan` = per-story
 route (your output feeds it via `$projectstore-story plan`); `## Technical
-Notes` = incidental constraints discovered during work.
+Notes` = incidental constraints discovered during work. When the story changes
+a covering spec's contracts, name each contract it will amend and the marker's
+kind (`ADDED`, `MODIFIED` or `REMOVED`, in a `> amended YYYY-MM-DD by <ref>: …`
+block under the contract; `guide spec` has the rules).
 
 **Spec or no spec.** When the story has no covering spec, say whether it
 needs one, and why. Work whose "how" is non-trivial, or that will touch three

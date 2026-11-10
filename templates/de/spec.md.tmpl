@@ -42,7 +42,11 @@ Stories — eine Story ist erst fertig, wenn beides grün ist (ADR-007).
        (verified: live)   oder   (verified: manual)
      Ein Test zitiert einen Vertrag als [example#1]: id oder alias der Spec, dann
      die Vertragsnummer. Das Frontmatter kann `alias: <kurzer-schlüssel>` und
-     `coverage: report` ergänzen. Siehe docs/contracts-and-tests.md. -->
+     `coverage: report` ergänzen. Siehe docs/contracts-and-tests.md.
+     Eine spätere Änderung schreibt den Text des Vertrags neu und setzt darunter
+     eine Markierung (ADDED, MODIFIED oder REMOVED; ein entfernter Vertrag behält
+     Nummer und Überschrift, sein Text wird "Removed, see below."):
+       > amended YYYY-MM-DD by EPIC-ID/story-id: MODIFIED — <why> -->
 
 1.
 2.

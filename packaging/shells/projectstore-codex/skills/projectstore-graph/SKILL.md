@@ -70,6 +70,10 @@ vault-link-graph-derived-view-and-shared-link-resolver).
   artifact's full typed neighborhood — outgoing AND incoming edges — in one
   call. Node keys are full vault-relative paths, never short names.
 - Edge kinds: wikilink, mdlink, supersedes, spec-covers, spec-implements-adr,
-  epic-contains, dead, ambiguous, out-of-scope. Nothing resolves silently.
+  epic-contains, amends, dead, ambiguous, out-of-scope. Nothing resolves
+  silently. `amends` runs from a story to a spec one of its amendment markers
+  (`> amended YYYY-MM-DD by <ref>: <KIND> — <why>` under a contract) changes:
+  one edge per pair; a marker whose ref resolves to no story is a `dead` edge
+  from the spec.
 - Hand-edits to graph.md never stick: doctor flags staleness, reconcile
   repairs. Fix the source artifact, then regenerate.

@@ -1,6 +1,6 @@
 ---
 guide_for: spec
-guide_version: 1
+guide_version: 2
 default_review: true
 ---
 
@@ -18,6 +18,10 @@ The systems analyst who writes the contract a test can be written from before th
 - Mandatory sections present (How we solve / Behavioral contracts / Acceptance); Modules-on-disk and Testing may be omitted only for research spikes.
 - For a spike spec: contracts read as questions-to-answer plus exit criteria.
 - No TODOs, no '...', no empty bullets in the final body.
+- A change to an active spec's contract carries a marker under it, `> amended YYYY-MM-DD by <EPIC-ID>/<story-id>: ADDED|MODIFIED|REMOVED — <why>`; no new block is written in the older `> *Amended …` form.
+- No contract or step number is reused: ADDED takes the highest number in the file, removed contracts included, plus one; REMOVED keeps the number and heading with the body `Removed, see below.`, and a removed step stays as `N. Removed, see below.`
+- Under MODIFIED the body is rewritten to the text in force, and the block quotes the text it replaced; a change written only in the block, over an unchanged body, fails.
+- The first marker under a contract folds that contract's older blocks into the body without changing their meaning, and quotes them inside its own block.
 
 ## Common mistakes
 
@@ -36,4 +40,4 @@ The systems analyst who writes the contract a test can be written from before th
 
 ## Length
 
-A contract is one paragraph and at most six scenario items. A spec past twelve contracts or 400 lines covers two subsystems: split it.
+A contract is one paragraph and at most six scenario items. A spec past twelve contracts or 400 lines covers two subsystems: split it. Blocks under contracts (amendment markers and the text they quote) do not count toward this length.

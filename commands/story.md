@@ -118,7 +118,10 @@ the two cannot collide).
    today's date, then one bullet per question with its answer; a later plan
    run appends its own dated line to the same subsection. An answer that changes a
    contract of the covering spec says which one, and the spec is amended
-   the way it records its other amendments before the code is written.
+   before the code is written: that contract's body is rewritten to the text
+   in force, with a marker under it,
+   `> amended YYYY-MM-DD by <EPIC-ID>/<story-id>: ADDED|MODIFIED|REMOVED — <why>`
+   (see `guide spec`).
 
 3. **Fill the section content** in the returned `content` before preview:
    - `plan` — write the Implementation Plan. When the story's `specs:` names a

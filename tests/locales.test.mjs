@@ -152,7 +152,8 @@ test("locales: every bundled language covers every registry entry (contract 3)",
 for (const lang of LOCALES) {
   // The spec policy ADR, Decision 2: scenario keywords, the live/manual marker
   // and the citation example are machine tokens, English in every locale, and
-  // the example sits in a comment, so it is not a contract.
+  // the example sits in a comment, so it is not a contract. So are the
+  // amendment marker's tokens; the marker sits in the comment too.
   test(`locale ${lang}: the spec template names scenarios, the marker and a citation in English`, () => {
     const tmpl = readFileSync(join(REPO, "templates", lang, "spec.md.tmpl"), "utf8");
     for (const t of [
@@ -162,6 +163,12 @@ for (const lang of LOCALES) {
       "[example#1]",
       "alias:",
       "coverage: report",
+      // Amendment markers (SPEC-001 contract 5, as amended 2026-11-10).
+      "> amended YYYY-MM-DD by ",
+      "ADDED",
+      "MODIFIED",
+      "REMOVED",
+      "Removed, see below.",
     ]) {
       assert.ok(tmpl.includes(t), `${lang}/spec.md.tmpl lacks ${t}`);
     }

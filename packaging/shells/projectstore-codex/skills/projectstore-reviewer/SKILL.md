@@ -80,7 +80,10 @@ covering spec: its Acceptance items attributed to this story (`— stories:
 verify them exactly like the story's own criteria. A story closes only when
 both sets are green and every covering spec is `active`. Report a covering
 spec still in `draft` as a blocker under `spec_policy: required` (vault's
-`.projectstore.json`).
+`.projectstore.json`). When the story edited a spec's contracts, check that
+each edit carries an amendment marker (`> amended YYYY-MM-DD by <ref>: <KIND> —
+<why>` under the contract): from the vault's git history when the vault has
+one, else from the story's own account; an unmarked edit is a finding.
 
 **A declared opt-out, at close.** A story with `no_spec: "<reason>"` has no
 covering spec on purpose. Compute its files (Output 4). If it touches three
