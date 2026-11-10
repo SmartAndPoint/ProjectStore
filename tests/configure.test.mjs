@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
-import { runConfigure, settingsOf, readFacts } from "../scripts/configure.mjs";
+import { runConfigure, settingsOf, readFacts, resolveSets, planChanges, applyChanges } from "../scripts/configure.mjs";
 import { menuGroups, runMenu } from "../scripts/configure-menu.mjs";
 import { knownModels } from "../scripts/models.mjs";
 import { ALT_ON, ALT_OFF } from "../scripts/term.mjs";
@@ -1062,7 +1062,7 @@ test("configure: the bin loads the module on first use only", () => {
 
 test("configure contract 9: no bundled command or agent writes a changeable key with Write or Edit; bind's step 0a copy is the one exemption", () => {
   const KEYS_WRITTEN =
-    /\b(statusline\.enabled|"statusline"|spec_policy|lifecycle_gates|active_skills|auto_inject|default_author)\b/;
+    /\b(statusline\.enabled|"statusline"|spec_policy|lifecycle_gates|active_skills|auto_inject|default_author|flow\.(wip|people|age_days|idle_days|window_weeks|capacity_weeks|active_epics_max|grooming_days))\b/;
   const WRITES = /\b(Write|Edit)\b/;
   const found = [];
   for (const dir of ["commands", "agents"]) {
@@ -1078,4 +1078,188 @@ test("configure contract 9: no bundled command or agent writes a changeable key 
   for (const n of readdirSync(join(ROOT, "commands")).filter((x) => x.endsWith(".md")))
     assert.doesNotMatch(read(join(ROOT, "commands", n)), /`Edit`s/, `commands/${n} edits a file a writer owns`);
   assert.ok(existsSync(join(ROOT, "commands", "statusline.md")));
+});
+
+// ─── The flow policy (PS-FLOW, "The vault declares its flow policy, and
+// configure writes it": the configure spec's contracts 2, 3, 7 and 11 and
+// SPEC-001 contract 4, as amended 2026-11-10) ───────────────────────────
+
+// [configure#2] [configure#7]
+test("configure flow: --set flow.wip.full=3 keeps the rest of flow and every other key", async () => {
+  const cfg = { spec_policy: "optional", gates_since: "2026-11-08T16:42:30.476Z", flow: { window_weeks: 4 } };
+  const p = project({ vaultCfg: JSON.stringify(cfg) });
+  const bindingBefore = read(join(p.proj, ".projectstore", "projectstore.json"));
+  const { r, text } = await configure(p, { set: ["flow.wip.full=3"] });
+  assert.equal(r.code, 0, r.message || r.usage);
+  assert.deepEqual(json(join(p.vault, ".projectstore.json")), {
+    spec_policy: "optional",
+    gates_since: "2026-11-08T16:42:30.476Z",
+    flow: { window_weeks: 4, wip: { full: 3 } },
+  });
+  assert.match(text, /flow\.wip\.full/);
+  assert.match(text, /team change/);
+  assert.equal(read(join(p.proj, ".projectstore", "projectstore.json")), bindingBefore, "the binding is untouched");
+});
+
+// [configure#2]
+test("configure flow: a person with a space or a dot, lists as arrays, and clearing a person's last key removes the person (edge)", async () => {
+  const p = project({ vaultCfg: JSON.stringify({ keep: 1 }) });
+  const set = await configure(p, {
+    set: [
+      "flow.people[First Last].time=part",
+      "flow.people[Dr. Who].time=part",
+      "flow.people[Dr. Who].git_names=a, me@laptop",
+      "flow.capacity_weeks=2,3",
+    ],
+  });
+  assert.equal(set.r.code, 0, set.r.usage || set.r.message);
+  assert.deepEqual(json(join(p.vault, ".projectstore.json")), {
+    keep: 1,
+    flow: {
+      people: { "First Last": { time: "part" }, "Dr. Who": { time: "part", git_names: ["a", "me@laptop"] } },
+      capacity_weeks: [2, 3],
+    },
+  });
+  const cleared = await configure(p, {
+    set: [
+      "flow.people[First Last].time=-",
+      "flow.people[Dr. Who].time=-",
+      "flow.people[Dr. Who].git_names=-",
+      "flow.capacity_weeks=-",
+    ],
+  });
+  assert.equal(cleared.r.code, 0);
+  assert.deepEqual(json(join(p.vault, ".projectstore.json")), { keep: 1 }, "the emptied people and flow go too");
+});
+
+// [configure#2]
+test("configure flow: setting the value already there, or clearing an absent key, changes nothing (edge)", async () => {
+  const p = project({ vaultCfg: JSON.stringify({ flow: { wip: { full: 3 } } }, null, 2) + "\n" });
+  const before = tree(p.proj, p.vault);
+  for (const set of [["flow.wip.full=3"], ["flow.idle_days=-"]]) {
+    const { r, text } = await configure(p, { set });
+    assert.equal(r.code, 0, set[0]);
+    assert.match(text, /Nothing to change/i, set[0]);
+  }
+  assert.deepEqual(tree(p.proj, p.vault), before);
+});
+
+// [configure#11]
+test("configure flow: usage errors exit 2 and write nothing (failure)", async () => {
+  const p = project({ vaultCfg: JSON.stringify({ flow: { groomed_at: "2026-11-01T00:00:00Z" } }) });
+  const before = tree(p.proj, p.vault);
+  const cases = [
+    [["flow.wip.full=2.5"], /flow\.wip\.full takes a positive whole number, or - to clear it, got 2\.5/],
+    [["flow.wip.full=0"], /takes a positive whole number/],
+    [["flow.wip.full=007"], /takes a positive whole number/],
+    [["flow.people[First Last].time=half"], /takes full or part/],
+    [["flow.people[a@b.c].time=full"], /never an email address/],
+    [["flow.people[First Last]=full"], /takes \.time, \.wip, \.git_names or \.left/],
+    [["flow.capacity_weeks=4,2"], /low then high/],
+    [["flow.groomed_at=2026-11-10"], /a stamp that groom writes, never set by hand/],
+    [["flow.wip.full=3", "flow.wip.full=2"], /flow\.wip\.full is named twice/],
+    [["flow.wip.fulll=3"], /unknown setting flow\.wip\.fulll — did you mean flow\.wip\.full\?/],
+  ];
+  for (const [set, re] of cases) {
+    const { r } = await configure(p, { set });
+    assert.equal(r.code, 2, set.join(" "));
+    assert.match(r.usage, re, set.join(" "));
+  }
+  assert.deepEqual(tree(p.proj, p.vault), before, "nothing written by any of them");
+  assert.equal(json(join(p.vault, ".projectstore.json")).flow.groomed_at, "2026-11-01T00:00:00Z");
+});
+
+// [configure#11]
+test("configure flow: a node on the path that is not an object, a corrupt file and a missing vault exit 1 with nothing written (failure)", async () => {
+  for (const [cfg, set, re] of [
+    [{ flow: "x" }, "flow.wip.full=3", /flow\.wip\.full: flow is not an object — fix or remove it first/],
+    [{ flow: { people: [] } }, "flow.people[First Last].time=full", /flow\.people is not an object/],
+  ]) {
+    const p = project({ vaultCfg: JSON.stringify(cfg) });
+    const before = tree(p.proj, p.vault);
+    const { r } = await configure(p, { set: [set] });
+    assert.equal(r.code, 1, set);
+    assert.match(r.message, re);
+    assert.deepEqual(tree(p.proj, p.vault), before);
+  }
+  const bad = project({ vaultCfg: "{not json" });
+  const before = tree(bad.proj, bad.vault);
+  const refused = await configure(bad, { set: ["flow.wip.full=3"] });
+  assert.equal(refused.r.code, 1);
+  assert.match(refused.r.message, /is not valid JSON/);
+  assert.deepEqual(tree(bad.proj, bad.vault), before);
+  const gone = project();
+  writeBinding(gone.proj, { vault_path: join(gone.vault, "missing"), layout: "engineering" });
+  const g = await configure(gone, { set: ["flow.wip.full=3"] });
+  assert.equal(g.r.code, 1);
+  assert.match(g.r.message, /does not exist/);
+});
+
+// [configure#3]
+test("configure flow: the view lists a Flow policy group only while a key is set, with quoted forms; --json rows are changeable and committed", async () => {
+  const none = project({ vaultCfg: JSON.stringify({ spec_policy: "optional" }) });
+  const plain = await configure(none, {});
+  assert.doesNotMatch(plain.text, /Flow policy|flow\./);
+  const noneJson = settingsOf(readFacts(none.proj, { home: none.home, env: {}, root: ROOT }));
+  assert.ok(!noneJson.some((s) => s.key.startsWith("flow.")));
+  const p = project({
+    vaultCfg: JSON.stringify({ flow: { wip: { full: 3 }, people: { "First Last": { time: "part" } } } }),
+  });
+  const { text } = await configure(p, {});
+  assert.match(text, /Flow policy/);
+  assert.match(text, /--set flow\.wip\.full=<n>/);
+  assert.match(text, /--set 'flow\.people\[First Last\]\.time=<full\|part>'/);
+  const rows = settingsOf(readFacts(p.proj, { home: p.home, env: {}, root: ROOT })).filter((s) => s.group === "flow");
+  assert.deepEqual(
+    rows.map((s) => [s.key, s.class, s.team, s.source]),
+    [
+      ["flow.wip.full", "changeable", true, "vault_config"],
+      ["flow.people[First Last].time", "changeable", true, "vault_config"],
+    ],
+  );
+});
+
+// [configure#2]
+test("configure flow: the menu shows no flow key (edge)", () => {
+  const p = project({ vaultCfg: JSON.stringify({ flow: { wip: { full: 3 } } }) });
+  const f = readFacts(p.proj, { home: p.home, env: {}, root: ROOT });
+  const groups = menuGroups(f, settingsOf(f), new Map());
+  assert.ok(!groups.some((g) => /Flow/.test(g.title)), "no flow group in the menu");
+  assert.ok(!JSON.stringify(groups).includes("flow.wip"), "no flow row in any group");
+});
+
+// [configure#7]
+test("configure flow: a key another writer adds between PLAN and APPLY is kept (failure)", () => {
+  const p = project({ vaultCfg: JSON.stringify({ flow: { age_days: { review: 3, todo: 9 } } }) });
+  const f = readFacts(p.proj, { home: p.home, env: {}, root: ROOT });
+  const { changes } = resolveSets(f, ["flow.wip.full=3", "flow.age_days.review=-"]);
+  const planned = planChanges(f, changes, { env: {}, home: p.home, root: ROOT });
+  assert.ok(!planned.refusal, planned.refusal);
+  const file = join(p.vault, ".projectstore.json");
+  writeFileSync(file, JSON.stringify({ flow: { age_days: { review: 3, todo: 9 }, window_weeks: 4 } }));
+  const done = applyChanges(f, planned.steps, { env: {}, home: p.home, root: ROOT });
+  assert.equal(done.failed, null);
+  assert.deepEqual(json(file), { flow: { age_days: { todo: 9 }, window_weeks: 4, wip: { full: 3 } } });
+});
+
+// [configure#11]
+test("configure flow: a flow node or the whole file broken between PLAN and APPLY is refused, and the steps before it stay written (failure)", () => {
+  const p = project({ vaultCfg: JSON.stringify({ flow: {} }) });
+  const f = readFacts(p.proj, { home: p.home, env: {}, root: ROOT });
+  const file = join(p.vault, ".projectstore.json");
+  const { changes } = resolveSets(f, ["language=ru", "flow.wip.full=3"]);
+  const planned = planChanges(f, changes, { env: {}, home: p.home, root: ROOT });
+  writeFileSync(file, "{not json");
+  const done = applyChanges(f, planned.steps, { env: {}, home: p.home, root: ROOT });
+  assert.equal(done.failed.step, "vault");
+  assert.match(done.failed.message, /stopped being valid JSON after the plan/);
+  assert.equal(read(file), "{not json", "the vault config is byte-identical");
+  assert.equal(json(join(p.proj, ".projectstore", "projectstore.json")).language, "ru", "the binding was written");
+  const q = project({ vaultCfg: JSON.stringify({ flow: {} }) });
+  const g = readFacts(q.proj, { home: q.home, env: {}, root: ROOT });
+  const plan2 = planChanges(g, resolveSets(g, ["flow.wip.full=3"]).changes, { env: {}, home: q.home, root: ROOT });
+  writeFileSync(join(q.vault, ".projectstore.json"), JSON.stringify({ flow: { wip: "x" } }));
+  const again = applyChanges(g, plan2.steps, { env: {}, home: q.home, root: ROOT });
+  assert.match(again.failed.message, /flow\.wip stopped being an object after the plan/);
+  assert.deepEqual(json(join(q.vault, ".projectstore.json")), { flow: { wip: "x" } });
 });

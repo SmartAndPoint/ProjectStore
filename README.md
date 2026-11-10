@@ -242,6 +242,11 @@ Each setting has exactly one writer, and the plan says which file it changes:
 - **The agents' models and efforts** live in `.projectstore/harness/<harness>.json`. That file is committed, so a change there is a team change.
 - **The status line, the band, the language and the other binding keys** live in `.projectstore/projectstore.json`, which stays on this machine.
 - **The spec policy and the lifecycle gates** live in the vault's `.projectstore.json`, which commits with the vault. Setting `spec_policy=required` records when it took effect; stories closed before then are exempt. A story whose work needs no spec can say why in `no_spec`, and `doctor --vault --policy required` shows what the policy would report before you switch it on. A spec's contracts can carry WHEN/THEN scenarios, and a test can cite a contract, so doctor can report the contracts no test covers: see [`docs/contracts-and-tests.md`](./docs/contracts-and-tests.md).
+- **The flow policy** lives there too, under `flow`: each person's time on the project and so their WIP limit, how long work may sit in a status, and the windows for throughput and capacity. No key has a default, so a check whose key is not set does not run. People are named as stories write their assignee, never by email address, and their names, time shares and leave dates commit with the vault. These keys are set with `--set` only; the view names each form. For example:
+
+```bash
+npx projectstore configure --set flow.wip.full=3 --set 'flow.people[First Last].time=part'
+```
 
 The vault itself is changed by `bind --rebind`, which configure names when asked. In a Claude Code session, `/projectstore:statusline` and `/projectstore:agents configure` run the same writers.
 

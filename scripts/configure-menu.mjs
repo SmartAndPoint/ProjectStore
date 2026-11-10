@@ -174,6 +174,10 @@ export function menuGroups(f, settings, catalogs, { menu, now = Date.now, caps: 
           "The vault's own rules, shared by everyone who uses the vault: whether a story needs a spec, and whether doctor checks a story's plan and close. Kept in the vault's .projectstore.json; commit the vault after a change.",
         items: list.map((s) => plainItem(f, s, null)),
       });
+    // The flow policy is `--set` only (the configure spec, contract 2 as
+    // amended 2026-11-10): the menu has no widget for a keyed list, and the
+    // view names each key's form. Skipped here on purpose, not forgotten.
+    else if (g === "flow") continue;
   }
   return groups;
 }

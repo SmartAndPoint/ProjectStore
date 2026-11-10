@@ -2047,7 +2047,9 @@ export function listOf(fm, key) {
 // lifecycle_gates ("on"|"off"), spec_policy_since (ISO-8601, stamped whenever
 // spec_policy becomes "required" from anything else; kept otherwise — the
 // configure spec, contract 7), gates_since (stamped when lifecycle_gates
-// turns on; the configure spec, contract 7 as amended 2026-11-08).
+// turns on; the configure spec, contract 7 as amended 2026-11-08), and flow,
+// the team's flow thresholds (scripts/flow-policy.mjs; the configure spec,
+// contract 2, and SPEC-001 contract 4, as amended 2026-11-10).
 export function vaultConfigPath(vault) {
   return join(vault, LAYOUT.vaultConfig);
 }
@@ -2079,8 +2081,29 @@ export function readVaultConfigStrict(vault) {
 // spec_policy_since: a story done before the policy (re)took effect is exempt
 // (ADR-007 decision 6), and since every story the old stamp exempted closed
 // before the new one, no exemption is lost.
+// A change merged into a config object (the configure spec, contract 7 as
+// amended 2026-11-10): plain objects merge key by key, an array or a scalar
+// replaces, `null` deletes the key, and an object the deletion leaves empty
+// is deleted too. Pure and copy-on-write: `before` is never mutated. Keys are
+// own keys only, and maps are built with Object.fromEntries, so a key named
+// `__proto__` stays a key.
+export function mergeConfig(before, patch) {
+  const plain = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  const base = plain(before) ? before : {};
+  const entries = new Map(Object.entries(base));
+  for (const [k, v] of Object.entries(patch || {})) {
+    if (v === null) entries.delete(k);
+    else if (plain(v)) {
+      const merged = mergeConfig(Object.hasOwn(base, k) && plain(base[k]) ? base[k] : {}, v);
+      if (Object.keys(merged).length) entries.set(k, merged);
+      else entries.delete(k);
+    } else entries.set(k, v);
+  }
+  return Object.fromEntries(entries);
+}
+
 export function nextVaultConfig(before, patch, now = new Date().toISOString()) {
-  const next = { ...before, ...patch };
+  const next = mergeConfig(before, patch);
   if (patch.spec_policy === "required" && before.spec_policy !== "required") {
     // Never earlier than the stamp it replaces: one written ahead of this
     // clock (a hand edit, a machine whose clock ran fast) would otherwise
