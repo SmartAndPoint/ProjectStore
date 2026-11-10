@@ -1140,6 +1140,10 @@ const SCRIPT_ONLY = [
   },
   { script: "diff-refs.mjs", why: "PS-SPEC's story 'code-refs from diff' owns turning it into a verb" },
   {
+    script: "spec-drift.mjs",
+    why: "a standalone reviewer helper like diff-refs.mjs: the spec-drift mode's read-only fact bundle, with no verb and no MCP tool by the plan gate's decision",
+  },
+  {
     script: "status-change.mjs",
     why: "PS-FLOW's epic-row entry: the gates are pure and write no file, so the story command's plan and close ceremonies update the epic's Stories row after their own write, through the same read-again writer move uses",
   },
