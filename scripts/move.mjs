@@ -220,7 +220,15 @@ export async function runMove(ctx) {
   const { runReconcile } = await import("./reconcile.mjs");
   let rec;
   try {
-    rec = runReconcile({ write: true, only: null, projectDir: project, env: ownEnv ? ownEnv(project) : env });
+    // The generators find the binding through the project's own environment,
+    // never through the caller's working directory.
+    const { ownEnv: projectEnv } = await import("./verbs.mjs");
+    rec = runReconcile({
+      write: true,
+      only: null,
+      projectDir: project,
+      env: ownEnv ? ownEnv(project) : projectEnv(env, project),
+    });
   } catch (e) {
     rec = { error: e && e.message ? e.message : String(e) };
   }
