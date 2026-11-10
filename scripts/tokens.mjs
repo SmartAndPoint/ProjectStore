@@ -24,9 +24,10 @@
 //     false "1 call/turn" for every turn (each record holds ≤1 tool_use).
 //
 // COST is computed at current API list prices (PRICING below) with the cache
-// multipliers: read 0.1× input, 5m write 1.25×, 1h write 2× (the usage records
-// carry the 5m/1h split). Under a subscription plan these dollars are a proxy
-// for rate-limit consumption, not an invoice — the RATIOS hold either way.
+// multipliers: read 0.1× input unless the model has its own read rate, 5m
+// write 1.25×, 1h write 2× (the usage records carry the 5m/1h split). Under
+// a subscription plan these dollars are a proxy for rate-limit consumption,
+// not an invoice — the RATIOS hold either way.
 // Historical price changes are not modeled; everything is priced at today's
 // list. Unknown models are priced at 0 and reported.
 //
@@ -94,28 +95,36 @@ const STAGE_OF = {
 };
 const STAGE_ORDER = ["authoring", "critique", "planning", "code-review", "curation", "upkeep", "other"];
 
-// USD per MTok [input, output], API list prices as of 2026-08-04 (Fable 5.1 added 2026-09-02)
-// (platform.claude.com pricing docs). Cache multipliers applied on top of
-// the input rate.
+// USD per MTok [input, output, cache read?], API list prices as of 2026-11-10
+// (platform.claude.com pricing docs). The third value is the cache-read rate
+// where it is not 0.1× input (Fable 5.1 and 5.2: 0.025×; Opus 5.5 and
+// Sonnet 5.5: 0.05×); writes stay 1.25× / 2× input. The `--json` output
+// carries these arrays as they are, with two or three values.
 export const PRICING = {
-  "claude-fable-5-1": [10, 50],
+  "claude-fable-5-2": [8, 40, 0.2],
+  "claude-fable-5-1": [10, 50, 0.25],
   "claude-fable-5": [10, 50],
+  "claude-opus-5-5": [4, 20, 0.2],
   "claude-opus-5": [5, 25],
   "claude-opus-4-8": [5, 25],
   "claude-opus-4-7": [5, 25],
-  "claude-sonnet-5": [2, 10], // intro pricing through 2026-08-31; sticker is [3, 15]
+  "claude-sonnet-5-5": [2, 10, 0.1],
+  "claude-sonnet-5": [2, 10],
   "claude-sonnet-4-6": [3, 15],
+  // reads at the default 0.1× ($0.01); prompts up to 100K, beyond [0.5, 2.5] (not modeled)
+  "claude-haiku-5-5": [0.1, 0.5],
   "claude-haiku-4-5": [1, 5],
 };
 
 // Transcripts carry variant ids ("claude-haiku-4-5-20251001", "opus",
 // "claude-opus-5[1m]") — normalize before the PRICING lookup so they don't
-// silently price at $0.
+// silently price at $0. A bare alias names the newest model of its line, so
+// an old record written as "haiku" prices at today's Haiku, not the one that ran.
 const MODEL_ALIASES = {
-  fable: "claude-fable-5-1",
-  opus: "claude-opus-5",
-  sonnet: "claude-sonnet-5",
-  haiku: "claude-haiku-4-5",
+  fable: "claude-fable-5-2",
+  opus: "claude-opus-5-5",
+  sonnet: "claude-sonnet-5-5",
+  haiku: "claude-haiku-5-5",
 };
 
 export function normModel(model) {
@@ -126,9 +135,9 @@ export function normModel(model) {
 export function rowCost(row) {
   const p = PRICING[normModel(row.model)];
   if (!p) return 0;
-  const [inP, outP] = p;
+  const [inP, outP, readP = 0.1 * inP] = p;
   return (
-    (row.input * inP + row.cw5m * 1.25 * inP + row.cw1h * 2 * inP + row.cacheRead * 0.1 * inP + row.output * outP) / 1e6
+    (row.input * inP + row.cw5m * 1.25 * inP + row.cw1h * 2 * inP + row.cacheRead * readP + row.output * outP) / 1e6
   );
 }
 
@@ -359,7 +368,7 @@ const n = (v) => v.toLocaleString("en-US");
 
 // `t/turn` — avg distinct tool calls per tool-using turn (batching level; 1.0
 // means fully sequential). `cost` — USD at current list prices; cache reads
-// bill at 0.1× input, so token counts and dollars rank differently.
+// bill at a small fraction of input, so token counts and dollars rank differently.
 const usd = (v) => `$${v.toFixed(2)}`;
 
 function table(groups, label, { runs = false } = {}) {
