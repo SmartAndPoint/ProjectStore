@@ -24,6 +24,7 @@ import {
   extractLinks,
   resolveLinkTarget,
   storyMatchesEntry,
+  parseAmendmentMarkers,
   isMain,
   commandForm,
 } from "./lib.mjs";
@@ -114,6 +115,17 @@ export function buildGraph(cfg, layout, { files = null } = {}) {
         const r = resolveLinkTarget(entry, "ref", refCtx(["adr"]));
         if (r.outcome === "node") addEdge(n.path, "spec-implements-adr", r.node.path);
         else addResolved(n.path, r, entry);
+      }
+      // Amendment markers in the contracts section (spec contract 3, the
+      // third edge source; SPEC-001 contract 5), whatever the spec's status:
+      // a valid marker's ref resolves as a `stories:` entry does, and gives
+      // one `amends` edge story → spec per pair (dedup on the triple), or
+      // the dead or ambiguous edge its ref resolves to.
+      for (const m of parseAmendmentMarkers(n.body)) {
+        if (!m.valid) continue;
+        const r = epicsPath ? resolveStoryEntry(m.ref, index, epicsPath) : { outcome: "dead" };
+        if (r.outcome === "node") addEdge(r.node.path, "amends", n.path);
+        else addResolved(n.path, r, m.ref);
       }
     }
     if (n.type === "story") {

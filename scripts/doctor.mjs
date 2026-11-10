@@ -52,6 +52,9 @@ import {
   storiesAttributionRe,
   citationTokenRe,
   contractNumberAscii,
+  parseAmendmentMarkers,
+  isCalendarDate,
+  TOMBSTONE_BODY,
   CITATION_EXAMPLE_KEY,
   CITATION_PREFILTER,
   slugIdentity,
@@ -2460,6 +2463,116 @@ export function checkSpecLinks(cfg, layout, artifacts) {
   return out;
 }
 
+// Amendment markers (the ADR "An active spec is amended by a marked block
+// under the contract…", decisions 1, 4 and 5; SPEC-001 contracts 5 and 6),
+// in every spec whatever its status, under every policy:
+//   amendment-form  (warn)  a candidate that is not the grammar, a marker
+//                           before the first contract or after REMOVED;
+//                           such a marker counts for nothing;
+//   amendment-story (issue) the ref resolves to no story, or to several;
+//   amendment-link  (warn)  neither the story nor the spec lists the other
+//                           (one side only is checkSpecLinks' warn);
+//   amendment-date  (warn)  not a calendar date, before the spec's `date:`,
+//                           after tomorrow, or before the previous marker
+//                           under the same contract.
+// One finding per spec and fact: two markers of one unlinked story warn once.
+export function checkAmendments(layout, artifacts, now = new Date().toISOString()) {
+  const out = [];
+  const epicFolder = folderByKind(layout, "epic");
+  const resolveSpec = buildSpecResolver(artifacts, layout);
+  const t = Date.parse(now);
+  const tomorrow = new Date((Number.isFinite(t) ? t : Date.now()) + 86400000).toISOString().slice(0, 10);
+  for (const spec of artifacts.filter((a) => a.kind === "spec")) {
+    const markers = parseAmendmentMarkers(spec.body);
+    if (!markers.length) continue;
+    const seen = new Set();
+    const once = (key, f) => {
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(f);
+    };
+    const specDate = String(spec.fm.date || "").slice(0, 10);
+    const prevDate = new Map();
+    for (const m of markers) {
+      const where = m.contract === null ? `line ${m.line}` : `contract ${m.contract} (line ${m.line})`;
+      if (!m.valid) {
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "amendment-form",
+            `Amendment marker at ${where} counts for nothing: ${m.form}.`,
+            spec.rel,
+          ),
+        );
+        continue;
+      }
+      if (!isCalendarDate(m.date)) {
+        out.push(
+          finding(
+            "vault",
+            "warn",
+            "amendment-date",
+            `Amendment marker at ${where}: ${m.date} is not a date.`,
+            spec.rel,
+          ),
+        );
+      } else {
+        const prev = prevDate.get(m.index);
+        let why = null;
+        if (isCalendarDate(specDate) && m.date < specDate) why = `before the spec's date ${specDate}`;
+        else if (m.date > tomorrow) why = `after tomorrow (${tomorrow})`;
+        else if (prev && m.date < prev) why = `before the previous marker under the same contract (${prev})`;
+        if (why) {
+          out.push(
+            finding(
+              "vault",
+              "warn",
+              "amendment-date",
+              `Amendment marker at ${where} is dated ${m.date}, ${why}.`,
+              spec.rel,
+            ),
+          );
+        }
+        prevDate.set(m.index, m.date);
+      }
+      const r = epicFolder
+        ? resolveSpecStory(m.ref, artifacts, epicFolder.path)
+        : { error: "the layout has no epic folder" };
+      if (r.error) {
+        once(
+          `story ${m.ref}`,
+          finding(
+            "vault",
+            "issue",
+            "amendment-story",
+            `Amendment marker at ${where} names "${m.ref}", which resolves to no single story: ${r.error}.`,
+            spec.rel,
+          ),
+        );
+        continue;
+      }
+      const storyListsSpec = listOf(r.story.fm, "specs").some((ref) => resolveSpec(ref) === spec);
+      const specListsStory = listOf(spec.fm, "stories").some(
+        (e) => resolveSpecStory(e, artifacts, epicFolder.path).story === r.story,
+      );
+      if (!storyListsSpec && !specListsStory) {
+        once(
+          `link ${r.story.rel}`,
+          finding(
+            "vault",
+            "warn",
+            "amendment-link",
+            `Amendment marker at ${where} names ${r.story.rel}, but neither lists the other: add the spec to the story's \`specs:\` and the story to the spec's \`stories:\`.`,
+            spec.rel,
+          ),
+        );
+      }
+    }
+  }
+  return out;
+}
+
 // In-scope story = status beyond planned, not legacy-exempt.
 function specScopeStatus(fm) {
   const s = String(fm.status || "").toLowerCase();
@@ -2691,6 +2804,11 @@ export function checkLifecycleGates(artifacts, vaultCfg) {
 // is not a contract. Scenario items are `- WHEN|GIVEN|AND|THEN …` list items
 // under a contract; the `(verified: live|manual)` marker is looked for in the
 // contract's first paragraph, which a wrapped bold heading may span.
+//
+// Amendment markers (SPEC-001 contract 5) set `removed` on a contract whose
+// last valid marker is REMOVED (a tombstone, with that marker's `why`), and a
+// step is removed when its body, trimmed, is exactly `Removed, see below.`
+// (`removedSteps`). `why` is the latest valid marker's, whatever its kind.
 export function parseSpecContracts(spec) {
   const sec = sectionOf(spec.body || "", "spec_contracts");
   if (sec === null) return null;
@@ -2701,6 +2819,8 @@ export function parseSpecContracts(spec) {
   // The scenario item a continuation line belongs to (SPEC-001 contract 13):
   // a line indented deeper than its dash, not a bullet, before a blank line.
   let open = null;
+  // The step a wrapped line belongs to, for the tombstone test.
+  let stepOpen = null;
   for (const line of lines) {
     const top = line.match(/^(\d+[′″']*)\.(\s|$)/);
     if (top) {
@@ -2708,6 +2828,7 @@ export function parseSpecContracts(spec) {
         n: contractNumberAscii(top[1]),
         steps: new Set(),
         stepIndent: null,
+        stepText: new Map(),
         scenarios: [],
         marker: null,
         marks: [],
@@ -2716,21 +2837,33 @@ export function parseSpecContracts(spec) {
       contracts.push(cur);
       inFirstPara = true;
       open = null;
+      stepOpen = null;
       continue;
     }
     if (!cur) continue;
     if (/^\s*$/.test(line)) {
       inFirstPara = false;
       open = null;
+      stepOpen = null;
       continue;
     }
     if (inFirstPara) cur.first += " " + line.trim();
     const step = line.match(/^(\s+)(\d+[′″']*)\.(\s|$)/);
     if (step) {
       if (cur.stepIndent === null) cur.stepIndent = step[1].length;
-      if (step[1].length === cur.stepIndent) cur.steps.add(contractNumberAscii(step[2]));
+      if (step[1].length === cur.stepIndent) {
+        const n = contractNumberAscii(step[2]);
+        cur.steps.add(n);
+        cur.stepText.set(n, line.slice(step[0].length));
+        stepOpen = n;
+      } else stepOpen = null;
       open = null;
       continue;
+    }
+    if (stepOpen !== null) {
+      if (line.match(/^\s*/)[0].length > cur.stepIndent && !/^\s*([-*+>]|\d+[′″']*\.)(\s|$)/.test(line))
+        cur.stepText.set(stepOpen, cur.stepText.get(stepOpen) + " " + line.trim());
+      else stepOpen = null;
     }
     const sc = line.match(/^(\s*)-\s+(WHEN|GIVEN|AND|THEN)\b/);
     if (sc) {
@@ -2742,14 +2875,20 @@ export function parseSpecContracts(spec) {
       cur.scenarios[open.i] += " " + line.trim();
     else open = null;
   }
-  for (const c of contracts) {
+  const markers = parseAmendmentMarkers(spec.body || "").filter((m) => m.valid);
+  contracts.forEach((c, i) => {
     const mk = c.first.match(/\(verified\s*[:：]\s*(live|manual)\)/);
     c.marker = mk ? mk[1] : null;
     // An (edge) or (failure) mark closes a WHEN or GIVEN item; nowhere else counts.
     c.marks = c.scenarios.map((l) => /^-\s+(WHEN|GIVEN)\b.*\((edge|failure)\)\s*$/.exec(l)?.[2]).filter(Boolean);
+    const last = markers.filter((m) => m.index === i).at(-1) ?? null;
+    c.removed = last?.kind === "REMOVED";
+    c.why = last?.why ?? null;
+    c.removedSteps = new Set([...c.stepText].filter(([, t]) => t.trim() === TOMBSTONE_BODY).map(([n]) => n));
     delete c.first;
     delete c.stepIndent;
-  }
+    delete c.stepText;
+  });
   return contracts;
 }
 
@@ -2826,11 +2965,12 @@ export function checkSpecAliases(artifacts) {
 
 // Happy path only (SPEC-001 contract 13; the authoring-guides ADR, decision
 // 7): the contracts of an active spec that carry scenarios and have none
-// marked (edge) or (failure). Counted, not judged; no git.
+// marked (edge) or (failure). Counted, not judged; no git. A removed
+// contract (contract 5) is not reported, whatever its body still holds.
 export function checkHappyPathOnly(artifacts) {
   const out = [];
   for (const s of artifacts.filter((a) => a.kind === "spec" && String(a.fm.status || "") === "active")) {
-    const withScenarios = (parseSpecContracts(s) || []).filter((c) => c.scenarios.length);
+    const withScenarios = (parseSpecContracts(s) || []).filter((c) => !c.removed && c.scenarios.length);
     const bare = withScenarios.filter((c) => !c.marks.length).map((c) => c.n);
     if (!bare.length) continue;
     out.push(
@@ -2847,12 +2987,12 @@ export function checkHappyPathOnly(artifacts) {
 }
 
 // Scenario shape (Decision 3): a contract's scenario items need a WHEN (or
-// GIVEN) and a THEN.
+// GIVEN) and a THEN. Removed contracts are skipped.
 export function checkScenarioShape(artifacts) {
   const out = [];
   for (const s of artifacts.filter((a) => a.kind === "spec")) {
     for (const c of parseSpecContracts(s) || []) {
-      if (!c.scenarios.length) continue;
+      if (c.removed || !c.scenarios.length) continue;
       const when = c.scenarios.some((l) => /^-\s+(WHEN|GIVEN)\b/.test(l));
       const then = c.scenarios.some((l) => /^-\s+THEN\b/.test(l));
       if (!when || !then) {
@@ -2961,6 +3101,21 @@ export function checkContractCitations(artifacts, scan) {
     if (!contractsOf.has(spec)) contractsOf.set(spec, parseSpecContracts(spec) || []);
     const [top, step] = t.n.split("/");
     const c = contractsOf.get(spec).find((x) => x.n === top);
+    if (c && (c.removed || (step && c.removedSteps.has(step)))) {
+      // A tombstone (SPEC-001 contract 8): reported instead of unknown, with
+      // the why of the contract's latest valid marker, and no coverage.
+      const what = c.removed ? `contract ${top}` : `step ${t.n}`;
+      out.push(
+        finding(
+          "vault",
+          "warn",
+          "citation-removed",
+          `[${t.key}#${t.n}] cites ${what} of ${spec.rel}, which is removed${c.why ? `: "${c.why}"` : ""} — move the test to the rule that replaced it, or drop the token.`,
+          where,
+        ),
+      );
+      continue;
+    }
     if (!c || (step && !c.steps.has(step))) {
       out.push(
         finding("vault", "warn", "citation-unknown", `[${t.key}#${t.n}] — ${spec.rel} has no contract ${t.n}.`, where),
@@ -2992,7 +3147,8 @@ export function checkContractCitations(artifacts, scan) {
     return f;
   };
   for (const s of artifacts.filter((a) => a.kind === "spec" && String(a.fm.status || "") === "active")) {
-    const contracts = contractsOf.get(s) || parseSpecContracts(s) || [];
+    // Tombstones are not counted (SPEC-001 contract 8).
+    const contracts = (contractsOf.get(s) || parseSpecContracts(s) || []).filter((c) => !c.removed);
     if (!contracts.length) continue;
     const got = cited.get(s) || new Set();
     if (!got.size && String(s.fm.coverage || "") !== "report") {
@@ -3029,11 +3185,23 @@ export function checkContractCitations(artifacts, scan) {
 // Evidence that cites a contract (Decision 10), behind lifecycle_gates: on.
 // A token not found in the project is a warn for a story in progress or in
 // review, and for a done story that is not legacy. Free-text evidence is
-// never checked, and doctor never runs a test.
+// never checked, and doctor never runs a test. Evidence naming a removed
+// contract or step is skipped (SPEC-001 contract 8): a closed story's record
+// does not warn when a later story removes what it cited.
 export function checkEvidenceCitations(artifacts, vaultCfg, scan) {
   if (!lifecycleGatesOn(vaultCfg) || !scan || scan.status !== "ok") return [];
   const since = legacySince(vaultCfg);
   const present = new Set(scan.tokens.map((t) => `${t.key}#${t.n}`));
+  const keys = citationKeys(artifacts);
+  const contractsOf = new Map();
+  const tombstone = (key, n) => {
+    const spec = keys.get(key);
+    if (!spec) return false;
+    if (!contractsOf.has(spec)) contractsOf.set(spec, parseSpecContracts(spec) || []);
+    const [top, step] = n.split("/");
+    const c = contractsOf.get(spec).find((x) => x.n === top);
+    return Boolean(c && (c.removed || (step && c.removedSteps.has(step))));
+  };
   const evidenceRe = evidenceSuffixRe();
   const out = [];
   for (const story of artifacts.filter((a) => a.kind === "story")) {
@@ -3047,7 +3215,7 @@ export function checkEvidenceCitations(artifacts, vaultCfg, scan) {
       const at = item.text.search(evidenceRe);
       if (at === -1) continue;
       for (const t of item.text.slice(at).matchAll(citationTokenRe())) {
-        if (t[1] === CITATION_EXAMPLE_KEY || present.has(`${t[1]}#${t[2]}`)) continue;
+        if (t[1] === CITATION_EXAMPLE_KEY || present.has(`${t[1]}#${t[2]}`) || tombstone(t[1], t[2])) continue;
         out.push(
           finding(
             "vault",
@@ -3883,6 +4051,7 @@ export function runVaultChecks(
     () => checkIndexHeaders(cfg, layout),
     () => checkStoriesAndEpics(artifacts),
     () => checkSpecLinks(cfg, layout, artifacts),
+    () => checkAmendments(layout, artifacts, now),
     () => checkSpecCoverage(artifacts, vaultCfg, layout),
     () => checkSpecAcceptance(layout, artifacts, vaultCfg),
     () => checkLifecycleGates(artifacts, vaultCfg),

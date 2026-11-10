@@ -380,7 +380,7 @@ export const VERBS = Object.freeze([
     requiresBinding: true,
     mcp: Object.freeze(["neighbors", "lineage"]),
     options: [
-      opt("kind", "<edge-kind>", "only edges of this kind (lineage: one of its four)", true),
+      opt("kind", "<edge-kind>", "only edges of this kind (lineage: one of its five)", true),
       opt("direction", DIRECTIONS.join("|"), "neighbors: which edges"),
       opt("depth", "<n>", `lineage: how far (default ${LINEAGE_DEFAULT_DEPTH})`),
       opt("limit", "<n>", `neighbors: cap per direction (at most ${GRAPH_EDGE_CAP})`),

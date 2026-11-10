@@ -67,7 +67,13 @@ export const SEARCH_PER_FILE_CAP = 3;
 export const SEARCH_DEADLINE_MS = 5000;
 export const SNIPPET_CELL = 160;
 export const GRAPH_EDGE_CAP = 100;
-export const LINEAGE_KINDS = Object.freeze(["supersedes", "spec-covers", "spec-implements-adr", "epic-contains"]);
+export const LINEAGE_KINDS = Object.freeze([
+  "supersedes",
+  "spec-covers",
+  "spec-implements-adr",
+  "epic-contains",
+  "amends",
+]);
 export const LINEAGE_DEFAULT_DEPTH = 3;
 export const LINEAGE_NODE_CAP = 50;
 export const CODE_REFS_CAP = 100;
@@ -663,7 +669,7 @@ export function renderNeighbors(r) {
 }
 
 // The typed ancestry and descent of one artifact: supersedes, spec-covers,
-// spec-implements-adr and epic-contains, both directions, breadth-first,
+// spec-implements-adr, epic-contains and amends, both directions, breadth-first,
 // depth- and node-capped, cycle-safe. Body wikilinks are deliberately not
 // lineage — walking them returns most of the vault, so `kinds` is validated
 // against LINEAGE_KINDS — and containment is not walked from an epic down to
