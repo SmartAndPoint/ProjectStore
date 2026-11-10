@@ -102,6 +102,7 @@
   "scripts/run-host.mjs",
   "scripts/scaffold.mjs",
   "scripts/setup.mjs",
+  "scripts/spec-drift.mjs",
   "scripts/stages.mjs",
   "scripts/statusline-launcher.mjs",
   "scripts/statusline.mjs",

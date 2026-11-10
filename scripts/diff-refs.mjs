@@ -103,6 +103,20 @@ export function grepProjectLines(cwd, pattern, { exclude = [], timeout = 10000, 
   return { status: "ok", lines };
 }
 
+// The `--since` window git is given, shared with spec-drift.mjs.
+//
+// A bare YYYY-MM-DD gets midnight appended, and it is not cosmetic. Git's
+// approxidate reads a date with no time as THAT DATE AT THE CURRENT TIME OF
+// DAY, so `--since=2026-09-08` run at 17:46 silently excludes everything
+// committed earlier the same day. `started_at` is written as a bare date,
+// so a story started and finished in one day proposed `files: []` and the
+// caller had no way to tell that from "nothing was committed" (measured
+// 2026-09-08: --since=2026-09-08 returned nothing while
+// --since="2026-09-08 00:00" returned the day's commit).
+export function sinceWindow(since) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(since) ? `${since} 00:00:00` : since;
+}
+
 function filterFiles(list) {
   return [...new Set(list)]
     .map((f) => f.trim())
@@ -128,16 +142,7 @@ function main() {
   } else if (since) {
     // committer-date window; work committed before the story went in-progress
     // is invisible by design (story-scoped attribution).
-    //
-    // A bare YYYY-MM-DD gets midnight appended, and it is not cosmetic. Git's
-    // approxidate reads a date with no time as THAT DATE AT THE CURRENT TIME OF
-    // DAY, so `--since=2026-09-08` run at 17:46 silently excludes everything
-    // committed earlier the same day. `started_at` is written as a bare date,
-    // so a story started and finished in one day proposed `files: []` and the
-    // caller had no way to tell that from "nothing was committed" (measured
-    // 2026-09-08: --since=2026-09-08 returned nothing while
-    // --since="2026-09-08 00:00" returned the day's commit).
-    const window = /^\d{4}-\d{2}-\d{2}$/.test(since) ? `${since} 00:00:00` : since;
+    const window = sinceWindow(since);
     const out = git(["log", `--since=${window}`, "--name-only", "--pretty=format:"]);
     committed = out ? out.split("\n") : [];
     usedRange = `--since=${window}`;
