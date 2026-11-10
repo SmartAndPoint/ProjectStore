@@ -83,6 +83,7 @@
   "node_modules/projectstore/scripts/doctor.mjs",
   "node_modules/projectstore/scripts/draft.mjs",
   "node_modules/projectstore/scripts/fetch-shell.mjs",
+  "node_modules/projectstore/scripts/flow-policy.mjs",
   "node_modules/projectstore/scripts/graph.mjs",
   "node_modules/projectstore/scripts/guides.mjs",
   "node_modules/projectstore/scripts/harness.mjs",

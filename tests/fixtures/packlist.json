@@ -79,6 +79,7 @@
   "scripts/doctor.mjs",
   "scripts/draft.mjs",
   "scripts/fetch-shell.mjs",
+  "scripts/flow-policy.mjs",
   "scripts/graph.mjs",
   "scripts/guides.mjs",
   "scripts/harness.mjs",
