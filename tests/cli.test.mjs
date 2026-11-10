@@ -1140,6 +1140,10 @@ const SCRIPT_ONLY = [
   },
   { script: "diff-refs.mjs", why: "PS-SPEC's story 'code-refs from diff' owns turning it into a verb" },
   {
+    script: "spec-drift.mjs",
+    why: "a standalone reviewer helper like diff-refs.mjs: the spec-drift mode's read-only fact bundle, with no verb and no MCP tool by the plan gate's decision",
+  },
+  {
     script: "worktree.mjs",
     why: "PS-WT's inherit probe; its consumer copies the parent config verbatim, which bind deliberately does not do",
   },
