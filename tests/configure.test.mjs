@@ -1157,6 +1157,11 @@ test("configure flow: usage errors exit 2 and write nothing (failure)", async ()
     [["flow.people[First Last]=full"], /takes \.time, \.wip, \.git_names or \.left/],
     [["flow.capacity_weeks=4,2"], /low then high/],
     [["flow.groomed_at=2026-11-10"], /a stamp that groom writes, never set by hand/],
+    [["flow.people[First Last].git_names=first.last@example.com"], /email addresses are not kept in the vault/],
+    [
+      ["flow.people[First Last].git_names=me@laptop, first.last@example.com"],
+      /email addresses are not kept in the vault/,
+    ],
     [["flow.wip.full=3", "flow.wip.full=2"], /flow\.wip\.full is named twice/],
     [["flow.wip.fulll=3"], /unknown setting flow\.wip\.fulll — did you mean flow\.wip\.full\?/],
   ];
@@ -1164,6 +1169,7 @@ test("configure flow: usage errors exit 2 and write nothing (failure)", async ()
     const { r } = await configure(p, { set });
     assert.equal(r.code, 2, set.join(" "));
     assert.match(r.usage, re, set.join(" "));
+    if (/git_names/.test(set[0])) assert.doesNotMatch(r.usage, /@/, "the address is not repeated");
   }
   assert.deepEqual(tree(p.proj, p.vault), before, "nothing written by any of them");
   assert.equal(json(join(p.vault, ".projectstore.json")).flow.groomed_at, "2026-11-01T00:00:00Z");
