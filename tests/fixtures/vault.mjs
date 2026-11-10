@@ -112,6 +112,72 @@ export function seedCliVault() {
   return { proj, vault };
 }
 
+// Amendment markers (SPEC-001 contract 5; the graph spec, contracts 3 and 4):
+// its own small vault, for the `amends` golden and the lineage case. One
+// story amends an active spec three times (one edge) and a superseded spec
+// once; a marker names a missing story (a dead edge), another an ambiguous
+// legacy ref (an ambiguous edge); an invalid kind, a fenced marker, an
+// example ref and an older `> *Amended` block give nothing.
+export function seedAmendsFixture() {
+  const { proj, vault } = makeVaultProject();
+  const put = (rel, content) => {
+    mkdirSync(join(vault, dirname(rel)), { recursive: true });
+    writeFileSync(join(vault, rel), content);
+  };
+  const story = (id, extra = "") =>
+    `---\ntype: story\nid: "${id}"\ntitle: "${id}"\nstatus: in-progress\ncreated: 2026-01-01\n${extra}---\n\n# ${id}\n`;
+  put(
+    join("epics", "PS-A", "epic.md"),
+    `---\ntype: epic\nid: "PS-A"\ntitle: "A"\nstatus: in-progress\ncreated: 2026-01-01\n---\n\n# A\n`,
+  );
+  put(join("epics", "PS-A", "stories", "story-change-it.md"), story("story-change-it", 'specs: ["live", "old"]\n'));
+  put(join("epics", "PS-A", "stories", "story-007-alpha.md"), story("story-007-alpha"));
+  put(join("epics", "PS-A", "stories", "story-007-beta.md"), story("story-007-beta"));
+  const spec = (id, status, contracts) =>
+    `---\ntype: spec\nid: "${id}"\ntitle: "${id}"\nstatus: ${status}\ndate: 2026-01-01\nstories: ["PS-A/story-change-it"]\n---\n\n# ${id}\n\n## Behavioral contracts\n\n${contracts.join("\n")}\n\n## Acceptance\n\n- [ ] one\n`;
+  put(
+    join("specs", "live.md"),
+    spec("live", "active", [
+      "1. **One.** The text in force.",
+      "",
+      "   > amended 2026-02-01 by PS-A/story-change-it: MODIFIED — the first change.",
+      "   >",
+      "   > > *Amended 2026-01-15, from An older story (PS-A),* folded here.",
+      "",
+      "2. **Two.** Removed, see below.",
+      "",
+      "   > amended 2026-02-02 by PS-A/story-change-it: REMOVED — the rule is gone.",
+      "",
+      "3. **Three.** Added later.",
+      "",
+      "   > amended 2026-02-03 by PS-A/story-change-it: ADDED — a new rule.",
+      "",
+      "   > amended 2026-02-04 by PS-A/story-missing: MODIFIED — names no story.",
+      "",
+      "   > amended 2026-02-05 by PS-A/story-007: MODIFIED — matches two stories.",
+      "",
+      "   > amended 2026-02-06 by PS-A/story-007-alpha: CHANGED — not a kind.",
+      "",
+      "   ```",
+      "   > amended 2026-02-07 by PS-A/story-007-beta: MODIFIED — fenced.",
+      "   ```",
+      "",
+      "   > amended 2026-02-08 by example/story-x: MODIFIED — documentation.",
+      "",
+      "   > *Amended 2026-02-09, from story-007-beta (PS-A),* an older block.",
+    ]),
+  );
+  put(
+    join("specs", "old.md"),
+    spec("old", "superseded", [
+      "1. **One.** The text in force.",
+      "",
+      "   > amended 2026-02-01 by PS-A/story-change-it: MODIFIED — before it was superseded.",
+    ]),
+  );
+  return { proj, vault };
+}
+
 // Write a project's binding in the harness-neutral layout (the layout ADR,
 // 2026-09-06), creating .projectstore/ on the way — what every test that used
 // to write .claude/projectstore.json calls now.

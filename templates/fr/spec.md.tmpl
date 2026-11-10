@@ -42,7 +42,11 @@ couvertes : une story n'est finie que si les deux sont au vert (ADR-007).
        (verified: live)   ou   (verified: manual)
      Un test cite un contrat ainsi : [example#1] — l'id ou l'alias de la spec,
      puis le numéro du contrat. Le frontmatter peut ajouter `alias: <clé-courte>`
-     et `coverage: report`. Voir docs/contracts-and-tests.md. -->
+     et `coverage: report`. Voir docs/contracts-and-tests.md.
+     Une modification ultérieure réécrit le texte du contrat et place une marque
+     dessous (ADDED, MODIFIED ou REMOVED ; un contrat supprimé garde son numéro et
+     son titre, et son texte devient "Removed, see below.") :
+       > amended YYYY-MM-DD by EPIC-ID/story-id: MODIFIED — <why> -->
 
 1.
 2.

@@ -41,7 +41,11 @@ Spec acceptance is **additive** to the covered stories' own acceptance criteria
        (verified: live)   or   (verified: manual)
      A test cites a contract as [example#1]: the spec's id or alias, then the
      contract number. Frontmatter may add `alias: <short-key>` and
-     `coverage: report`. See docs/contracts-and-tests.md. -->
+     `coverage: report`. See docs/contracts-and-tests.md.
+     A later change to a contract rewrites its body and puts a marker under it
+     (ADDED, MODIFIED or REMOVED; a removed contract keeps its number and its
+     heading, and its body becomes "Removed, see below."):
+       > amended YYYY-MM-DD by EPIC-ID/story-id: MODIFIED — <why> -->
 
 1.
 2.

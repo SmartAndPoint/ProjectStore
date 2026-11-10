@@ -224,10 +224,12 @@ function registeredArgv(proj) {
 }
 
 // Re-baselined on purpose for 0.30.10: the doctor tool gained `policy`, the dry
-// run of the spec policy ADR (Decision 18). Every other tool is unchanged.
-const TOOLS_RECORDED = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "mcp-tools-0.30.10.json"), "utf8"));
+// run of the spec policy ADR (Decision 18). Re-baselined for 0.30.15: the
+// lineage tool names five kinds, `amends` among them (the graph spec, contract
+// 4 as amended 2026-11-10). Every other tool is unchanged.
+const TOOLS_RECORDED = JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "mcp-tools-0.30.15.json"), "utf8"));
 
-test("mcp: tools/list equals the recorded list (0.30.10), through the entry .mcp.json runs and through projectstore mcp", async () => {
+test("mcp: tools/list equals the recorded list (0.30.15), through the entry .mcp.json runs and through projectstore mcp", async () => {
   const proj = mkdtempSync(join(tmpdir(), "ps-mcp-list-"));
   assert.deepEqual(toolList(), TOOLS_RECORDED, "the table");
   const { argv, env } = registeredArgv(proj);

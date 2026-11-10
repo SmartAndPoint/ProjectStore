@@ -7,7 +7,9 @@ policy, revised: contract scenarios and test citations that doctor counts,
 and a declared per-story opt-out from a spec*, and decisions 6 and 7 of the
 ADR *One authoring guide per artifact kind, read by the author before the
 draft and by the critic after, overridable from the vault* (edge and failure
-marks, and test stories).
+marks, and test stories), and the ADR *An active spec is amended by a marked
+block under the contract, naming the story, the date and the kind, which
+doctor checks and the graph draws* (amendment markers).
 
 All of it is optional. A spec without scenarios, and a test without a
 citation, stay valid.
@@ -171,6 +173,52 @@ Two specs may not share an alias, and an alias may not be another spec's id.
 A citation is a claim: the reviewer checks that a cited test asserts the
 contract's outcome. An empty test with a token is a review finding.
 
+## Amending a contract
+
+A later story that changes a contract of an active spec rewrites the
+contract's body to the text in force and puts a marker under it: a
+blockquote after the contract and before the next one, whose first paragraph
+reads
+
+```markdown
+4. **Exports.** The export runs nightly and keeps seven copies.
+
+   > amended 2026-11-10 by example/story-keep-seven: MODIFIED — seven copies, not three.
+   >
+   > Replaced:
+   >
+   > > keeps three copies
+```
+
+- `amended`, `by`, the kind and `Removed, see below.` stay English in every
+  locale. The ref is any form a spec's `stories:` entry takes
+  (`EPIC-ID/<story-id>`, the story part a short id or the full slug; a ref
+  without `EPIC-ID/` resolves to no story). The colon may be `:` or `：`, the
+  dash `—`, `–` or `-`. A marker may wrap: its first paragraph is read with
+  its lines joined.
+- `MODIFIED`: the body holds the new text; the block quotes what it replaced
+  and why. A step keeps its number: a removed step stays as
+  `2. Removed, see below.`, a new step takes the list's next number.
+- `ADDED`: a new contract takes the highest number in the file, removed ones
+  included, plus one. A number is never reused.
+- `REMOVED`: the contract keeps its number and its heading, and its body
+  becomes `Removed, see below.` This is a tombstone. Nothing follows a
+  `REMOVED` marker; a rule that comes back is `ADDED` under a new number.
+- The story and the spec list each other: the story in the spec's
+  `stories:`, the spec in the story's `specs:`. The amending story is a
+  covered story.
+- Markers inside a fence or an HTML comment do not count, and neither does a
+  marker whose ref starts with `example/` (it is documentation, like the one
+  above). Older `> *Amended …` blocks are not read; the first marker under a
+  contract folds them into the body and quotes them inside its own block.
+
+A tombstone stays forever, so a citation keeps its meaning: a test that
+still cites `[example#4]` after contract 4 was removed is reported as
+`citation-removed`, with the marker's why, and the removed contract leaves
+the coverage count. Evidence in a closed story that names it is not
+reported. `graph.md` and `lineage` show an `amends` edge from the story to
+the spec.
+
 ## What doctor reports
 
 Doctor (`--vault`) scans the bound project with `git grep --untracked`, so a
@@ -182,11 +230,16 @@ skipped. Tests outside the bound project, or in a submodule, are not seen.
 |---|---|---|
 | `contract-coverage` | info | One line per active spec. With no citation: "N contracts, 0 cited". Once a spec has a citation, or sets `coverage: report` in its frontmatter: the contracts no test cites |
 | `citation-unknown` | warn | A token whose key is no spec's id or alias, or whose number is not a contract of that spec |
+| `citation-removed` | warn | A token that cites a removed contract, or a step that reads `Removed, see below.`; the message quotes the marker's why |
 | `citation-superseded` | info | A token that cites a superseded spec |
 | `scenario-shape` | info | A scenario without a WHEN/GIVEN or a THEN |
 | `contract-happy-path-only` | info | One line per active spec: the contracts that carry scenarios and have none marked `(edge)` or `(failure)` |
 | `spec-alias` | issue | A duplicate alias, an alias equal to another spec's id, or the reserved `example` |
-| `evidence-citation` | warn | Under `lifecycle_gates: on`: a story's evidence names a token that no file in the project carries |
+| `evidence-citation` | warn | Under `lifecycle_gates: on`: a story's evidence names a token that no file in the project carries (a removed contract is skipped) |
+| `amendment-form` | warn | A blockquote under the contracts that starts `amended <date> by` but is not the grammar, comes before the first contract, or follows a `REMOVED`; it counts for nothing |
+| `amendment-story` | issue | A marker's ref names no story, or more than one |
+| `amendment-link` | warn | Neither the marker's story nor the spec lists the other (one side only is `spec-links`) |
+| `amendment-date` | warn | A marker's date is not a date, is before the spec's `date:`, after tomorrow, or before the previous marker under the same contract |
 
 Each report names the checkout it read. A worktree on an old branch, or a
 second project bound to the same vault, can see different coverage.

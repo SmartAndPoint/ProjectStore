@@ -42,7 +42,11 @@ cubiertas: una historia se cierra cuando ambos están en verde (ADR-007).
        (verified: live)   o   (verified: manual)
      Una prueba cita un contrato así: [example#1] — el id o alias de la spec y
      el número del contrato. El frontmatter puede añadir `alias: <clave-corta>`
-     y `coverage: report`. Ver docs/contracts-and-tests.md. -->
+     y `coverage: report`. Ver docs/contracts-and-tests.md.
+     Un cambio posterior reescribe el texto del contrato y pone una marca debajo
+     (ADDED, MODIFIED o REMOVED; un contrato eliminado conserva su número y su
+     título, y su texto pasa a ser "Removed, see below."):
+       > amended YYYY-MM-DD by EPIC-ID/story-id: MODIFIED — <why> -->
 
 1.
 2.

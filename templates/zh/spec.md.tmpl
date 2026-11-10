@@ -41,7 +41,11 @@ story 才算完成（ADR-007）。
        (verified: live)   或   (verified: manual)
      测试这样引用契约：[example#1]，即 spec 的 id 或 alias，加上契约编号。
      frontmatter 可以加 `alias: <短键>` 和 `coverage: report`。
-     详见 docs/contracts-and-tests.md。 -->
+     详见 docs/contracts-and-tests.md。
+     之后修改契约时，重写契约正文，并在其下方加一条标记
+     （ADDED、MODIFIED 或 REMOVED；被删除的契约保留编号和标题，
+     正文改为 "Removed, see below."）：
+       > amended YYYY-MM-DD by EPIC-ID/story-id: MODIFIED — <why> -->
 
 1.
 2.

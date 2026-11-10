@@ -1885,6 +1885,112 @@ export function contractNumberAscii(n) {
   return String(n).replace(/″/g, "''").replace(/′/g, "'");
 }
 
+// Amendment markers (the ADR "An active spec is amended by a marked block
+// under the contract…", decisions 1 to 3; SPEC-001 contract 5). A marker is a
+// blockquote in the Behavioral contracts section, after a top-level contract
+// and before the next one, whose first paragraph (wrapped lines joined) reads
+//   amended YYYY-MM-DD by <ref>: <KIND> — <why>
+// `amended`, `by`, the kinds and the tombstone body are machine tokens:
+// English in every locale. The colon is `:` or `：`, the separator `—`, `–` or
+// `-`. A first paragraph that starts `amended <date> by` in any case is a
+// candidate; one that is not the grammar is an `amendment-form` warn, and so
+// is a marker before the first contract or after a REMOVED marker under the
+// same contract. A ref whose epic part is the reserved example key is
+// documentation and is skipped whole. Fences and HTML comments do not count.
+export const AMENDMENT_KINDS = Object.freeze(["ADDED", "MODIFIED", "REMOVED"]);
+export const TOMBSTONE_BODY = "Removed, see below.";
+export const AMENDMENT_GRAMMAR = "amended YYYY-MM-DD by <ref>: ADDED|MODIFIED|REMOVED — <why>";
+const AMENDMENT_CANDIDATE_RE = /^amended\s+\S+\s+by(?:\s|$)/i;
+const AMENDMENT_REF_RE = /^amended\s+\S+\s+by\s+([^\s:：]+)/i;
+const AMENDMENT_RE = /^amended (\d{4}-\d{2}-\d{2}) by ([^\s:：]+)\s*[:：]\s*(ADDED|MODIFIED|REMOVED)\s*[—–-]\s*(\S.*)$/;
+
+// The markers of one spec body, in file order. Each is
+//   { contract: "<n>" | null, index: <contract's position> | -1, line,
+//     date, ref, kind, why, form: null | "<what is wrong>", valid }
+// where `line` is 1-based in the body, and `valid` means no form warn (a date
+// or link finding does not make a marker invalid).
+export function parseAmendmentMarkers(body) {
+  const text = String(body || "");
+  const m = text.match(headingLineRe("spec_contracts"));
+  if (!m) return [];
+  const start = m.index + m[0].length;
+  const rest = text.slice(start);
+  const next = rest.search(/^## /m);
+  const sec = next === -1 ? rest : rest.slice(0, next);
+  const lineBase = text.slice(0, start).split("\n").length; // 1-based line of sec's first line
+  // Comments are blanked to their newlines, so line numbers survive.
+  const lines = sec.replace(/<!--[\s\S]*?-->/g, (c) => c.replace(/[^\n]/g, "")).split("\n");
+  const out = [];
+  let index = -1;
+  let contract = null;
+  let fenced = false;
+  let run = null;
+  const flush = () => {
+    if (!run) return;
+    const quoted = run.lines.map((l) => l.replace(/^\s*>\s?/, ""));
+    const firstPara = [];
+    for (const q of quoted) {
+      if (/^\s*$/.test(q)) break;
+      firstPara.push(q.trim());
+    }
+    const para = firstPara.join(" ").trim();
+    const at = run.line;
+    run = null;
+    if (!AMENDMENT_CANDIDATE_RE.test(para)) return;
+    const refHit = para.match(AMENDMENT_REF_RE);
+    if (refHit && refHit[1].split("/")[0] === CITATION_EXAMPLE_KEY) return;
+    const g = para.match(AMENDMENT_RE);
+    const entry = {
+      contract,
+      index,
+      line: lineBase + at,
+      date: g ? g[1] : null,
+      ref: g ? g[2] : refHit ? refHit[1] : null,
+      kind: g ? g[3] : null,
+      why: g ? g[4].trim() : null,
+      form: null,
+      valid: false,
+    };
+    if (!g) entry.form = `the first paragraph is not \`${AMENDMENT_GRAMMAR}\``;
+    else if (contract === null) entry.form = "it comes before the first contract";
+    else if (out.some((x) => x.index === index && x.valid && x.kind === "REMOVED"))
+      entry.form = `it follows a REMOVED marker under contract ${contract} (a restored rule is ADDED under a new number)`;
+    entry.valid = entry.form === null;
+    out.push(entry);
+  };
+  lines.forEach((line, i) => {
+    if (/^\s*```/.test(line)) {
+      flush();
+      fenced = !fenced;
+      return;
+    }
+    if (fenced) return;
+    const top = line.match(/^(\d+[′″']*)\.(\s|$)/);
+    if (top) {
+      flush();
+      index++;
+      contract = contractNumberAscii(top[1]);
+      return;
+    }
+    if (/^\s*>/.test(line)) {
+      if (!run) run = { line: i, lines: [] };
+      run.lines.push(line);
+      return;
+    }
+    flush();
+  });
+  flush();
+  return out;
+}
+
+// A date the calendar has (2026-02-30 is not one).
+export function isCalendarDate(s) {
+  const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+}
+
 // The body footer (`*Last updated: 2026-01-01*`) is content rather than a heading,
 // but the lifecycle gates keep it in step with frontmatter `updated:`. Matching
 // accepts every registered language; the rewrite preserves the file's OWN prefix

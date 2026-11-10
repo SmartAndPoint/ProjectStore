@@ -155,7 +155,7 @@
   },
   {
     "name": "lineage",
-    "description": "The typed ancestry and descent of one artifact: supersedes, spec-covers, spec-implements-adr, epic-contains, breadth-first to a depth (default 3).",
+    "description": "The typed ancestry and descent of one artifact: supersedes, spec-covers, spec-implements-adr, epic-contains, amends, breadth-first to a depth (default 3).",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -168,7 +168,7 @@
           "items": {
             "type": "string"
           },
-          "description": "only these lineage kinds (a subset of the four)"
+          "description": "only these lineage kinds (a subset of the five)"
         },
         "depth": {
           "type": "integer",

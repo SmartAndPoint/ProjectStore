@@ -41,7 +41,11 @@ reviewed_at: null
        (verified: live)   или   (verified: manual)
      Тест ссылается на контракт так: [example#1] — id или alias спеки и номер
      контракта. Во frontmatter можно добавить `alias: <короткий-ключ>` и
-     `coverage: report`. Подробнее: docs/contracts-and-tests.md. -->
+     `coverage: report`. Подробнее: docs/contracts-and-tests.md.
+     Поздняя правка контракта переписывает его текст и ставит под ним метку
+     (ADDED, MODIFIED или REMOVED; удалённый контракт сохраняет номер и
+     заголовок, а текст становится "Removed, see below."):
+       > amended YYYY-MM-DD by EPIC-ID/story-id: MODIFIED — <why> -->
 
 1.
 2.
