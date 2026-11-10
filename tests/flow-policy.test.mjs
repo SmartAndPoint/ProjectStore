@@ -12,6 +12,7 @@ import {
   flowForm,
   blockedAt,
   isFlowSet,
+  isEmailAddress,
   FLOW_FIXED,
 } from "../scripts/flow-policy.mjs";
 import { mergeConfig, nextVaultConfig } from "../scripts/lib.mjs";
@@ -177,4 +178,38 @@ test("a node on a flow path that is not an object is named (failure)", () => {
   assert.equal(blockedAt({ flow: { people: { A: 3 } } }, ["people", "A", "time"]), "flow.people[A]");
   assert.equal(blockedAt({ flow: { wip: { full: 2 } } }, ["wip", "full"]), null, "a leaf is replaced");
   assert.equal(blockedAt({}, ["wip", "full"]), null);
+});
+
+// [configure#2]
+test("git names: an @ with no dot after it is a name, not an address", () => {
+  assert.deepEqual(ok("flow.people[First Last].git_names=me@laptop, First Last").value, ["me@laptop", "First Last"]);
+  for (const n of ["me@laptop", "@octocat", "a@b", "user@", "first.last", "First Last"])
+    assert.equal(isEmailAddress(n), false, n);
+  for (const n of [
+    "first.last@example.com",
+    "A@B.C",
+    "x+tag@sub.example.co.uk",
+    "First Last <first.last@example.com>",
+    "a@b@c.com",
+    "<a@b.c>;",
+  ])
+    assert.equal(isEmailAddress(n), true, n);
+});
+
+// [configure#2] [configure#11]
+test("git names: an entry that is, or holds, an email address is refused, and the message never repeats it (failure)", () => {
+  for (const v of [
+    "first.last@example.com",
+    "First Last <first.last@example.com>",
+    "me@laptop, first.last@example.com",
+    "a@b.co, x\ty",
+  ]) {
+    const r = parseFlowSet(`flow.people[First Last].git_names=${v}`);
+    assert.ok(r.usage, v);
+    assert.match(
+      r.usage,
+      /^flow\.people\[First Last\]\.git_names takes git author names, and email addresses are not kept in the vault$/,
+    );
+    assert.doesNotMatch(r.usage, /@/, "the address is not repeated");
+  }
 });

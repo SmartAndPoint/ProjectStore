@@ -237,7 +237,9 @@ each key activates.
   person's WIP limit is their own `wip`, else `wip.<time>`, else none
   (`wipLimitOf` in `scripts/flow-policy.mjs`). `configure --set` writes these
   keys and merges them into the block, keeping the rest. Names are the
-  assignee as stories write it, never an email address.
+  assignee as stories write it, never an email address. A `git_names` entry may
+  hold `@`, but `configure --set` refuses one that is, or holds, an email
+  address.
 - Every change of a story's `status` or `assignee`, at the gates or through
   `move`, stamps `status_changed_at` (for a status) and appends one line to
   the story's `## Status log`:
