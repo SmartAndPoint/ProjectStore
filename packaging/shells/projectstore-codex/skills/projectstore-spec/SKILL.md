@@ -71,7 +71,7 @@ Dispatch on the first argument:
    the harness's user-input mechanism: Yes / Edit / No. This is the only gate: **Yes** covers the
    artifact and its index row. Disclose in the question that the folder's whole
    managed index table is regenerated from vault state at write time, so the
-   update may also repair a stale row for another artifact.
+   update may also repair a stale row for another artifact. It may also drop, for a while, a row another session added a moment before; the next regeneration of that folder's index restores it.
 
 5. **Post-approval race re-check**: re-run draft.mjs and re-read `collision`
    — an exact-name `test -e` cannot see normalized cross-era collisions. If

@@ -558,6 +558,17 @@ test("creation e2e: a localized index header reconciles (registry-driven, not an
   assert.ok(idx.includes("PROSA."), "prose survives in a localized vault too");
 });
 
+// [creation-time-index-updates-are-regenerations-not-appends#2]: the user-facing account says the same.
+test("docs/how-it-works.md says a creation's regeneration may drop a concurrent session's row (contract 2)", () => {
+  const src = readFileSync(join(REPO, "docs", "how-it-works.md"), "utf8").replace(/\s+/g, " ");
+  assert.ok(
+    src.includes(
+      "It may also drop, for a while, a row another session added a moment before; the next regeneration of that folder's index restores it.",
+    ),
+    "docs/how-it-works.md must carry the concurrent-neighbour sentence",
+  );
+});
+
 test("creation command prose applies index rows through the core, under one disclosed gate (contracts 1, 2)", () => {
   for (const file of ["adr.md", "spec.md", "epic.md", "research.md", "concept.md", "meeting.md", "runbook.md"]) {
     // Prose wraps at ~80 columns, so match against a whitespace-flattened
@@ -573,6 +584,19 @@ test("creation command prose applies index rows through the core, under one disc
     assert.ok(
       /only gate/.test(src) && /whole managed index table is regenerated/.test(src),
       `${file}'s approval step must disclose the single gate and the whole-table regeneration`,
+    );
+    // [creation-time-index-updates-are-regenerations-not-appends#2]: the disclosure is symmetric
+    // about concurrent neighbours, so the one approval also says a row another session just
+    // added may drop until the next regeneration.
+    assert.ok(
+      src.includes(
+        "It may also drop, for a while, a row another session added a moment before; the next regeneration of that folder's index restores it.",
+      ),
+      `${file}'s approval step must say the regeneration may drop a concurrent session's row`,
+    );
+    assert.ok(
+      src.indexOf("a row another session added a moment before") < src.indexOf("--write --only indexes="),
+      `${file} must say it before the index step`,
     );
     assert.ok(/never (the )?Write\/Edit/i.test(src), `${file} must forbid the Write/Edit tools for the index row`);
     // No residual append path, including as a fallback beside the core call.

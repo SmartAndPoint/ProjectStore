@@ -52,7 +52,7 @@ Steps:
 
 5. **Preview**: show path + content excerpt. When `index` is non-null, print `index.line` too — the exact row that will appear in `epics/README.md`, unless the index step reports a failure and no row lands at all.
 
-6. **Approval** via the harness's user-input mechanism: Yes / Edit / No. This is the only gate: **Yes** covers the epic and its index row. Disclose in the question that the folder's whole managed index table is regenerated from vault state at write time, so the update may also repair a stale row for another epic.
+6. **Approval** via the harness's user-input mechanism: Yes / Edit / No. This is the only gate: **Yes** covers the epic and its index row. Disclose in the question that the folder's whole managed index table is regenerated from vault state at write time, so the update may also repair a stale row for another epic. It may also drop, for a while, a row another session added a moment before; the next regeneration of that folder's index restores it.
 
 7. **Pre-write race check** (Layer 1): run `test -e "<path>"`. The earlier collision check (step 4) covers most cases, but another session could have created this epic during the approval delay. If exists now → ask the user via the harness's user-input mechanism whether to **Overwrite** or **Cancel**. Do not silently overwrite.
 

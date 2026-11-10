@@ -135,6 +135,8 @@ Every command that writes or edits a file goes through `AskUserQuestion`:
    arrives in canonical order and your prose around the table is preserved.
    One consequence the prompt tells you about: the regeneration rewrites the
    whole table, so a creation can also repair a stale row for another artifact.
+   It may also drop, for a while, a row another session added a moment before;
+   the next regeneration of that folder's index restores it.
 
 Skills (`projectstore-decision-detector`, `projectstore-story-completion`) are passive — they suggest commands; they never write directly.
 
