@@ -222,6 +222,16 @@ each key activates.
     warn.
 - `doctor --vault --policy required[@<date>]` shows what `required` would
   report, without writing anything.
+- `flow` holds the team's flow policy: `wip.full` and `wip.part`, a
+  `people` map from each assignee's name to `time` (`full` or `part`), an
+  optional own `wip`, `git_names` and `left`, ages in days under `age_days`,
+  and `idle_days`, `window_weeks`, `capacity_weeks` (`[low, high]`),
+  `active_epics_max` and `grooming_days`. `groomed_at` is a stamp. No key has
+  a default in code, and a value of the wrong type counts as absent. A
+  person's WIP limit is their own `wip`, else `wip.<time>`, else none
+  (`wipLimitOf` in `scripts/flow-policy.mjs`). `configure --set` writes these
+  keys and merges them into the block, keeping the rest. Names are the
+  assignee as stories write it, never an email address.
 
 ## Contributing back
 

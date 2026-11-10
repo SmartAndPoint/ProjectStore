@@ -219,6 +219,45 @@ the coverage count. Evidence in a closed story that names it is not
 reported. `graph.md` and `lineage` show an `amends` edge from the story to
 the spec.
 
+## Checking a spec against the code
+
+A spec can drift from the code after its stories close: a later story
+changes the behaviour without a marker, or the code changes outside any
+story. Ask the reviewer for spec drift on a named spec, and it checks that
+spec against the code at its covered stories' `code_refs`. Run it when the
+covered code changed since the contracts' last markers, not before every
+release.
+
+The reviewer reads a bundle of facts first:
+
+```bash
+node scripts/spec-drift.mjs example --since 2026-11-01
+```
+
+It prints JSON: each contract with its markers, removed state and anchor
+(the date of its last marker, else the spec's `date:`; `--since` overrides
+it), the tests that cite it as `[example#2]`, the covered stories and their
+`code_refs` (empty and missing ones listed), the files those refs name with
+their class (`source`, `tests` or `surface`), line counts and commits since
+each anchor, and a scan status: `ok`, `no-git` or `unknown`. A spec that is
+not `active` exits 1.
+
+The reviewer judges up to eight contracts per run unless you name another
+budget. A spec with more asks you for contract numbers first. Each contract
+judged gets one verdict:
+
+| Verdict | Means |
+|---|---|
+| `holds` | A line of code, quoted with its file:line, produces the contract's outcome |
+| `drifted` | The code contradicts the contract, or a file, command or token it names is gone; the report cites the line, or the search that found nothing |
+| `cannot tell` | With a reason: no covered code, a rule about people, a live or manual contract, an unknown scan; `cannot tell (pending)` when the code is missing and the story behind the last marker has not reached review |
+
+Each drift comes with a proposal: a marker carried by an open story, a new
+story that brings the spec to the code, or a follow-up story that brings the
+code back. Empty `code_refs` and uncited contracts are listed as facts, not
+drift. The reviewer writes nothing; every change goes through the usual
+approval-gated commands.
+
 ## What doctor reports
 
 Doctor (`--vault`) scans the bound project with `git grep --untracked`, so a

@@ -2301,7 +2301,7 @@ function storyStemOf(storyRel) {
 // exact filename stem, legacy story-NNN prefix fallback — the strongest tier
 // wins across the epic's stories, and a tie within it is a reported
 // ambiguity, never a silent first match.
-function resolveSpecStory(entry, artifacts, epicFolderPath) {
+export function resolveSpecStory(entry, artifacts, epicFolderPath) {
   const m = String(entry).match(/^([^/]+)\/(.+)$/);
   if (!m) return { error: `not in <epic-id>/<story-id> form: "${entry}"` };
   const [, epicId, storyId] = m;
@@ -2895,7 +2895,7 @@ export function parseSpecContracts(spec) {
 // Key → spec, by frontmatter id and alias, exact and case-sensitive. Not
 // buildSpecResolver: its filename fallback is lower-cased, and a citation
 // token resolves only to what a spec declares.
-function citationKeys(artifacts) {
+export function citationKeys(artifacts) {
   const keys = new Map();
   for (const s of artifacts.filter((a) => a.kind === "spec")) {
     for (const k of [String(s.fm.id || ""), String(s.fm.alias || "")]) {

@@ -31,7 +31,8 @@ import {
   fromTerminalIn,
   commandForm,
 } from "./lib.mjs";
-import { planBindingKeys, applyBindingKeys, languageNames } from "./binding.mjs";
+import { planBindingKeys, applyBindingKeys, languageNames, shellQuote } from "./binding.mjs";
+import { isFlowSet, parseFlowSet, flowRows, flowForm, blockedAt, flowAt } from "./flow-policy.mjs";
 import { bandKeys, epicIds, planBand, applyBand } from "./band.mjs";
 import { planAgentsChange, applyAgentsChange } from "./agents-change.mjs";
 import { plan as planInstall, apply as applyInstall, planOptions, isInteractive } from "./install-harness.mjs";
@@ -63,7 +64,13 @@ const parseBool = (v) => {
 };
 const onOff = (b) => (b === true ? "on" : b === false ? "off" : "not set");
 const shown = (v) =>
-  v === null || v === undefined || v === "" ? "—" : Array.isArray(v) ? v.join(", ") || "—" : String(v);
+  v === null || v === undefined || v === ""
+    ? "—"
+    : Array.isArray(v)
+      ? v.join(", ") || "—"
+      : typeof v === "object"
+        ? JSON.stringify(v)
+        : String(v);
 const tildeOf = (p, home) =>
   home && (p === home || String(p).startsWith(home + "/")) ? "~" + String(p).slice(home.length) : String(p);
 
@@ -265,6 +272,22 @@ export function settingsOf(f) {
       pol("spec_policy", v.spec_policy || "optional", "policy"),
       pol("lifecycle_gates", Object.hasOwn(v, "lifecycle_gates") ? String(v.lifecycle_gates) : "not set", "bool"),
     );
+    // The flow policy (contract 3 as amended 2026-11-10): its own group,
+    // listed only while a key is set, so a vault with no `flow` prints what it
+    // printed before. `--set` only: the menu shows none of these rows.
+    for (const r of f.vaultCfg && !f.vaultCfg.corrupt ? flowRows(v.flow) : [])
+      out.push({
+        group: "flow",
+        key: r.key,
+        value: r.value,
+        source: "vault_config",
+        file,
+        class: "changeable",
+        team: true,
+        writer: "vault",
+        rail: null,
+        person: r.person,
+      });
   }
   for (const s of out) s.set = setForm(s, f);
   return out;
@@ -273,6 +296,11 @@ export function settingsOf(f) {
 // The --set form a key is changed with, for the view and the envelope.
 function setForm(s, f) {
   if (s.class !== "changeable") return null;
+  if (s.group === "flow") {
+    const form = flowForm(s.key);
+    // A person's name may hold a space or a dot, and `[`…`]` globs in zsh.
+    return form && s.person !== null ? `--set ${shellQuote(form.slice("--set ".length))}` : form;
+  }
   const value =
     s.rail === "bool"
       ? "on|off"
@@ -301,6 +329,19 @@ export function resolveSets(f, sets, { harness = null, nearest = null } = {}) {
   const known = [...new Set(keys.map((s) => s.key))];
   const harnessesNamed = f.used.map((h) => h.display_name || h.id).join(", ") || "none";
   for (const raw of sets) {
+    // A flow key is parsed whole, before the split at the first `=`: a
+    // person's name may hold a dot (contract 2 as amended 2026-11-10).
+    if (isFlowSet(raw)) {
+      const vcfg = f.vaultCfg && !f.vaultCfg.corrupt ? f.vaultCfg.cfg : {};
+      const r = parseFlowSet(raw, { nearest, flow: vcfg.flow });
+      if (r.usage) return { usage: r.usage };
+      const { key, path, value } = r.change;
+      if (!f.vault) return { usage: `${key} lives in the vault's config, and this binding names no vault` };
+      if (seen.has(key)) return { usage: `${key} is named twice` };
+      seen.add(key);
+      out.push({ key, writer: "vault", path: ["flow", ...path], value });
+      continue;
+    }
     const at = String(raw).indexOf("=");
     if (at < 1) return { usage: `--set takes <key>=<value>, got ${raw}` };
     let key = String(raw).slice(0, at).trim();
@@ -464,20 +505,39 @@ export function planChanges(f, changes, { env = process.env, home = homedir(), r
       );
     const strict = readVaultConfigStrict(f.vault);
     if (strict.corrupt) return refuse(`${strict.path} is not valid JSON — fix or remove it first`);
-    const patch = Object.fromEntries(policy.map((c) => [c.key, c.value]));
+    // A flow change carries a path into the `flow` object; a node on it that
+    // exists and is not an object is never replaced (contract 11).
+    for (const c of policy.filter((c) => c.path)) {
+      const at = blockedAt(strict.cfg, c.path.slice(1));
+      if (at) return refuse(`${c.key}: ${at} is not an object — fix or remove it first`);
+    }
+    const patch = {};
+    for (const c of policy) {
+      const path = c.path || [c.key];
+      let node = patch;
+      for (const step of path.slice(0, -1)) node = Object.hasOwn(node, step) ? node[step] : (node[step] = {});
+      node[path[path.length - 1]] = c.value;
+    }
     const next = nextVaultConfig(strict.cfg, patch, new Date().toISOString());
+    const flowBefore = (c) => flowAt(strict.cfg.flow, c.path.slice(1)) ?? null;
     const inEffect = (k) => strict.cfg[k] ?? (k === "spec_policy" ? "optional" : undefined);
     // `lifecycle_gates=on` on a vault already on but with no gates_since is a
     // change: it stamps the date the gates count from (the configure spec,
     // contract 7 as amended 2026-11-08).
     const stampsGates = (c) => c.key === "lifecycle_gates" && c.value === "on" && !strict.cfg.gates_since;
-    const changed = policy.filter((c) => inEffect(c.key) !== c.value || stampsGates(c));
+    const changed = policy.filter((c) =>
+      c.path
+        ? JSON.stringify(flowBefore(c)) !== JSON.stringify(c.value)
+        : inEffect(c.key) !== c.value || stampsGates(c),
+    );
     for (const c of changed)
       items.push({
         key: c.key,
         file: tildeOf(strict.path, f.home),
-        before: shown(strict.cfg[c.key] ?? (c.key === "spec_policy" ? "optional" : "not set")),
-        after: shown(c.value),
+        before: c.path
+          ? shown(flowBefore(c) ?? "not set")
+          : shown(strict.cfg[c.key] ?? (c.key === "spec_policy" ? "optional" : "not set")),
+        after: shown(c.value ?? "not set"),
         team: true,
         note:
           c.key === "spec_policy" && next.spec_policy_since !== strict.cfg.spec_policy_since
@@ -486,7 +546,13 @@ export function planChanges(f, changes, { env = process.env, home = homedir(), r
               ? GATES_NOTE
               : null,
       });
-    if (changed.length) steps.push({ writer: "vault", patch, keys: changed.map((c) => c.key) });
+    if (changed.length)
+      steps.push({
+        writer: "vault",
+        patch,
+        keys: changed.map((c) => c.key),
+        flowPaths: policy.filter((c) => c.path).map((c) => c.path.slice(1)),
+      });
   }
 
   // The overlays: one agents change per harness, through the core
@@ -741,6 +807,12 @@ export function applyChanges(f, steps, { env = process.env, home = homedir(), ro
         // by every checkout, and a change made while the question waited is kept.
         const now = readVaultConfigStrict(f.vault);
         if (now.corrupt) throw new Error(`${now.path} stopped being valid JSON after the plan`);
+        // A flow path whose node stopped being an object since the PLAN is
+        // refused here too, never replaced (contract 11 as amended 2026-11-10).
+        for (const path of s.flowPaths || []) {
+          const at = blockedAt(now.cfg, path);
+          if (at) throw new Error(`${at} stopped being an object after the plan — fix or remove it first`);
+        }
         writeVaultConfig(f.vault, nextVaultConfig(now.cfg, s.patch, new Date().toISOString()));
         wrote.push(vaultConfigPath(f.vault));
       } else if (s.writer === "overlay") {
@@ -793,6 +865,7 @@ const GROUP_TITLES = (f) => ({
   surfaces: "Status line and band",
   vault: "Vault and templates",
   policy: "Policy",
+  flow: "Flow policy",
   ...Object.fromEntries(f.used.map((h) => [`agents:${h.id}`, `Agents · ${h.display_name || h.id}`])),
 });
 
