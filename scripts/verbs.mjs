@@ -484,6 +484,26 @@ export const VERBS = Object.freeze([
     mcp: Object.freeze([]),
     options: [JSON_OPT],
   }),
+  // The one change of status no gate makes, planned ↔ todo (SPEC-001
+  // contract 7, as amended 2026-11-10: the ready step). --reason is required;
+  // the handler says so, as agents and codemap check their own.
+  Object.freeze({
+    verb: "move",
+    summary: "Put a story in ToDo or back in the backlog, with a logged reason.",
+    usage: Object.freeze(["<story> <status>"]),
+    module: "./move.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("reason", "<text>", "why the story moves, one line (required): it goes into the story's Status log"),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
   Object.freeze({
     verb: "bind",
     summary: "Bind this project to an existing vault; naming it confirms.",
@@ -658,6 +678,11 @@ const EXAMPLES = {
     "{cmd} band epic PS-CORE  # a session with no epic of its own shows this one",
   ],
   session: ["{cmd} session refresh epics/PS-CORE/stories/story-x.md --json  # after a write no hook saw"],
+  move: [
+    '{cmd} move PS-CORE/story-x todo --reason "next up"  # the plan; nothing is written',
+    '{cmd} move PS-CORE/story-x todo --reason "next up" --write',
+    '{cmd} move PS-CORE/story-x planned --reason "not this week" --write',
+  ],
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
 

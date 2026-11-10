@@ -1,5 +1,5 @@
 {
-  "_description": "Language-independent registry of section headings, inline keywords and index-table column names recognized by the deterministic scripts (doctor, reconcile, story-section). Per id, per language: an ARRAY of accepted forms; the FIRST form of the bound language is the canonical form used when writing. Matching accepts every form of every language, so a ru-headed file lints in an en-bound vault. New sections/keywords added by any story MUST register a form for every bundled language (en, ru, es, de, fr, zh) here (PS-SPEC story-002).",
+  "_description": "Language-independent registry of section headings, inline keywords and index-table column names recognized by the deterministic scripts (doctor, reconcile, story-section), and the bold field labels of a story's header table (`fields`: Status and Assignee, which status-log.mjs rewrites; `status` is also the Status column of an epic's Stories table). Per id, per language: an ARRAY of accepted forms; the FIRST form of the bound language is the canonical form used when writing. Matching accepts every form of every language, so a ru-headed file lints in an en-bound vault. New sections/keywords added by any story MUST register a form for every bundled language (en, ru, es, de, fr, zh) here (PS-SPEC story-002).",
   "headings": {
     "goal": {
       "en": ["Goal"],
@@ -112,6 +112,14 @@
       "de": ["Tests"],
       "fr": ["Tests"],
       "zh": ["测试"]
+    },
+    "status_log": {
+      "en": ["Status log"],
+      "ru": ["Журнал статусов"],
+      "es": ["Registro de estados"],
+      "de": ["Statusverlauf"],
+      "fr": ["Journal des statuts"],
+      "zh": ["状态日志"]
     }
   },
   "keywords": {
@@ -174,6 +182,24 @@
       "de": ["Datum"],
       "fr": ["Date"],
       "zh": ["日期"]
+    }
+  },
+  "fields": {
+    "status": {
+      "en": ["Status"],
+      "ru": ["Статус"],
+      "es": ["Estado"],
+      "de": ["Status"],
+      "fr": ["Statut"],
+      "zh": ["状态"]
+    },
+    "assignee": {
+      "en": ["Assignee"],
+      "ru": ["Исполнитель"],
+      "es": ["Responsable"],
+      "de": ["Zuständig"],
+      "fr": ["Responsable"],
+      "zh": ["负责人"]
     }
   }
 }

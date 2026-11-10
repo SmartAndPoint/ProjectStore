@@ -195,6 +195,12 @@ npx projectstore init ~/vaults/new-project --language ru
 npx projectstore scaffold --write
 ```
 
+A story moves from the backlog to ToDo, and back, with a reason that goes into its Status log. Bare, it prints the plan; `--write` asks at a terminal and, without one, is the confirmation:
+
+```
+npx projectstore move PS-CORE/story-x todo --reason "next up" --write
+```
+
 `projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are release artifacts: per-harness packages that carry the core, pinned at the same version and bundled, with the harness fixed. Nobody needs to type their names. Setup fetches the Codex one, which carries the Codex plugin; the Claude Code one is published at the core's version too; the opencode one publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs. How a release builds and publishes them, and how to run a checkout's own build: [`packaging/README.md`](https://github.com/SmartAndPoint/ProjectStore/blob/main/packaging/README.md).
 </details>
 

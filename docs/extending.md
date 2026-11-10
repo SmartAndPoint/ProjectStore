@@ -145,7 +145,9 @@ Bundled: `en`, `ru`, `es`, `de`, `fr`, `zh`. To add another:
 Mirror `templates/en/` to `templates/<lang>/` and translate the bodies.
 Frontmatter keys **and their values** stay English (`status: planned` is
 machine-read; only prose and table labels get translated). Then register the
-language's heading/keyword/index-column forms in `scaffold/headings.json`, and
+language's heading, keyword, index-column and field-label forms in
+`scaffold/headings.json` (the field labels are `fields.status` and
+`fields.assignee`; the `status_log` heading is one of the headings), and
 add the locale to `LOCALES` in `tests/locales.test.mjs` so the suite actually
 runs over it. `templates/<lang>/strings.json` localizes the statusline and the
 folder names and descriptions `scaffold` writes into the READMEs
@@ -194,8 +196,12 @@ test can decide "realistic" — have someone who reads the language check it.
 Domain terms follow the language's practitioners, not the dictionary. `epic`
 and `story` are localized where the field localizes them (`ru` "Эпик", `es`
 "Épica") and left in English where teams say the English word (`de`, `fr`,
-`zh`). Nothing reads these table labels, so the only cost of getting it wrong
-is that the document reads like a translation.
+`zh`). Nothing reads most table labels, so the only cost of getting one wrong
+is that the document reads like a translation. Two are read: the story
+header's **Status** and **Assignee** rows, and the Status column of an epic's
+Stories table. Scripts find them through `fields` in the registry, so the
+template must spell them in the first registered form;
+`tests/locales.test.mjs` checks it for every bundled locale.
 
 The bundled set is currently spelled out by hand in four places (the test's
 `LOCALES`, the registry's `_description`, this page, `commands/bind.md`) with
@@ -232,6 +238,15 @@ each key activates.
   (`wipLimitOf` in `scripts/flow-policy.mjs`). `configure --set` writes these
   keys and merges them into the block, keeping the rest. Names are the
   assignee as stories write it, never an email address.
+- Every change of a story's `status` or `assignee`, at the gates or through
+  `move`, stamps `status_changed_at` (for a status) and appends one line to
+  the story's `## Status log`:
+  `- <ISO> <field>: <from> → <to> — <reason> (<actor>)`, with `none` for an
+  empty side. The tokens stay English in every locale. A stamp is trusted
+  only when the last `status:` line's time and target match the story;
+  otherwise its age in status is read from `updated` (`statusStamp` in
+  `scripts/status-log.mjs`). `move <story> todo|planned --reason "<why>"` is
+  the one change no gate makes.
 
 ## Contributing back
 
