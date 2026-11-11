@@ -1,16 +1,18 @@
 ---
-description: Create a new story inside an existing epic, or run its lifecycle gates (plan / close).
-argument-hint: <epic-id> <title> [--spec SPEC-ID] [--variant test] | plan <story> | close <story>
+description: Create a new story inside an existing epic, run its lifecycle gates (plan / close), or put it in ToDo (ready).
+argument-hint: <epic-id> <title> [--spec SPEC-ID] [--variant test] | plan <story> | close <story> | ready <story>
 ---
 
-You are managing a story: creating one, or running its lifecycle gates.
+You are managing a story: creating one, running its lifecycle gates, or
+putting it in ToDo.
 
 **Dispatch rule** (positional-1 contract, PS-SPEC story-007): if the first
-argument is `plan` or `close` AND the second argument resolves to an existing
-story file (path, or `<epic-id>/<story-id>` searched under
-`<vault>/epics/*/stories/`), run the **Lifecycle gate flow** below. Otherwise
-this is a **create** (first argument = epic id — uppercase by convention, so
-the two cannot collide).
+argument is `plan`, `close` or `ready` AND the second argument resolves to an
+existing story file (path, or `<epic-id>/<story-id>` searched under
+`<vault>/epics/*/stories/`), run the **Lifecycle gate flow** below for `plan`
+and `close`, and the **Ready flow** for `ready`. Otherwise this is a
+**create** (first argument = epic id — uppercase by convention, so the words
+cannot collide).
 
 # Create flow
 
@@ -97,8 +99,14 @@ the two cannot collide).
 
    It returns `{ path, changed, notes, content }`: section inserted when
    absent, status transition, lifecycle timestamps (`started_at` /
-   `plan_updated_at` / `closed_at` — stamped unconditionally; the
-   `lifecycle_gates` key gates checks, never data).
+   `plan_updated_at` / `closed_at` / `status_changed_at` — stamped
+   unconditionally; the `lifecycle_gates` key gates checks, never data).
+   A change of status also rewrites the header table's Status row and
+   appends one line to the story's `## Status log`; on the move to
+   in-progress, a story assigned to someone other than the binding's
+   `default_author` gets that author, in `assignee`, the Assignee row and its
+   own log line. The gate's defaults name the lines (`work started (plan
+   gate)`, `closed (close gate)`); pass nothing else.
 
 2a. **(plan only) Open questions, one round.** Before writing the plan,
    collect the open questions: the planner's "Open questions" when it ran,
@@ -123,7 +131,9 @@ the two cannot collide).
    `> amended YYYY-MM-DD by <EPIC-ID>/<story-id>: ADDED|MODIFIED|REMOVED — <why>`
    (see `guide spec`).
 
-3. **Fill the section content** in the returned `content` before preview:
+3. **Fill the section content** in the returned `content` before preview.
+   Do not edit the stamps, the header table or the Status log in the returned
+   content: the script owns them, and the re-check in step 5 compares them.
    - `plan` — write the Implementation Plan. When the story's `specs:` names a
      covering spec, the plan is a THIN ROUTE through that spec's behavioral
      contracts: which contracts, in what order, which files. Consult the
@@ -138,12 +148,14 @@ the two cannot collide).
      and what was seen), or why not; the story closes either way.
 
 4. **Preview** path + notes + the changed sections. **Approval** via
-   AskUserQuestion: Yes / Edit / No.
+   AskUserQuestion: Yes / Edit / No. A Yes also covers the story's row in its
+   epic's Stories table, which step 6d sets to the new status.
 
 5. **Immediately before writing**, re-run the script and verify its `content`
    (before your section edits) still matches what you previewed against — a
    human may have edited the file in Obsidian meanwhile. On divergence:
-   re-preview, re-ask.
+   re-preview, re-ask. The stamps and the timestamps of Status log lines
+   differ between runs; that is not a divergence.
 
 5a. **Delegate the ceremony — enumerated case: story close** (ADR "Artifact
    content is authored by the context-holder, the write ceremony by a clerk").
@@ -167,16 +179,16 @@ the two cannot collide).
      <baseline-path>`), the derived targets (`kanban`, plus `indexes=<epic
      folder>` when status changed), and the doctor pre-state line. On a clean
      report (`verbatim: true`, `stopped_at: null`, doctor no worse than the
-     pre-state) skip steps 6-6b and run step 6c — the clerk's report is the write evidence. On a
+     pre-state) skip steps 6-6b and run step 6c, then step 6d — the clerk's report is the write evidence. On a
      stopped report: fix what diverged, then re-delegate (the resume rule: after
      the copy, the ceremony restarts at reconcile, not at the race gate) or
      finish the remaining steps yourself (the copy is idempotent).
-   - No clerk available → perform steps 6-6c yourself. There is no fallback
+   - No clerk available → perform steps 6-6c yourself, then 6d. There is no fallback
      agent: a general-purpose writer is an unpinned procedure.
 
 6. **On Yes** (undelegated path): Write the full file. On a `plan`, finish by
-   suggesting `/projectstore:kanban` (the status changed) — 6a/6b below are the
-   close's ceremony, not the plan's.
+   suggesting `/projectstore:kanban` (the status changed), after step 6d —
+   6a/6b below are the close's ceremony, not the plan's.
 
 6a. **(close only) Reconcile** the touched derived targets through the core:
    `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --write --only kanban` (add
@@ -199,3 +211,54 @@ the two cannot collide).
    session's band and status line keep naming the closed story. The core finds
    the session itself; with none it writes nothing and exits 0. A non-zero
    exit is reported and never undoes the close.
+
+6d. **(both gates) The epic's Stories row.** After the story is written (by
+   you or the clerk), and on a close after 6c:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/status-change.mjs" epic-row "<story-path>"
+   ```
+
+   It sets the Status cell of the story's row in its epic's Stories table to
+   the status the file now holds, re-reading `epic.md` before it replaces it.
+   It is idempotent, so a resumed ceremony may run it again. No row that
+   links to the story (a list instead of a table, a row with no link) is the
+   note `epic-row-missing`, exit 0: say so, and the epic is not written. A
+   non-zero exit is a write error: report it; it never undoes the gate's
+   write.
+
+# Ready flow (ready)
+
+`ready <story>` puts a `planned` story in ToDo: the one change of status no
+gate makes. The core's `move` verb writes it, re-reading the story before it
+replaces it. There is no clerk: there is no authored text to copy.
+
+1. **Resolve the story** (second argument), as in the lifecycle flow. Its
+   status must be `planned`; a `todo` story is already there, so say so and
+   stop. Any other status: say which gate moves it (`plan` starts work,
+   `close` finishes it) and stop.
+
+2. **A reason, one line.** Take it from the conversation (why this story is
+   next), or ask for one sentence. It goes into the story's Status log.
+
+3. **The plan** (writes nothing):
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" move "<EPIC>/<story-id>" todo --reason '<reason>' --project "${CLAUDE_PROJECT_DIR}"
+   ```
+
+   Single-quote the reason, and write an apostrophe inside it as `'\''`.
+   Exit 1 is a refusal that names the gate to use: show it and stop. Exit 2
+   is a usage error: fix the arguments.
+
+4. **Preview** the plan it prints, and ask via AskUserQuestion: Yes / No.
+
+5. **On Yes**, run the same command with `--write --json` added. The question
+   in step 4 is the confirmation. The verb writes the story (`status: todo`,
+   `status_changed_at`, the header's Status row, one `(move)` line in the
+   Status log), sets its row in the epic's Stories table and refreshes the
+   derived views itself. Report the result's `line` and its `epic` row. A
+   non-zero exit is reported as it is: `story-changed-meanwhile` means the
+   file kept changing and was left; run the flow again.
+
+6. **Suggest next**: `/projectstore:story plan <story>` when work starts.

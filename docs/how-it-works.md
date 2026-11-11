@@ -16,7 +16,9 @@ Every create command follows the same shape:
    so the row arrives in canonical order, the file is replaced atomically, and
    your own prose around the table is preserved. One consequence worth knowing:
    the regeneration rewrites the whole table, so creating one artifact can also
-   repair a stale row for another.
+   repair a stale row for another. It may also drop, for a while, a row another
+   session added a moment before; the next regeneration of that folder's index
+   restores it.
 
 **Who holds the pen.** Content and the gate never delegate: the session's main
 agent composes the artifact (it holds the conversation the artifact captures)

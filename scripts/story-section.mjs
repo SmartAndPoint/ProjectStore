@@ -8,8 +8,8 @@
 // original, splices the managed pieces, returns {path, changed, content,
 // notes} on stdout — the COMMAND writes after approval, never this script.
 //
-//   node story-section.mjs plan  <story-path>
-//   node story-section.mjs close <story-path>
+//   node story-section.mjs plan  <story-path> [--reason "<why>"] [--actor <actor>]
+//   node story-section.mjs close <story-path> [--reason "<why>"] [--actor <actor>]
 //
 // plan  — ensures a `## Implementation Plan` section exists (inserted with a
 //         placeholder; the agent fills it in the preview before approval),
@@ -17,6 +17,16 @@
 //         started_at (once) and plan_updated_at (every run), bumps updated.
 // close — ensures a `## Final Summary` section exists, status → done,
 //         stamps closed_at (once), bumps updated.
+//
+// A change of status, at either gate, goes through status-log.mjs's
+// applyStatusChange: `status_changed_at`, the header's Status row and one
+// Status log line (SPEC-001 contracts 3 and 7, as amended 2026-11-10). On the
+// transition to in-progress only, the plan gate also sets the assignee to the
+// binding's default_author when that is set and differs. --reason and
+// --actor name every line one run appends; the defaults are `work started`
+// and `plan gate` for plan, `closed` and `close gate` for close. A run that
+// changes no status appends nothing and keeps the stamp. The command writes;
+// it also updates the epic's Stories row (status-change.mjs epic-row).
 //
 // Timestamps are full ISO-8601 UTC (lib.mjs nowIso) — they anchor the legacy
 // predicate (closed_at vs spec_policy_since) and diff-refs' git --since.
@@ -28,57 +38,29 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   readConfig,
+  readVaultConfig,
   parseFrontmatter,
-  headingLineRe,
-  heading,
   footerDateRe,
   nowIso,
   today,
   commandForm,
   listOf,
 } from "./lib.mjs";
+import {
+  setFm,
+  insertSection,
+  touchStory,
+  applyStatusChange,
+  applyAssigneeChange,
+  maskStatusLog,
+  oneLine,
+  checkActor,
+  sameStatus,
+} from "./status-log.mjs";
 
 function die(msg) {
   process.stderr.write(`projectstore/story-section: ${msg}\n`);
   process.exit(1);
-}
-
-// Replace `key: ...` inside the frontmatter block, or insert the line before
-// the closing --- when the key is absent. Returns the whole file text.
-function setFm(text, key, value) {
-  const m = text.match(/^---\n([\s\S]*?)\n---/);
-  if (!m) die("story has no frontmatter block");
-  const fmLines = m[1].split("\n");
-  const idx = fmLines.findIndex((l) => l.startsWith(`${key}:`));
-  const line = `${key}: ${value}`;
-  if (idx >= 0) fmLines[idx] = line;
-  else fmLines.push(line);
-  return text.slice(0, m.index) + `---\n${fmLines.join("\n")}\n---` + text.slice(m.index + m[0].length);
-}
-
-// End index of section `id` (position right before the next `## ` heading
-// after it), or null when the section is absent.
-function sectionEnd(text, id) {
-  const m = text.match(headingLineRe(id));
-  if (!m) return null;
-  const rest = text.slice(m.index + m[0].length);
-  const next = rest.search(/^## /m);
-  return next === -1 ? text.length : m.index + m[0].length + next;
-}
-
-function insertSection(text, id, lang, placeholder, anchors) {
-  if (headingLineRe(id).test(text)) return { text, inserted: false };
-  const block = `## ${heading(id, lang)}\n\n${placeholder}\n\n`;
-  for (const anchor of anchors) {
-    const end = sectionEnd(text, anchor);
-    if (end !== null) {
-      return { text: text.slice(0, end) + block + text.slice(end), inserted: true };
-    }
-  }
-  // Fallback: before the trailing `---` footer, else EOF.
-  const footer = text.lastIndexOf("\n---\n");
-  const at = footer > 0 ? footer + 1 : text.length;
-  return { text: text.slice(0, at) + block + text.slice(at), inserted: true };
 }
 
 // The volatile frontmatter fields — the ones a re-run stamps fresh even when
@@ -86,7 +68,10 @@ function insertSection(text, id, lang, placeholder, anchors) {
 // against a moments-old baseline reports drift on every single run. started_at
 // belongs here by the same mechanism as the rest: a `plan` re-run against a
 // still-null field stamps a fresh nowIso() each time.
-export const VOLATILE_FM = ["updated", "started_at", "closed_at", "plan_updated_at"];
+// status_changed_at joins them for the same reason, and the timestamps of
+// Status log lines are masked too (status-log.mjs maskStatusLog): only the
+// timestamp, so a reason or a hand-written line is still drift.
+export const VOLATILE_FM = ["updated", "started_at", "closed_at", "plan_updated_at", "status_changed_at"];
 
 // Both sides of a --check comparison, with the volatile fields and the footer
 // date neutralised. setFm INSERTS an absent key at the END of the frontmatter,
@@ -99,13 +84,29 @@ export const VOLATILE_FM = ["updated", "started_at", "closed_at", "plan_updated_
 function checkNormalize(text) {
   let t = text;
   for (const k of VOLATILE_FM) t = setFm(t, k, '"«volatile»"');
+  t = maskStatusLog(t);
   return t.replace(footerDateRe(), (_m, prefix, suffix) => `${prefix}«volatile»${suffix}`);
 }
 
 function main() {
+  try {
+    gate();
+  } catch (e) {
+    die(e && e.message ? e.message : String(e));
+  }
+}
+
+const GATE_DEFAULTS = {
+  plan: { reason: "work started", actor: "plan gate" },
+  close: { reason: "closed", actor: "close gate" },
+};
+
+function gate() {
   const argv = process.argv.slice(2);
   let checkPath = null;
   let noSpec = null;
+  let reason = null;
+  let actor = null;
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -113,13 +114,22 @@ function main() {
     else if (a.startsWith("--check=")) checkPath = a.slice("--check=".length);
     else if (a === "--no-spec") noSpec = argv[++i] ?? "";
     else if (a.startsWith("--no-spec=")) noSpec = a.slice("--no-spec=".length);
+    else if (a === "--reason") reason = argv[++i] ?? "";
+    else if (a.startsWith("--reason=")) reason = a.slice("--reason=".length);
+    else if (a === "--actor") actor = argv[++i] ?? "";
+    else if (a.startsWith("--actor=")) actor = a.slice("--actor=".length);
     else positional.push(a);
   }
   if (checkPath === undefined || checkPath === "") die("--check requires a value");
   const [mode, storyPath] = positional;
   if (!["plan", "close"].includes(mode) || !storyPath) {
-    die('usage: story-section.mjs <plan|close> <story-path> [--check <baseline-file>] [--no-spec "<reason>"]');
+    die(
+      'usage: story-section.mjs <plan|close> <story-path> [--check <baseline-file>] [--no-spec "<reason>"] [--reason "<why>"] [--actor <actor>]',
+    );
   }
+  // One reason and one actor serve every line this run appends (contract 7).
+  const why = reason === null ? GATE_DEFAULTS[mode].reason : oneLine(reason, "--reason");
+  const who = actor === null ? GATE_DEFAULTS[mode].actor : checkActor(actor);
   // The declared opt-out from a spec is written at the plan gate only (the
   // spec policy ADR, Decision 14), with a reason, on a story with no specs.
   if (noSpec !== null) {
@@ -151,9 +161,30 @@ function main() {
     );
     text = r.text;
     if (r.inserted) notes.push("inserted Implementation Plan section");
-    if (!["in-progress", "in_progress", "review", "done"].includes(status)) {
-      text = setFm(text, "status", "in-progress");
-      notes.push(`status: ${fm.status || "planned"} → in-progress`);
+    // Never downgrades: a story already in progress, in review or done (by
+    // status equality: in_progress, closed) keeps its status and its stamp.
+    if (!["in-progress", "review", "done"].some((s) => sameStatus(status, s))) {
+      const c = applyStatusChange(text, { to: "in-progress", reason: why, actor: who, at: now, lang });
+      text = c.text;
+      notes.push(
+        `status: ${fm.status || "planned"} → in-progress`,
+        "stamped status_changed_at",
+        "appended status log line",
+      );
+      // The person who starts the work is its assignee: the binding's
+      // default_author, compared exactly on the trimmed value. With none, the
+      // assignee stays.
+      const author = String(cfg.default_author ?? "").trim();
+      if (author && author !== String(fm.assignee ?? "").trim()) {
+        const a = applyAssigneeChange(text, { to: author, reason: why, actor: who, at: now, lang });
+        text = a.text;
+        if (a.changed) {
+          notes.push(`assignee: ${a.from || "none"} → ${author}`, "appended assignee log line");
+          const people = readVaultConfig(cfg.vault_path)?.flow?.people;
+          if (people && typeof people === "object" && !Object.hasOwn(people, author))
+            notes.push(`${author} is not in the vault's flow.people, so the person has no WIP limit`);
+        }
+      }
     }
     if (!fm.started_at || fm.started_at === "null") {
       text = setFm(text, "started_at", JSON.stringify(now));
@@ -176,20 +207,20 @@ function main() {
     );
     text = r.text;
     if (r.inserted) notes.push("inserted Final Summary section");
-    if (status !== "done") {
-      text = setFm(text, "status", "done");
-      notes.push(`status: ${fm.status || "?"} → done`);
+    if (!sameStatus(status, "done")) {
+      const c = applyStatusChange(text, { to: "done", reason: why, actor: who, at: now, lang });
+      text = c.text;
+      notes.push(`status: ${fm.status || "?"} → done`, "stamped status_changed_at", "appended status log line");
     }
     if (!fm.closed_at || fm.closed_at === "null") {
       text = setFm(text, "closed_at", JSON.stringify(now));
       notes.push("stamped closed_at");
     }
   }
-  text = setFm(text, "updated", today());
   // Keep the body footer in step with frontmatter `updated:`. Registry-driven, so
   // every bundled language is covered; the file's own label and punctuation are
   // preserved and only the date is rewritten.
-  text = text.replace(footerDateRe(), (_m, prefix, suffix) => `${prefix}${today()}${suffix}`);
+  text = touchStory(text, today());
 
   let check = null;
   if (checkPath !== null) {

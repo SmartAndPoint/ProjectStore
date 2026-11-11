@@ -58,6 +58,16 @@ const FORM_OF = Object.freeze({
 });
 
 const CONTROL = /[\u0000-\u001f\u007f\u0085\u2028\u2029]/;
+// A word holding an email address anywhere: no whitespace, an `@`, a dot
+// after it. `me@laptop` and `@octocat` are not addresses; `first.last@example.com`
+// and the `<first.last@example.com>` of `git log`'s `%an <%ae>` are.
+const EMAIL = /[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/;
+
+const splitNames = (raw) =>
+  raw
+    .split(",")
+    .map((n) => n.trim())
+    .filter(Boolean);
 const PERSON_KEY = /^flow\.people\[([\s\S]*?)\]\.([A-Za-z_]+)=([\s\S]*)$/;
 const BARE_PERSON = /^flow\.people\[([\s\S]*?)\]\s*(=|$)/;
 
@@ -93,10 +103,7 @@ function parseValue(kind, raw) {
     case "time":
       return raw === "full" || raw === "part" ? raw : null;
     case "names": {
-      const names = raw
-        .split(",")
-        .map((n) => n.trim())
-        .filter(Boolean);
+      const names = splitNames(raw);
       return names.length && !names.some((n) => CONTROL.test(n)) ? names : null;
     }
     case "date":
@@ -113,6 +120,14 @@ const shownName = (name) => (CONTROL.test(name) ? JSON.stringify(name) : name);
 function badName(name) {
   return !name || /[@\]=]/.test(name) || CONTROL.test(name) || name === "__proto__";
 }
+
+// Whether an entry is, or holds a word shaped like, an email address (the
+// configure spec, contracts 2 and 11 as amended 2026-11-10): the vault keeps
+// none, and git author names are all the activity checks read.
+export const isEmailAddress = (entry) =>
+  String(entry)
+    .split(/\s+/)
+    .some((word) => EMAIL.test(word));
 
 // Whether a raw `--set` argument is a flow key: these are parsed here, before
 // configure splits at the first `=` (a person's name may hold a dot).
@@ -171,6 +186,10 @@ export function parseFlowSet(raw, { nearest = null, flow = null } = {}) {
 
 function change(key, path, kind, value) {
   if (value === CLEAR) return { change: { key, path, value: null } };
+  // Before the generic refusal, which would echo the value: the address is
+  // never repeated, not even in the usage line.
+  if (kind === "names" && splitNames(value).some(isEmailAddress))
+    return { usage: `${key} takes git author names, and email addresses are not kept in the vault` };
   const parsed = value ? parseValue(kind, value) : null;
   if (parsed === null)
     return { usage: `${key} takes ${SET_OF[kind]}, or ${CLEAR} to clear it, got ${value || "nothing"}` };

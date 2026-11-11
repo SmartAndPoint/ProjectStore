@@ -11,21 +11,24 @@
 // work is queued, which is the opposite of what the status says.
 export const NOT_ACTIONABLE = new Set(["superseded", "deferred", "parked"]);
 
+// The statuses the board names, each to its column. Read through own keys
+// only: `constructor` or `__proto__` is a word the table does not name.
+export const STATUS_COLUMNS = Object.freeze({
+  planned: "Backlog",
+  todo: "ToDo",
+  "to-do": "ToDo",
+  "in-progress": "In Progress",
+  in_progress: "In Progress",
+  "in progress": "In Progress",
+  review: "Review",
+  done: "Done",
+  closed: "Done",
+});
+
 // A lower-cased status to its board column. Exact match; anything the table
 // does not name is Backlog.
 export function statusToColumn(status) {
-  const m = {
-    planned: "Backlog",
-    todo: "ToDo",
-    "to-do": "ToDo",
-    "in-progress": "In Progress",
-    in_progress: "In Progress",
-    "in progress": "In Progress",
-    review: "Review",
-    done: "Done",
-    closed: "Done",
-  };
-  return m[status] || "Backlog";
+  return Object.hasOwn(STATUS_COLUMNS, status) ? STATUS_COLUMNS[status] : "Backlog";
 }
 
 // The band's three stages, folded from the board's columns.

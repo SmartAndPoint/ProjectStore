@@ -37,7 +37,7 @@ Steps:
    This is the only gate: **Yes** covers both the artifact and its index row.
    Disclose in the question that the folder's whole managed index table is
    regenerated from vault state at write time, so the update may also repair
-   a stale row for another artifact.
+   a stale row for another artifact. It may also drop, for a while, a row another session added a moment before; the next regeneration of that folder's index restores it.
 
 5. **Post-approval race re-check** (Layer 1 — multi-session safety): re-run `draft.mjs adr "$ARGUMENTS"` and re-read `collision` — a plain `test -e` cannot see normalized cross-era collisions, and another session may have created the same topic while you waited on approval. If `collision` is now non-null (or changed), show it as in step 3 and re-ask. The slug is derived from the title, so the re-render is byte-identical otherwise — never expect a "fresh number".
 
