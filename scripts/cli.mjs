@@ -31,8 +31,9 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import * as term from "./term.mjs";
-import { harnessIds, packageCommand } from "./harness.mjs";
+import { harnessIds, packageCommand, hostSessionId } from "./harness.mjs";
 import {
   readConfigAt,
   readOverlayAt,
@@ -72,6 +73,14 @@ import {
 import { dispatch, envelope, usageFail, ownEnv, nearest, notBoundText, PACKAGE_ROOT } from "./verbs.mjs";
 import { READ_HANDLERS, guideVault } from "./read-verbs.mjs";
 import { checkGuideName, planEject, applyEject } from "./guides.mjs";
+import {
+  nodeWriteRecorder,
+  recordingOn,
+  recordSessionId,
+  placeInVault,
+  takeCopySnapshot,
+  recordCopy,
+} from "./write-record.mjs";
 
 // What this module exported before the table moved, from where it lives now.
 export {
@@ -462,13 +471,13 @@ async function runBand(ctx) {
 // hooks' own writes — no confirmation. No session: nothing written, exit 0.
 async function runSession(ctx) {
   const { row, values, positionals, cfg, project, env, stdout, stderr } = ctx;
-  if (positionals[0] !== "refresh" || !positionals[1] || positionals.length > 2)
-    return usageFail(
-      Object.assign(new Error("session takes refresh <path> (a story file in the vault)"), { code: "USAGE" }),
-      {
-        verb: row.verb,
-        ...ctx,
-      },
+  const usage = (m) => usageFail(Object.assign(new Error(m), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  const sub = positionals[0];
+  if (sub === "check") return runSessionCheck(ctx, usage);
+  if (sub === "snapshot" || sub === "record") return runSessionBracket(ctx, usage);
+  if (sub !== "refresh" || !positionals[1] || positionals.length > 2)
+    return usage(
+      "session takes refresh <path> (a story file in the vault), snapshot <path> --for <scratch>, record <path> --from <scratch>, or check [<path>…]",
     );
   const r = refreshSessionPointer(project, cfg, positionals[1], { env });
   const ok = !r.refusal;
@@ -483,6 +492,70 @@ async function runSession(ctx) {
     );
   }
   return ok ? 0 : 1;
+}
+
+// `session check [<path>…]`: the pre-commit check (precommit.mjs), for the
+// host's session or --session's. It reads git and the record and writes
+// nothing. Exit 0 all own, 1 not yours or cannot tell, 2 usage (a path
+// outside every copy of the vault), 3 not bound (dispatch's).
+async function runSessionCheck(ctx, usage) {
+  const { values, positionals, cfg, project, env, stdout } = ctx;
+  const { runPrecommit } = await import("./precommit.mjs");
+  const sid = values.session || hostSessionId(env);
+  const r = runPrecommit({ project, cfg, sid, paths: positionals.slice(1), env });
+  if (r.usage) return usage(r.usage);
+  if (values.json)
+    stdout.write(JSON.stringify(envelope("session check", project, r.exit === 0, r.result), null, 2) + "\n");
+  else stdout.write(r.text);
+  return r.exit;
+}
+
+// `session snapshot <path> --for <scratch>` and `session record <path> --from
+// <scratch>`: the bracket the main thread runs around the clerk's copy, which
+// no hook sees (the record spec, contracts 6 and 7). Machine-local state, no
+// confirmation. Every refusal to record exits 0 and says why; a path outside
+// every copy of the vault, or a missing --for / --from, is a usage error.
+const RECORD_WHY = {
+  "no-snapshot": "no snapshot was taken for this path",
+  "snapshot-for-other-content": "the snapshot was taken for other content than this scratch",
+  "scratch-missing": "the scratch is missing",
+  "file-differs-from-scratch": "the vault file differs from the scratch",
+  "already-recorded": "an event of this session already ends at the file as it is",
+};
+async function runSessionBracket(ctx, usage) {
+  const { values, positionals, cfg, project, env, cwd, stdout } = ctx;
+  const sub = positionals[0];
+  const flag = sub === "snapshot" ? "for" : "from";
+  if (!positionals[1] || positionals.length > 2)
+    return usage(`session ${sub} takes one vault path: session ${sub} <path> --${flag} <scratch>`);
+  if (!values[flag]) return usage(`session ${sub} needs --${flag} <scratch>: the scratch the copy is made from`);
+  const place = placeInVault(cfg.vault_path, positionals[1]);
+  if (!place) return usage(`${positionals[1]} is not inside the bound vault (${cfg.vault_path}) or a worktree of it`);
+  const scratch = resolve(cwd || process.cwd(), values[flag]);
+  const sid = recordingOn(env) ? recordSessionId(env) : null;
+  let r;
+  if (!sid) r = { recorded: false, reason: "no-session" };
+  else {
+    try {
+      r =
+        sub === "snapshot"
+          ? takeCopySnapshot(project, sid, { ...place, scratch })
+          : recordCopy(project, sid, { ...place, scratch });
+    } catch (e) {
+      r = { recorded: false, reason: "unwritable", error: String((e && e.message) || e) };
+    }
+  }
+  const result = { session: sid, path: place.rel, recorded: r.recorded, reason: r.reason ?? null };
+  if (values.json) stdout.write(JSON.stringify(envelope(`session ${sub}`, project, true, result), null, 2) + "\n");
+  else if (r.reason === "no-session") stdout.write("No session id from the host: nothing written.\n");
+  else if (r.reason === "unwritable") stdout.write(`Nothing recorded: ${r.error}\n`);
+  else if (sub === "snapshot")
+    stdout.write(r.recorded ? `Snapshot of ${place.rel} taken.\n` : `No snapshot taken: ${RECORD_WHY[r.reason]}.\n`);
+  else
+    stdout.write(
+      r.recorded ? `Recorded the copy onto ${place.rel}.\n` : `Nothing recorded: ${RECORD_WHY[r.reason]}.\n`,
+    );
+  return 0;
 }
 
 async function runReconcile({ values, project, env, stdin, stdout, stderr, ask }) {
@@ -715,7 +788,7 @@ async function runGuideVerb(ctx) {
       return 1;
     }
   }
-  const done = applyEject(plan);
+  const done = applyEject(plan, { onWrite: nodeWriteRecorder({ env, project, tool: "guide eject" }) });
   if (!done.written) return emit(false, { ...result(false), error: done.refusal }, `guide eject: ${done.refusal}\n`, 1);
   return emit(true, result(true), `Created ${plan.target}.\n`, 0);
 }

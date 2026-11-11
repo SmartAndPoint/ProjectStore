@@ -120,6 +120,7 @@ The README's [Configure](../README.md#configure) section lists what each setting
 /projectstore:graph                                       # vault link graph: nodes + typed edges
 /projectstore:agents status                               # routing block + model config state
 /projectstore:bar status                                  # the band above the prompt: on/off, a pinned epic, why it is not drawing
+/projectstore:precommit                                   # before a vault commit: which changed files are this session's own
 ```
 
 ## How approval works

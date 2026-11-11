@@ -571,7 +571,9 @@ const GIT_LOCAL_ENV = Object.freeze([
   "GIT_SHALLOW_FILE",
   "GIT_COMMON_DIR",
 ]);
-const gitEnv = (env) => {
+// Exported for the pre-commit check (precommit.mjs), whose reads in the
+// vault's repository must not answer for another repository either.
+export const gitEnv = (env) => {
   const out = { ...(env || {}) };
   for (const k of GIT_LOCAL_ENV) delete out[k];
   return out;

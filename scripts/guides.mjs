@@ -206,12 +206,19 @@ export function planEject(name, { vault, root = pluginRoot() } = {}) {
   return { ok: true, name, target, content, based_on: version };
 }
 
-export function applyEject(plan) {
+// `onWrite(path, before, after)`: the session's record of its vault writes
+// (the record spec, contract 5), before absent. A throw from it is swallowed.
+export function applyEject(plan, { onWrite = null } = {}) {
   if (!plan.ok) return { written: false };
   mkdirSync(join(plan.target, ".."), { recursive: true });
   // Create-only for real (lib.mjs's exclusive create): a file made meanwhile
   // is never replaced.
   if (!createFileExclusive(plan.target, plan.content))
     return { written: false, refusal: `${plan.target} appeared meanwhile` };
+  if (onWrite) {
+    try {
+      onWrite(plan.target, null, plan.content);
+    } catch {}
+  }
   return { written: true };
 }

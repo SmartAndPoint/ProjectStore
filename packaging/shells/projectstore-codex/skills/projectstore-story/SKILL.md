@@ -192,16 +192,33 @@ cannot collide).
    - Capture doctor's summary line (`node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" doctor
      --vault`, last line) — the clerk needs it as the **pre-state**: it must not
      stop on findings that were already there and are not its own.
+   - **Snapshot the story, here in the main thread, right before you spawn the
+     clerk, and again before every re-delegation.** The clerk's copy goes
+     through Bash, which no hook sees, so this session's record of its vault
+     writes learns of it from this bracket alone:
+
+     ```bash
+     node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" session snapshot "<story-path>" --for "<scratch-path>" --json --project "$PWD"
+     ```
+
    - Spawn `$projectstore-clerk` **as a foreground task** (you need its report to
      continue) with: the scratch path, the target path, the exact re-check
      invocation (`story-section.mjs close "<story-path>" --check
      <baseline-path>`), the derived targets (`kanban`, plus `indexes=<epic
      folder>` when status changed), and the doctor pre-state line. On a clean
      report (`verbatim: true`, `stopped_at: null`, doctor no worse than the
-     pre-state) skip steps 6-6b and run step 6c, then step 6d — the clerk's report is the write evidence. On a
-     stopped report: fix what diverged, then re-delegate (the resume rule: after
-     the copy, the ceremony restarts at reconcile, not at the race gate) or
-     finish the remaining steps yourself (the copy is idempotent).
+     pre-state) skip steps 6-6b and run step 6c, then step 6d — the clerk's report is the write evidence. After
+     any report with `written: true`, clean or stopped, first record the copy,
+     before you fix anything or re-delegate:
+
+     ```bash
+     node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" session record "<story-path>" --from "<scratch-path>" --json --project "$PWD"
+     ```
+
+     On a stopped report: fix what diverged, then re-delegate (the resume rule:
+     after the copy, the ceremony restarts at reconcile, not at the race gate;
+     take a new snapshot before the spawn) or finish the remaining steps
+     yourself (the copy is idempotent).
    - No clerk available → perform steps 6-6c yourself, then 6d. There is no fallback
      agent: a general-purpose writer is an unpinned procedure.
 
@@ -231,6 +248,16 @@ cannot collide).
    the session itself; with none it writes nothing and exits 0. A non-zero
    exit is reported and never undoes the close.
 
+   On the delegated path, run beside it the same record as in step 5a:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" session record "<story-path>" --from "<scratch-path>" --json --project "$PWD"
+   ```
+
+   It appends nothing when the copy is already recorded, or when no snapshot
+   is left, and says why; it exits 0 either way. The undelegated path has no
+   scratch and no bracket: the hook records your own `Write`.
+
 6d. **(both gates) The epic's Stories row.** After the story is written (by
    you or the clerk), and on a close after 6c:
 
@@ -245,6 +272,11 @@ cannot collide).
    note `epic-row-missing`, exit 0: say so, and the epic is not written. A
    non-zero exit is a write error: report it; it never undoes the gate's
    write.
+
+6e. **(close only) The commit hint.** End the close with a one-line hint to
+   commit the story's paths if the vault is git-tracked: run
+   `$projectstore-precommit` before you commit those paths, and do what its
+   last line says.
 
 # Ready flow (ready)
 

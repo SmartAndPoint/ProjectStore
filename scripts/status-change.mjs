@@ -29,6 +29,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { writeFileAtomic, parseFrontmatter, nowIso, today, isMain } from "./lib.mjs";
 import { applyStatusChange, applyAssigneeChange, touchStory, epicRowUpdate } from "./status-log.mjs";
+import { nodeWriteRecorder } from "./write-record.mjs";
 
 export const CHANGED_MEANWHILE = "story-changed-meanwhile";
 // No row in ../epic.md links to the story: a note, exit 0, the epic is not written.
@@ -40,7 +41,11 @@ const errMsg = (e) => (e && e.message ? e.message : String(e));
 // `compute(base, attempt)` returns {content} (content === base: no change) or
 // {refused}. `afterCompute(attempt)` runs between the compute and the second
 // read: the test seam for an edit made meanwhile.
-export function replaceWithRetry(path, compute, { attempts = 3, afterCompute = null } = {}) {
+// `onWrite(path, before, after)` runs once the replace landed, with the bytes
+// the write read and the bytes it wrote: the session's record of its own
+// vault writes (write-record.mjs, the record spec's contract 5). It never
+// changes the result: a throw from it is swallowed.
+export function replaceWithRetry(path, compute, { attempts = 3, afterCompute = null, onWrite = null } = {}) {
   let base;
   try {
     base = readFileSync(path, "utf8");
@@ -72,6 +77,11 @@ export function replaceWithRetry(path, compute, { attempts = 3, afterCompute = n
     } catch (e) {
       return { changed: true, written: false, attempts: i + 1, error: errMsg(e), result: r };
     }
+    if (onWrite) {
+      try {
+        onWrite(path, base, r.content);
+      } catch {}
+    }
     return { changed: true, written: true, attempts: i + 1, result: r };
   }
   return { changed: false, written: false, attempts, error: CHANGED_MEANWHILE };
@@ -89,7 +99,7 @@ export function epicFileOf(storyPath) {
 // The story's row in its epic's Stories table, set to the story's status as
 // its file says now, through the same read-again loop as the story.
 // Idempotent; no epic.md, or no row, is the note `epic-row-missing`.
-export function syncEpicRow(storyPath, { afterCompute = null } = {}) {
+export function syncEpicRow(storyPath, { afterCompute = null, onWrite = null } = {}) {
   const abs = resolve(storyPath);
   const epic = epicFileOf(abs);
   const out = { path: epic, found: false, changed: false, written: false, error: null, note: null };
@@ -109,7 +119,7 @@ export function syncEpicRow(storyPath, { afterCompute = null } = {}) {
       found = u.found;
       return { content: u.text };
     },
-    { afterCompute },
+    { afterCompute, onWrite },
   );
   return {
     ...out,
@@ -127,7 +137,17 @@ export function syncEpicRow(storyPath, { afterCompute = null } = {}) {
 // written, attempts, line, error, refused, epic}.
 export function changeStatus(
   path,
-  { to, reason, actor, at = nowIso(), lang = "en", allow = null, epic = true, afterCompute = null } = {},
+  {
+    to,
+    reason,
+    actor,
+    at = nowIso(),
+    lang = "en",
+    allow = null,
+    epic = true,
+    afterCompute = null,
+    onWrite = null,
+  } = {},
 ) {
   let from = null;
   let line = null;
@@ -142,7 +162,7 @@ export function changeStatus(
       line = c.line;
       return { content: c.changed ? touchStory(c.text, at.slice(0, 10) || today()) : base };
     },
-    { afterCompute },
+    { afterCompute, onWrite },
   );
   const out = {
     path,
@@ -156,21 +176,25 @@ export function changeStatus(
     refused: r.refused ?? null,
     epic: null,
   };
-  if (r.written && epic) out.epic = syncEpicRow(path);
+  if (r.written && epic) out.epic = syncEpicRow(path, { onWrite });
   return out;
 }
 
 // A change of assignee written to a story file: the same loop, no stamp and
 // no epic row.
-export function changeAssignee(path, { to, reason, actor, at = nowIso(), lang = "en" } = {}) {
+export function changeAssignee(path, { to, reason, actor, at = nowIso(), lang = "en", onWrite = null } = {}) {
   let from = null;
   let line = null;
-  const r = replaceWithRetry(path, (base) => {
-    const c = applyAssigneeChange(base, { to, reason, actor, at, lang });
-    from = c.from;
-    line = c.line;
-    return { content: c.changed ? touchStory(c.text, at.slice(0, 10) || today()) : base };
-  });
+  const r = replaceWithRetry(
+    path,
+    (base) => {
+      const c = applyAssigneeChange(base, { to, reason, actor, at, lang });
+      from = c.from;
+      line = c.line;
+      return { content: c.changed ? touchStory(c.text, at.slice(0, 10) || today()) : base };
+    },
+    { onWrite },
+  );
   return {
     path,
     from,
@@ -194,7 +218,9 @@ function main() {
     process.stderr.write(`projectstore/status-change: story not found: ${abs}\n`);
     process.exit(1);
   }
-  const r = syncEpicRow(abs);
+  // The project is the one the command's own shell and the hook resolve alike
+  // (projectRoot), as epic-row takes no --project (the record spec, contract 5).
+  const r = syncEpicRow(abs, { onWrite: nodeWriteRecorder({ env: process.env, project: null, tool: "epic-row" }) });
   process.stdout.write(JSON.stringify(r, null, 2) + "\n");
   if (r.error) process.exitCode = 1;
 }

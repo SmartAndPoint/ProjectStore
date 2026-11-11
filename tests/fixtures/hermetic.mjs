@@ -21,6 +21,11 @@ for (const m of loadHarnesses().values()) if (m.runtime?.home_env) delete proces
 // that runs the suite exports its own, and the welcome reads which channel that
 // copy came from. CI never sets it; a test that needs one passes it.
 for (const m of loadHarnesses().values()) if (m.runtime?.plugin_root_env) delete process.env[m.runtime.plugin_root_env];
+// Every harness's session-id variable (runtime.session_id_env): a suite run
+// from a session's shell would otherwise key every record of vault writes, and
+// every pointer a verb writes, to the developer's live session (the record
+// spec, contract 1). A test that needs a session passes its own.
+for (const m of loadHarnesses().values()) if (m.runtime?.session_id_env) delete process.env[m.runtime.session_id_env];
 // Every harness's registration deferral marker (runtime.registration_defer_env):
 // a host session that runs the suite carries its own, and every registration
 // of that harness a test plans would defer. A test of the deferral sets it on
