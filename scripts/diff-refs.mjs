@@ -103,6 +103,74 @@ export function grepProjectLines(cwd, pattern, { exclude = [], timeout = 10000, 
   return { status: "ok", lines };
 }
 
+// Doctor's flow activity (the flow-findings spec, contracts 1 to 3): the
+// local commits since `since`, one `git log` for the run. Reachable from a
+// local branch, a remote-tracking branch the machine already has, or HEAD
+// (a detached HEAD counts); no merge commit, and a stash entry is not on any
+// of those refs. Names and times only, through .mailmap (`%aN`, `%cN`): no
+// email address is ever asked for. Paths are relative to `cwd` (the project
+// root), and a path outside it is not listed; a commit that changed nothing
+// under it still comes back, with no paths. `-z` keeps a non-ASCII path as
+// written. Git runs with LC_ALL=C, so its output does not follow the locale.
+// When git cannot answer, the reason is one of a fixed set, never git's
+// stderr: `no-git`, `not-a-repository`, `shallow`, `timeout`, `failed`.
+// Returns {status: "ok", commits: [{authorName, authorMs, committerName,
+// committerMs, paths}]} or {status: "unknown", reason}.
+export const ACTIVITY_REASONS = Object.freeze(["no-git", "not-a-repository", "shallow", "timeout", "failed"]);
+const LOG_FORMAT = "--format=%x1e%at%x1f%aN%x1f%ct%x1f%cN";
+export function commitsSince(cwd, since, { timeout = 10000, env = process.env } = {}) {
+  const opts = { cwd, encoding: "utf8", timeout, env: { ...env, LC_ALL: "C" }, maxBuffer: 256 * 1024 * 1024 };
+  const why = (r) => {
+    if (r.error?.code === "ENOENT") return "no-git";
+    if (r.error || r.signal) return r.error?.code === "ETIMEDOUT" || r.signal ? "timeout" : "failed";
+    if (r.status !== 0) return /not a git repository/i.test(r.stderr || "") ? "not-a-repository" : "failed";
+    return null;
+  };
+  const probe = spawnSync("git", ["rev-parse", "--is-shallow-repository"], opts);
+  const probeWhy = why(probe);
+  if (probeWhy) return { status: "unknown", reason: probeWhy };
+  if (String(probe.stdout).trim() === "true") return { status: "unknown", reason: "shallow" };
+  const run = (head) =>
+    spawnSync(
+      "git",
+      [
+        "log",
+        "--branches",
+        "--remotes",
+        ...head,
+        "--no-merges",
+        "--no-show-signature",
+        "-z",
+        "--name-only",
+        "--relative",
+        `--since=${since}`,
+        LOG_FORMAT,
+        "--",
+      ],
+      opts,
+    );
+  let r = run(["HEAD"]);
+  // A repository with no commit on HEAD (a fresh one, an unborn branch):
+  // HEAD names nothing, and the branches are read without it.
+  if (r.status !== 0 && !r.error && /bad revision 'HEAD'|unknown revision[^\n]*HEAD/.test(r.stderr || "")) r = run([]);
+  const runWhy = why(r);
+  if (runWhy) return { status: "unknown", reason: runWhy };
+  const commits = [];
+  for (const chunk of String(r.stdout).split("\x1e")) {
+    if (!chunk) continue;
+    const cut = chunk.indexOf("\0");
+    const head = (cut === -1 ? chunk : chunk.slice(0, cut)).split("\x1f");
+    if (head.length !== 4) continue;
+    const [at, authorName, ct, committerName] = head;
+    const paths = (cut === -1 ? "" : chunk.slice(cut + 1))
+      .split("\0")
+      .map((p) => p.replace(/^\n/, ""))
+      .filter(Boolean);
+    commits.push({ authorName, authorMs: Number(at) * 1000, committerName, committerMs: Number(ct) * 1000, paths });
+  }
+  return { status: "ok", commits };
+}
+
 // The `--since` window git is given, shared with spec-drift.mjs.
 //
 // A bare YYYY-MM-DD gets midnight appended, and it is not cosmetic. Git's

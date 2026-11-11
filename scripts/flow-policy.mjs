@@ -9,7 +9,10 @@
 // Spec: "Changing a project's settings after setup…" (alias `configure`),
 // contracts 2, 3, 7 and 11 as amended 2026-11-10, and SPEC-001 contract 4
 // as amended the same day, by PS-FLOW/story-the-vault-declares-its-flow-
-// policy-and-configure-writes-it. No key has a default in code: a check whose
+// policy-and-configure-writes-it; SPEC-001 contract 4 as amended 2026-11-11,
+// and "Doctor's flow findings…" contracts 7 and 8, by PS-FLOW/story-doctor-
+// checks-the-flow-against-the-vaults-policy-… (refused person keys, small
+// capacity bounds, flowProblems). No key has a default in code: a check whose
 // key is absent does not run, and a value of the wrong type counts as absent.
 
 import { isCalendarDate } from "./lib.mjs";
@@ -116,10 +119,13 @@ function parseValue(kind, raw) {
 const shownName = (name) => (CONTROL.test(name) ? JSON.stringify(name) : name);
 
 // A person's name as `flow.people[<name>]` takes it: the assignee as stories
-// write it, never an email address.
+// write it, never an email address. Every reader skips a key it refuses
+// (SPEC-001 contract 4, as amended 2026-11-11): empty, holding `@`, `]`, `=`
+// or a control character, or `__proto__`.
 function badName(name) {
   return !name || /[@\]=]/.test(name) || CONTROL.test(name) || name === "__proto__";
 }
+export const isValidPersonKey = (name) => typeof name === "string" && !badName(name);
 
 // Whether an entry is, or holds a word shaped like, an email address (the
 // configure spec, contracts 2 and 11 as amended 2026-11-10): the vault keeps
@@ -251,6 +257,11 @@ export function flowRows(flow) {
 
 const goodCount = (v) => Number.isSafeInteger(v) && v > 0;
 
+// The smallest capacity bound a reader takes: each bound is read to
+// hundredths (Flow counts, contract 7), so a smaller one would read as 0.
+// configure still accepts one; every reader treats it as outside the set.
+export const MIN_BOUND = 0.01;
+
 // A fixed key's value when it is of its key's type, else null: how every
 // reader of the policy takes it (SPEC-001 contract 4, as amended).
 export function flowValue(vaultCfg, key) {
@@ -260,24 +271,143 @@ export function flowValue(vaultCfg, key) {
   if (fixed.kind === "range")
     return Array.isArray(v) &&
       v.length === 2 &&
-      v.every((n) => typeof n === "number" && Number.isFinite(n) && n > 0) &&
+      v.every((n) => typeof n === "number" && Number.isFinite(n) && n >= MIN_BOUND) &&
       v[0] <= v[1]
       ? [v[0], v[1]]
       : null;
   return goodCount(v) ? v : null;
 }
 
-// The WIP limit rule (SPEC-001 contract 4, as amended): a person's own `wip`,
-// else `flow.wip.<time>` for their `time`, else no limit. A person not listed
-// has none. The name matches exactly, as an own key.
+// The WIP limit rule (SPEC-001 contract 4, as amended 2026-11-11): a
+// person's own `wip`, else `flow.wip.<time>` for their `time`, else no limit.
+// A person not listed has none. The name matches exactly, as an own key, and
+// a key that is not a valid name (isValidPersonKey) gives no one a limit.
 export function wipLimitOf(vaultCfg, name) {
   if (!isPlainObject(vaultCfg)) return null;
   const people = flowAt(vaultCfg.flow, ["people"]);
-  if (!isPlainObject(people) || typeof name !== "string" || !Object.hasOwn(people, name)) return null;
+  if (!isPlainObject(people) || !isValidPersonKey(name) || !Object.hasOwn(people, name)) return null;
   const person = people[name];
   if (!isPlainObject(person)) return null;
   if (goodCount(person.wip)) return person.wip;
   if (person.time !== "full" && person.time !== "part") return null;
   const byTime = flowAt(vaultCfg.flow, ["wip", person.time]);
   return goodCount(byTime) ? byTime : null;
+}
+
+// ─── What the readers refuse (the flow-findings spec, contracts 7 and 8) ─
+
+// The people a reader takes: own keys of `flow.people` that are valid names
+// and hold an object, in file order. A Map, so `constructor` is a name.
+export function flowPeople(vaultCfg) {
+  const out = new Map();
+  const people = isPlainObject(vaultCfg) ? flowAt(vaultCfg.flow, ["people"]) : undefined;
+  if (!isPlainObject(people)) return out;
+  for (const name of Object.keys(people))
+    if (isValidPersonKey(name) && isPlainObject(people[name])) out.set(name, people[name]);
+  return out;
+}
+
+// A person's git names as the activity checks read them: the entries that
+// are non-empty one-line strings and hold no email-shaped word. An entry
+// shaped like an address is never matched and never named.
+export function gitNamesOf(vaultCfg, name) {
+  const person = flowPeople(vaultCfg).get(name);
+  if (!person || !Array.isArray(person.git_names)) return [];
+  return person.git_names.filter((n) => typeof n === "string" && n.trim() && !CONTROL.test(n) && !isEmailAddress(n));
+}
+
+// Whether the vault declares a flow policy at all: `flow` present and not
+// null or an empty object.
+export function flowDeclared(vaultCfg) {
+  if (!isPlainObject(vaultCfg) || !Object.hasOwn(vaultCfg, "flow")) return false;
+  const f = vaultCfg.flow;
+  return !(f === null || (isPlainObject(f) && Object.keys(f).length === 0));
+}
+
+const OBJECT_SET = "an object of flow settings";
+const PEOPLE_SET = "an object keyed by a person's name";
+const PERSON_SET = `an object of ${PERSON_FIELDS.join(", ")}`;
+const BOUND_SET = `${SET_OF.range}, each at least ${MIN_BOUND}`;
+const NAMES_SET = `${SET_OF.names}, with no email address`;
+
+// The top-level keys under `flow` this version knows, and the keys under
+// each group: the configure spec's changeable keys and the stamp.
+const GROUPS = Object.freeze({ wip: ["full", "part"], age_days: ["review", "in_progress_idle", "todo"] });
+const TOP = Object.freeze([...new Set(FLOW_FIXED.map((k) => k.path[0])), "people", "groomed_at"]);
+
+function validLeaf(kind, v) {
+  switch (kind) {
+    case "count":
+    case "days":
+    case "weeks":
+      return goodCount(v);
+    case "range":
+      return (
+        Array.isArray(v) &&
+        v.length === 2 &&
+        v.every((n) => typeof n === "number" && Number.isFinite(n) && n > 0) &&
+        v[0] <= v[1]
+      );
+    case "time":
+      return v === "full" || v === "part";
+    case "date":
+      return typeof v === "string" && isCalendarDate(v);
+    default:
+      return false;
+  }
+}
+
+// Every value the readers ignore, as {key, set, unknown?, invalidName?}:
+// the key named (never the value), and the set it takes. `key` is null for
+// a person key that is not a valid name, which no finding names. Pure.
+export function flowProblems(vaultCfg) {
+  if (!flowDeclared(vaultCfg)) return [];
+  const flow = vaultCfg.flow;
+  if (!isPlainObject(flow)) return [{ key: "flow", set: OBJECT_SET }];
+  const out = [];
+  for (const top of Object.keys(flow)) {
+    if (!TOP.includes(top)) out.push({ key: `flow.${top}`, set: null, unknown: true });
+    else if (Object.hasOwn(GROUPS, top)) {
+      if (!isPlainObject(flow[top])) out.push({ key: `flow.${top}`, set: OBJECT_SET });
+      else
+        for (const k of Object.keys(flow[top]))
+          if (!GROUPS[top].includes(k)) out.push({ key: `flow.${top}.${k}`, set: null, unknown: true });
+    }
+  }
+  for (const k of FLOW_FIXED) {
+    const v = flowAt(flow, k.path);
+    if (v === undefined) continue;
+    if (k.kind === "range" && validLeaf("range", v) && v.some((n) => n < MIN_BOUND))
+      out.push({ key: k.key, set: BOUND_SET, smallBound: true });
+    else if (!validLeaf(k.kind, v)) out.push({ key: k.key, set: k.kind === "range" ? BOUND_SET : SET_OF[k.kind] });
+  }
+  if (Object.hasOwn(flow, "people")) {
+    const people = flow.people;
+    if (!isPlainObject(people)) out.push({ key: "flow.people", set: PEOPLE_SET });
+    else
+      for (const name of Object.keys(people)) {
+        if (!isValidPersonKey(name)) {
+          out.push({ key: null, set: null, invalidName: true });
+          continue;
+        }
+        const person = people[name];
+        if (!isPlainObject(person)) {
+          out.push({ key: `flow.people[${name}]`, set: PERSON_SET });
+          continue;
+        }
+        for (const f of Object.keys(person)) {
+          const key = personKey(name, f);
+          if (!PERSON_FIELDS.includes(f)) out.push({ key, set: null, unknown: true });
+          else if (f === "git_names") {
+            const v = person.git_names;
+            const ok =
+              Array.isArray(v) &&
+              v.length > 0 &&
+              v.every((n) => typeof n === "string" && n.trim() && !CONTROL.test(n) && !isEmailAddress(n));
+            if (!ok) out.push({ key, set: NAMES_SET });
+          } else if (!validLeaf(PERSON_KIND[f], person[f])) out.push({ key, set: SET_OF[PERSON_KIND[f]] });
+        }
+      }
+  }
+  return out;
 }

@@ -141,7 +141,8 @@ import { effortSpec } from "./model-spec.mjs";
 // story "The prompt surface asks the shell for a variable the host would have
 // substituted"; harness neutrality is unaffected, an absolute path carries no
 // brand, and --harness still carries the target.
-import { uncommittedProjectFiles, lastCommitMs, grepProjectLines } from "./diff-refs.mjs";
+import { uncommittedProjectFiles, lastCommitMs, grepProjectLines, commitsSince } from "./diff-refs.mjs";
+import { checkFlow } from "./doctor-flow.mjs";
 import { resolveBinding } from "./worktree.mjs";
 import { missingScaffoldRequirements, kindsOf } from "./scaffold.mjs";
 import { GUIDE_NAME, guidesDir, parseGuide, resolveGuide } from "./guides.mjs";
@@ -4021,7 +4022,13 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
 
 export function runVaultChecks(
   cfg,
-  { proj = projectRoot(), grep = grepProjectLines, policy = null, now = new Date().toISOString() } = {},
+  {
+    proj = projectRoot(),
+    grep = grepProjectLines,
+    policy = null,
+    now = new Date().toISOString(),
+    commits = commitsSince,
+  } = {},
 ) {
   let layout;
   try {
@@ -4082,6 +4089,9 @@ export function runVaultChecks(
     ...checkNoSpec(artifacts, vaultCfg, proj, cfg.vault_path),
     ...checkNoSpecShare(artifacts, vaultCfg, proj, cfg.vault_path),
     ...checkReviewBy(artifacts, now),
+    // The flow group (PS-FLOW): advice, warn or info only; never in
+    // runStartupChecks below (the flow-findings spec, contract 11).
+    ...checkFlow({ cfg, layout, vaultCfg, proj, now, commits }),
     ...checkGatesStamp(vaultCfg, proj),
     ...checkGuides(cfg.vault_path, layout, { proj }),
     ...checkWorkWithoutStory(cfg, proj),

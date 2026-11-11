@@ -695,6 +695,12 @@
         {
           "group": "vault",
           "level": "info",
+          "check": "flow-policy-unset",
+          "message": "The vault has no flow policy, so no flow check runs. Each check starts once configure sets its key, in the form --set flow.<key>=<value>."
+        },
+        {
+          "group": "vault",
+          "level": "info",
           "check": "graph",
           "message": "No graph.md yet — run /projectstore:graph to create the link graph."
         }

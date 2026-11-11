@@ -247,8 +247,18 @@ each key activates.
   empty side. The tokens stay English in every locale. A stamp is trusted
   only when the last `status:` line's time and target match the story;
   otherwise its age in status is read from `updated` (`statusStamp` in
-  `scripts/status-log.mjs`). `move <story> todo|planned --reason "<why>"` is
-  the one change no gate makes.
+  `scripts/status-log.mjs`), else `created`. Both instants are read through
+  `stampMs`, so a stamp with no zone is UTC on every machine.
+  `move <story> todo|planned --reason "<why>"` is the one change no gate makes.
+- Doctor's flow checks (`scripts/doctor-flow.mjs`) read the `flow` block. A
+  check whose key is absent, or outside its key's set, does not run. They count
+  through `scripts/flow-counts.mjs`, which is pure and takes the as-of instant
+  as an argument, so a derived view gets the same counts for the same instant.
+  Stories come from `scripts/flow-stories.mjs`, the board's reader. Idle work
+  and idle people are read from the project's local commits, through one
+  `git log` per run (`commitsSince` in `scripts/diff-refs.mjs`), by author and
+  committer name only. Every flow finding is a warn or an info, never an
+  issue. The group runs in `doctor --vault` and never at session start.
 
 ## Contributing back
 
