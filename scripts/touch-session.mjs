@@ -23,6 +23,12 @@
 //    PreToolUse because it fires only after a call succeeds, so declined
 //    edits are not counted as work that happened. Spec: "Entry-rule
 //    detection: the score, the open-story predicate, and the delivery seams".
+// 4. The record of this session's vault writes (write-record.mjs) — on a
+//    write tool to a vault file, PreToolUse stores the file as it is, keyed
+//    by the call's tool_use_id and the path, and PostToolUse appends one
+//    event from that snapshot to the file as written. Only where the
+//    speaking harness declares a session-id variable; it prints nothing and
+//    touches no pointer (the record spec, contracts 3 and 4).
 //
 // Session identity comes from Claude's own `session_id` field in the
 // hook input JSON (stdin), so two Claude Code instances open on the
@@ -76,6 +82,7 @@ import {
   commandForm,
   speakingHarness,
 } from "./lib.mjs";
+import { recordingOn, snapshotForCall, recordForCall } from "./write-record.mjs";
 
 const NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -341,6 +348,22 @@ async function main() {
         const nudge = patchPointer(cfg, proj, sid, placed, input.tool_name);
         if (nudge) messages.push(nudge);
       } catch {}
+      // The record's event, from the snapshot PreToolUse stored for this call.
+      // A failure here changes nothing about the call (entry-rule contract 21).
+      if (recordingOn()) {
+        for (const { path: abs, loc } of placed) {
+          try {
+            recordForCall(proj, sid, {
+              callId: input.tool_use_id,
+              root: loc.root,
+              rel: loc.rel,
+              abs,
+              tool: input.tool_name,
+              agent: input.agent_type || input.agent_id || null,
+            });
+          } catch {}
+        }
+      }
     }
     let context = null;
     let unknown = false;
@@ -364,6 +387,16 @@ async function main() {
     try {
       patchPointer(cfg, proj, sid, placed, input.tool_name);
     } catch {}
+  }
+  // A write's pending snapshot: the file before the call, for PostToolUse's
+  // event. Prints nothing; a failure leaves the call as it was.
+  if (writes && placed.length && recordingOn()) {
+    for (const { path: abs, loc } of placed) {
+      if (!loc.rel) continue;
+      try {
+        snapshotForCall(proj, sid, { callId: input.tool_use_id, root: loc.root, rel: loc.rel, abs });
+      } catch {}
+    }
   }
   for (const { path: filePath, loc } of placed) {
     try {

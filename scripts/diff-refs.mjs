@@ -15,8 +15,10 @@
 // means the caller must ask the user for an explicit range instead of
 // guessing.
 //
-// Git runs in the PROJECT (the directory the harness hands us), never the vault — the vault
-// is typically not a git repository.
+// Git runs in the PROJECT (the directory the harness hands us) for these
+// helpers. The one caller that reads the vault's repository is the pre-commit
+// check (precommit.mjs), through gitRun below, with read-only subcommands
+// (rev-parse, status, cat-file) and nothing that commits, pushes or fetches.
 
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
@@ -40,6 +42,34 @@ export function gitIn(cwd, args, { timeout = 15000 } = {}) {
 }
 
 const git = (args) => gitIn(projectRoot(), args);
+
+// A git run that tells an answer from no repository and from a failure,
+// unlike gitIn's null for all three: {kind: "answer", status, stdout (bytes),
+// stderr} whatever the exit code (`rev-parse --verify` exits 1 as an answer),
+// {kind: "no-git"} outside a repository, {kind: "failure", reason} for no git
+// binary, a timeout, a signal or an output past maxBuffer. `env` is the
+// caller's, already stripped of what locates another repository; optional
+// locks are off, so `git status` never refreshes the index.
+export function gitRun(cwd, args, { env = process.env, timeout = 10000, maxBuffer = 128 * 1024 * 1024 } = {}) {
+  let r;
+  try {
+    r = spawnSync("git", args, {
+      cwd,
+      env: { ...env, GIT_OPTIONAL_LOCKS: "0" },
+      timeout,
+      maxBuffer,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e) {
+    return { kind: "failure", reason: String((e && e.message) || e) };
+  }
+  if (r.error?.code === "ENOENT") return { kind: "failure", reason: "git is not installed" };
+  if (r.error?.code === "ETIMEDOUT" || r.signal) return { kind: "failure", reason: `git ${args[0]} timed out` };
+  if (r.error) return { kind: "failure", reason: String(r.error.message || r.error) };
+  const stderr = String(r.stderr || "");
+  if (r.status !== 0 && /not a git repository/i.test(stderr)) return { kind: "no-git" };
+  return { kind: "answer", status: r.status, stdout: r.stdout || Buffer.alloc(0), stderr };
+}
 
 // Doctor's only route to git. Kept here rather than in lib.mjs, whose header
 // pins it as dependency-free with no subprocess anywhere.

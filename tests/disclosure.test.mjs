@@ -128,6 +128,15 @@ const ROWS = {
         "%aN%x1f%ct%x1f%cN",
         code("scripts/diff-refs.mjs"),
       ],
+      // The pre-commit check (PS-WT, the precommit spec's contract 6): read-only git in the vault's repository.
+      ["The pre-commit check", 'git(root, ["status", "--porcelain=v1"', code("scripts/precommit.mjs")],
+      [
+        "runs `git rev-parse` and `git status` and `git cat-file` in the vault's repository",
+        '"cat-file"',
+        code("scripts/precommit.mjs"),
+      ],
+      ["`git cat-file --filters`", '"cat-file", "--filters"', code("scripts/precommit.mjs")],
+      ["Optional locks are off", 'GIT_OPTIONAL_LOCKS: "0"', code("scripts/diff-refs.mjs")],
       ["SessionStart hook", "resolveBinding(", code("hooks/session-start.mjs")],
       // Agents read history with the agent's own tools, not through ProjectStore's code.
       ["through the agent's own tools", "`git log`", read("agents/archaeologist.md")],
@@ -379,6 +388,7 @@ test("disclosure: the shipped modules that spawn or fetch are the pinned map", (
   assert.deepEqual(SHIPPED_CODE.filter((f) => callsFetch(read(f))).sort(), ["scripts/convergence.mjs"]);
 });
 
+// [precommit#6]
 test("disclosure: each row's strings are in its module or the manifest data it reads, and every git subcommand and host CLI is named", () => {
   assert.ok(section() !== null, `README has "${SECTION}"`);
   for (const [id, row] of Object.entries(ROWS)) {
@@ -393,13 +403,21 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   }
   // Completeness: every git subcommand the shipped code runs is named in the git row.
   const gitRow = rowsOf(sub(RUNS)).get(ROWS.git.lead);
+  // The modules whose git calls are read: the pinned ones, and those that run
+  // git through a seam another module spawns for (worktree.mjs through
+  // binding's gitTop, precommit.mjs through diff-refs' gitRun).
+  const GIT_CALLERS = Object.keys(MODULES).concat(["scripts/worktree.mjs", "scripts/precommit.mjs"]);
+  const GIT_CALL = /(?:spawn(?:Sync)?\(\s*"git",\s*|gitIn\([^,]+,\s*|\bgit\((?:[a-zA-Z]+,\s*)?)\[\s*"([a-z-]+)"/g;
+  const subcommandsOf = (src) => [...src.matchAll(GIT_CALL)].map((m) => m[1]);
   const subcommands = new Set();
-  for (const f of Object.keys(MODULES).concat(["scripts/worktree.mjs"]))
-    for (const m of code(f).matchAll(
-      /(?:spawn(?:Sync)?\(\s*"git",\s*|gitIn\([^,]+,\s*|\bgit\((?:[a-zA-Z]+,\s*)?)\[\s*"([a-z-]+)"/g,
-    ))
-      subcommands.add(m[1]);
+  for (const f of GIT_CALLERS) for (const s of subcommandsOf(code(f))) subcommands.add(s);
   assert.ok(subcommands.size >= 6, `the git calls are read: ${[...subcommands].join(", ")}`);
+  // The pre-commit check's calls are among them, and a commit planted in it is
+  // caught (PS-WT, the precommit spec's acceptance).
+  for (const s of ["rev-parse", "status", "cat-file"])
+    assert.ok(subcommandsOf(code("scripts/precommit.mjs")).includes(s), `precommit.mjs's git ${s} is read`);
+  const planted = code("scripts/precommit.mjs") + '\nconst x = git(root, ["commit", "-qm", "planted"]);\n';
+  assert.ok(subcommandsOf(planted).includes("commit"), "a commit planted in precommit.mjs is read, and fails below");
   for (const s of subcommands) assert.ok(gitRow.includes(`\`git ${s}`), `the git row names git ${s}`);
   assert.ok(/never commits, pushes, pulls or fetches/.test(gitRow), "the git row says what git never does");
   for (const s of ["push", "pull", "fetch", "clone", "commit", "remote"])
@@ -599,6 +617,7 @@ test("disclosure: one homepage — plugin.json, marketplace.json and package.jso
   assert.equal(readJson("package.json").homepage, want, "package.json");
 });
 
+// The record spec's acceptance: the README and the privacy page name the record.
 test("disclosure: the section's writes and the directory report, and no key-shaped value in what a reader sees", () => {
   const writes = sub(WRITES);
   assert.ok(writes !== null, `README has "${WRITES}"`);
@@ -629,6 +648,25 @@ test("disclosure: the section's writes and the directory report, and no key-shap
   assert.ok(writes.includes("the vault files it read or edited last, with the tool and the time"));
   assert.ok(code("scripts/lib.mjs").includes("{ path: filePath, tool: toolName, at:"), "appendActivity's entry");
   assert.ok(writes.includes("inactive for 24 hours"), "the session files' lifetime");
+  // The record of a session's vault writes (PS-WT, the record spec's
+  // acceptance): file contents, machine-local, reaped at a session start
+  // after 24 idle hours, the starting session's own kept.
+  assert.ok(writes.includes("`state/sessions/<session id>.writes/`"), "the writes name the record of vault writes");
+  assert.ok(writes.includes("the file's contents before and after each write"), "the record holds file contents");
+  assert.ok(
+    /\.writes\/`[^\n]*machine-local[^\n]*deleted at the next session start once it has been inactive for 24 hours, except the starting session's own/.test(
+      writes,
+    ),
+    "its lifetime, and the starting session's own kept",
+  );
+  assert.ok(code("scripts/lib.mjs").includes("`${currentSessionId}.writes`"), "the reap keeps the starting session's");
+  const privacy = read("site/src/privacy.html");
+  for (const s of [
+    "a record of the vault files it wrote, with the file's contents before and after each write",
+    "stays on this machine",
+    "deleted at the next session start once it has been inactive for 24 hours, except the starting session's own",
+  ])
+    assert.ok(privacy.includes(s), `the privacy page says: ${s}`);
   assert.ok(code("hooks/session-start.mjs").includes("cleanupStaleSessions(cfg.vault_path, 24,"));
   assert.ok(writes.includes("`harness/`, meant to be committed"), "the overlays are meant to be committed");
   assert.ok(writes.includes("the band's heartbeat"), "the band's heartbeat");

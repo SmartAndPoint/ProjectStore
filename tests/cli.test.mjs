@@ -2856,7 +2856,13 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
     init: ["init <vault> [options]"],
     scaffold: ["scaffold [options]"],
     band: ["band on [options]", "band off [options]", "band status [options]", "band epic <ID> [options]"],
-    session: ["session refresh <path> [options]"],
+    // snapshot, record and check: new in PS-WT (the record spec, contract 6; the check spec, contract 8)
+    session: [
+      "session refresh <path> [options]",
+      "session snapshot <path> --for <scratch> [options]",
+      "session record <path> --from <scratch> [options]",
+      "session check [<path>…] [options]",
+    ],
     move: ["move <story> <status> [options]"], // new in PS-FLOW (SPEC-001 contract 7, the ready step)
   };
   assert.deepEqual(VERBS.map((v) => v.verb).sort(), Object.keys(GOLDEN).sort(), "every verb has its 0.29.2 forms here");

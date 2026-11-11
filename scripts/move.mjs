@@ -36,6 +36,7 @@ import { normaliseVaultPath, shellQuote, DEFAULT_LAYOUT, DEFAULT_LANGUAGE } from
 import { statusToColumn, NOT_ACTIONABLE, STATUS_COLUMNS } from "./stages.mjs";
 import { oneLine, sameStatus } from "./status-log.mjs";
 import { changeStatus, syncEpicRow, CHANGED_MEANWHILE } from "./status-change.mjs";
+import { nodeWriteRecorder } from "./write-record.mjs";
 
 // The two targets, and the status each may come from (sameStatus).
 const TARGETS = Object.freeze({ todo: ["planned"], planned: ["todo"] });
@@ -194,6 +195,9 @@ export async function runMove(ctx) {
     const s = String(now.status ?? "").trim();
     return sameStatus(s, to) || allowed(s, to) ? null : refusal(s, to, found.ref, env);
   };
+  // Each write lands in this session's record of its vault writes (the record
+  // spec, contract 5); with no session id from the host, nothing is recorded.
+  const onWrite = nodeWriteRecorder({ env, project, tool: "move" });
   const r = changeStatus(found.path, {
     to,
     reason,
@@ -203,6 +207,7 @@ export async function runMove(ctx) {
     allow,
     epic: false,
     afterCompute,
+    onWrite,
   });
   const done = { ...base, from: r.from || plan.from, written: r.written, line: r.line };
   if (r.refused) return fail(r.refused, done);
@@ -216,7 +221,7 @@ export async function runMove(ctx) {
   // The epic row and the derived views, also when the status did not change:
   // a second run finishes what a failed first one left.
   done.status = String(parseFrontmatter(readFileSync(found.path, "utf8")).data.status ?? "").trim();
-  done.epic = syncEpicRow(found.path);
+  done.epic = syncEpicRow(found.path, { onWrite });
   const { runReconcile } = await import("./reconcile.mjs");
   let rec;
   try {

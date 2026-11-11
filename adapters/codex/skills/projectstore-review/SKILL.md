@@ -103,7 +103,7 @@ You are running a peer review on a projectstore artifact.
 
    Do this with one final Edit after all content changes are applied.
 
-10. **Final print**: file path, what was applied / noted / skipped, and a one-line hint to commit the review if the vault is git-tracked.
+10. **Final print**: file path, what was applied / noted / skipped, and a one-line hint to commit the review if the vault is git-tracked: run `$projectstore-precommit` before you commit those paths, and do what its last line says.
 
 ## Notes for the implementer (you, Codex)
 

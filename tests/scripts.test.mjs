@@ -1254,6 +1254,33 @@ test("pointer: the story command's close runs the core's refresh on both paths, 
   assert.match(md.slice(md.indexOf("6c.")), /never undoes the close/, "a failure is reported, never undone");
 });
 
+// The bracket around the clerk's copy, which no hook sees (PS-WT, the record
+// spec, contract 7): a snapshot before every spawn of the clerk, a record after
+// a report with `written: true`, and one in step 6c.
+// [writerecord#7]
+test("close: commands/story.md brackets every spawn of the clerk and records after a written report and in step 6c", () => {
+  const md = readFileSync(join(REPO, "commands", "story.md"), "utf8");
+  const at = (re, from = 0) => {
+    const i = md.slice(from).search(re);
+    return i < 0 ? -1 : from + i;
+  };
+  const step5a = md.indexOf("5a.");
+  const step6c = md.indexOf("6c.");
+  const snap = /session snapshot "<story-path>" --for "<scratch-path>"/;
+  const rec = /session record "<story-path>" --from "<scratch-path>"/;
+  const spawn = md.indexOf("Spawn `projectstore:clerk`");
+  assert.ok(at(snap, step5a) > step5a && at(snap, step5a) < spawn, "the snapshot comes before the spawn");
+  assert.match(md.slice(step5a, spawn), /again before every re-delegation/);
+  assert.match(
+    md.slice(spawn, step6c),
+    /After\s+any report with `written: true`[\s\S]*?before you fix anything or re-delegate/,
+  );
+  assert.match(md.slice(spawn, step6c), /take a new snapshot before the spawn/, "a re-delegation snapshots again");
+  assert.ok(at(rec, spawn) > spawn && at(rec, spawn) < step6c, "a record after a written report, in 5a");
+  assert.ok(at(rec, step6c) > step6c, "and one in step 6c");
+  assert.ok(md.slice(step6c).search(rec) < md.slice(step6c).indexOf("6d."), "step 6c's record is inside 6c");
+});
+
 // ─── Hook output shape guard ───────────────────────────────────────────
 //
 // The class of bug this exists for is invisible at runtime: a hook that emits a

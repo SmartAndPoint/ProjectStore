@@ -16,7 +16,30 @@
 // Spec: "Entry-rule detection: the score, the open-story predicate, and the
 // delivery seams", contract 17.
 
-import { readConfig, readStdinJson, adoptHookInput, roleForm, sharedRoleForm } from "../scripts/lib.mjs";
+import {
+  readConfig,
+  readStdinJson,
+  adoptHookInput,
+  roleForm,
+  sharedRoleForm,
+  commandForm,
+  speakingHarness,
+} from "../scripts/lib.mjs";
+
+// The third rule, the vault pre-commit check and the stop (the check spec,
+// contract 10; entry-rule spec, contract 17 as amended 2026-11-11). Only where
+// the speaking harness gives the plugin a session id, as the session-name
+// offer is gated on its capability: elsewhere there is no record to check
+// against, and the commit hints and the check's own last line carry it.
+function precommitRule() {
+  if (!speakingHarness()?.runtime?.session_id_env) return "";
+  return `
+
+**Before you commit vault files, run \`${commandForm("precommit")}\`** and do
+what its last line says. It traces each changed vault file from HEAD over this
+session's own recorded writes; a file it names as another writer's, or as
+unattributed, is not yours to commit.`;
+}
 
 // Kept well under the cap; asserted by a test rather than by intention. The
 // roles are named the way the session's harness calls them (generation spec,
@@ -44,7 +67,7 @@ you are about to write across several source files, open the story first.
 **Report instruction conflicts; do not arbitrate them.** If a session-level or
 harness-level instruction contradicts these rules or the \`AGENTS.md\`
 registration block, say so and ask which wins. Resolving it silently is how the
-contradiction becomes invisible to the person who could have settled it.${bridge}`;
+contradiction becomes invisible to the person who could have settled it.${bridge}${precommitRule()}`;
 }
 
 function emit(additionalContext) {
