@@ -213,3 +213,26 @@ test("git names: an entry that is, or holds, an email address is refused, and th
     assert.doesNotMatch(r.usage, /@/, "the address is not repeated");
   }
 });
+
+// [SPEC-001#4]
+test("limit rule: a flow.people key the configure spec refuses as a name gives no one a limit (edge)", () => {
+  const at = ["a", "b"].join("@");
+  for (const name of [`First ${at}`, "x]y", "a=b", "tab\there", "", "__proto__"]) {
+    const people = JSON.parse(`{${JSON.stringify(name)}: {"wip": 3, "time": "full"}}`);
+    const cfg = { flow: { wip: { full: 2 }, people } };
+    assert.ok(Object.hasOwn(cfg.flow.people, name), `${JSON.stringify(name)} is an own key`);
+    assert.equal(wipLimitOf(cfg, name), null, JSON.stringify(name));
+  }
+  assert.equal(
+    wipLimitOf({ flow: { people: { "First Last": { wip: 3 } } } }, "First Last"),
+    3,
+    "a valid name keeps it",
+  );
+});
+
+// [SPEC-001#4]
+test("flow policy: a capacity_weeks bound below 0.01 counts as absent in every reader, though configure accepts it (edge)", () => {
+  assert.ok(ok("flow.capacity_weeks=0.005,3"), "configure accepts it");
+  assert.equal(flowValue({ flow: { capacity_weeks: [0.005, 3] } }, "capacity_weeks"), null);
+  assert.deepEqual(flowValue({ flow: { capacity_weeks: [0.01, 3] } }, "capacity_weeks"), [0.01, 3]);
+});

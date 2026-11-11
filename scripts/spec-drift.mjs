@@ -43,6 +43,7 @@ import {
   projectRoot,
 } from "./lib.mjs";
 import { gitIn, grepProjectLines, sinceWindow } from "./diff-refs.mjs";
+import { globRe, globCovers, isGlobRef, normalRef } from "./code-refs.mjs";
 import { scanArtifacts, parseSpecContracts, resolveSpecStory, citationKeys, scanCitations } from "./doctor.mjs";
 
 function die(msg) {
@@ -95,24 +96,9 @@ export function resolveSpec(artifacts, query) {
 
 // ─── Files ─────────────────────────────────────────────────────────────
 
-// `**/` is any number of directories, `**` anything, `*` and `?` stay inside
-// one path segment. Everything else is literal.
-export function globRe(glob) {
-  let s = "";
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === "*" && glob[i + 1] === "*") {
-      i++;
-      if (glob[i + 1] === "/") {
-        i++;
-        s += "(?:.*/)?";
-      } else s += ".*";
-    } else if (c === "*") s += "[^/]*";
-    else if (c === "?") s += "[^/]";
-    else s += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-  }
-  return new RegExp(`^${s}$`);
-}
+// The covering rule lives in code-refs.mjs, shared with doctor's flow group;
+// globRe stays exported from here for this module's callers and tests.
+export { globRe };
 
 const ignored = (rel) => SOURCE_IGNORE.some((rx) => rx.test(rel));
 
@@ -143,16 +129,9 @@ function walk(proj, dir, skipRel) {
 // A ref expanded to files, or null when it names nothing (a missing path, a
 // glob that matches no file).
 function expandRef(proj, ref, allFiles, skipRel) {
-  const r = String(ref).replace(/^\.\//, "");
-  if (/[*?]/.test(r)) {
-    const dirGlob = r.endsWith("/");
-    const re = globRe(dirGlob ? r.slice(0, -1) : r);
-    const hits = allFiles().filter((f) => {
-      if (re.test(f)) return !dirGlob;
-      const parts = f.split("/");
-      for (let i = 1; i < parts.length; i++) if (re.test(parts.slice(0, i).join("/"))) return true;
-      return false;
-    });
+  const r = normalRef(ref);
+  if (isGlobRef(r)) {
+    const hits = allFiles().filter((f) => globCovers(r, f));
     return hits.length ? hits : null;
   }
   const bare = r.replace(/\/+$/, "");

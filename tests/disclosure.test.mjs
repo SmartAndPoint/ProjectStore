@@ -118,6 +118,16 @@ const ROWS = {
       ["`git diff --name-only`", '"diff", "--name-only"', code("scripts/diff-refs.mjs")],
       ["`git log`", '"log"', code("scripts/diff-refs.mjs")],
       ["`git grep --untracked`", '"--untracked"', code("scripts/diff-refs.mjs")],
+      [
+        "`git rev-parse --is-shallow-repository`",
+        '"rev-parse", "--is-shallow-repository"',
+        code("scripts/diff-refs.mjs"),
+      ],
+      [
+        "their author and committer names, times and changed paths, never an email address",
+        "%aN%x1f%ct%x1f%cN",
+        code("scripts/diff-refs.mjs"),
+      ],
       ["SessionStart hook", "resolveBinding(", code("hooks/session-start.mjs")],
       // Agents read history with the agent's own tools, not through ProjectStore's code.
       ["through the agent's own tools", "`git log`", read("agents/archaeologist.md")],

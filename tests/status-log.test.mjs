@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { readdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import {
   applyStatusChange,
   applyAssigneeChange,
@@ -345,4 +346,36 @@ test("epic row: a list instead of a table, a row with no link, a localized Statu
   assert.match(row(ru).text, /\| \[a\]\(\.\/stories\/story-a\.md\) \| todo \| x \|/);
   const elsewhere = "| Story | Status |\n|---|---|\n| [a](../PS-Y/stories/story-a.md) | planned |\n";
   assert.equal(row(elsewhere).found, false, "a link that resolves to another file is not the story");
+});
+
+// [SPEC-001#3]
+test("trust rule: a stamp and a last status: line with the same instant, the stamp with no zone, are trusted on machines in two time zones (edge)", () => {
+  const t = applyStatusChange(story(), {
+    to: "in-progress",
+    reason: "work started",
+    actor: "plan gate",
+    at: "2026-11-01T09:00:00.000Z",
+  }).text.replace('status_changed_at: "2026-11-01T09:00:00.000Z"', 'status_changed_at: "2026-11-01T09:00"');
+  assert.match(t, /^- 2026-11-01T09:00:00\.000Z status: /m, "the line keeps its Z, as the grammar requires");
+  const code = `import(${JSON.stringify(join(REPO, "scripts", "status-log.mjs"))}).then((m) => {
+    process.stdout.write(JSON.stringify(m.statusStamp(${JSON.stringify(t)})));
+  });`;
+  for (const TZ of ["Asia/Almaty", "UTC", "America/Los_Angeles"]) {
+    const r = spawnSync(process.execPath, ["-e", code], { env: { ...process.env, TZ }, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout), { trusted: true, at: "2026-11-01T09:00", source: "stamp", why: null }, TZ);
+  }
+});
+
+// [SPEC-001#3]
+test("trust rule: an untrusted stamp with updated: soon and a readable created is read from created (edge)", () => {
+  const t = change(story())
+    .text.replace("status: in-progress", "status: review")
+    .replace(/^updated: .*$/m, "updated: soon");
+  const s = statusStamp(t);
+  assert.equal(s.trusted, false);
+  assert.equal(s.source, "created");
+  assert.equal(s.at, "2026-11-01");
+  const none = t.replace(/^created: .*\n/m, "");
+  assert.deepEqual(statusStamp(none), { trusted: false, at: null, source: null, why: "differs" });
 });
