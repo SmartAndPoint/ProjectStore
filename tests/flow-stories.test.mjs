@@ -89,3 +89,30 @@ test(
     }
   },
 );
+
+// [epic-rule#5]
+test("one epic's stories: `only` reads that epic folder alone, all three shapes, and counts its unreadable file against it (failure)", () => {
+  const vault = mkdtempSync(join(tmpdir(), "ps-flow-stories-"));
+  put(vault, "epics/PS-A/stories/story-flat.md");
+  put(vault, "epics/PS-A/stories/story-folder/README.md");
+  put(vault, "epics/PS-A/story-standalone.md");
+  put(vault, "epics/PS-B/stories/story-b.md");
+  const a = readFlowStories(vault, "epics", { only: "PS-A" });
+  assert.deepEqual(
+    a.stories.map((s) => [s.epic, s.slug]),
+    [
+      ["PS-A", "story-flat"],
+      ["PS-A", "story-folder"],
+      ["PS-A", "story-standalone"],
+    ],
+  );
+  assert.equal(a.unread, 0);
+  const read = (p) => {
+    if (p.endsWith("story-b.md")) throw new Error("EACCES");
+    return `---\nstatus: done\n---\n`;
+  };
+  assert.deepEqual(readFlowStories(vault, "epics", { only: "PS-A", read }).unread, 0, "PS-B's file is not read");
+  const b = readFlowStories(vault, "epics", { only: "PS-B", read });
+  assert.deepEqual([b.stories, b.unread], [[], 1]);
+  assert.deepEqual(readFlowStories(vault, "epics", { only: "PS-NONE" }), { stories: [], unread: 0 });
+});

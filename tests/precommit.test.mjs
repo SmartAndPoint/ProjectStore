@@ -761,7 +761,7 @@ test("last line: exit 1 on Codex says the host gives no session id and to ask th
 const HINTS = [
   ["adr", /8\. \*\*Final message\*\*[^\n]*/],
   ["review", /10\. \*\*Final print\*\*[^\n]*/],
-  ["story", /6e\. \*\*\(close only\) The commit hint\.\*\*[\s\S]*?last line says\./],
+  ["story", /6f\. \*\*\(close only\) The commit hint\.\*\*[\s\S]*?last line says\./],
 ];
 
 // [precommit#11]

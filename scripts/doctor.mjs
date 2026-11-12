@@ -143,6 +143,7 @@ import { effortSpec } from "./model-spec.mjs";
 // brand, and --harness still carries the target.
 import { uncommittedProjectFiles, lastCommitMs, grepProjectLines, commitsSince } from "./diff-refs.mjs";
 import { checkFlow } from "./doctor-flow.mjs";
+import { storyState } from "./stages.mjs";
 import { resolveBinding } from "./worktree.mjs";
 import { missingScaffoldRequirements, kindsOf } from "./scaffold.mjs";
 import { GUIDE_NAME, guidesDir, parseGuide, resolveGuide } from "./guides.mjs";
@@ -2234,7 +2235,7 @@ export function checkStoriesAndEpics(artifacts) {
     if ((epic.fm.status || "").toLowerCase() !== "done") continue;
     const dir = epic.rel.replace(/\/epic\.md$/, "");
     const open = artifacts.filter(
-      (s) => s.kind === "story" && s.rel.startsWith(dir + "/") && (s.fm.status || "").toLowerCase() !== "done",
+      (s) => s.kind === "story" && s.rel.startsWith(dir + "/") && storyState(s.fm.status) === "open",
     );
     if (open.length) {
       out.push(

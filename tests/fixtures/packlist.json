@@ -81,6 +81,7 @@
   "scripts/doctor-report.mjs",
   "scripts/doctor.mjs",
   "scripts/draft.mjs",
+  "scripts/epic-rule.mjs",
   "scripts/fetch-shell.mjs",
   "scripts/flow-counts.mjs",
   "scripts/flow-policy.mjs",

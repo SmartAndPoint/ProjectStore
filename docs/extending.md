@@ -146,8 +146,9 @@ Mirror `templates/en/` to `templates/<lang>/` and translate the bodies.
 Frontmatter keys **and their values** stay English (`status: planned` is
 machine-read; only prose and table labels get translated). Then register the
 language's heading, keyword, index-column and field-label forms in
-`scaffold/headings.json` (the field labels are `fields.status` and
-`fields.assignee`; the `status_log` heading is one of the headings), and
+`scaffold/headings.json` (the field labels are `fields.status`,
+`fields.assignee`, `fields.updated` and `fields.story`; the `status_log`,
+`stories` and `expected_results` headings are among the headings), and
 add the locale to `LOCALES` in `tests/locales.test.mjs` so the suite actually
 runs over it. `templates/<lang>/strings.json` localizes the statusline and the
 folder names and descriptions `scaffold` writes into the READMEs
@@ -259,6 +260,18 @@ each key activates.
   `git log` per run (`commitsSince` in `scripts/diff-refs.mjs`), by author and
   committer name only. Every flow finding is a warn or an info, never an
   issue. The group runs in `doctor --vault` and never at session start.
+- An epic becomes done by the epic rule (`applyEpicRule` in
+  `scripts/epic-rule.mjs`), which the story command's close runs after the
+  epic row: its own status is neither done nor set aside, at least one story
+  is done and every other is done or set aside (`NOT_ACTIONABLE` in
+  `scripts/stages.mjs`), no open row of its Stories table lacks a story file,
+  and every checkbox under its Expected Results is checked. It reads state,
+  not events, so the next close finishes an epic a failed write left. It
+  never moves an epic back. Doctor's `epic-status` counts a story as open by
+  the same test (`storyState`), so a set-aside story never flags a done
+  epic. The rule finds the Stories and Expected Results headings and the
+  epic's Status, Updated and Story labels through the registry, so a
+  translated epic template must spell them in the first registered form.
 
 ## Contributing back
 

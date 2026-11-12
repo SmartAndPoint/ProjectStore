@@ -686,6 +686,8 @@ function templateLabels(lang, read = (name) => readFileSync(join(REPO, "template
     { template: "story.md.tmpl", field: "status", label: bold(sRows[1]) },
     { template: "story.md.tmpl", field: "assignee", label: bold(sRows[3]) },
     { template: "epic.md.tmpl", field: "status", label: bold(eRows[0]) },
+    { template: "epic.md.tmpl", field: "updated", label: bold(eRows[3]) },
+    { template: "epic.md.tmpl", field: "story", label: cells(storiesHeader)[0] },
     { template: "epic.md.tmpl", field: "status", label: cells(storiesHeader)[1] },
   ];
 }
@@ -699,12 +701,47 @@ function labelFindings(lang, read) {
     );
 }
 
-// [adding-a-bundled-locale#14]
-test("locales: every bundled locale's templates spell the Status and Assignee labels in the first registered form", () => {
+// [adding-a-bundled-locale#14] [SPEC-001#2]
+test("locales: every bundled locale's templates spell the Status, Assignee, Updated and Story labels in the first registered form", () => {
   for (const lang of LOCALES) {
-    assert.ok(registry.fields.status[lang] && registry.fields.assignee[lang], `${lang}: fields registered`);
+    for (const field of ["status", "assignee", "updated", "story"])
+      assert.ok(registry.fields[field][lang]?.[0]?.trim(), `${lang}: fields.${field} registered`);
+    assert.ok(registry.headings.status_log[lang]?.[0]?.trim(), `${lang}: headings.status_log registered`);
     assert.deepEqual(labelFindings(lang), [], lang);
   }
+});
+
+// [SPEC-001#2] [epic-rule#1] [epic-rule#2] [epic-rule#4]
+test("locales: the epic rule reads every registered form of the Stories and Expected Results headings and the Status, Updated and Story labels", async () => {
+  const { storiesRows, expectedResults, applyEpicDone } = await import("../scripts/epic-rule.mjs");
+  const forms = (section, id) => Object.values(registry[section][id]).flat();
+  for (const lang of LOCALES) {
+    const epic = loadTemplate(lang, "epic");
+    assert.ok(headingLineRe("stories").test(epic), `${lang}/epic.md.tmpl has the stories heading`);
+    assert.ok(headingLineRe("expected_results").test(epic), `${lang}/epic.md.tmpl has the expected_results heading`);
+  }
+  for (const h of forms("headings", "expected_results"))
+    assert.deepEqual(
+      expectedResults(`# E\n\n## ${h}\n\n- [x] a\n- [ ] b\n`),
+      { found: true, total: 2, unchecked: 1 },
+      h,
+    );
+  for (const h of forms("headings", "stories"))
+    for (const st of forms("fields", "status"))
+      for (const sy of forms("fields", "story"))
+        assert.deepEqual(
+          storiesRows(`# E\n\n## ${h}\n\n| Note | ${sy} | ${st} |\n|---|---|---|\n| n | the row | planned |\n`).map(
+            (r) => [r.title, r.status],
+          ),
+          [["the row", "planned"]],
+          `${h} / ${st} / ${sy}`,
+        );
+  for (const st of forms("fields", "status"))
+    for (const up of forms("fields", "updated")) {
+      const t = `---\nstatus: planned\nupdated: 2026-01-01\n---\n\n# E\n\n| **${st}** | planned |\n| **${up}** | 2026-01-01 |\n\n## Goal\n`;
+      const out = applyEpicDone(t, { day: "2026-11-11" });
+      assert.ok(out.includes(`| **${st}** | done |`) && out.includes(`| **${up}** | 2026-11-11 |`), `${st} / ${up}`);
+    }
 });
 
 // [adding-a-bundled-locale#14]

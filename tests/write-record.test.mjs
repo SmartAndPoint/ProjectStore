@@ -444,6 +444,26 @@ test("node writers: epic-row, which takes no --project, records under the projec
   assert.equal(e.after, sha(readFileSync(epic, "utf8")));
 });
 
+// [writerecord#5] [epic-rule#4]
+test("node writers: epic-rule --write, which takes no --project, records the epic it moves under the project its shell resolves", () => {
+  const { proj, vault, path } = moveFixture();
+  writeFileSync(path, readFileSync(path, "utf8").replace("status: planned", "status: done"));
+  const epic = join(vault, "epics", "PS-X", "epic.md");
+  const before = readFileSync(epic, "utf8");
+  const r = spawnSync(process.execPath, [join(REPO, "scripts", "epic-rule.mjs"), path, "--write"], {
+    encoding: "utf8",
+    env: sessionEnv(proj, "s1"),
+    cwd: tmpdir(),
+    timeout: 20000,
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout).moved, ["PS-X"]);
+  const [e, ...more] = events(proj, "s1");
+  assert.deepEqual(more, [], "one event: the epic");
+  assert.deepEqual([e.rel, e.tool, e.before], ["epics/PS-X/epic.md", "epic-rule", sha(before)]);
+  assert.equal(e.after, sha(readFileSync(epic, "utf8")));
+});
+
 // [writerecord#5]
 test("node writers: reconcile --write rewriting kanban.md records nothing (edge)", async () => {
   const { proj, vault } = moveFixture();

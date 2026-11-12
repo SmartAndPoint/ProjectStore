@@ -113,14 +113,14 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function fieldForms(id) {
+export function fieldForms(id) {
   const entry = loadHeadingsRegistry().fields?.[id];
   if (!entry) throw new Error(`headings.json has no fields entry "${id}"`);
   return Object.values(entry).flat();
 }
 
 // The positions of a table row's unescaped pipes.
-function pipes(line) {
+export function pipes(line) {
   const out = [];
   for (let i = 0; i < line.length; i++) {
     if (line[i] === "\\") i++;
@@ -410,8 +410,9 @@ export function storySlug(storyPath) {
 
 // Does a link in epic.md point at the story? A markdown link whose target,
 // resolved from the epic's folder, is the story's file; a wikilink naming its
-// slug (the last segment, `.md` or not).
-function linksTo(link, { epicDir, storyPath, slug }) {
+// slug (the last segment, `.md` or not). The epic rule (epic-rule.mjs) reads
+// the Stories table's rows by the same test.
+export function linksTo(link, { epicDir, storyPath, slug }) {
   if (link.type === "mdlink") {
     let target = link.target;
     try {
