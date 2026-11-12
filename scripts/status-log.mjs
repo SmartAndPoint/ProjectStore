@@ -25,7 +25,7 @@
 // (scaffold/headings.json: headings.status_log, fields.status,
 // fields.assignee), matched in every bundled language.
 
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, relative, sep } from "node:path";
 import { loadHeadingsRegistry, heading, headingLineRe, footerDateRe, parseFrontmatter, extractLinks } from "./lib.mjs";
 import { statusToColumn, NOT_ACTIONABLE, STATUS_COLUMNS } from "./stages.mjs";
 
@@ -464,4 +464,158 @@ export function epicRowUpdate(epicText, { epicPath, storyPath, status }) {
     return { text, found: true, changed: text !== epicText };
   }
   return { text: epicText, found: false, changed: false };
+}
+
+// ─── Adding a story to its epic's Stories table ───────────────────────
+
+const labelRe = (id) => new RegExp(`^(?:${fieldForms(id).map(escapeRe).join("|")})$`, "i");
+const SEPARATOR = /^\|?(?:\s*:?-+:?\s*\|)+\s*:?-*:?\s*$/;
+
+// A title as a cell holds it: a `\` right before a `|` is dropped, so that
+// cellValue's `\|` stays one escaped pipe.
+const plainTitle = (s) =>
+  String(s)
+    .replace(/\\(?=\|)/g, "")
+    .trim();
+
+// A cell's text without one pair of `*` or `_` emphasis around it, as
+// written (an escaped pipe stays `\|`).
+function unemphasized(cell) {
+  const s = cell.trim();
+  const m = s.match(/^([*_])(?!\1)([\s\S]*[^\s*_])\1$/);
+  return (m ? m[2] : s).trim();
+}
+
+// The story's path from the epic's folder, `./`-led and as it is: doctor's
+// link check and the graph read a target raw, so letters such as é or 中 stay
+// letters. A name holding a character a raw target cannot carry (whitespace,
+// a bracket or parenthesis, `<`, `>`, `|`, a backtick, a backslash, `%`, `#`,
+// `?` or a control character) has no target: null.
+// slugify never makes one.
+const UNLINKABLE_NAME = /[\s()<>[\]|`\\%#?\u0000-\u001f\u007f]/;
+export function storyLinkTarget(epicDir, storyPath) {
+  const rel = relative(epicDir, resolve(storyPath)).split(sep).join("/");
+  return UNLINKABLE_NAME.test(rel) ? null : `./${rel}`;
+}
+
+// A link's text in a table cell: `[`, `]` and `|` escaped unless they are.
+const linkTextOf = (s) => s.replace(/(?<!\\)[[\]|]/g, "\\$&");
+
+// The tables under the epic's Stories heading, outside a fence, whose header
+// has a Status column and a column for the link: Story, else the first column
+// that is neither Status nor Description. The epic rule reads the same tables.
+function statusTables(lines) {
+  const head = headingLineRe("stories");
+  const h = lines.findIndex((l) => head.test(l));
+  if (h === -1) return [];
+  let end = lines.findIndex((l, k) => k > h && /^## /.test(l));
+  if (end === -1) end = lines.length;
+  const statusLabel = labelRe("status");
+  const storyLabel = labelRe("story");
+  const descLabel = labelRe("description");
+  const out = [];
+  let fence = false;
+  for (let k = h + 1; k < end; k++) {
+    if (/^\s*(```|~~~)/.test(lines[k])) fence = !fence;
+    if (fence || !lines[k].startsWith("|")) continue;
+    let e = k;
+    while (e < end && lines[e].startsWith("|")) e++;
+    const header = lines[k].replace(/\r$/, "");
+    const p = pipes(header);
+    const names = [];
+    for (let c = 0; c + 1 < p.length; c++) names.push(header.slice(p[c] + 1, p[c + 1]).trim());
+    const statusCol = names.findIndex((n) => statusLabel.test(n));
+    const storyCol = names.findIndex((n) => storyLabel.test(n));
+    const descCol = names.findIndex((n) => descLabel.test(n));
+    const linkCol = storyCol !== -1 ? storyCol : names.findIndex((n, c) => c !== statusCol && c !== descCol);
+    if (statusCol !== -1 && linkCol !== -1 && k + 1 < e && SEPARATOR.test(lines[k + 1].replace(/\r$/, "")))
+      out.push({ start: k, end: e, names, statusCol, linkCol, descCol, cr: lines[k].endsWith("\r") });
+    k = e - 1;
+  }
+  return out;
+}
+
+// The story linked into its epic's Stories table (SPEC-001 contract 7, *Adding
+// the row*). A story that already has a linked row gets epicRowUpdate's
+// result. Otherwise a row of any of those tables (statusTables) with no link
+// in its link column, whose cell there is the story's title, gets the link in
+// place, the cell's own text as the link's, and its Status cell set; with no
+// such row, one row is added after the first table's last line, a cell per
+// header column, the story's slug as the link's text. The result must give
+// the story a row epicRowUpdate finds, else nothing changes. Pure. Returns
+// {text, found, changed, added, linked, row, unlinkable}; found: false (the
+// text unchanged) when there is no such table, and unlinkable: true too when
+// the link would not read back.
+export function epicRowAdd(epicText, { epicPath, storyPath, status, title = "" }) {
+  const none = {
+    text: epicText,
+    found: false,
+    changed: false,
+    added: false,
+    linked: false,
+    row: null,
+    unlinkable: false,
+  };
+  const u = epicRowUpdate(epicText, { epicPath, storyPath, status });
+  if (u.found) return { ...u, added: false, linked: false, row: null, unlinkable: false };
+  const epicDir = dirname(resolve(epicPath));
+  const target = storyLinkTarget(epicDir, storyPath);
+  if (target === null) return { ...none, unlinkable: true };
+  const lines = epicText.split("\n");
+  const tables = statusTables(lines);
+  if (!tables.length) return none;
+  const want = plainTitle(title);
+  const done = (text, extra) => {
+    // The gates' reader must find the row and leave it as it is: else a
+    // second run would not be byte-identical.
+    const v = epicRowUpdate(text, { epicPath, storyPath, status });
+    if (!v.found || v.changed) return { ...none, unlinkable: true };
+    return { text, found: true, changed: text !== epicText, unlinkable: false, ...extra };
+  };
+  // A row that names the story by its title, in any of the tables: linked in place.
+  for (const table of want ? tables : []) {
+    for (let k = table.start + 2; k < table.end; k++) {
+      const l = lines[k].replace(/\r$/, "");
+      const p = pipes(l);
+      if (p.length < Math.max(table.linkCol, table.statusCol) + 2) continue;
+      const cell = l.slice(p[table.linkCol] + 1, p[table.linkCol + 1]);
+      const own = unemphasized(cell);
+      if (extractLinks(cell).length || own.replace(/\\\|/g, "|") !== want) continue;
+      const link = `[${linkTextOf(own)}](${target})`;
+      // The rightmost cell first, so the left cell's pipe positions hold.
+      const order = [
+        [table.linkCol, link, true],
+        [table.statusCol, status, false],
+      ].sort((a, b) => b[0] - a[0]);
+      let out = l;
+      for (const [c, v, raw] of order) {
+        const q = pipes(out);
+        out = raw ? rewriteRaw(out, q[c], q[c + 1], v) : rewriteCell(out, q[c], q[c + 1], v);
+      }
+      lines[k] = out + (lines[k].endsWith("\r") ? "\r" : "");
+      return done(lines.join("\n"), { added: false, linked: true, row: out });
+    }
+  }
+  // Else one new row in the first table, a cell per header column.
+  const table = tables[0];
+  const link = `[${linkTextOf(storySlug(storyPath))}](${target})`;
+  const cells = table.names.map((_, c) =>
+    c === table.linkCol ? link : c === table.statusCol ? cellValue(status) : c === table.descCol ? cellValue(want) : "",
+  );
+  const row = `| ${cells.join(" | ")} |`;
+  const last = table.end - 1;
+  // A table that ends the file with no newline: the new row ends it the same way.
+  const atEof = table.end === lines.length;
+  if (atEof && table.cr && !lines[last].endsWith("\r")) lines[last] += "\r";
+  lines.splice(table.end, 0, row + (table.cr && !atEof ? "\r" : ""));
+  return done(lines.join("\n"), { added: true, linked: false, row });
+}
+
+// rewriteCell for a value that is already markdown (a link): not escaped.
+function rewriteRaw(line, a, b, value) {
+  const cell = line.slice(a + 1, b);
+  const m = cell.match(/^(\s*)([\s\S]*?)(\s*)$/);
+  const lead = m[2] ? m[1] : " ";
+  const trail = m[2] ? m[3] : " ";
+  return line.slice(0, a + 1) + lead + value + trail + line.slice(b);
 }

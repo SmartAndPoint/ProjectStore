@@ -20,6 +20,7 @@ import {
   epicFileOf,
   CHANGED_MEANWHILE,
   EPIC_ROW_MISSING,
+  EPIC_ROW_UNLINKABLE,
 } from "../scripts/status-change.mjs";
 import { parseStatusLog, statusStamp } from "../scripts/status-log.mjs";
 import { parseFrontmatter, loadTemplate, renderTemplate } from "../scripts/lib.mjs";
@@ -168,6 +169,152 @@ test("epic row: no row is epic-row-missing and the epic is not written; the entr
   assert.equal(run(join(dirname(path), "nope.md")).status, 1);
   assert.equal(epicFileOf("/v/epics/E/stories/s/README.md"), "/v/epics/E/epic.md");
   assert.equal(epicFileOf("/v/epics/E/story-s.md"), "/v/epics/E/epic.md");
+});
+
+// ─── The add: a new story linked into its epic's Stories table ────────
+
+const BARE = EPIC.replace("| [a](./stories/story-a.md) | planned | the a |\n", "");
+const runRow = (...args) =>
+  spawnSync(process.execPath, [join(REPO, "scripts", "status-change.mjs"), "epic-row", ...args], { encoding: "utf8" });
+
+// [SPEC-001#7]
+test("epic row add: the entry adds one row with the story's status and title, and a second run changes nothing", () => {
+  const { path, epic } = seed({ epic: BARE });
+  const first = runRow(path, "--add");
+  assert.equal(first.status, 0, first.stderr);
+  const j = JSON.parse(first.stdout);
+  assert.deepEqual([j.found, j.written, j.added, j.linked, j.note], [true, true, true, false, null]);
+  assert.equal(j.row, "| [story-a](./stories/story-a.md) | planned | A |");
+  const after = readFileSync(epic, "utf8");
+  assert.equal(after, BARE + j.row + "\n");
+  const second = runRow("--add", path);
+  assert.equal(second.status, 0, second.stderr);
+  assert.deepEqual(
+    [JSON.parse(second.stdout).written, JSON.parse(second.stdout).added, JSON.parse(second.stdout).row],
+    [false, false, null],
+  );
+  assert.equal(readFileSync(epic, "utf8"), after, "byte-identical");
+});
+
+// [SPEC-001#7]
+test("epic row add: a list epic is epic-row-missing, exit 0, the epic not written; an unknown option is exit 2", () => {
+  const list = "---\ntype: epic\n---\n\n# E\n\n## Stories\n\n1. [b](./stories/story-b.md) — planned\n";
+  const { path, epic } = seed({ epic: list });
+  const r = runRow(path, "--add");
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).note, EPIC_ROW_MISSING);
+  assert.equal(readFileSync(epic, "utf8"), list);
+  for (const args of [[path, "--bogus"], [path, "--add", "--add"], [path, path, "--add"], ["--add"]]) {
+    const bad = runRow(...args);
+    assert.equal(bad.status, 2, args.join(" "));
+    assert.match(bad.stderr, /usage: status-change\.mjs epic-row <story-path> \[--add\]/);
+  }
+  assert.equal(readFileSync(epic, "utf8"), list);
+});
+
+// [SPEC-001#7]
+test("epic row add: an edit made meanwhile is kept and the row lands on top of it (failure)", () => {
+  const { path, epic } = seed({ epic: BARE });
+  const r = syncEpicRow(path, {
+    add: true,
+    afterCompute: (i) => {
+      if (i === 0) writeFileSync(epic, readFileSync(epic, "utf8").replace("# PS-X: X", "# PS-X: X (edited)"));
+    },
+  });
+  assert.deepEqual([r.written, r.added, r.error], [true, true, null]);
+  const now = readFileSync(epic, "utf8");
+  assert.ok(now.includes("# PS-X: X (edited)"), "the edit is kept");
+  assert.equal((now.match(/story-a\.md/g) || []).length, 1, "one row");
+});
+
+// [SPEC-001#7]
+test("epic row add: another writer adds the story's row meanwhile, and no second row lands (failure)", () => {
+  const { path, epic } = seed({ epic: BARE });
+  const r = syncEpicRow(path, {
+    add: true,
+    afterCompute: (i) => {
+      if (i === 0) writeFileSync(epic, EPIC);
+    },
+  });
+  assert.deepEqual([r.found, r.written, r.added, r.row], [true, false, false, null]);
+  assert.equal(readFileSync(epic, "utf8"), EPIC, "the other writer's row, and only it");
+});
+
+// [SPEC-001#7]
+test("epic row add: an epic that changes before each of three replaces is left with story-changed-meanwhile (failure)", () => {
+  const { path, epic } = seed({ epic: BARE });
+  let last = null;
+  const r = syncEpicRow(path, {
+    add: true,
+    afterCompute: (i) => {
+      last = BARE + "\n" + i + "\n";
+      writeFileSync(epic, last);
+    },
+  });
+  assert.deepEqual([r.error, r.found, r.written, r.added, r.row], [CHANGED_MEANWHILE, false, false, false, null]);
+  assert.equal(readFileSync(epic, "utf8"), last, "as its last editor left it");
+});
+
+// [SPEC-001#7]
+test("epic row add: a story file named with # cannot be linked: the entry says epic-row-unlinkable, exit 0, and the epic is left (failure)", () => {
+  const { path, epic } = seed({ epic: BARE });
+  const odd = join(dirname(path), "story#1.md");
+  writeFileSync(odd, STORY);
+  const r = runRow(odd, "--add");
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.deepEqual([j.note, j.found, j.written, j.row], [EPIC_ROW_UNLINKABLE, false, false, null]);
+  assert.equal(readFileSync(epic, "utf8"), BARE);
+});
+
+// [SPEC-001#7] [epic-rule#1]
+test("epic row add: the epic rule counts the row the add wrote, as the story's own", async () => {
+  const { storiesRows } = await import("../scripts/epic-rule.mjs");
+  const { path, epic } = seed({ epic: BARE });
+  assert.equal(storiesRows(readFileSync(epic, "utf8")).length, 0);
+  syncEpicRow(path, { add: true });
+  const rows = storiesRows(readFileSync(epic, "utf8"));
+  assert.equal(rows.length, 1);
+  assert.deepEqual([rows[0].status, rows[0].title], ["planned", "story-a"]);
+  assert.deepEqual(rows[0].links, [{ type: "mdlink", target: "./stories/story-a.md" }]);
+});
+
+// [SPEC-001#7]
+test("commands/story.md and its generated copies: the create step links the story into its epic under the one approval, and exit 1 never undoes it", () => {
+  const COPIES = [
+    "commands/story.md",
+    "adapters/codex/skills/projectstore-story/SKILL.md",
+    "packaging/shells/projectstore-codex/skills/projectstore-story/SKILL.md",
+  ];
+  const flat = (s) => s.replace(/\s+/g, " ");
+  for (const rel of COPIES) {
+    const t = readFileSync(join(REPO, rel), "utf8");
+    const create = t.slice(t.indexOf("# Create flow"), t.indexOf("# Lifecycle gate flow"));
+    const preview = create.slice(create.indexOf("4. **Preview**"), create.indexOf("5. **Approval**"));
+    assert.match(
+      flat(preview),
+      /linked into its epic's Stories table when the epic has a table with a Status column/,
+      rel,
+    );
+    assert.match(flat(preview), /An epic whose stories are a list is left as it is/, rel);
+    const approval = create.slice(create.indexOf("5. **Approval**"), create.indexOf("6. **Post-approval"));
+    assert.match(flat(approval), /A Yes also covers the story's row in its epic's Stories table \(step 7a\)/, rel);
+    const s7 = create.indexOf("7. **On Yes**");
+    const s7a = create.indexOf("7a. **The epic's Stories row.**");
+    assert.ok(s7 > 0 && s7a > s7 && s7a < create.indexOf("8. **Suggest next**"), rel + ": 7a after the write");
+    const a = create.slice(s7a, create.indexOf("8. **Suggest next**"));
+    assert.match(a, /node "\$\{[A-Z_]+\}\/scripts\/status-change\.mjs" epic-row "<story-path>" --add\n/, rel);
+    for (const needle of [
+      "under the one approval of step 5",
+      "`epic-row-missing`, exit 0",
+      "no table is invented",
+      "`epic-row-unlinkable`, exit 0",
+      "do not edit it yourself",
+      "`story-changed-meanwhile`",
+      "It never undoes the create, and a second run of the same command finishes it",
+    ])
+      assert.ok(flat(a).includes(needle), rel + ": " + needle);
+  }
 });
 
 // ─── The gates ─────────────────────────────────────────────────────────
