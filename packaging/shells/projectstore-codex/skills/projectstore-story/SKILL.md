@@ -78,9 +78,14 @@ cannot collide).
    placeholder as it is and invent nothing: it is a hint, not a gate. Quote
    the line in the preview.
 
-4. **Preview**: path + first ~25 lines.
+4. **Preview**: path + first ~25 lines. Say also that, once the story is
+   written, it is linked into its epic's Stories table when the epic has a
+   table with a Status column there: a row that names it by its title gets
+   the link, else one row is added. An epic whose stories are a list is left
+   as it is.
 
-5. **Approval** via the harness's user-input mechanism: Yes / Edit / No.
+5. **Approval** via the harness's user-input mechanism: Yes / Edit / No. A Yes also covers the
+   story's row in its epic's Stories table (step 7a).
 
    When prompting "Edit", note that the story template has a `Decomposition` checklist — if the user wants to seed it with concrete tasks from the current conversation, regenerate with those tasks pre-filled in place of the empty checkboxes.
 
@@ -89,6 +94,28 @@ cannot collide).
 7. **On Yes** (path free): Write the file you previewed, with the step-2,
    step-3a and step-3b edits (`specs:`, `variant: test`, the Independent test
    line), not the re-run's raw draft.
+
+7a. **The epic's Stories row.** After the write, under the one approval of
+   step 5:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/scripts/status-change.mjs" epic-row "<story-path>" --add
+   ```
+
+   `<story-path>` is the `path` of the draft you wrote. It links the story
+   into its epic's Stories table, re-reading `epic.md` before it replaces it,
+   and prints the result as JSON: report its `row` (`added` or `linked`).
+   The note `epic-row-missing`, exit 0, means the epic has no Stories table
+   with a Status column: say so; the epic is not written and no table is
+   invented. The note `epic-row-unlinkable`, exit 0, means the new row
+   would not read back as the story's (a `#` or `?` in its file name, or an
+   unclosed fence above the Stories heading): say so, and the epic is not
+   written. On `added`, look at the table once: a row that names the story
+   with other wording (a typo, a word left out) is still there without a
+   link; point at it, and do not edit it yourself. A non-zero exit is a
+   write error, such as
+   `story-changed-meanwhile`: report it. It never undoes the create, and a
+   second run of the same command finishes it.
 
 8. **Suggest next**: "Now decompose the work in the `Decomposition` section, or run `$projectstore-kanban` to refresh the board. Before implementation: `$projectstore-story plan <story>`."
 

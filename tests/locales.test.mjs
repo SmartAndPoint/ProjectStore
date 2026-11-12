@@ -680,8 +680,12 @@ function templateLabels(lang, read = (name) => readFileSync(join(REPO, "template
   const sRows = story.split("\n").filter((l) => /^\| \*\*/.test(l));
   const epic = read("epic");
   const eRows = epic.split("\n").filter((l) => /^\| \*\*/.test(l));
-  const stories = epic.split("\n").find((l) => /^\| \[story-001\]/.test(l));
-  const storiesHeader = epic.split("\n")[epic.split("\n").indexOf(stories) - 2];
+  // The Stories table's header: the first table line under the heading (the
+  // template's table has no row since 2026-11-12).
+  const eLines = epic.split("\n");
+  const storiesHeader = eLines.find(
+    (l, k) => k > eLines.findIndex((x) => headingLineRe("stories").test(x)) && /^\|/.test(l),
+  );
   return [
     { template: "story.md.tmpl", field: "status", label: bold(sRows[1]) },
     { template: "story.md.tmpl", field: "assignee", label: bold(sRows[3]) },
@@ -689,6 +693,7 @@ function templateLabels(lang, read = (name) => readFileSync(join(REPO, "template
     { template: "epic.md.tmpl", field: "updated", label: bold(eRows[3]) },
     { template: "epic.md.tmpl", field: "story", label: cells(storiesHeader)[0] },
     { template: "epic.md.tmpl", field: "status", label: cells(storiesHeader)[1] },
+    { template: "epic.md.tmpl", field: "description", label: cells(storiesHeader)[2] },
   ];
 }
 function labelFindings(lang, read) {
@@ -702,9 +707,9 @@ function labelFindings(lang, read) {
 }
 
 // [adding-a-bundled-locale#14] [SPEC-001#2]
-test("locales: every bundled locale's templates spell the Status, Assignee, Updated and Story labels in the first registered form", () => {
+test("locales: every bundled locale's templates spell the Status, Assignee, Updated, Story and Description labels in the first registered form", () => {
   for (const lang of LOCALES) {
-    for (const field of ["status", "assignee", "updated", "story"])
+    for (const field of ["status", "assignee", "updated", "story", "description"])
       assert.ok(registry.fields[field][lang]?.[0]?.trim(), `${lang}: fields.${field} registered`);
     assert.ok(registry.headings.status_log[lang]?.[0]?.trim(), `${lang}: headings.status_log registered`);
     assert.deepEqual(labelFindings(lang), [], lang);

@@ -13,27 +13,37 @@
 //
 // Spec: SPEC-001 contracts 3 and 7 as amended 2026-11-10 by
 // PS-FLOW/story-every-status-change-is-stamped-and-logged-in-the-story-and-a-
-// command-moves-a-story-between-the-backlog-and-todo.
+// command-moves-a-story-between-the-backlog-and-todo, and contract 7 as
+// amended 2026-11-12 by PS-FLOW/story-creating-a-story-adds-its-linked-row-
+// to-the-epics-stories-table (the add).
 //
 // The gates write no file (contract 7), so the story command's plan and close
-// ceremonies run the epic row's update themselves, after their write:
+// ceremonies run the epic row's update themselves, after their write, and its
+// create step runs the add after it writes the new story:
 //
-//   node status-change.mjs epic-row <story-path>
+//   node status-change.mjs epic-row <story-path> [--add]
 //
-// It prints {path, found, changed, written, error, note} and exits 1 on a
-// write error, 0 otherwise — also on the note `epic-row-missing` (no row in
-// ../epic.md links to the story). It is idempotent: a row that already says
-// the status is left.
+// It prints {path, found, changed, written, added, linked, row, error, note}
+// and exits 1 on a write error, 2 on any other option, 0 otherwise — also on
+// the note `epic-row-missing` (no row in ../epic.md links to the story and,
+// with --add, no Stories table with a Status column to add one to) and
+// `epic-row-unlinkable` (--add only: the link would not read back). It is
+// idempotent: a row that already says the status is left, and a story the
+// add linked has a row the next run finds.
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { writeFileAtomic, parseFrontmatter, nowIso, today, isMain } from "./lib.mjs";
-import { applyStatusChange, applyAssigneeChange, touchStory, epicRowUpdate } from "./status-log.mjs";
+import { applyStatusChange, applyAssigneeChange, touchStory, epicRowUpdate, epicRowAdd } from "./status-log.mjs";
 import { nodeWriteRecorder } from "./write-record.mjs";
 
 export const CHANGED_MEANWHILE = "story-changed-meanwhile";
 // No row in ../epic.md links to the story: a note, exit 0, the epic is not written.
 export const EPIC_ROW_MISSING = "epic-row-missing";
+// With --add: the epic has a table to add to, but the story's link would not
+// read back as a link to it (a file name holding a space, a bracket, `#` and
+// the like, or a fence left open above the Stories heading): nothing is written.
+export const EPIC_ROW_UNLINKABLE = "epic-row-unlinkable";
 
 const errMsg = (e) => (e && e.message ? e.message : String(e));
 
@@ -98,11 +108,23 @@ export function epicFileOf(storyPath) {
 
 // The story's row in its epic's Stories table, set to the story's status as
 // its file says now, through the same read-again loop as the story.
-// Idempotent; no epic.md, or no row, is the note `epic-row-missing`.
-export function syncEpicRow(storyPath, { afterCompute = null, onWrite = null } = {}) {
+// Idempotent; no epic.md, or no row, is the note `epic-row-missing`. With
+// `add` (the create step only), a story with no row is linked into the table:
+// a row naming its title gets the link, else one row is added (epicRowAdd).
+export function syncEpicRow(storyPath, { add = false, afterCompute = null, onWrite = null } = {}) {
   const abs = resolve(storyPath);
   const epic = epicFileOf(abs);
-  const out = { path: epic, found: false, changed: false, written: false, error: null, note: null };
+  const out = {
+    path: epic,
+    found: false,
+    changed: false,
+    written: false,
+    added: false,
+    linked: false,
+    row: null,
+    error: null,
+    note: null,
+  };
   let fm;
   try {
     fm = parseFrontmatter(readFileSync(abs, "utf8")).data;
@@ -111,23 +133,32 @@ export function syncEpicRow(storyPath, { afterCompute = null, onWrite = null } =
   }
   if (!existsSync(epic)) return { ...out, note: EPIC_ROW_MISSING };
   const status = String(fm.status ?? "").trim();
-  let found = false;
+  const title = String(fm.title ?? "").trim();
+  let u = { found: false };
   const r = replaceWithRetry(
     epic,
     (base) => {
-      const u = epicRowUpdate(base, { epicPath: epic, storyPath: abs, status });
-      found = u.found;
+      // Computed again from the fresh bytes on every attempt: a row another
+      // writer added meanwhile reads as found, so no second row lands.
+      u = add
+        ? epicRowAdd(base, { epicPath: epic, storyPath: abs, status, title })
+        : epicRowUpdate(base, { epicPath: epic, storyPath: abs, status });
       return { content: u.text };
     },
     { afterCompute, onWrite },
   );
+  const landed = r.written === true;
   return {
     ...out,
-    found,
+    // A row the add computed but could not write is not there.
+    found: u.found && !((u.added || u.linked) && !r.written),
     changed: r.changed,
     written: r.written,
+    added: landed && u.added === true,
+    linked: landed && u.linked === true,
+    row: landed && (u.added || u.linked) ? u.row : null,
     error: r.error ?? null,
-    note: found ? null : EPIC_ROW_MISSING,
+    note: u.found ? null : u.unlinkable ? EPIC_ROW_UNLINKABLE : EPIC_ROW_MISSING,
   };
 }
 
@@ -208,9 +239,12 @@ export function changeAssignee(path, { to, reason, actor, at = nowIso(), lang = 
 }
 
 function main() {
-  const [mode, storyPath, ...rest] = process.argv.slice(2);
-  if (mode !== "epic-row" || !storyPath || rest.length) {
-    process.stderr.write("projectstore/status-change: usage: status-change.mjs epic-row <story-path>\n");
+  const [mode, ...args] = process.argv.slice(2);
+  const add = args.includes("--add");
+  const paths = args.filter((a) => a !== "--add");
+  const storyPath = paths[0];
+  if (mode !== "epic-row" || paths.length !== 1 || storyPath.startsWith("-") || args.length - paths.length > 1) {
+    process.stderr.write("projectstore/status-change: usage: status-change.mjs epic-row <story-path> [--add]\n");
     process.exit(2);
   }
   const abs = resolve(storyPath);
@@ -220,7 +254,10 @@ function main() {
   }
   // The project is the one the command's own shell and the hook resolve alike
   // (projectRoot), as epic-row takes no --project (the record spec, contract 5).
-  const r = syncEpicRow(abs, { onWrite: nodeWriteRecorder({ env: process.env, project: null, tool: "epic-row" }) });
+  const r = syncEpicRow(abs, {
+    add,
+    onWrite: nodeWriteRecorder({ env: process.env, project: null, tool: "epic-row" }),
+  });
   process.stdout.write(JSON.stringify(r, null, 2) + "\n");
   if (r.error) process.exitCode = 1;
 }
