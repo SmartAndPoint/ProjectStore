@@ -649,6 +649,218 @@ test("checkSpecAcceptance: unchecked attributed item blocks its story only", () 
   assert.ok(f[0].file.includes("story-001"));
 });
 
+// ─── spec acceptance attribution: bare and qualified ids (SPEC-001 contract 6) ───
+
+const DONE = (extra = {}) => ({ specs: '["SPEC-001"]', closed_at: "2026-08-04T00:00:00.000Z", ...extra });
+const idsOf = (acceptance) => parseSpecAcceptance(spec("SPEC-001", [], "active", acceptance)).map((i) => i.stories);
+const blocked = (findings) =>
+  findings
+    .filter((x) => x.check === "spec-acceptance")
+    .map((x) => x.file)
+    .sort();
+const ambiguityWarns = (findings) => findings.filter((x) => x.check === "ambiguous-attribution");
+
+// [SPEC-001#6]
+test("parseSpecAcceptance: text after the last id is not part of it (evidence, prose, evidence before the marker)", () => {
+  assert.deepEqual(
+    idsOf(
+      [
+        "- [x] a — stories: story-001 — evidence: tests/x.test.mjs, green",
+        "- [x] b — stories: story-001, story-002 and some prose",
+        "- [x] c — evidence: tests/x.test.mjs — stories: story-002",
+        "- [x] d — stories: E1/story-001 — evidence: y",
+      ].join("\n"),
+    ),
+    [["story-001"], ["story-001", "story-002"], ["story-002"], ["E1/story-001"]],
+  );
+});
+
+// [SPEC-001#6]
+test("parseSpecAcceptance: ， and 、 separate ids, a non-ASCII id included", () => {
+  assert.deepEqual(
+    idsOf(["- [x] a — stories：story-001，故事-二 — 证据：y", "- [x] b — stories: story-001、story-002"].join("\n")),
+    [
+      ["story-001", "故事-二"],
+      ["story-001", "story-002"],
+    ],
+  );
+});
+
+// [SPEC-001#6]
+test("parseSpecAcceptance: whitespace round a separator is free, the list ends at the first id no separator follows", () => {
+  assert.deepEqual(
+    idsOf(
+      ["- [x] a — stories: A , B", "- [x] b — stories: A,B,", "- [x] c — stories: A B", "- [x] d — stories: A,,B"].join(
+        "\n",
+      ),
+    ),
+    [["A", "B"], ["A", "B"], ["A"], ["A"]],
+  );
+});
+
+// [SPEC-001#6]
+test("parseSpecAcceptance: the marker is the first one outside inline code", () => {
+  assert.deepEqual(
+    idsOf(
+      [
+        "- [x] a qualified `— stories: E9/story-009` form — stories: story-001",
+        "- [x] only code `— stories: story-001`",
+        "- [x] backticked id — stories: `story-001`",
+      ].join("\n"),
+    ),
+    [["story-001"], null, ["`story-001`"]],
+  );
+});
+
+// [SPEC-001#6]
+test("parseSpecAcceptance: a marker with no id leaves the item unattributed", () => {
+  assert.deepEqual(idsOf(["- [x] a — stories:", "- [x] b — stories:   "].join("\n")), [null, null]);
+});
+
+// [SPEC-001#6]
+test("checkSpecAcceptance: a qualified id attributes the item to that story only", () => {
+  const s = spec(
+    "SPEC-001",
+    ["E1/story-001", "E1/story-002"],
+    "active",
+    "- [x] shared\n- [ ] mine — stories: E1/story-001\n",
+  );
+  const arts = [s, story("E1", "story-001", "done", DONE()), story("E1", "story-002", "done", DONE())];
+  const f = checkSpecAcceptance(loadLayout("engineering"), arts, REQUIRED);
+  assert.deepEqual(blocked(f), ["epics/E1/stories/story-001-slug.md"]);
+  assert.deepEqual(ambiguityWarns(f), []);
+});
+
+// [SPEC-001#6]
+test("checkSpecAcceptance: a qualified id in another form of the same entry attributes to that story, both ways", () => {
+  const layout = loadLayout("engineering");
+  const a = spec("SPEC-001", ["E1/story-001", "E1/story-002"], "active", "- [ ] x — stories: E1/story-001-slug\n");
+  const arts = (s) => [s, story("E1", "story-001", "done", DONE()), story("E1", "story-002", "done", DONE())];
+  assert.deepEqual(blocked(checkSpecAcceptance(layout, arts(a), REQUIRED)), ["epics/E1/stories/story-001-slug.md"]);
+  const b = spec("SPEC-001", ["E1/story-001-slug", "E1/story-002"], "active", "- [ ] x — stories: E1/story-001\n");
+  assert.deepEqual(blocked(checkSpecAcceptance(layout, arts(b), REQUIRED)), ["epics/E1/stories/story-001-slug.md"]);
+});
+
+// [SPEC-001#6]
+test("checkSpecAcceptance: a qualified id to an epic without the story, or to a story the spec does not list, attributes to none", () => {
+  const layout = loadLayout("engineering");
+  const arts = (acceptance) => [
+    spec("SPEC-001", ["E1/story-001", "E1/story-002"], "active", acceptance),
+    story("E1", "story-001", "done", DONE()),
+    story("E1", "story-002", "done", DONE()),
+    story("E1", "story-003", "done", DONE()),
+  ];
+  assert.deepEqual(blocked(checkSpecAcceptance(layout, arts("- [ ] x — stories: E2/story-001\n"), REQUIRED)), []);
+  assert.deepEqual(blocked(checkSpecAcceptance(layout, arts("- [ ] x — stories: E1/story-003\n"), REQUIRED)), []);
+  // Control: the same item unattributed applies to every story that lists the spec.
+  assert.deepEqual(blocked(checkSpecAcceptance(layout, arts("- [ ] x\n"), REQUIRED)), [
+    "epics/E1/stories/story-001-slug.md",
+    "epics/E1/stories/story-002-slug.md",
+    "epics/E1/stories/story-003-slug.md",
+  ]);
+});
+
+// [SPEC-001#6]
+test("checkSpecAcceptance: bare ids attribute as before", () => {
+  const layout = loadLayout("engineering");
+  const arts = (acceptance) => [
+    spec("SPEC-001", ["E1/story-001", "E1/story-002"], "active", acceptance),
+    story("E1", "story-001", "done", DONE()),
+    story("E1", "story-002", "done", DONE()),
+  ];
+  assert.deepEqual(blocked(checkSpecAcceptance(layout, arts("- [ ] x — stories: story-002\n"), REQUIRED)), [
+    "epics/E1/stories/story-002-slug.md",
+  ]);
+  // A bare id must be written as the entry writes it: another form names nobody, as it did.
+  assert.deepEqual(blocked(checkSpecAcceptance(layout, arts("- [ ] x — stories: story-001-slug\n"), REQUIRED)), []);
+});
+
+// [SPEC-001#6]
+test("checkSpecAcceptance: evidence after the ids, and zh or 、 lists, attribute to each id", () => {
+  const layout = loadLayout("engineering");
+  const arts = (acceptance) => [
+    spec("SPEC-001", ["E1/story-001", "E1/story-002", "E1/story-003"], "active", acceptance),
+    story("E1", "story-001", "done", DONE()),
+    story("E1", "story-002", "done", DONE()),
+    story("E1", "story-003", "done", DONE()),
+  ];
+  assert.deepEqual(
+    blocked(checkSpecAcceptance(layout, arts("- [ ] x — stories: story-001 — evidence: y\n"), REQUIRED)),
+    ["epics/E1/stories/story-001-slug.md"],
+  );
+  assert.deepEqual(
+    blocked(checkSpecAcceptance(layout, arts("- [ ] x — stories：story-001，story-002 — 证据：y\n"), REQUIRED)),
+    ["epics/E1/stories/story-001-slug.md", "epics/E1/stories/story-002-slug.md"],
+  );
+  assert.deepEqual(blocked(checkSpecAcceptance(layout, arts("- [ ] x — stories: story-002、story-003\n"), REQUIRED)), [
+    "epics/E1/stories/story-002-slug.md",
+    "epics/E1/stories/story-003-slug.md",
+  ]);
+});
+
+// [SPEC-001#6]
+test("checkSpecAcceptance: a non-ASCII story id attributes by its frontmatter id", () => {
+  const s = spec("SPEC-001", ["E1/故事-一", "E1/story-002"], "active", "- [ ] x — stories：故事-一 — 证据：y\n");
+  const arts = [s, story("E1", "story-001", "done", DONE({ id: "故事-一" })), story("E1", "story-002", "done", DONE())];
+  assert.deepEqual(blocked(checkSpecAcceptance(loadLayout("engineering"), arts, REQUIRED)), [
+    "epics/E1/stories/story-001-slug.md",
+  ]);
+});
+
+// [SPEC-001#6]
+test("checkSpecAcceptance: a bare id in two epics warns once, names both entries, still applies to both", () => {
+  const s = spec("SPEC-001", ["E1/story-001", "E2/story-001"], "active", "- [ ] x — stories: story-001\n");
+  const arts = [s, story("E1", "story-001", "done", DONE()), story("E2", "story-001", "done", DONE())];
+  const f = checkSpecAcceptance(loadLayout("engineering"), arts, REQUIRED);
+  const w = ambiguityWarns(f);
+  assert.equal(w.length, 1);
+  assert.equal(w[0].level, "warn");
+  assert.ok(w[0].message.includes('"story-001"'), w[0].message);
+  assert.ok(w[0].message.includes("E1/story-001") && w[0].message.includes("E2/story-001"), w[0].message);
+  assert.ok(!w[0].message.includes("<epic-id>"), "the advice names real entries, not a placeholder");
+  assert.deepEqual(blocked(f), ["epics/E1/stories/story-001-slug.md", "epics/E2/stories/story-001-slug.md"]);
+});
+
+// [SPEC-001#6]
+test("checkSpecAcceptance: the ambiguous warning's advice round-trips", () => {
+  const layout = loadLayout("engineering");
+  const arts = (acceptance) => [
+    spec("SPEC-001", ["E1/story-001", "E2/story-001"], "active", acceptance),
+    story("E1", "story-001", "done", DONE()),
+    story("E2", "story-001", "done", DONE()),
+  ];
+  const [w] = ambiguityWarns(checkSpecAcceptance(layout, arts("- [ ] x — stories: story-001\n"), REQUIRED));
+  const advised = w.message.match(/one of: ([^,)]+)/)[1];
+  assert.equal(advised, "E1/story-001");
+  const f = checkSpecAcceptance(layout, arts(`- [ ] x — stories: ${advised}\n`), REQUIRED);
+  assert.deepEqual(ambiguityWarns(f), []);
+  assert.deepEqual(blocked(f), ["epics/E1/stories/story-001-slug.md"]);
+});
+
+// [SPEC-001#6]
+test("checkSpecAcceptance: a qualified id is never ambiguous", () => {
+  const s = spec(
+    "SPEC-001",
+    ["E1/story-001", "E2/story-001"],
+    "active",
+    "- [ ] x — stories: E2/story-001, E1/story-001\n",
+  );
+  const arts = [s, story("E1", "story-001", "done", DONE()), story("E2", "story-001", "done", DONE())];
+  const f = checkSpecAcceptance(loadLayout("engineering"), arts, REQUIRED);
+  assert.deepEqual(ambiguityWarns(f), []);
+  assert.deepEqual(blocked(f), ["epics/E1/stories/story-001-slug.md", "epics/E2/stories/story-001-slug.md"]);
+});
+
+// [SPEC-001#6]
+test("checkSpecAcceptance: an item whose only marker is inside inline code applies to every covered story", () => {
+  const s = spec("SPEC-001", ["E1/story-001", "E1/story-002"], "active", "- [ ] write `— stories: story-001` items\n");
+  const arts = [s, story("E1", "story-001", "done", DONE()), story("E1", "story-002", "done", DONE())];
+  assert.deepEqual(blocked(checkSpecAcceptance(loadLayout("engineering"), arts, REQUIRED)), [
+    "epics/E1/stories/story-001-slug.md",
+    "epics/E1/stories/story-002-slug.md",
+  ]);
+});
+
 // ─── derived-view ordering (SPEC-002 contract 8) ───────────────────────
 
 test("compareArtifactOrder: date asc; in a date group number wins, numbered before unnumbered, slug last", () => {

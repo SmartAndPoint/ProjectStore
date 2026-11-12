@@ -1881,6 +1881,34 @@ export function storiesAttributionRe() {
   return new RegExp(`[—–-]\\s*${keywordRe("stories").source}\\s*[:：]\\s*(.+)$`, "i");
 }
 
+// The ids an acceptance item's attribution marker names (SPEC-001 contract 6,
+// *The attribution marker*), or null when the item is unattributed. The marker
+// is the first one outside inline code. Its ids are tokens, each a run of
+// anything but whitespace and the separators `,` `，` `、`; the list ends at
+// the first token no separator follows, so ` — evidence: …` or prose after the
+// ids is never read as an id. The tokens are read from the original text at
+// the capture's start — splitting the capture itself is what joined a trailing
+// evidence suffix onto the last id.
+const ID_LIST_RE = /[^\s,，、]+(?:\s*[,，、]\s*[^\s,，、]+)*/y;
+const ID_SEPARATOR_RE = /\s*[,，、]\s*/;
+
+export function storyIdsOf(text) {
+  const s = String(text);
+  const spans = [...s.matchAll(INLINE_CODE_SPAN_RE)].map((m) => [m.index, m.index + m[0].length]);
+  const inCode = (i) => spans.some(([a, b]) => i >= a && i < b);
+  const base = storiesAttributionRe();
+  const re = new RegExp(base.source, `${base.flags}gd`);
+  let m;
+  while ((m = re.exec(s))) {
+    if (!inCode(m.index)) break;
+    re.lastIndex = m.index + 1;
+  }
+  if (!m) return null;
+  ID_LIST_RE.lastIndex = m.indices[1][0];
+  const list = ID_LIST_RE.exec(s);
+  return list ? list[0].split(ID_SEPARATOR_RE) : null;
+}
+
 // A test cites a spec contract with `[<key>#<n>]` (the spec policy ADR,
 // Decisions 4 and 8): <key> is the spec's id or alias, <n> the contract
 // number in ASCII — `4'` for 4′, `4''` for 4″, `4/1''` for a step nested
@@ -2559,8 +2587,12 @@ export function listEpicStories(epicDir) {
 // checkboxes — notation inside code is not a link. Lifted from doctor,
 // which carried two byte-identical copies (checkbox counting and
 // checkWikilinks); one definition, shared by doctor and the graph.
+// One inline code span: what `stripCodeSpans` drops and what `storyIdsOf`
+// skips, so "inside code" means the same thing to both.
+const INLINE_CODE_SPAN_RE = /`[^`\n]*`/g;
+
 export function stripCodeSpans(s) {
-  return s.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
+  return s.replace(/```[\s\S]*?```/g, "").replace(INLINE_CODE_SPAN_RE, "");
 }
 
 // Every link in one file's text: wikilinks and relative markdown links.
