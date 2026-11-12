@@ -20,6 +20,13 @@ Every create command follows the same shape:
    session added a moment before; the next regeneration of that folder's index
    restores it.
 
+   A story's Yes also covers its row in the epic's Stories table: after the
+   file lands, `status-change.mjs epic-row <story> --add` links it there, by
+   the table's own columns (a row that already names the story by its title
+   gets the link, else one row is added), re-reading `epic.md` before it
+   replaces it. An epic whose stories are a list is left as it is, with the
+   note `epic-row-missing`; no table is invented.
+
 **Who holds the pen.** Content and the gate never delegate: the session's main
 agent composes the artifact (it holds the conversation the artifact captures)
 and answers to you at the approval gate. What *can* delegate is everything after

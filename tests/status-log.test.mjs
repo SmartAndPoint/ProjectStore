@@ -635,3 +635,17 @@ test("epic row add: a fence before the Stories heading hides the row from the ga
   const r = add(t);
   assert.deepEqual([r.found, r.changed, r.unlinkable, r.text], [false, false, true, t]);
 });
+
+// [SPEC-001#7] [SPEC-001#2]
+test("epic row add: a new epic from each bundled template has a Stories table with no row, and its first story is the table's only row", () => {
+  for (const lang of readdirSync(join(REPO, "templates")).filter((d) =>
+    existsSync(join(REPO, "templates", d, "epic.md.tmpl")),
+  )) {
+    const epic = renderTemplate(loadTemplate(lang, "epic"), { id: "PS-X", title: "X", date: "2026-11-12", tags: "[]" });
+    assert.ok(!/\]\(\.\/stories\//.test(epic), `${lang}: no placeholder row`);
+    const r = add(epic, { title: "Первая" });
+    assert.equal(r.added, true, lang);
+    assert.equal((r.text.match(/\]\(\.\/stories\//g) || []).length, 1, lang);
+    assert.ok(r.row.endsWith(" | planned | Первая |"), `${lang}: ${r.row}`);
+  }
+});
