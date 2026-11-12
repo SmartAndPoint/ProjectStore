@@ -687,14 +687,33 @@ test("parseSpecAcceptance: ， and 、 separate ids, a non-ASCII id included", (
 });
 
 // [SPEC-001#6]
-test("parseSpecAcceptance: whitespace round a separator is free, the list ends at the first id no separator follows", () => {
+test("parseSpecAcceptance: whitespace round a separator is free, leading and doubled separators are skipped, the list ends at the first id no separator follows", () => {
   assert.deepEqual(
     idsOf(
-      ["- [x] a — stories: A , B", "- [x] b — stories: A,B,", "- [x] c — stories: A B", "- [x] d — stories: A,,B"].join(
-        "\n",
-      ),
+      [
+        "- [x] a — stories: A , B",
+        "- [x] b — stories: A,B,",
+        "- [x] c — stories: A B",
+        "- [x] d — stories: A,,B",
+        "- [x] e — stories: , A",
+        "- [x] f — stories: A—evidence: y",
+      ].join("\n"),
     ),
-    [["A", "B"], ["A", "B"], ["A"], ["A"]],
+    [["A", "B"], ["A", "B"], ["A"], ["A", "B"], ["A"], ["A"]],
+  );
+});
+
+// [SPEC-001#6]
+test("parseSpecAcceptance: a hyphen is the marker's dash only at the start or after whitespace", () => {
+  assert.deepEqual(
+    idsOf(
+      [
+        "- [x] see user-stories: story-002 — stories: story-001",
+        "- [x] a - stories: story-001",
+        "- [x] b – stories: story-001",
+      ].join("\n"),
+    ),
+    [["story-001"], ["story-001"], ["story-001"]],
   );
 });
 
@@ -714,7 +733,10 @@ test("parseSpecAcceptance: the marker is the first one outside inline code", () 
 
 // [SPEC-001#6]
 test("parseSpecAcceptance: a marker with no id leaves the item unattributed", () => {
-  assert.deepEqual(idsOf(["- [x] a — stories:", "- [x] b — stories:   "].join("\n")), [null, null]);
+  assert.deepEqual(
+    idsOf(["- [x] a — stories:", "- [x] b — stories:   ", "- [x] c — stories: — evidence: y"].join("\n")),
+    [null, null, null],
+  );
 });
 
 // [SPEC-001#6]

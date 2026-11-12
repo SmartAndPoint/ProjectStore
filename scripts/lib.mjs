@@ -1881,16 +1881,11 @@ export function storiesAttributionRe() {
   return new RegExp(`[—–-]\\s*${keywordRe("stories").source}\\s*[:：]\\s*(.+)$`, "i");
 }
 
-// The ids an acceptance item's attribution marker names (SPEC-001 contract 6,
-// *The attribution marker*), or null when the item is unattributed. The marker
-// is the first one outside inline code. Its ids are tokens, each a run of
-// anything but whitespace and the separators `,` `，` `、`; the list ends at
-// the first token no separator follows, so ` — evidence: …` or prose after the
-// ids is never read as an id. The tokens are read from the original text at
-// the capture's start — splitting the capture itself is what joined a trailing
-// evidence suffix onto the last id.
-const ID_LIST_RE = /[^\s,，、]+(?:\s*[,，、]\s*[^\s,，、]+)*/y;
-const ID_SEPARATOR_RE = /\s*[,，、]\s*/;
+// The ids of an acceptance item's `— stories:` marker, or null (SPEC-001
+// contract 6). Tokens are read from the text at the capture's start, never by
+// splitting the capture, so text after the ids is not an id.
+const ID_LIST_RE = /[\s,，、]*([^\s,，、—–]+(?:\s*(?:[,，、]\s*)+[^\s,，、—–]+)*)/y;
+const ID_SEPARATOR_RE = /\s*(?:[,，、]\s*)+/;
 
 export function storyIdsOf(text) {
   const s = String(text);
@@ -1900,13 +1895,14 @@ export function storyIdsOf(text) {
   const re = new RegExp(base.source, `${base.flags}gd`);
   let m;
   while ((m = re.exec(s))) {
-    if (!inCode(m.index)) break;
+    const glued = s[m.index] === "-" && m.index > 0 && !/\s/.test(s[m.index - 1]);
+    if (!glued && !inCode(m.index)) break;
     re.lastIndex = m.index + 1;
   }
   if (!m) return null;
   ID_LIST_RE.lastIndex = m.indices[1][0];
   const list = ID_LIST_RE.exec(s);
-  return list ? list[0].split(ID_SEPARATOR_RE) : null;
+  return list ? list[1].split(ID_SEPARATOR_RE) : null;
 }
 
 // A test cites a spec contract with `[<key>#<n>]` (the spec policy ADR,
@@ -2583,14 +2579,13 @@ export function listEpicStories(epicDir) {
 // ─── Link graph: extraction, node index, resolver ──────────────────────
 // (spec: vault-link-graph-derived-view-and-shared-link-resolver)
 
+// One inline code span, for stripCodeSpans and storyIdsOf alike.
+const INLINE_CODE_SPAN_RE = /`[^`\n]*`/g;
+
 // Strip fenced blocks and inline code spans before matching links or
 // checkboxes — notation inside code is not a link. Lifted from doctor,
 // which carried two byte-identical copies (checkbox counting and
 // checkWikilinks); one definition, shared by doctor and the graph.
-// One inline code span: what `stripCodeSpans` drops and what `storyIdsOf`
-// skips, so "inside code" means the same thing to both.
-const INLINE_CODE_SPAN_RE = /`[^`\n]*`/g;
-
 export function stripCodeSpans(s) {
   return s.replace(/```[\s\S]*?```/g, "").replace(INLINE_CODE_SPAN_RE, "");
 }

@@ -2642,6 +2642,15 @@ export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
   if (!epicFolder) return out;
   const resolveSpec = buildSpecResolver(artifacts, layout);
   const ambiguousReported = new Set(); // spec-scoped: one finding per spec+item
+  // The stories each spec's own list resolves to — per spec, not per story.
+  const listedBySpec = new Map();
+  const listedOf = (spec) => {
+    if (!listedBySpec.has(spec.rel)) {
+      const stories = listOf(spec.fm, "stories").map((e) => resolveSpecStory(e, artifacts, epicFolder.path).story);
+      listedBySpec.set(spec.rel, new Set(stories.filter(Boolean)));
+    }
+    return listedBySpec.get(spec.rel);
+  };
 
   for (const story of artifacts.filter((a) => a.kind === "story")) {
     if (String(story.fm.status || "").toLowerCase() !== "done") continue;
@@ -2667,11 +2676,8 @@ export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
       }
       const coveredEntries = listOf(spec.fm, "stories");
       const entryParts = coveredEntries.map((e) => String(e).match(/^([^/]+)\/(.+)$/));
-      // The stories this spec's own list resolves to: a qualified id counts
-      // only when it lands on one of them.
-      const listed = new Set(
-        coveredEntries.map((e) => resolveSpecStory(e, artifacts, epicFolder.path).story).filter(Boolean),
-      );
+      // A qualified id counts only when it lands on a story this list holds.
+      const listed = listedOf(spec);
       for (const item of items) {
         let applies;
         if (item.stories === null) {
@@ -2701,12 +2707,13 @@ export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
           if (ambiguous.length && !ambiguousReported.has(ambKey)) {
             ambiguousReported.add(ambKey);
             const named = ambiguous.map((a) => `"${a.sid}" (one of: ${a.entries.join(", ")})`).join("; ");
+            const noun = ambiguous.length > 1 ? "bare ids" : "bare id";
             out.push(
               finding(
                 "vault",
                 "warn",
                 "ambiguous-attribution",
-                `Spec "${id}" acceptance item names the bare id ${named}, the story part of more than one covered entry — qualify it as one of them.`,
+                `Spec "${id}" acceptance item names the ${noun} ${named}, the story part of entries in more than one covered epic — qualify it as one of them.`,
                 spec.rel,
               ),
             );
