@@ -42,6 +42,7 @@ import {
   writeFileAtomic,
   isMain,
   commandForm,
+  derivedViewPaths,
 } from "./lib.mjs";
 import { childEnv } from "./harness.mjs";
 
@@ -188,8 +189,11 @@ function derivedTarget(script, explicit = false, fallbackPath = null) {
 // the check-and-retry writer can recompute from a fresh read.
 // Returns {content} (possibly === original) or {unusable: reason} when the
 // README carries no managed table this script may touch.
-export function rebuildIndexRows(original, folder, artifacts) {
-  const lines = original.split("\n");
+// The managed table's bounds in a folder README's lines: its header row, and
+// the rows from headIdx + 2 up to (not including) end. Shared with the
+// pre-commit check, which judges a README's prose with these rows removed
+// (the check spec, contract 5). {unusable: reason} when there is no table.
+export function indexTableBounds(lines) {
   // Header matched via the heading registry (PS-SPEC story-002) — ru vaults'
   // localized index headers were unreconcilable while this was an English
   // literal. Unrecognized headers surface as a doctor index-header finding.
@@ -199,9 +203,16 @@ export function rebuildIndexRows(original, folder, artifacts) {
   if (!/^\|[-\s|]+\|$/.test(lines[headIdx + 1] || "")) {
     return { unusable: "malformed separator row under the index header" };
   }
-
   let end = headIdx + 2;
   while (end < lines.length && /^\|/.test(lines[end])) end++;
+  return { headIdx, end };
+}
+
+export function rebuildIndexRows(original, folder, artifacts) {
+  const lines = original.split("\n");
+  const bounds = indexTableBounds(lines);
+  if (bounds.unusable) return { unusable: bounds.unusable };
+  const { headIdx, end } = bounds;
 
   const rows = [];
   const inFolder = artifacts.filter((a) =>
@@ -348,8 +359,9 @@ export function runReconcile({ write = false, only = null, projectDir = null, en
   }
 
   const out = {};
+  const views = derivedViewPaths(layout);
 
-  const kanbanPath = layout.kanban ? join(cfg.vault_path, layout.kanban.file || "kanban.md") : null;
+  const kanbanPath = views.board ? join(cfg.vault_path, views.board) : null;
   if (!sel.kanban) out.kanban = { skipped: "not selected" };
   else if (!layout.kanban) out.kanban = { skipped: "layout has no kanban" };
   else
@@ -357,14 +369,14 @@ export function runReconcile({ write = false, only = null, projectDir = null, en
       ? applyDerived("kanban.mjs", sel.explicit, kanbanPath)
       : derivedTarget("kanban.mjs", sel.explicit, kanbanPath);
 
-  const codemapPath = join(cfg.vault_path, "code-map.md");
+  const codemapPath = join(cfg.vault_path, views.codeMap);
   if (!sel.codemap) out.codemap = { skipped: "not selected" };
   else
     out.codemap = write
       ? applyDerived("codemap.mjs", sel.explicit, codemapPath)
       : derivedTarget("codemap.mjs", sel.explicit, codemapPath);
 
-  const graphPath = join(cfg.vault_path, "graph.md");
+  const graphPath = join(cfg.vault_path, views.graph);
   if (!sel.graph) out.graph = { skipped: "not selected" };
   else
     out.graph = write

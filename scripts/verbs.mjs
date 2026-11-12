@@ -473,8 +473,13 @@ export const VERBS = Object.freeze([
   }),
   Object.freeze({
     verb: "session",
-    summary: "Refresh this session's current story from its file.",
-    usage: Object.freeze(["refresh <path>"]),
+    summary: "This session's story, its record of writes, the pre-commit check.",
+    usage: Object.freeze([
+      "refresh <path>",
+      "snapshot <path> --for <scratch>",
+      "record <path> --from <scratch>",
+      "check [<path>…]",
+    ]),
     module: "./lib.mjs",
     wraps: "new",
     how: "import",
@@ -482,7 +487,12 @@ export const VERBS = Object.freeze([
     writes: true,
     requiresBinding: true,
     mcp: Object.freeze([]),
-    options: [JSON_OPT],
+    options: [
+      opt("for", "<scratch>", "snapshot: the scratch the vault file is about to be replaced with"),
+      opt("from", "<scratch>", "record: the scratch the vault file was replaced with"),
+      opt("session", "<id>", "check: the session to check for, from a terminal or a test (default: the host's)"),
+      JSON_OPT,
+    ],
   }),
   // The one change of status no gate makes, planned ↔ todo (SPEC-001
   // contract 7, as amended 2026-11-10: the ready step). --reason is required;
@@ -677,7 +687,11 @@ const EXAMPLES = {
     "{cmd} band off",
     "{cmd} band epic PS-CORE  # a session with no epic of its own shows this one",
   ],
-  session: ["{cmd} session refresh epics/PS-CORE/stories/story-x.md --json  # after a write no hook saw"],
+  session: [
+    "{cmd} session refresh epics/PS-CORE/stories/story-x.md --json  # after a write no hook saw",
+    "{cmd} session check  # before a vault commit: which changed files are this session's",
+    "{cmd} session check adr/x.md --json",
+  ],
   move: [
     '{cmd} move PS-CORE/story-x todo --reason "next up"  # the plan; nothing is written',
     '{cmd} move PS-CORE/story-x todo --reason "next up" --write',
@@ -1035,9 +1049,10 @@ function formOf(row, form) {
     if (w.startsWith("--")) {
       f.required.push(w.slice(2));
       if (row.options.find((o) => o.name === w.slice(2))?.arg) i++;
-    } else if (w.startsWith("<")) {
+    } else if (w.startsWith("<") || w.startsWith("[<")) {
+      // `[<path>…]`: an optional variadic placeholder (`session check`).
       f.placeholders++;
-      if (w.endsWith("…>")) f.variadic = true;
+      if (w.endsWith("…>") || w.endsWith("…]")) f.variadic = true;
     } else f.literals.push(w);
   }
   f.bound = f.variadic ? Infinity : f.literals.length + f.placeholders;

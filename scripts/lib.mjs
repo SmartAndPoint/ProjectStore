@@ -1740,6 +1740,20 @@ export function folderByKind(layout, kind) {
   return layout.folders.find((f) => f.kind === kind) || null;
 }
 
+// The derived views a layout's reconcile writes, vault-relative: the board
+// (the layout's kanban file, when it declares one), the code map, the graph,
+// and each layout folder's README.md, which is a view where it holds a managed
+// index table. One list, read by reconcile and by the pre-commit check (the
+// check spec, contract 5), so the two cannot name different views.
+export function derivedViewPaths(layout) {
+  return {
+    board: layout.kanban ? layout.kanban.file || "kanban.md" : null,
+    codeMap: "code-map.md",
+    graph: "graph.md",
+    indexes: layout.folders.map((f) => ({ folder: f, path: `${f.path}/README.md` })),
+  };
+}
+
 // ─── Templates ─────────────────────────────────────────────────────────
 
 // `root` is the plugin root to read from — the bin passes its own package's,
@@ -2220,8 +2234,25 @@ export function linesOutsideFences(s) {
 
 // The one writer of the vault config: atomic, and every key it was not asked
 // to change is kept as it was.
-export function writeVaultConfig(vault, cfg) {
-  writeFileAtomic(vaultConfigPath(vault), JSON.stringify(cfg, null, 2) + "\n");
+// `onWrite(path, before, after)` gets the bytes it replaced (null when there
+// was no file) and the bytes it wrote: configure's seam into the session's
+// record of its vault writes (the record spec, contract 5). A throw from it is
+// swallowed: recording never fails the write.
+export function writeVaultConfig(vault, cfg, { onWrite = null } = {}) {
+  const p = vaultConfigPath(vault);
+  let before = null;
+  if (onWrite) {
+    try {
+      before = readFileSync(p, "utf8");
+    } catch {}
+  }
+  const after = JSON.stringify(cfg, null, 2) + "\n";
+  writeFileAtomic(p, after);
+  if (onWrite) {
+    try {
+      onWrite(p, before, after);
+    } catch {}
+  }
 }
 
 // Legacy exemption (ADR-007 Decision 6): a story is exempt from spec-first
@@ -3766,12 +3797,18 @@ export async function refreshStoryPointer(projectDir, vaultPath, sessionId, opts
   return "refreshed";
 }
 
-export function cleanupStaleSessionState(projectDir, maxAgeHours = 24) {
+// The starting session's own record of its vault writes (`<id>.writes/`) is
+// kept whatever its age, so a session start that carries the same id, as a
+// compaction does, keeps its record (the record spec, contract 2). Its
+// `.paths/` and `.fired/` are reaped as before (entry-rule spec, contract 3).
+export function cleanupStaleSessionState(projectDir, maxAgeHours = 24, currentSessionId = null) {
   const dir = stateDir(projectDir);
   if (!existsSync(dir)) return 0;
   const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
+  const mine = currentSessionId ? `${currentSessionId}.writes` : null;
   let removed = 0;
   for (const name of readdirSync(dir)) {
+    if (mine && name === mine) continue;
     const p = join(dir, name);
     try {
       const st = statSync(p);

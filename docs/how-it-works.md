@@ -85,6 +85,46 @@ the pointer remembers which copy the story lives in, so the band and the status
 line read the story there until it is merged and closed on the bound vault.
 Edits made through the shell are not seen; a Read of the story sets the pointer.
 
+### Before a vault commit: whose edits are in a file
+
+ProjectStore never commits. Each session commits its own vault work, a whole
+file at a time, so when two sessions edit one file, the first to commit takes
+the other's uncommitted edits too. The pre-commit check says which files those
+are before the commit, and the session-start rules, the commit hints of the adr,
+review and story commands and the check's own last line tell the agent to stop
+on them.
+
+**The record.** In Claude Code each session keeps a record of its own vault
+writes, `<project>/.projectstore/state/sessions/<session_id>.writes/`: one
+exclusively created file per write, never rewritten, holding the vault copy, the
+path, the tool and the content hashes before and after, and each content once,
+by hash (a file over 512 KiB, and anything past 64 MiB a session, keeps its
+hashes only). The tool hooks write it for `Edit`, `Write`, `MultiEdit` and
+`NotebookEdit`: PreToolUse stores the file as it is, keyed by the call's
+`tool_use_id`, and PostToolUse appends the event. The plugin's own writers add
+to it too (`move`, the epic row, `configure`'s vault settings, `guide eject`),
+and the story close brackets the clerk's copy, which no hook sees, with
+`session snapshot <story> --for <scratch>` before the spawn and
+`session record <story> --from <scratch>` after it. Derived views are not
+recorded. Nothing is recorded where the host gives the plugin no session id
+(Codex, for now). A record is reaped at a session start once idle for 24 hours,
+except the starting session's own.
+
+**The check.** The `/projectstore:precommit` command runs the core's
+`projectstore session check` for this session. For each file `git status`
+lists, it asks whether the file now can be reached from HEAD's content over the
+session's before→after pairs, in any order: a line the session edited twice is
+its own, a peer's line beside it is not. A file it cannot reach is
+`another-writer` when another live session's activity claims it, else
+`unattributed`, with the first hunk no recorded write explains. A derived view
+(the board, the code map, the graph, a folder index) is `consistent` when every
+changed file that feeds it is the session's own. The check runs
+`git rev-parse` and `git status` and `git cat-file` only, with optional locks
+off so the index is not refreshed, and writes nothing. It is a snapshot: a
+write after it is not seen. It exits 0 when every listed file is the session's
+own, and its last line then says to commit now, naming the paths; otherwise it
+exits 1 and its last line says what to leave out.
+
 ## Surviving `/compact`
 
 Continuity across a compaction is delivered by **SessionStart**, not by

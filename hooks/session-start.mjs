@@ -262,9 +262,11 @@ async function main() {
     syncStatusLine(cfg, proj);
   } catch {}
   // Statusline-feature housekeeping, like syncStatusLine — must run even when
-  // auto_inject=false (touch-session writes pointers regardless of it).
+  // auto_inject=false (touch-session writes pointers regardless of it). The
+  // starting session's own record of its vault writes is kept (the record
+  // spec, contract 2).
   try {
-    cleanupStaleSessionState(proj);
+    cleanupStaleSessionState(proj, 24, sid);
   } catch {}
   // This session's story fields from the story file, once (ADR-006, amended
   // 2026-10-12): a pointer written before a close, or a story closed elsewhere

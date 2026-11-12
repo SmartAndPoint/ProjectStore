@@ -48,6 +48,7 @@ import {
 } from "./models.mjs";
 import { runMenu } from "./configure-menu.mjs";
 import { SMALLEST } from "./menu.mjs";
+import { nodeWriteRecorder } from "./write-record.mjs";
 
 const CLEAR = "-";
 
@@ -813,7 +814,11 @@ export function applyChanges(f, steps, { env = process.env, home = homedir(), ro
           const at = blockedAt(now.cfg, path);
           if (at) throw new Error(`${at} stopped being an object after the plan — fix or remove it first`);
         }
-        writeVaultConfig(f.vault, nextVaultConfig(now.cfg, s.patch, new Date().toISOString()));
+        // The vault config is a tracked vault file: the write lands in this
+        // session's record of its vault writes (the record spec, contract 5).
+        writeVaultConfig(f.vault, nextVaultConfig(now.cfg, s.patch, new Date().toISOString()), {
+          onWrite: nodeWriteRecorder({ env, project: f.project, tool: "configure" }),
+        });
         wrote.push(vaultConfigPath(f.vault));
       } else if (s.writer === "overlay") {
         wrote.push(applyAgentsChange(f.project, s.harness, s.next, s.nextEfforts).path);

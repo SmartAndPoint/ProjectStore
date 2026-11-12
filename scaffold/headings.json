@@ -1,5 +1,5 @@
 {
-  "_description": "Language-independent registry of section headings, inline keywords and index-table column names recognized by the deterministic scripts (doctor, reconcile, story-section), and the bold field labels of a story's header table (`fields`: Status and Assignee, which status-log.mjs rewrites; `status` is also the Status column of an epic's Stories table). Per id, per language: an ARRAY of accepted forms; the FIRST form of the bound language is the canonical form used when writing. Matching accepts every form of every language, so a ru-headed file lints in an en-bound vault. New sections/keywords added by any story MUST register a form for every bundled language (en, ru, es, de, fr, zh) here (PS-SPEC story-002).",
+  "_description": "Language-independent registry of section headings, inline keywords and index-table column names recognized by the deterministic scripts (doctor, reconcile, story-section), and the bold field labels of a story's and an epic's header table (`fields`: Status and Assignee, which status-log.mjs rewrites, and Updated, which epic-rule.mjs rewrites on an epic; `status` and `story` are also the Status and Story columns of an epic's Stories table, which epic-rule.mjs reads under the `stories` heading beside the `expected_results` checkboxes). Per id, per language: an ARRAY of accepted forms; the FIRST form of the bound language is the canonical form used when writing. Matching accepts every form of every language, so a ru-headed file lints in an en-bound vault. New sections/keywords added by any story MUST register a form for every bundled language (en, ru, es, de, fr, zh) here (PS-SPEC story-002).",
   "headings": {
     "goal": {
       "en": ["Goal"],
@@ -120,6 +120,22 @@
       "de": ["Statusverlauf"],
       "fr": ["Journal des statuts"],
       "zh": ["状态日志"]
+    },
+    "stories": {
+      "en": ["Stories"],
+      "ru": ["Истории"],
+      "es": ["Historias"],
+      "de": ["Stories"],
+      "fr": ["Stories"],
+      "zh": ["Stories"]
+    },
+    "expected_results": {
+      "en": ["Expected Results"],
+      "ru": ["Ожидаемые результаты"],
+      "es": ["Resultados esperados"],
+      "de": ["Erwartete Ergebnisse"],
+      "fr": ["Résultats attendus"],
+      "zh": ["预期成果"]
     }
   },
   "keywords": {
@@ -200,6 +216,22 @@
       "de": ["Zuständig"],
       "fr": ["Responsable"],
       "zh": ["负责人"]
+    },
+    "updated": {
+      "en": ["Updated"],
+      "ru": ["Обновлено"],
+      "es": ["Actualizado"],
+      "de": ["Aktualisiert"],
+      "fr": ["Mis à jour"],
+      "zh": ["更新于"]
+    },
+    "story": {
+      "en": ["Story"],
+      "ru": ["История"],
+      "es": ["Historia"],
+      "de": ["Story"],
+      "fr": ["Story"],
+      "zh": ["Story"]
     }
   }
 }

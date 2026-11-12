@@ -64,4 +64,4 @@ Steps:
    - **JSON with a per-target `error`, nonzero exit** — an I/O failure during
      the write. Suggest `/projectstore:reconcile`.
 
-8. **Final message**: print the file path, a reminder to fill `Context`, `Decision`, `Rationale`, and a hint to commit the new ADR if the vault is git-tracked.
+8. **Final message**: print the file path, a reminder to fill `Context`, `Decision`, `Rationale`, and a hint to commit the new ADR if the vault is git-tracked: run `/projectstore:precommit` before you commit those paths, and do what its last line says.

@@ -15,8 +15,10 @@
 // means the caller must ask the user for an explicit range instead of
 // guessing.
 //
-// Git runs in the PROJECT (the directory the harness hands us), never the vault — the vault
-// is typically not a git repository.
+// Git runs in the PROJECT (the directory the harness hands us) for these
+// helpers. The one caller that reads the vault's repository is the pre-commit
+// check (precommit.mjs), through gitRun below, with read-only subcommands
+// (rev-parse, status, cat-file) and nothing that commits, pushes or fetches.
 
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
@@ -40,6 +42,34 @@ export function gitIn(cwd, args, { timeout = 15000 } = {}) {
 }
 
 const git = (args) => gitIn(projectRoot(), args);
+
+// A git run that tells an answer from no repository and from a failure,
+// unlike gitIn's null for all three: {kind: "answer", status, stdout (bytes),
+// stderr} whatever the exit code (`rev-parse --verify` exits 1 as an answer),
+// {kind: "no-git"} outside a repository, {kind: "failure", reason} for no git
+// binary, a timeout, a signal or an output past maxBuffer. `env` is the
+// caller's, already stripped of what locates another repository; optional
+// locks are off, so `git status` never refreshes the index.
+export function gitRun(cwd, args, { env = process.env, timeout = 10000, maxBuffer = 128 * 1024 * 1024 } = {}) {
+  let r;
+  try {
+    r = spawnSync("git", args, {
+      cwd,
+      env: { ...env, GIT_OPTIONAL_LOCKS: "0" },
+      timeout,
+      maxBuffer,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e) {
+    return { kind: "failure", reason: String((e && e.message) || e) };
+  }
+  if (r.error?.code === "ENOENT") return { kind: "failure", reason: "git is not installed" };
+  if (r.error?.code === "ETIMEDOUT" || r.signal) return { kind: "failure", reason: `git ${args[0]} timed out` };
+  if (r.error) return { kind: "failure", reason: String(r.error.message || r.error) };
+  const stderr = String(r.stderr || "");
+  if (r.status !== 0 && /not a git repository/i.test(stderr)) return { kind: "no-git" };
+  return { kind: "answer", status: r.status, stdout: r.stdout || Buffer.alloc(0), stderr };
+}
 
 // Doctor's only route to git. Kept here rather than in lib.mjs, whose header
 // pins it as dependency-free with no subprocess anywhere.
@@ -101,6 +131,74 @@ export function grepProjectLines(cwd, pattern, { exclude = [], timeout = 10000, 
     lines.push({ file: m[1], line: Number(m[2]), text: m[3] });
   }
   return { status: "ok", lines };
+}
+
+// Doctor's flow activity (the flow-findings spec, contracts 1 to 3): the
+// local commits since `since`, one `git log` for the run. Reachable from a
+// local branch, a remote-tracking branch the machine already has, or HEAD
+// (a detached HEAD counts); no merge commit, and a stash entry is not on any
+// of those refs. Names and times only, through .mailmap (`%aN`, `%cN`): no
+// email address is ever asked for. Paths are relative to `cwd` (the project
+// root), and a path outside it is not listed; a commit that changed nothing
+// under it still comes back, with no paths. `-z` keeps a non-ASCII path as
+// written. Git runs with LC_ALL=C, so its output does not follow the locale.
+// When git cannot answer, the reason is one of a fixed set, never git's
+// stderr: `no-git`, `not-a-repository`, `shallow`, `timeout`, `failed`.
+// Returns {status: "ok", commits: [{authorName, authorMs, committerName,
+// committerMs, paths}]} or {status: "unknown", reason}.
+export const ACTIVITY_REASONS = Object.freeze(["no-git", "not-a-repository", "shallow", "timeout", "failed"]);
+const LOG_FORMAT = "--format=%x1e%at%x1f%aN%x1f%ct%x1f%cN";
+export function commitsSince(cwd, since, { timeout = 10000, env = process.env } = {}) {
+  const opts = { cwd, encoding: "utf8", timeout, env: { ...env, LC_ALL: "C" }, maxBuffer: 256 * 1024 * 1024 };
+  const why = (r) => {
+    if (r.error?.code === "ENOENT") return "no-git";
+    if (r.error || r.signal) return r.error?.code === "ETIMEDOUT" || r.signal ? "timeout" : "failed";
+    if (r.status !== 0) return /not a git repository/i.test(r.stderr || "") ? "not-a-repository" : "failed";
+    return null;
+  };
+  const probe = spawnSync("git", ["rev-parse", "--is-shallow-repository"], opts);
+  const probeWhy = why(probe);
+  if (probeWhy) return { status: "unknown", reason: probeWhy };
+  if (String(probe.stdout).trim() === "true") return { status: "unknown", reason: "shallow" };
+  const run = (head) =>
+    spawnSync(
+      "git",
+      [
+        "log",
+        "--branches",
+        "--remotes",
+        ...head,
+        "--no-merges",
+        "--no-show-signature",
+        "-z",
+        "--name-only",
+        "--relative",
+        `--since=${since}`,
+        LOG_FORMAT,
+        "--",
+      ],
+      opts,
+    );
+  let r = run(["HEAD"]);
+  // A repository with no commit on HEAD (a fresh one, an unborn branch):
+  // HEAD names nothing, and the branches are read without it.
+  if (r.status !== 0 && !r.error && /bad revision 'HEAD'|unknown revision[^\n]*HEAD/.test(r.stderr || "")) r = run([]);
+  const runWhy = why(r);
+  if (runWhy) return { status: "unknown", reason: runWhy };
+  const commits = [];
+  for (const chunk of String(r.stdout).split("\x1e")) {
+    if (!chunk) continue;
+    const cut = chunk.indexOf("\0");
+    const head = (cut === -1 ? chunk : chunk.slice(0, cut)).split("\x1f");
+    if (head.length !== 4) continue;
+    const [at, authorName, ct, committerName] = head;
+    const paths = (cut === -1 ? "" : chunk.slice(cut + 1))
+      .split("\0")
+      .map((p) => p.replace(/^\n/, ""))
+      .filter(Boolean);
+    commits.push({ authorName, authorMs: Number(at) * 1000, committerName, committerMs: Number(ct) * 1000, paths });
+  }
+  return { status: "ok", commits };
 }
 
 // The `--since` window git is given, shared with spec-drift.mjs.

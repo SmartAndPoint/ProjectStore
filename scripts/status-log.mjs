@@ -12,7 +12,10 @@
 //
 // Spec: SPEC-001 contracts 2, 3 and 7 as amended 2026-11-10 by
 // PS-FLOW/story-every-status-change-is-stamped-and-logged-in-the-story-and-a-
-// command-moves-a-story-between-the-backlog-and-todo. The grammar is the one
+// command-moves-a-story-between-the-backlog-and-todo, and contract 3 as
+// amended 2026-11-11 by PS-FLOW/story-doctor-checks-the-flow-against-the-
+// vaults-policy-… (the stamp reader in the trust rule; "Flow counts…",
+// contracts 1 and 4, for stampMs and isAwaitingClose). The grammar is the one
 // decision 8 of "A story's status follows its pull request…" quotes:
 //
 //   - <ISO> <field>: <from> → <to> — <reason> (<actor>)
@@ -110,14 +113,14 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function fieldForms(id) {
+export function fieldForms(id) {
   const entry = loadHeadingsRegistry().fields?.[id];
   if (!entry) throw new Error(`headings.json has no fields entry "${id}"`);
   return Object.values(entry).flat();
 }
 
 // The positions of a table row's unescaped pipes.
-function pipes(line) {
+export function pipes(line) {
   const out = [];
   for (let i = 0; i < line.length; i++) {
     if (line[i] === "\\") i++;
@@ -303,17 +306,49 @@ export function sameStatus(a, b) {
   return statusToColumn(x) === statusToColumn(y);
 }
 
+// ─── The stamp reader (Flow counts, contract 1) ────────────────────────
+
+// A stamp reads in two forms only, on a real calendar day and a real time of
+// day: a date `YYYY-MM-DD` (that day's 00:00 UTC) and an instant
+// `YYYY-MM-DDTHH:MM`, with optional `:SS` and `.fff`, then `Z`, `±HH:MM` or
+// no zone. No zone is UTC, never the machine's zone: a bare Date.parse of
+// `2026-11-10T09:00` reads local time, so it is never used here. Anything
+// else does not read: null. Returns epoch milliseconds.
+const STAMP_RE = /^(\d{4})-(\d\d)-(\d\d)(?:T(\d\d):(\d\d)(?::(\d\d)(?:\.(\d+))?)?(Z|[+-]\d\d:\d\d)?)?$/;
+export function stampMs(value) {
+  if (value === null || value === undefined) return null;
+  const m = STAMP_RE.exec(String(value).trim());
+  if (!m) return null;
+  const [y, mo, d] = [+m[1], +m[2], +m[3]];
+  const day = Date.UTC(y, mo - 1, d);
+  const back = new Date(day);
+  if (back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d) return null;
+  if (m[4] === undefined) return m[8] === undefined ? day : null;
+  const [h, mi, se] = [+m[4], +m[5], m[6] === undefined ? 0 : +m[6]];
+  if (h > 23 || mi > 59 || se > 59) return null;
+  const ms = m[7] === undefined ? 0 : Math.floor(Number(`0.${m[7]}`) * 1000);
+  let offset = 0;
+  if (m[8] && m[8] !== "Z") {
+    const oh = +m[8].slice(1, 3);
+    const om = +m[8].slice(4, 6);
+    if (oh > 23 || om > 59) return null;
+    offset = (m[8][0] === "-" ? -1 : 1) * (oh * 60 + om) * 60000;
+  }
+  return day + ((h * 60 + mi) * 60 + se) * 1000 + ms - offset;
+}
+
 // When the story's current status began, and whether that date can be
 // trusted: only when the last `status:` line parses, its time is the instant
-// of `status_changed_at` and its target equals the current status (sameStatus).
-// Otherwise the age is read from `updated` (else `created`). Reads only;
-// nothing is written to a story without a log. Returns {trusted, at,
-// source: "stamp"|"updated"|"created"|null, why: null|"no-log"|"unparsed"|
-// "differs"|"no-stamp"|"time-differs"}.
+// of `status_changed_at`, both read by stampMs, and its target equals the
+// current status (sameStatus). Otherwise the age is read from `updated`, else
+// `created`, each when stampMs reads it (SPEC-001 contract 3, as amended
+// 2026-11-11). Reads only; nothing is written to a story without a log.
+// Returns {trusted, at, source: "stamp"|"updated"|"created"|null, why:
+// null|"no-log"|"unparsed"|"differs"|"no-stamp"|"time-differs"}.
 export function statusStamp(text) {
   const fm = parseFrontmatter(text).data;
   const fallback = (why) => {
-    const source = fm.updated ? "updated" : fm.created ? "created" : null;
+    const source = stampMs(fm.updated) !== null ? "updated" : stampMs(fm.created) !== null ? "created" : null;
     return { trusted: false, at: source ? String(fm[source]) : null, source, why };
   };
   const last = lastStatusLine(text);
@@ -321,10 +356,33 @@ export function statusStamp(text) {
   if (last.unparsed) return fallback("unparsed");
   if (!sameStatus(last.to, fm.status)) return fallback("differs");
   if (!fm.status_changed_at) return fallback("no-stamp");
-  // The same instant, not the same string: `…:00Z` is `…:00.000Z`.
-  const stamp = Date.parse(String(fm.status_changed_at));
-  if (Number.isNaN(stamp) || stamp !== Date.parse(last.at)) return fallback("time-differs");
+  // The same instant, not the same string: `…:00Z` is `…:00.000Z`, and
+  // `…T09:00` with no zone is `…T09:00:00.000Z` on every machine.
+  const stamp = stampMs(fm.status_changed_at);
+  if (stamp === null || stamp !== stampMs(last.at)) return fallback("time-differs");
   return { trusted: true, at: String(fm.status_changed_at), source: "stamp", why: null };
+}
+
+// ─── Awaiting close (Flow counts, contract 4) ─────────────────────────
+
+// The reason `follow` writes when a pull request merged and the story's
+// criteria are not yet evidenced, with or without `: <url>` after it.
+export const AWAITING_REASON = "merged, awaiting evidence";
+const AWAITING_RE = /^merged, awaiting evidence(?:: .+)?$/;
+
+// A story is awaiting close when its column is Review, its stamp is trusted,
+// and the reason of its last `status:` line is AWAITING_REASON. One predicate
+// for doctor, `next`, `flow.md` and `follow`. A hand edit of the status, or a
+// later `status:` line, ends the state.
+export function isAwaitingClose(text) {
+  const fm = parseFrontmatter(text).data;
+  const status = String(fm.status ?? "")
+    .trim()
+    .toLowerCase();
+  if (statusToColumn(status) !== "Review" || NOT_ACTIONABLE.has(status)) return false;
+  if (!statusStamp(text).trusted) return false;
+  const last = lastStatusLine(text);
+  return Boolean(last && !last.unparsed && AWAITING_RE.test(last.reason.trim()));
 }
 
 // ─── --check's mask ────────────────────────────────────────────────────
@@ -352,8 +410,9 @@ export function storySlug(storyPath) {
 
 // Does a link in epic.md point at the story? A markdown link whose target,
 // resolved from the epic's folder, is the story's file; a wikilink naming its
-// slug (the last segment, `.md` or not).
-function linksTo(link, { epicDir, storyPath, slug }) {
+// slug (the last segment, `.md` or not). The epic rule (epic-rule.mjs) reads
+// the Stories table's rows by the same test.
+export function linksTo(link, { epicDir, storyPath, slug }) {
   if (link.type === "mdlink") {
     let target = link.target;
     try {
