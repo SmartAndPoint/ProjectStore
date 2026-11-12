@@ -18,12 +18,15 @@ import { listEpicStories, parseFrontmatter } from "./lib.mjs";
 // Every story file of the vault's epics folder, as {rel, epic, slug, text,
 // fm}, epics in sorted order; `unread` counts the files, and the epic
 // folders or the epics folder, that could not be read. `read` is a test's seam.
-export function readFlowStories(vault, epicsPath, { read = (p) => readFileSync(p, "utf8") } = {}) {
+// `only` names one epic folder: its stories alone are read, so a file that
+// cannot be read is counted against that epic (the spec "The epic rule…",
+// contract 5).
+export function readFlowStories(vault, epicsPath, { read = (p) => readFileSync(p, "utf8"), only = null } = {}) {
   const stories = [];
   let unread = 0;
   let epics;
   try {
-    epics = readdirSync(join(vault, epicsPath)).sort();
+    epics = only === null ? readdirSync(join(vault, epicsPath)).sort() : [only];
   } catch (e) {
     // No epics folder is no stories; one that cannot be read is counted.
     return { stories, unread: e?.code === "ENOENT" ? 0 : 1 };

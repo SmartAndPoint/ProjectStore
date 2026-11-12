@@ -31,6 +31,17 @@ export function statusToColumn(status) {
   return Object.hasOwn(STATUS_COLUMNS, status) ? STATUS_COLUMNS[status] : "Backlog";
 }
 
+// A story's state for the epic rule (scripts/epic-rule.mjs) and doctor's
+// `epic-status`, from its raw status read trimmed and lower-cased: "done"
+// when the board's column is Done (`done`, `closed`), "set-aside" when it is
+// NOT_ACTIONABLE, and "open" otherwise, a missing status and a word the table
+// does not name included (the spec "The epic rule…", contracts 1 and 8).
+export function storyState(raw) {
+  const status = raw === null || raw === undefined ? "" : String(raw).trim().toLowerCase();
+  if (NOT_ACTIONABLE.has(status)) return "set-aside";
+  return statusToColumn(status) === "Done" ? "done" : "open";
+}
+
 // The band's three stages, folded from the board's columns.
 export const COLUMN_STAGE = Object.freeze({
   Done: "done",

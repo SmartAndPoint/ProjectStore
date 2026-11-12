@@ -1148,6 +1148,10 @@ const SCRIPT_ONLY = [
     why: "PS-FLOW's epic-row entry: the gates are pure and write no file, so the story command's plan and close ceremonies update the epic's Stories row after their own write, through the same read-again writer move uses",
   },
   {
+    script: "epic-rule.mjs",
+    why: "PS-FLOW's epic rule entry: the close ceremony plans it before its preview and applies it after the epic row, as it runs status-change.mjs; the bin's reconcile then refreshes the views, and `follow` will call the same export, so a verb of its own would add a public name for one caller",
+  },
+  {
     script: "worktree.mjs",
     why: "PS-WT's inherit probe; its consumer copies the parent config verbatim, which bind deliberately does not do",
   },

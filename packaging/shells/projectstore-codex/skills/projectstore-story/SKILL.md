@@ -170,6 +170,20 @@ cannot collide).
    the harness's user-input mechanism: Yes / Edit / No. A Yes also covers the story's row in its
    epic's Stories table, which step 6d sets to the new status.
 
+   On a `close` only, before the preview, plan the epic rule as if the story
+   were done (`<story-path>` is the absolute `path` from step 2):
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/scripts/epic-rule.mjs" "<story-path>" --assume-done
+   ```
+
+   It writes nothing. Show in the preview the `line` of each epic it lists
+   in `epics` and the `message` of each of its `notes`: any epic of the vault
+   may be listed, not only this story's. Say that a Yes covers them too: it
+   covers the rule's action on the vault as it is when step 6e runs, not this
+   snapshot. A non-zero exit is shown in the preview with its `error` and
+   does not hold the close. The plan gate does not run the rule.
+
 5. **Immediately before writing**, re-run the script and verify its `content`
    (before your section edits) still matches what you previewed against — a
    human may have edited the file in Obsidian meanwhile. On divergence:
@@ -207,7 +221,7 @@ cannot collide).
      <baseline-path>`), the derived targets (`kanban`, plus `indexes=<epic
      folder>` when status changed), and the doctor pre-state line. On a clean
      report (`verbatim: true`, `stopped_at: null`, doctor no worse than the
-     pre-state) skip steps 6-6b and run step 6c, then step 6d — the clerk's report is the write evidence. After
+     pre-state) skip steps 6-6b and run step 6c, then step 6d, then step 6e — the clerk's report is the write evidence. After
      any report with `written: true`, clean or stopped, first record the copy,
      before you fix anything or re-delegate:
 
@@ -219,7 +233,7 @@ cannot collide).
      after the copy, the ceremony restarts at reconcile, not at the race gate;
      take a new snapshot before the spawn) or finish the remaining steps
      yourself (the copy is idempotent).
-   - No clerk available → perform steps 6-6c yourself, then 6d. There is no fallback
+   - No clerk available → perform steps 6-6c yourself, then 6d, then 6e. There is no fallback
      agent: a general-purpose writer is an unpinned procedure.
 
 6. **On Yes** (undelegated path): Write the full file. On a `plan`, finish by
@@ -273,8 +287,38 @@ cannot collide).
    non-zero exit is a write error: report it; it never undoes the gate's
    write.
 
-6e. **(close only) The commit hint.** End the close with a one-line hint to
-   commit the story's paths if the vault is git-tracked: run
+6e. **(close only, both paths) The epic rule.** Here in the main thread,
+   after 6d, on the clerk's path and on the undelegated one alike (the clerk
+   never runs it):
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/scripts/epic-rule.mjs" "<story-path>" --write
+   ```
+
+   It makes done every epic of the vault that is due: its own status is
+   neither done nor set aside, at least one of its stories is done, every
+   other is done or set aside (`superseded`, `deferred`, `parked`), no open
+   row of its Stories table lacks a story file, and every Expected Result is
+   checked. It never moves an epic back, and it runs no reconcile. Whenever
+   its `moved` is not empty, whatever the exit, refresh every derived view
+   (an epic's status shows in the epics index, the code map and the graph; a
+   bare `--write` refuses without a terminal, so all four targets are named)
+   and check the vault:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" reconcile --write --only kanban,codemap,graph,indexes --project "$PWD"
+   node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" doctor --vault --project "$PWD"
+   ```
+
+   Then name the moved epics to the user, since they may differ from the
+   preview's, and pass on its notes (`epic-results-open`,
+   `epic-rows-without-file`). Exit 1 is an epic's error, such as
+   `story-changed-meanwhile` or a folder that cannot be written: report it;
+   it never undoes the close, and the next close moves the epic.
+
+6f. **(close only) The commit hint.** End the close with a one-line hint to
+   commit the story's paths, and the epics step 6e moved, if the vault is
+   git-tracked: run
    `$projectstore-precommit` before you commit those paths, and do what its
    last line says.
 

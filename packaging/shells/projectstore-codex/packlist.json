@@ -85,6 +85,7 @@
   "node_modules/projectstore/scripts/doctor-report.mjs",
   "node_modules/projectstore/scripts/doctor.mjs",
   "node_modules/projectstore/scripts/draft.mjs",
+  "node_modules/projectstore/scripts/epic-rule.mjs",
   "node_modules/projectstore/scripts/fetch-shell.mjs",
   "node_modules/projectstore/scripts/flow-counts.mjs",
   "node_modules/projectstore/scripts/flow-policy.mjs",
