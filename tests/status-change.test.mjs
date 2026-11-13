@@ -305,3 +305,49 @@ test("gates: existing Status log lines, one written by hand, stay byte-identical
     assert.equal(gate(proj, mode, path, ["--check", base]).json.check.match, false, `${mode}: a reason is drift`);
   }
 });
+
+// ─── close --at: the event time, only from follow ──────────────────────
+
+// [follow#6] [SPEC-001#7]
+test("close --at with the actor close gate, with no actor, on plan, and with an unreadable instant exits 1 and prints no content (failure)", () => {
+  const { proj, path } = seed({ story: STORY.replace("status: planned", "status: in-progress") });
+  for (const extra of [
+    ["--at", "2026-11-02T10:00:00Z", "--actor", "close gate"],
+    ["--at", "2026-11-02T10:00:00Z"],
+    ["--at", "2026-02-30T10:00:00Z", "--actor", "follow"],
+    ["--at=soon", "--actor", "follow"],
+    ["--at", "--actor", "follow"],
+  ]) {
+    const r = gate(proj, "close", path, extra);
+    assert.equal(r.status, 1, JSON.stringify(extra));
+    assert.equal(r.stdout, "", JSON.stringify(extra));
+    assert.match(r.stderr, /projectstore\/story-section: .*--at/, JSON.stringify(extra));
+  }
+  const plan = gate(proj, "plan", path, ["--at", "2026-11-02T10:00:00Z", "--actor", "follow"]);
+  assert.deepEqual([plan.status, plan.stdout], [1, ""]);
+  assert.equal(readFileSync(path, "utf8"), STORY.replace("status: planned", "status: in-progress"));
+});
+
+// [follow#6] [SPEC-001#3] [SPEC-001#7]
+test("close --at with --actor follow: closed_at, status_changed_at and the line take the instant in nowIso() form, updated and the footer the run's day", () => {
+  const { proj, path } = seed({ story: STORY.replace("status: planned", "status: review") });
+  const r = gate(proj, "close", path, ["--at", "2026-11-02T10:00:00Z", "--actor", "follow", "--reason", "merged: u"]);
+  assert.equal(r.status, 0, r.stderr);
+  const f = parseFrontmatter(r.json.content).data;
+  assert.deepEqual(
+    [f.status, f.closed_at, f.status_changed_at],
+    ["done", "2026-11-02T10:00:00.000Z", "2026-11-02T10:00:00.000Z"],
+  );
+  assert.deepEqual(
+    parseStatusLog(r.json.content).map((e) => e.line),
+    ["- 2026-11-02T10:00:00.000Z status: review → done — merged: u (follow)"],
+  );
+  const day = new Date().toISOString().slice(0, 10);
+  assert.equal(String(f.updated), day);
+  assert.match(r.json.content, new RegExp(`\\*Last updated: ${day}\\*`));
+  // The gate's own close keeps the run time.
+  const before = Date.now() - 1000;
+  const own = parseFrontmatter(gate(proj, "close", path).json.content).data;
+  assert.ok(Date.parse(own.closed_at) >= before, own.closed_at);
+  assert.equal(own.status_changed_at, own.closed_at);
+});

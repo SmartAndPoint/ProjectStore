@@ -86,6 +86,7 @@
   "scripts/flow-counts.mjs",
   "scripts/flow-policy.mjs",
   "scripts/flow-stories.mjs",
+  "scripts/follow-plan.mjs",
   "scripts/graph.mjs",
   "scripts/guides.mjs",
   "scripts/harness.mjs",

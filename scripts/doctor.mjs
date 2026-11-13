@@ -2797,6 +2797,27 @@ export function checkLifecycleGates(artifacts, vaultCfg) {
   return out;
 }
 
+// The refusal of follow's close (the follow spec, contract 5): these checks'
+// findings of the seven kinds, on artifacts holding the would-be bytes closed
+// at the run time. The caller keeps those whose `file` is its story.
+const CLOSE_KINDS = new Set([
+  "acceptance",
+  "evidence",
+  "plan-gate",
+  "final-summary",
+  "spec-coverage",
+  "spec-status",
+  "spec-acceptance",
+]);
+export function storyCloseFindings(artifacts, vaultCfg, layout) {
+  return [
+    ...checkStoriesAndEpics(artifacts),
+    ...checkSpecCoverage(artifacts, vaultCfg, layout),
+    ...checkSpecAcceptance(layout, artifacts, vaultCfg),
+    ...checkLifecycleGates(artifacts, vaultCfg),
+  ].filter((f) => CLOSE_KINDS.has(f.check));
+}
+
 // ─── Contract scenarios and citations (the spec policy ADR, Part A) ───
 
 // A spec's Behavioral contracts as data. A contract is a top-level numbered

@@ -22,6 +22,8 @@ import {
   oneLine,
   checkActor,
   STATUS_ACTORS,
+  isAwaitingClose,
+  AWAITING_REASON,
 } from "../scripts/status-log.mjs";
 import {
   loadTemplate,
@@ -30,6 +32,7 @@ import {
   headingLineRe,
   parseFrontmatter,
 } from "../scripts/lib.mjs";
+import { withLine } from "./fixtures/flow.mjs";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const LOCALES = readdirSync(join(REPO, "templates")).filter((d) =>
@@ -378,4 +381,27 @@ test("trust rule: an untrusted stamp with updated: soon and a readable created i
   assert.equal(s.at, "2026-11-01");
   const none = t.replace(/^created: .*\n/m, "");
   assert.deepEqual(statusStamp(none), { trusted: false, at: null, source: null, why: "differs" });
+});
+
+// [follow#6] [SPEC-001#3]
+test("equal sides: a review story gets a review → review line and status_changed_at at its time with the option, and is unchanged without it (edge)", () => {
+  const review = change(story()).text;
+  const t = applyStatusChange(review, { to: "review", reason: "ready", actor: "move", at: AT }).text;
+  const why = `${AWAITING_REASON}: https://example.invalid/pull/7`;
+  const opts = { to: "review", reason: why, actor: "follow", at: LATER };
+  const without = applyStatusChange(t, opts);
+  assert.deepEqual([without.text, without.changed, without.line], [t, false, null], "without it, equal is no change");
+  const withIt = applyStatusChange(t, { ...opts, equal: true });
+  assert.equal(withIt.changed, true);
+  assert.equal(withIt.line, `- ${LATER} status: review → review — ${why} (follow)`);
+  // Byte-equal to the fixture's hand-written awaiting line.
+  assert.equal(withIt.text, withLine(t, { at: LATER, from: "review", to: "review", reason: why }));
+  assert.equal(fm(withIt.text).status_changed_at, LATER);
+  assert.equal(fm(withIt.text).status, "review");
+  assert.deepEqual(statusStamp(withIt.text), { trusted: true, at: LATER, source: "stamp", why: null });
+  assert.equal(isAwaitingClose(withIt.text), true);
+  // Statuses that differ are a change as before, the option or not.
+  const moved = applyStatusChange(review, { to: "review", reason: why, actor: "follow", at: LATER, equal: true });
+  assert.equal(moved.text, applyStatusChange(review, { to: "review", reason: why, actor: "follow", at: LATER }).text);
+  assert.match(moved.line, /status: in-progress → review — /);
 });
