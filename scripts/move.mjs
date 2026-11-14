@@ -20,7 +20,7 @@
 // result, text}, and the bin (cli.mjs) prints and asks. Loaded lazily.
 
 import { existsSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { packageCommand } from "./harness.mjs";
 import {
   loadLayout,
@@ -222,29 +222,13 @@ export async function runMove(ctx) {
   // a second run finishes what a failed first one left.
   done.status = String(parseFrontmatter(readFileSync(found.path, "utf8")).data.status ?? "").trim();
   done.epic = syncEpicRow(found.path, { onWrite });
-  const { runReconcile } = await import("./reconcile.mjs");
-  let rec;
-  try {
-    // The generators find the binding through the project's own environment,
-    // never through the caller's working directory.
-    const { ownEnv: projectEnv } = await import("./verbs.mjs");
-    rec = runReconcile({
-      write: true,
-      only: null,
-      projectDir: project,
-      env: ownEnv ? ownEnv(project) : projectEnv(env, project),
-    });
-  } catch (e) {
-    rec = { error: e && e.message ? e.message : String(e) };
-  }
-  done.reconcile = rec.summary ?? null;
-  // The targets that failed, by path and error, so the message says which view
-  // is left and why (the regeneration spec, contract 1's per-target report).
-  const failedViews = [rec.kanban, rec.codemap, rec.graph, ...(Array.isArray(rec.indexes) ? rec.indexes : [])]
-    .filter((t) => t && t.error)
-    .map((t) => `${t.path ? relative(project, t.path) || t.path : "a view"}: ${t.error}`);
-  if (!rec.error && failedViews.length) rec.error = failedViews.join("; ");
-  const recFailed = Boolean(rec.error || (rec.summary && rec.summary.failed > 0));
+  const { refreshViews } = await import("./reconcile.mjs");
+  // The generators find the binding through the project's own environment,
+  // never through the caller's working directory.
+  const { ownEnv: projectEnv } = await import("./verbs.mjs");
+  const rec = refreshViews({ project, env: ownEnv ? ownEnv(project) : projectEnv(env, project) });
+  done.reconcile = rec.summary;
+  const recFailed = rec.failed;
   const epicFailed = Boolean(done.epic.error);
   if (recFailed || epicFailed) {
     const left = [

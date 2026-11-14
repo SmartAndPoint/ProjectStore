@@ -19,6 +19,7 @@ VAULT
 CHECK AND REPAIR
   doctor       Check the install wiring and the vault's consistency.
   reconcile    Regenerate the derived views (kanban, code map, graph, indexes).
+  follow       Move stories as their pull requests merge, close or go stale.
   upgrade      After an update, refresh what install wrote and leave the rest.
 
 ADVANCED

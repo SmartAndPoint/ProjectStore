@@ -425,7 +425,7 @@ test("presentation criterion 3: every path a real plan writes and every host arg
 const HELP_GROUPS = {
   START: ["setup", "configure", "uninstall"],
   VAULT: ["status", "search", "show", "graph", "codemap"],
-  "CHECK AND REPAIR": ["doctor", "reconcile", "upgrade"],
+  "CHECK AND REPAIR": ["doctor", "reconcile", "follow", "upgrade"],
 };
 
 // A stream for run(): a terminal (isTTY, 80 columns) or a pipe.
@@ -550,7 +550,7 @@ test("presentation criterion 5: top-level --help lists the verbs in named groups
   // A group lists only the verbs this run's table has.
   const fewer = usage(
     {},
-    VERBS.filter((v) => !["graph", "doctor", "reconcile", "upgrade"].includes(v.verb)),
+    VERBS.filter((v) => !["graph", "doctor", "reconcile", "follow", "upgrade"].includes(v.verb)),
     { caps: PLAIN, version: VERSION },
   ).split("\n");
   assert.ok(!fewer.includes("CHECK AND REPAIR") && !fewer.some((l) => l.startsWith("  graph ")), fewer.join("\n"));

@@ -74,7 +74,7 @@
   <div class="prose">
     <p><b>The npm registry</b>, <code>registry.npmjs.org</code> or the registry your npm is set to. Setup, install and upgrade ask it for the newest release of ProjectStore, with no credentials, when they run from npm or from a git checkout; never from the copy Claude Code or Codex loads, and never in a dry run. The answer is kept on your machine for 24 hours. Setting <code>PROJECTSTORE_NO_UPDATE_CHECK=1</code> turns the request off.</p>
     <p><b>The same registry, for Codex.</b> When setup, install or upgrade sets up Codex, npm fetches the Codex plugin's package from the registry your npm is set to, with npm's own settings and with no install script run.</p>
-    <p>ProjectStore's own code sends nothing else: the hooks, the MCP server, the band above the prompt and the status line open no connection, and every request above is made by a command you run. Two programs it runs may connect on their own. When the configure menu reads Codex's model list, Codex refreshes its catalog with your Codex login. The status line command you had before runs as you set it.</p>
+    <p>ProjectStore's own code sends nothing else: the hooks, the MCP server, the band above the prompt and the status line open no connection, and every request above is made by a command you run. Three programs it runs may connect on their own. When the configure menu reads Codex's model list, Codex refreshes its catalog with your Codex login. When you run <code>follow</code>, the GitHub CLI, <code>gh</code>, reads your pull requests from your code host with your own <code>gh</code> login, to move stories as their pull requests merge; ProjectStore reads no token. The status line command you had before runs as you set it.</p>
   </div>
 </section>
 

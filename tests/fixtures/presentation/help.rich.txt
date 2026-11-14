@@ -19,6 +19,7 @@
 [1mCHECK AND REPAIR[22m
   [36mdoctor[39m       Check the install wiring and the vault's consistency.
   [36mreconcile[39m    Regenerate the derived views (kanban, code map, graph, indexes).
+  [36mfollow[39m       Move stories as their pull requests merge, close or go stale.
   [36mupgrade[39m      After an update, refresh what install wrote and leave the rest.
 
 [1mADVANCED[22m

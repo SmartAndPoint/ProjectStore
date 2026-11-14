@@ -514,6 +514,26 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
+  // A story's status that follows its pull request (the follow spec,
+  // contract 1): bare, the plan; --write applies it, asking at a terminal.
+  Object.freeze({
+    verb: "follow",
+    summary: "Move stories as their pull requests merge, close or go stale.",
+    usage: NO_FORMS,
+    module: "./follow.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("story", "<EPIC>/<id>", "only this story: the one it names, resolved as move resolves a story"),
+      opt("pr", "<n|url>", "only the stories this pull request closes"),
+      opt("write", false, "apply it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
   Object.freeze({
     verb: "bind",
     summary: "Bind this project to an existing vault; naming it confirms.",
@@ -614,7 +634,7 @@ export const PLANNED_VERBS = Object.freeze([]);
 const HELP_GROUPS = [
   ["START", ["setup", "configure", "uninstall"]],
   ["VAULT", ["status", "search", "show", "graph", "codemap"]],
-  ["CHECK AND REPAIR", ["doctor", "reconcile", "upgrade"]],
+  ["CHECK AND REPAIR", ["doctor", "reconcile", "follow", "upgrade"]],
 ];
 // The column a group's summaries start at: two spaces, the verb in twelve,
 // one space. A summary fits 80 columns from there, so each is at most 65
@@ -696,6 +716,11 @@ const EXAMPLES = {
     '{cmd} move PS-CORE/story-x todo --reason "next up"  # the plan; nothing is written',
     '{cmd} move PS-CORE/story-x todo --reason "next up" --write',
     '{cmd} move PS-CORE/story-x planned --reason "not this week" --write',
+  ],
+  follow: [
+    "{cmd} follow  # the plan from the pull requests; nothing is written",
+    "{cmd} follow --write",
+    "{cmd} follow --story PS-CORE/story-x --write",
   ],
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
