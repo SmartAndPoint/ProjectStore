@@ -890,6 +890,60 @@ test("user text: next's planned stories put each move alone on its line, after a
   assert.ok(lead && lead.endsWith(":"), r.text);
 });
 
+// [handover#1] [handover#3]
+test("user text: handover's plan and its views-left refusal put the command alone on its line, after a lead naming the directory, no --project", async () => {
+  const { runHandover } = await import("../scripts/handover.mjs");
+  const { flowVault, storyText } = await import("./fixtures/flow.mjs");
+  const fx = flowVault({ stories: { "PS-X/story-a": storyText({ id: "story-a", assignee: "First Last" }) } });
+  const values = { from: "First Last", to: "Other Person", reason: "left the team" };
+  const r = await runHandover({ values, cfg: fx.cfg, project: fx.proj, env: process.env });
+  const cmd = packageCommand([], "handover", {
+    args: "--from 'First Last' --to 'Other Person' --reason 'left the team' --write",
+  });
+  assert.deepEqual(lintOutput("handover plan", r.text, { alone: [cmd] }), []);
+  const lead = r.text.split("\n").find((l) => l.includes(fromTerminalIn(fx.proj)));
+  assert.ok(lead && lead.endsWith(":"), r.text);
+  // A kanban.md that is a folder: the views cannot be refreshed.
+  mkdirSync(join(fx.vault, "kanban.md", "blocker"), { recursive: true });
+  const left = await runHandover({
+    values: { ...values, write: true },
+    cfg: fx.cfg,
+    project: fx.proj,
+    env: process.env,
+  });
+  assert.equal(left.code, 1, left.text);
+  assert.deepEqual(lintOutput("handover views left", left.text, { alone: [cmd] }), []);
+  const k = left.text.split("\n").indexOf(cmd);
+  assert.ok(k > 0 && left.text.split("\n")[k - 1].endsWith(`${fromTerminalIn(fx.proj)}:`), left.text);
+});
+
+// [flow-findings#5] [handover#6]
+test("user text: assignee-left and assignee-idle put the handover command alone on its line, after a lead naming the directory (rule 5)", async () => {
+  const { flowVault, storyText, doctorRun, byCheck, daysAgo } = await import("./fixtures/flow.mjs");
+  const at = daysAgo(30);
+  const fx = flowVault({
+    vaultCfg: { flow: { idle_days: 7, people: { "Gone Person": { left: "2026-11-01" } } } },
+    stories: {
+      "PS-X/story-a": storyText({ id: "story-a", assignee: "Gone Person" }),
+      "PS-X/story-b": storyText({
+        id: "story-b",
+        assignee: "First Last",
+        log: [{ to: "in-progress", at }],
+        fm: { started_at: JSON.stringify(at) },
+      }),
+    },
+  });
+  const found = doctorRun(fx);
+  const [left] = byCheck(found, "assignee-left");
+  const [idle] = byCheck(found, "assignee-idle");
+  assert.ok(left && idle, JSON.stringify(found.map((f) => f.check)));
+  const cmd = (name) => packageCommand([], "handover", { args: `--from '${name}' --to <name> --reason '<why>'` });
+  // lintFinding draws the install group; a flow finding is drawn there the same way.
+  const drawn = (f) => ({ ...f, group: "install" });
+  assert.deepEqual(lintFinding("assignee-left", drawn(left), [cmd("Gone Person")], fx.proj), []);
+  assert.deepEqual(lintFinding("assignee-idle", drawn(idle), [cmd("First Last")], fx.proj), []);
+});
+
 test("user text, rule (b): neither Codex tree names a shell as a command", () => {
   const trees = [
     join(ROOT, "adapters", "codex"),

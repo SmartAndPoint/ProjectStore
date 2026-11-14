@@ -18,6 +18,7 @@ import {
   windowOf,
   windowCounts,
   weekStart,
+  openStoriesOf,
   DAY_MS,
 } from "../scripts/flow-counts.mjs";
 import { stampMs, statusStamp, isAwaitingClose, AWAITING_REASON } from "../scripts/status-log.mjs";
@@ -233,6 +234,69 @@ test("windows: a story with no created, and one whose created reads soon, are cr
     windowCounts([fa, fb], win).created.map((f) => f.slug),
     ["story-x", "story-y"],
   );
+});
+
+// ─── Contract 8: a person's open work ──────────────────────────────────
+
+const slugs = (fs) => fs.map((f) => f.slug);
+
+// [flow-counts#8]
+test("open work: Ada's planned, todo, in-progress, review and awaiting stories are hers; done, closed, parked and superseded are not", () => {
+  const at = daysAgo(5);
+  const ada = (id, status) => facts(id, { assignee: "Ada", status });
+  const awaiting = fromText(
+    "story-e",
+    withLine(storyText({ id: "story-e", assignee: "Ada", log: [{ to: "review", at: daysAgo(9) }] }), {
+      at,
+      from: "review",
+      to: "review",
+      reason: `${AWAITING_REASON}: <url>`,
+    }),
+  );
+  assert.equal(awaiting.awaiting, true, "the awaiting story is awaiting close (control)");
+  const all = [
+    ada("story-a", "planned"),
+    ada("story-b", "todo"),
+    ada("story-c", "in-progress"),
+    ada("story-d", "review"),
+    awaiting,
+    ada("story-f", "done"),
+    ada("story-g", "closed"),
+    ada("story-h", "parked"),
+    ada("story-i", "superseded"),
+  ];
+  assert.deepEqual(slugs(openStoriesOf(all, "Ada")).sort(), ["story-a", "story-b", "story-c", "story-d", "story-e"]);
+});
+
+// [flow-counts#8]
+test("open work: a story with no status, and one whose status is soon, are in it (edge)", () => {
+  const none = facts("story-n", { assignee: "Ada", status: '""' });
+  const soon = facts("story-s", { assignee: "Ada", status: "soon" });
+  assert.equal(none.column, null, "no status counts nowhere (control)");
+  assert.deepEqual(slugs(openStoriesOf([none, soon], "Ada")).sort(), ["story-n", "story-s"]);
+});
+
+// [flow-counts#8]
+test("open work: aged 9 and 3 days, one with no date, and two of the same age: oldest first, ties by path, undated last (edge)", () => {
+  const aged = (id, n) => facts(id, { assignee: "Ada", log: [{ to: "todo", at: daysAgo(n) }] });
+  const undated = fromText(
+    "story-u",
+    storyText({ id: "story-u", assignee: "Ada", fm: { created: '""', updated: '""', date: '""' } }),
+  );
+  assert.equal(undated.age.at, null, "no date (control)");
+  const list = [aged("story-3", 3), undated, aged("story-y", 5), aged("story-9", 9), aged("story-x", 5)];
+  assert.deepEqual(slugs(openStoriesOf(list, "Ada")), ["story-9", "story-x", "story-y", "story-3", "story-u"]);
+});
+
+// [flow-counts#8]
+test("open work: stories assigned to ' Ada ', 'ada' and constructor: Ada's holds the trimmed one, constructor's its own (edge)", () => {
+  const spaced = facts("story-a", { assignee: " Ada ", status: "todo" });
+  const lower = facts("story-b", { assignee: "ada", status: "todo" });
+  const ctor = facts("story-c", { assignee: "constructor", status: "todo" });
+  const all = [spaced, lower, ctor];
+  assert.deepEqual(slugs(openStoriesOf(all, "Ada")), ["story-a"]);
+  assert.deepEqual(slugs(openStoriesOf(all, "constructor")), ["story-c"]);
+  assert.deepEqual(openStoriesOf(all, "__proto__"), []);
 });
 
 // [flow-counts#1]

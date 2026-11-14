@@ -550,6 +550,29 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
+  // One person's open stories to another, with a logged reason (the handover
+  // spec, contract 1): bare, the plan; --write applies it, asking once at a
+  // terminal. --from, --to and --reason are required; the handler says so.
+  Object.freeze({
+    verb: "handover",
+    summary: "Give a leaving person's open stories to another, with a reason.",
+    usage: NO_FORMS,
+    module: "./handover.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("from", "<name>", "the person whose open stories move (required), as stories write the assignee"),
+      opt("to", "<name>", "the person who takes them (required)"),
+      opt("reason", "<text>", "why the work changes hands, one line (required): it goes into each story's Status log"),
+      opt("story", "<EPIC>/<id>", "only this story, resolved as move resolves a story"),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
   // The page over this project's vault (the dashboard spec, contracts 3–8):
   // a launcher that starts the page's own server and serves until an
   // interrupt. The project may also come as a path, the maintainer's form;
@@ -759,6 +782,11 @@ const EXAMPLES = {
     "{cmd} follow  # the plan from the pull requests; nothing is written",
     "{cmd} follow --write",
     "{cmd} follow --story PS-CORE/story-x --write",
+  ],
+  handover: [
+    '{cmd} handover --from "First Last" --to "Other Person" --reason "left the team"  # the plan; nothing is written',
+    '{cmd} handover --from "First Last" --to "Other Person" --reason "left the team" --write',
+    '{cmd} handover --from "First Last" --to "Other Person" --reason "on leave" --story PS-CORE/story-x --write',
   ],
   dashboard: ["{cmd} dashboard", "{cmd} dashboard --port 4810 --no-open"],
   mcp: ['{cmd} mcp --project "$PWD"'],

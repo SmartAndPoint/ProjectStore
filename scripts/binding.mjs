@@ -60,7 +60,7 @@ import {
   CHANNEL_SWITCH_KEY,
   CHANNEL_KEEP_KEY,
 } from "./lib.mjs";
-import { configPath as harnessConfigPath, packageCommand } from "./harness.mjs";
+import { configPath as harnessConfigPath, packageCommand, shellQuote } from "./harness.mjs";
 import { planScaffold, applyScaffold } from "./scaffold.mjs";
 import { icon, kv, commandBlock, wrap, PLAIN } from "./term.mjs";
 
@@ -175,7 +175,8 @@ export function applyBindingKeys(plan) {
   return { wrote: true };
 }
 
-export const shellQuote = (s) => (/^[A-Za-z0-9_/.~-]+$/.test(s) ? s : `'${String(s).replace(/'/g, `'\\''`)}'`);
+// shellQuote lives in harness.mjs, beside packageCommand; its importers here keep it.
+export { shellQuote };
 
 // A directory with no entries at all. A `.DS_Store` makes it not empty: that
 // edge stays visible rather than guessed at. Unreadable is not empty either.

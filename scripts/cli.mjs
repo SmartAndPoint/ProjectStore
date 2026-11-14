@@ -25,7 +25,7 @@
 // same way: its write set is one story, its epic row and the derived views.
 // There is no --yes.
 //
-// The install verbs, setup, configure, move, follow, next, dashboard, reconcile and the MCP server are
+// The install verbs, setup, configure, move, follow, handover, next, dashboard, reconcile and the MCP server are
 // imported lazily, on the run that needs them: hooks never import this module
 // (the suite asserts it), and a verb that runs none of them loads none.
 // Pure node, no external deps.
@@ -672,6 +672,31 @@ async function runFollowVerb(ctx) {
   return r.code;
 }
 
+// handover (the handover spec, contract 1): its own module, loaded on first
+// use, with move's question asked once for the whole run, naming the number
+// of stories — a terminal is asked, and without one, or under --json,
+// --write is the confirmation. No hook and no MCP module reaches it.
+async function runHandoverVerb(ctx) {
+  const { runHandover } = await import("./handover.mjs");
+  const { row, values, project, env, stdin, stdout, stderr, ask } = ctx;
+  const r = await runHandover({
+    ...ctx,
+    ownEnv: (p) => ownEnv(env, p),
+    confirm: async (preview, n) => {
+      const interactive =
+        !values.json &&
+        (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+      if (!interactive) return true;
+      stdout.write(preview);
+      return term.askApply(n, { stdin, stdout, ask, caps: term.caps(stdout, env) });
+    },
+  });
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+  else (r.ok ? stdout : stderr).write(r.text);
+  return r.code;
+}
+
 // next (the next verb's spec, contract 1): its own module, loaded on first
 // use. It writes nothing and asks nothing; it is served here, not by the read
 // runner, so no MCP or hook closure reaches it.
@@ -892,6 +917,7 @@ export const HANDLERS = Object.freeze({
   scaffold: runScaffold,
   move: runMoveVerb,
   follow: runFollowVerb,
+  handover: runHandoverVerb,
   next: runNextVerb,
   dashboard: runDashboardVerb,
   mcp: runMcp,

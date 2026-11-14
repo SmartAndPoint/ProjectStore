@@ -25,7 +25,7 @@ CHECK AND REPAIR
 
 ADVANCED
   plan · install · orientation · guide · agents · band · session · move ·
-  dashboard · bind · init · scaffold · mcp · version
+  handover · dashboard · bind · init · scaffold · mcp · version
 
 Options
   --project <dir>  the project (default: the session's, else this directory)

@@ -15,13 +15,14 @@
 //
 // Spec: "Doctor's flow findings: local git activity, idle work and people,
 // the policy gate, levels and privacy" (alias `flow-findings`), contracts 1
-// to 11, and "Flow counts…" (alias `flow-counts`), the findings of its
-// contracts 2 to 7. Registered by doctor.mjs runVaultChecks, never by
+// to 11, "Flow counts…" (alias `flow-counts`), the findings of its
+// contracts 2 to 8, and "The handover verb…" (alias `handover`), contract 6:
+// `assignee-left`. Registered by doctor.mjs runVaultChecks, never by
 // runStartupChecks (ADR-005 decision 4). Imports nothing of doctor.mjs, which
 // imports this module.
 
 import { folderByKind, fromTerminalIn, listOf } from "./lib.mjs";
-import { packageCommand } from "./harness.mjs";
+import { packageCommand, shellQuote } from "./harness.mjs";
 import {
   flowValue,
   flowDeclared,
@@ -30,6 +31,8 @@ import {
   gitNamesOf,
   wipLimitOf,
   isEmailAddress,
+  leftDateOf,
+  refusedName,
 } from "./flow-policy.mjs";
 import { readFlowStories } from "./flow-stories.mjs";
 import {
@@ -44,6 +47,7 @@ import {
   isYoung,
   capacityVerdict,
   oldestFirst,
+  openStoriesOf,
 } from "./flow-counts.mjs";
 import { stampMs } from "./status-log.mjs";
 import { refCovers } from "./code-refs.mjs";
@@ -55,6 +59,7 @@ export const FLOW_LEVELS = Object.freeze({
   "review-aged": "warn",
   "in-progress-idle": "warn",
   "assignee-idle": "warn",
+  "assignee-left": "warn",
   "intake-over-close": "warn",
   "todo-over-capacity": "warn",
   "flow-policy-invalid": "warn",
@@ -103,6 +108,12 @@ function named(facts) {
   const shown = facts.slice(0, NAMED_MAX).map(refOf).join(", ");
   return facts.length > NAMED_MAX ? `${shown} and ${facts.length - NAMED_MAX} more` : shown;
 }
+
+// The handover a finding offers (the handover spec, contract 6; the
+// flow-findings spec, contract 5): the core's form, the person's name quoted
+// as shellQuote quotes it, the receiver and the reason left for the reader.
+export const handoverCommand = (name) =>
+  packageCommand([], "handover", { args: `--from ${shellQuote(name)} --to <name> --reason '<why>'` });
 
 const fromWhere = (f) =>
   f.age.trusted ? "" : ` (the age is read from ${f.age.source}, since the status stamp is not trusted)`;
@@ -209,6 +220,22 @@ function flowFindings({ cfg, layout, vaultCfg, proj, now, commits, read: readFil
     );
   }
 
+  // The handover spec, contract 6: a person marked left who still holds open
+  // work (Flow counts, contract 8). No git is read for it.
+  for (const name of people.keys()) {
+    const left = leftDateOf(vaultCfg, name);
+    if (left === null) continue;
+    const open = openStoriesOf(facts, name);
+    if (!open.length) continue;
+    out.push(
+      finding(
+        "assignee-left",
+        `${who(name)} is marked left as of ${left} and still holds ${plural(open.length, "open story", "open stories")}: ${named(open)}. They can be handed over to someone else, ${fromTerminalIn(proj)}:\n${handoverCommand(name)}`,
+        { stories: open.map((f) => f.rel) },
+      ),
+    );
+  }
+
   // Flow counts, contract 3: age in status.
   const unstamped = { untrusted: [], undated: [] };
   if (review !== null) {
@@ -274,7 +301,7 @@ function flowFindings({ cfg, layout, vaultCfg, proj, now, commits, read: readFil
           `The idle checks did not run: ${ACTIVITY_TEXT[reason]} (${reason}). A failed read is not taken as no commit.`,
         ),
       );
-    } else out.push(...idleFindings({ facts, wip, vaultCfg, asOf, ipIdle, idleDays, commits: r.commits }));
+    } else out.push(...idleFindings({ facts, wip, vaultCfg, proj, asOf, ipIdle, idleDays, commits: r.commits }));
   }
 
   // Flow counts, contracts 6 and 7: the window, intake, closes and capacity.
@@ -332,11 +359,13 @@ function flowFindings({ cfg, layout, vaultCfg, proj, now, commits, read: readFil
     }
   }
 
-  // The flow-findings spec, contract 8: a listed person no story names.
+  // The flow-findings spec, contract 8: a listed person no story names,
+  // unless they are marked left: someone who left and holds nothing is the
+  // expected end of a handover.
   if (peopleSet) {
     const assigned = new Set(facts.map((f) => f.assignee));
     for (const name of people.keys())
-      if (!assigned.has(name))
+      if (!assigned.has(name) && leftDateOf(vaultCfg, name) === null)
         out.push(
           finding("flow-person-unknown", `${who(name)} is listed in flow.people, but no story names them as assignee.`),
         );
@@ -361,7 +390,7 @@ export function activityTime(c, names) {
   return t;
 }
 
-function idleFindings({ facts, wip, vaultCfg, asOf, ipIdle, idleDays, commits }) {
+function idleFindings({ facts, wip, vaultCfg, proj, asOf, ipIdle, idleDays, commits }) {
   const out = [];
   const namesFor = new Map();
   const nameSet = (person) => {
@@ -407,10 +436,15 @@ function idleFindings({ facts, wip, vaultCfg, asOf, ipIdle, idleDays, commits })
       if (commit !== null && !meets(ageDays(commit, asOf), idleDays)) continue;
       const looked = namesOf(vaultCfg, person).map(who);
       const stories = oldestFirst(held);
+      // A name the handover verb refuses gets the prose and no command.
+      const handover =
+        refusedName(person) === null
+          ? `The work can be handed over to someone else, ${fromTerminalIn(proj)}:\n${handoverCommand(person)}`
+          : "The work can be handed over to someone else.";
       out.push(
         finding(
           "assignee-idle",
-          `${who(person)} holds ${plural(held.length, "story", "stories")} in progress or review and has no local commit in the last ${idleDays} days ${looked.length ? `under the names ${looked.join(", ")}` : "under any name doctor can match"}: ${named(stories)}. The work can be handed over to someone else. ${VAULT_REPO}`,
+          `${who(person)} holds ${plural(held.length, "story", "stories")} in progress or review and has no local commit in the last ${idleDays} days ${looked.length ? `under the names ${looked.join(", ")}` : "under any name doctor can match"}: ${named(stories)}. ${VAULT_REPO} ${handover}`,
           { stories: stories.map((f) => f.rel) },
         ),
       );

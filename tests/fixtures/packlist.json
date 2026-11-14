@@ -93,6 +93,7 @@
   "scripts/follow.mjs",
   "scripts/graph.mjs",
   "scripts/guides.mjs",
+  "scripts/handover.mjs",
   "scripts/harness.mjs",
   "scripts/install-handlers.mjs",
   "scripts/install-harness.mjs",

@@ -42,7 +42,7 @@ import { runConfigure } from "../scripts/configure.mjs";
 import { gitVault, addWorktree, writeStory } from "./fixtures/git-vault.mjs";
 import { writeBinding, makeVaultProject } from "./fixtures/vault.mjs";
 import { hookEnv, payload, fireTouch, fireTouchAsync, toolWrite } from "./fixtures/hooks.mjs";
-import { loadTemplate, renderTemplate } from "../scripts/lib.mjs";
+import { loadTemplate, renderTemplate, parseFrontmatter } from "../scripts/lib.mjs";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const SRC = sourceHarness();
@@ -384,6 +384,35 @@ test("node writers: move puts a planned story in ToDo with one event for the sto
   assert.equal(s.before, sha(before));
   assert.equal(s.after, sha(readFileSync(path, "utf8")));
   assert.ok(!ev.some((e) => e.rel === "kanban.md"), "the reconcile it runs is not recorded");
+});
+
+// [writerecord#5]
+test("node writers: move puts a planned story in ToDo, then handover --write gives it to another person: one more story event, tool handover", async () => {
+  const { proj, path } = moveFixture();
+  const env = { ...process.env, [SID_ENV]: "s1" };
+  const moved = await cli(proj, ["move", "PS-X/story-a", "todo", "--reason", "next up", "--write", "--json"], env);
+  assert.equal(moved.code, 0, moved.err);
+  const from = parseFrontmatter(readFileSync(path, "utf8")).data.assignee;
+  assert.ok(from, "the fixture story has an assignee (control)");
+  const before = readFileSync(path, "utf8");
+  const r = await cli(
+    proj,
+    ["handover", "--from", from, "--to", "Other Person", "--reason", "left the team", "--write", "--json"],
+    env,
+  );
+  assert.equal(r.code, 0, r.err);
+  const ev = events(proj, "s1");
+  assert.deepEqual(
+    ev.map((e) => [e.rel, e.tool]),
+    [
+      ["epics/PS-X/stories/story-a.md", "move"],
+      ["epics/PS-X/epic.md", "move"],
+      ["epics/PS-X/stories/story-a.md", "handover"],
+    ],
+  );
+  assert.equal(ev[2].before, sha(before));
+  assert.equal(ev[2].after, sha(readFileSync(path, "utf8")));
+  assert.ok(!ev.some((e) => !e.rel.startsWith("epics/")), "no derived view is recorded");
 });
 
 // [writerecord#5]

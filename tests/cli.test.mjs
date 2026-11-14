@@ -2870,6 +2870,7 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
     move: ["move <story> <status> [options]"], // new in PS-FLOW (SPEC-001 contract 7, the ready step)
     follow: ["follow [options]"], // new in PS-FLOW (the follow spec, contract 1)
     next: ["next [options]"], // new in PS-FLOW (the next verb's spec, contract 1)
+    handover: ["handover [options]"], // new in PS-FLOW (the handover spec, contract 1)
     dashboard: ["dashboard [<dir>] [options]"], // new in PS-DASHBOARD (the dashboard spec, contract 3)
   };
   assert.deepEqual(VERBS.map((v) => v.verb).sort(), Object.keys(GOLDEN).sort(), "every verb has its 0.29.2 forms here");
