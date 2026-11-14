@@ -5,8 +5,9 @@
 // (distribution ADR decisions 3 and 5). No logic lives here: the verb table,
 // the envelope and the per-verb parse are verbs.mjs's, the read verbs'
 // handlers are read-verbs.mjs's, and this module holds the handlers of the
-// verbs that write (and of mcp), and run(), which dispatches every verb of
-// the one table through both halves. It re-exports what it exported before
+// verbs that write (and of mcp, dashboard and next, which no MCP tool or hook
+// reaches), and run(), which dispatches every verb of the one table through
+// both halves. It re-exports what it exported before
 // the split — the table is a CONTRACT that packaging/shells.mjs and the
 // tests read from here — and the MCP server imports none of it: it runs the
 // read runner (the story "The MCP server's entry reaches no install verb
@@ -24,7 +25,7 @@
 // same way: its write set is one story, its epic row and the derived views.
 // There is no --yes.
 //
-// The install verbs, setup, configure, move, follow, dashboard, reconcile and the MCP server are
+// The install verbs, setup, configure, move, follow, next, dashboard, reconcile and the MCP server are
 // imported lazily, on the run that needs them: hooks never import this module
 // (the suite asserts it), and a verb that runs none of them loads none.
 // Pure node, no external deps.
@@ -671,6 +672,19 @@ async function runFollowVerb(ctx) {
   return r.code;
 }
 
+// next (the next verb's spec, contract 1): its own module, loaded on first
+// use. It writes nothing and asks nothing; it is served here, not by the read
+// runner, so no MCP or hook closure reaches it.
+async function runNextVerb(ctx) {
+  const { runNext } = await import("./next.mjs");
+  const { row, values, project, stdout, stderr } = ctx;
+  const r = await runNext(ctx);
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+  else (r.ok ? stdout : stderr).write(r.text);
+  return r.code;
+}
+
 // dashboard (the dashboard spec, contracts 3–8): its own module, loaded on
 // first use. The project is the path the line names, else the core's own
 // resolution; the binding is checked here, after the path is known, with
@@ -878,6 +892,7 @@ export const HANDLERS = Object.freeze({
   scaffold: runScaffold,
   move: runMoveVerb,
   follow: runFollowVerb,
+  next: runNextVerb,
   dashboard: runDashboardVerb,
   mcp: runMcp,
 });

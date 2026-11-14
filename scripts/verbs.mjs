@@ -318,6 +318,22 @@ export const VERBS = Object.freeze([
     mcp: Object.freeze(["status"]),
     options: READ_JSON,
   }),
+  // What a person does next (the next verb's spec, contract 1): started work
+  // first, new work only under the WIP limit. It writes nothing and has no
+  // MCP tool; its handler is cli.mjs's, so no MCP or hook closure reaches it.
+  Object.freeze({
+    verb: "next",
+    summary: "Started work first, then new work while under your WIP limit.",
+    usage: NO_FORMS,
+    module: "./next.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [opt("assignee", "<name>", "whose work (default: the binding's default_author)"), JSON_OPT],
+  }),
   Object.freeze({
     verb: "orientation",
     summary: "The SessionStart skeleton and the facts behind it.",
@@ -654,7 +670,7 @@ export const PLANNED_VERBS = Object.freeze([]);
 // (contract 10; the setup story, rule 1).
 const HELP_GROUPS = [
   ["START", ["setup", "configure", "uninstall"]],
-  ["VAULT", ["status", "search", "show", "graph", "codemap"]],
+  ["VAULT", ["status", "next", "search", "show", "graph", "codemap"]],
   ["CHECK AND REPAIR", ["doctor", "reconcile", "follow", "upgrade"]],
 ];
 // The column a group's summaries start at: two spaces, the verb in twelve,
@@ -707,6 +723,7 @@ const EXAMPLES = {
   ],
   plan: ["{cmd} plan{h}", "{cmd} plan{h} --json  # one envelope, for scripts and agents"],
   status: ["{cmd} status", "{cmd} status --json"],
+  next: ["{cmd} next", '{cmd} next --assignee "First Last" --json'],
   orientation: ["{cmd} orientation --json"],
   search: ['{cmd} search "entry rule" --kind spec', "{cmd} search queue --status accepted --limit 5"],
   show: ["{cmd} show adr/README.md", "{cmd} show epics/PS-CORE/epic.md --section acceptance"],

@@ -6,12 +6,13 @@
 // as the story command runs them.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, chmodSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { makeVaultProject } from "./fixtures/vault.mjs";
+import { storyText, withLine, daysAgo } from "./fixtures/flow.mjs";
 import {
   replaceWithRetry,
   changeStatus,
@@ -351,3 +352,210 @@ test("close --at with --actor follow: closed_at, status_changed_at and the line 
   assert.ok(Date.parse(own.closed_at) >= before, own.closed_at);
   assert.equal(own.status_changed_at, own.closed_at);
 });
+
+// ─── The plan gate's WIP check (the next verb's spec, contract 5) ──────
+
+// A bound vault whose binding's default_author is `author` (none when null),
+// with the story to plan at story-a, `vaultCfg` in the vault config and the
+// held stories `held` maps from a slug to its text.
+function wipSeed({ story = STORY, author = "Ada", vaultCfg = null, held = {} } = {}) {
+  const fx = seed({ story, vaultCfg });
+  const cfgPath = join(fx.proj, ".projectstore", "projectstore.json");
+  const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+  if (author === null) delete cfg.default_author;
+  else cfg.default_author = author;
+  writeFileSync(cfgPath, JSON.stringify(cfg));
+  for (const [slug, text] of Object.entries(held))
+    writeFileSync(join(fx.vault, "epics", "PS-X", "stories", `${slug}.md`), text);
+  return fx;
+}
+const started = (slug, who, days = 2) =>
+  storyText({ id: slug, assignee: who, log: [{ to: "in-progress", at: daysAgo(days) }] });
+const awaitingClose = (slug, who) =>
+  withLine(
+    storyText({
+      id: slug,
+      assignee: who,
+      log: [
+        { to: "in-progress", at: daysAgo(4) },
+        { to: "review", at: daysAgo(3) },
+      ],
+    }),
+    { at: daysAgo(2), from: "review", to: "review", reason: "merged, awaiting evidence" },
+  );
+const heldBy = (who, n, { awaitingOne = false } = {}) => {
+  const out = {};
+  for (let i = 1; i <= n; i++)
+    out[`story-h${i}`] = awaitingOne && i === n ? awaitingClose(`story-h${i}`, who) : started(`story-h${i}`, who, i);
+  return out;
+};
+const ADA3 = { flow: { people: { Ada: { wip: 3 } } } };
+
+// [next#5] [SPEC-001#7]
+test("plan gate: wip counts the new assignee's held stories before the run: 3 of 3 is over, 2 of 3 is not, and one awaiting close is not held (edge)", () => {
+  const over = wipSeed({ vaultCfg: ADA3, held: heldBy("Ada", 3) });
+  const a = gate(over.proj, "plan", over.path);
+  assert.equal(a.status, 0, a.stderr);
+  assert.deepEqual(a.json.wip, { assignee: "Ada", held: 3, after: 4, limit: 3, over: true, unread: 0 });
+  const under = wipSeed({ vaultCfg: ADA3, held: heldBy("Ada", 2) });
+  assert.deepEqual(gate(under.proj, "plan", under.path).json.wip, {
+    assignee: "Ada",
+    held: 2,
+    after: 3,
+    limit: 3,
+    over: false,
+    unread: 0,
+  });
+  const waiting = wipSeed({ vaultCfg: ADA3, held: heldBy("Ada", 3, { awaitingOne: true }) });
+  assert.deepEqual(gate(waiting.proj, "plan", waiting.path).json.wip, {
+    assignee: "Ada",
+    held: 2,
+    after: 3,
+    limit: 3,
+    over: false,
+    unread: 0,
+  });
+  // Without --over-wip the reason is the gate's own, over or not.
+  assert.deepEqual(lines(a.json.content), [
+    "- <ISO> status: planned → in-progress — work started (plan gate)",
+    "- <ISO> assignee: Other → Ada — work started (plan gate)",
+  ]);
+});
+
+// [next#5] [SPEC-001#7]
+test("plan gate: wip names the binding's default_author, not the story's assignee who is at their own limit (edge)", () => {
+  const fx = wipSeed({
+    story: STORY.replace('assignee: "Other"', 'assignee: "Grace"'),
+    vaultCfg: { flow: { people: { Ada: { wip: 3 }, Grace: { wip: 1 } } } },
+    held: heldBy("Grace", 1),
+  });
+  const w = gate(fx.proj, "plan", fx.path).json.wip;
+  assert.equal(w.assignee, "Ada");
+  assert.equal(w.held, 0);
+  assert.equal(w.over, false);
+  // With no default_author, the story's own assignee is the new one.
+  const own = wipSeed({
+    story: STORY.replace('assignee: "Other"', 'assignee: "Grace"'),
+    author: null,
+    vaultCfg: { flow: { people: { Grace: { wip: 1 } } } },
+    held: heldBy("Grace", 1),
+  });
+  assert.deepEqual(gate(own.proj, "plan", own.path).json.wip, {
+    assignee: "Grace",
+    held: 1,
+    after: 2,
+    limit: 1,
+    over: true,
+    unread: 0,
+  });
+});
+
+// [next#5] [SPEC-001#7]
+test("plan gate: wip is null on a story already in progress, for an assignee not in flow.people, and with no flow block (edge)", () => {
+  const inProgress = wipSeed({ story: STORY.replace("status: planned", "status: in-progress"), vaultCfg: ADA3 });
+  assert.equal(gate(inProgress.proj, "plan", inProgress.path).json.wip, null);
+  const unlisted = wipSeed({ vaultCfg: { flow: { people: { Grace: { wip: 1 } } } }, held: heldBy("Ada", 3) });
+  assert.equal(gate(unlisted.proj, "plan", unlisted.path).json.wip, null);
+  const none = wipSeed({ held: heldBy("Ada", 3) });
+  const r = gate(none.proj, "plan", none.path).json;
+  assert.ok(Object.hasOwn(r, "wip"));
+  assert.equal(r.wip, null);
+  // close prints no wip.
+  const closing = wipSeed({ story: STORY.replace("status: planned", "status: in-progress"), vaultCfg: ADA3 });
+  assert.ok(!Object.hasOwn(gate(closing.proj, "close", closing.path).json, "wip"));
+});
+
+// [next#5] [SPEC-001#7]
+test("plan gate: --over-wip at 3 of 3 adds `started over WIP limit 4/3` to the status line and the assignee line", () => {
+  const fx = wipSeed({
+    story: STORY.replace('assignee: "Other"', 'assignee: "Grace"'),
+    vaultCfg: ADA3,
+    held: heldBy("Ada", 3),
+  });
+  const r = gate(fx.proj, "plan", fx.path, ["--over-wip"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.json.wip.over, true);
+  assert.deepEqual(lines(r.json.content), [
+    "- <ISO> status: planned → in-progress — work started; started over WIP limit 4/3 (plan gate)",
+    "- <ISO> assignee: Grace → Ada — work started; started over WIP limit 4/3 (plan gate)",
+  ]);
+  assert.ok(!r.json.notes.some((n) => n.includes("--over-wip changed nothing")));
+  assert.equal(readFileSync(fx.path, "utf8"), STORY.replace('assignee: "Other"', 'assignee: "Grace"'), "no write");
+});
+
+// [next#5] [SPEC-001#7]
+test("plan gate: --over-wip with wip null, or not over because a story closed meanwhile, keeps the reason and says it changed nothing (edge)", () => {
+  const nul = wipSeed({ held: heldBy("Ada", 3) });
+  const held = heldBy("Ada", 2);
+  const notOver = wipSeed({ vaultCfg: ADA3, held });
+  for (const fx of [nul, notOver]) {
+    const r = gate(fx.proj, "plan", fx.path, ["--over-wip"]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(lines(r.json.content), [
+      "- <ISO> status: planned → in-progress — work started (plan gate)",
+      "- <ISO> assignee: Other → Ada — work started (plan gate)",
+    ]);
+    assert.ok(
+      r.json.notes.some((n) => n.startsWith("--over-wip changed nothing")),
+      r.json.notes.join("; "),
+    );
+  }
+});
+
+// [next#5] [SPEC-001#7]
+test("plan gate: a layout the count cannot read leaves wip null with a note, and the gate goes on (failure)", () => {
+  const fx = wipSeed({ vaultCfg: ADA3, held: heldBy("Ada", 3) });
+  const cfgPath = join(fx.proj, ".projectstore", "projectstore.json");
+  writeFileSync(cfgPath, JSON.stringify({ ...JSON.parse(readFileSync(cfgPath, "utf8")), layout: "no-such-layout" }));
+  const r = gate(fx.proj, "plan", fx.path);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.json.wip, null);
+  assert.ok(
+    r.json.notes.some((n) => n.startsWith("the WIP count could not be made, so wip is null")),
+    r.json.notes.join("; "),
+  );
+  assert.equal(parseFrontmatter(r.json.content).data.status, "in-progress");
+});
+
+// [SPEC-001#7]
+test("plan gate: a refused flow.people key such as __proto__ is not in flow.people, so the note names the person (edge)", () => {
+  const fx = wipSeed({ author: "__proto__" });
+  writeFileSync(join(fx.vault, ".projectstore.json"), '{"flow":{"people":{"__proto__":{"wip":1}}}}');
+  const r = gate(fx.proj, "plan", fx.path).json;
+  assert.equal(r.wip, null);
+  assert.ok(
+    r.notes.includes("__proto__ is not in the vault's flow.people, so the person has no WIP limit"),
+    r.notes.join("; "),
+  );
+});
+
+// [next#5] [SPEC-001#7]
+test("close gate: --over-wip exits 1 and prints no result (failure)", () => {
+  const fx = wipSeed({ story: STORY.replace("status: planned", "status: in-progress"), vaultCfg: ADA3 });
+  const r = gate(fx.proj, "close", fx.path, ["--over-wip"]);
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout, "");
+  assert.match(r.stderr, /--over-wip/);
+});
+
+// [next#5] [SPEC-001#7]
+test(
+  "plan gate: a story file that cannot be read is counted in wip.unread, and a note says the count can be low (failure)",
+  { skip: process.getuid?.() === 0 ? "root reads a file with no permissions" : false },
+  () => {
+    const fx = wipSeed({ vaultCfg: ADA3, held: heldBy("Ada", 2) });
+    const locked = join(fx.vault, "epics", "PS-X", "stories", "story-h2.md");
+    chmodSync(locked, 0o000);
+    try {
+      const r = gate(fx.proj, "plan", fx.path).json;
+      assert.equal(r.wip.unread, 1);
+      assert.equal(r.wip.held, 1);
+      assert.ok(
+        r.notes.some((n) => /could not be read, so the WIP count can be low/.test(n)),
+        r.notes.join("; "),
+      );
+    } finally {
+      chmodSync(locked, 0o644);
+    }
+  },
+);

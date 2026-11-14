@@ -127,6 +127,18 @@ cannot collide).
    own log line. The gate's defaults name the lines (`work started (plan
    gate)`, `closed (close gate)`); pass nothing else.
 
+   On a `plan`, the JSON also carries `wip`. On the move to in-progress it
+   is `{ assignee, held, after, limit, over, unread }` for the new assignee
+   (the binding's `default_author`, else the story's own assignee) when that
+   person has a WIP limit: `held` is their WIP before this run, `after` is
+   `held + 1`, and `over` is `true` when the start goes over the limit (a
+   note says when story files could not be read, so the count can be low).
+   With no start, no new assignee or no limit, `wip` is `null`. After a Yes
+   to step 2a's WIP question, run this command again with `--over-wip`
+   added: it appends `; started over WIP limit <after>/<limit>` to the
+   reason of the run's lines, and its `content` is the one you fill and
+   preview. `--over-wip` is for `plan` only; `close` refuses it.
+
 2a. **(plan only) Open questions, one round.** Before writing the plan,
    collect the open questions: the planner's "Open questions" when it ran,
    else your own; do not start the planner here. Keep only decisions the
@@ -149,6 +161,19 @@ cannot collide).
    in force, with a marker under it,
    `> amended YYYY-MM-DD by <EPIC-ID>/<story-id>: ADDED|MODIFIED|REMOVED — <why>`
    (see `guide spec`).
+
+   **The WIP question.** When step 2's `wip.over` is `true`, the round's
+   first question asks whether to start anyway, naming the person and
+   `<after>/<limit>` ("<person> would hold <after>/<limit> stories: start
+   anyway?"); its recommended answer is No, and it counts in the five, so at
+   most four others are asked with it. It is asked under `lifecycle_gates:
+   off` too: the `flow` block alone decides. On a Yes, step 2 runs again
+   with `--over-wip`, and its `content` is the one filled and previewed. On
+   a No, a skipped WIP question or a dismissed round, the gate ends and
+   nothing is written. With `wip` null or not over, no WIP question is
+   asked. The one exception to asking once per gate run is step 5's: when
+   `wip.over` was false at step 2 and is true there, the WIP question is
+   asked at step 5.
 
 3. **Fill the section content** in the returned `content` before preview.
    Do not edit the stamps, the header table or the Status log in the returned
@@ -189,6 +214,17 @@ cannot collide).
    human may have edited the file in Obsidian meanwhile. On divergence:
    re-preview, re-ask. The stamps and the timestamps of Status log lines
    differ between runs; that is not a divergence.
+
+   On a `plan`, re-run it with the same flags as the run you previewed,
+   `--over-wip` included after a Yes to the WIP question, and compare
+   `wip.over` as well as `content`, on every plan run, also when no WIP
+   question was asked. A change of `wip.over` (another session of the same
+   `default_author` started or closed work between steps 2 and 5) is a
+   divergence: re-preview and re-ask. When `wip.over` was false at step 2
+   and is true now, ask the WIP question here (start anyway at
+   `<after>/<limit>`, recommended No); a Yes runs step 2 again with
+   `--over-wip`, and a No, a skipped question or a dismissed one ends the
+   gate with nothing written. Nothing is written before the new answer.
 
 5a. **Delegate the ceremony — enumerated case: story close** (ADR "Artifact
    content is authored by the context-holder, the write ceremony by a clerk").
