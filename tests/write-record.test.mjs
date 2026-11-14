@@ -402,16 +402,21 @@ test("node writers: move puts a planned story in ToDo, then handover --write giv
   );
   assert.equal(r.code, 0, r.err);
   const ev = events(proj, "s1");
+  // move's two events can share a timestamp, so their order is not pinned.
   assert.deepEqual(
-    ev.map((e) => [e.rel, e.tool]),
-    [
-      ["epics/PS-X/stories/story-a.md", "move"],
-      ["epics/PS-X/epic.md", "move"],
-      ["epics/PS-X/stories/story-a.md", "handover"],
-    ],
+    ev
+      .filter((e) => e.tool === "move")
+      .map((e) => e.rel)
+      .sort(),
+    ["epics/PS-X/epic.md", "epics/PS-X/stories/story-a.md"],
   );
-  assert.equal(ev[2].before, sha(before));
-  assert.equal(ev[2].after, sha(readFileSync(path, "utf8")));
+  const handed = ev.filter((e) => e.tool === "handover");
+  assert.deepEqual(
+    handed.map((e) => e.rel),
+    ["epics/PS-X/stories/story-a.md"],
+  );
+  assert.equal(handed[0].before, sha(before));
+  assert.equal(handed[0].after, sha(readFileSync(path, "utf8")));
   assert.ok(!ev.some((e) => !e.rel.startsWith("epics/")), "no derived view is recorded");
 });
 
