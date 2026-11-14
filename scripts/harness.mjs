@@ -820,6 +820,9 @@ export function cachePaths({ env = process.env, home = homedir() } = {}) {
     // amended by the story "Opening a project that is not bound writes nothing
     // into it…"). A lost marker costs one more welcome.
     welcomed: (id) => (root && id ? join(root, "welcomed", id) : null),
+    // The dashboard's page at one version, as an npm copy fetched it (the
+    // dashboard spec, contract 14): kept until a person deletes it.
+    dashboard: (version) => (root && version ? join(root, "dashboard", String(version)) : null),
     from: fromEnv ? variable : "the home directory",
     variable,
   };

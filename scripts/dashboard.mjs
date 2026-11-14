@@ -4,11 +4,13 @@
 // started by projectstore dashboard, and reads the vault through the core",
 // decisions 3 to 5; the spec "The dashboard package and its launcher: the
 // folder, the dashboard verb, and a page that only reads" (alias dashboard),
-// contracts 3 to 8.
+// contracts 3 to 8, and 4 as amended on 2026-11-14.
 //
 // The page lives in <core root>/dashboard/, which a checkout and a
-// git-channel copy have and an npm-channel copy does not. This module finds
-// it, starts its server as a child through process.execPath, waits for the
+// git-channel copy have and an npm-channel copy does not. An npm copy takes
+// it from ProjectStore's cache, fetched there once per version
+// (scripts/dashboard-fetch.mjs, imported only then). This module finds the
+// page, starts its server as a child through process.execPath, waits for the
 // one line the server prints once it listens, and stops it on an interrupt.
 // It opens the default browser at the page's address when the caller says the
 // run is a person's. It reads and writes nothing of the vault itself: the
@@ -23,7 +25,7 @@
 // Pure node, no external deps.
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 
 // The ports a page takes when none is named: the first free one, in order.
@@ -64,17 +66,14 @@ export function openBrowser(url, platform = process.platform) {
   }
 }
 
-const versionAt = (root) => {
-  try {
-    return JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version || null;
-  } catch {
-    return null;
-  }
-};
+// A refusal before anything starts: exit 1, its text in the envelope's error.
+const refused = (error) => ({ ok: false, code: 1, result: { error, exit: 1 }, text: `${error}\n` });
 
 // Start the page for `project`. `interactive` is the caller's word that a
 // person runs this at a terminal; only then is a browser opened. `signals`
 // is where SIGINT and SIGTERM arrive (the process, or a test's emitter).
+// `onFetch(label)` draws the fetch's live line (the caller's, at a terminal
+// only); `home`, `fetchSpawn` and `fetchBudget` are the tests'.
 export async function startDashboard({
   root,
   project,
@@ -86,20 +85,25 @@ export async function startDashboard({
   signals = process,
   stderr = process.stderr,
   startMs = START_MS,
+  onFetch = null,
+  home,
+  fetchSpawn,
+  fetchBudget,
 }) {
   const named = values.port === undefined ? null : parsePort(values.port);
   if (values.port !== undefined && named === null) return { usage: "`--port` takes a number from 1 to 65535" };
-  const dir = pageAt(root, env);
+  let dir = pageAt(root, env);
   if (!dir) {
-    const v = versionAt(root);
-    return {
-      ok: false,
-      code: 1,
-      result: { error: "no dashboard in this install", version: v, exit: 1 },
-      text:
-        `This install of projectstore${v ? ` ${v}` : ""} has no dashboard yet.\n` +
-        "The dashboard's npm package is not published yet; a checkout of the repository has the page.\n",
-    };
+    // A named page folder is the page, or nothing, and is never fetched (the
+    // dashboard spec, contract 4).
+    if (env.PROJECTSTORE_DASHBOARD_ROOT)
+      return refused(
+        `PROJECTSTORE_DASHBOARD_ROOT names ${JSON.stringify(resolve(env.PROJECTSTORE_DASHBOARD_ROOT))}, which has no server.mjs: nothing was started or fetched.`,
+      );
+    const { pageFor } = await import("./dashboard-fetch.mjs");
+    const got = await pageFor({ root, project, env, home, spawn: fetchSpawn, budget: fetchBudget, onFetch });
+    if (!got.ok) return refused(got.error);
+    dir = got.dir;
   }
   const args = [
     join(dir, "server.mjs"),

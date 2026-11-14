@@ -9,7 +9,7 @@
 // (runtime: an installed plugin against the marketplace), and they stay.
 //
 //   node scripts/version-guard.mjs [--tag vX.Y.Z]
-//   node scripts/version-guard.mjs --write-packlist
+//   node scripts/version-guard.mjs --write-packlist   (the core's, the shells' and the dashboard's)
 //
 // Checks that every version-bearing manifest agrees, and — when --tag is
 // given — that the release tag agrees with them. CI passes the tag; a human
@@ -38,6 +38,8 @@ import { LAYOUT } from "./harness.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const PACKLIST = "tests/fixtures/packlist.json";
+// What the dashboard's own package ships (the dashboard spec, contract 18).
+export const DASHBOARD_PACKLIST = "tests/fixtures/dashboard-packlist.json";
 
 // [path, how to read the version, required]. Required sites must exist: with
 // everything optional, a checkout missing package.json reported agreement,
@@ -371,7 +373,20 @@ async function main(argv) {
         shells.push({ wrote: rel, count: b.files.length });
       }
     }
-    process.stdout.write(JSON.stringify({ ok: true, wrote: PACKLIST, count: files.length, shells }) + "\n");
+    // The dashboard's package, packed from its own folder: none when the tree
+    // has no dashboard/ (an installed copy).
+    let dashboard = null;
+    if (existsSync(resolve(ROOT, "dashboard", "package.json"))) {
+      const d = currentPacklist(resolve(ROOT, "dashboard"));
+      if (d.error) die(`dashboard/: ${d.error}`);
+      try {
+        writeFileAtomic(resolve(ROOT, DASHBOARD_PACKLIST), JSON.stringify(d.files, null, 2) + "\n");
+      } catch (e) {
+        die(`${DASHBOARD_PACKLIST}: ${e.message}`);
+      }
+      dashboard = { wrote: DASHBOARD_PACKLIST, count: d.files.length };
+    }
+    process.stdout.write(JSON.stringify({ ok: true, wrote: PACKLIST, count: files.length, shells, dashboard }) + "\n");
     return;
   }
 

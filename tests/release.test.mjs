@@ -65,14 +65,14 @@ const code = (text) =>
 test("release AC: release.yml makes the GitHub Release after every publish, from the notes, with one of the two write scopes", () => {
   const yml = workflow("release.yml");
   const j = jobs(yml);
-  assert.deepEqual(Object.keys(j), ["core", "shells", "github-release", "directory"]);
+  assert.deepEqual(Object.keys(j), ["core", "shells", "dashboard", "github-release", "directory"]);
   const gr = j["github-release"];
-  assert.ok(gr.includes("    needs: [core, shells]\n"), "after both publish jobs");
+  assert.ok(gr.includes("    needs: [core, shells, dashboard]\n"), "after every publish job");
   assert.ok(
     gr.includes(
-      "    if: ${{ !cancelled() && needs.core.result == 'success' && (needs.shells.result == 'success' || needs.shells.result == 'skipped') }}\n",
+      "    if: ${{ !cancelled() && needs.core.result == 'success' && (needs.shells.result == 'success' || needs.shells.result == 'skipped') && needs.dashboard.result == 'success' }}\n",
     ),
-    "runs when the shells' matrix passed or was skipped, never after a failed publish",
+    "runs when the shells' matrix passed or was skipped and the dashboard published, never after a failed publish",
   );
   assert.match(gr, /permissions:\n\s+contents: write #/, "contents: write, on this job");
   assert.ok(gr.includes('NOTES="packaging/release-notes/${TAG}.md"'), "the committed notes are the source");
@@ -144,6 +144,68 @@ test("release AC: release.yml moves the directory branch after the core publish,
   for (const l of d.split("\n").filter((x) => /^\s+run: /.test(x)))
     assert.ok(!l.includes("${{"), `no expression inside run: ${l.trim()}`);
   assert.ok(!/id-token|npm publish|--force/.test(code(d)), "no OIDC, no publish, no force push");
+});
+
+// [dashboard#19]
+test("dashboard: release.yml publishes projectstore-dashboard from dashboard/ after the core, at its version, with provenance on the core's dist-tag, holding only the workflow's scopes", () => {
+  const yml = workflow("release.yml");
+  const j = jobs(yml);
+  const d = j.dashboard;
+  assert.ok(d, "a dashboard job");
+  assert.ok(d.includes("    needs: core\n"), "after the core publish, and after nothing else");
+  assert.ok(!/^ {4}if:/m.test(d), "it runs whenever the core job succeeded");
+  // No permissions of its own: the workflow's contents: read and id-token:
+  // write, which provenance needs, and no write to the repository.
+  assert.ok(!/^\s*permissions:/m.test(code(d)), "the job declares no permissions");
+  const top = yml.slice(0, yml.indexOf("\njobs:\n"));
+  assert.match(
+    top,
+    /\npermissions:\n {2}contents: read\n {2}id-token: write[^\n]*\n$/,
+    "the workflow's two scopes, and no third",
+  );
+  assert.ok(d.includes("persist-credentials: false"), "the checkout keeps no credentials");
+  for (const pin of [
+    'node-version: "24"',
+    'registry-url: "https://registry.npmjs.org"',
+    "run: npm install -g npm@11.11.0",
+  ])
+    assert.ok(d.includes(pin), `the core job's pin: ${pin}`);
+  const steps = code(d).split("\n      - ").slice(1);
+  const check = steps.find((s) => s.startsWith("name: The dashboard's version is the core's"));
+  const publish = steps.find((s) => s.startsWith("name: Publish the dashboard"));
+  assert.ok(check && publish, "a version check, then the publish");
+  assert.ok(steps.indexOf(check) < steps.indexOf(publish), "the check comes first");
+  for (const s of [check, publish]) {
+    assert.ok(s.includes("working-directory: dashboard\n"), "in dashboard/");
+    assert.ok(s.includes("VERSION: ${{ needs.core.outputs.version }}"), "the core job's version");
+  }
+  assert.ok(check.includes(`HAVE="$(node -p 'require("./package.json").version')"`), "the package's own version");
+  assert.ok(check.includes('if [ "$HAVE" != "$VERSION" ]; then') && check.includes("exit 1"), "another fails");
+  assert.ok(publish.includes("DIST_TAG: ${{ needs.core.outputs.disttag }}"), "the core job's dist-tag");
+  assert.ok(
+    publish.includes('if [ -n "$(npm view "projectstore-dashboard@${VERSION}" version 2>/dev/null)" ]; then'),
+    "a version on the registry already is skipped",
+  );
+  assert.ok(publish.includes('npm publish --provenance --tag "${DIST_TAG}"'), "with provenance, on the dist-tag");
+  // Every line of every run: block, its key's and those indented under it.
+  const runLines = [];
+  let under = null;
+  for (const l of d.split("\n")) {
+    const indent = l.length - l.trimStart().length;
+    if (under !== null && l.trim() && indent > under) runLines.push(l);
+    else under = null;
+    const m = /^(\s+)(?:- )?run: /.exec(l);
+    if (m) {
+      runLines.push(l);
+      under = m[1].length;
+    }
+  }
+  assert.ok(
+    runLines.some((l) => l.includes("npm publish")),
+    "the run blocks are read",
+  );
+  for (const l of runLines) assert.ok(!l.includes("${{"), `no expression inside run: ${l.trim()}`);
+  assert.ok(!/--force|npm dist-tag|npm deprecate/.test(code(d)), "no force, no tag or deprecation by hand");
 });
 
 test("release AC: pages.yml deploys main's HEAD after a release run succeeds, and never on a tag", () => {
@@ -479,7 +541,11 @@ test("release surfaces: --json is the result, and a usage error is exit 2", asyn
   assert.equal(json.ok, true);
   assert.equal(json.version, V, "a leading v is the same release");
   assert.equal(json.rows.length, STABLE_ROWS.length);
-  assert.equal(json.rows.length, 13, "twelve surfaces and the directory branch");
+  assert.equal(
+    json.rows.length,
+    15,
+    "fourteen surfaces — four packages' dist-tag and readme among them — and the directory branch",
+  );
 
   for (const argv of [
     [],

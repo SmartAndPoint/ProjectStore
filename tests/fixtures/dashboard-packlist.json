@@ -1,0 +1,18 @@
+[
+  "LICENSE",
+  "README.md",
+  "lib/core.mjs",
+  "lib/related.mjs",
+  "lib/state.mjs",
+  "package.json",
+  "public/app.js",
+  "public/icons.js",
+  "public/index.html",
+  "public/item.js",
+  "public/keys.js",
+  "public/md.js",
+  "public/related.js",
+  "public/styles.css",
+  "public/views.js",
+  "server.mjs"
+]
