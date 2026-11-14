@@ -872,6 +872,24 @@ test("user text: configure's view and its rebind refusal put each command alone 
   assert.ok(r.usage.split("\n")[0].includes(fromTerminalIn(proj)));
 });
 
+// [next#4]
+test("user text: next's planned stories put each move alone on its line, after a lead naming the directory, no --project", async () => {
+  const { runNext, moveCommand } = await import("../scripts/next.mjs");
+  const { flowVault, storyText, NOW } = await import("./fixtures/flow.mjs");
+  const fx = flowVault({
+    stories: {
+      "PS-X/story-a": storyText({ id: "story-a", assignee: "Ada" }),
+      "PS-X/story-b": storyText({ id: "story-b", assignee: "" }),
+    },
+  });
+  const r = await runNext({ values: { assignee: "Ada" }, cfg: fx.cfg, project: fx.proj, now: NOW });
+  const commands = [moveCommand("PS-X/story-a"), moveCommand("PS-X/story-b")];
+  assert.equal(commands[0], packageCommand([], "move", { args: "PS-X/story-a todo --reason 'next up' --write" }));
+  assert.deepEqual(lintOutput("next planned", r.text, { alone: commands }), []);
+  const lead = r.text.split("\n").find((l) => l.includes(fromTerminalIn(fx.proj)));
+  assert.ok(lead && lead.endsWith(":"), r.text);
+});
+
 test("user text, rule (b): neither Codex tree names a shell as a command", () => {
   const trees = [
     join(ROOT, "adapters", "codex"),

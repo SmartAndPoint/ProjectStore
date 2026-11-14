@@ -424,7 +424,7 @@ test("presentation criterion 3: every path a real plan writes and every host arg
 // bind are ADVANCED's (the setup story, rule 1).
 const HELP_GROUPS = {
   START: ["setup", "configure", "uninstall"],
-  VAULT: ["status", "search", "show", "graph", "codemap"],
+  VAULT: ["status", "next", "search", "show", "graph", "codemap"],
   "CHECK AND REPAIR": ["doctor", "reconcile", "follow", "upgrade"],
 };
 

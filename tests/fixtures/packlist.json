@@ -106,6 +106,7 @@
   "scripts/model-spec.mjs",
   "scripts/models.mjs",
   "scripts/move.mjs",
+  "scripts/next.mjs",
   "scripts/portable-registration.mjs",
   "scripts/precommit.mjs",
   "scripts/provenance.mjs",
