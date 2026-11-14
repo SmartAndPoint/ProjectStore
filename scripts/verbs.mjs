@@ -534,6 +534,27 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
+  // The page over this project's vault (the dashboard spec, contracts 3–8):
+  // a launcher that starts the page's own server and serves until an
+  // interrupt. The project may also come as a path, the maintainer's form;
+  // the handler checks the binding itself, after it knows which path.
+  Object.freeze({
+    verb: "dashboard",
+    summary: "Open a read-only page over this project's vault, in a browser.",
+    usage: Object.freeze(["[<dir>]"]),
+    module: "./dashboard.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: false,
+    mcp: Object.freeze([]),
+    options: [
+      opt("port", "<n>", "the port (default: the first free one from 4800 to 4809)"),
+      opt("no-open", false, "do not open the browser"),
+      JSON_OPT,
+    ],
+  }),
   Object.freeze({
     verb: "bind",
     summary: "Bind this project to an existing vault; naming it confirms.",
@@ -722,6 +743,7 @@ const EXAMPLES = {
     "{cmd} follow --write",
     "{cmd} follow --story PS-CORE/story-x --write",
   ],
+  dashboard: ["{cmd} dashboard", "{cmd} dashboard --port 4810 --no-open"],
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
 
@@ -778,6 +800,8 @@ const PURPOSE = "project memory for coding agents, in markdown";
 // What a verb's help says beneath its Usage when the summary has no room for
 // it: here, how mcp is told its project.
 const NOTES = {
+  dashboard:
+    "It serves the page on 127.0.0.1 until Ctrl+C, so an agent should not start it in a session. The page only reads the vault.",
   mcp: "It serves the project --project names, else PROJECTSTORE_PROJECT_DIR or the host session's project; never the directory it was started in.",
 };
 

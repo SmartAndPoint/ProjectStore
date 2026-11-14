@@ -157,16 +157,30 @@ export function collectVersions(root = ROOT) {
 // this repository's convention and the manifests never do.
 const stripV = (t) => (t.startsWith("v") ? t.slice(1) : t);
 
+// The dashboard's package.json, as a version site: none when the tree has no
+// dashboard/ (a scratch root, an installed copy), and never its lockfile.
+export function collectDashboard(root = ROOT) {
+  const file = resolve(root, "dashboard", "package.json");
+  if (!existsSync(file)) return [];
+  let pkg = null;
+  try {
+    pkg = JSON.parse(readFileSync(file, "utf8"));
+  } catch {}
+  return [{ file: "dashboard/package.json", version: typeof pkg?.version === "string" ? pkg.version : null }];
+}
+
 export function checkVersions({ root = ROOT, tag = null } = {}) {
   const { found, error } = collectVersions(root);
   if (error) return { ok: false, error };
   const sh = collectShells(root);
   if (sh.error) return { ok: false, error: sh.error };
 
-  // A shell's version is one more site under the same rule.
+  // A shell's version is one more site under the same rule, and so is the
+  // dashboard's package when the tree has one (the dashboard spec, contract 2).
   const sites = [
     ...found,
     ...sh.shells.flatMap((s) => [{ file: s.file, version: s.version }, ...(s.pluginVersions || [])]),
+    ...collectDashboard(root),
   ];
   if (tag) sites.push({ file: "<tag>", version: stripV(tag) });
   const distinct = [...new Set(sites.map((s) => s.version))];
@@ -269,6 +283,11 @@ export const NOT_SHIPPED = new Set([
   "packaging", // reserved-name stubs; see packaging/README.md
   "adapters", // generated harness inputs copied into their distribution shells at build time
   "site", // the public site: Pages serves it, npm never does
+  // The page over one vault (the dashboard ADR, decision 1): a package of its
+  // own beside the core, started by the dashboard verb from this folder in a
+  // checkout or a copy installed from the repository. Never in the plugin's
+  // package.
+  "dashboard",
   // A root lockfile is refused by tests/packaging.test.mjs; listed so a stray
   // one fails that test rather than this tree check.
   "package-lock.json",

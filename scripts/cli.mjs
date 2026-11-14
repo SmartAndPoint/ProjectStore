@@ -24,7 +24,7 @@
 // same way: its write set is one story, its epic row and the derived views.
 // There is no --yes.
 //
-// The install verbs, setup, configure, move, follow, reconcile and the MCP server are
+// The install verbs, setup, configure, move, follow, dashboard, reconcile and the MCP server are
 // imported lazily, on the run that needs them: hooks never import this module
 // (the suite asserts it), and a verb that runs none of them loads none.
 // Pure node, no external deps.
@@ -671,6 +671,49 @@ async function runFollowVerb(ctx) {
   return r.code;
 }
 
+// dashboard (the dashboard spec, contracts 3–8): its own module, loaded on
+// first use. The project is the path the line names, else the core's own
+// resolution; the binding is checked here, after the path is known, with
+// dispatch's text and exit 3. The address is printed before the page serves,
+// and the run ends when the page does: 0 on an interrupt. Its envelopes are
+// one line, so a reader of a run that has not ended can parse them.
+async function runDashboardVerb(ctx) {
+  const { startDashboard } = await import("./dashboard.mjs");
+  const { row, values, positionals, env, cwd, stdin, stdout, stderr, ask } = ctx;
+  let project = ctx.project;
+  const line = (ok, result) => stdout.write(JSON.stringify(envelope(row.verb, project, ok, result)) + "\n");
+  if (positionals.length) {
+    const named = resolve(cwd, positionals[0]);
+    if (values.project !== undefined && resolve(cwd, values.project) !== named) {
+      const e = new Error(`the path \`${positionals[0]}\` and \`--project ${values.project}\` name different projects`);
+      return usageFail(Object.assign(e, { code: "USAGE" }), { verb: row.verb, ...ctx });
+    }
+    project = named;
+  }
+  if (!readConfigAt(project)) {
+    const message = notBoundText(project, env);
+    if (values.json) line(false, { error: message, exit: 3 });
+    stderr.write(message + "\n");
+    return 3;
+  }
+  const interactive =
+    !values.json &&
+    (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+  const r = await startDashboard({
+    root: PACKAGE_ROOT,
+    project,
+    values,
+    env,
+    ownEnv: (p) => ownEnv(env, p),
+    interactive,
+    stderr,
+  });
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (values.json) line(r.ok, r.result);
+  else (r.ok ? stdout : stderr).write(r.text);
+  return r.ok ? r.wait : r.code;
+}
+
 // setup (the setup story): its own module, imported lazily as the install
 // family is, run with this package as its root and in the environment every
 // installer run gets (ownEnv, for the project setup settles on). The envelope
@@ -835,6 +878,7 @@ export const HANDLERS = Object.freeze({
   scaffold: runScaffold,
   move: runMoveVerb,
   follow: runFollowVerb,
+  dashboard: runDashboardVerb,
   mcp: runMcp,
 });
 
