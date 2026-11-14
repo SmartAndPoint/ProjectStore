@@ -214,8 +214,9 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   file, and merging a newer default into it is a judgement.
 - The flow checks read the `flow` block of the vault's `.projectstore.json`
   and run only for the keys it sets: `wip-over-limit`, `review-aged`,
-  `todo-aged`, `in-progress-idle`, `assignee-idle`, `intake-over-close`,
-  `todo-over-capacity` and `todo-under-capacity`, with the infos that explain
+  `todo-aged`, `in-progress-idle`, `assignee-idle`, `assignee-left` (a
+  person marked left in `flow.people` who still holds open stories),
+  `intake-over-close`, `todo-over-capacity` and `todo-under-capacity`, with the infos that explain
   them (`status-unstamped`, `closed-unstamped`, `flow-window-young`,
   `todo-capacity-unknown`, `flow-activity-unknown`, `flow-person-unknown`,
   `flow-stories-unread`). `flow-policy-unset` says the vault has no flow
@@ -223,4 +224,7 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   ignore, never the value. The idle checks read the project's local commits,
   never the code host, and doctor does not fetch. Flow findings are advice: a
   warn or an info, never an issue, and `--fix` touches none of them. Relay a
-  `todo-aged` finding's command as it is, alone on its line.
+  `todo-aged` finding's command as it is, alone on its line, and so the
+  `handover` command of an `assignee-left` or `assignee-idle` finding: it
+  leaves `--to <name>` and `--reason '<why>'` for the user to fill in, so
+  never run it yourself and never choose the receiver.

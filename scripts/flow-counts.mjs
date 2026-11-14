@@ -10,10 +10,10 @@
 // counts for the same instant (a source guard in tests/flow-counts.test.mjs).
 //
 // Spec: "Flow counts: whole days, week windows, age in status, awaiting
-// close, WIP and capacity" (alias `flow-counts`), contracts 1 to 7.
+// close, WIP and capacity" (alias `flow-counts`), contracts 1 to 8.
 
 import { stampMs, statusStamp, isAwaitingClose, parseStatusLog } from "./status-log.mjs";
-import { statusToColumn, NOT_ACTIONABLE } from "./stages.mjs";
+import { statusToColumn, NOT_ACTIONABLE, storyState } from "./stages.mjs";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 export const WEEK_MS = 7 * DAY_MS;
@@ -125,6 +125,16 @@ export function wipByPerson(facts) {
     out.get(f.assignee)[f.awaiting ? "awaiting" : "held"].push(f);
   }
   return out;
+}
+
+// ─── Contract 8: a person's open work ──────────────────────────────────
+
+// The stories assigned to `name`, matched exactly as contract 5 matches
+// them, whose status is open by storyState: neither Done nor set aside, so a
+// story with no status, or a word the board does not name, is open too.
+// Oldest first. Doctor's `assignee-left` and the handover verb read it.
+export function openStoriesOf(facts, name) {
+  return oldestFirst(facts.filter((f) => f.assignee && f.assignee === name && storyState(f.fm?.status) === "open"));
 }
 
 // ─── Contract 6: week windows, intake and closes ───────────────────────
