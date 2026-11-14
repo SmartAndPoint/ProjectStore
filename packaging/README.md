@@ -76,7 +76,9 @@ placeholder as `latest` for the duration of the candidate window. That is the
 intended shape: nothing installs a candidate by accident, and the first real
 release moves `latest` for the first time.
 
-Bumping to a candidate touches the three core version sites; `npm run shells`
+Bumping to a candidate touches the three core version sites and the
+dashboard's `dashboard/package.json` (its own package, at the core's version:
+`npm version <version> --no-git-tag-version` in `dashboard/`); `npm run shells`
 re-renders the shells from them and `npm run packlist` regenerates the four
 fixtures. `node scripts/version-guard.mjs --tag v0.28.0-rc.1` is what proves
 they agree.

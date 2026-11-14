@@ -1,0 +1,11 @@
+{
+  "name": "projectstore-dashboard",
+  "version": "0.30.18",
+  "private": true,
+  "type": "module",
+  "description": "A local, read-only page over a ProjectStore vault: the backlog, the board, an item's document and what is related to it. Started by `projectstore dashboard`; reads the vault through the core it ships with.",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}

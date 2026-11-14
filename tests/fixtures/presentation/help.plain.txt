@@ -23,8 +23,8 @@ CHECK AND REPAIR
   upgrade      After an update, refresh what install wrote and leave the rest.
 
 ADVANCED
-  plan · install · orientation · guide · agents · band · session · move · bind ·
-  init · scaffold · mcp · version
+  plan · install · orientation · guide · agents · band · session · move ·
+  dashboard · bind · init · scaffold · mcp · version
 
 Options
   --project <dir>  the project (default: the session's, else this directory)

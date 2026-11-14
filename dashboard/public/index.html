@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ProjectStore dashboard</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside class="nav">
+        <div class="brand">
+          <span class="mark">▚</span>
+          <div>
+            <b>ProjectStore</b>
+            <small>dashboard · read only</small>
+          </div>
+        </div>
+        <nav id="nav"></nav>
+        <div class="nav-foot" id="foot"></div>
+      </aside>
+      <main>
+        <header class="top" id="top"></header>
+        <section id="view"></section>
+      </main>
+    </div>
+    <aside id="drawer" class="drawer" hidden></aside>
+    <div id="modal" class="modal" hidden></div>
+    <div id="toasts" role="status" aria-live="polite"></div>
+    <script src="/icons.js"></script>
+    <script src="/md.js"></script>
+    <script src="/app.js"></script>
+    <script src="/views.js"></script>
+    <script src="/item.js"></script>
+    <script src="/related.js"></script>
+    <script src="/keys.js"></script>
+  </body>
+</html>

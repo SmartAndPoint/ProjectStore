@@ -17,6 +17,10 @@ node_modules/
 adapters/
 site/
 
+# The page over one vault (the dashboard ADR, decision 1): browser scripts
+# sharing one global scope, outside the scripts' scope; its tests check it.
+dashboard/
+
 # Rendered by renderShellBin (packaging/shells.mjs) and compared byte for byte
 # by `node packaging/shells.mjs --check`: linted, never formatted. A finding
 # there is fixed in the template, then `npm run shells`.

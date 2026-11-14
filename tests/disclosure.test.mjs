@@ -180,6 +180,20 @@ const ROWS = {
       ["ProjectStore reads no token", "{ cwd, env, timeout }", code("scripts/follow-gh.mjs")],
     ],
   },
+  // The dashboard spec, contracts 5 and 6: the page's own server through this
+  // Node, and the default browser at its address, both from `dashboard` only.
+  browser: {
+    sub: RUNS,
+    lead: "The dashboard and your browser",
+    says: () => [
+      ["started only by `dashboard`", "process.execPath, args", code("scripts/dashboard.mjs")],
+      ["on `127.0.0.1`", "127.0.0.1", read("dashboard/server.mjs")],
+      ["`open` on macOS", 'darwin: ["open"', code("scripts/dashboard.mjs")],
+      ["`xdg-open`", '"xdg-open"', code("scripts/dashboard.mjs")],
+      ["`rundll32` on Windows", '"rundll32"', code("scripts/dashboard.mjs")],
+      ["only when you run it at a terminal", "interactive &&", code("scripts/dashboard.mjs")],
+    ],
+  },
   npm: {
     sub: RUNS,
     lead: "npm",
@@ -262,6 +276,8 @@ const MODULES = {
   "scripts/binding.mjs": { rows: ["git"] },
   "scripts/cli.mjs": { rows: ["git"], execPath: true },
   "scripts/convergence.mjs": { rows: ["registry"] },
+  // The page's server through this Node, and the browser at its address.
+  "scripts/dashboard.mjs": { rows: ["browser"], execPath: true },
   "scripts/diff-refs.mjs": { rows: ["git"] },
   "scripts/doctor.mjs": { rows: ["git"], execPath: true },
   // The one module that starts gh (the follow spec, contract 10).
@@ -355,7 +371,7 @@ test("disclosure: the shipped modules that spawn or fetch are the pinned map", (
   );
   assert.ok(section() !== null, `README has "${SECTION}"`);
   for (const [heading, rows] of [
-    [RUNS, ["node", "git", "gh", "hosts", "npm", "statusline"]],
+    [RUNS, ["node", "git", "gh", "browser", "hosts", "npm", "statusline"]],
     [SENDS, ["registry", "codex"]],
   ]) {
     const have = rowsOf(sub(heading));
