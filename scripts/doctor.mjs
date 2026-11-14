@@ -49,7 +49,7 @@ import {
   sectionOf,
   indexHeaderRe,
   evidenceSuffixRe,
-  storiesAttributionRe,
+  storyIdsOf,
   citationTokenRe,
   contractNumberAscii,
   parseAmendmentMarkers,
@@ -2352,28 +2352,19 @@ function buildSpecResolver(artifacts, layout = null) {
 }
 
 // Parse a spec's Acceptance section into items:
-// { checked, text, stories: [bare story ids] | null (unattributed) }
+// { checked, text, stories: [story ids, bare or qualified] | null (unattributed) }
 export function parseSpecAcceptance(spec) {
   const sec = sectionOf(spec.body, "spec_acceptance");
   if (sec === null) return null;
-  const attrRe = storiesAttributionRe();
   const items = [];
   for (const line of linesOutsideFences(sec)) {
     const m = line.match(/^\s*-\s*\[( |x|X)\]\s*(.*)$/);
     if (!m) continue;
     const checked = m[1].toLowerCase() === "x";
     const text = m[2];
-    // Full-width colon accepted for the same reason as the evidence suffix: a zh
-    // spec writing `— stories：PS-X/story-foo` must attribute the item to that
-    // story, not silently fall through to "applies to every covered story".
-    const attr = text.match(attrRe);
-    const stories = attr
-      ? attr[1]
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : null;
-    items.push({ checked, text, stories });
+    // The marker and its id list (SPEC-001 contract 6): the full-width colon
+    // and the zh separators are read, and text after the ids is not an id.
+    items.push({ checked, text, stories: storyIdsOf(text) });
   }
   return items;
 }
@@ -2640,9 +2631,9 @@ export function checkSpecCoverage(artifacts, vaultCfg, layout = null) {
 }
 
 // Additive acceptance oracle (ADR-007 Decision 3): a done story requires every
-// spec acceptance item ATTRIBUTED to it (bare ids resolved against that spec's
-// own stories list) — plus every UNATTRIBUTED item — checked, in every
-// covering spec.
+// spec acceptance item ATTRIBUTED to it (bare or qualified ids, resolved
+// against that spec's own stories list; SPEC-001 contract 6) — plus every
+// UNATTRIBUTED item — checked, in every covering spec.
 export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
   if ((vaultCfg.spec_policy || "optional") !== "required") return [];
   const out = [];
@@ -2651,6 +2642,15 @@ export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
   if (!epicFolder) return out;
   const resolveSpec = buildSpecResolver(artifacts, layout);
   const ambiguousReported = new Set(); // spec-scoped: one finding per spec+item
+  // The stories each spec's own list resolves to — per spec, not per story.
+  const listedBySpec = new Map();
+  const listedOf = (spec) => {
+    if (!listedBySpec.has(spec.rel)) {
+      const stories = listOf(spec.fm, "stories").map((e) => resolveSpecStory(e, artifacts, epicFolder.path).story);
+      listedBySpec.set(spec.rel, new Set(stories.filter(Boolean)));
+    }
+    return listedBySpec.get(spec.rel);
+  };
 
   for (const story of artifacts.filter((a) => a.kind === "story")) {
     if (String(story.fm.status || "").toLowerCase() !== "done") continue;
@@ -2675,34 +2675,45 @@ export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
         continue;
       }
       const coveredEntries = listOf(spec.fm, "stories");
+      const entryParts = coveredEntries.map((e) => String(e).match(/^([^/]+)\/(.+)$/));
+      // A qualified id counts only when it lands on a story this list holds.
+      const listed = listedOf(spec);
       for (const item of items) {
         let applies;
         if (item.stories === null) {
           applies = true; // unattributed → applies to all covered stories
         } else {
-          // Bare ids resolve against THIS spec's own stories list.
-          applies = item.stories.some((bare) =>
-            coveredEntries.some((e) => {
-              const m = String(e).match(/^([^/]+)\/(.+)$/);
-              return m && m[1] === epicId && bare === m[2] && storyMatchesEntry(bare, { id: story.fm.id, stem }) > 0;
-            }),
-          );
-          const ambiguous = item.stories.some(
-            (bare) =>
-              coveredEntries.filter((e) => {
-                const m = String(e).match(/^([^/]+)\/(.+)$/);
-                return m && bare === m[2];
-              }).length > 1,
-          );
+          applies = item.stories.some((sid) => {
+            if (sid.includes("/")) {
+              // Qualified: resolved as an amendment marker's ref is (contract 5).
+              const r = resolveSpecStory(sid, artifacts, epicFolder.path).story;
+              return r === story && listed.has(story);
+            }
+            // Bare: the story part of an entry in this story's epic, as written.
+            return entryParts.some(
+              (m) => m && m[1] === epicId && sid === m[2] && storyMatchesEntry(sid, { id: story.fm.id, stem }) > 0,
+            );
+          });
+          // Only a bare id can be ambiguous; the warning names the entries
+          // it could mean, so one of them can be pasted back as it is.
+          const ambiguous = item.stories
+            .filter((sid) => !sid.includes("/"))
+            .map((sid) => ({
+              sid,
+              entries: [...new Set(coveredEntries.filter((e, i) => entryParts[i] && entryParts[i][2] === sid))],
+            }))
+            .filter((a) => a.entries.length > 1);
           const ambKey = `${spec.rel}|${item.text}`;
-          if (ambiguous && !ambiguousReported.has(ambKey)) {
+          if (ambiguous.length && !ambiguousReported.has(ambKey)) {
             ambiguousReported.add(ambKey);
+            const named = ambiguous.map((a) => `"${a.sid}" (one of: ${a.entries.join(", ")})`).join("; ");
+            const noun = ambiguous.length > 1 ? "bare ids" : "bare id";
             out.push(
               finding(
                 "vault",
                 "warn",
                 "ambiguous-attribution",
-                `Spec "${id}" acceptance item attributes bare id(s) "${item.stories.join(", ")}" that match more than one covered epic — qualify as <epic-id>/<story-id>.`,
+                `Spec "${id}" acceptance item names the ${noun} ${named}, the story part of entries in more than one covered epic — qualify it as one of them.`,
                 spec.rel,
               ),
             );
