@@ -136,6 +136,14 @@ const ROWS = {
         code("scripts/precommit.mjs"),
       ],
       ["`git cat-file --filters`", '"cat-file", "--filters"', code("scripts/precommit.mjs")],
+      // follow's branch check (the follow spec, contract 8): local reads in the vault's repository.
+      ["`git worktree list`", '"worktree", "list"', code("scripts/follow.mjs")],
+      ["`git merge-base`", '"merge-base"', code("scripts/follow.mjs")],
+      [
+        "it runs `git worktree list` and `git merge-base` and `git cat-file`",
+        '"cat-file", "--filters"',
+        code("scripts/follow.mjs"),
+      ],
       ["Optional locks are off", 'GIT_OPTIONAL_LOCKS: "0"', code("scripts/diff-refs.mjs")],
       ["SessionStart hook", "resolveBinding(", code("hooks/session-start.mjs")],
       // Agents read history with the agent's own tools, not through ProjectStore's code.
@@ -157,6 +165,19 @@ const ROWS = {
       ...catalogs("codex")
         .filter((c) => c.kind === "command")
         .map((c) => [`\`${c.argv.join(" ")}\``, JSON.stringify(c.argv), JSON.stringify(c)]),
+    ],
+  },
+  // The follow spec, contract 10: gh, started only by follow, through its adapter.
+  gh: {
+    sub: RUNS,
+    lead: "gh",
+    says: () => [
+      ["started only by `follow`", 'spawnSync("gh"', code("scripts/follow-gh.mjs")],
+      ["`gh pr view`", '["pr", "view"', code("scripts/follow-gh.mjs")],
+      ["`gh pr list`", '["pr", "list"', code("scripts/follow-gh.mjs")],
+      ["`gh repo view`", '["repo", "view"', code("scripts/follow-gh.mjs")],
+      ["over the network with your own `gh` login", "env, encoding", code("scripts/follow-gh.mjs")],
+      ["ProjectStore reads no token", "{ cwd, env, timeout }", code("scripts/follow-gh.mjs")],
     ],
   },
   npm: {
@@ -243,6 +264,8 @@ const MODULES = {
   "scripts/convergence.mjs": { rows: ["registry"] },
   "scripts/diff-refs.mjs": { rows: ["git"] },
   "scripts/doctor.mjs": { rows: ["git"], execPath: true },
+  // The one module that starts gh (the follow spec, contract 10).
+  "scripts/follow-gh.mjs": { rows: ["gh"] },
   "scripts/install-harness.mjs": { rows: ["hosts", "node"] },
   // `codex debug models`; since 0.30.7 it makes no request of its own.
   "scripts/models.mjs": { rows: ["hosts"] },
@@ -303,8 +326,9 @@ function nonExecPathUses(src) {
 const SPAWN_CALL = /(?<![\w$.])(?:spawn\w*|nodeSpawn|exec(?:File)?(?:Sync)?|fork)\s*\(\s*(["'`])([^"'`]*)\1/g;
 const literalPrograms = (src) => [...stripComments(src).matchAll(SPAWN_CALL)].map((m) => m[2]);
 // The literals each kind of module may start: git anywhere, npm only in the
-// named exemption.
-const allowedLiterals = (file) => (MODULES[file]?.exempt ? ["npm"] : ["git"]);
+// named exemption, gh only in follow's adapter.
+const allowedLiterals = (file) =>
+  MODULES[file]?.exempt ? ["npm"] : file === "scripts/follow-gh.mjs" ? ["gh"] : ["git"];
 
 const pinned = () =>
   SHIPPED_CODE.filter((f) => {
@@ -331,7 +355,7 @@ test("disclosure: the shipped modules that spawn or fetch are the pinned map", (
   );
   assert.ok(section() !== null, `README has "${SECTION}"`);
   for (const [heading, rows] of [
-    [RUNS, ["node", "git", "hosts", "npm", "statusline"]],
+    [RUNS, ["node", "git", "gh", "hosts", "npm", "statusline"]],
     [SENDS, ["registry", "codex"]],
   ]) {
     const have = rowsOf(sub(heading));
@@ -406,7 +430,11 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   // The modules whose git calls are read: the pinned ones, and those that run
   // git through a seam another module spawns for (worktree.mjs through
   // binding's gitTop, precommit.mjs through diff-refs' gitRun).
-  const GIT_CALLERS = Object.keys(MODULES).concat(["scripts/worktree.mjs", "scripts/precommit.mjs"]);
+  const GIT_CALLERS = Object.keys(MODULES).concat([
+    "scripts/worktree.mjs",
+    "scripts/precommit.mjs",
+    "scripts/follow.mjs",
+  ]);
   const GIT_CALL = /(?:spawn(?:Sync)?\(\s*"git",\s*|gitIn\([^,]+,\s*|\bgit\((?:[a-zA-Z]+,\s*)?)\[\s*"([a-z-]+)"/g;
   const subcommandsOf = (src) => [...src.matchAll(GIT_CALL)].map((m) => m[1]);
   const subcommands = new Set();
@@ -416,6 +444,9 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   // caught (PS-WT, the precommit spec's acceptance).
   for (const s of ["rev-parse", "status", "cat-file"])
     assert.ok(subcommandsOf(code("scripts/precommit.mjs")).includes(s), `precommit.mjs's git ${s} is read`);
+  // follow's branch check is read too, so the row must name merge-base (the follow spec, contract 10).
+  for (const s of ["worktree", "merge-base", "cat-file"])
+    assert.ok(subcommandsOf(code("scripts/follow.mjs")).includes(s), `follow.mjs's git ${s} is read`);
   const planted = code("scripts/precommit.mjs") + '\nconst x = git(root, ["commit", "-qm", "planted"]);\n';
   assert.ok(subcommandsOf(planted).includes("commit"), "a commit planted in precommit.mjs is read, and fails below");
   for (const s of subcommands) assert.ok(gitRow.includes(`\`git ${s}`), `the git row names git ${s}`);
@@ -436,6 +467,12 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   for (const c of catalogs("codex").filter((x) => x.kind === "command"))
     assert.ok(sends.includes(`\`${c.argv.join(" ")}\``), `the sends section names ${c.argv.join(" ")}, which connects`);
   assert.ok(section().includes("Its own code makes two requests"), "the intro counts ProjectStore's own requests");
+  assert.ok(
+    section().includes("Two programs it runs make requests of their own") &&
+      sends.includes("Three programs it runs may connect on their own"),
+    "the intro and the sends section count the programs that connect: codex, gh and the status line command",
+  );
+  assert.ok(sends.includes("`gh` reads your pull requests"), "the sends section names gh");
   assert.equal(rowsOf(sends).size, 2, "the sends section lists those two");
   assert.ok(sends.includes(new URL(fetchShell.DEFAULT_REGISTRY).host), "the sends section names the default registry");
   // No credential is read from the environment (the 0.30.7 story,
@@ -446,6 +483,37 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   );
   for (const id of ["claude-code", "codex"])
     for (const c of catalogs(id)) assert.ok(["file", "command"].includes(c.kind), `${id}: a ${c.kind} catalog`);
+});
+
+// [follow#10]
+test("disclosure: only scripts/follow-gh.mjs starts gh, and README names gh, git worktree list and git merge-base; a second gh module or a README without the gh row fails, naming it", () => {
+  const starts = (src) => literalPrograms(src).includes("gh");
+  assert.deepEqual(
+    Object.keys(MODULES).filter((f) => !MODULES[f].exempt && starts(read(f))),
+    ["scripts/follow-gh.mjs"],
+    "follow's adapter is the one module that starts gh",
+  );
+  assert.ok(!/TOKEN|token/.test(code("scripts/follow-gh.mjs")), "the adapter reads no token: gh owns the login");
+  const runs = sub(RUNS);
+  assert.ok(rowsOf(runs).has("gh"), "README's What it runs has the row **gh**");
+  const gitRow = rowsOf(runs).get(ROWS.git.lead);
+  for (const s of ["`git worktree list`", "`git merge-base`", "`git cat-file`"]) assert.ok(gitRow.includes(s), s);
+  // Planted: gh started from a second module is a literal its rows do not admit, named by its file.
+  const planted = {
+    file: "scripts/binding.mjs",
+    src: read("scripts/binding.mjs") + '\nspawnSync("gh", ["pr", "list"]);\n',
+  };
+  const beyond = literalPrograms(planted.src).filter((p) => !allowedLiterals(planted.file).includes(p));
+  assert.deepEqual(beyond, ["gh"], `${planted.file} starts a literal program its README row does not name`);
+  // Planted: the README without its gh row has no row for the module that needs it.
+  const without = runs
+    .split("\n")
+    .filter((l) => !l.startsWith("- **gh**"))
+    .join("\n");
+  const missing = Object.entries(MODULES)
+    .flatMap(([f, m]) => (m.rows || []).map((id) => [f, id]))
+    .filter(([, id]) => ROWS[id].sub === RUNS && !rowsOf(without).has(ROWS[id].lead));
+  assert.deepEqual(missing, [["scripts/follow-gh.mjs", "gh"]], "the missing row is named with its module");
 });
 
 test("disclosure: the hooks start only git, from SessionStart, and fetch nothing", () => {
@@ -586,7 +654,20 @@ test("disclosure: the listing fields and the icon", () => {
 
 // A command copied with the comma after it fails (the 0.29.1 upgrade did):
 // no command span in the two sections is followed by punctuation.
-const PROGRAMS = ["git", "npm", "npx", "node", "codex", "claude", "bunx", "pnpm", "deno", "projectstore", "plugin"];
+const PROGRAMS = [
+  "git",
+  "gh",
+  "npm",
+  "npx",
+  "node",
+  "codex",
+  "claude",
+  "bunx",
+  "pnpm",
+  "deno",
+  "projectstore",
+  "plugin",
+];
 const commandSpan = (t) =>
   /^\/[a-z]/.test(t) || (PROGRAMS.includes(t.split(/\s+/)[0]) && t.trim().split(/\s+/).length > 1);
 function spansBeforePunctuation(text) {

@@ -242,6 +242,21 @@ resistance. v0.13 makes that safe instead of forbidden:
   project tree is dirty and no story is in progress. It is the only seam that
   sees Bash-mediated writes, which bypass hook path extraction entirely.
 
+- **`follow`** moves a story by its pull request: the one its
+  `external_refs.pr` names, or one whose description holds
+  `Closes-story: <EPIC>/<story-id>`. It reads the pull requests through `gh`
+  (with your own `gh` login; ProjectStore reads no token) and plans each
+  change: a merge closes the story through the close gate's own computation,
+  stamped at the merge, unless doctor's story checks on the closed text find
+  something, and then the story waits in review, awaiting close; a review
+  whose pull request was closed, put back to draft or left past
+  `flow.age_days.review` goes back to in-progress. Bare, it prints the plan;
+  with `--write` it reads the pull requests and the vault again and writes
+  each story through the same read-again writer `move` uses. In a vault that
+  is a git repository it reads `git worktree list`, `git merge-base` and
+  `git cat-file` first, and leaves alone a story a linked worktree's branch
+  changed.
+
 The division of labor: deterministic checks catch the mechanical 90% for free;
 the LLM critic that `/projectstore:review` runs is saved for the judgment calls.
 

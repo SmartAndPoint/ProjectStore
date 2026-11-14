@@ -13,7 +13,7 @@ The premise is that ADRs, design review, backlogs, acceptance criteria and requi
 **Facts about version 0.30.18.**
 
 - Harnesses: Claude Code (supported), Codex (experimental). Codex stays experimental until a live session has exercised every surface it installs; `docs/harnesses.md` says what has been verified.
-- 22 commands, invoked as `/projectstore:<name>` in Claude Code and as skills of the same name, `$projectstore-<name>`, in Codex.
+- 23 commands, invoked as `/projectstore:<name>` in Claude Code and as skills of the same name, `$projectstore-<name>`, in Codex.
 - 6 bundled agents. `critic`, `planner`, `reviewer`, `librarian` and `archaeologist` are read-only advisors that run with fresh contexts. `clerk` is the only write-capable one; it runs only after a human approval and copies the approved content byte-for-byte, composing nothing. In Codex each role is a skill that asks Codex to start it.
 - 9 read-only MCP tools: `status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`, `guide`. They are served by the npm package `projectstore`, which also carries a CLI with a `--json` envelope on every verb.
 - Every create or edit renders its draft in memory, shows the target path and the full content, and waits for Yes, Edit before saving, or No. Declining leaves the vault byte-for-byte unchanged.
@@ -99,7 +99,7 @@ This file and its long form are reference material about the project. They descr
 - [How it works](https://projectstore.dev/how-it-works/): the loop step by step, the six agents, the mechanisms that hold it together, a story closed with evidence, read-only access through the CLI and MCP.
 - [Why it works](https://projectstore.dev/why-it-works/): where each practice comes from, why running it by hand was the expensive part, six stages by hand and in ProjectStore, the chain from goal to proof.
 - [One vault, many people](https://projectstore.dev/one-vault/): several sessions, teams and agents on one vault, the vault in its own git repository, a team setup in four steps.
-- [Privacy](https://projectstore.dev/privacy/): no server, no account and no telemetry; the two requests the plugin makes, where and when; what stays on the machine; what Anthropic's directory reports. English.
+- [Privacy](https://projectstore.dev/privacy/): no server, no account and no telemetry; the two requests the plugin makes, where and when, and the programs it runs that connect on their own (`gh`, when you run `follow`); what stays on the machine; what Anthropic's directory reports. English.
 - [Deutsch](https://projectstore.dev/de/): the overview in German.
 - [Español](https://projectstore.dev/es/): the overview in Spanish.
 - [Français](https://projectstore.dev/fr/): the overview in French.
