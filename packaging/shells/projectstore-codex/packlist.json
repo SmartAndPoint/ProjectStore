@@ -111,6 +111,7 @@
   "node_modules/projectstore/scripts/model-spec.mjs",
   "node_modules/projectstore/scripts/models.mjs",
   "node_modules/projectstore/scripts/move.mjs",
+  "node_modules/projectstore/scripts/next.mjs",
   "node_modules/projectstore/scripts/portable-registration.mjs",
   "node_modules/projectstore/scripts/precommit.mjs",
   "node_modules/projectstore/scripts/provenance.mjs",

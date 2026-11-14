@@ -11,6 +11,7 @@
 
 [1mVAULT[22m
   [36mstatus[39m       What is bound, what is in progress, and whether views are fresh.
+  [36mnext[39m         Started work first, then new work while under your WIP limit.
   [36msearch[39m       Find a phrase in the vault's artifacts, literal and bounded.
   [36mshow[39m         One artifact's frontmatter; its body or a section on request.
   [36mgraph[39m        The live link graph by vault path.

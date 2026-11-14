@@ -201,6 +201,12 @@ A story moves from the backlog to ToDo, and back, with a reason that goes into i
 npx projectstore move PS-CORE/story-x todo --reason "next up" --write
 ```
 
+To pick the next task, `next` lists your started work first, and offers stories from ToDo only while you are under your WIP limit. It only reads the vault:
+
+```
+npx projectstore next
+```
+
 The dashboard is a page over the project's vault in your browser: the backlog as initiative, epic and story, the board, the list, your own work and each document with what links to it. From a terminal in the project:
 
 ```

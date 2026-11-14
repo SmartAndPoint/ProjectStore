@@ -11,6 +11,7 @@ START
 
 VAULT
   status       What is bound, what is in progress, and whether views are fresh.
+  next         Started work first, then new work while under your WIP limit.
   search       Find a phrase in the vault's artifacts, literal and bounded.
   show         One artifact's frontmatter; its body or a section on request.
   graph        The live link graph by vault path.
