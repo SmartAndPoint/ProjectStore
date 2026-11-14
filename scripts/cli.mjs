@@ -671,12 +671,13 @@ async function runFollowVerb(ctx) {
   return r.code;
 }
 
-// dashboard (the dashboard spec, contracts 3–8): its own module, loaded on
-// first use. The project is the path the line names, else the core's own
-// resolution; the binding is checked here, after the path is known, with
-// dispatch's text and exit 3. The address is printed before the page serves,
-// and the run ends when the page does: 0 on an interrupt. Its envelopes are
-// one line, so a reader of a run that has not ended can parse them.
+// dashboard (the dashboard spec, contracts 3–8 and 14–17): its own module,
+// loaded on first use. The project is the path the line names, else the core's
+// own resolution; the binding is checked here, after the path is known, with
+// dispatch's text and exit 3, before any page is looked for or fetched. The
+// address is printed before the page serves, and the run ends when the page
+// does: 0 on an interrupt. Its envelopes are one line, so a reader of a run
+// that has not ended can parse them.
 async function runDashboardVerb(ctx) {
   const { startDashboard } = await import("./dashboard.mjs");
   const { row, values, positionals, env, cwd, stdin, stdout, stderr, ask } = ctx;
@@ -699,6 +700,9 @@ async function runDashboardVerb(ctx) {
   const interactive =
     !values.json &&
     (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+  // An npm copy's first run for a version fetches its page: one live line on
+  // stderr at a terminal (the dashboard spec, contract 15), none under --json.
+  const live = !values.json && Boolean(stderr && stderr.isTTY);
   const r = await startDashboard({
     root: PACKAGE_ROOT,
     project,
@@ -707,6 +711,7 @@ async function runDashboardVerb(ctx) {
     ownEnv: (p) => ownEnv(env, p),
     interactive,
     stderr,
+    onFetch: live ? (label) => term.liveLine(stderr, term.caps(stderr, env), label, { env }) : null,
   });
   if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
   if (values.json) line(r.ok, r.result);

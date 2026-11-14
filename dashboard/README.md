@@ -1,19 +1,30 @@
 # projectstore-dashboard
 
+**This package is not installed by hand.** `projectstore dashboard` fetches it: a copy of
+[ProjectStore](https://github.com/SmartAndPoint/ProjectStore) installed from npm fetches this
+package at its own version, once, into ProjectStore's cache, and starts it from there. A checkout
+of the repository runs its own `dashboard/` folder. From a terminal in a project bound to a vault:
+
+```
+npx projectstore dashboard
+```
+
 A local page over a project's vault: the backlog tree (initiative, epic, story), the board and
 the list, My work, the initiatives, an item's document with what is related to it, and a command
 palette. It **only reads**. Nothing on the page changes the vault, the project or the core.
 
-It is started by `projectstore dashboard` and ships with the core, at the same version
-(`package.json` here and at the repository root carry one version). It has no dependencies and
-no build step: plain Node (20 or newer) on the server, plain HTML, CSS and classic scripts in the
-page.
+This package's version is always its core's: one release, from one tag, publishes both, and the
+server refuses a core of another version. It has no dependencies and no build step: plain Node
+(20 or newer) on the server, plain HTML, CSS and classic scripts in the page.
 
 ## The launcher protocol
 
 ```
-node dashboard/server.mjs --core <root> --project <dir> [--port <n> | --ports <a>-<b>] [--watch-stdin]
+node <page folder>/server.mjs --core <root> --project <dir> [--port <n> | --ports <a>-<b>] [--watch-stdin]
 ```
+
+The page folder is `dashboard/` in a checkout of the repository, and this package, kept in
+ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
 
 | | |
 |---|---|
@@ -48,7 +59,7 @@ node dashboard/server.mjs --core <root> --project <dir> [--port <n> | --ports <a
 - The page's own answers carry a content policy that loads scripts, styles and pictures from the
   page itself only (`img-src 'self' data:`): a picture from another site is not shown.
 - No file here starts a process; from `node:fs` it takes only `readFileSync`, `readdirSync`,
-  `statSync`, `existsSync` and `realpathSync`.
+  `statSync`, `lstatSync`, `existsSync`, `realpathSync` and `createReadStream`.
 - The bridge (`lib/core.mjs`) imports from `<core>/scripts/` exactly `lib.mjs`, `stages.mjs`,
   `flow-stories.mjs`, `flow-policy.mjs`, `flow-counts.mjs`, `graph.mjs` and `binding.mjs`, after
   the version check. Layouts are read from `<core>` by name; the core's other in-process reads
@@ -57,7 +68,7 @@ node dashboard/server.mjs --core <root> --project <dir> [--port <n> | --ports <a
 
 ## Run it by hand, for development
 
-From the repository root, against a project that is bound to a vault:
+From the root of a checkout of the repository, against a project that is bound to a vault:
 
 ```bash
 node dashboard/server.mjs --core . --project "<path to the project>" --port 0
@@ -71,6 +82,7 @@ under `public/` and reload the page; edit a file under `lib/` and start the serv
 
 ```
 package.json      the page's package: no dependencies, the core's version
+LICENSE           the core's MIT license, the same file
 server.mjs        the HTTP server and the command line above; startServer() for a caller in-process
 lib/core.mjs      openCore({ core, project }): the version check, the core's modules, the binding
 lib/state.mjs     readState, readItem, readArtifacts and the path rule, each taking openCore's result

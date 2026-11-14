@@ -9,10 +9,10 @@ because an emergency should not depend on GitHub being up.
 
 | Guard | What it catches | Where it runs |
 |---|---|---|
-| `node scripts/version-guard.mjs [--tag vX.Y.Z]` | `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` and every `packaging/shells/*/package.json` (its version and its exact `=<version>` pin on the core) disagreeing with each other or with the release tag; a shell that does not bundle the core or misnames its bin; a version with no release notes — `packaging/release-notes/v<version>.md` missing, its first line not `# v<version> — <title>`, or nothing under it | CI (`test.yml` on every PR, `release.yml` on the tag), `npm run release:check`, and by hand before a local publish |
+| `node scripts/version-guard.mjs [--tag vX.Y.Z]` | `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `dashboard/package.json` and every `packaging/shells/*/package.json` (its version and its exact `=<version>` pin on the core) disagreeing with each other or with the release tag; a shell that does not bundle the core or misnames its bin; a version with no release notes — `packaging/release-notes/v<version>.md` missing, its first line not `# v<version> — <title>`, or nothing under it | CI (`test.yml` on every PR, `release.yml` on the tag), `npm run release:check`, and by hand before a local publish |
 | `node packaging/directory-guard.mjs [--set packed\|repository]` | the tree Anthropic's directory scans breaking a rule of its [pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist), each finding with its file, the rule, the limit and the checklist's result: more than 512 files; a file that is not an image or a font at 256 KiB or more; a kind other than text, SVG, a complete PNG, JPEG, GIF or WebP, or a font; a `.DS_Store`, `Thumbs.db`, `desktop.ini` or `__MACOSX`; `export-ignore`, `export-subst`, `filter` or another rewriting attribute in a `.gitattributes`; a name Windows or macOS refuses (a colon, a trailing dot or space, a device name, two names that differ only by capitalization); a symbolic link, a submodule or a Git LFS pointer; the repository past 50 MiB archived, 256 MiB unpacked, 10,000 entries or a 5 MiB file; a README under 40 words outside code blocks; no `LICENSE` and no `license` in `plugin.json`; an `.npmrc`, `bunfig.toml` or `uv.toml` that sets a package source; a bundled image or font named from `commands/`, `hooks/` or `scripts/`, or in backticks or a code block; a bundled image the README shows through HTML; a key-shaped value (`sk-` with a key's length, GitHub's `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_` and `github_pat_`, a private key block), by file and line only; in a hook's `command` or `args` in `hooks/hooks.json`, or a server's `command`, `args` or `env` value in `.mcp.json`, a variable other than `${CLAUDE_PLUGIN_ROOT}`, a command substitution, a wildcard, an inline program (`-c`, `-e`, `-p`, `--eval` or `--print` before the first path) or a path not written from `${CLAUDE_PLUGIN_ROOT}/`, by file and JSON path; front matter in an agent, command or skill that a YAML parser refuses, or whose `description` is not text. Ours too: a shipped `.mjs` over 204,800 bytes, so a module is split long before 256 KiB, with the next one in line named; and a shipped file that names `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `key_env`, `base_env` or `key_header`, comments included, by file and line, so no version reads a key from the user's environment (the checklist holds that as "Uses a credential from the user's machine"); and the patterns behind the policy holds the portal raised on 0.30.7's `directory` tree, by file and line: in a module `hooks/hooks.json` lists, a hook on `agent.spawn`, `config.set`, `agent.register`, `command.run` or `fs.write` whose parameters are not plain names or whose event or `next` name is bound elsewhere in the file, or the file using `arguments`; an `fs.write` whose path is not fixed text (one leading `${…}/`, literal folders, a file name whose only hole is the session id); a shipped `.mjs` or `.tsx` that holds a URL and names `key`, `pin`, `pwd`, `token`, `secret` or `password`, or shipped Markdown that holds a URL and a `$NAME` whose name holds `PWD`, `PASS`, `TOKEN`, `SECRET`, `KEY`, `PIN` or `AUTH`, but in the files the guard's `KEPT` names, each with the reason a reviewer confirms (a kept file the row no longer matches fails); and "vault", white space, then "read" in a command, skill, agent or hook file. The portal does not publish its rules, so its re-Validate stays the proof. `packed` (the default) is the packlist, which the `directory` branch carries; `repository` is `git ls-files`, for a directory that tracks `main` | CI (`test.yml`) and `npm run release:check` (`npm run directory:check`) run the packed set; `tests/directory-guard.test.mjs` holds the packed set to every row and the repository set to every row but its file count (the repository is near 512 files and may exceed it). Run `--set repository` by hand before ever having the directory track `main` |
 | `node packaging/shells.mjs --check` | a shell's committed `package.json` or bin drifting from its render (the pin, the bin's verb set) | CI, and `npm run release:check` |
-| `tests/packaging.test.mjs`, `tests/shells.test.mjs`, `tests/release.test.mjs` | a directory added to the tree but forgotten in `files[]`, a `files[]` entry that stopped shipping, `publishConfig.provenance` creeping back in; a shell whose built tarball differs from its packlist fixture, or whose bin does not exec the bundled core with the harness fixed; a release workflow that would make the GitHub Release before a publish, without the notes, or with a guessed Latest, a directory job that runs for a candidate or before the core publish, a write scope on any job but those two, a site deploy a release cannot trigger, a surfaces workflow that writes or reads its tag inside `run`, and a surface judged ok, lagging or wrong on the wrong evidence; a directory branch whose tree is not the packlist, loses its history, moves backwards, or commits one version twice | CI, and `npm test` |
+| `tests/packaging.test.mjs`, `tests/shells.test.mjs`, `tests/release.test.mjs`, `tests/dashboard-release.test.mjs` | a directory added to the tree but forgotten in `files[]`, a `files[]` entry that stopped shipping, `publishConfig.provenance` creeping back in; a shell whose built tarball differs from its packlist fixture, or whose bin does not exec the bundled core with the harness fixed; `dashboard/package.json` turning private, gaining a `bin`, a dependency or `publishConfig.provenance`, or losing the core's repository, license, engines, homepage or bugs; `npm pack` in `dashboard/` differing from `tests/fixtures/dashboard-packlist.json`, or the packed page not starting from a folder of its own; the plugin's package shipping any path with `dashboard` in it but `scripts/dashboard.mjs` and `scripts/dashboard-fetch.mjs`; a release workflow that would make the GitHub Release before a publish (the dashboard's included), without the notes, or with a guessed Latest, a dashboard job that declares permissions of its own, runs before the core or publishes without provenance or the core's dist-tag, a directory job that runs for a candidate or before the core publish, a write scope on any job but those two, a site deploy a release cannot trigger, a surfaces workflow that writes or reads its tag inside `run`, and a surface judged ok, lagging or wrong on the wrong evidence; a directory branch whose tree is not the packlist, loses its history, moves backwards, or commits one version twice | CI, and `npm test` |
 | `node packaging/directory-branch.mjs --version X.Y.Z` | the tree it would commit to the `directory` branch differing from npm pack's file list, from `tests/fixtures/packlist.json`, or from the unpacked tarball; a `.claude-plugin/plugin.json` in it that does not name the release; the branch carrying that version already with another tree | `release.yml`'s `directory` job, before it pushes |
 | `tests/site.test.mjs` | the public site (`site/`, never shipped: `NOT_SHIPPED`) — its pages (the main page in English and Russian, the method pages in eight languages) and `llms.txt`/`llms-full.txt` — stating what the repository contradicts: a command or role with no file, an `npx` verb its bin refuses, an install command README does not fence, the version, a count, a harness's status, a dead link into `main`, an example artifact whose shape or slug the product would not write; a language page out of step with the English one; a load from another origin; committed pages a build would change (asset hashes, alternates, the redirect stubs); `site/` over its 2,621,440-byte budget | CI, `npm test`, and `.github/workflows/pages.yml` before every deploy |
 | `python3 site/tools/i18n.py check`, `extract`, `build --strict`, then `git diff --exit-code -- site/` and `if git status --porcelain -- site/ \| grep .; then echo "::error::the build left files not in the commit"; exit 1; fi` | committed pages, or `site/locales/en.json`, that are not what Python 3.12 renders from the templates in `site/src/` and the dictionaries; a file the build writes that is not in the commit, named; a dictionary missing a key or changing a fact marker | CI (`test.yml` and `pages.yml`, Python pinned to 3.12) |
@@ -79,8 +79,10 @@ release moves `latest` for the first time.
 Bumping to a candidate touches the three core version sites and the
 dashboard's `dashboard/package.json` (its own package, at the core's version:
 `npm version <version> --no-git-tag-version` in `dashboard/`); `npm run shells`
-re-renders the shells from them and `npm run packlist` regenerates the four
-fixtures. `node scripts/version-guard.mjs --tag v0.28.0-rc.1` is what proves
+re-renders the shells from them and `npm run packlist` regenerates the five
+fixtures: the core's, the three shells' and the dashboard's
+(`tests/fixtures/dashboard-packlist.json`, what `npm pack` in `dashboard/`
+lists). `node scripts/version-guard.mjs --tag v0.28.0-rc.1` is what proves
 they agree.
 
 There is no root lockfile to bring along, and none may appear: Claude Code
@@ -118,12 +120,19 @@ the shells' render check, runs the tests, and publishes the core with
 `--provenance` over OIDC. Then a second job runs a matrix over the publishable
 shells (`node packaging/shells.mjs --list --json` — the non-private ones, so a
 shell whose plugin root is not rendered yet cannot reach the registry), builds
-each from the core's own pack tarball and publishes it the same way. Every
-publish step skips a `name@version` the registry already has, so a partial
-release — the core published, a shell not — is recovered by re-running the
-same tag, never by hand. For a stable release, a fourth job moves the
-`directory` branch that Anthropic's directory tracks (see "The directory
-branch" below).
+each from the core's own pack tarball and publishes it the same way. Beside it
+a third job, `dashboard`, publishes the dashboard's page,
+`projectstore-dashboard`, from `dashboard/` as it is (it has no dependencies
+and no build), after checking that its version is the core's, with
+`--provenance` on the core's dist-tag. It declares no `permissions` of its own,
+so it holds the workflow's `contents: read` and `id-token: write`, which
+provenance needs, and nothing more. Every publish step skips a `name@version`
+the registry already has, so a partial release — the core published, a shell
+or the dashboard not — is recovered by re-running the same tag, never by hand:
+**Re-run failed jobs** on the release run. Until then the GitHub Release is not
+made, and a copy from npm at that version says its page is not published. For
+a stable release, a fifth job moves the `directory` branch that Anthropic's
+directory tracks (see "The directory branch" below).
 
 The shell step publishes the built **tarball** (`npm publish dist/<name>-<v>.tgz
 --provenance`) so the file that ships is the file the fixture was compared
@@ -150,9 +159,9 @@ GitHub README (its `release` badge reads GitHub's Latest), GitHub Releases with
 this tag Latest, npm (each package's dist-tag and readme) and the site. Three
 pieces see to it.
 
-- **The GitHub Release.** `release.yml`'s third job, `github-release`, runs
-  after both publish jobs — when the shells' matrix passed or was skipped,
-  never after a failed publish — with `contents: write`, which only it and the
+- **The GitHub Release.** `release.yml`'s fourth job, `github-release`, runs
+  after every publish job — when the shells' matrix passed or was skipped and
+  the dashboard published, never after a failed publish — with `contents: write`, which only it and the
   `directory` job have. It makes the release from `packaging/release-notes/<tag>.md`:
   the heading is the title, the rest the body, `--verify-tag`, and `--latest`
   for a release or `--prerelease --latest=false` for a candidate — explicit
@@ -214,7 +223,7 @@ variable but `${CLAUDE_PLUGIN_ROOT}`, which the checklist requires at any
 depth. Tracking `main` instead would make every merge a scanned version;
 tracking a tag would need a Settings edit in the portal at every release.
 
-`release.yml`'s fourth job, `directory`, moves it. It runs after the core
+`release.yml`'s fifth job, `directory`, moves it. It runs after the core
 publish, and only when the core job succeeded and the dist-tag is `latest`:
 a release candidate never reaches the directory's users. It has
 `contents: write`, the second job that does, and runs
@@ -396,6 +405,56 @@ opencode name:
 npm login
 npm deprecate opencode-projectstore 'Renamed — install `projectstore-opencode` instead.'
 ```
+
+## The dashboard's package
+
+`dashboard/` is the page over a vault that `projectstore dashboard` serves, a
+package of its own, `projectstore-dashboard`, at the core's version. A checkout
+and the git channel's copy run the folder in place; a copy installed from npm
+has no such folder and fetches the package at its own version, once, into
+ProjectStore's cache (`scripts/dashboard-fetch.mjs`). The release's
+`dashboard` job publishes it (see "CI publish" above). Nobody installs it by
+hand, and its README, the npm page, says so first.
+
+**First publish of the dashboard name, by hand — once.** Both steps below,
+the placeholder and the trusted publisher, are done before the first tag that
+carries the `dashboard` job is pushed: without them that job fails and the
+release has no GitHub Release until a re-run. npm's trusted-publisher form
+needs the package to exist, so the name is claimed with a placeholder, never
+with the real folder: a real version published by hand
+would have no provenance, and the release job would then skip that version as
+already published. From a scratch folder outside the repository:
+
+```sh
+npm login
+npm whoami
+```
+
+In that folder, write a `package.json` named `projectstore-dashboard` at
+`0.0.1`, with `"license": "MIT"` and nothing else to run, and a `README.md`
+that says plainly what the name is for: the dashboard page of ProjectStore,
+fetched by `projectstore dashboard`, not installed by hand, with the link to
+this repository. Then publish it without `--provenance` (that needs OIDC, i.e.
+CI), and deprecate that one version at once, so that an install by hand prints
+the pointer:
+
+```sh
+npm publish --access public
+npm deprecate projectstore-dashboard@0.0.1 'Placeholder — the dashboard is fetched by `projectstore dashboard`; nothing to install by hand.'
+```
+
+Single quotes, as for the reserved names below: the text holds backticks.
+Deprecation is per version, so the first real release is not deprecated and
+nothing needs undoing. Never publish `dashboard/` itself by hand.
+
+**Its trusted publisher.** On npmjs.com, **projectstore-dashboard → Settings →
+Trusted publisher → GitHub Actions**: repository `SmartAndPoint/ProjectStore`,
+workflow `release.yml`, with `npm publish` ticked (the form's default permits
+only a staged publish, and a publish it refuses fails the `dashboard` job).
+npm says a new trusted-publisher entry must be used within two days, so set it
+up on the day of the tag that first carries the job, before pushing the tag. If the first
+run fails anyway, the core and the shells are already published (the job runs
+after the core); fix the entry and choose **Re-run failed jobs**.
 
 ## Running a checkout's build
 

@@ -14,9 +14,10 @@
 //   startFailure(err, { bin, resolved, cwd }) → what Node could not say
 //   HOST_BUDGET_MS                            → the outer bound, 120 s
 //
-// Leaf module: node built-ins only. Only install-harness.mjs and
-// fetch-shell.mjs import it; hooks, doctor, surfaces and lib never do (the
-// portability suite asserts it), so the SessionStart graph never loads it.
+// Leaf module: node built-ins only. Only install-harness.mjs, fetch-shell.mjs
+// and dashboard-fetch.mjs (the dashboard page's fetch) import it; hooks,
+// doctor, surfaces and lib never do (the portability suite asserts it), so the
+// SessionStart graph never loads it.
 
 import { spawn as nodeSpawn } from "node:child_process";
 import { statSync } from "node:fs";

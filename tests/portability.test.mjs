@@ -625,8 +625,21 @@ test("install spec modules: doctor never imports the installer, and the installe
   );
   assert.deepEqual(
     importers.sort(),
-    ["fetch-shell.mjs", "install-harness.mjs"],
-    "the installer imports both; the fetch imports the runner",
+    ["dashboard-fetch.mjs", "fetch-shell.mjs", "install-harness.mjs"],
+    "the installer imports both; the shell fetch imports the runner; the dashboard page's fetch imports both",
+  );
+  // The dashboard page's fetch runs npm: only the launcher loads it, and only
+  // when it has no page folder (the dashboard spec, contract 4).
+  const pageFetchers = readdirSync(join(ROOT, "scripts")).filter(
+    (n) =>
+      n.endsWith(".mjs") &&
+      /(?:from\s*|import\s*\(\s*)"\.\/dashboard-fetch\.mjs"/.test(readFileSync(join(ROOT, "scripts", n), "utf8")),
+  );
+  assert.deepEqual(pageFetchers, ["dashboard.mjs"], "only the launcher imports the page's fetch");
+  assert.match(
+    readFileSync(join(ROOT, "scripts", "dashboard.mjs"), "utf8"),
+    /await import\("\.\/dashboard-fetch\.mjs"\)/,
+    "the launcher loads the page's fetch lazily, never as a static import",
   );
   const surfaces = readFileSync(join(ROOT, "scripts", "surfaces.mjs"), "utf8");
   // The banner names the installer as its generator — a string, not an import.

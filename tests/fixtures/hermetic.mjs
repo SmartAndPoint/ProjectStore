@@ -40,7 +40,10 @@ for (const m of loadHarnesses().values())
   for (const o of m.runtime?.agent_overrides || []) if (o?.env) delete process.env[o.env];
 // A shell's named root would stand in for every fetch, and the animation
 // switch would change every live line a test reads (the shell-fetch story).
-for (const k of ["PROJECTSTORE_DISTRIBUTION_ROOT", "PROJECTSTORE_NO_ANIMATION"]) delete process.env[k];
+// A named page folder would stand in for every dashboard a test starts or
+// fetches (the dashboard spec, contract 4); a test that needs one passes it.
+for (const k of ["PROJECTSTORE_DISTRIBUTION_ROOT", "PROJECTSTORE_NO_ANIMATION", "PROJECTSTORE_DASHBOARD_ROOT"])
+  delete process.env[k];
 // The glyph switch would turn every glyph a test reads into its ASCII form
 // (the presentation spec's glyph table; the story "The CLI's output is
 // designed…").
@@ -52,6 +55,11 @@ const scratch = mkdtempSync(join(tmpdir(), "ps-hermetic-"));
 process.env.XDG_CACHE_HOME = join(scratch, "cache");
 process.env.npm_config_cache = join(scratch, "npm-cache");
 process.env.npm_config_offline = "true";
+// …and in the upper-case form too, which npm reads the same: the dashboard's
+// page fetch removes every lower-case npm_config_* from its install's
+// environment (the dashboard spec, contract 15), and must stay offline here.
+process.env.NPM_CONFIG_CACHE = process.env.npm_config_cache;
+process.env.NPM_CONFIG_OFFLINE = "true";
 process.on("exit", () => {
   try {
     rmSync(scratch, { recursive: true, force: true, maxRetries: 2 });

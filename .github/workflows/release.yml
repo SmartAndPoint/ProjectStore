@@ -4,9 +4,10 @@ name: release
 # secrets, and none should ever be added. The trusted publisher is configured
 # on each package's own settings page (npmjs.com → <package> → Settings →
 # Trusted publisher), which is why the FIRST publish of a name is manual: the
-# form requires the package to already exist. The shells' names exist as
-# 0.0.1 placeholders, so their forms accept this workflow before their first
-# real release.
+# form requires the package to already exist. The shells' names exist as 0.0.1
+# placeholders, so their forms accept this workflow; the dashboard's name gets
+# its placeholder and trusted publisher by hand before the first tag that
+# carries the dashboard job (packaging/README.md, "The dashboard's package").
 
 # Tags only, deliberately. A `workflow_dispatch` run has no tag, so
 # GITHUB_REF_NAME would be a branch name and the version guard would reject it
@@ -16,9 +17,11 @@ name: release
 # One package, N tarballs (the shells ADR): the core publishes first, then a
 # matrix over the shells `packaging/shells.mjs --list --json` names — the
 # non-private ones, so a shell whose plugin root is not rendered yet cannot
-# reach the registry by construction. Every publish step skips a
-# name@version the registry already has, so a partial release is recovered by
-# re-running the same tag, never by hand.
+# reach the registry by construction — and, beside it, the dashboard's page,
+# `projectstore-dashboard` from `dashboard/`, at the core's version (the
+# dashboard spec, contract 19). Every publish step skips a name@version the
+# registry already has, so a partial release is recovered by re-running the
+# same tag, never by hand.
 
 # Then the GitHub Release, from the notes the release PR committed
 # (PS-HARNESS: "A release tag shows on every surface…"). Releases written by
@@ -154,10 +157,57 @@ jobs:
             npm publish "./dist/${SHELL_NAME}-${VERSION}.tgz" --provenance --tag "${DIST_TAG}"
           fi
 
+  # The dashboard's page, published from dashboard/ as it is: the first
+  # release of the page has no dependencies and no build. After the core, so
+  # that a first run of a new trusted publisher that fails cannot hold the
+  # core back. No `permissions` of its own: it holds the workflow's
+  # contents: read and id-token: write, which provenance needs, and nothing
+  # more. Its version must be the core's, which the core job's guard already
+  # checked against the tag; the step here says so again where it publishes.
+  dashboard:
+    needs: core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - run: npm install -g npm@11.11.0
+
+      - name: The dashboard's version is the core's
+        working-directory: dashboard
+        env:
+          VERSION: ${{ needs.core.outputs.version }}
+        run: |
+          HAVE="$(node -p 'require("./package.json").version')"
+          if [ "$HAVE" != "$VERSION" ]; then
+            echo "::error::dashboard/package.json is at ${HAVE}, the core at ${VERSION}"
+            exit 1
+          fi
+
+      - name: Publish the dashboard, unless this version is on the registry already
+        working-directory: dashboard
+        env:
+          VERSION: ${{ needs.core.outputs.version }}
+          DIST_TAG: ${{ needs.core.outputs.disttag }}
+        run: |
+          if [ -n "$(npm view "projectstore-dashboard@${VERSION}" version 2>/dev/null)" ]; then
+            echo "projectstore-dashboard@${VERSION} is published already — skipping"
+          else
+            npm publish --provenance --tag "${DIST_TAG}"
+          fi
+
   # The GitHub Release, after every publish and never before: a release that
   # announces a version npm refused would be the drift this job exists to end.
   # The `if` runs it when the shells' matrix was skipped (an empty publishable
-  # list) as well as when it passed; a bare `needs` would skip it then.
+  # list) as well as when it passed; a bare `needs` would skip it then. It
+  # waits for the dashboard's publish too, so a failed one is a red run that
+  # "Re-run failed jobs" recovers.
   #
   # The notes are packaging/release-notes/<tag>.md — "# <tag> — <title>", then
   # the body — held to that shape by the version guard in the core job, so a
@@ -169,8 +219,8 @@ jobs:
   # answers 200 (skip), 404 (create) or anything else, which fails the job
   # rather than racing a create into a 422.
   github-release:
-    needs: [core, shells]
-    if: ${{ !cancelled() && needs.core.result == 'success' && (needs.shells.result == 'success' || needs.shells.result == 'skipped') }}
+    needs: [core, shells, dashboard]
+    if: ${{ !cancelled() && needs.core.result == 'success' && (needs.shells.result == 'success' || needs.shells.result == 'skipped') && needs.dashboard.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write # gh release create: one of the two contents: write in this workflow, with the directory job's

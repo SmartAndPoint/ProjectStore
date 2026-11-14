@@ -13,7 +13,16 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createServer, get } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, copyFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  writeFileSync,
+  copyFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -184,20 +193,28 @@ test("dashboard: a path names the project, and wins over the environment's proje
   }
 });
 
-// [dashboard#4]
-test("dashboard: an install with no page exits 1, says a checkout has it, and names no build", async () => {
+// [dashboard#4] As amended on 2026-11-14: a named page folder is the page or
+// nothing, and is never fetched; the fetch of an npm copy, and the refusal of
+// any other copy with no folder, are tests/dashboard-fetch.test.mjs's.
+test("dashboard: a named page folder with no server.mjs exits 1 naming it, fetches nothing, and names no build", async () => {
   const { proj } = makeVaultProject();
   const empty = mkdtempSync(join(tmpdir(), "ps-dash-none-"));
+  const cache = mkdtempSync(join(tmpdir(), "ps-dash-none-cache-"));
+  const env = { PROJECTSTORE_DASHBOARD_ROOT: empty, XDG_CACHE_HOME: cache };
   assert.equal(pageAt(REPO, { PROJECTSTORE_DASHBOARD_ROOT: empty }), null);
-  const r = await runVerb([], { cwd: proj, env: { PROJECTSTORE_DASHBOARD_ROOT: empty } }).exited;
+  const r = await runVerb([], { cwd: proj, env }).exited;
   assert.equal(r.code, 1, r.stderr);
-  assert.match(r.stderr, /has no dashboard yet/);
-  assert.match(r.stderr, /not published yet/);
-  assert.match(r.stderr, /a checkout of the repository has the page/);
-  assert.doesNotMatch(r.stdout + r.stderr, /npm (ci|run|install)/);
-  const j = await runVerb(["--json"], { cwd: proj, env: { PROJECTSTORE_DASHBOARD_ROOT: empty } }).exited;
+  assert.equal(
+    r.stderr,
+    `PROJECTSTORE_DASHBOARD_ROOT names ${JSON.stringify(empty)}, which has no server.mjs: nothing was started or fetched.\n`,
+  );
+  assert.doesNotMatch(r.stdout + r.stderr, /npm (ci|run|install)|build/);
+  const j = await runVerb(["--json"], { cwd: proj, env }).exited;
   assert.equal(j.code, 1);
-  assert.equal(JSON.parse(j.stdout.trim()).ok, false);
+  const envelope = JSON.parse(j.stdout.trim());
+  assert.equal(envelope.ok, false);
+  assert.equal(envelope.result.error, r.stderr.trimEnd(), "the envelope's error is the text, word for word");
+  assert.deepEqual(readdirSync(cache), [], "the cache is not touched");
 });
 
 // [dashboard#5]

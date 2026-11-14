@@ -202,6 +202,13 @@ const ROWS = {
       ["`npm install`", '"install"', npmArgv()],
       ["`--ignore-scripts`", '"--ignore-scripts"', npmArgv()],
       [`\`${codexShell()}\``, String(codexShell()), JSON.stringify(manifest("codex")?.install)],
+      // The dashboard spec, contract 15: the page's fetch, from `dashboard` in an npm copy.
+      [
+        "from `dashboard` in a copy installed from npm",
+        "fetchArgv({ prefix: scratch",
+        code("scripts/dashboard-fetch.mjs"),
+      ],
+      ["`projectstore-dashboard`", 'PAGE_PACKAGE = "projectstore-dashboard"', code("scripts/dashboard-fetch.mjs")],
     ],
   },
   // The band is a hooks module: no spawn and no fetch in its reach (checked
@@ -255,6 +262,18 @@ const ROWS = {
     lead: "The Codex package",
     says: () => [[`\`${codexShell()}\``, String(codexShell()), JSON.stringify(manifest("codex")?.install)]],
   },
+  // The dashboard spec, contracts 14 and 15: the page's package, at exactly
+  // the running version, kept in the user cache and started from there.
+  dashboard: {
+    sub: SENDS,
+    lead: "The dashboard package",
+    says: () => [
+      ["`projectstore-dashboard`", 'PAGE_PACKAGE = "projectstore-dashboard"', code("scripts/dashboard-fetch.mjs")],
+      ["at exactly that version, never another", "shell: PAGE_PACKAGE, version", code("scripts/dashboard-fetch.mjs")],
+      ["keeps it in ProjectStore's cache", "cache.dashboard(version)", code("scripts/dashboard-fetch.mjs")],
+      ["make no request", "if (checkPage(target, version) === null) return", code("scripts/dashboard-fetch.mjs")],
+    ],
+  },
 };
 
 // The one named exemption: shipped, never run by the plugin. It names itself
@@ -289,7 +308,8 @@ const MODULES = {
   // (the read-verb runner, the MCP entry story); mcp.mjs itself spawns nothing.
   "scripts/read-verbs.mjs": { rows: [], execPath: true },
   "scripts/reconcile.mjs": { rows: [], execPath: true },
-  "scripts/run-host.mjs": { rows: ["npm", "codex", "node"] },
+  // The one runner npm goes through: the Codex package, and the dashboard's.
+  "scripts/run-host.mjs": { rows: ["npm", "codex", "dashboard", "node"] },
   "scripts/setup.mjs": { rows: ["git"] },
   "scripts/statusline-launcher.mjs": { rows: ["statusline"] },
   "scripts/statusline.mjs": { rows: ["statusline"] },
@@ -372,7 +392,7 @@ test("disclosure: the shipped modules that spawn or fetch are the pinned map", (
   assert.ok(section() !== null, `README has "${SECTION}"`);
   for (const [heading, rows] of [
     [RUNS, ["node", "git", "gh", "browser", "hosts", "npm", "statusline"]],
-    [SENDS, ["registry", "codex"]],
+    [SENDS, ["registry", "codex", "dashboard"]],
   ]) {
     const have = rowsOf(sub(heading));
     for (const id of rows) assert.ok(have.has(ROWS[id].lead), `README's "${heading}" has the row **${ROWS[id].lead}**`);
@@ -482,14 +502,14 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   // The one program that connects on its own is named where the sends are.
   for (const c of catalogs("codex").filter((x) => x.kind === "command"))
     assert.ok(sends.includes(`\`${c.argv.join(" ")}\``), `the sends section names ${c.argv.join(" ")}, which connects`);
-  assert.ok(section().includes("Its own code makes two requests"), "the intro counts ProjectStore's own requests");
+  assert.ok(section().includes("Its own code makes three requests"), "the intro counts ProjectStore's own requests");
   assert.ok(
     section().includes("Two programs it runs make requests of their own") &&
       sends.includes("Three programs it runs may connect on their own"),
     "the intro and the sends section count the programs that connect: codex, gh and the status line command",
   );
   assert.ok(sends.includes("`gh` reads your pull requests"), "the sends section names gh");
-  assert.equal(rowsOf(sends).size, 2, "the sends section lists those two");
+  assert.equal(rowsOf(sends).size, 3, "the sends section lists those three");
   assert.ok(sends.includes(new URL(fetchShell.DEFAULT_REGISTRY).host), "the sends section names the default registry");
   // No credential is read from the environment (the 0.30.7 story,
   // PS-DIRECTORY): the intro says so, and no catalog asks for a key.
@@ -726,6 +746,8 @@ test("disclosure: the section's writes and the directory report, and no key-shap
     ["models", "`models/`"],
     ["welcomed", "`welcomed/`"],
     ["fetch", "`fetch/`"],
+    // The dashboard's page, one folder per version (the dashboard spec, contract 14).
+    ["dashboard", "`dashboard/<version>/`"],
   ]) {
     const p = typeof cache[k] === "function" ? cache[k]("x") : cache[k];
     assert.ok(p && p.startsWith(cache.root), `cachePaths().${k} is under the cache root`);

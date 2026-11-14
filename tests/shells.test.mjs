@@ -957,7 +957,11 @@ test("shells AC 4: the release matrix is the publishable list, computed — neve
     yml.includes('node packaging/shells.mjs --build --only "${SHELL_NAME}" --out dist'),
     "a shell is built from the core's pack tarball, in CI too",
   );
-  assert.equal((yml.match(/npm view "/g) || []).length, 2, "both publishes skip an already-published name@version");
+  assert.equal(
+    (yml.match(/npm view "/g) || []).length,
+    3,
+    "every publish — the core, the shell, the dashboard — skips an already-published name@version",
+  );
   // A prerelease must never land on \`latest\`: npm defaults there when --tag is
   // omitted, so a release candidate would answer a bare \`npx projectstore-claude\`.
   assert.match(yml, /disttag=next/, "a version with a prerelease marker goes to its own dist-tag");
@@ -972,7 +976,7 @@ test("shells AC 4: the release matrix is the publishable list, computed — neve
     tarball && /npm publish "\.\/dist\//.test(tarball),
     `the tarball path is file-shaped, not git-shaped: ${(tarball || "").trim()}`,
   );
-  assert.equal(publishes.length, 2, "two publishes, the core and the shell");
+  assert.equal(publishes.length, 3, "three publishes: the core, the shell and the dashboard");
   for (const l of publishes)
     assert.match(
       l,

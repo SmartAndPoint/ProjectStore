@@ -1,11 +1,40 @@
 {
   "name": "projectstore-dashboard",
   "version": "0.30.18",
-  "private": true,
   "type": "module",
-  "description": "A local, read-only page over a ProjectStore vault: the backlog, the board, an item's document and what is related to it. Started by `projectstore dashboard`; reads the vault through the core it ships with.",
+  "description": "A local, read-only page over a ProjectStore vault: the backlog, the board, an item's document and what is related to it. Started by `projectstore dashboard`, which fetches this package at its own version; reads the vault through that core.",
+  "keywords": [
+    "projectstore",
+    "dashboard",
+    "kanban",
+    "backlog",
+    "markdown",
+    "obsidian"
+  ],
+  "homepage": "https://projectstore.dev",
+  "bugs": {
+    "url": "https://github.com/SmartAndPoint/ProjectStore/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SmartAndPoint/ProjectStore.git",
+    "directory": "dashboard"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Evgenii Konev",
+    "email": "ekonev@smartandpoint.com",
+    "url": "https://github.com/SmartAndPoint"
+  },
   "engines": {
     "node": ">=20.0.0"
   },
-  "license": "MIT"
+  "files": [
+    "server.mjs",
+    "lib/",
+    "public/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }
