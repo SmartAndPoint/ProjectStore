@@ -850,6 +850,13 @@ export function packageCommand(harnesses, verb, { version = null, args = "" } = 
   return `${CORE_NPX}${version ? `@${version}` : ""} ${verb}${ids}${args ? ` ${args}` : ""}`;
 }
 
+// One shell word as a POSIX shell reads it back: bare when it holds only
+// ASCII letters, digits and `_/.~-`, else in single quotes, each `'` as
+// `'\''`. Here, beside packageCommand, so a module that must not reach a
+// writer that runs git (doctor-flow.mjs, on SessionStart's path through
+// doctor.mjs) quotes a name in a command; binding.mjs re-exports it.
+export const shellQuote = (s) => (/^[A-Za-z0-9_/.~-]+$/.test(s) ? s : `'${String(s).replace(/'/g, `'\\''`)}'`);
+
 // The package this run was invoked as: the shell it came through (the shell's
 // bin sets PROJECTSTORE_SHELL, and fixes the harness), else the core. Only
 // what describes the binary that ran uses it — the help's first line, its

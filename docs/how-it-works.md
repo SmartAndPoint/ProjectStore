@@ -102,7 +102,7 @@ by hash (a file over 512 KiB, and anything past 64 MiB a session, keeps its
 hashes only). The tool hooks write it for `Edit`, `Write`, `MultiEdit` and
 `NotebookEdit`: PreToolUse stores the file as it is, keyed by the call's
 `tool_use_id`, and PostToolUse appends the event. The plugin's own writers add
-to it too (`move`, the epic row, `configure`'s vault settings, `guide eject`),
+to it too (`move`, `handover`, the epic row, `configure`'s vault settings, `guide eject`),
 and the story close brackets the clerk's copy, which no hook sees, with
 `session snapshot <story> --for <scratch>` before the spawn and
 `session record <story> --from <scratch>` after it. Derived views are not
@@ -256,6 +256,19 @@ resistance. v0.13 makes that safe instead of forbidden:
   is a git repository it reads `git worktree list`, `git merge-base` and
   `git cat-file` first, and leaves alone a story a linked worktree's branch
   changed.
+- **`handover`** gives one person's open stories to another:
+  `handover --from <name> --to <name> --reason "<why>"`, or one story with
+  `--story <EPIC>/<id>`. Open means neither done nor set aside, so planned,
+  ToDo, in-progress and review stories move, awaiting close included. Bare,
+  it prints the plan, with a warning when the receiver would go over their
+  WIP limit; with `--write` it asks once at a terminal and writes each story
+  through the same read-again writer `move` uses: the `assignee:`, the
+  header's Assignee row and one Status log line,
+  `assignee: <from> → <to> — handover: <why> (handover)`. The status and its
+  stamp do not change. A `--to` marked left is refused. It runs no git and no
+  `gh`, and it has no MCP tool. Doctor's `assignee-left` lists the open work
+  of each person `flow.people[<name>].left` marks as left, and it and
+  `assignee-idle` end with the `handover` command to run.
 
 The division of labor: deterministic checks catch the mechanical 90% for free;
 the LLM critic that `/projectstore:review` runs is saved for the judgment calls.

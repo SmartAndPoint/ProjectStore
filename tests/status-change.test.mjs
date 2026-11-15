@@ -140,6 +140,54 @@ test("writer: changeAssignee logs an assignee: line and leaves the stamp", () =>
   assert.equal(parseStatusLog(readFileSync(path, "utf8"))[0].field, "assignee");
 });
 
+// [handover#3]
+test("writer: changeAssignee judges allow on the fresh bytes of every attempt — a story reassigned meanwhile is refused and left", () => {
+  const { path } = seed();
+  let edited = null;
+  const r = changeAssignee(path, {
+    to: "Grace",
+    reason: "handover: left",
+    actor: "handover",
+    at: AT,
+    allow: (x) => (x.assignee === "Other" ? null : `now ${x.assignee}`),
+    afterCompute: (i) => {
+      if (i === 0) {
+        edited = readFileSync(path, "utf8").replace('assignee: "Other"', 'assignee: "Lin"');
+        writeFileSync(path, edited);
+      }
+    },
+  });
+  assert.notEqual(edited, null);
+  assert.equal(r.refused, "now Lin");
+  assert.equal(r.attempts, 2);
+  assert.equal(r.written, false);
+  assert.equal(readFileSync(path, "utf8"), edited, "untouched by the writer");
+});
+
+// [handover#3]
+test("writer: changeAssignee keeps an edit made meanwhile under the change, and never stamps a status", () => {
+  const { path } = seed();
+  const before = fm(path);
+  const r = changeAssignee(path, {
+    to: "Grace",
+    reason: "handover: left",
+    actor: "handover",
+    at: AT,
+    allow: () => null,
+    afterCompute: (i) => {
+      if (i === 0) writeFileSync(path, readFileSync(path, "utf8").replace("# A", "# A (edited)"));
+    },
+  });
+  assert.equal(r.written, true);
+  assert.equal(r.refused, null);
+  const text = readFileSync(path, "utf8");
+  assert.ok(text.includes("# A (edited)"));
+  assert.equal(fm(path).assignee, "Grace");
+  assert.equal(fm(path).status, before.status);
+  assert.equal(fm(path).status_changed_at, before.status_changed_at);
+  assert.equal(r.line, `- ${AT} assignee: Other → Grace — handover: left (handover)`);
+});
+
 // [SPEC-001#7]
 test("epic row: no row is epic-row-missing and the epic is not written; the entry exits 0 then, and 1 on a write error", () => {
   const list = `---\ntype: epic\n---\n\n# E\n\n## Stories\n\n1. [a](./stories/story-a.md) — planned\n`;

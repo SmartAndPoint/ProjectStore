@@ -201,6 +201,12 @@ A story moves from the backlog to ToDo, and back, with a reason that goes into i
 npx projectstore move PS-CORE/story-x todo --reason "next up" --write
 ```
 
+When a person leaves the project, `handover` gives their open stories to someone else, with the reason in each story's Status log. Bare, it prints the plan; `--write` asks once at a terminal:
+
+```
+npx projectstore handover --from "First Last" --to "Other Person" --reason "left the team" --write
+```
+
 To pick the next task, `next` lists your started work first, and offers stories from ToDo only while you are under your WIP limit. It only reads the vault:
 
 ```

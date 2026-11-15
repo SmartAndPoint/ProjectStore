@@ -96,6 +96,7 @@
   "node_modules/projectstore/scripts/follow.mjs",
   "node_modules/projectstore/scripts/graph.mjs",
   "node_modules/projectstore/scripts/guides.mjs",
+  "node_modules/projectstore/scripts/handover.mjs",
   "node_modules/projectstore/scripts/harness.mjs",
   "node_modules/projectstore/scripts/install-handlers.mjs",
   "node_modules/projectstore/scripts/install-harness.mjs",
