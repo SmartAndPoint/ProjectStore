@@ -43,6 +43,7 @@ import { gitVault, addWorktree, writeStory } from "./fixtures/git-vault.mjs";
 import { writeBinding, makeVaultProject } from "./fixtures/vault.mjs";
 import { hookEnv, payload, fireTouch, fireTouchAsync, toolWrite } from "./fixtures/hooks.mjs";
 import { loadTemplate, renderTemplate, parseFrontmatter } from "../scripts/lib.mjs";
+import { applyStatusChange } from "../scripts/status-log.mjs";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const SRC = sourceHarness();
@@ -458,9 +459,10 @@ test("node writers: epic --initiative, then initiative accepted, each leave one 
 });
 
 // [writerecord#5]
-test("node writers: configure --set flow.window_weeks=4 leaves one event for .projectstore.json", async () => {
-  const { proj, vault } = moveFixture();
-  writeFileSync(join(vault, ".projectstore.json"), "{}\n");
+test("node writers: configure --set flow.window_weeks=4 leaves one event for .projectstore.json; groom --write then moving one stale ToDo story adds one for the story, one for its epic.md and one more for .projectstore.json, each with the tool groom", async () => {
+  const { proj, vault, path } = moveFixture();
+  const seed = '{"flow":{"age_days":{"todo":1}}}\n';
+  writeFileSync(join(vault, ".projectstore.json"), seed);
   const home = mkdtempSync(join(tmpdir(), "ps-wr-home-"));
   const r = await runConfigure({
     values: { set: ["flow.window_weeks=4"] },
@@ -477,8 +479,39 @@ test("node writers: configure --set flow.window_weeks=4 leaves one event for .pr
     ev.map((e) => [e.rel, e.tool]),
     [[".projectstore.json", "configure"]],
   );
-  assert.equal(ev[0].before, sha("{}\n"));
-  assert.equal(ev[0].after, sha(readFileSync(join(vault, ".projectstore.json"), "utf8")));
+  assert.equal(ev[0].before, sha(seed));
+  const configured = readFileSync(join(vault, ".projectstore.json"), "utf8");
+  assert.equal(ev[0].after, sha(configured));
+
+  // A ToDo story five days old by a trusted stamp, and its row reading todo.
+  const at = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+  writeFileSync(
+    path,
+    applyStatusChange(readFileSync(path, "utf8"), { to: "todo", reason: "next up", actor: "move", at }).text,
+  );
+  const epic = join(vault, "epics", "PS-X", "epic.md");
+  writeFileSync(epic, readFileSync(epic, "utf8").replace("| planned |", "| todo |"));
+  const story = readFileSync(path, "utf8");
+  const groomed = await cli(proj, ["groom", "--write", "--json"], { ...process.env, [SID_ENV]: "s1" });
+  assert.equal(groomed.code, 0, groomed.err);
+  const all = events(proj, "s1");
+  assert.deepEqual(all[0], ev[0], "configure's event first");
+  const g = all.slice(1);
+  // The story's and its epic's events can share a timestamp, so their order is not pinned.
+  assert.deepEqual(
+    g
+      .slice(0, 2)
+      .map((e) => [e.rel, e.tool])
+      .sort(),
+    [
+      ["epics/PS-X/epic.md", "groom"],
+      ["epics/PS-X/stories/story-a.md", "groom"],
+    ],
+  );
+  assert.deepEqual([g.length, g[2].rel, g[2].tool], [3, ".projectstore.json", "groom"]);
+  assert.equal(g.find((e) => e.rel.endsWith("story-a.md")).before, sha(story));
+  assert.equal(g[2].before, sha(configured));
+  assert.equal(g[2].after, sha(readFileSync(join(vault, ".projectstore.json"), "utf8")));
 });
 
 // [writerecord#5]

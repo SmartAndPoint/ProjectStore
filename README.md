@@ -215,6 +215,12 @@ To pick the next task, `next` lists your started work first, and offers stories 
 npx projectstore next
 ```
 
+Once a week, `groom` grooms the board: every ToDo story past `flow.age_days.todo` goes back to the backlog with the reason in its Status log, the one-story epics and the active epics against `flow.active_epics_max` are listed, and the pass is stamped in `flow.groomed_at`. Bare, it prints the plan; `--write` asks once at a terminal. In a Claude Code session, `/projectstore:groom` shows the plan, asks, and hands the one-story epics to the librarian, which proposes merges:
+
+```
+npx projectstore groom --write
+```
+
 Beside `move` and `handover`, two verbs write an initiative. `initiative` records a decision on one, accepted, rejected or deferred, with a dated reason in its Outcome section, or edits its title, owner and priority. `epic` sets or clears the initiative an epic belongs to. Bare, each prints the plan; `--write` asks at a terminal:
 
 ```

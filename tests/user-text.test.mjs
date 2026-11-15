@@ -944,6 +944,39 @@ test("user text: assignee-left and assignee-idle put the handover command alone 
   assert.deepEqual(lintFinding("assignee-idle", drawn(idle), [cmd("First Last")], fx.proj), []);
 });
 
+// [groom#1] [groom#3]
+test("user text: groom's plan and its views-left refusal put the command alone on its line, after a lead naming the directory, no --project", async () => {
+  const { runGroom } = await import("../scripts/groom.mjs");
+  const { flowVault, storyText, daysAgo } = await import("./fixtures/flow.mjs");
+  const at = daysAgo(12, Date.now());
+  const fx = flowVault({
+    vaultCfg: { flow: { age_days: { todo: 10 } } },
+    stories: { "PS-X/story-a": storyText({ id: "story-a", log: [{ to: "todo", at }] }) },
+  });
+  const r = await runGroom({ values: {}, cfg: fx.cfg, project: fx.proj, env: process.env });
+  const cmd = packageCommand([], "groom", { args: "--write" });
+  assert.deepEqual(lintOutput("groom plan", r.text, { alone: [cmd] }), []);
+  const lead = r.text.split("\n").find((l) => l.includes(fromTerminalIn(fx.proj)));
+  assert.ok(lead && lead.endsWith(":"), r.text);
+  // A kanban.md that is a folder: the views cannot be refreshed.
+  mkdirSync(join(fx.vault, "kanban.md", "blocker"), { recursive: true });
+  const left = await runGroom({ values: { write: true }, cfg: fx.cfg, project: fx.proj, env: process.env });
+  assert.equal(left.code, 1, left.text);
+  assert.deepEqual(lintOutput("groom views left", left.text, { alone: [cmd] }), []);
+  const k = left.text.split("\n").indexOf(cmd);
+  assert.ok(k > 0 && left.text.split("\n")[k - 1].endsWith(`${fromTerminalIn(fx.proj)}:`), left.text);
+});
+
+// [groom#6]
+test("user text: grooming-due puts the groom command alone on its line, after a lead naming the directory (rule 5)", async () => {
+  const { flowVault, doctorRun, byCheck } = await import("./fixtures/flow.mjs");
+  const fx = flowVault({ vaultCfg: { flow: { grooming_days: 7 } } });
+  const [due] = byCheck(doctorRun(fx), "grooming-due");
+  assert.ok(due);
+  const drawn = (f) => ({ ...f, group: "install" });
+  assert.deepEqual(lintFinding("grooming-due", drawn(due), [packageCommand([], "groom")], fx.proj), []);
+});
+
 test("user text, rule (b): neither Codex tree names a shell as a command", () => {
   const trees = [
     join(ROOT, "adapters", "codex"),

@@ -340,11 +340,16 @@ export function refusedName(name) {
 }
 
 // Whether the vault declares a flow policy at all: `flow` present and not
-// null or an empty object.
+// null, an empty object, or an object holding only the stamp
+// `flow.groomed_at`, which declares nothing (the flow-findings spec,
+// contract 7, as amended 2026-11-15: the groom verb's stamp never turns the
+// flow checks on). Every reader of a declared policy goes through it, `next`
+// among them (the next spec, contract 1).
 export function flowDeclared(vaultCfg) {
   if (!isPlainObject(vaultCfg) || !Object.hasOwn(vaultCfg, "flow")) return false;
   const f = vaultCfg.flow;
-  return !(f === null || (isPlainObject(f) && Object.keys(f).length === 0));
+  if (f === null) return false;
+  return !isPlainObject(f) || Object.keys(f).some((k) => k !== "groomed_at");
 }
 
 const OBJECT_SET = "an object of flow settings";

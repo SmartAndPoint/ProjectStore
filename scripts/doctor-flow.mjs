@@ -16,12 +16,13 @@
 // Spec: "Doctor's flow findings: local git activity, idle work and people,
 // the policy gate, levels and privacy" (alias `flow-findings`), contracts 1
 // to 11, "Flow counts…" (alias `flow-counts`), the findings of its
-// contracts 2 to 8, and "The handover verb…" (alias `handover`), contract 6:
-// `assignee-left`. Registered by doctor.mjs runVaultChecks, never by
+// contracts 2 to 9, "The handover verb…" (alias `handover`), contract 6:
+// `assignee-left`, and "The groom verb…" (alias `groom`), contract 6:
+// `grooming-due`, `epic-single-story` and `active-epics-over-cap`. Registered by doctor.mjs runVaultChecks, never by
 // runStartupChecks (ADR-005 decision 4). Imports nothing of doctor.mjs, which
 // imports this module.
 
-import { folderByKind, fromTerminalIn, listOf } from "./lib.mjs";
+import { folderByKind, fromTerminalIn, listOf, commandForm } from "./lib.mjs";
 import { packageCommand, shellQuote } from "./harness.mjs";
 import {
   flowValue,
@@ -34,7 +35,7 @@ import {
   leftDateOf,
   refusedName,
 } from "./flow-policy.mjs";
-import { readFlowStories } from "./flow-stories.mjs";
+import { readFlowStories, readFlowEpics } from "./flow-stories.mjs";
 import {
   DAY_MS,
   storyFacts,
@@ -48,6 +49,7 @@ import {
   capacityVerdict,
   oldestFirst,
   openStoriesOf,
+  epicCounts,
 } from "./flow-counts.mjs";
 import { stampMs } from "./status-log.mjs";
 import { refCovers } from "./code-refs.mjs";
@@ -62,6 +64,7 @@ export const FLOW_LEVELS = Object.freeze({
   "assignee-left": "warn",
   "intake-over-close": "warn",
   "todo-over-capacity": "warn",
+  "active-epics-over-cap": "warn",
   "flow-policy-invalid": "warn",
   "flow-checks-failed": "warn",
   "todo-aged": "info",
@@ -70,6 +73,8 @@ export const FLOW_LEVELS = Object.freeze({
   "flow-window-young": "info",
   "status-unstamped": "info",
   "closed-unstamped": "info",
+  "grooming-due": "info",
+  "epic-single-story": "info",
   "flow-policy-unset": "info",
   "flow-person-unknown": "info",
   "flow-activity-unknown": "info",
@@ -112,6 +117,9 @@ function named(facts) {
 // The handover a finding offers (the handover spec, contract 6; the
 // flow-findings spec, contract 5): the core's form, the person's name quoted
 // as shellQuote quotes it, the receiver and the reason left for the reader.
+// The grooming pass a finding offers (the groom spec, contract 6).
+export const groomCommand = () => packageCommand([], "groom");
+
 export const handoverCommand = (name) =>
   packageCommand([], "handover", { args: `--from ${shellQuote(name)} --to <name> --reason '<why>'` });
 
@@ -183,24 +191,35 @@ function flowFindings({ cfg, layout, vaultCfg, proj, now, commits, read: readFil
   const idleDays = flowValue(vaultCfg, "idle_days");
   const weeks = flowValue(vaultCfg, "window_weeks");
   const bounds = flowValue(vaultCfg, "capacity_weeks");
+  const groomDays = flowValue(vaultCfg, "grooming_days");
+  const epicsMax = flowValue(vaultCfg, "active_epics_max");
   const people = flowPeople(vaultCfg);
   const listed = vaultCfg.flow?.people;
   const peopleSet = listed !== null && typeof listed === "object" && !Array.isArray(listed);
-  const anyCheck = [review, todoDays, ipIdle, idleDays, weeks].some((v) => v !== null) || people.size > 0;
+  const anyCheck =
+    [review, todoDays, ipIdle, idleDays, weeks, groomDays, epicsMax].some((v) => v !== null) || people.size > 0;
   if (!anyCheck) return out;
 
   const epics = folderByKind(layout, "epic");
-  const read = epics
-    ? readFlowStories(cfg.vault_path, epics.path, readFile ? { read: readFile } : {})
-    : { stories: [], unread: 0 };
+  const seam = readFile ? { read: readFile } : {};
+  const read = epics ? readFlowStories(cfg.vault_path, epics.path, seam) : { stories: [], unread: 0 };
+  // The epics are read only for the two epic findings (Flow counts, contract
+  // 9); an epic.md that cannot be read is counted with the stories.
+  const epicRead =
+    epics && epicsMax !== null ? readFlowEpics(cfg.vault_path, epics.path, seam) : { epics: [], unread: 0 };
   const facts = read.stories.map(storyFacts);
-  if (read.unread > 0)
+  const unread = read.unread + epicRead.unread;
+  if (unread > 0) {
+    const what = epicRead.unread
+      ? plural(unread, "story or epic file or folder", "story or epic files or folders")
+      : plural(unread, "story file or folder", "story files or folders");
     out.push(
       finding(
         "flow-stories-unread",
-        `${plural(read.unread, "story file or folder", "story files or folders")} could not be read and ${read.unread === 1 ? "is" : "are"} left out, so the flow counts can be low.`,
+        `${what} could not be read and ${unread === 1 ? "is" : "are"} left out, so the flow counts can be low.`,
       ),
     );
+  }
 
   // Flow counts, contract 5: WIP per person against the limit rule.
   const wip = wipByPerson(facts);
@@ -356,6 +375,56 @@ function flowFindings({ cfg, layout, vaultCfg, proj, now, commits, read: readFil
             `ToDo holds ${todo} stories, below the ${num(v.low)} the team can do in ${plural(bounds[0], "week")} ${at}.`,
           ),
         );
+    }
+  }
+
+  // The groom spec, contract 6: the grooming pass is due when its stamp is
+  // absent, does not read, or is at least flow.grooming_days old. The value
+  // of a stamp that does not read is never named.
+  if (groomDays !== null) {
+    const raw = vaultCfg.flow?.groomed_at;
+    const at = raw === undefined || raw === null ? null : stampMs(raw);
+    const age = at === null ? null : ageDays(at, asOf);
+    let why = null;
+    if (raw === undefined || raw === null)
+      why = `flow.groomed_at holds no stamp, so no grooming pass is recorded under flow.grooming_days of ${groomDays}`;
+    else if (at === null)
+      why = `flow.groomed_at does not read as a date, so the last grooming pass is unknown under flow.grooming_days of ${groomDays}`;
+    else if (meets(age, groomDays))
+      why = `The last grooming pass, on ${day(at)}, was ${plural(age, "day")} ago, at or past flow.grooming_days of ${groomDays}`;
+    if (why)
+      out.push(
+        finding(
+          "grooming-due",
+          `${why}. The pass sends stale ToDo stories back to the backlog and lists the one-story epics; run it ${fromTerminalIn(proj)}:\n${groomCommand()}`,
+        ),
+      );
+  }
+
+  // The groom spec, contract 6: one-story epics and the active epics over
+  // the cap, both under flow.active_epics_max (Flow counts, contract 9).
+  if (epicsMax !== null) {
+    const counts = epicCounts(epicRead.epics, facts);
+    for (const e of counts.singleStory)
+      out.push(
+        finding(
+          "epic-single-story",
+          `${e.epic} is an active epic with one story, ${refOf(e.story)} (${e.story.status || "no status"}). A one-story epic is often a story in the wrong place: the grooming pass, ${commandForm("groom")}, hands it to the librarian, which proposes a merge.`,
+          { file: e.rel },
+        ),
+      );
+    if (counts.active.length > epicsMax) {
+      const names = counts.active.map((e) => e.epic);
+      const shown =
+        names.length > NAMED_MAX
+          ? `${names.slice(0, NAMED_MAX).join(", ")} and ${names.length - NAMED_MAX} more`
+          : names.join(", ");
+      out.push(
+        finding(
+          "active-epics-over-cap",
+          `${counts.active.length} epics are active, over flow.active_epics_max of ${epicsMax}: ${shown}. An active epic holds an open story; one done, parked, deferred or superseded does not.`,
+        ),
+      );
     }
   }
 

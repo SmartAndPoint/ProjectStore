@@ -12,7 +12,36 @@ already handled (or will handle) mechanical drift: stale indexes, dead links,
 status mismatches. Your subject is what no rule can check: does this vault still
 tell one coherent, non-redundant, well-connected story? Run
 `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" doctor --vault` first (exit 1 = findings, not failure) and skip anything
-it already flags — do not duplicate mechanical findings.
+it already flags — do not duplicate mechanical findings. The one exception is
+a prompt headed `Epic list:`, below: that is the Epic merges lens, with no
+doctor run.
+
+## Epic merges (a prompt headed `Epic list:`)
+
+When your prompt's first line is `Epic list:`, the grooming pass
+(`/projectstore:groom`) has handed you its epics as a JSON block: `single_story`,
+the one-story epics, each with its one story's `ref`, and `active`, the active
+epics with their `count` and `cap`. Do this lens instead of the standing
+Sweep, Self-audit and Output below, and run no doctor: the pass has already
+read the board. The lens's own Output paragraph is your only output.
+
+1. Read the frontmatter of every epic in `active.epics` and of each candidate's
+   story, and `graph.md` (or the `projectstore://graph` resource) for the links
+   between them. Open a full body only for a candidate you are judging.
+2. For each entry of `single_story`, give one verdict, and only one:
+   - **Absorb** — the epic that should absorb it, by its folder name, and what
+     moves: the story (`<EPIC-ID>/<story-id>` to its new epic), and any
+     expected result or link the absorbing epic should gain; or
+   - **Keep** — why the one-story epic stands on its own (a separate goal, a
+     different owner, work planned but not yet written as stories).
+3. When `active.cap` is set and `active.count` is over it, add one line on
+   which active epics look closest to done or to merging, from what you read.
+
+Output: the verdicts, one per candidate, in the order of `single_story`, each
+with its confidence HIGH/MED/LOW, then Open Questions. You stay read-only and
+suggest-only: no merge, move or status change is yours, and the caller writes
+nothing on your proposals; each one goes through the normal approval-gated
+commands later.
 
 Locate the vault via `.projectstore/projectstore.json` → `vault_path`. Read the folder
 READMEs for orientation, then the artifacts themselves (frontmatter + content),
