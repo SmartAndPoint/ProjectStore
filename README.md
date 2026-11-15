@@ -213,13 +213,7 @@ To pick the next task, `next` lists your started work first, and offers stories 
 npx projectstore next
 ```
 
-The dashboard is a page over the project's vault in your browser: the backlog as initiative, epic and story, the board, the list, your own work and each document with what links to it. From a terminal in the project:
-
-```
-npx projectstore dashboard
-```
-
-It serves the page on `127.0.0.1` until you stop it with Ctrl+C, and only reads the vault. The page is a package of its own, `projectstore-dashboard`, released with ProjectStore at the same version. A copy installed from npm fetches it the first time it runs at a version, once, into ProjectStore's cache, so that first run needs the network and later runs need none. A checkout of this repository, or the git marketplace's copy, runs its own `dashboard/` folder and fetches nothing.
+`npx projectstore dashboard` opens a read-only page over the vault in your browser. It has its own section below, [The dashboard](#the-dashboard).
 
 `projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are release artifacts: per-harness packages that carry the core, pinned at the same version and bundled, with the harness fixed. Nobody needs to type their names. Setup fetches the Codex one, which carries the Codex plugin; the Claude Code one is published at the core's version too; the opencode one publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs. How a release builds and publishes them, and how to run a checkout's own build: [`packaging/README.md`](https://github.com/SmartAndPoint/ProjectStore/blob/main/packaging/README.md).
 </details>
@@ -239,6 +233,65 @@ Updates come from claude.ai: when a new version is published, Claude Code downlo
 - **Removed**: on claude.ai, where it was added.
 
 What the directory itself reports about a copy installed this way: [What Anthropic's directory reports](#what-anthropics-directory-reports).
+
+## The dashboard
+
+The dashboard is a page over your project's vault, in your browser: the backlog as initiatives, epics and stories, a board, your own work, and each document with what links to it. It only reads. Nothing on the page changes the vault, the project or ProjectStore.
+
+From a terminal in a project bound to a vault:
+
+```
+npx projectstore dashboard
+```
+
+It prints the page's address, `http://127.0.0.1:4800/` or the next free port up to 4809, and opens it in your default browser. It serves until you press Ctrl+C. Run it in a terminal of your own, not inside an agent session: it does not end by itself, so an agent's shell would wait on it.
+
+| Option | What it does |
+|---|---|
+| `<dir>` | shows another project than the current folder |
+| `--port <n>` | listens on this port only |
+| `--no-open` | prints the address and opens no browser |
+| `--json` | prints the address in the JSON envelope the other commands use |
+
+From a checkout of this repository, name the project:
+
+```
+node bin/projectstore.mjs dashboard <project dir>
+```
+
+**What is on the page.** The sidebar holds four views:
+
+- **Backlog**: initiatives, their epics and the epics' stories, as a tree you can fold.
+- **Board**: the stories that are not done, in columns by status.
+- **My work**: your stories that are not done. Choose your name in the sidebar once; this browser remembers it.
+- **Initiatives**: the same board, with initiatives for cards.
+
+Click a story, an epic or an initiative to open it: its document, its fields, and what is related to it (its specs, its ADRs, the documents that link to it). The address keeps the view and the open item, so a bookmark brings you back to them. The page reads the vault when it loads. After a change in the vault, press R to read it again.
+
+| Key | What it does |
+|---|---|
+| ⌘K, or Ctrl+K | search anything, go anywhere |
+| / | search in this view |
+| 1 … 9 | go to a view, in the order of the sidebar |
+| J, K | select the next or the previous item |
+| H, L | on the board, the column to the left or right; in the backlog, fold or unfold |
+| Enter, or O | open the selected item |
+| Esc | close the item, or drop the selection |
+| R | read the vault again |
+| ? | the list of keys |
+
+**Where the page comes from.** The page is a package of its own, `projectstore-dashboard`, released with ProjectStore at the same version. A copy installed from npm fetches it the first time it runs at a version, once, into ProjectStore's cache: `~/.cache/projectstore/dashboard/<version>/`, or under `$XDG_CACHE_HOME/projectstore/` when that is set. So the first run needs the network and later runs need none. The fetch uses the registry your own npm is set to and runs no install script. A checkout of this repository, or the git marketplace's copy, runs its own `dashboard/` folder and fetches nothing. A version folder stays in the cache until you delete it.
+
+**When it does not start.** It exits with a message that says why:
+
+- *"… is not published on … try again in a few minutes"*: that version was released moments ago and the registry does not serve the page yet. Wait a few minutes and run it again.
+- *"… asked … a project's .npmrc and lower-case npm_config_\* variables are not passed to it"*: the network is down, or the fetch took over 120 seconds. If only your project's `.npmrc` names your company registry, name it for this run, as the message shows: `NPM_CONFIG_REGISTRY=<your registry> npx projectstore dashboard`.
+- *"port 4800 is in use"*, or *"ports 4800–4809 are all in use; pass --port"*: pick a free port with `--port <n>`.
+- The project is not bound (exit 3): bind it to a vault first, with `npx projectstore bind <vault>` from a terminal in the project.
+
+On a large vault kept in iCloud, the first read can be slow while iCloud downloads the files.
+
+How the page works inside, and how to run it by hand for development: [`dashboard/README.md`](https://github.com/SmartAndPoint/ProjectStore/blob/main/dashboard/README.md).
 
 ## Configure
 
