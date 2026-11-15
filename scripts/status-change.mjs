@@ -181,19 +181,26 @@ export function changeStatus(
 }
 
 // A change of assignee written to a story file: the same loop, no stamp and
-// no epic row.
-export function changeAssignee(path, { to, reason, actor, at = nowIso(), lang = "en", onWrite = null } = {}) {
+// no epic row. `allow(fm)` and `afterCompute` are changeStatus's: the
+// refusal is judged on the fresh bytes of every attempt, so a story
+// reassigned meanwhile is left as it is (the handover spec, contract 3).
+export function changeAssignee(
+  path,
+  { to, reason, actor, at = nowIso(), lang = "en", allow = null, afterCompute = null, onWrite = null } = {},
+) {
   let from = null;
   let line = null;
   const r = replaceWithRetry(
     path,
     (base) => {
+      const refused = allow ? allow(parseFrontmatter(base).data) : null;
+      if (refused) return { refused };
       const c = applyAssigneeChange(base, { to, reason, actor, at, lang });
       from = c.from;
       line = c.line;
       return { content: c.changed ? touchStory(c.text, at.slice(0, 10) || today()) : base };
     },
-    { onWrite },
+    { afterCompute, onWrite },
   );
   return {
     path,
@@ -204,6 +211,7 @@ export function changeAssignee(path, { to, reason, actor, at = nowIso(), lang = 
     attempts: r.attempts,
     line: r.changed ? line : null,
     error: r.error ?? null,
+    refused: r.refused ?? null,
   };
 }
 

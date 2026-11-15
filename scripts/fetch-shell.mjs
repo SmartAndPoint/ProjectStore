@@ -14,6 +14,7 @@
 //   rootVersion(root)                 → <root>/package.json's version, or null
 //   fetchDecision({…})                → { fetch, why } — rule 1, pure
 //   fetchArgv({ prefix, registry, … }) → rule 2's npm argv, plan's and the run's
+//   npmCall(argv, env)                → { resolved, bin, argv, shell }: how npm is started
 //   npmRegistry(projectDir, { env })  → the registry npx would see there, or null
 //   npmUserRegistry({ home, env })    → the user's own registry, read from home, or null
 //   fetchShell(job, { dir, registry }) → { ok, root, ms } or { ok: false, code, refusal }
@@ -25,8 +26,9 @@
 //
 // Nothing here decides a registration's rows: the analyser and the installer
 // do, from the fetched root this module hands them. Only install-harness.mjs
-// imports this file; hooks, doctor, surfaces and lib never do (the
-// portability suite asserts it). Pure node, no external deps.
+// and dashboard-fetch.mjs (the dashboard page's fetch, which reuses the npm
+// primitives here) import this file; hooks, doctor, surfaces and lib never do
+// (the portability suite asserts it). Pure node, no external deps.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -146,7 +148,9 @@ export function fetchArgv({ prefix, registry = null, shell, version }) {
 // spec already says of Windows.
 const WIN = process.platform === "win32";
 const winQuote = (a) => `"${String(a).replace(/"/g, '""')}"`;
-function npmCall(argv, env) {
+// Exported for the dashboard's page fetch (scripts/dashboard-fetch.mjs), which
+// runs npm the same way.
+export function npmCall(argv, env) {
   const resolved = whichOnPath("npm", env);
   const bin = resolved || (WIN ? "npm.cmd" : "npm");
   return { resolved, bin: WIN ? winQuote(bin) : bin, argv: WIN ? argv.map(winQuote) : argv, shell: WIN };

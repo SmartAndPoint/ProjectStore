@@ -220,7 +220,8 @@ function noteOf(id, v) {
 
 // Every epic of the epics folder `epicsDir` (an epic is a folder holding
 // epic.md, not one whose name starts with `_` or `.`), judged by the rule.
-// `assume` is a story's absolute path read as done, for a plan only; with
+// `assume` is a story's absolute path, or a list of them, read as done, for a
+// plan only (a list: `follow`'s plan of the stories it closes); with
 // `write`, each epic that passes is written through replaceWithRetry, which
 // reads it again before the replace and applies the rule again to the fresh
 // bytes. A done or set-aside epic is judged no further; a story file that
@@ -239,11 +240,11 @@ export function applyEpicRule({
   afterCompute = null,
   onWrite = null,
 } = {}) {
-  if (write && assume) throw new Error("a story assumed done is for a plan only: it is never written");
+  const assumed = new Set((Array.isArray(assume) ? assume : assume ? [assume] : []).map((p) => resolve(p)));
+  if (write && assumed.size) throw new Error("a story assumed done is for a plan only: it is never written");
   const root = resolve(epicsDir);
   const vault = dirname(root);
   const epicsPath = basename(root);
-  const assumed = assume ? resolve(assume) : null;
   const day = String(at).slice(0, 10);
   const out = { checked: 0, epics: [], moved: [], notes: [], error: null };
   let names;
@@ -280,7 +281,7 @@ export function applyEpicRule({
     }
     const states = stories.map((s) => {
       const abs = join(vault, s.rel);
-      return { path: abs, status: assumed && resolve(abs) === assumed ? "done" : s.fm.status };
+      return { path: abs, status: assumed.has(resolve(abs)) ? "done" : s.fm.status };
     });
     const v = epicRule(text, { epicPath: path, stories: states });
     if (v.verdict !== "done" || !write) {

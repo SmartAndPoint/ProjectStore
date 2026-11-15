@@ -251,6 +251,14 @@ each key activates.
   `scripts/status-log.mjs`), else `created`. Both instants are read through
   `stampMs`, so a stamp with no zone is UTC on every machine.
   `move <story> todo|planned --reason "<why>"` is the one change no gate makes.
+  `handover --from <name> --to <name> --reason "<why>"` changes only the
+  assignee of a person's open stories (`openStoriesOf` in
+  `scripts/flow-counts.mjs`), through `changeAssignee` in
+  `scripts/status-change.mjs`, with the actor `handover`. A name holding `@`
+  or a control character is refused. `flow.people[<name>].left` marks a
+  person as left (`leftDateOf` in `scripts/flow-policy.mjs`): doctor's
+  `assignee-left` then lists their open work, and the verb refuses them as
+  `--to`.
 - Doctor's flow checks (`scripts/doctor-flow.mjs`) read the `flow` block. A
   check whose key is absent, or outside its key's set, does not run. They count
   through `scripts/flow-counts.mjs`, which is pure and takes the as-of instant

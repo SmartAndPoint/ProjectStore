@@ -8,8 +8,8 @@
 // original, splices the managed pieces, returns {path, changed, content,
 // notes} on stdout — the COMMAND writes after approval, never this script.
 //
-//   node story-section.mjs plan  <story-path> [--reason "<why>"] [--actor <actor>]
-//   node story-section.mjs close <story-path> [--reason "<why>"] [--actor <actor>]
+//   node story-section.mjs plan  <story-path> [--reason "<why>"] [--actor <actor>] [--over-wip]
+//   node story-section.mjs close <story-path> [--reason "<why>"] [--actor <actor>] [--at <instant>]
 //
 // plan  — ensures a `## Implementation Plan` section exists (inserted with a
 //         placeholder; the agent fills it in the preview before approval),
@@ -27,6 +27,23 @@
 // and `plan gate` for plan, `closed` and `close gate` for close. A run that
 // changes no status appends nothing and keeps the stamp. The command writes;
 // it also updates the epic's Stories row (status-change.mjs epic-row).
+//
+// The close is computeClose, exported: `follow` runs the same code in-process
+// for a merged pull request (SPEC-001 contract 7, as amended 2026-11-12, and
+// the follow spec's contracts 5 and 6). Only `--actor follow` may pass an
+// event time, `--at <instant>`: closed_at, status_changed_at and the line take
+// it in nowIso() form, and `updated` and the footer keep the run's day. Any
+// other use of --at, or an instant the stamp reader cannot read, exits 1.
+//
+// The plan's JSON also carries `wip` (the next verb's spec, contract 5, and
+// SPEC-001 contract 7 as amended 2026-11-14): on the transition to
+// in-progress, the new assignee's WIP as `next` counts it, before this run
+// (next.mjs wipOnStart), `after` = held + 1, their limit and whether the
+// start goes over it; null with no transition, no new assignee or no limit.
+// `--over-wip`, on plan only, appends `; started over WIP limit
+// <after>/<limit>` to the run's reason when `wip.over` is true, so the status
+// line and the assignee line both carry it; otherwise a note says it changed
+// nothing. On close it exits 1.
 //
 // Timestamps are full ISO-8601 UTC (lib.mjs nowIso) — they anchor the legacy
 // predicate (closed_at vs spec_policy_since) and diff-refs' git --since.
@@ -56,7 +73,10 @@ import {
   oneLine,
   checkActor,
   sameStatus,
+  stampMs,
 } from "./status-log.mjs";
+import { wipOnStart } from "./next.mjs";
+import { flowAt, flowPeople } from "./flow-policy.mjs";
 
 function die(msg) {
   process.stderr.write(`projectstore/story-section: ${msg}\n`);
@@ -101,12 +121,64 @@ const GATE_DEFAULTS = {
   close: { reason: "closed", actor: "close gate" },
 };
 
+// The close of a story, as text: a `## Final Summary` section (inserted with a
+// placeholder when absent), status → done through applyStatusChange,
+// closed_at stamped once, then `updated` and the footer at `day`. `at` is the
+// time of closed_at, status_changed_at and the line; an explicit `at` is
+// accepted only from the actor `follow` (the event time of a merge, read by
+// the stamp reader and written in nowIso() form), any other caller closes at
+// the run time. Pure but for that default clock.
+// Returns {text, changed, notes}.
+export function computeClose(text, { reason, actor, at, day, lang = "en" } = {}) {
+  const why = reason === undefined || reason === null ? GATE_DEFAULTS.close.reason : oneLine(reason, "--reason");
+  const who = actor === undefined || actor === null ? GATE_DEFAULTS.close.actor : checkActor(actor);
+  const given = at !== undefined && at !== null;
+  if (given && who !== "follow") throw new Error("an event time (--at) is accepted only with --actor follow");
+  const ms = given ? stampMs(at) : null;
+  if (given && ms === null) throw new Error(`the event time is not an instant: ${JSON.stringify(at)}`);
+  const when = given ? new Date(ms).toISOString() : nowIso();
+  const fm = parseFrontmatter(text).data;
+  const status = String(fm.status || "").toLowerCase();
+  const notes = [];
+  const r = insertSection(
+    text,
+    "final_summary",
+    lang,
+    "<!-- What changed, why, tests executed, risks and follow-ups. Filled at the gate. -->",
+    ["acceptance", "decomposition", "description"],
+  );
+  let t = r.text;
+  if (r.inserted) notes.push("inserted Final Summary section");
+  if (!sameStatus(status, "done")) {
+    t = applyStatusChange(t, { to: "done", reason: why, actor: who, at: when, lang }).text;
+    notes.push(`status: ${fm.status || "?"} → done`, "stamped status_changed_at", "appended status log line");
+  }
+  if (!fm.closed_at || fm.closed_at === "null") {
+    t = setFm(t, "closed_at", JSON.stringify(when));
+    notes.push("stamped closed_at");
+  }
+  t = touchStory(t, day === undefined || day === null ? today() : day);
+  return { text: t, changed: t !== text, notes };
+}
+
+// The instant of --at in nowIso() form, read by the stamp reader; refused
+// unless the run is a close by `follow`.
+function eventTime(at, mode, actor) {
+  if (at === null) return null;
+  if (mode !== "close" || actor !== "follow") die("--at is accepted only on close with --actor follow");
+  const ms = stampMs(at);
+  if (ms === null) die(`--at is not an instant the stamp reader reads: ${JSON.stringify(at)}`);
+  return new Date(ms).toISOString();
+}
+
 function gate() {
   const argv = process.argv.slice(2);
   let checkPath = null;
   let noSpec = null;
   let reason = null;
   let actor = null;
+  let at = null;
+  let overWip = false;
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -118,18 +190,23 @@ function gate() {
     else if (a.startsWith("--reason=")) reason = a.slice("--reason=".length);
     else if (a === "--actor") actor = argv[++i] ?? "";
     else if (a.startsWith("--actor=")) actor = a.slice("--actor=".length);
+    else if (a === "--at") at = argv[++i] ?? "";
+    else if (a.startsWith("--at=")) at = a.slice("--at=".length);
+    else if (a === "--over-wip") overWip = true;
     else positional.push(a);
   }
   if (checkPath === undefined || checkPath === "") die("--check requires a value");
   const [mode, storyPath] = positional;
   if (!["plan", "close"].includes(mode) || !storyPath) {
     die(
-      'usage: story-section.mjs <plan|close> <story-path> [--check <baseline-file>] [--no-spec "<reason>"] [--reason "<why>"] [--actor <actor>]',
+      'usage: story-section.mjs <plan|close> <story-path> [--check <baseline-file>] [--no-spec "<reason>"] [--reason "<why>"] [--actor <actor>] [--at <instant>] [--over-wip]',
     );
   }
+  if (overWip && mode !== "plan") die("--over-wip is accepted on plan only");
   // One reason and one actor serve every line this run appends (contract 7).
-  const why = reason === null ? GATE_DEFAULTS[mode].reason : oneLine(reason, "--reason");
+  let why = reason === null ? GATE_DEFAULTS[mode].reason : oneLine(reason, "--reason");
   const who = actor === null ? GATE_DEFAULTS[mode].actor : checkActor(actor);
+  const event = eventTime(at, mode, actor === null ? null : who);
   // The declared opt-out from a spec is written at the plan gate only (the
   // spec policy ADR, Decision 14), with a reason, on a story with no specs.
   if (noSpec !== null) {
@@ -148,6 +225,7 @@ function gate() {
 
   let text = original;
   const notes = [];
+  let wip = null;
   const now = nowIso();
   const status = String(fm.status || "").toLowerCase();
 
@@ -163,7 +241,37 @@ function gate() {
     if (r.inserted) notes.push("inserted Implementation Plan section");
     // Never downgrades: a story already in progress, in review or done (by
     // status equality: in_progress, closed) keeps its status and its stamp.
-    if (!["in-progress", "review", "done"].some((s) => sameStatus(status, s))) {
+    const starts = !["in-progress", "review", "done"].some((s) => sameStatus(status, s));
+    // The person who starts the work is its assignee: the binding's
+    // default_author, compared exactly on the trimmed value. With none, the
+    // assignee stays.
+    const author = String(cfg.default_author ?? "").trim();
+    if (starts) {
+      // The new assignee's WIP, before this run (the next verb's spec, contract 5).
+      const name = author || String(fm.assignee ?? "").trim();
+      // A count that cannot be made (a layout with no epic folder, or one
+      // that does not load) leaves `wip` null with a note; the gate goes on.
+      if (name && cfg.vault_path)
+        try {
+          wip = wipOnStart({
+            vault: cfg.vault_path,
+            layout: cfg.layout,
+            vaultCfg: readVaultConfig(cfg.vault_path),
+            name,
+          });
+        } catch (e) {
+          notes.push(`the WIP count could not be made, so wip is null: ${e && e.message ? e.message : String(e)}`);
+        }
+      if (wip && wip.unread)
+        notes.push(
+          `${wip.unread} story ${wip.unread === 1 ? "file" : "files"} could not be read, so the WIP count can be low`,
+        );
+    }
+    if (overWip) {
+      if (wip && wip.over) why = `${why}; started over WIP limit ${wip.after}/${wip.limit}`;
+      else notes.push("--over-wip changed nothing: this start does not go over a WIP limit");
+    }
+    if (starts) {
       const c = applyStatusChange(text, { to: "in-progress", reason: why, actor: who, at: now, lang });
       text = c.text;
       notes.push(
@@ -171,17 +279,16 @@ function gate() {
         "stamped status_changed_at",
         "appended status log line",
       );
-      // The person who starts the work is its assignee: the binding's
-      // default_author, compared exactly on the trimmed value. With none, the
-      // assignee stays.
-      const author = String(cfg.default_author ?? "").trim();
       if (author && author !== String(fm.assignee ?? "").trim()) {
         const a = applyAssigneeChange(text, { to: author, reason: why, actor: who, at: now, lang });
         text = a.text;
         if (a.changed) {
           notes.push(`assignee: ${a.from || "none"} → ${author}`, "appended assignee log line");
-          const people = readVaultConfig(cfg.vault_path)?.flow?.people;
-          if (people && typeof people === "object" && !Object.hasOwn(people, author))
+          // The people the limit rule reads (flowPeople): a refused key, such
+          // as `__proto__`, is not in flow.people, as `next` says.
+          const vcfg = readVaultConfig(cfg.vault_path);
+          const people = flowAt(vcfg?.flow, ["people"]);
+          if (people && typeof people === "object" && !Array.isArray(people) && !flowPeople(vcfg).has(author))
             notes.push(`${author} is not in the vault's flow.people, so the person has no WIP limit`);
         }
       }
@@ -197,30 +304,16 @@ function gate() {
       text = setFm(text, "no_spec", JSON.stringify(noSpec.trim()));
       notes.push("declared no_spec");
     }
+    // Keep the body footer in step with frontmatter `updated:`. Registry-driven, so
+    // every bundled language is covered; the file's own label and punctuation are
+    // preserved and only the date is rewritten.
+    text = touchStory(text, today());
   } else {
-    const r = insertSection(
-      text,
-      "final_summary",
-      lang,
-      "<!-- What changed, why, tests executed, risks and follow-ups. Filled at the gate. -->",
-      ["acceptance", "decomposition", "description"],
-    );
-    text = r.text;
-    if (r.inserted) notes.push("inserted Final Summary section");
-    if (!sameStatus(status, "done")) {
-      const c = applyStatusChange(text, { to: "done", reason: why, actor: who, at: now, lang });
-      text = c.text;
-      notes.push(`status: ${fm.status || "?"} → done`, "stamped status_changed_at", "appended status log line");
-    }
-    if (!fm.closed_at || fm.closed_at === "null") {
-      text = setFm(text, "closed_at", JSON.stringify(now));
-      notes.push("stamped closed_at");
-    }
+    // The run time, unless follow passed the merge's event time.
+    const c = computeClose(text, { reason: why, actor: who, at: event ?? undefined, day: today(), lang });
+    text = c.text;
+    notes.push(...c.notes);
   }
-  // Keep the body footer in step with frontmatter `updated:`. Registry-driven, so
-  // every bundled language is covered; the file's own label and punctuation are
-  // preserved and only the date is rewritten.
-  text = touchStory(text, today());
 
   let check = null;
   if (checkPath !== null) {
@@ -264,6 +357,7 @@ function gate() {
         mode,
         changed: text !== original,
         check,
+        ...(mode === "plan" ? { wip } : {}),
         notes,
         content: text,
       },

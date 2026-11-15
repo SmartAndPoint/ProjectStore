@@ -255,14 +255,24 @@ export function lastStatusLine(text) {
 
 // A change of status: the frontmatter `status`, `status_changed_at` (the
 // same `at` as the line), the header's Status row and one `status:` line.
-// No-op when the status already equals `to` (sameStatus). Returns {text,
-// changed, from, line}.
-export function applyStatusChange(text, { to, reason, actor, at, lang = "en" }) {
+// No-op when the status already equals `to` (sameStatus), unless `equal`:
+// then one `status:` line with equal sides (`review → review`, follow's
+// awaiting line) is appended and `status_changed_at` stamped at its time, the
+// status and its row left as they read (SPEC-001 contract 3, as amended
+// 2026-11-12; the follow spec's contract 6). Returns {text, changed, from,
+// line}.
+export function applyStatusChange(text, { to, reason, actor, at, lang = "en", equal = false }) {
   const fm = parseFrontmatter(text).data;
   const from = fm.status === null || fm.status === undefined ? "" : String(fm.status).trim();
-  if (sameStatus(from, to)) return { text, changed: false, from, line: null };
+  const same = sameStatus(from, to);
+  if (same && !equal) return { text, changed: false, from, line: null };
   const why = oneLine(reason);
   const who = checkActor(actor);
+  if (same) {
+    const line = logLine({ at, field: "status", from, to, reason: why, actor: who });
+    const t = appendLogLine(text, line, lang);
+    return { text: setFm(t, "status_changed_at", JSON.stringify(at)), changed: true, from, line };
+  }
   let t = setFm(text, "status", to);
   t = setFm(t, "status_changed_at", JSON.stringify(at));
   t = setHeaderField(t, "status", to).text;

@@ -820,6 +820,9 @@ export function cachePaths({ env = process.env, home = homedir() } = {}) {
     // amended by the story "Opening a project that is not bound writes nothing
     // into it…"). A lost marker costs one more welcome.
     welcomed: (id) => (root && id ? join(root, "welcomed", id) : null),
+    // The dashboard's page at one version, as an npm copy fetched it (the
+    // dashboard spec, contract 14): kept until a person deletes it.
+    dashboard: (version) => (root && version ? join(root, "dashboard", String(version)) : null),
     from: fromEnv ? variable : "the home directory",
     variable,
   };
@@ -846,6 +849,13 @@ export function packageCommand(harnesses, verb, { version = null, args = "" } = 
   const ids = list.map((h) => ` --harness ${h?.id || "<id>"}`).join("");
   return `${CORE_NPX}${version ? `@${version}` : ""} ${verb}${ids}${args ? ` ${args}` : ""}`;
 }
+
+// One shell word as a POSIX shell reads it back: bare when it holds only
+// ASCII letters, digits and `_/.~-`, else in single quotes, each `'` as
+// `'\''`. Here, beside packageCommand, so a module that must not reach a
+// writer that runs git (doctor-flow.mjs, on SessionStart's path through
+// doctor.mjs) quotes a name in a command; binding.mjs re-exports it.
+export const shellQuote = (s) => (/^[A-Za-z0-9_/.~-]+$/.test(s) ? s : `'${String(s).replace(/'/g, `'\\''`)}'`);
 
 // The package this run was invoked as: the shell it came through (the shell's
 // bin sets PROJECTSTORE_SHELL, and fixes the harness), else the core. Only

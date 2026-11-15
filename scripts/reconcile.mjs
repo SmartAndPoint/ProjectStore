@@ -27,7 +27,7 @@
 //   absent targets.
 
 import { existsSync, readFileSync } from "node:fs";
-import { join, basename } from "node:path";
+import { join, basename, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   readConfig,
@@ -442,6 +442,26 @@ export function runReconcile({ write = false, only = null, projectDir = null, en
   };
   if (write) out.summary.written = all.filter((t) => t && t.written).length;
   return out;
+}
+
+// The headless repair a writing verb runs last (`move`, `follow`; the
+// regeneration spec, contract 7): a bare reconcile --write in-process, the
+// generators finding the binding through `env` (the project's own
+// environment, never the caller's working directory). Returns {summary,
+// error, failed}: `error` names each view left, by path and error (contract
+// 1's per-target report). Never throws.
+export function refreshViews({ project, env }) {
+  let rec;
+  try {
+    rec = runReconcile({ write: true, only: null, projectDir: project, env });
+  } catch (e) {
+    rec = { error: errMsg(e) };
+  }
+  const failedViews = [rec.kanban, rec.codemap, rec.graph, ...(Array.isArray(rec.indexes) ? rec.indexes : [])]
+    .filter((t) => t && t.error)
+    .map((t) => `${t.path ? relative(project, t.path) || t.path : "a view"}: ${t.error}`);
+  const error = rec.error || (failedViews.length ? failedViews.join("; ") : null);
+  return { summary: rec.summary ?? null, error, failed: Boolean(error || (rec.summary && rec.summary.failed > 0)) };
 }
 
 function main() {

@@ -5,8 +5,9 @@
 // (distribution ADR decisions 3 and 5). No logic lives here: the verb table,
 // the envelope and the per-verb parse are verbs.mjs's, the read verbs'
 // handlers are read-verbs.mjs's, and this module holds the handlers of the
-// verbs that write (and of mcp), and run(), which dispatches every verb of
-// the one table through both halves. It re-exports what it exported before
+// verbs that write (and of mcp, dashboard and next, which no MCP tool or hook
+// reaches), and run(), which dispatches every verb of the one table through
+// both halves. It re-exports what it exported before
 // the split — the table is a CONTRACT that packaging/shells.mjs and the
 // tests read from here — and the MCP server imports none of it: it runs the
 // read runner (the story "The MCP server's entry reaches no install verb
@@ -24,7 +25,7 @@
 // same way: its write set is one story, its epic row and the derived views.
 // There is no --yes.
 //
-// The install verbs, setup, configure, move, reconcile and the MCP server are
+// The install verbs, setup, configure, move, follow, handover, next, dashboard, reconcile and the MCP server are
 // imported lazily, on the run that needs them: hooks never import this module
 // (the suite asserts it), and a verb that runs none of them loads none.
 // Pure node, no external deps.
@@ -647,6 +648,116 @@ async function runMoveVerb(ctx) {
   return r.code;
 }
 
+// follow (the follow spec, contract 1): its own module, loaded on first use,
+// with move's question — a terminal is asked once, and without one, or under
+// --json, --write is the confirmation. No hook and no MCP module reaches it.
+async function runFollowVerb(ctx) {
+  const { runFollow } = await import("./follow.mjs");
+  const { row, values, project, env, stdin, stdout, stderr, ask } = ctx;
+  const r = await runFollow({
+    ...ctx,
+    ownEnv: (p) => ownEnv(env, p),
+    confirm: async (preview) => {
+      const interactive =
+        !values.json &&
+        (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+      if (!interactive) return true;
+      stdout.write(preview);
+      return term.askApply(1, { stdin, stdout, ask, caps: term.caps(stdout, env) });
+    },
+  });
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+  else (r.ok ? stdout : stderr).write(r.text);
+  return r.code;
+}
+
+// handover (the handover spec, contract 1): its own module, loaded on first
+// use, with move's question asked once for the whole run, naming the number
+// of stories — a terminal is asked, and without one, or under --json,
+// --write is the confirmation. No hook and no MCP module reaches it.
+async function runHandoverVerb(ctx) {
+  const { runHandover } = await import("./handover.mjs");
+  const { row, values, project, env, stdin, stdout, stderr, ask } = ctx;
+  const r = await runHandover({
+    ...ctx,
+    ownEnv: (p) => ownEnv(env, p),
+    confirm: async (preview, n) => {
+      const interactive =
+        !values.json &&
+        (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+      if (!interactive) return true;
+      stdout.write(preview);
+      return term.askApply(n, { stdin, stdout, ask, caps: term.caps(stdout, env) });
+    },
+  });
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+  else (r.ok ? stdout : stderr).write(r.text);
+  return r.code;
+}
+
+// next (the next verb's spec, contract 1): its own module, loaded on first
+// use. It writes nothing and asks nothing; it is served here, not by the read
+// runner, so no MCP or hook closure reaches it.
+async function runNextVerb(ctx) {
+  const { runNext } = await import("./next.mjs");
+  const { row, values, project, stdout, stderr } = ctx;
+  const r = await runNext(ctx);
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+  else (r.ok ? stdout : stderr).write(r.text);
+  return r.code;
+}
+
+// dashboard (the dashboard spec, contracts 3–8 and 14–17): its own module,
+// loaded on first use. The project is the path the line names, else the core's
+// own resolution; the binding is checked here, after the path is known, with
+// dispatch's text and exit 3, before any page is looked for or fetched. The
+// address is printed before the page serves, and the run ends when the page
+// does: 0 on an interrupt. Its envelopes are one line, so a reader of a run
+// that has not ended can parse them.
+async function runDashboardVerb(ctx) {
+  const { startDashboard } = await import("./dashboard.mjs");
+  const { row, values, positionals, env, cwd, stdin, stdout, stderr, ask } = ctx;
+  let project = ctx.project;
+  const line = (ok, result) => stdout.write(JSON.stringify(envelope(row.verb, project, ok, result)) + "\n");
+  if (positionals.length) {
+    const named = resolve(cwd, positionals[0]);
+    if (values.project !== undefined && resolve(cwd, values.project) !== named) {
+      const e = new Error(`the path \`${positionals[0]}\` and \`--project ${values.project}\` name different projects`);
+      return usageFail(Object.assign(e, { code: "USAGE" }), { verb: row.verb, ...ctx });
+    }
+    project = named;
+  }
+  if (!readConfigAt(project)) {
+    const message = notBoundText(project, env);
+    if (values.json) line(false, { error: message, exit: 3 });
+    stderr.write(message + "\n");
+    return 3;
+  }
+  const interactive =
+    !values.json &&
+    (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+  // An npm copy's first run for a version fetches its page: one live line on
+  // stderr at a terminal (the dashboard spec, contract 15), none under --json.
+  const live = !values.json && Boolean(stderr && stderr.isTTY);
+  const r = await startDashboard({
+    root: PACKAGE_ROOT,
+    project,
+    values,
+    env,
+    ownEnv: (p) => ownEnv(env, p),
+    interactive,
+    stderr,
+    onFetch: live ? (label) => term.liveLine(stderr, term.caps(stderr, env), label, { env }) : null,
+  });
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (values.json) line(r.ok, r.result);
+  else (r.ok ? stdout : stderr).write(r.text);
+  return r.ok ? r.wait : r.code;
+}
+
 // setup (the setup story): its own module, imported lazily as the install
 // family is, run with this package as its root and in the environment every
 // installer run gets (ownEnv, for the project setup settles on). The envelope
@@ -810,6 +921,10 @@ export const HANDLERS = Object.freeze({
   init: runBind(true),
   scaffold: runScaffold,
   move: runMoveVerb,
+  follow: runFollowVerb,
+  handover: runHandoverVerb,
+  next: runNextVerb,
+  dashboard: runDashboardVerb,
   mcp: runMcp,
 });
 

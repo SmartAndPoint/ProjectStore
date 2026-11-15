@@ -26,7 +26,7 @@
 // ours). Pure node, no external deps.
 
 import { readFileSync, existsSync, realpathSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { loadHarnesses, harnessIds, detectHarnesses, sourceHarness, MANIFEST_DIR } from "./harness.mjs";
 import { stamp, deriveState, parseProvenance, sourceHash, STALE, STALE_TEXT, FOREIGN_TEXT } from "./provenance.mjs";
@@ -424,6 +424,31 @@ export function registrationPaths(s, { home = homedir(), projectDir = null, harn
     projectSettings: projectDir ? join(projectDir, cfgDir, ...(reg.project_settings || ["settings.json"])) : null,
     userSettings: join(hh, ...(reg.user_settings || ["settings.json"])),
   };
+}
+
+// A root inside our npm registration's marketplace directory: the payload a
+// host loads in place, <dir>/<plugin_subdir>, which installChannel reads as a
+// checkout although npm installed it. Compared as given and as real paths, so
+// a symlinked home counts. The converge step's hostCopyRoot asks it, and so does
+// the dashboard's page fetch, for which such a copy is one from npm (the
+// dashboard spec, contract 4).
+export function registrationPayloadRoot(root, { home = homedir() } = {}) {
+  if (!root) return false;
+  const real = (p) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return resolve(p);
+    }
+  };
+  const r = real(root);
+  for (const m of loadHarnesses().values())
+    for (const s of Object.values(m.surfaces || {})) {
+      if (s?.kind !== "registration" || s.format !== "host-plugin-registration") continue;
+      const d = real(registrationPaths(s, { home, harness: m }).payload);
+      if (r === d || r.startsWith(d + sep)) return true;
+    }
+  return false;
 }
 
 export function analyseRegistration(

@@ -316,6 +316,29 @@ export function gitNamesOf(vaultCfg, name) {
   return person.git_names.filter((n) => typeof n === "string" && n.trim() && !CONTROL.test(n) && !isEmailAddress(n));
 }
 
+// A person's `left` date as every reader takes it: a valid calendar date
+// (`YYYY-MM-DD`), past or future, else null; a person not listed, or listed
+// under a key that is not a valid name, has none (the handover spec,
+// contracts 2 and 6).
+export function leftDateOf(vaultCfg, name) {
+  const person = flowPeople(vaultCfg).get(name);
+  const v = person ? person.left : undefined;
+  return validLeaf("date", v) ? v : null;
+}
+
+// A name as the handover verb takes it (the handover spec, contract 1): one
+// that is not empty and holds no `@` and no control character, a line break
+// among them. `]`, `=`, `__proto__` and `constructor` are names like any
+// other here; they matter only as keys of `flow.people`. Returns why it is
+// refused, or null. The caller trims.
+export function refusedName(name) {
+  const v = String(name ?? "");
+  if (!v) return "empty";
+  if (v.includes("@")) return "holds @";
+  if (CONTROL.test(v)) return "holds a line break or another control character";
+  return null;
+}
+
 // Whether the vault declares a flow policy at all: `flow` present and not
 // null or an empty object.
 export function flowDeclared(vaultCfg) {
