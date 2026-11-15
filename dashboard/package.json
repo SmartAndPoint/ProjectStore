@@ -1,6 +1,6 @@
 {
   "name": "projectstore-dashboard",
-  "version": "0.30.18",
+  "version": "0.30.19",
   "type": "module",
   "description": "A local, read-only page over a ProjectStore vault: the backlog, the board, an item's document and what is related to it. Started by `projectstore dashboard`, which fetches this package at its own version; reads the vault through that core.",
   "keywords": [
