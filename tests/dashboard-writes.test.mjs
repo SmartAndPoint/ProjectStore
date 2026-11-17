@@ -1344,7 +1344,8 @@ test("dashboard writes: while write.can is true, a body that is no JSON object o
       assert.match(r.json.error, /no batch is open/);
     }
     assert.equal(w.record.length, from, "the spawn record shows no call");
-    // With a batch open, Discard is not built in this step: 501, still no process.
+    // With a batch open, Discard runs: it asks the state, and with no pull
+    // request ends the batch here (dashboard-delivery's contract 4).
     const clone = page.writer.paths.clone;
     w.git(clone, "switch", "-q", "-c", "dashboard/test-person/20261117T090000Z");
     writeFileSync(
@@ -1353,9 +1354,10 @@ test("dashboard writes: while write.can is true, a body that is no JSON object o
     );
     w.git(clone, ...w.as, "commit", "-q", "-am", "a batch's commit");
     assert.equal((await post(page, "/api/refresh", own(page, token))).json.write.batch.commits, 1);
-    const at = w.record.length;
-    assert.equal((await post(page, "/api/discard", own(page, token))).status, 501);
-    assert.equal(w.record.length, at);
+    const d = await post(page, "/api/discard", own(page, token));
+    assert.equal(d.status, 200, d.text);
+    assert.deepEqual(Object.keys(d.json), ["ok", "result", "write"]);
+    assert.equal(d.json.write.batch, null);
   });
 });
 
