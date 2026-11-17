@@ -5,8 +5,11 @@
 //                            GIT_CONFIG_GLOBAL, under the OS temp dir; every
 //                            inherited GIT_* removed. Call it once, first.
 //   makeWorld(options)     → { root, env, origin, repo, vault, prefix, project,
-//                            main, ctx, record, git(cwd, ...args), open(opts),
+//                            main, ctx, record, git(cwd, ...args), gh, open(opts),
 //                            start(opts), cloneInto(dir), cleanup() }
+//
+// `gh` is a stub gh (tests/fixtures/gh-stub.mjs) first on the world's PATH,
+// with an empty table: no call of a world reaches the person's own gh.
 //
 // A world is a bare repository as `origin`, a vault repository cloned from it
 // with an identity of its own (the vault at `prefix` inside it), and a code
@@ -34,6 +37,7 @@ import { loadTemplate, renderTemplate } from "../../scripts/lib.mjs";
 import { openCore } from "../../dashboard/lib/core.mjs";
 import { openWriter } from "../../dashboard/lib/write.mjs";
 import { startServer } from "../../dashboard/server.mjs";
+import { ghStub } from "./gh-stub.mjs";
 
 export const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const SSH_STUB = join(dirname(fileURLToPath(import.meta.url)), "dashboard-ssh.mjs");
@@ -86,7 +90,9 @@ export async function makeWorld({
   ignoredVault = false,
 } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "ps-dash-world-")));
-  const env = { ...withoutGit(process.env), ...homeFor(root) };
+  // A stub gh first on PATH, so no call reaches the person's own gh.
+  const gh = ghStub(join(root, "gh"), {});
+  const env = gh.env({ ...withoutGit(process.env), ...homeFor(root) });
   const git = (cwd, ...args) => {
     const r = spawnSync("git", ["-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main", ...args], {
       cwd,
@@ -163,6 +169,7 @@ export async function makeWorld({
     ctx,
     record,
     git,
+    gh,
     as,
     async open(opts = {}) {
       const w = await openWriter({ ctx, env, record, ...opts });

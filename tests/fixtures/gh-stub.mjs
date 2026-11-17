@@ -13,11 +13,24 @@
 //     branches: {"https://github.com/<owner>/<repo>": "main"},  // default "main"
 //     auth: true,                     // every call exits 4 (logged out)
 //     full: true,                     // a list returns exactly its --limit
-//     fail: { view: {<url>: <exit>}, list: <exit>|"hang", repo: <exit>|"hang" } }
+//     fail: { view: {<url>: <exit>}, list: <exit>|"hang", repo: <exit>|"hang",
+//             create: <exit>|"hang", close: <exit>|"hang" },
+//     // The dashboard's delivery: the pull requests of batch branches.
+//     pulls: [{number, state, headRefName, headRefOid, url, baseRefName, title, body}],
+//     repo: "https://github.com/<owner>/<repo>",   // pr create's URLs; default acme/vault
+//     createOid: "<sha>" }                         // the headRefOid pr create records
 //
 // `pr view` and `pr list` print only the fields --json names; `pr list
 // --state closed --search "closed:>=<day>"` returns the merged and closed
 // pull requests whose closedAt (else mergedAt) is on or after that day.
+// Options are read in both forms, `--name value` and `--name=value`.
+//
+// `pr list --head=<branch>` answers from `pulls`, those of that head branch
+// (any state with --state=all). `pr create` adds an OPEN pull request to
+// `pulls` (the next number, its --head, --base, --title and --body) and
+// prints its URL; `pr close` marks the one its argument names CLOSED. Both
+// write the table back, so the next `pr list` sees them. Each call's record
+// holds its argv, its cwd and GH_PROMPT_DISABLED as it saw it (`prompt`).
 
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join, delimiter } from "node:path";
@@ -31,8 +44,20 @@ const norm = (u) =>
     .toLowerCase();
 
 const after = (argv, flag) => {
+  const eq = argv.find((a) => a.startsWith(`${flag}=`));
+  if (eq !== undefined) return eq.slice(flag.length + 1);
   const i = argv.indexOf(flag);
   return i === -1 ? null : argv[i + 1];
+};
+// The argument after `--`, else the last one that is no option.
+const target = (argv) => {
+  const i = argv.indexOf("--");
+  return i !== -1
+    ? argv[i + 1]
+    : argv
+        .slice(2)
+        .filter((a) => !a.startsWith("-"))
+        .at(-1);
 };
 const pick = (pr, fields) => Object.fromEntries(fields.map((f) => [f, pr[f] ?? (f === "body" ? "" : null)]));
 const failed = (how, message) =>
@@ -57,6 +82,41 @@ export function ghAnswer(argv, table = {}) {
     const pr = prs.find((p) => norm(p.url) === norm(url));
     if (!pr) return { status: 1, stdout: "", stderr: `GraphQL: Could not resolve to a PullRequest (${url})\n` };
     return { status: 0, stdout: JSON.stringify(pick(pr, fields)) + "\n", stderr: "" };
+  }
+  const pulls = table.pulls || [];
+  if (argv[0] === "pr" && argv[1] === "list" && after(argv, "--head") !== null) {
+    if (fail.list !== undefined) return failed(fail.list, "HTTP 502: Bad Gateway (https://api.github.com/graphql)");
+    const head = after(argv, "--head");
+    const state = after(argv, "--state") || "open";
+    const list = pulls.filter(
+      (p) => p.headRefName === head && (state === "all" || String(p.state).toLowerCase() === state),
+    );
+    return { status: 0, stdout: JSON.stringify(list.map((p) => pick(p, fields))) + "\n", stderr: "" };
+  }
+  if (argv[0] === "pr" && argv[1] === "create") {
+    if (fail.create !== undefined)
+      return failed(fail.create, "pull request create failed: GraphQL: Head sha can't be blank (createPullRequest)");
+    const number = pulls.reduce((n, p) => Math.max(n, Number(p.number) || 0), 0) + 1;
+    const url = `${table.repo || "https://github.com/acme/vault"}/pull/${number}`;
+    const pr = {
+      number,
+      state: "OPEN",
+      headRefName: after(argv, "--head"),
+      headRefOid: table.createOid ?? null,
+      url,
+      baseRefName: after(argv, "--base"),
+      title: after(argv, "--title"),
+      body: after(argv, "--body"),
+    };
+    return { status: 0, stdout: `${url}\n`, stderr: "", table: { ...table, pulls: [...pulls, pr] } };
+  }
+  if (argv[0] === "pr" && argv[1] === "close") {
+    if (fail.close !== undefined) return failed(fail.close, "HTTP 502: Bad Gateway (https://api.github.com/graphql)");
+    const ref = String(target(argv) ?? "");
+    const hit = pulls.find((p) => String(p.number) === ref || norm(p.url) === norm(ref) || p.headRefName === ref);
+    if (!hit) return { status: 1, stdout: "", stderr: `no pull requests found for branch "${ref}"\n` };
+    const next = pulls.map((p) => (p === hit ? { ...p, state: "CLOSED" } : p));
+    return { status: 0, stdout: "", stderr: `Closed pull request #${hit.number}\n`, table: { ...table, pulls: next } };
   }
   if (argv[0] === "pr" && argv[1] === "list") {
     if (fail.list !== undefined) return failed(fail.list, "HTTP 502: Bad Gateway (https://api.github.com/graphql)");
@@ -98,11 +158,12 @@ export function ghStub(dir, table = {}) {
   const script = `#!${process.execPath}
 const fs = require("node:fs"), path = require("node:path");
 const argv = process.argv.slice(2);
-fs.appendFileSync(path.join(__dirname, "calls.jsonl"), JSON.stringify({ argv, cwd: process.cwd() }) + "\\n");
+fs.appendFileSync(path.join(__dirname, "calls.jsonl"), JSON.stringify({ argv, cwd: process.cwd(), prompt: process.env.GH_PROMPT_DISABLED ?? null }) + "\\n");
 import(${JSON.stringify(SELF)}).then(({ ghAnswer }) => {
   const table = JSON.parse(fs.readFileSync(path.join(__dirname, "table.json"), "utf8"));
   const r = ghAnswer(argv, table);
   if (r.hang) { setInterval(() => {}, 1 << 30); return; }
+  if (r.table) fs.writeFileSync(path.join(__dirname, "table.json"), JSON.stringify(r.table));
   process.stdout.write(r.stdout); process.stderr.write(r.stderr); process.exitCode = r.status;
 });
 `;
@@ -113,6 +174,10 @@ import(${JSON.stringify(SELF)}).then(({ ghAnswer }) => {
     set(t) {
       writeFileSync(join(dir, "table.json"), JSON.stringify(t));
       return stub;
+    },
+    // The table as the calls left it (pr create and pr close write it back).
+    table() {
+      return JSON.parse(readFileSync(join(dir, "table.json"), "utf8"));
     },
     log() {
       try {

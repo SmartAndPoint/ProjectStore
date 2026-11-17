@@ -476,7 +476,7 @@ test("dashboard writes: an unfinished merge or cherry-pick in the clone is abort
 
 // ─── Contract 1: writable or read-only ──────────────────────────────────
 
-const WRITE_KEYS = ["can", "reason", "verbs", "default_branch", "fetched_at", "batch"];
+const WRITE_KEYS = ["can", "reason", "verbs", "default_branch", "fetched_at", "batch", "pull_requests", "kept"];
 const gitCalls = (w, from, sub) =>
   w.record.slice(from).filter((e) => e.cmd === "git" && (!sub || subOf(e.argv).name === sub));
 const NETWORK = ["clone", "fetch", "ls-remote"];
@@ -972,7 +972,15 @@ test("dashboard writes: write holds can, reason, verbs, default_branch, fetched_
     const a = await writer.refresh();
     assert.deepEqual(Object.keys(a.body.write), WRITE_KEYS);
     const { fetched_at: firstFetch, ...rest } = a.body.write;
-    assert.deepEqual(rest, { can: true, reason: null, verbs: WRITE_VERBS, default_branch: "main", batch: null });
+    assert.deepEqual(rest, {
+      can: true,
+      reason: null,
+      verbs: WRITE_VERBS,
+      default_branch: "main",
+      batch: null,
+      pull_requests: null,
+      kept: [],
+    });
     assert.match(firstFetch, /^2026-11-17T09:00:\d\d\.000Z$/);
     assert.equal(readState(writer.readCtx()).stories.length, 1);
     const tip = landUpstream(w);
@@ -1014,7 +1022,12 @@ test("dashboard writes: with a batch open the refresh fetches but does not move 
     const r = await writer.refresh();
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.write.can, true, r.body.write.reason);
-    assert.deepEqual(r.body.write.batch, { branch, started_at: "2026-11-17T08:15:00.000Z", commits: 1 });
+    assert.deepEqual(r.body.write.batch, {
+      branch,
+      started_at: "2026-11-17T08:15:00.000Z",
+      commits: 1,
+      pull_request: null,
+    });
     assert.equal(w.git(clone, "rev-parse", "HEAD"), head);
     assert.equal(w.git(clone, "rev-parse", "--abbrev-ref", "HEAD"), branch);
     assert.equal(w.git(clone, "rev-parse", "refs/remotes/origin/main"), tip, "the fetch ran");
@@ -1316,7 +1329,7 @@ test("dashboard writes: while write.can is true, a body that is no JSON object o
       assert.match(r.json.error, /no batch is open/);
     }
     assert.equal(w.record.length, from, "the spawn record shows no call");
-    // With a batch open, Send and Discard are not built in this step: 501, still no process.
+    // With a batch open, Discard is not built in this step: 501, still no process.
     const clone = page.writer.paths.clone;
     w.git(clone, "switch", "-q", "-c", "dashboard/test-person/20261117T090000Z");
     writeFileSync(
@@ -1326,7 +1339,7 @@ test("dashboard writes: while write.can is true, a body that is no JSON object o
     w.git(clone, ...w.as, "commit", "-q", "-am", "a batch's commit");
     assert.equal((await post(page, "/api/refresh", own(page, token))).json.write.batch.commits, 1);
     const at = w.record.length;
-    assert.equal((await post(page, "/api/send", own(page, token))).status, 501);
+    assert.equal((await post(page, "/api/discard", own(page, token))).status, 501);
     assert.equal(w.record.length, at);
   });
 });
@@ -1760,7 +1773,12 @@ test("dashboard writes: a move that succeeds is one commit of the story and its 
     assert.equal(r.body.result.path, join(w.vault, STORY_REL));
     assert.ok(!JSON.stringify(r.body).includes(writer.place));
     const branch = "dashboard/test-person/20261117T140510Z";
-    assert.deepEqual(r.body.write.batch, { branch, started_at: "2026-11-17T14:05:10.000Z", commits: 1 });
+    assert.deepEqual(r.body.write.batch, {
+      branch,
+      started_at: "2026-11-17T14:05:10.000Z",
+      commits: 1,
+      pull_request: null,
+    });
     assert.deepEqual(writer.view().batch, r.body.write.batch, "the next /api/state holds it too");
     assert.equal(w.git(clone, "rev-parse", "--abbrev-ref", "HEAD"), branch);
     assert.equal(w.git(clone, "rev-parse", "HEAD^"), base, "one new commit");
@@ -1798,7 +1816,12 @@ test("dashboard writes: a move that succeeds is one commit of the story and its 
     // A second move goes on the open batch.
     const r2 = await writer.action(move({ to: "planned", reason: "not this week" }));
     assert.equal(r2.status, 200, JSON.stringify(r2.body));
-    assert.deepEqual(r2.body.write.batch, { branch, started_at: "2026-11-17T14:05:10.000Z", commits: 2 });
+    assert.deepEqual(r2.body.write.batch, {
+      branch,
+      started_at: "2026-11-17T14:05:10.000Z",
+      commits: 2,
+      pull_request: null,
+    });
     assert.deepEqual(batchBranches(w, clone).split("\n").sort(), ["dashboard/test-person/20261117T140509Z", branch]);
   });
 });
@@ -1933,6 +1956,8 @@ test("dashboard writes: the clone's and the binding folder's paths become the bo
         c: "/p/state/clone.tmp and /p/state/projects stay",
         d: 3,
         e: null,
+        f: "it is not in /p/state/clone. Nor in /p/state/project.",
+        g: "/p/state/clone.git and /p/state/clone..x stay",
       },
       pairs,
     ),
@@ -1942,8 +1967,130 @@ test("dashboard writes: the clone's and the binding folder's paths become the bo
       c: "/p/state/clone.tmp and /p/state/projects stay",
       d: 3,
       e: null,
+      f: "it is not in /repo. Nor in /code.",
+      g: "/p/state/clone.git and /p/state/clone..x stay",
     },
   );
+});
+
+// A core of the test's own: bin/projectstore.mjs answering as FAKE_CORE_MODE
+// says, the binding folder's vault_path read as the real core reads it. The
+// writer runs it as it runs the core (ctx.root).
+function fakeCore(w) {
+  const root = join(w.root, "fake-core");
+  mkdirSync(join(root, "bin"), { recursive: true });
+  writeFileSync(
+    join(root, "bin", "projectstore.mjs"),
+    `import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+const argv = process.argv.slice(2);
+const project = argv.find((a) => a.startsWith("--project=")).slice("--project=".length);
+const vault = JSON.parse(readFileSync(join(project, ".projectstore", "projectstore.json"), "utf8")).vault_path;
+const write = argv.includes("--write");
+const put = (p, t) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, t); };
+const answer = (ok, result) => process.stdout.write(JSON.stringify({ schema_version: 1, verb: "move", project, ok, result }) + "\\n");
+const mode = process.env.FAKE_CORE_MODE;
+if (mode === "outside") { if (write) put(join(vault, "..", "outside.md"), "x\\n"); answer(true, { written: write }); }
+else if (mode === "glob") { if (write) { put(join(vault, "k*.md"), "new\\n"); put(join(vault, "kanban.md"), "a changed board\\n"); } answer(true, { written: write }); }
+else if (mode === "hang") { if (write) put(join(vault, "epics", "PS-X", "epic.md"), "half written\\n"); setInterval(() => {}, 1 << 30); }
+else if (mode === "noenvelope") { process.stdout.write("not json\\n"); process.stderr.write("something broke\\n"); process.exitCode = 1; }
+else if (mode === "internal") { answer(false, { error: "boom" }); process.stderr.write("move failed: boom\\n"); process.exitCode = 2; }
+else if (mode === "usage") { answer(false, { error: "move takes a story" }); process.stderr.write("move: move takes a story\\n"); process.exitCode = 2; }
+`,
+  );
+  return (mode, opts = {}) => ({ ...opts, ctx: { ...w.ctx, root }, env: { ...w.env, FAKE_CORE_MODE: mode } });
+}
+
+// [dashboard-writes#7] [dashboard-writes#8]
+test("dashboard writes: an action whose verb changes a path outside the vault's folder answers 500, makes no commit and leaves the clone clean", async () => {
+  await withWorld({ prefix: "docs/vault" }, async (w) => {
+    const writer = await writable(w, fakeCore(w)("outside"));
+    const clone = writer.paths.clone;
+    const before = cloneState(w, clone);
+    const r = await writer.action(move());
+    assert.equal(r.status, 500, JSON.stringify(r.body));
+    assert.equal(r.body.ok, false);
+    assert.match(
+      r.body.error,
+      /changed docs\/outside\.md, outside the vault's folder docs\/vault; nothing was committed/,
+    );
+    assert.deepEqual(cloneState(w, clone), before, "no commit, and the clone is clean");
+    assert.equal(r.body.write.batch, null);
+    assert.equal(batchBranches(w, clone), "");
+  });
+});
+
+// [dashboard-writes#7]
+test("dashboard writes: the action stages each path as it is, so a name with * catches no neighbour: k*.md is committed and the changed kanban.md is not", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await writable(w, fakeCore(w)("glob"));
+    const from = w.record.length;
+    const r = await writer.action(move());
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const clone = writer.paths.clone;
+    assert.deepEqual(committedFiles(w, clone), ["k*.md"]);
+    assert.equal(readFileSync(join(clone, "kanban.md"), "utf8"), "stub board\n", "the derived view is back");
+    const add = gitCalls(w, from, "add")[0];
+    assert.ok(add.argv.indexOf("--literal-pathspecs") < add.argv.indexOf("add"), add.argv.join(" "));
+  });
+});
+
+// [dashboard-writes#7]
+test("dashboard writes: with the clone's HEAD on a branch that is no batch of this person's, the action detaches first, so that branch takes no commit", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const base = headOf(w, clone);
+    w.git(clone, "switch", "-q", "-c", "topic");
+    w.git(clone, "branch", "dashboard/someone-else/20261117T090000Z");
+    const r = await writer.action(move());
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.match(r.body.write.batch.branch, /^dashboard\/test-person\//);
+    assert.equal(w.git(clone, "rev-parse", "refs/heads/topic"), base, "topic took no commit");
+    assert.equal(w.git(clone, "rev-parse", "HEAD^"), base);
+    assert.equal(w.git(clone, "rev-parse", "--abbrev-ref", "HEAD"), r.body.write.batch.branch);
+  });
+});
+
+// [dashboard-writes#7] [dashboard-writes#8] [dashboard-writes#9]
+test("dashboard writes: a core verb past its budget during an action answers 502, its process group is ended, and the clone is restored with no lock left", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await writable(w, fakeCore(w)("hang", { budgets: { verb: 1500 } }));
+    const clone = writer.paths.clone;
+    const before = cloneState(w, clone);
+    const from = w.record.length;
+    const r = await writer.action(move());
+    assert.equal(r.status, 502, JSON.stringify(r.body));
+    assert.match(r.body.error, /ran past its 1500 ms budget/);
+    assert.deepEqual(cloneState(w, clone), before, "the clone is restored");
+    assert.ok(!existsSync(writer.paths.lock), "no lock left");
+    const verb = cliCalls(w, from, "move")[0];
+    assert.equal(groupAlive(verb.pid), false, "its group is gone");
+  });
+});
+
+// [dashboard-writes#8]
+test("dashboard writes: a core answer with no --json envelope answers 500, the core's catch-all exit 2 answers 500, and its usage error 400", async () => {
+  await withWorld({}, async (w) => {
+    const core = fakeCore(w);
+    for (const [mode, status, why] of [
+      ["noenvelope", 500, /gave no --json answer: something broke/],
+      ["internal", 500, /failed inside the core: boom/],
+      ["usage", 400, /move takes a story/],
+    ]) {
+      const writer = await writable(w, core(mode));
+      const clone = writer.paths.clone;
+      const before = cloneState(w, clone);
+      for (const run of [writer.preview, writer.action]) {
+        const r = await run(move());
+        assert.equal(r.status, status, `${mode}: ${JSON.stringify(r.body)}`);
+        assert.equal(r.body.ok, false);
+        assert.match(r.body.error, why);
+      }
+      assert.deepEqual(cloneState(w, clone), before);
+      await writer.stop();
+    }
+  });
 });
 
 // [dashboard-writes#6] [dashboard-writes#7] [dashboard-writes#8] [dashboard-writes#4]
