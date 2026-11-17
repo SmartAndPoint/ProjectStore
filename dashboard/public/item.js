@@ -1,4 +1,4 @@
-// The item pane: one work item or document, rendered read-only from its
+// The item pane: one work item or document, rendered (never edited) from its
 // Markdown, with its fields and what is related to it beside it. Loaded after
 // app.js and views.js, and shares their helpers (h, $, S, ui, story, epic, …).
 

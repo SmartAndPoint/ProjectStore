@@ -206,3 +206,70 @@ test("doctor's note: doctor --startup starts no git process and gives no dashboa
   assert.equal(ofCheck(checkDashboardKept(CFG, w.anchor)).length, 1);
   assert.ok(existsSync(mark), "the recording git saw the vault check");
 });
+
+// [dashboard-delivery#7]
+test("doctor's note: a kept branch with no commit the default branch lacks says nothing on it is unsent, with no count and no command (edge)", () => {
+  const w = world();
+  cloneWith(w, "test-person", { kept: 0, open: 1 });
+  const found = ofCheck(checkDashboardKept(CFG, w.anchor));
+  assert.equal(found.length, 1, JSON.stringify(found));
+  assert.ok(found[0].message.includes(KEPT), found[0].message);
+  assert.match(
+    found[0].message,
+    /It has no commit that the fetched default branch origin\/main lacks, so nothing on it is unsent\.$/,
+  );
+  assert.doesNotMatch(found[0].message, /\b\d+ commits?\b|never sent/);
+  printsNoCommand(found[0].message);
+});
+
+// [dashboard-delivery#7]
+test("doctor's note: a clone git cannot read gives one info that says so, with git's reason, never a quiet nothing (failure)", () => {
+  const w = world();
+  const clone = cloneWith(w);
+  // A configuration git refuses to parse: git answers, but not with the refs.
+  writeFileSync(join(clone, ".git", "config"), "[core\n");
+  const found = ofCheck(checkDashboardKept(CFG, w.anchor));
+  assert.equal(found.length, 1, JSON.stringify(found));
+  assert.equal(found[0].level, "info");
+  assert.equal(found[0].file, clone);
+  assert.ok(
+    found[0].message.startsWith(`Doctor could not read the dashboard's clone at ${clone}, so it cannot tell`),
+    found[0].message,
+  );
+  assert.match(found[0].message, /bad config/);
+  assert.ok(!found[0].message.includes(KEPT), "no branch is named: none was read");
+  printsNoCommand(found[0].message);
+});
+
+// [dashboard-delivery#7]
+test("doctor's note: an email-shaped default_author leaves no address in any message; the author is named by its slug (privacy)", () => {
+  const w = world();
+  cloneWith(w, "untitled", { kept: 1, open: 1 });
+  const cfg = { default_author: "Test Person <tp@example.com>" };
+  const found = ofCheck(checkDashboardKept(cfg, w.anchor));
+  assert.equal(found.length, 2, JSON.stringify(found));
+  for (const f of found) {
+    assert.ok(!f.message.includes("@"), f.message);
+    assert.ok(!f.message.includes("tp@example.com") && !f.message.includes("<"), f.message);
+    printsNoCommand(f.message);
+  }
+  const open = found.find((f) => f.message.includes("dashboard/untitled/20261102T100000Z"));
+  assert.ok(open, JSON.stringify(found));
+  assert.match(open.message, /the binding's author is now test-person-tpexamplecom\b/);
+});
+
+// [dashboard-delivery#7]
+test("doctor's note: a branch under dashboard/<person>/ that is not a batch's stamp is ignored, and so is a deeper one (edge)", () => {
+  const w = world();
+  const clone = cloneWith(w);
+  for (const name of ["dashboard/test-person/notes", "dashboard/test-person/x/20261103T100000Z"]) {
+    git(clone, "switch", "-q", "-c", name, "origin/main");
+    commit(clone, `on ${name}`);
+  }
+  // Back on the page's own batch, so only the kept one can be named.
+  git(clone, "switch", "-q", OPEN);
+  const found = ofCheck(checkDashboardKept(CFG, w.anchor));
+  assert.equal(found.length, 1, JSON.stringify(found));
+  assert.ok(found[0].message.includes(KEPT), found[0].message);
+  for (const f of found) assert.ok(!/notes|\/x\//.test(f.message), f.message);
+});

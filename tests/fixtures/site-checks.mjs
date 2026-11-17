@@ -1230,7 +1230,8 @@ export const KIND_RULES = {
   },
   "why-it-works": { facts: ["version"], words: 1100 },
   "one-vault": { facts: ["version", "install"], source: true, words: 1100 },
-  privacy: { facts: ["version"], words: 900 },
+  // 1000 since the dashboard's page writes (PS-DASHBOARD): a privacy page keeps every fact, so the budget grows.
+  privacy: { facts: ["version"], words: 1000 },
 };
 export const rulesOf = (page) => KIND_RULES[page.kind] ?? {};
 
