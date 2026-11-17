@@ -39,13 +39,21 @@ import {
   LOCK_FILE,
   SSH_BATCH,
   StepError,
+  VERB_ARGV,
+  WRITE_VERBS,
   absoluteRemote,
   anchorOf,
+  checkRequest,
   isBatchBranch,
   placePaths,
   redactUrls,
   refusal,
+  stampFor,
+  substitutePaths,
 } from "../dashboard/lib/write.mjs";
+import { VERBS } from "../scripts/verbs.mjs";
+import { loadHarnesses } from "../scripts/harness.mjs";
+import { derivedViewPaths, loadLayout, stateDir } from "../scripts/lib.mjs";
 import { mainCheckoutOfProject } from "../scripts/worktree.mjs";
 import { openCore } from "../dashboard/lib/core.mjs";
 import { readState } from "../dashboard/lib/state.mjs";
@@ -964,7 +972,7 @@ test("dashboard writes: write holds can, reason, verbs, default_branch, fetched_
     const a = await writer.refresh();
     assert.deepEqual(Object.keys(a.body.write), WRITE_KEYS);
     const { fetched_at: firstFetch, ...rest } = a.body.write;
-    assert.deepEqual(rest, { can: true, reason: null, verbs: [], default_branch: "main", batch: null });
+    assert.deepEqual(rest, { can: true, reason: null, verbs: WRITE_VERBS, default_branch: "main", batch: null });
     assert.match(firstFetch, /^2026-11-17T09:00:\d\d\.000Z$/);
     assert.equal(readState(writer.readCtx()).stories.length, 1);
     const tip = landUpstream(w);
@@ -1105,10 +1113,12 @@ const post = (page, path, headers = {}, body = undefined) => call(page, path, { 
 const BODY = JSON.stringify({ verb: "move", fields: { story: "PS-X/story-a", to: "todo", reason: "r" } });
 
 // Every file under `dir`, hashed: what "byte-identical" is checked against.
-function treeHash(dir) {
+// Names in `skip` (a folder such as .git) are left out at any depth.
+function treeHash(dir, skip = new Set()) {
   const h = createHash("sha256");
   const walk = (d) => {
     for (const name of readdirSync(d).sort()) {
+      if (skip.has(name)) continue;
       const p = join(d, name);
       const st = lstatSync(p);
       if (st.isSymbolicLink()) h.update(`${p}\0link\0`);
@@ -1230,7 +1240,7 @@ test("dashboard writes: GET / in two runs holds the meta tag with two different 
 });
 
 // [dashboard-writes#8] [dashboard-writes#1]
-test("dashboard writes: while write.can is false, the refresh runs and the other four routes get 409 with write.reason; a body that is no JSON object gets 400 first, and Send and Discard read no body", async () => {
+test("dashboard writes: while write.can is false, the refresh runs and the other four routes get 409 with write.reason, before a body's 400 (no JSON object, over 64 KiB, a verb outside write.verbs); Send and Discard read no body", async () => {
   await withWorld({ plainVault: true }, async (w) => {
     const page = await w.start();
     const token = await tokenOf(page);
@@ -1247,12 +1257,16 @@ test("dashboard writes: while write.can is false, the refresh runs and the other
       assert.equal((await post(page, path, own(page, token), "not json")).status, 409, `${path} reads no body`);
       assert.equal((await post(page, path, own(page, token))).status, 409, `${path} with none`);
     }
-    for (const bad of ["not json", "[]", "null", "3", ""]) {
-      const r = await post(page, "/api/preview", own(page, token), bad);
-      assert.equal(r.status, 400, JSON.stringify(bad));
-      assert.match(r.json.error, /no JSON object/);
-      assert.deepEqual(Object.keys(r.json), ["ok", "error", "write"]);
-    }
+    const big = JSON.stringify({
+      verb: "move",
+      fields: { story: "PS-X/story-a", to: "todo", reason: "x".repeat(70000) },
+    });
+    for (const path of ["/api/preview", "/api/action"])
+      for (const bad of ["not json", "[]", "null", "3", "", big, JSON.stringify({ verb: "rank" })]) {
+        const r = await post(page, path, own(page, token), bad);
+        assert.equal(r.status, 409, `${path} ${bad.slice(0, 40)}: write.can false comes first`);
+        assert.deepEqual(r.json, { ok: false, error: state.write.reason, write: state.write });
+      }
     assert.equal(w.record.length, from, "no process for any of them");
     const r = await post(page, "/api/refresh", own(page, token));
     assert.equal(r.status, 200);
@@ -1262,17 +1276,38 @@ test("dashboard writes: while write.can is false, the refresh runs and the other
 });
 
 // [dashboard-writes#8] [dashboard-writes#6]
-test("dashboard writes: while write.can is true, a verb outside write.verbs gets 400 and starts no process, and Send or Discard with no open batch gets 409", async () => {
+test("dashboard writes: while write.can is true, a body that is no JSON object or is over 64 KiB, or a verb or field outside write.verbs, gets 400 and starts no process, and Send or Discard with no open batch gets 409", async () => {
   await withWorld({}, async (w) => {
     const page = await w.start();
     const token = await tokenOf(page);
     assert.equal(page.writer.view().can, true, page.writer.view().reason);
     const from = w.record.length;
+    const big = JSON.stringify({
+      verb: "move",
+      fields: { story: "PS-X/story-a", to: "todo", reason: "x".repeat(70000) },
+    });
+    const bodies = [
+      [JSON.stringify({ verb: "rank" }), /not a verb the page may run \(write\.verbs: move\)/],
+      [JSON.stringify({}), /not a verb the page may run/],
+      [
+        JSON.stringify({ verb: "move", fields: { story: "PS-X/story-a", to: "done", reason: "r" } }),
+        /to is one of todo, planned/,
+      ],
+      [
+        JSON.stringify({ verb: "move", fields: { story: "PS-X/story-a", to: "todo", reason: "r", by: "x" } }),
+        /"by" is not a field of move/,
+      ],
+      ["{oops", /no JSON object/],
+      ["[]", /no JSON object/],
+      [big, /over 65536 bytes/],
+    ];
     for (const path of ["/api/preview", "/api/action"])
-      for (const body of [BODY, JSON.stringify({ verb: "rank" }), JSON.stringify({}), "{oops"]) {
+      for (const [body, why] of bodies) {
         const r = await post(page, path, own(page, token), body);
-        assert.equal(r.status, 400, `${path} ${body}`);
+        assert.equal(r.status, 400, `${path} ${body.slice(0, 60)}`);
+        assert.deepEqual(Object.keys(r.json), ["ok", "error", "write"]);
         assert.equal(r.json.ok, false);
+        assert.match(r.json.error, why);
         assert.equal(r.json.write.can, true);
       }
     for (const path of ["/api/send", "/api/discard"]) {
@@ -1493,6 +1528,459 @@ test("dashboard writes: on a writable vault, answering every GET route after the
 });
 
 // ─── Contract 9: the module's processes ─────────────────────────────────
+
+// [dashboard-writes#4] [dashboard-writes#8]
+test("dashboard writes: a start whose refresh fails keeps its error, write.reason says the refresh failed and not that the page has not looked yet, and the command line prints it to stderr after the ready line", async () => {
+  await withWorld({}, async (w) => {
+    const first = await w.start();
+    const binding = first.writer.paths.binding;
+    await first.close();
+    // The binding folder's place taken by a file: the start's refresh cannot write it.
+    rmSync(binding, { recursive: true, force: true });
+    writeFileSync(binding, "not a folder\n");
+    const page = await w.start();
+    assert.match(page.startError, /^refresh: .*(ENOTDIR|EEXIST)/);
+    const write = (await call(page, "/api/state")).json.write;
+    assert.equal(write.can, false);
+    assert.match(write.reason, /^the refresh failed: refresh: .*(ENOTDIR|EEXIST)/);
+    assert.doesNotMatch(write.reason, /has not looked/);
+    assert.ok(!existsSync(page.writer.paths.lock), "no lock is left");
+    await page.close();
+
+    const child = spawn(
+      process.execPath,
+      [join(REPO, "dashboard", "server.mjs"), "--core", REPO, "--project", w.project, "--port", "0"],
+      { env: w.env, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    const exited = new Promise((done) => child.on("exit", () => done()));
+    try {
+      await waitFor(
+        () => /"ready":true/.test(out) && /dashboard: the start's refresh failed: refresh: /.test(err),
+        20000,
+      );
+    } finally {
+      child.kill("SIGTERM");
+      await exited;
+    }
+    assert.equal(out.trim().split("\n").length, 1, "stdout carries the ready line only");
+    assert.match(err, /^dashboard: the start's refresh failed: refresh: .*(ENOTDIR|EEXIST)/m);
+  });
+});
+
+// ─── Contracts 6 and 7: the preview and the action ──────────────────────
+
+const STORY_REL = "epics/PS-X/stories/story-a.md";
+const EPIC_REL = "epics/PS-X/epic.md";
+const move = (fields = {}) => ({
+  verb: "move",
+  fields: { story: "PS-X/story-a", to: "todo", reason: "next up", ...fields },
+});
+const cliCalls = (w, from, verb) =>
+  w.record.slice(from).filter((e) => e.cmd === process.execPath && e.argv[1] === verb);
+const headOf = (w, clone) => w.git(clone, "rev-parse", "HEAD");
+const porcelain = (w, clone) => w.git(clone, "status", "--porcelain", "--untracked-files=all");
+const batchBranches = (w, clone) => w.git(clone, "for-each-ref", "--format=%(refname:short)", "refs/heads/dashboard/");
+const committedFiles = (w, clone, rev = "HEAD") =>
+  w.git(clone, "diff-tree", "--no-commit-id", "--name-only", "-r", rev).split("\n").filter(Boolean).sort();
+const NO_GIT = new Set([".git"]);
+// The clone as a step leaves it: HEAD, a clean tree, and its files.
+const cloneState = (w, clone) => ({
+  head: headOf(w, clone),
+  status: porcelain(w, clone),
+  files: treeHash(clone, NO_GIT),
+});
+
+async function writable(w, opts) {
+  const writer = await w.open(opts);
+  const r = await writer.refresh();
+  assert.equal(r.body.write.can, true, r.body.write.reason);
+  return writer;
+}
+
+// [dashboard-writes#6]
+test("dashboard writes: write.verbs holds only verbs the core has, each a writing verb with a plan mode (--write), its fields the verb's positionals and options, and move's targets todo and planned", () => {
+  assert.deepEqual(
+    WRITE_VERBS.map((v) => v.verb),
+    Object.keys(VERB_ARGV),
+  );
+  assert.deepEqual(
+    WRITE_VERBS.map((v) => v.verb),
+    ["move"],
+    "this story offers move only",
+  );
+  for (const entry of WRITE_VERBS) {
+    const row = VERBS.find((r) => r.verb === entry.verb);
+    assert.ok(row, `the core has ${entry.verb}`);
+    assert.equal(row.writes, true, `${entry.verb} writes`);
+    const write = row.options.find((o) => o.name === "write");
+    assert.ok(write && write.arg === false, `${entry.verb} has a plan mode: bare it plans, --write writes`);
+    assert.ok(
+      row.options.some((o) => o.name === "json"),
+      `${entry.verb} answers --json`,
+    );
+    const call = VERB_ARGV[entry.verb];
+    assert.deepEqual([...call.positionals, ...call.options].sort(), Object.keys(entry.fields).sort());
+    for (const name of call.options) {
+      const o = row.options.find((x) => x.name === name);
+      assert.ok(o && typeof o.arg === "string", `--${name} is an option of ${entry.verb} that takes a value`);
+    }
+    assert.equal(row.usage[0].split(" ").length, call.positionals.length, `${entry.verb}'s positionals`);
+  }
+  const src = readFileSync(join(REPO, "scripts", "move.mjs"), "utf8");
+  const targets = /const TARGETS = Object\.freeze\(\{([^}]*)\}\)/.exec(src)?.[1] ?? "";
+  assert.deepEqual(
+    [...targets.matchAll(/(\w+):/g)].map((m) => m[1]),
+    WRITE_VERBS[0].fields.to.values,
+  );
+});
+
+// [dashboard-writes#6]
+test("dashboard writes: a move's preview answers with move's own plan, result.path is the story's path in the bound vault, no path under the place is named, and the clone's HEAD and working tree are unchanged", async () => {
+  for (const prefix of ["", "docs/vault"])
+    await withWorld({ prefix }, async (w) => {
+      const writer = await writable(w);
+      const clone = writer.paths.clone;
+      const before = cloneState(w, clone);
+      const from = w.record.length;
+      const r = await writer.preview(move());
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      assert.deepEqual(Object.keys(r.body), ["ok", "result", "write"]);
+      assert.equal(r.body.ok, true);
+      const { result } = r.body;
+      assert.equal(result.story, "PS-X/story-a");
+      assert.equal(result.from, "planned");
+      assert.equal(result.to, "todo");
+      assert.equal(result.reason, "next up");
+      assert.equal(result.written, false);
+      assert.equal(result.path, join(w.vault, STORY_REL), "the story's path in the bound vault");
+      assert.ok(!JSON.stringify(r.body).includes(writer.place), "no path under the place is named");
+      assert.deepEqual(cloneState(w, clone), before, "HEAD and the working tree are unchanged");
+      assert.equal(r.body.write.batch, null);
+      const calls = cliCalls(w, from, "move");
+      assert.equal(calls.length, 1);
+      assert.deepEqual(calls[0].argv.slice(1), [
+        "move",
+        `--project=${writer.paths.binding}`,
+        "--json",
+        "--reason=next up",
+        "--",
+        "PS-X/story-a",
+        "todo",
+      ]);
+      assert.equal(calls[0].cwd, writer.paths.binding);
+      assert.match(readFileSync(join(w.vault, STORY_REL), "utf8"), /^status: planned$/m);
+    });
+});
+
+// [dashboard-writes#6]
+test("dashboard writes: a verb other than move, a field outside move's, to done, or a reason that is empty or holds a line break gets 400 from the preview and the action, and the spawn record shows no call", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await writable(w);
+    const sep2028 = String.fromCharCode(0x2028);
+    const bad = [
+      { verb: "rank", fields: { story: "PS-X/story-a", to: "todo", reason: "r" } },
+      { verb: "assign", fields: { story: "PS-X/story-a" } },
+      { verb: "reconcile" },
+      { fields: move().fields },
+      { verb: "move" },
+      { verb: "move", fields: [] },
+      { ...move(), write: true },
+      move({ write: "true" }),
+      move({ to: "done" }),
+      move({ to: "in-progress" }),
+      move({ to: "TODO" }),
+      move({ reason: "one\ntwo" }),
+      move({ reason: "one\rtwo" }),
+      move({ reason: `one${sep2028}two` }),
+      move({ reason: "   " }),
+      move({ reason: 3 }),
+      move({ story: "story-a" }),
+      move({ story: "PS-X/story a" }),
+      move({ story: "../x/y" }),
+      { verb: "move", fields: { story: "PS-X/story-a", to: "todo" } },
+    ];
+    const from = w.record.length;
+    for (const body of bad)
+      for (const fn of ["preview", "action"]) {
+        const r = await writer[fn](body);
+        assert.equal(r.status, 400, `${fn} ${JSON.stringify(body)}`);
+        assert.deepEqual(Object.keys(r.body), ["ok", "error", "write"]);
+        assert.equal(r.body.ok, false);
+      }
+    assert.equal(w.record.length, from, "the spawn record shows no call");
+    assert.ok(!existsSync(writer.paths.lock));
+    assert.deepEqual(checkRequest(move({ reason: "  padded  " })), {
+      ok: true,
+      verb: "move",
+      fields: { story: "PS-X/story-a", to: "todo", reason: "padded" },
+    });
+  });
+});
+
+// [dashboard-writes#6] [dashboard-writes#7]
+test("dashboard writes: a reason that starts with - reaches move as the reason, in the preview, the story's Status log and the commit's message", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await writable(w);
+    const reason = "-x --write";
+    const from = w.record.length;
+    const p = await writer.preview(move({ reason }));
+    assert.equal(p.status, 200, JSON.stringify(p.body));
+    assert.equal(p.body.result.reason, reason);
+    assert.equal(p.body.result.written, false, "the reason's --write is no option");
+    assert.ok(cliCalls(w, from, "move")[0].argv.includes(`--reason=${reason}`));
+    const a = await writer.action(move({ reason }));
+    assert.equal(a.status, 200, JSON.stringify(a.body));
+    assert.equal(a.body.result.reason, reason);
+    const clone = writer.paths.clone;
+    assert.ok(readFileSync(join(clone, STORY_REL), "utf8").includes(reason));
+    assert.equal(w.git(clone, "log", "-1", "--format=%s"), `move PS-X/story-a to todo: ${reason}`);
+  });
+});
+
+// [dashboard-writes#7] [dashboard-writes#4]
+test("dashboard writes: a move that succeeds is one commit of the story and its epic.md and no derived view, the first one puts the clone on dashboard/<person>/<YYYYMMDDTHHMMSSZ> at it (the next free second), the derived views go back to the branch head, and write.batch.commits is 1", async () => {
+  await withWorld({}, async (w) => {
+    const t = Date.UTC(2026, 10, 17, 14, 5, 9, 500);
+    assert.equal(stampFor(t), "20261117T140509Z");
+    const writer = await writable(w, { now: () => t });
+    const clone = writer.paths.clone;
+    const base = headOf(w, clone);
+    // A branch of that second is there already (a batch discarded in it).
+    w.git(clone, "branch", "dashboard/test-person/20261117T140509Z", base);
+    const from = w.record.length;
+    const r = await writer.action(move());
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(Object.keys(r.body), ["ok", "result", "write"]);
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.result.written, true);
+    assert.equal(r.body.result.path, join(w.vault, STORY_REL));
+    assert.ok(!JSON.stringify(r.body).includes(writer.place));
+    const branch = "dashboard/test-person/20261117T140510Z";
+    assert.deepEqual(r.body.write.batch, { branch, started_at: "2026-11-17T14:05:10.000Z", commits: 1 });
+    assert.deepEqual(writer.view().batch, r.body.write.batch, "the next /api/state holds it too");
+    assert.equal(w.git(clone, "rev-parse", "--abbrev-ref", "HEAD"), branch);
+    assert.equal(w.git(clone, "rev-parse", "HEAD^"), base, "one new commit");
+    assert.equal(w.git(clone, "rev-parse", `refs/heads/${branch}`), headOf(w, clone));
+    const files = committedFiles(w, clone);
+    assert.deepEqual(files, [EPIC_REL, STORY_REL]);
+    const views = derivedViewPaths(loadLayout("engineering"));
+    const derived = [views.board, views.codeMap, views.graph, ...views.indexes.map((x) => x.path)].filter(Boolean);
+    assert.ok(derived.includes("kanban.md") && derived.includes("epics/README.md"));
+    for (const f of files) assert.ok(!derived.includes(f), `${f} is no derived view`);
+    assert.ok(r.body.result.reconcile.written > 0, "move regenerated the derived views");
+    assert.equal(porcelain(w, clone), "", "the derived views are back at the branch head");
+    assert.equal(readFileSync(join(clone, "kanban.md"), "utf8"), "stub board\n");
+    assert.match(readFileSync(join(clone, STORY_REL), "utf8"), /^status: todo$/m);
+    assert.equal(w.git(clone, "log", "-1", "--format=%s"), "move PS-X/story-a to todo: next up");
+    assert.equal(
+      w.git(clone, "log", "-1", "--format=%an <%ae> | %cn <%ce>"),
+      "Vault Person <vault-person> | Vault Person <vault-person>",
+    );
+    // Staged by name, committed on the detached HEAD, then the branch made.
+    const calls = gitCalls(w, from).map((e) => subOf(e.argv));
+    const add = calls.find((c) => c.name === "add");
+    assert.deepEqual(add.rest.slice(0, 2), ["--all", "--"]);
+    assert.deepEqual(add.rest.slice(2).sort(), [EPIC_REL, STORY_REL]);
+    const order = calls.map((c) => c.name);
+    assert.ok(order.lastIndexOf("commit") < order.lastIndexOf("switch"), "the commit comes before the branch");
+    assert.deepEqual(calls.find((c) => c.name === "switch").rest, [`--create=${branch}`, "--quiet", "--", "HEAD"]);
+    assert.equal(
+      readState(writer.readCtx()).stories.find((s) => s.rel === STORY_REL).status,
+      "todo",
+      "the readers read the clone",
+    );
+    assert.match(readFileSync(join(w.vault, STORY_REL), "utf8"), /^status: planned$/m, "the bound vault is as it was");
+
+    // A second move goes on the open batch.
+    const r2 = await writer.action(move({ to: "planned", reason: "not this week" }));
+    assert.equal(r2.status, 200, JSON.stringify(r2.body));
+    assert.deepEqual(r2.body.write.batch, { branch, started_at: "2026-11-17T14:05:10.000Z", commits: 2 });
+    assert.deepEqual(batchBranches(w, clone).split("\n").sort(), ["dashboard/test-person/20261117T140509Z", branch]);
+  });
+});
+
+// [dashboard-writes#7]
+test("dashboard writes: a move that refuses leaves the clone's HEAD and working tree as they were and no batch branch, and the answer holds move's refusal with the project's paths", async () => {
+  await withWorld({}, async (w) => {
+    // story-a in progress on origin: move changes only planned to todo and back.
+    const file = join(w.vault, STORY_REL);
+    writeFileSync(file, readFileSync(file, "utf8").replace(/^status: planned$/m, "status: in-progress"));
+    w.git(w.repo, "add", "-A");
+    w.git(w.repo, ...w.as, "commit", "-q", "-m", "story-a starts");
+    w.git(w.repo, "push", "-q", "origin", "main");
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const before = cloneState(w, clone);
+    for (const [body, why] of [
+      [move(), /no gate moves a story from in-progress to todo/],
+      [move({ story: "PS-X/story-zz" }), /no story in epics\/PS-X matches "story-zz"/],
+    ]) {
+      const r = await writer.action(body);
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      assert.deepEqual(Object.keys(r.body), ["ok", "result", "error", "write"]);
+      assert.equal(r.body.ok, false);
+      assert.match(r.body.error, why);
+      assert.equal(r.body.result.written, false);
+      assert.equal(r.body.write.batch, null);
+      assert.ok(!JSON.stringify(r.body).includes(writer.place), "no path under the place is named");
+      assert.deepEqual(cloneState(w, clone), before);
+      assert.equal(batchBranches(w, clone), "", "no batch branch");
+      assert.ok(!existsSync(writer.paths.lock));
+    }
+    const r = await writer.action(move());
+    assert.equal(r.body.result.path, join(w.vault, STORY_REL), "the refusal names the story in the bound vault");
+  });
+});
+
+// [dashboard-writes#7]
+test("dashboard writes: a move that changes nothing outside the derived views, the story in that status already with its epic row agreeing, makes no commit and starts no batch", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const before = cloneState(w, clone);
+    const r = await writer.action(move({ to: "planned", reason: "still later" }));
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.result.written, false);
+    assert.equal(r.body.result.epic.written, false, "the epic row agrees");
+    assert.ok(r.body.result.reconcile.written > 0, "only the derived views changed");
+    assert.equal(r.body.write.batch, null);
+    assert.deepEqual(cloneState(w, clone), before);
+    assert.equal(batchBranches(w, clone), "");
+  });
+});
+
+// [dashboard-writes#7]
+test("dashboard writes: with commit.gpgsign true and a signer that fails, no commit is made, no batch branch exists, the working tree is as before, and the answer holds git's message", async () => {
+  await withWorld({}, async (w) => {
+    w.git(w.repo, "config", "commit.gpgsign", "true");
+    writeFileSync(w.env.GIT_CONFIG_GLOBAL, `[gpg]\n\tprogram = ${join(w.root, "no-such-signer")}\n`);
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    assert.equal(
+      w.git(clone, "config", "--local", "commit.gpgsign"),
+      "true",
+      "the clone signs as the vault repository does",
+    );
+    const before = cloneState(w, clone);
+    const r = await writer.action(move());
+    assert.equal(r.status, 502, JSON.stringify(r.body));
+    assert.deepEqual(Object.keys(r.body), ["ok", "error", "write"]);
+    assert.equal(r.body.ok, false);
+    assert.match(r.body.error, /^git commit: [\s\S]*(gpg|sign)/i);
+    assert.equal(r.body.write.batch, null);
+    assert.deepEqual(cloneState(w, clone), before);
+    assert.equal(batchBranches(w, clone), "", "no batch branch");
+    assert.ok(!existsSync(writer.paths.lock));
+  });
+});
+
+// [dashboard-writes#7]
+test("dashboard writes: with every manifest's session id and project variable and PROJECTSTORE_PROJECT_DIR set, an action leaves the bound checkout byte-identical and no *.writes folder under the project's or the binding folder's .projectstore/state/sessions/", async () => {
+  await withWorld({}, async (w) => {
+    const manifests = [...loadHarnesses().values()];
+    const sessionVars = manifests.map((m) => m.runtime?.session_id_env).filter(Boolean);
+    const projectVars = manifests.map((m) => m.runtime?.project_dir_env).filter(Boolean);
+    assert.ok(sessionVars.includes("CLAUDE_CODE_SESSION_ID"), sessionVars.join(", "));
+    assert.ok(projectVars.length > 0);
+    const env = { ...w.env, PROJECTSTORE_PROJECT_DIR: w.project };
+    for (const k of sessionVars) env[k] = "dash-session-1";
+    for (const k of projectVars) env[k] = w.project;
+    const writer = await writable(w, { env });
+    const bound = treeHash(w.repo);
+    const r = await writer.action(move());
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.write.batch.commits, 1);
+    assert.equal(treeHash(w.repo), bound, "the bound checkout is byte-identical");
+    for (const dir of [w.project, writer.paths.binding]) {
+      const sessions = stateDir(dir);
+      const found = existsSync(sessions) ? readdirSync(sessions).filter((n) => n.endsWith(".writes")) : [];
+      assert.deepEqual(found, [], `no record of writes under ${sessions}`);
+    }
+  });
+});
+
+// [dashboard-writes#2] [dashboard-writes#7]
+test("dashboard writes: for a vault in docs/vault/ of its repository an action changes files only under clone/docs/vault, and its answer names the bound vault's paths", async () => {
+  await withWorld({ prefix: "docs/vault" }, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const r = await writer.action(move());
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(committedFiles(w, clone), [`docs/vault/${EPIC_REL}`, `docs/vault/${STORY_REL}`]);
+    assert.equal(r.body.result.path, join(w.vault, STORY_REL));
+    assert.equal(r.body.result.epic.path, join(w.vault, EPIC_REL));
+    assert.equal(porcelain(w, clone), "");
+  });
+});
+
+// [dashboard-writes#6]
+test("dashboard writes: the clone's and the binding folder's paths become the bound vault's, the repository's and the project's, whole names only", () => {
+  const pairs = [
+    ["/p/state/clone/docs/vault", "/repo/docs/vault"],
+    ["/p/state/clone", "/repo"],
+    ["/p/state/project", "/code"],
+  ];
+  assert.deepEqual(
+    substitutePaths(
+      {
+        a: "/p/state/clone/docs/vault/epics/x.md",
+        b: ["/p/state/clone/README.md", "in /p/state/project: done"],
+        c: "/p/state/clone.tmp and /p/state/projects stay",
+        d: 3,
+        e: null,
+      },
+      pairs,
+    ),
+    {
+      a: "/repo/docs/vault/epics/x.md",
+      b: ["/repo/README.md", "in /code: done"],
+      c: "/p/state/clone.tmp and /p/state/projects stay",
+      d: 3,
+      e: null,
+    },
+  );
+});
+
+// [dashboard-writes#6] [dashboard-writes#7] [dashboard-writes#8] [dashboard-writes#4]
+test("dashboard writes: through the server, POST /api/preview answers with move's plan and POST /api/action with one commit, both only with the token and the page's Origin and in the answer's shape; the next GET /api/state holds write.batch.commits 1 and reads the moved story from the clone", async () => {
+  await withWorld({}, async (w) => {
+    const page = await w.start();
+    const token = await tokenOf(page);
+    const from = w.record.length;
+    for (const path of ["/api/preview", "/api/action"]) {
+      assert.equal((await post(page, path, { "content-type": "application/json" }, BODY)).status, 403);
+      assert.equal((await post(page, path, { "x-projectstore-token": token, origin: "null" }, BODY)).status, 403);
+    }
+    assert.equal(w.record.length, from, "no call without the token and the page's Origin");
+    const p = await post(page, "/api/preview", own(page, token), BODY);
+    assert.equal(p.status, 200, p.text);
+    assert.deepEqual(Object.keys(p.json), ["ok", "result", "write"]);
+    assert.equal(p.json.result.path, join(w.vault, STORY_REL));
+    assert.equal(p.json.result.written, false);
+    assert.ok(!p.text.includes(page.writer.place));
+    assert.equal(p.json.write.batch, null);
+    const a = await post(page, "/api/action", own(page, token, `http://localhost:${page.port}`), BODY);
+    assert.equal(a.status, 200, a.text);
+    assert.deepEqual(Object.keys(a.json), ["ok", "result", "write"]);
+    assert.equal(a.json.ok, true);
+    assert.equal(a.json.write.batch.commits, 1);
+    const state = (await call(page, "/api/state")).json;
+    assert.deepEqual(state.write, a.json.write);
+    assert.equal(state.stories.find((s) => s.rel === STORY_REL).status, "todo");
+    assert.equal(state.vault, w.vault);
+    assert.match(readFileSync(join(w.vault, STORY_REL), "utf8"), /^status: planned$/m);
+    const n = await post(page, "/api/action", own(page, token), JSON.stringify(move({ story: "PS-X/story-zz" })));
+    assert.equal(n.status, 200, n.text);
+    assert.equal(n.json.ok, false);
+    assert.match(n.json.error, /no story in epics\/PS-X matches/);
+    assert.equal(n.json.write.batch.commits, 1);
+  });
+});
 
 // [dashboard-writes#9]
 test("dashboard writes: the budgets are 60 s for git and a core verb, 30 s for gh and 120 s for a first clone", () => {
@@ -1864,8 +2352,12 @@ test("dashboard writes: every call of the file's tests is an argv with no shell,
     "git for-each-ref",
     "git rev-list",
     "git symbolic-ref",
+    "git status",
+    "git add",
+    "git commit",
     "gh pr",
     "cli status",
+    "cli move",
   ])
     assert.ok(seen.has(s), `${s} is among the calls read (${[...seen].join(", ")})`);
   assert.ok(!ALL.some((e) => e.cmd === "git" && subOf(e.argv).name === "checkout"), "no checkout");

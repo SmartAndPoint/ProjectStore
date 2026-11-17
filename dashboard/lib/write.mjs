@@ -7,8 +7,8 @@
 // clone made whole (contract 2), the clone's configuration and identity
 // (contract 3), the refresh and what the page reads (contract 4, as far as
 // the module goes), whether the page can write (contract 1), and the step
-// lock with its recovery (contract 5). The preview, the action and the
-// delivery build on it.
+// lock with its recovery (contract 5), the preview (contract 6) and the
+// action, one commit or nothing (contract 7). The delivery builds on it.
 //
 //   openWriter({ ctx, project, budgets, record, env, now, platform }) → writer
 //     writer.run(cmd, argv, opts)     the only spawn: argv, no shell, its own process group
@@ -23,12 +23,17 @@
 //     writer.makeClone(facts, opts)   git clone into clone.tmp/, renamed to clone/ when git ends with 0
 //     writer.syncConfig(facts)        the vault repository's keys and identity, copied into the clone
 //     writer.refresh({ start, deadline }) the refresh step: clone, config, fetch, the clone's place; → { status, body }
-//     writer.view()                   `write` as the last refresh left it
+//     writer.preview({ verb, fields }) the verb's plan for the clone, without --write (contract 6); → { status, body }
+//     writer.action({ verb, fields })  the verb with --write, then one commit on the batch branch, or nothing (contract 7)
+//     writer.view()                   `write` as the last step left it
 //     writer.readCtx()                the context the readers take: the clone's while `write.can`, else the bound one
 //     writer.writeBindingFolder(prefix) project/.projectstore/projectstore.json, its vault_path in the clone
 //     writer.stop()                   ends every running call with its process group
 //   anchorOf(dir, opts)               the code repository's main checkout (the core's worktree rule)
 //   placePaths(place)                 clone/, clone.tmp/, project/ and the lock file
+//   WRITE_VERBS, VERB_ARGV            the verbs the page may offer, their fields, how each reaches the CLI
+//   checkRequest(body, verbs)         a preview's or an action's { verb, fields }, checked before any process
+//   substitutePaths(value, pairs)     the clone's and the binding folder's paths, as the person knows them
 //
 // No hook runs for a call inside the place: each carries
 // `-c core.hooksPath=/dev/null`, which beats every configuration scope, so
@@ -52,7 +57,7 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, linkSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -78,9 +83,107 @@ export const LOCK_FILE = "projectstore-dashboard.lock";
 // can exist, so none runs (contract 3).
 export const NO_HOOKS = "/dev/null";
 export const WINDOWS_REASON = "writing from the page is not supported on Windows: the page reads the vault and changes nothing";
-// The verbs the page may offer (contract 6). The preview and the action fill
-// it with `move`; until then a writable vault offers none.
-export const WRITE_VERBS = Object.freeze([]);
+// The verbs the page may offer, with their fields (contract 6): only verbs of
+// the core that have a plan mode (bare, the plan; `--write`, the change). In
+// this story `move`, under its own rule that a `--write` with no terminal is
+// the confirmation. A writable vault shows this list in `write.verbs`.
+export const WRITE_VERBS = Object.freeze([
+  Object.freeze({
+    verb: "move",
+    fields: Object.freeze({
+      story: Object.freeze({ kind: "story", form: "<EPIC>/<id>" }),
+      to: Object.freeze({ kind: "choice", values: Object.freeze(["todo", "planned"]) }),
+      reason: Object.freeze({ kind: "line" }),
+    }),
+  }),
+]);
+// How each verb's fields reach the core's CLI: positionals after `--`, options
+// as `--name=value`. The table-vs-core test holds these against the core's
+// own verb table.
+export const VERB_ARGV = Object.freeze({
+  move: Object.freeze({ positionals: Object.freeze(["story", "to"]), options: Object.freeze(["reason"]) }),
+});
+// One line: the class the core's `--reason` refuses (status-log.mjs oneLine).
+const CONTROL = /[\u0000-\u001f\u007f\u0085\u2028\u2029]/;
+// `<EPIC>/<id>`: the shape only; the core resolves the story.
+const STORY_REF = /^[\p{L}\p{N}][\p{L}\p{N}._-]*\/[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
+
+// A preview's or an action's request, checked against `verbs` before any
+// process starts (contract 6): { ok, verb, fields } with each value as the
+// core gets it, or { ok: false, error }. A verb or a field outside the list,
+// a missing field, or a value outside its kind is refused.
+export function checkRequest(body, verbs = WRITE_VERBS) {
+  const no = (error) => ({ ok: false, error });
+  if (!body || typeof body !== "object" || Array.isArray(body)) return no("the request's body is no JSON object");
+  const extra = Object.keys(body).filter((k) => k !== "verb" && k !== "fields");
+  if (extra.length) return no(`the request names ${extra.map((k) => JSON.stringify(k)).join(", ")}, which a request does not take: it takes verb and fields`);
+  const entry = verbs.find((v) => v && v.verb === body.verb);
+  const names = verbs.map((v) => v.verb);
+  if (typeof body.verb !== "string" || !entry) return no(`${JSON.stringify(body.verb ?? null)} is not a verb the page may run (write.verbs: ${names.length ? names.join(", ") : "none"})`);
+  const given = body.fields;
+  if (!given || typeof given !== "object" || Array.isArray(given)) return no(`${entry.verb} takes its fields as an object: ${Object.keys(entry.fields).join(", ")}`);
+  const outside = Object.keys(given).filter((k) => !Object.hasOwn(entry.fields, k));
+  if (outside.length) return no(`${outside.map((k) => JSON.stringify(k)).join(", ")} is not a field of ${entry.verb} (its fields: ${Object.keys(entry.fields).join(", ")})`);
+  const fields = {};
+  for (const [name, kind] of Object.entries(entry.fields)) {
+    const v = given[name];
+    if (typeof v !== "string") return no(`${entry.verb} needs ${name} as text`);
+    if (kind.kind === "story") {
+      if (!STORY_REF.test(v)) return no(`${name} names a story as ${kind.form}, such as PS-CORE/story-x; ${JSON.stringify(v)} is not that`);
+      fields[name] = v;
+    } else if (kind.kind === "choice") {
+      if (!kind.values.includes(v)) return no(`${name} is one of ${kind.values.join(", ")}, not ${JSON.stringify(v)}`);
+      fields[name] = v;
+    } else if (kind.kind === "line") {
+      const t = v.trim();
+      if (!t) return no(`${name} is empty: say in one line why`);
+      if (CONTROL.test(t)) return no(`${name} must be one line, with no line break or control character`);
+      fields[name] = t;
+    } else return no(`${name} has a kind the page does not know: ${kind.kind}`);
+  }
+  return { ok: true, verb: entry.verb, fields };
+}
+
+// The paths of a core verb's answer as the person knows them (contract 6):
+// each `from` (longest first) followed by no further name character becomes
+// its `to`, in every string of `value`. Values that are not text stay.
+const ESCAPE = /[.*+?^${}()|[\]\\]/g;
+export function substitutePaths(value, pairs) {
+  const list = pairs.filter(([from]) => from).sort((a, b) => b[0].length - a[0].length);
+  if (!list.length) return value;
+  const to = new Map(list);
+  const re = new RegExp(`(${list.map(([from]) => from.replace(ESCAPE, "\\$&")).join("|")})(?![\\p{L}\\p{N}_.-])`, "gu");
+  const walk = (v) => {
+    if (typeof v === "string") return v.replace(re, (m) => to.get(m));
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+    return v;
+  };
+  return walk(value);
+}
+
+// A batch branch's last segment for a time in ms: YYYYMMDDTHHMMSSZ.
+export const stampFor = (ms) => new Date(Math.floor(Number(ms) / 1000) * 1000).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+
+// The session and project variables of every harness manifest under the
+// core's `harnesses/` (runtime.session_id_env, runtime.project_dir_env).
+function manifestVars(root) {
+  const out = { session: [], project: [] };
+  let names = [];
+  try {
+    names = readdirSync(join(root, "harnesses")).filter((n) => n.endsWith(".json"));
+  } catch {
+    return out;
+  }
+  for (const n of names) {
+    try {
+      const r = JSON.parse(readFileSync(join(root, "harnesses", n), "utf8"))?.runtime || {};
+      if (typeof r.session_id_env === "string" && r.session_id_env) out.session.push(r.session_id_env);
+      if (typeof r.project_dir_env === "string" && r.project_dir_env) out.project.push(r.project_dir_env);
+    } catch {}
+  }
+  return out;
+}
 // The keys the clone copies from the vault repository (contract 3), as git
 // prints them: section and name in lower case, a subsection as written. The
 // same text is git's pattern (`config --get-regexp`) and this file's.
@@ -223,6 +326,17 @@ async function endGroup(pid) {
 // The process layer, without a place: the spawn, git, gh and the core's CLI.
 function runner({ budgets = {}, record = null, env = process.env, root = null } = {}) {
   const B = { ...BUDGETS, ...budgets };
+  // The core's CLI points at the project it is given, never at a session's
+  // (contract 7; the clone ADR, decision 4): no session id, so no session's
+  // record of writes takes the page's writes; no neutral project variable; and
+  // each harness's project variable that is set names that project too. One
+  // that is not set stays unset, so no harness reads as having started the call.
+  const vars = root ? manifestVars(root) : { session: [], project: [] };
+  const forCore = (project) => (e) => {
+    for (const k of ["PROJECTSTORE_PROJECT_DIR", ...vars.session]) delete e[k];
+    for (const k of vars.project) if (e[k] !== undefined) e[k] = project;
+    return e;
+  };
   const live = new Map();
   let stopped = false;
   // null: not asked yet, so a call adds BatchMode (asking is no network call).
@@ -263,10 +377,10 @@ function runner({ budgets = {}, record = null, env = process.env, root = null } 
 
   // The one spawn. Settles with spawnSync's shape plus `timedOut`, `stopped`,
   // `refused`, `missingCwd` and the child's `pid`; never throws.
-  function run(cmd, argv, { cwd = process.cwd(), budget = B.git, via = null } = {}) {
+  function run(cmd, argv, { cwd = process.cwd(), budget = B.git, via = null, edit = null } = {}) {
     const why = stopped ? "the server is stopping" : refusal(cmd, argv, via);
     if (why) return Promise.resolve({ status: null, signal: null, stdout: "", stderr: "", error: Object.assign(new Error(why), { code: "EREFUSED" }), refused: true, timedOut: false, stopped: false, missingCwd: false, pid: null });
-    const callEnv = envFor(cwd);
+    const callEnv = edit ? edit(envFor(cwd)) : envFor(cwd);
     return new Promise((settle) => {
       const out = [], err = [];
       let child = null, done = false, timer = null, drain = null, exited = null, timedOut = false;
@@ -386,12 +500,14 @@ function runner({ budgets = {}, record = null, env = process.env, root = null } 
 
   // The core's CLI through this Node: `<verb> --name=value… -- <positionals>`.
   // `true` is a bare `--name`; false, null and undefined are left out. The
-  // answer adds `envelope`, the parsed `--json` output when there is one.
+  // answer adds `envelope`, the parsed `--json` output when there is one. Its
+  // environment names `options.project` (else `cwd`) as above, and no session.
   async function cli(verb, { options = {}, positionals = [], cwd = process.cwd() } = {}, { budget = B.verb, need = false, via = "cli" } = {}) {
     if (!root) throw new Error("no core root to run the CLI from");
     const opts = Object.entries(options).flatMap(([k, v]) => (v === true ? [`--${k}`] : v === false || v === null || v === undefined ? [] : [`--${k}=${v}`]));
     const argv = [join(root, "bin", "projectstore.mjs"), verb, ...opts, "--", ...positionals.map(String)];
-    const r = await run(process.execPath, argv, { cwd, budget, via });
+    const project = typeof options.project === "string" ? options.project : resolve(cwd);
+    const r = await run(process.execPath, argv, { cwd, budget, via, edit: forCore(project) });
     try {
       r.envelope = JSON.parse(r.stdout);
     } catch {
@@ -594,12 +710,19 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
   // A reason is shown to anyone who can GET /api/state: no URL in it keeps its
   // userinfo (a token in an insteadOf rewrite, a user:password), git's own words included.
   const closed = (reason) => ({ can: false, reason: redactUrls(reason), verbs: [], default_branch: null, fetched_at: iso(fetchedAt), batch: null });
-  let state = closed("the page has not looked at the vault's repository yet");
+  const initial = closed("the page has not looked at the vault's repository yet");
+  let state = initial;
   // The context the readers take while the page can write; null: the bound one.
   let readable = null;
+  // What the last refresh that could write found: the vault's prefix in its
+  // repository, the repository's top, the default branch. null while it cannot.
+  let known = null;
   const setView = (v) => {
     state = v;
-    if (!v.can) readable = null;
+    if (!v.can) {
+      readable = null;
+      known = null;
+    }
     return v;
   };
   const view = () => ({ ...state, verbs: [...state.verbs], batch: state.batch ? { ...state.batch } : null });
@@ -876,9 +999,9 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
       const f = await git(clone, ["fetch", "--quiet", "--", "origin"], { budget: within(proc.budgets.git), via: "refresh" });
       if (f.ok) fetchedAt = Number(now());
     }
-    const known = await defaultBranch({ network: !inspect && left() > 0, budget: () => within(proc.budgets.git) });
-    if (!known.name) return setView(closed(`no default branch is known: ${known.why}`));
-    const d = known.name;
+    const def = await defaultBranch({ network: !inspect && left() > 0, budget: () => within(proc.budgets.git) });
+    if (!def.name) return setView(closed(`no default branch is known: ${def.why}`));
+    const d = def.name;
     const base = `refs/remotes/origin/${d}`;
     const there = await git(clone, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${base}^{commit}`], { via: "refresh" });
     if (!there.ok) return setView(closed(`the default branch ${d} is not there in the clone (${base}); the next refresh that reaches origin fetches it. The page reads the bound checkout`));
@@ -897,7 +1020,9 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     }
     const bound = writeBindingFolder(facts.prefix, { onlyIfAbsent: inspect });
     readable = { ...ctx, cfg: { ...ctx.cfg, vault_path: bound.vault_path }, vault: bound.vault_path, binding: paths.binding, shown: { project: ctx.project, vault: ctx.vault } };
-    return setView({ can: true, reason: null, verbs: [...WRITE_VERBS], default_branch: d, fetched_at: iso(fetchedAt), batch });
+    setView({ can: true, reason: null, verbs: [...WRITE_VERBS], default_branch: d, fetched_at: iso(fetchedAt), batch });
+    known = { prefix: facts.prefix, top: facts.top, base, vaultPath: bound.vault_path };
+    return state;
   }
 
   // The refresh step (contract 4). The checks of capability() run first, so a
@@ -930,7 +1055,180 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
       } catch {}
       return { ...r, body: { ...r.body, write: view() } };
     }
+    // A refresh that failed before it ever looked says so, not that it has
+    // not looked yet; a later one leaves `write` as the last one left it.
+    if (r.status >= 500 && state === initial) {
+      setView(closed(`the refresh failed: ${r.body.error}. The page reads the bound checkout; the next refresh tries again`));
+      return { ...r, body: { ...r.body, write: view() } };
+    }
     return r;
+  }
+
+  // ── the preview and the action (contracts 6 and 7) ──
+
+  // The clone's paths in a verb's answer, as the person knows them: the
+  // binding folder is the project, the vault in the clone is the bound vault,
+  // and the rest of the clone the vault's repository.
+  const shown = (value) => {
+    if (!known) return value;
+    const pairs = [];
+    const both = (from, to) => {
+      pairs.push([from, to]);
+      const r = real(from);
+      if (r !== from) pairs.push([r, to]);
+    };
+    both(known.vaultPath, ctx.vault);
+    both(paths.binding, resolve(project));
+    both(paths.clone, known.top);
+    return substitutePaths(value, pairs);
+  };
+
+  // The clone back at HEAD, the derived views and whatever a verb left included.
+  async function restore(via) {
+    await git(paths.clone, ["reset", "--hard", "--quiet"], { need: true, via });
+    await git(paths.clone, ["clean", "-d", "-x", "--quiet"], { config: { "clean.requireForce": "false" }, need: true, via });
+  }
+
+  // One verb through the core's CLI, pointed at the clone by the binding
+  // folder (rewritten first), with `--json`, and `--write` for an action.
+  // → { status, ok, result?, error? }: 200 when the verb ran (ok: false when
+  // it refused), 400 for its usage error, 502 when it ran past its budget.
+  async function runVerb(req, { write, via }) {
+    writeBindingFolder(known.prefix);
+    const call = VERB_ARGV[req.verb];
+    const options = { project: paths.binding, json: true, write: write || null };
+    for (const k of call.options) options[k] = req.fields[k];
+    const r = await proc.cli(req.verb, { options, positionals: call.positionals.map((k) => req.fields[k]), cwd: paths.binding }, { need: true, via });
+    const env = r.envelope;
+    if (!env || typeof env !== "object" || !("result" in env)) {
+      const said = String(r.stderr || "").trim().split("\n")[0] || `it exited ${r.status} with no answer`;
+      return { status: 500, ok: false, error: shown(`projectstore ${req.verb} gave no --json answer: ${said}`) };
+    }
+    const result = shown(env.result);
+    const message = result && typeof result === "object" && typeof result.error === "string" ? result.error : null;
+    if (r.status === 2) return { status: 400, ok: false, result, error: message || `projectstore ${req.verb}: usage error` };
+    if (r.status !== 0 || env.ok !== true) return { status: 200, ok: false, result, error: message || `projectstore ${req.verb} exited ${r.status}` };
+    return { status: 200, ok: true, result };
+  }
+
+  // A request checked before the step (contract 6): 409 while the page cannot
+  // write, 400 for a verb or field outside write.verbs; no process starts.
+  const refused = (body) => {
+    if (!state.can) return answer(409, { ok: false, error: state.reason });
+    const req = checkRequest(body, state.verbs);
+    return req.ok ? { req } : answer(400, { ok: false, error: req.error });
+  };
+
+  // The preview (contract 6): the verb's own plan for the clone, without
+  // `--write`; the clone's HEAD and working tree stay as they were.
+  async function preview(body) {
+    const pre = refused(body);
+    if (!pre.req) return pre;
+    return step("preview", async () => {
+      if (!state.can || !known) return { status: 409, ok: false, error: state.reason };
+      return runVerb(pre.req, { write: false, via: "preview" });
+    });
+  }
+
+  // The batch the clone's HEAD is on, or null: { branch, started_at, commits }.
+  async function batchAt(via) {
+    const head = await git(paths.clone, ["rev-parse", "--verify", "--quiet", "--symbolic-full-name", "--end-of-options", "HEAD"], { need: true, via });
+    const ref = lines(head.stdout)[0] || "HEAD";
+    const branch = ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : null;
+    if (!branch || !branch.startsWith(`dashboard/${person}/`) || !isBatchBranch(branch)) return { branch, batch: null };
+    const c = await git(paths.clone, ["rev-list", "--count", "--end-of-options", `${known.base}..HEAD`], { need: true, via });
+    return { branch, batch: { branch, started_at: stampOf(branch), commits: Number(lines(c.stdout)[0]) || 0 } };
+  }
+
+  // A batch branch for now that the clone does not have yet: the same second
+  // taken, the next free one (an action, a Discard and an action in one second).
+  async function freeBranch(via) {
+    let t = Number(now());
+    for (let i = 0; i < 3600; i++, t += 1000) {
+      const name = `dashboard/${person}/${stampFor(t)}`;
+      const there = await git(paths.clone, ["rev-parse", "--verify", "--quiet", "--end-of-options", `refs/heads/${name}`], { via });
+      if (!there.ok) return name;
+    }
+    throw new StepError(500, `no free batch branch name under dashboard/${person}/ for the hour after ${iso(Number(now()))}`);
+  }
+
+  // What the verb changed in the clone, repository-relative (no renames).
+  async function changedPaths(via) {
+    const st = await git(paths.clone, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames"], { need: true, via });
+    return String(st.stdout || "")
+      .split("\0")
+      .filter((e) => e.length > 3)
+      .map((e) => e.slice(3));
+  }
+
+  // The action (contract 7): the verb with `--write`. When it exits 0 and
+  // changed a path outside derivedViewPaths(layout), exactly those paths,
+  // staged by name, become one commit; the first with no open batch starts
+  // the batch on dashboard/<person>/<YYYYMMDDTHHMMSSZ>: committed on the
+  // detached HEAD, then `switch --create`. The derived views go back to the
+  // branch head. A verb that refuses or fails, and a commit git refuses, leave
+  // HEAD and the working tree as they were and no batch branch behind.
+  async function action(body) {
+    const pre = refused(body);
+    if (!pre.req) return pre;
+    const req = pre.req;
+    return step("action", async () => {
+      if (!state.can || !known) return { status: 409, ok: false, error: state.reason };
+      const via = "action";
+      const clone = paths.clone;
+      const at = await batchAt(via);
+      // HEAD on a branch that is no batch of this person's: detached, so no
+      // other branch takes the commit.
+      if (at.branch && !at.batch) await git(clone, ["switch", "--detach", "--quiet", "--", "HEAD"], { need: true, via });
+      const before = lines((await git(clone, ["rev-parse", "--verify", "--end-of-options", "HEAD"], { need: true, via })).stdout)[0];
+      let ran;
+      try {
+        ran = await runVerb(req, { write: true, via });
+      } catch (e) {
+        await restore(via).catch(() => {});
+        throw e;
+      }
+      if (!ran.ok) {
+        await restore(via);
+        return ran;
+      }
+      const views = lib.derivedViewPaths(ctx.layout);
+      const derived = new Set([views.board, views.codeMap, views.graph, ...views.indexes.map((x) => x.path)].filter(Boolean));
+      const inVault = (p) => (known.prefix ? p.startsWith(`${known.prefix}/`) : true);
+      const rel = (p) => (known.prefix ? p.slice(known.prefix.length + 1) : p);
+      const changed = await changedPaths(via);
+      const outside = changed.filter((p) => !inVault(p));
+      if (outside.length) {
+        await restore(via);
+        return { status: 500, ok: false, result: ran.result, error: `${req.verb} changed ${outside.join(", ")}, outside the vault's folder ${known.prefix}; nothing was committed` };
+      }
+      const commit = changed.filter((p) => !derived.has(rel(p)));
+      if (!commit.length) {
+        await restore(via);
+        return ran;
+      }
+      const fail = async (r, what) => {
+        await restore(via).catch(() => {});
+        throw new StepError(502, shown(`${what}: ${redactUrls(String(r.stderr || "").trim() || r.reason)}`));
+      };
+      const add = await git(clone, ["add", "--all", "--", ...commit], { via });
+      if (!add.ok) await fail(add, "git add");
+      const subject = `${req.verb} ${req.fields.story} to ${req.fields.to}: ${req.fields.reason}`;
+      const made = await git(clone, ["commit", "--quiet", `--message=${subject}`], { via });
+      if (!made.ok) await fail(made, "git commit");
+      if (!at.batch) {
+        const name = await freeBranch(via);
+        const sw = await git(clone, ["switch", `--create=${name}`, "--quiet", "--", "HEAD"], { via });
+        if (!sw.ok) {
+          await git(clone, ["switch", "--detach", "--quiet", "--", before], { via }).catch(() => {});
+          await fail(sw, "git switch");
+        }
+      }
+      await restore(via);
+      const now2 = await batchAt(via);
+      setView({ ...state, batch: now2.batch });
+      return ran;
+    });
   }
 
   return {
@@ -962,6 +1260,8 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     makeClone,
     syncConfig,
     refresh,
+    preview,
+    action,
     view,
     readCtx: () => readable ?? ctx,
     writeBindingFolder,
