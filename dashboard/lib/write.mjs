@@ -270,6 +270,17 @@ function runner({ budgets = {}, record = null, env = process.env, root = null } 
     return new Promise((settle) => {
       const out = [], err = [];
       let child = null, done = false, timer = null, drain = null, exited = null, timedOut = false;
+      // While the group is being ended (the budget ran out, or the server
+      // stops), the call settles only once the group is gone: the leader's
+      // exit and its pipes' end come first, and on Linux they can come while
+      // the rest of its group is still alive (CI, 2026-11-17).
+      let ending = null;
+      const end = () => (ending ??= endGroup(child?.pid));
+      const later = (r) => {
+        if (timedOut) return; // the budget's own path settles it
+        if (ending) ending.then(() => finish(r));
+        else finish(r);
+      };
       const release = () => {
         for (const s of [child?.stdout, child?.stderr]) {
           try {
@@ -298,36 +309,36 @@ function runner({ budgets = {}, record = null, env = process.env, root = null } 
         return;
       }
       sink({ cmd, argv: [...argv], cwd, env: named(callEnv), pid: child.pid ?? null, via: viaName(via) });
-      if (child.pid) live.set(child.pid, child);
+      if (child.pid) live.set(child.pid, { end });
       const drained = () => [child.stdout, child.stderr].every((s) => !s || s.readableEnded || s.destroyed);
       for (const [s, into] of [[child.stdout, out], [child.stderr, err]]) {
         if (!s) continue;
         s.setEncoding("utf8");
         s.on("data", (d) => into.push(d));
         s.on("end", () => {
-          if (exited && drained()) finish(exited);
+          if (exited && drained()) later(exited);
         });
         s.on("error", () => {});
       }
       child.on("error", (e) => {
-        finish({ error: e });
+        later({ error: e });
         release();
       });
       child.on("exit", (code, signal) => {
         exited = { status: code, signal };
         if (timedOut) return;
         if (drained()) {
-          finish(exited);
+          later(exited);
           return;
         }
         drain = setTimeout(() => {
-          finish(exited);
+          later(exited);
           release();
         }, DRAIN_MS);
       });
       timer = setTimeout(async () => {
         timedOut = true;
-        await endGroup(child.pid);
+        await end();
         finish({ status: null, signal: "SIGTERM", error: Object.assign(new Error(`${cmd} ran past its ${budget} ms budget and was stopped`), { code: "ETIMEDOUT" }) });
         release();
       }, budget);
@@ -395,9 +406,9 @@ function runner({ budgets = {}, record = null, env = process.env, root = null } 
 
   async function stop() {
     stopped = true;
-    const pids = [...live.keys()];
-    for (const p of pids) stoppedPids.add(p);
-    await Promise.all(pids.map((p) => endGroup(p)));
+    const calls = [...live.entries()];
+    for (const [p] of calls) stoppedPids.add(p);
+    await Promise.all(calls.map(([, c]) => c.end()));
   }
 
   return {

@@ -9,7 +9,9 @@
 // prompt variables of its environment. `serve` then answers git from the
 // local repository the command names (`git-upload-pack '<path>'`); `hang`
 // starts a child in the same process group and waits for ever, for the
-// budget cases. Asked `-G` (git's probe for an OpenSSH), it exits 1, so git
+// budget cases. That child outlives a SIGTERM by 300 ms, as a slow ssh
+// would: a call must not settle while it is still alive (on Linux the git
+// call's exit and its pipes' end came first, and a run settled early). Asked `-G` (git's probe for an OpenSSH), it exits 1, so git
 // speaks the simple variant to it.
 import { spawn, execFileSync } from "node:child_process";
 import { openSync, closeSync, writeFileSync } from "node:fs";
@@ -47,7 +49,8 @@ const facts = {
 };
 
 if (mode === "hang") {
-  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], { stdio: "ignore" });
+  const slow = "process.on('SIGTERM', () => setTimeout(() => process.exit(0), 300)); setInterval(() => {}, 1 << 30)";
+  const child = spawn(process.execPath, ["-e", slow], { stdio: "ignore" });
   facts.grandchild = child.pid;
   writeFileSync(report, JSON.stringify(facts));
   setInterval(() => {}, 1 << 30);
