@@ -216,7 +216,11 @@ export function handler({ writer, token, port, started = Promise.resolve() }) {
         return send(req, res, r.status, r.body);
       }
       if (!w.batch) return shape(409, { ok: false, error: `no batch is open, so there is nothing to ${p === "/api/send" ? "send" : "discard"}` });
-      // Send and Discard come with the steps that build them.
+      // Send (the delivery spec, contract 2); Discard comes with the step that builds it.
+      if (p === "/api/send") {
+        const r = await writer.send();
+        return send(req, res, r.status, r.body);
+      }
       return shape(501, { ok: false, error: `${p} is not built in this version of the page` });
     } catch (e) {
       // An error the step did not expect: 500 in the same shape (a step's own lock is released by the step).

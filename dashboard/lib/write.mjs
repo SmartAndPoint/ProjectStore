@@ -8,7 +8,11 @@
 // (contract 3), the refresh and what the page reads (contract 4, as far as
 // the module goes), whether the page can write (contract 1), and the step
 // lock with its recovery (contract 5), the preview (contract 6) and the
-// action, one commit or nothing (contract 7). The delivery builds on it.
+// action, one commit or nothing (contract 7). The delivery builds on it: the
+// spec "The dashboard's delivery: Send, Discard, the pull request's state,
+// the carry and kept branches" (alias `dashboard-delivery`), whose pull
+// request's state (contract 1), Send (contract 2) and its title and body
+// (contract 3) live here, with the kept branches as `write.kept` lists them.
 //
 //   openWriter({ ctx, project, budgets, record, env, now, platform }) → writer
 //     writer.run(cmd, argv, opts)     the only spawn: argv, no shell, its own process group
@@ -25,6 +29,8 @@
 //     writer.refresh({ start, deadline }) the refresh step: clone, config, fetch, the clone's place; → { status, body }
 //     writer.preview({ verb, fields }) the verb's plan for the clone, without --write (contract 6); → { status, body }
 //     writer.action({ verb, fields })  the verb with --write, then one commit on the batch branch, or nothing (contract 7)
+//     writer.askState(branch, opts)   `gh pr list` for a batch branch (or the `none` probe): { ok, list } or { ok: false, missing, reason }
+//     writer.send()                   Send (delivery contract 2): the state, the remote branch merged, the push, the pull request
 //     writer.view()                   `write` as the last step left it
 //     writer.readCtx()                the context the readers take: the clone's while `write.can`, else the bound one
 //     writer.writeBindingFolder(prefix) project/.projectstore/projectstore.json, its vault_path in the clone
@@ -34,6 +40,8 @@
 //   WRITE_VERBS, VERB_ARGV            the verbs the page may offer, their fields, how each reaches the CLI
 //   checkRequest(body, verbs)         a preview's or an action's { verb, fields }, checked before any process
 //   substitutePaths(value, pairs)     the clone's and the binding folder's paths, as the person knows them
+//   decide(list)                      of a branch's pull requests, the one that decides: open, then merged, then the newest
+//   prText(subjects)                  a batch's pull request title and body (delivery contract 3)
 //
 // No hook runs for a call inside the place: each carries
 // `-c core.hooksPath=/dev/null`, which beats every configuration scope, so
@@ -76,7 +84,15 @@ export const PROMPT_ENV = Object.freeze({ GIT_TERMINAL_PROMPT: "0", GCM_INTERACT
 // What would point a git call at a repository other than its working directory's.
 const LOCATING_ENV = Object.freeze(["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX"]);
 // The variables each record entry carries.
-export const RECORDED_ENV = Object.freeze(["GIT_TERMINAL_PROMPT", "GCM_INTERACTIVE", "SSH_ASKPASS_REQUIRE", "GIT_SSH_COMMAND", "GIT_SSH", "GIT_CEILING_DIRECTORIES"]);
+export const RECORDED_ENV = Object.freeze(["GIT_TERMINAL_PROMPT", "GCM_INTERACTIVE", "SSH_ASKPASS_REQUIRE", "GIT_SSH_COMMAND", "GIT_SSH", "GIT_CEILING_DIRECTORIES", "GH_PROMPT_DISABLED", "GH_REPO", "GH_HOST"]);
+// What every gh call adds: no question asked (gh's own switch, beside the
+// long-form options that leave it nothing to ask), and no look for a newer gh.
+export const GH_ENV = Object.freeze({ GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1" });
+// What would point a gh call at a repository or a host other than the
+// clone's origin: removed, so gh finds both from the clone's remote. The
+// tokens (GH_TOKEN, GH_ENTERPRISE_TOKEN and the like) stay: they say who
+// asks, not where, and without them a person logged in that way is not.
+export const GH_LOCATING_ENV = Object.freeze(["GH_REPO", "GH_HOST"]);
 
 export const LOCK_FILE = "projectstore-dashboard.lock";
 // Where a call inside the place looks for hooks: a path under which no file
@@ -93,7 +109,7 @@ export const WRITE_VERBS = Object.freeze([
     fields: Object.freeze({
       story: Object.freeze({ kind: "story", form: "<EPIC>/<id>" }),
       to: Object.freeze({ kind: "choice", values: Object.freeze(["todo", "planned"]) }),
-      reason: Object.freeze({ kind: "line" }),
+      reason: Object.freeze({ kind: "line", max: 200 }),
     }),
   }),
 ]);
@@ -138,6 +154,9 @@ export function checkRequest(body, verbs = WRITE_VERBS) {
       const t = v.trim();
       if (!t) return no(`${name} is empty: say in one line why`);
       if (CONTROL.test(t)) return no(`${name} must be one line, with no line break or control character`);
+      // Counted in characters (code points), after the trim.
+      const n = [...t].length;
+      if (kind.max && n > kind.max) return no(`${name} is ${n} characters long; it takes at most ${kind.max}: say it in a shorter line`);
       fields[name] = t;
     } else return no(`${name} has a kind the page does not know: ${kind.kind}`);
   }
@@ -146,13 +165,15 @@ export function checkRequest(body, verbs = WRITE_VERBS) {
 
 // The paths of a core verb's answer as the person knows them (contract 6):
 // each `from` (longest first) followed by no further name character becomes
-// its `to`, in every string of `value`. Values that are not text stay.
+// its `to`, in every string of `value`. A dot continues the name only when a
+// name character follows it (`clone.tmp`); a dot that ends a sentence does
+// not. Values that are not text stay.
 const ESCAPE = /[.*+?^${}()|[\]\\]/g;
 export function substitutePaths(value, pairs) {
   const list = pairs.filter(([from]) => from).sort((a, b) => b[0].length - a[0].length);
   if (!list.length) return value;
   const to = new Map(list);
-  const re = new RegExp(`(${list.map(([from]) => from.replace(ESCAPE, "\\$&")).join("|")})(?![\\p{L}\\p{N}_.-])`, "gu");
+  const re = new RegExp(`(${list.map(([from]) => from.replace(ESCAPE, "\\$&")).join("|")})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_.-])`, "gu");
   const walk = (v) => {
     if (typeof v === "string") return v.replace(re, (m) => to.get(m));
     if (Array.isArray(v)) return v.map(walk);
@@ -164,6 +185,27 @@ export function substitutePaths(value, pairs) {
 
 // A batch branch's last segment for a time in ms: YYYYMMDDTHHMMSSZ.
 export const stampFor = (ms) => new Date(Math.floor(Number(ms) / 1000) * 1000).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+
+// The fields `gh pr list` is asked for (delivery contract 1).
+export const PR_FIELDS = "number,state,headRefOid,url";
+// Of one branch's pull requests, the one that decides (delivery contract 1):
+// an open one, then a merged one, then the newest (the highest number). null
+// for none. Its state in upper case, as gh gives it.
+export function decide(list) {
+  const prs = (Array.isArray(list) ? list : []).filter((p) => p && typeof p === "object" && Number.isInteger(p.number)).map((p) => ({ ...p, state: String(p.state ?? "").toUpperCase() }));
+  const newest = (xs) => xs.reduce((a, b) => (!a || b.number > a.number ? b : a), null);
+  return newest(prs.filter((p) => p.state === "OPEN")) ?? newest(prs.filter((p) => p.state === "MERGED")) ?? newest(prs);
+}
+
+// A batch's pull request text (delivery contract 3), from its commits'
+// subjects, oldest first: the subject for a batch of one, else the count;
+// the body lists every subject and ends with the line that names the page.
+export const SENT_LINE = "Sent from projectstore dashboard.";
+export function prText(subjects) {
+  const list = subjects.map(String);
+  const title = list.length === 1 ? list[0] : `Backlog changes from the dashboard (${list.length})`;
+  return { title, body: [...list.map((s) => `- ${s}`), "", SENT_LINE].join("\n") };
+}
 
 // The session and project variables of every harness manifest under the
 // core's `harnesses/` (runtime.session_id_env, runtime.project_dir_env).
@@ -470,11 +512,12 @@ function runner({ budgets = {}, record = null, env = process.env, root = null } 
   };
 
   // git in `cwd`. `config` becomes `-c <k>=<v>` pairs ahead of the subcommand;
-  // `need` makes a failure the step's 502 (contract 8).
-  async function git(cwd, args, { config = null, budget = B.git, need = false, via = "git" } = {}) {
+  // `need` makes a failure the step's 502 (contract 8); `literal` reads every
+  // pathspec as the path it is (`--literal-pathspecs`, ahead of the subcommand).
+  async function git(cwd, args, { config = null, budget = B.git, need = false, via = "git", literal = false } = {}) {
     const hooks = ceilingFor(cwd) ? ["-c", `core.hooksPath=${NO_HOOKS}`] : [];
     const pairs = Object.entries(config || {}).flatMap(([k, v]) => ["-c", `${k}=${v}`]);
-    const r = await run("git", [...hooks, ...pairs, ...args], { cwd, budget, via });
+    const r = await run("git", [...hooks, ...pairs, ...(literal ? ["--literal-pathspecs"] : []), ...args], { cwd, budget, via });
     r.ok = r.status === 0;
     if (!r.ok) {
       r.reason = failure("git", args[0], r, budget);
@@ -484,15 +527,19 @@ function runner({ budgets = {}, record = null, env = process.env, root = null } 
   }
 
   // gh in `cwd`: { ok, stdout } or { ok: false, unavailable, timedOut, reason }.
-  // Missing from PATH and logged out (exit 4) are `unavailable`.
+  // Missing from PATH (also `missing`) and logged out (exit 4) are `unavailable`.
   async function gh(cwd, args, { budget = B.gh, via = "gh" } = {}) {
-    const r = await run("gh", args, { cwd, budget, via });
+    const edit = (e) => {
+      for (const k of GH_LOCATING_ENV) delete e[k];
+      return Object.assign(e, GH_ENV);
+    };
+    const r = await run("gh", args, { cwd, budget, via, edit });
     const sub = args.slice(0, 2).join(" ");
     if (r.status === 0) return { ok: true, stdout: r.stdout, stderr: r.stderr, pid: r.pid };
     const first = String(r.stderr || "").trim().split("\n")[0].trim();
     if (r.refused) return { ok: false, unavailable: false, timedOut: false, refused: true, reason: failure("gh", sub, r, budget) };
     if (r.missingCwd) return { ok: false, unavailable: false, timedOut: false, reason: failure("gh", sub, r, budget) };
-    if (r.error?.code === "ENOENT") return { ok: false, unavailable: true, timedOut: false, reason: "gh is not installed or not on PATH" };
+    if (r.error?.code === "ENOENT") return { ok: false, unavailable: true, missing: true, timedOut: false, reason: "gh is not installed or not on PATH" };
     if (r.timedOut) return { ok: false, unavailable: false, timedOut: true, reason: failure("gh", sub, r, budget) };
     if (r.status === AUTH_EXIT) return { ok: false, unavailable: true, timedOut: false, reason: first || "gh is not logged in (exit 4)" };
     return { ok: false, unavailable: false, timedOut: false, reason: first || failure("gh", sub, r, budget) };
@@ -709,7 +756,10 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
   let fetchedAt = null;
   // A reason is shown to anyone who can GET /api/state: no URL in it keeps its
   // userinfo (a token in an insteadOf rewrite, a user:password), git's own words included.
-  const closed = (reason) => ({ can: false, reason: redactUrls(reason), verbs: [], default_branch: null, fetched_at: iso(fetchedAt), batch: null });
+  // `pull_requests` (delivery contract 1): null while gh answers (and before
+  // it is asked), else why it cannot be asked. `kept` (delivery contract 6):
+  // the person's batch branches the clone has not checked out.
+  const closed = (reason) => ({ can: false, reason: redactUrls(reason), verbs: [], default_branch: null, fetched_at: iso(fetchedAt), batch: null, pull_requests: null, kept: [] });
   const initial = closed("the page has not looked at the vault's repository yet");
   let state = initial;
   // The context the readers take while the page can write; null: the bound one.
@@ -725,7 +775,12 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     }
     return v;
   };
-  const view = () => ({ ...state, verbs: [...state.verbs], batch: state.batch ? { ...state.batch } : null });
+  const view = () => ({
+    ...state,
+    verbs: [...state.verbs],
+    batch: state.batch ? { ...state.batch, pull_request: state.batch.pull_request ? { ...state.batch.pull_request } : null } : null,
+    kept: state.kept.map((k) => ({ ...k })),
+  });
 
   const answer = (status, fields) => ({ status, body: { ...fields, write: view() } });
 
@@ -1007,20 +1062,20 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     if (!there.ok) return setView(closed(`the default branch ${d} is not there in the clone (${base}); the next refresh that reaches origin fetches it. The page reads the bound checkout`));
     const holds = await git(clone, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${base}:${facts.prefix}`], { via: "refresh" });
     if (!holds.ok) return setView(closed(`the default branch ${d} does not hold the vault's folder ${facts.prefix || "(the repository's top)"}: its repository may ignore it, or it was never pushed. The page reads the bound checkout`));
-    const head = await git(clone, ["rev-parse", "--verify", "--quiet", "--symbolic-full-name", "--end-of-options", "HEAD"], { need: true, via: "refresh" });
-    const ref = lines(head.stdout)[0] || "HEAD";
-    const branch = ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : null;
-    let batch = null;
-    if (branch && branch.startsWith(`dashboard/${person}/`) && isBatchBranch(branch)) {
-      // An open batch: the clone stays where it is.
-      const c = await git(clone, ["rev-list", "--count", "--end-of-options", `${base}..HEAD`], { need: true, via: "refresh" });
-      batch = { branch, started_at: stampOf(branch), commits: Number(lines(c.stdout)[0]) || 0 };
-    } else if (!inspect) {
-      await git(clone, ["switch", "--detach", "--quiet", "--", base], { need: true, via: "refresh" });
+    // An open batch: the clone stays where it is, unless the pull request's
+    // state ends it (delivery contract 1). The question is no step's failure,
+    // and past the deadline it is not asked.
+    let { batch } = await batchOn(base, "refresh");
+    let detached = false;
+    if (!inspect && left() > 0) {
+      const asked = await askState(batch ? batch.branch : null, { budget: within(proc.budgets.gh), via: "refresh" });
+      if (batch) ({ batch, detached } = await settle(batch, asked, base, "refresh"));
     }
+    if (!batch && !inspect && !detached) await git(clone, ["switch", "--detach", "--quiet", "--", base], { need: true, via: "refresh" });
+    const kept = await keptOf(base, batch ? batch.branch : null, "refresh");
     const bound = writeBindingFolder(facts.prefix, { onlyIfAbsent: inspect });
     readable = { ...ctx, cfg: { ...ctx.cfg, vault_path: bound.vault_path }, vault: bound.vault_path, binding: paths.binding, shown: { project: ctx.project, vault: ctx.vault } };
-    setView({ can: true, reason: null, verbs: [...WRITE_VERBS], default_branch: d, fetched_at: iso(fetchedAt), batch });
+    setView({ can: true, reason: null, verbs: [...WRITE_VERBS], default_branch: d, fetched_at: iso(fetchedAt), batch, pull_requests: pullRequests, kept });
     known = { prefix: facts.prefix, top: facts.top, base, vaultPath: bound.vault_path };
     return state;
   }
@@ -1106,6 +1161,10 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     }
     const result = shown(env.result);
     const message = result && typeof result === "object" && typeof result.error === "string" ? result.error : null;
+    // Exit 2 is the core's usage error, and also its catch-all for a failure
+    // it did not expect, which says "<verb> failed:" on stderr: that one is
+    // no usage error of the page's, so it answers 500.
+    if (r.status === 2 && String(r.stderr || "").trimStart().startsWith(`${req.verb} failed:`)) return { status: 500, ok: false, result, error: `projectstore ${req.verb} failed inside the core: ${message || shown(String(r.stderr).trim())}` };
     if (r.status === 2) return { status: 400, ok: false, result, error: message || `projectstore ${req.verb}: usage error` };
     if (r.status !== 0 || env.ok !== true) return { status: 200, ok: false, result, error: message || `projectstore ${req.verb} exited ${r.status}` };
     return { status: 200, ok: true, result };
@@ -1130,15 +1189,18 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     });
   }
 
-  // The batch the clone's HEAD is on, or null: { branch, started_at, commits }.
-  async function batchAt(via) {
+  // The batch the clone's HEAD is on, or null: { branch, started_at, commits,
+  // pull_request }, `commits` counting what `base` lacks, `pull_request` as
+  // last asked (delivery contract 1).
+  async function batchOn(base, via) {
     const head = await git(paths.clone, ["rev-parse", "--verify", "--quiet", "--symbolic-full-name", "--end-of-options", "HEAD"], { need: true, via });
     const ref = lines(head.stdout)[0] || "HEAD";
     const branch = ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : null;
     if (!branch || !branch.startsWith(`dashboard/${person}/`) || !isBatchBranch(branch)) return { branch, batch: null };
-    const c = await git(paths.clone, ["rev-list", "--count", "--end-of-options", `${known.base}..HEAD`], { need: true, via });
-    return { branch, batch: { branch, started_at: stampOf(branch), commits: Number(lines(c.stdout)[0]) || 0 } };
+    const c = await git(paths.clone, ["rev-list", "--count", "--end-of-options", `${base}..HEAD`], { need: true, via });
+    return { branch, batch: { branch, started_at: stampOf(branch), commits: Number(lines(c.stdout)[0]) || 0, pull_request: prFor(branch) } };
   }
+  const batchAt = (via) => batchOn(known.base, via);
 
   // A batch branch for now that the clone does not have yet: the same second
   // taken, the next free one (an action, a Discard and an action in one second).
@@ -1211,7 +1273,8 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
         await restore(via).catch(() => {});
         throw new StepError(502, shown(`${what}: ${redactUrls(String(r.stderr || "").trim() || r.reason)}`));
       };
-      const add = await git(clone, ["add", "--all", "--", ...commit], { via });
+      // Each path as it is: `*`, `?`, `[` or `\` in a name matches no neighbour.
+      const add = await git(clone, ["add", "--all", "--", ...commit], { via, literal: true });
       if (!add.ok) await fail(add, "git add");
       const subject = `${req.verb} ${req.fields.story} to ${req.fields.to}: ${req.fields.reason}`;
       const made = await git(clone, ["commit", "--quiet", `--message=${subject}`], { via });
@@ -1228,6 +1291,211 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
       const now2 = await batchAt(via);
       setView({ ...state, batch: now2.batch });
       return ran;
+    });
+  }
+
+  // ── the pull request's state and Send (delivery contracts 1–3) ──
+
+  // `write.pull_requests`: null while gh answers, else why it cannot be asked.
+  let pullRequests = null;
+  // The last answer that named a pull request for a batch branch: the batch's
+  // `pull_request` while that branch is the open batch.
+  let lastPr = { branch: null, pr: null };
+  const prFor = (branch) => (branch && lastPr.branch === branch && lastPr.pr ? { ...lastPr.pr } : null);
+  const remember = (branch, pr) => {
+    lastPr = { branch, pr: pr ? { number: pr.number, state: pr.state, url: typeof pr.url === "string" ? pr.url : null } : null };
+  };
+
+  // `gh pr list` for a batch branch, or, with none, for dashboard/<person>/none,
+  // only to learn whether gh answers (delivery contract 1). gh runs in the
+  // clone, so it finds the code host from the clone's origin. Sets
+  // `pullRequests`. → { ok: true, list } or { ok: false, missing, reason }.
+  async function askState(branch, { budget = proc.budgets.gh, via = "state" } = {}) {
+    const head = branch || `dashboard/${person}/none`;
+    const r = await proc.gh(paths.clone, ["pr", "list", `--head=${head}`, "--state=all", `--json=${PR_FIELDS}`], { budget, via });
+    let out;
+    if (!r.ok) out = { ok: false, missing: Boolean(r.missing), reason: r.reason };
+    else {
+      let list = null;
+      try {
+        list = JSON.parse(r.stdout);
+      } catch {}
+      out = Array.isArray(list) ? { ok: true, list } : { ok: false, missing: false, reason: `its answer to gh pr list is no list: ${JSON.stringify(String(r.stdout).trim().slice(0, 200))}` };
+    }
+    pullRequests = out.ok ? null : redactUrls(`gh cannot be asked about the batch's pull request, so the page cannot tell whether it was merged or closed: ${out.reason}`);
+    return out;
+  }
+
+  // The non-merge commits of `revs` (git rev-list's own syntax), oldest first
+  // by ancestry, not by commit date: [{ sha, subject }].
+  async function commitsIn(revs, via) {
+    const r = await git(paths.clone, ["rev-list", "--topo-order", "--reverse", "--no-merges", "--format=%x00%H%x00%s", "--end-of-options", ...revs], { need: true, via });
+    return String(r.stdout || "")
+      .split("\n")
+      .filter((l) => l.startsWith("\0"))
+      .map((l) => {
+        const [, sha, subject = ""] = l.split("\0");
+        return { sha, subject };
+      });
+  }
+  const named = (commits) => commits.map((c) => `${c.sha.slice(0, 12)} ${c.subject}`).join("; ");
+
+  // The person's batch branches the clone has not checked out (delivery
+  // contract 6): [{ branch, commits }], `commits` counting what `base` lacks.
+  // A branch git cannot list or count fails the step (502, git's message):
+  // left out, it would hide commits that may never have been sent.
+  async function keptOf(base, current, via) {
+    const refs = await git(paths.clone, ["for-each-ref", "--format=%(refname)", "--", `refs/heads/dashboard/${person}/`], { need: true, via });
+    const out = [];
+    for (const ref of lines(refs.stdout)) {
+      const branch = ref.slice("refs/heads/".length);
+      if (branch === current || !isBatchBranch(branch) || branch.split("/").length !== 3 || !stampOf(branch)) continue;
+      const c = await git(paths.clone, ["rev-list", "--count", "--end-of-options", `${base}..${ref}`], { via });
+      const n = c.ok ? Number(lines(c.stdout)[0]) : NaN;
+      if (!Number.isInteger(n)) throw new StepError(502, `git cannot count the commits of the kept branch ${branch}: ${c.ok ? `it answered ${JSON.stringify(String(c.stdout).trim())}` : said(c)}`);
+      out.push({ branch, commits: n });
+    }
+    return out;
+  }
+
+  const detach = (base, via) => git(paths.clone, ["switch", "--detach", "--quiet", "--", base], { need: true, via });
+
+  // A merged batch with nothing left to carry ends: the clone detached at
+  // `base`, the old branch deleted (delivery contract 5). `head` is the pull
+  // request's headRefOid, or the batch's own head when gh is missing.
+  // → { ended: true } or, when commits are left that it does not hold (or it
+  // is not in the clone), { ended: false, unsent } for the carry.
+  async function endMerged(branch, head, base, via) {
+    const there = head ? await git(paths.clone, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${head}^{commit}`], { via }) : { ok: false };
+    if (!there.ok) return { ended: false, unsent: null };
+    const unsent = await commitsIn([`refs/heads/${branch}`, `^${head}`], via);
+    if (unsent.length) return { ended: false, unsent };
+    await detach(base, via);
+    await git(paths.clone, ["branch", "--delete", "--force", "--", branch], { need: true, via });
+    return { ended: true };
+  }
+
+  // What the state says about the open batch (delivery contract 1), in the
+  // step that asked: closed ends it and keeps its branch; merged ends it when
+  // nothing is left to carry; a gh that is missing counts the batch merged
+  // when its head is in `base`; a gh that cannot be asked otherwise, or an
+  // open one, or none, leaves it open. → { batch, detached, pr, ended, carry }:
+  // `ended` "closed" or "merged", `carry` set when a merge left commits.
+  async function settle(batch, asked, base, via) {
+    const open = (pr = null, carry = null) => ({ batch: { ...batch, pull_request: prFor(batch.branch) }, detached: false, pr, ended: null, carry });
+    if (!asked.ok) {
+      if (asked.missing && batch.commits === 0) {
+        const m = await endMerged(batch.branch, "HEAD", base, via);
+        if (m.ended) return { batch: null, detached: true, pr: null, ended: "merged", carry: null };
+      }
+      return open();
+    }
+    const pr = decide(asked.list);
+    remember(batch.branch, pr);
+    if (pr?.state === "CLOSED") {
+      await detach(base, via);
+      return { batch: null, detached: true, pr, ended: "closed", carry: null };
+    }
+    if (pr?.state === "MERGED") {
+      const m = await endMerged(batch.branch, typeof pr.headRefOid === "string" ? pr.headRefOid : null, base, via);
+      if (m.ended) return { batch: null, detached: true, pr, ended: "merged", carry: null };
+      return open(pr, { unsent: m.unsent });
+    }
+    return open(pr);
+  }
+
+  // The batch's remote branch merged into it, never rebased (delivery
+  // contract 2). A merge that fails is aborted and the clone restored.
+  // → { ok: true, merged } or { ok: false, conflict, reason, unsent }.
+  async function mergeRemote(branch, via) {
+    const remote = `refs/remotes/origin/${branch}`;
+    // An explicit destination: the clone's own fetch refspec is not relied on.
+    const f = await git(paths.clone, ["fetch", "--quiet", "--no-write-fetch-head", "--", "origin", `refs/heads/${branch}:${remote}`], { budget: proc.budgets.git, via });
+    // Not there yet, or not reached: nothing to merge; the push says the rest.
+    if (!f.ok) return { ok: true, merged: 0, fetched: false, reason: said(f) };
+    const ahead = await git(paths.clone, ["rev-list", "--count", "--end-of-options", `HEAD..${remote}`], { need: true, via });
+    const n = Number(lines(ahead.stdout)[0]) || 0;
+    if (!n) return { ok: true, merged: 0, fetched: true };
+    const m = await git(paths.clone, ["merge", "--no-edit", "--quiet", "--", remote], { via });
+    if (m.ok) return { ok: true, merged: n, fetched: true };
+    const conflict = existsSync(join(paths.clone, ".git", "MERGE_HEAD"));
+    if (conflict) await git(paths.clone, ["merge", "--abort"], { via });
+    await restore(via);
+    const unsent = await commitsIn(["HEAD", `^${remote}`], via);
+    return { ok: false, conflict, reason: redactUrls(said(m)), unsent };
+  }
+
+  // Send (delivery contract 2), as one step: the state first; a closed pull
+  // request sends nothing; a merged one ends the batch (the carry); open, none
+  // or a state that cannot be asked: the remote branch merged, the push, and
+  // with no pull request yet `gh pr create` with contract 3's text.
+  async function send() {
+    if (!state.can) return answer(409, { ok: false, error: state.reason });
+    return step("send", async () => {
+      const via = "send";
+      if (!state.can || !known) return { status: 409, ok: false, error: state.reason };
+      const base = known.base;
+      const at = await batchOn(base, via);
+      if (!at.batch) return { status: 409, ok: false, error: "no batch is open, so there is nothing to send" };
+      const branch = at.batch.branch;
+      const asked = await askState(branch, { via });
+      const s = await settle(at.batch, asked, base, via);
+      const finish = async (fields) => {
+        const now2 = await batchOn(base, via);
+        setView({ ...state, batch: now2.batch, pull_requests: pullRequests, kept: await keptOf(base, now2.batch ? now2.batch.branch : null, via) });
+        return fields;
+      };
+      if (s.ended === "closed") {
+        const left = await commitsIn([`refs/heads/${branch}`, `^${base}`], via);
+        return finish({
+          status: 200,
+          ok: false,
+          result: { branch, sent: false, pull_request: prFor(branch) ?? { number: s.pr.number, state: s.pr.state, url: s.pr.url ?? null }, kept: { branch, commits: left.length } },
+          error: `pull request #${s.pr.number} was closed without a merge, so nothing was sent. The batch ended, and its branch ${branch} is kept with ${left.length} commit${left.length === 1 ? "" : "s"} the default branch lacks${left.length ? `: ${named(left)}` : ""}`,
+        });
+      }
+      if (s.ended === "merged") {
+        return finish({ status: 200, ok: false, result: { branch, sent: false, carried: 0 }, error: `${s.pr ? `pull request #${s.pr.number} was merged` : "the batch is in the default branch"}, and no commit was left to carry, so nothing was sent. The batch ended` });
+      }
+      if (s.carry) {
+        // The carry (delivery contract 5) comes with Discard and kept.
+        return finish({ status: 501, ok: false, result: { branch, sent: false }, error: `pull request #${s.pr.number} was merged, and commits made after it was sent are left; carrying them into a new batch is not built in this version of the page` });
+      }
+      const merge = await mergeRemote(branch, via);
+      if (!merge.ok && merge.conflict) {
+        return finish({
+          status: 200,
+          ok: false,
+          result: { branch, sent: false, unsent: merge.unsent.map((c) => ({ sha: c.sha, subject: c.subject })) },
+          error: `the code host's ${branch} holds commits that conflict with the batch, so nothing was sent and the merge was undone. Not sent: ${named(merge.unsent)}. Two ways on: merge the pull request as it was sent (the next step carries what still applies into a new batch), or Discard`,
+        });
+      }
+      if (!merge.ok) throw new StepError(502, shown(`git merge of the code host's ${branch} failed: ${merge.reason}`));
+      const pushed = await pushBatch(branch);
+      if (!pushed.ok) {
+        // Every fatal or error line, and the porcelain line of a rejected ref.
+        const own = [...lines(pushed.stderr).filter((l) => /^(fatal|error):/.test(l)), ...lines(pushed.stdout).filter((l) => l.startsWith("!"))];
+        const why = pushed.timedOut || pushed.stopped || pushed.refused || !own.length ? said(pushed) : own.join("; ");
+        throw new StepError(502, shown(`the push of ${branch} to origin failed: ${redactUrls(why)}`));
+      }
+      const commits = await commitsIn(["HEAD", `^${base}`], via);
+      const result = { branch, sent: true, commits: commits.length, merged: merge.merged, pull_request: null, gh: null };
+      if (!asked.ok) {
+        result.gh = pullRequests;
+        return finish({ status: 200, ok: true, result });
+      }
+      if (s.pr) {
+        result.pull_request = prFor(branch);
+        return finish({ status: 200, ok: true, result });
+      }
+      const { title, body } = prText(commits.map((c) => c.subject));
+      const made = await proc.gh(paths.clone, ["pr", "create", `--base=${state.default_branch}`, `--head=${branch}`, `--title=${title}`, `--body=${body}`], { via });
+      if (!made.ok) throw new StepError(502, redactUrls(`gh pr create failed after the push: ${made.reason}. The branch ${branch} is on origin, and the next Send asks again`));
+      const url = lines(made.stdout).filter((l) => /^https?:\/\//.test(l)).at(-1) ?? null;
+      const number = Number(/\/pull\/(\d+)/.exec(url ?? "")?.[1]) || null;
+      remember(branch, { number, state: "OPEN", url });
+      result.pull_request = prFor(branch);
+      return finish({ status: 200, ok: true, result });
     });
   }
 
@@ -1262,6 +1530,8 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     refresh,
     preview,
     action,
+    askState,
+    send,
     view,
     readCtx: () => readable ?? ctx,
     writeBindingFolder,
