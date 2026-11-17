@@ -248,9 +248,12 @@ export function readState(ctx) {
     const work = i.elaboration ? stories.find((x) => x.ref === i.elaboration) : null;
     return { ...i, epics: mine.map((e) => e.id), counts, stage: initiativeStage(i, counts, mine.length, work) };
   });
+  // A context over the page's own clone (lib/write.mjs, readCtx()) reads the
+  // clone and still names the bound vault and the real project (`shown`).
+  const shown = ctx.shown || { project: ctx.project, vault: ctx.vault };
   return {
-    vault: ctx.vault,
-    project: { dir: ctx.project, name: basename(ctx.project) },
+    vault: shown.vault,
+    project: { dir: shown.project, name: basename(shown.project) },
     coreVersion: ctx.version,
     asOf: new Date(now).toISOString(),
     unread,
