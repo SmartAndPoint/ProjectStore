@@ -620,7 +620,18 @@ class FakeEl {
     return this.attrs.tabindex === undefined ? 0 : Number(this.attrs.tabindex);
   }
   getAttribute(k) {
+    if (k.startsWith("data-")) {
+      const d = this.dataset[k.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())];
+      if (d !== undefined) return String(d);
+    }
     return this.attrs[k] ?? null;
+  }
+  setAttribute(k, v) {
+    this.attrs[k] = String(v);
+  }
+  // In the page while the fake document's root holds it (or it is the body).
+  get isConnected() {
+    return this === fakeDoc.body || !!fakeDoc.root?.contains(this);
   }
   get text() {
     return this.kids.map((k) => (k instanceof FakeEl ? k.text : String(k))).join("");
@@ -645,7 +656,7 @@ class FakeEl {
       const m = /^([a-z]*)((?:\.[\w-]+)*)(\[[\w-]+\])?$/.exec(p);
       if (!m) return false;
       if (m[1] && el.tag !== m[1]) return false;
-      if (m[3] && !(m[3].slice(1, -1) in el.attrs)) return false;
+      if (m[3] && el.getAttribute(m[3].slice(1, -1)) === null) return false;
       return m[2]
         .split(".")
         .filter(Boolean)
@@ -660,7 +671,7 @@ class FakeEl {
     return this.querySelectorAll("button").concat(this.tag === "button" ? [this] : []);
   }
 }
-const fakeDoc = { activeElement: null };
+const fakeDoc = { activeElement: null, root: null, body: null };
 const settle = async () => {
   for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
 };
@@ -673,17 +684,24 @@ const STORIES = [
 // write.js in a context of its own: `write` is /api/state's, `answers` the
 // write routes' answers by path; `calls` records every fetch it makes.
 function loadWriteUi(write, answers = {}) {
-  const els = { "#write": new FakeEl("div"), "#modal": new FakeEl("div") };
+  const els = {
+    "#write": new FakeEl("div", { tabindex: "-1" }),
+    "#modal": new FakeEl("div"),
+    "#view": new FakeEl("section"),
+  };
   els["#modal"].hidden = true;
+  // The page: the strip, the dialog's place and the view, under one root the document searches.
+  const root = new FakeEl("main", null, [els["#write"], els["#modal"], els["#view"]]);
   const calls = [];
   const toasts = [];
   const counts = { render: 0, load: 0 };
   const meta = new FakeEl("meta", { name: "projectstore-token", content: "the-run-token" });
   const document = Object.assign(fakeDoc, {
     activeElement: null,
+    root,
     body: new FakeEl("body"),
-    querySelector: (sel) => (sel === 'meta[name="projectstore-token"]' ? meta : null),
-    querySelectorAll: () => [],
+    querySelector: (sel) => (sel === 'meta[name="projectstore-token"]' ? meta : root.querySelector(sel)),
+    querySelectorAll: (sel) => root.querySelectorAll(sel),
   });
   const h = (tag, attrs, ...kids) => new FakeEl(tag, attrs, kids);
   const ctx = {
@@ -709,6 +727,7 @@ function loadWriteUi(write, answers = {}) {
     fetch: async (url, opts = {}) => {
       calls.push({ url, method: opts.method || "GET", headers: { ...(opts.headers || {}) }, body: opts.body ?? null });
       const a = answers[url] || { status: 200, body: { ok: true, result: null, write } };
+      if (a.wait) await a.wait; // an answer that comes when the test lets it
       return { status: a.status, json: async () => a.body };
     },
   };
@@ -716,7 +735,7 @@ function loadWriteUi(write, answers = {}) {
   vm.runInContext(`${readFileSync(join(PUBLIC, "write.js"), "utf8")}\nglobalThis.writeUi = writeUi;`, ctx, {
     filename: "write.js",
   });
-  return { ui: ctx.writeUi, ctx, els, calls, toasts, counts };
+  return { ui: ctx.writeUi, ctx, els, root, calls, toasts, counts };
 }
 const writable = (verbs = JSON.parse(JSON.stringify(WRITE_VERBS)), more = {}) => ({
   can: true,
@@ -901,7 +920,7 @@ test("dashboard page: write.js offers no move that write.verbs does not list", (
   assert.deepEqual(plain(ui.storyCommands(STORIES[1]).map((c) => c.label)), ["Back to Backlog…"]);
 });
 
-// [dashboard-writes#6] [dashboard-writes#7] The preview runs first and shows
+// [dashboard-writes#6] The preview runs first and shows
 // the core's plan; the one click on the move button runs the action.
 test("dashboard page: a move previews the core's plan, and one click on its button runs the action with no second confirm", async () => {
   const plan = {
@@ -985,7 +1004,7 @@ test("dashboard page: a refused preview or action shows the core's own message i
   assert.equal(calls.length, 1);
 });
 
-// [dashboard-delivery#1] [dashboard-delivery#6] The strip shows the batch, its
+// [dashboard-delivery#6] The strip shows the batch, its
 // pull request and the kept branches, each time it shows the batch.
 test("dashboard page: the batch strip shows the branch, its count, the pull request, Send and Discard, and the kept branches", async () => {
   const kept = [
@@ -1047,7 +1066,7 @@ test("dashboard page: the batch strip shows the branch, its count, the pull requ
   assert.match(noGh.els["#write"].text, /cannot be asked about pull requests: gh is not installed/);
 });
 
-// [dashboard-delivery#4] [dashboard-delivery#5] Discard says nothing is deleted;
+// [dashboard-delivery#4] Discard says nothing is deleted;
 // a carry's stop is said with its reason.
 test("dashboard page: Discard asks first and shows the server's message, and Send's carry names where it stopped", async () => {
   const { ui, els, calls } = loadWriteUi(writable(undefined, { batch: BATCH }), {
@@ -1089,4 +1108,160 @@ test("dashboard page: Discard asks first and shows the server's message, and Sen
     /1 commit made after it was sent was carried from dashboard\/p\/1 into the new batch dashboard\/p\/2/,
   );
   assert.match(words, /the carry stopped at bbbbbbb "y", because it does not apply on the default branch/);
+});
+
+test("dashboard page: a pull request whose url is not http or https gets no link", () => {
+  for (const url of ["javascript:alert(1)", "JavaScript:void(0)", "data:text/html,x", "", null]) {
+    const { ui, els } = loadWriteUi(
+      writable(undefined, { batch: { ...BATCH, pull_request: { number: 3, state: "OPEN", url } } }),
+    );
+    ui.paint();
+    assert.equal(els["#write"].querySelectorAll("a").length, 0, `no link for ${url}`);
+    assert.match(els["#write"].text, /PR #3 · open/, "the state is still said");
+  }
+});
+
+test("dashboard page: a refresh that leaves the page unable to write says so, and never that the batch was merged", async () => {
+  const { ui, els, ctx } = loadWriteUi(writable(undefined, { batch: BATCH }), {
+    "/api/refresh": {
+      status: 200,
+      body: { ok: true, result: null, write: { ...writable(), can: false, reason: "the clone's origin differs" } },
+    },
+  });
+  await ui.refresh();
+  await settle();
+  assert.equal(ctx.S.write.can, false);
+  const text = els["#write"].text;
+  assert.doesNotMatch(text, /merged|ended/, text);
+  assert.match(text, /cannot write now: the clone's origin differs\. The batch dashboard\/test-person\/\S+ stays/);
+  // With the page still writable, a batch that went away and is not kept was merged.
+  const merged = loadWriteUi(writable(undefined, { batch: BATCH }), {
+    "/api/refresh": { status: 200, body: { ok: true, result: null, write: writable() } },
+  });
+  await merged.ui.refresh();
+  await settle();
+  assert.match(merged.els["#write"].text, /The batch dashboard\/test-person\/\S+ was merged\./);
+});
+
+test("dashboard page: Escape closes a dialog and gives the focus back; Discard's starts on Cancel", () => {
+  const { ui, els, root } = loadWriteUi(writable(undefined, { batch: BATCH }));
+  const opener = new FakeEl("button", { class: "btn" }, ["Move to ToDo…"]);
+  root.append(opener);
+  opener.focus();
+  ui.openMove("PS-X/story-a", "todo");
+  const box = els["#modal"].kids[0];
+  assert.equal(fakeDoc.activeElement, box.querySelector("input"), "the reason has the focus");
+  box.fire("keydown", { key: "Escape" });
+  assert.ok(els["#modal"].hidden, "Escape closed it");
+  assert.equal(fakeDoc.activeElement, opener, "the focus is back on the opener");
+  ui.confirmDiscard();
+  const d = els["#modal"].kids[0];
+  assert.equal(fakeDoc.activeElement.text, "Cancel", "Discard's dialog starts on Cancel, not on Discard");
+  d.fire("keydown", { key: "Escape" });
+  assert.equal(fakeDoc.activeElement, opener);
+});
+
+test("dashboard page: a failed preview gives the focus back to the reason, and a double click on Move posts once", async () => {
+  const refusal = "move: the story changed meanwhile";
+  const failing = loadWriteUi(writable(), {
+    "/api/preview": { status: 200, body: { ok: false, error: refusal, write: writable() } },
+  });
+  failing.ui.openMove("PS-X/story-a", "todo");
+  const fbox = failing.els["#modal"].kids[0];
+  fbox.querySelector("input").value = "why";
+  fbox.querySelector("input").fire("input");
+  fbox.querySelector("button.primary").click();
+  await settle();
+  assert.equal(fakeDoc.activeElement, fbox.querySelector("input"), "the focus is back in the dialog, on the reason");
+
+  const plan = { story: "PS-X/story-a", path: "/vault/x.md", from: "planned", to: "todo", reason: "r" };
+  let release;
+  const { ui, els, calls } = loadWriteUi(writable(), {
+    "/api/preview": { status: 200, body: { ok: true, result: plan, write: writable() } },
+    "/api/action": {
+      status: 200,
+      wait: new Promise((r) => (release = r)),
+      body: { ok: true, result: { ...plan, written: true }, write: writable() },
+    },
+  });
+  ui.openMove("PS-X/story-a", "todo");
+  const box = els["#modal"].kids[0];
+  box.querySelector("input").value = "r";
+  box.querySelector("input").fire("input");
+  box.querySelector("button.primary").click();
+  await settle();
+  const move = box.querySelector("button.primary");
+  assert.equal(move.text, "Move to ToDo");
+  move.click();
+  move.click();
+  release();
+  await settle();
+  assert.deepEqual(
+    calls.map((c) => c.url),
+    ["/api/preview", "/api/action"],
+    "one action for two clicks",
+  );
+});
+
+test("dashboard page: Send and Discard do not open while a step runs", async () => {
+  let release;
+  const { ui, els, toasts } = loadWriteUi(writable(undefined, { batch: BATCH }), {
+    "/api/refresh": {
+      status: 200,
+      wait: new Promise((r) => (release = r)),
+      body: { ok: true, result: null, write: writable(undefined, { batch: BATCH }) },
+    },
+  });
+  const running = ui.refresh();
+  await settle();
+  ui.confirmSend();
+  ui.confirmDiscard();
+  assert.ok(els["#modal"].hidden, "no dialog opened");
+  assert.equal(toasts.length, 2, "each says a step is running");
+  release();
+  await running;
+  ui.confirmSend();
+  assert.ok(!els["#modal"].hidden, "Send opens once the step has ended");
+});
+
+test("dashboard page: dragend clears the drop highlight, and the kept list opens when an entry needs a look", () => {
+  const { ui, root, ctx } = loadWriteUi(
+    writable(undefined, { kept: [{ branch: "dashboard/p/1", commits: null, reason: "fatal: bad object" }] }),
+  );
+  const col = ui.dropColumn(new FakeEl("div", { class: "col" }), columnOf("ToDo"));
+  const back = ui.dropColumn(new FakeEl("div", { class: "col" }), columnOf("Backlog"));
+  const card = ui.dragCard(new FakeEl("div", { class: "card" }), STORIES[0]);
+  root.append(col, back, card);
+  card.fire("dragstart", { dataTransfer: { setData() {} } });
+  assert.ok(col.classes.has("drop-ok"), "ToDo takes the backlog story");
+  assert.ok(!back.classes.has("drop-ok"), "the Backlog column does not");
+  assert.ok(ctx.document.body.classes.has("dragging"));
+  card.fire("dragend");
+  assert.ok(!col.classes.has("drop-ok") && !col.classes.has("drop-over"), "the highlight is gone");
+  assert.ok(!ctx.document.body.classes.has("dragging"));
+  ui.paint();
+  const details = root.querySelector("details");
+  assert.equal(details.getAttribute("open"), "", "a branch git cannot count opens the list");
+  const calm = loadWriteUi(writable(undefined, { kept: [{ branch: "dashboard/p/1", commits: 2 }] }));
+  calm.ui.paint();
+  assert.equal(calm.root.querySelector("details").getAttribute("open"), null, "a plain kept branch leaves it closed");
+});
+
+test("dashboard page: a note starts with a capital only when its first word is plain prose", async () => {
+  const cases = [
+    ["the batch ended", "The batch ended"],
+    ["gh cannot be asked", "gh cannot be asked"],
+    ["git could not fetch", "git could not fetch"],
+    ["dashboard/p/1 is kept", "dashboard/p/1 is kept"],
+    ["kanban.md changed", "kanban.md changed"],
+  ];
+  for (const [said, shown] of cases) {
+    const { ui, els } = loadWriteUi(writable(undefined, { batch: BATCH }), {
+      "/api/discard": { status: 200, body: { ok: true, result: { message: said }, write: writable() } },
+    });
+    ui.confirmDiscard();
+    els["#modal"].kids[0].querySelector("button.danger").click();
+    await settle();
+    assert.ok(els["#write"].text.includes(shown), `${said} → ${els["#write"].text}`);
+  }
 });

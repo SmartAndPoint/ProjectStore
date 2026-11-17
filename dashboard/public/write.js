@@ -25,6 +25,7 @@ const writeUi = (() => {
   let busy = null; // the step that runs now: "refresh", "preview", "action", "send", "discard"
   let note = null; // the last answer worth keeping on screen: { kind: "ok" | "warn" | "error", text }
   let dragging = null; // { ref, to: [targets] } while a card is dragged
+  let wanted = null; // the data-focus of a strip button that was disabled when the focus came back
 
   const w = () => (S && S.write) || null;
   const can = () => !!w()?.can;
@@ -62,9 +63,31 @@ const writeUi = (() => {
   }
 
   // After every write answer: draw from its `write` now, then read the board again.
+  // The element that held the focus keeps it; one that a redraw replaced is
+  // found again by its data-focus, else the strip takes it.
   async function after() {
-    render();
-    await load(); // app.js: /api/state, the artifacts and the open item
+    const el = document.activeElement;
+    const key = el?.getAttribute?.("data-focus") || null;
+    try {
+      render();
+      await load(); // app.js: /api/state, the artifacts and the open item
+    } catch (e) {
+      say("warn", `The page could not read the vault again: ${e?.message || e}. Reload the page.`);
+    }
+    // Only a focus that a redraw took away moves: none (the page just opened) stays none.
+    if (el && el !== document.body && !el.isConnected) refocus(key);
+  }
+  // Focus the element with this data-focus, else the strip, else the view.
+  function refocus(key) {
+    const found = key ? [...document.querySelectorAll("[data-focus]")].find((x) => x.getAttribute("data-focus") === key && !x.disabled) : null;
+    if (found) return found.focus();
+    const bar = $("#write");
+    if (bar && !bar.hidden) return bar.focus();
+    const view = $("#view");
+    if (view) {
+      if (view.getAttribute("tabindex") === null) view.setAttribute("tabindex", "-1");
+      view.focus();
+    }
   }
   // A step that runs: one at a time from this page (the server queues them anyway).
   async function running(name, fn) {
@@ -77,10 +100,17 @@ const writeUi = (() => {
       paint();
     }
   }
+  // A first word that is a name, as gh, git, a path or a branch, keeps its case.
+  const NAMES = new Set(["gh", "git", "origin", "main", "move", "npm", "node", "projectstore"]);
+  const sentence = (t) => {
+    const first = t.split(/\s/, 1)[0];
+    const plain = /^[a-z][a-z'’-]*[,:;]?$/.test(first) && !NAMES.has(first.replace(/[,:;]$/, ""));
+    return plain ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+  };
   const say = (kind, text) => {
     // The module's and the core's messages start in lower case; a note is a sentence.
     const t = text ? String(text) : "";
-    note = t ? { kind, text: t.charAt(0).toUpperCase() + t.slice(1) } : null;
+    note = t ? { kind, text: sentence(t) } : null;
     paint();
   };
 
@@ -160,9 +190,11 @@ const writeUi = (() => {
   }
 
   // ── a dialog that keeps the focus, and closes on Escape ──
-  function modal(title, kids, { onClose } = {}) {
+  function modal(title, kids, { onClose, first } = {}) {
     const m = $("#modal");
-    const back = document.activeElement;
+    const opener = document.activeElement;
+    const back = opener && opener !== document.body ? opener : null;
+    const backKey = back?.getAttribute?.("data-focus") || null;
     const box = h("div", { class: "dialog write-dialog", role: "dialog", "aria-modal": "true", "aria-label": title }, h("h2", null, title), kids);
     const close = () => {
       if (m.hidden || !m.contains(box)) return; // closed already, or another dialog stands there now
@@ -171,6 +203,7 @@ const writeUi = (() => {
       m.onclick = null;
       onClose?.();
       if (back && back.isConnected && typeof back.focus === "function") back.focus();
+      else refocus(backKey); // the opener was redrawn, or was the palette
     };
     const focusables = () => [...box.querySelectorAll("button, input, textarea, select, a[href], [tabindex]")].filter((x) => !x.disabled && x.tabIndex !== -1 && x.offsetParent !== null);
     box.addEventListener("keydown", (e) => {
@@ -197,7 +230,7 @@ const writeUi = (() => {
     m.onclick = (e) => {
       if (e.target === m) close();
     };
-    (box.querySelector("input, textarea, select") || box.querySelector("button.primary") || box.querySelector("button"))?.focus();
+    (first || box.querySelector("input, textarea, select") || box.querySelector("button.primary") || box.querySelector("button"))?.focus();
     return { box, close, isOpen: () => !m.hidden && m.contains(box) };
   }
 
@@ -280,7 +313,9 @@ const writeUi = (() => {
       }
       sync();
       if (!dlg.isOpen()) return;
+      // The button was disabled while the step ran, so the focus fell out of the dialog.
       if (a.ok) primary.focus();
+      else input.focus();
       render(); // the answer's write
     };
     const doAction = async () => {
@@ -299,7 +334,8 @@ const writeUi = (() => {
         planned = null;
         showError(a.error);
         sync();
-        if (!dlg.isOpen()) say("error", `${move.label}: ${a.error}`);
+        if (dlg.isOpen()) input.focus();
+        else say("error", `${move.label}: ${a.error}`);
       }
       await after();
     };
@@ -353,9 +389,11 @@ const writeUi = (() => {
     const where = pr ? ` ${prWords(pr)}${isUrl(pr.url) ? ` is at ${pr.url}` : ""}.` : r.gh ? ` No pull request was opened, because gh cannot be asked: ${r.gh}` : "";
     return `Sent ${r.branch}: ${plural(Number(r.commits) || 0, "commit")} pushed to origin.${where}${carryWords(r.carry)}`;
   }
+  const waitBusy = () => toast("refused", "A step is running", `${BUSY[busy] || "Working…"} Try again when it has ended.`);
   function confirmSend() {
     const b = w()?.batch;
     if (!b || !can()) return;
+    if (busy) return waitBusy();
     const x = w();
     const pr = b.pull_request;
     const text = pr && pr.state === "OPEN" ? `Push branch ${b.branch} with ${plural(b.commits, "commit")} to origin. Its ${prWords(pr)} is open already and gets them.` : x.pull_requests ? `Push branch ${b.branch} with ${plural(b.commits, "commit")} to origin. gh cannot be asked now (${x.pull_requests}), so no pull request is opened: you open one on the code host.` : `Push branch ${b.branch} with ${plural(b.commits, "commit")} to origin and open a pull request into ${x.default_branch || "the default branch"}.`;
@@ -371,14 +409,21 @@ const writeUi = (() => {
   function confirmDiscard() {
     const b = w()?.batch;
     if (!b || !can()) return;
+    if (busy) return waitBusy();
     const pr = b.pull_request;
     const text = pr && pr.state === "OPEN" ? `End the batch on ${b.branch}: its ${prWords(pr)} is closed on the code host.` : !pr && !w()?.pull_requests ? `End the batch on ${b.branch} on this machine. No pull request was opened for it.` : `End the batch on ${b.branch} on this machine. A pull request for it, if one is open, stays open.`;
     const go = h("button", { class: "btn primary danger", type: "button" }, "Discard");
-    const dlg = modal("Discard the batch", [
-      h("div", null, text),
-      h("div", { class: "faint" }, `Nothing is deleted: the branch and its ${plural(b.commits, "commit")} are kept here (and on origin, if it was sent), and the page lists it under Kept branches.`),
-      h("div", { class: "btns" }, h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Cancel"), go),
-    ]);
+    const cancel = h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Cancel");
+    // The focus starts on Cancel: Enter on a dialog just opened ends nothing.
+    const dlg = modal(
+      "Discard the batch",
+      [
+        h("div", null, text),
+        h("div", { class: "faint" }, `Nothing is deleted: the branch and its ${plural(b.commits, "commit")} are kept here (and on origin, if it was sent), and the page lists it under Kept branches.`),
+        h("div", { class: "btns" }, cancel, go),
+      ],
+      { first: cancel },
+    );
     go.addEventListener("click", async () => {
       dlg.close();
       const a = await running("discard", () => post("/api/discard"));
@@ -397,6 +442,8 @@ const writeUi = (() => {
     const now = x?.batch?.branch || null;
     const kept = (x?.kept || []).find((k) => k.branch === was);
     if (!a.ok && a.error) say("warn", `The refresh did not end well: ${a.error}`);
+    // The page can no longer write: the batch is not read, and its branch keeps its commits.
+    else if (was && !x?.can) say("warn", `The page cannot write now: ${x?.reason || "the server does not say why"}. The batch ${was} stays in the page's clone with its commits.`);
     else if (was && now !== was && kept)
       say("warn", `The batch ${was} ended: its pull request was closed, or a carry stopped${kept.stopped_at ? ` at ${short(kept.stopped_at.sha)} "${kept.stopped_at.subject}" (${kept.stopped_at.reason})` : ""}. Its branch is kept${now ? `, and ${now} is the new batch` : ""}.`);
     else if (was && now !== was) say("ok", `The batch ${was} was merged.${now ? ` The commits made after it was sent are in the new batch ${now}.` : ""}`);
@@ -415,7 +462,7 @@ const writeUi = (() => {
     if (!Array.isArray(kept) || !kept.length) return null;
     return h(
       "details",
-      { class: "kept" },
+      { class: "kept", open: kept.some((k) => k.stopped_at || k.commits === null) },
       h("summary", null, `Kept branches (${kept.length})`, h("span", { class: "faint" }, " · commits that may never have been sent")),
       h(
         "ul",
@@ -454,16 +501,31 @@ const writeUi = (() => {
           h("span", { class: "chip" }, `${plural(b.commits, "commit")} not in ${x.default_branch || "the default branch"}`),
           prLink(b.pull_request),
           h("span", { class: "grow" }),
-          h("button", { class: "btn primary", type: "button", disabled: off || !b.commits, onclick: confirmSend, title: b.commits ? "Push the batch and open its pull request" : "The batch holds no commit to send" }, "Send…"),
-          h("button", { class: "btn", type: "button", disabled: off, onclick: confirmDiscard, title: "End the batch; nothing is deleted" }, "Discard…"),
+          h("button", { class: "btn primary", type: "button", "data-focus": "send", disabled: off || !b.commits, onclick: confirmSend, title: b.commits ? "Push the batch and open its pull request" : "The batch holds no commit to send" }, "Send…"),
+          h("button", { class: "btn", type: "button", "data-focus": "discard", disabled: off, onclick: confirmDiscard, title: "End the batch; nothing is deleted" }, "Discard…"),
         ),
       x.can && x.pull_requests ? h("div", { class: "note warn" }, `The code host cannot be asked about pull requests: ${x.pull_requests}`) : null,
       keptList(x.kept),
       busy ? h("div", { class: "faint busy", role: "status" }, BUSY[busy] || "Working…") : null,
-      note ? h("div", { class: `write-note ${note.kind}`, role: note.kind === "error" ? "alert" : "status" }, h("span", { class: "msg" }, note.text), h("button", { class: "btn ghost", type: "button", "aria-label": "close this message", onclick: () => say(null, null) }, "✕")) : null,
+      note ? h("div", { class: `write-note ${note.kind}`, role: note.kind === "error" ? "alert" : "status" }, h("span", { class: "msg" }, note.text), h("button", { class: "btn ghost", type: "button", "data-focus": "note-close", "aria-label": "close this message", onclick: () => say(null, null) }, "✕")) : null,
     ].filter(Boolean);
+    // A button of the strip that held the focus is replaced here: its new one takes it.
+    // One that was disabled then (a step running) takes it back when the strip has it.
+    const held = bar.contains(document.activeElement) ? document.activeElement : null;
+    const key = held && held !== bar ? held.getAttribute?.("data-focus") || null : null;
     bar.hidden = !kids.length;
     fill(bar, kids);
+    if (held && held !== bar && !bar.contains(held)) {
+      wanted = key;
+      refocus(key);
+    }
+    if (document.activeElement === bar && wanted) {
+      const el = [...bar.querySelectorAll("button")].find((x) => x.getAttribute("data-focus") === wanted && !x.disabled);
+      if (el) {
+        wanted = null;
+        el.focus();
+      }
+    }
   }
 
   // The foot of the menu: whether this page writes, and, when it does not, why (one quiet line).
@@ -488,7 +550,7 @@ const writeUi = (() => {
     return h(
       "div",
       { class: "row write-acts" },
-      moves.map((m) => h("button", { class: "btn", type: "button", disabled: !!busy, onclick: () => openMove(s.ref, m.to) }, `${m.label}…`)),
+      moves.map((m) => h("button", { class: "btn", type: "button", "data-focus": `move-${m.to}`, disabled: !!busy, onclick: () => openMove(s.ref, m.to) }, `${m.label}…`)),
     );
   }
   // The palette's commands: a story's moves, and the batch's Send and Discard.
