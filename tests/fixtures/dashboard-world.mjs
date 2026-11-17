@@ -21,7 +21,9 @@
 // binding's default_author; "" for none), `worktree` (the project is a linked
 // worktree of the code repository), `codeRepo` (false: the project is a plain
 // folder), `identity` (false: the vault repository has no user.name or
-// user.email of its own).
+// user.email of its own), `plainVault` (the vault is a plain folder, in no
+// git repository), `ignoredVault` (with a `prefix`: the vault repository's
+// .gitignore names the vault's folder, so no commit holds it).
 
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -57,11 +59,13 @@ const homeFor = (root) => {
   };
 };
 
-const withoutGit = (env) => Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith("GIT_")));
+// No GIT_* variable, and no EMAIL, which git would take as an identity.
+const withoutGit = (env) =>
+  Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith("GIT_") && k !== "EMAIL"));
 
 export function hermeticGit() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "ps-dash-home-")));
-  for (const k of Object.keys(process.env)) if (k.startsWith("GIT_")) delete process.env[k];
+  for (const k of Object.keys(process.env)) if (k.startsWith("GIT_") || k === "EMAIL") delete process.env[k];
   Object.assign(process.env, homeFor(root));
   process.on("exit", () => {
     try {
@@ -77,6 +81,8 @@ export async function makeWorld({
   worktree = false,
   codeRepo = true,
   identity = true,
+  plainVault = false,
+  ignoredVault = false,
 } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "ps-dash-world-")));
   const env = { ...withoutGit(process.env), ...homeFor(root) };
@@ -99,7 +105,7 @@ export async function makeWorld({
     git(repo, "config", "user.name", "Vault Person");
     git(repo, "config", "user.email", "vault-person");
   }
-  const vault = prefix ? join(repo, prefix) : repo;
+  const vault = plainVault ? join(root, "plain-vault") : prefix ? join(repo, prefix) : repo;
   const put = (rel, text) => {
     mkdirSync(dirname(join(vault, rel)), { recursive: true });
     writeFileSync(join(vault, rel), text);
@@ -110,6 +116,11 @@ export async function makeWorld({
   put("graph.md", "stub graph\n");
   put("code-map.md", "stub code map\n");
   for (const f of ["adr", "specs", "epics"]) put(`${f}/README.md`, `# ${f}\n`);
+  if (ignoredVault) {
+    writeFileSync(join(repo, ".gitignore"), `${prefix}/\n`);
+    writeFileSync(join(repo, "README.md"), "# the vault's repository\n");
+  }
+  if (plainVault) writeFileSync(join(repo, "README.md"), "# not the vault\n");
   git(repo, "add", "-A");
   git(repo, ...as, "commit", "-q", "-m", "seed the vault");
   git(repo, "branch", "-M", "main");

@@ -4,8 +4,10 @@
 // its own, an action as core verbs, a batch sent as one pull request, and a
 // server that runs processes only for its own page", alias `dashboard-writes`).
 //
-// This file holds the module's foundation: the place (contract 2), the step
-// lock and its recovery (contract 5) and the processes (contract 9). Each case
+// This file holds the module's foundation: writable or read-only (contract
+// 1), the place and the clone made whole (contract 2), the clone's
+// configuration (contract 3), the refresh as the module runs it (contract 4),
+// the step lock and its recovery (contract 5) and the processes (contract 9). Each case
 // builds its own world (tests/fixtures/dashboard-world.mjs): a bare `origin`,
 // a vault repository cloned from it, a project bound to that vault, with HOME,
 // XDG_CONFIG_HOME and GIT_CONFIG_GLOBAL inside the world's folder. The
@@ -13,9 +15,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { hostname } from "node:os";
-import { dirname, join, sep } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import { hermeticGit, makeWorld, SSH_STUB, REPO } from "./fixtures/dashboard-world.mjs";
 import { ghStub } from "./fixtures/gh-stub.mjs";
 import {
@@ -23,12 +35,16 @@ import {
   LOCK_FILE,
   SSH_BATCH,
   StepError,
+  absoluteRemote,
   anchorOf,
   isBatchBranch,
   placePaths,
+  redactUrls,
   refusal,
 } from "../dashboard/lib/write.mjs";
 import { mainCheckoutOfProject } from "../scripts/worktree.mjs";
+import { openCore } from "../dashboard/lib/core.mjs";
+import { readState } from "../dashboard/lib/state.mjs";
 
 hermeticGit();
 
@@ -445,6 +461,609 @@ test("dashboard writes: an unfinished merge or cherry-pick in the clone is abort
   });
 });
 
+// ─── Contract 1: writable or read-only ──────────────────────────────────
+
+const WRITE_KEYS = ["can", "reason", "verbs", "default_branch", "fetched_at", "batch"];
+const gitCalls = (w, from, sub) =>
+  w.record.slice(from).filter((e) => e.cmd === "git" && (!sub || subOf(e.argv).name === sub));
+const NETWORK = ["clone", "fetch", "ls-remote"];
+const noPlace = (w) => {
+  assert.ok(!existsSync(join(w.main, ".projectstore", "state")), "no place is made");
+  assert.ok(!existsSync(join(w.main, ".projectstore", ".gitignore")), "no .gitignore line is written");
+};
+// A commit on origin's main, made in the vault repository: a second story.
+function landUpstream(w, id = "story-b") {
+  const a = readFileSync(join(w.vault, "epics", "PS-X", "stories", "story-a.md"), "utf8");
+  writeFileSync(join(w.vault, "epics", "PS-X", "stories", `${id}.md`), a.replaceAll("story-a", id));
+  w.git(w.repo, "add", "-A");
+  w.git(w.repo, ...w.as, "commit", "-q", "-m", `add ${id}`);
+  w.git(w.repo, "push", "-q", "origin", "main");
+  return w.git(w.origin, "rev-parse", "refs/heads/main");
+}
+
+// [dashboard-writes#1]
+test("dashboard writes: a vault that is a plain folder is read-only, the reason says it is in no git repository, and no file is made", async () => {
+  await withWorld({ plainVault: true }, async (w) => {
+    const writer = await w.open();
+    const r = await writer.refresh();
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(Object.keys(r.body.write), WRITE_KEYS);
+    assert.equal(r.body.write.can, false);
+    assert.match(r.body.write.reason, /is not in a git repository/);
+    assert.deepEqual(r.body.write.verbs, []);
+    assert.equal(r.body.write.batch, null);
+    noPlace(w);
+    assert.equal(writer.readCtx(), w.ctx, "the page reads the bound checkout");
+  });
+});
+
+// [dashboard-writes#1]
+test("dashboard writes: a vault repository with no remote origin is read-only, and no file is made", async () => {
+  await withWorld({}, async (w) => {
+    w.git(w.repo, "remote", "remove", "origin");
+    const writer = await w.open();
+    const r = await writer.refresh();
+    assert.equal(r.body.write.can, false);
+    assert.match(r.body.write.reason, /has no remote origin/);
+    noPlace(w);
+  });
+});
+
+// [dashboard-writes#1]
+test("dashboard writes: a vault repository with no user.email of its own, where user.useConfigOnly makes git refuse, is read-only and the reason names the identity; a guessed identity does not count either", async () => {
+  for (const useConfigOnly of [true, false]) {
+    await withWorld({ identity: false }, async (w) => {
+      if (useConfigOnly) w.git(w.repo, "config", "user.useConfigOnly", "true");
+      const writer = await w.open();
+      const r = await writer.refresh();
+      assert.equal(r.status, 200);
+      assert.equal(r.body.write.can, false);
+      assert.match(r.body.write.reason, /identity/);
+      assert.match(r.body.write.reason, /GIT_AUTHOR_IDENT/);
+      assert.match(r.body.write.reason, /no email was given and auto-detection is disabled/);
+      noPlace(w);
+      const call = w.record.find((e) => subOf(e.argv).name === "var");
+      assert.deepEqual(call.argv, ["-c", "user.useConfigOnly=true", "var", "GIT_AUTHOR_IDENT"]);
+    });
+  }
+});
+
+// [dashboard-writes#1]
+test("dashboard writes: a clone whose origin differs from the vault repository's is read-only, and the reason names both URLs, the clone's path and every branch in it that holds unsent commits", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await w.open();
+    const first = await writer.refresh();
+    assert.equal(first.body.write.can, true, first.body.write.reason);
+    const clone = writer.paths.clone;
+    const branch = "dashboard/test-person/20261117T000000Z";
+    w.git(clone, "switch", "-q", "-c", branch);
+    writeFileSync(join(clone, "kanban.md"), "unsent\n");
+    w.git(clone, ...w.as, "commit", "-q", "-am", "unsent");
+    const other = join(w.root, "other.git");
+    w.git(w.root, "init", "-q", "--bare", other);
+    w.git(w.repo, "remote", "set-url", "origin", other);
+    const from = w.record.length;
+    const r = await writer.refresh();
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const { can, reason } = r.body.write;
+    assert.equal(can, false);
+    for (const s of [w.origin, other, clone, `${branch} (1)`]) assert.ok(reason.includes(s), `${s} in: ${reason}`);
+    assert.ok(!reason.includes("main ("), "the clone's main holds no unsent commit");
+    for (const sub of ["fetch", "switch", "ls-remote"]) assert.equal(gitCalls(w, from, sub).length, 0, `no ${sub}`);
+    assert.equal(w.git(clone, "rev-parse", "--abbrev-ref", "HEAD"), branch, "the clone is left as it is");
+    assert.equal(writer.readCtx(), w.ctx);
+  });
+});
+
+// [dashboard-writes#1]
+test("dashboard writes: a vault folder that its repository ignores is read-only, the reason says the default branch does not hold it, and the page reads the bound checkout", async () => {
+  await withWorld({ prefix: "docs/vault", ignoredVault: true }, async (w) => {
+    const writer = await w.open();
+    const r = await writer.refresh();
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.write.can, false);
+    assert.match(r.body.write.reason, /the default branch main does not hold the vault's folder docs\/vault/);
+    assert.ok(existsSync(join(writer.paths.clone, ".git")), "the clone was made");
+    assert.equal(writer.readCtx(), w.ctx);
+  });
+});
+
+// [dashboard-writes#1]
+test("dashboard writes: with no network and no clone the reason is git's message from the clone that failed, and when the network comes back the next refresh makes the clone and write.can turns true", async () => {
+  await withWorld({}, async (w) => {
+    const away = `${w.origin}.away`;
+    renameSync(w.origin, away);
+    const writer = await w.open();
+    const a = await writer.refresh({ start: true });
+    assert.equal(a.status, 200, JSON.stringify(a.body));
+    assert.equal(a.body.write.can, false);
+    assert.match(a.body.write.reason, /the page's own clone of .* could not be made: fatal: /);
+    assert.ok(!existsSync(writer.paths.clone) && !existsSync(writer.paths.cloneTmp));
+    assert.equal(writer.readCtx(), w.ctx);
+    renameSync(away, w.origin);
+    const b = await writer.refresh();
+    assert.equal(b.body.write.can, true, b.body.write.reason);
+    assert.equal(b.body.write.reason, null);
+    assert.equal(writer.readCtx().vault, writer.paths.clone);
+  });
+});
+
+// [dashboard-writes#1]
+test("dashboard writes: on Windows write.can is false, the reason says writing is not supported there, no place is made and no git process runs", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await w.open({ platform: "win32" });
+    const r = await writer.refresh({ start: true });
+    assert.equal(r.body.write.can, false);
+    assert.match(r.body.write.reason, /not supported on Windows/);
+    const s = await writer.step("probe", () => ({ result: "ran" }));
+    assert.equal(s.status, 409);
+    assert.match(s.body.error, /not supported on Windows/);
+    assert.deepEqual(w.record, [], "no process at all, opening included");
+    noPlace(w);
+    assert.equal(writer.readCtx(), w.ctx);
+  });
+});
+
+// [dashboard-writes#1] [dashboard-writes#4] [dashboard-writes#5]
+test("dashboard writes: a refresh asked for while another live process holds the lock gets 409 and starts no call; the start's refresh then computes write from the clone as it is", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await w.open();
+    assert.equal((await writer.refresh()).body.write.can, true);
+    const clone = writer.paths.clone;
+    const head = w.git(clone, "rev-parse", "HEAD");
+    landUpstream(w);
+    const other = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], { stdio: "ignore" });
+    try {
+      const text = JSON.stringify({ host: hostname(), pid: other.pid, started: 5 });
+      writeFileSync(writer.paths.lock, text);
+      const from = w.record.length;
+      const asked = await writer.refresh();
+      assert.equal(asked.status, 409);
+      assert.ok(asked.body.error.includes(writer.paths.lock), asked.body.error);
+      assert.ok(asked.body.error.includes(`pid ${other.pid}`), asked.body.error);
+      assert.equal(w.record.length, from, "the spawn record shows no call");
+      // Without the lock the binding folder is written only when it is absent.
+      const bindingFile = join(writer.paths.binding, ".projectstore", "projectstore.json");
+      const bindingText = readFileSync(bindingFile, "utf8").replace("}", ', "kept": true}');
+      writeFileSync(bindingFile, bindingText);
+      const atStart = await writer.refresh({ start: true });
+      assert.equal(readFileSync(bindingFile, "utf8"), bindingText, "the binding folder is left as it is");
+      assert.equal(atStart.status, 409);
+      assert.equal(atStart.body.write.can, true, atStart.body.write.reason);
+      assert.equal(atStart.body.write.default_branch, "main");
+      assert.equal(atStart.body.write.batch, null);
+      for (const sub of [...NETWORK, "switch", "reset", "clean"])
+        assert.equal(gitCalls(w, from, sub).length, 0, `no ${sub} under another's lock`);
+      assert.ok(!gitCalls(w, from, "config").some((e) => e.argv.includes("--add") || e.argv.includes("--unset-all")));
+      assert.equal(w.git(clone, "rev-parse", "HEAD"), head, "the clone is read as it is");
+      assert.equal(readFileSync(writer.paths.lock, "utf8"), text, "the holder's lock stays");
+      assert.equal(writer.readCtx().vault, clone);
+    } finally {
+      other.kill("SIGKILL");
+    }
+  });
+});
+
+// [dashboard-writes#1]
+test("dashboard writes: a vault repository whose author identity is there but whose committer identity is not (and the other way round) is read-only, and the reason names the one missing", async () => {
+  for (const [given, missing, variable] of [
+    ["author", "committer", "GIT_COMMITTER_IDENT"],
+    ["committer", "author", "GIT_AUTHOR_IDENT"],
+  ]) {
+    await withWorld({ identity: false }, async (w) => {
+      w.git(w.repo, "config", "user.useConfigOnly", "true");
+      w.git(w.repo, "config", `${given}.name`, "Half Person");
+      w.git(w.repo, "config", `${given}.email`, "half-person");
+      const writer = await w.open();
+      const r = await writer.refresh();
+      assert.equal(r.body.write.can, false);
+      assert.match(r.body.write.reason, new RegExp(`no ${missing} identity`));
+      assert.ok(r.body.write.reason.includes(variable), r.body.write.reason);
+      noPlace(w);
+    });
+  }
+});
+
+// [dashboard-writes#1]
+test("dashboard writes: no URL in write.reason keeps its userinfo, whether origin carries it or an insteadOf rule adds it", async () => {
+  assert.equal(
+    redactUrls("from https://tok:s3cret@host.invalid/v.git and ssh://git@host.invalid/v, not git@host.invalid:v"),
+    "from https://host.invalid/v.git and ssh://host.invalid/v, not git@host.invalid:v",
+  );
+  for (const setUrl of [
+    (w) => w.git(w.repo, "remote", "set-url", "origin", "https://tok:s3cret@host.invalid/vault.git"),
+    (w) => {
+      w.git(w.repo, "config", "url.https://x-access-token:s3cret@host.invalid/.insteadOf", "gh:");
+      w.git(w.repo, "remote", "set-url", "origin", "gh:vault.git");
+    },
+  ]) {
+    await withWorld({}, async (w) => {
+      const writer = await w.open();
+      assert.equal((await writer.refresh()).body.write.can, true);
+      setUrl(w);
+      const r = await writer.refresh();
+      assert.equal(r.body.write.can, false);
+      assert.ok(r.body.write.reason.includes("https://host.invalid/vault.git"), r.body.write.reason);
+      assert.ok(!r.body.write.reason.includes("s3cret"), r.body.write.reason);
+      assert.ok(!JSON.stringify(writer.view()).includes("s3cret"));
+    });
+  }
+});
+
+// [dashboard-writes#1] [dashboard-writes#2]
+test("dashboard writes: the clone is made from remote.origin.url as configured, a relative path made absolute against the vault repository's top, and compared with get-url", async () => {
+  assert.equal(absoluteRemote("../o.git", "/r/v"), "/r/o.git");
+  for (const u of ["/abs/o.git", "https://h/o.git", "git@h:o.git", "gh:o.git", "file:///o.git"])
+    assert.equal(absoluteRemote(u, "/r/v"), u);
+  // A relative origin.
+  await withWorld({}, async (w) => {
+    w.git(w.repo, "remote", "set-url", "origin", "../origin.git");
+    const writer = await w.open();
+    const r = await writer.refresh();
+    assert.equal(r.body.write.can, true, r.body.write.reason);
+    const call = w.record.find((e) => subOf(e.argv).name === "clone");
+    assert.equal(call.argv.at(-2), w.origin);
+    assert.equal(w.git(writer.paths.clone, "config", "--get", "remote.origin.url"), w.origin);
+    assert.equal((await writer.refresh()).body.write.can, true, "the next refresh compares them equal too");
+  });
+  // An origin that an insteadOf rule rewrites: the clone keeps the rule's input.
+  await withWorld({}, async (w) => {
+    w.git(w.repo, "config", `url.${w.root}/.insteadOf`, "here:");
+    w.git(w.repo, "remote", "set-url", "origin", "here:origin.git");
+    const writer = await w.open();
+    const r = await writer.refresh();
+    assert.equal(r.body.write.can, true, r.body.write.reason);
+    assert.equal(w.git(writer.paths.clone, "config", "--get", "remote.origin.url"), "here:origin.git");
+    assert.equal(w.git(writer.paths.clone, "remote", "get-url", "origin"), w.origin);
+  });
+});
+
+// [dashboard-writes#1]
+test("dashboard writes: when the clone's branches cannot be checked for unsent commits, the reason says so with git's message instead of saying none holds one", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await w.open();
+    assert.equal((await writer.refresh()).body.write.can, true);
+    writeFileSync(
+      join(writer.paths.clone, ".git", "refs", "heads", "ghost"),
+      "1234567890abcdef1234567890abcdef12345678\n",
+    );
+    const other = join(w.root, "other.git");
+    w.git(w.root, "init", "-q", "--bare", other);
+    w.git(w.repo, "remote", "set-url", "origin", other);
+    const r = await writer.refresh();
+    assert.equal(r.body.write.can, false);
+    assert.match(r.body.write.reason, /could not be checked for commits not sent \(.+\)/);
+    assert.ok(!r.body.write.reason.includes("No branch in it holds"), r.body.write.reason);
+  });
+});
+
+// [dashboard-writes#1]
+test("dashboard writes: with no refs/remotes/origin/HEAD the reason tells origin not asked from origin not reached, and a default branch that is not in the clone is named as such", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await w.open();
+    assert.equal((await writer.refresh()).body.write.can, true);
+    const clone = writer.paths.clone;
+    w.git(clone, "config", "remote.origin.followRemoteHEAD", "never");
+    w.git(clone, "remote", "set-head", "origin", "--delete");
+    const away = `${w.origin}.away`;
+    renameSync(w.origin, away);
+    const a = await writer.refresh();
+    assert.equal(a.body.write.can, false);
+    assert.match(a.body.write.reason, /git ls-remote could not reach origin: fatal: /);
+    const b = await writer.refresh({ deadline: Date.now() - 1 });
+    assert.match(b.body.write.reason, /origin was not asked this time/);
+    renameSync(away, w.origin);
+    // origin/HEAD names a branch the clone does not have (renamed upstream, say).
+    w.git(clone, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/gone");
+    const c = await writer.refresh({ deadline: Date.now() - 1 });
+    assert.equal(c.body.write.can, false);
+    assert.match(
+      c.body.write.reason,
+      /the default branch gone is not there in the clone \(refs\/remotes\/origin\/gone\)/,
+    );
+    assert.ok(!/does not hold/.test(c.body.write.reason), c.body.write.reason);
+  });
+});
+
+// ─── Contract 2: the clone made whole, the binding folder ───────────────
+
+// [dashboard-writes#2]
+test("dashboard writes: the refresh that finds no clone makes it in clone.tmp/ beside the place with --reference-if-able and --dissociate, renames it to clone/, borrows no objects and puts it detached at origin's default branch", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await w.open();
+    const r = await writer.refresh();
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.write.can, true, r.body.write.reason);
+    const clone = writer.paths.clone;
+    assert.ok(existsSync(join(clone, ".git")) && !existsSync(writer.paths.cloneTmp));
+    assert.ok(!existsSync(join(clone, ".git", "objects", "info", "alternates")), "no object is borrowed afterwards");
+    assert.equal(w.git(clone, "rev-parse", "--abbrev-ref", "HEAD"), "HEAD", "detached");
+    assert.equal(w.git(clone, "rev-parse", "HEAD"), w.git(w.origin, "rev-parse", "refs/heads/main"));
+    const call = w.record.find((e) => subOf(e.argv).name === "clone");
+    assert.equal(call.cwd, writer.place);
+    assert.deepEqual(subOf(call.argv).rest, [
+      "--quiet",
+      `--reference-if-able=${realpathSync(join(w.repo, ".git"))}`,
+      "--dissociate",
+      "--",
+      w.origin,
+      writer.paths.cloneTmp,
+    ]);
+    assert.deepEqual(readdirSync(writer.place).sort(), ["clone", "project"]);
+    const bound = JSON.parse(readFileSync(join(writer.paths.binding, ".projectstore", "projectstore.json"), "utf8"));
+    const own = JSON.parse(readFileSync(join(w.project, ".projectstore", "projectstore.json"), "utf8"));
+    assert.deepEqual(bound, { ...own, vault_path: clone });
+  });
+});
+
+// [dashboard-writes#2]
+test("dashboard writes: a clone ended before git exits leaves no clone/, and the next refresh removes a clone.tmp/ left behind and makes the clone again", async () => {
+  await withWorld({}, async (w) => {
+    const report = sshOrigin(w, "hang");
+    const writer = await w.open({ budgets: { clone: 1500 } });
+    const pending = writer.refresh();
+    const facts = await waitFor(() => existsSync(report) && JSON.parse(readFileSync(report, "utf8")));
+    assert.ok(!existsSync(writer.paths.clone), "no clone/ while git runs");
+    const a = await pending;
+    assert.equal(a.status, 200, JSON.stringify(a.body));
+    assert.equal(a.body.write.can, false);
+    assert.match(a.body.write.reason, /could not be made: git clone ran past its 1500 ms budget/);
+    assert.ok(!existsSync(writer.paths.clone), "no clone/ after the clone was ended");
+    assert.equal(groupAlive(facts.pgid), false, "the clone's process group is ended");
+    // What a server killed in the middle of a clone leaves behind.
+    mkdirSync(join(writer.paths.cloneTmp, ".git"), { recursive: true });
+    writeFileSync(join(writer.paths.cloneTmp, "half.md"), "half a clone\n");
+    sshOrigin(w, "serve");
+    const b = await writer.refresh();
+    assert.equal(b.body.write.can, true, b.body.write.reason);
+    assert.ok(!existsSync(writer.paths.cloneTmp), "clone.tmp/ is gone");
+    assert.ok(!existsSync(join(writer.paths.clone, "half.md")));
+    assert.ok(existsSync(join(writer.paths.clone, "epics", "PS-X", "epic.md")));
+    assert.equal(gitCalls(w, 0, "clone").length, 2);
+  });
+});
+
+// [dashboard-writes#2]
+test("dashboard writes: for a vault in docs/vault/ of its repository the binding folder's vault_path ends in clone/docs/vault, and the core reads the clone through it", async () => {
+  await withWorld({ prefix: "docs/vault" }, async (w) => {
+    const writer = await w.open();
+    const r = await writer.refresh();
+    assert.equal(r.body.write.can, true, r.body.write.reason);
+    const bound = JSON.parse(readFileSync(join(writer.paths.binding, ".projectstore", "projectstore.json"), "utf8"));
+    assert.equal(bound.vault_path, join(writer.paths.clone, "docs", "vault"));
+    assert.ok(bound.vault_path.endsWith(`clone${sep}docs${sep}vault`));
+    assert.equal(writer.readCtx().vault, bound.vault_path);
+    const core = await openCore({ core: REPO, project: writer.paths.binding });
+    assert.equal(core.vault, bound.vault_path);
+    assert.ok(existsSync(join(core.vault, "epics", "PS-X", "stories", "story-a.md")));
+  });
+});
+
+// ─── Contract 3: the clone resolves as the vault repository does ────────
+
+// [dashboard-writes#3]
+test("dashboard writes: a vault repository that sets user.email of its own gives a commit from the page that address, as author and committer", async () => {
+  await withWorld({}, async (w) => {
+    w.git(w.main, "config", "--global", "user.name", "Someone Else");
+    w.git(w.main, "config", "--global", "user.email", "someone-else");
+    const writer = await w.open();
+    assert.equal((await writer.refresh()).body.write.can, true);
+    const c = await writer.git(writer.paths.clone, ["commit", "--allow-empty", "--quiet", "--message=probe"]);
+    assert.equal(c.ok, true, c.reason);
+    assert.equal(
+      w.git(writer.paths.clone, "log", "-1", "--format=%an <%ae> / %cn <%ce>"),
+      "Vault Person <vault-person> / Vault Person <vault-person>",
+    );
+  });
+});
+
+// [dashboard-writes#3]
+test("dashboard writes: the clone holds each listed key of the vault repository, two credential helpers in the same order, from its first fetch on; a key removed there is gone at the next refresh", async () => {
+  await withWorld({}, async (w) => {
+    const set = (...a) => w.git(w.repo, "config", ...a);
+    set("--add", "credential.https://github.com.helper", "one");
+    set("--add", "credential.https://github.com.helper", "two");
+    set("url.https://mirror.invalid/.insteadOf", "https://up.invalid/");
+    set("url.https://push.invalid/.pushInsteadOf", "https://up.invalid/");
+    set("remote.origin.pushurl", "https://push.example.invalid/vault.git");
+    set("commit.gpgsign", "false");
+    set("user.signingkey", "ABC123");
+    set("gpg.format", "ssh");
+    set("ssh.variant", "ssh");
+    set("core.sshCommand", "ssh -o StrictHostKeyChecking=yes");
+    const writer = await w.open();
+    assert.equal((await writer.refresh()).body.write.can, true);
+    const clone = writer.paths.clone;
+    const local = (key) => {
+      const r = tryGit(w, clone, "config", "--local", "--get-all", key);
+      return r.status === 0 ? r.stdout.trim().split("\n") : null;
+    };
+    assert.deepEqual(local("credential.https://github.com.helper"), ["one", "two"]);
+    assert.deepEqual(local("url.https://mirror.invalid/.insteadOf"), ["https://up.invalid/"]);
+    assert.deepEqual(local("url.https://push.invalid/.pushInsteadOf"), ["https://up.invalid/"]);
+    assert.deepEqual(local("remote.origin.pushurl"), ["https://push.example.invalid/vault.git"]);
+    assert.deepEqual(local("commit.gpgsign"), ["false"]);
+    assert.deepEqual(local("user.signingkey"), ["ABC123"]);
+    assert.deepEqual(local("gpg.format"), ["ssh"]);
+    assert.deepEqual(local("ssh.variant"), ["ssh"]);
+    assert.deepEqual(local("core.sshCommand"), ["ssh -o StrictHostKeyChecking=yes"]);
+    assert.deepEqual(local("author.email"), ["vault-person"]);
+    // The clone call carried them, so its own first fetch resolved as the vault repository does.
+    const call = w.record.find((e) => subOf(e.argv).name === "clone");
+    assert.deepEqual(
+      call.argv.filter((a) => a.includes("github.com.helper")),
+      ["--config=credential.https://github.com.helper=one", "--config=credential.https://github.com.helper=two"],
+    );
+    w.git(w.repo, "config", "--unset-all", "credential.https://github.com.helper");
+    w.git(w.repo, "config", "--unset", "gpg.format");
+    w.git(w.repo, "config", "user.signingkey", "XYZ789");
+    assert.equal((await writer.refresh()).body.write.can, true);
+    assert.equal(local("credential.https://github.com.helper"), null);
+    assert.equal(local("gpg.format"), null);
+    assert.deepEqual(local("user.signingkey"), ["XYZ789"]);
+    assert.deepEqual(local("url.https://mirror.invalid/.insteadOf"), ["https://up.invalid/"]);
+    // Nothing differs: nothing is written.
+    const from = w.record.length;
+    await writer.refresh();
+    assert.ok(!gitCalls(w, from, "config").some((e) => e.argv.includes("--add") || e.argv.includes("--unset-all")));
+  });
+});
+
+// [dashboard-writes#3]
+test("dashboard writes: no hook of the vault repository, of the person or of a template runs in the clone, a pre-commit hook for the page's commit included", async () => {
+  const hook = (dir, name, log) => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, name), `#!/bin/sh\necho "$PWD ${name}" >> '${log}'\n`, { mode: 0o755 });
+  };
+  const HOOKS = ["pre-commit", "post-checkout", "reference-transaction", "post-commit"];
+  for (const where of ["template", "hooksPath"]) {
+    await withWorld({}, async (w) => {
+      const log = join(w.root, "hooks.log");
+      for (const h of HOOKS) hook(join(w.repo, ".git", "hooks"), h, log);
+      const dir = join(w.root, where);
+      for (const h of HOOKS) hook(join(dir, "hooks"), h, log);
+      if (where === "template") w.git(w.main, "config", "--global", "init.templateDir", dir);
+      else w.git(w.main, "config", "--global", "core.hooksPath", join(dir, "hooks"));
+      const writer = await w.open();
+      assert.equal((await writer.refresh()).body.write.can, true);
+      const c = await writer.git(writer.paths.clone, ["commit", "--allow-empty", "--quiet", "--message=probe"]);
+      assert.equal(c.ok, true, c.reason);
+      landUpstream(w);
+      assert.equal((await writer.refresh()).body.write.can, true);
+      // The hooks are live: the vault repository's own commit ran them.
+      const ran = existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : [];
+      assert.ok(
+        ran.some((l) => l.endsWith("pre-commit") && l.startsWith(w.repo)),
+        `${where}: ${ran.join("; ")}`,
+      );
+      assert.deepEqual(
+        ran.filter((l) => l.startsWith(writer.place)),
+        [],
+        `${where}: no hook ran in the place`,
+      );
+      const inside = w.record.filter((e) => e.cmd === "git" && e.cwd.startsWith(writer.place));
+      assert.ok(inside.length > 5);
+      for (const e of inside)
+        assert.deepEqual(e.argv.slice(0, 2), ["-c", "core.hooksPath=/dev/null"], e.argv.join(" "));
+    });
+  }
+});
+
+// ─── Contract 4: the refresh and what the page reads ────────────────────
+
+// [dashboard-writes#4]
+test("dashboard writes: write holds can, reason, verbs, default_branch, fetched_at and batch; a commit that lands on the remote default branch with no batch open shows at the next refresh, through readers that name the real project", async () => {
+  await withWorld({}, async (w) => {
+    let t = Date.UTC(2026, 10, 17, 9, 0, 0);
+    const writer = await w.open({ now: () => (t += 1000) });
+    const a = await writer.refresh();
+    assert.deepEqual(Object.keys(a.body.write), WRITE_KEYS);
+    const { fetched_at: firstFetch, ...rest } = a.body.write;
+    assert.deepEqual(rest, { can: true, reason: null, verbs: [], default_branch: "main", batch: null });
+    assert.match(firstFetch, /^2026-11-17T09:00:\d\d\.000Z$/);
+    assert.equal(readState(writer.readCtx()).stories.length, 1);
+    const tip = landUpstream(w);
+    // A GET reads what the last refresh left: no call.
+    const from = w.record.length;
+    assert.deepEqual(writer.view(), a.body.write);
+    assert.equal(readState(writer.readCtx()).stories.length, 1, "nothing moves before the refresh");
+    assert.equal(w.record.length, from);
+    const b = await writer.refresh();
+    assert.equal(b.body.write.can, true);
+    assert.ok(b.body.write.fetched_at > firstFetch, "fetched_at is the fetch's time");
+    assert.equal(w.git(writer.paths.clone, "rev-parse", "HEAD"), tip);
+    assert.equal(w.git(writer.paths.clone, "rev-parse", "--abbrev-ref", "HEAD"), "HEAD");
+    const rc = writer.readCtx();
+    const state = readState(rc);
+    assert.equal(state.stories.length, 2);
+    assert.deepEqual(state.project, { dir: w.project, name: basename(w.project) });
+    assert.deepEqual(rc.shown, { project: w.project, vault: w.vault });
+    assert.equal(rc.vault, writer.paths.clone);
+    assert.deepEqual(writer.view(), b.body.write);
+  });
+});
+
+// [dashboard-writes#4]
+test("dashboard writes: with a batch open the refresh fetches but does not move the clone, which still shows the default branch as of write.batch.started_at, and write.batch counts the commits the default branch lacks", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await w.open();
+    assert.equal((await writer.refresh()).body.write.can, true);
+    const clone = writer.paths.clone;
+    const branch = "dashboard/test-person/20261117T081500Z";
+    w.git(clone, "switch", "-q", "-c", branch);
+    writeFileSync(
+      join(clone, "epics", "PS-X", "epic.md"),
+      readFileSync(join(clone, "epics", "PS-X", "epic.md"), "utf8") + "\n",
+    );
+    w.git(clone, ...w.as, "commit", "-q", "-am", "a batch's commit");
+    const head = w.git(clone, "rev-parse", "HEAD");
+    const tip = landUpstream(w);
+    const r = await writer.refresh();
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.write.can, true, r.body.write.reason);
+    assert.deepEqual(r.body.write.batch, { branch, started_at: "2026-11-17T08:15:00.000Z", commits: 1 });
+    assert.equal(w.git(clone, "rev-parse", "HEAD"), head);
+    assert.equal(w.git(clone, "rev-parse", "--abbrev-ref", "HEAD"), branch);
+    assert.equal(w.git(clone, "rev-parse", "refs/remotes/origin/main"), tip, "the fetch ran");
+    assert.equal(readState(writer.readCtx()).stories.length, 1, "the default branch as of the batch's start");
+  });
+});
+
+// [dashboard-writes#4]
+test("dashboard writes: a fetch that has not ended by the deadline ends with its group, write.fetched_at stays the last fetch that ended, past the deadline no network call starts, and a new writer starts fetched_at from FETCH_HEAD", async () => {
+  await withWorld({}, async (w) => {
+    sshOrigin(w, "serve");
+    let t = Date.UTC(2026, 10, 17, 10, 0, 0);
+    const writer = await w.open({ now: () => (t += 1000) });
+    assert.equal((await writer.refresh()).body.write.can, true);
+    const b = await writer.refresh();
+    const fetched = b.body.write.fetched_at;
+    assert.equal(gitCalls(w, 0, "fetch").length, 1);
+    const report = sshOrigin(w, "hang");
+    const t0 = Date.now();
+    const c = await writer.refresh({ start: true, deadline: Date.now() + 1500 });
+    const took = Date.now() - t0;
+    assert.ok(took >= 1000 && took < 9000, `the deadline ended the fetch (${took} ms)`);
+    assert.equal(c.status, 200, JSON.stringify(c.body));
+    assert.equal(c.body.write.can, true, "a fetch out of time fails no step");
+    assert.equal(c.body.write.fetched_at, fetched);
+    const facts = JSON.parse(readFileSync(report, "utf8"));
+    assert.equal(groupAlive(facts.pgid), false);
+    const from = w.record.length;
+    const d = await writer.refresh({ start: true, deadline: Date.now() - 1 });
+    assert.equal(d.body.write.can, true);
+    assert.equal(d.body.write.fetched_at, fetched);
+    for (const sub of NETWORK) assert.equal(gitCalls(w, from, sub).length, 0, `no ${sub} past the deadline`);
+    const mtime = Math.floor(statSync(join(writer.paths.clone, ".git", "FETCH_HEAD")).mtimeMs);
+    const again = await w.open();
+    const e = await again.refresh({ deadline: Date.now() - 1 });
+    assert.equal(e.body.write.fetched_at, new Date(mtime).toISOString());
+  });
+});
+
+// [dashboard-writes#1] [dashboard-writes#4]
+test("dashboard writes: with no refs/remotes/origin/HEAD the default branch comes from ls-remote --symref and is recorded; with neither it is read-only and the page reads the bound checkout", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await w.open();
+    assert.equal((await writer.refresh()).body.write.can, true);
+    const clone = writer.paths.clone;
+    // git 2.48 and newer would set it again at the fetch; older ones ignore the key.
+    w.git(clone, "config", "remote.origin.followRemoteHEAD", "never");
+    w.git(clone, "remote", "set-head", "origin", "--delete");
+    const from = w.record.length;
+    const r = await writer.refresh();
+    assert.equal(r.body.write.can, true, r.body.write.reason);
+    assert.equal(r.body.write.default_branch, "main");
+    assert.equal(gitCalls(w, from, "ls-remote").length, 1);
+    assert.equal(w.git(clone, "rev-parse", "--abbrev-ref", "refs/remotes/origin/HEAD"), "origin/main");
+    w.git(clone, "remote", "set-head", "origin", "--delete");
+    const s = await writer.refresh({ deadline: Date.now() - 1 });
+    assert.equal(s.body.write.can, false);
+    assert.match(s.body.write.reason, /no default branch is known/);
+    assert.equal(writer.readCtx(), w.ctx);
+  });
+});
+
 // ─── Contract 9: the module's processes ─────────────────────────────────
 
 // [dashboard-writes#9]
@@ -508,6 +1127,8 @@ test("dashboard writes: the module's push sends refs/heads/<branch> to the same 
     const push = w.record.filter((e) => e.cmd === "git" && subOf(e.argv).name === "push");
     assert.equal(push.length, 1);
     assert.deepEqual(push[0].argv, [
+      "-c",
+      "core.hooksPath=/dev/null",
       "-c",
       "push.followTags=false",
       "push",
@@ -795,8 +1416,8 @@ test("dashboard writes: every call of the file's tests is an argv with no shell,
       assert.match(rest[0], /^GIT_[A-Z_]+$/);
       continue;
     }
-    // `gh pr list` names its subcommand twice: group and verb.
-    const own = e.cmd === "gh" ? options.slice(1) : options;
+    // `gh pr list` and `git remote get-url` name their subcommand twice: group and verb.
+    const own = e.cmd === "gh" || (e.cmd === "git" && name === "remote") ? options.slice(1) : options;
     for (const a of own) assert.ok(a.startsWith("-"), `${e.cmd} ${argv.join(" ")}: ${a} comes before the mark`);
   }
   for (const s of [
@@ -806,6 +1427,15 @@ test("dashboard writes: every call of the file's tests is an argv with no shell,
     "git clean",
     "git push",
     "git merge",
+    "git clone",
+    "git fetch",
+    "git switch",
+    "git var",
+    "git remote",
+    "git ls-remote",
+    "git for-each-ref",
+    "git rev-list",
+    "git symbolic-ref",
     "gh pr",
     "cli status",
   ])
