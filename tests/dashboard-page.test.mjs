@@ -234,7 +234,10 @@ test("dashboard page: answering every route leaves the vault, the project and th
   });
 });
 
-test("dashboard page: no file of the page starts a process or writes a file", () => {
+// [dashboard-writes#9] The write module is the one file of the page that starts
+// a process or writes a file; every other file keeps the read-only rules.
+test("dashboard page: no file of the page but its write module starts a process or writes a file", () => {
+  const WRITER = join(PAGE, "lib", "write.mjs");
   const FS_READS = new Set([
     "readFileSync",
     "readdirSync",
@@ -254,7 +257,10 @@ test("dashboard page: no file of the page starts a process or writes a file", ()
   };
   walk(PAGE);
   assert.ok(files.length > 3, "the page's files are read");
+  assert.ok(files.includes(WRITER), "the write module is among them");
+  assert.match(readFileSync(WRITER, "utf8"), /from "node:child_process"/, "the write module is the one that spawns");
   for (const f of files) {
+    if (f === WRITER) continue;
     const src = readFileSync(f, "utf8");
     assert.doesNotMatch(src, /["'](?:node:)?child_process["']/, `${relative(REPO, f)} imports child_process`);
     const FS = `["'](?:node:)?fs(?:/promises)?["']`;

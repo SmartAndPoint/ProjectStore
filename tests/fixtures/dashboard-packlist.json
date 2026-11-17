@@ -4,6 +4,7 @@
   "lib/core.mjs",
   "lib/related.mjs",
   "lib/state.mjs",
+  "lib/write.mjs",
   "package.json",
   "public/app.js",
   "public/icons.js",

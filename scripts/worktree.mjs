@@ -56,12 +56,28 @@ function record(state, worktree, mainCheckout, vaultPath, parent = null) {
 // therefore confirmed by asking the candidate for its own common dir and
 // requiring it to be the one we started from. Not knowing yields null, and null
 // must never produce an offer.
-function mainCheckoutOf(commonDir) {
+export function mainCheckoutOf(commonDir) {
   const candidate = dirname(commonDir);
   const top = trim(git(candidate, ["rev-parse", "--path-format=absolute", "--show-toplevel"]));
   if (!top) return null;
   const topCommon = trim(git(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"]));
   return topCommon === commonDir ? top : null;
+}
+
+// The code repository's main checkout behind a project: for a linked worktree
+// the main checkout mainCheckoutOf confirms, for a main checkout its top, and
+// for a project that is no git repository, or a worktree whose main checkout
+// cannot be confirmed, the project itself. The dashboard's write module keeps
+// its place under this directory and holds its own copy of the rule (the
+// dashboard imports no core module beyond its list); a test holds the two
+// together (the spec with alias `dashboard-writes`, contract 2).
+export function mainCheckoutOfProject(projectDir) {
+  const project = resolve(projectDir);
+  const gitDir = trim(git(project, ["rev-parse", "--path-format=absolute", "--git-dir"]));
+  const commonDir = trim(git(project, ["rev-parse", "--path-format=absolute", "--git-common-dir"]));
+  if (!gitDir || !commonDir) return project;
+  if (gitDir === commonDir) return trim(git(project, ["rev-parse", "--show-toplevel"])) || project;
+  return mainCheckoutOf(commonDir) || project;
 }
 
 export function resolveBinding(projectDir = projectRoot()) {
