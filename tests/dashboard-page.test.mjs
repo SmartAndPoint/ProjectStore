@@ -1247,6 +1247,33 @@ test("dashboard page: dragend clears the drop highlight, and the kept list opens
   assert.equal(calm.root.querySelector("details").getAttribute("open"), null, "a plain kept branch leaves it closed");
 });
 
+test("dashboard page: a card dropped on the ToDo column opens that move's dialog, and a column the story cannot go to takes no drop", () => {
+  const { ui, root, els } = loadWriteUi(writable());
+  const col = ui.dropColumn(new FakeEl("div", { class: "col" }), columnOf("ToDo"));
+  const back = ui.dropColumn(new FakeEl("div", { class: "col" }), columnOf("Backlog"));
+  const card = ui.dragCard(new FakeEl("div", { class: "card" }), STORIES[0]);
+  root.append(col, back, card);
+  card.fire("dragstart", { dataTransfer: { setData() {} } });
+  let stopped = false;
+  back.fire("drop", {
+    preventDefault() {
+      stopped = true;
+    },
+  });
+  assert.ok(!stopped && els["#modal"].hidden, "the Backlog column ignores the drop");
+  col.fire("drop", {
+    preventDefault() {
+      stopped = true;
+    },
+  });
+  assert.ok(stopped, "the ToDo column takes the drop");
+  assert.ok(!els["#modal"].hidden, "the move's dialog is open");
+  const box = els["#modal"].kids[0];
+  assert.equal(box.getAttribute("aria-label"), "Move to ToDo");
+  assert.equal(box.querySelector("button.primary").text, "Preview", "nothing is written by the drop itself");
+  assert.ok(!col.classes.has("drop-ok") && !col.classes.has("drop-over"), "the highlight is gone after the drop");
+});
+
 test("dashboard page: a note starts with a capital only when its first word is plain prose", async () => {
   const cases = [
     ["the batch ended", "The batch ended"],
