@@ -72,7 +72,7 @@ export function outcomeLines(body) {
   const sec = sectionOf(body || "", "initiative_outcome");
   if (sec === null) return [];
   const out = [];
-  for (const line of sec.split("\n")) {
+  for (const line of sec.split(/\r?\n/)) {
     const m = line.match(OUTCOME_LINE);
     if (m && validDate(m[1], m[2], m[3]))
       out.push({ date: `${m[1]}-${m[2]}-${m[3]}`, status: m[4].toLowerCase(), reason: m[5].trim() });

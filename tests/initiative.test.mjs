@@ -20,7 +20,7 @@ import { runVaultChecks, scanArtifacts } from "../scripts/doctor.mjs";
 import { buildGraph } from "../scripts/graph.mjs";
 import { lineage, LINEAGE_KINDS } from "../scripts/query.mjs";
 import { initiativeStage } from "../scripts/stages.mjs";
-import { checkInitiatives, INITIATIVE_STATUSES } from "../scripts/initiative.mjs";
+import { checkInitiatives, INITIATIVE_STATUSES, outcomeLines } from "../scripts/initiative.mjs";
 import { seedInitiativeFixture, initiativeDoc, epicDoc, makeVaultProject } from "./fixtures/vault.mjs";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -85,7 +85,9 @@ test("reconcile writes the initiative's index row, and the SessionStart skeleton
   applyScaffold(planScaffold(vault, { layout: "engineering", language: "en", root: REPO }));
   writeFileSync(
     join(vault, "initiatives", "faster-onboarding.md"),
-    initiativeDoc("faster-onboarding", "accepted", { outcome: "- 2026-11-14 accepted: grouped existing work" }),
+    initiativeDoc("faster-onboarding", "accepted", { outcome: "- 2026-11-14 accepted: grouped existing work" })
+      .replace('title: "faster-onboarding"', 'title: "Faster onboarding"')
+      .replace("updated: 2026-11-14", "updated: 2026-11-16"),
   );
   const proj = dirname(vault);
   mkdirSync(join(proj, ".projectstore"), { recursive: true });
@@ -98,7 +100,8 @@ test("reconcile writes the initiative's index row, and the SessionStart skeleton
   });
   const index = readFileSync(join(vault, "initiatives", "README.md"), "utf8");
   const row = index.split("\n").find((l) => l.includes("faster-onboarding"));
-  assert.ok(row && row.includes("| accepted |") && row.includes("2026-11-14"), index);
+  assert.ok(row && row.includes("| Faster onboarding |") && row.includes("| accepted |"), index);
+  assert.ok(row.includes("2026-11-14") && !row.includes("2026-11-16"), "the Date column is created, not updated");
   const skeleton = renderVaultSkeleton(await gatherVaultFacts(cfgOf(vault)));
   assert.match(skeleton, /\| `initiatives\/` \| initiative \|/);
 });
@@ -360,6 +363,12 @@ test("an Outcome line needs a valid date and a reason; a proposed initiative get
     ["initiatives/bad-date.md", "initiatives/no-reason.md"],
   );
   assert.equal(f.filter((x) => x.file === "initiatives/idea.md").length, 0);
+});
+
+// [initiative#6]
+test("an Outcome line is read in a section with CRLF line ends", () => {
+  const body = "## Outcome\r\n\r\n- 2026-11-14 accepted: grouped existing work\r\n\r\n## Related\r\n";
+  assert.deepEqual(outcomeLines(body), [{ date: "2026-11-14", status: "accepted", reason: "grouped existing work" }]);
 });
 
 // [initiative#6]
