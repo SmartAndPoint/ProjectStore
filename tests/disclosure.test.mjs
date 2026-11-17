@@ -235,7 +235,12 @@ const ROWS = {
       ["`.projectstore/state/dashboard/<you>/clone/`", 'lib.LAYOUT.state, "dashboard", person', code(WRITE_MODULE)],
       ["No git hook runs in the clone", "core.hooksPath=${NO_HOOKS}", code(WRITE_MODULE)],
       ["no call can stop to ask for a password", "GIT_TERMINAL_PROMPT", code(WRITE_MODULE)],
-      ["ProjectStore's own `move` in the clone through the same Node", 'verb: "move"', code(WRITE_MODULE)],
+      [
+        "ProjectStore's own `move` and `handover` in the clone through the same Node",
+        'verb: "move"',
+        code(WRITE_MODULE),
+      ],
+      ["ProjectStore's own `move` and `handover` in the clone", 'verb: "handover"', code(WRITE_MODULE)],
     ],
   },
   npm: {

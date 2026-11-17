@@ -11,7 +11,8 @@ npx projectstore dashboard
 
 A local page over a project's vault: the backlog tree (initiative, epic, story), the board and
 the list, My work, the initiatives, an item's document with what is related to it, and a command
-palette. It can also move a story between the backlog and ToDo. The core's own `move` runs in
+palette. It can also move a story between the backlog and ToDo, and hand a story someone holds to
+another person. The core's own `move` and `handover` run in
 the page's **own clone of the vault**, and the page commits the change there, on the person's own
 branch. **Send** pushes that branch and opens one pull request for it (with no `gh` to ask, it
 pushes and opens none); **Discard** closes that pull request and ends the batch (with no `gh` to

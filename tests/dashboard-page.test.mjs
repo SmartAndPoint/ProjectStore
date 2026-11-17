@@ -875,7 +875,17 @@ test("dashboard page: write.js offers no move that write.verbs does not list", (
     ["no verbs", []],
     [
       "another verb only",
-      [{ verb: "assign", fields: { story: { kind: "story" }, to: { kind: "choice", values: ["todo"] } } }],
+      [
+        {
+          verb: "assign",
+          label: "Assign",
+          subject: "assign {story}",
+          fields: {
+            story: { kind: "story", label: "Story" },
+            to: { kind: "choice", label: "To", values: [{ value: "todo", label: "Move to ToDo" }] },
+          },
+        },
+      ],
     ],
     [
       "move without its reason",
@@ -898,7 +908,7 @@ test("dashboard page: write.js offers no move that write.verbs does not list", (
   const todoOnly = loadWriteUi(
     writable(
       verbsWith((v) => {
-        v[0].fields.to.values = ["todo"];
+        v[0].fields.to.values = [{ value: "todo", label: "Move to ToDo" }];
         return v;
       }),
     ),
@@ -1291,4 +1301,127 @@ test("dashboard page: a note starts with a capital only when its first word is p
     await settle();
     assert.ok(els["#write"].text.includes(shown), `${said} → ${els["#write"].text}`);
   }
+});
+
+// ─── handover, and a dialog drawn from its entry (dashboard-writes contract 10) ───
+
+const HELD = { ref: "PS-X/story-h", title: "H", status: "in-progress", column: "In Progress", assignee: "Ann" };
+function loadWithHeld(write, answers) {
+  const r = loadWriteUi(write, answers);
+  r.ctx.S.stories = [
+    ...STORIES,
+    HELD,
+    { ref: "PS-X/story-d", title: "D", status: "done", column: "Done", assignee: "Ann" },
+    { ref: "PS-X/story-p", title: "P", status: "parked", column: null, assignee: "Ann" },
+  ];
+  r.ctx.S.people = [
+    { name: "Ann", left: null },
+    { name: "Bea", left: null },
+    { name: "Cid", left: "2026-11-01" },
+  ];
+  r.ctx.S.assignees = ["Ann", "Dan"];
+  r.ctx.story = (ref) => r.ctx.S.stories.find((x) => x.ref === ref);
+  return r;
+}
+
+// [dashboard-writes#10]
+test("dashboard page: Hand over is offered on a story someone holds whose column is set and is not Done, nowhere else, and only while write.verbs lists handover", () => {
+  const { ui, ctx } = loadWithHeld(writable());
+  const by = (ref) => ctx.S.stories.find((x) => x.ref === ref);
+  assert.equal(ui.canHandOver(HELD), true);
+  for (const ref of ["PS-X/story-a", "PS-X/story-d", "PS-X/story-p"]) assert.equal(ui.canHandOver(by(ref)), false, ref);
+  const buttons = ui.storyButtons(HELD).buttons;
+  assert.deepEqual(
+    buttons.map((b) => b.text),
+    ["Hand over…"],
+  );
+  assert.equal(buttons[0].getAttribute("data-focus"), "handover");
+  assert.deepEqual(
+    plain(ui.storyCommands(HELD)).map((c) => c.label),
+    ["Hand over…"],
+  );
+  const moveOnly = loadWithHeld(writable(JSON.parse(JSON.stringify(WRITE_VERBS)).filter((v) => v.verb === "move"))).ui;
+  assert.equal(moveOnly.canHandOver(HELD), false);
+  assert.equal(moveOnly.storyButtons(HELD), null);
+});
+
+// [dashboard-writes#10]
+test("dashboard page: the handover dialog takes its title, labels, button word and subject from the entry, suggests the vault's names without anyone left and without from, and a changed label changes the dialog", () => {
+  const changed = JSON.parse(JSON.stringify(WRITE_VERBS));
+  changed[1].label = "Give away";
+  changed[1].fields.to.label = "Taker";
+  for (const [verbs, title, toLabel] of [
+    [JSON.parse(JSON.stringify(WRITE_VERBS)), "Hand over", "To"],
+    [changed, "Give away", "Taker"],
+  ]) {
+    const { ui, els } = loadWithHeld(writable(verbs));
+    ui.openHandover(HELD.ref);
+    assert.ok(!els["#modal"].hidden, "the dialog is open");
+    const box = els["#modal"].kids[0];
+    assert.equal(box.getAttribute("aria-label"), title);
+    const [to, reason] = box.querySelectorAll("input");
+    assert.equal(to.getAttribute("aria-label"), toLabel);
+    assert.equal(reason.getAttribute("aria-label"), "Why, in one line");
+    const names = box.querySelectorAll("option").map((o) => o.value);
+    assert.deepEqual(names, ["Bea", "Dan"], "no one marked left, and not the giver");
+    to.value = "Bea";
+    to.fire("input");
+    reason.value = "Ann is away";
+    reason.fire("input");
+    assert.match(box.querySelector(".subject").text, /^Commit: hand over PS-X\/story-h from Ann to Bea: Ann is away$/);
+    assert.equal(box.querySelector("button.primary").text, "Preview");
+  }
+});
+
+// [dashboard-writes#10]
+test("dashboard page: a handover previews the core's plan with both people, the WIP warning and each note; an edit turns the button back to Preview; the click sends the fields of the plan on screen; an unchanged batch says nothing was written", async () => {
+  const plan = {
+    write: false,
+    from: "Ann",
+    to: "Bea",
+    reason: "Ann is away",
+    story: "PS-X/story-h",
+    items: [{ story: "PS-X/story-h", path: "epics/PS-X/stories/story-h.md", from: "Ann", to: "Bea" }],
+    wip: { assignee: "Bea", held: 3, moving: 1, after: 4, limit: 3, over: true },
+    notes: [{ id: "person-unseen", message: "--to Bea: no story names them as assignee; check the spelling." }],
+  };
+  const { ui, els, calls, ctx } = loadWithHeld(writable(), {
+    "/api/preview": { status: 200, body: { ok: true, result: plan, write: writable() } },
+    "/api/action": { status: 200, body: { ok: true, result: { ...plan, write: true }, write: writable() } },
+  });
+  ui.openHandover(HELD.ref);
+  const box = els["#modal"].kids[0];
+  const [to, reason] = box.querySelectorAll("input");
+  const primary = box.querySelector("button.primary");
+  to.value = "Bea";
+  to.fire("input");
+  reason.value = "Ann is away";
+  reason.fire("input");
+  primary.click();
+  await settle();
+  const shown = box.text;
+  assert.match(shown, /Ann → Bea/);
+  assert.match(shown, /Bea would hold 4 stories in progress against a limit of 3/);
+  assert.match(shown, /check the spelling/);
+  assert.equal(primary.text, "Hand over");
+  // An edit after the preview: the button is Preview again, and nothing is sent.
+  to.value = "Dan";
+  to.fire("input");
+  assert.equal(primary.text, "Preview");
+  primary.click();
+  await settle();
+  const previews = calls.filter((c) => c.url === "/api/preview").map((c) => JSON.parse(c.body).fields.to);
+  assert.deepEqual(previews, ["Bea", "Dan"]);
+  assert.equal(calls.filter((c) => c.url === "/api/action").length, 0, "no action before a fresh plan");
+  primary.click();
+  await settle();
+  const actions = calls.filter((c) => c.url === "/api/action").map((c) => JSON.parse(c.body));
+  assert.deepEqual(actions, [
+    { verb: "handover", fields: { story: "PS-X/story-h", from: "Ann", to: "Dan", reason: "Ann is away" } },
+  ]);
+  assert.ok(els["#modal"].hidden, "the dialog closes");
+  assert.match(
+    ctx.document.root.querySelector("#write")?.text ?? els["#write"].text,
+    /Nothing was written: H is Dan's already/,
+  );
 });

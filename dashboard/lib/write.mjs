@@ -101,26 +101,63 @@ export const LOCK_FILE = "projectstore-dashboard.lock";
 // can exist, so none runs (contract 3).
 export const NO_HOOKS = "/dev/null";
 export const WINDOWS_REASON = "writing from the page is not supported on Windows: the page reads the vault and changes nothing";
-// The verbs the page may offer, with their fields (contract 6): only verbs of
-// the core that have a plan mode (bare, the plan; `--write`, the change). In
-// this story `move`, under its own rule that a `--write` with no terminal is
-// the confirmation. A writable vault shows this list in `write.verbs`.
-export const WRITE_VERBS = Object.freeze([
-  Object.freeze({
+// The verbs the page may offer (contract 6): only verbs of the core that have
+// a plan mode (bare, the plan; `--write`, the change), each under its own rule
+// that a `--write` with no terminal is the confirmation. A writable vault
+// shows this list in `write.verbs`, and the page draws each verb's dialog from
+// its entry (contract 10): `label` names the verb, `subject` is the commit's
+// subject with `{name}` for a field's value, and each field has a kind and a
+// label (a `choice` labels each value; a `person` the page fills from the
+// story carries `filled` and no `max`).
+const freezeDeep = (v) => {
+  if (v && typeof v === "object") for (const x of Object.values(v)) freezeDeep(x);
+  return Object.freeze(v);
+};
+export const WRITE_VERBS = freezeDeep([
+  {
     verb: "move",
-    fields: Object.freeze({
-      story: Object.freeze({ kind: "story", form: "<EPIC>/<id>" }),
-      to: Object.freeze({ kind: "choice", values: Object.freeze(["todo", "planned"]) }),
-      reason: Object.freeze({ kind: "line", max: 200 }),
-    }),
-  }),
+    label: "Move",
+    subject: "move {story} to {to}: {reason}",
+    fields: {
+      story: { kind: "story", form: "<EPIC>/<id>", label: "Story" },
+      to: {
+        kind: "choice",
+        label: "To",
+        values: [
+          { value: "todo", label: "Move to ToDo" },
+          { value: "planned", label: "Back to Backlog" },
+        ],
+      },
+      reason: { kind: "line", max: 200, label: "Why, in one line" },
+    },
+  },
+  {
+    verb: "handover",
+    label: "Hand over",
+    subject: "hand over {story} from {from} to {to}: {reason}",
+    fields: {
+      story: { kind: "story", form: "<EPIC>/<id>", label: "Story" },
+      from: { kind: "person", filled: "assignee", label: "From" },
+      to: { kind: "person", max: 100, label: "To" },
+      reason: { kind: "line", max: 200, label: "Why, in one line" },
+    },
+  },
 ]);
 // How each verb's fields reach the core's CLI: positionals after `--`, options
 // as `--name=value`. The table-vs-core test holds these against the core's
 // own verb table.
-export const VERB_ARGV = Object.freeze({
-  move: Object.freeze({ positionals: Object.freeze(["story", "to"]), options: Object.freeze(["reason"]) }),
+export const VERB_ARGV = freezeDeep({
+  move: { positionals: ["story", "to"], options: ["reason"] },
+  handover: { positionals: [], options: ["story", "from", "to", "reason"] },
 });
+// The commit's subject for a checked request (contract 7): the entry's
+// template with each `{name}` replaced once by that field's value, so a value
+// that holds `{to}` stays as typed.
+export function subjectOf(req, verbs = WRITE_VERBS) {
+  const entry = verbs.find((v) => v && v.verb === req.verb);
+  const template = entry && typeof entry.subject === "string" ? entry.subject : `${req.verb} {story}`;
+  return template.replace(/\{([a-z_]+)\}/g, (m, name) => (Object.hasOwn(req.fields, name) ? String(req.fields[name]) : m));
+}
 // One line: the class the core's `--reason` refuses (status-log.mjs oneLine).
 const CONTROL = /[\u0000-\u001f\u007f\u0085\u2028\u2029]/;
 // `<EPIC>/<id>`: the shape only; the core resolves the story.
@@ -150,8 +187,16 @@ export function checkRequest(body, verbs = WRITE_VERBS) {
       if (!STORY_REF.test(v)) return no(`${name} names a story as ${kind.form}, such as PS-CORE/story-x; ${JSON.stringify(v)} is not that`);
       fields[name] = v;
     } else if (kind.kind === "choice") {
-      if (!kind.values.includes(v)) return no(`${name} is one of ${kind.values.join(", ")}, not ${JSON.stringify(v)}`);
+      const values = kind.values.map((x) => (x && typeof x === "object" ? x.value : x));
+      if (!values.includes(v)) return no(`${name} is one of ${values.join(", ")}, not ${JSON.stringify(v)}`);
       fields[name] = v;
+    } else if (kind.kind === "person") {
+      const t = v.trim();
+      if (!t) return no(`${name} is empty: name a person`);
+      if (CONTROL.test(t)) return no(`${name} must be one name on one line, with no line break or control character`);
+      const n = [...t].length;
+      if (kind.max && n > kind.max) return no(`${name} is ${n} characters long; a name takes at most ${kind.max}`);
+      fields[name] = t;
     } else if (kind.kind === "line") {
       const t = v.trim();
       if (!t) return no(`${name} is empty: say in one line why`);
@@ -203,9 +248,15 @@ export function decide(list) {
 // subjects, oldest first: the subject for a batch of one, else the count;
 // the body lists every subject and ends with the line that names the page.
 export const SENT_LINE = "Sent from projectstore dashboard.";
+export const TITLE_MAX = 250;
 export function prText(subjects) {
   const list = subjects.map(String);
-  const title = list.length === 1 ? list[0] : `Backlog changes from the dashboard (${list.length})`;
+  const whole = list.length === 1 ? list[0] : `Backlog changes from the dashboard (${list.length})`;
+  // A code host limits a title (about 256 on GitHub): past TITLE_MAX code
+  // points the title is cut and ends with `…`, and the body keeps the whole
+  // subject (delivery contract 3).
+  const points = [...whole];
+  const title = points.length > TITLE_MAX ? `${points.slice(0, TITLE_MAX - 1).join("")}…` : whole;
   return { title, body: [...list.map((s) => `- ${s}`), "", SENT_LINE].join("\n") };
 }
 
@@ -1286,7 +1337,7 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
       // Each path as it is: `*`, `?`, `[` or `\` in a name matches no neighbour.
       const add = await git(clone, ["add", "--all", "--", ...commit], { via, literal: true });
       if (!add.ok) await fail(add, "git add");
-      const subject = `${req.verb} ${req.fields.story} to ${req.fields.to}: ${req.fields.reason}`;
+      const subject = subjectOf(req);
       const made = await git(clone, ["commit", "--quiet", `--message=${subject}`], { via });
       if (!made.ok) await fail(made, "git commit");
       if (!at.batch) {
