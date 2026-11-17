@@ -11,7 +11,14 @@ npx projectstore dashboard
 
 A local page over a project's vault: the backlog tree (initiative, epic, story), the board and
 the list, My work, the initiatives, an item's document with what is related to it, and a command
-palette. It **only reads**. Nothing on the page changes the vault, the project or the core.
+palette. It can also move a story between the backlog and ToDo. The core's own `move` runs in
+the page's **own clone of the vault**, and the page commits the change there, on the person's own
+branch. **Send** pushes that branch and opens one pull request for it (with no `gh` to ask, it
+pushes and opens none); **Discard** closes that pull request and ends the batch (with no `gh` to
+ask, it ends the batch on this machine only, and an open pull request stays open on the code
+host). Nothing reaches the vault until a person merges the pull request, and the page
+changes nothing in the core. Where it cannot write (on Windows, or with no git repository, no
+`origin` or no git identity for the vault), it shows the vault, changes nothing, and says why.
 
 This package's version is always its core's: one release, from one tag, publishes both, and the
 server refuses a core of another version. It has no dependencies and no build step: plain Node
@@ -43,13 +50,26 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
 - **Exit 2**: bad arguments.
 - **SIGINT, SIGTERM**: close and exit 0.
 
-## What "only reads" means here
+## What the server reads, what it runs, and for whom
 
 - It listens on `127.0.0.1` only. A request whose `Host` is not `127.0.0.1:<port>` or
-  `localhost:<port>` gets 403, before anything else is looked at. Any method but GET and HEAD gets
-  405 with `Allow: GET, HEAD`. There is no token, no form and no other method to take.
-- The routes, and nothing else (404): `/` and the page's own files under `public/`,
-  `/api/state`, `/api/item?rel=`, `/api/artifacts`, `/api/related?rel=`, `/vault/<path>`.
+  `localhost:<port>` gets 403, before anything else is looked at.
+- The read routes take GET and HEAD, and nothing else (404): `/` and the page's own files under
+  `public/`, `/api/state`, `/api/item?rel=`, `/api/artifacts`, `/api/related?rel=`,
+  `/vault/<path>`. No GET or HEAD starts a process. While the page can write, they read the
+  page's clone, and `/api/state` still names the bound vault and the real project.
+- The five write routes take POST only: `/api/refresh`, `/api/preview`, `/api/action`,
+  `/api/send` and `/api/discard`. A POST must carry the run's token, minted at each start and
+  given to the page in the `<meta name="projectstore-token">` tag of `/`, in the header
+  `x-projectstore-token`, and its `Origin` must be `http://127.0.0.1:<port>` or
+  `http://localhost:<port>`. A POST that fails either check gets 403 and runs nothing. Any other
+  method, and a POST to a read route, gets 405, OPTIONS too, with no `Access-Control-Allow-*`
+  header, so no page of another site can make a request that runs a process; a GET or HEAD of a
+  write route gets 404. Once at its start, before it answers, the server runs
+  the refresh itself, inside a 10-second budget.
+- A preview or an action names a verb of the server's table (`WRITE_VERBS` in `lib/write.mjs`:
+  `move`, with `story`, `to` as `todo` or `planned`, and `reason`) and gives each field as a value.
+  The server builds the argv, and refuses a verb or a field outside the table (400).
 - One path rule for every route that takes a path (`readableRel` in `lib/state.mjs`): not empty,
   not absolute, no `\`, no NUL, no `.`, `..` or hidden segment, and after every link is followed
   still a file inside the vault under no hidden segment. `/api/item` and `/api/related` take a
@@ -58,8 +78,44 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
   'none'` and `x-content-type-options: nosniff`.
 - The page's own answers carry a content policy that loads scripts, styles and pictures from the
   page itself only (`img-src 'self' data:`): a picture from another site is not shown.
-- No file here starts a process; from `node:fs` it takes only `readFileSync`, `readdirSync`,
-  `statSync`, `lstatSync`, `existsSync`, `realpathSync` and `createReadStream`.
+- One file, `lib/write.mjs`, starts every process and writes every file. No other file here
+  imports `node:child_process`, and from `node:fs` the others take only `readFileSync`,
+  `readdirSync`, `statSync`, `lstatSync`, `existsSync`, `realpathSync` and `createReadStream`.
+- `lib/write.mjs` starts git, gh and the core's CLI through this Node, and nothing else. Each call
+  is an argv with no shell, `--` before its positional arguments, stdin ignored, spawned detached
+  (no controlling terminal), with `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never` and
+  `SSH_ASKPASS_REQUIRE=never`, and `GIT_SSH_COMMAND=ssh -o BatchMode=yes` when the person set no
+  ssh command of their own: a login that needs a prompt fails with git's message. Each call has a
+  budget (git 60 s, the core's verb 60 s, gh 30 s, the first clone 120 s) and is ended with its
+  process group when it runs past it, or when the server stops. A call in the clone carries
+  `-c core.hooksPath=/dev/null`, so no git hook runs there.
+- In the vault's repository it changes nothing: it runs `rev-parse`, `remote get-url`,
+  `config --get`, `config --get-regexp` and `var` there. In the project's repository it runs only
+  `rev-parse`. Everything else makes the clone at
+  `<main checkout>/.projectstore/state/dashboard/<person>/clone/` or runs in it: `clone`, `config`, `fetch`, `ls-remote`, `remote`, `symbolic-ref`, `for-each-ref`, `rev-list`,
+  `rev-parse`, `status`, `ls-files`, `diff`, `switch`, `add`, `commit`, `merge`, `cherry-pick`,
+  `branch --delete`, `reset --hard`, `clean` and `push`. The README's row **The dashboard and your
+  browser** says what each is for, and `tests/disclosure.test.mjs` holds the row to this file.
+- One function pushes, with no refspec of the caller's: `refs/heads/<batch branch>` to the same
+  name on `origin`, and only a branch under `dashboard/`; no force, no delete, no mirror. gh runs
+  `pr list`, `pr create` and `pr close` only, never `pr merge`, and `pr close` keeps the branch.
+- It writes, under `<main checkout>/.projectstore/state/dashboard/<person>/`, the clone (made in
+  `clone.tmp/`, renamed to `clone/` once git ends with 0), the binding folder `project/` that
+  points the core's `move` at the vault inside the clone, and the lock file
+  `projectstore-dashboard.lock`; it adds `state/` to `.projectstore/.gitignore` when that line is
+  missing, and removes a `clone.tmp/` left behind and a stale `index.lock` in the clone. It
+  writes no file of the vault, and changes no setting of the vault's repository.
+- Into the clone's `.git/config` it copies the keys of `CONFIG_KEYS` as git resolves them in the
+  vault's repository, from any configuration file: `credential.*`, `url.*.insteadOf`,
+  `url.*.pushInsteadOf`, `remote.origin.pushurl`, `core.sshCommand`, `ssh.variant`,
+  `commit.gpgsign`, `user.signingkey` and `gpg.format`, and the identity git gives there as
+  `author.name`, `author.email`, `committer.name` and `committer.email` (`IDENTITY_KEYS`). Some
+  can carry a credential (a token in an `insteadOf` address, a credential helper's settings); the
+  copies stay in the clone until it is removed. A reason the page shows has the userinfo of any
+  URL removed.
+- Every step starts with `reset --hard` and `clean -d -x` in the clone, and an action ends with
+  them: the clone holds only what is committed there, and a file edited or added by hand in it,
+  ignored ones included, is lost at the next step.
 - The bridge (`lib/core.mjs`) imports from `<core>/scripts/` exactly `lib.mjs`, `stages.mjs`,
   `flow-stories.mjs`, `flow-policy.mjs`, `flow-counts.mjs`, `graph.mjs` and `binding.mjs`, after
   the version check. Layouts are read from `<core>` by name; the core's other in-process reads
@@ -131,7 +187,7 @@ lib/related.mjs   related(ctx, rel): an item's specs, ADRs and documents, and th
 lib/write.mjs     the write module: the page's clone, the lock, the refresh, preview, action, Send, Discard
 public/           the page: index.html, styles.css and classic scripts that share one global scope
   icons.js        the icons: kinds of artifacts, git objects, host marks
-  md.js           Markdown to DOM nodes, read only, never through innerHTML
+  md.js           Markdown to DOM nodes, never through innerHTML
   app.js          helpers, the dialog, the backlog tree
   views.js        the shell; filters, lanes and the address; board, list, My work, Initiatives
   write.js        writeUi: a move with its preview, the batch strip, Send, Discard, kept branches

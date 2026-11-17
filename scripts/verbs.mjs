@@ -579,7 +579,7 @@ export const VERBS = Object.freeze([
   // the handler checks the binding itself, after it knows which path.
   Object.freeze({
     verb: "dashboard",
-    summary: "Open a read-only page over this project's vault, in a browser.",
+    summary: "Open a page over this project's vault, in a browser.",
     usage: Object.freeze(["[<dir>]"]),
     module: "./dashboard.mjs",
     wraps: "new",
@@ -846,7 +846,7 @@ const PURPOSE = "project memory for coding agents, in markdown";
 // it: here, how mcp is told its project.
 const NOTES = {
   dashboard:
-    "It serves the page on 127.0.0.1 until Ctrl+C, so an agent should not start it in a session. The page only reads the vault.",
+    "It serves the page on 127.0.0.1 until Ctrl+C, so an agent should not start it in a session. A story moved on the page is committed in the page's own clone of the vault, and reaches the vault only when a pull request you send from the page is merged.",
   mcp: "It serves the project --project names, else PROJECTSTORE_PROJECT_DIR or the host session's project; never the directory it was started in.",
 };
 
