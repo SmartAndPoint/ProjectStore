@@ -697,6 +697,7 @@ function commitFile(w, dir, rel, text, message) {
 const hasRef = (w, dir, ref) => tryGit(w, dir, "rev-parse", "--verify", "--quiet", ref).status === 0;
 const allCount = (w, dir) => Number(w.git(dir, "rev-list", "--all", "--count"));
 const subjects = (w, dir, range) => w.git(dir, "log", "--reverse", "--format=%s", range).split("\n").filter(Boolean);
+const NO_APPLY = "it does not apply on the default branch";
 const picks = (w, from = 0) =>
   w.record
     .slice(from)
@@ -910,7 +911,9 @@ test("dashboard delivery: when the second of three unsent commits does not apply
     assert.deepEqual(subjects(w, clone, "refs/remotes/origin/main..HEAD"), ["unsent one"]);
     assert.equal(w.git(clone, "rev-parse", `refs/heads/${branch}`), u3, "the old branch is where it was");
     assert.deepEqual(w.git(clone, "rev-list", "--reverse", `${head}..refs/heads/${branch}`).split("\n"), [u1, u2, u3]);
-    assert.deepEqual(r.body.write.kept, [{ branch, commits: 3, stopped_at: { sha: u2, subject: "unsent two" } }]);
+    assert.deepEqual(r.body.write.kept, [
+      { branch, commits: 3, stopped_at: { sha: u2, subject: "unsent two", reason: NO_APPLY } },
+    ]);
     assert.ok(!existsSync(join(clone, ".git", "CHERRY_PICK_HEAD")), "the pick is aborted");
     assert.equal(porcelain(w, clone), "");
     // Never carried from again: a later refresh asks about the new batch only.
@@ -922,7 +925,7 @@ test("dashboard delivery: when the second of three unsent commits does not apply
     assert.equal(w.git(clone, "rev-parse", `refs/heads/${branch}`), u3);
     assert.deepEqual(
       again.body.write.kept[0].stopped_at,
-      { sha: u2, subject: "unsent two" },
+      { sha: u2, subject: "unsent two", reason: NO_APPLY },
       "as long as this server runs",
     );
     // After a restart, the branch is listed with its count only.
@@ -950,11 +953,13 @@ test("dashboard delivery: when the first unsent commit does not apply, Send carr
     assert.match(r.body.error, /the carry stopped at/);
     assert.match(r.body.error, /Nothing was carried, so nothing was sent/);
     assert.ok(r.body.error.includes(branch) && r.body.error.includes("unsent clash"), r.body.error);
-    assert.deepEqual(r.body.result.carry.stopped_at, { sha: u1, subject: "unsent clash" });
+    assert.deepEqual(r.body.result.carry.stopped_at, { sha: u1, subject: "unsent clash", reason: NO_APPLY });
     assert.deepEqual(pushes(w, from), []);
     assert.equal(w.gh.calls("pr create").length, 1, "no new pull request");
     assert.equal(r.body.write.batch, null);
-    assert.deepEqual(r.body.write.kept, [{ branch, commits: 1, stopped_at: { sha: u1, subject: "unsent clash" } }]);
+    assert.deepEqual(r.body.write.kept, [
+      { branch, commits: 1, stopped_at: { sha: u1, subject: "unsent clash", reason: NO_APPLY } },
+    ]);
     assert.equal(w.git(clone, "rev-parse", "--abbrev-ref", "HEAD"), "HEAD");
   });
 });
@@ -1078,7 +1083,9 @@ test("dashboard delivery: a server restarted after a merge runs the carry in its
     const view = page.writer.view();
     assert.notEqual(view.batch.branch, branch);
     assert.equal(view.batch.commits, 1);
-    assert.deepEqual(view.kept, [{ branch, commits: 2, stopped_at: { sha: u2, subject: "unsent two" } }]);
+    assert.deepEqual(view.kept, [
+      { branch, commits: 2, stopped_at: { sha: u2, subject: "unsent two", reason: NO_APPLY } },
+    ]);
     assert.deepEqual(subjects(w, clone, "refs/remotes/origin/main..HEAD"), ["unsent one"]);
     assert.deepEqual((await call(page, "/api/state")).json.write.kept, view.kept);
   });
@@ -1111,6 +1118,206 @@ test("dashboard delivery: a server stopped in the middle of its start's carry le
     );
     assert.equal(w.git(clone, "rev-parse", `refs/heads/${branch}`), u2);
   });
+});
+
+// ─── The paths that decide a branch's fate ──────────────────────────────
+
+// A batch sent as pull request #1, merged on the code host, with `n` unsent
+// commits made by hand after the Send (`<i>.md` each). → { writer, branch,
+// unsent, head, host }.
+async function mergedWithUnsent(w, n, opts) {
+  const { writer, branch } = await withBatch(w, opts);
+  assert.equal((await writer.send()).status, 200);
+  const clone = writer.paths.clone;
+  const unsent = [];
+  for (let i = 1; i <= n; i++) unsent.push(commitFile(w, clone, `u${i}.md`, `u${i}\n`, `unsent ${i}`));
+  const { head, host } = mergeOnHost(w, branch);
+  markMerged(w, 1, head);
+  return { writer, branch, unsent, head, host };
+}
+
+// [dashboard-delivery#5]
+test("dashboard delivery: an unsent commit the default branch already holds (its pick comes out empty) counts as carried: the other two are carried, and the old branch is deleted", async () => {
+  await withWorld({}, async (w) => {
+    const { writer, branch, host } = await mergedWithUnsent(w, 3);
+    // The default branch gets the second commit's change on its own.
+    commitFile(w, host, "u2.md", "u2\n", "the same change, made on the default branch");
+    w.git(host, "push", "-q", "origin", "main");
+    const clone = writer.paths.clone;
+    const from = w.record.length;
+    const r = await writer.refresh();
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.notEqual(r.body.write.batch.branch, branch);
+    assert.deepEqual(subjects(w, clone, "refs/remotes/origin/main..HEAD"), ["unsent 1", "unsent 3"]);
+    assert.equal(picks(w, from).length, 3, "three picks, one of them empty");
+    assert.ok(!hasRef(w, clone, `refs/heads/${branch}`), "the old branch is deleted");
+    assert.deepEqual(r.body.write.kept, []);
+    assert.equal(porcelain(w, clone), "");
+    assert.ok(!existsSync(join(clone, ".git", "CHERRY_PICK_HEAD")));
+  });
+});
+
+// [dashboard-delivery#5] [dashboard-delivery#2] [dashboard-writes#8]
+test("dashboard delivery: when gh answers MERGED but the fetch of origin fails, no carry begins (it starts only from the default branch as just fetched), the batch stays open, Send names the failed fetch, and the next refresh that fetches carries", async () => {
+  await withWorld({}, async (w) => {
+    const { writer, branch, unsent } = await mergedWithUnsent(w, 1);
+    const clone = writer.paths.clone;
+    // origin unreachable: the vault repository rewrites its URL, and the clone copies the rule.
+    const rule = `url.${join(w.root, "nowhere.git")}.insteadOf`;
+    w.git(w.repo, "config", rule, w.origin);
+    let from = w.record.length;
+    const r = await writer.refresh();
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.write.batch.branch, branch, "the batch stays open");
+    assert.equal(r.body.write.batch.pull_request.state, "MERGED");
+    assert.deepEqual(picks(w, from), []);
+    assert.equal(w.git(clone, "rev-parse", "HEAD"), unsent[0]);
+    from = w.record.length;
+    const s = await writer.send();
+    assert.equal(s.status, 200, JSON.stringify(s.body));
+    assert.equal(s.body.ok, false);
+    assert.match(s.body.error, /could not begin/);
+    assert.match(s.body.error, /git fetch of origin failed/);
+    assert.match(s.body.error, /the batch stays open/);
+    assert.deepEqual(pushes(w, from), []);
+    assert.deepEqual(picks(w, from), []);
+    assert.equal(s.body.write.batch.branch, branch);
+    // origin back: the next refresh fetches and carries.
+    w.git(w.repo, "config", "--unset", rule);
+    const again = await writer.refresh();
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.notEqual(again.body.write.batch.branch, branch);
+    assert.deepEqual(subjects(w, clone, "refs/remotes/origin/main..HEAD"), ["unsent 1"]);
+  });
+});
+
+// [dashboard-delivery#5] [dashboard-writes#4]
+test("dashboard delivery: at the start, a carry whose pull request head is not in the clone does not begin past the deadline, though gh answered before it; the next refresh fetches refs/pull/<n>/head and carries", async () => {
+  await withWorld({}, async (w) => {
+    const { writer, branch } = await withBatch(w);
+    assert.equal((await writer.send()).status, 200);
+    const other = w.cloneInto(join(w.root, "other"));
+    w.git(other, "switch", "-q", branch);
+    const x = commitFile(w, other, "notes.md", "from the code host\n", "a commit on the code host");
+    w.git(other, "push", "-q", "origin", branch);
+    assert.equal((await writer.action(move({ to: "planned", reason: "after the send" }))).status, 200);
+    mergeOnHost(w, branch, { squash: true });
+    w.git(other, "push", "-q", "origin", "--delete", branch);
+    // origin holds the head where a fetch would find it.
+    w.git(other, "push", "-q", "origin", `${x}:refs/pull/1/head`);
+    markMerged(w, 1, x);
+    await writer.stop();
+    // gh answers inside the start's budget; the record holds the step (and
+    // the event loop) at gh's spawn until the deadline has passed.
+    let deadline = null;
+    const record = (e) => {
+      w.record.push(e);
+      if (deadline !== null && e.cmd === "gh" && e.argv[1] === "list") while (Date.now() <= deadline);
+    };
+    const slow = await w.open({ record });
+    const from = w.record.length;
+    deadline = Date.now() + 2 * HANG_MS;
+    const r = await slow.refresh({ start: true, deadline });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const gh = ghCalls(w, from);
+    assert.equal(gh.length, 1, "gh was asked");
+    assert.equal(r.body.write.batch.branch, branch, "the batch stays open");
+    assert.equal(r.body.write.batch.pull_request.state, "MERGED", "gh's answer was read");
+    assert.deepEqual(picks(w, from), [], "the carry did not begin");
+    assert.ok(
+      !w.record
+        .slice(from)
+        .some((e) => e.cmd === "git" && subOf(e.argv).name === "fetch" && e.argv.at(-1) === "refs/pull/1/head"),
+      "no fetch past the deadline",
+    );
+    const again = await slow.refresh();
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.notEqual(again.body.write.batch.branch, branch);
+    assert.deepEqual(subjects(w, slow.paths.clone, "refs/remotes/origin/main..HEAD"), [
+      "move PS-X/story-a to planned: after the send",
+    ]);
+  });
+});
+
+// [dashboard-delivery#1] [dashboard-delivery#2] [dashboard-delivery#4] [dashboard-delivery#5]
+test("dashboard delivery: a MERGED answer with an empty or invalid headRefOid starts no carry and keeps the batch open; Send then sends nothing and says why, and Discard ends the batch here without saying a pull request stays open", async () => {
+  for (const bad of ["", "HEAD~1", "1234"]) {
+    await withWorld({}, async (w) => {
+      const { writer, branch, unsent } = await mergedWithUnsent(w, 1);
+      markMerged(w, 1, bad);
+      const clone = writer.paths.clone;
+      const from = w.record.length;
+      const r = await writer.refresh();
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      assert.equal(r.body.write.batch.branch, branch, `the batch stays open (${JSON.stringify(bad)})`);
+      const s = await writer.send();
+      assert.equal(s.status, 200, JSON.stringify(s.body));
+      assert.equal(s.body.ok, false);
+      assert.match(s.body.error, /gh named no head commit for pull request #1/);
+      assert.match(s.body.error, /Nothing was sent, and the batch stays open/);
+      assert.deepEqual(pushes(w, from), []);
+      assert.deepEqual(picks(w, from), []);
+      const d = await writer.discard();
+      assert.equal(d.status, 200, JSON.stringify(d.body));
+      assert.equal(d.body.ok, true);
+      assert.equal(d.body.result.ended, "here");
+      assert.match(d.body.result.message, /was merged, but the carry .* could not begin/);
+      assert.doesNotMatch(d.body.result.message, /stays open/);
+      assert.equal(d.body.write.batch, null);
+      assert.deepEqual(d.body.write.kept, [{ branch, commits: 1 }]);
+      assert.equal(w.git(clone, "rev-parse", `refs/heads/${branch}`), unsent[0], "no commit is lost");
+      assert.equal(w.git(clone, "rev-parse", "--abbrev-ref", "HEAD"), "HEAD");
+    });
+  }
+});
+
+// [dashboard-delivery#5] [dashboard-writes#8]
+test("dashboard delivery: a pick that dies mid-carry fails the step with 502 and fresh write, aborts the pick, and loses nothing: before a new batch the clone is back on the old branch, after one it stays there and the old branch is kept", async () => {
+  for (const nth of [1, 2]) {
+    await withWorld({}, async (w) => {
+      // The writer that runs the carry has refreshed before, so its write is
+      // the one to keep fresh; its record kills the nth pick once armed.
+      let armed = false;
+      let seen = 0;
+      const record = (e) => {
+        w.record.push(e);
+        if (
+          armed &&
+          e.cmd === "git" &&
+          subOf(e.argv).name === "cherry-pick" &&
+          !e.argv.includes("--abort") &&
+          ++seen === nth &&
+          e.pid
+        )
+          process.kill(e.pid, "SIGKILL");
+      };
+      const { writer: killer, branch, unsent } = await mergedWithUnsent(w, 2, { record });
+      armed = true;
+      const clone = killer.paths.clone;
+      const r = await killer.refresh();
+      assert.equal(r.status, 502, `pick ${nth}: ${JSON.stringify(r.body)}`);
+      assert.match(r.body.error, new RegExp(`the carry of ${branch} stopped: git cherry-pick`));
+      assert.match(r.body.error, /Nothing is lost/);
+      assert.ok(!existsSync(join(clone, ".git", "CHERRY_PICK_HEAD")), "the pick is aborted");
+      assert.ok(!existsSync(killer.paths.lock), "no lock left");
+      assert.equal(porcelain(w, clone), "");
+      assert.equal(w.git(clone, "rev-parse", `refs/heads/${branch}`), unsent[1], "the old branch is intact");
+      const at = w.git(clone, "rev-parse", "--abbrev-ref", "HEAD");
+      assert.equal(r.body.write.batch?.branch ?? null, at === "HEAD" ? null : at, "write is as the clone now is");
+      if (nth === 1) {
+        assert.equal(at, branch, "back on the old branch");
+        // The next refresh carries both.
+        const again = await (await w.open()).refresh();
+        assert.equal(again.status, 200, JSON.stringify(again.body));
+        assert.deepEqual(subjects(w, clone, "refs/remotes/origin/main..HEAD"), ["unsent 1", "unsent 2"]);
+        assert.ok(!hasRef(w, clone, `refs/heads/${branch}`));
+      } else {
+        assert.notEqual(at, branch, "on the new batch");
+        assert.deepEqual(subjects(w, clone, "refs/remotes/origin/main..HEAD"), ["unsent 1"]);
+        assert.deepEqual(r.body.write.kept, [{ branch, commits: 2 }]);
+      }
+    });
+  }
 });
 
 // ─── The whole tour, through the server ─────────────────────────────────

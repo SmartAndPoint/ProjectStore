@@ -1053,9 +1053,13 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
       return setView(closed(`the page's clone at ${clone} has origin ${theirs ?? "(none)"}, but the vault's repository has origin ${facts.url}, so the page writes nothing. ${held} Move the clone aside, and the next refresh makes a new one`));
     }
     if (fetchedAt === null) fetchedAt = fetchHeadTime();
+    // Whether this step has the default branch as just fetched (a carry
+    // starts only from it): a clone made now has it.
+    let fetched = fresh ? { ok: true } : { ok: false, reason: "the start's time ran out before git fetch could run" };
     if (!inspect && !fresh && left() > 0) {
       const f = await git(clone, ["fetch", "--quiet", "--", "origin"], { budget: within(proc.budgets.git), via: "refresh" });
       if (f.ok) fetchedAt = Number(now());
+      fetched = f.ok ? { ok: true } : { ok: false, reason: `git fetch of origin failed: ${said(f)}` };
     }
     const def = await defaultBranch({ network: !inspect && left() > 0, budget: () => within(proc.budgets.git) });
     if (!def.name) return setView(closed(`no default branch is known: ${def.why}`));
@@ -1075,7 +1079,7 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     let detached = false;
     if (!inspect && left() > 0) {
       const asked = await askState(batch ? batch.branch : null, { budget: within(proc.budgets.gh), via: "refresh" });
-      if (batch) ({ batch, detached } = await settle(batch, asked, base, "refresh", { fetched: true, network: () => left() > 0, budget: within }));
+      if (batch) ({ batch, detached } = await settle(batch, asked, base, "refresh", { fetched, network: () => left() > 0, budget: within }));
     }
     if (!batch && !inspect && !detached) await git(clone, ["switch", "--detach", "--quiet", "--", base], { need: true, via: "refresh" });
     const kept = await keptOf(base, batch ? batch.branch : null, "refresh");
@@ -1353,7 +1357,8 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
 
   // The person's batch branches the clone has not checked out (delivery
   // contract 6): [{ branch, commits, stopped_at? }], `commits` counting what
-  // `base` lacks, `stopped_at` the commit a carry of this server stopped at.
+  // `base` lacks, `stopped_at` the commit a carry of this server stopped at
+  // ({ sha, subject, reason }: it does not apply, or git could not commit it).
   // A branch git cannot count is still listed, never left out in silence:
   // `commits` null and `reason` git's words. Only a list git cannot give
   // fails the step (502).
@@ -1399,36 +1404,67 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
   // The carry (delivery contract 5), in the step that learned the merge of
   // `pr`: the non-merge commits of `branch` that `pr.headRefOid` does not
   // reach are cherry-picked, in order, onto the default branch as just
-  // fetched (`fetched`: this step fetched it already). `refs/pull/<n>/head`
-  // is fetched first when the head is not in the clone; past the deadline
-  // (`network()` false) such a carry does not begin, and the next refresh
-  // runs it. One that begins runs to its end. The new batch branch is made at
-  // the first commit that applies, so a carry that is stopped before it
-  // leaves no batch; a commit already in the default branch (its pick comes
-  // out empty) counts as carried; one that does not apply stops the carry,
-  // and the old branch is kept and named, with the commit it stopped at.
-  // The old branch is deleted only when every non-merge commit on it is in
-  // the head or was carried (merge commits are Send's, holding nothing of
-  // the person's).
+  // fetched. `fetched` is this step's own fetch of origin ({ ok, reason }),
+  // or null when it made none, and the carry then fetches; a fetch that
+  // failed or was not made means no carry begins, since the default branch
+  // would be stale. `refs/pull/<n>/head` is fetched when the head is not in
+  // the clone. Past the deadline (`network()` false) no call that uses the
+  // network starts, so such a carry does not begin; the next refresh runs it.
+  // A carry that does not begin leaves the batch open and moves nothing. One
+  // that begins runs to its end. The new batch branch is made at the first
+  // commit that applies, so a carry stopped before it leaves no batch; a
+  // commit already in the default branch (its pick comes out empty) counts
+  // as carried; one that does not apply (a conflict), or that git cannot
+  // commit, stops the carry, and the old branch is kept and named, with the
+  // commit it stopped at and why. The old branch is deleted only when every
+  // non-merge commit on it is in the head or was carried (merge commits are
+  // Send's, holding nothing of the person's). A git call that fails past
+  // the pick (a budget, the server stopping) aborts the pick, puts the clone
+  // back on the old branch when no new batch was made, and fails the step.
   // → { begun: false, reason } or { begun: true, from, branch (the new batch
-  // or null), carried, skipped, stopped, left, deleted }.
-  async function carry(branch, pr, base, via, { fetched = false, network = () => true, budget = (b) => b } = {}) {
+  // or null), carried, skipped, stopped, left, deleted }; `stopped` is
+  // { sha, subject, reason }.
+  async function carry(branch, pr, base, via, { fetched = null, network = () => true, budget = (b) => b } = {}) {
     const clone = paths.clone;
-    const head = typeof pr.headRefOid === "string" && /^[0-9a-f]{40,64}$/i.test(pr.headRefOid) ? pr.headRefOid : null;
-    if (!head) return { begun: false, reason: `gh named no head commit for pull request #${pr.number}, so the page cannot tell which commits it holds` };
+    const no = (reason) => ({ begun: false, reason: redactUrls(reason) });
+    const head = typeof pr.headRefOid === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/i.test(pr.headRefOid) ? pr.headRefOid : null;
+    if (!head) return no(`gh named no head commit for pull request #${pr.number} (${JSON.stringify(pr.headRefOid ?? null)}), so the page cannot tell which commits it holds`);
+    let got = fetched;
+    if (!got) {
+      if (!network()) got = { ok: false, reason: "the start's time ran out before git fetch could run" };
+      else {
+        const f = await git(clone, ["fetch", "--quiet", "--", "origin"], { budget: budget(proc.budgets.git), via });
+        if (f.ok) fetchedAt = Number(now());
+        got = f.ok ? { ok: true } : { ok: false, reason: `git fetch of origin failed: ${said(f)}` };
+      }
+    }
+    if (!got.ok) return no(`the carry starts only from the default branch as just fetched, and ${got.reason}; the next step tries again`);
     const has = async () => (await git(clone, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${head}^{commit}`], { via })).ok;
     if (!(await has())) {
-      if (!network()) return { begun: false, reason: `its head ${head.slice(0, 12)} is not in the page's clone, and the start's time ran out before it could be fetched; the next refresh carries` };
+      if (!Number.isInteger(pr.number) || pr.number <= 0) return no(`its head ${head.slice(0, 12)} is not in the page's clone, and gh named no pull request number to fetch it by`);
+      if (!network()) return no(`its head ${head.slice(0, 12)} is not in the page's clone, and the start's time ran out before it could be fetched; the next refresh carries`);
       const f = await git(clone, ["fetch", "--quiet", "--no-write-fetch-head", "--", "origin", `refs/pull/${pr.number}/head`], { budget: budget(proc.budgets.git), via });
-      if (!(await has())) return { begun: false, reason: redactUrls(`its head ${head.slice(0, 12)} is not in the page's clone, and git fetch of refs/pull/${pr.number}/head did not bring it (${f.ok ? "origin holds another commit there" : said(f)}); the next refresh tries again`) };
-    }
-    if (!fetched && network()) {
-      const f = await git(clone, ["fetch", "--quiet", "--", "origin"], { budget: budget(proc.budgets.git), via });
-      if (f.ok) fetchedAt = Number(now());
+      if (!(await has())) return no(`its head ${head.slice(0, 12)} is not in the page's clone, and git fetch of refs/pull/${pr.number}/head did not bring it (${f.ok ? "origin holds another commit there" : said(f)}); the next refresh tries again`);
     }
     const unsent = await commitsIn([`refs/heads/${branch}`, `^${head}`], via);
-    await detach(base, via);
     let made = null;
+    // A call the carry cannot go on without: the pick aborted, the clone
+    // back at its branch head (the old branch when no batch was made), the
+    // view as the clone now is, and the step's 502.
+    const broke = async (what, r) => {
+      if (existsSync(join(clone, ".git", "CHERRY_PICK_HEAD")) || existsSync(join(clone, ".git", "sequencer"))) await git(clone, ["cherry-pick", "--abort"], { via }).catch(() => {});
+      await restore(via).catch(() => {});
+      if (!made) await git(clone, ["switch", "--quiet", "--", branch], { via }).catch(() => {});
+      if (state.can) {
+        try {
+          const now2 = await batchOn(base, via);
+          setView({ ...state, batch: now2.batch, pull_requests: pullRequests, kept: await keptOf(base, now2.batch ? now2.batch.branch : null, via) });
+        } catch {}
+      }
+      throw new StepError(502, shown(redactUrls(`the carry of ${branch} stopped: ${what}: ${said(r)}. Nothing is lost: what was not carried stays on ${branch}${made ? `, and what was carried is on ${made}` : ""}`)));
+    };
+    const sw = await git(clone, ["switch", "--detach", "--quiet", "--", base], { via });
+    if (!sw.ok) await broke("git switch to the default branch", sw);
     let stopped = null;
     const carried = [];
     const skipped = [];
@@ -1437,29 +1473,34 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
       if (r.ok) {
         carried.push(c);
         if (!made) {
-          made = await freeBranch(via);
-          await git(clone, ["switch", `--create=${made}`, "--quiet", "--", "HEAD"], { need: true, via });
+          const name = await freeBranch(via);
+          const sc = await git(clone, ["switch", `--create=${name}`, "--quiet", "--", "HEAD"], { via });
+          if (!sc.ok) await broke(`git switch --create=${name}`, sc);
+          made = name;
         }
         continue;
       }
       const picking = existsSync(join(clone, ".git", "CHERRY_PICK_HEAD"));
-      if (r.timedOut || r.stopped || r.refused || r.error || !picking) {
-        throw new StepError(502, shown(`the carry of ${branch} stopped at git cherry-pick ${c.sha.slice(0, 12)}: ${said(r)}. What was not carried stays on ${branch}`));
-      }
+      if (r.timedOut || r.stopped || r.refused || r.error || r.signal || r.status === null || !picking) await broke(`git cherry-pick ${c.sha.slice(0, 12)}`, r);
       // Stopped with the pick in progress: an empty one (no path unmerged,
-      // nothing staged) is a commit the default branch holds already.
-      const unmerged = await git(clone, ["ls-files", "--unmerged"], { need: true, via });
+      // nothing staged) is a commit the default branch holds already; one
+      // with a path unmerged does not apply; one with its change staged
+      // and no conflict is one git could not commit (a signing that failed).
+      const unmerged = await git(clone, ["ls-files", "--unmerged"], { via });
       const staged = await git(clone, ["diff", "--cached", "--quiet"], { via });
-      await git(clone, ["cherry-pick", "--abort"], { need: true, via });
-      if (!lines(unmerged.stdout).length && staged.status === 0) {
+      if (!unmerged.ok || staged.status > 1) await broke(`git cherry-pick ${c.sha.slice(0, 12)}`, !unmerged.ok ? unmerged : staged);
+      const ab = await git(clone, ["cherry-pick", "--abort"], { via });
+      if (!ab.ok) await broke("git cherry-pick --abort", ab);
+      const conflict = lines(unmerged.stdout).length > 0;
+      if (!conflict && staged.status === 0) {
         skipped.push(c);
         continue;
       }
-      stopped = c;
+      stopped = { ...c, reason: conflict ? "it does not apply on the default branch" : `git could not commit it: ${redactUrls(said(r))}` };
       break;
     }
-    const left = stopped ? unsent.slice(unsent.indexOf(stopped)) : [];
-    if (stopped) stops.set(branch, { sha: stopped.sha, subject: stopped.subject });
+    const left = stopped ? unsent.slice(unsent.findIndex((x) => x.sha === stopped.sha)) : [];
+    if (stopped) stops.set(branch, { sha: stopped.sha, subject: stopped.subject, reason: stopped.reason });
     else await git(clone, ["branch", "--delete", "--force", "--", branch], { need: true, via });
     return { begun: true, from: branch, branch: made, carried, skipped, stopped, left, deleted: !stopped };
   }
@@ -1471,7 +1512,7 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     const parts = [`${head}`];
     parts.push(c.carried.length ? `${plural(c.carried.length, "commit")} made after it was sent ${c.carried.length === 1 ? "was" : "were"} carried into the new batch ${c.branch}: ${named(c.carried)}` : "no commit was carried");
     if (c.skipped.length) parts.push(`${plural(c.skipped.length, "commit")} ${c.skipped.length === 1 ? "is" : "are"} in the default branch already`);
-    if (c.stopped) parts.push(`the carry stopped at ${named([c.stopped])}, which does not apply on the default branch; it and the commits after it (${named(c.left)}) stay on the kept branch ${c.from}, which the page never carries from again`);
+    if (c.stopped) parts.push(`the carry stopped at ${named([c.stopped])}, because ${c.stopped.reason}; it and the commits after it (${named(c.left)}) stay on the kept branch ${c.from}, which the page never carries from again`);
     return parts.join("; ");
   };
   const carrySummary = (c) => ({
@@ -1479,7 +1520,7 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     branch: c.branch,
     carried: c.carried.map((x) => ({ sha: x.sha, subject: x.subject })),
     skipped: c.skipped.map((x) => ({ sha: x.sha, subject: x.subject })),
-    stopped_at: c.stopped ? { sha: c.stopped.sha, subject: c.stopped.subject } : null,
+    stopped_at: c.stopped ? { sha: c.stopped.sha, subject: c.stopped.subject, reason: c.stopped.reason } : null,
     left: c.left.map((x) => ({ sha: x.sha, subject: x.subject })),
   });
 
@@ -1678,7 +1719,7 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
           : !asked.ok
             ? `gh cannot be asked (${pullRequests}), so `
             : "";
-      return finish({ branch, ended: "here", pull_request: prOf(pr), kept: k, message: `${why}the batch ended on this machine; its branch ${branch} is kept with ${plural(k.commits, "commit")} the default branch lacks, and ${stays}` });
+      return finish({ branch, ended: "here", pull_request: prOf(pr), kept: k, message: `${why}the batch ended on this machine; its branch ${branch} is kept with ${plural(k.commits, "commit")} the default branch lacks${s.pending ? "" : `, and ${stays}`}` });
     });
   }
 
