@@ -169,9 +169,6 @@ function readBody(req) {
   });
 }
 
-// The name a write verb has in `write.verbs`, whatever shape an entry takes.
-const verbName = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? v.verb : null);
-
 // `port()` is the port the server listens on, known once it does. `writer`
 // is the write module (lib/write.mjs); the readers take its readCtx(), which
 // is openCore's context while the page cannot write. `token` is the run's;
@@ -194,9 +191,10 @@ export function handler({ writer, token, port, started = Promise.resolve() }) {
     }
   };
 
-  // A write route (contract 8): the guard, then the body (the preview and the
-  // action only), then whether the page can write, then the verb. Every answer
-  // is { ok, result?, error?, write }.
+  // A write route (contract 8): the guard, then whether the page can write
+  // (409), then the body of the preview and the action (400: no JSON object,
+  // over 64 KiB, or a verb or field outside write.verbs), then the step.
+  // Every answer past the guard is { ok, result?, error?, write }.
   async function writeRoute(req, res, p) {
     const shape = (status, fields) => send(req, res, status, { ...fields, write: writer.view() });
     try {
@@ -204,23 +202,21 @@ export function handler({ writer, token, port, started = Promise.resolve() }) {
         req.resume();
         return shape(403, { ok: false, error: "this route runs only for the page's own requests: the run's token and the page's own Origin" });
       }
-      let body = null;
-      if (BODY_ROUTES.has(p)) {
-        const got = await readBody(req);
-        if (!got.ok) return shape(400, { ok: false, error: got.error });
-        body = got.value;
-      } else req.resume();
+      // The body is read whole first, and judged only once write.can is known.
+      const got = BODY_ROUTES.has(p) ? await readBody(req) : (req.resume(), null);
       if (p === "/api/refresh") {
         const r = await writer.refresh();
         return send(req, res, r.status, r.body);
       }
       const w = writer.view();
       if (!w.can) return shape(409, { ok: false, error: w.reason });
-      if (body) {
-        const names = w.verbs.map(verbName).filter(Boolean);
-        if (!names.includes(body.verb)) return shape(400, { ok: false, error: `${JSON.stringify(body.verb ?? null)} is not a verb the page may run (write.verbs: ${names.length ? names.join(", ") : "none"})` });
-      } else if (!w.batch) return shape(409, { ok: false, error: `no batch is open, so there is nothing to ${p === "/api/send" ? "send" : "discard"}` });
-      // The preview, the action, Send and Discard come with the steps that build them.
+      if (got) {
+        if (!got.ok) return shape(400, { ok: false, error: got.error });
+        const r = p === "/api/preview" ? await writer.preview(got.value) : await writer.action(got.value);
+        return send(req, res, r.status, r.body);
+      }
+      if (!w.batch) return shape(409, { ok: false, error: `no batch is open, so there is nothing to ${p === "/api/send" ? "send" : "discard"}` });
+      // Send and Discard come with the steps that build them.
       return shape(501, { ok: false, error: `${p} is not built in this version of the page` });
     } catch (e) {
       // An error the step did not expect: 500 in the same shape (a step's own lock is released by the step).
@@ -312,8 +308,9 @@ function listenOn(server, port) {
 // stops the start: the module's running calls end with their process groups,
 // the server closes, and the promise rejects with code ABORT_ERR.
 //
-// → { server, url, port, vault (the bound vault), token, writer, close() };
-// close() ends the module's running calls first.
+// → { server, url, port, vault (the bound vault), token, writer, startError
+// (the start's refresh failure, or null), close() }; close() ends the
+// module's running calls first.
 export async function startServer({ core, project, port = null, ports = null, budgets = {}, record = null, env = process.env, now, platform, since = Date.now(), signal = null } = {}) {
   const aborted = () => Object.assign(new Error("the server was stopped before it was ready"), { code: "ABORT_ERR" });
   if (signal?.aborted) throw aborted();
@@ -359,19 +356,24 @@ export async function startServer({ core, project, port = null, ports = null, bu
     throw new Error(`ports ${tries[0]}–${tries[tries.length - 1]} are all in use; pass --port`);
   }
   // The start's refresh: when another live process holds the lock it runs
-  // nothing and reads the clone as it is (the module decides). An error it
-  // did not expect leaves `write` as it was: the page still reads.
+  // nothing and reads the clone as it is (the module decides). One that
+  // failed (a 5xx answer, or an error it did not expect) is kept as
+  // `startError`, for main() to print; the page still reads.
+  let startError = null;
   if (!signal?.aborted) {
     try {
-      await writer.refresh({ start: true, deadline: Number(since) + startBudget });
-    } catch {}
+      const r = await writer.refresh({ start: true, deadline: Number(since) + startBudget });
+      if (r.status >= 500) startError = String(r.body?.error || `the refresh answered ${r.status}`);
+    } catch (e) {
+      startError = String(e?.message || e);
+    }
   }
   startEnded();
   if (signal?.aborted) {
     await close();
     throw aborted();
   }
-  return { server, url: `http://${HOST}:${bound}/`, port: bound, vault: ctx.vault, token, writer, close };
+  return { server, url: `http://${HOST}:${bound}/`, port: bound, vault: ctx.vault, token, writer, startError, close };
 }
 
 function range([a, b]) {
@@ -454,6 +456,7 @@ async function main(argv) {
     process.exit(1);
   }
   process.stdout.write(`${JSON.stringify({ ready: true, url: page.url, port: page.port, vault: page.vault })}\n`);
+  if (page.startError) process.stderr.write(`dashboard: the start's refresh failed: ${page.startError}\n`);
   const write = page.writer.view();
   process.stderr.write(`dashboard: ${page.url} reads ${page.vault}; ${write.can ? `the page writes through its own clone, ${page.writer.paths.clone}` : `no writes: ${write.reason}`}\n`);
 }
