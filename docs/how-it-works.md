@@ -343,6 +343,22 @@ is an unguarded read-modify-write, and a tally incremented on every vault write
 would eventually truncate the ADR-006 statusline pointer out from under an
 unrelated feature.
 
+## Initiatives above the epics
+
+An initiative (`initiatives/<slug>.md`) records an outcome that several epics
+serve and the decision taken on it. Its `status` holds the decision only:
+`proposed`, `accepted`, `rejected` or `deferred`, each decision with a line
+`- YYYY-MM-DD <status>: <reason>` in its Outcome section. What it is doing is
+never written: `initiativeStage` in `scripts/stages.mjs` reads it from the
+stories of the epics that name it (in progress while one is active, done when
+all of them are). An epic names its parent in one frontmatter key,
+`initiative: "<slug>"`; the initiative's file does not list its epics, so the
+two cannot drift. The link graph draws `initiative-contains` from the
+initiative to each such epic, and doctor's `initiative-links`,
+`initiative-status` and `initiative-decision` checks (`scripts/initiative.mjs`)
+report a link that names nothing, a status outside the four, and a decision
+without its epic or its Outcome line.
+
 ## The epic ↔ code mapping
 
 Epics and stories carry a `code_refs` frontmatter list — the paths that feature

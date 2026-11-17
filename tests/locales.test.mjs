@@ -51,6 +51,7 @@ const KINDS = [
   "concept",
   "epic",
   "folder-readme",
+  "initiative",
   "kanban",
   "meeting",
   "research",
@@ -415,7 +416,17 @@ for (const lang of LOCALES) {
     // named), so absence of an error proves nothing. Assert presence instead: every
     // scaffolded folder must come back as a rebuilt index.
     const rebuilt = new Set((rec.indexes || []).map((i) => i.folder));
-    for (const folder of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
+    for (const folder of [
+      "adr",
+      "specs",
+      "initiatives",
+      "epics",
+      "research",
+      "concepts",
+      "meetings",
+      "ops",
+      "diagrams",
+    ]) {
       assert.ok(
         rebuilt.has(folder),
         `reconcile skipped ${folder}/README.md — its localized index header was not recognized`,

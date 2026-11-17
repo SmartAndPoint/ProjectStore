@@ -136,6 +136,22 @@
       "de": ["Erwartete Ergebnisse"],
       "fr": ["Résultats attendus"],
       "zh": ["预期成果"]
+    },
+    "initiative_success": {
+      "en": ["Success criterion"],
+      "ru": ["Критерий успеха"],
+      "es": ["Criterio de éxito"],
+      "de": ["Erfolgskriterium"],
+      "fr": ["Critère de réussite"],
+      "zh": ["成功标准"]
+    },
+    "initiative_outcome": {
+      "en": ["Outcome"],
+      "ru": ["Итог"],
+      "es": ["Resultado"],
+      "de": ["Ergebnis"],
+      "fr": ["Résultat"],
+      "zh": ["结果"]
     }
   },
   "keywords": {

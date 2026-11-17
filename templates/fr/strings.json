@@ -40,6 +40,10 @@
       "name": "Spécifications",
       "description": "Le « comment » normatif de chaque sous-système — références aux ADR, contrats de comportement numérotés, acceptation en plus de celle des stories couvertes."
     },
+    "initiative": {
+      "name": "Initiatives",
+      "description": "Initiatives — résultats que servent plusieurs epics, avec la décision prise : proposée, acceptée, rejetée ou différée."
+    },
     "epic": {
       "name": "Epics",
       "description": "Grands ensembles de travail découpés en stories. Chaque epic a son propre sous-dossier avec un répertoire `stories/`."

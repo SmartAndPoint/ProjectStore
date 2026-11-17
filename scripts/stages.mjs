@@ -71,6 +71,25 @@ export function foldStages(statuses) {
   return out;
 }
 
+// Where an initiative stands (the initiative spec, contract 8; the ADR on
+// the kind, decision 3). Its file records only the decision; the rest is read
+// from the work. `status` is the recorded status, read trimmed and
+// lower-cased; `counts` is foldStages summed over the stories of the epics
+// that name the initiative; `epics` is how many epics name it; `column` is the
+// board column of its elaboration story, or null.
+export function initiativeStage(status, counts, epics, column) {
+  const s = status === null || status === undefined ? "" : String(status).trim().toLowerCase();
+  if (s === "rejected" || s === "deferred") return s;
+  if (s !== "accepted") return column === "In Progress" || column === "Review" ? "elaborating" : "proposed";
+  const c = counts || {};
+  const done = c.done || 0;
+  const active = c.active || 0;
+  const total = done + active + (c.backlog || 0);
+  if (epics > 0 && total > 0 && done === total) return "done";
+  if (epics > 0 && active > 0) return "in-progress";
+  return "accepted";
+}
+
 // Line-based frontmatter: `key: value` scalars between the opening `---` and
 // the next one. Quoted values are JSON-decoded (titles that hold quotes),
 // `null` is null; block sequences are invisible to it.

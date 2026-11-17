@@ -72,6 +72,8 @@ In Claude Code a band above the prompt goes further (experimental): the session'
 
 Open the vault in [Obsidian](https://obsidian.md) and you get the graph view and the board for free. Don't use Obsidian? Everything renders on GitHub and in any editor.
 
+Above the epics sit initiatives: an outcome several epics serve, and the decision on it. Create one with `/projectstore:initiative` and a title. Its status records only the decision (`proposed`, `accepted`, `rejected` or `deferred`), with a dated reason in its Outcome section; an epic joins it with `initiative: "<slug>"` in its frontmatter, and doctor reports a link that names no initiative.
+
 ## Install
 
 From a terminal in your project:
@@ -478,7 +480,7 @@ And they are the exit door. The vault is plain markdown in git — no server, no
 
 ## Fact sheet
 
-**23 commands** · **6 agents** — critic, planner, reviewer, librarian, archaeologist (the advisors: read-only, fresh-context) and clerk (the sole write-capable one — it executes approved writes, post-gate, and composes nothing) · **6 languages** — en, ru, es, de, fr, zh · zero runtime dependencies
+**24 commands** · **6 agents** — critic, planner, reviewer, librarian, archaeologist (the advisors: read-only, fresh-context) and clerk (the sole write-capable one — it executes approved writes, post-gate, and composes nothing) · **6 languages** — en, ru, es, de, fr, zh · zero runtime dependencies
 
 The deep dive — real session files, measured payloads, how every mechanism works and where its limits are: [docs/how-it-works.md](./docs/how-it-works.md).
 
