@@ -216,12 +216,9 @@ export function handler({ writer, token, port, started = Promise.resolve() }) {
         return send(req, res, r.status, r.body);
       }
       if (!w.batch) return shape(409, { ok: false, error: `no batch is open, so there is nothing to ${p === "/api/send" ? "send" : "discard"}` });
-      // Send (the delivery spec, contract 2); Discard comes with the step that builds it.
-      if (p === "/api/send") {
-        const r = await writer.send();
-        return send(req, res, r.status, r.body);
-      }
-      return shape(501, { ok: false, error: `${p} is not built in this version of the page` });
+      // Send and Discard (the delivery spec, contracts 2 and 4).
+      const r = p === "/api/send" ? await writer.send() : await writer.discard();
+      return send(req, res, r.status, r.body);
     } catch (e) {
       // An error the step did not expect: 500 in the same shape (a step's own lock is released by the step).
       return shape(500, { ok: false, error: String(e?.message || e) });
