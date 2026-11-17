@@ -18,7 +18,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { join } from "node:path";
-import { hermeticGit, makeWorld } from "./fixtures/dashboard-world.mjs";
+import { HANG_MS, hermeticGit, makeWorld } from "./fixtures/dashboard-world.mjs";
 import { PR_FIELDS, SENT_LINE, decide, prText } from "../dashboard/lib/write.mjs";
 
 hermeticGit();
@@ -203,18 +203,25 @@ test("dashboard delivery: with gh logged out and no batch open, write.pull_reque
 // [dashboard-delivery#1] [dashboard-writes#8]
 test("dashboard delivery: with gh logged out, or a gh pr list past its budget, and a batch open, the batch stays open and the refresh fails no step", async () => {
   await withWorld({}, async (w) => {
-    const { writer, branch } = await withBatch(w, { budgets: { gh: 1200 } });
+    // The stub answers through a Node start: the cases it answers keep gh's
+    // own budget; only the hang runs on a writer with a short one.
+    const { writer, branch } = await withBatch(w);
     const head = w.git(writer.paths.clone, "rev-parse", "HEAD");
-    for (const table of [{ auth: true }, { fail: { list: "hang" } }, { fail: { list: 1 } }]) {
+    const short = await w.open({ budgets: { gh: HANG_MS } });
+    for (const [table, by, why] of [
+      [{ auth: true }, writer, /gh auth login/],
+      [{ fail: { list: "hang" } }, short, new RegExp(`gh pr list ran past its ${HANG_MS} ms budget`)],
+      [{ fail: { list: 1 } }, writer, /HTTP 502/],
+    ]) {
       w.gh.set(table);
-      const r = await writer.refresh();
+      const r = await by.refresh();
       assert.equal(r.status, 200, JSON.stringify(r.body));
       assert.equal(r.body.write.batch?.branch, branch, `the batch stays open (${JSON.stringify(table)})`);
       assert.match(r.body.write.pull_requests, /gh cannot be asked/);
+      assert.match(r.body.write.pull_requests, why);
       assert.equal(w.git(writer.paths.clone, "rev-parse", "--abbrev-ref", "HEAD"), branch);
       assert.equal(w.git(writer.paths.clone, "rev-parse", "HEAD"), head);
     }
-    assert.match(writer.view().pull_requests, /HTTP 502/);
   });
 });
 
@@ -354,6 +361,15 @@ test("dashboard delivery: when the remote batch branch has a commit the clone la
     for (const e of pushes(w, from))
       for (const a of ["--force", "-f", "--force-with-lease"]) assert.ok(!e.argv.includes(a));
     assert.ok(!w.record.slice(from).some((e) => e.cmd === "git" && subOf(e.argv).name === "rebase"), "no rebase");
+    // The batch's remote branch fetched to an explicit destination.
+    const fetch = w.record.slice(from).find((e) => e.cmd === "git" && subOf(e.argv).name === "fetch");
+    assert.deepEqual(subOf(fetch.argv).rest, [
+      "--quiet",
+      "--no-write-fetch-head",
+      "--",
+      "origin",
+      `refs/heads/${branch}:refs/remotes/origin/${branch}`,
+    ]);
     assert.equal(r.body.write.batch.commits, 4, "two of the person's, the code host's and the merge");
     assert.equal(r.body.result.commits, 3, "the commits that are no merge");
     assert.equal(porcelain(w, clone), "");
@@ -562,9 +578,78 @@ test("dashboard delivery: a commit subject that starts with - reaches gh whole, 
   });
 });
 
+// [dashboard-delivery#3]
+test("dashboard delivery: the subjects are oldest first by ancestry, also when a later commit carries an earlier date", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    w.git(clone, "switch", "-q", "-c", "dashboard/test-person/20261117T110000Z");
+    const commitAt = (name, date) => {
+      writeFileSync(join(clone, `${name}.md`), `${name}\n`);
+      w.git(clone, "add", "-A");
+      const r = spawnSync("git", ["-c", "commit.gpgsign=false", "commit", "-q", `--message=${name}`], {
+        cwd: clone,
+        env: { ...w.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+        encoding: "utf8",
+      });
+      assert.equal(r.status, 0, r.stderr);
+    };
+    // A clock that went back: the parent is dated after its children.
+    commitAt("first", "2026-11-17T12:00:00Z");
+    commitAt("second", "2026-11-17T09:00:00Z");
+    commitAt("third", "2026-11-17T10:00:00Z");
+    assert.equal((await writer.refresh()).body.write.batch.commits, 3);
+    assert.equal((await writer.send()).status, 200);
+    const [pr] = w.gh.table().pulls;
+    assert.equal(pr.body, `- first\n- second\n- third\n\n${SENT_LINE}`);
+  });
+});
+
+// [dashboard-delivery#1] [dashboard-writes#9]
+test("dashboard delivery: GH_REPO and GH_HOST in the server's environment never reach gh, so it asks about the clone's origin; GH_TOKEN stays", async () => {
+  await withWorld({}, async (w) => {
+    const env = { ...w.env, GH_REPO: "evil/elsewhere", GH_HOST: "evil.example", GH_TOKEN: "t" };
+    const { writer } = await withBatch(w, { env });
+    assert.equal((await writer.send()).status, 200);
+    const log = w.gh.log();
+    assert.ok(log.length >= 2, "gh ran");
+    for (const c of log) {
+      assert.deepEqual(c.env, { GH_REPO: null, GH_HOST: null }, c.argv.join(" "));
+      assert.equal(c.token, true, "the token is no place: it stays");
+    }
+    for (const e of ghCalls(w)) {
+      assert.equal(e.env.GH_REPO, undefined);
+      assert.equal(e.env.GH_HOST, undefined);
+    }
+  });
+});
+
+// [dashboard-delivery#6] [dashboard-writes#8]
+test("dashboard delivery: a kept branch git cannot count fails the refresh with 502 and git's message naming the branch, and is never left out of write.kept in silence", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    // A branch at a commit whose parent the clone lacks: listed by
+    // for-each-ref, and git rev-list cannot walk it.
+    const text = join(w.root, "broken-commit.txt");
+    writeFileSync(
+      text,
+      `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\nparent ${"1".repeat(40)}\nauthor A <a> 1 +0000\ncommitter A <a> 1 +0000\n\nbroken\n`,
+    );
+    const broken = w.git(clone, "hash-object", "-w", "-t", "commit", "--literally", text);
+    const name = "dashboard/test-person/20261117T090000Z";
+    mkdirSync(join(clone, ".git", "refs", "heads", "dashboard", "test-person"), { recursive: true });
+    writeFileSync(join(clone, ".git", "refs", "heads", ...name.split("/")), `${broken}\n`);
+    const r = await writer.refresh();
+    assert.equal(r.status, 502, JSON.stringify(r.body));
+    assert.ok(r.body.error.includes(`git cannot count the commits of the kept branch ${name}`), r.body.error);
+    for (const k of writer.view().kept) assert.equal(typeof k.commits, "number");
+  });
+});
+
 // ─── Every call of the file ─────────────────────────────────────────────
 
-// [dashboard-delivery#4] [dashboard-writes#9]
+// [dashboard-writes#9]
 test("dashboard delivery: no push or gh call of the file forces, deletes or mirrors, none is gh pr merge, every positional argument follows an end-of-options mark, and every gh call disables gh's prompts", () => {
   assert.ok(
     ALL.some((e) => e.cmd === "gh"),

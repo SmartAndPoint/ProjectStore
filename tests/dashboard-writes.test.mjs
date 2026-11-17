@@ -32,7 +32,7 @@ import { createHash } from "node:crypto";
 import { request } from "node:http";
 import { hostname } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
-import { hermeticGit, makeWorld, SSH_STUB, REPO } from "./fixtures/dashboard-world.mjs";
+import { hermeticGit, makeWorld, HANG_MS, SSH_HANG, SSH_STUB, REPO } from "./fixtures/dashboard-world.mjs";
 import { ghStub } from "./fixtures/gh-stub.mjs";
 import {
   BUDGETS,
@@ -108,14 +108,25 @@ async function waitFor(check, ms = 10000) {
   throw new Error("timed out waiting");
 }
 
-// Point the vault repository's origin at the stub ssh command.
+// Point the vault repository's origin at a stub ssh command: `serve` answers
+// git (a Node stub that reports on its process), `hang` never answers (a
+// shell stub that reports its pid and its grandchild's first thing).
 function sshOrigin(w, mode) {
   const report = join(w.root, `ssh-${mode}.json`);
   w.git(w.repo, "remote", "set-url", "origin", `ssh://stub.invalid${w.origin}`);
   const q = (s) => `'${s}'`;
-  w.git(w.repo, "config", "core.sshCommand", [process.execPath, SSH_STUB, report, mode].map(q).join(" "));
+  const cmd = mode === "hang" ? ["sh", SSH_HANG, report] : [process.execPath, SSH_STUB, report, mode];
+  w.git(w.repo, "config", "core.sshCommand", cmd.map(q).join(" "));
   return report;
 }
+// The hang stub's report, read when it is there. Its process group is the
+// git call's: `call` is that call's entry in the spawn record.
+const hungReport = async (report, call = null) => {
+  const facts = await waitFor(() => existsSync(report) && JSON.parse(readFileSync(report, "utf8")));
+  return call ? { ...facts, pgid: call.pid } : facts;
+};
+// A window around a budget: the call ended by it, not long after.
+const endedBy = (took, budget) => took >= budget - 500 && took < budget + 7500;
 
 const subOf = (argv) => {
   let i = 0;
@@ -813,16 +824,18 @@ test("dashboard writes: the refresh that finds no clone makes it in clone.tmp/ b
 test("dashboard writes: a clone ended before git exits leaves no clone/, and the next refresh removes a clone.tmp/ left behind and makes the clone again", async () => {
   await withWorld({}, async (w) => {
     const report = sshOrigin(w, "hang");
-    const writer = await w.open({ budgets: { clone: 1500 } });
+    const writer = await w.open({ budgets: { clone: HANG_MS } });
     const pending = writer.refresh();
-    const facts = await waitFor(() => existsSync(report) && JSON.parse(readFileSync(report, "utf8")));
+    const facts = await hungReport(report);
     assert.ok(!existsSync(writer.paths.clone), "no clone/ while git runs");
     const a = await pending;
     assert.equal(a.status, 200, JSON.stringify(a.body));
     assert.equal(a.body.write.can, false);
-    assert.match(a.body.write.reason, /could not be made: git clone ran past its 1500 ms budget/);
+    assert.match(a.body.write.reason, new RegExp(`could not be made: git clone ran past its ${HANG_MS} ms budget`));
     assert.ok(!existsSync(writer.paths.clone), "no clone/ after the clone was ended");
-    assert.equal(groupAlive(facts.pgid), false, "the clone's process group is ended");
+    const clone = gitCalls(w, 0, "clone")[0];
+    assert.equal(groupAlive(clone.pid), false, "the clone's process group is ended");
+    assert.equal(pidAlive(facts.grandchild), false);
     // What a server killed in the middle of a clone leaves behind.
     mkdirSync(join(writer.paths.cloneTmp, ".git"), { recursive: true });
     writeFileSync(join(writer.paths.cloneTmp, "half.md"), "half a clone\n");
@@ -1046,15 +1059,17 @@ test("dashboard writes: a fetch that has not ended by the deadline ends with its
     const fetched = b.body.write.fetched_at;
     assert.equal(gitCalls(w, 0, "fetch").length, 1);
     const report = sshOrigin(w, "hang");
+    const hangFrom = w.record.length;
     const t0 = Date.now();
-    const c = await writer.refresh({ start: true, deadline: Date.now() + 1500 });
+    const c = await writer.refresh({ start: true, deadline: Date.now() + HANG_MS });
     const took = Date.now() - t0;
-    assert.ok(took >= 1000 && took < 9000, `the deadline ended the fetch (${took} ms)`);
+    assert.ok(endedBy(took, HANG_MS), `the deadline ended the fetch (${took} ms)`);
     assert.equal(c.status, 200, JSON.stringify(c.body));
     assert.equal(c.body.write.can, true, "a fetch out of time fails no step");
     assert.equal(c.body.write.fetched_at, fetched);
-    const facts = JSON.parse(readFileSync(report, "utf8"));
+    const facts = await hungReport(report, gitCalls(w, hangFrom, "fetch")[0]);
     assert.equal(groupAlive(facts.pgid), false);
+    assert.equal(pidAlive(facts.grandchild), false);
     const from = w.record.length;
     const d = await writer.refresh({ start: true, deadline: Date.now() - 1 });
     assert.equal(d.body.write.can, true);
@@ -1400,14 +1415,14 @@ test("dashboard writes: a fetch at the start that has not ended by the start's b
     const report = sshOrigin(w, "hang");
     const from = w.record.length;
     const t0 = Date.now();
-    const page = await w.start({ budgets: { start: 1500 } });
+    const page = await w.start({ budgets: { start: HANG_MS } });
     const took = Date.now() - t0;
-    assert.ok(took >= 1000 && took < 9000, `the start's budget ended the fetch (${took} ms)`);
+    assert.ok(endedBy(took, HANG_MS), `the start's budget ended the fetch (${took} ms)`);
     assert.equal(gitCalls(w, from, "fetch").length, 1);
     const write = (await call(page, "/api/state")).json.write;
     assert.equal(write.can, true, "a fetch out of time fails no step");
     assert.equal(write.fetched_at, new Date(mtime).toISOString());
-    const facts = JSON.parse(readFileSync(report, "utf8"));
+    const facts = await hungReport(report, gitCalls(w, from, "fetch")[0]);
     assert.equal(groupAlive(facts.pgid), false, "the fetch's process group is ended");
     assert.equal(pidAlive(facts.grandchild), false);
     assert.equal(page.writer.live, 0);
@@ -1464,8 +1479,10 @@ test("dashboard writes: a server stopped during its start ends the running fetch
     let report = sshOrigin(w, "hang");
     const stop = new AbortController();
     const t0 = Date.now();
+    const from = w.record.length;
     const starting = w.start({ signal: stop.signal });
-    const facts = await waitFor(() => existsSync(report) && JSON.parse(readFileSync(report, "utf8")));
+    const seenFirst = await hungReport(report);
+    const facts = { ...seenFirst, pgid: gitCalls(w, from, "fetch")[0].pid };
     stop.abort();
     await assert.rejects(starting, { code: "ABORT_ERR" });
     assert.ok(Date.now() - t0 < 9000, "stopped before the start's budget");
@@ -1489,7 +1506,10 @@ test("dashboard writes: a server stopped during its start ends the running fetch
     child.stderr.on("data", (d) => (err += d));
     const exited = new Promise((done) => child.on("exit", (code, signal) => done({ code, signal })));
     try {
-      const seen = await waitFor(() => existsSync(report) && JSON.parse(readFileSync(report, "utf8")));
+      // No record in another process: the group read while the stub runs.
+      const hung = await hungReport(report);
+      const seen = { ...hung, pgid: pgidOf(hung.pid) };
+      assert.ok(seen.pgid > 0 && seen.pgid !== pgidOf(process.pid), "the stub is in a group of its own");
       child.kill("SIGTERM");
       assert.deepEqual(await exited, { code: 0, signal: null }, err);
       assert.equal(out, "", "no ready line");
@@ -1731,6 +1751,28 @@ test("dashboard writes: a verb other than move, a field outside move's, to done,
       verb: "move",
       fields: { story: "PS-X/story-a", to: "todo", reason: "padded" },
     });
+  });
+});
+
+// [dashboard-writes#6]
+test("dashboard writes: a reason over 200 characters gets 400 from the preview and the action, with a message that names the limit, and the spawn record shows no call; 200 characters, counted after the trim and by code point, pass", async () => {
+  const at = (n, ch = "a") => ch.repeat(n);
+  assert.equal(checkRequest(move({ reason: at(200) })).ok, true);
+  assert.equal(checkRequest(move({ reason: `  ${at(200)}  ` })).ok, true, "counted after the trim");
+  assert.equal(checkRequest(move({ reason: at(200, "\u{1F600}") })).ok, true, "a code point is one character");
+  const over = checkRequest(move({ reason: at(201) }));
+  assert.equal(over.ok, false);
+  assert.match(over.error, /reason is 201 characters long; it takes at most 200/);
+  assert.equal(WRITE_VERBS.find((v) => v.verb === "move").fields.reason.max, 200);
+  await withWorld({}, async (w) => {
+    const writer = await writable(w);
+    const from = w.record.length;
+    for (const run of [writer.preview, writer.action]) {
+      const r = await run(move({ reason: at(201) }));
+      assert.equal(r.status, 400, JSON.stringify(r.body));
+      assert.match(r.body.error, /at most 200/);
+    }
+    assert.equal(w.record.length, from, "the spawn record shows no call");
   });
 });
 
@@ -2055,13 +2097,13 @@ test("dashboard writes: with the clone's HEAD on a branch that is no batch of th
 // [dashboard-writes#7] [dashboard-writes#8] [dashboard-writes#9]
 test("dashboard writes: a core verb past its budget during an action answers 502, its process group is ended, and the clone is restored with no lock left", async () => {
   await withWorld({}, async (w) => {
-    const writer = await writable(w, fakeCore(w)("hang", { budgets: { verb: 1500 } }));
+    const writer = await writable(w, fakeCore(w)("hang", { budgets: { verb: HANG_MS } }));
     const clone = writer.paths.clone;
     const before = cloneState(w, clone);
     const from = w.record.length;
     const r = await writer.action(move());
     assert.equal(r.status, 502, JSON.stringify(r.body));
-    assert.match(r.body.error, /ran past its 1500 ms budget/);
+    assert.match(r.body.error, new RegExp(`ran past its ${HANG_MS} ms budget`));
     assert.deepEqual(cloneState(w, clone), before, "the clone is restored");
     assert.ok(!existsSync(writer.paths.lock), "no lock left");
     const verb = cliCalls(w, from, "move")[0];
@@ -2345,7 +2387,7 @@ test("dashboard writes: GIT_SSH_COMMAND or GIT_SSH in the server's environment i
 test("dashboard writes: a call that its step cannot go on without and that outlives its budget ends with its process group, the step answers 502, and no lock is left", async () => {
   await withWorld({}, async (w) => {
     const report = sshOrigin(w, "hang");
-    const writer = await w.open({ budgets: { git: 1500 } });
+    const writer = await w.open({ budgets: { git: HANG_MS } });
     const t0 = Date.now();
     const r = await writer.step("probe", async () => {
       await writer.git(w.vault, ["ls-remote", "--", "origin"], { need: true });
@@ -2353,12 +2395,11 @@ test("dashboard writes: a call that its step cannot go on without and that outli
     });
     assert.equal(r.status, 502);
     assert.equal(r.body.ok, false);
-    assert.match(r.body.error, /git ls-remote ran past its 1500 ms budget/);
-    assert.ok(Date.now() - t0 < 10000, "the budget ended it");
+    assert.match(r.body.error, new RegExp(`git ls-remote ran past its ${HANG_MS} ms budget`));
+    assert.ok(endedBy(Date.now() - t0, HANG_MS), "the budget ended it");
     assert.ok(!existsSync(writer.paths.lock), "no lock is left");
-    const facts = JSON.parse(readFileSync(report, "utf8"));
     const call = w.record.find((e) => e.argv.includes("ls-remote"));
-    assert.equal(facts.pgid, call.pid);
+    const facts = await hungReport(report, call);
     assert.equal(groupAlive(facts.pgid), false, "the process group is ended");
     assert.equal(pidAlive(facts.grandchild), false, "the ssh command's own child too");
     assert.equal(writer.live, 0);
@@ -2371,7 +2412,10 @@ test("dashboard writes: stopping the module ends its running calls with their pr
     const report = sshOrigin(w, "hang");
     const writer = await w.open();
     const pending = writer.git(w.vault, ["ls-remote", "--", "origin"]);
-    const facts = await waitFor(() => existsSync(report) && JSON.parse(readFileSync(report, "utf8")));
+    const facts = await hungReport(
+      report,
+      w.record.find((e) => e.argv.includes("ls-remote")),
+    );
     assert.equal(writer.live, 1);
     await writer.stop();
     const r = await pending;
@@ -2401,15 +2445,18 @@ test("dashboard writes: gh missing, logged out or past its budget is a gh that c
     assert.match(missing.reason, /not installed or not on PATH/);
 
     const stub = ghStub(join(w.root, "gh"), { auth: true });
-    const writer = await w.open({ env: stub.env(w.env), budgets: { gh: 1500 } });
+    // The stub answers through a Node start: its default budget, so a loaded
+    // runner still sees its answer; only the hang gets a short one.
+    const writer = await w.open({ env: stub.env(w.env) });
     const out = await writer.gh(w.vault, ["pr", "list", "--state=all", "--json=number"]);
     assert.deepEqual([out.ok, out.unavailable], [false, true]);
     assert.match(out.reason, /gh auth login/);
 
     stub.set({ fail: { list: "hang" } });
-    const hung = await writer.gh(w.vault, ["pr", "list", "--state=all", "--json=number"]);
+    const short = await w.open({ env: stub.env(w.env), budgets: { gh: HANG_MS } });
+    const hung = await short.gh(w.vault, ["pr", "list", "--state=all", "--json=number"]);
     assert.deepEqual([hung.ok, hung.timedOut], [false, true]);
-    assert.match(hung.reason, /gh pr list ran past its 1500 ms budget/);
+    assert.match(hung.reason, new RegExp(`gh pr list ran past its ${HANG_MS} ms budget`));
     const call = w.record.filter((e) => e.cmd === "gh").at(-1);
     assert.equal(groupAlive(call.pid), false);
 

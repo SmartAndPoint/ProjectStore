@@ -41,6 +41,10 @@ import { ghStub } from "./gh-stub.mjs";
 
 export const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const SSH_STUB = join(dirname(fileURLToPath(import.meta.url)), "dashboard-ssh.mjs");
+export const SSH_HANG = join(dirname(fileURLToPath(import.meta.url)), "dashboard-ssh-hang.sh");
+// The budget of the cases that end a hung call: short, and wider under CI,
+// where a loaded runner starts git and its ssh more slowly.
+export const HANG_MS = process.env.CI ? 4000 : 1500;
 
 const STORY = renderTemplate(loadTemplate("en", "story"), {
   id: "story-a",

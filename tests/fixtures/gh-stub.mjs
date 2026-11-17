@@ -30,7 +30,9 @@
 // `pulls` (the next number, its --head, --base, --title and --body) and
 // prints its URL; `pr close` marks the one its argument names CLOSED. Both
 // write the table back, so the next `pr list` sees them. Each call's record
-// holds its argv, its cwd and GH_PROMPT_DISABLED as it saw it (`prompt`).
+// holds its argv, its cwd, GH_PROMPT_DISABLED as it saw it (`prompt`), and
+// GH_REPO and GH_HOST (`env`, null when unset), and whether GH_TOKEN is set
+// (`token`, never its value).
 
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join, delimiter } from "node:path";
@@ -158,7 +160,8 @@ export function ghStub(dir, table = {}) {
   const script = `#!${process.execPath}
 const fs = require("node:fs"), path = require("node:path");
 const argv = process.argv.slice(2);
-fs.appendFileSync(path.join(__dirname, "calls.jsonl"), JSON.stringify({ argv, cwd: process.cwd(), prompt: process.env.GH_PROMPT_DISABLED ?? null }) + "\\n");
+const seen = Object.fromEntries(["GH_REPO", "GH_HOST"].map((k) => [k, process.env[k] ?? null]));
+fs.appendFileSync(path.join(__dirname, "calls.jsonl"), JSON.stringify({ argv, cwd: process.cwd(), prompt: process.env.GH_PROMPT_DISABLED ?? null, env: seen, token: "GH_TOKEN" in process.env }) + "\\n");
 import(${JSON.stringify(SELF)}).then(({ ghAnswer }) => {
   const table = JSON.parse(fs.readFileSync(path.join(__dirname, "table.json"), "utf8"));
   const r = ghAnswer(argv, table);

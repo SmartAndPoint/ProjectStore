@@ -84,10 +84,15 @@ export const PROMPT_ENV = Object.freeze({ GIT_TERMINAL_PROMPT: "0", GCM_INTERACT
 // What would point a git call at a repository other than its working directory's.
 const LOCATING_ENV = Object.freeze(["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX"]);
 // The variables each record entry carries.
-export const RECORDED_ENV = Object.freeze(["GIT_TERMINAL_PROMPT", "GCM_INTERACTIVE", "SSH_ASKPASS_REQUIRE", "GIT_SSH_COMMAND", "GIT_SSH", "GIT_CEILING_DIRECTORIES", "GH_PROMPT_DISABLED"]);
+export const RECORDED_ENV = Object.freeze(["GIT_TERMINAL_PROMPT", "GCM_INTERACTIVE", "SSH_ASKPASS_REQUIRE", "GIT_SSH_COMMAND", "GIT_SSH", "GIT_CEILING_DIRECTORIES", "GH_PROMPT_DISABLED", "GH_REPO", "GH_HOST"]);
 // What every gh call adds: no question asked (gh's own switch, beside the
 // long-form options that leave it nothing to ask), and no look for a newer gh.
 export const GH_ENV = Object.freeze({ GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1" });
+// What would point a gh call at a repository or a host other than the
+// clone's origin: removed, so gh finds both from the clone's remote. The
+// tokens (GH_TOKEN, GH_ENTERPRISE_TOKEN and the like) stay: they say who
+// asks, not where, and without them a person logged in that way is not.
+export const GH_LOCATING_ENV = Object.freeze(["GH_REPO", "GH_HOST"]);
 
 export const LOCK_FILE = "projectstore-dashboard.lock";
 // Where a call inside the place looks for hooks: a path under which no file
@@ -104,7 +109,7 @@ export const WRITE_VERBS = Object.freeze([
     fields: Object.freeze({
       story: Object.freeze({ kind: "story", form: "<EPIC>/<id>" }),
       to: Object.freeze({ kind: "choice", values: Object.freeze(["todo", "planned"]) }),
-      reason: Object.freeze({ kind: "line" }),
+      reason: Object.freeze({ kind: "line", max: 200 }),
     }),
   }),
 ]);
@@ -149,6 +154,9 @@ export function checkRequest(body, verbs = WRITE_VERBS) {
       const t = v.trim();
       if (!t) return no(`${name} is empty: say in one line why`);
       if (CONTROL.test(t)) return no(`${name} must be one line, with no line break or control character`);
+      // Counted in characters (code points), after the trim.
+      const n = [...t].length;
+      if (kind.max && n > kind.max) return no(`${name} is ${n} characters long; it takes at most ${kind.max}: say it in a shorter line`);
       fields[name] = t;
     } else return no(`${name} has a kind the page does not know: ${kind.kind}`);
   }
@@ -521,7 +529,11 @@ function runner({ budgets = {}, record = null, env = process.env, root = null } 
   // gh in `cwd`: { ok, stdout } or { ok: false, unavailable, timedOut, reason }.
   // Missing from PATH (also `missing`) and logged out (exit 4) are `unavailable`.
   async function gh(cwd, args, { budget = B.gh, via = "gh" } = {}) {
-    const r = await run("gh", args, { cwd, budget, via, edit: (e) => Object.assign(e, GH_ENV) });
+    const edit = (e) => {
+      for (const k of GH_LOCATING_ENV) delete e[k];
+      return Object.assign(e, GH_ENV);
+    };
+    const r = await run("gh", args, { cwd, budget, via, edit });
     const sub = args.slice(0, 2).join(" ");
     if (r.status === 0) return { ok: true, stdout: r.stdout, stderr: r.stderr, pid: r.pid };
     const first = String(r.stderr || "").trim().split("\n")[0].trim();
@@ -1314,10 +1326,10 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     return out;
   }
 
-  // The non-merge commits of `revs` (git rev-list's own syntax), oldest first:
-  // [{ sha, subject }].
+  // The non-merge commits of `revs` (git rev-list's own syntax), oldest first
+  // by ancestry, not by commit date: [{ sha, subject }].
   async function commitsIn(revs, via) {
-    const r = await git(paths.clone, ["rev-list", "--reverse", "--no-merges", "--format=%x00%H%x00%s", "--end-of-options", ...revs], { need: true, via });
+    const r = await git(paths.clone, ["rev-list", "--topo-order", "--reverse", "--no-merges", "--format=%x00%H%x00%s", "--end-of-options", ...revs], { need: true, via });
     return String(r.stdout || "")
       .split("\n")
       .filter((l) => l.startsWith("\0"))
@@ -1330,15 +1342,18 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
 
   // The person's batch branches the clone has not checked out (delivery
   // contract 6): [{ branch, commits }], `commits` counting what `base` lacks.
+  // A branch git cannot list or count fails the step (502, git's message):
+  // left out, it would hide commits that may never have been sent.
   async function keptOf(base, current, via) {
-    const refs = await git(paths.clone, ["for-each-ref", "--format=%(refname)", "--", `refs/heads/dashboard/${person}/`], { via });
-    if (!refs.ok) return [];
+    const refs = await git(paths.clone, ["for-each-ref", "--format=%(refname)", "--", `refs/heads/dashboard/${person}/`], { need: true, via });
     const out = [];
     for (const ref of lines(refs.stdout)) {
       const branch = ref.slice("refs/heads/".length);
       if (branch === current || !isBatchBranch(branch) || branch.split("/").length !== 3 || !stampOf(branch)) continue;
       const c = await git(paths.clone, ["rev-list", "--count", "--end-of-options", `${base}..${ref}`], { via });
-      out.push({ branch, commits: c.ok ? Number(lines(c.stdout)[0]) || 0 : null });
+      const n = c.ok ? Number(lines(c.stdout)[0]) : NaN;
+      if (!Number.isInteger(n)) throw new StepError(502, `git cannot count the commits of the kept branch ${branch}: ${c.ok ? `it answered ${JSON.stringify(String(c.stdout).trim())}` : said(c)}`);
+      out.push({ branch, commits: n });
     }
     return out;
   }
@@ -1394,7 +1409,8 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
   // → { ok: true, merged } or { ok: false, conflict, reason, unsent }.
   async function mergeRemote(branch, via) {
     const remote = `refs/remotes/origin/${branch}`;
-    const f = await git(paths.clone, ["fetch", "--quiet", "--no-write-fetch-head", "--", "origin", `refs/heads/${branch}`], { budget: proc.budgets.git, via });
+    // An explicit destination: the clone's own fetch refspec is not relied on.
+    const f = await git(paths.clone, ["fetch", "--quiet", "--no-write-fetch-head", "--", "origin", `refs/heads/${branch}:${remote}`], { budget: proc.budgets.git, via });
     // Not there yet, or not reached: nothing to merge; the push says the rest.
     if (!f.ok) return { ok: true, merged: 0, fetched: false, reason: said(f) };
     const ahead = await git(paths.clone, ["rev-list", "--count", "--end-of-options", `HEAD..${remote}`], { need: true, via });
