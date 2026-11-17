@@ -176,7 +176,7 @@ test("dashboard page: a core of another version is refused before listening, nam
 });
 
 // [dashboard#9]
-test("dashboard page: it listens on 127.0.0.1, refuses another Host with 403 and any method but GET and HEAD with 405", async () => {
+test("dashboard page: it listens on 127.0.0.1, refuses another Host with 403, a POST to a path that is no write route and any other method with 405, and a write route's POST without the run's token with 403", async () => {
   await withServer(async ({ vault, port, ready }) => {
     assert.equal(ready.url, `http://127.0.0.1:${port}/`);
     assert.equal(ready.port, port);
@@ -185,13 +185,20 @@ test("dashboard page: it listens on 127.0.0.1, refuses another Host with 403 and
     for (const host of ["evil.test", `evil.test:${port}`, "127.0.0.1", `[::1]:${port}`])
       assert.equal((await call(port, "/", { host })).status, 403, host);
     const before = treeHash(vault);
-    // The scenario: WHEN a POST reaches any path, THEN 405 and no file changes.
+    // The scenario: WHEN a POST reaches a path that is not a write route, THEN 405 and no file changes.
     for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
       for (const path of ["/", "/api/state", "/api/item?rel=adr/a-decision.md", "/nowhere"]) {
         const r = await call(port, path, { method });
         assert.equal(r.status, 405, `${method} ${path}`);
         assert.match(r.headers.allow || "", /GET/);
       }
+    // A write route is answered under the write path's guard (dashboard-writes, contract 8).
+    for (const path of ["/api/refresh", "/api/preview", "/api/action", "/api/send", "/api/discard"]) {
+      const r = await call(port, path, { method: "POST" });
+      assert.equal(r.status, 403, `POST ${path}`);
+      assert.equal(JSON.parse(r.body).write.can, false, "a vault in no git repository");
+      assert.equal((await call(port, path, { method: "OPTIONS" })).status, 405, `OPTIONS ${path}`);
+    }
     assert.equal(treeHash(vault), before);
     const head = await call(port, "/", { method: "HEAD" });
     assert.equal(head.status, 200);
@@ -204,7 +211,7 @@ test("dashboard page: it listens on 127.0.0.1, refuses another Host with 403 and
 });
 
 // [dashboard#10]
-test("dashboard page: answering every route leaves the vault, the project and the core byte-identical", async () => {
+test("dashboard page: answering every read route leaves the vault, the project and the core byte-identical to what they were at the ready line", async () => {
   await withServer(async ({ proj, vault, port }) => {
     const snapshot = () => [
       treeHash(proj),
@@ -382,6 +389,12 @@ test("dashboard page: a document is read only from the layout's folders or initi
       "/api/nothing",
       "/server.mjs",
       "/../package.json",
+      // The write routes take POST only.
+      "/api/refresh",
+      "/api/preview",
+      "/api/action",
+      "/api/send",
+      "/api/discard",
     ])
       assert.equal((await call(port, path)).status, 404, path);
     assert.equal(

@@ -20,12 +20,16 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  lstatSync,
   realpathSync,
   renameSync,
+  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
+import { request } from "node:http";
 import { hostname } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
 import { hermeticGit, makeWorld, SSH_STUB, REPO } from "./fixtures/dashboard-world.mjs";
@@ -45,6 +49,7 @@ import {
 import { mainCheckoutOfProject } from "../scripts/worktree.mjs";
 import { openCore } from "../dashboard/lib/core.mjs";
 import { readState } from "../dashboard/lib/state.mjs";
+import { START_BUDGET_MS, WRITE_ROUTES } from "../dashboard/server.mjs";
 
 hermeticGit();
 
@@ -1061,6 +1066,429 @@ test("dashboard writes: with no refs/remotes/origin/HEAD the default branch come
     assert.equal(s.body.write.can, false);
     assert.match(s.body.write.reason, /no default branch is known/);
     assert.equal(writer.readCtx(), w.ctx);
+  });
+});
+
+// ─── Contracts 4 and 8: the server ──────────────────────────────────────
+//
+// The server in process (startServer, through the world's start()), on port
+// 0, with the world's spawn record: the moment its promise settles stands for
+// the ready line.
+
+// One request with the Host the server answers to and the headers the test names.
+function call(page, path, { method = "GET", headers = {}, body } = {}) {
+  return new Promise((done, fail) => {
+    const req = request(
+      { host: "127.0.0.1", port: page.port, path, method, headers: { host: `127.0.0.1:${page.port}`, ...headers } },
+      (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (d) => (text += d));
+        res.on("end", () => {
+          let json = null;
+          try {
+            json = JSON.parse(text);
+          } catch {}
+          done({ status: res.statusCode, headers: res.headers, text, json });
+        });
+      },
+    );
+    req.on("error", fail);
+    req.end(body);
+  });
+}
+const tokenIn = (html) => /<meta name="projectstore-token" content="([^"]*)"/.exec(html)?.[1] ?? null;
+const tokenOf = async (page) => tokenIn((await call(page, "/")).text);
+// The headers of the page's own request: the run's token and its Origin.
+const own = (page, token, origin = `http://127.0.0.1:${page.port}`) => ({ "x-projectstore-token": token, origin });
+const post = (page, path, headers = {}, body = undefined) => call(page, path, { method: "POST", headers, body });
+const BODY = JSON.stringify({ verb: "move", fields: { story: "PS-X/story-a", to: "todo", reason: "r" } });
+
+// Every file under `dir`, hashed: what "byte-identical" is checked against.
+function treeHash(dir) {
+  const h = createHash("sha256");
+  const walk = (d) => {
+    for (const name of readdirSync(d).sort()) {
+      const p = join(d, name);
+      const st = lstatSync(p);
+      if (st.isSymbolicLink()) h.update(`${p}\0link\0`);
+      else if (st.isDirectory()) walk(p);
+      else h.update(`${p}\0`).update(readFileSync(p)).update("\0");
+    }
+  };
+  walk(dir);
+  return h.digest("hex");
+}
+
+// [dashboard-writes#8]
+test("dashboard writes: a POST to a write route with no token, another token, or the token with Origin null, another site's Origin or none gets 403 in the answer's shape, and no process starts", async () => {
+  await withWorld({}, async (w) => {
+    const page = await w.start();
+    const token = await tokenOf(page);
+    assert.match(token, /^[0-9a-f]{64}$/);
+    const origin = `http://127.0.0.1:${page.port}`;
+    const cases = [
+      {},
+      { origin },
+      { "x-projectstore-token": "0".repeat(64), origin },
+      { "x-projectstore-token": token.slice(1), origin },
+      { "x-projectstore-token": token },
+      { "x-projectstore-token": token, origin: "null" },
+      { "x-projectstore-token": token, origin: "http://evil.example" },
+      { "x-projectstore-token": token, origin: `http://127.0.0.1:${page.port + 1}` },
+      { "x-projectstore-token": token, origin: `https://127.0.0.1:${page.port}` },
+    ];
+    const from = w.record.length;
+    for (const path of WRITE_ROUTES)
+      for (const headers of cases) {
+        const r = await post(page, path, { "content-type": "application/json", ...headers }, BODY);
+        assert.equal(r.status, 403, `${path} ${JSON.stringify(headers)}`);
+        assert.equal(r.json.ok, false);
+        assert.match(r.json.error, /the run's token and the page's own Origin/);
+        assert.deepEqual(Object.keys(r.json.write), WRITE_KEYS);
+        assert.equal(r.headers["access-control-allow-origin"], undefined);
+      }
+    assert.equal(w.record.length, from, "the spawn record shows no call");
+    // The token and the page's own Origin, at either name: the refresh runs.
+    for (const o of [origin, `http://localhost:${page.port}`]) {
+      const r = await post(page, "/api/refresh", own(page, token, o));
+      assert.equal(r.status, 200, r.text);
+      assert.deepEqual(Object.keys(r.json), ["ok", "result", "write"]);
+      assert.equal(r.json.ok, true);
+      assert.equal(r.json.write.can, true, r.json.write.reason);
+    }
+    assert.ok(gitCalls(w, from, "fetch").length >= 2, "each refresh fetched");
+  });
+});
+
+// [dashboard-writes#8] [dashboard#9] [dashboard#11]
+test("dashboard writes: OPTIONS to a write route gets 405 with no Access-Control-Allow-* header, a GET or HEAD to one gets 404, a POST to any other path gets 405, and none starts a process", async () => {
+  await withWorld({}, async (w) => {
+    const page = await w.start();
+    const token = await tokenOf(page);
+    const from = w.record.length;
+    for (const path of WRITE_ROUTES) {
+      const o = await call(page, path, {
+        method: "OPTIONS",
+        headers: {
+          origin: "http://evil.example",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "x-projectstore-token, content-type",
+        },
+      });
+      assert.equal(o.status, 405, path);
+      assert.deepEqual(
+        Object.keys(o.headers).filter((k) => k.startsWith("access-control-")),
+        [],
+        `${path}: no Access-Control-Allow-* header`,
+      );
+      for (const method of ["GET", "HEAD"])
+        assert.equal((await call(page, path, { method })).status, 404, `${method} ${path}`);
+      for (const method of ["PUT", "DELETE", "PATCH"])
+        assert.equal((await call(page, path, { method, headers: own(page, token) })).status, 405, `${method} ${path}`);
+    }
+    for (const path of [
+      "/",
+      "/api/state",
+      "/api/item?rel=epics/PS-X/epic.md",
+      "/api/refresh/",
+      "/api/Refresh",
+      "/api/%72efresh",
+      "/api/./refresh",
+      "/api/x/../refresh",
+      "/nowhere",
+    ]) {
+      const r = await post(page, path, own(page, token), BODY);
+      assert.equal(r.status, 405, path);
+      assert.equal(r.headers.allow, "GET, HEAD", path);
+    }
+    assert.equal(w.record.length, from, "the spawn record shows no call");
+  });
+});
+
+// [dashboard-writes#8]
+test("dashboard writes: GET / in two runs holds the meta tag with two different tokens, and a run's token is refused by the other run", async () => {
+  await withWorld({}, async (w) => {
+    const a = await w.start();
+    const index = (await call(a, "/")).text;
+    const first = tokenIn(index);
+    assert.match(first, /^[0-9a-f]{64}$/);
+    assert.equal(tokenIn((await call(a, "/index.html")).text), first, "the same run, the same token");
+    assert.equal(first, a.token);
+    assert.equal((await call(a, "/", { method: "HEAD" })).text, "");
+    assert.equal((await call(a, "/")).headers["cache-control"], "no-store");
+    await a.close();
+    const b = await w.start();
+    const second = await tokenOf(b);
+    assert.match(second, /^[0-9a-f]{64}$/);
+    assert.notEqual(second, first);
+    const from = w.record.length;
+    assert.equal((await post(b, "/api/refresh", own(b, first))).status, 403, "the other run's token");
+    assert.equal(w.record.length, from);
+    assert.equal((await post(b, "/api/refresh", own(b, second))).status, 200);
+  });
+});
+
+// [dashboard-writes#8] [dashboard-writes#1]
+test("dashboard writes: while write.can is false, the refresh runs and the other four routes get 409 with write.reason; a body that is no JSON object gets 400 first, and Send and Discard read no body", async () => {
+  await withWorld({ plainVault: true }, async (w) => {
+    const page = await w.start();
+    const token = await tokenOf(page);
+    const state = (await call(page, "/api/state")).json;
+    assert.equal(state.write.can, false);
+    assert.match(state.write.reason, /is not in a git repository/);
+    const from = w.record.length;
+    for (const path of ["/api/preview", "/api/action", "/api/send", "/api/discard"]) {
+      const r = await post(page, path, { ...own(page, token), "content-type": "application/json" }, BODY);
+      assert.equal(r.status, 409, path);
+      assert.deepEqual(r.json, { ok: false, error: state.write.reason, write: state.write });
+    }
+    for (const path of ["/api/send", "/api/discard"]) {
+      assert.equal((await post(page, path, own(page, token), "not json")).status, 409, `${path} reads no body`);
+      assert.equal((await post(page, path, own(page, token))).status, 409, `${path} with none`);
+    }
+    for (const bad of ["not json", "[]", "null", "3", ""]) {
+      const r = await post(page, "/api/preview", own(page, token), bad);
+      assert.equal(r.status, 400, JSON.stringify(bad));
+      assert.match(r.json.error, /no JSON object/);
+      assert.deepEqual(Object.keys(r.json), ["ok", "error", "write"]);
+    }
+    assert.equal(w.record.length, from, "no process for any of them");
+    const r = await post(page, "/api/refresh", own(page, token));
+    assert.equal(r.status, 200);
+    assert.equal(r.json.write.can, false);
+    assert.ok(w.record.length > from, "the refresh asked git again");
+  });
+});
+
+// [dashboard-writes#8] [dashboard-writes#6]
+test("dashboard writes: while write.can is true, a verb outside write.verbs gets 400 and starts no process, and Send or Discard with no open batch gets 409", async () => {
+  await withWorld({}, async (w) => {
+    const page = await w.start();
+    const token = await tokenOf(page);
+    assert.equal(page.writer.view().can, true, page.writer.view().reason);
+    const from = w.record.length;
+    for (const path of ["/api/preview", "/api/action"])
+      for (const body of [BODY, JSON.stringify({ verb: "rank" }), JSON.stringify({}), "{oops"]) {
+        const r = await post(page, path, own(page, token), body);
+        assert.equal(r.status, 400, `${path} ${body}`);
+        assert.equal(r.json.ok, false);
+        assert.equal(r.json.write.can, true);
+      }
+    for (const path of ["/api/send", "/api/discard"]) {
+      const r = await post(page, path, own(page, token));
+      assert.equal(r.status, 409, path);
+      assert.match(r.json.error, /no batch is open/);
+    }
+    assert.equal(w.record.length, from, "the spawn record shows no call");
+    // With a batch open, Send and Discard are not built in this step: 501, still no process.
+    const clone = page.writer.paths.clone;
+    w.git(clone, "switch", "-q", "-c", "dashboard/test-person/20261117T090000Z");
+    writeFileSync(
+      join(clone, "epics", "PS-X", "epic.md"),
+      readFileSync(join(clone, "epics", "PS-X", "epic.md"), "utf8") + "\n",
+    );
+    w.git(clone, ...w.as, "commit", "-q", "-am", "a batch's commit");
+    assert.equal((await post(page, "/api/refresh", own(page, token))).json.write.batch.commits, 1);
+    const at = w.record.length;
+    assert.equal((await post(page, "/api/send", own(page, token))).status, 501);
+    assert.equal(w.record.length, at);
+  });
+});
+
+// [dashboard-writes#4] [dashboard-writes#1]
+test("dashboard writes: the start's refresh ends before the ready line: the first start makes the clone, the next fetches, inside 10 s; /api/state carries write, names the real project and the bound vault, and the readers read the clone", async () => {
+  await withWorld({}, async (w) => {
+    let t = Date.UTC(2026, 10, 17, 12, 0, 0);
+    const now = () => (t += 1000);
+    const first = await w.start({ now });
+    assert.equal(first.writer.view().can, true, first.writer.view().reason);
+    assert.ok(existsSync(join(first.writer.paths.clone, ".git")), "the clone is there at the ready line");
+    assert.equal(gitCalls(w, 0, "clone").length, 1);
+    const made = first.writer.view().fetched_at;
+    await first.close();
+    const from = w.record.length;
+    const t0 = Date.now();
+    const page = await w.start({ now });
+    assert.ok(Date.now() - t0 < 10000, "inside 10 s");
+    assert.equal(gitCalls(w, from, "fetch").length, 1, "the start fetched before its ready line");
+    assert.equal(page.vault, w.vault, "the ready line's vault is the bound vault");
+    const after = w.record.length;
+    // A story only in the bound checkout: the page reads its clone, which lacks it.
+    const stories = join(w.vault, "epics", "PS-X", "stories");
+    writeFileSync(
+      join(stories, "story-c.md"),
+      readFileSync(join(stories, "story-a.md"), "utf8").replaceAll("story-a", "story-c"),
+    );
+    const state = (await call(page, "/api/state")).json;
+    assert.deepEqual(Object.keys(state.write), WRITE_KEYS);
+    assert.equal(state.write.can, true);
+    assert.equal(state.write.default_branch, "main");
+    assert.ok(state.write.fetched_at > made, `the fetch's time (${state.write.fetched_at} after ${made})`);
+    assert.equal(state.vault, w.vault);
+    assert.deepEqual(state.project, { dir: w.project, name: basename(w.project) });
+    assert.deepEqual(
+      state.stories.map((s) => s.rel),
+      ["epics/PS-X/stories/story-a.md"],
+      "the clone's stories",
+    );
+    assert.equal((await call(page, "/api/item?rel=epics/PS-X/stories/story-c.md")).status, 404);
+    assert.equal((await call(page, "/api/item?rel=epics/PS-X/stories/story-a.md")).status, 200);
+    assert.ok(!(await call(page, "/api/artifacts")).json.some((a) => a.rel.includes("story-c")));
+    assert.equal((await call(page, "/api/related?rel=epics/PS-X/epic.md")).status, 200);
+    assert.equal(w.record.length, after, "no GET starts a process");
+  });
+});
+
+// [dashboard-writes#4]
+test("dashboard writes: a fetch at the start that has not ended by the start's budget ends with its group, the ready line follows, and write.fetched_at is the last fetch that ended", async () => {
+  await withWorld({}, async (w) => {
+    sshOrigin(w, "serve");
+    const a = await w.start();
+    const token = await tokenOf(a);
+    assert.equal((await post(a, "/api/refresh", own(a, token))).json.write.can, true);
+    await a.close();
+    const mtime = Math.floor(statSync(join(a.writer.paths.clone, ".git", "FETCH_HEAD")).mtimeMs);
+    const report = sshOrigin(w, "hang");
+    const from = w.record.length;
+    const t0 = Date.now();
+    const page = await w.start({ budgets: { start: 1500 } });
+    const took = Date.now() - t0;
+    assert.ok(took >= 1000 && took < 9000, `the start's budget ended the fetch (${took} ms)`);
+    assert.equal(gitCalls(w, from, "fetch").length, 1);
+    const write = (await call(page, "/api/state")).json.write;
+    assert.equal(write.can, true, "a fetch out of time fails no step");
+    assert.equal(write.fetched_at, new Date(mtime).toISOString());
+    const facts = JSON.parse(readFileSync(report, "utf8"));
+    assert.equal(groupAlive(facts.pgid), false, "the fetch's process group is ended");
+    assert.equal(pidAlive(facts.grandchild), false);
+    assert.equal(page.writer.live, 0);
+  });
+});
+
+// [dashboard-writes#4]
+test("dashboard writes: a GET reads what the last refresh left and starts no process; POST /api/refresh recomputes write and shows a commit that landed on the remote default branch", async () => {
+  await withWorld({}, async (w) => {
+    let t = Date.UTC(2026, 10, 17, 13, 0, 0);
+    const page = await w.start({ now: () => (t += 1000) });
+    const token = await tokenOf(page);
+    const before = (await call(page, "/api/state")).json;
+    assert.equal(before.stories.length, 1);
+    const tip = landUpstream(w);
+    const from = w.record.length;
+    const again = (await call(page, "/api/state")).json;
+    assert.equal(again.stories.length, 1, "nothing moves before the refresh");
+    assert.deepEqual(again.write, before.write);
+    assert.equal(w.record.length, from, "a GET starts no process");
+    const r = await post(page, "/api/refresh", own(page, token));
+    assert.equal(r.status, 200, r.text);
+    assert.ok(r.json.write.fetched_at > before.write.fetched_at);
+    assert.equal(w.git(page.writer.paths.clone, "rev-parse", "HEAD"), tip);
+    const after = (await call(page, "/api/state")).json;
+    assert.equal(after.stories.length, 2);
+    assert.deepEqual(after.write, r.json.write, "the next GET carries write as the step left it");
+  });
+});
+
+// [dashboard-writes#8] [dashboard-writes#5]
+test("dashboard writes: an error the step did not expect answers 500 in the same shape, with its message, and no lock is left", async () => {
+  await withWorld({}, async (w) => {
+    const page = await w.start();
+    const token = await tokenOf(page);
+    // The binding folder's place taken by a file: the refresh cannot write it.
+    const binding = page.writer.paths.binding;
+    rmSync(binding, { recursive: true, force: true });
+    writeFileSync(binding, "not a folder\n");
+    const r = await post(page, "/api/refresh", own(page, token));
+    assert.equal(r.status, 500, r.text);
+    assert.deepEqual(Object.keys(r.json), ["ok", "error", "write"]);
+    assert.equal(r.json.ok, false);
+    assert.match(r.json.error, /^refresh: .*(ENOTDIR|EEXIST)/);
+    assert.ok(!existsSync(page.writer.paths.lock), "no lock is left");
+  });
+});
+
+// [dashboard-writes#9] [dashboard-writes#4]
+test("dashboard writes: a server stopped during its start ends the running fetch with its process group and never says it is ready; the command line's server exits 0 on SIGTERM then", async () => {
+  await withWorld({}, async (w) => {
+    sshOrigin(w, "serve");
+    await (await w.start()).close();
+    let report = sshOrigin(w, "hang");
+    const stop = new AbortController();
+    const t0 = Date.now();
+    const starting = w.start({ signal: stop.signal });
+    const facts = await waitFor(() => existsSync(report) && JSON.parse(readFileSync(report, "utf8")));
+    stop.abort();
+    await assert.rejects(starting, { code: "ABORT_ERR" });
+    assert.ok(Date.now() - t0 < 9000, "stopped before the start's budget");
+    assert.equal(groupAlive(facts.pgid), false);
+    assert.equal(pidAlive(facts.grandchild), false);
+
+    // The same through main(): the signal heard during the start.
+    rmSync(report, { force: true });
+    report = sshOrigin(w, "hang");
+    const child = spawn(
+      process.execPath,
+      [join(REPO, "dashboard", "server.mjs"), "--core", REPO, "--project", w.project, "--port", "0"],
+      {
+        env: w.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    const exited = new Promise((done) => child.on("exit", (code, signal) => done({ code, signal })));
+    try {
+      const seen = await waitFor(() => existsSync(report) && JSON.parse(readFileSync(report, "utf8")));
+      child.kill("SIGTERM");
+      assert.deepEqual(await exited, { code: 0, signal: null }, err);
+      assert.equal(out, "", "no ready line");
+      assert.equal(groupAlive(seen.pgid), false);
+      assert.equal(pidAlive(seen.grandchild), false);
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+});
+
+// [dashboard-writes#4]
+test("dashboard writes: the start's budget is 10 s, and with the stop's grace it ends inside the launcher's wait", () => {
+  assert.equal(START_BUDGET_MS, 10000);
+  const launcher = readFileSync(join(REPO, "scripts", "dashboard.mjs"), "utf8");
+  const wait = Number(/const START_MS = (\d+);/.exec(launcher)?.[1]);
+  // SIGTERM to the call's group at the budget, SIGKILL 2 s later, 1 s more at most.
+  assert.ok(wait >= START_BUDGET_MS + 3000 + 1000, `the launcher waits ${wait} ms`);
+});
+
+// [dashboard#10]
+test("dashboard writes: on a writable vault, answering every GET route after the ready line leaves the project, the vault's repository and the core byte-identical", async () => {
+  await withWorld({}, async (w) => {
+    const page = await w.start();
+    assert.equal(page.writer.view().can, true);
+    const snapshot = () => [
+      treeHash(w.main),
+      treeHash(w.repo),
+      treeHash(join(REPO, "scripts")),
+      treeHash(join(REPO, "dashboard")),
+    ];
+    const before = snapshot();
+    const from = w.record.length;
+    const index = (await call(page, "/")).text;
+    for (const m of index.matchAll(/(?:src|href)="\/?([^"]+\.(?:js|css))"/g))
+      assert.equal((await call(page, `/${m[1]}`)).status, 200, m[1]);
+    const state = (await call(page, "/api/state")).json;
+    const arts = (await call(page, "/api/artifacts")).json;
+    const rels = [...state.stories.map((s) => s.rel), ...arts.map((a) => a.rel)].filter(Boolean);
+    assert.ok(rels.length >= 2, "the crawl reads documents");
+    for (const rel of rels) {
+      assert.equal((await call(page, `/api/item?rel=${encodeURIComponent(rel)}`)).status, 200, rel);
+      assert.equal((await call(page, `/api/related?rel=${encodeURIComponent(rel)}`)).status, 200, rel);
+      await call(page, `/vault/${rel}`, { method: "HEAD" });
+    }
+    assert.deepEqual(snapshot(), before);
+    assert.equal(w.record.length, from, "no GET starts a process");
   });
 });
 

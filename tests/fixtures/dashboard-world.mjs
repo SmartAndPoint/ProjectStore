@@ -6,7 +6,7 @@
 //                            inherited GIT_* removed. Call it once, first.
 //   makeWorld(options)     → { root, env, origin, repo, vault, prefix, project,
 //                            main, ctx, record, git(cwd, ...args), open(opts),
-//                            cloneInto(dir), cleanup() }
+//                            start(opts), cloneInto(dir), cleanup() }
 //
 // A world is a bare repository as `origin`, a vault repository cloned from it
 // with an identity of its own (the vault at `prefix` inside it), and a code
@@ -33,6 +33,7 @@ import { fileURLToPath } from "node:url";
 import { loadTemplate, renderTemplate } from "../../scripts/lib.mjs";
 import { openCore } from "../../dashboard/lib/core.mjs";
 import { openWriter } from "../../dashboard/lib/write.mjs";
+import { startServer } from "../../dashboard/server.mjs";
 
 export const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const SSH_STUB = join(dirname(fileURLToPath(import.meta.url)), "dashboard-ssh.mjs");
@@ -149,6 +150,7 @@ export async function makeWorld({
   const ctx = await openCore({ core: REPO, project });
   const record = [];
   const writers = [];
+  const pages = [];
   const world = {
     root,
     env,
@@ -167,6 +169,13 @@ export async function makeWorld({
       writers.push(w);
       return w;
     },
+    // The page's server, in process, on port 0, with the world's record: its
+    // promise settling stands for the ready line.
+    async start(opts = {}) {
+      const page = await startServer({ core: REPO, project, port: 0, env, record, ...opts });
+      pages.push(page);
+      return page;
+    },
     // A plain clone of origin at `dir`, as the refresh will make one.
     cloneInto(dir) {
       mkdirSync(dirname(dir), { recursive: true });
@@ -174,6 +183,7 @@ export async function makeWorld({
       return dir;
     },
     async cleanup() {
+      for (const p of pages) await p.close();
       for (const w of writers) await w.stop();
       rmSync(root, { recursive: true, force: true });
     },
