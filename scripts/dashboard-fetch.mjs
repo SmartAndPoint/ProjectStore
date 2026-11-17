@@ -1,21 +1,25 @@
 // projectstore — dashboard-fetch.mjs: the page of a copy installed from npm.
 //
 // The spec "The dashboard package and its launcher: the folder, the dashboard
-// verb, and a page that only reads" (alias dashboard), contracts 4 and 14 to
-// 17, as amended on 2026-11-14 by the story "The release builds, checks and
-// publishes the dashboard package at the core's version" (PS-DASHBOARD).
+// verb, and a page that only reads" (alias dashboard), contracts 4, 14 to 17
+// and 21, as amended on 2026-11-14 by the story "The release builds, checks and
+// publishes the dashboard package at the core's version" and on 2026-11-17 by
+// the story "A core copied from a checkout or packed from main does not fetch
+// a released page" (PS-DASHBOARD).
 //
 // A copy from npm ships no dashboard/ folder. Its page is the package
 // projectstore-dashboard at the core's own version, fetched once into
 // ProjectStore's user cache, <cache>/dashboard/<version>/, from the user's
 // own npm registry and configuration, and started from there by every later
 // run with no npm call and no network. Any other copy (a checkout, the git
-// marketplace's copy, an unpacked tarball) fetches nothing: the git channel
-// never runs a page built from a tag on a core taken from main.
+// marketplace's copy, an unpacked tarball), and an npm copy whose origin is
+// local (a tarball packed in a checkout, a git source, a payload setup laid
+// from one of those: surfaces.mjs's payloadOrigin), fetches nothing: no page
+// built from a tag runs on a core taken from main.
 //
 //   PAGE_PACKAGE                         → "projectstore-dashboard"
 //   FETCHING_CHANNELS                    → the install channels that fetch
-//   npmCopy(root, { home })              → true for a copy installed from npm (contract 4)
+//   npmCopy(root, { home })              → true for a copy from the npm registry (contracts 4, 21)
 //   pageVersion(root)                    → the core's version, strict semver, or null
 //   checkPage(dir, version)              → null when dir is the page of version, else
 //                                          what is wrong: the file and both values
@@ -36,7 +40,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { cachePaths, packageCommand } from "./harness.mjs";
 import { installChannel, movePath, removeTreeUnder, fromTerminalIn } from "./lib.mjs";
-import { registrationPayloadRoot } from "./surfaces.mjs";
+import { registrationPayloadRoot, payloadOrigin } from "./surfaces.mjs";
 import {
   fetchArgv,
   npmCall,
@@ -57,12 +61,15 @@ export const PAGE_PACKAGE = "projectstore-dashboard";
 // synced from Anthropic's directory, whose tree is the npm packlist.
 export const FETCHING_CHANNELS = Object.freeze(["package", "registration", "synced"]);
 
-// A copy installed from npm (the dashboard spec, contract 4): one of those
-// channels, or the npm registration's own marketplace directory, which a host
-// session runs in place and installChannel reads as a checkout
-// (convergence.mjs's hostCopyRoot asks the same question of surfaces.mjs).
+// A copy from the npm registry (the dashboard spec, contracts 4 and 21): one of
+// those channels, or the npm registration's own marketplace directory, which a
+// host session runs in place and installChannel reads as a checkout
+// (convergence.mjs's hostCopyRoot asks the same question of surfaces.mjs),
+// whose origin is not local. Only positive evidence of a local origin refuses:
+// a wrong refusal would cut every npm user off the page.
 export function npmCopy(root, { home = homedir() } = {}) {
-  return FETCHING_CHANNELS.includes(installChannel(root, { home })) || registrationPayloadRoot(root, { home });
+  const fromNpm = FETCHING_CHANNELS.includes(installChannel(root, { home })) || registrationPayloadRoot(root, { home });
+  return fromNpm && payloadOrigin(root, { home }) !== "local";
 }
 
 // Strict semver 2.0, the specification's own grammar: the version asked for
@@ -278,7 +285,7 @@ export async function pageFor({
     const v = rootVersion(root);
     return refuse(
       [
-        `This copy of projectstore${v ? ` ${v}` : ""}, at ${JSON.stringify(String(root))}, has no dashboard/ folder and is not a copy installed from npm, so it fetches no page: only a copy from npm fetches its page, at its own version. The copy from npm opens it, ${project ? fromTerminalIn(project) : "from a terminal in the project"}:`,
+        `This copy of projectstore${v ? ` ${v}` : ""}, at ${JSON.stringify(String(root))}, has no dashboard/ folder and is not a copy from the npm registry, so it fetches no page: only a copy from the npm registry fetches its page, at its own version. The copy from the npm registry opens it, ${project ? fromTerminalIn(project) : "from a terminal in the project"}:`,
         packageCommand([], "dashboard"),
       ].join("\n"),
       "ECHANNEL",
