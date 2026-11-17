@@ -216,14 +216,18 @@ const ROWS = {
         '"x-projectstore-token"',
         code("dashboard/server.mjs"),
       ],
+      // The one process the server starts unasked: the start's refresh.
+      ["Apart from the refresh it runs once at its own start", "START_BUDGET_MS", code("dashboard/server.mjs")],
       [
-        "When it starts, and when the page is opened, it runs `git fetch` in its own clone of the vault and asks `gh pr list` about its own pull request.",
+        "When it starts, when the page is opened, and when you ask for it in the page's ⌘K palette, it runs `git fetch` in its own clone of the vault and asks `gh pr list` about its own pull request",
         '["fetch", "--quiet", "--", "origin"]',
         code(WRITE_MODULE),
       ],
+      ["`git clean -d -x` put the clone back", '["clean", "-d", "-x", "--quiet"]', code(WRITE_MODULE)],
+      ["only when that branch is ahead of the clone's, `git merge`", "`HEAD..${remote}`", code(WRITE_MODULE)],
       ["After a click, it commits on its own branch in that clone.", '["commit", "--quiet"', code(WRITE_MODULE)],
       [
-        "Send pushes that branch to `origin` and then runs `gh pr create` to open the pull request, and Discard runs `gh pr close` to close it.",
+        "Send pushes that branch to `origin` and then runs `gh pr create` to open the pull request, and Discard runs `gh pr close` to close it; with no `gh` to ask, Send pushes and opens no pull request",
         '["push", "--porcelain", "--", "origin", `refs/heads/${branch}`]',
         code(WRITE_MODULE),
       ],

@@ -13,8 +13,10 @@ A local page over a project's vault: the backlog tree (initiative, epic, story),
 the list, My work, the initiatives, an item's document with what is related to it, and a command
 palette. It can also move a story between the backlog and ToDo. The core's own `move` runs in
 the page's **own clone of the vault**, and the page commits the change there, on the person's own
-branch. **Send** pushes that branch and opens one pull request for it; **Discard** closes that
-pull request. Nothing reaches the vault until a person merges the pull request, and the page
+branch. **Send** pushes that branch and opens one pull request for it (with no `gh` to ask, it
+pushes and opens none); **Discard** closes that pull request and ends the batch (with no `gh` to
+ask, it ends the batch on this machine only, and an open pull request stays open on the code
+host). Nothing reaches the vault until a person merges the pull request, and the page
 changes nothing in the core. Where it cannot write (on Windows, or with no git repository, no
 `origin` or no git identity for the vault), it shows the vault, changes nothing, and says why.
 
@@ -103,6 +105,17 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
   `projectstore-dashboard.lock`; it adds `state/` to `.projectstore/.gitignore` when that line is
   missing, and removes a `clone.tmp/` left behind and a stale `index.lock` in the clone. It
   writes no file of the vault, and changes no setting of the vault's repository.
+- Into the clone's `.git/config` it copies the keys of `CONFIG_KEYS` as git resolves them in the
+  vault's repository, from any configuration file: `credential.*`, `url.*.insteadOf`,
+  `url.*.pushInsteadOf`, `remote.origin.pushurl`, `core.sshCommand`, `ssh.variant`,
+  `commit.gpgsign`, `user.signingkey` and `gpg.format`, and the identity git gives there as
+  `author.name`, `author.email`, `committer.name` and `committer.email` (`IDENTITY_KEYS`). Some
+  can carry a credential (a token in an `insteadOf` address, a credential helper's settings); the
+  copies stay in the clone until it is removed. A reason the page shows has the userinfo of any
+  URL removed.
+- Every step starts with `reset --hard` and `clean -d -x` in the clone, and an action ends with
+  them: the clone holds only what is committed there, and a file edited or added by hand in it,
+  ignored ones included, is lost at the next step.
 - The bridge (`lib/core.mjs`) imports from `<core>/scripts/` exactly `lib.mjs`, `stages.mjs`,
   `flow-stories.mjs`, `flow-policy.mjs`, `flow-counts.mjs`, `graph.mjs` and `binding.mjs`, after
   the version check. Layouts are read from `<core>` by name; the core's other in-process reads
