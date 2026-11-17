@@ -78,6 +78,47 @@ Open the `url` of the line it prints. The server keeps nothing between requests:
 under `public/` and reload the page; edit a file under `lib/` and start the server again.
 `Ctrl+C` ends it.
 
+## Kept branches, by hand
+
+The page keeps a batch branch it no longer works on: a batch you discarded, one whose pull
+request was closed, or one where a carry stopped at a commit that does not apply. The page lists
+them under **Kept branches**, with the commits each holds that the default branch lacks, and
+never sends or deletes one. They live in the page's own clone, at
+`<project>/.projectstore/state/dashboard/<person>/clone/` (in the main checkout of the code
+repository, when the project is a worktree). Stop the page first, so no step of it runs in the
+clone while you work there, and do not check a kept branch out in the clone: a branch of yours
+that the clone has checked out becomes the open batch again.
+
+Look at what a kept branch holds (`main` stands for the vault's default branch):
+
+```bash
+cd "<project>/.projectstore/state/dashboard/<person>/clone"
+git fetch origin
+git log --oneline origin/main..dashboard/<person>/<YYYYMMDDTHHMMSSZ>
+```
+
+Send it by hand: push it under the same name and open its pull request.
+
+```bash
+git push origin dashboard/<person>/<YYYYMMDDTHHMMSSZ>
+gh pr create --base main --head dashboard/<person>/<YYYYMMDDTHHMMSSZ>
+```
+
+A branch where a carry stopped holds a commit that does not apply on the default branch. Settle
+that in a checkout of the vault repository of your own, as with any branch that conflicts, before
+you send it.
+
+Delete it: once its commits are merged, or you are sure you do not want them.
+
+```bash
+git branch -D dashboard/<person>/<YYYYMMDDTHHMMSSZ>
+git push origin --delete dashboard/<person>/<YYYYMMDDTHHMMSSZ>
+```
+
+The second line is for a branch that was sent, and its pull request then is closed or merged.
+A commit that was never sent is gone from the clone once its branch is deleted (git's reflog
+keeps it for a while), so look before you delete.
+
 ## Files
 
 ```
@@ -87,11 +128,13 @@ server.mjs        the HTTP server and the command line above; startServer() for 
 lib/core.mjs      openCore({ core, project }): the version check, the core's modules, the binding
 lib/state.mjs     readState, readItem, readArtifacts and the path rule, each taking openCore's result
 lib/related.mjs   related(ctx, rel): an item's specs, ADRs and documents, and the contracts it touched
+lib/write.mjs     the write module: the page's clone, the lock, the refresh, preview, action, Send, Discard
 public/           the page: index.html, styles.css and classic scripts that share one global scope
   icons.js        the icons: kinds of artifacts, git objects, host marks
   md.js           Markdown to DOM nodes, read only, never through innerHTML
   app.js          helpers, the dialog, the backlog tree
   views.js        the shell; filters, lanes and the address; board, list, My work, Initiatives
+  write.js        writeUi: a move with its preview, the batch strip, Send, Discard, kept branches
   item.js         the item pane: the document, its fields, the address bar
   related.js      Related: short in the side panel, in full beside the text
   keys.js         the command palette (⌘K), the selection and the keys

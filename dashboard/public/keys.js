@@ -1,8 +1,9 @@
 // The command palette and the keyboard.
 //
-// One place to find anything: ⌘K opens it. Every command in it goes
-// somewhere or opens something; none changes the vault, because the page
-// changes nothing. The keys act on "the current item": the one open in the
+// One place to find anything: ⌘K opens it. A command goes somewhere or opens
+// something; the only ones that change anything are write.js's (a story's
+// move, Send and Discard), each through its own dialog, and only while the
+// page can write. The keys act on "the current item": the one open in the
 // pane, or else the one selected in the view (j / k move the selection).
 
 ui.sel = null; // "s:<story ref>", "e:<epic id>" or "i:<initiative id>"
@@ -91,6 +92,7 @@ function itemCommands(c) {
   const add = (label, run, more) => out.push(cmd(label, run, { group: g, ...more }));
   if (!ui.drawer || ui.drawer.id !== c.id) add("Open", () => openDrawer(c.kind, c.id), { key: "↵" });
   if (c.kind === "story") add(`Open its epic, ${c.it.epic}`, () => openDrawer("epic", c.it.epic), { icon: ICON.epic });
+  if (c.kind === "story") for (const m of writeUi.storyCommands(c.it)) add(m.label, m.run, { kw: m.kw }); // write.js
   if (c.kind === "epic" && c.it.initiative && S.initiatives.some((i) => i.id === c.it.initiative)) add("Open its initiative", () => openDrawer("initiative", c.it.initiative), { icon: ICON.initiative });
   if (ui.drawer && ui.drawer.id === c.id && ui.drawer.related) add(ui.drawer.tab === "rel" ? "Back to the text" : "Related, in full", () => showTab(ui.drawer, ui.drawer.tab === "rel" ? "doc" : "rel"));
   add("Copy a link to it", copyLink);
@@ -99,6 +101,7 @@ function itemCommands(c) {
 
 function rootLevel(q) {
   const out = [...itemCommands(currentItem())];
+  for (const m of writeUi.rootCommands()) out.push(cmd(m.label, m.run, { group: m.group, kw: m.kw })); // write.js
   const nav = [...document.querySelectorAll("#nav button")];
   nav.forEach((b, i) => out.push(cmd(b.querySelector(".nm")?.textContent || b.textContent, () => b.click(), { group: "Go to", key: i < 9 ? String(i + 1) : "", kw: "go open view" })));
   out.push(

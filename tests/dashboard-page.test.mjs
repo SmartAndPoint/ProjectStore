@@ -25,7 +25,10 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import vm from "node:vm";
 import { statusToColumn } from "../scripts/stages.mjs";
+import { WRITE_ROUTES } from "../dashboard/server.mjs";
+import { WRITE_VERBS } from "../dashboard/lib/write.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -553,4 +556,537 @@ test("dashboard page: the real bin starts the real page, which refuses a POST an
 test("dashboard page: its package carries the core's version", () => {
   const core = JSON.parse(readFileSync(join(REPO, "package.json"), "utf8")).version;
   assert.equal(JSON.parse(readFileSync(join(PAGE, "package.json"), "utf8")).version, core);
+});
+
+// ── the page's writes (dashboard/public/write.js) ──
+// The page's scripts are classic scripts in one global scope, in the order of
+// index.html; write.js runs here in a vm context of its own, over a small
+// stand-in for the DOM, so its controls can be read as the page would draw them.
+const PUBLIC = join(PAGE, "public");
+const PAGE_SCRIPTS = [
+  ...readFileSync(join(PUBLIC, "index.html"), "utf8").matchAll(/<script src="\/([^"]+)"><\/script>/g),
+].map((m) => m[1]);
+
+class FakeEl {
+  constructor(tag, attrs = {}, kids = []) {
+    this.tag = tag;
+    this.attrs = {};
+    this.kids = [];
+    this.dataset = {};
+    this.listeners = {};
+    this.classes = new Set();
+    this.hidden = false;
+    this.disabled = false;
+    this.value = "";
+    this.classList = {
+      add: (...c) => c.forEach((x) => this.classes.add(x)),
+      remove: (...c) => c.forEach((x) => this.classes.delete(x)),
+      toggle: (c, on) => ((on ?? !this.classes.has(c)) ? this.classes.add(c) : this.classes.delete(c)),
+      contains: (c) => this.classes.has(c),
+    };
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v === null || v === undefined || v === false) continue;
+      if (k === "class") String(v).split(/\s+/).filter(Boolean).forEach(this.classList.add);
+      else if (k.startsWith("on")) this.addEventListener(k.slice(2), v);
+      else if (["value", "disabled", "hidden"].includes(k)) this[k] = v;
+      else this.attrs[k] = v === true ? "" : String(v);
+    }
+    this.append(...kids);
+  }
+  append(...kids) {
+    for (const k of kids.flat(Infinity)) if (k !== null && k !== undefined && k !== false) this.kids.push(k);
+  }
+  replaceChildren(...kids) {
+    this.kids = [];
+    this.append(...kids);
+  }
+  addEventListener(type, fn) {
+    (this.listeners[type] ||= []).push(fn);
+  }
+  fire(type, ev = {}) {
+    const e = { key: "", preventDefault() {}, stopPropagation() {}, target: this, currentTarget: this, ...ev };
+    return (this.listeners[type] || []).map((fn) => fn(e));
+  }
+  click() {
+    return this.fire("click");
+  }
+  focus() {
+    fakeDoc.activeElement = this;
+  }
+  get offsetParent() {
+    return this.hidden ? null : {};
+  }
+  get tabIndex() {
+    return this.attrs.tabindex === undefined ? 0 : Number(this.attrs.tabindex);
+  }
+  getAttribute(k) {
+    return this.attrs[k] ?? null;
+  }
+  get text() {
+    return this.kids.map((k) => (k instanceof FakeEl ? k.text : String(k))).join("");
+  }
+  set textContent(v) {
+    this.kids = [String(v)];
+  }
+  get textContent() {
+    return this.text;
+  }
+  // Every element under this one, depth first.
+  all() {
+    return this.kids.filter((k) => k instanceof FakeEl).flatMap((k) => [k, ...k.all()]);
+  }
+  contains(el) {
+    return el === this || this.all().includes(el);
+  }
+  // `tag`, `tag.class` or `.class`, comma-separated: what write.js asks for.
+  querySelectorAll(sel) {
+    const parts = sel.split(",").map((s) => s.trim());
+    const hit = (el, p) => {
+      const m = /^([a-z]*)((?:\.[\w-]+)*)(\[[\w-]+\])?$/.exec(p);
+      if (!m) return false;
+      if (m[1] && el.tag !== m[1]) return false;
+      if (m[3] && !(m[3].slice(1, -1) in el.attrs)) return false;
+      return m[2]
+        .split(".")
+        .filter(Boolean)
+        .every((c) => el.classes.has(c));
+    };
+    return this.all().filter((el) => parts.some((p) => hit(el, p)));
+  }
+  querySelector(sel) {
+    return this.querySelectorAll(sel)[0] || null;
+  }
+  get buttons() {
+    return this.querySelectorAll("button").concat(this.tag === "button" ? [this] : []);
+  }
+}
+const fakeDoc = { activeElement: null };
+const settle = async () => {
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+};
+const STORIES = [
+  { ref: "PS-X/story-a", title: "A", status: "planned", column: "Backlog" },
+  { ref: "PS-X/story-b", title: "B", status: "todo", column: "ToDo" },
+  { ref: "PS-X/story-c", title: "C", status: "in-progress", column: "In Progress" },
+];
+
+// write.js in a context of its own: `write` is /api/state's, `answers` the
+// write routes' answers by path; `calls` records every fetch it makes.
+function loadWriteUi(write, answers = {}) {
+  const els = { "#write": new FakeEl("div"), "#modal": new FakeEl("div") };
+  els["#modal"].hidden = true;
+  const calls = [];
+  const toasts = [];
+  const counts = { render: 0, load: 0 };
+  const meta = new FakeEl("meta", { name: "projectstore-token", content: "the-run-token" });
+  const document = Object.assign(fakeDoc, {
+    activeElement: null,
+    body: new FakeEl("body"),
+    querySelector: (sel) => (sel === 'meta[name="projectstore-token"]' ? meta : null),
+    querySelectorAll: () => [],
+  });
+  const h = (tag, attrs, ...kids) => new FakeEl(tag, attrs, kids);
+  const ctx = {
+    S: { write, stories: STORIES, project: { name: "proj" }, coreVersion: "0.0.0" },
+    document,
+    h,
+    $: (sel) => els[sel] || null,
+    fill: (el, ...kids) =>
+      el.replaceChildren(
+        ...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false && k !== ""),
+      ),
+    kv: (...pairs) =>
+      h(
+        "div",
+        { class: "kv" },
+        pairs.filter(Boolean).flatMap(([k, v]) => [h("span", null, k), h("span", null, v)]),
+      ),
+    ico: (name) => h("i", { class: `ico ${name}` }),
+    story: (ref) => STORIES.find((s) => s.ref === ref),
+    toast: (...a) => toasts.push(a),
+    render: () => counts.render++,
+    load: async () => counts.load++,
+    fetch: async (url, opts = {}) => {
+      calls.push({ url, method: opts.method || "GET", headers: { ...(opts.headers || {}) }, body: opts.body ?? null });
+      const a = answers[url] || { status: 200, body: { ok: true, result: null, write } };
+      return { status: a.status, json: async () => a.body };
+    },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`${readFileSync(join(PUBLIC, "write.js"), "utf8")}\nglobalThis.writeUi = writeUi;`, ctx, {
+    filename: "write.js",
+  });
+  return { ui: ctx.writeUi, ctx, els, calls, toasts, counts };
+}
+const writable = (verbs = JSON.parse(JSON.stringify(WRITE_VERBS)), more = {}) => ({
+  can: true,
+  reason: null,
+  verbs,
+  default_branch: "main",
+  fetched_at: "2026-11-17T08:00:00.000Z",
+  batch: null,
+  pull_requests: null,
+  kept: [],
+  ...more,
+});
+const BATCH = {
+  branch: "dashboard/test-person/20261117T080000Z",
+  started_at: "2026-11-17T08:00:00Z",
+  commits: 2,
+  pull_request: null,
+};
+// write.js's values come from another realm: compared as plain JSON.
+const plain = (x) => JSON.parse(JSON.stringify(x));
+const columnOf = (name) => ({ name, shows: [name], limit: null });
+
+test("dashboard page: its scripts, write.js among them, compile as one global scope with no name declared twice", () => {
+  assert.ok(PAGE_SCRIPTS.includes("write.js"), "index.html loads write.js");
+  assert.ok(
+    PAGE_SCRIPTS.indexOf("write.js") > PAGE_SCRIPTS.indexOf("views.js") &&
+      PAGE_SCRIPTS.indexOf("write.js") < PAGE_SCRIPTS.indexOf("item.js"),
+    "write.js loads after views.js and before item.js",
+  );
+  const onDisk = readdirSync(PUBLIC).filter((f) => f.endsWith(".js"));
+  assert.deepEqual([...onDisk].sort(), [...PAGE_SCRIPTS].sort(), "index.html loads every script of public/");
+  const sources = PAGE_SCRIPTS.map((f) => readFileSync(join(PUBLIC, f), "utf8"));
+  // One script: a `const`, `let` or `class` declared twice is an early error.
+  assert.doesNotThrow(() => new vm.Script(sources.join("\n;\n"), { filename: "page" }));
+  // A function declared twice would not throw: the later one would win, silently.
+  const names = new Map();
+  PAGE_SCRIPTS.forEach((f, i) => {
+    for (const m of sources[i].matchAll(/^(?:async\s+)?function\s+([\w$]+)|^(?:const|let|var|class)\s+([\w$]+)/gm)) {
+      const name = m[1] || m[2];
+      assert.ok(!names.has(name), `${name} is declared in ${names.get(name)} and in ${f}`);
+      names.set(name, f);
+    }
+  });
+  assert.equal(names.get("writeUi"), "write.js", "write.js declares one top-level name, writeUi");
+  assert.deepEqual(
+    [...names].filter(([, f]) => f === "write.js").map(([n]) => n),
+    ["writeUi"],
+  );
+});
+
+// [dashboard-writes#8] The page reaches a write route only through write.js's
+// one POST, with the run's token; no GET is used to write.
+test("dashboard page: write.js sends every POST with the run's token, and only write.js names a write route", async () => {
+  const { ui, calls } = loadWriteUi(writable());
+  assert.deepEqual([...ui.ROUTES], [...WRITE_ROUTES], "the page's routes are the server's");
+  for (const route of WRITE_ROUTES)
+    await ui.post(route, route === "/api/preview" ? { verb: "move", fields: {} } : null);
+  await ui.refresh();
+  await settle();
+  assert.equal(calls.length, WRITE_ROUTES.length + 1);
+  for (const c of calls) {
+    assert.ok(WRITE_ROUTES.includes(c.url), c.url);
+    assert.equal(c.method, "POST", `${c.url} is posted`);
+    assert.equal(c.headers["x-projectstore-token"], "the-run-token", `${c.url} carries the token`);
+  }
+  await assert.rejects(() => ui.post("/api/state"), /not a write route/);
+  // The other scripts read with plain GETs and never name a write route.
+  for (const f of PAGE_SCRIPTS) {
+    const src = readFileSync(join(PUBLIC, f), "utf8");
+    if (f === "write.js") {
+      assert.equal([...src.matchAll(/\bfetch\(/g)].length, 1, "write.js has one fetch, the POST");
+      continue;
+    }
+    for (const r of WRITE_ROUTES) assert.ok(!src.includes(r), `${f} names ${r}`);
+    assert.doesNotMatch(src, /fetch\([^)]*method/, `${f} fetches with a method`);
+  }
+});
+
+// [dashboard-writes#8]
+test("dashboard page: a write answer with no JSON or no ok is an error the page shows, and its write is drawn", async () => {
+  const next = writable({ batch: BATCH });
+  const { ui, ctx } = loadWriteUi(writable(), {
+    "/api/send": { status: 403, body: { error: "this route runs only for the page's own requests" } },
+    "/api/discard": { status: 502, body: null },
+    "/api/action": { status: 200, body: { ok: true, result: { written: true }, write: next } },
+  });
+  const a = await ui.post("/api/send");
+  assert.equal(a.ok, false);
+  assert.match(a.error, /page's own requests/);
+  const b = await ui.post("/api/discard");
+  assert.equal(b.ok, false);
+  assert.match(b.error, /502 with no JSON/);
+  await ui.post("/api/action", { verb: "move", fields: {} });
+  assert.equal(ctx.S.write, next, "the answer's write is the page's now");
+});
+
+// [dashboard#13] While the vault cannot be written the page shows no control
+// that writes, and one quiet line names write.reason.
+test("dashboard page: a read-only vault gets no write control and one line naming write.reason", () => {
+  const ro = {
+    ...writable(),
+    can: false,
+    reason: "the vault is not in a git repository",
+    batch: BATCH,
+    kept: [{ branch: "dashboard/test-person/20261116T080000Z", commits: 1 }],
+  };
+  const { ui, els } = loadWriteUi(ro);
+  for (const s of STORIES) {
+    assert.deepEqual(plain(ui.movesOf(s)), [], `${s.ref} has no move`);
+    assert.equal(ui.storyButtons(s), null);
+    assert.deepEqual(plain(ui.storyCommands(s)), []);
+    const card = ui.dragCard(new FakeEl("div", { class: "card" }), s);
+    assert.ok(!card.draggable && !card.listeners.dragstart, `${s.ref}'s card cannot be dragged`);
+  }
+  for (const name of ["Backlog", "ToDo"]) {
+    const col = ui.dropColumn(new FakeEl("div", { class: "col" }), columnOf(name));
+    assert.ok(!col.dataset.dropTo && !col.listeners.drop, `${name} takes no drop`);
+  }
+  assert.deepEqual(plain(ui.rootCommands()), []);
+  ui.paint();
+  assert.deepEqual(els["#write"].buttons, [], "the strip holds no button: no Send, no Discard");
+  assert.match(els["#write"].text, /Kept branches \(1\)/, "the kept list is still shown");
+  const foot = ui.footLine();
+  assert.equal(foot.querySelectorAll("button").length, 0);
+  assert.match(foot.text, /^No writes: the vault is not in a git repository/);
+  // A server that says nothing about writes is read-only too, and the line says so.
+  const quiet = loadWriteUi(undefined);
+  assert.match(quiet.ui.footLine().text, /^No writes: this server does not say whether the page can write/);
+  assert.deepEqual(plain(quiet.ui.movesOf(STORIES[0])), []);
+});
+
+// [dashboard-writes#6] No write control for a verb, a field or a value that
+// write.verbs does not list.
+test("dashboard page: write.js offers no move that write.verbs does not list", () => {
+  const verbsWith = (fn) => fn(JSON.parse(JSON.stringify(WRITE_VERBS)));
+  const none = [
+    ["no verbs", []],
+    [
+      "another verb only",
+      [{ verb: "assign", fields: { story: { kind: "story" }, to: { kind: "choice", values: ["todo"] } } }],
+    ],
+    [
+      "move without its reason",
+      verbsWith((v) => {
+        delete v[0].fields.reason;
+        return v;
+      }),
+    ],
+  ];
+  for (const [what, verbs] of none) {
+    const { ui } = loadWriteUi(writable(verbs));
+    for (const s of STORIES) {
+      assert.deepEqual(plain(ui.movesOf(s)), [], `${what}: ${s.ref}`);
+      assert.equal(ui.storyButtons(s), null, what);
+      assert.ok(!ui.dragCard(new FakeEl("div"), s).draggable, what);
+    }
+    assert.ok(!ui.dropColumn(new FakeEl("div"), columnOf("ToDo")).dataset.dropTo, what);
+  }
+  // `to` lists todo only: the backlog story moves to ToDo, the ToDo story has nothing.
+  const todoOnly = loadWriteUi(
+    writable(
+      verbsWith((v) => {
+        v[0].fields.to.values = ["todo"];
+        return v;
+      }),
+    ),
+  ).ui;
+  assert.deepEqual(plain(todoOnly.movesOf(STORIES[0])), [{ to: "todo", label: "Move to ToDo" }]);
+  assert.deepEqual(plain(todoOnly.movesOf(STORIES[1])), []);
+  assert.equal(todoOnly.dropColumn(new FakeEl("div"), columnOf("ToDo")).dataset.dropTo, "todo");
+  assert.ok(!todoOnly.dropColumn(new FakeEl("div"), columnOf("Backlog")).dataset.dropTo);
+  // The verb as the server lists it: each way, and nothing for a story in work.
+  const { ui } = loadWriteUi(writable());
+  assert.deepEqual(plain(ui.movesOf(STORIES[0])), [{ to: "todo", label: "Move to ToDo" }]);
+  assert.deepEqual(plain(ui.movesOf(STORIES[1])), [{ to: "planned", label: "Back to Backlog" }]);
+  assert.deepEqual(plain(ui.movesOf(STORIES[2])), []);
+  assert.ok(ui.dragCard(new FakeEl("div"), STORIES[0]).draggable);
+  assert.ok(!ui.dragCard(new FakeEl("div"), STORIES[2]).draggable);
+  assert.equal(ui.dropColumn(new FakeEl("div"), columnOf("Backlog")).dataset.dropTo, "planned");
+  assert.ok(!ui.dropColumn(new FakeEl("div"), columnOf("In Progress")).dataset.dropTo, "no drop on a gate column");
+  assert.equal(ui.storyButtons(STORIES[0]).buttons.length, 1);
+  assert.deepEqual(plain(ui.storyCommands(STORIES[1]).map((c) => c.label)), ["Back to Backlog…"]);
+});
+
+// [dashboard-writes#6] [dashboard-writes#7] The preview runs first and shows
+// the core's plan; the one click on the move button runs the action.
+test("dashboard page: a move previews the core's plan, and one click on its button runs the action with no second confirm", async () => {
+  const plan = {
+    story: "PS-X/story-a",
+    path: "/vault/epics/PS-X/stories/story-a.md",
+    from: "planned",
+    to: "todo",
+    reason: "ready",
+    actor: "move",
+    written: false,
+  };
+  const { ui, els, calls, counts } = loadWriteUi(writable(), {
+    "/api/preview": { status: 200, body: { ok: true, result: plan, write: writable() } },
+    "/api/action": {
+      status: 200,
+      body: { ok: true, result: { ...plan, written: true }, write: writable([], { batch: { ...BATCH, commits: 1 } }) },
+    },
+  });
+  ui.openMove("PS-X/story-a", "todo");
+  const box = els["#modal"].kids[0];
+  assert.ok(!els["#modal"].hidden, "the dialog is open");
+  const input = box.querySelector("input");
+  const primary = box.querySelector("button.primary");
+  assert.equal(primary.text, "Preview");
+  assert.ok(primary.disabled, "no preview with no reason");
+  input.value = "ready";
+  input.fire("input");
+  assert.ok(!primary.disabled);
+  primary.click();
+  await settle();
+  assert.deepEqual(
+    calls.map((c) => [c.url, JSON.parse(c.body)]),
+    [["/api/preview", { verb: "move", fields: { story: "PS-X/story-a", to: "todo", reason: "ready" } }]],
+  );
+  assert.match(box.text, /What the core will change/);
+  assert.ok(box.text.includes(plan.path), "the plan names the story's path in the bound vault");
+  assert.equal(primary.text, "Move to ToDo");
+  // An edited reason needs a new preview before the button moves anything.
+  input.value = "ready now";
+  input.fire("input");
+  assert.equal(primary.text, "Preview");
+  input.value = "ready";
+  input.fire("input");
+  primary.click();
+  await settle();
+  assert.equal(calls.length, 2, "Preview again");
+  primary.click();
+  await settle();
+  assert.deepEqual(
+    calls.map((c) => c.url),
+    ["/api/preview", "/api/preview", "/api/action"],
+  );
+  assert.ok(els["#modal"].hidden, "the dialog closed on the action's answer, with no dialog after it");
+  assert.ok(counts.load >= 1, "the board is read again after the action");
+  assert.match(els["#write"].text, /in ToDo/);
+});
+
+// [dashboard-writes#6] A refusal shows the core's own message, and the dialog stays.
+test("dashboard page: a refused preview or action shows the core's own message in the dialog", async () => {
+  const refusal = "no gate moves a story from done to todo: move changes only planned to todo and todo to planned.";
+  const { ui, els, calls } = loadWriteUi(writable(), {
+    "/api/preview": {
+      status: 200,
+      body: { ok: false, result: { story: "PS-X/story-a", error: refusal }, error: refusal, write: writable() },
+    },
+  });
+  ui.openMove("PS-X/story-a", "todo");
+  const box = els["#modal"].kids[0];
+  box.querySelector("input").value = "why";
+  box.querySelector("input").fire("input");
+  box.querySelector("button.primary").click();
+  await settle();
+  assert.equal(calls.length, 1);
+  assert.ok(!els["#modal"].hidden, "the dialog stays open");
+  assert.ok(box.text.includes(refusal), "the core's words are shown");
+  assert.equal(box.querySelector("button.primary").text, "Preview", "nothing can be moved on a refused plan");
+  // A move the page does not offer opens no dialog and posts nothing.
+  els["#modal"].hidden = true;
+  ui.openMove("PS-X/story-c", "todo");
+  assert.ok(els["#modal"].hidden);
+  assert.equal(calls.length, 1);
+});
+
+// [dashboard-delivery#1] [dashboard-delivery#6] The strip shows the batch, its
+// pull request and the kept branches, each time it shows the batch.
+test("dashboard page: the batch strip shows the branch, its count, the pull request, Send and Discard, and the kept branches", async () => {
+  const kept = [
+    {
+      branch: "dashboard/test-person/20261116T080000Z",
+      commits: 3,
+      stopped_at: { sha: "abcdef0123", subject: "move x", reason: "it does not apply on the default branch" },
+    },
+    { branch: "dashboard/test-person/20261115T080000Z", commits: null, reason: "fatal: bad object" },
+  ];
+  const pr = { number: 7, state: "OPEN", url: "https://github.com/acme/vault/pull/7" };
+  const { ui, els, calls } = loadWriteUi(
+    writable(undefined, { batch: { ...BATCH, pull_request: pr }, kept, pull_requests: null }),
+    {
+      "/api/send": {
+        status: 200,
+        body: {
+          ok: true,
+          result: { branch: BATCH.branch, sent: true, commits: 2, merged: 0, pull_request: pr, gh: null },
+          write: writable(),
+        },
+      },
+    },
+  );
+  ui.paint();
+  const bar = els["#write"];
+  assert.ok(!bar.hidden);
+  const text = bar.text;
+  for (const s of [
+    BATCH.branch,
+    "2 commits not in main",
+    "PR #7 · open",
+    "Kept branches (2)",
+    "3 commits the default branch lacks",
+    "A carry stopped at abcdef0",
+    "it does not apply",
+    "count unknown",
+    "fatal: bad object",
+  ])
+    assert.ok(text.includes(s), `the strip says ${s}`);
+  assert.equal(bar.querySelector("a").attrs.href, pr.url);
+  assert.doesNotMatch(text, /\bgit (push|branch)\b/, "the page prints no command for a kept branch");
+  assert.deepEqual(plain(bar.buttons.map((b) => b.text).filter((t) => t !== "✕")), ["Send…", "Discard…"]);
+  // Send asks first, saying what it will do; its button runs /api/send.
+  bar.buttons.find((b) => b.text === "Send…").click();
+  const dlg = els["#modal"].kids[0];
+  assert.match(dlg.text, new RegExp(`Push branch ${BATCH.branch} with 2 commits`));
+  assert.equal(calls.length, 0, "nothing runs before the click in the dialog");
+  dlg.querySelector("button.primary").click();
+  await settle();
+  assert.deepEqual(
+    calls.map((c) => [c.url, c.method]),
+    [["/api/send", "POST"]],
+  );
+  assert.match(els["#write"].text, /Sent dashboard\/test-person\/\S+: 2 commits pushed to origin\. pull request #7/);
+  // gh that cannot be asked is said in the strip.
+  const noGh = loadWriteUi(writable(undefined, { batch: BATCH, pull_requests: "gh is not installed" }));
+  noGh.ui.paint();
+  assert.match(noGh.els["#write"].text, /cannot be asked about pull requests: gh is not installed/);
+});
+
+// [dashboard-delivery#4] [dashboard-delivery#5] Discard says nothing is deleted;
+// a carry's stop is said with its reason.
+test("dashboard page: Discard asks first and shows the server's message, and Send's carry names where it stopped", async () => {
+  const { ui, els, calls } = loadWriteUi(writable(undefined, { batch: BATCH }), {
+    "/api/discard": {
+      status: 200,
+      body: { ok: true, result: { message: "the batch ended on this machine; its branch is kept" }, write: writable() },
+    },
+  });
+  ui.confirmDiscard();
+  const dlg = els["#modal"].kids[0];
+  assert.match(dlg.text, /Nothing is deleted/);
+  dlg.querySelector("button.primary").click();
+  await settle();
+  assert.deepEqual(
+    calls.map((c) => c.url),
+    ["/api/discard"],
+  );
+  assert.match(els["#write"].text, /The batch ended on this machine; its branch is kept/);
+  const words = ui.sendWords({
+    ok: true,
+    result: {
+      branch: "dashboard/p/2",
+      sent: true,
+      commits: 1,
+      pull_request: null,
+      gh: null,
+      carry: {
+        from: "dashboard/p/1",
+        branch: "dashboard/p/2",
+        carried: [{ sha: "a", subject: "x" }],
+        skipped: [],
+        stopped_at: { sha: "bbbbbbbbb", subject: "y", reason: "it does not apply on the default branch" },
+        left: [],
+      },
+    },
+  });
+  assert.match(
+    words,
+    /1 commit made after it was sent was carried from dashboard\/p\/1 into the new batch dashboard\/p\/2/,
+  );
+  assert.match(words, /the carry stopped at bbbbbbb "y", because it does not apply on the default branch/);
 });
