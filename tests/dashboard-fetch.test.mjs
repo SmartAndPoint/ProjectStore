@@ -27,18 +27,28 @@ import {
   rmSync,
   writeFileSync,
   copyFileSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cachePaths } from "../scripts/harness.mjs";
-import { registrationPayloadRoot } from "../scripts/surfaces.mjs";
-import { copyPackageTree, fromTerminalIn } from "../scripts/lib.mjs";
+import { cachePaths, sourceHarness } from "../scripts/harness.mjs";
+import { registrationPayloadRoot, registrationPaths, payloadOrigin } from "../scripts/surfaces.mjs";
+import { copyPackageTree, fromTerminalIn, packageDigest } from "../scripts/lib.mjs";
+import { plan, apply } from "../scripts/install-harness.mjs";
 import { PUBLIC_REGISTRY } from "../scripts/fetch-shell.mjs";
 import { pageFor, checkPage, pageVersion, npmCopy, installEnv, PAGE_PACKAGE } from "../scripts/dashboard-fetch.mjs";
 import { startDashboard } from "../scripts/dashboard.mjs";
 import { fakeNpm, fakeNpmSpawn, layDashboardTree, FAKE_REGISTRY } from "./fixtures/fetch.mjs";
-import { fakePackageRoot, cacheRoot, fakeSynced, fakeMarketplace } from "./fixtures/install.mjs";
+import {
+  fakePackageRoot,
+  cacheRoot,
+  fakeSynced,
+  fakeMarketplace,
+  fakeClaude,
+  lockPackageRoot,
+  LOCK_ENTRIES,
+} from "./fixtures/install.mjs";
 import { makeVaultProject } from "./fixtures/vault.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -701,7 +711,7 @@ test("dashboard fetch: the npm registration's marketplace directory counts by pa
 });
 
 // [dashboard#4]
-test("dashboard fetch: a checkout without the folder, the git marketplace's copy and an unpacked tarball refuse, say they are not from npm, and run no npm", async () => {
+test("dashboard fetch: a checkout without the folder, the git marketplace's copy and an unpacked tarball refuse, say they are not from the npm registry, and run no npm", async () => {
   const home = tmp("home-");
   const checkout = join(tmp("ps-dash-src-"), "projectstore");
   copyPackageTree(REPO, checkout);
@@ -716,7 +726,7 @@ test("dashboard fetch: a checkout without the folder, the git marketplace's copy
     const r = await pageFor({ root, project: "/p", env: {}, home, spawn: fake.spawn });
     assert.equal(r.ok, false, what);
     assert.equal(r.code, "ECHANNEL", what);
-    assert.match(r.error, /has no dashboard\/ folder and is not a copy installed from npm/, what);
+    assert.match(r.error, /has no dashboard\/ folder and is not a copy from the npm registry/, what);
     assert.doesNotMatch(r.error, /checkout/, `${what}: the text does not guess the kind of copy`);
     assert.doesNotMatch(r.error, /npm (ci|run|install)|build/, `${what}: no build command`);
     assert.ok(r.error.split("\n").includes("npx projectstore dashboard"), `${what}: the npm copy's command, alone`);
@@ -726,10 +736,314 @@ test("dashboard fetch: a checkout without the folder, the git marketplace's copy
   const m = machine();
   const r = await refusedRun(checkout, m);
   assert.equal(r.text.code, 1, r.text.stderr);
-  assert.match(r.text.stderr, /is not a copy installed from npm/);
+  assert.match(r.text.stderr, /is not a copy from the npm registry/);
   assert.equal(r.envelope.ok, false);
   assert.equal(r.envelope.result.error, r.text.stderr.trimEnd());
   assert.deepEqual(m.npm.log(), []);
+});
+
+// ─── A copy's origin (contract 21) ─────────────────────────────────────
+
+const SRC = sourceHarness();
+const REG = SRC.surfaces.plugin;
+const REG_ID = `${REG.plugin_name}@${REG.marketplace_name}`;
+
+// A package root with only the files payloadOrigin reads: its package.json.
+function lightRoot(...parts) {
+  const root = join(tmp("light-"), ...parts);
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "projectstore", version: V }));
+  return root;
+}
+
+// [dashboard#21]
+test("dashboard fetch: a package root is local only for a resolved with a scheme other than http or https; every other lockfile shape is unknown", () => {
+  const home = tmp("home-");
+  const at = (entry) => {
+    const root = lightRoot("_npx", "h", "node_modules", "projectstore");
+    if (entry !== undefined) lockPackageRoot(root, entry);
+    return root;
+  };
+  const local = {
+    "a tarball (file:)": at(LOCK_ENTRIES.tarball(V)),
+    "a git source (git+ssh:)": at(LOCK_ENTRIES.gitSsh(V)),
+    "a git source (git+https:)": at(LOCK_ENTRIES.gitHttps(V)),
+    "a git source (git+file:, measured)": at({ version: V, resolved: "git+file:///src/ProjectStore#0123" }),
+  };
+  const unknown = {
+    "the registry": at(LOCK_ENTRIES.registry(V)),
+    "an http mirror with no /-/": at({ version: V, resolved: "http://mirror.example/projectstore.tgz" }),
+    "an entry with no resolved (omit-lockfile-registry-resolved, a bundled core)": at(LOCK_ENTRIES.noResolved(V)),
+    "a relative resolved with no scheme": at({ version: V, resolved: "../x/projectstore" }),
+    "a link entry": at(LOCK_ENTRIES.link()),
+    "no lockfile": at(undefined),
+  };
+  // No entry for this root, a lockfile that cannot be read, a lockfile with no packages.
+  const noEntry = at({ version: V });
+  writeFileSync(join(dirname(noEntry), ".package-lock.json"), JSON.stringify({ lockfileVersion: 3, packages: {} }));
+  unknown["no entry"] = noEntry;
+  const bad = at(undefined);
+  writeFileSync(join(dirname(bad), ".package-lock.json"), "{ not json");
+  unknown["an unreadable lockfile"] = bad;
+  const v1 = at(undefined);
+  writeFileSync(join(dirname(v1), ".package-lock.json"), JSON.stringify({ lockfileVersion: 1, dependencies: {} }));
+  unknown["a lockfile v1 with no packages"] = v1;
+  // Only the hidden lockfile counts: package-lock.json beside node_modules is not read.
+  const outer = at(undefined);
+  writeFileSync(
+    join(dirname(dirname(outer)), "package-lock.json"),
+    JSON.stringify({ lockfileVersion: 3, packages: { "node_modules/projectstore": LOCK_ENTRIES.tarball(V) } }),
+  );
+  unknown["a package-lock.json beside the node_modules only"] = outer;
+  // A core nested under another package: its entry is in the outer lockfile only, and is never walked up to.
+  const nested = lightRoot("_npx", "s", "node_modules", "projectstore-claude", "node_modules", "projectstore");
+  const top = join(dirname(dirname(dirname(nested))), ".package-lock.json");
+  writeFileSync(
+    top,
+    JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        "node_modules/projectstore-claude": LOCK_ENTRIES.tarball(V),
+        "node_modules/projectstore-claude/node_modules/projectstore": { version: V, inBundle: true },
+      },
+    }),
+  );
+  unknown["a core nested under another package"] = nested;
+  for (const [what, root] of Object.entries(local)) {
+    assert.equal(payloadOrigin(root, { home }), "local", what);
+    assert.equal(npmCopy(root, { home }), false, what);
+  }
+  for (const [what, root] of Object.entries(unknown)) {
+    assert.equal(payloadOrigin(root, { home }), null, what);
+    assert.equal(npmCopy(root, { home }), true, what);
+  }
+  assert.equal(payloadOrigin(join(tmp("gone-"), "node_modules", "projectstore"), { home }), null, "a missing root");
+  assert.equal(payloadOrigin(null, { home }), null);
+});
+
+// [dashboard#21]
+test("dashboard fetch: a package root's origin is read at its real path, so a symlinked alias of a local copy is local, and a link entry is unknown while its folder is local", () => {
+  if (sep !== "/") return;
+  const home = tmp("home-");
+  const real = lockPackageRoot(lightRoot("_npx", "r", "node_modules", "projectstore"), LOCK_ENTRIES.tarball(V));
+  const aliasDir = join(tmp("alias-"), "_npx", "a", "node_modules");
+  mkdirSync(aliasDir, { recursive: true });
+  const alias = join(aliasDir, "projectstore");
+  symlinkSync(real, alias);
+  assert.equal(payloadOrigin(alias, { home }), "local");
+  // npx <folder>: a link entry whose real root sits outside any node_modules.
+  const folder = lightRoot("src", "projectstore");
+  const linkDir = join(tmp("npx-folder-"), "_npx", "f", "node_modules");
+  mkdirSync(linkDir, { recursive: true });
+  symlinkSync(folder, join(linkDir, "projectstore"));
+  lockPackageRoot(join(linkDir, "projectstore"), LOCK_ENTRIES.link());
+  assert.equal(payloadOrigin(join(linkDir, "projectstore"), { home }), null, "the link entry, read at the alias");
+  assert.equal(payloadOrigin(folder, { home }), "local", "the folder itself, which Node runs, is not from npm");
+});
+
+// [dashboard#21]
+test("dashboard fetch: the registration's directory is local only when its field says so; its cache copy only when the field's pkg and digest are the copy's own", () => {
+  const home = tmp("home-");
+  const marked = fakeMarketplace(home, V, { origin: "local" });
+  assert.equal(payloadOrigin(marked.payload, { home }), "local");
+  assert.equal(npmCopy(marked.payload, { home }), false);
+  for (const origin of [null, "registry", "something"]) {
+    const h = tmp("home-");
+    const d = fakeMarketplace(h, V, { origin });
+    if (origin) {
+      const m = JSON.parse(readFileSync(d.manifest, "utf8"));
+      m[REG.provenance_key].origin = origin;
+      writeFileSync(d.manifest, JSON.stringify(m));
+    }
+    assert.equal(payloadOrigin(d.payload, { home: h }), null, String(origin));
+    assert.equal(npmCopy(d.payload, { home: h }), true, String(origin));
+  }
+  // The host's cache copy of the registration.
+  const cacheCopy = (h, { origin = "local", pkg = V, digestOf = true } = {}) => {
+    const copy = fakePackageRoot(cacheRoot(h, V, REG.marketplace_name), V);
+    const digest = digestOf ? packageDigest(copy) : null;
+    const d = fakeMarketplace(h, pkg, { origin, digest });
+    return { copy, d };
+  };
+  const h1 = tmp("home-");
+  const same = cacheCopy(h1);
+  assert.equal(payloadOrigin(same.copy, { home: h1 }), "local", "the field describes these bytes");
+  assert.equal(npmCopy(same.copy, { home: h1 }), false);
+  const h2 = tmp("home-");
+  const otherPkg = cacheCopy(h2, { pkg: "9.9.9" });
+  assert.equal(payloadOrigin(otherPkg.copy, { home: h2 }), null, "another version's field");
+  const h3 = tmp("home-");
+  const edited = cacheCopy(h3);
+  writeFileSync(join(edited.copy, "README.md"), "edited\n");
+  assert.equal(payloadOrigin(edited.copy, { home: h3 }), null, "other bytes");
+  const h4 = tmp("home-");
+  const noDigest = cacheCopy(h4, { digestOf: false });
+  assert.equal(payloadOrigin(noDigest.copy, { home: h4 }), null, "a field with no digest");
+  const h5 = tmp("home-");
+  const lone = fakePackageRoot(cacheRoot(h5, V, REG.marketplace_name), V);
+  assert.equal(payloadOrigin(lone, { home: h5 }), null, "no registration manifest");
+  assert.equal(npmCopy(lone, { home: h5 }), true);
+  // A synced copy is unknown; a checkout and the git marketplace's copy are local.
+  const h6 = tmp("home-");
+  const synced = fakeSynced(h6, V);
+  assert.equal(payloadOrigin(synced, { home: h6 }), null);
+  assert.equal(payloadOrigin(lightRoot("src", "projectstore"), { home: h6 }), "local");
+  assert.equal(payloadOrigin(fakePackageRoot(cacheRoot(h6, V, "SmartAndPoint"), V), { home: h6 }), "local");
+  // A copy under another harness's home (Codex's plugin cache, its
+  // registration's payload) is unknown: that harness lays it from npm.
+  for (const parts of [
+    [".codex", "plugins", "cache", "projectstore-npx", "projectstore", V],
+    [".codex", "projectstore", "marketplace", "plugins", "projectstore"],
+  ]) {
+    const copy = lightRoot();
+    const codexCopy = join(h6, ...parts);
+    mkdirSync(dirname(codexCopy), { recursive: true });
+    renameSync(copy, codexCopy);
+    assert.equal(payloadOrigin(codexCopy, { home: h6 }), null, parts.join("/"));
+  }
+});
+
+// [dashboard#21]
+test("dashboard fetch: the real npm, offline, records a tarball installed from disk as file:, which is local, and a folder install as a link, whose real root is the folder", (t) => {
+  if (spawnSync("npm", ["--version"], { encoding: "utf8" }).status !== 0) return t.skip("no npm on PATH");
+  const home = tmp("home-");
+  const cache = tmp("npm-cache-");
+  const env = {
+    ...process.env,
+    npm_config_offline: "true",
+    npm_config_cache: cache,
+    NPM_CONFIG_OFFLINE: "true",
+    NPM_CONFIG_CACHE: cache,
+  };
+  const src = join(tmp("fixture-"), "ps-origin-fixture");
+  mkdirSync(src, { recursive: true });
+  writeFileSync(join(src, "package.json"), JSON.stringify({ name: "ps-origin-fixture", version: "1.0.0" }));
+  writeFileSync(join(src, "index.js"), "module.exports = 1;\n");
+  const out = tmp("tgz-");
+  const packed = spawnSync("npm", ["pack", "--pack-destination", out], { cwd: src, env, encoding: "utf8" });
+  assert.equal(packed.status, 0, packed.stderr);
+  // Real paths: through a symlinked prefix (macOS's /var), npm keys the entry
+  // by a relative path from the real one, which contract 21 leaves unknown.
+  const prefix = realpathSync(tmp("install-"));
+  const args = ["install", "--prefix", prefix, "--ignore-scripts", "--no-audit", "--no-fund"];
+  const tgz = spawnSync("npm", [...args, `file:${join(out, "ps-origin-fixture-1.0.0.tgz")}`], {
+    cwd: prefix,
+    env,
+    encoding: "utf8",
+  });
+  assert.equal(tgz.status, 0, tgz.stdout + tgz.stderr);
+  const root = join(prefix, "node_modules", "ps-origin-fixture");
+  const lock = JSON.parse(readFileSync(join(prefix, "node_modules", ".package-lock.json"), "utf8"));
+  assert.match(lock.packages["node_modules/ps-origin-fixture"].resolved, /^file:/, "npm's own shape");
+  assert.equal(payloadOrigin(root, { home }), "local");
+  const prefix2 = realpathSync(tmp("install-"));
+  const folder = spawnSync(
+    "npm",
+    ["install", "--prefix", prefix2, "--ignore-scripts", "--no-audit", "--no-fund", src],
+    {
+      cwd: prefix2,
+      env,
+      encoding: "utf8",
+    },
+  );
+  assert.equal(folder.status, 0, folder.stdout + folder.stderr);
+  assert.equal(
+    payloadOrigin(join(prefix2, "node_modules", "ps-origin-fixture"), { home }),
+    null,
+    "a folder install, read at its link: unknown",
+  );
+  assert.equal(payloadOrigin(src, { home }), "local", "the folder itself, which Node runs, is not from npm");
+});
+
+// ─── The doors (contract 4) ────────────────────────────────────────────
+
+// Setup run from `root` into the machine's home with a fake host: the
+// registration's payload and the host's cache copy of it, as setup lays them.
+function setupFrom(root, m) {
+  const host = fakeClaude(tmp("host-"));
+  const env = host.env();
+  const p = plan(m.proj, { home: m.home, root, env });
+  assert.equal(p.ok, true, JSON.stringify(p.refusals));
+  const done = apply(p, { env, home: m.home });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  const paths = registrationPaths(REG, { home: m.home, projectDir: m.proj, harness: SRC });
+  const reg = JSON.parse(readFileSync(paths.installed, "utf8")).plugins[REG_ID][0];
+  return {
+    payload: paths.payload,
+    field: JSON.parse(readFileSync(paths.manifest, "utf8"))[REG.provenance_key],
+    cache: reg.installPath,
+  };
+}
+
+async function refuses(root, m, what) {
+  const r = await refusedRun(root, m);
+  assert.equal(r.text.code, 1, `${what}: ${r.text.stderr}`);
+  assert.match(r.text.stderr, /is not a copy from the npm registry/, what);
+  assert.equal(r.envelope.ok, false, what);
+  assert.equal(r.envelope.result.error, r.text.stderr.trimEnd(), what);
+  assert.deepEqual(m.npm.log(), [], `${what}: npm is not run`);
+}
+
+// [dashboard#4] [dashboard#21]
+test("dashboard fetch: a tarball packed in a checkout and run by npx, and a core npm installed from git, refuse through their bin and run no npm", async () => {
+  for (const [what, entry] of [
+    ["npx ./projectstore-V.tgz", LOCK_ENTRIES.tarball(V)],
+    ["a git+ssh: source", LOCK_ENTRIES.gitSsh(V)],
+    ["a git+https: source", LOCK_ENTRIES.gitHttps(V)],
+  ]) {
+    const root = lockPackageRoot(
+      fakePackageRoot(join(tmp("door-"), "_npx", "d", "node_modules", "projectstore"), V),
+      entry,
+    );
+    await refuses(root, machine(), what);
+  }
+});
+
+// [dashboard#4] [dashboard#21]
+test("dashboard fetch: setup run from a checkout, or from a tarball run by npx, marks the registration local; its directory and the host's cache copy refuse and run no npm", async () => {
+  const sources = {
+    checkout: fakePackageRoot(join(tmp("src-"), "projectstore"), V),
+    tarball: lockPackageRoot(
+      fakePackageRoot(join(tmp("door-"), "_npx", "t", "node_modules", "projectstore"), V),
+      LOCK_ENTRIES.tarball(V),
+    ),
+  };
+  for (const [what, root] of Object.entries(sources)) {
+    const m = machine();
+    const laid = setupFrom(root, m);
+    assert.equal(laid.field.origin, "local", what);
+    await refuses(laid.payload, m, `${what}: the registration's directory`);
+    await refuses(laid.cache, m, `${what}: the host's cache copy`);
+  }
+});
+
+// [dashboard#4] [dashboard#21] [dashboard#15]
+test("dashboard fetch: a core from the registry, the registration setup lays from it and the host's cache copy of that all fetch the page; the field has its six keys and no origin", async () => {
+  for (const entry of [LOCK_ENTRIES.registry(V), LOCK_ENTRIES.noResolved(V), undefined]) {
+    const what = entry ? JSON.stringify(entry) : "no lockfile";
+    const root = fakePackageRoot(join(tmp("reg-"), "_npx", "r", "node_modules", "projectstore"), V);
+    if (entry) lockPackageRoot(root, entry);
+    const m = machine();
+    const laid = setupFrom(root, m);
+    assert.deepEqual(
+      Object.keys(laid.field).sort(),
+      ["digest", "disabled", "generator", "grammar", "pkg", "project"],
+      `${what}: a registry copy's field is the one 0.30.19 writes`,
+    );
+    for (const [where, copy] of Object.entries({ root, directory: laid.payload, cache: laid.cache })) {
+      assert.equal(npmCopy(copy, { home: m.home }), true, `${what}: ${where}`);
+      const fake = fakeNpmSpawn();
+      const r = await pageFor({
+        root: copy,
+        env: { [cachePaths({}).variable]: tmp("xdg-") },
+        home: m.home,
+        spawn: fake.spawn,
+      });
+      assert.equal(r.ok, true, `${what}: ${where}: ${r.error}`);
+      assert.equal(r.fetched, true, `${what}: ${where}`);
+      assert.equal(fake.installs().length, 1, `${what}: ${where}`);
+    }
+  }
 });
 
 // [dashboard#4]

@@ -38,6 +38,8 @@ import {
   stubCopy,
   stubCalls,
   preFlagInstall,
+  lockPackageRoot,
+  LOCK_ENTRIES,
 } from "./fixtures/install.mjs";
 import {
   plan,
@@ -50,7 +52,8 @@ import {
   gateText,
 } from "../scripts/install-harness.mjs";
 import { planBind } from "../scripts/binding.mjs";
-import { analyseRegistration, registrationPaths, surfaceStates } from "../scripts/surfaces.mjs";
+import { analyseRegistration, registrationPaths, surfaceStates, payloadOrigin } from "../scripts/surfaces.mjs";
+import { npmCopy } from "../scripts/dashboard-fetch.mjs";
 import { sourceHarness, loadHarness } from "../scripts/harness.mjs";
 import { PLAIN } from "../scripts/term.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
@@ -64,6 +67,7 @@ import {
   layoutPaths,
   cmpPrecedence,
   cmpVersion,
+  packageDigest,
 } from "../scripts/lib.mjs";
 import { parseProvenance } from "../scripts/provenance.mjs";
 import { checkPluginRegistration, checkVersionDrift, checkAutoUpdate } from "../scripts/doctor.mjs";
@@ -947,6 +951,13 @@ test(
     assert.ok(
       existsSync(join(row.installPath, "bin", "projectstore.mjs")),
       "the host copied the payload into its cache",
+    );
+    // The dashboard spec, contract 21: the field speaks for the host's cache
+    // copy only when the copy's bytes are the payload's.
+    assert.deepEqual(
+      packageDigest(row.installPath),
+      packageDigest(paths.payload),
+      "the real host copies byte for byte",
     );
     assert.equal(analyseRegistration(proj, S, { root, home, harness: SRC, env }).state, "current");
     const un = runVerb("uninstall", proj, { home, root, env, harnesses: [SRC.id] });
@@ -2676,4 +2687,122 @@ test("converge rule 9 (2026-10-14): a kept copy at the running version says noth
   const rc = keepSandbox({ version: "0.30.0-rc.3" });
   const r = await keepRun(rc);
   assert.equal(keepItem(r.r.plan).reason, [KEPT("0.30.0-rc.3"), BEHIND("0.30.0-rc.3")].join("\n"));
+});
+
+// [install#2] [dashboard#21]
+test("registration contract 2: setup from a checkout marks the field local; a later run from a copy that is not local, over that byte-equal payload, drops the mark manifest only and runs no host command; a local run keeps it", () => {
+  const sb = sandbox();
+  const { home, proj, host, env, item, paths } = sb;
+  const field = () => JSON.parse(readFileSync(paths.manifest, "utf8"))[S.provenance_key];
+  const checkout = fakePackageRoot(join(tmp("ps-reg-src-"), "projectstore"), "0.28.0");
+  const laid = apply(plan(proj, { home, root: checkout, env }), { env, home });
+  assert.equal(laid.failed, undefined, JSON.stringify(laid));
+  const before = field();
+  assert.equal(before.origin, "local", "a checkout is a local copy");
+  assert.deepEqual(packageDigest(checkout), packageDigest(sb.root), "the two copies are byte-equal");
+  // Local runs leave the mark: the checkout itself, and a tarball run by npx.
+  const tarball = lockPackageRoot(
+    fakePackageRoot(join(tmp("ps-reg-tgz-"), "_npx", "t", "node_modules", "projectstore"), "0.28.0"),
+    LOCK_ENTRIES.tarball("0.28.0"),
+  );
+  for (const root of [checkout, tarball]) {
+    const p = plan(proj, { home, root, env });
+    assert.equal(item(p, "plugin").state, "current");
+    assert.equal(item(p, "plugin").action, "skip", root);
+  }
+  // A package root with no local evidence: one manifest-only write, no host step.
+  const p = plan(proj, { home, root: sb.root, env });
+  const reg = item(p, "plugin");
+  assert.equal(reg.state, "current", "no state reads origin");
+  assert.equal(reg.action, "update");
+  assert.deepEqual(
+    reg.steps.map((st) => [st.kind, st.manifestOnly === true]),
+    [["write", true]],
+  );
+  assert.match(renderPreview(p), /manifest only/);
+  host.reset();
+  const done = apply(p, { env, home });
+  assert.equal(done.failed, undefined, JSON.stringify(done));
+  assert.equal(host.log().length, 0, "no host command runs");
+  const { origin: _origin, ...rest } = before;
+  assert.deepEqual(field(), rest, "every other key stands");
+  assert.deepEqual(packageDigest(paths.payload), before.digest, "the payload is not rewritten");
+  const cacheCopy = sb.registry().plugins[ID][0].installPath;
+  for (const copy of [paths.payload, cacheCopy]) {
+    assert.equal(payloadOrigin(copy, { home }), null, copy);
+    assert.equal(npmCopy(copy, { home }), true, `${copy} fetches its page`);
+  }
+  assert.equal(item(plan(proj, { home, root: sb.root, env }), "plugin").action, "skip", "the next run plans nothing");
+});
+
+// [install#2] [dashboard#21]
+test("registration contract 2: the drop merges with the other manifest-only writes — a competitor in the current state, a stale row — and a local run's writes keep the mark", () => {
+  const field = (sb) => JSON.parse(readFileSync(sb.paths.manifest, "utf8"))[S.provenance_key];
+  const laidFromCheckout = () => {
+    const sb = sandbox();
+    const checkout = fakePackageRoot(join(tmp("ps-reg-src-"), "projectstore"), "0.28.0");
+    const done = apply(plan(sb.proj, { home: sb.home, root: checkout, env: sb.env }), { env: sb.env, home: sb.home });
+    assert.equal(done.failed, undefined, JSON.stringify(done));
+    assert.equal(field(sb).origin, "local");
+    return { sb, checkout };
+  };
+  // The git marketplace's copy, enabled at user scope, added beside our row.
+  const addCompetitor = (sb) => {
+    const other = fakeInstall(sb.home, "0.27.1");
+    const reg = sb.registry();
+    reg.plugins["projectstore@SmartAndPoint"] = [
+      { scope: "user", installPath: other, version: "0.27.1", lastUpdated: "2026-09-01T00:00:00Z" },
+    ];
+    writeFileSync(sb.paths.installed, JSON.stringify(reg, null, 2));
+  };
+  const settle = (sb, root) => {
+    const again = plan(sb.proj, { home: sb.home, root, env: sb.env });
+    assert.ok(
+      again.items.filter((i) => i.kind === "registration").every((i) => i.action === "skip"),
+      JSON.stringify(again.items.filter((i) => i.kind === "registration").map(publicItem)),
+    );
+  };
+
+  // A local run with a competitor: the disabled record's write keeps origin.
+  {
+    const { sb, checkout } = laidFromCheckout();
+    addCompetitor(sb);
+    const p = plan(sb.proj, { home: sb.home, root: checkout, env: sb.env });
+    assert.equal(sb.item(p, "plugin").action, "skip");
+    assert.equal(apply(p, { env: sb.env, home: sb.home }).failed, undefined);
+    assert.equal(field(sb).origin, "local", "a local run keeps the mark");
+    assert.deepEqual(field(sb).disabled, ["projectstore@SmartAndPoint"]);
+  }
+  // A run that is not local, with a competitor, in the current state.
+  {
+    const { sb } = laidFromCheckout();
+    addCompetitor(sb);
+    const p = plan(sb.proj, { home: sb.home, root: sb.root, env: sb.env });
+    assert.equal(sb.item(p, "plugin").action, "update");
+    assert.equal(sb.item(p, "plugin_others").action, "disable");
+    assert.equal(apply(p, { env: sb.env, home: sb.home }).failed, undefined);
+    assert.equal(field(sb).origin, undefined, "the competitor's write does not put the mark back");
+    assert.deepEqual(field(sb).disabled, ["projectstore@SmartAndPoint"]);
+    settle(sb, sb.root);
+  }
+  // A run that is not local over a stale row (this checkout's host row gone):
+  // one merged manifest-only write, then the host steps.
+  {
+    const { sb } = laidFromCheckout();
+    const reg = sb.registry();
+    delete reg.plugins[ID];
+    writeFileSync(sb.paths.installed, JSON.stringify(reg, null, 2));
+    const p = plan(sb.proj, { home: sb.home, root: sb.root, env: sb.env });
+    const row = sb.item(p, "plugin");
+    assert.notEqual(row.state, "current");
+    const writes = row.steps.filter((st) => st.kind === "write");
+    assert.deepEqual(
+      writes.map((st) => st.manifestOnly === true),
+      [true],
+      "one manifest-only write",
+    );
+    assert.equal(apply(p, { env: sb.env, home: sb.home }).failed, undefined);
+    assert.equal(field(sb).origin, undefined);
+    settle(sb, sb.root);
+  }
 });
