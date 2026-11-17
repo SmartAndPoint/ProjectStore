@@ -1,4 +1,4 @@
-// The item pane: one work item or document, rendered read-only from its
+// The item pane: one work item or document, rendered (never edited) from its
 // Markdown, with its fields and what is related to it beside it. Loaded after
 // app.js and views.js, and shares their helpers (h, $, S, ui, story, epic, …).
 
@@ -212,6 +212,7 @@ function sideStory(d) {
         ["Subtasks", s.subtasks.length ? `${done} of ${s.subtasks.length} done` : "—"],
         ["Ready", h("span", { style: s.ready.ok ? "color:var(--ok)" : "color:var(--warn)" }, s.ready.ok ? "yes" : `needs ${s.ready.missing.join(" and ")}`)],
       ),
+      writeUi.storyButtons(s), // write.js: the keyboard's way to a move, beside the drag
     ],
   };
 }
@@ -279,4 +280,5 @@ document.addEventListener("keydown", (e) => {
   await loadArtifacts();
   if (location.hash.length > 2) applyHash();
   else render();
+  writeUi.boot(); // write.js: the refresh each time the page opens, then the page from its answer
 })();

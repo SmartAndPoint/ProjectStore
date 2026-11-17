@@ -353,7 +353,7 @@ State these plainly rather than discovering them later:
 - The plugin installs into Claude Code and Codex. In Codex, commands and roles arrive as skills, and the MCP server is not registered for you. OpenCode, Cursor and other agents read the vault through Markdown, the CLI or MCP; native adapters for them do not ship yet.
 - It is not an agent orchestrator. Launching agents and routing work between them belongs to your harness.
 - It does not replace a task tracker and does not sync with one. `external_refs` in frontmatter holds the link to a ticket.
-- It requires no server and stores nothing remotely. Which files an agent reads and what reaches a model provider depends on the harness and its permissions, so keep secrets out of project documents.
+- It requires no server and stores nothing remotely, apart from the branch and the pull request you send from the dashboard's page to your vault repository's own code host. Which files an agent reads and what reaches a model provider depends on the harness and its permissions, so keep secrets out of project documents.
 - The session registry is machine-local: it warns about parallel sessions, it does not lock files, and it does not coordinate across machines.
 - An agent's verdict is not an approval. Responsibility stays with the team.
 
@@ -375,7 +375,7 @@ Each ingredient exists elsewhere: decision records with a status (the `adrkit` c
 ## 14. Links
 
 - This site: https://projectstore.dev/ (and https://projectstore.dev/llms.txt), with three method pages: https://projectstore.dev/how-it-works/, https://projectstore.dev/why-it-works/ and https://projectstore.dev/one-vault/
-- Privacy: https://projectstore.dev/privacy/ — no telemetry; `follow` runs `gh`, which reads pull requests from your code host with your own login; what the plugin runs, writes, sends and fetches is in the README: https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md#what-projectstore-runs-writes-sends-and-fetches
+- Privacy: https://projectstore.dev/privacy/ — no telemetry; `follow` runs `gh`, which reads pull requests from your code host with your own login; the dashboard's page runs git and `gh` with your own setup and login: a click on the move button after a move's preview commits the move in a clone of the vault of its own, Send pushes that one branch and opens one pull request, and nothing reaches the vault until a person merges that pull request; what the plugin runs, writes, sends and fetches is in the README: https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md#what-projectstore-runs-writes-sends-and-fetches
 - Repository: https://github.com/SmartAndPoint/ProjectStore
 - README: https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md
 - How it works, in depth: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/how-it-works.md

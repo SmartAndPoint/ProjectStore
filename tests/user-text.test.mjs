@@ -1239,6 +1239,99 @@ test("user text, the file half: each rule fails on one planted case, naming the 
   assert.match(desc[0], /^packaging\/shells\.mjs SHELLS projectstore-x\.description: \(d\) /);
 });
 
+// ─── "Only reads": no text says the page only reads where it can write ───
+//
+// The dashboard's page commits in a clone of its own, pushes a branch and opens
+// a pull request (the spec "The dashboard's write path…", alias
+// `dashboard-writes`, its acceptance; the processes ADR, decision 3). So no text
+// a person reads may still call it a page that only reads. The rule reads
+// README, docs/, the site's sources, both llms files, the launcher, the verb
+// table and the page's package for "only reads", "read-only" and "read only",
+// in any case. A line it finds passes only when tests/fixtures/read-only-lines.json
+// lists it, by file and trimmed text: the page's labels for a vault that stays
+// read-only, and lines that are not about the page (the agents, the MCP tools,
+// doctor, next). A listed line that is gone fails too, so the list stays short.
+const READ_ONLY = /only reads|read-only|read only/i;
+const READ_ONLY_SCOPE = [
+  "README.md",
+  "docs",
+  "site/src",
+  "site/llms.txt",
+  "site/llms-full.txt",
+  "scripts/dashboard.mjs",
+  "scripts/verbs.mjs",
+  "dashboard",
+];
+const BINARY = /\.(?:png|jpe?g|gif|webp|svg|woff2?|ttf|otf|ico)$/i;
+const filesUnder = (rel) =>
+  statSync(join(ROOT, rel)).isFile()
+    ? [rel]
+    : readdirSync(join(ROOT, rel))
+        .sort()
+        .flatMap((n) => filesUnder(`${rel}/${n}`));
+const readOnlyFiles = () => READ_ONLY_SCOPE.flatMap(filesUnder).filter((f) => !BINARY.test(f));
+const READ_ONLY_LINES = () => JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "read-only-lines.json"), "utf8"));
+// Every line of `files` ([rel, text]) the rule finds that `allowed` does not
+// list, and every listed line no file holds any more.
+function readOnlyFindings(files, allowed = READ_ONLY_LINES()) {
+  const out = [];
+  const seen = new Set();
+  for (const [rel, text] of files)
+    for (const [i, line] of text.split("\n").entries()) {
+      if (!READ_ONLY.test(line)) continue;
+      const t = line.trim();
+      if ((allowed[rel] || []).includes(t)) seen.add(`${rel}\n${t}`);
+      else out.push(`${rel}:${i + 1}: says the page only reads, or is not listed: ${t}`);
+    }
+  for (const [rel, lines] of Object.entries(allowed))
+    for (const t of lines)
+      if (!seen.has(`${rel}\n${t}`)) out.push(`tests/fixtures/read-only-lines.json: ${rel} no longer holds: ${t}`);
+  return out;
+}
+
+test('user text: no text calls the dashboard\'s page one that only reads; "only reads", "read-only" and "read only" stand only on the listed lines', () => {
+  const files = readOnlyFiles();
+  for (const f of [
+    "README.md",
+    "docs/how-it-works.md",
+    "site/src/privacy.html",
+    "site/llms.txt",
+    "scripts/dashboard.mjs",
+    "scripts/verbs.mjs",
+    "dashboard/README.md",
+    "dashboard/package.json",
+    "dashboard/lib/write.mjs",
+    "dashboard/public/views.js",
+  ])
+    assert.ok(files.includes(f), `the rule reads ${f}`);
+  const bad = readOnlyFindings(files.map(readRel));
+  assert.deepEqual(bad, [], bad.join("\n"));
+  // The page's label for a vault that stays read-only is listed, and it is the
+  // branch where the page cannot write.
+  const label = READ_ONLY_LINES()["dashboard/public/views.js"] || [];
+  assert.ok(
+    label.length === 1 && label[0].includes("S.write?.can ?"),
+    "the brand's label is read only when the page cannot write",
+  );
+  // Planted: the old README sentence fails, naming its line, in any case.
+  const readme = readFileSync(join(ROOT, "README.md"), "utf8");
+  const planted = readme.replace(
+    "## The dashboard\n\n",
+    "## The dashboard\n\nThe page is Read-Only. It only reads.\n\n",
+  );
+  assert.notEqual(planted, readme, "the plant applies");
+  const n = planted.split("\n").indexOf("The page is Read-Only. It only reads.") + 1;
+  assert.deepEqual(readOnlyFindings([["README.md", planted]], { "README.md": READ_ONLY_LINES()["README.md"] }), [
+    `README.md:${n}: says the page only reads, or is not listed: The page is Read-Only. It only reads.`,
+  ]);
+  // A listed line that is gone fails, named; a near miss ("reads only the
+  // binding", "no writes:") is no finding.
+  assert.deepEqual(
+    readOnlyFindings([["x.md", "no writes: not on Windows\nit reads only the binding\n"]], { "x.md": ["gone"] }),
+    ["tests/fixtures/read-only-lines.json: x.md no longer holds: gone"],
+  );
+});
+
 // Claude Code has no `/plugin update` in a session: an unknown word after
 // /plugin opens the Discover tab; and `/plugin marketplace update <name>`
 // refreshes a marketplace's listing, which the docs never give as the way to

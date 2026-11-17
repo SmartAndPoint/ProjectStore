@@ -263,7 +263,7 @@ test("dashboard: started for a person, the address stands on a line of its own",
     const r = await run.exited;
     assert.equal(r.code, 0, r.stderr);
     assert.ok(r.stdout.split("\n").includes(`http://127.0.0.1:${port}/`), r.stdout);
-    assert.match(r.stdout, /only reads the vault/);
+    assert.match(r.stdout, /reaches the vault until a pull request you send from it is merged/);
   } finally {
     run.child.kill("SIGKILL");
   }

@@ -2,9 +2,8 @@
 //
 // The ADR "The dashboard ships as a package of its own beside the core,
 // started by projectstore dashboard, and reads the vault through the core",
-// decisions 3 to 5; the spec "The dashboard package and its launcher: the
-// folder, the dashboard verb, and a page that only reads" (alias dashboard),
-// contracts 3 to 8, and 4 as amended on 2026-11-14.
+// decisions 3 to 5; the spec "The dashboard package and its launcher" (alias
+// dashboard), contracts 3 to 8, and 4 as amended on 2026-11-14.
 //
 // The page lives in <core root>/dashboard/, which a checkout and a
 // git-channel copy have and an npm-channel copy does not. An npm copy takes
@@ -14,7 +13,9 @@
 // one line the server prints once it listens, and stops it on an interrupt.
 // It opens the default browser at the page's address when the caller says the
 // run is a person's. It reads and writes nothing of the vault itself: the
-// page's server does the reading, and writes nothing either.
+// page's server reads it, and makes the page's writes in a clone of its own
+// (dashboard/lib/write.mjs), which reach the vault only through a pull request
+// a person merges.
 //
 //   pageAt(root, env)          → the page's folder, or null
 //   parsePort(value)           → a port number, or null
@@ -148,7 +149,7 @@ export async function startDashboard({
     ok: true,
     code: 0,
     result: { url, port, vault },
-    text: `The dashboard of ${name} is at\n${url}\nIt only reads the vault. Stop it with Ctrl+C.\n`,
+    text: `The dashboard of ${name} is at\n${url}\nNothing you do on it reaches the vault until a pull request you send from it is merged. Stop it with Ctrl+C.\n`,
     wait,
   };
 }
